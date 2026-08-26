@@ -1,5 +1,5 @@
 //! `POST /api/dash` — the session↔dash binding write surface for short-lived
-//! CLI processes (Spec S04, [P04]).
+//! CLI processes.
 //!
 //! Mirrors `server.rs::draft_handler`: loopback-only, blocking work on the
 //! blocking pool, one ledger writer. It differs in one way that matters —
@@ -95,10 +95,10 @@ impl DashGoneReason {
     }
 }
 
-/// Bind a session to a dash ([P04], Spec S04).
+/// Bind a session to a dash.
 ///
 /// `project_dir` must already be resolved through the [L29] gateway. Minting
-/// is correct here: a bind is a write-path verb ([P02]), so an id-less dash
+/// is correct here: a bind is a write-path verb, so an id-less dash
 /// from an older build gains its creation id at the moment something first
 /// keys by it.
 pub(crate) fn bind(
@@ -156,7 +156,7 @@ pub(crate) fn bind(
     }
 }
 
-/// Clear one session's binding ([P04], Spec S04).
+/// Clear one session's binding.
 pub(crate) fn unbind(ledger: &SessionLedger, tug_session_id: &str) -> DashApiOutcome {
     // The row, not `owns_session`: the ownership question is answered by
     // throwing away the `dash_name` and `project_dir` the stop below needs.
@@ -282,7 +282,7 @@ pub(crate) fn arc_stop(
 /// Sweep every binding to a dead dash, plus its authored draft row.
 ///
 /// `dash_id` is the owner key the caller captured **before** the teardown that
-/// deleted the dash's branch ([P05], Risk R02). This endpoint never re-derives
+/// deleted the dash's branch (Risk R02). This endpoint never re-derives
 /// it: by the time the call is made, the branch config it would read is gone,
 /// and the only key it could produce would be the legacy one — which names
 /// none of the id-keyed rows it is here to remove ([L23]).

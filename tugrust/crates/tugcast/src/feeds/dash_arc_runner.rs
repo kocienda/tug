@@ -1,4 +1,4 @@
-//! The arc runner — the act half of the arc ([P04]).
+//! The arc runner — the act half of the arc.
 //!
 //! [`super::dash_arc::arc_action`] decides; this gathers the facts it decides
 //! over, performs what it returns, and records the result in the dash-log. The
@@ -12,7 +12,7 @@
 //! have just changed. The supervisor already recognizes the transition — a
 //! non-wake frame arriving with no replay bracket open flips `turn_active` off
 //! — and this engine is a second consumer of that one edge, beside
-//! `base_motion`'s ([P05]). The changeset recompute is the floor, for a stage
+//! `base_motion`'s. The changeset recompute is the floor, for a stage
 //! that died without ever ending a turn, and a sweep at startup is the level
 //! read an edge cannot give.
 //!
@@ -25,7 +25,7 @@
 //! `arc-stage` line still names the session that just died, which is exactly
 //! what "a stage that died" looks like. The guard is what tells those two
 //! apart, and it is why the dash-log is re-read immediately before every
-//! rotation ([R01]).
+//! rotation.
 //!
 //! # Every refusal is recorded
 //!
@@ -83,7 +83,7 @@ struct ArcState {
     in_flight_at: Option<usize>,
     /// How many ledger rows read `done` at the previous tick — the only way to
     /// know a step *just* went done, which is what makes a rotation a step
-    /// boundary rather than a mid-step interruption ([B15]).
+    /// boundary rather than a mid-step interruption.
     last_done_count: Option<usize>,
 }
 
@@ -139,7 +139,7 @@ async fn sweep(ctx: &ArcContext, state: &Arc<Mutex<HashMap<String, ArcState>>>) 
 
 /// Every arc with a live card behind it.
 ///
-/// Bound-ness is the dash binding ([P01]) and nothing else: the arc record
+/// Bound-ness is the dash binding and nothing else: the arc record
 /// names no session, so "whose card is this arc on" is answered by the ledger
 /// the Bind control already writes. `bound_sessions_by_dash` filters to live
 /// rows, so a card that closed takes its arc out of the sweep.
@@ -194,7 +194,7 @@ async fn evaluate(ctx: &ArcContext, state: &Arc<Mutex<HashMap<String, ArcState>>
         let entry = map.entry(key.clone()).or_default();
         // A dispatched rotation whose `arc-stage` line has not landed yet: the
         // newest line still names the session that just ended, which is
-        // indistinguishable from a stage that died. Wait for the line ([R01]).
+        // indistinguishable from a stage that died. Wait for the line.
         if let Some(dispatched_at) = entry.in_flight_at {
             if reading.record.stages.len() <= dispatched_at {
                 return;
@@ -287,7 +287,7 @@ async fn session_snapshot(ctx: &ArcContext, id: &TugSessionId) -> Option<Session
     // `context_max` is the one half of the reading that is durable — the
     // persisted breakdown row carries the model's window cap. The used half
     // is the live `cost_update` figure above, because the breakdown frame
-    // deliberately carries no total ([P07]).
+    // deliberately carries no total.
     let context_max = claude_session_id
         .as_deref()
         .and_then(|id| ctx.session_ledger.get_context_breakdown(id).ok().flatten())
@@ -318,13 +318,13 @@ struct ArcReading {
     /// How many ledger rows read `done` — the next tick's comparison point.
     done_count: usize,
     /// The plan path as the stage's prompt should name it, from the card's own
-    /// project dir ([P14], [P16]).
+    /// project dir.
     plan_for_prompt: Option<String>,
     /// Where the devise stage should write its plan: `<docs>/<dash>.md`.
     devise_target: Option<String>,
-    /// The repo-relative paths the document cites ([S02]).
+    /// The repo-relative paths the document cites.
     cited_paths: Vec<String>,
-    /// What moved in those paths since the document was last written ([S02]).
+    /// What moved in those paths since the document was last written.
     commits_since: Vec<String>,
     config: DashConfig,
 }
@@ -350,7 +350,7 @@ fn read(
         .as_deref()
         .is_some_and(lints_as_plan);
 
-    // What a stage is handed beyond its ask ([B09], [S02]): the paths the
+    // What a stage is handed beyond its ask: the paths the
     // document itself cites, and what git says moved in them since the
     // document was written. Both gathered here, inside the pass that is
     // blocking by construction, and both total — a document citing nothing and
@@ -375,7 +375,7 @@ fn read(
         })
         .unwrap_or_default();
 
-    // Where the plan lives *now* ([P16]): the worktree copy from adoption on,
+    // Where the plan lives *now*: the worktree copy from adoption on,
     // the base copy before it. The git read is scoped to this one dash and
     // only happens once the arc has reached implement.
     let detail = (record.current_stage() == Some(ArcStage::Implement))
@@ -392,7 +392,7 @@ fn read(
         }
         None => match record.plan.as_ref() {
             Some(rel) => (Some(project.join(rel)), Some(rel.clone())),
-            // The input document is itself the plan (Spec S09): it is where
+            // The input document is itself the plan: it is where
             // the review and implement prompts point until adoption moves it.
             None if input_is_plan => match record.document.as_ref() {
                 Some(rel) => (Some(project.join(rel)), Some(rel.clone())),
@@ -492,7 +492,7 @@ fn read(
 }
 
 /// Whether a document already *is* a plan — the fact that lets an arc opened on
-/// one skip the devise stage (Spec S09). A brief does not parse as a plan and
+/// one skip the devise stage. A brief does not parse as a plan and
 /// takes the full arc.
 fn lints_as_plan(source: &str) -> bool {
     match plan::parse(source) {
@@ -502,7 +502,7 @@ fn lints_as_plan(source: &str) -> bool {
 }
 
 /// The stage's opening prompt: the score's ask, plus what the documents say
-/// about where to start and what has moved ([B09], [S02]).
+/// about where to start and what has moved.
 ///
 /// The facts were gathered in `read`'s blocking pass; the wording is the
 /// conductor's, so every score composes the same way. Nothing here is a word a
@@ -543,7 +543,7 @@ async fn rotate(
     rotation: &Rotation,
 ) {
     // Re-read the record immediately before acting: a tick that raced another
-    // one decided over facts that may already have moved ([R01]).
+    // one decided over facts that may already have moved.
     let project = arc.project.clone();
     let dash = arc.dash.clone();
     let fresh = tokio::task::spawn_blocking(move || read_arc(&project, &dash))
@@ -564,7 +564,7 @@ async fn rotate(
     };
 
     // The devise rotation is where the plan's path is *chosen*, so it is
-    // recorded here rather than discovered later ([P16]).
+    // recorded here rather than discovered later.
     let project = arc.project.clone();
     let dash = arc.dash.clone();
     if rotation.stage == ArcStage::Devise {
@@ -574,7 +574,7 @@ async fn rotate(
         }
     }
     // An arc opened on a plan never devised one, so the plan path is recorded
-    // at its first review instead — the document itself (Spec S09) — and every
+    // at its first review instead — the document itself — and every
     // later reading finds it where a devised plan's would be.
     if rotation.stage == ArcStage::Review && reading.record.plan.is_none() {
         if let Some(plan) = reading.plan_for_prompt.clone() {
@@ -636,8 +636,8 @@ async fn rotate(
 /// End the arc: hand the card back on the deck's own model, then record it.
 ///
 /// The model restore goes first so the card the user is handed back is already
-/// theirs by the time the terminal line lands ([P15]).
-/// The arc's terminal receipt, as one string ([P12]).
+/// theirs by the time the terminal line lands.
+/// The arc's terminal receipt, as one string.
 ///
 /// What it says is the record itself: which stages ran, on which claude
 /// sessions, under which models, and which document came out. Nothing more —
@@ -667,9 +667,9 @@ fn format_arc_receipt(record: &ArcRecord) -> String {
 }
 
 /// The receipt a stop leaves in the transcript. A stop is not a completion,
-/// so it does not read as one ([P12]) — but it happened on this card, and
+/// so it does not read as one — but it happened on this card, and
 /// the card is where the user is watching, so it says which stage stopped,
-/// why, and what resumes it ([P11]).
+/// why, and what resumes it.
 ///
 /// The reason is an [`ArcStopReason`] rather than a word, so the sentence is
 /// the type's own and there is no arm for a reason nobody wrote a sentence for.
@@ -1159,7 +1159,7 @@ Some context.
         );
     }
 
-    /// [B09]: a stage opens on a part, not a title. The document names where
+    /// A stage opens on a part, not a title. The document names where
     /// to start, so the stage that opens on it is handed those paths — the
     /// clause the prompt gained over the bare ask.
     #[test]
@@ -1495,7 +1495,7 @@ Some context.
 
     #[tokio::test]
     async fn a_resumed_arc_rotates_its_stopped_stage_at_the_next_idle() {
-        // [P11] end to end at the runner: `dash run` on a stopped arc writes
+        // Resume, end to end at the runner: `dash run` on a stopped arc writes
         // `arc-resume`, and the next idle tick rotates that stage — not the
         // one before it, and not nothing.
         let dir = tempfile::tempdir().unwrap();
@@ -1863,7 +1863,7 @@ Some context.
         assert_eq!(parsed["model"], "default");
     }
 
-    /// [P16]: adoption commits the plan on the dash branch and **cleans the
+    /// Adoption commits the plan on the dash branch and **cleans the
     /// base copy**, so a runner that kept reading the devise path would see
     /// "plan gone" and stop a healthy arc. A real checkout with a real linked
     /// worktree, because the path being tested is the one `DashDetail`
@@ -1989,7 +1989,7 @@ Some context.
         );
         assert!(
             !receipt.contains("/join"),
-            "the receipt never offers the join — the shade does ([P12])"
+            "the receipt never offers the join — the shade does"
         );
     }
 

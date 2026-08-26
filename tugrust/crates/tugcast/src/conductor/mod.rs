@@ -8,7 +8,7 @@
 //! The dash arc was its first and for a long time its only client, which is why
 //! the act used to be a private function in the arc's runner. It is not the
 //! arc's: the arc *decides* which stage runs next and this *performs* the
-//! seating, and the two halves have different reasons to change ([P01], [B06]).
+//! seating, and the two halves have different reasons to change.
 //! `dash_arc.rs` keeps every decision it makes; the runner keeps its re-read
 //! guard, its in-flight bookkeeping, and everything it records.
 //!
@@ -36,8 +36,8 @@ pub mod prompt;
 /// # The invariant floor
 ///
 /// A rotation is defined as much by what it *cannot* change as by what it
-/// carries, and the floor is written here as absence rather than as prose
-/// ([B05], [P02]). Three kinds of thing pass through a rotation:
+/// carries, and the floor is written here as absence rather than as prose.
+/// Three kinds of thing pass through a rotation:
 ///
 /// - **Invariants** — the card, the tug session id, the transcript and its
 ///   durable ink, the lineage chain, and the user's own model to return to.
@@ -60,7 +60,7 @@ pub struct RotationRequest {
     /// The card's tug session id — the session that rotates.
     session: TugSessionId,
     /// The stage's opening prompt. Composed from documents, never a caller's
-    /// sentence, when the caller is a score ([B09]).
+    /// sentence, when the caller is a score.
     prompt: String,
     /// The stage label — free text. `devise` / `review` / `implement` are the
     /// arc's three, and the divider renders whatever it is given.
@@ -73,7 +73,7 @@ pub struct RotationRequest {
     /// rather than respawning behind one.
     effort: Option<String>,
     /// The score driving this rotation — today a dash name, reaching tugcode
-    /// as `arc` and the child as `TUG_DASH_ARC` ([P07]).
+    /// as `arc` and the child as `TUG_DASH_ARC`.
     score: Option<String>,
     /// The document the score opened on, repo-relative.
     document: Option<String>,
@@ -117,7 +117,7 @@ impl RotationRequest {
         self
     }
 
-    /// The score this rotation belongs to — a dash name today ([P07]).
+    /// The score this rotation belongs to — a dash name today.
     pub fn score(mut self, score: Option<String>) -> Self {
         self.score = score;
         self
@@ -155,7 +155,7 @@ pub enum Delivery {
 ///
 /// Returned rather than logged: a client stops with this as the recorded
 /// reason, so a rotation that cannot happen is visible on the card instead of
-/// leaving its caller waiting forever ([L31], [P11]).
+/// leaving its caller waiting forever ([L31]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Refusal {
     /// No ledger entry for the session — the card is gone.
@@ -170,8 +170,8 @@ pub enum Refusal {
     NoInputTx,
     /// The stdin channel closed under the send.
     SendFailed,
-    /// The card is already running a score, and a card runs at most one
-    /// ([P06]). Two schedulers driving one card can interleave, and refusing
+    /// The card is already running a score, and a card runs at most one.
+    /// Two schedulers driving one card can interleave, and refusing
     /// is the one behavior that cannot.
     ArcRunning,
 }
@@ -217,7 +217,7 @@ impl Refusal {
 /// purpose. A parked rotation is a promise about the end of a turn that is in
 /// flight *right now*; a restart ends that turn by killing the claude running
 /// it, so a request that survived would fire into a session that never finished
-/// the work it was scheduled behind ([P06]).
+/// the work it was scheduled behind.
 #[derive(Default)]
 pub struct ConductorState {
     /// At most one rotation per tug session id. A second request replaces the
@@ -225,7 +225,7 @@ pub struct ConductorState {
     pending: StdMutex<HashMap<String, RotationRequest>>,
     /// Tug session ids owed a hand-back: a scoreless rotation onto a named
     /// model pins the card there permanently unless somebody restores the
-    /// deck's own selector, and no score's ending will ([P13]).
+    /// deck's own selector, and no score's ending will.
     hand_backs: StdMutex<HashSet<String>>,
 }
 
@@ -259,7 +259,7 @@ impl ConductorState {
     }
 }
 
-/// Whether the card `session_id` sits on is already running a score ([P06]).
+/// Whether the card `session_id` sits on is already running a score.
 ///
 /// Read the same way the arc runner reads it: the session's dash binding names
 /// a project and a dash, and that dash's arc record is live unless it is `done`
@@ -288,8 +288,8 @@ pub struct ConductorContext {
 /// Perform parked rotations, and hand cards back, on the turn-end edge.
 ///
 /// The tick is the same idle transition base-motion and the arc runner already
-/// consume, on a third sibling channel because an mpsc has one consumer
-/// ([P04]). Waiting for that edge is the whole placement: a rotation performed
+/// consume, on a third sibling channel because an mpsc has one consumer.
+/// Waiting for that edge is the whole placement: a rotation performed
 /// mid-turn kills the claude that asked for it, and a request is *always*
 /// parked — there is no perform-at-request-time path, because `turn_active`
 /// reads idle for a turn tugcast did not itself open, and parking is safe under
@@ -314,7 +314,7 @@ pub async fn run_conductor(ctx: ConductorContext, mut tick_rx: mpsc::Receiver<St
 async fn on_tick(ctx: &ConductorContext, session_id: &str) {
     if let Some(request) = ctx.state.take(session_id) {
         // A scoreless rotation onto a named model is a one-stage score, so its
-        // ending is scheduled here — nothing else will ever end it ([P13]). A
+        // ending is scheduled here — nothing else will ever end it. A
         // rotation naming no model changed nothing and has nothing to restore.
         let owes_hand_back = request.model.is_some() && request.score.is_none();
         match rotate(&ctx.supervisor, &request).await {
@@ -404,7 +404,7 @@ pub fn frames_for(request: &RotationRequest) -> (Vec<Frame>, Frame) {
     // The prompt itself is a `user_message` in the deck's own wire shape —
     // Anthropic content blocks — and it goes through the dispatcher like one of
     // the deck's. Only the prompt takes that door: the dispatcher reads a
-    // `model_change` as the deck's own selector ([P15]), which a stage's model
+    // `model_change` as the deck's own selector, which a stage's model
     // is not.
     let prompt = code_input_frame(&serde_json::json!({
         "type": "user_message",
@@ -414,7 +414,7 @@ pub fn frames_for(request: &RotationRequest) -> (Vec<Frame>, Frame) {
     (frames, prompt)
 }
 
-/// Rotate a stage onto a card's own tugcode ([S01]).
+/// Rotate a stage onto a card's own tugcode.
 ///
 /// The frames are exactly the ones the deck sends when a user picks a model and
 /// starts a fresh session with a prompt; the only new thing is who sends them.
@@ -494,7 +494,7 @@ pub async fn rotate(
     Ok(Delivery::Sent)
 }
 
-/// Hand the card back on the deck's own model ([P15]).
+/// Hand the card back on the deck's own model.
 ///
 /// Exactly one `model_change` frame, carrying the last selector a WebSocket
 /// client sent for this session, or `"default"` when it never sent one — which
@@ -680,7 +680,7 @@ mod tests {
 
     /// A continued implement stage carries its step range onto the wire, so
     /// the transcript's divider can say `implement, continued · steps N–M`
-    /// without re-deriving a range the runner already computed ([B13]).
+    /// without re-deriving a range the runner already computed.
     #[tokio::test]
     async fn a_continued_implement_stage_carries_its_step_range() {
         let (sup, _register_rx) = test_minimal_supervisor();
@@ -854,7 +854,7 @@ mod tests {
 
     #[tokio::test]
     async fn only_a_deck_model_change_is_remembered_for_the_hand_back() {
-        // [P15]: the dispatcher is the one place every WebSocket-client frame
+        // The dispatcher is the one place every WebSocket-client frame
         // passes, and a rotation bypasses it — so what lands in `deck_model` is
         // by construction the deck's own choice.
         let (sup, _register_rx) = test_minimal_supervisor();
@@ -901,7 +901,7 @@ mod tests {
     /// The registry holds at most one request per session, and a tick performs
     /// it and nothing else. Nothing may reach the card before that tick: a
     /// rotation performed at request time would kill the claude that asked for
-    /// it ([P04]).
+    /// it.
     #[tokio::test]
     async fn a_parked_request_sends_nothing_until_the_tick() {
         for turn_active in [true, false] {
@@ -943,8 +943,7 @@ mod tests {
     }
 
     /// A scoreless rotation onto a named model is a one-stage score: nothing
-    /// else will ever end it, so the conductor ends it itself, one turn later
-    /// ([P13]).
+    /// else will ever end it, so the conductor ends it itself, one turn later.
     #[tokio::test]
     async fn a_scoreless_rotation_onto_a_model_hands_the_card_back_one_turn_later() {
         let (sup, _register_rx) = test_minimal_supervisor();
@@ -1099,7 +1098,7 @@ mod tests {
         assert_eq!(entry_arc.lock().await.queue.len(), 0);
     }
 
-    /// A card runs at most one score ([P06]). The check reads the session's
+    /// A card runs at most one score. The check reads the session's
     /// dash binding and that dash's arc record, exactly as the arc runner does.
     #[test]
     fn a_card_running_a_live_arc_is_scored_and_a_finished_one_is_not() {

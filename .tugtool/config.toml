@@ -31,12 +31,12 @@ review_model = "opus"
 [[tugtool.dash.surface]]
 name  = "rust"
 paths = ["tugrust/"]
-check = ["cd tugrust && cargo check --workspace --all-targets"]
+check = ["cd tugrust && cargo clippy --workspace --all-targets -- -D warnings"]
 
 [[tugtool.dash.surface]]
 name  = "deck"
 paths = ["tugdeck/"]
-check = ["cd tugdeck && bunx tsc --noEmit", "cd tugdeck && bunx vite build"]
+check = ["cd tugdeck && bunx tsc --noEmit", "cd tugdeck && bunx vite build", "just app-test-changed {paths}"]
 
 # Shadows `deck` by longest prefix: a change under tugdeck/crates/ runs the
 # wasm build, not the vite one.
@@ -60,12 +60,12 @@ checked_by = ["deck", "code"]
 [[tugtool.dash.surface]]
 name  = "app"
 paths = ["tugapp/"]
-check = ["just build-app"]
+check = ["just build-app", "just app-test-changed {paths}"]
 
 [[tugtool.dash.surface]]
 name  = "app-tests"
 paths = ["tests/app-test/"]
-check = ["cd tests/app-test && bunx tsc --noEmit"]
+check = ["cd tests/app-test && bunx tsc --noEmit", "just app-test-changed {paths}"]
 
 [[tugtool.dash.surface]]
 name  = "prose"

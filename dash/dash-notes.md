@@ -2,8 +2,6 @@ When we kick off a dash, the dash displays throughout the UI don't update to sho
 
 Briefs have increased in importance, since they are (very often) the last user touch point before a dash. What does this mean? Is there anything we can do to increase or improve the formalization of briefs without bloating them up or turning them into mini-plans?
 
-This `/dash-arc` display should be *custom*, not just shell script output.
-
 The styling of dash display in these atom/pills is inconsistent across the app: typeface is sometimes monospace, sometimes proportional; sometimes quiet/muted.
 
 The various surfaces we use to show the details and progress on dashes must improve.

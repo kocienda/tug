@@ -1,4 +1,4 @@
-//! What a score hands a stage: a part, not a title ([B09]).
+//! What a score hands a stage: a part, not a title.
 //!
 //! A stage opens on a prompt, and every character of that prompt is composed
 //! from documents — the ask the score is making, the paths the document's own

@@ -5,7 +5,7 @@
 //! can hold its record. The per-project dash-log already is what the arc needs:
 //! append-only, keyed by dash name, and reset at every terminal line, so a
 //! reused dash name is never born mid-arc. This module adds markers to that one
-//! grammar and reads them back through one typed reader ([P01]).
+//! grammar and reads them back through one typed reader.
 //!
 //! The record says what the arc is *doing*. Whose card it runs on is a separate
 //! fact with its own home — the session↔dash binding in `sessions.db` — so no
@@ -182,7 +182,7 @@ impl ArcStopReason {
 /// default — which sends no `model_change` frame at all.
 ///
 /// Shared rather than private to the runner because the stage label *is* the
-/// role ([P05]): a `tugutil session rotate --stage review` resolves the model
+/// role: a `tugutil session rotate --stage review` resolves the model
 /// the same way an arc's review stage does, and a second table would be the
 /// same fact written twice.
 pub fn stage_model(config: &DashConfig, stage: ArcStage) -> Option<String> {
@@ -210,18 +210,18 @@ pub struct ArcStageLine {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ArcRecord {
     pub dash: String,
-    /// The document the arc opened on ([B14], [B16]).
+    /// The document the arc opened on.
     pub document: Option<String>,
-    /// The plan path the runner named in the devise prompt ([P16]) —
+    /// The plan path the runner named in the devise prompt —
     /// base-relative, and superseded by the worktree copy from adoption on.
     pub plan: Option<String>,
     /// Rotations in log order, current generation only.
     pub stages: Vec<ArcStageLine>,
     pub notes: Vec<String>,
-    /// The stage the arc stopped in and why ([P11]). Cleared by the next
+    /// The stage the arc stopped in and why. Cleared by the next
     /// rotation, because resuming a stopped arc *is* rotating it again.
     pub stopped: Option<(ArcStage, String)>,
-    /// The stage a resume asked to rotate again ([P11]). Written by
+    /// The stage a resume asked to rotate again. Written by
     /// `tugutil dash run` on a stopped arc, and cleared by the next
     /// `arc-stage` line — the rotation it asked for.
     pub resume: Option<ArcStage>,
@@ -237,7 +237,7 @@ impl ArcRecord {
     }
 
     /// How many review rounds the arc has run, counted from the rotations
-    /// rather than stored ([P06]). Two is the cap.
+    /// rather than stored. Two is the cap.
     pub fn review_rounds(&self) -> usize {
         self.stages
             .iter()
@@ -360,17 +360,17 @@ pub fn append_arc_stage(
     append_dash_log(repo_root, dash, "arc-stage", &note)
 }
 
-/// Append `arc-plan` — the plan path the runner named ([P16]).
+/// Append `arc-plan` — the plan path the runner named.
 pub fn append_arc_plan(repo_root: &Path, dash: &str, plan: &str) -> Result<(), TugError> {
     append_dash_log(repo_root, dash, "arc-plan", plan)
 }
 
-/// Append `arc-note` — a runner note, such as the review cap ([P06]).
+/// Append `arc-note` — a runner note, such as the review cap.
 pub fn append_arc_note(repo_root: &Path, dash: &str, note: &str) -> Result<(), TugError> {
     append_dash_log(repo_root, dash, "arc-note", note)
 }
 
-/// Append `arc-stop` — the arc stopped in `stage` for `reason` ([P11]).
+/// Append `arc-stop` — the arc stopped in `stage` for `reason`.
 pub fn append_arc_stop(
     repo_root: &Path,
     dash: &str,
@@ -382,13 +382,13 @@ pub fn append_arc_stop(
 }
 
 /// Append `arc-resume` — a stopped arc was picked back up, and `stage` is the
-/// one to rotate again ([P11]). Clears the stop; the rotation it asks for
+/// one to rotate again. Clears the stop; the rotation it asks for
 /// clears it in turn.
 pub fn append_arc_resume(repo_root: &Path, dash: &str, stage: ArcStage) -> Result<(), TugError> {
     append_dash_log(repo_root, dash, "arc-resume", stage.as_str())
 }
 
-/// Append `arc-done` — the arc reached its terminal state ([P12]).
+/// Append `arc-done` — the arc reached its terminal state.
 pub fn append_arc_done(repo_root: &Path, dash: &str) -> Result<(), TugError> {
     append_dash_log(repo_root, dash, "arc-done", "")
 }
@@ -601,7 +601,7 @@ mod tests {
     #[test]
     #[serial]
     fn arc_lines_are_invisible_to_the_declarations_reader() {
-        // The pin [P01] rests on: `read_declarations` matches its markers
+        // The pin rests on: `read_declarations` matches its markers
         // exhaustively, so arc lines change nothing it reports — except the
         // timestamp every surviving line contributes.
         let bare = format!(

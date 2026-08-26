@@ -1,5 +1,5 @@
 //! `tugutil session rotate` — ask the conductor to seat a fresh claude
-//! session under this card ([S04]).
+//! session under this card.
 //!
 //! The verb runs from inside a turn, and the rotation lands at that turn's end.
 //! That is not a scheduling convenience: a rotation retires the claude session
@@ -64,7 +64,7 @@ struct RotateCancelPayload {
     cancelled: bool,
 }
 
-/// The model a rotation runs on ([P05]).
+/// The model a rotation runs on.
 ///
 /// The stage label *is* the role: `devise` / `review` / `implement` resolve
 /// through the project's own `[tugtool.dash]` declarations, and any other label
@@ -87,7 +87,7 @@ fn resolve_model(stage: &str, model: Option<String>, project: Option<std::path::
     stage_model(&config.tugtool.dash, arc_stage)
 }
 
-/// The line the asking turn shows ([P08]).
+/// The line the asking turn shows.
 ///
 /// The ask happens inside a turn the user is watching, in a tool block they can
 /// read, so the receipt is the whole of the announcement: what the card becomes,
@@ -134,7 +134,7 @@ fn run_rotate(
     if cancel {
         // Withdrawing is the whole of the ceremony a pending rotation deserves:
         // it has no document and no next stage, so there is nothing left behind
-        // to record ([P09]).
+        // to record.
         let response = post_instance_api(
             "/api/session",
             "a rotation",
@@ -190,7 +190,7 @@ fn run_rotate(
         .unwrap_or(false);
     // A rotation naming a model pins the card there until somebody restores the
     // deck's own selector, and no score's ending will — so the conductor hands
-    // it back one turn later, and the ask says so ([P13]).
+    // it back one turn later, and the ask says so.
     let hands_back = model.is_some();
 
     if json {

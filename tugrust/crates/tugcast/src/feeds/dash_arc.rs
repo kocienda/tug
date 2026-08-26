@@ -2,7 +2,7 @@
 //! from documents alone.
 //!
 //! [`arc_action`] is a first-match-wins rule list over [`ArcFacts`], in the
-//! order Spec S03 states the transitions. The order *is* the specification: a
+//! order the doctrine states the transitions. The order *is* the specification: a
 //! dead session outranks every document fact, an open turn outranks every
 //! rotation, and within a stage the earlier row wins. Reordering the arms
 //! changes the machine.
@@ -11,7 +11,7 @@
 //!
 //! No filesystem, no git, no process spawn, no clock. Every fact it reads is
 //! one the dispatcher already gathered on a path that was going to read the
-//! dash-log and the plan anyway ([P04]) — the same split `join_pilot` uses, and
+//! dash-log and the plan anyway — the same split `join_pilot` uses, and
 //! for the same reason: a fact checked here and acted on a scheduling hop later
 //! is a time-of-check/time-of-use window a second tick walks straight through,
 //! so the *act* re-reads under its guard and the *decision* stays testable
@@ -21,14 +21,13 @@
 //!
 //! Every arm is a document fact: a file exists, `plan lint` found no errors,
 //! the Review Record's newest stamp matches the content, a ledger row says
-//! `done`, a recorded context reading is above a declared fraction ([B02],
-//! [F04]). A stage announces nothing and is believed about nothing; it either
+//! `done`, a recorded context reading is above a declared fraction. A stage announces nothing and is believed about nothing; it either
 //! moved the documents or it did not.
 
 use tugdash_core::arc::{ArcRecord, ArcStage, ArcStopReason};
 use tugutil_core::plan::ReviewState;
 
-/// How many review rounds an arc runs before it proceeds anyway ([P06]).
+/// How many review rounds an arc runs before it proceeds anyway.
 ///
 /// A plan a second review could not settle is one `dash-implement`'s own setup
 /// gate will raise, so the arc records a note and moves rather than looping.
@@ -37,7 +36,7 @@ pub const REVIEW_CAP: usize = 2;
 /// What the plan's Step Status Ledger and the dash's own run declarations say.
 ///
 /// All of it is read from the plan at its *current* location and from the
-/// dash-log's `run-through` / `step-done` lines ([P16]) — the predicate never
+/// dash-log's `run-through` / `step-done` lines — the predicate never
 /// resolves a path.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct StepLedgerFacts {
@@ -54,8 +53,7 @@ pub struct StepLedgerFacts {
     /// A step went `done` since the dispatcher's previous tick. It is the
     /// dispatcher's fact, not the ledger's: the ledger says which rows are
     /// done, and only a caller holding the previous reading can say one *just*
-    /// became so. Rotation happens at a step boundary and never mid-step
-    /// ([B15]).
+    /// became so. Rotation happens at a step boundary and never mid-step.
     pub step_just_done: bool,
 }
 
@@ -65,10 +63,10 @@ pub struct ArcFacts {
     /// The input document the arc opened on still exists at its recorded path.
     pub document_exists: bool,
     /// The input document already parses and lints as a plan, so the devise
-    /// stage is skipped and the first rotation is `review` (Spec S09).
+    /// stage is skipped and the first rotation is `review`.
     pub input_is_plan: bool,
     /// The plan's current path — the base copy until adoption, the worktree
-    /// copy after it ([P16]). `None` when no plan file exists there, which is
+    /// copy after it. `None` when no plan file exists there, which is
     /// what a devise stage that produced nothing looks like.
     pub plan_path: Option<String>,
     /// `tugutil plan lint` found no errors in the plan at `plan_path`.
@@ -80,7 +78,7 @@ pub struct ArcFacts {
     /// The claude session the arc's current stage runs on is still alive.
     pub session_live: bool,
     /// That session is between turns. A rotation mid-turn would kill claude
-    /// mid-sentence, so nothing rotates until the turn ends ([P05], [R02]).
+    /// mid-sentence, so nothing rotates until the turn ends.
     pub session_idle: bool,
     /// The stage's claude session has ended at least one turn. A seated
     /// session reads as idle from its spawn until its first frame, and a
@@ -116,7 +114,7 @@ pub struct ArcFacts {
     /// False means the stage the record remembers is not the stage that is
     /// running: a tugcast restart, or a stage that died without ever ending a
     /// turn. Either way the answer is to rotate that stage again — never an
-    /// earlier one ([P11]). `true` when the arc has rotated nothing yet, so
+    /// earlier one. `true` when the arc has rotated nothing yet, so
     /// the opening rotation is decided by the documents.
     pub stage_session_current: bool,
     /// The claude session running on the bound card carries a `stage_label`.
@@ -131,7 +129,7 @@ pub struct ArcFacts {
     pub stage_seated: bool,
     /// The used fraction of the stage session's context window, from the
     /// latest recorded `context_breakdown`. `None` when nothing has been
-    /// recorded — a missing measurement is not a reason to guess ([P07]).
+    /// recorded — a missing measurement is not a reason to guess.
     pub context_fraction: Option<f32>,
     /// The fraction above which a continued implement stage rotates,
     /// `[tugtool.dash].implement_rotate_at`.
@@ -139,7 +137,7 @@ pub struct ArcFacts {
 }
 
 /// The used fraction of a session's context window, from the two halves that
-/// carry it ([P07]).
+/// carry it.
 ///
 /// The persisted `context_breakdown_latest` payload holds the **cap** and the
 /// session-stable categories; it deliberately carries no total and no
@@ -154,7 +152,7 @@ pub fn context_max_from_breakdown(payload: &[u8]) -> Option<i64> {
 }
 
 /// The inclusive step range a continued implement stage walks, as the opening
-/// prompt and the transcript's divider both spell it ([P07], [B13]).
+/// prompt and the transcript's divider both spell it.
 pub fn step_range(from: usize, through: usize) -> String {
     format!("{from}-{through}")
 }
@@ -164,9 +162,9 @@ pub fn step_range(from: usize, through: usize) -> String {
 pub struct Rotation {
     pub stage: ArcStage,
     /// The inclusive step range a continued implement stage's opening prompt
-    /// names ([P07], Spec S09). `None` for every other rotation.
+    /// names. `None` for every other rotation.
     pub steps: Option<(usize, usize)>,
-    /// A note the runner records before rotating ([P06]).
+    /// A note the runner records before rotating.
     pub note: Option<String>,
 }
 
@@ -184,10 +182,10 @@ impl Rotation {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ArcAction {
     Rotate(Rotation),
-    /// The run's declared final step is `done` ([P12]).
+    /// The run's declared final step is `done`.
     Done,
     /// The arc cannot continue, and says which stage it was in and why
-    /// ([P11], [L31]).
+    /// ([L31]).
     Stop {
         stage: ArcStage,
         reason: ArcStopReason,
@@ -196,11 +194,11 @@ pub enum ArcAction {
 
 /// Decide the arc's next act, or `None` when it should sit still.
 ///
-/// The arms are in Spec S03's order and the first match wins.
+/// The arms are in the doctrine's order and the first match wins.
 pub fn arc_action(record: &ArcRecord, facts: &ArcFacts) -> Option<ArcAction> {
     // A finished or stopped arc is not advanced by a tick. Resuming a stopped
     // arc is an explicit `/dash`, which rotates the stopped stage again and
-    // clears the stop by doing so ([P11]).
+    // clears the stop by doing so.
     if record.done || record.stopped.is_some() {
         return None;
     }
@@ -208,7 +206,7 @@ pub fn arc_action(record: &ArcRecord, facts: &ArcFacts) -> Option<ArcAction> {
     let stage = record.current_stage();
 
     // A dead session outranks every document fact: whatever the documents say,
-    // there is nothing left to advance ([P11]).
+    // there is nothing left to advance.
     if !facts.session_live {
         return Some(ArcAction::Stop {
             stage: stage.unwrap_or(ArcStage::Devise),
@@ -223,9 +221,9 @@ pub fn arc_action(record: &ArcRecord, facts: &ArcFacts) -> Option<ArcAction> {
 
     // A resume names the stage to rotate again and outranks the document
     // facts: the documents still say what they said when the arc stopped, and
-    // the user has asked for the stopped stage back ([P11]). The verb runs
+    // the user has asked for the stopped stage back. The verb runs
     // from inside the asking session's own turn, so the idle check above is
-    // what places this rotation at that turn's end ([P05]).
+    // what places this rotation at that turn's end.
     if let Some(stage) = record.resume {
         return Some(ArcAction::Rotate(Rotation {
             stage,
@@ -241,9 +239,8 @@ pub fn arc_action(record: &ArcRecord, facts: &ArcFacts) -> Option<ArcAction> {
     //
     // **Seated** — the session carries a `stage_label`, so a rotation put it
     // there: the stage died, or tugcast restarted. Re-rotate that stage, never
-    // an earlier one ([P11]); the runner's in-flight guard is what keeps the
-    // window between a dispatch and its `arc-stage` line from reading as this
-    // ([R01]).
+    // an earlier one; the runner's in-flight guard is what keeps the
+    // window between a dispatch and its `arc-stage` line from reading as this.
     //
     // **Not seated** — nothing the conductor did produced this session, so the
     // user reached a fresh one on the card: a `/new`, a reset, a rewind fork.
@@ -320,8 +317,8 @@ fn start_action(facts: &ArcFacts) -> ArcAction {
             reason: ArcStopReason::DocumentMissing,
         };
     }
-    // A document that already lints as a plan takes the arc straight to review
-    // (Spec S09). A brief does not parse as a plan and takes the full arc.
+    // A document that already lints as a plan takes the arc straight to review.
+    // A brief does not parse as a plan and takes the full arc.
     let stage = if facts.input_is_plan {
         ArcStage::Review
     } else {
@@ -374,7 +371,7 @@ fn implement_action(facts: &ArcFacts) -> Option<ArcAction> {
         return Some(ArcAction::Done);
     }
     // Rotation is a step-boundary act, and only a measured reading justifies
-    // one ([P07], [B15]).
+    // one.
     if !facts.ledger.step_just_done {
         return None;
     }
@@ -801,7 +798,7 @@ mod tests {
         );
     }
 
-    /// The four rows of [P07], one test each. `rotate_at` is `0.6`, the
+    /// The four rows of one test each. `rotate_at` is `0.6`, the
     /// declared default.
     fn implementing(fraction: Option<f32>, step_just_done: bool) -> ArcFacts {
         let mut facts = facts();
