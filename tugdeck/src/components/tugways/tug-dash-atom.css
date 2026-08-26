@@ -1,18 +1,8 @@
-/* tug-dash-atom.css — the atom plus its optional kind-word. The pill itself is
+/* tug-dash-atom.css — the atom's seat. The pill itself is
    `tug-session-identity.css`'s chip skin, reached through DashSigil. */
 
 .tug-dash-atom {
   display: inline-flex;
   align-items: center;
-  gap: var(--tug-space-2xs);
   min-inline-size: 0;
-}
-
-.tug-dash-atom-kind {
-  flex: 0 0 auto;
-  font-size: var(--tug-font-size-2xs);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--tug7-element-global-text-normal-subtle-rest);
-  user-select: none;
 }

@@ -89,7 +89,8 @@ import React, {
 } from "react";
 
 import { renderFilterHighlight } from "@/components/tugways/filter-highlight";
-import { DashStageMark } from "@/components/tugways/dash-stage-mark";
+import { TugDashTrack, dashTrackModelFromEntry } from "@/components/tugways/tug-dash-track";
+import { TugStepFraction } from "@/components/tugways/tug-step-ring";
 import {
   dashGlanceFraction,
   dashRunScope,
@@ -99,7 +100,7 @@ import { PulseBeatText } from "@/components/tugways/pulse-beat-text";
 import { SessionActivitySparkline } from "@/components/tugways/session-activity-sparkline";
 import { SessionPhaseDot } from "@/components/tugways/session-phase-dot";
 import { SessionStepRing } from "@/components/tugways/session-step-ring";
-import { TugStepFraction } from "@/components/tugways/tug-step-ring";
+
 import { useSessionIdentityMenu } from "@/components/tugways/session-identity-menu";
 import {
   TugSessionRow,
@@ -120,7 +121,7 @@ import {
   sessionActivityBeat,
   sessionActivityRestLine,
 } from "@/lib/session-activity-line";
-import { useDashForSession } from "@/lib/dash-session-index";
+import { useDashForSession, type DashSessionFact } from "@/lib/dash-session-index";
 import { useSessionCreatedAtMs } from "@/lib/session-created-at";
 import {
   useSessionIdentity,
@@ -483,6 +484,16 @@ export interface SessionIdentityRowProps
    * read from the ledger by id.
    */
   row?: SessionRow | null;
+  /**
+   * The dash binding the caller is ALREADY holding, the same way {@link row}
+   * is the ledger row it holds. Given, it is the source for the step ring and
+   * for the track riding the title run; omitted, the binding is read from the
+   * changeset aggregate by session id.
+   *
+   * `null` states that this session is on no dash, which is different from
+   * omitting the prop and letting the store answer.
+   */
+  dash?: DashSessionFact | null;
   /** A list surface's filter query, painted over the runs that can carry it. */
   highlight?: string;
   /**
@@ -563,6 +574,7 @@ export function SessionIdentityRow({
   renderTape,
   identityContext,
   row: rowOverride,
+  dash: dashOverride,
   highlight = "",
   descriptionMaxChars,
   activityOverride = null,
@@ -599,7 +611,11 @@ export function SessionIdentityRow({
   // cluster. The same aggregate read the identity's own dash marker makes —
   // the fact is reference-stable across beats that do not move this session's
   // binding, so the row repaints only when its own dash does.
-  const dashFact = useDashForSession(sessionId);
+  // A caller holding the binding hands it over — the same argument `row`
+  // makes — and the store read is skipped by asking it about no session at all
+  // rather than by branching on a hook.
+  const storeDash = useDashForSession(dashOverride === undefined ? sessionId : null);
+  const dashFact = dashOverride ?? storeDash;
   const dashCounted =
     dashFact !== null &&
     dashFact.stepCurrent !== null &&
@@ -758,18 +774,32 @@ export function SessionIdentityRow({
     />
   );
 
-  // The dash progress cluster, riding the title line after the identity's own
-  // `^<dash>` run: the stage as a glyph (its word on hover), then the step
-  // count. The title carries it in the width the hidden callsign freed; the
-  // step's TITLE stays off this line — it lives in the Dashes section and on
-  // the stage glyph's own surface.
+  // The dash's whole life, riding the title line after the identity's own
+  // `^<dash>` run: the track, then the count of the declared run.
+  //
+  // The track stands where the stage glyph did, and says strictly more. The
+  // glyph could only name the stage GIT had reached, so a card devising or
+  // reviewing a plan showed nothing at all — the half of a dash's life that
+  // happens before a branch exists was invisible on the surface most likely to
+  // be watching it.
+  //
+  // The fraction stays beside it because the two count different things: the
+  // numerals count the RUN somebody asked for, the track draws the PLAN and
+  // marks the run inside it. Past a dozen steps the ticks stop being
+  // countable and the numerals are the only exact reading left.
+  //
+  // The step's TITLE stays off this line — it lives in the Dashes section.
   const progress =
     dashFact !== null && dashFact.stage !== null ? (
       <span
         className="session-identity-row-progress"
         data-slot="session-identity-row-progress"
       >
-        <DashStageMark stage={dashFact.stage} />
+        <TugDashTrack
+          model={dashTrackModelFromEntry(dashFact.entry)}
+          size="read"
+          aria-label={`dash ${dashFact.name}`}
+        />
         {dashGlance !== null ? (
           <TugStepFraction
             current={dashGlance.current}

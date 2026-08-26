@@ -1,10 +1,13 @@
-/* dash-lifecycle-block.css — two lines, a hairline between the identities. */
+/* dash-lifecycle-block.css — two lines, a hairline between the identities.
+   The block clips at its box; nothing in it may push the row wider. */
 
 .tug-dash-lifecycle-block {
   display: flex;
   flex-direction: column;
   gap: 3px;
   min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
   flex: 1 1 auto;
 }
 

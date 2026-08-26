@@ -63,7 +63,7 @@ export function DashLifecycleBlock({
   return (
     <span className="tug-dash-lifecycle-block" data-slot="tug-dash-lifecycle-block" data-dash={name} data-size={size}>
       <span className="tug-dash-lifecycle-eyebrow" data-slot="tug-dash-lifecycle-eyebrow">
-        <TugDashAtom name={name} review={review} size={atomSize} poke={model.poke} slot="tug-dash-lifecycle-name" />
+        <TugDashAtom name={name} review={review} size={atomSize} slot="tug-dash-lifecycle-name" />
         <span className="tug-dash-lifecycle-rule" aria-hidden="true" />
         {workers.map((sessionId) => (
           <WorkerAtom key={sessionId} sessionId={sessionId} size={atomSize} />

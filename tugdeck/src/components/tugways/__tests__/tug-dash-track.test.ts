@@ -23,7 +23,7 @@ describe("dashTrackModel", () => {
     ["implement, a step in progress", { documents: PLAN, arc: { stage: "implement" }, steps: steps(1, 2, 4), stage: "implementing" }, "implement", false],
     ["a hand-driven walk is implement", { documents: PLAN, steps: steps(1, 2, 4), stage: "working" }, "implement", false],
     ["every step done is the join", { documents: PLAN, steps: steps(4, null, 4), stage: "draft-ready" }, "join", false],
-    ["a join on the record is the join", { documents: PLAN, steps: steps(4, null, 4), stage: "working", joining: true }, "join", false],
+    ["a walked plan is the join even before the stage moves", { documents: PLAN, steps: steps(4, null, 4), stage: "working" }, "join", false],
     ["no documents and no arc is a poke, in implement", { stage: "working" }, "implement", true],
     ["a poke offered its join", { stage: "draft-ready" }, "join", true],
   ];

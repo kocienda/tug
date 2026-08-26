@@ -43,12 +43,26 @@
   gap: 10px 16px;
 }
 
+/* The masthead is a card-wide chrome tier, so it gets the full width rather
+   than half of one — a two-column cell would make it truncate for a reason
+   the real card never has. */
+.spdl-surface[data-wide="true"] {
+  grid-column: 1 / -1;
+}
+
+/* The row inside it is the shipping component; only its list padding is
+   zeroed, the same thing SessionMasthead does to seat it in chrome. */
+.spdl-masthead-row {
+  padding: 0;
+}
+
 .spdl-surface {
   display: flex;
   flex-direction: column;
   gap: 4px;
   min-width: 0;
   padding: 8px 10px;
+  overflow: hidden;
   border: 1px solid var(--tug7-element-global-border-normal-muted-rest);
   border-radius: 6px;
 }
@@ -71,22 +85,14 @@
   color: var(--tug7-element-global-text-normal-subtle-rest);
 }
 
-/* The masthead's title line at its shipping height: 36px, one line. */
-.spdl-masthead {
-  display: flex;
+/* The masthead is the real TugSessionRow; this is only the title run inside
+   its name slot — identity, then the track, on one line. */
+.spdl-title-run {
+  display: inline-flex;
   align-items: center;
   gap: var(--tug-space-sm);
-  block-size: 36px;
   min-width: 0;
-  padding-inline: var(--tug-space-xs);
-}
-
-.spdl-masthead-dot {
-  inline-size: 8px;
-  block-size: 8px;
-  border-radius: 999px;
-  background: var(--tug7-element-global-border-normal-accent-rest);
-  flex: 0 0 auto;
+  max-width: 100%;
 }
 
 .spdl-lineup {

@@ -1,11 +1,14 @@
 /* dash-lifecycle-line.css — packing and tones for the line. The note is the
-   only run that gives way; everything else is a fixed-width fact. */
+   only run that gives way; everything else is a fixed-width fact, and the
+   line clips at its box rather than overflowing it. */
 
 .tug-dash-lifecycle-line {
   display: flex;
   align-items: center;
   gap: var(--tug-space-2xs);
   min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
   font-size: var(--tug-font-size-2xs);
 }
 
@@ -32,6 +35,7 @@
 
 .tug-dash-lifecycle-fact {
   flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 .tug-dash-lifecycle-fact[data-tone="danger"] {

@@ -2,20 +2,28 @@
  * spike-dash-lifecycle.tsx — can one atom, one track, and one line carry a
  * dash through its whole life, on every surface, without any surface growing?
  *
- * The answer is four real components, and this card is only the fixture data
- * and the frames that show them beside what ships today:
+ * The answer is components, and this card is only fixture data and the frames
+ * that hold them:
  *
- *   - `TugDashAtom` — the one skin, two sizes, and the poke's kind-word.
+ *   - `TugDashAtom` — the one skin, two sizes. A poke is a dash to it.
  *   - `TugDashTrack` — brief · devise · review · implement (ticks) · join, in
- *     a cap-height strip; `dashTrackModel` derives it from the feed's fields.
+ *     a cap-height strip; `dashTrackModelFromEntry` derives it from the wire.
  *   - `DashLifecycleLine` — track · fraction · note · facts. No age.
  *   - `DashLifecycleBlock` — eyebrow (atom · rule · workers) over the line:
  *     the Lens row and the shade row, at the rail and reading scales.
  *
- * Nothing drawn here is authored here. Refine the components until they are
- * right, then mount them where they go — the Lens section, the shade's lane,
- * the masthead's title run, the footer's status cell — and the design arrives
- * whole.
+ * **Nothing here is drawn by hand, and the masthead least of all.** The
+ * masthead frame mounts the real `SessionIdentityRow` at the real
+ * `SessionMasthead`'s settings — one mark per row, the dense dot packed at the
+ * column, the description ladder beneath — with the dash binding handed to it
+ * rather than read from the store. Where an earlier draft of this card
+ * assembled a row out of parts, it produced two pulsing dots in two states,
+ * which is a thing the app has never shown and would never show. A frame that
+ * can differ from the app is a frame that can lie about it.
+ *
+ * Every moment below is ONE wire entry. The track model, the note, the facts,
+ * the masthead's binding, and the honest "today" rendering are all projections
+ * of that single object, so no two panels on a row can disagree.
  *
  * @module spikes/spike-dash-lifecycle
  */
@@ -29,21 +37,25 @@ import type { SpikeDef } from "./spike-registry";
 
 import { DashLifecycleBlock } from "@/components/tugways/dash-lifecycle-block";
 import { dashLifecycleNote } from "@/components/tugways/dash-lifecycle-line";
-import { DashMetaLine, dashMetaFacts, type DashMetaFact } from "@/components/tugways/dash-meta-line";
+import { DashMetaLine, dashMetaFacts } from "@/components/tugways/dash-meta-line";
+import { SessionIdentityRow } from "@/components/tugways/session-identity-row";
 import { TugDashAtom } from "@/components/tugways/tug-dash-atom";
 import { TugDashName } from "@/components/tugways/tug-dash-name";
-import { TugDashTrack, dashTrackModel, type DashTrackInput, type DashTrackModel } from "@/components/tugways/tug-dash-track";
+import { TugDashTrack, dashTrackModelFromEntry } from "@/components/tugways/tug-dash-track";
 import { TugLabel } from "@/components/tugways/tug-label";
 import { TugListRow } from "@/components/tugways/tug-list-row";
+import { TugProgressIndicator } from "@/components/tugways/tug-progress-indicator";
 import { TugSessionIdentity } from "@/components/tugways/tug-session-identity";
+import { TUG_SESSION_ROW_STACK_DOT_SIZE } from "@/components/tugways/tug-session-row";
 import { TugStepRing } from "@/components/tugways/tug-step-ring";
 import type { DashChangesetEntry, DashStep } from "@/lib/changeset-types";
+import type { DashSessionFact } from "@/lib/dash-session-index";
 import { useSessionIdentity } from "@/lib/session-identity";
 import { sessionNameStore } from "@/lib/session-name-store";
 import { sessionTagStore } from "@/lib/session-tag-store";
 
 // ---------------------------------------------------------------------------
-// Fixtures — the same dash at every point of its life, plus a poke
+// Fixtures — one wire entry per point in a dash's life, plus a poke
 // ---------------------------------------------------------------------------
 
 const ROOT = "/Users/kocienda/Mounts/u/src/tugtool";
@@ -65,74 +77,89 @@ function steps(done: number, current: number | null, total: number): DashStep[] 
   }));
 }
 
-/** One point in a dash's life: what the feed would carry, and the caption. */
-interface Moment {
-  key: string;
-  caption: string;
-  name: string;
-  workers: readonly string[];
-  input: DashTrackInput;
-  stepTitle?: string;
-  draftSubject?: string;
-  /** The shipping wire entry, for the honest "today" column; null before the branch exists. */
-  today: DashChangesetEntry | null;
-}
-
 function entry(name: string, over: Partial<DashChangesetEntry>): DashChangesetEntry {
   return {
     kind: "dash",
     owner_id: `tugdash/${name}#spike-${name}`,
     display_name: name,
-    branch: `tugdash/${name}`,
     base: "main",
     rounds: 0,
     worktree: `${ROOT}/.tug/worktrees/${name}`,
     worktree_dirty: false,
-    files: [
-      { path: "tugrust/crates/tugrev-core/src/parse.rs", git_status: "A", op: "write", origin: "dash", shared: false, last_touched: TOUCHED },
-    ],
+    files: [],
     last_activity: new Date(TOUCHED).toISOString(),
     ...over,
   };
 }
 
+/** The dash branch's files, once there is a branch. */
+const BRANCH_FILES = [
+  {
+    path: "tugrust/crates/tugrev-core/src/parse.rs",
+    git_status: "A",
+    op: "write",
+    origin: "dash",
+    shared: false,
+    last_touched: TOUCHED,
+  },
+];
+
+/** One point in a dash's life. */
+interface Moment {
+  key: string;
+  caption: string;
+  workers: readonly string[];
+  entry: DashChangesetEntry;
+  /** What the masthead's description line carries — this card's last prompt. */
+  prompt: string;
+  /** False before `dash create` cuts the branch: the Today column has nothing. */
+  branched: boolean;
+}
+
 const IMPLEMENT_TITLE = "`tugutil file rev`, the `tugrev` bin, and the receipt";
 const DRAFT_SUBJECT = "Add tugrev-core and the `.rev` edit language";
 const POKE_SUBJECT = "Lens Dashes empty state reads None, centered";
+const DASH = "tugrev-bringup";
 
 const MOMENTS: readonly Moment[] = [
   {
     key: "brief",
     caption: "The brief is written; the wheel has not turned yet",
-    name: "tugrev-bringup",
     workers: [WORKER],
-    input: { documents: { brief: BRIEF } },
-    today: null,
+    prompt: "/tugplug:dash tugrev — the `.rev` edit language and its gate",
+    branched: false,
+    entry: entry(DASH, { documents: { brief: BRIEF } }),
   },
   {
     key: "devise",
     caption: "Devise is on the card — the point every surface but the Lens shows nothing for today",
-    name: "tugrev-bringup",
     workers: [WORKER],
-    input: { documents: { brief: BRIEF }, arc: { stage: "devise" } },
-    today: null,
+    prompt: "/tugplug:dash-devise tugrev-bringup",
+    branched: false,
+    entry: entry(DASH, { documents: { brief: BRIEF }, arc: { stage: "devise" } }),
   },
   {
     key: "review",
     caption: "Review is on the card; the plan exists and has ten steps",
-    name: "tugrev-bringup",
     workers: [WORKER],
-    input: { documents: { brief: BRIEF, plan: PLAN }, arc: { stage: "review" }, steps: steps(0, null, 10) },
-    today: null,
+    prompt: "/tugplug:dash-review tugrev-bringup",
+    branched: false,
+    entry: entry(DASH, {
+      documents: { brief: BRIEF, plan: PLAN },
+      arc: { stage: "review" },
+      steps: steps(0, null, 10),
+      step_total: 10,
+      review: "never-reviewed",
+    }),
   },
   {
     key: "implement",
     caption: "Implement, step 4 of 10 — the one point the app draws on every surface today",
-    name: "tugrev-bringup",
     workers: [WORKER],
-    input: { documents: { brief: BRIEF, plan: PLAN }, arc: { stage: "implement" }, steps: steps(3, 4, 10), stage: "implementing" },
-    stepTitle: IMPLEMENT_TITLE,
-    today: entry("tugrev-bringup", {
+    prompt: "/tugplug:dash-implement tugrev-bringup",
+    branched: true,
+    entry: entry(DASH, {
+      branch: `tugdash/${DASH}`,
       bound_sessions: [WORKER],
       stage: "implementing",
       arc: { stage: "implement" },
@@ -145,6 +172,7 @@ const MOMENTS: readonly Moment[] = [
       documents: { brief: BRIEF, plan: PLAN },
       review: "reviewed",
       rounds: 3,
+      files: BRANCH_FILES,
       worktree_dirty: true,
       base_ahead: 1,
     }),
@@ -152,16 +180,11 @@ const MOMENTS: readonly Moment[] = [
   {
     key: "stopped",
     caption: "The arc stopped in implement — the stop outranks the track",
-    name: "tugrev-bringup",
     workers: [],
-    input: {
-      documents: { brief: BRIEF, plan: PLAN },
-      arc: { stage: "implement", stopped: "card closed", stopped_stage: "implement" },
-      steps: steps(6, 7, 10),
-      stage: "working",
-    },
-    stepTitle: "the receipt's proof-class rows",
-    today: entry("tugrev-bringup", {
+    prompt: "/tugplug:dash-implement tugrev-bringup",
+    branched: true,
+    entry: entry(DASH, {
+      branch: `tugdash/${DASH}`,
       stage: "working",
       arc: { stage: "implement", stopped: "card closed", stopped_stage: "implement" },
       step_current: 7,
@@ -173,16 +196,17 @@ const MOMENTS: readonly Moment[] = [
       documents: { brief: BRIEF, plan: PLAN },
       review: "reviewed",
       rounds: 6,
+      files: BRANCH_FILES,
     }),
   },
   {
     key: "ready",
     caption: "Every step done; the draft is written and the join is offered",
-    name: "tugrev-bringup",
     workers: [WORKER],
-    input: { documents: { brief: BRIEF, plan: PLAN }, arc: { stage: "implement", done: true }, steps: steps(10, null, 10), stage: "draft-ready" },
-    draftSubject: DRAFT_SUBJECT,
-    today: entry("tugrev-bringup", {
+    prompt: "/tugplug:dash-implement tugrev-bringup",
+    branched: true,
+    entry: entry(DASH, {
+      branch: `tugdash/${DASH}`,
       bound_sessions: [WORKER],
       stage: "draft-ready",
       arc: { stage: "implement", done: true },
@@ -194,36 +218,54 @@ const MOMENTS: readonly Moment[] = [
       documents: { brief: BRIEF, plan: PLAN },
       review: "reviewed",
       rounds: 10,
+      files: BRANCH_FILES,
       draft: { fingerprint: "spike", updated_at: TOUCHED, message: `${DRAFT_SUBJECT}\n\nBody.` },
     }),
   },
   {
     key: "poke",
     caption: "A poke — no documents, no arc: two cells, the same atom, the same join",
-    name: "lens-none-empty",
     workers: [POKER],
-    input: { stage: "working" },
-    draftSubject: POKE_SUBJECT,
-    today: entry("lens-none-empty", {
+    prompt: `/tugplug:poke lens-none-empty ${POKE_SUBJECT}`,
+    branched: true,
+    entry: entry("lens-none-empty", {
+      branch: "tugdash/lens-none-empty",
       bound_sessions: [POKER],
       stage: "working",
       rounds: 2,
+      files: BRANCH_FILES,
       worktree_dirty: true,
       draft: { fingerprint: "spike", updated_at: TOUCHED, message: POKE_SUBJECT },
     }),
   },
 ];
 
-/** The three things a surface hands the components, derived once per moment. */
-function derive(m: Moment): { model: DashTrackModel; note: string; facts: DashMetaFact[] } {
-  const model = dashTrackModel(m.input);
-  const note = dashLifecycleNote(model, m.stepTitle ?? null, m.draftSubject ?? null);
-  const facts = m.today !== null ? dashMetaFacts(m.today) : [];
-  return { model, note, facts };
+/**
+ * The session-scoped binding, projected from the entry exactly as
+ * `dashSessionIndex` projects it — so the masthead is reading the same object
+ * the two blocks beside it are.
+ */
+function factFor(m: Moment): DashSessionFact {
+  const e = m.entry;
+  return {
+    ownerId: e.owner_id,
+    name: e.display_name,
+    stage: e.stage ?? null,
+    arc: e.arc ?? null,
+    review: e.review ?? null,
+    projectDir: ROOT,
+    stepCurrent: e.step_current ?? null,
+    stepTotal: e.step_total ?? null,
+    runPosition: e.run_position ?? null,
+    runLength: e.run_length ?? null,
+    stepTitle: e.step_title ?? null,
+    hasPlan: e.documents?.plan !== undefined,
+    entry: e,
+  };
 }
 
 // ---------------------------------------------------------------------------
-// Frames — where each component would stand
+// Frames
 // ---------------------------------------------------------------------------
 
 function Stage({ caption, children }: { caption: string; children: React.ReactNode }): React.ReactElement {
@@ -242,27 +284,6 @@ function Worker({ sessionId, size }: { sessionId: string; size: "sm" | "2xs" }):
   return <TugSessionIdentity identity={identity} tier="chip" size={size} dash={false} tooltip={false} />;
 }
 
-/**
- * The masthead's title line at its shipping height (36px): the indicator, the
- * identity run, and the track in the width the hidden callsign frees. The
- * `^name` run is dropped from the identity — the track and the Lens carry it.
- */
-function Masthead({ m, model }: { m: Moment; model: DashTrackModel }): React.ReactElement {
-  const identity = useSessionIdentity(m.workers[0] ?? WORKER);
-  const s = model.steps;
-  return (
-    <div className="spdl-masthead">
-      {s !== null && s.current !== null ? (
-        <TugStepRing current={s.current} total={s.total} complete={s.done === s.total} size={16} />
-      ) : (
-        <span className="spdl-masthead-dot" aria-hidden="true" />
-      )}
-      <TugSessionIdentity identity={identity} tier="line" dash={false} tooltip={false} />
-      <TugDashTrack model={model} size="read" />
-    </div>
-  );
-}
-
 const AT_WORK = MOMENTS[3]!;
 
 export function SpikeDashLifecycle(): React.ReactElement {
@@ -274,83 +295,94 @@ export function SpikeDashLifecycle(): React.ReactElement {
         <Stage caption="Today — four spellings of one dash: masthead title run · Lens pill · shade unbound (mono) · shade bound · transcript footer">
           <div className="spdl-lineup">
             <span className="spdl-today-masthead">
-              <TugSessionIdentity identity={worker} tier="line" dash={{ name: AT_WORK.name, review: null }} tooltip={false} />
+              <TugSessionIdentity identity={worker} tier="line" dot={false} dash={{ name: DASH, review: null }} tooltip={false} />
             </span>
-            <TugDashName name={AT_WORK.name} review={null} slot="spdl-lineup-lens" workerSlot="spdl-lineup-lw" atomSize="2xs" />
-            <TugDashName name={AT_WORK.name} review={null} slot="spdl-lineup-unbound" workerSlot="spdl-lineup-w" atomSize="sm" />
-            <TugDashName name={AT_WORK.name} review={null} boundSessions={[WORKER]} slot="spdl-lineup-b" workerSlot="spdl-lineup-bw" atomSize="sm" />
+            <TugDashName name={DASH} review={null} slot="spdl-lineup-lens" workerSlot="spdl-lineup-lw" atomSize="2xs" />
+            <TugDashName name={DASH} review={null} slot="spdl-lineup-unbound" workerSlot="spdl-lineup-w" atomSize="sm" />
+            <TugDashName name={DASH} review={null} boundSessions={[WORKER]} slot="spdl-lineup-b" workerSlot="spdl-lineup-bw" atomSize="sm" />
             <span className="spdl-today-footer">4/10</span>
           </div>
         </Stage>
-        <Stage caption="Proposed — one skin, two sizes (rail 2xs · reading sm), proportional everywhere; who is on it is the atom beside it">
+        <Stage caption="Proposed — one skin, two sizes (rail 2xs · reading sm), proportional everywhere; who is on it is the atom beside it. A poke is a dash to the atom: both are work on a worktree">
           <div className="spdl-lineup">
-            <TugDashAtom name={AT_WORK.name} size="2xs" />
-            <TugDashAtom name={AT_WORK.name} size="sm" />
+            <TugDashAtom name={DASH} size="2xs" />
+            <TugDashAtom name={DASH} size="sm" />
             <span className="spdl-pair">
               <Worker sessionId={WORKER} size="sm" />
-              <TugDashAtom name={AT_WORK.name} size="sm" />
+              <TugDashAtom name={DASH} size="sm" />
             </span>
-            <TugDashAtom name="lens-none-empty" size="sm" poke />
+            <TugDashAtom name="lens-none-empty" size="sm" />
           </div>
         </Stage>
       </section>
 
       <section className="sp-section">
         <h2 className="sp-section-title">2 · The lifecycle, as one track — TugDashTrack</h2>
-        <Stage caption="variant=track: brief · devise · review · implement (one tick per step) · join. Cap-height, so it rides any line the atom is on">
+        <Stage caption="brief · devise · review · implement (one tick per step) · join. Cap-height, so it rides any line the atom is on. Pending is the ring's unfilled stroke, done the muted text tone, active the accent, the join the theme's selection color">
           <div className="spdl-legend">
             {MOMENTS.map((m) => {
-              const model = dashTrackModel(m.input);
+              const model = dashTrackModelFromEntry(m.entry);
               return (
                 <div key={m.key} className="spdl-legend-row">
                   <TugDashTrack model={model} size="read" />
-                  <span className="spdl-legend-word">{model.stopped !== null ? `stopped · ${model.stopped}` : model.phase}</span>
+                  <span className="spdl-legend-word">{dashLifecycleNote(model, null)}</span>
                 </div>
               );
             })}
           </div>
         </Stage>
-        <Stage caption="variant=pips: the same model as numbered discs. Reads the count without a fraction; wide past a dozen steps">
-          <div className="spdl-legend">
-            {MOMENTS.map((m) => (
-              <div key={m.key} className="spdl-legend-row">
-                <TugDashTrack model={dashTrackModel(m.input)} variant="pips" />
-              </div>
-            ))}
+        <Stage caption="Beside the marks it must family with: the step ring (the session's own indicator, cobalt for action) and the pulsing dot the footer's STATUS cell wears">
+          <div className="spdl-legend-row">
+            <TugStepRing current={4} total={10} role="action" size={16} />
+            <TugProgressIndicator variant="pulsing-dot" size={12} state="running" aria-hidden />
+            <TugDashTrack model={dashTrackModelFromEntry(AT_WORK.entry)} size="read" />
+            <span className="spdl-legend-word">implement · 4/10</span>
           </div>
         </Stage>
         <p className="spdl-prose">
           The ring stays the session's indicator, phase-toned, counting the plan; the track is the dash's. They agree by
-          construction because `dashTrackModel` reads the same ledger the ring does. A stop is the one fact that outranks
-          the track: the cell paints danger and the note says why, in the arc receipt's words.
+          construction because both project the same wire entry. A stop is the one fact that outranks the track: the cell
+          paints danger and the note says why, in the arc receipt's words.
         </p>
       </section>
 
       <section className="sp-section">
-        <h2 className="sp-section-title">3 · In flight — DashLifecycleBlock on every surface, no surface taller</h2>
+        <h2 className="sp-section-title">3 · In flight — on every surface, no surface taller</h2>
         {MOMENTS.map((m) => {
-          const { model, note, facts } = derive(m);
+          const model = dashTrackModelFromEntry(m.entry);
+          const note = dashLifecycleNote(model, m.entry.step_title ?? null);
+          const facts = dashMetaFacts(m.entry);
+          const name = m.entry.display_name;
           return (
             <Stage key={m.key} caption={m.caption}>
               <div className="spdl-surfaces">
                 <div className="spdl-surface">
-                  <span className="spdl-surface-name">Lens · size=rail</span>
+                  <span className="spdl-surface-name">Lens · DashLifecycleBlock size=rail</span>
                   <TugListRow variant="flush" density="compact">
-                    <DashLifecycleBlock name={m.name} workers={m.workers} model={model} note={note} facts={facts} size="rail" />
+                    <DashLifecycleBlock name={name} workers={m.workers} model={model} note={note} facts={facts} size="rail" />
                   </TugListRow>
                 </div>
                 <div className="spdl-surface">
-                  <span className="spdl-surface-name">Changes shade · size=read</span>
-                  <DashLifecycleBlock name={m.name} workers={m.workers} model={model} note={note} facts={facts} size="read" />
+                  <span className="spdl-surface-name">Changes shade · DashLifecycleBlock size=read</span>
+                  <DashLifecycleBlock name={name} workers={m.workers} model={model} note={note} facts={facts} size="read" />
                 </div>
-                <div className="spdl-surface">
-                  <span className="spdl-surface-name">Masthead · TugDashTrack in the title run</span>
-                  <Masthead m={m} model={model} />
+                <div className="spdl-surface" data-wide="true">
+                  <span className="spdl-surface-name">Masthead · the real SessionIdentityRow, at SessionMasthead's settings</span>
+                  <SessionIdentityRow
+                    className="spdl-masthead-row"
+                    sessionId={m.workers[0] ?? WORKER}
+                    projectDir={ROOT}
+                    dash={factFor(m)}
+                    dotSize={TUG_SESSION_ROW_STACK_DOT_SIZE}
+                    indicatorPacking="column"
+                    subAlign="title"
+                    activityOverride={m.prompt}
+                  />
                 </div>
                 <div className="spdl-surface" data-today="true">
                   <span className="spdl-surface-name">Today · DashMetaLine</span>
-                  {m.today !== null ? (
-                    <DashMetaLine entry={m.today} size="sm" />
+                  {m.branched ? (
+                    <DashMetaLine entry={m.entry} size="sm" />
                   ) : (
                     <span className="spdl-today-nothing">nothing — the dash has no branch yet</span>
                   )}
@@ -365,6 +397,12 @@ export function SpikeDashLifecycle(): React.ReactElement {
         <h2 className="sp-section-title">4 · Where each one mounts</h2>
         <ul className="spdl-survey">
           <li>
+            <b>Session masthead</b> — <i>done, and live in the app.</i> `SessionIdentityRow` renders `TugDashTrack` in
+            its title run where `DashStageMark` + `TugStepFraction` stood, so a card devising or reviewing a plan now
+            says so instead of showing nothing. The row also gained a `dash` prop — the binding in hand rather than a
+            second read by id, the same seam `row` already had — which is what lets this card mount the real thing.
+          </li>
+          <li>
             <b>Lens · Dashes</b> — `DashLifecycleBlock size=rail` replaces the row's eyebrow + `DashMetaLine`, and the
             documents-only `lens-plans-row` grammar goes: one row from the brief onward. The row menu is the block's
             `trailing`.
@@ -372,10 +410,6 @@ export function SpikeDashLifecycle(): React.ReactElement {
           <li>
             <b>Changes shade · dash lane</b> — `DashLifecycleBlock size=read` replaces `TugDashName` + `DashMetaLine`
             on the collapsed row; the fold cue is `trailing`. The lane also lists the documents-only entry.
-          </li>
-          <li>
-            <b>Session masthead</b> — `TugDashTrack size=read` in `session-identity-row-progress`, replacing
-            `DashStageMark` + `TugStepFraction`; the identity's `^name` run is dropped. Height unchanged.
           </li>
           <li>
             <b>Transcript footer STATUS cell</b> — `TugDashTrack size=rail` replaces the bare fraction / stage glyph.
@@ -386,7 +420,7 @@ export function SpikeDashLifecycle(): React.ReactElement {
           </li>
           <li>
             <b>Wire</b> — no new field. `useDashForSession` and the shade read the documents-only entry too;
-            `dashTrackModel` does the rest. Every model on this card came from feed-shaped input.
+            `dashTrackModelFromEntry` does the rest.
           </li>
         </ul>
       </section>

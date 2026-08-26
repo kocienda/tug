@@ -5,14 +5,19 @@
  *
  * The track is {@link TugDashTrack}, the dash's whole life in a cap-height
  * strip; the fraction is the step in progress over the plan's count, and only
- * while one is; the note is the current step's title, else the draft's
- * subject, else what the phase is doing; the facts are the tone-colored words
- * `dashMetaFacts` already derives, most urgent first, each with its detail on
- * hover. There is no age: the ring, the track, and the phase dot say whether
- * anything is moving, and a `2m` beside them was a fact nobody acted on.
+ * while one is; the note is one word for a phase that has nothing more to say
+ * — `brief`, `devise`, `review`, `join` — the step's title during implement,
+ * and `stopped · <why>` when the arc stopped; the facts are the tone-colored
+ * words `dashMetaFacts` derives, most urgent first, each with its detail on
+ * hover. The two arc facts are dropped here: the track already says the arc
+ * is running, and the note already says it stopped.
+ *
+ * There is no age: the ring, the track, and the phase dot say whether
+ * anything is moving. And the line never leaves its box: the note elides
+ * first, and what still does not fit is clipped rather than overflowing.
  *
  * One grammar, two scales — `rail` beside other rails, `read` on a surface
- * whose job is to be read — the same split `DashMetaLine` drew.
+ * whose job is to be read.
  *
  * Laws: [L06] tones and scale are `data-*` the CSS paints; [L19]
  * `.tsx`/`.css` pair, `data-slot`; [L20] composes the track, the fraction, and
@@ -30,23 +35,18 @@ import { TugDashTrack, type DashTrackModel } from "./tug-dash-track";
 import { TugStepFraction } from "./tug-step-ring";
 import { TugTooltip } from "./tug-tooltip";
 
-/** The note under the model: the phase's own word when the surface has none. */
-export function dashLifecycleNote(model: DashTrackModel, stepTitle: string | null, draftSubject: string | null): string {
-  if (model.stopped !== null) return `arc stopped · ${model.phase} — ${model.stopped}`;
+/** The note under the model. Pure. */
+export function dashLifecycleNote(model: DashTrackModel, stepTitle: string | null): string {
+  if (model.stopped !== null) return `stopped · ${model.stopped}`;
   if (model.phase === "implement" && stepTitle !== null) return stepTitle;
-  if (model.phase === "join" && draftSubject !== null) return draftSubject;
-  switch (model.phase) {
-    case "brief":
-      return "brief written";
-    case "devise":
-      return "devising the plan";
-    case "review":
-      return "reviewing the plan";
-    case "implement":
-      return model.poke ? (draftSubject ?? "working") : "implementing";
-    case "join":
-      return "ready to join";
-  }
+  return model.phase;
+}
+
+/** The facts the track and the note have not already said. */
+const SAID_BY_TRACK: ReadonlySet<string> = new Set(["arc", "arc-stopped"]);
+
+export function dashLifecycleFacts(facts: readonly DashMetaFact[]): DashMetaFact[] {
+  return facts.filter((fact) => !SAID_BY_TRACK.has(fact.key));
 }
 
 export interface DashLifecycleLineProps {
@@ -74,10 +74,10 @@ export function DashLifecycleLine({
       {steps !== null && steps.current !== null ? (
         <TugStepFraction current={steps.current} total={steps.total} />
       ) : null}
-      <span className="tug-dash-lifecycle-note" data-slot="tug-dash-lifecycle-note">
+      <span className="tug-dash-lifecycle-note" data-slot="tug-dash-lifecycle-note" title={note}>
         {note}
       </span>
-      {facts.map((fact) => (
+      {dashLifecycleFacts(facts).map((fact) => (
         <TugTooltip key={fact.key} content={fact.tooltip}>
           <span
             className="tug-dash-lifecycle-fact"

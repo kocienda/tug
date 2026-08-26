@@ -1,5 +1,5 @@
 /**
- * TugDashAtom — a dash's name in the one skin every surface wears.
+ * TugDashAtom — work on a worktree, named in the one skin every surface wears.
  *
  * The atom is `DashSigil atom`: the proportional session-atom pill, in the
  * rail (`2xs`) and reading (`sm`) sizes and no other. There is no mono
@@ -7,9 +7,9 @@
  * standing beside this one, which every surface already shows, so the
  * typeface carries nothing.
  *
- * A poke wears a quiet kind-word after its atom. It is the only place the
- * word appears: a poke is an ordinary dash to every verb, and the word is for
- * the reader who wants to know why the track beside it has two cells.
+ * A poke is a dash to this atom. Both are work that left the base on a
+ * worktree and come back through a join, and that is what the pill names; the
+ * track beside it says how much of a life the work has.
  *
  * Laws: [L19] `.tsx`/`.css` pair, `data-slot`; [L20] composes `DashSigil`.
  *
@@ -27,8 +27,6 @@ export interface TugDashAtomProps {
   /** `reviewed` | `stale` | `never-reviewed` | null; only the paint-worthy states tint. */
   review?: string | null;
   size?: "2xs" | "sm";
-  /** A poke: no documents, no arc. */
-  poke?: boolean;
   /** The `data-slot` the surface names its copy by. */
   slot?: string;
   title?: string;
@@ -38,18 +36,12 @@ export function TugDashAtom({
   name,
   review = null,
   size = "2xs",
-  poke = false,
   slot = "tug-dash-atom",
   title,
 }: TugDashAtomProps): React.ReactElement {
   return (
-    <span className="tug-dash-atom" data-slot="tug-dash-atom" data-size={size} data-poke={poke ? "true" : undefined}>
+    <span className="tug-dash-atom" data-slot="tug-dash-atom" data-size={size}>
       <DashSigil name={name} review={review} slot={slot} atom atomSize={size} title={title} />
-      {poke ? (
-        <span className="tug-dash-atom-kind" data-slot="tug-dash-atom-kind">
-          poke
-        </span>
-      ) : null}
     </span>
   );
 }

@@ -18,10 +18,6 @@
  * and {@link dashTrackModelFromEntry} adapts a wire entry to it. Both are pure,
  * so the derivation is a table test rather than a DOM one.
  *
- * Two variants of one model: `track` (segmented, the default) and `pips`
- * (numbered discs, which read the count without a fraction and grow wide past
- * about a dozen steps).
- *
  * Laws: [L06] state is `data-state`; [L19] `.tsx`/`.css` pair, `data-slot`;
  * [L20] composes `TugTooltip`, owns `--tugx-dash-track-*`.
  *
@@ -50,8 +46,6 @@ export interface DashTrackInput {
   steps?: readonly DashStep[] | undefined;
   /** The derived git stage: `created` | `working` | `implementing` | `ready` | `built` | `audited` | `draft-ready` | `joining` | `landing`. */
   stage?: string | null | undefined;
-  /** Whether a join is on the record for this dash. */
-  joining?: boolean | undefined;
 }
 
 export interface DashTrackSteps {
@@ -69,6 +63,14 @@ export interface DashTrackModel {
   steps: DashTrackSteps | null;
 }
 
+/**
+ * The stages that mean the work is over and the join is what is left.
+ *
+ * Read off `stage`, which the server derives, and never off the presence of a
+ * `join` record: the join engine computes a state for every dash it can reach,
+ * so a dash three steps into its plan carries one too. Presence there says the
+ * engine looked, not that the dash is done.
+ */
 const JOIN_STAGES: ReadonlySet<string> = new Set([
   "ready",
   "built",
@@ -100,7 +102,7 @@ export function dashTrackModel(input: DashTrackInput): DashTrackModel {
   const walked = steps !== null && steps.done === steps.total;
 
   let phase: DashPhase;
-  if (input.joining === true || (stage !== null && JOIN_STAGES.has(stage)) || arc?.done === true) {
+  if ((stage !== null && JOIN_STAGES.has(stage)) || arc?.done === true) {
     phase = "join";
   } else if (poke) {
     phase = "implement";
@@ -129,7 +131,6 @@ export function dashTrackModelFromEntry(entry: DashChangesetEntry): DashTrackMod
     arc: entry.arc,
     steps: entry.steps,
     stage: entry.stage,
-    joining: entry.join !== undefined,
   });
 }
 
@@ -160,14 +161,12 @@ export interface TugDashTrackProps {
   model: DashTrackModel;
   /** `rail` beside other rails (the Lens, the footer); `read` on a reading surface. */
   size?: "rail" | "read";
-  variant?: "track" | "pips";
   "aria-label"?: string;
 }
 
 export function TugDashTrack({
   model,
   size = "rail",
-  variant = "track",
   "aria-label": ariaLabel,
 }: TugDashTrackProps): React.ReactElement {
   const phases: readonly DashPhase[] = model.poke ? ["implement", "join"] : DASH_PHASES;
@@ -176,8 +175,8 @@ export function TugDashTrack({
       className="tug-dash-track"
       data-slot="tug-dash-track"
       data-size={size}
-      data-variant={variant}
       data-phase={model.phase}
+      data-poke={model.poke ? "true" : undefined}
       data-stopped={model.stopped !== null ? "true" : undefined}
       aria-label={ariaLabel ?? cellTip(model, model.phase, dashCellState(model, model.phase))}
     >
@@ -198,13 +197,9 @@ export function TugDashTrack({
             >
               {ticks !== null
                 ? ticks.map((n) => (
-                    <span key={n} className="tug-dash-track-tick" data-state={tickState(model, n)}>
-                      {variant === "pips" ? n : null}
-                    </span>
+                    <span key={n} className="tug-dash-track-tick" data-state={tickState(model, n)} />
                   ))
-                : variant === "pips"
-                  ? phase[0]
-                  : null}
+                : null}
             </span>
           </TugTooltip>
         );

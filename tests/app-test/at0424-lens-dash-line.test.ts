@@ -8,9 +8,9 @@
  * with the masthead — and that line is retired ([D141]). What replaced it:
  *
  *  - The TITLE carries the progress cluster after the identity's own
- *    `^<dash>` run: the stage as a glyph with its word on hover
- *    (`DashStageMark`), and the `i/N` count (`TugStepFraction`) once step
- *    counters exist.
+ *    `^<dash>` run: the lifecycle track (`TugDashTrack`), whose cells are the
+ *    dash's whole life from its brief to its join, and the `i/N` count
+ *    (`TugStepFraction`) once step counters exist.
  *  - The INDICATOR becomes the step ring (`SessionStepRing`) once counters
  *    exist: the segmented circle wrapping the dense phase dot, in the phase's
  *    own tone.
@@ -37,8 +37,8 @@
  * @covers tugdeck/src/components/tugways/session-step-ring.tsx
  * @covers tugdeck/src/components/tugways/tug-step-ring.tsx
  * @covers tugdeck/src/components/tugways/tug-step-ring.css
- * @covers tugdeck/src/components/tugways/dash-stage-mark.tsx
- * @covers tugdeck/src/components/tugways/dash-stage-mark.css
+ * @covers tugdeck/src/components/tugways/tug-dash-track.tsx
+ * @covers tugdeck/src/components/tugways/tug-dash-track.css
  * @covers tugdeck/src/lib/dash-session-index.ts
  * @covers tugdeck/src/components/tugways/tug-session-row.tsx
  * @covers tugdeck/src/components/tugways/tug-session-row.css
@@ -81,7 +81,7 @@ const DASH_NAME = "at0424-line";
 /** The retired fourth line — pinned at zero forever. */
 const DASH_LINE = `${SESSION_ROW} [data-slot="tug-session-row-dashline"]`;
 const PROGRESS = `${SESSION_ROW} [data-slot="session-identity-row-progress"]`;
-const STAGE_MARK = `${PROGRESS} [data-slot="tug-dash-stage-mark"]`;
+const TRACK = `${PROGRESS} [data-slot="tug-dash-track"]`;
 const FRACTION = `${PROGRESS} [data-slot="tug-step-fraction"]`;
 const RING = `${SESSION_ROW} [data-slot="tug-step-ring"]`;
 const LIST_CELLS = `${CARDS} .tug-list-view-cell`;
@@ -197,15 +197,18 @@ describe.skipIf(!SHOULD_RUN)("AT0424: dash progress on the session's row", () =>
           `(() => {
              const cluster = document.querySelector(${JSON.stringify(PROGRESS)});
              const session = document.querySelector(${JSON.stringify(SESSION_ROW)});
-             const mark = document.querySelector(${JSON.stringify(STAGE_MARK)});
+             const track = document.querySelector(${JSON.stringify(TRACK)});
              return {
                // The structural claim: the cluster is INSIDE the session's
                // row, on the title's own line.
                insideSessionRow: session.contains(cluster),
                onTitleLine:
                  cluster.closest(".tug-session-row-name-line") !== null,
-               stage: mark?.getAttribute("data-stage") ?? null,
-               stageWord: mark?.getAttribute("aria-label") ?? null,
+               stage: track?.getAttribute("data-phase") ?? null,
+               stageWord:
+                 track
+                   ?.querySelector('[data-state="active"]')
+                   ?.getAttribute("data-phase") ?? null,
                fractions: document.querySelectorAll(${JSON.stringify(FRACTION)}).length,
                rings: document.querySelectorAll(${JSON.stringify(RING)}).length,
              };
@@ -214,11 +217,14 @@ describe.skipIf(!SHOULD_RUN)("AT0424: dash progress on the session's row", () =>
         note("at0424 cluster", JSON.stringify(cluster));
         expect(cluster.insideSessionRow).toBe(true);
         expect(cluster.onTitleLine).toBe(true);
-        // The fixture's plan is uncommitted dirt in the dash's worktree, so
-        // the stage it derives is `working` — the point is that the stage is
-        // a GLYPH whose word rides the hover, spelled as the wire spelled it.
-        expect(cluster.stage).toBe("working");
-        expect(cluster.stageWord).toBe("working");
+        // The fixture's plan is adopted but no step has opened, so the track
+        // reads `review` — the phase between a plan existing and a walk
+        // beginning. The point is that the cluster says something at all here:
+        // the stage glyph it replaced could only name what GIT had reached,
+        // and drew nothing until a branch had rounds on it.
+        expect(cluster.stage).toBe("review");
+        // Exactly one cell is active, and it is that phase's.
+        expect(cluster.stageWord).toBe("review");
         // No step started: no counters, so no fraction and no ring yet —
         // the dot stays a bare dot.
         expect(cluster.fractions).toBe(0);
@@ -237,7 +243,7 @@ describe.skipIf(!SHOULD_RUN)("AT0424: dash progress on the session's row", () =>
         // ── The step opens: the fraction and the ring arrive ──────────────
         await shellAndSettle(
           app,
-          `${tugutilPath(CHECKOUT)} dash step ${DASH_NAME} start 1 --through 2 --plan plan.md`,
+          `${tugutilPath(CHECKOUT)} dash step ${DASH_NAME} start 1 --through 2`,
           1,
         );
         await app.waitForCondition<boolean>(

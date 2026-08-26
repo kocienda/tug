@@ -1,7 +1,11 @@
 /* tug-dash-track.css — the strip, its cells, and its ticks.
 
-   The geometry is three knobs the host may retune at the point of use
-   (`--tugx-dash-track-cell-h/-cell-w/-tick-w`); the colors are four states.
+   Four states on one ladder, chosen to family with the step ring and the
+   pulsing dot: `pending` is the ring's own unfilled stroke, `done` the muted
+   text tone, `active` the theme accent, and the join — the one cell that is a
+   destination rather than a stage — the theme's selection color. The geometry
+   is three knobs the host may retune at the point of use.
+
    Laws: [L06] state is data-*; [L20] owns `--tugx-dash-track-*`. */
 
 .tug-dash-track {
@@ -27,10 +31,11 @@
   inline-size: var(--tugx-dash-track-cell-w);
   block-size: var(--tugx-dash-track-cell-h);
   border-radius: 2px;
-  background: var(--tug7-element-global-border-normal-default-rest);
+  background: var(--tug7-element-global-border-normal-muted-rest);
 }
 
-.tug-dash-track-cell[data-phase="brief"] {
+.tug-dash-track-cell[data-phase="brief"],
+.tug-dash-track[data-poke="true"] .tug-dash-track-cell[data-phase="implement"] {
   border-start-start-radius: 999px;
   border-end-start-radius: 999px;
 }
@@ -49,7 +54,7 @@
 .tug-dash-track-tick {
   inline-size: var(--tugx-dash-track-tick-w);
   border-radius: 1px;
-  background: var(--tug7-element-global-border-normal-default-rest);
+  background: var(--tug7-element-global-border-normal-muted-rest);
 }
 
 .tug-dash-track-cell[data-state="done"],
@@ -63,66 +68,10 @@
 }
 
 .tug-dash-track-cell[data-phase="join"][data-state="active"] {
-  background: var(--tug7-element-tone-icon-normal-success-rest);
+  background: var(--tug7-surface-control-primary-normal-selected-rest);
 }
 
 .tug-dash-track-cell[data-state="stopped"],
 .tug-dash-track-tick[data-state="stopped"] {
   background: var(--tug7-element-tone-icon-normal-danger-rest);
-}
-
-/* ── Pips: the same states as numbered discs ─────────────────────────── */
-
-.tug-dash-track[data-variant="pips"] {
-  gap: 3px;
-}
-
-.tug-dash-track[data-variant="pips"] .tug-dash-track-cell,
-.tug-dash-track[data-variant="pips"] .tug-dash-track-tick {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  inline-size: 14px;
-  block-size: 14px;
-  border-radius: 999px;
-  border: 1px solid var(--tug7-element-global-border-normal-default-rest);
-  background: transparent;
-  font-size: 9px;
-  line-height: 1;
-  text-transform: uppercase;
-  color: var(--tug7-element-global-text-normal-subtle-rest);
-}
-
-.tug-dash-track[data-variant="pips"] .tug-dash-track-cell[data-steps="true"] {
-  inline-size: auto;
-  block-size: auto;
-  border: 0;
-  gap: 2px;
-  padding-inline: 2px;
-}
-
-.tug-dash-track[data-variant="pips"] .tug-dash-track-tick {
-  font-family: var(--tug-font-family-mono);
-  text-transform: none;
-}
-
-.tug-dash-track[data-variant="pips"] .tug-dash-track-cell[data-state="done"]:not([data-steps]),
-.tug-dash-track[data-variant="pips"] .tug-dash-track-tick[data-state="done"] {
-  border-color: transparent;
-  background: var(--tug7-element-global-text-normal-muted-rest);
-  color: var(--tug7-surface-global-primary-normal-default-rest);
-}
-
-.tug-dash-track[data-variant="pips"] .tug-dash-track-cell[data-state="active"]:not([data-steps]),
-.tug-dash-track[data-variant="pips"] .tug-dash-track-tick[data-state="active"] {
-  background: transparent;
-  border-color: var(--tug7-element-global-border-normal-accent-rest);
-  color: var(--tug7-element-global-text-normal-rest);
-}
-
-.tug-dash-track[data-variant="pips"] .tug-dash-track-cell[data-state="stopped"]:not([data-steps]),
-.tug-dash-track[data-variant="pips"] .tug-dash-track-tick[data-state="stopped"] {
-  background: transparent;
-  border-color: var(--tug7-element-tone-icon-normal-danger-rest);
-  color: var(--tug7-element-tone-icon-normal-danger-rest);
 }
