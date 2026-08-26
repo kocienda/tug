@@ -1,80 +1,81 @@
 /**
- * FlowStrip — the deck's own strip, drawn small in the canvas's bottom band.
+ * FlowStrip — the deck's arrangement drawn to scale, as the plan's legend.
  *
- * In flow the strip is longer than the band it is seen through, so a reader
+ * In flow the deck is longer than the band it is seen through, so a reader
  * needs two facts the cards themselves cannot state: what the arrangement IS,
  * and which part of it is on screen right now. This is that instrument, and it
  * draws the arrangement to scale — each slot at its own place in the strip and
  * at its own width, so a wide card reads wide and the run of them reads as the
  * deck, seen small.
  *
- * It is drawn in the slot vocabulary: the numbered chip the Lens's Cards row
- * arranges places with and the masthead badge names one with, elongated.
- * `TugSlotLayout`'s scaled form is exactly that — the same slots, laid out as a
- * map instead of a run — so the three surfaces that talk about places all talk
- * about them the same way.
+ * **It stands under the Layout section's plan, at the plan's own geometry.**
+ * That is the whole of why it looks the way it does. It used to float in the
+ * canvas's bottom band, centred, with a ceiling on its width and a hard floor
+ * of clearance either side so it could not reach the corner the host paints its
+ * build stamps into — four constants of pure corner politics, an instrument
+ * parked eight hundred pixels from the picture it annotates, and a bracket of
+ * its own re-drawing a window the plan was already drawing. Under the plan it
+ * needs none of that: it takes the drawing's width, insets by the drawing's own
+ * rails, and every segment lands directly beneath the block that is the same
+ * card in the picture above. The reader's eye runs down from a block to its
+ * number.
  *
- * **What is on screen is said by the band, and said continuously** — as a
- * bracket over the strip, and as a pair of veils dimming everything the band
- * does not show. Two drawings of one quantity, from the same two numbers, so
- * they cannot disagree. The bracket alone was not enough: a hairline has to be
- * traced before it can be read, and the fact a reader wants at a glance is
- * simply *which part of this is the part I am looking at*. Brightness answers
- * that without being read at all.
+ * So the strip carries what the picture cannot, and nothing else:
  *
- * Both are continuous, and that is the point. The instrument this replaced said
- * it per-CARD instead, each chip `outlined` while the band showed its slot.
- * That was forced: those chips were a ROW, all the same width, and a row cannot
- * show a reader where a band edge falls. A map can, and a segment half inside
+ * - **The NUMBERS.** The plan draws blocks; only the strip says which place is
+ *   which, in the same numbered chip the Lens's Cards row arranges places with
+ *   and the masthead badge names one with.
+ * - **The PRESS.** Clicking a segment centres its slot; a scrub across them
+ *   pages the deck under the hand.
+ * - **Which card the reader is IN**, in the accent — a live selection, which is
+ *   what the accent is for.
+ *
+ * And the plan carries the rest: the window over the strip is drawn once, up
+ * there, as the miniature's own bracket. Drawing it a second time here would be
+ * two brackets an inch apart saying the same number.
+ *
+ * **What is on screen is still said here, and said continuously** — as a pair
+ * of veils dimming everything the band does not show. A bracket is a hairline
+ * and has to be traced before it can be read; the fact a reader wants at a
+ * glance is simply *which of these numbers am I looking at*, and brightness
+ * answers that without being read at all. Continuous, so a segment half inside
  * the band is half veiled — the truth a per-slot threshold could not tell.
  *
- * **Where the reader is LOOKING and which card the reader is IN are different
- * facts, and they are drawn differently.** The band is the first, and it is
- * neutral ink throughout — the accent would be a lie there, because a viewport
- * is not a selection. The reader's own card is the second, and it takes the
- * accent, because a live selection is exactly what the accent is for. Given no
- * `states` the strip has no selection to draw and is neutral end to end.
- *
  * **It always stands while the layout is flow, and overflow changes its
- * register rather than its existence** ([P10]). A strip that fits the band is
- * drawn quiet, with the bracket withheld because there is no position to state.
- * A strip that overflows raises every ink a step and reveals it. No element
- * appears or disappears across that boundary — a component that materialised
- * when the strip grew would read as a new thing arriving rather than as the
- * same instrument speaking up.
- *
- * Centered in the band. That is not a preference: the host paints its
- * maker-mode build stamps into the bottom-LEFT corner, and a strip centered on
- * the canvas with a ceiling on its width cannot reach a corner. Centering plus
- * the ceiling deletes the clearance problem rather than managing it.
+ * register rather than its existence** ([P10]). A strip that fits its band is
+ * drawn quiet: every place is on screen, so there is no position to state and
+ * the veils compute to nothing without anything deciding they should. A strip
+ * that overflows raises its ink a step. No element appears or disappears across
+ * that boundary — a component that materialised when the strip grew would read
+ * as a new thing arriving rather than as the same instrument speaking up.
  *
  * Two halves, two zones:
  *
  * - **Structure** — which slots are occupied, how wide each stands, and where
- *   the band was at the last commit — renders from the deck snapshot the canvas
- *   already subscribes to ([L02]). It changes on a commit, which is exactly
- *   when a render is owed.
+ *   the band was at the last commit — renders from the deck snapshot the
+ *   section already subscribes to ([L02]). It changes on a commit, which is
+ *   exactly when a render is owed.
  * - **Position** — where the band stands *between* commits — rides the gauge
  *   channel, and rides it with NO JS in the loop at all. The root registers as
- *   an element; the bracket and the two veils read the published fraction
- *   straight out of CSS by inheritance, and their own `left` and `width` are
- *   the whole projection. That is only possible because all three are
- *   continuous quantities — a per-slot look would be a THRESHOLD over the same
- *   fraction, and CSS has no comparison that yields one, which is exactly what
- *   made the row of chips this replaced need a listener and a handle to write
- *   looks through. The selection is not on this path at all: which card the
- *   reader is in changes on a commit, so it renders from the snapshot.
+ *   an element; the two veils read the published fraction straight out of CSS
+ *   by inheritance, and their own `left` and `width` are the whole projection.
+ *   That is only possible because they are continuous quantities — a per-slot
+ *   look would be a THRESHOLD over the same fraction, and CSS has no comparison
+ *   that yields one, which is exactly what made the row of chips this replaced
+ *   need a listener and a handle to write looks through. The selection is not
+ *   on this path at all: which card the reader is in changes on a commit, so it
+ *   renders from the snapshot.
  *
  *   The element registration is also what inherits the drag gate the channel
  *   stamps on every registered element.
  *
- * Three gestures move the strip and there is one path for all of them. The
- * canvas wheel is the deck's, untouched here. Clicking a segment CENTERS its
- * slot in the band. And a SCRUB — a pointer down on the strip, dragged across
- * it — centers each segment it crosses as a preview and commits exactly once,
- * at release. Each crossed segment is a whole-slot move under the user's own
- * finger, which is what a paging control does; there is no animator in a
- * preview path ([L13]) and none is wanted.
+ * Two gestures move the strip and there is one path for both. Clicking a
+ * segment CENTERS its slot in the band. And a SCRUB — a pointer down on the
+ * strip, dragged across it — centers each segment it crosses as a preview and
+ * commits exactly once, at release. Each crossed segment is a whole-slot move
+ * under the user's own finger, which is what a paging control does; there is no
+ * animator in a preview path ([L13]) and none is wanted. The canvas wheel is
+ * the deck's third gesture and is untouched here.
  *
  * Both gestures CENTER rather than reveal, and they must agree: pointing at a
  * segment names a place, and a rule that moved the least would answer the same
@@ -84,15 +85,17 @@
  * gives back less travel near an end and none at the very end, which is the
  * correct answer rather than an exception to it.
  *
- * The bracket and the veils take no pointer events: they are readouts drawn
- * over the segments, and a reader aiming at a card should not be caught by the
- * picture of where they already are.
+ * The veils take no pointer events: they are a readout drawn over the segments,
+ * and a reader aiming at a card should not be caught by the picture of where
+ * they already are.
  *
  * Laws: [L02] structure through the deck snapshot; [L03] the gauge and listener
  *       registrations are layout effects with paired teardown; [L06]/[L22]
  *       per-frame appearance is a DOM projection or a published custom
  *       property, never React state; [L07] the scrub's live state is refs;
  *       [L20] the composed slots keep their own tokens.
+ *
+ * @module components/lens/flow-strip
  */
 
 import React, { useCallback, useLayoutEffect, useMemo, useRef } from "react";
@@ -100,39 +103,13 @@ import React, { useCallback, useLayoutEffect, useMemo, useRef } from "react";
 import { gaugeProperties, registerGauge } from "@/lib/imposer-gauges";
 import {
   flowCenterOffset,
-  IMPOSITION_GAP_PX,
   type FlowStrip as FlowStripModel,
+  type SidebarSide,
 } from "@/lib/layout-imposer";
 import { TugSlotLayout } from "@/components/tugways/tug-slot-layout";
 import type { TugSlotLayoutHandle } from "@/components/tugways/tug-slot-layout";
 import type { TugSlotState } from "@/components/tugways/tug-slot";
 import "./flow-strip.css";
-
-/**
- * How far the strip's baseline stands above the canvas bottom — the host's
- * dev-info strip's own inset (`MainWindow.swift`'s `setDevInfo` overlay). The
- * strip shares the band with those stamps, so it shares their line rather than
- * inventing a second one a few pixels off.
- */
-const STRIP_INSET_BOTTOM_PX = 8;
-
-/**
- * The corner the stamps are reserved, in px. They are drawn by the host, in a
- * font the deck cannot measure, and they run as long as their branch name — so
- * the clearance is stated rather than measured: a monospaced 10px line of about
- * sixty characters, plus the overlay's own padding and inset.
- *
- * It is a hard floor on the strip's width, not a preference. Centered, the
- * strip reaches half of what it gives up toward each corner, so the ceiling is
- * what keeps it out of both of them on a narrow canvas.
- */
-const STAMP_CLEARANCE_PX = 420;
-
-/** The share of the canvas the strip spans, and the ceiling on it. Wide enough
- *  to be read as a map rather than as a row of buttons, bounded so a large
- *  window does not turn the readout into a second deck. */
-const STRIP_CANVAS_SHARE = 0.45;
-const STRIP_MAX_WIDTH_PX = 460;
 
 /** The property the flow offset crosses the channel on. */
 const FLOW_OFFSET_PROPERTY = gaugeProperties("flow-offset")[0];
@@ -166,13 +143,35 @@ export interface FlowStripProps {
   /** The band the strip is seen through, in px — `store.getFlowBandWidth()`. */
   band: number;
   /**
+   * What each side's rail takes of the plan's width, in percent — the same
+   * `flex-basis` the drawing's own rail takes, from `miniatureGeometry`. The
+   * strip replicates the drawing's flex row so its field is the drawing's
+   * field, which is what puts a segment under its block. A side with no rail
+   * has no entry and takes no room.
+   */
+  rails?: Partial<Record<SidebarSide, number>>;
+  /**
+   * The seam each segment gives up off its own right edge, as a fraction of
+   * the drawn strip — `miniatureGeometry`'s `flow.seamPct`, in the strip's own
+   * units.
+   *
+   * It is a legibility device rather than a measurement, and it belongs to the
+   * PLAN: at the strip's scale the deck's real 5px gap is a third of a pixel,
+   * so a run of segments drawn honestly reads as one bar. The drawing above
+   * already exaggerates that gap so its blocks read as separate cards, and the
+   * strip takes the same exaggeration for the same reason — and because it
+   * must: a segment wider than the block above it puts the two drawings out of
+   * register at every right edge, which is the one thing standing them on top
+   * of each other was for.
+   */
+  seam?: number;
+  /**
    * Per-slot look, indexed by slot, in `TugSlotLayout`'s own vocabulary.
    *
    * This is where the reader's card is marked, and it is the one place on the
-   * strip the accent is spent. That is not a contradiction of the rule above
-   * it: the band is where the reader is LOOKING and the veils say that in
-   * neutral ink, while this is which card the reader is IN — a live selection,
-   * which is precisely what the accent is for.
+   * strip the accent is spent. The veils say where the reader is LOOKING and
+   * say it in neutral ink; this says which card the reader is IN — a live
+   * selection, which is precisely what the accent is for.
    */
   states?: readonly TugSlotState[];
   /** Where the band stands in the strip, in px — the COMMITTED offset. Live
@@ -192,6 +191,8 @@ export function FlowStrip({
   count,
   strip,
   band,
+  rails,
+  seam = 0,
   states,
   offset,
   onPreview,
@@ -262,26 +263,31 @@ export function FlowStrip({
   // effect and torn down with it. Made once for the component's life: the
   // element is stable and the signal does not depend on anything that renders.
   //
-  // It is what the BRACKET reads its live offset from, by inheritance, and it
-  // also carries the drag gate the channel stamps on every registered element —
-  // which takes the strip out of the pointer's way while a card is being
-  // dragged over the band.
+  // It is what the VEILS read their live offset from, by inheritance, and it
+  // also carries the drag gate the channel stamps on every registered element.
   useLayoutEffect(() => {
     const el = root.current;
     if (el === null) return;
     return registerGauge("flow-offset", el);
   }, []);
 
-  const spans = useMemo(() => flowSlotSpans(count, strip), [count, strip]);
+  const spans = useMemo(
+    () =>
+      flowSlotSpans(count, strip).map((span) =>
+        span === undefined
+          ? undefined
+          : { left: span.left, width: Math.max(span.width - seam, 0) },
+      ),
+    [count, strip, seam],
+  );
 
   const overflow = strip.width > band;
   /**
-   * How much of the strip the band shows — the bracket's width as a fraction of
-   * the drawn strip, and the factor that turns a gauge reading into a place on
-   * it. The channel publishes the offset as a fraction of the BAND and this
-   * draws the STRIP, so this one number is the conversion between them.
-   * Clamped at 1 so a strip inside its band draws a bracket that fills the
-   * drawing rather than one wider than the thing it is inside.
+   * How much of the strip the band shows — as a fraction of the drawn strip,
+   * and the factor that turns a gauge reading into a place on it. The channel
+   * publishes the offset as a fraction of the BAND and this draws the STRIP, so
+   * this one number is the conversion between them. Clamped at 1 so a strip
+   * inside its band veils nothing rather than veiling a negative width.
    */
   const bandShare = strip.width > 0 ? Math.min(1, band / strip.width) : 1;
   const committedFraction = band > 0 ? offset / band : 0;
@@ -389,11 +395,6 @@ export function FlowStrip({
       data-overflow={overflow ? "true" : "false"}
       style={
         {
-          "--flow-strip-inset-bottom": `${STRIP_INSET_BOTTOM_PX}px`,
-          "--flow-strip-stamp-clearance": `${STAMP_CLEARANCE_PX}px`,
-          "--flow-strip-canvas-share": String(STRIP_CANVAS_SHARE),
-          "--flow-strip-max-width": `${STRIP_MAX_WIDTH_PX}px`,
-          "--flow-strip-edge-inset": `${IMPOSITION_GAP_PX}px`,
           "--flow-strip-band-share": String(bandShare),
           // Live while a gesture publishes, committed truth otherwise — one
           // expression, resolved by the channel's own `var()` fallback rather
@@ -402,7 +403,17 @@ export function FlowStrip({
         } as React.CSSProperties
       }
     >
-      <div className="flow-strip-frame">
+      {/* The rails' room, as the drawing gives it — empty spans that take the
+          same flex basis the plan's rails take, so what is left over is the
+          plan's field and the map lands on it. */}
+      {rails?.left !== undefined ? (
+        <span
+          className="flow-strip-rail"
+          style={{ flexBasis: `${rails.left}%` }}
+          aria-hidden="true"
+        />
+      ) : null}
+      <div className="flow-strip-field">
         <TugSlotLayout
           ref={layout}
           className="flow-strip-map"
@@ -418,24 +429,22 @@ export function FlowStrip({
           onPointerUp={endScrub}
           onPointerCancel={endScrub}
         />
-        {/* The veils: what the band does not show, dimmed toward the canvas.
-            The bracket below says the same fact as a line; this says it as a
-            difference in brightness, which is what a glance can read. Both
-            rectangles are driven by the bracket's own two numbers, so a strip
+        {/* The veils: what the band does not show, dimmed toward the panel. The
+            plan's own window says the same fact one row up as a bracket; this
+            says it as a difference in brightness, which is what a glance can
+            read. Both rectangles are driven by the same two numbers, so a strip
             inside its band computes them to zero width and the veil is absent
             without anything deciding it should be ([P10]). */}
         <div className="flow-strip-veil flow-strip-veil-leading" aria-hidden="true" />
         <div className="flow-strip-veil flow-strip-veil-trailing" aria-hidden="true" />
-        {/* The band, drawn over the strip. In the DOM at every register so the
-            overflow boundary is a change of appearance rather than of
-            structure ([P10]), and withheld by CSS while the strip fits — a
-            strip wholly on screen has no position to state. */}
-        <div
-          className="flow-strip-band"
-          data-testid="flow-strip-band"
+      </div>
+      {rails?.right !== undefined ? (
+        <span
+          className="flow-strip-rail"
+          style={{ flexBasis: `${rails.right}%` }}
           aria-hidden="true"
         />
-      </div>
+      ) : null}
     </div>
   );
 }

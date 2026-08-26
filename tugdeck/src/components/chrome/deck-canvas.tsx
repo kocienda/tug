@@ -45,7 +45,6 @@ import { CardHost } from "./card-host";
 import { CanvasOverlayRoot } from "./canvas-overlay-root";
 import { OpenQuicklyOverlay } from "./open-quickly-overlay";
 import { DeckCommitBeacon } from "./deck-commit-beacon";
-import { FlowStrip } from "./flow-strip";
 import { TugSlot, type TugSlotState } from "@/components/tugways/tug-slot";
 import { usePaneFocusController } from "./pane-focus-controller";
 import { usePaneOcclusionController } from "./pane-occlusion-controller";
@@ -156,7 +155,7 @@ import {
   railSeamFractions,
   railSeamProperty,
   railSharesFromFractions,
-  IMPOSITION_GAP_BOTTOM_PX,
+  impositionGapBottomPx,
   sidebarWidthProperty,
   type RailMode,
   type SidebarSide,
@@ -607,7 +606,7 @@ function PlaceSeam({
       const run =
         container.getBoundingClientRect().height / zoom -
         IMPOSITION_GAP_PX -
-        IMPOSITION_GAP_BOTTOM_PX;
+        impositionGapBottomPx();
       if (run <= 0) return;
 
       // How far this seam may travel before one of the two members it divides
@@ -701,7 +700,7 @@ function PlaceSeam({
   const centre =
     `calc(${IMPOSITION_GAP_PX}px + var(${seamPropertyOf(place, index)}, ` +
     `${(index + 1) / (fractions.length + 1)})` +
-    ` * (100% - ${IMPOSITION_GAP_PX}px - ${IMPOSITION_GAP_BOTTOM_PX}px))`;
+    ` * (100% - ${IMPOSITION_GAP_PX}px - ${impositionGapBottomPx()}px))`;
 
   return (
     <div
@@ -831,13 +830,6 @@ export function DeckCanvas(_props: DeckCanvasProps) {
   // in this file is load-bearing.
   const flowStrip = useMemo(() => deckFlowStrip(deckState), [deckState]);
   const flowOffset = deckState.flowOffset ?? 0;
-  // The band the strip is seen through, for the rail that draws it ([P10]).
-  // Read here rather than measured in the rail for the reason the strip is
-  // resolved in one place: the deck's one measurement, taken where the store
-  // is at hand, so the rail and the frames can never part company about how
-  // much of the strip is on screen. A commit re-renders the canvas, and the
-  // settled-resize retune commits — so the number follows the window.
-  const flowBandPx = flowStrip === null ? null : store.getFlowBandWidth();
   // The occupied slots and how each one's panes stand — the deck's ONE reading
   // of its columns ([P11]). Declared here for the same reason the strip is: the
   // inset effect below publishes the seam fractions, and the effect order in
@@ -2897,36 +2889,6 @@ export function DeckCanvas(_props: DeckCanvasProps) {
   // see that from its own props.
   const bullseyePaneId = bullseyePaneIdOf(deckState);
 
-  /**
-   * The strip's per-slot looks — which is to say, where the reader's own card
-   * stands in the arrangement, and nothing else.
-   *
-   * The strip draws two different facts and this is the second of them. The
-   * band says where the reader is LOOKING and draws itself in neutral ink;
-   * this says which card the reader is IN, and takes the accent, because that
-   * is a live selection and the accent is what a live selection is for.
-   *
-   * `activePaneId` is the reading of "in" that matters here — the deck's own
-   * active pane, which is what the pane chrome draws its active title bar
-   * from — so the strip and the card agree about which card that is without
-   * either asking the other. Not bullseye: that is a POSTURE a card is put
-   * into, absent almost always, and a mark that only appeared during a
-   * bullseye would say nothing the bullseye had not already said louder.
-   *
-   * A deck whose active pane is a rail, or has none, marks nothing — which is
-   * the honest picture rather than a fallback: the reader is not standing in
-   * any slot of the arrangement.
-   */
-  const flowSlotStates = useMemo((): readonly TugSlotState[] | undefined => {
-    if (impositionKind === undefined) return undefined;
-    const pane = deckState.panes.find((p) => p.id === deckState.activePaneId);
-    if (pane?.slot === undefined) return undefined;
-    const marked = clampSlot(impositionKind, pane.slot);
-    return Array.from({ length: slotCount(impositionKind) }, (_, slot) =>
-      slot === marked ? "filled" : "rest",
-    );
-  }, [impositionKind, deckState]);
-
   // Where the bullseyed pane WAS before it took the posture — its centre, as
   // a CSS length expression, in the frames container's coordinates.
   //
@@ -3373,18 +3335,13 @@ export function DeckCanvas(_props: DeckCanvasProps) {
   // property, the same channel, and the same one-write-at-the-end rule the
   // autoscroll already obeys ([P01], [P12]).
   //
-  // `previewFlowOffset` is the per-frame half. It writes the offset the deck
-  // draws from and publishes it to the instruments, and touches no store —
-  // a commit per frame would arm the settle on every one of them and tween the
-  // strip under the user's hand.
+  // `previewFlowOffset` is the per-frame half, and it is the STORE's: the
+  // Lens's strip scrubs the same quantity onto the same element, so the one
+  // writer lives where both callers can reach it ([P11]). This binds it for
+  // the canvas's own gestures.
   const previewFlowOffset = useCallback(
     (offset: number): void => {
-      const el = containerRef.current;
-      if (el === null) return;
-      const band = store.getFlowBandWidth();
-      if (band === null || band <= 0) return;
-      el.style.setProperty(FLOW_OFFSET_PROPERTY, `${Math.round(offset)}px`);
-      publishFlowOffset(offset / band);
+      store.previewFlowOffset(offset);
     },
     [store],
   );
@@ -3756,24 +3713,6 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           />
         );
       })}
-      {/* The flow strip: the deck's arrangement drawn to scale, and the band
-          over it, in the bottom band the imposition already keeps clear.
-          Mounted whenever there is a strip and a band to report on, and never
-          in fit, where there is no strip to stand in. */}
-      {flowStrip !== null &&
-      flowBandPx !== null &&
-      flowBandPx > 0 &&
-      impositionKind !== undefined ? (
-        <FlowStrip
-          count={slotCount(impositionKind)}
-          strip={flowStrip}
-          band={flowBandPx}
-          states={flowSlotStates}
-          offset={flowOffset}
-          onPreview={previewFlowOffset}
-          onCommit={commitFlowOffset}
-        />
-      ) : null}
       </div>
       {/*
         * CanvasOverlayRoot: single deck-level container for popup-class

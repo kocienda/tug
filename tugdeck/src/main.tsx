@@ -12,6 +12,12 @@ import { DeckManager, type TerminationVerdict } from "./deck-manager";
 import { dispatchAction, initActionDispatch } from "./action-dispatch";
 import type { DeckState } from "./layout-tree";
 import { initHostMenuState } from "./lib/host-menu-state";
+import { getSettings } from "./lib/maker-mode-bridge";
+import {
+  IMPOSITION_GAP_BOTTOM_PROPERTY,
+  impositionGapBottomPx,
+  setImpositionGapBottom,
+} from "./lib/layout-imposer";
 import { initRecentDocuments } from "./lib/recent-documents";
 import { installActivationClickBridge } from "./lib/activation-click-bridge";
 import { installUpdateBridge } from "./lib/update-bridge";
@@ -453,6 +459,21 @@ if (!container) {
   // host, which validates the menu bar from it. See
   // `lib/host-menu-state.ts` for the wire contract.
   initHostMenuState(deck);
+
+  // Settle the imposition's bottom band from the host's build profile. A
+  // maker's canvas reserves depth at the foot for the host's dev-info stamps;
+  // a release build draws none, so it keeps the same air there as at the other
+  // three edges. The fact arrives one round trip after boot, so the deck
+  // re-imposes when it lands and only when the answer differs from the maker
+  // depth every expression already falls back to.
+  void getSettings().then((settings) => {
+    if (!setImpositionGapBottom(settings?.makerMode === true)) return;
+    document.documentElement.style.setProperty(
+      IMPOSITION_GAP_BOTTOM_PROPERTY,
+      `${impositionGapBottomPx()}px`,
+    );
+    deck.retuneSidebarAllocation();
+  });
 
   // Seed the Open Recent list from tugbank and mirror it to the host.
   // After initHostMenuState (the publisher exists) and after tugbank

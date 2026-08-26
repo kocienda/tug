@@ -779,18 +779,61 @@ export const DEFAULT_IMPOSITION_KIND: ImpositionKind = "three-up";
 export const IMPOSITION_GAP_PX = 5;
 
 /**
- * The **bottom** imposition gap, which is deliberately deeper than the other
- * three. A heavier bottom margin than top is as old as the printed page, and
- * an arrangement that reaches the same distance from every edge reads as
- * sinking; the extra depth is what makes it sit.
+ * The **bottom** imposition gap a MAKER's canvas keeps, which is deeper than
+ * the other three because it has a tenant: the host draws a dev-info strip in
+ * the canvas's bottom-left corner — the branch, revision, and build stamps —
+ * 8px above the canvas bottom and about 19px tall. A pane imposed to the
+ * ordinary gap runs straight through it. This depth clears the strip and
+ * leaves one ordinary gap of air above it, so nothing imposed ever collides
+ * with the stamps.
  *
- * It also has to do a job. The host draws a dev-info strip in the canvas's
- * bottom-left corner — the branch, revision, and build stamps — 8px above the
- * canvas bottom and about 19px tall. A pane imposed to the ordinary gap runs
- * straight through it. This depth clears the strip and leaves one ordinary gap
- * of air above it, so nothing imposed ever collides with the stamps.
+ * A release build draws no stamps, so it keeps no band for them: the bottom
+ * gap there is {@link IMPOSITION_GAP_PX}, the same air as the other three
+ * edges. The deeper band was once also read as typography — a heavier bottom
+ * margin than top, as old as the printed page — but the deck is a canvas of
+ * movable frames rather than a page, and a reader who cannot see what the
+ * reserved stripe is for reads it as dead pixels rather than as a margin.
  */
-export const IMPOSITION_GAP_BOTTOM_PX = 32;
+export const IMPOSITION_GAP_BOTTOM_MAKER_PX = 32;
+
+/**
+ * The property the bottom gap crosses into CSS on, so the imposer's emitted
+ * `calc()` strings state the gap ONCE, by name, and a build that keeps a
+ * different band changes it in a single property write rather than in every
+ * expression that mentions it.
+ *
+ * The fallback in every `var()` is the maker depth, which is the safe way
+ * round: a page that never learns its profile keeps the band that clears the
+ * stamps rather than the one that runs through them.
+ */
+export const IMPOSITION_GAP_BOTTOM_PROPERTY = "--tug-imposer-gap-bottom";
+
+let gapBottomPx = IMPOSITION_GAP_BOTTOM_MAKER_PX;
+
+/**
+ * The bottom gap this page imposes to, in px — the numeric twin of
+ * {@link IMPOSITION_GAP_BOTTOM_PROPERTY}, for the arithmetic that cannot go
+ * through CSS: a run height, a seam's travel.
+ */
+export function impositionGapBottomPx(): number {
+  return gapBottomPx;
+}
+
+/**
+ * Settle the bottom gap from the host's build profile. Called once at boot,
+ * when the maker-mode round trip lands; returns whether the gap actually
+ * moved, which is the caller's cue to stamp the property and re-impose.
+ *
+ * It does not touch the document itself: this module resolves geometry and
+ * emits the expressions that read the property, and the one element the
+ * property belongs on is the boot sequence's to name.
+ */
+export function setImpositionGapBottom(makerMode: boolean): boolean {
+  const next = makerMode ? IMPOSITION_GAP_BOTTOM_MAKER_PX : IMPOSITION_GAP_PX;
+  if (next === gapBottomPx) return false;
+  gapBottomPx = next;
+  return true;
+}
 
 /* ---------------------------------------------------------------------------
  * Content width presets
@@ -983,7 +1026,7 @@ export const FLOW_CLIP_SLACK_PX = 32;
  * zero, which is finer than the device pixel the clip lands on.
  */
 const FLOW_CLIP_STEP_GAIN = 1000;
-const GAP_BOTTOM = `${IMPOSITION_GAP_BOTTOM_PX}px`;
+const GAP_BOTTOM = `var(${IMPOSITION_GAP_BOTTOM_PROPERTY}, ${IMPOSITION_GAP_BOTTOM_MAKER_PX}px)`;
 
 /** The CSS custom properties carrying the rail insets (see `deck-canvas.tsx`).
  *  These carry the Lens rail only; the gap is added on top of them here, so the
@@ -1231,7 +1274,7 @@ export function imposeRect(
   const bandWidth = span.width - IMPOSITION_GAP_PX * 2;
   const travel = Math.max(0, bandWidth - slotWidth);
   const offset = travelFraction(placement) * travel;
-  const runHeight = span.height - IMPOSITION_GAP_PX - IMPOSITION_GAP_BOTTOM_PX;
+  const runHeight = span.height - IMPOSITION_GAP_PX - impositionGapBottomPx();
   const width = pinned?.width ?? slotWidth;
   const height = pinned?.height ?? runHeight;
   return {

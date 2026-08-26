@@ -503,8 +503,8 @@ Modal scope is the Pane stacking context, not the canvas-overlay tier — pickin
 | `tugdeck/src/components/lens/layout-places.tsx` | `LayoutPlaces` — each place's stored arrangement, marked on the drawing and pressable |
 | `tugdeck/src/lib/imposer-gauges.ts` | The gauge channel: register an element for a signal, publish the deck's live fractions onto it — motion without a render |
 | `tugdeck/src/components/lens/layout-miniature.tsx` | `LayoutMiniature` — the deck drawn small, rails stacked or divided; live on the gauge channel when committed |
-| `tugdeck/src/components/chrome/flow-strip.tsx` | `FlowStrip` — the deck's arrangement drawn to scale in the bottom band, the band bracket over it, and the click and scrub that move the strip |
-| `tugdeck/src/components/chrome/flow-strip.css` | The strip's seating and its two registers, and the drag gate that takes it out of the pointer's way |
+| `tugdeck/src/components/lens/flow-strip.tsx` | `FlowStrip` — the deck's arrangement drawn to scale under the Lens Layout section's plan, the veils over what the band does not show, and the click and scrub that move the strip |
+| `tugdeck/src/components/lens/flow-strip.css` | The plan's box restated so the strip's field is the plan's field, the strip's two registers, and the drag gate that takes it out of the pointer's way |
 | `tugdeck/src/components/lens/slot-picker.tsx` | `SlotPicker` — a Lens row's window onto the arrangement: the card's place in the middle, a neighbour each side, the whole run behind the middle press |
 | `tugdeck/src/components/tugways/tug-slot-layout.tsx` | `TugSlotLayout` — a run of slots in three projections: the run, the scaled map the flow strip is, and the window a Lens row is |
 | `tugdeck/src/lib/slot-window-pref.ts` | How many places a Lens row shows around its own — three or five, the reader's, persisted through tugbank |

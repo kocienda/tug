@@ -100,6 +100,18 @@ export interface IDeckManagerStore {
   setFlowOffset: (offset: number) => void;
 
   /**
+   * Draw the deck at a flow offset without committing it — the per-frame half
+   * of a scrub, and the one writer of it ([P11]). It writes the property the
+   * imposed frames read and publishes the fraction the instruments read, and
+   * touches no state at all.
+   *
+   * On the store rather than in the canvas because the strip that scrubs is in
+   * the LENS while the element the offset is written on is the canvas's: two
+   * implementations would be two clamps and two chances to disagree.
+   */
+  previewFlowOffset: (offset: number) => void;
+
+  /**
    * Stable bound callback: update a pane frame's position/size on drag-end /
    * resize-end. The frame that gets dragged is the chrome shell; individual
    * cards within it share the pane's position.

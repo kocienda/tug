@@ -1,7 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
 import {
-  IMPOSITION_GAP_BOTTOM_PX,
+  IMPOSITION_GAP_BOTTOM_MAKER_PX,
+  IMPOSITION_GAP_BOTTOM_PROPERTY,
+  impositionGapBottomPx,
+  setImpositionGapBottom,
   IMPOSITION_GAP_PX,
   IMPOSITION_KINDS,
   clampSlot,
@@ -39,6 +42,10 @@ import {
 } from "@/lib/layout-imposer";
 
 const GAP = IMPOSITION_GAP_PX;
+/** How the emitted expressions spell the bottom gap: the property, with the
+ *  maker depth as its fallback. Stated once here, as it is stated once in the
+ *  imposer, so a build that keeps a different band changes neither. */
+const GAP_BOTTOM = `var(${IMPOSITION_GAP_BOTTOM_PROPERTY}, ${IMPOSITION_GAP_BOTTOM_MAKER_PX}px)`;
 
 /**
  * A rail policy with no comfort band above its hard floor — `comfortWidth`
@@ -157,11 +164,25 @@ describe("gaps", () => {
     expect(IMPOSITION_GAP_PX).toBe(5);
   });
 
-  test("the bottom gap is deeper, and clears the dev-info strip", () => {
+  test("a maker's bottom gap is deeper, and clears the dev-info strip", () => {
     // The strip sits 8px above the canvas bottom and stands about 19px tall.
     // The bottom gap has to clear that and still leave an ordinary gap of air.
-    expect(IMPOSITION_GAP_BOTTOM_PX).toBeGreaterThanOrEqual(8 + 19 + GAP);
-    expect(IMPOSITION_GAP_BOTTOM_PX).toBeGreaterThan(IMPOSITION_GAP_PX);
+    expect(IMPOSITION_GAP_BOTTOM_MAKER_PX).toBeGreaterThanOrEqual(8 + 19 + GAP);
+    expect(IMPOSITION_GAP_BOTTOM_MAKER_PX).toBeGreaterThan(IMPOSITION_GAP_PX);
+  });
+
+  test("the maker depth is what an unsettled page imposes to", () => {
+    expect(impositionGapBottomPx()).toBe(IMPOSITION_GAP_BOTTOM_MAKER_PX);
+  });
+
+  test("a release build keeps the same air at the foot as at the sides", () => {
+    expect(setImpositionGapBottom(false)).toBe(true);
+    expect(impositionGapBottomPx()).toBe(IMPOSITION_GAP_PX);
+    // Settling twice to the same answer is not a change, so it asks for no
+    // re-imposition.
+    expect(setImpositionGapBottom(false)).toBe(false);
+    expect(setImpositionGapBottom(true)).toBe(true);
+    expect(impositionGapBottomPx()).toBe(IMPOSITION_GAP_BOTTOM_MAKER_PX);
   });
 });
 
@@ -400,7 +421,7 @@ describe("imposeRect", () => {
     const rect = imposeRect(at(0, 2), 321, LENS_LEFT);
     expect(rect.position.y).toBe(IMPOSITION_GAP_PX);
     expect(rect.size.height).toBe(
-      LENS_LEFT.height - IMPOSITION_GAP_PX - IMPOSITION_GAP_BOTTOM_PX,
+      LENS_LEFT.height - IMPOSITION_GAP_PX - impositionGapBottomPx(),
     );
   });
 
@@ -423,7 +444,7 @@ describe("imposeStyle", () => {
       width: "300px",
       height: "auto",
       top: "5px",
-      bottom: "32px",
+      bottom: GAP_BOTTOM,
       left:
         "calc(0% + var(--tug-imposer-inset-left, 0px) + 5px + " +
         `1 * max(0px, ${BAND} - 300px))`,
@@ -463,7 +484,7 @@ describe("imposeStyle", () => {
     const style = imposeStyle(at(0, 3), 800, { height: 360 });
     expect(style.height).toBe("360px");
     expect(style.bottom).toBeUndefined();
-    expect(style.top).toBe("calc(5px + max(0px, (100% - 5px - 32px - 360px) / 2))");
+    expect(style.top).toBe(`calc(5px + max(0px, (100% - 5px - ${GAP_BOTTOM} - 360px) / 2))`);
   });
 
   // The whole point of the slot/frame split: the travel is computed from the
@@ -540,7 +561,7 @@ describe("imposeSidebarStyle", () => {
       top: "5px",
       "--tugx-lens-rail": 0,
       left: pinOf("left"),
-      bottom: "32px",
+      bottom: GAP_BOTTOM,
     });
     expect(imposeSidebarStyle("right", 420) as Record<string, unknown>).toEqual({
       width: widthOf("right"),
@@ -548,7 +569,7 @@ describe("imposeSidebarStyle", () => {
       top: "5px",
       "--tugx-lens-rail": 1,
       left: pinOf("right"),
-      bottom: "32px",
+      bottom: GAP_BOTTOM,
     });
   });
 
@@ -612,7 +633,7 @@ describe("a stacked rail's members are geometrically identical", () => {
     for (const side of ["left", "right"] as const) {
       const style = imposeSidebarStyle(side, 420);
       expect(style.top).toBe("5px");
-      expect(style.bottom).toBe("32px");
+      expect(style.bottom).toBe(GAP_BOTTOM);
     }
   });
 
@@ -646,7 +667,7 @@ describe("a stacked rail's members are geometrically identical", () => {
 });
 
 describe("a split rail divides the run between its members", () => {
-  const RUN = "(100% - 5px - 32px)";
+  const RUN = `(100% - 5px - ${GAP_BOTTOM})`;
   const seam = (side: "left" | "right", j: number, fallback: number): string =>
     `var(--tug-rail-${side}-seam-${j}, ${fallback})`;
   const split = (side: "left" | "right", index: number, count: number) =>
@@ -657,12 +678,12 @@ describe("a split rail divides the run between its members", () => {
     const bottom = split("right", 1, 2);
     expect(top.top).toBe("5px");
     expect(top.bottom).toBe(
-      `calc(32px + (1 - ${seam("right", 0, 0.5)}) * ${RUN} + 2.5px)`,
+      `calc(${GAP_BOTTOM} + (1 - ${seam("right", 0, 0.5)}) * ${RUN} + 2.5px)`,
     );
     expect(bottom.top).toBe(
       `calc(5px + ${seam("right", 0, 0.5)} * ${RUN} + 2.5px)`,
     );
-    expect(bottom.bottom).toBe("32px");
+    expect(bottom.bottom).toBe(GAP_BOTTOM);
   });
 
   test("a middle member is pinned to the seams either side of it", () => {
@@ -671,7 +692,7 @@ describe("a split rail divides the run between its members", () => {
       `calc(5px + ${seam("left", 0, 1 / 3)} * ${RUN} + 2.5px)`,
     );
     expect(middle.bottom).toBe(
-      `calc(32px + (1 - ${seam("left", 1, 2 / 3)}) * ${RUN} + 2.5px)`,
+      `calc(${GAP_BOTTOM} + (1 - ${seam("left", 1, 2 / 3)}) * ${RUN} + 2.5px)`,
     );
   });
 
@@ -680,7 +701,7 @@ describe("a split rail divides the run between its members", () => {
     // first member's top and the last member's bottom land on the pixel.
     for (const count of [2, 3, 4]) {
       expect(split("right", 0, count).top).toBe("5px");
-      expect(split("right", count - 1, count).bottom).toBe("32px");
+      expect(split("right", count - 1, count).bottom).toBe(GAP_BOTTOM);
     }
   });
 

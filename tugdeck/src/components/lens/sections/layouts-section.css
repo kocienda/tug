@@ -4,6 +4,22 @@
 
 /* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
 .layouts-section {
+  /* The drawing's width, declared once and read by everything that has to land
+     on the drawing: the drawing itself, the places overlay standing on it, and
+     the strip standing under it. Several literals would be one drift away from
+     an overlay beside the picture and a strip out of register with it.
+
+     It is declared on the SECTION rather than on the figure because the strip
+     is the figure's sibling: it stands outside the figure so the places
+     overlay, which is anchored to the figure's bottom edge, does not land its
+     marks on the numbers.
+
+     Sized so a six-up arrangement's blocks still read as separate cards — the
+     drawing's densest case — and so a place's mark has a pressable target at
+     the foot of a block rather than a speck. 300 fits the Lens at its
+     `MIN_LENS_WIDTH_PX` floor (320) inside this section's own padding. */
+  --tugx-layouts-plan-mini-width: 300px;
+
   font-family: var(--tug-font-family-sans);
   color: var(--tug7-element-global-text-normal-default-rest);
   display: flex;
@@ -27,21 +43,22 @@
    overlay positions against this rather than against the plan, because the plan
    is `aria-hidden` and an overlay inside it would hide its own buttons from
    assistive technology along with the picture. */
+/* The plate: the drawing, the marks on it, and the numbered strip under it,
+   as one block. Its own gap is tighter than the section's, because the strip
+   is the plan's legend — the air between a picture and its legend has to read
+   as smaller than the air between that pair and the rows below. */
+.layouts-plate {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+}
+
 .layouts-figure {
   position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
-
-  /* The drawing's width, declared once and read by the drawing and by the
-     overlay that has to land on it. Two literals would be one drift away from
-     an overlay standing beside the picture instead of on it.
-
-     Sized so a six-up arrangement's blocks still read as separate cards — the
-     drawing's densest case — and so a place's mark has a pressable target at
-     the foot of a block rather than a speck. 300 fits the Lens at its
-     `MIN_LENS_WIDTH_PX` floor (320) inside this section's own padding. */
-  --tugx-layouts-plan-mini-width: 300px;
 }
 
 .layouts-plan {

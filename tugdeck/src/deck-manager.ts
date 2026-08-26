@@ -62,6 +62,7 @@ import {
 import { getTugbankClient } from "./lib/tugbank-singleton";
 import { lensStore } from "./lib/lens-store/lens-store";
 import { sidebarWidthStore } from "./lib/sidebar-width-store";
+import { publishFlowOffset } from "./lib/imposer-gauges";
 import { MIN_LENS_WIDTH_PX } from "./lib/lens-store/types";
 import { TugConnection } from "./connection";
 import React from "react";
@@ -108,7 +109,8 @@ import {
   firstVisibleFlowSlot,
   flowRevealOffset,
   impositionLayout,
-  IMPOSITION_GAP_BOTTOM_PX,
+  FLOW_OFFSET_PROPERTY,
+  impositionGapBottomPx,
   IMPOSITION_GAP_PX,
   stripRevealOffset,
   railModeOf,
@@ -2586,9 +2588,7 @@ export class DeckManager implements IDeckManagerStore {
    */
   private _columnRunHeight(): number {
     return (
-      this.container.clientHeight -
-      IMPOSITION_GAP_PX -
-      IMPOSITION_GAP_BOTTOM_PX
+      this.container.clientHeight - IMPOSITION_GAP_PX - impositionGapBottomPx()
     );
   }
 
@@ -2763,6 +2763,30 @@ export class DeckManager implements IDeckManagerStore {
       columnOffsets: { ...this.deckState.columnOffsets, [slot]: clamped },
     };
     this.notify("setColumnOffset");
+  }
+
+  /**
+   * Draw the deck at `offset` without committing it — the per-frame half of a
+   * flow gesture, and the one writer of it ([P11]).
+   *
+   * It lives on the store rather than in the canvas because the strip that
+   * scrubs is in the LENS and the element the offset is written on is the
+   * canvas's: a second implementation on the Lens's side would be a second
+   * clamp, a second property, and a second chance to disagree. The store
+   * already holds the container it measures the band off, so it is the one
+   * place both gestures can reach.
+   *
+   * It touches no state and notifies nothing — a commit per frame would arm
+   * the settle on every one of them and tween the deck under the user's hand.
+   */
+  previewFlowOffset(offset: number): void {
+    const band = this.getFlowBandWidth();
+    if (band === null || band <= 0) return;
+    this.container.style.setProperty(
+      FLOW_OFFSET_PROPERTY,
+      `${Math.round(offset)}px`,
+    );
+    publishFlowOffset(offset / band);
   }
 
   /** The flow strip's twin of {@link setColumnOffset} — the same one-write-at-

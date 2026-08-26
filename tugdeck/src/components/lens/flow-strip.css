@@ -1,0 +1,130 @@
+/**
+ * flow-strip.css — where the strip's drawing stands, and how loudly it speaks.
+ *
+ * The segments are `TugSlot`s and bring their own ink, their own shape and
+ * their own state paints ([L20] — this file sets no colour on them). What is
+ * left is three things: the plan's box restated so the map lands under the
+ * picture, the veils over what the band does not show, and the register change
+ * that overflow makes.
+ *
+ * **The box is `.layout-mini`'s, restated** — the same 3px padding, the same
+ * 2px gap, the same 1px border occupying space as a transparent one, and the
+ * rails as flex children sized by the same basis. This is the second file to
+ * restate it (`layout-places.css` is the first), for the same reason and with
+ * the same obligation: any of those three lengths changing in
+ * `layout-miniature.css` must change here in the same commit. They are one box
+ * described three times because one element cannot both paint the deck, take a
+ * press for each of its places, and number them.
+ *
+ * The strip stands on the LENS's own panel, not on the deck canvas, and that is
+ * the whole of what changed about its ink when it moved. In the canvas the
+ * segments had to hand in card-family tokens by name: a `TugSlot`'s own tokens
+ * name a control on a control surface, and the canvas is a dark ground in every
+ * theme — the light families included — so control ink authored for a light
+ * control surface disappeared on it. Measured in `harmony`, a segment's text
+ * was l:420 on an l:380 canvas: the whole drawing was there and none of it was
+ * legible. Here the strip renders on the panel the slot's tokens were authored
+ * against, so it hands in nothing and the primitive is simply itself.
+ *
+ * @tug-pairings
+ * | Element                                              | Surface                                            | Role          | Context           |
+ * |------------------------------------------------------|----------------------------------------------------|---------------|-------------------|
+ * | --tug7-surface-global-primary-normal-default-rest     | --tug7-surface-global-primary-normal-default-rest   | informational | .flow-strip-veil |
+ */
+
+/* The plan's box, restated. The transparent border is not decoration — it is
+   the drawing's 1px border occupying the same space, so both content boxes
+   start at the same offset. Centred under the plan at the plan's own width, so
+   a segment lands directly beneath the block that is the same card. */
+.flow-strip {
+  display: flex;
+  gap: 2px;
+  inline-size: var(--tugx-layouts-plan-mini-width);
+  margin-inline: auto;
+  padding-inline: 3px;
+  box-sizing: border-box;
+  border-inline: 1px solid transparent;
+}
+
+/* One side's room. It draws nothing: the plan above already drew the rail, and
+   a rail is not a place in the flow chain. What it is for is taking the same
+   width the drawing's rail took, so the field beside it is the drawing's
+   field. */
+.flow-strip-rail {
+  flex: 0 0 auto;
+}
+
+/* The run the segments are drawn across — everything the rails have not taken,
+   exactly as in the drawing. The map is absolutely placed inside it and the
+   veils stand over it, so it is their containing block. */
+.flow-strip-field {
+  position: relative;
+  flex: 1 1 auto;
+  min-inline-size: 0;
+}
+
+/**
+ * The quiet register, and the whole of the difference between the two.
+ *
+ * A strip that fits its band has nowhere else to be, so the drawing is a
+ * statement of what there is rather than of where you are: it steps back. When
+ * the strip overflows it comes forward, and the veils — which compute to zero
+ * width while it fits — have something to say. No element mounts or unmounts on
+ * that boundary ([P10]); only how loudly the same elements speak.
+ */
+.flow-strip[data-overflow="false"] .flow-strip-map {
+  opacity: 0.8;
+}
+
+/* While a card is being dragged the deck is drop-zone country and the Lens
+   steps out of the pointer's way with it. The channel stamps the drag on every
+   registered element, so the gate is a selector rather than a decision anyone
+   has to make in JS. */
+.flow-strip[data-gauge-drag] {
+  pointer-events: none;
+}
+
+/* ── The veils, over what the band does not show ──────────────────────────
+   What is on screen is said by the plan's window, one row up, and a hairline is
+   not enough to say it twice over: a reader glancing at the numbers could not
+   tell the three segments inside the band from the one beyond it without
+   tracing a 1px line across the picture above. So the same fact is said here,
+   and this way is the loud one — the parts of the strip the band does NOT show
+   are veiled in the panel's own colour, so what is in view is simply the bright
+   part.
+
+   Two rectangles, both driven by the same two numbers the plan's window is
+   driven by (`--flow-strip-offset` and `--flow-strip-band-share`), which is why
+   they can never disagree with it or with each other. Continuous, like the
+   window: a segment half inside the band is half veiled, which is the truth a
+   per-slot threshold could not tell.
+
+   No boundary case. A strip inside its band has offset 0 and share 1, so both
+   rectangles compute to zero width and the veil is absent without anything
+   deciding it should be — the quiet register there is the map's own opacity.
+
+   Panel ink, not a shadow: veiling toward the ground the strip stands on makes
+   the covered part read as further away rather than as differently coloured,
+   which is the whole of what it has to say. */
+.flow-strip-veil {
+  /* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
+  position: absolute;
+  inset-block: -2px;
+  background-color: var(--tug7-surface-global-primary-normal-default-rest);
+  opacity: var(--flow-strip-veil-opacity, 0.62);
+  /* A readout drawn over the segments: a hand aiming at a card must not be
+     caught by the picture of where the reader already is. */
+  pointer-events: none;
+}
+
+.flow-strip-veil-leading {
+  left: 0;
+  width: calc(var(--flow-strip-offset, 0) * 100%);
+}
+
+.flow-strip-veil-trailing {
+  left: calc(
+    (var(--flow-strip-offset, 0) + var(--flow-strip-band-share, 1)) * 100%
+  );
+  right: 0;
+}

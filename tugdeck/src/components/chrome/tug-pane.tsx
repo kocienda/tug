@@ -80,7 +80,6 @@ import {
   type RailMode,
   type SidebarSide,
   IMPOSITION_GAP_PX,
-  IMPOSITION_GAP_BOTTOM_PX,
   readSettleMs,
   type ImposedPlacement,
   CONTENT_WIDTH_PRESETS,

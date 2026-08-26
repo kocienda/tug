@@ -69,7 +69,15 @@ const TEST_TIMEOUT_MS = 90_000;
 
 /** The imposition gaps (`lib/layout-imposer.ts`). */
 const GAP = 5;
-const GAP_BOTTOM = 32;
+/**
+ * The bottom gap, which is the profile's rather than a constant. A maker's
+ * canvas reserves `IMPOSITION_GAP_BOTTOM_MAKER_PX` at the foot for the host's
+ * dev-info stamps; a release build draws none and keeps the ordinary gap
+ * there. The app-test harness always reports maker mode OFF
+ * (`AppDelegate.makerModeEnabled`), so the geometry under test is the release
+ * one.
+ */
+const GAP_BOTTOM = GAP;
 /** Every sidebar registration declares this floor; the seam clamp reads it. */
 const MEMBER_MIN_HEIGHT = 240;
 /** Geometry tolerance: sub-pixel layout rounding, never a real disagreement. */

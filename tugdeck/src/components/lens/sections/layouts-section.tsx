@@ -110,6 +110,10 @@ import type {
   MiniatureRails,
 } from "@/components/lens/layout-miniature";
 import { LayoutPlaces } from "@/components/lens/layout-places";
+import { FlowStrip } from "@/components/lens/flow-strip";
+import { miniatureGeometry } from "@/components/lens/layout-miniature";
+import { flashSlot } from "@/lib/flash-pane-border";
+import type { TugSlotState } from "@/components/tugways/tug-slot";
 import type { LayoutPlace } from "@/components/lens/layout-places";
 import { dispatchCommand } from "@/command-dispatch";
 import { getAllRegistrations } from "@/card-registry";
@@ -129,6 +133,7 @@ import {
   isSidebarSide,
   railModeOf,
   sidebarSide,
+  clampSlot,
   slotCount,
   DEFAULT_CONTENT_WIDTH,
   DEFAULT_IMPOSITION_KIND,
@@ -138,6 +143,7 @@ import {
   type ImpositionKind,
   type ColumnMode,
   type ImpositionLayout,
+  type FlowStrip as FlowStripModel,
   type RailMode,
   type SidebarSide,
 } from "@/lib/layout-imposer";
@@ -211,6 +217,7 @@ const LAYOUTS_FIRST_SIDEBAR_ROW_FOCUS_ORDER = 3;
  *  ([Q12]) and the engine resolves a key to exactly one stop, leaving the other
  *  unreachable by any addressed placement. */
 const LAYOUTS_PLACES_FOCUS_ORDER = 20;
+
 
 /** User-facing label for each kind. */
 const KIND_LABELS: Record<ImpositionKind, string> = {
@@ -445,6 +452,79 @@ function useCommittedColumnOffsets(): Readonly<
   }, [deck, store]);
 }
 
+/**
+ * Everything the {@link FlowStrip} under the plan needs, or `null` when there
+ * is no strip to draw — fit, or a deck with no band to measure against.
+ *
+ * The strip comes from `deckFlowStrip`, the deck's ONE resolution of it
+ * ([P09]) — the same call {@link useCommittedFlow} makes for the picture — so
+ * the numbers and the picture cannot part company.
+ *
+ * `states` is where the reader's own card is marked, and it is the one place
+ * on the strip the accent is spent. `activePaneId` is the reading of "in"
+ * that matters: it is what the pane chrome draws its active title bar from,
+ * so the strip and the card agree about which card that is without either
+ * asking the other. Not bullseye — that is a POSTURE a card is put into,
+ * absent almost always, and a mark that only appeared during one would say
+ * nothing the bullseye had not already said louder.
+ *
+ * **When the active pane holds no slot, the mark falls back to the FRONTMOST
+ * pane that does**, and that fallback is what makes the instrument usable
+ * where it now lives. In the canvas the strip could say "you are in no slot"
+ * honestly, because a reader standing in a rail was a rare state. Standing in
+ * the Lens is not rare — pressing the strip itself activates the Lens pane —
+ * so a mark derived from the live active pane alone went blank the instant a
+ * hand touched the thing it was marking on. The frontmost slotted pane is the
+ * card the reader was in before they stepped into the panel, which is what
+ * they mean by "my card" while they are looking at the picture of the deck.
+ * Panes are z-ordered by array position, end highest, so the frontmost is the
+ * last one carrying a slot.
+ *
+ * A deck with no slotted pane at all marks nothing, which is the honest
+ * picture: there is no card in the arrangement to be in.
+ */
+function useFlowInstrument(): {
+  count: number;
+  strip: FlowStripModel;
+  band: number;
+  offset: number;
+  states: readonly TugSlotState[] | undefined;
+} | null {
+  const deck = useDeck();
+  const store = getDeckStore();
+  return useMemo(() => {
+    if (deck === null || store === null) return null;
+    const kind = deck.imposition.kind;
+    if (kind === undefined) return null;
+    const strip = deckFlowStrip(deck);
+    if (strip === null) return null;
+    const band = store.getFlowBandWidth();
+    if (band === null || band <= 0) return null;
+    const count = slotCount(kind);
+    const active = deck.panes.find((p) => p.id === deck.activePaneId);
+    const standing =
+      active?.slot !== undefined
+        ? active
+        : [...deck.panes].reverse().find((p) => p.slot !== undefined);
+    const marked =
+      standing?.slot === undefined
+        ? undefined
+        : clampSlot(kind, standing.slot);
+    return {
+      count,
+      strip,
+      band,
+      offset: deck.flowOffset ?? 0,
+      states:
+        marked === undefined
+          ? undefined
+          : Array.from({ length: count }, (_, slot) =>
+              slot === marked ? "filled" : "rest",
+            ),
+    };
+  }, [deck, store]);
+}
+
 /** Live collapsed summary: the active kind's label. The side is not summarized
  *  — the band has room for one fact and the arrangement is it. */
 function LayoutsCollapsedSummary(): React.ReactElement {
@@ -581,6 +661,55 @@ function LayoutsSectionBody({
   // The committed drawing alone gets the live strip; every preview layer below
   // draws at rest ([P06]).
   const committedFlow = useCommittedFlow();
+  // The numbered strip that stands under the plan — the deck's arrangement as
+  // something you can read a place off and press.
+  const flowInstrument = useFlowInstrument();
+  // The room the plan's rails take, so the strip's field is the plan's field
+  // and a segment lands under the block that is the same card. The same
+  // arithmetic the drawing consumes, asked once more rather than approximated
+  // — a second derivation would be off by the padding and the gap at every
+  // size, which is the drift `miniatureGeometry` exists to make impossible.
+  const stripGeometry = useMemo(() => {
+    const geometry = miniatureGeometry({
+      kind,
+      rails,
+      width: contentWidth,
+      layout,
+      flow:
+        committedFlow === null
+          ? null
+          : {
+              bandPx: committedFlow.bandPx,
+              stripPx: committedFlow.stripPx,
+              slots: committedFlow.slots,
+            },
+    });
+    const basis: Partial<Record<SidebarSide, number>> = {};
+    for (const side of SIDES) {
+      const rail = geometry.rails[side];
+      if (rail !== undefined) basis[side] = rail.basisPct;
+    }
+    return { basis, seam: geometry.flow.seamPct / 100 };
+  }, [kind, rails, contentWidth, layout, committedFlow]);
+
+  // The strip's two writes, and the only place this section touches the deck
+  // store rather than the command funnel. That is deliberate and narrow: a
+  // scrub is per-frame appearance, which has no command to be ([L06]), and
+  // the commit that follows it has to land the exact number the previews were
+  // drawing. Both go through the store's own one writer ([P11]), so the Lens's
+  // strip and the canvas's wheel cannot come to different answers.
+  const previewFlow = useCallback((offset: number): void => {
+    getDeckStore()?.previewFlowOffset(offset);
+  }, []);
+
+  // The slot the gesture NAMED is what the deck rings — a gesture that points
+  // at a place gets the same answer the Center Card chord gets.
+  const commitFlow = useCallback((offset: number, named: number): void => {
+    const store = getDeckStore();
+    if (store === null) return;
+    store.setFlowOffset(offset);
+    flashSlot(store, named);
+  }, []);
   const committedColumnOffsets = useCommittedColumnOffsets();
   // The arrangeable places, for the overlay that draws them on the picture:
   // EVERY slot the kind defines, occupied or not, each carrying its STORED
@@ -964,7 +1093,13 @@ function LayoutsSectionBody({
             No pointer handlers here, and nothing watching for a cursor: the
             marks are buttons rather than auditions, so neither the hand nor the
             ring asks the plan for anything while it is on the picture. */}
-        <div className="layouts-figure">
+      {/* The plate: the drawing and its legend, as one block. They are held
+          together here rather than left to the section's own rhythm because
+          the strip is the plan's legend and reads as one thing with it — the
+          air between them has to be smaller than the air between the plate
+          and the rows below. */}
+      <div className="layouts-plate">
+      <div className="layouts-figure">
         <div
           className="layouts-plan"
           data-testid="lens-layouts-plan"
@@ -1051,7 +1186,32 @@ function LayoutsSectionBody({
           focusGroup={host.focusGroup}
           focusOrder={LAYOUTS_PLACES_FOCUS_ORDER}
         />
-        </div>
+      </div>
+
+      {/* The strip: the plan's legend, at the plan's own geometry. The
+          picture above draws which places there are and which of them the
+          band is over; only this says WHICH place is which, and only this
+          takes a press that moves the deck. It stands beside the figure
+          rather than inside it because the places overlay is anchored to the
+          figure's bottom edge, and a sibling inside it would put the marks on
+          the numbers.
+
+          Mounted whenever there is a strip and a band to report on, and never
+          in fit, where there is no strip to stand in. */}
+      {flowInstrument !== null ? (
+        <FlowStrip
+          count={flowInstrument.count}
+          strip={flowInstrument.strip}
+          band={flowInstrument.band}
+          rails={stripGeometry.basis}
+          seam={stripGeometry.seam}
+          states={flowInstrument.states}
+          offset={flowInstrument.offset}
+          onPreview={previewFlow}
+          onCommit={commitFlow}
+        />
+      ) : null}
+      </div>
 
         <div className="layouts-section-rows" ref={rowsRef}>
           <div className="layouts-section-row" data-preview-axis="kind">

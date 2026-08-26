@@ -37,6 +37,8 @@ import {
   columnStanding,
   effectiveColumnOrder,
   flowRevealOffset,
+  IMPOSITION_GAP_BOTTOM_MAKER_PX,
+  IMPOSITION_GAP_BOTTOM_PROPERTY,
   imposeStyle,
   isColumnMode,
   stripRevealOffset,
@@ -49,6 +51,10 @@ import {
   withoutColumnShares,
   type DeckImposition,
 } from "@/lib/layout-imposer";
+
+/** How the emitted expressions spell the bottom gap: the property, with the
+ *  maker depth as its fallback. */
+const GAP_BOTTOM = `var(${IMPOSITION_GAP_BOTTOM_PROPERTY}, ${IMPOSITION_GAP_BOTTOM_MAKER_PX}px)`;
 
 /** A bare imposition — no columns, which is what every deck was before a slot
  *  could be divided. */
@@ -292,7 +298,7 @@ describe("columnMemberPins", () => {
   test("an absent member takes the undivided run", () => {
     expect(columnMemberPins(undefined)).toEqual({
       top: "5px",
-      bottom: "32px",
+      bottom: GAP_BOTTOM,
     });
   });
 
@@ -312,7 +318,7 @@ describe("columnMemberPins", () => {
     const first = columnMemberPins({ slot: 0, index: 0, count: 2 });
     const last = columnMemberPins({ slot: 0, index: 1, count: 2 });
     expect(first.top).toBe("5px");
-    expect(last.bottom).toBe("32px");
+    expect(last.bottom).toBe(GAP_BOTTOM);
     expect(first.bottom).toContain("--tug-slot-0-seam-0");
     expect(last.top).toContain("--tug-slot-0-seam-0");
   });
@@ -336,7 +342,7 @@ describe("columnMemberPins", () => {
 });
 
 describe("a column of three or more overflows instead of dividing", () => {
-  const RUN = "(100% - 5px - 32px)";
+  const RUN = `(100% - 5px - ${GAP_BOTTOM})`;
   const MEMBER = `(${RUN} / 2.5)`;
   const strip = (count: number): string =>
     `(${count} * ${MEMBER} + ${(count - 1) * 5}px)`;
@@ -459,7 +465,7 @@ describe("imposeStyle takes a column member", () => {
     expect(member.left).toBe(whole.left);
     expect(member.width).toBe(whole.width);
     expect(member.top).toContain("--tug-slot-1-seam-0");
-    expect(member.bottom).toBe("32px");
+    expect(member.bottom).toBe(GAP_BOTTOM);
   });
 
   test("a size-locked card centres inside its member's run, not the whole one", () => {
