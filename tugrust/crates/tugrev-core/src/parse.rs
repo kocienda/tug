@@ -221,9 +221,9 @@ fn parse_op(scanner: &mut Scanner, indent: usize) -> Result<Op, ParseError> {
 
     let kind = match word.as_str() {
         "replace" => {
-            let find = parse_text(scanner, indent)?;
+            let find = parse_text(scanner, indent, &CONTINUES_WITH)?;
             scanner.expect_word("with")?;
-            let with = parse_text(scanner, indent)?;
+            let with = parse_text(scanner, indent, &CONTINUES_TAIL)?;
             let count = parse_count(scanner)?;
             let scope = parse_scope(scanner)?;
             OpKind::Replace {
@@ -259,7 +259,7 @@ fn parse_op(scanner: &mut Scanner, indent: usize) -> Result<Op, ParseError> {
             } else {
                 false
             };
-            let body = parse_body(scanner, indent)?;
+            let body = parse_body(scanner, indent, &[])?;
             OpKind::Insert {
                 anchor,
                 side,
@@ -268,7 +268,7 @@ fn parse_op(scanner: &mut Scanner, indent: usize) -> Result<Op, ParseError> {
             }
         }
         "append" => OpKind::Append {
-            body: parse_body(scanner, indent)?,
+            body: parse_body(scanner, indent, &[])?,
         },
         "delete" => {
             if scanner.peek_word().as_deref() == Some("every") {
@@ -285,7 +285,7 @@ fn parse_op(scanner: &mut Scanner, indent: usize) -> Result<Op, ParseError> {
         "lines" => {
             let range = parse_range(scanner)?;
             scanner.expect_word("replace")?;
-            let body = parse_body(scanner, indent)?;
+            let body = parse_body(scanner, indent, &[])?;
             OpKind::Lines { range, body }
         }
         "move" => {
@@ -310,10 +310,10 @@ fn parse_op(scanner: &mut Scanner, indent: usize) -> Result<Op, ParseError> {
             }
         }
         "create" => OpKind::Create {
-            body: parse_body(scanner, indent)?,
+            body: parse_body(scanner, indent, &[])?,
         },
         "write" => OpKind::Write {
-            body: parse_body(scanner, indent)?,
+            body: parse_body(scanner, indent, &[])?,
         },
         other => {
             return Err(scanner.error_at(line, at + 1, format!("unknown op `{other}`")));
@@ -324,22 +324,38 @@ fn parse_op(scanner: &mut Scanner, indent: usize) -> Result<Op, ParseError> {
     Ok(Op { line, kind })
 }
 
-fn parse_text(scanner: &mut Scanner, indent: usize) -> Result<Text, ParseError> {
+/// What may follow the `>>` closing a `replace`'s first body: the `with` that
+/// introduces its second.
+const CONTINUES_WITH: [&str; 1] = ["with"];
+
+/// What may follow the `>>` closing a `replace`'s second body: the count guard
+/// and the `in` scope, both optional and both tail of the op.
+const CONTINUES_TAIL: [&str; 3] = ["all", "expect", "in"];
+
+fn parse_text(
+    scanner: &mut Scanner,
+    indent: usize,
+    continues: &[&str],
+) -> Result<Text, ParseError> {
     scanner.skip_spaces();
     match scanner.peek() {
         Some('\'') | Some('"') => Ok(Text::Str(scanner.read_quoted()?)),
-        Some('<') => Ok(Text::Body(parse_body(scanner, indent)?)),
+        Some('<') => Ok(Text::Body(parse_body(scanner, indent, continues)?)),
         _ => Err(scanner.error("expected a quoted string or a `<<` body")),
     }
 }
 
-fn parse_body(scanner: &mut Scanner, indent: usize) -> Result<Vec<String>, ParseError> {
+fn parse_body(
+    scanner: &mut Scanner,
+    indent: usize,
+    continues: &[&str],
+) -> Result<Vec<String>, ParseError> {
     scanner.skip_spaces();
     if !(scanner.peek() == Some('<') && scanner.peek_at(1) == Some('<')) {
         return Err(scanner.error("expected a `<<` body"));
     }
     scanner.col += 2;
-    scanner.read_body(indent)
+    scanner.read_body(indent, continues)
 }
 
 fn parse_regex(scanner: &mut Scanner) -> Result<RegexLit, ParseError> {
@@ -793,6 +809,123 @@ mod tests {
         let err = failure("file a.txt\n  delete 'no closing quote\n");
         assert_eq!((err.line, err.col), (2, 10));
         assert!(err.message.contains("unterminated string"), "{}", err.message);
+    }
+
+    #[test]
+    fn a_replace_carries_a_body_on_both_sides() {
+        // The shape three of the first four field uses of `file rev` were
+        // written in, and all three were refused: a CSS block replaced whole.
+        // A quoted literal cannot span lines, so this is the form that does.
+        let ops = ops(concat!(
+            "file dash-lifecycle-line.css\n",
+            "  replace <<\n",
+            "  .tug-dash-lifecycle-line {\n",
+            "    display: flex;\n",
+            "  }\n",
+            "  >> with <<\n",
+            "  .tug-dash-lifecycle-line {\n",
+            "    display: flex;\n",
+            "    overflow: hidden;\n",
+            "  }\n",
+            "  >>\n",
+        ));
+        assert_eq!(ops.len(), 1);
+        match &ops[0].kind {
+            OpKind::Replace {
+                find, with, count, ..
+            } => {
+                assert_eq!(
+                    find,
+                    &Text::Body(vec![
+                        ".tug-dash-lifecycle-line {".into(),
+                        "  display: flex;".into(),
+                        "}".into(),
+                    ])
+                );
+                assert_eq!(
+                    with,
+                    &Text::Body(vec![
+                        ".tug-dash-lifecycle-line {".into(),
+                        "  display: flex;".into(),
+                        "  overflow: hidden;".into(),
+                        "}".into(),
+                    ])
+                );
+                assert_eq!(*count, Count::Expect(1));
+            }
+            other => panic!("expected replace, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_two_body_replace_takes_a_count_and_a_scope_after_its_last_body() {
+        let ops = ops(concat!(
+            "file a.rs\n",
+            "  replace <<\n",
+            "  old\n",
+            "  >> with <<\n",
+            "  new\n",
+            "  >> all in 350 .. 900\n",
+        ));
+        match &ops[0].kind {
+            OpKind::Replace { count, scope, .. } => {
+                assert_eq!(*count, Count::All);
+                let scope = scope.as_ref().expect("an `in` scope");
+                assert!(matches!(scope.start, Addr::Line(350)));
+                assert!(matches!(scope.end, Addr::Line(900)));
+            }
+            other => panic!("expected replace, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn the_op_after_a_two_body_replace_is_an_ordinary_op() {
+        let ops = ops("file a.txt\n  replace <<\n  a\n  >> with <<\n  b\n  >>\n  delete 1\n");
+        assert_eq!(ops.len(), 2);
+        assert!(matches!(&ops[1].kind, OpKind::Delete { .. }));
+        assert_eq!(ops[1].line, 7);
+    }
+
+    #[test]
+    fn a_body_line_starting_with_two_angles_is_content_not_a_terminator() {
+        // A markdown blockquote carried in a body. Only a `>>` followed by
+        // nothing, or by the op's own continuation word, closes one.
+        let ops = ops("file a.md\n  append <<\n  >> quoted\n  text\n  >>\n");
+        match &ops[0].kind {
+            OpKind::Append { body } => {
+                assert_eq!(body, &vec![">> quoted".to_string(), "text".into()]);
+            }
+            other => panic!("expected append, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_multi_line_literal_is_refused_with_the_body_form_named() {
+        let err = failure("file a.css\n  replace 'a {\n  x: 1;\n}' with 'b'\n");
+        assert_eq!((err.line, err.col), (2, 11));
+        assert!(err.message.contains("one line"), "{}", err.message);
+        assert!(err.message.contains("`<<` body"), "{}", err.message);
+    }
+
+    #[test]
+    fn a_doubled_quote_is_named_rather_than_left_as_trailing_text() {
+        // The other way the field uses went wrong: `''` written for an escaped
+        // quote, the shell and SQL convention.
+        let err = failure("file a.txt\n  replace 'a' with 'the run''s track'\n");
+        assert_eq!(err.line, 2);
+        assert!(err.message.contains("doubled quote"), "{}", err.message);
+        assert!(err.message.contains(r"\'"), "{}", err.message);
+    }
+
+    #[test]
+    fn an_empty_string_is_not_read_as_a_doubled_quote() {
+        let ops = ops("file a.txt\n  replace '' with 'x'\n  replace 'y' with ''\n");
+        assert!(
+            matches!(&ops[0].kind, OpKind::Replace { find, .. } if find == &Text::Str(String::new()))
+        );
+        assert!(
+            matches!(&ops[1].kind, OpKind::Replace { with, .. } if with == &Text::Str(String::new()))
+        );
     }
 
     #[test]

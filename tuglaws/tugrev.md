@@ -91,7 +91,7 @@ Paths are relative to the working directory (the checkout or dash worktree the s
 | `create` | `create BODY` | The file must not exist; it is created with `BODY`. |
 | `write` | `write BODY` | The file's whole content becomes `BODY`, existing or not. `cat > file <<'EOF'` as an op. |
 
-`create` and `write` must be the only op in their block. `replace` and `sub` match anywhere in the file, across line boundaries — a `STR` may contain `\n` and a regex may match `\n` — which is what `perl -0777` was being used for. The line-addressed ops (`insert`, `delete`, `lines`, `move`) work on whole lines.
+`create` and `write` must be the only op in their block. `replace` and `sub` match anywhere in the file, across line boundaries — a `STR` carries `\n` or arrives as a `<<` body, and a regex may match `\n` — which is what `perl -0777` was being used for. The line-addressed ops (`insert`, `delete`, `lines`, `move`) work on whole lines.
 
 ### COUNT — the guard
 
@@ -120,10 +120,16 @@ A `RANGE` is `ADDR .. ADDR` (inclusive at both ends) or `ADDR until ADDR` (inclu
 
 | Form | Notes |
 |------|-------|
-| `'…'` | Single-quoted string. The only escapes are `\'`, `\\`, `\n`, `\t`. Everything else is literal — no shell interpolation is possible because the program arrives in a quoted heredoc. |
-| `"…"` | Double-quoted string, identical escapes. Offered so a literal containing `'` need no escaping. |
+| `'…'` | Single-quoted string, and **one line** — a block spanning several goes in a body instead. The only escapes are `\'`, `\\`, `\n`, `\t`. Everything else is literal — no shell interpolation is possible because the program arrives in a quoted heredoc. A doubled `''` is not an escape and is refused by name, because it is the shell and SQL convention and the model reaches for it. |
+| `"…"` | Double-quoted string, identical rules. Offered so a literal containing `'` need no escaping. |
 | `/…/` | Regex, Rust `regex` crate syntax. `\/` escapes a slash. `^` and `$` are **line** anchors (multi-line mode is on, as in `sed` and `perl -p`); `\A` and `\z` anchor the file. `\b` is the word boundary — BSD sed's `[[:<:]]`/`[[:>:]]` have no place here. Flags after the closing slash: `i`, `s` (dot matches newline). |
 | `<<` … `>>` | A **body**: the lines between the `<<` line and the `>>` line. Each body line is dedented by exactly the indentation of the op line that opened it; what remains is literal, so relative indentation inside the body is preserved. |
+
+**One op may carry two bodies, and that is how a block replaces a block.** `replace << … >> with << … >>` is the form; a `>>` line closes its body when nothing follows it, or when what follows opens with the op's own next word — `with` after the first body, `all` / `expect` / `in` after the second. Any other `>>` line is body content, so a markdown blockquote survives being carried in one.
+
+**A body cannot contain a bare `>>` line**, so a rev cannot carry a rev — editing this page's own examples wants `Edit` or a patch. The language has no labelled terminator (`<<REV … REV`) that would fix it; that is a gap rather than a decision, left open until a second case for it turns up.
+
+That form exists because block-replaces-block is the commonest edit in the evidence: 928 of the 1,317 interpreter edits carry a triple-quoted multi-line body. It was learned in the field rather than designed. On `tugrev`'s first real outing three of four programs were refused — the model wrote the block as a **multi-line quoted literal**, which the language does not have, and then abandoned the verb. A literal stays one line, because that keeps an unclosed quote refused on the line that opened it instead of swallowing the rest of the program; the refusal names the body form, so the instinct that wrote the literal is answered with the syntax that carries it.
 
 The body rule is the only deliberate cleverness in the language. The model indents ops under their `file` line and bodies under their ops; stripping the op's own indentation lets it write the body as it will appear in the file, offset by a constant, and the constant is one it can see. Bodies are never trimmed of blank lines, so an appended CSS rule keeps its leading blank line.
 
@@ -163,6 +169,21 @@ file roadmap/local-model-bringup.md
 file roadmap/animation-tuneup.md
   delete /^### Remaining execution steps/ .. $
 
+# block replaces block (the python triple-quoted pair) — two bodies, one op
+file tugdeck/src/components/tugways/dash-lifecycle-line.css
+  replace <<
+  .tug-dash-lifecycle-line {
+    display: flex;
+    min-width: 0;
+  }
+  >> with <<
+  .tug-dash-lifecycle-line {
+    display: flex;
+    min-width: 0;
+    overflow: hidden;
+  }
+  >>
+
 # the scoped rename (sed -i '' '350,900s/railSplit/placeSplit/g')
 file tugdeck/src/components/chrome/tug-pane.tsx
   replace 'railSplit' with 'placeSplit' all in 350 .. 900
@@ -181,7 +202,7 @@ file tests/model-eval/verbs.txt
   >>
 ```
 
-A `STR` may be a body: `replace '…' with << … >>` is how a one-line anchor grows into a multi-line block without escaping newlines.
+A `STR` may be a body on either side, or both: `replace '…' with << … >>` grows a one-line anchor into a block, and `replace << … >> with << … >>` replaces a block with a block.
 
 ---
 
@@ -290,6 +311,8 @@ The mining query, re-run against transcripts written after the dash joins: the i
 - Every address resolves against original bytes; ops never observe each other.
 - `expect 1` is the default; a match count the program did not declare is an error. In a `files` block the guard holds per file.
 - Overlapping spans in one file are refused.
+- A quoted literal is one line; a block spanning several is a `<<` body, and the refusal for a multi-line literal names that form.
+- A `>>` closes its body when nothing follows it, or when the op's own next word does. Any other `>>` line is content.
 - Bodies are dedented by their op line's indentation and otherwise verbatim.
 - `^`/`$` in a regex are line anchors.
 - A byte-identical result is neither written nor receipted.

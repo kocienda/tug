@@ -173,6 +173,12 @@ impl Scanner {
     /// A `'…'` or `"…"` literal. The only escapes are `\'`, `\"`, `\\`, `\n`
     /// and `\t`; every other backslash stands for itself, so a Windows path or
     /// a regex-looking literal survives untouched.
+    ///
+    /// A literal is **one line**, which keeps the language line-oriented and
+    /// an unclosed quote refused where it was written rather than at the end
+    /// of the program. A multi-line block goes in a `<<` body instead, and the
+    /// refusal below says so — that is the shape the model reaches for, so the
+    /// error has to name the form that carries it.
     pub(crate) fn read_quoted(&mut self) -> Result<String, ParseError> {
         self.skip_spaces();
         let open_line = self.line + 1;
@@ -186,10 +192,21 @@ impl Scanner {
         loop {
             match self.peek() {
                 None => {
-                    return Err(self.error_at(open_line, open_col, "unterminated string literal"));
+                    return Err(self.error_at(
+                        open_line,
+                        open_col,
+                        "unterminated string literal — a literal is one line, so a block spanning \
+                         several goes in a `<<` body: `replace << … >> with << … >>`",
+                    ));
                 }
                 Some(c) if c == quote => {
                     self.col += 1;
+                    if self.peek() == Some(quote) {
+                        return Err(self.error(format!(
+                            "a doubled quote does not escape a quote — write \\{quote} inside a \
+                             {quote}…{quote} literal"
+                        )));
+                    }
                     return Ok(out);
                 }
                 Some('\\') => {
@@ -313,7 +330,18 @@ impl Scanner {
     ///
     /// Leaves the scanner on the `>>` line, just past it, so the caller
     /// finishes the op line the same way it would for a body-less op.
-    pub(crate) fn read_body(&mut self, indent: usize) -> Result<Vec<String>, ParseError> {
+    ///
+    /// `continues` names the words that may follow `>>` on its own line, which
+    /// is what lets one op carry two bodies — `replace << … >> with << … >>`,
+    /// the block-replaces-block edit. A `>>` line is a terminator when nothing
+    /// follows it, or when what follows opens with one of those words; any
+    /// other `>>` line is body content, so a quoted markdown blockquote
+    /// survives being carried in a body.
+    pub(crate) fn read_body(
+        &mut self,
+        indent: usize,
+        continues: &[&str],
+    ) -> Result<Vec<String>, ParseError> {
         let open_line = self.line + 1;
         let open_col = self.col + 1;
         self.skip_spaces();
@@ -333,7 +361,7 @@ impl Scanner {
             let line = &self.lines[self.line];
             let leading = line.iter().take_while(|c| **c == ' ' || **c == '\t').count();
             let rest: String = line[leading..].iter().collect();
-            if rest.trim_end() == ">>" {
+            if rest.starts_with(">>") && terminates(&rest[2..], continues) {
                 self.col = leading + 2;
                 return Ok(body);
             }
@@ -341,6 +369,21 @@ impl Scanner {
             self.advance_line();
         }
     }
+}
+
+/// Whether what follows a `>>` closes the body. Nothing but whitespace or a
+/// comment closes it; so does one of the op's own continuation words. Anything
+/// else means this line is body content that happens to start with `>>`.
+fn terminates(after: &str, continues: &[&str]) -> bool {
+    let after = after.trim_start();
+    if after.is_empty() || after.starts_with('#') {
+        return true;
+    }
+    let word = after
+        .split(|c: char| c.is_whitespace())
+        .next()
+        .unwrap_or_default();
+    continues.contains(&word)
 }
 
 /// Strip at most `indent` leading whitespace characters. A body line indented
