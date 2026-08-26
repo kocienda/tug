@@ -44,7 +44,15 @@ import "./spike.css";
 import "./spike-arc-receipt.css";
 
 import React, { useId, useLayoutEffect, useRef, useState } from "react";
-import { Hammer, PencilRuler, Stamp, type LucideIcon } from "lucide-react";
+import {
+  BookOpen,
+  Hammer,
+  ListChecks,
+  PencilRuler,
+  RotateCw,
+  Stamp,
+  type LucideIcon,
+} from "lucide-react";
 
 import { BlockChrome } from "@/components/tugways/blocks/block-chrome";
 import { DashSigil } from "@/components/tugways/dash-sigil";
@@ -195,20 +203,58 @@ export function parseArcReceipt(output: string): ParsedArcReceipt | null {
 // ---------------------------------------------------------------------------
 
 /**
- * One glyph per arc stage. Deliberately NOT `DASH_STAGE_ICONS` — that map is
- * the dash *lifecycle* (created / working / ready), a different vocabulary that
- * happens to share the word "stage". `implement` borrows the lifecycle's
- * `Hammer` on purpose: it is the same act, seen from the other side.
+ * One glyph per row the receipt can draw — the three stages, and the three
+ * things that are not stages but sit in the same rank: the document the arc
+ * opened on, the plan it produced, and the resume a stop offers.
+ *
+ * Deliberately NOT `DASH_STAGE_ICONS` — that map is the dash *lifecycle*
+ * (created / working / ready), a different vocabulary that happens to share
+ * the word "stage". `implement` borrows the lifecycle's `Hammer` on purpose:
+ * it is the same act, seen from the other side.
  */
-const STAGE_ICONS: Record<string, LucideIcon> = {
+const ROW_ICONS: Record<string, LucideIcon> = {
   devise: PencilRuler,
   review: Stamp,
   implement: Hammer,
+  opened: BookOpen,
+  plan: ListChecks,
+  resume: RotateCw,
 };
 
-function StageGlyph({ stage, size = 14 }: { stage: string; size?: number }): React.ReactElement {
-  const Icon = STAGE_ICONS[stage] ?? PencilRuler;
+function RowGlyph({ row, size = 14 }: { row: string; size?: number }): React.ReactElement {
+  const Icon = ROW_ICONS[row] ?? PencilRuler;
   return <Icon size={size} strokeWidth={2} aria-hidden="true" />;
+}
+
+/**
+ * One row of the receipt: a glyph and a word, then whatever the row is about.
+ *
+ * Every row wears this — the ends, the stages, and a stop's resume alike. The
+ * first pass drew the ends smaller and muted to say they were not stages, and
+ * the difference read as two grades of importance rather than two kinds of
+ * fact. What the rows actually share is more interesting than what separates
+ * them: each names one thing the arc touched. The glyph is what says which
+ * kind, and it says it in a column, where a reader takes it in without reading
+ * a word.
+ */
+function ArcRow({
+  row,
+  label,
+  children,
+}: {
+  row: string;
+  label: string;
+  children: React.ReactNode;
+}): React.ReactElement {
+  return (
+    <>
+      <span className="sp-arc-label" data-row={row}>
+        <RowGlyph row={row} />
+        {label}
+      </span>
+      <span className="sp-arc-value">{children}</span>
+    </>
+  );
 }
 
 /**
@@ -299,53 +345,40 @@ function ArcPathAtom({ path, root }: { path: string; root: string }): React.Reac
  * The arc read top to bottom as what it was: a document in, three movements,
  * a plan out.
  *
- * Every row is two cells of one grid — a label and its value — so the two file
- * atoms and the three stage runs all start on a single left axis, and the
- * three stage glyphs stack into a spine down the label column. The ends are
- * distinguished from the stages by tone and by being un-indented rather than
- * by a rule: they are not stages, they are what the stages were about, and a
- * receipt that draws a border to say so is spending ink on a fact the
- * typography already carries.
+ * Five {@link ArcRow}s in one grid, all in the same rank: the document, the
+ * three stages, the plan. Each is two cells — a glyph-led label and its value
+ * — so every atom and every stage run starts on one left axis and the five
+ * glyphs stack into a spine down the label column. What kind of row it is, the
+ * glyph says; a receipt that also drew a border or dropped a size to say it
+ * would be spending ink on a fact already carried.
  *
- * The grid is the parent, so the rows are emitted as bare cells rather than
- * wrapped — a wrapper per row would need `display: contents` to stay out of
- * the alignment, which is a thing to get wrong for no gain.
+ * The grid is the parent, so a row emits bare cells rather than a wrapper — a
+ * wrapper per row would need `display: contents` to stay out of the alignment,
+ * which is a thing to get wrong for no gain.
  */
 function ArcScore({ parsed, root }: { parsed: ParsedArcComplete; root: string }): React.ReactElement {
   return (
-    <div className="sp-arc-score" data-slot="arc-receipt-score">
+    <div className="sp-arc-rows" data-slot="arc-receipt-score">
       {parsed.document !== null ? (
-        <>
-          <span className="sp-arc-label" data-end="opened">opened on</span>
-          <span className="sp-arc-value">
-            <ArcPathAtom path={parsed.document} root={root} />
-          </span>
-        </>
+        <ArcRow row="opened" label="opened on">
+          <ArcPathAtom path={parsed.document} root={root} />
+        </ArcRow>
       ) : null}
       {parsed.stages.map((line) => (
-        <React.Fragment key={line.sessionId}>
-          <span className="sp-arc-label" data-stage={line.stage}>
-            <StageGlyph stage={line.stage} />
-            {line.stage}
-          </span>
-          <span className="sp-arc-value">
-            <TugMetaRun
-              slot="arc-receipt-stage-meta"
-              parts={[
-                <span key="model" className="sp-arc-model">{line.model}</span>,
-                <StageSession key="session" sessionId={line.sessionId} />,
-              ]}
-            />
-          </span>
-        </React.Fragment>
+        <ArcRow key={line.sessionId} row={line.stage} label={line.stage}>
+          <TugMetaRun
+            slot="arc-receipt-stage-meta"
+            parts={[
+              <span key="model" className="sp-arc-model">{line.model}</span>,
+              <StageSession key="session" sessionId={line.sessionId} />,
+            ]}
+          />
+        </ArcRow>
       ))}
       {parsed.plan !== null ? (
-        <>
-          <span className="sp-arc-label" data-end="plan">plan</span>
-          <span className="sp-arc-value">
-            <ArcPathAtom path={parsed.plan} root={root} />
-          </span>
-        </>
+        <ArcRow row="plan" label="plan">
+          <ArcPathAtom path={parsed.plan} root={root} />
+        </ArcRow>
       ) : null}
     </div>
   );
@@ -372,17 +405,15 @@ function ArcScore({ parsed, root }: { parsed: ParsedArcComplete; root: string })
  */
 function ArcResume({ next }: { next: string }): React.ReactElement {
   const command = next.startsWith(RESUME_PREFIX) ? next.slice(RESUME_PREFIX.length) : null;
-  if (command === null) {
-    return (
-      <div className="sp-arc-next" data-slot="arc-receipt-next">
-        <span className="sp-arc-next-word">{next}</span>
-      </div>
-    );
-  }
   return (
-    <div className="sp-arc-next" data-slot="arc-receipt-next">
-      <span className="sp-arc-next-word">resume with</span>
-      <ArcCommand command={command} />
+    <div className="sp-arc-rows" data-slot="arc-receipt-next">
+      {command !== null ? (
+        <ArcRow row="resume" label="resume with">
+          <ArcCommand command={command} />
+        </ArcRow>
+      ) : (
+        <span className="sp-arc-sentence">{next}</span>
+      )}
     </div>
   );
 }
@@ -413,7 +444,7 @@ function ArcRail({ parsed, root }: { parsed: ParsedArcComplete; root: string }):
           <span className="sp-arc-rail-link" aria-hidden="true" />
           <span className="sp-arc-rail-node" data-stage={line.stage}>
             <span className="sp-arc-rail-name">
-              <StageGlyph stage={line.stage} size={13} />
+              <RowGlyph row={line.stage} size={13} />
               {line.stage}
             </span>
             <span className="sp-arc-rail-model">{line.model}</span>

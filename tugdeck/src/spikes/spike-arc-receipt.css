@@ -29,9 +29,8 @@
  * and the leading does the rest.
  */
 
-.sp-arc-score,
-.sp-arc-rail,
-.sp-arc-next {
+.sp-arc-rows,
+.sp-arc-rail {
   --sp-arc-size-primary: var(--tug-font-size-sm);
   --sp-arc-size-meta: var(--tug-font-size-xs);
 }
@@ -52,31 +51,34 @@
   white-space: nowrap;
 }
 
-/* --- treatment A: the score ---------------------------------------------- */
+/* --- the rows: the score, and a stop's resume ---------------------------- */
 
 /*
  * Two columns: a label and its value. Every row is a pair of bare cells, so
- * the file atoms and the stage runs share one left axis and the stage glyphs
- * stack into a spine down the label column. `max-content` sizes the label
- * column off the longest label there actually is — `implement` today, whatever
- * a fourth stage is called tomorrow — rather than off a number somebody
- * measured once.
+ * the atoms, the stage runs and the resume command share one left axis and
+ * the glyphs stack into a spine down the label column. `max-content` sizes the
+ * label column off the longest label there actually is — `resume with` today,
+ * whatever a fourth stage is called tomorrow — rather than off a number
+ * somebody measured once.
+ *
+ * The inline padding is the block's own margin, not decoration: a label
+ * against the chrome's left edge reads as overflow, and the body has no
+ * padding of its own to inherit.
  */
-.sp-arc-score {
+.sp-arc-rows {
   display: grid;
   grid-template-columns: max-content minmax(0, 1fr);
   align-items: baseline;
   column-gap: 14px;
   row-gap: 4px;
-  padding: 8px 2px 6px;
+  padding: 8px 12px 6px;
 }
 
 /*
- * The label column. A stage carries a glyph and reads in the block's own ink;
- * an end carries none and reads muted and one step smaller — which is the
- * whole of how the two are told apart, plus a small indent on the stages so
- * the ends bracket them rather than sitting in the same rank. The ends are
- * what the stages were about, not stages themselves.
+ * The label column — one style for every row. The glyph is what tells a
+ * document from a stage from a resume, and it tells it in a column a reader
+ * takes in without reading a word; the word beside it reads at the same size
+ * and in the same ink as every other, because they are the same rank of fact.
  */
 .sp-arc-label {
   display: inline-flex;
@@ -87,27 +89,6 @@
   line-height: 1.3;
   color: var(--tug7-element-global-text-normal-default-rest);
   white-space: nowrap;
-}
-
-.sp-arc-label[data-stage] {
-  padding-inline-start: 10px;
-}
-
-.sp-arc-label[data-end] {
-  font-size: var(--sp-arc-size-meta);
-  color: var(--tug7-element-global-text-normal-muted-rest);
-}
-
-/* The two ends sit a touch further from the stages than the stages sit from
- * each other, so the three movements read as one group between them. */
-.sp-arc-label[data-end="opened"],
-.sp-arc-label[data-end="opened"] + .sp-arc-value {
-  padding-block-end: 2px;
-}
-
-.sp-arc-label[data-end="plan"],
-.sp-arc-label[data-end="plan"] + .sp-arc-value {
-  padding-block-start: 2px;
 }
 
 /* The value column — the atoms and the stage meta runs. The atom takes the
@@ -135,7 +116,7 @@
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
-  padding: 12px 2px 8px;
+  padding: 10px 12px 8px;
   font-size: var(--sp-arc-size-primary);
   line-height: 1.3;
 }
@@ -172,19 +153,15 @@
   white-space: nowrap;
 }
 
-/* --- the stop's next step ------------------------------------------------ */
+/* --- a stop's next step ---------------------------------------------------- */
 
-.sp-arc-next {
-  display: flex;
-  align-items: baseline;
-  flex-wrap: wrap;
-  gap: 7px;
-  padding: 8px 2px 6px;
-}
-
-.sp-arc-next-word {
+/* The "nothing to resume" ending — a sentence, not a row: there is no thing
+   for a glyph to name and no command for a label to introduce. */
+.sp-arc-sentence {
+  grid-column: 1 / -1;
   font-family: var(--tug-font-family-sans);
-  font-size: var(--sp-arc-size-meta);
+  font-size: var(--sp-arc-size-primary);
+  line-height: 1.3;
   color: var(--tug7-element-global-text-normal-muted-rest);
 }
 
