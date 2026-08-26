@@ -151,6 +151,7 @@ import {
 import {
   deckColumnsOf,
   deckFlowStrip,
+  deckSlotStrip,
   type DeckColumn,
 } from "@/deck-store-selectors";
 import type { DeckState } from "@/layout-tree";
@@ -401,15 +402,17 @@ function useCommittedFlow(): CommittedFlow | null {
   const store = getDeckStore();
   return useMemo(() => {
     if (deck === null || store === null) return null;
-    const strip = deckFlowStrip(deck);
+    const bandPx = store.getBandWidth();
+    if (bandPx === null) return null;
+    const strip = deckSlotStrip(deck, bandPx);
     if (strip === null) return null;
-    const bandPx = store.getFlowBandWidth();
-    if (bandPx === null || bandPx <= 0) return null;
     // The strip's own positions and its own length, not a re-derivation of
-    // either. `deckFlowStrip` resolves both ([P09]), and a drawing that laid the
-    // slots out itself would have to assume the gap between two of them — which
-    // is exactly how the picture came to show a slot cut off that was fully on
-    // screen.
+    // either. `deckSlotStrip` resolves both ([P09]) under whichever layout the
+    // deck is in, and a drawing that laid the slots out itself would have to
+    // assume something the deck owns — the gap between two of them in flow, the
+    // band the travel is taken across in fit. Assuming the first is how the
+    // picture came to show a slot cut off that was fully on screen; assuming
+    // the second is how the picture came to jump when the layout toggled.
     return {
       offsetPx: deck.flowOffset ?? 0,
       bandPx,
@@ -505,7 +508,7 @@ function useStripInstrument(): {
     // which layout is on, because "is there travel" is the fact the gestures
     // actually turn on and the layout is only how it came to be true.
     const strip = deckFlowStrip(deck);
-    const band = store.getFlowBandWidth();
+    const band = store.getBandWidth();
     const travel =
       strip === null || band === null || band <= 0
         ? null
@@ -684,6 +687,7 @@ function LayoutsSectionBody({
       rails,
       width: contentWidth,
       layout,
+      band: committedFlow?.bandPx,
       flow:
         committedFlow === null
           ? null
@@ -1179,6 +1183,18 @@ function LayoutsSectionBody({
                 <PlanCaption values={layer.caption} />
                 <span className="layouts-plan-note">{layer.note}</span>
               </div>
+              {/* A proposal carries no places — nobody has stood the deck
+                  under it — but it carries the BAND, because the band is a
+                  measurement of the window and a preview does not change the
+                  window. Without it a proposal would be drawn against a
+                  nominal band and the committed drawing against the real one,
+                  and the picture would jump on hover for the same reason it
+                  used to jump on a layout toggle.
+
+                  A rail preview is the one layer that would really move the
+                  band, and it is drawn against the committed one anyway: what
+                  the allocator would answer for a rail set nobody has stood
+                  under is not knowable without running it. */}
               <LayoutMiniature
                 kind={layer.kind}
                 rails={layer.rails}
@@ -1186,6 +1202,7 @@ function LayoutsSectionBody({
                 width={layer.width}
                 layout={layer.layout}
                 columnSplits={layer.columnSplits}
+                flowBandPx={committedFlow?.bandPx}
               />
               {/* The layer's own marks, inert, at the layer's geometry — the
                   live overlay steps back while a preview shows, so the ghost
@@ -1195,6 +1212,7 @@ function LayoutsSectionBody({
                 rails={layer.rails}
                 width={layer.width}
                 layout={layer.layout}
+                band={committedFlow?.bandPx}
                 columns={layer.ghost.columns}
                 railPlaces={layer.ghost.railPlaces}
                 ghost
@@ -1213,6 +1231,7 @@ function LayoutsSectionBody({
           rails={rails}
           width={contentWidth}
           layout={layout}
+          band={committedFlow?.bandPx}
           flow={
             committedFlow === null
               ? null

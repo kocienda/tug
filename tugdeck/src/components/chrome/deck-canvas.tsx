@@ -1210,7 +1210,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         if (typeof event.value !== "number") return;
         const state = store.getSnapshot();
         const strip = deckFlowStrip(state);
-        const band = store.getFlowBandWidth();
+        const band = store.getBandWidth();
         if (strip === null || band === null || band <= 0) return;
         const slot = event.value - 1;
         const stripLeft = strip.positions.get(slot);
@@ -1963,7 +1963,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       el.style.setProperty(FLOW_OFFSET_PROPERTY, `${Math.round(flowOffset)}px`);
       el.style.setProperty(FLOW_STRIP_PROPERTY, `${flowStrip.width}px`);
     }
-    const flowBand = store.getFlowBandWidth();
+    const flowBand = store.getBandWidth();
     publishFlowOffset(
       flowStrip === null || flowBand === null || flowBand <= 0
         ? null
@@ -3284,7 +3284,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           }
         }
 
-        const band = store.getFlowBandWidth();
+        const band = store.getBandWidth();
         const strip = deckFlowStrip(state);
         if (band === null || strip === null) return null;
         return {
@@ -3414,7 +3414,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       if (delta === 0) return;
       const state = store.getSnapshot();
       const strip = deckFlowStrip(state);
-      const band = store.getFlowBandWidth();
+      const band = store.getBandWidth();
       if (strip === null || band === null || band <= 0) return;
       if (scrollableAncestor(event.target)) return;
       event.preventDefault();

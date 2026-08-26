@@ -4,14 +4,16 @@
  * `miniatureGeometry` is the one resolution of where the parts of the deck's
  * scale picture stand, shared by the drawing and by the overlay that puts
  * controls on it. What is worth pinning here is the arithmetic's own claims —
- * the shares tile the field, the rail's cut trades against the width preset,
- * an overflowing strip scales into the frame — because those are the facts a
- * second consumer relies on and none of them needs a DOM to be true.
+ * both layouts place their blocks by the imposer's own rule against ONE band,
+ * the rail's cut trades against the width preset, an overflowing strip scales
+ * into the frame — because those are the facts a second consumer relies on and
+ * none of them needs a DOM to be true.
  */
 
 import { describe, expect, test } from "bun:test";
 
 import { miniatureGeometry } from "@/components/lens/layout-miniature";
+import { CONTENT_WIDTH_PX, IMPOSITION_GAP_PX } from "@/lib/layout-imposer";
 
 /** The right edge of the last block, in percent of the field. */
 function span(blocks: readonly { leftPct: number; widthPct: number }[]): number {
@@ -20,7 +22,7 @@ function span(blocks: readonly { leftPct: number; widthPct: number }[]): number 
 }
 
 describe("miniatureGeometry — fit", () => {
-  test("the blocks tile the field edge to edge at every count", () => {
+  test("the run spans the band at every count: first flush left, last flush right", () => {
     for (const [kind, count] of [
       ["one-up", 1],
       ["two-up", 2],
@@ -29,12 +31,19 @@ describe("miniatureGeometry — fit", () => {
       ["five-up", 5],
       ["six-up", 6],
     ] as const) {
-      const { blocks } = miniatureGeometry({ kind });
+      const { blocks, flow } = miniatureGeometry({ kind });
       expect(blocks.length).toBe(count);
-      // The first is flush left and the last flush right: the settled deck
-      // holds no margin at either end of the band.
-      expect(blocks[0].leftPct).toBe(0);
-      expect(span(blocks)).toBeCloseTo(100, 6);
+      // Fit justifies: slot 0 hugs the band's near edge and the last hugs its
+      // far one, whatever the cards are wide. That is `travelFraction`, and it
+      // is the same rule at every count — one-up being the one that takes half
+      // the travel and stands centred instead.
+      if (count > 1) {
+        expect(blocks[0].leftPct).toBe(0);
+        expect(span(blocks) + flow.seamPct).toBeCloseTo(100, 6);
+      }
+      // A fit run IS the band, so there is never anything to scale in.
+      expect(flow.overflows).toBe(false);
+      expect(flow.scale).toBe(1);
       // And the slots are numbered left to right, as the deck numbers them.
       expect(blocks.map((b) => b.slot)).toEqual(
         Array.from({ length: count }, (_, i) => i),
@@ -42,15 +51,53 @@ describe("miniatureGeometry — fit", () => {
     }
   });
 
-  test("every block gets the same share, and the seams between them are equal", () => {
-    const { blocks } = miniatureGeometry({ kind: "four-up" });
+  test("every block is the card's own width, and the air between them is the band's slack", () => {
+    const width = CONTENT_WIDTH_PX.slim;
+    const { blocks, flow } = miniatureGeometry({
+      kind: "four-up",
+      width: "slim",
+      band: width * 6,
+    });
+    // Every card is the same preset, so every block is the same width — but it
+    // is the CARD's width as a share of the band, not an equal share of the
+    // field. Four slim cards in six cards' worth of band take two thirds of it.
     const widths = new Set(blocks.map((b) => b.widthPct.toFixed(6)));
     expect(widths.size).toBe(1);
+    expect(blocks[0].widthPct + flow.seamPct).toBeCloseTo((100 * 1) / 6, 6);
+    // The slack is what stands between them, split evenly by the travel rule.
     const seams = blocks
       .slice(1)
       .map((b, i) => b.leftPct - (blocks[i].leftPct + blocks[i].widthPct));
     expect(new Set(seams.map((s) => s.toFixed(6))).size).toBe(1);
     expect(seams[0]).toBeGreaterThan(0);
+  });
+
+  test("cards wider than the band lap over each other, which is what fit does", () => {
+    // The picture that could not be drawn before, and the reason it matters:
+    // three slim cards want 2035px of band and this deck has 1551, so the deck
+    // really does stand them on top of one another. A drawing that tiled the
+    // field would say the arrangement is fine when it is not.
+    const { blocks } = miniatureGeometry({
+      kind: "three-up",
+      width: "slim",
+      band: 1551,
+    });
+    expect(blocks[1].leftPct).toBeLessThan(
+      blocks[0].leftPct + blocks[0].widthPct,
+    );
+  });
+
+  test("fit and flow draw the same picture when the run exactly fills the band", () => {
+    // THE invariant. The two layouts are one arithmetic over one band, so at
+    // the width where they agree about the deck they agree about the drawing —
+    // and toggling the layout there moves nothing at all. When they disagree,
+    // the difference in the picture is exactly the difference in the deck.
+    const width = CONTENT_WIDTH_PX.slim;
+    const band = 3 * width + 2 * IMPOSITION_GAP_PX;
+    const at = (layout: "fit" | "flow") =>
+      miniatureGeometry({ kind: "three-up", width: "slim", layout, band })
+        .blocks;
+    expect(at("flow")).toEqual(at("fit"));
   });
 
   test("a dense arrangement gives the seam away rather than the cards", () => {
@@ -143,7 +190,10 @@ describe("miniatureGeometry — flow", () => {
     });
     expect(flow.overflows).toBe(true);
     expect(flow.scale).toBeLessThan(1);
-    expect(span(blocks)).toBeCloseTo(100, 6);
+    // The whole run reaches the field's far edge, less the seam the last block
+    // gives up off its own right — the seam is air a block yields, never
+    // length the run loses.
+    expect(span(blocks) + flow.seamPct).toBeCloseTo(100, 6);
   });
 
   test("the live strip draws the deck's own extents, not equal cards", () => {
@@ -208,19 +258,25 @@ describe("miniatureGeometry — flow", () => {
     expect(rightOf(3)).toBeGreaterThan(windowRight);
   });
 
-  test("a live strip is ignored under fit, which tiles whatever the cards are wide", () => {
+  test("live places are drawn under fit too, at the deck's own widths", () => {
+    // Fit used to throw these away and tile the field in equal shares, which is
+    // how the drawing came to say that a two-up deck of a 400px card and a
+    // 900px one held two cards of the same size.
     const live = {
       bandPx: 1000,
-      stripPx: 1310,
+      stripPx: 1000,
       slots: [
         { slot: 0, leftPx: 0, widthPx: 400 },
-        { slot: 1, leftPx: 410, widthPx: 900 },
+        { slot: 1, leftPx: 100, widthPx: 900 },
       ],
     };
-    const fit = miniatureGeometry({ kind: "two-up", flow: live });
-    const widths = new Set(fit.blocks.map((b) => b.widthPct.toFixed(6)));
-    expect(widths.size).toBe(1);
-    expect(span(fit.blocks)).toBeCloseTo(100, 6);
+    const { blocks, flow } = miniatureGeometry({ kind: "two-up", flow: live });
+    expect(blocks.map((b) => b.slot)).toEqual([0, 1]);
+    const measured = blocks.map((b) => b.widthPct + flow.seamPct);
+    expect(measured[0]).toBeCloseTo(40, 6);
+    expect(measured[1]).toBeCloseTo(90, 6);
+    // And they lap, because at these widths the deck laps them.
+    expect(blocks[1].leftPct).toBeLessThan(blocks[0].leftPct + measured[0]);
   });
 
   test("a partial live strip falls back to the synthetic one", () => {

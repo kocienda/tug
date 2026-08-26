@@ -2484,15 +2484,24 @@ export class DeckManager implements IDeckManagerStore {
   }
 
   /**
-   * The band the flow strip is seen through, in px, or `null` when the deck is
-   * not in flow and has no band to speak of.
+   * The band the arrangement is laid across, in px — the canvas less the rails
+   * standing on it and the imposition's own gaps — or `null` when there is no
+   * positive band to report.
    *
-   * Public because the Lens's miniature draws the committed arrangement to the
-   * real strip's proportions, and the strip alone does not say how much of it
-   * is on screen — that is the band, and the band is a measurement of the
-   * canvas rather than a fact in `DeckState`. Reading it here keeps the deck's
-   * one measurement in one place; a second one taken off the DOM in the Lens
-   * would agree with this only by luck.
+   * **Layout-independent, and that is the point.** Fit spreads its cards across
+   * the band and flow slides a longer strip under it, but both are answering
+   * the same measurement, and a reader that had to know which mode it was in
+   * before it could ask how wide the deck is would be carrying the distinction
+   * into places that do not have it. This used to refuse in fit, which made the
+   * Lens's drawing derive its own fit band out of nominal units — and that
+   * second derivation is exactly why the plan jumped when the layout toggled.
+   *
+   * Public because the Lens's plan draws the committed arrangement to the real
+   * proportions, and the strip alone does not say how much of it is on screen —
+   * that is the band, and the band is a measurement of the canvas rather than a
+   * fact in `DeckState`. Reading it here keeps the deck's one measurement in
+   * one place; a second one taken off the DOM in the Lens would agree with this
+   * only by luck.
    *
    * It answers from the container's current width, so a caller reading it
    * during render gets the band the deck last laid out against. A canvas
@@ -2500,10 +2509,10 @@ export class DeckManager implements IDeckManagerStore {
    * re-renders every subscriber — so the answer follows the window without
    * anything watching it per frame.
    */
-  getFlowBandWidth(): number | null {
+  getBandWidth(): number | null {
     const state = this.deckState;
-    if (deckFlowStrip(state) === null) return null;
-    return this._flowBandWidth(state.panes, state.imposition);
+    const band = this._flowBandWidth(state.panes, state.imposition);
+    return band > 0 ? band : null;
   }
 
   /**
@@ -2596,7 +2605,7 @@ export class DeckManager implements IDeckManagerStore {
    * The run a column's members stand in, in px, or `null` when the canvas has
    * no height to speak of.
    *
-   * Public for the reason {@link getFlowBandWidth} is: the Lens's miniature
+   * Public for the reason {@link getBandWidth} is: the Lens's miniature
    * draws an overflowing column as a strip behind a run, and a stored offset
    * only means something against the run it was measured in. Reading it here
    * keeps the deck's one measurement in one place.
@@ -2780,8 +2789,9 @@ export class DeckManager implements IDeckManagerStore {
    * the settle on every one of them and tween the deck under the user's hand.
    */
   previewFlowOffset(offset: number): void {
-    const band = this.getFlowBandWidth();
-    if (band === null || band <= 0) return;
+    if (deckFlowStrip(this.deckState) === null) return;
+    const band = this.getBandWidth();
+    if (band === null) return;
     this.container.style.setProperty(
       FLOW_OFFSET_PROPERTY,
       `${Math.round(offset)}px`,

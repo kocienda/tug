@@ -2,9 +2,9 @@
  * layout-miniature.css — the deck, drawn small.
  *
  * A 16/10 frame standing in for the canvas, a strip per occupied side, and one
- * block per card, tiled edge to edge across the field — the allocator's
- * settled geometry, drawn by the rule it illustrates rather than by a layout
- * that merely resembles it.
+ * block per card, each standing where the imposition really puts it across the
+ * band — the allocator's settled geometry, drawn by the rule it illustrates
+ * rather than by a layout that merely resembles it.
  *
  * The drawing is a READOUT, so it is drawn in chrome ink — global neutrals —
  * and never in the control palette. The accent surfaces belong to things that
@@ -57,9 +57,7 @@
 }
 
 /* A card. Hollow by default — the drawing is showing an arrangement it could
-   stand under. The seam between two blocks is the field gap the component sets
-   (see `cardGapFor`), which is a real gap at every count, so a block needs no
-   stroke in the ground's colour to keep its edge. */
+   stand under. */
 .layout-mini-block {
   position: absolute;
   inset-block: 0;
@@ -68,10 +66,19 @@
   box-sizing: border-box;
 }
 
-/* The arrangement the deck actually stands under: solid. */
+/* The arrangement the deck actually stands under: solid.
+ *
+ * The stroke stays, in the GROUND's colour, and it is load-bearing rather than
+ * decorative. Blocks are drawn where the deck really puts its cards, and fit
+ * puts them on top of one another whenever the cards want more room than the
+ * band has — three lapping blocks in one fill and no edge between them read as
+ * one wide card, which is the opposite of what the drawing is for. A ground
+ * stroke cuts the same edge the deck's own cards cut, so a lap reads as a lap;
+ * where the cards do not lap it is a hairline of the seam they already stand
+ * in, and shows as nothing. */
 .layout-mini[data-committed="true"] .layout-mini-block {
   background-color: var(--tug7-element-global-border-normal-strong-rest);
-  border-color: transparent;
+  border-color: var(--tug7-surface-global-primary-normal-sunken-rest);
 }
 
 /* One side's rail. It holds its members rather than being one itself: two

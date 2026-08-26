@@ -1527,42 +1527,32 @@ export interface FlowVacancy {
 }
 
 /**
- * Lay the slots out as a strip, ascending by slot index:
- * `stripLeft(k) = Σ_{j<k} (extent(j) + IMPOSITION_GAP_PX)`.
- *
- * This is the whole of what flow means. A slot's place is the running sum of
- * everything before it, so no two slots can overlap by construction — and,
- * equally by construction, a card's place now depends on its neighbours'
- * widths, which is the property fit was built to avoid. Both are the trade the
- * mode exists to offer.
+ * Which slot stands how wide — the input both strip rules read, resolved once
+ * so the two of them can never disagree about the deck they are laying out.
  *
  * **An empty slot is a place, not an absence** — given a {@link FlowVacancy}.
- * Slot 3 standing empty holds a card's width of strip open between slots 2 and
- * 4, so a card assigned to slot 4 stands at slot 4 rather than sliding up to
- * where slot 3 would have been. Without that the arrangement collapses under
- * its own numbering: the strip would draw 1|2|4 and a chord naming slot 4 would
- * move the card nowhere the eye could follow, because its place was already the
+ * Slot 3 standing empty holds a card's width open between slots 2 and 4, so a
+ * card assigned to slot 4 stands at slot 4 rather than sliding up to where slot
+ * 3 would have been. Without that the arrangement collapses under its own
+ * numbering: the strip would draw 1|2|4 and a chord naming slot 4 would move
+ * the card nowhere the eye could follow, because its place was already the
  * third position in the run.
- *
- * That also puts flow back in step with fit, where a slot's anchor is a travel
- * fraction and an empty one has always held its share of the band. Flow was the
- * outlier, and the two modes now number the same deck the same way.
  *
  * The reserved extent is {@link vacancyExtent} — the widest card standing in
  * the chain — so the room a held-open slot keeps looks like the cards it is
  * kept among, and is never too small for the card the deck would put in it.
  *
- * Omit the vacancy and the strip is the run of occupied slots alone, which is
- * what a caller holding only an occupancy list can honestly ask for.
+ * Omit the vacancy and the run is the occupied slots alone, which is what a
+ * caller holding only an occupancy list can honestly ask for.
  *
  * Duplicate entries for one slot fold by taking the widest, matching
  * {@link AllocatorInput.occupied}; unreadable widths are dropped, and a
  * negative one reads as zero.
  */
-export function flowStripPositions(
+function slotExtentMap(
   occupied: readonly FlowSlotExtent[],
   vacancy?: FlowVacancy,
-): FlowStrip {
+): Map<number, number> {
   const extents = new Map<number, number>();
   for (const entry of occupied) {
     if (!Number.isFinite(entry.slot) || !Number.isFinite(entry.width)) continue;
@@ -1580,6 +1570,34 @@ export function flowStripPositions(
       if (!extents.has(slot)) extents.set(slot, reserved);
     }
   }
+  return extents;
+}
+
+/**
+ * Lay the slots out as a strip, ascending by slot index:
+ * `stripLeft(k) = Σ_{j<k} (extent(j) + IMPOSITION_GAP_PX)`.
+ *
+ * This is the whole of what flow means. A slot's place is the running sum of
+ * everything before it, so no two slots can overlap by construction — and,
+ * equally by construction, a card's place now depends on its neighbours'
+ * widths, which is the property fit was built to avoid. Both are the trade the
+ * mode exists to offer.
+ *
+ * The strip is laid out in its OWN coordinates, origin at its near end, which
+ * is where the band's left edge falls at offset 0. Its length is the last
+ * slot's right edge — there is no trailing gap, because a gap is what stands
+ * BETWEEN two slots.
+ *
+ * The extents are {@link slotExtentMap}'s, vacancy and all.
+ *
+ * {@link fitStripPositions} is the other half of the pair, and the two are
+ * dispatched between by {@link stripPositions}.
+ */
+export function flowStripPositions(
+  occupied: readonly FlowSlotExtent[],
+  vacancy?: FlowVacancy,
+): FlowStrip {
+  const extents = slotExtentMap(occupied, vacancy);
   const slots = [...extents.keys()].sort((a, b) => a - b);
   const positions = new Map<number, number>();
   let running = 0;
@@ -1591,6 +1609,67 @@ export function flowStripPositions(
   // the last card's right edge.
   const width = slots.length === 0 ? 0 : running - IMPOSITION_GAP_PX;
   return { positions, extents, width };
+}
+
+/**
+ * Lay the slots out across a band, ascending by slot index:
+ * `fitLeft(k) = travelFraction(k) × max(0, band − extent(k))`.
+ *
+ * This is the whole of what fit means, and it is the numeric twin of the `left`
+ * expression {@link imposeStyle} writes for a fit deck: the same
+ * {@link travelFraction} over the same `max(0, band − width)`, resolved in JS
+ * rather than by the browser. Slot 0 hugs the band's near edge, the last slot
+ * hugs its far one, and the rest are spaced by their share of the slack — so a
+ * card's place depends on the BAND and on its own width, and on nothing any
+ * neighbour does. That independence is the property fit exists to offer, and
+ * the price is the one flow exists to avoid: when the cards want more room than
+ * the band has, the travel runs out before the run does and they lap over each
+ * other rather than running off the edge.
+ *
+ * Same shape and same coordinates as {@link flowStripPositions}, so the two are
+ * interchangeable to everything downstream: origin at the band's near edge,
+ * extents from {@link slotExtentMap}, and a `width` that is how much room the
+ * arrangement takes. In fit that is the band itself — the first slot rests on
+ * one edge and the last on the other, so the run is exactly as long as the band
+ * however wide the cards are. A fit strip therefore never overflows, which is
+ * the same statement as: fit has nothing to scroll.
+ */
+export function fitStripPositions(
+  occupied: readonly FlowSlotExtent[],
+  band: number,
+  vacancy?: FlowVacancy,
+): FlowStrip {
+  const extents = slotExtentMap(occupied, vacancy);
+  const slots = [...extents.keys()].sort((a, b) => a - b);
+  const room = Number.isFinite(band) ? Math.max(0, band) : 0;
+  const count = slots.length === 0 ? 0 : slots[slots.length - 1] + 1;
+  const positions = new Map<number, number>();
+  for (const slot of slots) {
+    const travel = Math.max(0, room - (extents.get(slot) as number));
+    positions.set(slot, travelFraction({ slot, count }) * travel);
+  }
+  return { positions, extents, width: slots.length === 0 ? 0 : room };
+}
+
+/**
+ * The deck's slot places under whichever geometry it is standing in — the one
+ * entry point for anything that needs to know where the arrangement puts its
+ * cards without caring which mode put them there.
+ *
+ * The band is read only by fit; flow's strip is laid out in its own length and
+ * meets the band later, when an offset slides it. Passing it regardless is what
+ * lets a caller ask this question without first asking which mode it is in —
+ * which is the whole point, and the reason the plan drawing and its legend can
+ * be one arithmetic across both.
+ */
+export function stripPositions(
+  layout: ImpositionLayout,
+  occupied: readonly FlowSlotExtent[],
+  options: { band: number; vacancy?: FlowVacancy },
+): FlowStrip {
+  return layout === "flow"
+    ? flowStripPositions(occupied, options.vacancy)
+    : fitStripPositions(occupied, options.band, options.vacancy);
 }
 
 /**

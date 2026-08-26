@@ -48,6 +48,7 @@ import {
   CONTENT_WIDTH_WIDE_PX,
   CONTENT_WIDTH_COMFY_PX,
   slotCount,
+  stripPositions,
   type ContentWidth,
   type ImpositionKind,
   type ImpositionLayout,
@@ -98,21 +99,51 @@ const RAIL_DEPTH_PCT = 3;
 const FREE_CARD_PCT = 46;
 
 /**
- * The band the FLOW drawing measures against, in the same nominal pixels the
- * presets are stated in — a comfortable three cards' worth.
+ * The band to draw against when there is no measured one — a comfortable three
+ * cards' worth, in the same nominal pixels the presets are stated in.
  *
- * Flow needs a reference the fit drawing does not, and the difference is the
- * whole distinction between the modes. Fit's cards are normalized to fill the
- * band, so N of them tile it at any preset and any count — which is the
- * settled arrangement fit actually holds. Flow's cards keep their own width
- * and the band keeps its own, so how much of the deck you can see is exactly
- * the question, and a drawing that normalized it away would answer nothing.
- *
- * Stating the band as a fixed width is what makes both controls mean something
- * in flow: at a narrow preset more cards fit before the strip runs off the
- * edge, at a wide one fewer — the real trade, drawn.
+ * A LAST RESORT, not the normal case. The drawing measures against the deck's
+ * real band whenever the caller has it, because how much of the arrangement
+ * the band can hold is exactly the question both layouts are answering: at a
+ * narrow preset more cards fit before fit starts lapping them and before flow
+ * starts running off the edge, at a wide one fewer. That trade is only drawn
+ * truthfully against the band it is really being made against.
  */
-const FLOW_BAND_NOMINAL_PX = CONTENT_WIDTH_COMFY_PX * 3;
+const BAND_NOMINAL_PX = CONTENT_WIDTH_COMFY_PX * 3;
+
+/**
+ * The places a drawing gets when nobody has measured the deck it is of: every
+ * slot at the preset's width, laid out by the same rule the real one uses.
+ *
+ * A preview is a drawing of a deck that does not exist yet — not a drawing of
+ * a different kind of thing — so it goes through {@link stripPositions} exactly
+ * as the committed drawing's places do. Only the widths are supposed rather
+ * than measured, and an empty `occupied` with a vacancy at the preset is how
+ * that is said: every slot is a held-open place of a card's width, which is
+ * precisely what a proposal claims.
+ */
+function syntheticPlaces(
+  layout: ImpositionLayout,
+  count: number,
+  cardPx: number,
+  bandPx: number,
+): MiniatureFlowStrip {
+  const strip = stripPositions(layout, [], {
+    band: bandPx,
+    vacancy: { count, extent: cardPx },
+  });
+  return {
+    bandPx,
+    stripPx: strip.width,
+    slots: [...strip.extents]
+      .sort(([a], [b]) => a - b)
+      .map(([slot, widthPx]) => ({
+        slot,
+        leftPx: strip.positions.get(slot) ?? 0,
+        widthPx,
+      })),
+  };
+}
 
 /** The space between two cards, in percent of the field. Wider than a real
  *  seam drawn to scale, which would be a fraction of a pixel at this size.
@@ -379,6 +410,7 @@ export function miniatureGeometry({
   cards = true,
   width,
   layout = "fit",
+  band,
   flow,
 }: {
   kind: ImpositionKind | null;
@@ -386,7 +418,13 @@ export function miniatureGeometry({
   cards?: boolean;
   width?: ContentWidth;
   layout?: ImpositionLayout;
-  /** The live strip, when there is one. */
+  /**
+   * The deck's real band, in px — what the drawing measures against. Absent
+   * falls back to {@link BAND_NOMINAL_PX}, which is a drawing of no deck in
+   * particular.
+   */
+  band?: number;
+  /** The live places, when there are some. */
   flow?: MiniatureFlowStrip | null;
 }): MiniaturePlaceRects {
   const left = rails.left ?? 0;
@@ -403,38 +441,40 @@ export function miniatureGeometry({
     count * cardUnits + railSides * RAIL_NOMINAL_PX,
   );
   const railPct = (RAIL_NOMINAL_PX / totalUnits) * 100;
-  // Within the field the cards tile edge to edge: equal shares separated by
-  // the seam, the first flush left and the last flush right. A free card
-  // (no imposition) keeps its own width and the middle of the field instead.
+  // The seam the blocks give up so a run of them reads as separate cards.
   const cardGap = cardGapFor(count);
-  const fitShare =
-    kind === null
-      ? FREE_CARD_PCT
-      : count > 0
-        ? (100 - cardGap * (count - 1)) / count
-        : 0;
 
-  // FLOW: the cards keep their own width against a band that keeps its own, so
-  // the strip can be shorter than the band (air at the right, which is what a
-  // half-full flow deck really looks like) or longer than it (the strip runs
-  // off the edge and the deck scrolls). When it is longer the WHOLE strip is
-  // scaled into the frame and a window marks the part that is on screen.
+  // The band the drawing measures against: the deck's own whenever the caller
+  // has measured it, and a nominal one only when there is no deck to measure.
+  //
+  // ONE band for both layouts, and that is the whole of what this function used
+  // to get wrong. Fit was drawn against an implicit band of exactly the cards'
+  // own total — N equal blocks tiling the field, at any preset and any count —
+  // on the belief that fit normalizes its cards to fill the band. It does not:
+  // fit spreads cards of a FIXED width across whatever band there is, so a band
+  // wider than the cards leaves air between them and a narrower one laps them
+  // over each other. Neither could be drawn, both are real, and the picture
+  // jumped whenever the layout toggled because the two modes were being
+  // measured against two different bands.
+  const bandPx = band !== undefined && band > 0 ? band : BAND_NOMINAL_PX;
+
+  // The live places, when the caller has them. Not layout-gated: fit's places
+  // are as real and as measurable as flow's, and the drawing wants the real
+  // ones in both.
   //
   // Live, the blocks are the deck's own strip — one per slot standing in it,
   // each at the place and the width the strip put it, because every slot holds
-  // its place in the strip (an empty one carries the placeholder width the real
-  // strip gives it). The drawing does not decide any of this; `deckFlowStrip`
-  // is the one resolution ([P09]) and what it says is what is drawn.
+  // its place (an empty one carries the placeholder width the real strip gives
+  // it). The drawing does not decide any of this; `deckSlotStrip` is the one
+  // resolution ([P09]) and what it says is what is drawn.
   //
   // Including the GAPS. The drawing used to lay the live blocks out itself, by
   // summing widths and inserting its own decorative seam between them, and that
   // seam is several times the deck's real one — so the strip it measured came
   // out longer than the strip on screen, the window (the band, as a share of
   // that strip) came out narrower than the band really is, and the picture
-  // showed a slot half out of view that was fully on screen. The seam belongs
-  // to the SYNTHETIC strip alone, where there is no real gap to draw.
-  const flowLive =
-    layout === "flow" &&
+  // showed a slot half out of view that was fully on screen.
+  const live =
     kind !== null &&
     flow !== undefined &&
     flow !== null &&
@@ -443,64 +483,60 @@ export function miniatureGeometry({
     flow.slots.length > 0
       ? flow
       : null;
-  const flowGap = cardGapFor(count);
-  const syntheticWidthPct = (cardUnits / FLOW_BAND_NOMINAL_PX) * 100;
-  const flowBlocks: readonly (MiniatureRect & { slot: number })[] =
-    flowLive !== null
-      ? flowLive.slots.map((entry) => ({
+
+  // And without them — a proposal nobody has stood under — the same two rules
+  // over the same band, with every slot at the preset's width. A preview is a
+  // drawing of a deck that does not exist yet, not a drawing of a different
+  // kind of thing, so it is laid out by the imposer exactly as the committed
+  // one is; only the widths are supposed rather than measured.
+  const places = live ?? syntheticPlaces(layout, count, cardUnits, bandPx);
+
+  // The places as percentages of the band, which is what the field draws.
+  const bandBlocks: readonly (MiniatureRect & { slot: number })[] =
+    places.bandPx <= 0
+      ? []
+      : places.slots.map((entry) => ({
           slot: entry.slot,
-          leftPct: (entry.leftPx / flowLive.bandPx) * 100,
-          widthPct: (entry.widthPx / flowLive.bandPx) * 100,
-        }))
-      : Array.from({ length: count }, (_, i) => ({
-          slot: i,
-          leftPct: i * (syntheticWidthPct + flowGap),
-          widthPct: syntheticWidthPct,
+          leftPct: (entry.leftPx / places.bandPx) * 100,
+          widthPct: (entry.widthPx / places.bandPx) * 100,
         }));
-  // How long the strip is, in the same percent-of-band its blocks are stated
-  // in: its own measure when it is the real one, and where the last block ends
-  // when it is not.
-  const flowStrip =
-    flowLive !== null
-      ? (flowLive.stripPx / flowLive.bandPx) * 100
-      : flowBlocks.reduce(
-          (end, block) => Math.max(end, block.leftPct + block.widthPct),
-          0,
-        );
-  const flowOverflows = layout === "flow" && flowStrip > 100;
-  const flowScale = flowOverflows ? 100 / flowStrip : 1;
-  // The live strip's seam, taken OUT of each block rather than added between
-  // them — and that distinction is the whole of it.
+  // How long the run is, in the same percent-of-band its blocks are stated in.
+  const stripPct =
+    places.bandPx <= 0 ? 0 : (places.stripPx / places.bandPx) * 100;
+  // Only flow can outrun the band. A fit run IS the band — the first slot rests
+  // on one edge and the last on the other — so this is false there by
+  // arithmetic and not by a branch.
+  const flowOverflows = layout === "flow" && stripPct > 100;
+  const flowScale = flowOverflows ? 100 / stripPct : 1;
+  // The seam, taken OUT of each block rather than added between them — and that
+  // distinction is the whole of it.
   //
   // The deck's own gap is a fraction of a pixel at this scale (see
-  // `cardGapFor`), so a strip drawn at the deck's real positions and nothing
-  // else has no visible seam at all: the cards butt together and four columns
-  // read as one grey slab. The synthetic strip solves that by spacing the
-  // blocks apart, and doing the same to the live one is what made the strip
+  // `cardGapFor`), so a run drawn at the deck's real positions and nothing else
+  // has no visible seam at all: the cards butt together and four columns read
+  // as one grey slab. Adding air BETWEEN them instead is what made the strip
   // longer than the deck's and the window narrower than the band.
   //
   // Subtracting the seam from each block's own width costs nothing the window
   // is measured against: every left edge stays exactly where the deck put it,
-  // the strip keeps its whole length, and the blocks still read as separate
+  // the run keeps its whole length, and the blocks still read as separate
   // cards. A drawn card is a card's width less the air it is seen against.
-  const flowSeam = flowLive !== null ? flowGap : 0;
+  const flowSeam = cardGap;
 
-  // Where every block stands, in percent of the field: fit tiles the band in
-  // equal shares; flow lays the strip out at each block's own width and scales
-  // the whole of it in when it is longer than the band. A free card (no
-  // imposition) keeps its own width and the middle of the field under either.
+  // Where every block stands, in percent of the field. A free card (no
+  // imposition) keeps its own width and the middle of the field, which is the
+  // one drawing with no arrangement to place.
   const blocks: readonly (MiniatureRect & { slot: number })[] =
-    layout === "flow" && kind !== null
-      ? flowBlocks.map((block) => ({
+    kind === null
+      ? Array.from({ length: count }, (_, i) => ({
+          slot: i,
+          leftPct: (100 - FREE_CARD_PCT) / 2,
+          widthPct: FREE_CARD_PCT,
+        }))
+      : bandBlocks.map((block) => ({
           slot: block.slot,
           leftPct: block.leftPct * flowScale,
           widthPct: Math.max(block.widthPct * flowScale - flowSeam, 0),
-        }))
-      : Array.from({ length: count }, (_, i) => ({
-          slot: i,
-          leftPct:
-            kind === null ? (100 - fitShare) / 2 : i * (fitShare + cardGap),
-          widthPct: fitShare,
         }));
 
   const railRects: Partial<Record<SidebarSide, { basisPct: number }>> = {};
@@ -539,17 +575,18 @@ export function LayoutMiniature({
   const left = rails.left ?? 0;
   const right = rails.right ?? 0;
 
-  // The deck's live flow truth, as one fact or none. A strip's proportions mean
-  // nothing without the band they are seen through, and an offset into a strip
+  // The deck's live places, as one fact or none. A run's proportions mean
+  // nothing without the band they are laid across, and an offset into a strip
   // nobody has measured places the window nowhere — so a partial set draws at
   // rest rather than drawing a mixture of two truths.
   //
-  // The COMMITTED drawing is an instrument: given this it draws the real strip
-  // — each occupied slot at its own extent — and puts the window where the
-  // offset actually stands, so activating an off-band card moves the window
-  // here too. PREVIEW layers keep drawing at rest, and that half is not a
-  // compromise: an arrangement nobody has committed has no offset to track and
-  // no extents to measure, because the deck has never stood under it.
+  // Not layout-gated. The COMMITTED drawing is an instrument in both modes:
+  // given this it draws the real places — each slot at its own extent, where
+  // its own layout put it — and in flow it puts the window where the offset
+  // actually stands, so activating an off-band card moves the window here too.
+  // PREVIEW layers pass no places and are laid out from the preset instead, but
+  // they still get the band below, so a proposal is measured against the same
+  // deck the committed drawing is.
   const flowLive =
     flowOffsetPx !== undefined &&
     flowBandPx !== undefined &&
@@ -573,6 +610,7 @@ export function LayoutMiniature({
     cards,
     width,
     layout,
+    band: flowBandPx,
     flow: flowLive,
   });
   const railPct =

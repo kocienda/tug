@@ -33,7 +33,7 @@ import {
   columnModeOf,
   DEFAULT_CONTENT_WIDTH,
   effectiveColumnOrder,
-  flowStripPositions,
+  stripPositions,
   impositionLayout,
   railSeamFractions,
   resolveContentWidthPx,
@@ -268,8 +268,31 @@ export function paneRenderWidthOf(
  * stands at slot 4 whether or not slot 3 holds anything.
  */
 export function deckFlowStrip(state: DeckState): FlowStrip | null {
-  if (state.imposition.kind === undefined) return null;
   if (impositionLayout(state.imposition) !== "flow") return null;
+  return deckSlotStrip(state, 0);
+}
+
+/**
+ * `deckSlotStrip(state, band)` — where this deck's slots stand under whichever
+ * geometry it is in, or `null` when it has no numbered places at all.
+ *
+ * The layout-blind twin of {@link deckFlowStrip}, and the reason it exists is
+ * the Lens's plan: the drawing has to place a block per slot in both modes, and
+ * before this it could only ask about flow. So it derived fit itself, out of
+ * nominal units, and the two pictures did not agree — the plan visibly jumped
+ * when the layout toggled even though nothing about the deck had moved that
+ * far. One resolution, dispatched inside {@link stripPositions}, is the fix
+ * and the guarantee.
+ *
+ * The band is fit's input alone; flow lays its strip out in its own length and
+ * meets the band later, through an offset. Pass 0 when the answer is only
+ * wanted for a flow deck.
+ */
+export function deckSlotStrip(
+  state: DeckState,
+  band: number,
+): FlowStrip | null {
+  if (state.imposition.kind === undefined) return null;
   const occupied: FlowSlotExtent[] = [];
   for (const pane of state.panes) {
     if (pane.slot === undefined) continue;
@@ -282,9 +305,12 @@ export function deckFlowStrip(state: DeckState): FlowStrip | null {
       width: paneRenderWidthOf(state, pane),
     });
   }
-  return flowStripPositions(occupied, {
-    count: slotCount(state.imposition.kind),
-    extent: deckVacancyExtent(state),
+  return stripPositions(impositionLayout(state.imposition), occupied, {
+    band,
+    vacancy: {
+      count: slotCount(state.imposition.kind),
+      extent: deckVacancyExtent(state),
+    },
   });
 }
 

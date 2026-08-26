@@ -83,11 +83,13 @@ export interface IDeckManagerStore {
   getVersion: () => number;
 
   /**
-   * The band the flow strip is seen through, in px, or `null` when the deck is
-   * not in flow. A measurement of the canvas rather than a fact in `DeckState`,
-   * which is why it is a method and not a field of the snapshot.
+   * The band the arrangement is laid across, in px, or `null` when there is
+   * none to report. Layout-independent — fit spreads across it and flow slides
+   * under it, but it is one measurement. A measurement of the canvas rather
+   * than a fact in `DeckState`, which is why it is a method and not a field of
+   * the snapshot.
    */
-  getFlowBandWidth: () => number | null;
+  getBandWidth: () => number | null;
   getColumnRunHeight: () => number | null;
 
   /**

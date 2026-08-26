@@ -126,7 +126,10 @@ export interface LayoutPlacesProps {
   rails?: MiniatureRails;
   width?: ContentWidth;
   layout?: ImpositionLayout;
-  /** The live flow strip, when the drawing beneath is drawing one. */
+  /** The deck's band, in px — the same one the drawing beneath measures
+   *  against, so the marks land on the blocks. */
+  band?: number;
+  /** The live places, when the drawing beneath is drawing them. */
   flow?: MiniatureFlowStrip | null;
   /** Every slot the kind defines, occupied or not — the drawing draws the
    *  empty ones too, and a drawn block with no mark reads as a hole in the
@@ -236,6 +239,7 @@ export function LayoutPlaces({
   rails = {},
   width,
   layout = "fit",
+  band,
   flow = null,
   columns,
   railPlaces,
@@ -243,7 +247,7 @@ export function LayoutPlaces({
   focusOrder = 0,
   ghost = false,
 }: LayoutPlacesProps): React.ReactElement {
-  const geometry = miniatureGeometry({ kind, rails, width, layout, flow });
+  const geometry = miniatureGeometry({ kind, rails, width, layout, band, flow });
 
   // ---- One stop, a cursor over its places ([P24] deferred commit) ----
   //

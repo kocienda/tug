@@ -132,7 +132,7 @@ const FLOW_OFFSET_PROPERTY = gaugeProperties("flow-offset")[0];
 export interface FlowStripTravel {
   /** The deck's one strip — `deckFlowStrip(state)`. */
   strip: FlowStripModel;
-  /** The band the strip is seen through, in px — `store.getFlowBandWidth()`. */
+  /** The band the strip is seen through, in px — `store.getBandWidth()`. */
   band: number;
   /** Where the band stands in the strip, in px — the COMMITTED offset. Live
    *  motion arrives on the gauge channel instead; this is the fallback the
