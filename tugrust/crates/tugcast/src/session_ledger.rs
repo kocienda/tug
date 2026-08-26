@@ -113,7 +113,7 @@
 //! need explicit transactions; sqlite's per-statement implicit
 //! transaction is enough.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -670,6 +670,25 @@ pub struct ScanCacheRow {
     /// the parse — `upsert_scan_cache` never writes it, so a re-parse of a
     /// grown file cannot erase a minted callsign.
     pub tag: Option<String>,
+}
+
+/// The identity a line of work wears, for a session that is a segment of one
+/// rather than the whole of it ([D164]).
+///
+/// Produced by [`SessionLedger::line_identity`] and applied at read time. A
+/// stage's own row is never rewritten to hold this — the segment keeps the
+/// callsign it minted, and only the *display* resolves to the line.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LineIdentity {
+    /// The session the line is named by — the one the first rotation
+    /// rotated away from.
+    pub root_session_id: String,
+    /// The root's callsign, or `None` for a legacy tagless root.
+    pub tag: Option<String>,
+    /// The root's name: the user's `/rename` when `name_user_set`, else the
+    /// scanned `aiTitle`.
+    pub name: Option<String>,
+    pub name_user_set: bool,
 }
 
 /// The scan-derived pair a `session_updated` push carries — the on-disk size
@@ -3479,7 +3498,30 @@ impl SessionLedger {
     /// Ids absent from the result are absent from the ledger — a negative
     /// answer the client caches, so an unresolvable citation is a fact rather
     /// than a symptom of which listings happened to run.
+    /// A citation names a line of work, so what it resolves to wears the
+    /// line's identity ([D164]): a trailer written inside an arc stage cites
+    /// the line, and rendering the same citation must not answer with the
+    /// segment's own callsign. Resolution itself — every arm below, including
+    /// the `minted_tags` alias arm — is unchanged; only the identity on the
+    /// rows it returns is resolved through.
     pub fn resolve_session_ids(
+        &self,
+        ids: &[String],
+    ) -> Result<Vec<(String, SessionRow)>, LedgerError> {
+        let mut resolved = self.resolve_session_id_rows(ids)?;
+        for (_, row) in &mut resolved {
+            if let Some(line) = self.line_identity(&row.session_id) {
+                row.tag = line.tag;
+                row.name = line.name;
+                row.name_user_set = line.name_user_set;
+            }
+        }
+        Ok(resolved)
+    }
+
+    /// [`Self::resolve_session_ids`] before the line-identity pass — the
+    /// resolution proper, holding the connection for its whole run.
+    fn resolve_session_id_rows(
         &self,
         ids: &[String],
     ) -> Result<Vec<(String, SessionRow)>, LedgerError> {
@@ -4056,6 +4098,158 @@ impl SessionLedger {
         drop(conn);
         self.notify_sessions_changed();
         Ok(())
+    }
+
+    /// The session a line of work is named by: walk parent-ward across
+    /// **rotation** edges only, and stop at the first session that is not a
+    /// stage.
+    ///
+    /// A rotation does not supersede the session it rotates ([D164]), so the
+    /// stage is a session of its own — but it is not a *line of work* of its
+    /// own. It is a segment of the line that rotated into it, and the
+    /// callsign names the line, not the JSONL file ([D154]). This is the walk
+    /// every display read resolves through so a card, a picker row, and a
+    /// commit trailer all name the line rather than whichever segment happens
+    /// to be seated.
+    ///
+    /// A rewind-fork edge stops the walk: identity already moved to the fork,
+    /// which wears the callsign and is its own root. So is a stage whose
+    /// parent row is gone — evicted or trashed — because nothing is left to
+    /// name the line with.
+    ///
+    /// Total by construction, like both lineage walks: an unknown id, a query
+    /// error, a cycle, and a chain past the depth cap all return the input.
+    ///
+    /// The climb and the forward resolution compose. A line that rotated
+    /// through an arc and *then* continued through a rewind-fork is named by
+    /// the fork — identity moved there ([D154]) — so a stage of that arc
+    /// resolves to the fork, not to the superseded row the arc rotated from,
+    /// which wears nothing by design. Only a session that actually climbed a
+    /// rotation edge resolves forward: a superseded parent asked about
+    /// directly is its own answer, because putting its fork's callsign back on
+    /// it is the resting lie [D154] removed.
+    pub fn resolve_to_line_root(&self, session_id: &str) -> String {
+        let root = self.walk_to_rotation_root(session_id);
+        if root == session_id {
+            return root;
+        }
+        let named = self.resolve_to_lineage_head(&root);
+        if named == session_id { root } else { named }
+    }
+
+    /// The rotation climb alone — [`Self::resolve_to_line_root`] before the
+    /// rewind-fork resolution that follows it.
+    fn walk_to_rotation_root(&self, session_id: &str) -> String {
+        /// Same guard, same reasoning as `resolve_to_lineage_head`'s.
+        const MAX_HOPS: usize = 16;
+
+        let conn = self.db.lock().expect("ledger mutex");
+        let mut current = session_id.to_owned();
+        let mut visited = HashSet::new();
+        visited.insert(current.clone());
+        for _ in 0..MAX_HOPS {
+            let parent: Option<String> = match conn
+                .query_row(
+                    "SELECT parent.session_id FROM sessions stage
+                     JOIN sessions parent
+                       ON parent.session_id = stage.forked_from_session_id
+                     WHERE stage.session_id = ?1
+                       AND stage.stage_label IS NOT NULL
+                       AND stage.fork_point IS NULL",
+                    params![current],
+                    |row| row.get(0),
+                )
+                .optional()
+            {
+                Ok(parent) => parent,
+                Err(err) => {
+                    tracing::warn!(
+                        session_id = %session_id,
+                        error = %err,
+                        "line root resolution failed; using the id as given"
+                    );
+                    return session_id.to_owned();
+                }
+            };
+            let Some(parent) = parent else {
+                return current;
+            };
+            if !visited.insert(parent.clone()) {
+                tracing::warn!(
+                    session_id = %session_id,
+                    revisited = %parent,
+                    "rotation edges form a cycle; using the id as given"
+                );
+                return session_id.to_owned();
+            }
+            current = parent;
+        }
+        tracing::warn!(
+            session_id = %session_id,
+            max_hops = MAX_HOPS,
+            "rotation chain exceeds the depth cap; using the id as given"
+        );
+        session_id.to_owned()
+    }
+
+    /// The identity a session should be *displayed* under, or `None` when the
+    /// session is its own line root and its own row already answers.
+    ///
+    /// Nothing is written: the stage's row keeps the callsign it minted, which
+    /// is what keeps `minted_tags` permanence honest and what a trailer
+    /// written during the stage resolves through. This is the read that says
+    /// which line that segment belongs to.
+    pub fn line_identity(&self, session_id: &str) -> Option<LineIdentity> {
+        let root = self.resolve_to_line_root(session_id);
+        if root == session_id {
+            return None;
+        }
+        let conn = self.db.lock().expect("ledger mutex");
+        conn.query_row(
+            "SELECT tag, name, name_user_set FROM sessions WHERE session_id = ?1",
+            params![root],
+            |row| {
+                Ok(LineIdentity {
+                    root_session_id: root.clone(),
+                    tag: row.get(0)?,
+                    name: row.get(1)?,
+                    name_user_set: row.get::<_, i64>(2)? != 0,
+                })
+            },
+        )
+        .optional()
+        .unwrap_or(None)
+    }
+
+    /// [`Self::line_identity`] for a batch, keyed by the session asked about.
+    /// Sessions that are their own root contribute no entry, so an empty map
+    /// means "nothing here is a stage".
+    pub fn line_identities_for(&self, ids: &[String]) -> HashMap<String, LineIdentity> {
+        let mut map = HashMap::new();
+        for id in ids {
+            if let Some(identity) = self.line_identity(id) {
+                map.insert(id.clone(), identity);
+            }
+        }
+        map
+    }
+
+    /// The row as a reader should see it: the persisted row with its identity
+    /// resolved to the line of work ([D164]).
+    ///
+    /// This is the accessor every display and citation path uses;
+    /// [`Self::get`] stays honest about what the row holds, for the writers
+    /// and the bookkeeping that need the segment's own facts.
+    pub fn get_for_display(&self, session_id: &str) -> Result<Option<SessionRow>, LedgerError> {
+        let Some(mut row) = self.get(session_id)? else {
+            return Ok(None);
+        };
+        if let Some(line) = self.line_identity(session_id) {
+            row.tag = line.tag;
+            row.name = line.name;
+            row.name_user_set = line.name_user_set;
+        }
+        Ok(Some(row))
     }
 
     /// Every session an arc stage rotation seated, with the session it
@@ -8962,6 +9156,89 @@ mod tests {
             "f-1",
             "the tagged child is the continuation, even though the sibling is newer"
         );
+    }
+
+    /// Seat `stage` as a rotation of `parent`, the way the bridge does.
+    fn seat_stage(l: &SessionLedger, parent: &str, stage: &str, label: &str, now: i64) {
+        // The bridge hands a rotation a fresh candidate of its own ([D164]).
+        let tag = roll_fresh_tag(stage, now);
+        l.record_spawn(stage, WS_A, "/proj", "card-1", now, Some(&tag))
+            .expect("record_spawn");
+        l.set_fork_provenance(stage, parent, None)
+            .expect("fork provenance");
+        l.set_stage_provenance(stage, label, None)
+            .expect("stage provenance");
+    }
+
+    #[test]
+    fn a_line_of_work_is_named_by_the_session_the_arc_rotated_from() {
+        let l = fresh();
+        l.record_spawn("root", WS_A, "/proj", "card-1", millis(3), Some("primo-pita"))
+            .unwrap();
+        l.rename("root", Some("tugrev-bringup")).unwrap();
+        seat_stage(&l, "root", "devise", "devise", millis(2));
+        seat_stage(&l, "devise", "review", "review", millis(1));
+        seat_stage(&l, "review", "implement", "implement", millis(0));
+
+        for stage in ["devise", "review", "implement"] {
+            assert_eq!(l.resolve_to_line_root(stage), "root", "{stage}");
+            let shown = l.get_for_display(stage).unwrap().unwrap();
+            assert_eq!(shown.tag.as_deref(), Some("primo-pita"));
+            assert_eq!(shown.name.as_deref(), Some("tugrev-bringup"));
+            assert!(shown.name_user_set);
+            // The row itself is untouched: the segment keeps the callsign it
+            // minted, which is what a trailer written there resolves through.
+            let stored = l.get(stage).unwrap().unwrap();
+            assert_ne!(stored.tag.as_deref(), Some("primo-pita"));
+            assert!(stored.tag.is_some());
+            assert!(stored.name.is_none());
+        }
+        // The root is its own line, so nothing is projected onto it.
+        assert_eq!(l.resolve_to_line_root("root"), "root");
+        assert!(l.line_identity("root").is_none());
+        assert_eq!(l.line_identities_for(&["root".into(), "review".into()]).len(), 1);
+    }
+
+    #[test]
+    fn a_rewind_fork_stops_the_line_walk_and_a_stranded_stage_names_itself() {
+        let l = fresh();
+        l.record_spawn("root", WS_A, "/proj", "card-1", millis(2), Some("stocky-pixie"))
+            .unwrap();
+        // A rewind-fork already carries the identity, so it is its own root
+        // and the walk must not climb past it.
+        spawn_fork(&l, "root", "point-1", "forked");
+        assert_eq!(l.resolve_to_line_root("forked"), "forked");
+        assert!(l.line_identity("forked").is_none());
+
+        // A stage whose parent row is gone has nothing left to name the line.
+        seat_stage(&l, "vanished", "orphan", "implement", millis(0));
+        assert_eq!(l.resolve_to_line_root("orphan"), "orphan");
+        assert!(l.line_identity("orphan").is_none());
+        assert!(l.get_for_display("orphan").unwrap().unwrap().tag.is_some());
+    }
+
+    #[test]
+    fn a_line_that_rotated_and_then_rewound_is_named_by_the_fork() {
+        let l = fresh();
+        l.record_spawn("root", WS_A, "/proj", "card-1", millis(4), Some("juicy-roach"))
+            .unwrap();
+        l.rename("root", Some("dash+join-xp")).unwrap();
+        seat_stage(&l, "root", "implement", "implement", millis(3));
+        // Later the user rewinds the conversation itself: identity moves to
+        // the fork and `root` is left superseded and bare.
+        spawn_fork(&l, "root", "point-1", "continued");
+        assert_eq!(l.get("root").unwrap().unwrap().tag, None);
+
+        // The arc's stage belongs to the line, which is now the fork.
+        assert_eq!(l.resolve_to_line_root("implement"), "continued");
+        let shown = l.get_for_display("implement").unwrap().unwrap();
+        assert_eq!(shown.tag.as_deref(), Some("juicy-roach"));
+        assert_eq!(shown.name.as_deref(), Some("dash+join-xp"));
+        // The superseded row asked about directly still wears nothing —
+        // handing it the fork's callsign is the lie [D154] removed.
+        assert_eq!(l.resolve_to_line_root("root"), "root");
+        assert!(l.line_identity("root").is_none());
+        assert_eq!(l.get_for_display("root").unwrap().unwrap().tag, None);
     }
 
     #[test]

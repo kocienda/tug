@@ -699,7 +699,9 @@ impl LedgerSessionsRecorder {
         let Some(tx) = self.control_tx.as_ref() else {
             return;
         };
-        match self.ledger.get(session_id) {
+        // The display accessor: a push names the line of work, not whichever
+        // rotation segment is seated ([D164]).
+        match self.ledger.get_for_display(session_id) {
             Ok(Some(row)) => {
                 let _ = tx.send(build_session_updated_frame(
                     &row,
@@ -1478,10 +1480,16 @@ pub struct ListedSession {
 ///
 /// Content-empty rows ([`is_empty_session`]) are dropped from both phases —
 /// they never reach the wire.
+///
+/// `lines` names, for each session that is an arc stage, the line of work it
+/// is a segment of ([D164]). Those rows do not list on their own: the picker
+/// offers **lines of work**, and an arc's stages are one line with the
+/// session it rotated from. See [`fold_lines`].
 fn build_listed_union(
     rows: Vec<crate::session_ledger::SessionRow>,
     live: &HashMap<String, crate::terminal_registry::TerminalLiveEntry>,
     scan: Option<crate::external_sessions::ScanOutcome>,
+    lines: &HashMap<String, crate::session_ledger::LineIdentity>,
 ) -> Vec<ListedSession> {
     let annotate = |session_id: &str| {
         live.get(session_id).map(|e| TerminalLiveWire {
@@ -1586,8 +1594,97 @@ fn build_listed_union(
         }
     }
     listed.retain(|entry| !is_empty_session(&entry.row));
+    let mut listed = fold_lines(listed, lines);
     listed.sort_by(|a, b| b.row.last_used_at.cmp(&a.row.last_used_at));
     listed
+}
+
+/// Collapse each line of work into one row.
+///
+/// An arc rotation leaves a session per stage, and before [D164] they were
+/// invisible in the picker only because the rotation stole the parent's
+/// callsign and name — one row, bought with a lie. The rows are honest now,
+/// which is what made four of them appear where the user has one
+/// conversation. So the fold happens here, at the read, where it costs
+/// nothing but a grouping:
+///
+/// - The **row offered** is the line's newest *live* segment, else its newest
+///   segment. That is the resume target that keeps the whole scroll: a card
+///   replays parent-ward from the session it is seated on, so seating the
+///   line's tip replays every stage and the conversation they grew from,
+///   while seating the root would show the history and drop the arc.
+/// - The **identity shown** is the line's — the root's callsign and name,
+///   already resolved onto the stage rows by `get_for_display`, and taken
+///   from the root's own row when it is one of the members.
+/// - **Size and turns sum** across the line, because that is what the line
+///   holds; the segment's own numbers would understate a card the user has
+///   been working in all afternoon.
+///
+/// A session with no line entry — every ordinary session, and every external
+/// scan row — is its own group of one and passes through untouched.
+fn fold_lines(
+    listed: Vec<ListedSession>,
+    lines: &HashMap<String, crate::session_ledger::LineIdentity>,
+) -> Vec<ListedSession> {
+    if lines.is_empty() {
+        return listed;
+    }
+    let mut order: Vec<String> = Vec::new();
+    let mut groups: HashMap<String, Vec<ListedSession>> = HashMap::new();
+    for entry in listed {
+        let key = lines
+            .get(&entry.row.session_id)
+            .map(|line| line.root_session_id.clone())
+            .unwrap_or_else(|| entry.row.session_id.clone());
+        groups.entry(key.clone()).or_insert_with(|| {
+            order.push(key.clone());
+            Vec::new()
+        });
+        groups.get_mut(&key).expect("group just inserted").push(entry);
+    }
+    let mut folded = Vec::with_capacity(order.len());
+    for key in order {
+        let mut members = groups.remove(&key).expect("every ordered key has a group");
+        if members.len() == 1 {
+            folded.push(members.pop().expect("one member"));
+            continue;
+        }
+        let turn_count: i64 = members.iter().map(|m| m.row.turn_count).sum();
+        let file_size: Option<i64> = members
+            .iter()
+            .filter_map(|m| m.file_size)
+            .reduce(|a, b| a + b);
+        // The root's own row is the identity when it is listed; otherwise the
+        // line identity every stage carries says the same thing.
+        let identity = members
+            .iter()
+            .find(|m| m.row.session_id == key)
+            .map(|m| (m.row.tag.clone(), m.row.name.clone(), m.row.name_user_set))
+            .or_else(|| {
+                members.iter().find_map(|m| {
+                    lines.get(&m.row.session_id).map(|line| {
+                        (line.tag.clone(), line.name.clone(), line.name_user_set)
+                    })
+                })
+            });
+        // Newest live segment, else newest segment.
+        members.sort_by(|a, b| {
+            let live = |m: &ListedSession| m.row.state == crate::session_ledger::SessionState::Live;
+            live(b)
+                .cmp(&live(a))
+                .then(b.row.last_used_at.cmp(&a.row.last_used_at))
+        });
+        let mut base = members.swap_remove(0);
+        base.row.turn_count = turn_count;
+        base.file_size = file_size;
+        if let Some((tag, name, name_user_set)) = identity {
+            base.row.tag = tag;
+            base.row.name = name;
+            base.row.name_user_set = name_user_set;
+        }
+        folded.push(base);
+    }
+    folded
 }
 
 /// A session that holds nothing: no turns, no recorded user prompt, and no
@@ -4509,11 +4606,17 @@ impl AgentSupervisor {
             move || {
                 let rows = ledger_arc.list_for_project_dir(&pd)?;
                 let live = Self::read_terminal_live_sessions(registry_root.as_deref());
-                Ok::<_, crate::session_ledger::LedgerError>((rows, live))
+                // Resolved beside the rows, on the same blocking worker: the
+                // fold is part of building the listing, not a second read the
+                // control loop pays for ([D164]).
+                let lines = ledger_arc.line_identities_for(
+                    &rows.iter().map(|r| r.session_id.clone()).collect::<Vec<_>>(),
+                );
+                Ok::<_, crate::session_ledger::LedgerError>((rows, live, lines))
             }
         })
         .await;
-        let (rows, live) = match phase1 {
+        let (rows, live, lines) = match phase1 {
             Ok(Ok(t)) => t,
             Ok(Err(err)) => {
                 warn!(error = %err, project_dir, "list_sessions phase 1 failed");
@@ -4528,7 +4631,7 @@ impl AgentSupervisor {
         };
 
         // Phase 1 emit: ledger-only preview, scan still pending.
-        let ledger_preview = build_listed_union(rows, &live, None);
+        let ledger_preview = build_listed_union(rows, &live, None, &lines);
         Self::send_list_sessions_ok(&control_tx, project_dir, dir_exists, &ledger_preview, true);
 
         // ── Phase 2: the expensive JSONL scan, run off the control loop in
@@ -4555,6 +4658,9 @@ impl AgentSupervisor {
                     Vec::new()
                 });
                 let live = Self::read_terminal_live_sessions(registry_root.as_deref());
+                let lines = ledger_arc.line_identities_for(
+                    &rows.iter().map(|r| r.session_id.clone()).collect::<Vec<_>>(),
+                );
                 // Throttled scan progress: `list_sessions_progress` frames
                 // (≤ ~10 Hz, first and last ticks always) keyed by the
                 // typed path — the client's cache key — so a cold or
@@ -4592,7 +4698,7 @@ impl AgentSupervisor {
                         ));
                     },
                 );
-                build_listed_union(rows, &live, Some(scan))
+                build_listed_union(rows, &live, Some(scan), &lines)
             })
             .await;
             match built {
@@ -5069,12 +5175,15 @@ impl AgentSupervisor {
 
         // The callsign comes from the ledger, never from the payload — the
         // deck may still be holding the optimistic tag it minted at spawn.
+        // Through the display accessor, so a commit made inside an arc stage
+        // cites the line of work rather than the segment; `Tug-Session-Id`
+        // beside it still pins the exact transcript ([D164]).
         let tag = request
             .session_id
             .as_deref()
             .filter(|s| !s.is_empty())
             .and_then(|id| self.session_ledger.as_ref().map(|l| (l, id)))
-            .and_then(|(ledger, id)| match ledger.get(id) {
+            .and_then(|(ledger, id)| match ledger.get_for_display(id) {
                 Ok(row) => row.and_then(|r| r.tag),
                 Err(err) => {
                     warn!(error = %err, session_id = id, "ledger read for commit trailer failed");
@@ -9234,6 +9343,93 @@ mod tests {
         assert!(turn_ended_in_user_cancel(user));
         assert!(!turn_ended_in_user_cancel(recovery));
         assert!(!turn_ended_in_user_cancel(complete));
+    }
+
+    fn listed(
+        session_id: &str,
+        tag: Option<&str>,
+        name: Option<&str>,
+        state: crate::session_ledger::SessionState,
+        last_used_at: i64,
+        turn_count: i64,
+    ) -> ListedSession {
+        ListedSession {
+            row: crate::session_ledger::SessionRow {
+                session_id: session_id.to_string(),
+                workspace_key: "ws".to_string(),
+                project_dir: "/proj".to_string(),
+                created_at: 1,
+                last_used_at,
+                turn_count,
+                last_user_prompt: Some("hi".to_string()),
+                state,
+                card_id: Some(format!("card-{session_id}")),
+                name: name.map(str::to_string),
+                name_user_set: name.is_some(),
+                tag: tag.map(str::to_string),
+                synopsis: None,
+                private: false,
+                dash_id: None,
+                dash_name: None,
+            },
+            origin: "tug",
+            terminal_live: None,
+            file_size: Some(10),
+        }
+    }
+
+    #[test]
+    fn an_arcs_stages_fold_into_the_line_they_rotated_from() {
+        use crate::session_ledger::{LineIdentity, SessionState};
+        // `get_for_display` has already resolved the stages' identity, which
+        // is why they arrive here wearing the line's callsign.
+        let rows = vec![
+            listed("root", Some("primo-pita"), Some("tugrev-bringup"), SessionState::Closed, 100, 11),
+            listed("devise", Some("primo-pita"), Some("tugrev-bringup"), SessionState::Closed, 200, 1),
+            listed("implement", Some("primo-pita"), Some("tugrev-bringup"), SessionState::Live, 150, 6),
+            listed("stranger", Some("lucky-wren"), None, SessionState::Closed, 300, 4),
+        ];
+        let line = |root: &str| LineIdentity {
+            root_session_id: root.to_string(),
+            tag: Some("primo-pita".to_string()),
+            name: Some("tugrev-bringup".to_string()),
+            name_user_set: true,
+        };
+        let lines = HashMap::from([
+            ("devise".to_string(), line("root")),
+            ("implement".to_string(), line("root")),
+        ]);
+
+        let folded = fold_lines(rows, &lines);
+        assert_eq!(folded.len(), 2, "one row for the line, one for the stranger");
+        let row = &folded
+            .iter()
+            .find(|e| e.row.tag.as_deref() == Some("primo-pita"))
+            .expect("the line lists")
+            .row;
+        // The live segment is the resume target even though a closed one was
+        // used more recently: seating the tip replays the whole scroll.
+        assert_eq!(row.session_id, "implement");
+        assert_eq!(row.name.as_deref(), Some("tugrev-bringup"));
+        assert!(row.name_user_set);
+        assert_eq!(row.state, SessionState::Live);
+        assert_eq!(row.turn_count, 18, "the line's turns, not the segment's");
+        assert_eq!(
+            folded
+                .iter()
+                .find(|e| e.row.session_id == "implement")
+                .and_then(|e| e.file_size),
+            Some(30)
+        );
+        // A session no line claims passes through untouched.
+        let stranger = folded
+            .iter()
+            .find(|e| e.row.session_id == "stranger")
+            .expect("the stranger lists");
+        assert_eq!(stranger.row.turn_count, 4);
+        assert_eq!(stranger.file_size, Some(10));
+        // And with no stages at all the fold is the identity function.
+        assert_eq!(fold_lines(vec![listed("solo", None, None, SessionState::Closed, 1, 1)], &HashMap::new()).len(), 1);
     }
 
     #[test]
