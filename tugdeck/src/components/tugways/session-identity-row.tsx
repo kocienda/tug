@@ -91,15 +91,11 @@ import React, {
 import { renderFilterHighlight } from "@/components/tugways/filter-highlight";
 import { TugDashTrack, dashTrackModelFromEntry } from "@/components/tugways/tug-dash-track";
 import { TugStepFraction } from "@/components/tugways/tug-step-ring";
-import {
-  dashGlanceFraction,
-  dashRunScope,
-  dashWalkComplete,
-} from "@/components/tugways/dash-meta-line";
+import { dashGlanceFraction } from "@/components/tugways/dash-meta-line";
 import { PulseBeatText } from "@/components/tugways/pulse-beat-text";
 import { SessionActivitySparkline } from "@/components/tugways/session-activity-sparkline";
 import { SessionPhaseDot } from "@/components/tugways/session-phase-dot";
-import { SessionStepRing } from "@/components/tugways/session-step-ring";
+
 
 import { useSessionIdentityMenu } from "@/components/tugways/session-identity-menu";
 import {
@@ -616,15 +612,10 @@ export function SessionIdentityRow({
   // rather than by branching on a hook.
   const storeDash = useDashForSession(dashOverride === undefined ? sessionId : null);
   const dashFact = dashOverride ?? storeDash;
-  const dashCounted =
-    dashFact !== null &&
-    dashFact.stepCurrent !== null &&
-    dashFact.stepTotal !== null;
-  // The two marks answer two questions and take two pairs. The numerals count
-  // the declared run — the selection somebody asked for, which is what the
-  // task list mirrors and the invocation named. The ring keeps the plan's
-  // pair, drawing a segment per plan step, and lights the run's span across
-  // them. Completion is read against the pair actually shown.
+  // The numerals count the declared RUN — the selection somebody asked for,
+  // which is what the task list mirrors and the invocation named. The plan's
+  // own pair is the track's, drawn as one tick per plan step, so nothing here
+  // derives it a second time.
   const dashGlance =
     dashFact !== null
       ? dashGlanceFraction(
@@ -634,18 +625,6 @@ export function SessionIdentityRow({
           dashFact.stepTotal,
         )
       : null;
-  const dashScope =
-    dashFact !== null
-      ? dashRunScope(
-          dashFact.runPosition,
-          dashFact.runLength,
-          dashFact.stepCurrent,
-          dashFact.stepTotal,
-        )
-      : undefined;
-  const dashComplete =
-    dashFact !== null &&
-    dashWalkComplete(dashFact.stage, dashGlance?.current, dashGlance?.total);
 
   // When the session was made. Two sources, resolved once and shared, so a
   // masthead and a Lens row cannot date the same session differently. The row
@@ -832,33 +811,23 @@ export function SessionIdentityRow({
           ? `${IDENTITY_ROW_CLASS} ${className}`
           : IDENTITY_ROW_CLASS
       }
-      // ONE ring geometry: a session on a counted dash wears the step ring at
-      // the dense dot size on every mount — the Lens's 28px monitor dot
-      // included, because a pulse that ends inside the step depiction misreads
-      // the count. The ink-slack correction is the bare dot's; the ring form
-      // packs at the stylesheet's own advance.
-      indicator={
-        dashCounted ? (
-          <SessionStepRing
-            sessionId={sessionId}
-            current={dashFact.stepCurrent!}
-            total={dashFact.stepTotal!}
-            complete={dashComplete}
-            {...(dashScope !== undefined ? { scope: dashScope } : {})}
-            dot
-            drift={drift}
-          />
-        ) : (
-          <SessionPhaseDot sessionId={sessionId} size={dotSize} drift={drift} />
-        )
-      }
-      // No size, no ink correction: the row falls back to packing at the
-      // stylesheet's own advance, which is the column. The ring form takes that
-      // path already — it fills the advance, so there is no slack to reclaim —
-      // and a masthead asks for it outright.
-      indicatorSize={
-        dashCounted || indicatorPacking === "column" ? undefined : dotSize
-      }
+      // ONE mark, whatever the session is doing: the phase dot, saying whether
+      // this session is working. It never becomes a step ring.
+      //
+      // It used to. A session on a counted dash wore the segmented ring, and
+      // once the track arrived on the title line beside it that was two marks
+      // drawing the same step count in two geometries, disagreeing whenever
+      // one of them lagged. The track is the dash's whole life and the better
+      // reading of it, so the ring yields the subject entirely: a dash says
+      // its progress in the track and nowhere else on this row.
+      //
+      // The segmented ring is not retired — it is what a task list that is NOT
+      // a dash still wears, which is the case it now uniquely means.
+      indicator={<SessionPhaseDot sessionId={sessionId} size={dotSize} drift={drift} />}
+      // No size, no ink correction under column packing: the row falls back to
+      // packing at the stylesheet's own advance, which a masthead asks for
+      // outright.
+      indicatorSize={indicatorPacking === "column" ? undefined : dotSize}
       name={
         nameProps !== undefined ? (
           <span {...nameProps}>{titleRun}</span>

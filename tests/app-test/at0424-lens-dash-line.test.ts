@@ -11,9 +11,12 @@
  *    `^<dash>` run: the lifecycle track (`TugDashTrack`), whose cells are the
  *    dash's whole life from its brief to its join, and the `i/N` count
  *    (`TugStepFraction`) once step counters exist.
- *  - The INDICATOR becomes the step ring (`SessionStepRing`) once counters
- *    exist: the segmented circle wrapping the dense phase dot, in the phase's
- *    own tone.
+ *  - The INDICATOR stays the bare phase dot, whatever the dash is doing. It
+ *    used to become a segmented step ring once counters existed; with the
+ *    track on the title line that was two marks drawing one step count in two
+ *    geometries. A dash says its progress in the track and nowhere else on
+ *    this row, and the segmented ring now uniquely means a task list that is
+ *    not a dash.
  *
  * The structural claims are pinned from both sides: binding never grows the
  * list by a cell or the row by a line, the retired dash-line slot never
@@ -34,7 +37,6 @@
  * @covers tugdeck/src/components/lens/sections/cards-session-cell.tsx
  * @covers tugdeck/src/components/tugways/session-identity-row.tsx
  * @covers tugdeck/src/components/tugways/session-identity-row.css
- * @covers tugdeck/src/components/tugways/session-step-ring.tsx
  * @covers tugdeck/src/components/tugways/tug-step-ring.tsx
  * @covers tugdeck/src/components/tugways/tug-step-ring.css
  * @covers tugdeck/src/components/tugways/tug-dash-track.tsx
@@ -253,28 +255,28 @@ describe.skipIf(!SHOULD_RUN)("AT0424: dash progress on the session's row", () =>
 
         const stepped = await app.evalJS<{
           fraction: string;
-          ringLabel: string | null;
-          segments: number;
-          outside: number;
-          inBand: number;
-          ringWrapsDot: boolean;
+          rings: number;
+          phase: string | null;
+          ticks: number;
+          ticksActive: number;
+          ticksDone: number;
           monitorDots: number;
         }>(
           `(() => {
              const fraction = document.querySelector(${JSON.stringify(FRACTION)});
-             const ring = document.querySelector(${JSON.stringify(RING)});
-             const segs = ring ? Array.from(ring.querySelectorAll(".tug-step-ring-seg")) : [];
-             const state = (s) => segs.filter((el) => el.getAttribute("data-state") === s).length;
+             const track = document.querySelector(${JSON.stringify(TRACK)});
+             const steps = track?.querySelector('[data-phase="implement"][data-steps="true"]');
+             const ticks = steps ? Array.from(steps.children) : [];
+             const state = (s) => ticks.filter((el) => el.getAttribute("data-state") === s).length;
              return {
                fraction: (fraction?.textContent ?? "").trim(),
-               ringLabel: ring?.getAttribute("aria-label") ?? null,
-               segments: segs.length,
-               outside: state("outside"),
-               inBand: state("done") + state("current") + state("todo"),
-               // ONE geometry: the ring wraps a live phase dot, so the bound
-               // row traded its bare monitor dot for the ring form.
-               ringWrapsDot:
-                 ring?.querySelector('[data-slot="tug-progress-indicator"]') != null,
+               // The segmented ring is gone from a dash row entirely.
+               rings: document.querySelectorAll(${JSON.stringify(RING)}).length,
+               phase: track?.getAttribute("data-phase") ?? null,
+               ticks: ticks.length,
+               ticksActive: state("active"),
+               ticksDone: state("done"),
+               // ONE mark on the row, and it is the bare phase dot.
                monitorDots: document.querySelectorAll(
                  ${JSON.stringify(`${SESSION_ROW} .tug-session-row-dot [data-slot="tug-progress-indicator"]`)},
                ).length,
@@ -284,25 +286,25 @@ describe.skipIf(!SHOULD_RUN)("AT0424: dash progress on the session's row", () =>
         note("at0424 with the step", JSON.stringify(stepped));
         // The numerals count the RUN — steps 1–2 were asked for, so the first
         // of them is `1/2`. They are real, selectable text, and they say
-        // nothing about the ten- (here three-) row document behind them.
+        // nothing about the three-row document behind them.
         expect(stepped.fraction).toBe("1/2");
-        // The ring says what the numerals cannot: the plan holds three steps,
-        // this run covers two of them, and the third is outside it. That is
-        // the whole plan's shape and the run's place in it, wordlessly.
-        expect(stepped.segments).toBe(3);
-        expect(stepped.inBand).toBe(2);
-        expect(stepped.outside).toBe(1);
-        // Words are free only in the label, so the label carries both facts.
-        expect(stepped.ringLabel).toBe(
-          "step 1 of 2 in this run, steps 1–2 of 3 in the plan",
-        );
-        expect(stepped.ringWrapsDot).toBe(true);
-        // One dot on the row — the one inside the ring.
+        // The track says what the numerals cannot: the walk has begun, and the
+        // plan holds three steps with the first of them open. That is the
+        // document's whole shape, wordlessly — and it is the ONLY place this
+        // row draws the step count now.
+        expect(stepped.phase).toBe("implement");
+        expect(stepped.ticks).toBe(3);
+        expect(stepped.ticksActive).toBe(1);
+        expect(stepped.ticksDone).toBe(0);
+        // The step ring never appears on a dash row: two marks counting one
+        // walk in two geometries is the thing this retired.
+        expect(stepped.rings).toBe(0);
+        // One dot on the row, and no ring around it.
         expect(stepped.monitorDots).toBe(1);
         // Still no fourth line, still the same cells.
         expect(await count(app, DASH_LINE)).toBe(0);
         expect(await listCellCount(app)).toBe(bareCells);
-        note("at0424 lens with the ring", (await app.screenshot()).path);
+        note("at0424 lens with the walk begun", (await app.screenshot()).path);
 
         // ── Unbind, for real ──────────────────────────────────────────────
         await shellAndSettle(app, `${tugutilPath(CHECKOUT)} dash unbind`, 2);

@@ -13,7 +13,7 @@
 }
 
 .tug-dash-lifecycle-line[data-size="read"] {
-  gap: var(--tug-space-sm);
+  gap: var(--tug-space-xs);
   font-size: var(--tug-font-size-sm);
   line-height: calc(var(--tug-font-size-sm) * 1.6);
   --tugx-step-fraction-font-size: var(--tug-font-size-xs);

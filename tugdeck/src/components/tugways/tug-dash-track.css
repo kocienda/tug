@@ -4,7 +4,7 @@
    pulsing dot: `pending` is the ring's own unfilled stroke, `done` the muted
    text tone, `active` the theme accent, and the join — the one cell that is a
    destination rather than a stage — the theme's selection color. The geometry
-   is three knobs the host may retune at the point of use.
+   is four knobs the host may retune at the point of use.
 
    Laws: [L06] state is data-*; [L20] owns `--tugx-dash-track-*`. */
 
@@ -22,6 +22,14 @@
   --tugx-dash-track-cell-h: 9px;
   --tugx-dash-track-cell-w: 18px;
   --tugx-dash-track-tick-w: 6px;
+}
+
+/* The air a strip keeps from whatever is set after it. A track is a graphic,
+   and it needs more room from a word than two words need from each other, so
+   the space belongs to the strip rather than to each host row that happens to
+   put a word beside one. A track that ends its row claims none. */
+.tug-dash-track:not(:last-child) {
+  margin-inline-end: var(--tugx-dash-track-out, 4px);
 }
 
 .tug-dash-track-cell {

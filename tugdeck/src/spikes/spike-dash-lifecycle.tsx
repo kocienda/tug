@@ -36,7 +36,7 @@ import React from "react";
 import type { SpikeDef } from "./spike-registry";
 
 import { DashLifecycleBlock } from "@/components/tugways/dash-lifecycle-block";
-import { dashLifecycleNote } from "@/components/tugways/dash-lifecycle-line";
+import { DashLifecycleLine, dashLifecycleNote } from "@/components/tugways/dash-lifecycle-line";
 import { DashMetaLine, dashMetaFacts } from "@/components/tugways/dash-meta-line";
 import { SessionIdentityRow } from "@/components/tugways/session-identity-row";
 import { TugDashAtom } from "@/components/tugways/tug-dash-atom";
@@ -318,31 +318,38 @@ export function SpikeDashLifecycle(): React.ReactElement {
 
       <section className="sp-section">
         <h2 className="sp-section-title">2 · The lifecycle, as one track — TugDashTrack</h2>
-        <Stage caption="brief · devise · review · implement (one tick per step) · join. Cap-height, so it rides any line the atom is on. Pending is the ring's unfilled stroke, done the muted text tone, active the accent, the join the theme's selection color">
+        <Stage caption="brief · devise · review · implement (one tick per step) · join. Each row is the real DashLifecycleLine, so the strip, the fraction, and the word are spaced by the component rather than by this card. Cap-height, so it rides any line the atom is on. Pending is the ring's unfilled stroke, done the muted text tone, active the accent, the join the theme's selection color">
           <div className="spdl-legend">
             {MOMENTS.map((m) => {
               const model = dashTrackModelFromEntry(m.entry);
               return (
-                <div key={m.key} className="spdl-legend-row">
-                  <TugDashTrack model={model} size="read" />
-                  <span className="spdl-legend-word">{dashLifecycleNote(model, null)}</span>
-                </div>
+                <DashLifecycleLine
+                  key={m.key}
+                  model={model}
+                  note={dashLifecycleNote(model, null)}
+                  size="read"
+                />
               );
             })}
           </div>
         </Stage>
-        <Stage caption="Beside the marks it must family with: the step ring (the session's own indicator, cobalt for action) and the pulsing dot the footer's STATUS cell wears">
+        <Stage caption="The division of labour. A dash counts its steps in the track and nowhere else; the segmented ring now uniquely means a task list that is NOT a dash">
           <div className="spdl-legend-row">
-            <TugStepRing current={4} total={10} role="action" size={16} />
             <TugProgressIndicator variant="pulsing-dot" size={12} state="running" aria-hidden />
             <TugDashTrack model={dashTrackModelFromEntry(AT_WORK.entry)} size="read" />
-            <span className="spdl-legend-word">implement · 4/10</span>
+            <span className="spdl-legend-word">on a dash — the bare phase dot, and the track</span>
+          </div>
+          <div className="spdl-legend-row">
+            <TugStepRing current={4} total={10} role="action" size={16} />
+            <span className="spdl-legend-word">a task list off a dash — the segmented ring, unchanged</span>
           </div>
         </Stage>
         <p className="spdl-prose">
-          The ring stays the session's indicator, phase-toned, counting the plan; the track is the dash's. They agree by
-          construction because both project the same wire entry. A stop is the one fact that outranks the track: the cell
-          paints danger and the note says why, in the arc receipt's words.
+          The row's indicator stays a bare phase dot for the whole of a dash. It used to become the segmented step ring
+          once counters existed, and beside the track that was two marks drawing one step count in two geometries — free
+          to disagree whenever one of them lagged. The ring yields the subject entirely rather than being tuned to agree.
+          A stop is the one fact that outranks the track: the cell paints danger and the note says why, in the arc
+          receipt's words.
         </p>
       </section>
 
@@ -398,9 +405,11 @@ export function SpikeDashLifecycle(): React.ReactElement {
         <ul className="spdl-survey">
           <li>
             <b>Session masthead</b> — <i>done, and live in the app.</i> `SessionIdentityRow` renders `TugDashTrack` in
-            its title run where `DashStageMark` + `TugStepFraction` stood, so a card devising or reviewing a plan now
-            says so instead of showing nothing. The row also gained a `dash` prop — the binding in hand rather than a
-            second read by id, the same seam `row` already had — which is what lets this card mount the real thing.
+            its title run where `DashStageMark` stood, so a card devising or reviewing a plan now says so instead of
+            showing nothing; the `i/N` fraction stays beside it, counting the declared run. Its indicator is now always
+            the bare phase dot — the segmented `SessionStepRing` is gone from dash rows, leaving it to mean a task list
+            that is not a dash. The row also gained a `dash` prop — the binding in hand rather than a second read by id,
+            the same seam `row` already had — which is what lets this card mount the real thing.
           </li>
           <li>
             <b>Lens · Dashes</b> — `DashLifecycleBlock size=rail` replaces the row's eyebrow + `DashMetaLine`, and the
