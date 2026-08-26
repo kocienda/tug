@@ -28,24 +28,26 @@ REV
 
 ## What the corpus says
 
-The language is shaped by evidence, not taste. Every Claude Code session transcript for this checkout and its dash worktrees (613 files, ~140,000 Bash calls as of 2026-08-26) was mined for commands that mutate a repo file through a reader the grammar cannot see. The tally, and what each family was doing:
+The language is shaped by evidence, not taste. Every Claude Code session transcript for this checkout and its dash worktrees (613 files, ~140,000 Bash calls as of 2026-08-26) was mined for commands that mutate a repo file from Bash through something other than `tugutil file edit`. The tally, and what each family was doing:
 
-| Family | Repo-file edits | What the edits actually were |
-|--------|----------------:|------------------------------|
-| `python3` heredoc / `-c` that writes a file | **1,317** | 928 carry a triple-quoted multi-line body. 705 apply a **list of literal (old, new) pairs** to one file — the dominant shape by far. 328 guard each pair with `assert s.count(old) == 1` before substituting. 198 locate a region by `s.index(marker)`; 17 of those cut or replace **the span between two markers**. 42 splice a line array; 9 by numeric range; 28 do an insert that copies the anchor line's indentation. 28 use `re.sub`. 56 loop over several files. 20 rewrite JSON structurally. |
-| `sed -i ''` | **1,080** | 287 `s///g`. **280 delete a numeric line range** (`'835,849d'`), often several ranges in one chain. 270 name multiple files or chain several `sed -i` calls. 99 stack `-e` expressions — a rename campaign in one call. 29 **scope a substitution to a line range** (`'350,900s/railSplit/placeSplit/g'`). 42 use word boundaries (`\b`, or BSD `[[:<:]]`). |
-| `perl -pi -e` | **496** | Almost entirely `s///g` across files: 379 name more than one file. 79 use `-0777` for a substitution that spans lines. |
-| `cat >> file <<'EOF'` | **335** | Append a block to an existing file — a CSS rule, a test `describe`, a notice section. |
-| `cat > file <<'EOF'` | **448** | Create a file whole (occasionally overwrite one). |
-| `awk 'NR…' file > /tmp/x && mv` | 18 | Delete or reorder lines by number, the round trip through `/tmp` hiding the write. |
-| `head -n $((L-1)) file > /tmp && mv` | 9 | Truncate a file at a marker line. |
-| `bun -e` / `node -e` writing | 5 | Multi-line regex deletions with the `gm` flags. |
+| Family | Repo-file edits | Attributed today? | What the edits actually were |
+|--------|----------------:|-------------------|------------------------------|
+| `python3` heredoc / `-c` that writes a file | **1,317** | **No — the leak.** The body is stripped before parsing; nothing in it is evidence. | 928 carry a triple-quoted multi-line body. 705 apply a **list of literal (old, new) pairs** to one file — the dominant shape by far. 328 guard each pair with `assert s.count(old) == 1` before substituting. 198 locate a region by `s.index(marker)`; 17 of those cut or replace **the span between two markers**. 42 splice a line array; 9 by numeric range; 28 do an insert that copies the anchor line's indentation. 28 use `re.sub`. 56 loop over several files. 20 rewrite JSON structurally. |
+| `bun -e` / `node -e` writing | 5 | **No** — same reason. | Multi-line regex deletions with the `gm` flags. |
+| `sed -i ''` | 1,080 | Yes, when the operands are literal paths (nearly all of these); a glob or variable is already denied by the gate. | 287 `s///g`. **280 delete a numeric line range** (`'835,849d'`), often several ranges in one chain. 270 name multiple files or chain several `sed -i` calls. 99 stack `-e` expressions — a rename campaign in one call. 29 **scope a substitution to a line range** (`'350,900s/railSplit/placeSplit/g'`). 42 use word boundaries (`\b`, or BSD `[[:<:]]`). |
+| `perl -pi -e` | 496 | Yes, same rule. | Almost entirely `s///g` across files: 379 name more than one file. 79 use `-0777` for a substitution that spans lines. |
+| `cat >> file <<'EOF'` | 335 | Yes — a redirection target. | Append a block to an existing file — a CSS rule, a test `describe`, a notice section. |
+| `cat > file <<'EOF'` | 448 | Yes — a redirection target. | Create a file whole (occasionally overwrite one). |
+| `awk 'NR…' file > /tmp/x && mv` | 18 | Yes — the `mv` names the destination. | Delete or reorder lines by number. |
+| `head -n $((L-1)) file > /tmp && mv` | 9 | Yes — same. | Truncate a file at a marker line. |
+
+So the attribution problem is one family. The `sed`/`perl`/`cat` rows are in the table because they show what edits the model makes and therefore what the language must express — not because they leak. The 1,322 interpreter-body edits are the only source in the corpus that no grammar change can ever read, because the body is an arbitrary program. That is the gap tugrevs exists to close, and closing it is worth a language only because the same language also makes the other 2,400 edits transactional, count-guarded, and previewable instead of hand-ordered `sed -i` chains.
 
 Three conclusions drive the design:
 
 1. **Literal, multi-pair, per-file substitution with a count guard is the centre of mass.** The model already writes `assert s.count(old) == 1` a quarter of the time on its own. `expect 1` as the default, with every failure reported in one run, is that habit made mandatory and cheap.
 2. **Line numbers and text markers are both first-class addresses, and both scope other ops.** Numeric-range deletes are the second-largest single shape; range-scoped `s///` and "from `mod tests {` to end of file" edits are real; two-marker spans are how the model deletes a whole function or table. The language needs ranges whose ends are numbers *or* text, and a way to run a substitution *inside* one.
-3. **Multi-file and whole-file ops are not edge cases.** Half the `sed`/`perl` calls touch several files with the same expression; append and create together outnumber `perl` entirely. A block that names several files, plus `append`/`create`/`write`, close those leaks outright.
+3. **Multi-file and whole-file ops are not edge cases.** Half the `sed`/`perl` calls touch several files with the same expression; append and create together outnumber `perl` entirely. A block that names several files, plus `append`/`create`/`write`, let a rev express every shape the attributed families use, so the model never has a reason to fall back.
 
 What the corpus does **not** contain in any volume is computed replacement (a callback deciding each substitution — 1 case) or structural JSON editing (20, almost all `/tmp` fixtures or model manifests). Those stay out of the language; see [Out of scope](#out-of-scope) for how they still get attributed.
 
@@ -239,7 +241,7 @@ A verb the model doesn't reach for attributes nothing. Three levers, all cheap, 
 2. **`CLAUDE.md` shows the shape.** The editing section leads with a rev example — the multi-pair, multi-file one, since that is the case where python wins today — and names `tugrevs` before `file edit`. `file edit` remains the right tool for the one-liner.
 3. **The heredoc reader is fast to be right.** Resolve-phase errors report *every* stale address in one run with the op's source line and the actual count, so the round trip to a correct program is one step, not a python retry.
 
-Whether the levers worked is measurable two ways: the size of the UNATTRIBUTED bucket over sessions, which the Changes card already shows, and the mining query above re-run against new transcripts — the 1,317 / 1,080 / 496 / 335 / 448 counts should stop growing. Those numbers are the feature's acceptance test.
+Whether the levers worked is measurable two ways: the size of the UNATTRIBUTED bucket over sessions, which the Changes card already shows, and the mining query above re-run against new transcripts — the interpreter-body count (1,322 over the corpus so far) should stop growing, and the `sed`/`perl` counts should fall as revs replace them. The first number is the feature's acceptance test; the second is a quality signal.
 
 ---
 
