@@ -128,6 +128,14 @@ describe("the liveness rule — only executing work breathes", () => {
     expect(ledgerRowState("pending", false)).toBe("stopped");
   });
 
+  it("reads a withdrawn row as closed, never as one nobody started", () => {
+    // Resting it at `stopped` is where `pending` rests too, so the row a run
+    // deliberately skipped would be indistinguishable from one it never
+    // reached.
+    expect(ledgerRowState("withdrawn", false)).toBe("completed");
+    expect(ledgerRowState("withdrawn", true)).toBe("completed");
+  });
+
   it("rests an unrecognized ledger status, never breathes it", () => {
     // The conservative reading, and the one the plan-doc scan takes for the
     // same cell: a spelling nobody knows has not been shown to be running.

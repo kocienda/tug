@@ -1,7 +1,6 @@
 /* @tug-pairings {
  * --tug7-element-global-text-normal-default-rest | --tug7-surface-global-primary-normal-default-rest | content
  * --tug7-element-global-text-normal-muted-rest | --tug7-surface-global-primary-normal-default-rest | informational
- * --tug7-element-tone-text-normal-caution-rest | --tug7-surface-global-primary-normal-default-rest | caution
  * } */
 
 /**
@@ -10,7 +9,6 @@
  * |------------------------------------------------|--------------------------------------------------|-------------|-------------------------------------------|
  * | --tug7-element-global-text-normal-default-rest | --tug7-surface-global-primary-normal-default-rest| content     | both tiers (color)                        |
  * | --tug7-element-global-text-normal-muted-rest   | --tug7-surface-global-primary-normal-default-rest| informational | the missing chip, the dash marker (color) |
- * | --tug7-element-tone-text-normal-caution-rest   | --tug7-surface-global-primary-normal-default-rest| caution     | the dash marker's review mark (color)     |
  *
  * The theme's session-color tokens are deliberately absent: the atom paints in
  * text ink and the dot is its only color channel. The dot's own tones come from
@@ -126,15 +124,6 @@ body {
   white-space: nowrap;
 }
 
-/* The plan's review state, as the marker's own tone rather than a second glyph
-   beside the first — neither register has room for two marks, and only `stale`
-   and `never-reviewed` paint at all ([L06], `lib/dash-review.ts`). Advisory,
-   so it borrows the caution tone and never the danger one. */
-/* @tug-renders-on var(--tug7-surface-global-primary-normal-default-rest) */
-.tug-session-identity-dash[data-review] {
-  color: var(--tug7-element-tone-text-normal-caution-rest);
-}
-
 /* The whole grammar on one line — `name:project/callsign#dash` — sharing a
    baseline, so the quieter callsign and dash sit on the name's line rather
    than beside it. The parts abut: every separator is a character inside a run,
@@ -178,11 +167,6 @@ body {
   font-weight: var(--tug-font-weight-semibold);
 }
 
-/* The `:` separator belongs to this run, so it disappears with it — an
-   unnamed session reads as a bare `project/callsign`. */
-.tug-session-identity-callsign {
-  font-weight: var(--tug-font-weight-regular, 400);
-}
 
 /* ── The line tier's elision order: callsign, then name, then nothing ──────
    The order is built out of clamps rather than shrink factors, at three
@@ -217,26 +201,6 @@ body {
   text-overflow: ellipsis;
 }
 
-.tug-session-identity[data-tier="line"] .tug-session-identity-callsign {
-  display: inline-flex;
-  align-items: baseline;
-  flex: 0 1 auto;
-  min-inline-size: 0;
-  opacity: 0.72;
-}
-
-.tug-session-identity[data-tier="line"] .tug-session-identity-callsign-head {
-  flex: 0 1 auto;
-  min-inline-size: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.tug-session-identity[data-tier="line"] .tug-session-identity-callsign-tail {
-  flex: none;
-  white-space: nowrap;
-}
 
 /* The atom: the callsign gives way FIRST, and it gives way ALL the way — the
    name is the only run that does not shrink, so every pixel of a squeeze
@@ -266,13 +230,7 @@ body {
   text-overflow: ellipsis;
 }
 
-.tug-session-identity[data-tier="chip"] .tug-session-identity-callsign {
-  flex: 0 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  opacity: 0.78;
-}
+
 
 /* ── Presence: the session as itself. No enclosure. ───────────────────── */
 

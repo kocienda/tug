@@ -3890,22 +3890,67 @@ impl SessionLedger {
     /// `None` clears it. Survives re-spawn/resume since `record_spawn` only
     /// backfills a NULL name (it never overwrites a set one). `NotFound` if
     /// the session id is unknown.
-    pub fn rename(&self, session_id: &str, name: Option<&str>) -> Result<(), LedgerError> {
-        let conn = self.db.lock().expect("ledger mutex");
+    ///
+    /// **A custom name is unique, and setting one takes it.** Every other
+    /// session wearing the same spelling with `name_user_set = 1` has its name
+    /// cleared in the same immediate transaction, and their ids are returned so
+    /// the caller can push each displaced row and say what its gesture did.
+    /// This is the rule [D154] already applies on the fork path, where
+    /// `inherit_fork_identity` moves the parent's user-set name onto the fork
+    /// and clears the parent's row because "a superseded copy still wearing it
+    /// would be a resting lie" — enforced at the write on both paths now,
+    /// rather than papered over at every reader.
+    ///
+    /// The comparison is exact-match on the spelling asked for. Clearing a name
+    /// displaces nothing.
+    pub fn rename(&self, session_id: &str, name: Option<&str>) -> Result<Vec<String>, LedgerError> {
+        let mut conn = self.db.lock().expect("ledger mutex");
+        // Immediate, because the read of who wears the name and the write that
+        // takes it must not interleave with another rename.
+        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+
+        // Ascending id, so a caller — and a test — reads a stable order.
+        let displaced: Vec<String> = match name {
+            Some(n) => tx
+                .prepare(
+                    "SELECT session_id FROM sessions
+                     WHERE name = ?1 AND name_user_set = 1 AND session_id != ?2
+                     ORDER BY session_id",
+                )?
+                .query_map(params![n, session_id], |row| row.get(0))?
+                .collect::<Result<Vec<String>, _>>()?,
+            None => Vec::new(),
+        };
+        for id in &displaced {
+            tx.execute(
+                "UPDATE sessions SET name = NULL, name_user_set = 0
+                 WHERE session_id = ?1",
+                params![id],
+            )?;
+        }
+
         // Setting a name marks it user-set (the chip then shows it); clearing it
         // drops the bit so the chip falls back to the hash.
         let user_set = i64::from(name.is_some());
-        let affected = conn.execute(
+        let affected = tx.execute(
             "UPDATE sessions
              SET name = ?2, name_user_set = ?3
              WHERE session_id = ?1",
             params![session_id, name, user_set],
         )?;
+        // Checked after the displacement, so a rename naming an unknown session
+        // displaces nobody: the transaction rolls back on this return, which
+        // makes it belt and braces, but the order is what says so.
         if affected == 0 {
             return Err(LedgerError::NotFound(session_id.to_owned()));
         }
+        tx.commit()?;
+        // Dropped before the broadcast, as every neighbouring writer that grew
+        // a transaction does — a transaction makes the held-lock window that
+        // much wider.
+        drop(conn);
         self.notify_sessions_changed();
-        Ok(())
+        Ok(displaced)
     }
 
     /// Mark a session in or out of the Overview ([P05]).
@@ -8683,7 +8728,10 @@ mod tests {
         // stand-in word.
         l.set_stage_provenance("root", "rotate", None)
             .expect("stage provenance");
-        assert_eq!(l.stage_provenance("root"), Some(("rotate".to_string(), None)));
+        assert_eq!(
+            l.stage_provenance("root"),
+            Some(("rotate".to_string(), None))
+        );
 
         assert!(matches!(
             l.set_stage_provenance("no-such-session", "review", None),
@@ -8805,7 +8853,8 @@ mod tests {
             Some("stocky-pixie"),
         )
         .unwrap();
-        l.set_fork_provenance("f-2", "root", Some("point-2")).unwrap();
+        l.set_fork_provenance("f-2", "root", Some("point-2"))
+            .unwrap();
         let sibling = l.get("f-2").unwrap().unwrap().tag.expect("fresh tag");
         assert_ne!(sibling, "stocky-pixie");
         assert_is_lexicon_pair(&sibling);
@@ -9150,7 +9199,8 @@ mod tests {
         spawn_fork(&l, "root", "point-1", "f-1");
         l.record_spawn("f-2", WS_A, "/proj", "card-2", millis(0) + 60_000, None)
             .unwrap();
-        l.set_fork_provenance("f-2", "root", Some("point-2")).unwrap();
+        l.set_fork_provenance("f-2", "root", Some("point-2"))
+            .unwrap();
         assert_eq!(
             l.resolve_to_lineage_head("root"),
             "f-1",
@@ -9173,8 +9223,15 @@ mod tests {
     #[test]
     fn a_line_of_work_is_named_by_the_session_the_arc_rotated_from() {
         let l = fresh();
-        l.record_spawn("root", WS_A, "/proj", "card-1", millis(3), Some("primo-pita"))
-            .unwrap();
+        l.record_spawn(
+            "root",
+            WS_A,
+            "/proj",
+            "card-1",
+            millis(3),
+            Some("primo-pita"),
+        )
+        .unwrap();
         l.rename("root", Some("tugrev-bringup")).unwrap();
         seat_stage(&l, "root", "devise", "devise", millis(2));
         seat_stage(&l, "devise", "review", "review", millis(1));
@@ -9196,14 +9253,25 @@ mod tests {
         // The root is its own line, so nothing is projected onto it.
         assert_eq!(l.resolve_to_line_root("root"), "root");
         assert!(l.line_identity("root").is_none());
-        assert_eq!(l.line_identities_for(&["root".into(), "review".into()]).len(), 1);
+        assert_eq!(
+            l.line_identities_for(&["root".into(), "review".into()])
+                .len(),
+            1
+        );
     }
 
     #[test]
     fn a_rewind_fork_stops_the_line_walk_and_a_stranded_stage_names_itself() {
         let l = fresh();
-        l.record_spawn("root", WS_A, "/proj", "card-1", millis(2), Some("stocky-pixie"))
-            .unwrap();
+        l.record_spawn(
+            "root",
+            WS_A,
+            "/proj",
+            "card-1",
+            millis(2),
+            Some("stocky-pixie"),
+        )
+        .unwrap();
         // A rewind-fork already carries the identity, so it is its own root
         // and the walk must not climb past it.
         spawn_fork(&l, "root", "point-1", "forked");
@@ -9220,8 +9288,15 @@ mod tests {
     #[test]
     fn a_line_that_rotated_and_then_rewound_is_named_by_the_fork() {
         let l = fresh();
-        l.record_spawn("root", WS_A, "/proj", "card-1", millis(4), Some("juicy-roach"))
-            .unwrap();
+        l.record_spawn(
+            "root",
+            WS_A,
+            "/proj",
+            "card-1",
+            millis(4),
+            Some("juicy-roach"),
+        )
+        .unwrap();
         l.rename("root", Some("dash+join-xp")).unwrap();
         seat_stage(&l, "root", "implement", "implement", millis(3));
         // Later the user rewinds the conversation itself: identity moves to
@@ -9286,9 +9361,7 @@ mod tests {
         // spawn under the handed-down callsign, then the provenance a stage
         // writes.
         let rotated = millis(1);
-        let inherited = l
-            .inherit_fork_identity("parent", "stage", rotated)
-            .unwrap();
+        let inherited = l.inherit_fork_identity("parent", "stage", rotated).unwrap();
         l.record_spawn(
             "stage",
             WS_A,
@@ -9314,7 +9387,10 @@ mod tests {
         .unwrap();
         let rerolled = l.get("parent").unwrap().unwrap().tag.unwrap();
         assert_ne!(rerolled, "juicy-roach");
-        assert_eq!(l.get("stage").unwrap().unwrap().tag.as_deref(), Some("juicy-roach"));
+        assert_eq!(
+            l.get("stage").unwrap().unwrap().tag.as_deref(),
+            Some("juicy-roach")
+        );
 
         {
             let conn = l.db.lock().unwrap();
@@ -9326,7 +9402,10 @@ mod tests {
         assert_eq!(parent.name.as_deref(), Some("dash+join-xp"));
         assert!(parent.name_user_set);
         assert!(stage.name.is_none() && !stage.name_user_set);
-        let fresh_tag = stage.tag.clone().expect("the stage keeps a callsign of its own");
+        let fresh_tag = stage
+            .tag
+            .clone()
+            .expect("the stage keeps a callsign of its own");
         assert_ne!(fresh_tag, "juicy-roach");
         assert_ne!(fresh_tag, rerolled);
         let owner = |tag: &str| -> String {
@@ -9340,7 +9419,11 @@ mod tests {
                 .unwrap()
         };
         assert_eq!(owner("juicy-roach"), "parent");
-        assert_eq!(owner(&rerolled), "parent", "the rerolled spelling stays spent");
+        assert_eq!(
+            owner(&rerolled),
+            "parent",
+            "the rerolled spelling stays spent"
+        );
         assert_eq!(owner(&fresh_tag), "stage");
 
         // Idempotent: a second open changes nothing.
@@ -9348,8 +9431,14 @@ mod tests {
             let conn = l.db.lock().unwrap();
             SessionLedger::migrate_return_rotation_identity(&conn).unwrap();
         }
-        assert_eq!(l.get("stage").unwrap().unwrap().tag.as_deref(), Some(fresh_tag.as_str()));
-        assert_eq!(l.get("parent").unwrap().unwrap().tag.as_deref(), Some("juicy-roach"));
+        assert_eq!(
+            l.get("stage").unwrap().unwrap().tag.as_deref(),
+            Some(fresh_tag.as_str())
+        );
+        assert_eq!(
+            l.get("parent").unwrap().unwrap().tag.as_deref(),
+            Some("juicy-roach")
+        );
     }
 
     #[test]
@@ -9360,8 +9449,10 @@ mod tests {
             l.record_spawn(id, WS_A, "/proj", "card-1", millis(days_ago), None)
                 .unwrap();
         }
-        l.set_fork_provenance("old", "root", Some("point-1")).unwrap();
-        l.set_fork_provenance("new", "root", Some("point-2")).unwrap();
+        l.set_fork_provenance("old", "root", Some("point-1"))
+            .unwrap();
+        l.set_fork_provenance("new", "root", Some("point-2"))
+            .unwrap();
         assert_eq!(l.resolve_to_lineage_head("root"), "new");
     }
 
@@ -11584,6 +11675,136 @@ mod tests {
         let l = fresh();
         let err = l.rename("nope", Some("X")).unwrap_err();
         assert!(matches!(err, LedgerError::NotFound(ref id) if id == "nope"));
+    }
+
+    /// A custom name is unique, and setting one takes it — the rule [D154]
+    /// already applies on the fork path, now true on both write paths.
+    #[test]
+    fn rename_takes_the_name_from_whoever_wore_it() {
+        let l = fresh();
+        let now = millis(0);
+        seed_live(&l, "s1", WS_A, "card-1", now);
+        seed_live(&l, "s2", WS_A, "card-2", now);
+
+        assert_eq!(
+            l.rename("s1", Some("the parser work")).unwrap(),
+            Vec::<String>::new()
+        );
+        let displaced = l.rename("s2", Some("the parser work")).unwrap();
+        assert_eq!(displaced, vec!["s1".to_string()]);
+
+        let a = l.get("s1").unwrap().unwrap();
+        assert_eq!(
+            a.name, None,
+            "a superseded copy still wearing it is a resting lie"
+        );
+        assert!(!a.name_user_set);
+        let b = l.get("s2").unwrap().unwrap();
+        assert_eq!(b.name.as_deref(), Some("the parser work"));
+        assert!(b.name_user_set);
+    }
+
+    /// A ledger written before this rule could hold two rows wearing one name.
+    /// Setting it clears every one of them, in ascending id order.
+    #[test]
+    fn rename_takes_the_name_from_all_of_them() {
+        let l = fresh();
+        let now = millis(0);
+        for id in ["s1", "s2", "s3"] {
+            seed_live(&l, id, WS_A, "card", now);
+        }
+        // Reach past the verb to build the pre-rule state it is meant to end.
+        {
+            let conn = l.db.lock().expect("ledger mutex");
+            conn.execute(
+                "UPDATE sessions SET name = 'shared', name_user_set = 1
+                 WHERE session_id IN ('s1', 's2')",
+                [],
+            )
+            .unwrap();
+        }
+
+        let displaced = l.rename("s3", Some("shared")).unwrap();
+        assert_eq!(displaced, vec!["s1".to_string(), "s2".to_string()]);
+        for id in ["s1", "s2"] {
+            assert_eq!(l.get(id).unwrap().unwrap().name, None, "{id}");
+        }
+        assert_eq!(
+            l.get("s3").unwrap().unwrap().name.as_deref(),
+            Some("shared")
+        );
+    }
+
+    #[test]
+    fn rename_never_displaces_the_row_it_is_renaming() {
+        let l = fresh();
+        seed_live(&l, "s1", WS_A, "card-1", millis(0));
+        l.rename("s1", Some("steady")).unwrap();
+
+        // The `session_id != ?2` guard: without it the row would take the name
+        // from itself and end up cleared.
+        assert_eq!(
+            l.rename("s1", Some("steady")).unwrap(),
+            Vec::<String>::new()
+        );
+        let r = l.get("s1").unwrap().unwrap();
+        assert_eq!(r.name.as_deref(), Some("steady"));
+        assert!(r.name_user_set);
+    }
+
+    #[test]
+    fn rename_leaves_an_auto_title_wearing_the_same_words_alone() {
+        // `name_user_set = 0` is a title the machine wrote, not a name the user
+        // spent. Only a name somebody chose can be taken.
+        let l = fresh();
+        let now = millis(0);
+        seed_live(&l, "s1", WS_A, "card-1", now);
+        seed_live(&l, "s2", WS_A, "card-2", now);
+        {
+            let conn = l.db.lock().expect("ledger mutex");
+            conn.execute(
+                "UPDATE sessions SET name = 'a shared spelling', name_user_set = 0
+                 WHERE session_id = 's1'",
+                [],
+            )
+            .unwrap();
+        }
+
+        assert_eq!(
+            l.rename("s2", Some("a shared spelling")).unwrap(),
+            Vec::<String>::new()
+        );
+        assert_eq!(
+            l.get("s1").unwrap().unwrap().name.as_deref(),
+            Some("a shared spelling")
+        );
+    }
+
+    #[test]
+    fn clearing_a_name_displaces_nobody() {
+        let l = fresh();
+        let now = millis(0);
+        seed_live(&l, "s1", WS_A, "card-1", now);
+        seed_live(&l, "s2", WS_A, "card-2", now);
+        l.rename("s1", Some("kept")).unwrap();
+
+        assert_eq!(l.rename("s2", None).unwrap(), Vec::<String>::new());
+        assert_eq!(l.get("s1").unwrap().unwrap().name.as_deref(), Some("kept"));
+    }
+
+    #[test]
+    fn renaming_an_unknown_session_displaces_nobody() {
+        let l = fresh();
+        seed_live(&l, "s1", WS_A, "card-1", millis(0));
+        l.rename("s1", Some("held")).unwrap();
+
+        let err = l.rename("nope", Some("held")).unwrap_err();
+        assert!(matches!(err, LedgerError::NotFound(ref id) if id == "nope"));
+        // The transaction rolled back, so the name it would have taken is
+        // still where it was.
+        let r = l.get("s1").unwrap().unwrap();
+        assert_eq!(r.name.as_deref(), Some("held"));
+        assert!(r.name_user_set);
     }
 
     #[test]

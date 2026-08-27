@@ -90,17 +90,6 @@ export interface SessionIdentity {
   customName: string | null;
   /** The agent's rolling description. Independent of {@link customName}. */
   description: string | null;
-  /**
-   * Whether some other session carries the same custom name.
-   *
-   * The collision fact behind the title rule: a custom name removes the
-   * callsign from the title ({@link sessionTitleParts}), and the callsign
-   * returns only when two sessions share one name — the final disambiguation,
-   * and the prod toward picking a non-colliding name. Always `false` for an
-   * unnamed session. A rewind-fork can never collide with its own superseded
-   * parent: the name transfers with the callsign, so kin never share one.
-   */
-  nameShared: boolean;
   /** Ledger state, when the caller knows it. */
   state: SessionRow["state"] | null;
   /** Full tug session id (plumbing: tooltips, copy affordance). */
@@ -226,8 +215,6 @@ export function composeSessionIdentity(input: {
   state?: SessionRow["state"] | null;
   /** The ledger's explicit answer that it holds this session. */
   ledgerKnown?: boolean;
-  /** Whether `name` is also some other session's custom name. */
-  nameShared?: boolean;
 }): SessionIdentity {
   const ledgerTag = input.tag?.trim() || null;
   const recordedTag = input.recordedTag?.trim() || null;
@@ -254,8 +241,6 @@ export function composeSessionIdentity(input: {
     // can never arrive here as a `customName`.
     customName: name,
     description: synopsis,
-    // A collision fact makes no sense without a name to collide on.
-    nameShared: name !== null && input.nameShared === true,
     state: input.state ?? null,
     id: input.sessionId,
     shortId: shortSessionId(input.sessionId),
@@ -270,24 +255,6 @@ export function sessionIdentityContextFrom(
     projectDir: row.project_dir,
     state: row.state,
   };
-}
-
-/**
- * The collision verdict behind {@link SessionIdentity.nameShared}: another
- * session answers to the same custom name.
- *
- * There is no kin exemption to apply: a rewind-fork inherits its parent's
- * name along with its callsign, and the superseded copy wears neither, so
- * any peer spelling the name the same way is genuinely a second thing a
- * reader must tell apart.
- */
-function nameCollides(sessionId: string): boolean {
-  return sessionNameStore.sessionsSharingName(sessionId).length > 0;
-}
-
-/** The store {@link nameCollides} reads, as one subscription. */
-function subscribeNameCollision(listener: () => void): () => void {
-  return sessionNameStore.subscribe(listener);
 }
 
 /** The project dir of whichever card is bound to `sessionId`, or null. */
@@ -314,7 +281,6 @@ export function resolveSessionIdentity(
   return composeSessionIdentity({
     sessionId,
     name: sessionNameStore.getName(sessionId),
-    nameShared: nameCollides(sessionId),
     synopsis: sessionSynopsisStore.getSynopsis(sessionId),
     tag: sessionTagStore.getTag(sessionId),
     recordedTag: context?.recordedTag ?? null,
@@ -360,17 +326,6 @@ export function useSessionIdentity(
       [sessionId],
     ),
   );
-  // A boolean selector, not either store's version token: the snapshot changes
-  // only when THIS session's collision state flips, so a rename elsewhere in
-  // the app repaints this surface only if it creates or breaks a collision
-  // with this session's name.
-  const nameShared = useSyncExternalStore(
-    subscribeNameCollision,
-    useCallback(
-      () => (sessionId === null ? false : nameCollides(sessionId)),
-      [sessionId],
-    ),
-  );
   const tag = useSyncExternalStore(
     sessionTagStore.subscribe,
     useCallback(
@@ -402,7 +357,6 @@ export function useSessionIdentity(
   return composeSessionIdentity({
     sessionId,
     name,
-    nameShared,
     synopsis,
     tag,
     recordedTag: context?.recordedTag ?? null,
@@ -415,43 +369,39 @@ export function useSessionIdentity(
 }
 
 /**
- * The two runs a surface renders as a session's title: the user's name first,
- * then — only under a name collision — the callsign that disambiguates it.
+ * The two runs a surface renders as a session's title.
  *
- * A user-supplied name is the user saying what the session is called, and the
- * name REPLACES the callsign rather than leading it: showing both harmed
- * legibility and made the title too long for the interface beside it. The
- * callsign stays the permanent citable handle — the tooltip, the citation,
- * and every copy path carry it whole — it just no longer rides the title.
+ * **A custom name means no callsign, full stop.** A user-supplied name is the
+ * user saying what the session is called, and the name REPLACES the callsign
+ * rather than leading it: showing both harmed legibility and made the title
+ * too long for the interface beside it. The callsign stays the permanent
+ * citable handle — the tooltip, the citation, and every copy path carry it
+ * whole — it just never rides the title.
  *
- * The one exception is a collision: when two sessions share a custom name
- * ({@link SessionIdentity.nameShared}), the callsign returns as the final
- * disambiguation — which is also the prod toward choosing a non-colliding
- * name. With no name at all, the callsign IS the title and there is no
- * second run.
+ * There is no collision exception, because a collision can no longer occur:
+ * `SessionLedger::rename` takes a custom name from any session already wearing
+ * it, the same rule the fork path applies ([D154]). Uniqueness at the write is
+ * what retired the exception; the callsign the reader would have needed to
+ * disambiguate with is a callsign there is nothing to disambiguate.
  *
- * Two runs rather than one joined string, because they are sized separately:
- * under a width squeeze the callsign run is the one that ellipsizes and the name
- * survives intact. The `":"` separator belongs to the callsign run so it
- * disappears with it. A lone name run may ellipsize — it is then the only run
- * there is.
- *
- * The callsign run wears the `project/` prefix — `tugtool/frothy-nurse` —
- * because the project a session works against is how a reader places it in a
- * list of sessions from many projects. The composed run is exactly
+ * With no name at all, the callsign IS the title and there is no second run.
+ * The `callsign` run therefore appears only for an unnamed session, which is
+ * also why it carries the `project/` prefix — `tugtool/frothy-nurse` — the
+ * project a session works against being how a reader places it in a list of
+ * sessions from many projects. The composed run is exactly
  * {@link sessionIdentityLine}, so the title and the Line channel cannot spell
- * the same session two ways. A session with no known project degrades to the
- * bare callsign.
+ * the same session two ways.
+ *
+ * Two runs rather than one joined string, because they are sized separately.
+ * The `":"` separator belongs to the callsign run so it disappears with it.
  */
 export function sessionTitleParts(identity: SessionIdentity): {
   name: string;
   callsign: string | null;
 } {
-  const label = sessionIdentityLine(identity);
-  if (identity.customName === null) return { name: label, callsign: null };
   return {
-    name: identity.customName,
-    callsign: identity.nameShared ? label : null,
+    name: identity.customName ?? sessionIdentityLine(identity),
+    callsign: null,
   };
 }
 
@@ -462,44 +412,16 @@ export function sessionTitleParts(identity: SessionIdentity): {
  * which run gives way. A flat row, a baked chip, and an aria label have one
  * string and one truncation, and they still owe the reader the same rule — so
  * the join lives here rather than being spelled at each call site, where the
- * three would eventually disagree about whether a collision shows a `:` or a
- * space.
+ * three would eventually disagree about how the two runs meet.
  *
  * The separator is the one the two-run form renders, and it belongs to the
- * callsign exactly as it does there: no callsign, no separator.
+ * callsign exactly as it does there: no callsign, no separator. Under the
+ * unconditional rule there is never a second run, so this is the name for a
+ * named session and the identity line for an unnamed one.
  */
 export function sessionDisplayTitle(identity: SessionIdentity): string {
   const { name, callsign } = sessionTitleParts(identity);
   return callsign === null ? name : `${name}:${callsign}`;
-}
-
-/**
- * The callsign run split into the half that may be eaten and the half that
- * must survive — the two spans a middle truncation needs.
- *
- * CSS cannot truncate from the middle of one run: `text-overflow: ellipsis`
- * only eats the tail. Two spans can — a shrinkable head that ellipsizes and a
- * `flex: none` tail that does not — and the split is invisible whenever the
- * whole run fits.
- *
- * The cut is the first hyphen *after the last `/`*, so the project prefix
- * stays with the head and the callsign's last word survives:
- * `tugtool/frothy-nurse-2` → head `tugtool/frothy-`, tail `nurse-2`. The
- * hyphen rides the head, so the two halves rejoin to the original string
- * exactly. A hyphenless callsign is all head and no tail — nothing to preserve
- * past the elision, and one span behaves as it always has.
- */
-export function callsignRunParts(callsign: string): {
-  head: string;
-  tail: string;
-} {
-  const slash = callsign.lastIndexOf("/");
-  const hyphen = callsign.indexOf("-", slash + 1);
-  if (hyphen === -1) return { head: callsign, tail: "" };
-  return {
-    head: callsign.slice(0, hyphen + 1),
-    tail: callsign.slice(hyphen + 1),
-  };
 }
 
 /**
@@ -518,6 +440,30 @@ export function sessionIdentityLine(identity: SessionIdentity): string {
   return identity.project.length > 0
     ? `${identity.project}/${label}`
     : label;
+}
+
+/**
+ * How a rename's bulletin names the sessions it took the name from.
+ *
+ * A custom name is unique, so setting one displaces whoever wore it, and the
+ * user learns what their gesture did without being asked to approve it. One
+ * name is information, so the singular names that session by the identity line
+ * its callsign returns it to; a list of callsigns is noise, so more than one is
+ * counted. `null` when nothing was taken, or when a lone displaced id resolves
+ * to nothing — the caller adds no line rather than printing a blank.
+ *
+ * Here rather than at the surface because it reads the identity stores
+ * imperatively, which is `lib/`'s to do and a component's not to ([L02]).
+ */
+export function displacedSessionsLine(
+  displaced: readonly string[] | undefined,
+): string | null {
+  if (displaced === undefined || displaced.length === 0) return null;
+  if (displaced.length === 1) {
+    const line = sessionIdentityLine(resolveSessionIdentity(displaced[0]!));
+    if (line.length > 0) return `${line} reverted to its callsign.`;
+  }
+  return `${displaced.length} other sessions reverted to their callsigns.`;
 }
 
 /**

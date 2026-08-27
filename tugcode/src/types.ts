@@ -1204,6 +1204,19 @@ export interface AddUserMessage {
    * / {@link SessionRewind}.
    */
   promptUuid?: string;
+  /**
+   * Who authored this submission. Present only on the replay path, and only
+   * on the one frame the translator knows is a stage session's opening prompt
+   * — the Wheel's words rather than the user's. Absent everywhere else, and
+   * the reader defaults to `"user"`, matching the live path.
+   *
+   * Stated by the producer rather than inferred by the consumer: the deck used
+   * to latch off a replayed stage divider's *position*, and a windowed replay
+   * whose stage opener fell outside the window handed that label to the first
+   * user message the window did contain — the user's own. A frame the
+   * translator marks is one it identified from the file, whatever the window.
+   */
+  origin?: "user" | "wheel";
   ipc_version: number;
 }
 

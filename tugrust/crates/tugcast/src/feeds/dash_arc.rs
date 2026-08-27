@@ -40,8 +40,13 @@ pub const REVIEW_CAP: usize = 2;
 /// resolves a path.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct StepLedgerFacts {
-    /// Step number of the ledger's first row that is not `done`, 1-indexed.
-    /// `None` when every row is done.
+    /// Step number of the ledger's first row that is neither `done` nor
+    /// `withdrawn`, 1-indexed. `None` when every row is closed.
+    ///
+    /// A withdrawn row is skipped because this is where a rotated implement
+    /// stage resumes: returning one would send a fresh session to a step
+    /// nobody intends to walk, and it could not close it — the withdrawal is
+    /// the decision, and re-walking the row would defeat it.
     pub first_pending: Option<usize>,
     /// The last step the implement run declared it would walk
     /// (`DashDeclarations::run_through`). `None` until a run declares one, and
@@ -495,7 +500,10 @@ mod tests {
     fn the_opening_rotation_needs_no_turn_from_a_stage() {
         let mut facts = facts();
         facts.stage_turn_ended = false;
-        assert_eq!(rotation(arc_action(&record(&[]), &facts)).stage, ArcStage::Devise);
+        assert_eq!(
+            rotation(arc_action(&record(&[]), &facts)).stage,
+            ArcStage::Devise
+        );
     }
 
     #[test]
@@ -818,6 +826,20 @@ mod tests {
         let rotation = rotation(action);
         assert_eq!(rotation.stage, ArcStage::Implement);
         assert_eq!(rotation.steps, Some((4, 9)));
+    }
+
+    /// The wedge a withdrawn row would open if `first_pending` returned one:
+    /// the fresh session resumes past it, at a step it can actually close.
+    #[test]
+    fn a_rotation_resumes_past_a_withdrawn_row() {
+        let mut facts = implementing(Some(0.72), true);
+        // Row 2 is withdrawn, so the ledger's answer to "where next" is 3.
+        facts.ledger.first_pending = Some(3);
+        facts.ledger.run_through = Some(3);
+
+        let rotation = rotation(arc_action(&record(&[ArcStage::Implement]), &facts));
+        assert_eq!(rotation.stage, ArcStage::Implement);
+        assert_eq!(rotation.steps, Some((3, 3)));
     }
 
     #[test]

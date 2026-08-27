@@ -161,27 +161,66 @@ describe("reducer — a stage that carries its prompt", () => {
   });
 });
 
-describe("reducer — a replayed stage marks its opener as the wheel's", () => {
-  const addUser = (turnKey: string, text: string): CodeSessionEvent =>
-    ({ type: "add_user_message", text, atoms: [], turnKey }) as CodeSessionEvent;
+/**
+ * Wheel authorship is read off the frame, never worked out from a divider's
+ * position. The reducer used to latch on a replayed `session_stage` and hand
+ * that latch to whatever `add_user_message` came next — and because replay is
+ * windowed, on a long run the divider fired and the first user message the
+ * window happened to contain inherited the label: the user's own words,
+ * attributed to the Wheel.
+ */
+describe("reducer — a replayed opener says who wrote it", () => {
+  const addUser = (
+    turnKey: string,
+    text: string,
+    origin?: "user" | "wheel",
+  ): CodeSessionEvent =>
+    ({
+      type: "add_user_message",
+      text,
+      atoms: [],
+      turnKey,
+      ...(origin !== undefined ? { origin } : {}),
+    }) as CodeSessionEvent;
 
-  it("the first replayed user message after a stage divider is the wheel's, the next is the user's", () => {
+  it("commits a wheel-origin turn when the frame says wheel", () => {
     const replaying = { ...fresh(), phase: "replaying" } as CodeSessionState;
-    const divided = reduce(replaying, stage("devise", "opus", "dash/foo-brief.md")).state;
-
-    const opened = reduce(divided, addUser("r1", "/tugplug:dash-devise dash/foo-brief.md")).state;
+    const opened = reduce(
+      replaying,
+      addUser("r1", "/tugplug:dash-devise dash/foo-brief.md", "wheel"),
+    ).state;
     expect(opened.pendingTurn?.origin).toBe("wheel");
-
-    // A follow-up in the same stage is a person typing.
-    const closed = { ...opened, pendingTurn: null } as CodeSessionState;
-    const next = reduce(closed, addUser("r2", "and also…")).state;
-    expect(next.pendingTurn?.origin).toBe("user");
   });
 
-  it("a replayed user message with no divider before it is the user's", () => {
+  it("keeps an unmarked opener the user's even right after a stage divider", () => {
+    // The exact regression, asserted in the shape that used to fail: a
+    // divider arrives mid-replay, and the next frame — carrying no `origin`,
+    // because its stage opener fell outside the window — is still the user's.
+    const replaying = { ...fresh(), phase: "replaying" } as CodeSessionState;
+    const divided = reduce(replaying, stage("devise", "opus", "dash/foo-brief.md")).state;
+    const opened = reduce(divided, addUser("r1", "the user's own words")).state;
+    expect(opened.pendingTurn?.origin).toBe("user");
+  });
+
+  it("keeps an unmarked opener the user's with no divider at all", () => {
     const replaying = { ...fresh(), phase: "replaying" } as CodeSessionState;
     const opened = reduce(replaying, addUser("r1", "hello")).state;
     expect(opened.pendingTurn?.origin).toBe("user");
+  });
+
+  it("leaves the live submit path exactly where it was", () => {
+    // `handleSend` has always written `event.origin ?? "user"`, which is the
+    // line the replay path now takes too — so the two agree by construction
+    // rather than by two mechanisms kept in step.
+    const typed = reduce(fresh(), SEND).state;
+    expect(typed.pendingTurn?.origin).toBe("user");
+
+    const seated = reduce(fresh(), {
+      ...(SEND as Record<string, unknown>),
+      origin: "wheel",
+      turnKey: "k-wheel",
+    } as CodeSessionEvent).state;
+    expect(seated.pendingTurn?.origin).toBe("wheel");
   });
 });
 

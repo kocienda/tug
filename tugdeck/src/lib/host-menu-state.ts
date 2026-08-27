@@ -438,6 +438,12 @@ export interface MenuStateSessionBlock {
    * spreading them across the payload would invite a second opinion here.
    */
   commitReady: boolean;
+  /**
+   * The bound session carries a user-set name, so there is something to clear.
+   * Gates Session ▸ Unname Session: an item that does nothing is its own small
+   * lie.
+   */
+  hasCustomName: boolean;
 }
 
 /**
@@ -991,6 +997,7 @@ export class HostMenuStatePublisher {
               changesVisible: session.changesVisible,
               historyVisible: session.historyVisible,
               commitReady: session.commitReady,
+              hasCustomName: session.hasCustomName,
             },
       fileGates: file === null ? null : computeFileMenuGates(file),
       openQuickly,

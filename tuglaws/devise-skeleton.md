@@ -386,7 +386,7 @@ Table T05, (#op-rename, #fundamental-wall)
 > - If a step is large, split the work into multiple **flat steps** (`Step N`, `Step N+1`, …) with separate commits and checkpoints, each with explicit `**Depends on:**` lines.
 > - End the plan with an **Integration Checkpoint step** that verifies the **fit** — not the work. Its subject is the one tree nothing else in the run ever tested: the dash replayed onto the live base, which is what a join will actually land. Give it an ordinary `**Commit:**` message like any other step: closing a step writes its ledger row, that write dirties the tree, and the round commits it — so the step lands a commit whatever the plan says, and a message reading "no separate commit" describes a state that never occurs.
 >
-> **The run declares where it ends, and that declaration arms the join.** `dash step start <n> --through <m>` names `m` as the last step of the run; when step `m` goes `done`, the dash is finished, the join arms itself, and the offer reaches the user without anybody remembering to raise it. A run that never declared its last step can only ever look like a run still in progress. So a plan's step list is also a promise about where the arc ends — which is why folding a step into a neighbour still calls that step's `done` verb rather than quietly dropping it.
+> **The run declares where it ends, and that declaration arms the join.** `dash step start <n> --through <m>` names `m` as the last step of the run; when step `m` goes `done`, the dash is finished, the join arms itself, and the offer reaches the user without anybody remembering to raise it. A run that never declared its last step can only ever look like a run still in progress. So a plan's step list is also a promise about where the arc ends — which is why a step folded into a neighbour, or abandoned outright, is still *declared*: `dash step withdraw <n>` closes it, arming the join exactly as a `done` does, without claiming work nobody did. Never quietly drop one.
 >
 > **The Integration Checkpoint is a procedure, and it is not a second sweep.** A checkpoint that passed is spent: every command in the per-step checkpoints already ran, against these bytes, inside the step that changed them. Re-listing them at the end costs minutes and can only re-prove what is already proven — and it proves it about the **sandbox**, frozen at branch time, rather than about the deliverable. So the ending is:
 >
@@ -406,9 +406,13 @@ Table T05, (#op-rename, #fundamental-wall)
 #### Step Status Ledger {#step-status-ledger}
 
 > A single at-a-glance table of every step and its current state. `/tugplug:dash-implement`
-> reads this to know where to resume (which step is the first `pending`), to scope a
-> step range, and to mark progress. Keep it in sync as steps land — flip `pending` →
-> `in progress` → `done` (record the commit). It is the plan's source of truth for "where are we?".
+> reads this to know where to resume (the first row that is neither `done` nor `withdrawn`), to scope a
+> step range, and to mark progress. The run keeps it in sync through the step verbs, which flip `pending` →
+> `in progress` → `done` (recording the commit), or → `withdrawn` for a step the run decided not to walk
+> (which records no commit, because none was made). It is the plan's source of truth for "where are we?".
+>
+> **A plan is authored with every row `pending`,** whatever the four cell values are: the other three are a
+> run's to write, never an author's.
 
 > **Every step gets a row, and every row names a step.** The linter checks this in
 > both directions (PL016): a step with no row is a step `dash step` cannot start or

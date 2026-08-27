@@ -474,6 +474,14 @@ fn run_step(name: &str, action: StepAction, json: bool, quiet: bool) -> Result<(
             outcome
         }
         StepAction::Done { step, commit } => ops::step_done(name, step, commit.as_deref())?,
+        StepAction::Withdraw { step } => {
+            // Withdrawing is a run act like opening a step, so it registers
+            // the same claim: a run that picks a plan up mid-way to withdraw
+            // one step has still taken the dash.
+            let outcome = ops::step_withdraw(name, step)?;
+            claim_dash(name);
+            outcome
+        }
     };
     if json {
         print_ok("dash step", &data);
@@ -1686,6 +1694,21 @@ mod tests {
         assert!(
             err.contains("--through"),
             "the refusal must name the flag: {err}"
+        );
+    }
+
+    /// `withdraw` takes no `--through` — it inherits the run's declared
+    /// selection the way `done` does — so no argument check stands between the
+    /// arm and the op, which is the symmetric fact to the `start` refusal
+    /// above. The claim the arm makes beside the call is env-gated on a
+    /// calling session and best-effort by construction, so a headless run like
+    /// this one takes its early return.
+    #[test]
+    fn step_withdraw_needs_no_through() {
+        let err = run_step("any-dash", StepAction::Withdraw { step: 1 }, false, true).unwrap_err();
+        assert!(
+            !err.contains("--through"),
+            "a withdrawal inherits the run's selection rather than declaring one: {err}"
         );
     }
 

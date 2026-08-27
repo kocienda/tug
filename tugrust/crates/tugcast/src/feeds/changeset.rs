@@ -14,8 +14,8 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use tugcast_core::types::{
-    ChangesetDraft, ChangesetEntry, ChangesetFile, ChangesetSnapshot, DashStep, OrphanedFile,
-    DocumentDashEntry, SharedOwner, UnattributedFile,
+    ChangesetDraft, ChangesetEntry, ChangesetFile, ChangesetSnapshot, DashStep, DocumentDashEntry,
+    OrphanedFile, SharedOwner, UnattributedFile,
 };
 
 use super::attribution::{parse_worktree_states, repo_root_for};
@@ -1136,9 +1136,9 @@ fn dash_file_row(file: tugdash_core::DashDetailFile) -> ChangesetFile {
 /// cannot be read has not been shown to be stale and has not been shown to have
 /// no steps, and an unreadable plan is a normal state rather than an incident.
 fn dash_plan_reading(abs: &Path) -> (Option<String>, Vec<DashStep>) {
-    let Ok(source) = std::fs::read_to_string(abs)
-        .inspect_err(|e| tracing::debug!(path = %abs.display(), error = %e, "dash plan unreadable"))
-    else {
+    let Ok(source) = std::fs::read_to_string(abs).inspect_err(
+        |e| tracing::debug!(path = %abs.display(), error = %e, "dash plan unreadable"),
+    ) else {
         return (None, Vec::new());
     };
     let Ok(doc) = tugutil_core::plan::parse(&source) else {
@@ -1273,7 +1273,13 @@ fn document_dash_entries_in(
                 bound_sessions: bound_by_dash.get(&owner_id).cloned().unwrap_or_default(),
                 owner_id,
                 step_total: steps.len() as u32,
-                steps_done: steps.iter().filter(|s| s.status == "done").count() as u32,
+                // The *closed* count: a withdrawn step is over, and the
+                // fraction and the ticks on screen have to agree about how
+                // many of a plan's steps are behind it.
+                steps_done: steps
+                    .iter()
+                    .filter(|s| s.status == "done" || s.status == "withdrawn")
+                    .count() as u32,
                 steps_begun: steps.iter().filter(|s| s.status != "pending").count() as u32,
                 review,
                 arc: tugdash_core::read_arc(root, &name).map(|record| {
@@ -1381,14 +1387,12 @@ async fn dash_entries(
             run_length: detail.run_length,
             step_title: detail.step_title,
             last_activity: detail.last_activity,
-            arc: detail
-                .arc
-                .map(|arc| tugcast_core::types::DashArcState {
-                    stage: arc.stage,
-                    stopped: arc.stopped,
-                    stopped_stage: arc.stopped_stage,
-                    done: arc.done,
-                }),
+            arc: detail.arc.map(|arc| tugcast_core::types::DashArcState {
+                stage: arc.stage,
+                stopped: arc.stopped,
+                stopped_stage: arc.stopped_stage,
+                done: arc.done,
+            }),
             documents: dash_documents(detail.documents),
             review,
             steps,
@@ -2645,7 +2649,10 @@ Some context.
             entries[0].documents.brief.as_deref(),
             Some(&*root.join(".tug/dashes/foo/brief.md").to_string_lossy())
         );
-        assert_eq!(entries[0].documents.brief_title.as_deref(), Some("The foo brief"));
+        assert_eq!(
+            entries[0].documents.brief_title.as_deref(),
+            Some("The foo brief")
+        );
         assert!(entries[0].documents.plan.is_none());
         assert_eq!(entries[0].review, None);
         assert_eq!(entries[0].step_total, 0);
@@ -2661,7 +2668,12 @@ Some context.
     #[test]
     fn document_dash_entries_read_review_and_steps() {
         let (_dir, root) = init_repo();
-        write_dash_plan(&root, "reviewed-dash", &["done", "in progress", "pending"], true);
+        write_dash_plan(
+            &root,
+            "reviewed-dash",
+            &["done", "in progress", "pending"],
+            true,
+        );
         write_dash_plan(&root, "fresh-dash", &["pending"], false);
 
         let entries = document_entries(&root);
@@ -2682,9 +2694,31 @@ Some context.
 
         // Sorted by name, so the list is stable across recomputes.
         assert_eq!(
-            entries.iter().map(|e| e.display_name.as_str()).collect::<Vec<_>>(),
+            entries
+                .iter()
+                .map(|e| e.display_name.as_str())
+                .collect::<Vec<_>>(),
             vec!["fresh-dash", "reviewed-dash"]
         );
+    }
+
+    /// A withdrawn step is closed and begun, so the fraction the feed reports
+    /// never reads short of the ticks drawn beside it.
+    #[test]
+    fn a_withdrawn_step_counts_as_closed() {
+        let (_dir, root) = init_repo();
+        write_dash_plan(
+            &root,
+            "skipped-dash",
+            &["done", "withdrawn", "pending"],
+            true,
+        );
+
+        let entries = document_entries(&root);
+        let skipped = &entries[0];
+        assert_eq!(skipped.display_name, "skipped-dash");
+        assert_eq!(skipped.step_total, 3);
+        assert_eq!((skipped.steps_done, skipped.steps_begun), (2, 2));
     }
 
     /// A live dash carries the same documents on its own entry, absolute.
@@ -3241,7 +3275,7 @@ Some context.
                     base_ahead: 0,
                     base_overlap: Vec::new(),
                     last_replay: None,
-            fit: None,
+                    fit: None,
                     replay_conflict_paths: Vec::new(),
                     join: None,
                     arc: None,
@@ -3876,27 +3910,47 @@ Some context.
         // Fit, no files.
         let fit_only =
             format_join_summary("abc1234567def", "d", "trunk", 1, "Subject", &[], Some(&fit));
-        assert_eq!(fit_only.lines().nth(1), Some("fit: verified 3f0a1c9e2b onto 91c4de70f2"));
+        assert_eq!(
+            fit_only.lines().nth(1),
+            Some("fit: verified 3f0a1c9e2b onto 91c4de70f2")
+        );
         assert_eq!(fit_only.lines().nth(2), Some("Subject"));
         assert!(!fit_only.contains("files:"));
 
         // Files, no fit — the pre-fit shape, with `files:` still at index 1.
         let files_only =
             format_join_summary("abc1234567def", "d", "trunk", 1, "Subject", &files, None);
-        assert!(files_only.lines().nth(1).is_some_and(|l| l.starts_with("files: ")));
+        assert!(
+            files_only
+                .lines()
+                .nth(1)
+                .is_some_and(|l| l.starts_with("files: "))
+        );
         assert!(!files_only.contains("fit:"));
 
         // Both.
-        let both =
-            format_join_summary("abc1234567def", "d", "trunk", 1, "Subject", &files, Some(&fit));
+        let both = format_join_summary(
+            "abc1234567def",
+            "d",
+            "trunk",
+            1,
+            "Subject",
+            &files,
+            Some(&fit),
+        );
         assert!(both.lines().nth(1).is_some_and(|l| l.starts_with("fit: ")));
-        assert!(both.lines().nth(2).is_some_and(|l| l.starts_with("files: ")));
+        assert!(
+            both.lines()
+                .nth(2)
+                .is_some_and(|l| l.starts_with("files: "))
+        );
         assert_eq!(both.lines().nth(3), Some("Subject"));
 
         // Neither.
         let neither = format_join_summary("abc1234567def", "d", "trunk", 1, "Subject", &[], None);
         assert_eq!(neither.lines().nth(1), Some("Subject"));
-    }    #[test]
+    }
+    #[test]
     fn format_join_summary_keeps_the_full_multi_line_message() {
         let s = format_join_summary(
             "abcdef0123456789",

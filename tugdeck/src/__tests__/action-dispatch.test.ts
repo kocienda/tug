@@ -1200,4 +1200,44 @@ describe("rename_session acks", () => {
     dispatchAction({ action: "rename_session_ok", session_id: "sess", name: "second" });
     expect(settles).toEqual([{ ok: true }]);
   });
+
+  it("carries the rows the rename took the name from", () => {
+    const settles: NameSettle[] = [];
+    renameTo("harbor light", settles);
+    dispatchAction({
+      action: "rename_session_ok",
+      session_id: "sess",
+      name: "harbor light",
+      displaced: ["other"],
+    });
+    expect(settles[0]?.displaced).toEqual(["other"]);
+  });
+
+  it("resolves with nothing attached rather than throwing on a malformed displaced", () => {
+    // A bulletin short one sentence beats a gesture with no outcome at all.
+    const settles: NameSettle[] = [];
+    renameTo("harbor light", settles);
+    dispatchAction({
+      action: "rename_session_ok",
+      session_id: "sess",
+      name: "harbor light",
+      displaced: "not a list",
+    });
+    expect(settles).toHaveLength(1);
+    expect(settles[0]?.ok).toBe(true);
+    expect(settles[0]?.displaced).toBeUndefined();
+  });
+
+  it("un-learns a displaced session's name from the row pushed for it", () => {
+    // The mechanism the whole per-row push exists for: a client can only drop
+    // a name through a `session_updated` carrying `name_user_set: false`, and
+    // the list-level seed path ignores a blank by design.
+    sessionNameStore.setName("other", "harbor light");
+    dispatchAction({
+      action: "session_updated",
+      session_id: "other",
+      fields: { session_id: "other", name: null, name_user_set: false },
+    });
+    expect(sessionNameStore.getName("other")).toBeNull();
+  });
 });

@@ -198,12 +198,38 @@ struct LintCounts {
     warnings: usize,
 }
 
-#[derive(Debug, Serialize)]
+/// One count per ledger cell value, never a rolled-up "closed" figure.
+///
+/// This surface reports the ledger's own cells, so a reader of the JSON sees
+/// the four spellings the table actually carries. The surfaces that *derive*
+/// progress — the arc's facts, the Changes feed's fractions, the deck's track
+/// — are the ones that fold `done` and `withdrawn` into one closed count.
+#[derive(Debug, PartialEq, Eq, Serialize)]
 struct StepCounts {
     total: usize,
     done: usize,
     in_progress: usize,
     pending: usize,
+    withdrawn: usize,
+}
+
+impl StepCounts {
+    /// One count per cell value the ledger carries.
+    fn of(doc: &plan::PlanDoc) -> Self {
+        let count = |status: &str| {
+            doc.ledger_rows
+                .iter()
+                .filter(|r| r.status == status)
+                .count()
+        };
+        StepCounts {
+            total: doc.ledger_rows.len(),
+            done: count("done"),
+            in_progress: count("in progress"),
+            pending: count("pending"),
+            withdrawn: count("withdrawn"),
+        }
+    }
 }
 
 /// Read a plan's review state.
@@ -224,12 +250,6 @@ fn run_status(path: &Path, json: bool) -> Result<(), AppError> {
         .filter(|d| d.severity == Severity::Error)
         .count();
 
-    let count = |status: &str| {
-        doc.ledger_rows
-            .iter()
-            .filter(|r| r.status == status)
-            .count()
-    };
     let data = StatusData {
         path: path.display().to_string(),
         review: plan::review_state(&doc, &source).as_str().to_string(),
@@ -245,12 +265,7 @@ fn run_status(path: &Path, json: bool) -> Result<(), AppError> {
             errors,
             warnings: diagnostics.len() - errors,
         },
-        steps: StepCounts {
-            total: doc.ledger_rows.len(),
-            done: count("done"),
-            in_progress: count("in progress"),
-            pending: count("pending"),
-        },
+        steps: StepCounts::of(&doc),
     };
 
     if json {
@@ -277,8 +292,12 @@ fn run_status(path: &Path, json: bool) -> Result<(), AppError> {
             if data.lint.warnings == 1 { "" } else { "s" }
         );
         println!(
-            "steps: {} total, {} done, {} in progress, {} pending",
-            data.steps.total, data.steps.done, data.steps.in_progress, data.steps.pending
+            "steps: {} total, {} done, {} in progress, {} pending, {} withdrawn",
+            data.steps.total,
+            data.steps.done,
+            data.steps.in_progress,
+            data.steps.pending,
+            data.steps.withdrawn
         );
         println!("review: {}", data.review);
     }
@@ -352,4 +371,52 @@ fn run_stamp(path: &Path, json: bool) -> Result<(), AppError> {
         );
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A plan whose ledger carries every cell value the vocabulary allows.
+    const FOUR_ROW_PLAN: &str = r#"## A Four Step Plan {#four-step-plan}
+
+### Plan Metadata {#plan-metadata}
+
+| Field | Value |
+|---|---|
+| Owner | Someone |
+
+### Phase Overview {#phase-overview}
+
+Some context.
+
+### Execution Steps {#execution-steps}
+
+#### Step Status Ledger {#step-status-ledger}
+
+| Step | Title | Status | Commit |
+|---|---|---|---|
+| #step-1 | The first step | done | `a4477d5` |
+| #step-2 | The second step | withdrawn | — |
+| #step-3 | The third step | in progress | — |
+| #step-4 | The fourth step | pending | — |
+"#;
+
+    /// This surface reports the ledger's own cells, so a withdrawn row gets
+    /// its own count rather than being folded into `done` or vanishing from
+    /// the total's accounting.
+    #[test]
+    fn step_counts_report_every_cell_value() {
+        let doc = plan::parse(FOUR_ROW_PLAN).expect("parses");
+        assert_eq!(
+            StepCounts::of(&doc),
+            StepCounts {
+                total: 4,
+                done: 1,
+                in_progress: 1,
+                pending: 1,
+                withdrawn: 1,
+            }
+        );
+    }
 }

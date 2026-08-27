@@ -10,7 +10,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 
 import {
-  callsignRunParts,
   composeSessionIdentity,
   projectLeafName,
   resolveCitedSession,
@@ -102,27 +101,19 @@ describe("sessionTitleParts", () => {
     });
   });
 
-  test("a name collision brings the callsign back as the disambiguation", () => {
-    const parts = sessionTitleParts(
-      identity({
-        name: "Refactor the Lens",
-        tag: "stocky-pixie",
-        nameShared: true,
-      }),
-    );
-    expect(parts).toEqual({
-      name: "Refactor the Lens",
-      callsign: "tugtool/stocky-pixie",
-    });
-  });
-
-  test("the collision fact is inert without a custom name to collide on", () => {
-    const record = identity({ nameShared: true });
-    expect(record.nameShared).toBe(false);
-    expect(sessionTitleParts(record)).toEqual({
-      name: "tugtool/stocky-pixie",
-      callsign: null,
-    });
+  test("a custom name means no callsign, whatever else is true of the session", () => {
+    // Unconditional: `SessionLedger::rename` takes a custom name from anyone
+    // already wearing it, so there is no collision left for a callsign to
+    // disambiguate. This is the rule the user asked for again and again.
+    for (const record of [
+      identity({ name: "Refactor the Lens", tag: "stocky-pixie" }),
+      identity({ name: "Refactor the Lens", tag: null }),
+      identity({ name: "Refactor the Lens", projectDir: null }),
+      identity({ name: "Refactor the Lens", synopsis: "the pane chrome" }),
+    ]) {
+      expect(sessionTitleParts(record).callsign).toBeNull();
+      expect(sessionTitleParts(record).name).toBe("Refactor the Lens");
+    }
   });
 
   test("an unnamed session's title IS the identity line, with no second run", () => {
@@ -144,10 +135,8 @@ describe("sessionTitleParts", () => {
       callsign: null,
     });
     expect(
-      sessionTitleParts(
-        identity({ name: "The mint work", tag: null, nameShared: true }),
-      ),
-    ).toEqual({ name: "The mint work", callsign: `tugtool/${SHORT}` });
+      sessionTitleParts(identity({ name: "The mint work", tag: null })),
+    ).toEqual({ name: "The mint work", callsign: null });
   });
 
   test("the description is not a title candidate — it is the line beneath", () => {
@@ -156,11 +145,15 @@ describe("sessionTitleParts", () => {
     ).toEqual({ name: "tugtool/stocky-pixie", callsign: null });
   });
 
-  test("the callsign run IS the Line channel — one spelling, two readers", () => {
-    // Under a collision, so a callsign run exists to compare.
-    const named = identity({ name: "Refactor the Lens", nameShared: true });
+  test("an unnamed session's run IS the Line channel — one spelling, two readers", () => {
+    // The `callsign` run appears only for an unnamed session now, so the run
+    // to compare against the Line channel is the `name` one.
+    const unnamed = identity({ tag: "stocky-pixie" });
+    expect(sessionTitleParts(unnamed).name).toBe(sessionIdentityLine(unnamed));
+    expect(sessionIdentityLine(unnamed)).toBe("tugtool/stocky-pixie");
+    // And the callsign a named session stops SHOWING is still carried whole.
+    const named = identity({ name: "Refactor the Lens", tag: "stocky-pixie" });
     expect(sessionTitleParts(named).name).not.toContain("/");
-    expect(sessionTitleParts(named).callsign).toBe(sessionIdentityLine(named));
     expect(sessionIdentityLine(named)).toBe("tugtool/stocky-pixie");
   });
 
@@ -187,12 +180,11 @@ describe("sessionDisplayTitle — the flat form of the same rule", () => {
     ).toBe("Refactor the Lens");
   });
 
-  test("a collision appends the callsign with the two-run separator", () => {
+  test("a named session's flat form carries no separator at all", () => {
+    // The `:` belonged to the callsign run, and a named session has none.
     expect(
-      sessionDisplayTitle(
-        identity({ name: "Refactor the Lens", nameShared: true }),
-      ),
-    ).toBe("Refactor the Lens:tugtool/stocky-pixie");
+      sessionDisplayTitle(identity({ name: "Refactor the Lens" })),
+    ).toBe("Refactor the Lens");
   });
 
   test("an unnamed session is its identity line, unchanged", () => {
@@ -206,7 +198,6 @@ describe("sessionDisplayTitle — the flat form of the same rule", () => {
     for (const record of [
       identity(),
       identity({ name: "The mint work" }),
-      identity({ name: "The mint work", nameShared: true }),
       identity({ tag: null }),
     ]) {
       const { name, callsign } = sessionTitleParts(record);
@@ -217,58 +208,19 @@ describe("sessionDisplayTitle — the flat form of the same rule", () => {
   });
 });
 
-describe("callsignRunParts — where a middle truncation cuts", () => {
-  test("the cut is the first hyphen after the project prefix", () => {
-    expect(callsignRunParts("tugtool/frothy-nurse-2")).toEqual({
-      head: "tugtool/frothy-",
-      tail: "nurse-2",
-    });
-  });
-
-  test("a hyphen in the project name is not the cut", () => {
-    expect(callsignRunParts("my-repo/stocky-pixie")).toEqual({
-      head: "my-repo/stocky-",
-      tail: "pixie",
-    });
-  });
-
-  test("a hyphenless callsign is all head — there is nothing to preserve", () => {
-    expect(callsignRunParts("tugtool/deadbeef")).toEqual({
-      head: "tugtool/deadbeef",
-      tail: "",
-    });
-  });
-
-  test("an unprefixed callsign splits the same way", () => {
-    expect(callsignRunParts("stocky-pixie")).toEqual({
-      head: "stocky-",
-      tail: "pixie",
-    });
-  });
-
-  test("the halves rejoin to the original, always", () => {
-    for (const callsign of [
-      "tugtool/frothy-nurse-2",
-      "tugtool/deadbeef",
-      "stocky-pixie",
-      "a-b-c-d",
-      "",
-    ]) {
-      const { head, tail } = callsignRunParts(callsign);
-      expect(head + tail).toBe(callsign);
-    }
-  });
-});
 
 /**
- * The collision verdict, driven through the real store `resolveSessionIdentity`
- * reads — there is no seam to derive it without it, and inventing one would
- * be testing a copy of the rule rather than the rule. There is no kin
- * exemption: a rewind-fork inherits its parent's name with its callsign, so
- * kin never share a name and any peer spelling it the same way is a genuine
- * second thing to tell apart.
+ * The title rule, driven through the real stores `resolveSessionIdentity`
+ * reads — there is no seam to derive it without them, and inventing one would
+ * be testing a copy of the rule rather than the rule.
+ *
+ * Uniqueness is enforced at the ledger's write, so two sessions cannot end up
+ * wearing one name. The client is nevertheless held to the rule unconditionally
+ * rather than to "no collision, therefore no callsign": a map that momentarily
+ * holds two — a push in flight, a stale row — must still never put a callsign
+ * beside a custom name.
  */
-describe("nameShared — who counts as a collision", () => {
+describe("a custom name and the callsign, through the real stores", () => {
   const SELF = "aaaaaaaa-0000-4000-8000-000000000001";
   const STRANGER = "aaaaaaaa-0000-4000-8000-000000000003";
   const NAME = "layout-imposer-xp";
@@ -287,35 +239,37 @@ describe("nameShared — who counts as a collision", () => {
     }
   });
 
-  test("a name nobody else holds is no collision", () => {
+  test("a named session shows its name and no callsign", () => {
     seed([{ id: SELF, name: NAME, tag: "nutty-gnat" }]);
-    expect(resolveSessionIdentity(SELF).nameShared).toBe(false);
+    expect(sessionTitleParts(resolveSessionIdentity(SELF))).toEqual({
+      name: NAME,
+      callsign: null,
+    });
   });
 
-  test("another session taking the same name IS a collision", () => {
+  test("two sessions wearing one name still show no callsign", () => {
     seed([
       { id: SELF, name: NAME, tag: "nutty-gnat" },
       { id: STRANGER, name: NAME, tag: "frothy-nurse" },
     ]);
-    expect(resolveSessionIdentity(SELF).nameShared).toBe(true);
-    expect(resolveSessionIdentity(STRANGER).nameShared).toBe(true);
+    for (const id of [SELF, STRANGER]) {
+      expect(sessionTitleParts(resolveSessionIdentity(id)).callsign).toBeNull();
+    }
   });
 
-  test("a tagless session sharing the name still collides", () => {
-    seed([
-      { id: SELF, name: NAME, tag: null },
-      { id: STRANGER, name: NAME, tag: "nutty-gnat" },
-    ]);
-    expect(resolveSessionIdentity(SELF).nameShared).toBe(true);
-    expect(resolveSessionIdentity(STRANGER).nameShared).toBe(true);
+  test("an unnamed session's title is still its callsign", () => {
+    seed([{ id: SELF, name: null, tag: "nutty-gnat" }]);
+    expect(sessionTitleParts(resolveSessionIdentity(SELF)).name).toContain(
+      "nutty-gnat",
+    );
   });
 
-  test("a differently spelled name is not shared at all", () => {
-    seed([
-      { id: SELF, name: NAME, tag: "nutty-gnat" },
-      { id: STRANGER, name: "some other name", tag: "frothy-nurse" },
-    ]);
-    expect(resolveSessionIdentity(SELF).nameShared).toBe(false);
+  test("the callsign a named session stops showing is still carried", () => {
+    seed([{ id: SELF, name: NAME, tag: "nutty-gnat" }]);
+    // Hiding a name is not forgetting it: the identity line still resolves.
+    expect(sessionIdentityLine(resolveSessionIdentity(SELF))).toContain(
+      "nutty-gnat",
+    );
   });
 });
 

@@ -333,6 +333,7 @@ Every command has several doors: a chord, a menu item, the palette, a control fr
 | `session.stop` | `interrupt-session` | key card | registry gate |
 | `session.toggleChanges` | `toggle-changes-view` | key card | registry gate |
 | `session.toggleHistory` | `toggle-history-view` | key card | registry gate |
+| `session.unname` | `run-slash-command:unname` | key card | registry gate |
 | `session.usage` | `run-slash-command:usage` | key card | registry gate |
 | `view.actualSize` | `zoom-actual` | first responder | host tier |
 | `view.keyboardFocus` | `cycle-focus-mode` | registered handler | host tier |

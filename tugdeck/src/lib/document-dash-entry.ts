@@ -76,6 +76,13 @@ export function documentDashTrackModel(entry: DocumentDashEntry): DashTrackModel
           done: entry.steps_done,
           current:
             entry.steps_begun > entry.steps_done ? entry.steps_done + 1 : null,
+          // Always empty here, and honestly so: a document-only dash's wire
+          // entry carries counters, never per-row statuses, so the positions
+          // are not knowable on this surface. Nor can one arise — `step_in`
+          // refuses a withdrawal on a dash with no branch and no live
+          // worktree, so a document-only plan cannot acquire a withdrawn row
+          // through the verb at all.
+          withdrawn: new Set<number>(),
         };
   const arc = entry.arc;
   const arcSpoke =

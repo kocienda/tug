@@ -136,6 +136,8 @@ export interface CommandMenuFacts {
     readonly changesVisible: boolean;
     readonly historyVisible: boolean;
     readonly commitReady: boolean;
+    /** The bound session carries a user-set name — there is one to clear. */
+    readonly hasCustomName: boolean;
   } | null;
   /**
    * The frontmost Text card's File-menu gates, already reduced from its
@@ -521,6 +523,14 @@ const SLASH_BRIDGES: readonly SlashBridge[] = [
   ["clear", "Clear Session", "session.new"],
   ["resume", "Resume Session…", "session.resume"],
   ["rename", "Rename Session…", "session.rename"],
+  // No ellipsis: it performs rather than opening a dialog. Gated on there
+  // being a name to clear, so the item never sits enabled over nothing.
+  [
+    "unname",
+    "Unname Session",
+    "session.unname",
+    (chain) => chain.menu.session?.hasCustomName ?? false,
+  ],
   // The menu door means LAND, not enter. `/commit` and ⌃⌘C-on-an-empty-composer
   // are the two doors that put you into commit mode; by the time this item is
   // enabled you are already in it with a message written, so it performs rather

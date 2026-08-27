@@ -1285,7 +1285,14 @@ export function initActionDispatch(
     const sessionId = payload.session_id;
     if (typeof sessionId !== "string" || sessionId.length === 0) return;
     const name = typeof payload.name === "string" ? payload.name : null;
-    sessionNameStore.settle(sessionId, name, { ok: true });
+    // The rows this rename took the name from. Validated to an array of
+    // strings rather than passed through: a malformed field settles the waiter
+    // with nothing attached, which costs the bulletin a sentence, where
+    // throwing here would cost the gesture its whole outcome.
+    const displaced = Array.isArray(payload.displaced)
+      ? payload.displaced.filter((id): id is string => typeof id === "string")
+      : undefined;
+    sessionNameStore.settle(sessionId, name, { ok: true, displaced });
   });
   registerAction("rename_session_err", (payload) => {
     console.warn("rename_session failed", payload);

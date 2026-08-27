@@ -665,12 +665,6 @@ export interface CodeSessionState {
    */
   replayPrependActive: boolean;
   /**
-   * Set by a replayed stage divider and consumed by the next replayed
-   * `add_user_message`, which is the stage's opening prompt: the wheel's
-   * words, not the user's. Internal-only — not surfaced on the snapshot.
-   */
-  wheelPromptPending: boolean;
-  /**
    * Replay-clock derived flags. Exposed through the snapshot identically-
    * named (`replayPreflightActive`, `replaySoftBudgetElapsed`,
    * `replayTimeoutDwellActive`); see `types.ts` for semantics. Driven
@@ -928,7 +922,6 @@ export function createInitialState(
     replayWindow: null,
     sessionCreatedAtMs: null,
     replayPrependActive: false,
-    wheelPromptPending: false,
     replayPreflightActive: false,
     replaySoftBudgetElapsed: false,
     replayTimeoutDwellActive: false,
@@ -4069,12 +4062,6 @@ function handleSessionStage(
   event: SessionStageEvent,
 ): { state: CodeSessionState; effects: Effect[] } {
   const text = stageNoteText(event.stage, event.model, event.document, event.steps);
-  // A replayed rotation carries no prompt — the stage's JSONL does, as the
-  // first user message after the divider — so the divider marks the next
-  // replayed opener as the wheel's rather than the user's.
-  if (state.phase === "replaying") {
-    state = { ...state, wheelPromptPending: true };
-  }
   const turnKey = state.pendingTurn?.turnKey;
   const entry = turnKey === undefined ? undefined : state.scratch.get(turnKey);
   if (turnKey === undefined || entry === undefined) {
@@ -4794,7 +4781,6 @@ function handleReplayComplete(
         prevPhase: null,
         pendingTurn: null,
         replayPrependActive: false,
-        wheelPromptPending: false,
         replayEverCompleted: true,
         replayPreflightActive: false,
         replaySoftBudgetElapsed: false,
@@ -5076,11 +5062,13 @@ function handleAddUserMessage(
   return {
     state: {
       ...base,
-      wheelPromptPending: false,
       pendingTurn: {
         turnKey: event.turnKey,
         submitAt: now,
-        origin: state.wheelPromptPending ? "wheel" : "user",
+        // Stated by the producer, defaulted by the reader — the same line
+        // `handleSend` takes on the live path, so the two agree by
+        // construction rather than by two mechanisms kept in step.
+        origin: event.origin ?? "user",
         // A canceled `/compact`'s throwaway summarization turn, replayed from
         // the discarded session's JSONL — mark it suppressed so its
         // `turn_complete` drops the transcript append (it must never commit).

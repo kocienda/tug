@@ -1142,6 +1142,16 @@ export interface TranslateJsonlEntryOptions {
    * `turn_complete` at the end of the run.
    */
   suppressTurnComplete?: boolean;
+  /**
+   * When true, this entry is a dash-arc stage session's opening prompt, so the
+   * `add_user_message` it emits is the Wheel's words rather than the user's and
+   * carries `origin: "wheel"`.
+   *
+   * The session-level loop sets it on exactly the one entry index
+   * {@link TranslateSessionOptions.stageSession} identified over the whole
+   * file, so it holds whatever window is in play.
+   */
+  wheelOrigin?: boolean;
 }
 
 /**
@@ -1262,7 +1272,7 @@ export function translateJsonlEntry(
   }
 
   if (topType === "user") {
-    return handleUserEntry(entry, ctx);
+    return handleUserEntry(entry, ctx, options);
   }
 
   if (topType === "assistant") {
@@ -1381,6 +1391,7 @@ function isInterruptMarkerEntry(entry: JsonlEntry, text: string): boolean {
 function handleUserEntry(
   entry: JsonlEntry,
   ctx: TranslateContext,
+  options?: TranslateJsonlEntryOptions,
 ): OutboundMessage[] {
   const out: OutboundMessage[] = [];
   const rawContent = entry.message?.content;
@@ -1596,6 +1607,10 @@ function handleUserEntry(
     ...(typeof entry.uuid === "string" && entry.uuid.length > 0
       ? { promptUuid: entry.uuid }
       : {}),
+    // Stated, never inferred: the session loop marks the one entry it
+    // identified as this stage's opening prompt, and every other frame simply
+    // omits the field for the reader to default.
+    ...(options?.wheelOrigin === true ? { origin: "wheel" as const } : {}),
     ipc_version: IPC_VERSION,
   });
   ctx.openTurnMsgId = mintOpenerId(ctx, "u");
@@ -2058,6 +2073,18 @@ export interface TranslateSessionOptions {
    * orphan-synthesized turns.
    */
   window?: ReplayWindow;
+  /**
+   * This JSONL is a dash-arc stage's own session, so its first user record is
+   * the Wheel's opening prompt.
+   *
+   * The translator marks that one frame with `origin: "wheel"`, over the whole
+   * file rather than over {@link TranslateSessionOptions.window} — a stage
+   * opener outside the window means the Wheel's prompt is simply off screen,
+   * which is correct; marking a *different* frame instead is the bug this
+   * exists to remove. Absent ⇒ no frame is marked, which is every non-arc
+   * replay.
+   */
+  stageSession?: boolean;
 }
 
 /**
@@ -2905,12 +2932,30 @@ export async function* translateJsonlSession(
     }
   }
 
-  // Recency window. When requested, locate every turn's start entry
-  // (a dry run of the real translator — see {@link computeTurnStartIndices})
-  // and resolve the window into the `[windowStartIndex, windowEndIndex)`
-  // entry range to emit plus the metadata to report. Absent ⇒ the whole
-  // session and no metadata (legacy). The scan runs only when a window
-  // is requested, so the unbounded path pays nothing extra.
+  // Every turn's start entry, located by a dry run of the real translator
+  // (see {@link computeTurns}). Two consumers ask for it: the recency window,
+  // which resolves its entry range from the turn boundaries, and a stage
+  // session, which needs the index of its first USER turn. It is computed once
+  // and skipped when neither asked — the unbounded, non-stage path pays
+  // nothing extra, as it always did.
+  const turns =
+    window !== undefined || opts.stageSession === true
+      ? computeTurns(parsedEntries)
+      : null;
+
+  // The stage's opening prompt, as a JSONL entry index over the whole file.
+  // Deliberately window-independent: the index does not move when a window is
+  // applied, and a window starting after it simply emits no marked frame,
+  // which leaves the Wheel's prompt off screen rather than pinning its label
+  // to somebody else's words.
+  const stageOpenerIndex =
+    opts.stageSession === true
+      ? (turns?.find((t) => t.origin === "user")?.startIndex ?? -1)
+      : -1;
+
+  // Recency window. When requested, resolve the turn boundaries above into the
+  // `[windowStartIndex, windowEndIndex)` entry range to emit plus the metadata
+  // to report. Absent ⇒ the whole session and no metadata (legacy).
   let windowStartIndex = 0;
   let windowEndIndex = parsedEntries.length;
   let windowMeta:
@@ -2921,11 +2966,7 @@ export async function* translateJsonlSession(
       }
     | null = null;
   if (window !== undefined) {
-    const resolved = resolveWindow(
-      window,
-      computeTurns(parsedEntries),
-      parsedEntries.length,
-    );
+    const resolved = resolveWindow(window, turns!, parsedEntries.length);
     windowStartIndex = resolved.startIndex;
     windowEndIndex = resolved.endIndex;
     windowMeta = {
@@ -3000,7 +3041,10 @@ export async function* translateJsonlSession(
       windowEndIndex,
     );
 
-    const messages = translateJsonlEntry(parsed, ctx, { suppressTurnComplete });
+    const messages = translateJsonlEntry(parsed, ctx, {
+      suppressTurnComplete,
+      wheelOrigin: i === stageOpenerIndex,
+    });
     for (const msg of messages) {
       // Drop the async-launch echo's own `tool_use_structured` for an agent
       // we're restoring — it carries no content, and the composed structured

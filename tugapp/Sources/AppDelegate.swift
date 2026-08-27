@@ -1139,6 +1139,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
         sessionMenu.addItem(sessionCommandItem("Resume Session…", "resume", "session.resume"))
         sessionMenu.addItem(sessionCommandItem("Rename Session…", "rename", "session.rename"))
+        sessionMenu.addItem(sessionCommandItem("Unname Session", "unname", "session.unname"))
         sessionMenu.addItem(sessionCommandItem("Clear Session", "clear", "session.new"))
         sessionMenu.addItem(NSMenuItem.separator())
 

@@ -27,7 +27,7 @@ disallowed-tools: Task
 
 The **Step Status Ledger** at the top of the plan's Execution Steps is the source of truth for "where are we?". Read it first:
 
-- With no selector, resume at the **first row that is not `done`** — including a row left `in progress` by an interrupted run, which `dash step start` re-enters idempotently — and continue to the end.
+- With no selector, resume at the **first row that is neither `done` nor `withdrawn`** — including a row left `in progress` by an interrupted run, which `dash step start` re-enters idempotently — and continue to the end. A `withdrawn` row is a step somebody decided not to walk; resuming at one would re-open a decision the run already made.
 - With a selector, honor it — but if an earlier step a selected step `**Depends on:**` is not yet `done`, say so and stop rather than building on an unfinished base.
 
 **If the plan has no Step Status Ledger** (an older or hand-written plan), the step verbs cannot drive it. Fall back gracefully: with no selector, walk from Step 1; infer which steps are already done from `tug log` on the dash branch if the dash exists, and confirm with the user before skipping any. Offer to add a ledger to the plan (on the worktree) so future runs resume — and so the verbs can drive it.
@@ -63,7 +63,7 @@ If no plan exists yet, start at `/dash`: it sizes the idea, writes the brief, an
 
    The gate reads the one copy there is, and needs no comparison against another: the plan has one home, and moving a ledger row does not move a plan's content stamp, so a `reviewed` plan stays `reviewed` for the length of a run.
 4. Establish a green baseline with the project's own test commands — the ones the plan's step checkpoints name — so you know what "still green" means. In Tugtool that is `bun test`, plus `cd tugrust && cargo nextest run` for Rust changes. When the plan names none and the project has no test command to run, say the baseline is unestablished and proceed on that footing — never invent one.
-5. **The Step Status Ledger is the progress surface.** `dash step start` and `dash step done` move its rows, and the Lens, the Changes card, and the Z2 placard all read from it. There is no second list to keep: the ledger is the record of where the run is, and the verbs are what move it.
+5. **The Step Status Ledger is the progress surface.** `dash step start`, `dash step done` and `dash step withdraw` move its rows, and the Lens, the Changes card, and the Z2 placard all read from it. There is no second list to keep: the ledger is the record of where the run is, and the verbs are what move it.
 
 ### 2. Implement (walk the steps)
 
@@ -94,12 +94,17 @@ Walk the resolved steps in dependency order. For each step:
   tugutil dash step <name> done <n> --commit <sha>
   ```
   This writes the ledger row's status *and* its commit cell and appends the paired log line. Omit `--commit` to record the dash branch's tip. Ledger and commit move together, and the verb is what keeps them together.
+- **Withdraw a step the run decided not to walk.**
+  ```bash
+  tugutil dash step <name> withdraw <n>
+  ```
+  The row goes `withdrawn` and the commit cell stays empty, because no round was made. It closes the step and counts toward the run's completion exactly as a `done` does — so withdrawing the run's final declared step arms the join, rather than leaving the dash permanently un-joinable. It is reversible: `start` re-opens a withdrawn row. Reach for it whenever a step turns out to be unnecessary, already absorbed, or wrong; the alternative — saying so in the plan's prose — is what stales the plan's review, since the review stamp reads the plan's content and elides the ledger's status cells.
 
 **Two spellings are house rules, not taste.** A round's commit subject is `tugdash(<name>): <imperative summary>` — the same scope-colon form the engine's own dash commits (`remap round ids`) carry, so `tug log` on the branch reads as one voice. And when you *name* a landed commit in the transcript, write the **bare sha in backticks** — `` `63de5762a` ``, never `commit 63de5762a` — because the app supplies the word itself: a confirmed sha displays as `commit:63de5762a`, and a sentence that already said "commit" makes the app yield its word and show the hash alone, which costs the reader the standard form. See `tuglaws/entity-presentation.md`.
 
 Pragmatics:
 
-- **A refused `dash step` is telling you about the document, not the tool.** It exits 1, names the plan and the row, and leaves the file untouched — a plan that does not strictly parse, a missing ledger row, an anchor that is not `#step-<n>`, or a `done` row you tried to reopen.
+- **A refused `dash step` is telling you about the document, not the tool.** It exits 1, names the plan and the row, and leaves the file untouched — a plan that does not strictly parse, a missing ledger row, an anchor that is not `#step-<n>`, a `done` row you tried to reopen, or a `withdrawn` row you tried to finish (a withdrawn step that is now to be walked goes through `start` first, the same path every other step takes).
 
   Raise the refusal as an `AskUserQuestion` rather than picking a repair yourself, because the wrong guess corrupts the durable record: *"Fix the plan and retry"* / *"Hand-edit the ledger this run"*. Quote what the verb said. A malformed document usually wants fixing; a document that genuinely cannot be made to parse wants the hand-edit — and which one this is depends on what the plan is *for*, which is the user's to know.
 - **A long run does not pause to ask whether to keep going.** However many steps the selector resolved to, walk them all. The selection *is* the answer to "how far": the user made it when they invoked the skill, and asking again at some interior step re-opens a decision they already made — the ledger is the progress surface, and it says where the run is without anybody being interrupted for it.
@@ -141,7 +146,7 @@ Write it even on a run that stops mid-plan: the draft is what the shade shows th
 
 **Under an arc, this ending is unchanged** — and that is the finding, not an oversight. When `printenv TUG_DASH_ARC` names a dash, this turn is that arc's **implement stage**, and everything above still applies verbatim: verify the fit, write the draft before closing the final declared step, narrate the three things, print no chip. The reason nothing changes is that the ending was already server-driven — closing the final step arms the join, the shade summons itself, and the arc adds only its own receipt on top of what the join pilot already reads ([P12]). A stage that ended differently would be a second endgame competing with the one that works.
 
-The one thing worth knowing is that an arc may rotate the implement stage **mid-plan**, at a step boundary, when the session's context has run down. A fresh session then resumes at the first row that is not `done` — which is the ordinary resume this skill already describes, and needs nothing from you beyond keeping the ledger truthful with `dash step start|done`. Walk the steps you were given and end where they end; the arc decides whether that end is the plan's end.
+The one thing worth knowing is that an arc may rotate the implement stage **mid-plan**, at a step boundary, when the session's context has run down. A fresh session then resumes at the first row that is neither `done` nor `withdrawn` — which is the ordinary resume this skill already describes, and needs nothing from you beyond keeping the ledger truthful with `dash step start|done|withdraw`. Walk the steps you were given and end where they end; the arc decides whether that end is the plan's end.
 
 **Offer a build when the work wants one.** A change the user will want to *see* — a surface with a face — is worth building and vetting before the join. What to run is the project's to say: the `build` command `tugutil dash config` reports. Run it from the worktree root, read what it says, and relay that to the user rather than describing a build you did not watch.
 
@@ -186,8 +191,8 @@ Everywhere else the chip is noise at best and misinformation at worst. If the us
 
 Everything in [`tuglaws/dash-work-doctrine.md`](../../../tuglaws/dash-work-doctrine.md), plus:
 
-- **Honor the selector and the ledger.** Walk exactly the requested steps; resume from the first row that is not `done`; never rebuild a `done` step or build on an unfinished dependency.
-- **The verbs own the bookkeeping.** Drive the ledger with `dash step start|done`, not by hand-editing the table — the log line the verb writes is what the dash surfaces derive `implementing (i/N)` from, and a hand-edit leaves them blind.
+- **Honor the selector and the ledger.** Walk exactly the requested steps; resume from the first row that is neither `done` nor `withdrawn`; never rebuild a `done` step or build on an unfinished dependency.
+- **The verbs own the bookkeeping.** Drive the ledger with `dash step start|done|withdraw`, not by hand-editing the table — the log line the verb writes is what the dash surfaces derive `implementing (i/N)` from, and a hand-edit leaves them blind. A step you decided not to walk has its own verb; recording that decision in the plan's prose instead is what stales the plan's review.
 - **Ask at the two forks, and nowhere else.** The stale gate and a refused `dash step` are the whole set. A long run is not a fork: the selector already said how far to walk. Everything outside it is covered by the doctrine's [never-ask list](../../../tuglaws/dash-work-doctrine.md#what-never-gets-asked) — a run that asks about everything trains the user to click through the dialog that mattered.
 
 ## When to reach for something else

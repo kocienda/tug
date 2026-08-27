@@ -83,7 +83,7 @@ describe("documentDashTrackModel", () => {
       dash({ documents: WITH_PLAN, step_total: 3, steps_done: 0, steps_begun: 0 }),
     );
     expect(model.phase).toBe("review");
-    expect(model.steps).toEqual({ total: 3, done: 0, current: null });
+    expect(model.steps).toEqual({ total: 3, done: 0, current: null, withdrawn: new Set() });
   });
 
   test("a begun plan reads implement, with the ledger's own counts", () => {
@@ -91,7 +91,7 @@ describe("documentDashTrackModel", () => {
       dash({ documents: WITH_PLAN, step_total: 3, steps_done: 1, steps_begun: 2 }),
     );
     expect(model.phase).toBe("implement");
-    expect(model.steps).toEqual({ total: 3, done: 1, current: 2 });
+    expect(model.steps).toEqual({ total: 3, done: 1, current: 2, withdrawn: new Set() });
   });
 
   test("a first row in progress with nothing finished has begun", () => {
@@ -99,14 +99,25 @@ describe("documentDashTrackModel", () => {
       dash({ documents: WITH_PLAN, step_total: 3, steps_done: 0, steps_begun: 1 }),
     );
     expect(model.phase).toBe("implement");
-    expect(model.steps).toEqual({ total: 3, done: 0, current: 1 });
+    expect(model.steps).toEqual({ total: 3, done: 0, current: 1, withdrawn: new Set() });
   });
 
   test("no row in progress leaves `current` null rather than guessing one", () => {
     const model = documentDashTrackModel(
       dash({ documents: WITH_PLAN, step_total: 3, steps_done: 2, steps_begun: 2 }),
     );
-    expect(model.steps).toEqual({ total: 3, done: 2, current: null });
+    expect(model.steps).toEqual({ total: 3, done: 2, current: null, withdrawn: new Set() });
+  });
+
+  test("the counter-fed surface can never place a withdrawn tick, and says so with an empty set", () => {
+    // Deliberately blind rather than accidentally broken: this entry carries
+    // counters and no per-row statuses, and `step_in` refuses a withdrawal on
+    // a dash with no worktree, so no withdrawn row can reach here at all.
+    const model = documentDashTrackModel(
+      dash({ documents: WITH_PLAN, step_total: 8, steps_done: 8, steps_begun: 8 }),
+    );
+    expect(model.steps?.withdrawn).toEqual(new Set());
+    expect(model.steps?.done).toBe(8);
   });
 
   test("a plan with no rows counts none", () => {
@@ -128,7 +139,7 @@ describe("documentDashTrackModel", () => {
       }),
     );
     expect(model.phase).toBe("review");
-    expect(model.steps).toEqual({ total: 3, done: 1, current: 2 });
+    expect(model.steps).toEqual({ total: 3, done: 1, current: 2, withdrawn: new Set() });
   });
 
   test("a stopped arc says so, in the stage it stopped in", () => {

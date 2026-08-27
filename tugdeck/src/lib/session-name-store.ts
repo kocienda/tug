@@ -29,6 +29,13 @@ export interface NameSettle {
   ok: boolean;
   /** Wire reason from `rename_session_err` — absent when `ok`. */
   reason?: string;
+  /**
+   * Tug session ids this rename took the name from — a custom name is unique,
+   * and setting one displaces whoever wore it. Absent on a refusal, and `[]`
+   * when nothing was taken. The gesture's bulletin names what reverted; the
+   * user should learn what their rename did without being asked to approve it.
+   */
+  displaced?: string[];
 }
 
 class SessionNameStore {
@@ -62,29 +69,6 @@ class SessionNameStore {
   /** The name for `tugSessionId`, or `null` when unnamed. */
   getName = (tugSessionId: string): string | null =>
     this.names.get(tugSessionId) ?? null;
-
-  /**
-   * The other sessions whose custom name is spelled exactly like this one's.
-   *
-   * A NAME fact, deliberately not the collision verdict: whether two sessions
-   * sharing a name is a collision worth showing a callsign for is an identity
-   * rule, and it turns on lineage — which this store does not hold and should
-   * not learn (the tag store already spells every callsign, and a second copy
-   * here could disagree with it). `nameCollides` in `session-identity.ts` is
-   * where the verdict lives; this is the candidate set it rules on.
-   *
-   * Empty for an unnamed session. A linear scan — the map holds one entry per
-   * named session this client has seen, a small set by construction.
-   */
-  sessionsSharingName = (tugSessionId: string): string[] => {
-    const name = this.names.get(tugSessionId);
-    if (name === undefined) return [];
-    const peers: string[] = [];
-    for (const [id, other] of this.names) {
-      if (id !== tugSessionId && other === name) peers.push(id);
-    }
-    return peers;
-  };
 
   /**
    * Set (trimmed) or clear (`null` / blank) the name for `tugSessionId`. No-op

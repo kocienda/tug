@@ -4733,6 +4733,10 @@ export class SessionManager {
           // An ancestor is finished by definition: any cycle left open at its
           // end-of-JSONL has no live turn to continue it.
           synthesizeDanglingTerminal: true,
+          // The same condition that decided whether to push this entry's
+          // divider above: an entry that ran a stage opened on the Wheel's
+          // prompt, and the translator marks that one frame.
+          stageSession: entry.stage !== undefined && entry.stage !== "",
         },
       );
       for await (const msg of iter) {
@@ -5048,6 +5052,11 @@ export class SessionManager {
       // and reports the window on `replay_complete`, which the buffered
       // bracket-close below forwards verbatim.
       window,
+      // The resumed session is the lineage's last entry — `collectLineagePrefix`
+      // pushes its divider and leaves its turns to this pass — so whether IT
+      // ran a stage is what decides if this file opens on the Wheel's prompt.
+      // False whenever there is no lineage, which is every non-arc replay.
+      stageSession: (lineage?.[lineage.length - 1]?.stage ?? "") !== "",
     });
 
     try {

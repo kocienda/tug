@@ -375,7 +375,10 @@ describe.skipIf(!SHOULD_RUN)("AT0424: dash progress on the session's row", () =>
         // at all: no branch means no git stage, and the cluster used to wait
         // for one. A brief and no plan stands at `brief`; a plan would stand
         // at `review`.
-        expect(["brief", "review"]).toContain(documentsOnly.phase);
+        // `?? "(none)"` rather than a non-null assertion: a missing phase then
+        // fails on the value it actually had instead of throwing past the
+        // assertion that was going to report it.
+        expect(["brief", "review"]).toContain(documentsOnly.phase ?? "(none)");
         // No steps declared against a branchless dash, so no counters.
         expect(documentsOnly.fractions).toBe(0);
         // And the row names the dash exactly once, as it does for a live one.

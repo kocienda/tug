@@ -215,7 +215,9 @@ async fn evaluate(ctx: &ArcContext, state: &Arc<Mutex<HashMap<String, ArcState>>
     match action {
         ArcAction::Rotate(rotation) => rotate(ctx, state, arc, &key, &reading, &rotation).await,
         ArcAction::Done => finish(ctx, arc, &reading, None).await,
-        ArcAction::Stop { stage, reason } => finish(ctx, arc, &reading, Some((stage, reason))).await,
+        ArcAction::Stop { stage, reason } => {
+            finish(ctx, arc, &reading, Some((stage, reason))).await
+        }
     }
 }
 
@@ -348,9 +350,7 @@ fn read(
     let document_source = document_abs
         .as_ref()
         .and_then(|p| std::fs::read_to_string(p).ok());
-    let input_is_plan = document_source
-        .as_deref()
-        .is_some_and(lints_as_plan);
+    let input_is_plan = document_source.as_deref().is_some_and(lints_as_plan);
 
     // What a stage is handed beyond its ask: the paths the
     // document itself cites, and what git says moved in them since the
@@ -359,9 +359,7 @@ fn read(
     // a repo git has never seen simply contribute no clause.
     let cited_paths = document_source
         .as_deref()
-        .map(|source| {
-            wheel::prompt::cited_paths(source, project, wheel::prompt::CITED_PATHS_CAP)
-        })
+        .map(|source| wheel::prompt::cited_paths(source, project, wheel::prompt::CITED_PATHS_CAP))
         .unwrap_or_default();
     // An untracked document has no last commit, so the anchor is when the
     // author wrote it: the file's own modification time.
@@ -400,19 +398,21 @@ fn read(
         _ => None,
     };
 
+    // Closed, not finished: a withdrawn step ended, so it counts here and a
+    // withdrawal is a rotation boundary exactly as a completion is.
     let done_count = doc
         .as_ref()
         .map(|d| {
             d.ledger_rows
                 .iter()
-                .filter(|row| row.status == "done")
+                .filter(|row| row.status == "done" || row.status == "withdrawn")
                 .count()
         })
         .unwrap_or(0);
     let first_pending = doc.as_ref().and_then(|d| {
         d.ledger_rows
             .iter()
-            .position(|row| row.status != "done")
+            .position(|row| row.status != "done" && row.status != "withdrawn")
             .map(|index| index + 1)
     });
 
@@ -766,19 +766,15 @@ pub(crate) async fn stop_arc_for_session(
                 reason.as_str(),
             )
         };
-        supervisor.record_arc_receipt(
-            session.as_str(),
-            dash,
-            &project.to_string_lossy(),
-            &summary,
-        );
+        supervisor.record_arc_receipt(session.as_str(), dash, &project.to_string_lossy(), &summary);
     }
 
     if how.record {
         let project = project.to_path_buf();
         let dash = dash.to_owned();
-        let _ = tokio::task::spawn_blocking(move || append_arc_stop(&project, &dash, stage, reason))
-            .await;
+        let _ =
+            tokio::task::spawn_blocking(move || append_arc_stop(&project, &dash, stage, reason))
+                .await;
     }
 }
 
@@ -1036,7 +1032,10 @@ Some context.
         sweep(&ctx, &state).await;
         assert_eq!(entry.lock().await.queue.len(), 0, "no rotation");
         let record = tugdash_core::read_arc(root, "demo").unwrap();
-        assert_eq!(record.stopped, None, "and no stop written for a plan the stage has not begun");
+        assert_eq!(
+            record.stopped, None,
+            "and no stop written for a plan the stage has not begun"
+        );
     }
 
     #[test]
@@ -1108,7 +1107,8 @@ Some context.
         project_with_document(root, ".tug/dashes/demo/brief.md");
         tugdash_core::arc::append_arc_start(root, "demo", ".tug/dashes/demo/brief.md").unwrap();
         tugdash_core::arc::append_arc_stage(root, "demo", ArcStage::Devise, "s", None).unwrap();
-        tugdash_core::arc::append_arc_stop(root, "demo", ArcStage::Devise, ArcStopReason::Lint).unwrap();
+        tugdash_core::arc::append_arc_stop(root, "demo", ArcStage::Devise, ArcStopReason::Lint)
+            .unwrap();
 
         let reading = read(root, "demo", &snapshot(true, true, Some("s")), None).unwrap();
         assert_eq!(arc_action(&reading.record, &reading.facts), None);
@@ -1207,7 +1207,12 @@ Some context.
         commit("change the cited file");
 
         let reading = read(root, "demo", &snapshot(true, true, None), None).unwrap();
-        assert_eq!(reading.commits_since.len(), 1, "{:?}", reading.commits_since);
+        assert_eq!(
+            reading.commits_since.len(),
+            1,
+            "{:?}",
+            reading.commits_since
+        );
         assert!(reading.commits_since[0].contains("change the cited file"));
 
         // A brief rewritten after that commit landed has nothing behind it.
@@ -1220,7 +1225,11 @@ Some context.
             .set_modified(SystemTime::now() + Duration::from_secs(2))
             .unwrap();
         let reading = read(root, "demo", &snapshot(true, true, None), None).unwrap();
-        assert!(reading.commits_since.is_empty(), "{:?}", reading.commits_since);
+        assert!(
+            reading.commits_since.is_empty(),
+            "{:?}",
+            reading.commits_since
+        );
     }
 
     /// A stage opens on a part, not a title. The document names where
@@ -1308,6 +1317,54 @@ Some context.
         assert_eq!(prompt, "/tugplug:dash-implement demo");
     }
 
+    /// [`LINTING_PLAN`] with its two ledger rows driven to `first` / `second`.
+    fn plan_with_statuses(first: &str, second: &str) -> String {
+        LINTING_PLAN
+            .replace(
+                "| #step-1 | The first step | pending | — |",
+                &format!("| #step-1 | The first step | {first} | — |"),
+            )
+            .replace(
+                "| #step-2 | The second step | pending | — |",
+                &format!("| #step-2 | The second step | {second} | — |"),
+            )
+    }
+
+    /// A withdrawn row is closed — so it counts, and a rotation steps over it
+    /// rather than resuming at a step nobody intends to walk.
+    #[test]
+    fn a_withdrawn_row_counts_as_closed_and_is_never_the_resume_point() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        project_with_document(root, ".tug/dashes/demo/brief.md");
+        tugdash_core::arc::append_arc_start(root, "demo", ".tug/dashes/demo/brief.md").unwrap();
+
+        std::fs::write(
+            root.join(".tug/dashes/demo/plan.md"),
+            plan_with_statuses("withdrawn", "pending"),
+        )
+        .unwrap();
+        let reading = read(root, "demo", &snapshot(true, true, None), None).unwrap();
+        assert_eq!(reading.done_count, 1, "the withdrawn row is closed");
+        assert_eq!(
+            reading.facts.ledger.first_pending,
+            Some(2),
+            "the resume point steps over the withdrawal"
+        );
+
+        std::fs::write(
+            root.join(".tug/dashes/demo/plan.md"),
+            plan_with_statuses("done", "withdrawn"),
+        )
+        .unwrap();
+        let reading = read(root, "demo", &snapshot(true, true, None), None).unwrap();
+        assert_eq!(reading.done_count, 2);
+        assert_eq!(
+            reading.facts.ledger.first_pending, None,
+            "every row is closed, so there is nothing to resume at"
+        );
+    }
+
     /// A real supervisor with one session parked in `Spawning`, a real
     /// in-memory session ledger with that session bound to `demo`, and a real
     /// project on disk holding the arc record. Every frame a rotation sends
@@ -1357,11 +1414,7 @@ Some context.
         // left alone, and that case has its own test.
         entry.turns_ended = 1;
         let entry = Arc::new(Mutex::new(entry));
-        supervisor
-            .ledger
-            .lock()
-            .await
-            .insert(id, entry.clone());
+        supervisor.ledger.lock().await.insert(id, entry.clone());
 
         (
             ArcContext {
@@ -1428,7 +1481,8 @@ Some context.
         tugdash_core::arc::append_arc_start(root, "demo", ".tug/dashes/demo/brief.md").unwrap();
         tugdash_core::arc::append_arc_stage(root, "demo", ArcStage::Devise, "claude-1", None)
             .unwrap();
-        tugdash_core::arc::append_arc_stop(root, "demo", ArcStage::Devise, ArcStopReason::Lint).unwrap();
+        tugdash_core::arc::append_arc_stop(root, "demo", ArcStage::Devise, ArcStopReason::Lint)
+            .unwrap();
 
         let (ctx, entry, _register_rx) = harness(root).await;
         let state = Arc::new(Mutex::new(HashMap::new()));
@@ -1564,8 +1618,13 @@ Some context.
         tugdash_core::arc::append_arc_start(root, "demo", ".tug/dashes/demo/brief.md").unwrap();
         tugdash_core::arc::append_arc_stage(root, "demo", ArcStage::Devise, "claude-1", None)
             .unwrap();
-        tugdash_core::arc::append_arc_stop(root, "demo", ArcStage::Review, ArcStopReason::SpawnQueueFull)
-            .unwrap();
+        tugdash_core::arc::append_arc_stop(
+            root,
+            "demo",
+            ArcStage::Review,
+            ArcStopReason::SpawnQueueFull,
+        )
+        .unwrap();
         tugdash_core::arc::append_arc_resume(root, "demo", ArcStage::Review).unwrap();
 
         let (ctx, entry, _register_rx) = harness(root).await;
@@ -1679,7 +1738,10 @@ Some context.
         );
         let said = receipts(&mut control_rx);
         assert_eq!(said.len(), 1, "one receipt, got {said:?}");
-        assert!(said[0].starts_with("arc stopped · demo · in devise"), "{said:?}");
+        assert!(
+            said[0].starts_with("arc stopped · demo · in devise"),
+            "{said:?}"
+        );
     }
 
     #[tokio::test]
@@ -1890,12 +1952,19 @@ Some context.
         )
         .await;
 
-        assert!(queued(&entry).await.is_empty(), "nothing reaches the card yet");
+        assert!(
+            queued(&entry).await.is_empty(),
+            "nothing reaches the card yet"
+        );
         assert!(
             ctx.wheel.take_hand_back("claude-1"),
             "the restore is armed for the turn's end",
         );
-        assert_eq!(receipts(&mut control_rx).len(), 1, "and the card is told now");
+        assert_eq!(
+            receipts(&mut control_rx).len(),
+            1,
+            "and the card is told now"
+        );
         assert_eq!(
             read_arc(root, "demo").unwrap().stopped,
             None,
@@ -2008,7 +2077,10 @@ Some context.
                     "got {receipt}"
                 );
             } else {
-                assert!(receipt.ends_with("\nthere is nothing to resume"), "got {receipt}");
+                assert!(
+                    receipt.ends_with("\nthere is nothing to resume"),
+                    "got {receipt}"
+                );
             }
         }
 

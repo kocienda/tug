@@ -4174,6 +4174,11 @@ export function SessionCardBody({
       }
       renameSheet.renameTo(name);
     },
+    // `/unname` — clears the session's name so the callsign comes back. The
+    // clearing path already existed behind the dialog; a blank is what
+    // `commitRename` reads as a clear, and it bulletins the outcome on the ack
+    // like every other rename.
+    unname: () => renameSheet.renameTo(""),
     // `/logout` — app-level. Hands off to the deck-root TugLogout orchestrator
     // (confirm → interrupt every turn → `claude_logout` → ConfigureTug reopens);
     // the same nonce the File-menu "Log out…" bumps, so there's one flow.

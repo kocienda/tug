@@ -211,6 +211,10 @@ export const LOCAL_SLASH_COMMANDS = [
     takesArgs: true,
   },
   {
+    name: "unname",
+    description: "Clear this session's name (the callsign comes back)",
+  },
+  {
     name: "private",
     description: "Keep this session out of the Overview (toggle; from now on)",
   },

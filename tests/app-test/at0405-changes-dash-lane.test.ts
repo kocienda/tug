@@ -443,7 +443,9 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's dash lane", () => {
         // track stands at `join`, the phase every arming stage reads as. With
         // no step open the note is that phase word and nothing more.
         expect(row.phase).toBe("join");
-        expect(row.note).toBe(row.phase);
+        // The note IS the phase word — spelled out rather than compared to the
+        // field above, which is `string | null` and so cannot be an expected.
+        expect(row.note).toBe("join");
         expect(row.popOuts).toBe(1);
         // The lane is read-only by construction: no claim grammar reaches it.
         expect(row.claimish).toBe(0);

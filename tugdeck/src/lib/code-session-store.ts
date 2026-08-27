@@ -1878,6 +1878,12 @@ export class CodeSessionStore {
             typeof ev.promptUuid === "string" && ev.promptUuid.length > 0
               ? ev.promptUuid
               : undefined,
+          // Who authored the submission, as tugcode's translator stated it on
+          // the one frame it identified as a stage's opening prompt. The value
+          // is narrowed rather than passed through: this boundary's job is to
+          // make an untrusted wire value one of the shapes the reducer knows,
+          // exactly as every sibling field here does.
+          origin: ev.origin === "wheel" ? "wheel" : undefined,
           ...(seedSummary !== null ? { compactionSummary: seedSummary } : {}),
           ...(suppressedTurn ? { suppressedTurn: true } : {}),
         } as unknown as CodeSessionEvent;

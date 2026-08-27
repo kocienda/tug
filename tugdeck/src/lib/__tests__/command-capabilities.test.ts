@@ -239,6 +239,7 @@ describe("computeCommandCapabilities", () => {
       changesVisible: false,
       historyVisible: false,
       commitReady: false,
+      hasCustomName: false,
     };
 
     // No session card frontmost: the whole Session surface is dark.
@@ -297,6 +298,7 @@ describe("computeCommandCapabilities", () => {
       changesVisible: false,
       historyVisible: true,
       commitReady: false,
+      hasCustomName: false,
     };
     const gates = computeCommandCapabilities(
       source(chain, { sessionCardFrontmost: true, session }),
@@ -304,6 +306,44 @@ describe("computeCommandCapabilities", () => {
 
     expect(gates["session.toggleChanges"].title).toBe("Show Session Changes");
     expect(gates["session.toggleHistory"].title).toBe("Hide Commit History");
+  });
+
+  test("Unname is enabled only when there is a name to clear", () => {
+    // A menu item that does nothing is its own small lie, so the gate is the
+    // fact rather than the surface's presence.
+    const chain = new ResponderChainManager();
+    const session = {
+      sessionBound: true,
+      canInterrupt: false,
+      canChangeSettings: true,
+      permissionMode: "default",
+      aiSummary: "Opus 5 · High · Default",
+      hasAssistantMessage: false,
+      hasTurns: false,
+      changesVisible: false,
+      historyVisible: false,
+      commitReady: false,
+      hasCustomName: false,
+    };
+
+    const unnamed = computeCommandCapabilities(
+      source(chain, { sessionCardFrontmost: true, session }),
+    );
+    expect(unnamed["session.unname"].enabled).toBe(false);
+
+    const named = computeCommandCapabilities(
+      source(chain, {
+        sessionCardFrontmost: true,
+        session: { ...session, hasCustomName: true },
+      }),
+    );
+    expect(named["session.unname"].enabled).toBe(true);
+
+    // No session card frontmost at all: nothing to unname.
+    const dark = computeCommandCapabilities(
+      source(chain, { sessionCardFrontmost: false, session: null }),
+    );
+    expect(dark["session.unname"].enabled).toBe(false);
   });
 
   test("the deck gates follow pane shape, including the deselected-deck hatch", () => {
@@ -462,6 +502,7 @@ describe("computeCommandCapabilities", () => {
           changesVisible: false,
           historyVisible: false,
           commitReady: false,
+          hasCustomName: false,
         },
       };
       const gates = computeCommandCapabilities(

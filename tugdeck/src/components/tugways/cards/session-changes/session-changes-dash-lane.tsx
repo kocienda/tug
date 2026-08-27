@@ -427,7 +427,6 @@ function DashRow({
             put a fact the row was built from behind a feed arriving. */}
         <DashLifecycleBlock
           name={entry.display_name}
-          review={entry.review ?? null}
           workers={entry.bound_sessions ?? []}
           model={model}
           note={dashLifecycleNote(model, entry.step_title ?? null)}
@@ -655,7 +654,6 @@ function DocumentDashRow({
             `review` for a plan already half walked. */}
         <DashLifecycleBlock
           name={entry.display_name}
-          review={entry.review ?? null}
           workers={entry.bound_sessions ?? []}
           model={model}
           note={dashLifecycleNote(model, null)}

@@ -1394,7 +1394,6 @@ export function DashPopoverContent({
         <div className="session-dash-popover-head">
           <DashLifecycleBlock
             name={fact.name}
-            review={null}
             workers={fact.entry.bound_sessions ?? []}
             model={model}
             note={dashLifecycleNote(model, fact.stepTitle)}

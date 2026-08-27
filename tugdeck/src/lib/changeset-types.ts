@@ -129,7 +129,11 @@ export interface SessionChangesetEntry {
 export interface DashStep {
   /** The step's title, as the ledger table spells it. */
   title: string;
-  /** The status cell, lowercased: `pending` | `in progress` | `done`. */
+  /**
+   * The status cell, lowercased: `pending` | `in progress` | `done` |
+   * `withdrawn`. Carried as a bare string, so a new spelling rides the wire
+   * with no schema bump.
+   */
   status: string;
 }
 

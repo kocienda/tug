@@ -684,7 +684,6 @@ const DashCell: TugListViewCellRenderer<CockpitRowsDataSource> = ({
             miniature. */}
         <DashLifecycleBlock
           name={entry.display_name}
-          review={null}
           workers={workers}
           model={model}
           note={dashLifecycleNote(model, entry.step_title ?? null)}
@@ -777,7 +776,6 @@ const PlanCell: TugListViewCellRenderer<CockpitRowsDataSource> = ({
       <span className="lens-dashes-block">
         <DashLifecycleBlock
           name={entry.display_name}
-          review={null}
           workers={entry.bound_sessions ?? []}
           model={model}
           note={dashLifecycleNote(model, null)}

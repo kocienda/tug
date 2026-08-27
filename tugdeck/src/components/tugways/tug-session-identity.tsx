@@ -102,7 +102,6 @@ import {
 import { sessionSessionPhaseVisual } from "@/lib/code-session-store/session-phase-visual";
 import { useCitedSession } from "@/lib/session-citation-store";
 import {
-  callsignRunParts,
   sessionCitation,
   sessionIdentityLine,
   sessionTitleParts,
@@ -224,7 +223,7 @@ export interface TugSessionIdentityProps
    * where the worker's atom saying it again would state the pairing twice on
    * one line.
    */
-  dash?: { name: string; review: string | null } | false;
+  dash?: { name: string } | false;
 }
 
 /**
@@ -262,43 +261,6 @@ function SessionPrivacyMarker({
 }
 
 /**
- * The callsign run, in the two spans a middle truncation needs.
- *
- * The line tier elides the callsign before it touches anything else, and it
- * elides it from the MIDDLE — `tugtool/frothy-…nurse-2` keeps both the project
- * a reader places the session by and the word they say it out loud as. CSS
- * cannot cut a run in the middle, so the run arrives pre-cut
- * ({@link callsignRunParts}): a head that ellipsizes and a tail that does not.
- * When the whole run fits, the split is invisible.
- *
- * The filter mark paints inside each half rather than across the pair — a
- * highlight range that straddled the cut would have to be split anyway, and a
- * match spanning an elision is not a match the reader can see.
- */
-function CallsignRun({
-  callsign,
-  highlight,
-}: {
-  callsign: string;
-  highlight: string;
-}): React.ReactElement {
-  const { head, tail } = callsignRunParts(callsign);
-  return (
-    <span className="tug-session-identity-callsign">
-      {":"}
-      <span className="tug-session-identity-callsign-head">
-        {renderFilterHighlight(head, highlight)}
-      </span>
-      {tail.length > 0 ? (
-        <span className="tug-session-identity-callsign-tail">
-          {renderFilterHighlight(tail, highlight)}
-        </span>
-      ) : null}
-    </span>
-  );
-}
-
-/**
  * The dash marker: a leaf subscription, like {@link SessionPrivacyMarker} and
  * for the same reason. A dash binding is a mode the session is in, not part of
  * its identity, so folding it into the identity record would wake every
@@ -307,9 +269,9 @@ function CallsignRun({
  * Both tiers render the same run — `^<dash-name>` — because the identity is one
  * format wherever it is met. The `^` is the grammar's dash sigil and is
  * decorative to a screen reader, which hears the run's own label instead. The
- * review state paints as a `data-review` attribute the CSS reads ([L06]) — the
- * mark is the run's own tone, since neither register has room for a second
- * mark beside the name.
+ * name is only a name: the review state reaches the reader through the hover
+ * sentence, where it is spelled out in words, and never as a tint on the run,
+ * which carried no legend and so could not be decoded.
  */
 function SessionDashMarker({
   sessionId,
@@ -323,7 +285,6 @@ function SessionDashMarker({
   return (
     <DashSigil
       name={dash.name}
-      review={dash.review ?? null}
       slot="session-identity-dash"
       title={dashMarkerTitle(dash)}
       ariaLabel={`On dash ${dash.name}`}
@@ -482,12 +443,12 @@ export const TugSessionIdentity = React.forwardRef<
           either. Same rule as the privacy marker below. */}
       <span className="tug-session-identity-run">
         <span className="tug-session-identity-title">
+          {/* One run. A custom name means no callsign beside it ([D141]), and
+              an unnamed session's name IS `project/callsign` — so there is
+              never a second run to render. */}
           <span className="tug-session-identity-name">
             {renderFilterHighlight(title.name, highlight)}
           </span>
-          {title.callsign !== null ? (
-            <CallsignRun callsign={title.callsign} highlight={highlight} />
-          ) : null}
         </span>
         {/* The bound dash is part of the identity wherever the identity is
             met — a session on a dash is never named without it. The one
@@ -496,7 +457,6 @@ export const TugSessionIdentity = React.forwardRef<
         {isMissing || dash === false ? null : dash !== undefined ? (
           <DashSigil
             name={dash.name}
-            review={dash.review}
             slot="session-identity-dash"
             title={`Working on dash ${dash.name}`}
             ariaLabel={`On dash ${dash.name}`}

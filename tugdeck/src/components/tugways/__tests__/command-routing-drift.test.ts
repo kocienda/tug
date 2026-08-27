@@ -151,7 +151,7 @@ describe("routing matches the pre-migration mechanism", () => {
     const perValue = COMMANDS.filter((e) => e.id.includes(":"));
     const slash = perValue.filter((e) => commandWire(e) === TUG_ACTIONS.RUN_SLASH_COMMAND);
 
-    expect(slash.length).toBe(19);
+    expect(slash.length).toBe(20);
     for (const entry of slash) {
       expect(entry.routing).toBe("key-card");
       expect(entry.menuItemId).toBeDefined();

@@ -28,10 +28,11 @@
  * arrives: a card that reflows when a dash is bound would move the transcript
  * under the reader's eyes.
  *
- * The run also carries the dash plan's review state, as its own tone rather
- * than as a second mark beside the name — neither register has room for two.
- * The dash drives a real stamped plan, so the run arrives unmarked; editing
- * the plan past its stamp is what makes the mark appear.
+ * The run never carries the plan's review state as a TINT. A session's
+ * identity line says what the session is; a plan's review hygiene is not that,
+ * and a color with no legend beside it cannot be decoded. The state reaches
+ * the reader in words instead, through the run's hover sentence — so editing
+ * the plan past its stamp changes what the run SAYS and never how it paints.
  *
  * The fixture's dash name is long on purpose, and the pin is that it renders
  * WHOLE. A run elides when its container is out of room and never because of a
@@ -296,31 +297,29 @@ describe.skipIf(!SHOULD_RUN)("AT0406: the masthead's dash run", () => {
         const shot = await app.screenshot();
         note("at0406 masthead with the dash run", shot.path);
 
-        // ── The plan drifts past its review; the run says so ──────────────
-        // The mark is the run's own tone rather than a second glyph beside the
-        // first, so the contract is the attribute.
-        expect(
-          await app.evalJS<string | null>(
+        // ── The plan drifts past its review; the run SAYS so, in words ────
+        // Never in a tint: the contract is the hover sentence, and the
+        // attribute that used to paint the run is pinned absent on both sides
+        // of the edit so a re-tint could not slip back in unnoticed.
+        const reviewAttr = async (): Promise<string | null> =>
+          app.evalJS<string | null>(
             `document.querySelector(${JSON.stringify(RUN)}).getAttribute("data-review")`,
-          ),
-        ).toBeNull();
+          );
+        expect(await reviewAttr()).toBeNull();
         makePlanStale(planPath);
         const nudge = join(projectDir(), "at0406-nudge.txt");
         writeFileSync(nudge, "at0406 recompose nudge\n");
         try {
           await app.waitForCondition<boolean>(
-            `document.querySelector(${JSON.stringify(RUN)})?.getAttribute("data-review") === "stale"`,
+            `(document.querySelector(${JSON.stringify(RUN)})?.getAttribute("title") ?? "").indexOf("changed since") !== -1`,
             { timeoutMs: 30000 },
           );
         } finally {
           rmSync(nudge, { force: true });
         }
-        expect(
-          await app.evalJS<string | null>(
-            `document.querySelector(${JSON.stringify(RUN)}).getAttribute("title")`,
-          ),
-        ).toContain("changed since");
-        // A tinted run is still the same run: no reflow of the chrome tier.
+        expect(await reviewAttr(), "a stale plan tints nothing").toBeNull();
+        // Saying more does not make the run a different run: no reflow of the
+        // chrome tier.
         expect(await mastheadHeight(app)).toBe(bareHeight);
 
         // ── Unbind, for real ──────────────────────────────────────────────

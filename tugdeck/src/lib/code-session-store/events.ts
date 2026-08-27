@@ -1025,6 +1025,15 @@ export interface AddUserMessageEvent {
    * commit, live or on reload.
    */
   suppressedTurn?: boolean;
+  /**
+   * Who authored this submission, as the **producer** states it — never as the
+   * reader works it out. Set only on the replay path, and only on the one
+   * frame tugcode's translator identified as a dash-arc stage session's
+   * opening prompt: the Wheel's words rather than the user's. Absent
+   * everywhere else, and the reducer defaults to `"user"`, which is the line
+   * {@link SendActionEvent}'s live path has always taken.
+   */
+  origin?: "user" | "wheel";
   [key: string]: unknown;
 }
 

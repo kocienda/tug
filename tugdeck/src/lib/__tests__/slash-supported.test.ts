@@ -21,6 +21,16 @@ describe("classifySlashCommand", () => {
     }
   });
 
+  test("`/unname` is typeable, takes no argument, and says what it does", () => {
+    // The clearing path existed only behind the rename dialog; a verb is what
+    // makes it reachable by typing.
+    const unname: { description: string; takesArgs?: boolean } | undefined =
+      LOCAL_SLASH_COMMANDS.find((c) => c.name === "unname");
+    expect(unname).toBeDefined();
+    expect(unname?.takesArgs).toBeUndefined();
+    expect(unname?.description.length).toBeGreaterThan(0);
+  });
+
   test("a known-unsupported command is hidden", () => {
     for (const name of ["vim", "theme", "color", "mcp", "bug", "quit", "status"]) {
       expect(classifySlashCommand(name)).toBe("hidden");

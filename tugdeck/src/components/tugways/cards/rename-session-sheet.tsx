@@ -34,6 +34,7 @@ import type { ShowSheetOptions } from "@/components/tugways/tug-sheet";
 import { cardSessionBindingStore } from "@/lib/card-session-binding-store";
 import { getConnection } from "@/lib/connection-singleton";
 import { encodeRenameSession } from "@/protocol";
+import { displacedSessionsLine } from "@/lib/session-identity";
 import {
   renameRefusalDetail,
   sessionNameStore,
@@ -58,6 +59,11 @@ export interface RenameSessionSheetController {
   renameTo: (name: string) => void;
   /** bare `/rename` — open the one-field dialog seeded with the current name. */
   openRenameSheet: () => void;
+}
+
+/** A bulletin description option, or nothing when there is no line to add. */
+function descriptionOf(line: string | null): { description: string } | undefined {
+  return line === null ? undefined : { description: line };
 }
 
 export function useRenameSessionSheet({
@@ -87,6 +93,11 @@ export function useRenameSessionSheet({
               trimmed.length === 0
                 ? "Session name cleared"
                 : `Session renamed to “${trimmed}”`,
+              // A custom name is unique, so setting one takes it. The user
+              // learns what their gesture did; they are never asked to approve
+              // it. The wording lives in `lib/` because it reads the identity
+              // stores imperatively, which a component may not do ([L02]).
+              descriptionOf(displacedSessionsLine(settle.displaced)),
             );
             return;
           }

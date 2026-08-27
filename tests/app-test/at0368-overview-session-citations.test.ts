@@ -258,8 +258,7 @@ const POSTS_JS = `Array.from(
       chipRight: Math.round(chip.getBoundingClientRect().right),
       nameText: name === null ? "" : (name.textContent || "").trim(),
       nameElided: name !== null && name.scrollWidth > name.clientWidth,
-      callsignElided:
-        callsign !== null && callsign.scrollWidth > callsign.clientWidth,
+      hasCallsignRun: callsign !== null,
     };
   })`;
 
@@ -271,7 +270,7 @@ interface Post {
   chipRight: number;
   nameText: string;
   nameElided: boolean;
-  callsignElided: boolean;
+  hasCallsignRun: boolean;
 }
 
 describe.skipIf(!SHOULD_RUN)("at0368 — sessions named in Overview prose", () => {
@@ -453,26 +452,30 @@ describe.skipIf(!SHOULD_RUN)("at0368 — sessions named in Overview prose", () =
           ).toBeLessThanOrEqual(1);
         }
 
-        // The order the two runs give way in, read off the two rows. Short
-        // name: the minted handle is the run that elides, and the user's own
-        // words are whole. This is the shipped rule for the citation register.
+        // What a named row shows, read off the two rows. A custom name means
+        // NO handle beside it, unconditionally ([D141]) — the name is unique,
+        // because the ledger takes it from anyone already wearing it, so there
+        // is nothing left for a handle to disambiguate. This row and the one
+        // below are both named, and neither carries a callsign run.
         //
-        // This row has a handle at all because its name collides with the
-        // twin's ([D141]); the long-named row below is unique and therefore
-        // shows no handle, which is why only its NAME is measured.
-        expect(
-          posts[0]!.callsignElided,
-          "the minted handle gives way first",
-        ).toBe(true);
+        // The fixture still seeds two sessions with the same name: what it now
+        // pins is that even a client map momentarily holding both — a push in
+        // flight, a stale row — puts no handle on either.
+        for (const post of posts) {
+          expect(
+            post.hasCallsignRun,
+            "a custom name means no callsign run at all",
+          ).toBe(false);
+        }
+        // Short name: the row can hold it, so it is shown whole.
         expect(
           posts[0]!.nameElided,
           "and a name this row can hold is shown whole",
         ).toBe(false);
         expect(posts[0]!.nameText).toBe(SHORT_NAME);
 
-        // Long name: the handle has already given everything it had, so the
-        // name elides too. It has to be ABLE to — a run that refuses to
-        // shrink is what breaks the row it sits in.
+        // Long name: past the row's width the name elides. It has to be ABLE
+        // to — a run that refuses to shrink is what breaks the row it sits in.
         expect(
           posts[1]!.nameElided,
           "a name past the row's width elides rather than pushing",

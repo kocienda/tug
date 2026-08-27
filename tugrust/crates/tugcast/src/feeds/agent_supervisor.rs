@@ -1640,7 +1640,10 @@ fn fold_lines(
             order.push(key.clone());
             Vec::new()
         });
-        groups.get_mut(&key).expect("group just inserted").push(entry);
+        groups
+            .get_mut(&key)
+            .expect("group just inserted")
+            .push(entry);
     }
     let mut folded = Vec::with_capacity(order.len());
     for key in order {
@@ -1662,9 +1665,9 @@ fn fold_lines(
             .map(|m| (m.row.tag.clone(), m.row.name.clone(), m.row.name_user_set))
             .or_else(|| {
                 members.iter().find_map(|m| {
-                    lines.get(&m.row.session_id).map(|line| {
-                        (line.tag.clone(), line.name.clone(), line.name_user_set)
-                    })
+                    lines
+                        .get(&m.row.session_id)
+                        .map(|line| (line.tag.clone(), line.name.clone(), line.name_user_set))
                 })
             });
         // Newest live segment, else newest segment.
@@ -4610,7 +4613,10 @@ impl AgentSupervisor {
                 // fold is part of building the listing, not a second read the
                 // control loop pays for ([D164]).
                 let lines = ledger_arc.line_identities_for(
-                    &rows.iter().map(|r| r.session_id.clone()).collect::<Vec<_>>(),
+                    &rows
+                        .iter()
+                        .map(|r| r.session_id.clone())
+                        .collect::<Vec<_>>(),
                 );
                 Ok::<_, crate::session_ledger::LedgerError>((rows, live, lines))
             }
@@ -4659,7 +4665,10 @@ impl AgentSupervisor {
                 });
                 let live = Self::read_terminal_live_sessions(registry_root.as_deref());
                 let lines = ledger_arc.line_identities_for(
-                    &rows.iter().map(|r| r.session_id.clone()).collect::<Vec<_>>(),
+                    &rows
+                        .iter()
+                        .map(|r| r.session_id.clone())
+                        .collect::<Vec<_>>(),
                 );
                 // Throttled scan progress: `list_sessions_progress` frames
                 // (≤ ~10 Hz, first and last ticks always) keyed by the
@@ -6869,9 +6878,9 @@ impl AgentSupervisor {
                 let entry = entry_arc.lock().await;
                 (entry.claude_session_id.clone(), entry.project_dir.clone())
             };
-            claude_session_id.as_deref().and_then(|id| {
-                replay_lineage(self.sessions_recorder.as_ref(), id, &project_dir)
-            })
+            claude_session_id
+                .as_deref()
+                .and_then(|id| replay_lineage(self.sessions_recorder.as_ref(), id, &project_dir))
         };
 
         // Build the wire frame once; the body is the same regardless of
@@ -7640,7 +7649,7 @@ impl AgentSupervisor {
             .flatten()
             .and_then(|row| row.name);
         match ledger.rename(session_id, name) {
-            Ok(_) => {
+            Ok(displaced) => {
                 if let Err(err) =
                     ledger.record_fact(&crate::feeds::facts_library::session_renamed_fact(
                         crate::session_ledger::now_millis(),
@@ -7663,10 +7672,28 @@ impl AgentSupervisor {
                         .control_tx
                         .send(build_session_updated_frame(&row, metrics));
                 }
+                // And one push per row this rename took the name from. It has
+                // to be per-row: a client un-learns a name only through a
+                // `session_updated` carrying `name_user_set: false`, and the
+                // list-level refresh seeds names non-clobberingly and returns
+                // early on a blank — so without this the cleared name stays in
+                // every client's map and the collision survives on screen no
+                // matter how unique the database is.
+                for id in &displaced {
+                    if let Ok(Some(row)) = ledger.get(id) {
+                        let metrics = ledger.scan_metrics_for(id).unwrap_or(None);
+                        let _ = self
+                            .control_tx
+                            .send(build_session_updated_frame(&row, metrics));
+                    }
+                }
                 let body = serde_json::json!({
                     "action": "rename_session_ok",
                     "session_id": session_id,
                     "name": name,
+                    // Always present, `[]` when nothing was taken. The renamed
+                    // session's own id never appears here.
+                    "displaced": displaced,
                 });
                 let _ = self.control_tx.send(Frame::new(
                     FeedId::CONTROL,
@@ -8053,7 +8080,8 @@ impl AgentSupervisor {
                 // place of the old one — and moving the live one means editing
                 // durable ink, which this codebase does not do.
                 if changed {
-                    self.note_model_switch(tug_session_id.as_str(), &model).await;
+                    self.note_model_switch(tug_session_id.as_str(), &model)
+                        .await;
                 }
             }
         }
@@ -8716,6 +8744,7 @@ impl AgentSupervisor {
         // Launch the real bridge in a detached task.
         let spawner = (self.spawner_factory)();
         let state_tx = self.session_state.sender();
+        let control_tx_for_bridge = Some(self.control_tx.clone());
         let tug_session_id_owned = tug_session_id.clone();
         let entry_arc_bridge = entry_arc.clone();
         // Per-session workspace path. Read from the ledger entry so
@@ -8747,6 +8776,7 @@ impl AgentSupervisor {
                 input_rx,
                 merger_per_session_tx,
                 state_tx,
+                control_tx_for_bridge,
                 spawner,
                 project_dir,
                 session_mode,
@@ -9130,9 +9160,7 @@ mod tests {
 
     /// A card on a course with a live arc, seated in `review`, and the ledger that
     /// holds it.
-    fn on_course_review_card(
-        root: &std::path::Path,
-    ) -> Arc<crate::session_ledger::SessionLedger> {
+    fn on_course_review_card(root: &std::path::Path) -> Arc<crate::session_ledger::SessionLedger> {
         let ledger = Arc::new(crate::session_ledger::SessionLedger::open_in_memory().unwrap());
         ledger
             .record_spawn(
@@ -9178,7 +9206,8 @@ mod tests {
         let tug_session_id = TugSessionId::new("claude-1");
         let _entry = insert_ledger_entry(&sup, &tug_session_id).await;
 
-        sup.dispatch_one(model_change_frame("claude-1", "sonnet")).await;
+        sup.dispatch_one(model_change_frame("claude-1", "sonnet"))
+            .await;
 
         assert_eq!(
             tugdash_core::arc::read_arc(root, "demo").unwrap().notes,
@@ -9186,15 +9215,20 @@ mod tests {
         );
 
         // Repeating the selector is a repaint, not a switch.
-        sup.dispatch_one(model_change_frame("claude-1", "sonnet")).await;
+        sup.dispatch_one(model_change_frame("claude-1", "sonnet"))
+            .await;
         assert_eq!(
-            tugdash_core::arc::read_arc(root, "demo").unwrap().notes.len(),
+            tugdash_core::arc::read_arc(root, "demo")
+                .unwrap()
+                .notes
+                .len(),
             1,
             "a no-op repaint writes no second note",
         );
 
         // A real second switch does.
-        sup.dispatch_one(model_change_frame("claude-1", "opus")).await;
+        sup.dispatch_one(model_change_frame("claude-1", "opus"))
+            .await;
         assert_eq!(
             tugdash_core::arc::read_arc(root, "demo").unwrap().notes,
             vec![
@@ -9243,7 +9277,8 @@ mod tests {
         let tug_session_id = TugSessionId::new("claude-1");
         let _entry = insert_ledger_entry(&sup, &tug_session_id).await;
 
-        sup.dispatch_one(model_change_frame("claude-1", "sonnet")).await;
+        sup.dispatch_one(model_change_frame("claude-1", "sonnet"))
+            .await;
 
         assert_eq!(
             tugdash_core::arc::read_arc(root, "demo"),
@@ -9262,7 +9297,8 @@ mod tests {
         .unwrap();
         let (sup, _ledger, _rx) = make_supervisor_for_ledger(ledger, None);
         let _entry = insert_ledger_entry(&sup, &TugSessionId::new("claude-1")).await;
-        sup.dispatch_one(model_change_frame("claude-1", "sonnet")).await;
+        sup.dispatch_one(model_change_frame("claude-1", "sonnet"))
+            .await;
         assert!(
             tugdash_core::arc::read_arc(root, "demo")
                 .unwrap()
@@ -9384,10 +9420,38 @@ mod tests {
         // `get_for_display` has already resolved the stages' identity, which
         // is why they arrive here wearing the line's callsign.
         let rows = vec![
-            listed("root", Some("primo-pita"), Some("tugrev-bringup"), SessionState::Closed, 100, 11),
-            listed("devise", Some("primo-pita"), Some("tugrev-bringup"), SessionState::Closed, 200, 1),
-            listed("implement", Some("primo-pita"), Some("tugrev-bringup"), SessionState::Live, 150, 6),
-            listed("stranger", Some("lucky-wren"), None, SessionState::Closed, 300, 4),
+            listed(
+                "root",
+                Some("primo-pita"),
+                Some("tugrev-bringup"),
+                SessionState::Closed,
+                100,
+                11,
+            ),
+            listed(
+                "devise",
+                Some("primo-pita"),
+                Some("tugrev-bringup"),
+                SessionState::Closed,
+                200,
+                1,
+            ),
+            listed(
+                "implement",
+                Some("primo-pita"),
+                Some("tugrev-bringup"),
+                SessionState::Live,
+                150,
+                6,
+            ),
+            listed(
+                "stranger",
+                Some("lucky-wren"),
+                None,
+                SessionState::Closed,
+                300,
+                4,
+            ),
         ];
         let line = |root: &str| LineIdentity {
             root_session_id: root.to_string(),
@@ -9401,7 +9465,11 @@ mod tests {
         ]);
 
         let folded = fold_lines(rows, &lines);
-        assert_eq!(folded.len(), 2, "one row for the line, one for the stranger");
+        assert_eq!(
+            folded.len(),
+            2,
+            "one row for the line, one for the stranger"
+        );
         let row = &folded
             .iter()
             .find(|e| e.row.tag.as_deref() == Some("primo-pita"))
@@ -9429,7 +9497,14 @@ mod tests {
         assert_eq!(stranger.row.turn_count, 4);
         assert_eq!(stranger.file_size, Some(10));
         // And with no stages at all the fold is the identity function.
-        assert_eq!(fold_lines(vec![listed("solo", None, None, SessionState::Closed, 1, 1)], &HashMap::new()).len(), 1);
+        assert_eq!(
+            fold_lines(
+                vec![listed("solo", None, None, SessionState::Closed, 1, 1)],
+                &HashMap::new()
+            )
+            .len(),
+            1
+        );
     }
 
     #[test]
@@ -14092,6 +14167,7 @@ mod tests {
             &mut input_rx_bridge,
             &merger_tx,
             &state_tx,
+            None,
             stdin_box,
             lines,
             "/tmp/test-relay-project",
@@ -14203,6 +14279,7 @@ mod tests {
             &mut input_rx_bridge,
             &merger_tx,
             &state_tx,
+            None,
             stdin_box,
             lines,
             "/tmp/test-relay-resume-fail",
@@ -14377,6 +14454,7 @@ mod tests {
             &mut input_rx_bridge,
             &merger_tx,
             &state_tx,
+            None,
             stdin_box,
             lines,
             "/tmp/test-meta-e2e",
@@ -14533,6 +14611,7 @@ mod tests {
             &mut input_rx_bridge,
             &merger_tx,
             &state_tx,
+            None,
             stdin_box,
             lines,
             "/tmp/test-title-fork",
@@ -15437,6 +15516,88 @@ mod tests {
         let err = drain_until_action(&mut rx, "rename_session_err");
         assert_eq!(err["reason"], "not_found");
         assert_eq!(err["name"], "harbor light");
+    }
+
+    /// A rename takes the name, pushes the row it took it from, and says so.
+    ///
+    /// The push has to be per-row: a client un-learns a name only through a
+    /// `session_updated` carrying `name_user_set: false`, and the list-level
+    /// refresh seeds names non-clobberingly and ignores a blank by design — so
+    /// without it the ghost stays in every client's map and the two sessions
+    /// go on sharing one name on screen however unique the database is.
+    #[tokio::test]
+    async fn a_rename_pushes_every_row_it_took_the_name_from() {
+        let (sup, ledger, mut rx) = make_supervisor_with_ledger();
+        ledger
+            .record_spawn("first", "ws-1", "/proj", "card-A", 1_000, None)
+            .unwrap();
+        ledger
+            .record_spawn("second", "ws-1", "/proj", "card-B", 1_000, None)
+            .unwrap();
+        ledger.rename("first", Some("harbor light")).unwrap();
+
+        let payload = serde_json::to_vec(&serde_json::json!({
+            "action": "rename_session",
+            "session_id": "second",
+            "name": "harbor light",
+        }))
+        .unwrap();
+        sup.handle_control("rename_session", &payload, 10)
+            .await
+            .expect_handled();
+
+        // Two `session_updated` pushes: the renamed row and the displaced one.
+        let mut updated: Vec<serde_json::Value> = Vec::new();
+        let mut ack: Option<serde_json::Value> = None;
+        for _ in 0..64 {
+            let Ok(frame) = rx.try_recv() else { break };
+            let Ok(v) = serde_json::from_slice::<serde_json::Value>(&frame.payload) else {
+                continue;
+            };
+            match v.get("action").and_then(|a| a.as_str()) {
+                Some("session_updated") => updated.push(v),
+                Some("rename_session_ok") => ack = Some(v),
+                _ => {}
+            }
+        }
+
+        let ack = ack.expect("the rename acks");
+        assert_eq!(ack["displaced"], serde_json::json!(["first"]));
+
+        let displaced = updated
+            .iter()
+            .find(|v| v["session_id"] == "first")
+            .expect("the displaced row is pushed on its own");
+        assert_eq!(displaced["fields"]["name"], serde_json::Value::Null);
+        assert_eq!(displaced["fields"]["name_user_set"], false);
+
+        let renamed = updated
+            .iter()
+            .find(|v| v["session_id"] == "second")
+            .expect("the renamed row is pushed too");
+        assert_eq!(renamed["fields"]["name"], "harbor light");
+    }
+
+    /// `displaced` is always present, so a client reads a list rather than
+    /// telling a missing field from an empty one.
+    #[tokio::test]
+    async fn a_rename_that_took_nothing_acks_an_empty_displaced() {
+        let (sup, ledger, mut rx) = make_supervisor_with_ledger();
+        ledger
+            .record_spawn("sess", "ws-1", "/proj", "card-A", 1_000, None)
+            .unwrap();
+
+        let payload = serde_json::to_vec(&serde_json::json!({
+            "action": "rename_session",
+            "session_id": "sess",
+            "name": "unspoken for",
+        }))
+        .unwrap();
+        sup.handle_control("rename_session", &payload, 10)
+            .await
+            .expect_handled();
+        let ack = drain_until_action(&mut rx, "rename_session_ok");
+        assert_eq!(ack["displaced"], serde_json::json!([]));
     }
 
     /// `list_card_bindings` returns every non-failed row carrying a
@@ -18276,7 +18437,11 @@ mod tests {
         for (stage, id, model) in [
             (tugdash_core::arc::ArcStage::Devise, "s-devise", "opus"),
             (tugdash_core::arc::ArcStage::Review, "s-review", "fable"),
-            (tugdash_core::arc::ArcStage::Implement, "s-implement", "opus"),
+            (
+                tugdash_core::arc::ArcStage::Implement,
+                "s-implement",
+                "opus",
+            ),
         ] {
             tugdash_core::arc::append_arc_stage(root, dash, stage, id, Some(model))
                 .expect("arc-stage");
@@ -18301,7 +18466,10 @@ mod tests {
 
         // The conversation the arc was handed off from ran no stage, so it
         // gets no divider — everything after it does.
-        let stages: Vec<Option<&str>> = lineage.iter().map(|e| e.get("stage").and_then(|s| s.as_str())).collect();
+        let stages: Vec<Option<&str>> = lineage
+            .iter()
+            .map(|e| e.get("stage").and_then(|s| s.as_str()))
+            .collect();
         assert_eq!(
             stages,
             vec![None, Some("devise"), Some("review"), Some("implement")]
@@ -18358,9 +18526,12 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         let root = dir.path();
         let ledger = seed_arc_lineage(root, "foo");
-        let from_record =
-            replay_lineage(&LedgerSessionsRecorder::new(Arc::clone(&ledger)), "s-implement", root)
-                .expect("a lineage");
+        let from_record = replay_lineage(
+            &LedgerSessionsRecorder::new(Arc::clone(&ledger)),
+            "s-implement",
+            root,
+        )
+        .expect("a lineage");
 
         for (id, label, model) in [
             ("s-devise", "devise", "opus"),

@@ -24,8 +24,6 @@ import { DashSigil } from "./dash-sigil";
 
 export interface TugDashAtomProps {
   name: string;
-  /** `reviewed` | `stale` | `never-reviewed` | null; only the paint-worthy states tint. */
-  review?: string | null;
   size?: "2xs" | "sm";
   /** The `data-slot` the surface names its copy by. */
   slot?: string;
@@ -34,14 +32,13 @@ export interface TugDashAtomProps {
 
 export function TugDashAtom({
   name,
-  review = null,
   size = "2xs",
   slot = "tug-dash-atom",
   title,
 }: TugDashAtomProps): React.ReactElement {
   return (
     <span className="tug-dash-atom" data-slot="tug-dash-atom" data-size={size}>
-      <DashSigil name={name} review={review} slot={slot} atom atomSize={size} title={title} />
+      <DashSigil name={name} slot={slot} atom atomSize={size} title={title} />
     </span>
   );
 }

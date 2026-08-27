@@ -5,6 +5,11 @@
    text tone, `active` the theme accent, and the join — the one cell that is a
    destination rather than a stage — the theme's selection color.
 
+   A fifth, `withdrawn`, is tick-only: a step the run decided not to walk. It
+   is the unfilled stroke faded, quieter than both `pending` and `done`, so the
+   row reads as closed-but-not-worked. A whole phase cannot be withdrawn, so no
+   cell wears it.
+
    The geometry is knobs — `--tugx-dash-track-cell-w`, `-cell-h`, `-tick-w`,
    `-steps-w`, `-out` — and their defaults live in the `var(--x, default)` that
    READS them, never on `.tug-dash-track` itself. A declaration on the
@@ -95,4 +100,9 @@
 .tug-dash-track-cell[data-state="stopped"],
 .tug-dash-track-tick[data-state="stopped"] {
   background: var(--tug7-element-tone-icon-normal-danger-rest);
+}
+
+.tug-dash-track-tick[data-state="withdrawn"] {
+  background: var(--tug7-element-global-border-normal-muted-rest);
+  opacity: 0.55;
 }

@@ -37,6 +37,12 @@ export const DASH_PHASES: readonly DashPhase[] = ["brief", "devise", "review", "
 
 export type DashCellState = "pending" | "active" | "done" | "stopped";
 
+/**
+ * A tick's state. Only a tick can be withdrawn — a whole phase cannot — so the
+ * fifth word rides its own union rather than widening {@link DashCellState}.
+ */
+export type DashTickState = DashCellState | "withdrawn";
+
 /** What the feed says about a dash, as the derivation reads it. */
 export interface DashTrackInput {
   /** Which documents exist. Absent (or both absent) with no arc is a poke. */
@@ -50,9 +56,22 @@ export interface DashTrackInput {
 
 export interface DashTrackSteps {
   total: number;
+  /**
+   * How many steps are **closed** — `done` plus `withdrawn`. A withdrawn step
+   * is over, so the fraction and the ticks on screen agree about how much of
+   * the plan is behind the run.
+   */
   done: number;
   /** The step in progress, 1-based, or null when none is. */
   current: number | null;
+  /**
+   * The 1-based positions of the withdrawn steps.
+   *
+   * A count cannot answer which tick is which: closed rows are no longer a
+   * prefix, so with step 7 of 8 withdrawn and step 8 done, `done` alone paints
+   * all eight alike and the withdrawal disappears.
+   */
+  withdrawn: ReadonlySet<number>;
 }
 
 export interface DashTrackModel {
@@ -82,12 +101,17 @@ const JOIN_STAGES: ReadonlySet<string> = new Set([
 
 export function dashTrackSteps(steps: readonly DashStep[] | undefined): DashTrackSteps | null {
   if (steps === undefined || steps.length === 0) return null;
-  const current = steps.findIndex((s) => s.status === "in progress");
-  return {
-    total: steps.length,
-    done: steps.filter((s) => s.status === "done").length,
-    current: current === -1 ? null : current + 1,
-  };
+  let current: number | null = null;
+  let done = 0;
+  const withdrawn = new Set<number>();
+  steps.forEach((s, i) => {
+    if (s.status === "done") done += 1;
+    else if (s.status === "withdrawn") {
+      done += 1;
+      withdrawn.add(i + 1);
+    } else if (s.status === "in progress" && current === null) current = i + 1;
+  });
+  return { total: steps.length, done, current, withdrawn };
 }
 
 /** The model, from what the feed carries. Pure. */
@@ -142,8 +166,9 @@ export function dashCellState(model: DashTrackModel, phase: DashPhase): DashCell
   return at < now ? "done" : "pending";
 }
 
-function tickState(model: DashTrackModel, n: number): DashCellState {
+export function tickState(model: DashTrackModel, n: number): DashTickState {
   const steps = model.steps!;
+  if (steps.withdrawn.has(n)) return "withdrawn";
   if (n <= steps.done) return "done";
   if (n === steps.current) return model.stopped !== null ? "stopped" : "active";
   return "pending";
@@ -152,7 +177,7 @@ function tickState(model: DashTrackModel, n: number): DashCellState {
 function cellTip(model: DashTrackModel, phase: DashPhase, state: DashCellState): string {
   const word =
     phase === "implement" && model.steps !== null
-      ? `implement · ${model.steps.done} of ${model.steps.total} steps done`
+      ? `implement · ${model.steps.done} of ${model.steps.total} steps closed`
       : phase;
   return state === "stopped" ? `${word} — stopped: ${model.stopped}` : `${word} · ${state}`;
 }

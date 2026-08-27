@@ -54,6 +54,7 @@ import {
   rmDashScratchRepo,
   rmScratchSession,
   seedScratchSession,
+  tugutil,
   type DashScratchRepo,
 } from "./dash-fixture";
 
@@ -70,6 +71,11 @@ const ROW = `${SECTION} [data-slot="lens-dashes-row"][data-dash="${DASH_NAME}"]`
  *  reading a dash with no plan at all. */
 const PLAN_DASH = "at0407-plan";
 const PLAN_ROW = `${SECTION} [data-slot="lens-dashes-row"][data-dash="${PLAN_DASH}"]`;
+
+/** A third dash, whose eight-row plan the run WALKED and whose seventh step it
+ *  withdrew — the one shape where the closed rows are not a prefix. */
+const SKIPPED_DASH = "at0407-skipped";
+const SKIPPED_ROW = `${SECTION} [data-slot="lens-dashes-row"][data-dash="${SKIPPED_DASH}"]`;
 
 /** This checkout — the build under test, and never the tree a dash is cut in. */
 const CHECKOUT = realpathSync(resolve(import.meta.dir, "..", ".."));
@@ -90,6 +96,37 @@ beforeAll(() => {
     rows: 3,
     through: 2,
   });
+
+  // An eight-row plan walked to the end, with step 7 withdrawn. Driven through
+  // the real verbs rather than written into the ledger's cells, so what the
+  // track paints is what `dash step withdraw` actually wrote — the whole chain
+  // from the verb through the feed to the tick, in one fixture.
+  const skipped = createDash(projectDir(), SKIPPED_DASH, "at0407 withdrawal fixture", scratch.cli);
+  recordStampedPlan(projectDir(), SKIPPED_DASH, skipped.worktree, {
+    ...scratch.cli,
+    rows: 8,
+    through: 8,
+  });
+  // Captured out of the closure: `scratch` is a module-level `let`, so the
+  // narrowing this function body sits inside does not reach into a callback.
+  const cli = scratch.cli;
+  const step = (...args: string[]): void => {
+    tugutil(["dash", "step", SKIPPED_DASH, ...args], {
+      cwd: projectDir(),
+      binaryRoot: cli.binaryRoot,
+      env: cli.env,
+    });
+  };
+  // `recordStampedPlan` already opened step 1 and declared the selection.
+  step("done", "1", "--commit", "a4477d5");
+  for (const n of [2, 3, 4, 5, 6]) {
+    step("start", String(n), "--through", "8");
+    step("done", String(n), "--commit", "a4477d5");
+  }
+  step("withdraw", "7");
+  step("start", "8", "--through", "8");
+  step("done", "8", "--commit", "a4477d5");
+
   fixtureDir = seedScratchSession(projectDir(), SID);
 });
 
@@ -197,7 +234,9 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Lens Dashes section", () => {
         // happened to it yet but the work itself. With no step open the note
         // is the phase word and nothing more — the line has no empty state.
         expect(unbound.phase).toBe("implement");
-        expect(unbound.note).toBe(unbound.phase);
+        // The note IS the phase word — spelled out rather than compared to the
+        // field above, which is `string | null` and so cannot be an expected.
+        expect(unbound.note).toBe("implement");
       } finally {
         await app.close();
         rmTempTugbank(tugbankPath);
@@ -272,6 +311,41 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Lens Dashes section", () => {
         expect(meta.noteText).toBe("The only step");
         note("at0407 meta line", await app.screenshot().then((s) => s.path));
 
+        // ── A withdrawn step paints its own tick, and the count agrees ────
+        // The one shape a prefix reading cannot draw: step 7 of 8 withdrawn
+        // and step 8 done, so the closed rows are not a run of the first N.
+        // Nothing pure can see this — the tooltip's fraction and the ticks
+        // beside it have to agree ON SCREEN, which is [P03]'s whole promise.
+        await app.waitForCondition<boolean>(
+          `document.querySelector(${JSON.stringify(SKIPPED_ROW)}) !== null`,
+          { timeoutMs: 30000 },
+        );
+        const skippedTicks = await app.evalJS<string[]>(
+          `(() => {
+             const row = document.querySelector(${JSON.stringify(SKIPPED_ROW)});
+             const cell = row
+               .querySelector('[data-slot="tug-dash-track"]')
+               ?.querySelector('[data-slot="tug-dash-track-cell"][data-phase="implement"]');
+             return cell
+               ? Array.from(cell.querySelectorAll(".tug-dash-track-tick")).map(
+                   (el) => el.getAttribute("data-state"),
+                 )
+               : [];
+           })()`,
+        );
+        note("at0407 withdrawn ticks", JSON.stringify(skippedTicks));
+        expect(skippedTicks).toEqual([
+          "done",
+          "done",
+          "done",
+          "done",
+          "done",
+          "done",
+          "withdrawn",
+          "done",
+        ]);
+        note("at0407 withdrawn tick", await app.screenshot().then((s) => s.path));
+
         // ── The block is two lines on ONE left margin ─────────────────────
         // The metadata line hangs under the dash's NAME, not under the pill
         // that holds it. The distinction is the whole reason this assertion
@@ -332,6 +406,31 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Lens Dashes section", () => {
         expect(order.indexOf(PLAN_DASH)).toBeGreaterThanOrEqual(0);
         expect(order.indexOf(DASH_NAME)).toBeGreaterThanOrEqual(0);
         expect(order.indexOf(PLAN_DASH)).toBeLessThan(order.indexOf(DASH_NAME));
+
+        // ── The fraction beside those ticks says `closed`, not `done` ─────
+        // A tooltip, so it has to be hovered — and it is read last, because a
+        // Radix bubble does not close for a synthetic `pointerleave` and a
+        // test that waited for it to would be waiting on nothing.
+        await app.evalJS<null>(
+          `(function(){
+             const cell = document
+               .querySelector(${JSON.stringify(SKIPPED_ROW)})
+               .querySelector('[data-slot="tug-dash-track-cell"][data-phase="implement"]');
+             cell.dispatchEvent(new PointerEvent("pointerenter", { bubbles: false }));
+             cell.dispatchEvent(new PointerEvent("pointermove", { bubbles: true }));
+             return null;
+           })()`,
+        );
+        await app.waitForCondition<boolean>(
+          `document.querySelector('.tug-tooltip-content') !== null`,
+          { timeoutMs: 5000 },
+        );
+        const closedTip = await app.getElementText(".tug-tooltip-content");
+        note("at0407 withdrawn tip", closedTip);
+        // Eight ticks and eight closed, agreeing on screen — a reader is never
+        // told 7 of 8 beside eight filled ticks. This is [P03]'s whole promise
+        // and the one thing no pure test can see.
+        expect(closedTip).toContain("8 of 8 steps closed");
       } finally {
         await app.close();
         rmTempTugbank(tugbankPath);

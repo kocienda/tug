@@ -775,6 +775,17 @@ pub enum StepAction {
         #[arg(long)]
         commit: Option<String>,
     },
+    /// Move the step's ledger row to `withdrawn`: a step the run decided not
+    /// to walk.
+    ///
+    /// Records no commit, because none was made. It closes the step and
+    /// counts toward the run's completion exactly as a `done` does, so
+    /// withdrawing the run's final declared step arms the join. Reversible:
+    /// `start` re-opens a withdrawn row.
+    Withdraw {
+        /// Step number, matching the ledger's `#step-<n>` anchor.
+        step: u32,
+    },
 }
 
 #[derive(Subcommand)]

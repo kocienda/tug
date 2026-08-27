@@ -445,13 +445,11 @@ fn read_document(path: &Path) -> (Option<String>, Option<String>) {
         return (None, None);
     }
     let abs = path.to_string_lossy().to_string();
-    let title = std::fs::read_to_string(path)
-        .ok()
-        .and_then(|text| {
-            text.lines()
-                .find(|line| line.starts_with('#'))
-                .map(heading_text)
-        });
+    let title = std::fs::read_to_string(path).ok().and_then(|text| {
+        text.lines()
+            .find(|line| line.starts_with('#'))
+            .map(heading_text)
+    });
     (Some(abs), title)
 }
 
@@ -981,8 +979,8 @@ pub fn create(
 
     // Idempotent: a fully-present dash returns as-is, with no re-hydration.
     if have_branch && have_worktree {
-        let description = description
-            .or_else(|| config_get(&repo_root, &description_config_key(name)));
+        let description =
+            description.or_else(|| config_get(&repo_root, &description_config_key(name)));
         let base = dash_base(&repo_root, name).unwrap_or(base_branch);
         // A revisit is a write-path touch, so an id-less dash from an older
         // build gains its id here ([P02]).
@@ -1061,10 +1059,7 @@ pub fn create(
         &["config", &base_config_key(name), &base_branch],
     );
     if let Some(desc) = description.as_deref() {
-        let _ = git_output(
-            &repo_root,
-            &["config", &description_config_key(name), desc],
-        );
+        let _ = git_output(&repo_root, &["config", &description_config_key(name), desc]);
     }
 
     // Mint the creation id ([P01]) beside the rest of the branch metadata, so
@@ -1619,7 +1614,8 @@ pub(crate) fn fit_fact(
         base,
         current,
     })
-}/// One dash's lifecycle readout (Spec S05) — the machine-readable answer to
+}
+/// One dash's lifecycle readout (Spec S05) — the machine-readable answer to
 /// "where is this dash?".
 #[derive(Debug, Clone, Serialize)]
 pub struct DashStatus {
@@ -1964,9 +1960,12 @@ fn step_in(
     let status = match phase {
         StepPhase::Start => "in progress",
         StepPhase::Done => "done",
+        StepPhase::Withdrawn => "withdrawn",
     };
+    // A withdrawal records no commit, because none was made — so its note tail
+    // falls through to the step's title, the grammar a `step-start` writes.
     let sha = match phase {
-        StepPhase::Start => None,
+        StepPhase::Start | StepPhase::Withdrawn => None,
         StepPhase::Done => Some(match commit {
             Some(sha) => sha.trim().to_string(),
             None => git_stdout(repo_root, &["rev-parse", "--short", &branch])?,
@@ -2005,7 +2004,14 @@ fn step_in(
 pub fn step_start(name: &str, step: u32, through: u32) -> Result<StepOutcome, String> {
     let repo_root = find_repo_root().map_err(|e| e.to_string())?;
     migrate_worktrees(&repo_root, &mut Vec::new());
-    step_in(&repo_root, name, step, StepPhase::Start, None, Some(through))
+    step_in(
+        &repo_root,
+        name,
+        step,
+        StepPhase::Start,
+        None,
+        Some(through),
+    )
 }
 
 /// Finish a step: the ledger row goes `done` and records the round's commit.
@@ -2013,6 +2019,18 @@ pub fn step_done(name: &str, step: u32, commit: Option<&str>) -> Result<StepOutc
     let repo_root = find_repo_root().map_err(|e| e.to_string())?;
     migrate_worktrees(&repo_root, &mut Vec::new());
     step_in(&repo_root, name, step, StepPhase::Done, commit, None)
+}
+
+/// Withdraw a step: the ledger row goes `withdrawn` and the commit cell stays
+/// empty, because a step nobody walked produced no round.
+///
+/// A withdrawal closes the step and advances the run exactly as a completion
+/// does, so withdrawing a run's final selected step arms the join rather than
+/// wedging the dash. It is reversible through `step_start`.
+pub fn step_withdraw(name: &str, step: u32) -> Result<StepOutcome, String> {
+    let repo_root = find_repo_root().map_err(|e| e.to_string())?;
+    migrate_worktrees(&repo_root, &mut Vec::new());
+    step_in(&repo_root, name, step, StepPhase::Withdrawn, None, None)
 }
 
 /// Move the base checkout's uncommitted working set into the fresh dash
@@ -2029,10 +2047,7 @@ pub fn step_done(name: &str, step: u32, commit: Option<&str>) -> Result<StepOutc
 /// response to it.
 ///
 /// Returns the entries it moved, in census order.
-fn carry_working_set_in(
-    repo_root: &Path,
-    worktree: &Path,
-) -> Result<Vec<BaseDirtPath>, String> {
+fn carry_working_set_in(repo_root: &Path, worktree: &Path) -> Result<Vec<BaseDirtPath>, String> {
     let unmerged = git_stdout(repo_root, &["ls-files", "-u", "--format=%(path)"])
         .unwrap_or_default()
         .lines()
@@ -3055,7 +3070,9 @@ pub fn join_preflight_in(repo_root: &Path, name: &str) -> Result<Vec<JoinBlocker
     // refuses a join started from here whether or not the server is mid-join.
     // Which is exactly why the resolve lease exists — the one occupancy fact a
     // second process can still read, because it is written in git.
-    Ok(join_blockers_from_detail(repo_root, &detail, &current, None))
+    Ok(join_blockers_from_detail(
+        repo_root, &detail, &current, None,
+    ))
 }
 
 /// What would refuse a join right now, composed from a detail the caller
@@ -3461,13 +3478,7 @@ pub fn join_in_with_progress(
     };
 
     on_beat("squash", "start");
-    let integration = match integrate_join(
-        &repo_root,
-        name,
-        &branch,
-        &base_branch,
-        &opts,
-    ) {
+    let integration = match integrate_join(&repo_root, name, &branch, &base_branch, &opts) {
         Ok(integration) => integration,
         // A record describes an operation that happened, and this one did not:
         // the integrate left the base as it found it. So the record opened
@@ -3545,12 +3556,10 @@ fn integrate_join(
     base_branch: &str,
     opts: &JoinOptions,
 ) -> Result<Integration, String> {
-
     // Land a pre-built candidate from the resolution ladder ([P31]) instead of
     // merging the dash branch. The candidate is the resolved bytes; `strategy`
     // still decides the shape, and the recorded teardown is the same one.
     if let Some(candidate) = opts.candidate.clone() {
-
         // Staleness, stated rather than inferred. This used to ride on
         // `merge --ff-only` failing, which conflated two different facts: a
         // base that moved past the candidate, and a strategy that declines to
@@ -3786,10 +3795,7 @@ fn finish_join_teardown(
         if documents.is_dir() {
             match std::fs::remove_dir_all(&documents) {
                 Ok(()) => warnings.push(format!("removed .tug/dashes/{name}/")),
-                Err(e) => warnings.push(format!(
-                    "could not remove {}: {e}",
-                    documents.display()
-                )),
+                Err(e) => warnings.push(format!("could not remove {}: {e}", documents.display())),
             }
         }
         progress.phase = crate::oplog::JoinPhase::BranchDeleted;
@@ -4134,7 +4140,6 @@ mod tests {
         seq
     }
 
-
     // ── The documents home ───────────────────────────────────────────────────
 
     #[test]
@@ -4195,7 +4200,10 @@ mod tests {
 
         let docs = DashDocuments::read(root, "titles");
         assert_eq!(docs.brief_title.as_deref(), Some("The brief"));
-        assert_eq!(docs.brief.as_deref(), Some(&*dir.join("brief.md").to_string_lossy()));
+        assert_eq!(
+            docs.brief.as_deref(),
+            Some(&*dir.join("brief.md").to_string_lossy())
+        );
         assert_eq!(docs.plan, None);
         assert_eq!(docs.plan_title, None);
         assert!(!docs.is_empty());
@@ -4254,11 +4262,26 @@ mod tests {
             vec!["config", "user.name", "Test User"],
             vec!["config", "user.email", "test@example.com"],
         ] {
-            Command::new("git").arg("-C").arg(&repo).args(&args).output().unwrap();
+            Command::new("git")
+                .arg("-C")
+                .arg(&repo)
+                .args(&args)
+                .output()
+                .unwrap();
         }
         fs::write(repo.join("README.md"), "# Test\n").unwrap();
-        Command::new("git").arg("-C").arg(&repo).args(["add", "-A"]).output().unwrap();
-        Command::new("git").arg("-C").arg(&repo).args(["commit", "-m", "init"]).output().unwrap();
+        Command::new("git")
+            .arg("-C")
+            .arg(&repo)
+            .args(["add", "-A"])
+            .output()
+            .unwrap();
+        Command::new("git")
+            .arg("-C")
+            .arg(&repo)
+            .args(["commit", "-m", "init"])
+            .output()
+            .unwrap();
 
         let dir = repo.join(".tug").join("dashes").join("x");
         fs::create_dir_all(&dir).unwrap();
@@ -4270,11 +4293,18 @@ mod tests {
 
         // Idempotent: a second call adds no second line.
         ensure_tug_excluded(&repo);
-        let exclude =
-            fs::read_to_string(repo.join(".git").join("info").join("exclude")).unwrap();
+        let exclude = fs::read_to_string(repo.join(".git").join("info").join("exclude")).unwrap();
         assert_eq!(exclude.matches("/.tug/").count(), 1, "{exclude}");
-        assert_eq!(exclude.matches(TUG_EXCLUDE_BLOCK_START).count(), 1, "{exclude}");
-        assert_eq!(exclude.matches(TUG_EXCLUDE_BLOCK_END).count(), 1, "{exclude}");
+        assert_eq!(
+            exclude.matches(TUG_EXCLUDE_BLOCK_START).count(),
+            1,
+            "{exclude}"
+        );
+        assert_eq!(
+            exclude.matches(TUG_EXCLUDE_BLOCK_END).count(),
+            1,
+            "{exclude}"
+        );
     }
 
     /// A project whose `.gitignore` already covers `.tug` is left alone.
@@ -4921,7 +4951,10 @@ Some context.
         let (_temp, root) = stepped_dash("step-dash");
 
         let started = step_start("step-dash", 1, 2).unwrap();
-        assert_eq!(started.plan, plan_file(&root, "step-dash").display().to_string());
+        assert_eq!(
+            started.plan,
+            plan_file(&root, "step-dash").display().to_string()
+        );
         assert_eq!((started.step, started.total), (1, 2));
         assert_eq!(started.status, "in progress");
         assert_eq!(
@@ -4945,7 +4978,10 @@ Some context.
         // Nothing records where the plan is; the next step finds it at the same
         // address the first one did.
         let next = step_start("step-dash", 2, 2).unwrap();
-        assert_eq!(next.plan, plan_file(&root, "step-dash").display().to_string());
+        assert_eq!(
+            next.plan,
+            plan_file(&root, "step-dash").display().to_string()
+        );
         assert_eq!(
             ledger_row(&root, "step-dash", "step-2").status,
             "in progress"
@@ -5162,7 +5198,10 @@ Some context.
         let fresh = status_in(&root, "status-dash").unwrap();
         assert_eq!(fresh.stage, "created");
         assert!(fresh.step_current.is_none());
-        assert!(fresh.documents.plan.is_some(), "the seeded plan is at the dash's own address");
+        assert!(
+            fresh.documents.plan.is_some(),
+            "the seeded plan is at the dash's own address"
+        );
 
         step_start("status-dash", 1, 2).unwrap();
         let stepping = status_in(&root, "status-dash").unwrap();
@@ -5249,8 +5288,13 @@ Some context.
         assert_eq!(arc.stage.as_deref(), Some("review"));
         assert!(arc.stopped.is_none() && !arc.done);
 
-        crate::arc::append_arc_stop(&root, "arc-dash", crate::arc::ArcStage::Review, crate::arc::ArcStopReason::Lint)
-            .unwrap();
+        crate::arc::append_arc_stop(
+            &root,
+            "arc-dash",
+            crate::arc::ArcStage::Review,
+            crate::arc::ArcStopReason::Lint,
+        )
+        .unwrap();
         let stopped = dash_detail_entries_in(&root);
         let entry = stopped.iter().find(|d| d.name == "arc-dash").unwrap();
         let arc = entry.arc.as_ref().expect("a stopped arc still composes");
@@ -5273,7 +5317,10 @@ Some context.
         assert_eq!(porcelain(), "", "the seeded plan is not in the worktree");
 
         let started = step_start("home-dash", 1, 2).unwrap();
-        assert_eq!(started.plan, plan_file(&root, "home-dash").display().to_string());
+        assert_eq!(
+            started.plan,
+            plan_file(&root, "home-dash").display().to_string()
+        );
         assert_eq!(porcelain(), "");
 
         let tip = git_stdout(&root, &["rev-parse", "--short", "tugdash/home-dash"]).unwrap();
@@ -5405,6 +5452,87 @@ Some context.
 
     #[serial]
     #[test]
+    fn step_withdraw_closes_the_row_with_no_commit() {
+        let (_temp, root) = stepped_dash("withdraw-dash");
+        step_start("withdraw-dash", 1, 2).unwrap();
+
+        let outcome = step_withdraw("withdraw-dash", 1).unwrap();
+        assert_eq!(outcome.status, "withdrawn");
+        assert_eq!(outcome.commit, None);
+        assert_eq!(
+            outcome.through,
+            Some(2),
+            "a withdrawal inherits the run's declared selection"
+        );
+
+        let row = ledger_row(&root, "withdraw-dash", "step-1");
+        assert_eq!(row.status, "withdrawn");
+        assert_eq!(row.commit, None, "no round was made, so none is recorded");
+
+        // The log carries the step's title, the grammar a start writes, since
+        // there is no sha to name.
+        let log_path = tugutil_core::project_state_dir(&root).join("dash-log.md");
+        let log = fs::read_to_string(&log_path).unwrap();
+        assert!(
+            log.lines()
+                .any(|l| l.contains("step-withdrawn") && l.contains("1/2 Step 1:")),
+            "{log}"
+        );
+        assert_eq!(
+            crate::dash::read_declarations(&root, "withdraw-dash").latest,
+            Some(crate::dash::DashDeclaration::Step {
+                current: 1,
+                total: 2
+            })
+        );
+    }
+
+    #[serial]
+    #[test]
+    fn step_withdraw_refuses_a_done_row() {
+        let (_temp, root) = stepped_dash("withdraw-done-dash");
+        step_start("withdraw-done-dash", 1, 2).unwrap();
+        step_done("withdraw-done-dash", 1, Some("abc1234")).unwrap();
+        let before = fs::read_to_string(plan_file(&root, "withdraw-done-dash")).unwrap();
+
+        let err = step_withdraw("withdraw-done-dash", 1).unwrap_err();
+        assert!(err.contains("is 'done'"), "{err}");
+        assert!(err.contains("#step-1"), "{err}");
+        assert!(err.contains("plan.md"), "the refusal names the plan: {err}");
+
+        let after = fs::read_to_string(plan_file(&root, "withdraw-done-dash")).unwrap();
+        assert_eq!(after, before, "a refusal moves no byte of the plan");
+    }
+
+    #[serial]
+    #[test]
+    fn a_withdrawn_step_can_be_taken_up_again() {
+        let (_temp, root) = stepped_dash("reopen-dash");
+        step_withdraw("reopen-dash", 1).unwrap();
+        step_start("reopen-dash", 1, 2).expect("changing your mind needs no hand-edit");
+        assert_eq!(
+            ledger_row(&root, "reopen-dash", "step-1").status,
+            "in progress"
+        );
+    }
+
+    /// The wedge [P02] exists to prevent: a run whose final selected step is
+    /// withdrawn is finished, and so joinable.
+    #[serial]
+    #[test]
+    fn withdrawing_the_final_selected_step_completes_the_run() {
+        let (_temp, root) = stepped_dash("armed-dash");
+        step_start("armed-dash", 1, 2).unwrap();
+        step_done("armed-dash", 1, Some("abc1234")).unwrap();
+        step_withdraw("armed-dash", 2).unwrap();
+
+        let found = crate::dash::read_declarations(&root, "armed-dash");
+        assert!(found.run_complete, "the declared selection is finished");
+        assert!(!found.step_in_flight);
+    }
+
+    #[serial]
+    #[test]
     fn preflight_leaves_ordinary_base_dirt_wording_alone() {
         let (_temp, root) = plain_dash("plainly-dash");
         let worktree = worktree_path(&root, "plainly-dash");
@@ -5500,13 +5628,28 @@ Some context.
             vec!["config", "user.name", "Test User"],
             vec!["config", "user.email", "test@example.com"],
         ] {
-            Command::new("git").arg("-C").arg(&repo).args(&args).output().unwrap();
+            Command::new("git")
+                .arg("-C")
+                .arg(&repo)
+                .args(&args)
+                .output()
+                .unwrap();
         }
         fs::create_dir_all(repo.join(".tugtool")).unwrap();
         fs::write(repo.join(".tugtool/.keep"), "").unwrap();
         fs::write(repo.join("README.md"), "# Test\n").unwrap();
-        Command::new("git").arg("-C").arg(&repo).args(["add", "-A"]).output().unwrap();
-        Command::new("git").arg("-C").arg(&repo).args(["commit", "-m", "init"]).output().unwrap();
+        Command::new("git")
+            .arg("-C")
+            .arg(&repo)
+            .args(["add", "-A"])
+            .output()
+            .unwrap();
+        Command::new("git")
+            .arg("-C")
+            .arg(&repo)
+            .args(["commit", "-m", "init"])
+            .output()
+            .unwrap();
         redirect_state_dir(&temp.path().join("state"));
         std::env::set_current_dir(&repo).unwrap();
         repo
@@ -5541,9 +5684,14 @@ Some context.
             !tree.lines().any(|line| line.starts_with(".tug/")),
             "the landed tree holds no document: {tree}"
         );
-        assert!(!documents.exists(), "the join removed the documents directory");
         assert!(
-            out.warnings.iter().any(|w| w == "removed .tug/dashes/landing/"),
+            !documents.exists(),
+            "the join removed the documents directory"
+        );
+        assert!(
+            out.warnings
+                .iter()
+                .any(|w| w == "removed .tug/dashes/landing/"),
             "the receipt names the removal: {:?}",
             out.warnings
         );
@@ -6536,7 +6684,13 @@ Some context.
             true
         ));
         // A mark arms on its own — the manual and legacy path ([P03]).
-        assert!(join_ready(3, false, false, &marked(DashDeclaration::Built), true));
+        assert!(join_ready(
+            3,
+            false,
+            false,
+            &marked(DashDeclaration::Built),
+            true
+        ));
         assert!(join_ready(
             3,
             false,
@@ -6545,13 +6699,31 @@ Some context.
             true
         ));
         // A plan-less generation arms on every round ([P02])…
-        assert!(join_ready(1, false, false, &DashDeclarations::default(), false));
+        assert!(join_ready(
+            1,
+            false,
+            false,
+            &DashDeclarations::default(),
+            false
+        ));
         // …but not while its tracked work is uncommitted.
-        assert!(!join_ready(1, true, false, &DashDeclarations::default(), false));
+        assert!(!join_ready(
+            1,
+            true,
+            false,
+            &DashDeclarations::default(),
+            false
+        ));
         // A dash that adopted a plan and has declared no step is a run that
         // has not started: its one round is the adoption, and the arc that
         // cancelled here must not read as ready to join.
-        assert!(!join_ready(1, false, false, &DashDeclarations::default(), true));
+        assert!(!join_ready(
+            1,
+            false,
+            false,
+            &DashDeclarations::default(),
+            true
+        ));
         // A legacy plan dash — steps declared, no run — stays dark until marked.
         assert!(!join_ready(
             3,
@@ -6562,8 +6734,20 @@ Some context.
         ));
         // A join in flight is landing, not ready; and nothing to join is not
         // ready either.
-        assert!(!join_ready(1, false, true, &DashDeclarations::default(), false));
-        assert!(!join_ready(0, false, false, &DashDeclarations::default(), false));
+        assert!(!join_ready(
+            1,
+            false,
+            true,
+            &DashDeclarations::default(),
+            false
+        ));
+        assert!(!join_ready(
+            0,
+            false,
+            false,
+            &DashDeclarations::default(),
+            false
+        ));
     }
 
     /// `status` walks a dash's whole lifecycle: fresh → a round → an authored
@@ -6985,13 +7169,7 @@ Some context.
         redirect_state_dir(&home);
         std::env::set_current_dir(repo).unwrap();
 
-        create(
-            "test-dash",
-            Some("Test dash".to_string()),
-            false,
-            None,
-        )
-        .unwrap();
+        create("test-dash", Some("Test dash".to_string()), false, None).unwrap();
         let worktree = repo.join(".tug/worktrees/test-dash");
         fs::write(worktree.join("feature.txt"), "new feature\n").unwrap();
         commit("test-dash", "Add feature", None).unwrap();
@@ -7677,7 +7855,10 @@ Some context.
         )
         .unwrap_err();
         assert!(err.contains("stale candidate"), "got: {err}");
-        assert!(ops_for(repo, "stale").is_empty(), "and no record survives it");
+        assert!(
+            ops_for(repo, "stale").is_empty(),
+            "and no record survives it"
+        );
     }
 
     #[serial]
@@ -7704,7 +7885,11 @@ Some context.
         let repo = temp.path();
         git_output(
             repo,
-            &["config", "branch.tugdash/undome.description", "a description"],
+            &[
+                "config",
+                "branch.tugdash/undome.description",
+                "a description",
+            ],
         )
         .unwrap();
         let dash_tip = git_stdout(repo, &["rev-parse", "tugdash/undome"]).unwrap();
@@ -8111,7 +8296,10 @@ Some context.
         assert!(crate::resolve::resolve_lease(repo, "forced", SystemTime::now()).is_some());
 
         let refused = join("forced", mechanics()).unwrap_err();
-        assert!(refused.contains("A resolve may still be running"), "{refused}");
+        assert!(
+            refused.contains("A resolve may still be running"),
+            "{refused}"
+        );
 
         let landed = join(
             "forced",
@@ -8161,10 +8349,13 @@ Some context.
         );
 
         // The op's keepalive is now the only thing holding the chain.
-        let alive = git_output(repo, &["cat-file", "-e", &format!("{chain_tip}^{{commit}}")])
-            .unwrap()
-            .status
-            .success();
+        let alive = git_output(
+            repo,
+            &["cat-file", "-e", &format!("{chain_tip}^{{commit}}")],
+        )
+        .unwrap()
+        .status
+        .success();
         assert!(alive, "the resolve work outlived the teardown");
 
         let out = crate::oplog::undo_in(repo, None).unwrap();
@@ -8349,16 +8540,22 @@ Some context.
         // The teardown cleared the chain, and only the keepalive holds it.
         assert!(crate::resolve::read_conflict(repo, "arc").is_none());
         assert!(
-            git_output(repo, &["cat-file", "-e", &format!("{chain_tip}^{{commit}}")])
-                .unwrap()
-                .status
-                .success(),
+            git_output(
+                repo,
+                &["cat-file", "-e", &format!("{chain_tip}^{{commit}}")]
+            )
+            .unwrap()
+            .status
+            .success(),
             "the resolve work outlived the teardown"
         );
 
         // Undo restores everything the teardown took.
         crate::oplog::undo_in(repo, None).unwrap();
-        assert_eq!(git_stdout(repo, &["rev-parse", "main"]).unwrap(), base_before);
+        assert_eq!(
+            git_stdout(repo, &["rev-parse", "main"]).unwrap(),
+            base_before
+        );
         assert_eq!(
             git_stdout(repo, &["rev-parse", "tugdash/arc"]).unwrap(),
             dash_tip
@@ -8410,7 +8607,10 @@ Some context.
         let landed = git_stdout(repo, &["rev-parse", "main"]).unwrap();
 
         let undone = crate::oplog::undo_in(repo, None).unwrap();
-        assert_eq!(git_stdout(repo, &["rev-parse", "main"]).unwrap(), base_before);
+        assert_eq!(
+            git_stdout(repo, &["rev-parse", "main"]).unwrap(),
+            base_before
+        );
         assert!(branch_exists(repo, "tugdash/cycle"));
 
         let redone = crate::oplog::redo_in(repo, None).unwrap();
@@ -8447,7 +8647,10 @@ Some context.
         // A second undo press means the join, not the bookkeeping.
         let again = crate::oplog::undo_in(repo, None).unwrap();
         assert_eq!(again.seq, undone.seq, "the same operation, once more");
-        assert_eq!(git_stdout(repo, &["rev-parse", "main"]).unwrap(), base_before);
+        assert_eq!(
+            git_stdout(repo, &["rev-parse", "main"]).unwrap(),
+            base_before
+        );
         assert_eq!(
             git_stdout(repo, &["rev-parse", "tugdash/cycle"]).unwrap(),
             dash_tip
@@ -8476,7 +8679,10 @@ Some context.
             fs::read_to_string(root.join("scratch.txt")).unwrap(),
             "notes\n"
         );
-        assert_eq!(out.handed_back_left_in_place, vec!["scratch.txt".to_string()]);
+        assert_eq!(
+            out.handed_back_left_in_place,
+            vec!["scratch.txt".to_string()]
+        );
     }
 
     /// [L23]: a redo tears the worktree down, so uncommitted work started in
@@ -8501,7 +8707,10 @@ Some context.
         let err = crate::oplog::redo_in(repo, None).unwrap_err();
 
         assert!(err.starts_with("worktree-dirty:"), "{err}");
-        assert!(err.contains("in-progress.txt"), "the paths are named: {err}");
+        assert!(
+            err.contains("in-progress.txt"),
+            "the paths are named: {err}"
+        );
         assert!(
             worktree.join("in-progress.txt").exists(),
             "and the work is still there"
@@ -8593,7 +8802,10 @@ Some context.
             .unwrap()
             .status
             .success();
-        assert!(alive, "no branch points at it, but the undo's keepalive does");
+        assert!(
+            alive,
+            "no branch points at it, but the undo's keepalive does"
+        );
 
         crate::oplog::redo_in(repo, None).unwrap();
         assert_eq!(
@@ -8709,10 +8921,13 @@ Some context.
             "the handed-back paths are named, because an undo cannot claw them back"
         );
         assert!(
-            git_output(&root, &["cat-file", "-e", &format!("{dash_tip}^{{commit}}")])
-                .unwrap()
-                .status
-                .success(),
+            git_output(
+                &root,
+                &["cat-file", "-e", &format!("{dash_tip}^{{commit}}")]
+            )
+            .unwrap()
+            .status
+            .success(),
             "the discarded dash's tip survives its branch"
         );
     }
@@ -9803,8 +10018,7 @@ Some context.
         // `join` resolves the repo via `find_repo_root` (canonical), so the
         // record must be written to the canonical state dir to be found.
         let canon = fs::canonicalize(repo).unwrap();
-        let seq =
-            seed_interrupted_join(repo, "resume", crate::oplog::JoinPhase::Integrated, &head);
+        let seq = seed_interrupted_join(repo, "resume", crate::oplog::JoinPhase::Integrated, &head);
         assert!(worktree.exists());
         assert!(branch_present(repo, "tugdash/resume"));
 
@@ -9829,7 +10043,10 @@ Some context.
             "the record is complete, so nothing is in flight"
         );
         let op = crate::oplog::read_op(&canon, seq).expect("the record is still there");
-        assert!(op.after.is_some(), "and it completed rather than being dropped");
+        assert!(
+            op.after.is_some(),
+            "and it completed rather than being dropped"
+        );
         assert_eq!(
             op.join.unwrap().phase,
             crate::oplog::JoinPhase::BranchDeleted,
@@ -9838,7 +10055,6 @@ Some context.
         let dlog = fs::read_to_string(dash_log_path(&home, repo)).unwrap();
         assert!(dlog.contains("joined"), "dash-log records the join: {dlog}");
     }
-
 
     /// The resumability guarantee, one phase at a time: entering the teardown
     /// at any of its three states finishes the join and finishes it once.
@@ -9888,13 +10104,22 @@ Some context.
             .unwrap_or_else(|e| panic!("{phase:?}: {e}"));
 
             assert_eq!(out.commit_hash.as_deref(), Some(head.as_str()), "{phase:?}");
-            assert_eq!(out.base_branch, "main", "{phase:?}: from the record's before");
+            assert_eq!(
+                out.base_branch, "main",
+                "{phase:?}: from the record's before"
+            );
             assert!(!worktree.exists(), "{phase:?}: worktree removed");
-            assert!(!branch_present(repo, "tugdash/phased"), "{phase:?}: branch gone");
+            assert!(
+                !branch_present(repo, "tugdash/phased"),
+                "{phase:?}: branch gone"
+            );
             let dlog = fs::read_to_string(dash_log_path(&home, repo)).unwrap();
             assert!(dlog.contains("joined"), "{phase:?}: dash-log records it");
             let op = crate::oplog::read_op(&canon, seq).expect("the record");
-            assert_eq!(op.after.unwrap().landed_commit.as_deref(), Some(head.as_str()));
+            assert_eq!(
+                op.after.unwrap().landed_commit.as_deref(),
+                Some(head.as_str())
+            );
             assert_eq!(
                 op.join.unwrap().phase,
                 crate::oplog::JoinPhase::BranchDeleted,
@@ -10053,8 +10278,12 @@ Some context.
         git_output(repo, &["checkout", "main"]).unwrap();
 
         // stale-journal.
-        let seq =
-            seed_interrupted_join(repo, "kinds", crate::oplog::JoinPhase::Integrated, "deadbeef");
+        let seq = seed_interrupted_join(
+            repo,
+            "kinds",
+            crate::oplog::JoinPhase::Integrated,
+            "deadbeef",
+        );
         assert!(
             same("stale journal")
                 .iter()

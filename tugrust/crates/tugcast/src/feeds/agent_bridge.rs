@@ -559,6 +559,12 @@ pub async fn run_session_bridge(
     mut input_rx: mpsc::Receiver<Frame>,
     merger_tx: mpsc::Sender<Frame>,
     state_tx: broadcast::Sender<Frame>,
+    // The CONTROL feed, so a fork that takes its parent's name can push the
+    // parent's cleared row. A client un-learns a name only through a
+    // `session_updated` carrying `name_user_set: false`; the list-level
+    // refresh seeds names non-clobberingly and returns early on a blank.
+    // `None` in harnesses with no control feed wired.
+    control_tx: Option<broadcast::Sender<Frame>>,
     spawner: Arc<dyn ChildSpawner>,
     project_dir: PathBuf,
     session_mode: SessionMode,
@@ -762,6 +768,7 @@ pub async fn run_session_bridge(
             &mut input_rx,
             &merger_tx,
             &state_tx,
+            control_tx.as_ref(),
             child.stdin,
             lines,
             &canonical_project_dir_str,
@@ -1378,6 +1385,9 @@ pub async fn relay_session_io(
     input_rx: &mut mpsc::Receiver<Frame>,
     merger_tx: &mpsc::Sender<Frame>,
     state_tx: &broadcast::Sender<Frame>,
+    // The CONTROL feed — see [`run_session_bridge`]. `None` in harnesses with
+    // no control feed wired.
+    control_tx: Option<&broadcast::Sender<Frame>>,
     mut stdin: Box<dyn AsyncWrite + Send + Unpin>,
     mut lines: Lines<BufReader<Box<dyn AsyncRead + Send + Unpin>>>,
     project_dir: &str,
@@ -1859,6 +1869,27 @@ pub async fn relay_session_io(
                                             error = %err,
                                             "fork rename transfer failed; the fork keeps its callsign but loses the inherited name"
                                         );
+                                    } else if let Some(tx) = control_tx {
+                                        // The parent's name was cleared by
+                                        // `inherit_fork_identity`, and a bare
+                                        // `notify_sessions_changed` cannot
+                                        // un-teach it: the list seed path
+                                        // ignores a blank by design, so
+                                        // without this push every client keeps
+                                        // the ghost and the two sessions go on
+                                        // sharing one name on screen.
+                                        if let Ok(Some(row)) =
+                                            ledger.get(&fork.parent_session_id)
+                                        {
+                                            let metrics = ledger
+                                                .scan_metrics_for(&fork.parent_session_id)
+                                                .unwrap_or(None);
+                                            let _ = tx.send(
+                                                crate::feeds::agent_supervisor::build_session_updated_frame(
+                                                    &row, metrics,
+                                                ),
+                                            );
+                                        }
                                     }
                                 }
                             }
@@ -3711,6 +3742,7 @@ mod tests {
                 &mut input_rx,
                 &merger_tx,
                 &state_tx,
+                None,
                 Box::new(relay_stdin_w),
                 lines,
                 &project_dir_owned,
@@ -3851,15 +3883,19 @@ mod tests {
     async fn a_stage_leaves_the_conversations_durable_ink_where_it_was() {
         // Receipts written before the rotation belong to the session that
         // wrote them, which is the session the user returns to.
-        let (_sessions, ink) = drive_stage("p-ink-stage", "s-ink-stage", "implement", |shell, _| {
-            shell
-                .record_exchange(&shell_row("p-ink-stage", "/commit"))
-                .expect("record");
-        })
-        .await;
+        let (_sessions, ink) =
+            drive_stage("p-ink-stage", "s-ink-stage", "implement", |shell, _| {
+                shell
+                    .record_exchange(&shell_row("p-ink-stage", "/commit"))
+                    .expect("record");
+            })
+            .await;
 
         assert_eq!(
-            ink.shell.expect("shell ledger").session_ids_with_rows().unwrap(),
+            ink.shell
+                .expect("shell ledger")
+                .session_ids_with_rows()
+                .unwrap(),
             std::collections::HashSet::from(["p-ink-stage".to_string()]),
             "the conversation's receipts stay with the conversation"
         );
@@ -3867,18 +3903,20 @@ mod tests {
 
     #[tokio::test]
     async fn a_stage_line_missing_a_required_field_stages_nothing() {
-        assert!(parse_session_stage(
-            br#"{"type":"session_stage","newSessionId":"n","stage":"devise"}"#
-        )
-        .is_none());
+        assert!(
+            parse_session_stage(br#"{"type":"session_stage","newSessionId":"n","stage":"devise"}"#)
+                .is_none()
+        );
         assert!(parse_session_stage(
             br#"{"type":"session_stage","parentSessionId":"p","newSessionId":"","stage":"devise"}"#
         )
         .is_none());
-        assert!(parse_session_stage(
-            br#"{"type":"session_stage","parentSessionId":"p","newSessionId":"n"}"#
-        )
-        .is_none());
+        assert!(
+            parse_session_stage(
+                br#"{"type":"session_stage","parentSessionId":"p","newSessionId":"n"}"#
+            )
+            .is_none()
+        );
         let parsed = parse_session_stage(
             br#"{"type":"session_stage","parentSessionId":"p","newSessionId":"n","stage":"review"}"#,
         )
@@ -4638,6 +4676,7 @@ mod tests {
                 &mut input_rx,
                 &merger_tx,
                 &state_tx,
+                None,
                 Box::new(relay_stdin_w),
                 lines,
                 &project_dir,
@@ -5049,6 +5088,7 @@ mod tests {
                 &mut input_rx,
                 &merger_tx,
                 &state_tx,
+                None,
                 Box::new(relay_stdin_w),
                 lines,
                 &project_dir,
@@ -5184,6 +5224,7 @@ mod tests {
                 &mut input_rx,
                 &merger_tx,
                 &state_tx,
+                None,
                 Box::new(relay_stdin_w),
                 lines,
                 &project_dir,
@@ -5293,6 +5334,7 @@ mod tests {
                 &mut input_rx,
                 &merger_tx,
                 &state_tx,
+                None,
                 Box::new(relay_stdin_w),
                 lines,
                 &project_dir,
@@ -5452,6 +5494,7 @@ mod tests {
                 &mut input_rx_a,
                 &merger_tx_a,
                 &state_tx_a,
+                None,
                 Box::new(relay_stdin_w_a),
                 lines_a,
                 &project_a,
@@ -5508,6 +5551,7 @@ mod tests {
                 &mut input_rx_b,
                 &merger_tx_b,
                 &state_tx_b,
+                None,
                 Box::new(relay_stdin_w_b),
                 lines_b,
                 &project_b,

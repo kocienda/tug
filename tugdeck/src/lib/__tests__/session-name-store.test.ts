@@ -4,7 +4,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { sessionNameStore } from "../session-name-store";
+import { sessionNameStore, type NameSettle } from "../session-name-store";
 
 describe("sessionNameStore", () => {
   test("get is null before any set; set then get round-trips (trimmed)", () => {
@@ -42,5 +42,26 @@ describe("sessionNameStore", () => {
     sessionNameStore.setName("n-noop", "a-name"); // unchanged → no notify
     expect(notifications).toBe(1);
     unsubscribe();
+  });
+
+  test("settle hands the waiter what the rename displaced", () => {
+    const settles: NameSettle[] = [];
+    sessionNameStore.awaitSettle("n-took", "harbor light", null, (s) =>
+      settles.push(s),
+    );
+    sessionNameStore.settle("n-took", "harbor light", {
+      ok: true,
+      displaced: ["other"],
+    });
+    expect(settles[0]?.displaced).toEqual(["other"]);
+  });
+
+  test("settle with no displacement hands the waiter none", () => {
+    const settles: NameSettle[] = [];
+    sessionNameStore.awaitSettle("n-alone", "unspoken for", null, (s) =>
+      settles.push(s),
+    );
+    sessionNameStore.settle("n-alone", "unspoken for", { ok: true });
+    expect(settles[0]?.displaced).toBeUndefined();
   });
 });

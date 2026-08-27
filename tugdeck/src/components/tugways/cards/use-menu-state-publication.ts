@@ -27,6 +27,7 @@ import type { TurnEntry } from "@/lib/code-session-store/types";
 import type { SessionMetadataStore } from "@/lib/session-metadata-store";
 import type { ShadeViewController } from "@/lib/shade-view-controller";
 import { cardSessionBindingStore } from "@/lib/card-session-binding-store";
+import { sessionNameStore } from "@/lib/session-name-store";
 import { clearSessionMenuState, publishSessionMenuState } from "@/lib/host-menu-state";
 import { getTugbankClient } from "@/lib/tugbank-singleton";
 import {
@@ -117,6 +118,15 @@ export function useMenuStatePublication(
         commitReady: joinModeController.getSnapshot().active
           ? joinModeController.getSnapshot().landReady
           : commitModeController.getSnapshot().landReady,
+        // There is something for Unname to clear. Read fresh off the binding
+        // each publish, so the item enables and disables as the name moves.
+        hasCustomName: (() => {
+          const binding = cardSessionBindingStore.getBinding(cardId);
+          return (
+            binding !== undefined &&
+            sessionNameStore.getName(binding.tugSessionId) !== null
+          );
+        })(),
         ...cachedFacts,
       });
     };
@@ -131,6 +141,10 @@ export function useMenuStatePublication(
       // first of those.
       commitModeController.subscribe(publish),
       joinModeController.subscribe(publish),
+      // The name moves under the card — a `/rename`, a `/unname`, or another
+      // session taking the name away — and the Unname item's enablement has to
+      // move with it.
+      sessionNameStore.subscribe(publish),
     ];
     publish();
 

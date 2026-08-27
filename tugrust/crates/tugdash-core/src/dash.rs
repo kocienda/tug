@@ -256,10 +256,15 @@ pub enum DashDeclaration {
 }
 
 /// Which end of a step a declaration marks.
+///
+/// `Withdrawn` closes a step the run decided not to walk. It closes as a
+/// `Done` does — a withdrawal is a step ending — and records no commit,
+/// because none was made.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StepPhase {
     Start,
     Done,
+    Withdrawn,
 }
 
 impl StepPhase {
@@ -268,6 +273,7 @@ impl StepPhase {
         match self {
             StepPhase::Start => "step-start",
             StepPhase::Done => "step-done",
+            StepPhase::Withdrawn => "step-withdrawn",
         }
     }
 }
@@ -321,7 +327,8 @@ pub fn parse_verified_note(note: &str) -> Option<(String, String)> {
         return None;
     }
     Some((head.to_string(), base.to_string()))
-}/// What a dash's surviving declarations say about it.
+}
+/// What a dash's surviving declarations say about it.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct DashDeclarations {
     /// The latest declaration of any kind — the one the stage derives from.
@@ -475,7 +482,7 @@ pub fn read_declarations(repo_root: &Path, dash: &str) -> DashDeclarations {
         // dash an age without giving it a stage.
         found.last_activity = Some(timestamp.to_owned());
         match marker {
-            "step-start" | "step-done" => {
+            "step-start" | "step-done" | "step-withdrawn" => {
                 if let Some((current, total)) = read_step_fields(note) {
                     found.latest = Some(DashDeclaration::Step { current, total });
                     found.step = Some((current, total));
@@ -489,7 +496,11 @@ pub fn read_declarations(repo_root: &Path, dash: &str) -> DashDeclarations {
                         found.run_first.get_or_insert(current);
                     }
                     // A done note's tail is the round's sha, not a title — the
-                    // start's title stays current until the next start.
+                    // start's title stays current until the next start. Both
+                    // closing markers take the `else`: a withdrawal ends a step
+                    // and advances the run exactly as a completion does, which
+                    // is what keeps a dash whose final selected step was
+                    // withdrawn joinable rather than wedged.
                     if marker == "step-start" {
                         found.step_title = read_step_title(note, current);
                         found.step_in_flight = true;
@@ -1031,6 +1042,79 @@ mod tests {
         let found = read_declarations(fixture.root(), "d");
         assert_eq!(found.step, Some((4, 9)));
         assert_eq!(found.step_title, None);
+    }
+
+    #[test]
+    #[serial]
+    fn a_withdrawal_closes_the_run_as_a_completion_does() {
+        let log = format!(
+            "{}{}{}{}",
+            log_line("d", "run-through", "8"),
+            log_line("d", "step-start", "7/8 Step 7: Seventh"),
+            log_line("d", "step-done", "7/8 a4477d5"),
+            log_line("d", "step-withdrawn", "8/8 Step 8: Eighth"),
+        );
+        let fixture = log_repo(&log);
+        let found = read_declarations(fixture.root(), "d");
+        assert!(
+            found.run_complete,
+            "a dash whose final selected step was withdrawn is joinable, not wedged"
+        );
+        assert!(!found.step_in_flight);
+        assert_eq!(
+            found.latest,
+            Some(DashDeclaration::Step {
+                current: 8,
+                total: 8
+            })
+        );
+    }
+
+    #[test]
+    #[serial]
+    fn a_withdrawal_leaves_the_runs_span_alone() {
+        let log = format!(
+            "{}{}{}{}",
+            log_line("d", "run-through", "8"),
+            log_line("d", "step-start", "7/8 Step 7: Seventh"),
+            log_line("d", "step-withdrawn", "7/8 Step 7: Seventh"),
+            log_line("d", "step-start", "8/8 Step 8: Eighth"),
+        );
+        let fixture = log_repo(&log);
+        let found = read_declarations(fixture.root(), "d");
+        assert_eq!(
+            found.run_first,
+            Some(7),
+            "the withdrawal is still the run's opener"
+        );
+        assert!(found.step_in_flight, "step 8 is open");
+        assert!(!found.run_complete);
+    }
+
+    #[test]
+    #[serial]
+    fn a_withdrawal_after_a_terminal_line_starts_a_fresh_generation() {
+        let log = format!(
+            "{}{}{}{}{}",
+            log_line("d", "run-through", "2"),
+            log_line("d", "step-start", "2/2 Step 2: Second"),
+            log_line("d", "step-done", "2/2 a4477d5"),
+            log_line("d", "a4477d5", "joined via card"),
+            log_line("d", "step-withdrawn", "1/4 Step 1: First"),
+        );
+        let fixture = log_repo(&log);
+        let found = read_declarations(fixture.root(), "d");
+        assert_eq!(
+            found.run_through, None,
+            "the joined run's selection is gone"
+        );
+        assert_eq!(found.run_first, None);
+        assert!(!found.run_complete, "no selection, so nothing to complete");
+        assert_eq!(
+            found.step,
+            Some((1, 4)),
+            "the fresh generation's own declaration stands"
+        );
     }
 
     #[test]

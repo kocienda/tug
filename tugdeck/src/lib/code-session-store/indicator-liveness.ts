@@ -109,14 +109,19 @@ export function jobRowState(status: JobStatus): TugProgressIndicatorState {
  * gate is the same gate, for the same reason — the ledger still reads "in
  * progress", the glyph does not claim it is happening.
  *
- * An unrecognized spelling rests at `stopped`, the conservative reading and
- * the one the plan-doc scan takes for the same cell.
+ * `withdrawn` is a step the run decided not to walk, and it reads `completed`
+ * for the same reason every other closed-count does: the row is over. Resting
+ * it at `stopped` instead would make it indistinguishable from `pending`,
+ * which is also where an unstarted row rests.
+ *
+ * Every other spelling rests at `stopped`, the conservative reading and the
+ * one the plan-doc scan takes for the same cell.
  */
 export function ledgerRowState(
   status: string,
   idle: boolean,
 ): TugProgressIndicatorState {
-  if (status === "done") return "completed";
+  if (status === "done" || status === "withdrawn") return "completed";
   if (status === "in progress") return idle ? "stopped" : "running";
   return "stopped";
 }

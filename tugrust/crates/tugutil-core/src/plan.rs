@@ -236,7 +236,7 @@ const REQUIRED_SECTIONS: &[&str] = &[
 ];
 
 /// Statuses the Step Status Ledger accepts.
-const LEDGER_STATUSES: &[&str] = &["pending", "in progress", "done"];
+const LEDGER_STATUSES: &[&str] = &["pending", "in progress", "done", "withdrawn"];
 
 /// Test shapes this codebase bans outright.
 const BANNED_TEST_SHAPES: &[(&str, &str)] = &[
@@ -573,7 +573,7 @@ pub fn lint(doc: &PlanDoc) -> Vec<Diagnostic> {
                     "PL017",
                     Severity::Error,
                     format!(
-                        "ledger status `{}` is not one of pending / in progress / done",
+                        "ledger status `{}` is not one of pending / in progress / done / withdrawn",
                         row.status
                     ),
                     row.line,
@@ -1319,10 +1319,19 @@ impl std::error::Error for LedgerEditError {}
 /// `in progress` is reachable from `in progress` so an interrupted run can
 /// re-enter the step it was on without a hand-edit; the rewrite is a no-op and
 /// the returned text is byte-identical. A `done` row is terminal.
+///
+/// `withdrawn` is the word for a step the run decided not to walk. It is
+/// reachable from `pending` and from `in progress`, and from itself, so the
+/// verb is idempotent. It is also reversible: `withdrawn` is a legal source for
+/// `in progress`, so changing your mind about a skipped step goes back through
+/// `start` rather than a hand-edit of the table. `withdrawn` to `done` is
+/// refused — a step that is now to be walked takes the same path every other
+/// step takes.
 fn transition_allowed(from: &str, to: &str) -> bool {
     match to {
-        "in progress" => from == "pending" || from == "in progress",
+        "in progress" => from == "pending" || from == "in progress" || from == "withdrawn",
         "done" => from == "pending" || from == "in progress",
+        "withdrawn" => from == "pending" || from == "in progress" || from == "withdrawn",
         _ => false,
     }
 }
@@ -1792,6 +1801,17 @@ Some context.
     }
 
     #[test]
+    fn a_withdrawn_row_with_no_commit_lints_clean() {
+        let source = MINIMAL.replace(
+            "| #step-1 | The only step | pending | — |",
+            "| #step-1 | The only step | withdrawn | — |",
+        );
+        let codes = codes(&source);
+        assert!(!codes.contains(&"PL017".to_string()), "{codes:?}");
+        assert!(!codes.contains(&"PL018".to_string()), "{codes:?}");
+    }
+
+    #[test]
     fn pl019_references_citing_line_numbers() {
         let source = MINIMAL.replace(
             "**References:** [P01] the decision, (#phase-overview)",
@@ -2147,7 +2167,7 @@ Some context.
     #[test]
     fn ledger_edit_refuses_moving_off_a_done_row() {
         let done = set_ledger_status(MINIMAL, "step-1", "done", Some("a4477d5")).unwrap();
-        for target in ["in progress", "done"] {
+        for target in ["in progress", "done", "withdrawn"] {
             let err = set_ledger_status(&done, "step-1", target, None).unwrap_err();
             assert_eq!(
                 err,
@@ -2160,6 +2180,53 @@ Some context.
             // The message names the row's current status.
             assert!(err.to_string().contains("is 'done'"), "{err}");
         }
+    }
+
+    #[test]
+    fn ledger_edit_withdraws_a_step_leaving_the_commit_cell_empty() {
+        let out = set_ledger_status(MINIMAL, "step-1", "withdrawn", None)
+            .expect("a pending row withdraws");
+        let diff = line_diff(MINIMAL, &out);
+        assert_eq!(diff.len(), 1, "exactly one line moves: {diff:?}");
+        assert_eq!(diff[0].2, "| #step-1 | The only step | withdrawn | — |");
+
+        let row = parse(&out).unwrap().ledger_rows.remove(0);
+        assert_eq!(row.status, "withdrawn");
+        assert_eq!(row.commit, None);
+    }
+
+    #[test]
+    fn ledger_edit_withdraws_from_in_progress_and_idempotently() {
+        let started = set_ledger_status(MINIMAL, "step-1", "in progress", None).unwrap();
+        let withdrawn = set_ledger_status(&started, "step-1", "withdrawn", None)
+            .expect("a step under way can be withdrawn");
+        let again = set_ledger_status(&withdrawn, "step-1", "withdrawn", None)
+            .expect("withdrawing twice is a no-op");
+        assert_eq!(again, withdrawn, "re-withdrawal must not move a byte");
+    }
+
+    #[test]
+    fn ledger_edit_reopens_a_withdrawn_row() {
+        let withdrawn = set_ledger_status(MINIMAL, "step-1", "withdrawn", None).unwrap();
+        let started = set_ledger_status(&withdrawn, "step-1", "in progress", None)
+            .expect("changing your mind about a skipped step needs no hand-edit");
+        let row = parse(&started).unwrap().ledger_rows.remove(0);
+        assert_eq!(row.status, "in progress");
+    }
+
+    #[test]
+    fn ledger_edit_refuses_finishing_a_withdrawn_row() {
+        let withdrawn = set_ledger_status(MINIMAL, "step-1", "withdrawn", None).unwrap();
+        let err = set_ledger_status(&withdrawn, "step-1", "done", Some("a4477d5")).unwrap_err();
+        assert_eq!(
+            err,
+            LedgerEditError::BadTransition {
+                anchor: "step-1".to_string(),
+                from: "withdrawn".to_string(),
+                to: "done".to_string(),
+            }
+        );
+        assert!(err.to_string().contains("#step-1"), "{err}");
     }
 
     #[test]
@@ -2287,6 +2354,18 @@ Some context.
         assert_ne!(done, source, "the ledger really moved");
         assert_eq!(verdict(&started), ReviewState::Reviewed);
         assert_eq!(verdict(&done), ReviewState::Reviewed);
+    }
+
+    /// The property the withdraw verb rests on: a withdrawal is a status cell,
+    /// and the stamp elides status cells, so recording one cannot stale the
+    /// review the way editing the plan's prose to say the same thing would.
+    #[test]
+    fn withdrawing_a_step_leaves_the_plan_reviewed() {
+        let source = freshly_stamped();
+        let withdrawn = set_ledger_status(&source, "step-1", "withdrawn", None).unwrap();
+        assert_ne!(withdrawn, source, "the ledger really moved");
+        assert_eq!(stamp_of(&withdrawn), stamp_of(&source));
+        assert_eq!(verdict(&withdrawn), ReviewState::Reviewed);
     }
 
     #[test]

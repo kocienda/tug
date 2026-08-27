@@ -31,7 +31,6 @@ import { useSessionIdentity } from "@/lib/session-identity";
 
 export interface DashLifecycleBlockProps extends DashLifecycleLineProps {
   name: string;
-  review?: string | null;
   workers?: readonly string[];
   trailing?: React.ReactNode;
 }
@@ -61,7 +60,6 @@ export function DashWorkerAtom({ sessionId, size }: { sessionId: string; size: "
 
 export function DashLifecycleBlock({
   name,
-  review = null,
   workers = [],
   trailing,
   model,
@@ -73,7 +71,7 @@ export function DashLifecycleBlock({
   return (
     <span className="tug-dash-lifecycle-block" data-slot="tug-dash-lifecycle-block" data-dash={name} data-size={size}>
       <span className="tug-dash-lifecycle-eyebrow" data-slot="tug-dash-lifecycle-eyebrow">
-        <TugDashAtom name={name} review={review} size={atomSize} slot="tug-dash-lifecycle-name" />
+        <TugDashAtom name={name} size={atomSize} slot="tug-dash-lifecycle-name" />
         <span className="tug-dash-lifecycle-rule" aria-hidden="true" />
         {workers.map((sessionId) => (
           <DashWorkerAtom key={sessionId} sessionId={sessionId} size={atomSize} />

@@ -191,4 +191,33 @@ describe("runReplay — lineage", () => {
     expect(shape(frames)).toEqual(["stage:devise", "text:here is the plan"]);
     expect(frames.filter((f) => f.type === "replay_complete").length).toBe(1);
   });
+
+  test("marks the Wheel's opener on the session that ran a stage, and only there", async () => {
+    // The ancestor ran a stage; the resumed session did not. So the ancestor's
+    // opening prompt is the Wheel's, and every prompt in the resumed session
+    // is the user's own — which is the whole distinction the deck used to get
+    // from a divider's position.
+    const manager = makeManager({
+      [PARENT_ID]: jsonlFor("write the plan", "here is the plan"),
+      [STAGE_ID]: jsonlFor("now do this other thing", "done"),
+    });
+    const frames = await captureStdout(() =>
+      manager.runReplay(undefined, [
+        {
+          sessionId: PARENT_ID,
+          stage: "devise",
+          model: "opus",
+          document: "dash/foo-brief.md",
+          arc: "foo",
+        },
+        { sessionId: STAGE_ID },
+      ]),
+    );
+
+    const openers = frames.filter((f) => f.type === "add_user_message");
+    expect(openers).toHaveLength(2);
+    expect(openers.map((f) => (f.type === "add_user_message" ? f.origin : null))).toEqual(
+      ["wheel", undefined],
+    );
+  });
 });

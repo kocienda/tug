@@ -10,9 +10,15 @@
  * The eyebrow cannot simply reuse `SessionDashMarker`: that component is
  * keyed by `sessionId` and resolves its dash *through* a session, which an unbound
  * dash by definition does not have. What the two genuinely share is this
- * markup — the run element, its sigil, its name, and the `data-review` tint
- * that rides the run itself and would otherwise be a second thing kept in step
- * by hand.
+ * markup — the run element, its sigil, and its name — which would otherwise be
+ * a second thing kept in step by hand.
+ *
+ * A dash's name is just a name here. The run carried a review tint once, and
+ * it read as inexplicable for the reason it was: a session's identity line
+ * says what the session IS, a plan's review hygiene is not that, and nothing
+ * beside the tint said what the color meant. The Changes shade's plan-document
+ * row keeps its own tint, on a surface that spells the review state out in
+ * words next to the mark — a reader who can decode it.
  *
  * Class names stay `tug-session-identity-dash*`: the styling did not move, only
  * the markup that carries it. `data-slot` is the caller's, so a test can tell
@@ -27,13 +33,9 @@
 
 import React from "react";
 
-import { dashReviewPaints } from "@/lib/dash-review";
-
 export interface DashSigilProps {
   /** The dash's short name, without the `^`. */
   name: string;
-  /** The plan's review state, or null. Tints the run only when it paints. */
-  review: string | null;
   /** The run's `data-slot` — how each surface names its own copy. */
   slot: string;
   /** The run's hover sentence, when the surface has one to give. */
@@ -60,7 +62,6 @@ export interface DashSigilProps {
 
 export function DashSigil({
   name,
-  review,
   slot,
   title,
   ariaLabel,
@@ -71,10 +72,6 @@ export function DashSigil({
     <span
       className="tug-session-identity-dash"
       data-slot={slot}
-      // Only `stale` and `never-reviewed` paint; a reviewed dash says nothing.
-      data-review={
-        review !== null && dashReviewPaints(review) ? review : undefined
-      }
       title={title}
       aria-label={ariaLabel}
     >
