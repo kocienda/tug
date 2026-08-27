@@ -1135,14 +1135,14 @@ fn dash_file_row(file: tugdash_core::DashDetailFile) -> ChangesetFile {
 /// Every failure path is `(None, empty)` deliberately ([P03]): a plan that
 /// cannot be read has not been shown to be stale and has not been shown to have
 /// no steps, and an unreadable plan is a normal state rather than an incident.
-fn dash_plan_reading(abs: &Path) -> (Option<String>, Vec<DashStep>) {
+fn dash_plan_reading(abs: &Path) -> (Option<String>, Vec<DashStep>, bool) {
     let Ok(source) = std::fs::read_to_string(abs).inspect_err(
         |e| tracing::debug!(path = %abs.display(), error = %e, "dash plan unreadable"),
     ) else {
-        return (None, Vec::new());
+        return (None, Vec::new(), false);
     };
     let Ok(doc) = tugutil_core::plan::parse(&source) else {
-        return (None, Vec::new());
+        return (None, Vec::new(), false);
     };
     // The ledger, not the step headings: the ledger is what the step verbs
     // rewrite, so it is the only half of the document that moves as a run
@@ -1158,7 +1158,7 @@ fn dash_plan_reading(abs: &Path) -> (Option<String>, Vec<DashStep>) {
     let review = tugutil_core::plan::review_state(&doc, &source)
         .as_str()
         .to_string();
-    (Some(review), steps)
+    (Some(review), steps, tugutil_core::plan::is_task_list(&doc))
 }
 
 /// Derive one dash entry per `refs/heads/tugdash/` branch.
@@ -1263,11 +1263,11 @@ fn document_dash_entries_in(
         .filter(|name| !tugdash_core::ops::branch_exists(root, &format!("tugdash/{name}")))
         .map(|name| {
             let documents = tugdash_core::DashDocuments::read(root, &name);
-            let (review, steps) = documents
+            let (review, steps, _task_list) = documents
                 .plan
                 .as_deref()
                 .map(|plan| dash_plan_reading(Path::new(plan)))
-                .unwrap_or((None, Vec::new()));
+                .unwrap_or((None, Vec::new(), false));
             let owner_id = tugdash_core::ops::dash_owner_key(root, &name);
             DocumentDashEntry {
                 bound_sessions: bound_by_dash.get(&owner_id).cloned().unwrap_or_default(),
@@ -1332,15 +1332,15 @@ async fn dash_entries(
         details
             .into_iter()
             .map(|detail| {
-                let (review, steps) = detail
+                let (review, steps, task_list) = detail
                     .documents
                     .plan
                     .as_deref()
                     .map(|plan| dash_plan_reading(Path::new(plan)))
-                    .unwrap_or((None, Vec::new()));
+                    .unwrap_or((None, Vec::new(), false));
                 let join =
                     crate::feeds::join_board::join_state_for(&root, &detail, &current_branch);
-                (detail, review, steps, join)
+                (detail, review, steps, task_list, join)
             })
             .collect::<Vec<_>>()
     })
@@ -1356,7 +1356,7 @@ async fn dash_entries(
     // costs nothing and saves cloning the map into the closure. Dispatched from
     // the async side for the same reason the frame is: a ladder that runs for
     // minutes must never hold a recompute (Spec S06).
-    for (detail, _, _, join) in &details {
+    for (detail, _, _, _, join) in &details {
         let bound = bound_by_dash
             .get(&detail.owner_key)
             .is_some_and(|sessions| !sessions.is_empty());
@@ -1368,52 +1368,57 @@ async fn dash_entries(
 
     details
         .into_iter()
-        .map(|(detail, review, steps, join)| ChangesetEntry::Dash {
-            join: Some(join),
-            bound_sessions: bound_by_dash
-                .get(&detail.owner_key)
-                .cloned()
-                .unwrap_or_default(),
-            // Whether an *attempt* to replay conflicted is knowledge only the
-            // engine that attempted it has; the library composes everything
-            // else. Empty when no engine is running, which is the truth then.
-            replay_conflict_paths: crate::feeds::base_motion::conflict_paths_for(&detail.owner_key),
-            owner_id: detail.owner_key,
-            display_name: detail.name,
-            branch: Some(detail.branch),
-            stage: Some(detail.stage),
-            step_current: detail.step_current,
-            step_total: detail.step_total,
-            run_position: detail.run_position,
-            run_length: detail.run_length,
-            step_title: detail.step_title,
-            last_activity: detail.last_activity,
-            arc: detail.arc.map(|arc| tugcast_core::types::DashArcState {
-                stage: arc.stage,
-                stopped: arc.stopped,
-                stopped_stage: arc.stopped_stage,
-                done: arc.done,
-                note: arc.note,
-            }),
-            documents: dash_documents(detail.documents),
-            review,
-            steps,
-            base: detail.base,
-            rounds: detail.rounds,
-            worktree: detail.worktree_abs,
-            worktree_dirty: detail.worktree_dirty,
-            files: detail.files.into_iter().map(dash_file_row).collect(),
-            round_subjects: detail.round_subjects,
-            draft: None,
-            base_ahead: detail.base_ahead,
-            base_overlap: detail.base_overlap,
-            last_replay: detail.last_replay,
-            fit: detail.fit.map(|f| tugcast_core::types::DashFit {
-                head: f.head,
-                base: f.base,
-                current: f.current,
-            }),
-        })
+        .map(
+            |(detail, review, steps, task_list, join)| ChangesetEntry::Dash {
+                join: Some(join),
+                task_list,
+                bound_sessions: bound_by_dash
+                    .get(&detail.owner_key)
+                    .cloned()
+                    .unwrap_or_default(),
+                // Whether an *attempt* to replay conflicted is knowledge only the
+                // engine that attempted it has; the library composes everything
+                // else. Empty when no engine is running, which is the truth then.
+                replay_conflict_paths: crate::feeds::base_motion::conflict_paths_for(
+                    &detail.owner_key,
+                ),
+                owner_id: detail.owner_key,
+                display_name: detail.name,
+                branch: Some(detail.branch),
+                stage: Some(detail.stage),
+                step_current: detail.step_current,
+                step_total: detail.step_total,
+                run_position: detail.run_position,
+                run_length: detail.run_length,
+                step_title: detail.step_title,
+                last_activity: detail.last_activity,
+                arc: detail.arc.map(|arc| tugcast_core::types::DashArcState {
+                    stage: arc.stage,
+                    stopped: arc.stopped,
+                    stopped_stage: arc.stopped_stage,
+                    done: arc.done,
+                    note: arc.note,
+                }),
+                documents: dash_documents(detail.documents),
+                review,
+                steps,
+                base: detail.base,
+                rounds: detail.rounds,
+                worktree: detail.worktree_abs,
+                worktree_dirty: detail.worktree_dirty,
+                files: detail.files.into_iter().map(dash_file_row).collect(),
+                round_subjects: detail.round_subjects,
+                draft: None,
+                base_ahead: detail.base_ahead,
+                base_overlap: detail.base_overlap,
+                last_replay: detail.last_replay,
+                fit: detail.fit.map(|f| tugcast_core::types::DashFit {
+                    head: f.head,
+                    base: f.base,
+                    current: f.current,
+                }),
+            },
+        )
         .collect()
 }
 
@@ -2815,9 +2820,12 @@ Some context.
         assert!(wire.plan.as_deref().unwrap().starts_with('/'));
         assert_eq!(wire.brief_title.as_deref(), Some("The live brief"));
 
-        let (review, steps) = dash_plan_reading(Path::new(wire.plan.as_deref().unwrap()));
+        let (review, steps, task_list) =
+            dash_plan_reading(Path::new(wire.plan.as_deref().unwrap()));
         assert_eq!(review.as_deref(), Some("reviewed"));
         assert_eq!(steps.len(), 2);
+        // The fixture is written against the skeleton, so it is a plan.
+        assert!(!task_list);
     }
 
     #[test]
@@ -2864,7 +2872,7 @@ Some context.
     fn dash_plan_reading_carries_the_ledger_rows() {
         let dir = tempfile::tempdir().unwrap();
         write_plan(dir.path(), true);
-        let (_, steps) = dash_plan_reading(&dir.path().join("plan.md"));
+        let (_, steps, _) = dash_plan_reading(&dir.path().join("plan.md"));
         assert_eq!(
             steps,
             vec![DashStep {
@@ -2880,9 +2888,11 @@ Some context.
     #[test]
     fn dash_plan_reading_is_absent_for_a_missing_file() {
         let dir = tempfile::tempdir().unwrap();
-        let (review, steps) = dash_plan_reading(&dir.path().join("plan.md"));
+        let (review, steps, task_list) = dash_plan_reading(&dir.path().join("plan.md"));
         assert!(review.is_none());
         assert!(steps.is_empty());
+        // Unreadable is not a task list either: absence says nothing at all.
+        assert!(!task_list);
     }
 
     #[test]
@@ -3249,6 +3259,7 @@ Some context.
             display_name: name.to_owned(),
             branch: Some(format!("tugdash/{name}")),
             stage: None,
+            task_list: false,
             bound_sessions: Vec::new(),
             step_current: None,
             step_total: None,
@@ -3336,6 +3347,7 @@ Some context.
                     display_name: "demo".to_owned(),
                     branch: Some("tugdash/demo".to_owned()),
                     stage: Some("working".to_owned()),
+                    task_list: false,
                     bound_sessions: Vec::new(),
                     step_current: None,
                     step_total: None,

@@ -81,8 +81,8 @@ const SID = "a7c0d1ea-0000-4000-8000-000000000484";
 const PLAN_DASH = "at0484-plan";
 /** A brief and nothing else. */
 const BRIEF_DASH = "at0484-brief";
-/** No documents and no arc — the definition of a cut. */
-const CUT_DASH = "at0484-cut";
+/** No documents and no arc — a direct dash with nothing to count. */
+const LISTLESS_DASH = "at0484-listless";
 
 const CARD = '[data-card-id="A"]';
 const ROW = `${CARD} [data-slot="session-telemetry-status-row"]`;
@@ -126,9 +126,9 @@ beforeAll(() => {
     dashBriefPath(projectDir(), BRIEF_DASH),
     "# at0484 brief\n\nThe idea, before there is a plan for it.\n",
   );
-  // A cut: a worktree and rounds, no documents, no arc. Nothing is written
-  // for it beyond the dash itself, which is the whole point.
-  createDash(projectDir(), CUT_DASH, "at0484 cut", scratch.cli);
+  // A worktree and nothing else: no documents, no arc, no task list. This is
+  // the only shape left that shows the Z2 cell's word rather than a fraction.
+  createDash(projectDir(), LISTLESS_DASH, "at0484 listless", scratch.cli);
   fixtureDir = seedScratchSession(projectDir(), SID);
 });
 
@@ -347,10 +347,13 @@ describe.skipIf(!SHOULD_RUN)("AT0484: the Z2 DASH instrument", () => {
         await shellAndSettle(app, `${tugutilPath(CHECKOUT)} dash bind ${BRIEF_DASH}`, 1);
         await awaitReading(app, "Brief");
 
-        // ── A cut says Cut ───────────────────────────────────────────────
-        await shellAndSettle(app, `${tugutilPath(CHECKOUT)} dash bind ${CUT_DASH}`, 2);
-        await awaitReading(app, "Cut");
-        note("at0484 z2 at the cut reading", (await app.screenshot()).path);
+        // ── A dash with no documents at all says Working ──────────────────
+        // The word is the last resort: a direct dash that wrote a task list
+        // has a fraction to show, so only a dash with nothing to count — this
+        // one, freshly created — ever reaches it.
+        await shellAndSettle(app, `${tugutilPath(CHECKOUT)} dash bind ${LISTLESS_DASH}`, 2);
+        await awaitReading(app, "Working");
+        note("at0484 z2 at the listless reading", (await app.screenshot()).path);
 
         // ── Unbinding gives the width back ───────────────────────────────
         await shellAndSettle(app, `${tugutilPath(CHECKOUT)} dash unbind`, 3);

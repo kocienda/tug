@@ -225,6 +225,12 @@ export interface DashChangesetEntry {
    *  when the file cannot be read or parsed: absence means *nothing to say*,
    *  and a surface paints nothing for it. */
   review?: string;
+  /** True when that plan is a **task list** — the steps and the ledger and
+   *  nothing else — rather than a document devised against the skeleton. A
+   *  dash worked directly writes one for itself before its first round, and
+   *  the two documents are otherwise identical here, so this is what tells
+   *  the faces which phases the dash actually has. Absent means false. */
+  task_list?: boolean;
   /** That plan's ledger, in source order — one entry per declared step.
    *
    *  The counters above say *where* the run is; this says what the walk *is*,

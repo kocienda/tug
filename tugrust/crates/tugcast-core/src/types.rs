@@ -554,6 +554,14 @@ pub enum ChangesetEntry {
         /// absence is "nothing to say", never an accusation.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         review: Option<String>,
+        /// True when that plan is a **task list** — the steps and the ledger
+        /// and nothing else — rather than a document devised against the
+        /// skeleton. A dash worked directly writes one for itself before its
+        /// first round; the two documents are otherwise identical here, so
+        /// this is what lets a face draw the phases the dash actually has.
+        /// False when the dash records no plan, or when it cannot be read.
+        #[serde(default, skip_serializing_if = "is_false")]
+        task_list: bool,
         /// That plan's ledger, in source order — one entry per declared step.
         ///
         /// Sent for the same reason `review` is, and read off the same parse:
@@ -1772,6 +1780,7 @@ mod tests {
             display_name: "x".to_string(),
             branch: Some("tugdash/x".to_string()),
             stage: Some("working".to_string()),
+            task_list: false,
             bound_sessions: vec!["sess-1".to_string()],
             step_current: None,
             step_total: None,

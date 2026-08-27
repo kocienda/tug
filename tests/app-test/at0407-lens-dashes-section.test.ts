@@ -237,9 +237,9 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Lens Dashes section", () => {
         expect(unbound.dots).toBe(0);
         expect(unbound.bound).toBeNull();
         // A freshly created dash has no documents and no arc, so the track
-        // reads it as the cut it is indistinguishable from: nothing has
-        // happened to it yet but the work itself. With no step open the note
-        // is the phase word and nothing more — the line has no empty state.
+        // reads it as direct: nothing has happened to it yet but the work
+        // itself. With no step open the note is the phase word and nothing
+        // more — the line has no empty state.
         expect(unbound.phase).toBe("implement");
         // The note IS the phase word — spelled out rather than compared to the
         // field above, which is `string | null` and so cannot be an expected.

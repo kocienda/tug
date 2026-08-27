@@ -31,14 +31,23 @@ describe("dashTrackModel", () => {
     ["a hand-driven walk is implement", { documents: PLAN, steps: steps(1, 2, 4), stage: "working" }, "implement", false],
     ["every step done is the join", { documents: PLAN, steps: steps(4, null, 4), stage: "draft-ready" }, "join", false],
     ["a walked plan is the join even before the stage moves", { documents: PLAN, steps: steps(4, null, 4), stage: "working" }, "join", false],
-    ["no documents and no arc is a cut, in implement", { stage: "working" }, "implement", true],
-    ["a cut offered its join", { stage: "draft-ready" }, "join", true],
+    ["no documents and no arc is direct, in implement", { stage: "working" }, "implement", true],
+    ["a direct dash offered its join", { stage: "draft-ready" }, "join", true],
+    // A direct dash's task list IS a plan document, so nothing about the
+    // documents' presence can tell the two routes apart. `taskList` is the
+    // server's reading of the document's own shape, and it is what does.
+    ["a task list is direct, in implement before any step opens", { documents: { plan: "/p" }, taskList: true, steps: steps(0, null, 3), stage: "working" }, "implement", true],
+    ["a direct dash mid-walk", { documents: { plan: "/p" }, taskList: true, steps: steps(1, 2, 3), stage: "implementing" }, "implement", true],
+    ["a direct dash that walked its list is the join", { documents: { plan: "/p" }, taskList: true, steps: steps(3, null, 3), stage: "working" }, "join", true],
+    // The same document shape WITHOUT the task-list reading is a devised plan
+    // adopted onto a briefless dash — which stands at review, as it always has.
+    ["a devised plan with no brief still reads review", { documents: { plan: "/p" }, steps: steps(0, null, 3), stage: "working" }, "review", false],
   ];
-  for (const [name, input, phase, dashCut] of cases) {
+  for (const [name, input, phase, direct] of cases) {
     test(name, () => {
       const model = dashTrackModel(input);
       expect(model.phase).toBe(phase);
-      expect(model.dashCut).toBe(dashCut);
+      expect(model.direct).toBe(direct);
     });
   }
 

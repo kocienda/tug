@@ -62,8 +62,10 @@ export type DashTickState = DashCellState | "withdrawn";
 
 /** What the feed says about a dash, as the derivation reads it. */
 export interface DashTrackInput {
-  /** Which documents exist. Absent (or both absent) with no arc is a cut. */
+  /** Which documents exist. A brief is the planned route's own artifact. */
   documents?: { brief?: string; plan?: string } | undefined;
+  /** Whether the plan above is a task list rather than a devised plan. */
+  taskList?: boolean | undefined;
   arc?: DashArcState | null | undefined;
   /** The plan's ledger, in source order. */
   steps?: readonly DashStep[] | undefined;
@@ -92,9 +94,15 @@ export interface DashTrackSteps {
 }
 
 export interface DashTrackModel {
-  /** A plan-less dash — no documents, no arc. Named for the `/cut` it comes
-   *  from, prefixed away from the clipboard verb the vocabulary already owns. */
-  dashCut: boolean;
+  /**
+   * No arc is driving this dash: the work is being done in the user's own
+   * conversation, against the task list that session wrote.
+   *
+   * A direct dash has a plan document like any other — its task list is one —
+   * so the presence of a plan cannot tell the two apart. What can is the
+   * **brief**, which only the planned route writes, and the arc itself.
+   */
+  direct: boolean;
   phase: DashPhase;
   /** Why the arc stopped, when it did. */
   stopped: string | null;
@@ -137,7 +145,15 @@ export function dashTrackSteps(steps: readonly DashStep[] | undefined): DashTrac
 export function dashTrackModel(input: DashTrackInput): DashTrackModel {
   const documents = input.documents ?? {};
   const arc = input.arc ?? null;
-  const dashCut = documents.brief === undefined && documents.plan === undefined && arc === null;
+  // Direct means no arc is driving, and neither document says otherwise: a
+  // brief is the planned route's own artifact, and a plan devised against the
+  // skeleton is a plan however it came to be recorded. A task list is not —
+  // it is what the working session wrote for itself, and the server tells the
+  // two apart by the document's own shape rather than by guessing.
+  const direct =
+    arc === null &&
+    documents.brief === undefined &&
+    (documents.plan === undefined || input.taskList === true);
   const steps = dashTrackSteps(input.steps);
   const stage = input.stage ?? null;
   const stopped = arc?.stopped ?? null;
@@ -147,8 +163,11 @@ export function dashTrackModel(input: DashTrackInput): DashTrackModel {
   let phase: DashPhase;
   if ((stage !== null && JOIN_STAGES.has(stage)) || arc?.done === true) {
     phase = "join";
-  } else if (dashCut) {
-    phase = "implement";
+  } else if (direct) {
+    // Before the first step starts there is nothing else to read: a direct
+    // dash's plan is its task list, so the plan-means-review arm below would
+    // seat it in a phase it does not have.
+    phase = walked ? "join" : "implement";
   } else if (stopped !== null && arc?.stopped_stage !== undefined) {
     phase = arcPhase(arc.stopped_stage);
   } else if (arc?.stage !== undefined) {
@@ -160,7 +179,7 @@ export function dashTrackModel(input: DashTrackInput): DashTrackModel {
   } else {
     phase = "brief";
   }
-  return { dashCut, phase, stopped, steps };
+  return { direct, phase, stopped, steps };
 }
 
 function arcPhase(stage: string): DashPhase {
@@ -172,6 +191,7 @@ export function dashTrackModelFromEntry(entry: DashChangesetEntry): DashTrackMod
   return dashTrackModel({
     documents: entry.documents,
     arc: entry.arc,
+    taskList: entry.task_list,
     steps: entry.steps,
     stage: entry.stage,
   });
@@ -213,14 +233,16 @@ export function TugDashTrack({
   size = "rail",
   "aria-label": ariaLabel,
 }: TugDashTrackProps): React.ReactElement {
-  const phases: readonly DashPhase[] = model.dashCut ? ["implement", "join"] : DASH_PHASES;
+  // The track draws the phases the dash has, never the five with two struck
+  // out: a direct dash did not skip devise and review, it never had them.
+  const phases: readonly DashPhase[] = model.direct ? ["implement", "join"] : DASH_PHASES;
   return (
     <span
       className="tug-dash-track"
       data-slot="tug-dash-track"
       data-size={size}
       data-phase={model.phase}
-      data-dash-cut={model.dashCut ? "true" : undefined}
+      data-direct={model.direct ? "true" : undefined}
       data-stopped={model.stopped !== null ? "true" : undefined}
       aria-label={ariaLabel ?? cellTip(model, model.phase, dashCellState(model, model.phase))}
     >

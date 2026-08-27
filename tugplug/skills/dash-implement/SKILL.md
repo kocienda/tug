@@ -199,4 +199,4 @@ Everything in [`tuglaws/dash-work-doctrine.md`](../../../tuglaws/dash-work-doctr
 
 ## When to reach for something else
 
-This skill holds the plan's context in one conversation, which fits small-to-medium plans well (a dozen steps is healthy). For a very large plan, walk it in batches — `/tugplug:dash-implement <plan> Steps 1-4`, review, then `Steps 5-8` — or author smaller plans. For a quick, plan-less change, use `/tugplug:cut` instead.
+This skill holds the plan's context in one conversation, which fits small-to-medium plans well (a dozen steps is healthy). For a very large plan, walk it in batches — `/tugplug:dash-implement <plan> Steps 1-4`, review, then `Steps 5-8` — or author smaller plans. For a change whose shape is already clear, the direct dash — the plain `/dash` — does the work in one conversation against a task list instead.

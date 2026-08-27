@@ -495,8 +495,8 @@ describe.skipIf(!SHOULD_RUN)("AT0473: the dash cockpit lists waiting plans", () 
 
         // A real dash on project A, bound to the followed card's session — the
         // fixture runs the same verbs a run does. No documents and no arc, so
-        // the cell reads it as the cut it is indistinguishable from — a word,
-        // because there is no plan to count.
+        // the cell reads it as the direct dash it is — a word, because a dash
+        // with no task list has nothing to count.
         const dash = createDash(dirA(), DASH_NAME, "at0473 fixture", projectA!.cli);
         bindDash(dirA(), DASH_NAME, SID_A, {
           binaryRoot: CHECKOUT,
@@ -512,7 +512,7 @@ describe.skipIf(!SHOULD_RUN)("AT0473: the dash cockpit lists waiting plans", () 
         // No strip in this box: the cell is an instrument, and the whole
         // track lives on its placard ([D168]).
         expect(bare.tracks).toBe(0);
-        expect(bare.text).toBe("Cut");
+        expect(bare.text).toBe("Working");
         expect(bare.fractions).toBe(0);
         // TWO dots, one pinned to each edge of the reading — STATE's own
         // construction — and both quiet: a dash nobody has worked yet is not

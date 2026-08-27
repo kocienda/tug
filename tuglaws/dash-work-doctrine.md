@@ -2,7 +2,7 @@
 
 *How an agent works on a dash worktree. The rules below hold for every dash — a quick plan-less task, a planned run walking a ledger, an audit that only reads. They are cited, not copied: a working skill states its own flow and points here for the discipline, so the discipline has exactly one home.*
 
-*The lane's conversational entry point is the bare `/dash`, which sizes an idea with the user and routes it to whichever path fits. Typing the stage you want — `/tugplug:cut`, `/tugplug:dash-implement` — is the expert path and is never worse (`/tugplug:dash-devise` is not among them: it is a stage of `/dash` and stops when it is run outside an arc); `/dash` exists so that knowing the roster is not the price of starting. Whichever door a run comes through, the discipline below is the same one.*
+*The lane has two doors, and which one the user typed is the routing decision. The bare `/dash` is the direct dash — worked in the conversation they are already in, against a task list the working session writes. `/dash-plan` is the planned one — a brief settled with the user and handed to the arc. Typing a stage you want by name — `/tugplug:dash-implement`, `/tugplug:dash-review` — is the expert path and is never worse (`/tugplug:dash-devise` is not among them: it is a stage of the arc and stops when it is run outside one). Whichever door a run comes through, the discipline below is the same one.*
 
 This document covers **how the work is done**. The dash's state model — what `created`, `working`, `implementing`, `built`, `audited`, `draft-ready`, and `joining` mean and how each is derived or declared — is a separate subject, and lives in [dash-lifecycle.md](dash-lifecycle.md) along with the identity and binding models.
 

@@ -96,7 +96,7 @@ tugdeck/src/protocol.ts dash/dev-atoms.md
 tugdeck/src/spikes/spike-session-identity.tsx dash/session-identity.md
 tugdeck/src/spikes/spike-session-identity.tsx dash/session-reference-brief.md
 tuglaws/app-test-harness.md tuglaws/app-test-inventory.md
-tuglaws/design-decisions.md cut/SKILL.md
+tuglaws/design-decisions.md dash/SKILL.md
 tugrust/crates/tugcast/src/feeds/agent_supervisor.rs dash/tugplan-dev-mid-turn-replay.md
 tugrust/crates/tugcast/src/feeds/agent_supervisor.rs dash/tugplan-dev-transcript-resume.md
 tugrust/crates/tugcast/src/feeds/changeset.rs dir/plan.md

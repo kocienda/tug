@@ -1158,6 +1158,28 @@ fn untick(line: &str) -> String {
     }
 }
 
+/// The sections a devised plan carries beside the execution machinery.
+///
+/// A **task list** — what a dash worked directly writes for itself — is the
+/// steps and the ledger and nothing else. A **devised plan** carries the
+/// skeleton's frame, which is what `plan lint` checks for and what the devise
+/// stage exists to produce. The two are otherwise the same document, so this
+/// is the only thing that tells them apart — and it is the author's own
+/// structure rather than a guess about who wrote it.
+const DEVISED_FRAME: &[&str] = &["plan-metadata", "phase-overview", "deliverables"];
+
+/// Whether this document is a task list rather than a devised plan.
+///
+/// Read positively off the absence of the frame: a document that carries any
+/// part of it was written against the skeleton, however incompletely, and a
+/// half-written plan is a plan. Only a document that carries none of it is a
+/// task list.
+pub fn is_task_list(doc: &PlanDoc) -> bool {
+    !DEVISED_FRAME
+        .iter()
+        .any(|section| doc.anchors.iter().any(|(a, _)| a == section))
+}
+
 /// What the Review Record says about the content on disk now.
 ///
 /// The comparison is against the **newest stamped round only**. An older
@@ -1555,6 +1577,60 @@ Some context.
 
     fn diagnose(source: &str) -> Vec<Diagnostic> {
         lint(&parse(source).expect("fixture parses as a plan"))
+    }
+
+    /// What a dash worked directly writes for itself: steps, a ledger, and
+    /// none of the skeleton's frame.
+    const TASK_LIST: &str = r#"## Centre the Lens empty reading {#dash-lens-none}
+
+The Dashes section's empty state reads None, centred in its own row.
+
+### Execution Steps {#execution-steps}
+
+#### Step Status Ledger {#step-status-ledger}
+
+| Step | Title | Status | Commit |
+|---|---|---|---|
+| #step-1 | Centre the reading | pending | — |
+| #step-2 | Pin it with a test | pending | — |
+
+#### Step 1: Centre the reading {#step-1}
+
+Give the empty row the same grid the populated one has.
+
+#### Step 2: Pin it with a test {#step-2}
+
+One assertion on the centred box.
+"#;
+
+    #[test]
+    fn a_task_list_is_a_plan_that_parses_and_carries_its_ledger() {
+        let doc = parse(TASK_LIST).expect("a task list is a plan document");
+        assert_eq!(doc.ledger_rows.len(), 2);
+        assert_eq!(doc.steps.len(), 2);
+    }
+
+    #[test]
+    fn is_task_list_separates_the_two_documents() {
+        assert!(is_task_list(&parse(TASK_LIST).unwrap()));
+        assert!(!is_task_list(&parse(MINIMAL).unwrap()));
+    }
+
+    #[test]
+    fn any_part_of_the_frame_makes_it_a_plan() {
+        // A half-written plan is a plan: one section of the frame is enough,
+        // so a devise stage interrupted mid-document is never read as a task
+        // list and quietly given the direct dash's two-cell face.
+        for section in [
+            "Plan Metadata {#plan-metadata}",
+            "Phase Overview {#phase-overview}",
+        ] {
+            let partial = TASK_LIST.replace(
+                "### Execution Steps {#execution-steps}",
+                &format!("### {section}\n\nSomething.\n\n### Execution Steps {{#execution-steps}}"),
+            );
+            assert!(!is_task_list(&parse(&partial).unwrap()), "{section}");
+        }
     }
 
     fn codes(source: &str) -> Vec<String> {

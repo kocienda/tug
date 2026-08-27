@@ -212,7 +212,7 @@ describe("mergeCommandProviders", () => {
     // EXACT hit while the local verbs can only reach PREFIX.
     const merged = mergeCommandProviders(
       localCommandCompletionProvider(),
-      namesProvider("tugplug:dash", "tugplug:cut"),
+      namesProvider("tugplug:dash", "tugplug:dash-plan"),
     );
     const ranked = labels(merged, "dash");
     expect(ranked[0]).toBe("tugplug:dash");
