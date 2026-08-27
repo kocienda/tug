@@ -113,9 +113,15 @@ export function DashLifecycleLine({
           <TugStepFraction current={steps.current} total={steps.total} />
         )
       ) : null}
-      <span className="tug-dash-lifecycle-note" data-slot="tug-dash-lifecycle-note" title={note}>
-        {note}
-      </span>
+      {/* A tooltip is never a second copy of the word under the cursor. The
+          note elides first when the line runs out of room, so the bubble is
+          for the reading the ellipsis took away — `truncated` measures the
+          span at the open edge and stays shut when the whole note fits. */}
+      <TugTooltip content={note} truncated>
+        <span className="tug-dash-lifecycle-note" data-slot="tug-dash-lifecycle-note">
+          {note}
+        </span>
+      </TugTooltip>
       {dashLifecycleFacts(facts).map((fact) => (
         <TugTooltip key={fact.key} content={fact.tooltip}>
           <span

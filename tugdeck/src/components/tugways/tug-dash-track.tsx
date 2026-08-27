@@ -2,8 +2,8 @@
  * TugDashTrack — a dash's whole life as one cap-height strip.
  *
  * Five cells in lifecycle order — brief · devise · review · implement · join —
- * with implement subdivided into one tick per plan step. A cut, which has no
- * documents and no arc, is the last two cells. Each cell wears one of four
+ * with implement subdivided into one tick per plan step. A direct dash, which
+ * has no arc, is the last two cells. Each cell wears one of four
  * states the CSS paints ([L06]): `pending`, `active`, `done`, `stopped`. A stop
  * is the one fact that outranks the rest: the cell it stopped in paints danger
  * and its tooltip says why, in the arc receipt's own words.

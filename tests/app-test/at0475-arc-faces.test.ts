@@ -238,15 +238,15 @@ describe.skipIf(!SHOULD_RUN)("AT0475: the arc's faces", () => {
         expect(stopNote.startsWith("stopped · ")).toBe(true);
         expect(stopNote).toContain("the plan did not lint");
 
-        // And the reading the arc must never overwrite: the placard's footer
-        // carries the *git* stage, derived exactly as it always was. A dash
-        // with no rounds reads `created`, and it still does — the arc stopping
-        // is a fact about the arc, not a rewrite of what git holds.
+        // And the footer says nothing the block above it already said. It
+        // carried the git stage once, which read as a gerund spelling of the
+        // very phase on the lifecycle line; the stage reaches the eye at the
+        // Changes lane's join register instead, where a decision turns on it.
         expect(
           await app.evalJS<string>(
             `(document.querySelector('[data-slot="tug-popup-list-footer"]')?.textContent ?? "").trim()`,
           ),
-        ).toContain("created");
+        ).toBe("Show in Changes");
 
         // The stop says where it got to, which is what a resume needs and what
         // a cleared field would have thrown away. The cell's sentence carries

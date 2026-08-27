@@ -1376,7 +1376,10 @@ export function DashPopoverContent({
       kind="item"
       className="session-dash-popover"
       footer={
-        <TugPopupListFooter summary={fact.stage ?? "dash"}>
+        // No summary word: the lifecycle block at the top of this placard
+        // already says the phase, and the git stage under it was the same
+        // reading spelled as a gerund.
+        <TugPopupListFooter>
           <TugPushButton
             size="2xs"
             emphasis="ghost"
