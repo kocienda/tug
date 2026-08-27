@@ -1389,6 +1389,7 @@ Some context.
                 &root.to_string_lossy(),
                 "card-1",
                 1_000,
+                "claude-1",
                 None,
             )
             .unwrap();

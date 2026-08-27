@@ -89,7 +89,10 @@ pub fn chain_for(lineage: &LineageSource, ledger: &PromptLedger, session_id: &st
     let mut chain: Vec<String> = Vec::new();
     // The trailing id is belt and braces: a live answer always contains it, and
     // an absent session ledger gives no live answer at all.
-    let walk = live.iter().cloned().chain(std::iter::once(session_id.to_owned()));
+    let walk = live
+        .iter()
+        .cloned()
+        .chain(std::iter::once(session_id.to_owned()));
     for id in walk {
         // A member's recorded ancestors are older than the member, so they go
         // in ahead of it and the whole chain stays in age order.
@@ -201,10 +204,18 @@ mod tests {
     fn a_rotated_session_reads_its_predecessors_prompts() {
         let sessions = SessionLedger::open_in_memory().unwrap();
         sessions
-            .record_spawn("old", "ws", "/proj", "card-1", 1, None)
+            .record_spawn("old", "ws", "/proj", "card-1", 1, "old", None)
             .unwrap();
         sessions
-            .record_spawn("new", "ws", "/proj", "card-1", 2, Some("juicy-roach"))
+            .record_spawn(
+                "new",
+                "ws",
+                "/proj",
+                "card-1",
+                2,
+                "new",
+                Some("juicy-roach"),
+            )
             .unwrap();
         sessions.set_fork_provenance("new", "old", None).unwrap();
 
@@ -228,10 +239,10 @@ mod tests {
     fn a_recorded_chain_outlives_the_evidence_it_came_from() {
         let sessions = Arc::new(SessionLedger::open_in_memory().unwrap());
         sessions
-            .record_spawn("old", "ws", "/proj", "card-1", 1, None)
+            .record_spawn("old", "ws", "/proj", "card-1", 1, "old", None)
             .unwrap();
         sessions
-            .record_spawn("new", "ws", "/proj", "card-1", 2, None)
+            .record_spawn("new", "ws", "/proj", "card-1", 2, "new", None)
             .unwrap();
         sessions.set_fork_provenance("new", "old", None).unwrap();
 
@@ -263,10 +274,10 @@ mod tests {
         // A fresh instance knows only b → c; everything older was evicted.
         let sessions = SessionLedger::open_in_memory().unwrap();
         sessions
-            .record_spawn("b", "ws", "/proj", "card-1", 1, None)
+            .record_spawn("b", "ws", "/proj", "card-1", 1, "b", None)
             .unwrap();
         sessions
-            .record_spawn("c", "ws", "/proj", "card-1", 2, None)
+            .record_spawn("c", "ws", "/proj", "card-1", 2, "c", None)
             .unwrap();
         sessions.set_fork_provenance("c", "b", None).unwrap();
 
@@ -312,10 +323,10 @@ mod tests {
     fn the_backfill_records_what_the_session_ledger_knows_and_then_stops() {
         let sessions = SessionLedger::open_in_memory().unwrap();
         sessions
-            .record_spawn("old", "ws", "/proj", "card-1", 1, None)
+            .record_spawn("old", "ws", "/proj", "card-1", 1, "old", None)
             .unwrap();
         sessions
-            .record_spawn("new", "ws", "/proj", "card-1", 2, None)
+            .record_spawn("new", "ws", "/proj", "card-1", 2, "new", None)
             .unwrap();
         sessions.set_fork_provenance("new", "old", None).unwrap();
 
@@ -362,10 +373,10 @@ mod tests {
     fn an_unforked_session_reads_only_its_own() {
         let sessions = SessionLedger::open_in_memory().unwrap();
         sessions
-            .record_spawn("solo", "ws", "/proj", "card-1", 1, None)
+            .record_spawn("solo", "ws", "/proj", "card-1", 1, "solo", None)
             .unwrap();
         sessions
-            .record_spawn("stranger", "ws", "/proj", "card-2", 2, None)
+            .record_spawn("stranger", "ws", "/proj", "card-2", 2, "stranger", None)
             .unwrap();
 
         let ledger = PromptLedger::open_in_memory().unwrap();

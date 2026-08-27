@@ -13,6 +13,7 @@ import type { SessionRow } from "@/protocol";
 function makeRow(partial: Partial<SessionRow> & { session_id: string }): SessionRow {
   return {
     session_id: partial.session_id,
+    line_id: partial.line_id ?? partial.session_id,
     workspace_key: partial.workspace_key ?? "ws-1",
     project_dir: partial.project_dir ?? "/proj",
     created_at: partial.created_at ?? 1,

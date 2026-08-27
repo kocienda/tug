@@ -16,6 +16,7 @@ import type { SessionRow } from "@/protocol";
 function row(over: Partial<SessionRow>): SessionRow {
   return {
     session_id: "abcdef1234567890",
+    line_id: "line-abcdef12",
     workspace_key: "w",
     project_dir: "/p",
     created_at: 0,

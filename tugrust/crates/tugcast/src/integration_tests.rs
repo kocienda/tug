@@ -1643,7 +1643,7 @@ async fn test_prompt_history_refuses_a_non_loopback_client() {
 async fn test_prompt_history_pages_across_a_rotated_session_id() {
     let sessions = Arc::new(crate::session_ledger::SessionLedger::open_in_memory().expect("l"));
     sessions
-        .record_spawn("sess-1", "ws", "/proj", "card-1", 1, None)
+        .record_spawn("sess-1", "ws", "/proj", "card-1", 1, "sess-1", None)
         .unwrap();
     let (app, _ledger) = loopback_prompt_history_app_with(Arc::clone(&sessions));
 
@@ -1658,7 +1658,15 @@ async fn test_prompt_history_pages_across_a_rotated_session_id() {
 
     // The relaunch: a fresh id, forked from the one that owns the prompts.
     sessions
-        .record_spawn("sess-2", "ws", "/proj", "card-1", 2, Some("juicy-roach"))
+        .record_spawn(
+            "sess-2",
+            "ws",
+            "/proj",
+            "card-1",
+            2,
+            "sess-2",
+            Some("juicy-roach"),
+        )
         .unwrap();
     sessions
         .set_fork_provenance("sess-2", "sess-1", None)

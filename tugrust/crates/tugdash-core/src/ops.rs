@@ -2460,14 +2460,21 @@ pub(crate) fn session_citation() -> Option<(String, String)> {
         rusqlite::Connection::open_with_flags(&db, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
             .ok()?;
     // No row → `query_row` errors → `.ok()?` omits the trailers.
-    let tag: Option<String> = conn
+    // The citation names the **line** ([P13]): its callsign, and its eight
+    // characters inside the parentheses, so a citation written from inside an
+    // arc stage resolves to the conversation rather than to the segment that
+    // happened to be seated. `Tug-Session-Id` beside it still pins the exact
+    // transcript.
+    let (tag, line_id): (String, String) = conn
         .query_row(
-            "SELECT tag FROM sessions WHERE session_id = ?1",
+            "SELECT l.tag, l.line_id FROM sessions s
+             JOIN lines l ON l.line_id = s.line_id
+             WHERE s.session_id = ?1",
             rusqlite::params![session_id],
-            |row| row.get::<_, Option<String>>(0),
+            |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .ok()?;
-    let citation = tugchanges_core::session_citation(tag.as_deref(), &session_id);
+    let citation = tugchanges_core::session_citation(Some(&tag), &line_id);
     Some((citation, session_id))
 }
 
@@ -7435,6 +7442,95 @@ Some context.
         unsafe {
             std::env::remove_var("TUG_CHANGES_DB");
         }
+    }
+
+    /// A round commit made from inside an arc stage cites the **line**, not
+    /// the segment ([P13]): the line's callsign, the line's eight characters
+    /// inside the parentheses, and the segment's own uuid in
+    /// `Tug-Session-Id`, which is what pins the transcript the commit was
+    /// made in.
+    #[serial]
+    #[test]
+    fn a_round_commit_from_a_stage_cites_the_line() {
+        let temp = TempDir::new().unwrap();
+        let repo = temp.path();
+        let home = temp.path().join("state");
+        init_git_repo(repo);
+        redirect_state_dir(&home);
+        std::env::set_current_dir(repo).unwrap();
+
+        // A line of two segments: the root, and the stage a rotation seated.
+        // The commit is made from the stage.
+        let line_id = "7f3d2c18-4b5a-4c6d-8e9f-0a1b2c3d4e5f";
+        let stage = "aa11bb22-cc33-4d44-8e55-ff6677889900";
+        let sessions_db = temp.path().join("sessions.db");
+        {
+            let conn = rusqlite::Connection::open(&sessions_db).unwrap();
+            conn.execute_batch(
+                "CREATE TABLE lines (
+                    line_id       TEXT PRIMARY KEY,
+                    tag           TEXT NOT NULL UNIQUE,
+                    name          TEXT,
+                    name_user_set INTEGER NOT NULL DEFAULT 0,
+                    card_id       TEXT,
+                    project_dir   TEXT NOT NULL,
+                    created_at    INTEGER NOT NULL,
+                    last_used_at  INTEGER NOT NULL
+                 );
+                 CREATE TABLE sessions (
+                    session_id   TEXT PRIMARY KEY,
+                    line_id      TEXT NOT NULL
+                 );",
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO lines (line_id, tag, name, name_user_set, card_id,
+                                    project_dir, created_at, last_used_at)
+                 VALUES (?1, 'heroic-mule', 'dash+join-xp', 1, 'card-1', '/proj', 1, 1)",
+                rusqlite::params![line_id],
+            )
+            .unwrap();
+            for segment in ["5b4b5867-1111-4222-8333-444455556666", stage] {
+                conn.execute(
+                    "INSERT INTO sessions (session_id, line_id) VALUES (?1, ?2)",
+                    rusqlite::params![segment, line_id],
+                )
+                .unwrap();
+            }
+        }
+        // SAFETY: serial test; see redirect_state_dir.
+        unsafe {
+            std::env::set_var(tugcore::instance::ENV_SESSIONS_DB, &sessions_db);
+            std::env::set_var("TUG_SESSION_ID", stage);
+        }
+
+        create("cite-dash", Some("Test".to_string()), false, None).unwrap();
+        let worktree = repo.join(".tug/worktrees/cite-dash");
+        fs::write(worktree.join("f.txt"), "x\n").unwrap();
+        commit("cite-dash", "Add f", None).unwrap();
+
+        let round = Command::new("git")
+            .arg("-C")
+            .arg(&worktree)
+            .args(["log", "-1", "--format=%B"])
+            .output()
+            .unwrap();
+        let round = String::from_utf8_lossy(&round.stdout);
+
+        // SAFETY: serial test; see redirect_state_dir.
+        unsafe {
+            std::env::remove_var(tugcore::instance::ENV_SESSIONS_DB);
+            std::env::remove_var("TUG_SESSION_ID");
+        }
+
+        assert!(
+            round.contains("Tug-Session: heroic-mule (7f3d2c18)"),
+            "the citation is the line's callsign and the line's short id: {round}"
+        );
+        assert!(
+            round.contains(&format!("Tug-Session-Id: {stage}")),
+            "the machine id pins the segment the commit was made in: {round}"
+        );
     }
 
     #[serial]

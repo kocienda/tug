@@ -187,6 +187,7 @@ import {
 import { clipboardOriginProps } from "@/lib/clipboard-origin";
 import {
   provisionSpawnTag,
+  provisionSpawnLine,
   sendCloseSessionKeepingBinding,
   sendSpawnSession,
 } from "@/lib/session-lifecycle";
@@ -1043,13 +1044,18 @@ function SessionProjectPicker({ cardId }: SessionProjectPickerProps) {
                 // picker's `shownRef` guard blocks a re-present.
                 fireRestore(cardId, sessionId, projectDir, connection, display);
               } else {
+                // The `new` arm: a fresh spawn mints its line from the drop
+                // ([P03]). A resume never reaches here — it goes through
+                // `fireRestore`, which offers only a line the deck knows.
+                const lineId = provisionSpawnLine(sessionId);
                 sendSpawnSession(
                   connection,
                   cardId,
                   sessionId,
                   projectDir,
                   sessionMode,
-                  provisionSpawnTag(sessionId),
+                  provisionSpawnTag(lineId),
+                  lineId,
                 );
               }
             }, SHEET_EXIT_ANIMATION_MS);
@@ -3938,13 +3944,18 @@ export function SessionCardBody({
       const connection = getConnection();
       if (binding === undefined || connection === null) return;
       const newSessionId = crypto.randomUUID();
+      // `/clear` is a plain `/new`: a fresh line, not the card's ([P03]). The
+      // server births it and answers with `session_line_rebound`, which is what
+      // re-seats the binding and starts the card's identity over.
+      const lineId = provisionSpawnLine(newSessionId);
       sendSpawnSession(
         connection,
         cardId,
         newSessionId,
         binding.projectDir,
         "new",
-        provisionSpawnTag(newSessionId),
+        provisionSpawnTag(lineId),
+        lineId,
       );
       sendCloseSessionKeepingBinding(connection, cardId, binding.tugSessionId);
     },

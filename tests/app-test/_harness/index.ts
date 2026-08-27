@@ -896,6 +896,13 @@ export class App {
     cardId: string,
     options?: {
       tugSessionId?: string;
+      /**
+       * The line of work the card is seated on ([P01]). Defaults to
+       * `tugSessionId` — a line of one, the same fallback the identity stores
+       * take. Pass it when the ledger holds several segments on one line and
+       * the test needs the card bound to the line they share.
+       */
+      lineId?: string;
       workspaceKey?: string;
       projectDir?: string;
       /**

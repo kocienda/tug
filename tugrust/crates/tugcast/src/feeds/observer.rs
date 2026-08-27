@@ -976,7 +976,7 @@ mod tests {
         let fake = Arc::clone(&spawner);
         let mut h = start(spawner, 0).await;
         h.ledger
-            .record_spawn("s1", "ws", "/proj", "card-1", 1_000, None)
+            .record_spawn("s1", "ws", "/proj", "card-1", 1_000, "s1", None)
             .expect("spawn");
         h.ledger
             .record_fact(&crate::feeds::facts_library::commit_fact(
@@ -1018,7 +1018,7 @@ mod tests {
         let spawner = FakeSpawner::always(Ok(envelope("should never be asked for")));
         let mut h = start(spawner, 0).await;
         h.ledger
-            .record_spawn("s1", "ws", "/proj", "card-1", 1_000, None)
+            .record_spawn("s1", "ws", "/proj", "card-1", 1_000, "s1", None)
             .expect("spawn");
         h.ledger
             .set_session_private("s1", true)

@@ -652,6 +652,9 @@ async fn intercept_session_control(
         ControlOutcome::Error(ControlError::CapExceeded { reason }) => {
             ControlIntercept::HandledError { detail: reason }
         }
+        ControlOutcome::Error(ControlError::MissingLineId) => ControlIntercept::HandledError {
+            detail: "missing_line_id",
+        },
     }
 }
 
@@ -1535,6 +1538,8 @@ mod tests {
             // project_dir is required on the wire. Use the
             // crate manifest dir as a valid fixture path for router tests.
             "project_dir": env!("CARGO_MANIFEST_DIR"),
+            // A `mode=new` spawn births a line ([P03]).
+            "line_id": "line-router-test",
         }))
         .unwrap()
     }
@@ -1693,6 +1698,7 @@ mod tests {
             "card_id": "card-1",
             "tug_session_id": "sess-1",
             "project_dir": "/nonexistent/router-invalid-path-test-xyz",
+            "line_id": "line-router-test",
         }))
         .unwrap();
         let outcome = intercept_session_control(Some(&sup), "spawn_session", &nonexistent, 7).await;

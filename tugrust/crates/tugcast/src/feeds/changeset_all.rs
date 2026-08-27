@@ -401,6 +401,7 @@ mod tests {
                 &repo.to_string_lossy(),
                 "card-1",
                 0,
+                "sess-a",
                 None,
             )
             .unwrap();
@@ -411,6 +412,7 @@ mod tests {
                 &plain.to_string_lossy(),
                 "card-2",
                 0,
+                "sess-b",
                 None,
             )
             .unwrap();
@@ -604,6 +606,7 @@ mod tests {
                 &link.to_string_lossy(),
                 "card-1",
                 0,
+                "sess",
                 None,
             )
             .unwrap();

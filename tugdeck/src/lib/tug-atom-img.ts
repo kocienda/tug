@@ -47,6 +47,7 @@ import {
   sessionDisplayTitle,
 } from "@/lib/session-identity";
 import { sessionTagStore } from "@/lib/session-tag-store";
+import { sessionLineStore } from "@/lib/session-line-store";
 
 /**
  * Recess-edge geometry shared by both renderers so the inline-`<svg>` chip
@@ -567,7 +568,8 @@ function paintRecessShade(
  * it is what the transcript's live chip does with the same fact.
  */
 function sessionChipLabel(label: string, value: string): string {
-  const sessionId = sessionTagStore.resolveTag(sessionAtomCallsign(value));
+  const lineId = sessionTagStore.lineWearing(sessionAtomCallsign(value));
+  const sessionId = lineId === null ? null : sessionLineStore.seatOf(lineId);
   if (sessionId === null) return label;
   return sessionDisplayTitle(
     resolveSessionIdentity(sessionId, {
@@ -577,7 +579,8 @@ function sessionChipLabel(label: string, value: string): string {
 }
 
 function sessionDotToken(value: string): string | null {
-  const sessionId = sessionTagStore.resolveTag(sessionAtomCallsign(value));
+  const lineId = sessionTagStore.lineWearing(sessionAtomCallsign(value));
+  const sessionId = lineId === null ? null : sessionLineStore.seatOf(lineId);
   if (sessionId === null) return null;
   const { role } = sessionSessionPhaseVisual(sessionPhaseNow(sessionId));
   return progressRoleFillToken(role ?? "inherit");

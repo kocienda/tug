@@ -1780,7 +1780,15 @@ mod tests {
         .enumerate()
         {
             ledger
-                .record_spawn(session, "ws", &root.to_string_lossy(), "card", 0, None)
+                .record_spawn(
+                    session,
+                    "ws",
+                    &root.to_string_lossy(),
+                    "card",
+                    0,
+                    session,
+                    None,
+                )
                 .unwrap();
             let mut row = event(session, &format!("tu-{i}"), &root.join("both.txt"), &root);
             // The file is tracked, so the row must post-date its commit.
@@ -1829,7 +1837,15 @@ mod tests {
         let ledger = SessionLedger::open_in_memory().unwrap();
         for (i, session) in ["sess-alpha", "sess-beta"].into_iter().enumerate() {
             ledger
-                .record_spawn(session, "ws", &root.to_string_lossy(), "card", 0, None)
+                .record_spawn(
+                    session,
+                    "ws",
+                    &root.to_string_lossy(),
+                    "card",
+                    0,
+                    session,
+                    None,
+                )
                 .unwrap();
             let mut row = event(session, &format!("tu-{i}"), &root.join("both.txt"), &root);
             row.at = 9_000_000_000_000;
@@ -1884,7 +1900,15 @@ mod tests {
         .enumerate()
         {
             ledger
-                .record_spawn(session, "ws", &root.to_string_lossy(), "card", 0, None)
+                .record_spawn(
+                    session,
+                    "ws",
+                    &root.to_string_lossy(),
+                    "card",
+                    0,
+                    session,
+                    None,
+                )
                 .unwrap();
             let mut row = event(session, &format!("tu-{i}"), &root.join("both.txt"), &root);
             row.at = 9_000_000_000_000;
@@ -1942,7 +1966,15 @@ mod tests {
         let ledger = SessionLedger::open_in_memory().unwrap();
         for (i, (session, old, new)) in placements.into_iter().enumerate() {
             ledger
-                .record_spawn(session, "ws", &root.to_string_lossy(), "card", 0, None)
+                .record_spawn(
+                    session,
+                    "ws",
+                    &root.to_string_lossy(),
+                    "card",
+                    0,
+                    session,
+                    None,
+                )
                 .unwrap();
             let mut row = event(session, &format!("tu-{i}"), &root.join("both.txt"), &root);
             row.at = 9_000_000_000_000;
@@ -2104,7 +2136,15 @@ mod tests {
         }
         let ledger = SessionLedger::open_in_memory().unwrap();
         ledger
-            .record_spawn("sess-alpha", "ws", &root.to_string_lossy(), "card", 0, None)
+            .record_spawn(
+                "sess-alpha",
+                "ws",
+                &root.to_string_lossy(),
+                "card",
+                0,
+                "sess-alpha",
+                None,
+            )
             .unwrap();
         for i in 0..25 {
             ledger
@@ -2152,7 +2192,8 @@ mod tests {
                 &root.to_string_lossy(),
                 "card-1",
                 0,
-                None,
+                "sess-alpha",
+                Some("alpha-badge"),
             )
             .unwrap();
         ledger.rename("sess-alpha", Some("alpha work")).unwrap();
@@ -2204,7 +2245,10 @@ mod tests {
             panic!("expected session entry");
         };
         assert_eq!(owner_id, "sess-alpha");
-        assert_eq!(display_name, "alpha work");
+        // Every line wears a callsign ([P01]), so the title is the full
+        // identity grammar rather than the name alone.
+        let leaf = root.file_name().unwrap().to_string_lossy().to_string();
+        assert_eq!(*display_name, format!("alpha work : {leaf}/alpha-badge"));
         assert!(live);
         let paths: Vec<&str> = files.iter().map(|f| f.path.as_str()).collect();
         assert_eq!(
@@ -2269,7 +2313,19 @@ mod tests {
         let ledger = SessionLedger::open_in_memory().unwrap();
         for s in ["sess-dead", "sess-live"] {
             ledger
-                .record_spawn(s, "ws", &root.to_string_lossy(), "card", 0, None)
+                .record_spawn(
+                    s,
+                    "ws",
+                    &root.to_string_lossy(),
+                    "card",
+                    0,
+                    s,
+                    Some(if s == "sess-dead" {
+                        "ghost-badge"
+                    } else {
+                        "live-badge"
+                    }),
+                )
                 .unwrap();
         }
         ledger.rename("sess-dead", Some("ghost work")).unwrap();
@@ -2293,7 +2349,11 @@ mod tests {
         let orphaned: Vec<&str> = snapshot.orphaned.iter().map(|f| f.path.as_str()).collect();
         assert_eq!(orphaned, ["orphan.txt"], "dead-only file is an orphan");
         assert_eq!(snapshot.orphaned[0].prior_owner_id, "sess-dead");
-        assert_eq!(snapshot.orphaned[0].prior_owner_name, "ghost work");
+        let leaf = root.file_name().unwrap().to_string_lossy().to_string();
+        assert_eq!(
+            snapshot.orphaned[0].prior_owner_name,
+            format!("ghost work : {leaf}/ghost-badge")
+        );
         assert_eq!(snapshot.orphaned[0].origin, "exact");
 
         // sess-dead has no surviving entry (its only exclusive file was lifted;
@@ -2335,7 +2395,7 @@ mod tests {
         let ledger = SessionLedger::open_in_memory().unwrap();
         for s in ["sess-alpha", "sess-beta"] {
             ledger
-                .record_spawn(s, "ws", &root.to_string_lossy(), "card", 0, None)
+                .record_spawn(s, "ws", &root.to_string_lossy(), "card", 0, s, None)
                 .unwrap();
         }
         ledger.rename("sess-alpha", Some("alpha work")).unwrap();
@@ -2399,7 +2459,7 @@ mod tests {
         let ledger = SessionLedger::open_in_memory().unwrap();
         for s in ["sess-a", "sess-b"] {
             ledger
-                .record_spawn(s, "ws", &root.to_string_lossy(), "card", 0, None)
+                .record_spawn(s, "ws", &root.to_string_lossy(), "card", 0, s, None)
                 .unwrap();
         }
         // sess-a: the real exact edit. sess-b: a bracket grab of the same file.
@@ -2459,7 +2519,15 @@ mod tests {
 
         let ledger = SessionLedger::open_in_memory().unwrap();
         ledger
-            .record_spawn("sess", "ws", &root.to_string_lossy(), "card-1", 0, None)
+            .record_spawn(
+                "sess",
+                "ws",
+                &root.to_string_lossy(),
+                "card-1",
+                0,
+                "sess",
+                None,
+            )
             .unwrap();
         let mut ev = event("sess", "tu-1", &root.join("committed.txt"), &root);
         ev.at = 1;
@@ -2492,7 +2560,15 @@ mod tests {
 
         let ledger = SessionLedger::open_in_memory().unwrap();
         ledger
-            .record_spawn("sess", "ws", &root.to_string_lossy(), "card-1", 0, None)
+            .record_spawn(
+                "sess",
+                "ws",
+                &root.to_string_lossy(),
+                "card-1",
+                0,
+                "sess",
+                None,
+            )
             .unwrap();
         let mut ev = event("sess", "tu-1", &root.join("committed.txt"), &root);
         // Past the fixture commit's cut, which rounds up to the next second.
@@ -2897,6 +2973,7 @@ Some context.
                 &root.to_string_lossy(),
                 "card-1",
                 crate::session_ledger::now_millis(),
+                "sess-1",
                 None,
             )
             .unwrap();
@@ -3049,6 +3126,7 @@ Some context.
                 &root.to_string_lossy(),
                 "card-1",
                 crate::session_ledger::now_millis(),
+                "sess-1",
                 None,
             )
             .unwrap();
@@ -3237,6 +3315,7 @@ Some context.
             private: false,
             dash_id: None,
             dash_name: None,
+            line_id: String::new(),
         }
     }
 
@@ -4053,10 +4132,26 @@ Some context.
 
         let ledger = SessionLedger::open_in_memory().unwrap();
         ledger
-            .record_spawn("sess-a", "ws", &root.to_string_lossy(), "card-1", 0, None)
+            .record_spawn(
+                "sess-a",
+                "ws",
+                &root.to_string_lossy(),
+                "card-1",
+                0,
+                "sess-a",
+                None,
+            )
             .unwrap();
         ledger
-            .record_spawn("sess-b", "ws", &link.to_string_lossy(), "card-2", 0, None)
+            .record_spawn(
+                "sess-b",
+                "ws",
+                &link.to_string_lossy(),
+                "card-2",
+                0,
+                "sess-b",
+                None,
+            )
             .unwrap();
 
         // Each session's write canonicalizes its own spelling; both resolve to
@@ -4123,7 +4218,7 @@ Some context.
 
         let ledger = SessionLedger::open_in_memory().unwrap();
         ledger
-            .record_spawn("sess-a", "ws", &raw, "card-1", 0, None)
+            .record_spawn("sess-a", "ws", &raw, "card-1", 0, "sess-a", None)
             .unwrap();
 
         let rows = ledger.list_for_project_dir(&raw).unwrap();
@@ -4153,7 +4248,15 @@ Some context.
 
         let ledger = SessionLedger::open_in_memory().unwrap();
         ledger
-            .record_spawn("sess", "ws", &link.to_string_lossy(), "card-1", 0, None)
+            .record_spawn(
+                "sess",
+                "ws",
+                &link.to_string_lossy(),
+                "card-1",
+                0,
+                "sess",
+                None,
+            )
             .unwrap();
         // Legacy row: absolute file_path under the real path, project_dir the
         // symlink spelling — the two disagree, exactly the live bug.
@@ -4197,7 +4300,7 @@ Some context.
         let ledger = SessionLedger::open_in_memory().unwrap();
         let pd = CanonicalPath::from_raw(&root);
         ledger
-            .record_spawn("sess", "ws", pd.as_str(), "card-1", 0, None)
+            .record_spawn("sess", "ws", pd.as_str(), "card-1", 0, "sess", None)
             .unwrap();
         // New capture-time form: repo-relative file_path, op deleted. The
         // deletion postdates the repo's init commit, so the row is live.
@@ -4273,7 +4376,15 @@ Some context.
         std::fs::write(root.join("a.txt"), "x").unwrap();
         let ledger = SessionLedger::open_in_memory().unwrap();
         ledger
-            .record_spawn("sess", "ws", &root.to_string_lossy(), "card", 0, None)
+            .record_spawn(
+                "sess",
+                "ws",
+                &root.to_string_lossy(),
+                "card",
+                0,
+                "sess",
+                None,
+            )
             .unwrap();
         // Legacy-shaped row: absolute file_path.
         ledger
@@ -4311,7 +4422,15 @@ Some context.
 
         let ledger = SessionLedger::open_in_memory().unwrap();
         ledger
-            .record_spawn("sess", "ws", &root.to_string_lossy(), "card", 0, None)
+            .record_spawn(
+                "sess",
+                "ws",
+                &root.to_string_lossy(),
+                "card",
+                0,
+                "sess",
+                None,
+            )
             .unwrap();
         ledger
             .record_file_event(&event("sess", "tu-1", &root.join("a.txt"), &root))
@@ -4337,7 +4456,15 @@ Some context.
         let gone = root.join("src/gone.txt");
         let ledger = SessionLedger::open_in_memory().unwrap();
         ledger
-            .record_spawn("sess", "ws", &root.to_string_lossy(), "card", 0, None)
+            .record_spawn(
+                "sess",
+                "ws",
+                &root.to_string_lossy(),
+                "card",
+                0,
+                "sess",
+                None,
+            )
             .unwrap();
         ledger
             .record_file_event(&event("sess", "tu-1", &gone, &root))
@@ -4361,7 +4488,15 @@ Some context.
         let ledger = SessionLedger::open_in_memory().unwrap();
         // X has a legacy absolute row but is never composed.
         ledger
-            .record_spawn("sess-x", "ws", &root_x.to_string_lossy(), "card-x", 0, None)
+            .record_spawn(
+                "sess-x",
+                "ws",
+                &root_x.to_string_lossy(),
+                "card-x",
+                0,
+                "sess-x",
+                None,
+            )
             .unwrap();
         ledger
             .record_file_event(&event("sess-x", "tu-x", &root_x.join("x.txt"), &root_x))
@@ -4492,7 +4627,15 @@ mod m02a_verification {
     fn seed_ledger(root: &Path) -> SessionLedger {
         let ledger = SessionLedger::open_in_memory().unwrap();
         ledger
-            .record_spawn(SESSION, "ws", &root.to_string_lossy(), "card-1", 0, None)
+            .record_spawn(
+                SESSION,
+                "ws",
+                &root.to_string_lossy(),
+                "card-1",
+                0,
+                SESSION,
+                None,
+            )
             .unwrap();
         ledger
             .record_file_event(&FileEventRow {

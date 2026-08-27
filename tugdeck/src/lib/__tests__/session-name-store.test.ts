@@ -44,24 +44,29 @@ describe("sessionNameStore", () => {
     unsubscribe();
   });
 
-  test("settle hands the waiter what the rename displaced", () => {
+  test("a refused rename restores the name and names the holder", () => {
     const settles: NameSettle[] = [];
-    sessionNameStore.awaitSettle("n-took", "harbor light", null, (s) =>
+    sessionNameStore.setName("n-took", "old");
+    sessionNameStore.awaitSettle("n-took", "harbor light", "old", (s) =>
       settles.push(s),
     );
     sessionNameStore.settle("n-took", "harbor light", {
-      ok: true,
-      displaced: ["other"],
+      ok: false,
+      reason: "name_taken",
+      holderTag: "stocky-pixie",
     });
-    expect(settles[0]?.displaced).toEqual(["other"]);
+    // A taken name is refused, so the old name goes back and the refusal names
+    // who holds the one that was asked for ([P11]).
+    expect(sessionNameStore.getName("n-took")).toBe("old");
+    expect(settles[0]?.holderTag).toBe("stocky-pixie");
   });
 
-  test("settle with no displacement hands the waiter none", () => {
+  test("a settled rename hands the waiter no holder", () => {
     const settles: NameSettle[] = [];
     sessionNameStore.awaitSettle("n-alone", "unspoken for", null, (s) =>
       settles.push(s),
     );
     sessionNameStore.settle("n-alone", "unspoken for", { ok: true });
-    expect(settles[0]?.displaced).toBeUndefined();
+    expect(settles[0]?.holderTag).toBeUndefined();
   });
 });

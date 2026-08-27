@@ -15,6 +15,8 @@
 
 import { useCallback, useSyncExternalStore } from "react";
 
+import { sessionLineStore } from "./session-line-store";
+
 /**
  * User's choice of session mode when the card was opened. Populated from
  * the `spawn_session_ok` CONTROL ack, which echoes the value tugdeck sent
@@ -34,6 +36,14 @@ export interface CardDashBinding {
 
 export interface CardSessionBinding {
   readonly tugSessionId: string;
+  /**
+   * The line of work this card is seated on ([P01]). `tugSessionId` beside it
+   * is whichever segment is live right now and changes on every rotation,
+   * rewind, and respawn; this does not. Every identity-shaped store the card
+   * reads — name, callsign, synopsis, staged context, `/btw` history — is
+   * keyed by it.
+   */
+  readonly lineId: string;
   readonly workspaceKey: string;
   readonly projectDir: string;
   readonly sessionMode: CardSessionMode;
@@ -87,6 +97,26 @@ export class CardSessionBindingStore {
     for (const listener of this._listeners) listener();
   };
 
+  /**
+   * Re-seat a card's binding on a **new line** ([P03]) — the `/clear` case,
+   * where a plain `/new` births a line rather than joining the card's. A merge
+   * like {@link CardSessionBindingStore.setDashBinding}: the spawn ack
+   * established the `workspaceKey` the pane's feed filter is built from, and
+   * replacing the record here would clobber it.
+   *
+   * A no-op for a card with no binding, for the same reason: the spawn ack is
+   * the only thing allowed to create a record.
+   */
+  setLineBinding = (cardId: string, tugSessionId: string, lineId: string): void => {
+    const existing = this._bindings.get(cardId);
+    if (!existing) return;
+    if (existing.tugSessionId === tugSessionId && existing.lineId === lineId) return;
+    const next = new Map(this._bindings);
+    next.set(cardId, { ...existing, tugSessionId, lineId });
+    this._bindings = next;
+    for (const listener of this._listeners) listener();
+  };
+
   clearBinding = (cardId: string): void => {
     if (!this._bindings.has(cardId)) return;
     const next = new Map(this._bindings);
@@ -120,6 +150,13 @@ export const cardSessionBindingStore = new CardSessionBindingStore();
  * reverse of {@link CardSessionBindingStore.getBinding}, and the one place that
  * walk lives.
  *
+ * **Matched by line first.** A reference names a segment — a citation chip, an
+ * Overview ref, a push about a row — and the card holding that conversation may
+ * well have rotated to a newer id since. Resolving the segment to its line and
+ * comparing lines is what keeps "go to that session" landing on the card the
+ * user is actually working in; the direct id match remains for a segment whose
+ * line no frame has named this run.
+ *
  * The store is keyed by card because that is the direction the feed plumbing
  * reads it; a session reference needs the other direction, and the walk is
  * cheap (a deck holds a handful of cards). Every "go to that session" gesture
@@ -127,8 +164,10 @@ export const cardSessionBindingStore = new CardSessionBindingStore();
  * rather than in each caller.
  */
 export function cardIdForSession(sessionId: string): string | null {
+  const lineId = sessionLineStore.lineOf(sessionId);
   for (const [cardId, binding] of cardSessionBindingStore.getSnapshot()) {
     if (binding.tugSessionId === sessionId) return cardId;
+    if (lineId !== null && binding.lineId === lineId) return cardId;
   }
   return null;
 }

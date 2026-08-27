@@ -15,7 +15,6 @@
 //! or superseded holds a partial list, and restoring a partial list would
 //! silently renumber what `/ref N` resolves to.
 
-use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
@@ -36,6 +35,10 @@ pub enum RefsLedgerError {
 #[derive(Debug, Clone)]
 pub struct NewRefsRun {
     pub tug_session_id: String,
+    /// The **line of work** this run belongs to ([P09]). Search history is
+    /// the conversation's, so it survives every id change the card lives
+    /// through without anything moving it.
+    pub line_id: String,
     pub run_id: String,
     pub op_kind: String,
     pub command: String,
@@ -100,10 +103,16 @@ impl RefsLedger {
     fn from_conn(conn: Connection) -> Result<Self, RefsLedgerError> {
         tugcore::ledger_db::apply_pragmas(&conn)?;
         Self::migrate_add_anchor_msg_id(&conn)?;
+        Self::migrate_refs_runs_to_line_key(&conn)?;
         conn.execute_batch(
             "
             CREATE TABLE IF NOT EXISTS refs_runs (
-                tug_session_id TEXT    PRIMARY KEY,
+                -- One run per **line** ([P09], [Q04]): nothing reads a run by
+                -- segment, and `/ref N` means something definite only because
+                -- there is exactly one run to number against.
+                line_id        TEXT    PRIMARY KEY,
+                -- The segment that ran it, kept as the transcript anchor.
+                tug_session_id TEXT    NOT NULL,
                 run_id         TEXT    NOT NULL,
                 op_kind        TEXT    NOT NULL,
                 command        TEXT    NOT NULL,
@@ -123,6 +132,47 @@ impl RefsLedger {
     /// Runs before the DDL batch so an existing table is widened before
     /// anything reads it; a database that has no `refs_runs` table yet
     /// returns early and gets the column from `CREATE TABLE` instead.
+    /// Re-key `refs_runs` from the segment to the **line** ([P09], [Q04]).
+    ///
+    /// A table rebuild rather than an `ALTER`, because the primary key itself
+    /// moves — and a `PRIMARY KEY` cannot be added to an existing SQLite
+    /// table. Rows arrive with `line_id = tug_session_id`, which is a line of
+    /// one until `ink_backfill::assign_lines` resolves them: this ledger
+    /// cannot see `sessions.db`, so it is the only honest placeholder.
+    ///
+    /// A no-op on a table that already speaks lines, and on a database with
+    /// no `refs_runs` at all — the `CREATE TABLE` below then makes the right
+    /// shape directly.
+    fn migrate_refs_runs_to_line_key(conn: &Connection) -> Result<(), RefsLedgerError> {
+        let cols = crate::ledger_integrity::table_columns(conn, "main", "refs_runs")?;
+        if cols.is_empty() || cols.iter().any(|c| c == "line_id") {
+            return Ok(());
+        }
+        conn.execute_batch(
+            "BEGIN IMMEDIATE;
+             CREATE TABLE refs_runs_new (
+                line_id        TEXT    PRIMARY KEY,
+                tug_session_id TEXT    NOT NULL,
+                run_id         TEXT    NOT NULL,
+                op_kind        TEXT    NOT NULL,
+                command        TEXT    NOT NULL,
+                refs_json      TEXT    NOT NULL,
+                settled_at_ms  INTEGER NOT NULL,
+                anchor_msg_id  TEXT
+             );
+             INSERT INTO refs_runs_new
+                (line_id, tug_session_id, run_id, op_kind, command, refs_json,
+                 settled_at_ms, anchor_msg_id)
+                SELECT tug_session_id, tug_session_id, run_id, op_kind, command,
+                       refs_json, settled_at_ms, anchor_msg_id
+                FROM refs_runs;
+             DROP TABLE refs_runs;
+             ALTER TABLE refs_runs_new RENAME TO refs_runs;
+             COMMIT;",
+        )?;
+        Ok(())
+    }
+
     fn migrate_add_anchor_msg_id(conn: &Connection) -> Result<(), RefsLedgerError> {
         let cols = crate::ledger_integrity::table_columns(conn, "main", "refs_runs")?;
         if cols.is_empty() || cols.iter().any(|c| c == "anchor_msg_id") {
@@ -141,9 +191,10 @@ impl RefsLedger {
         let conn = self.db.lock().expect("refs ledger mutex");
         conn.execute(
             "INSERT INTO refs_runs
-                (tug_session_id, run_id, op_kind, command, refs_json, settled_at_ms, anchor_msg_id)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
-             ON CONFLICT(tug_session_id) DO UPDATE SET
+                (line_id, tug_session_id, run_id, op_kind, command, refs_json, settled_at_ms, anchor_msg_id)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+             ON CONFLICT(line_id) DO UPDATE SET
+                tug_session_id = excluded.tug_session_id,
                 run_id = excluded.run_id,
                 op_kind = excluded.op_kind,
                 command = excluded.command,
@@ -151,6 +202,7 @@ impl RefsLedger {
                 settled_at_ms = excluded.settled_at_ms,
                 anchor_msg_id = excluded.anchor_msg_id",
             params![
+                run.line_id,
                 run.tug_session_id,
                 run.run_id,
                 run.op_kind,
@@ -163,86 +215,62 @@ impl RefsLedger {
         Ok(())
     }
 
-    /// Distinct session ids that currently own a run.
-    pub fn session_ids_with_rows(&self) -> Result<HashSet<String>, RefsLedgerError> {
+    /// Session ids whose run still carries the placeholder key its migration
+    /// wrote — the pre-lines shape [`crate::ink_backfill::assign_lines`]
+    /// resolves ([P09]).
+    pub fn sessions_awaiting_a_line(&self) -> Result<Vec<String>, RefsLedgerError> {
         let conn = self.db.lock().expect("refs ledger mutex");
-        let mut stmt = conn.prepare("SELECT tug_session_id FROM refs_runs")?;
+        let mut stmt = conn.prepare(
+            "SELECT tug_session_id FROM refs_runs
+             WHERE line_id = tug_session_id ORDER BY settled_at_ms ASC, tug_session_id ASC",
+        )?;
         let ids = stmt
             .query_map([], |row| row.get::<_, String>(0))?
-            .collect::<Result<HashSet<_>, _>>()?;
+            .collect::<Result<Vec<_>, _>>()?;
         Ok(ids)
     }
 
-    /// Move `from`'s run onto `to`, so a fork's search history follows the
-    /// line of work its ink belongs to.
+    /// Record which line a segment's run belongs to.
     ///
-    /// `tug_session_id` is this table's `PRIMARY KEY`, so a bare `UPDATE`
-    /// would raise a constraint violation whenever `to` already holds a run.
-    /// The two are reconciled instead: the newer `settled_at_ms` survives and
-    /// the older is dropped. That is the table's existing semantics rather
-    /// than a new kind of loss — `record_run` already replaces a session's
-    /// previous run outright, because one run per session is what makes
-    /// `/ref N` mean something definite.
+    /// Two segments of one line each hold a run, and the line holds one — so
+    /// this reconciles rather than moves: the newer `settled_at_ms` survives
+    /// and the older is dropped. That is the table's existing semantics, not a
+    /// new kind of loss; `record_run` already replaces a line's previous run
+    /// outright, because one run per line is what makes `/ref N` definite.
     ///
-    /// Idempotent: `from == to` is a no-op, and afterwards `from` holds
-    /// nothing. Returns how many rows left `from` (0 or 1).
-    pub fn rekey_session_settled_before(
-        &self,
-        from: &str,
-        to: &str,
-        before_ms: i64,
-    ) -> Result<usize, RefsLedgerError> {
-        let settled: Option<i64> = {
-            let conn = self.db.lock().expect("refs ledger mutex");
-            conn.query_row(
-                "SELECT settled_at_ms FROM refs_runs WHERE tug_session_id = ?1",
-                params![from],
-                |row| row.get::<_, i64>(0),
-            )
-            .optional()?
-        };
-        match settled {
-            Some(settled) if settled < before_ms => self.rekey_session(from, to),
-            _ => Ok(0),
-        }
-    }
-
-    pub fn rekey_session(&self, from: &str, to: &str) -> Result<usize, RefsLedgerError> {
-        if from == to {
+    /// Returns how many rows it named (0 or 1).
+    pub fn assign_line(&self, session_id: &str, line_id: &str) -> Result<usize, RefsLedgerError> {
+        if session_id == line_id {
+            // The placeholder already reads as this line; nothing to reconcile
+            // and nothing to say.
             return Ok(0);
         }
         let mut conn = self.db.lock().expect("refs ledger mutex");
         let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-        let (source_settled, dest_settled) = {
-            let settled_at = |session: &str| -> Result<Option<i64>, rusqlite::Error> {
-                tx.query_row(
-                    "SELECT settled_at_ms FROM refs_runs WHERE tug_session_id = ?1",
-                    params![session],
-                    |row| row.get::<_, i64>(0),
-                )
-                .optional()
-            };
-            (settled_at(from)?, settled_at(to)?)
+        let settled_at = |key: &str| -> Result<Option<i64>, rusqlite::Error> {
+            tx.query_row(
+                "SELECT settled_at_ms FROM refs_runs WHERE line_id = ?1",
+                params![key],
+                |row| row.get::<_, i64>(0),
+            )
+            .optional()
         };
-        let Some(source_settled) = source_settled else {
+        let Some(source) = settled_at(session_id)? else {
             return Ok(0);
         };
-        match dest_settled {
-            // The destination's run is the newer one: the mover loses.
-            Some(dest_settled) if dest_settled >= source_settled => {
+        match settled_at(line_id)? {
+            // The line already holds a newer run: this one loses.
+            Some(existing) if existing >= source => {
                 tx.execute(
-                    "DELETE FROM refs_runs WHERE tug_session_id = ?1",
-                    params![from],
+                    "DELETE FROM refs_runs WHERE line_id = ?1",
+                    params![session_id],
                 )?;
             }
             _ => {
+                tx.execute("DELETE FROM refs_runs WHERE line_id = ?1", params![line_id])?;
                 tx.execute(
-                    "DELETE FROM refs_runs WHERE tug_session_id = ?1",
-                    params![to],
-                )?;
-                tx.execute(
-                    "UPDATE refs_runs SET tug_session_id = ?2 WHERE tug_session_id = ?1",
-                    params![from, to],
+                    "UPDATE refs_runs SET line_id = ?2 WHERE line_id = ?1",
+                    params![session_id, line_id],
                 )?;
             }
         }
@@ -250,14 +278,14 @@ impl RefsLedger {
         Ok(1)
     }
 
-    /// The session's latest run, or `None` if it has never completed one.
-    pub fn list_refs(&self, tug_session_id: &str) -> Result<Option<RefsRunRow>, RefsLedgerError> {
+    /// The line's latest run, or `None` if it has never completed one.
+    pub fn list_refs(&self, line_id: &str) -> Result<Option<RefsRunRow>, RefsLedgerError> {
         let conn = self.db.lock().expect("refs ledger mutex");
         let row = conn
             .query_row(
                 "SELECT run_id, op_kind, command, refs_json, settled_at_ms, anchor_msg_id
-                 FROM refs_runs WHERE tug_session_id = ?1",
-                params![tug_session_id],
+                 FROM refs_runs WHERE line_id = ?1",
+                params![line_id],
                 |row| {
                     Ok((
                         row.get::<_, String>(0)?,
@@ -296,6 +324,7 @@ mod tests {
     fn run(session: &str, run_id: &str, paths: &[&str]) -> NewRefsRun {
         NewRefsRun {
             tug_session_id: session.into(),
+            line_id: session.into(),
             run_id: run_id.into(),
             op_kind: "match".into(),
             command: format!("/match {run_id}"),
@@ -352,6 +381,7 @@ mod tests {
         let ledger = RefsLedger::open_in_memory().unwrap();
         let stored = NewRefsRun {
             tug_session_id: "s1".into(),
+            line_id: "s1".into(),
             run_id: "run-1".into(),
             op_kind: "search".into(),
             command: "/search héllo".into(),
@@ -373,7 +403,7 @@ mod tests {
         assert_eq!(latest.settled_at_ms, 42);
     }
 
-    // ── re-key: a fork's run follows the line of work ────────────────────────
+    // ── the backfill gathers a line's run under one key ──────────────────────
 
     fn run_settled(session: &str, run_id: &str, settled_at_ms: i64) -> NewRefsRun {
         NewRefsRun {
@@ -383,21 +413,22 @@ mod tests {
     }
 
     #[test]
-    fn a_rekey_onto_an_empty_session_is_a_plain_move() {
+    fn assigning_a_line_to_an_unclaimed_one_is_a_plain_move() {
         let ledger = RefsLedger::open_in_memory().unwrap();
         ledger
             .record_run(&run("parent", "run-1", &["src/a.ts"]))
             .unwrap();
 
-        assert_eq!(ledger.rekey_session("parent", "fork").unwrap(), 1);
+        assert_eq!(ledger.assign_line("parent", "line-1").unwrap(), 1);
         assert_eq!(ledger.list_refs("parent").unwrap(), None);
-        assert_eq!(ledger.list_refs("fork").unwrap().unwrap().run_id, "run-1");
+        assert_eq!(ledger.list_refs("line-1").unwrap().unwrap().run_id, "run-1");
     }
 
     #[test]
-    fn a_rekey_onto_an_occupied_session_keeps_the_newer_run() {
-        // `tug_session_id` is the primary key, so this is the case a bare
-        // UPDATE would fail on.
+    fn two_segments_of_one_line_keep_the_newer_run() {
+        // `line_id` is the primary key and a line holds one run, so this is
+        // the case a bare UPDATE would fail on — and the reconciliation is the
+        // table's existing "one run per line" rule, not a new kind of loss.
         let ledger = RefsLedger::open_in_memory().unwrap();
         ledger
             .record_run(&run_settled("parent", "older", 100))
@@ -406,13 +437,14 @@ mod tests {
             .record_run(&run_settled("fork", "newer", 200))
             .unwrap();
 
-        assert_eq!(ledger.rekey_session("parent", "fork").unwrap(), 1);
+        ledger.assign_line("fork", "line-1").unwrap();
+        assert_eq!(ledger.assign_line("parent", "line-1").unwrap(), 1);
         assert_eq!(ledger.list_refs("parent").unwrap(), None);
-        assert_eq!(ledger.list_refs("fork").unwrap().unwrap().run_id, "newer");
+        assert_eq!(ledger.list_refs("line-1").unwrap().unwrap().run_id, "newer");
     }
 
     #[test]
-    fn a_rekey_carrying_the_newer_run_displaces_the_destination() {
+    fn the_newer_run_displaces_one_the_line_already_holds() {
         let ledger = RefsLedger::open_in_memory().unwrap();
         ledger
             .record_run(&run_settled("parent", "newer", 200))
@@ -421,32 +453,32 @@ mod tests {
             .record_run(&run_settled("fork", "older", 100))
             .unwrap();
 
-        assert_eq!(ledger.rekey_session("parent", "fork").unwrap(), 1);
-        assert_eq!(ledger.list_refs("parent").unwrap(), None);
-        assert_eq!(ledger.list_refs("fork").unwrap().unwrap().run_id, "newer");
+        ledger.assign_line("fork", "line-1").unwrap();
+        assert_eq!(ledger.assign_line("parent", "line-1").unwrap(), 1);
+        assert_eq!(ledger.list_refs("line-1").unwrap().unwrap().run_id, "newer");
     }
 
     #[test]
-    fn a_rekey_is_idempotent_and_never_self_collides() {
+    fn assigning_a_line_is_idempotent_and_never_self_collides() {
         let ledger = RefsLedger::open_in_memory().unwrap();
         ledger
             .record_run(&run("parent", "run-1", &["src/a.ts"]))
             .unwrap();
 
         assert_eq!(
-            ledger.rekey_session("parent", "parent").unwrap(),
+            ledger.assign_line("parent", "parent").unwrap(),
             0,
-            "a session is never re-keyed onto itself"
+            "the placeholder already reads as this line"
         );
         assert_eq!(ledger.list_refs("parent").unwrap().unwrap().run_id, "run-1");
 
-        ledger.rekey_session("parent", "fork").unwrap();
+        ledger.assign_line("parent", "line-1").unwrap();
         assert_eq!(
-            ledger.rekey_session("parent", "fork").unwrap(),
+            ledger.assign_line("parent", "line-1").unwrap(),
             0,
-            "a second run finds nothing left to move"
+            "a second boot finds nothing left to resolve"
         );
-        assert_eq!(ledger.list_refs("fork").unwrap().unwrap().run_id, "run-1");
+        assert_eq!(ledger.list_refs("line-1").unwrap().unwrap().run_id, "run-1");
     }
 
     // ── the anchor column ────────────────────────────────────────────────────
@@ -565,25 +597,6 @@ mod tests {
                 .anchor_msg_id
                 .as_deref(),
             Some("msg_01KEEP"),
-        );
-    }
-
-    #[test]
-    fn rekey_carries_the_anchor_onto_the_new_session() {
-        let ledger = RefsLedger::open_in_memory().unwrap();
-        ledger
-            .record_run(&anchored("parent", "run-1", "msg_01MOVE"))
-            .unwrap();
-
-        assert_eq!(ledger.rekey_session("parent", "fork").unwrap(), 1);
-        assert_eq!(
-            ledger
-                .list_refs("fork")
-                .unwrap()
-                .unwrap()
-                .anchor_msg_id
-                .as_deref(),
-            Some("msg_01MOVE"),
         );
     }
 }

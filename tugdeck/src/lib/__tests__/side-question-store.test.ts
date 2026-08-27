@@ -54,6 +54,7 @@ function newStore(): {
     feed as unknown as ConstructorParameters<typeof SideQuestionStore>[0],
     FeedId.CODE_OUTPUT,
     "sess-1",
+    "line-1",
     pendingContext,
   );
   return { store, feed, pendingContext };
@@ -189,16 +190,18 @@ describe("SideQuestionStore — VISIBILITY=Context auto-stage ([P08])", () => {
 });
 
 describe("SideQuestionStore — durable across relaunch ([P07])", () => {
-  function fakeClientWith(sessionId: string, value: unknown): TugbankClient {
+  function fakeClientWith(key: string, value: unknown): TugbankClient {
     return {
-      getValue: (domain: string, key: string) =>
-        domain === SIDE_QUESTIONS_DOMAIN && key === sessionId ? value : undefined,
+      getValue: (domain: string, asked: string) =>
+        domain === SIDE_QUESTIONS_DOMAIN && asked === key ? value : undefined,
     } as unknown as TugbankClient;
   }
 
   test("seeds settled history from the durable blob and resumes #b{n}", () => {
     setTugbankClient(
-      fakeClientWith("sess-1", [
+      // Keyed by the **line** ([P12]) — the conversation the exchanges belong
+      // to, not whichever segment was seated when they were asked.
+      fakeClientWith("line-1", [
         { id: "btw-1", question: "q1", phase: "answered", answer: "a1", synthetic: false, at: 1 },
         { id: "btw-2", question: "q2", phase: "error", answer: null, synthetic: false, at: 2 },
       ]),
@@ -223,6 +226,25 @@ describe("SideQuestionStore — durable across relaunch ([P07])", () => {
     try {
       const { store } = newStore();
       expect(store.getSnapshot().exchanges).toHaveLength(0);
+      store.dispose();
+    } finally {
+      setTugbankClient(null);
+    }
+  });
+
+  test("carries a pre-lines history once from the tug-session-id key ([P12])", () => {
+    // The blob a build before the line model wrote is keyed by the session id.
+    // Re-keying without the carry would empty a user's `/btw` history on the
+    // first launch after the migration, which is the one outcome worse than
+    // not re-keying at all.
+    setTugbankClient(
+      fakeClientWith("sess-1", [
+        { id: "btw-4", question: "old q", phase: "answered", answer: "a", synthetic: false, at: 1 },
+      ]),
+    );
+    try {
+      const { store } = newStore();
+      expect(store.getSnapshot().exchanges.map((e) => e.id)).toEqual(["btw-4"]);
       store.dispose();
     } finally {
       setTugbankClient(null);

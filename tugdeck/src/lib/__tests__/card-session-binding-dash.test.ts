@@ -14,6 +14,7 @@ import {
 
 const BINDING = {
   tugSessionId: "sess-1",
+  lineId: "line-1",
   workspaceKey: "a1b2c3d4e5f60718",
   projectDir: "/Users/dev/src/tugtool",
   sessionMode: "new" as const,

@@ -68,6 +68,7 @@ function binding(
 ): CardSessionBinding {
   return {
     tugSessionId,
+    lineId: tugSessionId,
     projectDir,
     workspaceKey: `ws:${tugSessionId}`,
     sessionMode: "new",

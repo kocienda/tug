@@ -803,6 +803,8 @@ describe("initActionDispatch: spawn_session_ok", () => {
     const binding = cardSessionBindingStore.getBinding("card-ack-ok");
     expect(binding).toEqual({
       tugSessionId: "sess-ack-ok",
+      // No `line_id` on the ack, so the segment is its own line of one.
+      lineId: "sess-ack-ok",
       workspaceKey: "/work/canonical",
       projectDir: "/work/original",
       sessionMode: "new",
@@ -1147,7 +1149,7 @@ describe("rename_session acks", () => {
     const settles: NameSettle[] = [];
     sessionNameStore.setName("sess", "old");
     renameTo("harbor light", settles);
-    dispatchAction({ action: "rename_session_ok", session_id: "sess", name: "harbor light" });
+    dispatchAction({ action: "rename_session_ok", line_id: "sess", name: "harbor light" });
     expect(sessionNameStore.getName("sess")).toBe("harbor light");
     expect(settles).toEqual([{ ok: true }]);
   });
@@ -1161,7 +1163,7 @@ describe("rename_session acks", () => {
     expect(sessionNameStore.getName("sess")).toBe("harbor light");
     dispatchAction({
       action: "rename_session_err",
-      session_id: "sess",
+      line_id: "sess",
       name: "harbor light",
       reason: "ledger_write_failed",
     });
@@ -1174,7 +1176,7 @@ describe("rename_session acks", () => {
     renameTo("harbor light", settles);
     dispatchAction({
       action: "rename_session_err",
-      session_id: "sess",
+      line_id: "sess",
       name: "harbor light",
       reason: "not_found",
     });
@@ -1186,7 +1188,7 @@ describe("rename_session acks", () => {
     sessionNameStore.setName("sess", "old");
     renameTo("", settles);
     // tugcast normalizes a blank name to `None`, which serializes as null.
-    dispatchAction({ action: "rename_session_ok", session_id: "sess", name: null });
+    dispatchAction({ action: "rename_session_ok", line_id: "sess", name: null });
     expect(settles).toEqual([{ ok: true }]);
   });
 
@@ -1195,49 +1197,47 @@ describe("rename_session acks", () => {
     sessionNameStore.setName("sess", "old");
     renameTo("first", settles);
     renameTo("second", settles);
-    dispatchAction({ action: "rename_session_ok", session_id: "sess", name: "first" });
+    dispatchAction({ action: "rename_session_ok", line_id: "sess", name: "first" });
     expect(settles).toEqual([]);
-    dispatchAction({ action: "rename_session_ok", session_id: "sess", name: "second" });
+    dispatchAction({ action: "rename_session_ok", line_id: "sess", name: "second" });
     expect(settles).toEqual([{ ok: true }]);
   });
 
-  it("carries the rows the rename took the name from", () => {
+  it("names the line already wearing a taken name ([P11])", () => {
+    // A user-set name is unique at the write, so a rename onto a taken one
+    // takes nothing. The refusal names the holder, which is what lets the
+    // bulletin say who has it instead of reporting a silent no-op.
     const settles: NameSettle[] = [];
+    sessionNameStore.setName("sess", "old");
     renameTo("harbor light", settles);
     dispatchAction({
-      action: "rename_session_ok",
-      session_id: "sess",
+      action: "rename_session_err",
+      line_id: "sess",
       name: "harbor light",
-      displaced: ["other"],
+      reason: "name_taken",
+      holder_tag: "stocky-pixie",
     });
-    expect(settles[0]?.displaced).toEqual(["other"]);
+    expect(sessionNameStore.getName("sess")).toBe("old");
+    expect(settles).toEqual([
+      { ok: false, reason: "name_taken", holderTag: "stocky-pixie" },
+    ]);
   });
 
-  it("resolves with nothing attached rather than throwing on a malformed displaced", () => {
-    // A bulletin short one sentence beats a gesture with no outcome at all.
-    const settles: NameSettle[] = [];
-    renameTo("harbor light", settles);
-    dispatchAction({
-      action: "rename_session_ok",
-      session_id: "sess",
-      name: "harbor light",
-      displaced: "not a list",
-    });
-    expect(settles).toHaveLength(1);
-    expect(settles[0]?.ok).toBe(true);
-    expect(settles[0]?.displaced).toBeUndefined();
-  });
-
-  it("un-learns a displaced session's name from the row pushed for it", () => {
+  it("drops a name from the row pushed for its line", () => {
     // The mechanism the whole per-row push exists for: a client can only drop
     // a name through a `session_updated` carrying `name_user_set: false`, and
     // the list-level seed path ignores a blank by design.
-    sessionNameStore.setName("other", "harbor light");
+    sessionNameStore.setName("line-other", "harbor light");
     dispatchAction({
       action: "session_updated",
       session_id: "other",
-      fields: { session_id: "other", name: null, name_user_set: false },
+      fields: {
+        session_id: "other",
+        line_id: "line-other",
+        name: null,
+        name_user_set: false,
+      },
     });
-    expect(sessionNameStore.getName("other")).toBeNull();
+    expect(sessionNameStore.getName("line-other")).toBeNull();
   });
 });

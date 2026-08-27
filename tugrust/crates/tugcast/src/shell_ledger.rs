@@ -62,6 +62,11 @@ pub enum ShellLedgerError {
 #[derive(Debug, Clone)]
 pub struct NewShellExchange {
     pub tug_session_id: String,
+    /// The **line of work** this exchange belongs to ([P09]). Receipts and
+    /// search history are the conversation's, so they are keyed by the line
+    /// and every segment of it reads them back — which is what retired the
+    /// adoption passes that used to chase them from one id to the next.
+    pub line_id: String,
     pub command: String,
     pub output: String,
     pub exit_code: Option<i32>,
@@ -82,6 +87,8 @@ pub struct NewShellExchange {
 pub struct ShellExchangeRow {
     pub id: i64,
     pub tug_session_id: String,
+    /// The line this row belongs to ([P09]).
+    pub line_id: String,
     pub seq: i64,
     pub command: String,
     pub output: String,
@@ -101,16 +108,6 @@ pub struct InkCensusRow {
     pub max_seq: i64,
     pub first_settled_at_ms: Option<i64>,
     pub last_settled_at_ms: Option<i64>,
-}
-
-/// A card→session summary for {@link ShellLedger::reconcile_orphaned_rows}.
-/// The caller (`main`) maps `SessionLedger::list_with_card_id` rows to this,
-/// keeping the ledger's most-recent-first (`last_used_at DESC`) order.
-#[derive(Debug, Clone)]
-pub struct SessionForReconcile {
-    pub session_id: String,
-    pub card_id: String,
-    pub turn_count: i64,
 }
 
 pub struct ShellLedger {
@@ -154,11 +151,16 @@ impl ShellLedger {
     fn from_conn(conn: Connection) -> Result<Self, ShellLedgerError> {
         tugcore::ledger_db::apply_pragmas(&conn)?;
         Self::migrate_add_anchor_msg_id(&conn)?;
+        Self::migrate_add_line_id(&conn)?;
         conn.execute_batch(
             "
             CREATE TABLE IF NOT EXISTS shell_exchanges (
                 id             INTEGER PRIMARY KEY AUTOINCREMENT,
                 tug_session_id TEXT    NOT NULL,
+                -- The line this row belongs to ([P09]). `tug_session_id`
+                -- stays beside it as the transcript anchor: which segment
+                -- wrote the row is a real fact, and privacy is enforced on it.
+                line_id        TEXT    NOT NULL DEFAULT '',
                 seq            INTEGER NOT NULL,
                 command        TEXT    NOT NULL,
                 output         TEXT    NOT NULL,
@@ -169,8 +171,8 @@ impl ShellLedger {
                 settled_at_ms  INTEGER NOT NULL,
                 anchor_msg_id  TEXT
             );
-            CREATE INDEX IF NOT EXISTS idx_shell_exchanges_session
-                ON shell_exchanges(tug_session_id, id);
+            CREATE INDEX IF NOT EXISTS idx_shell_exchanges_line
+                ON shell_exchanges(line_id, id);
             ",
         )?;
         Ok(Self {
@@ -183,6 +185,26 @@ impl ShellLedger {
     /// Runs before the DDL batch so an existing table is widened before
     /// anything reads it; a database that has no `shell_exchanges` table yet
     /// returns early and gets the column from `CREATE TABLE` instead.
+    /// Self-healing add of `line_id` ([P09]).
+    ///
+    /// Pre-lines rows land with `''`, which matches no line and reads as
+    /// nothing until `ink_backfill::assign_lines` fills them in — the one
+    /// place that can, because this ledger cannot see `sessions.db`.
+    fn migrate_add_line_id(conn: &Connection) -> Result<(), ShellLedgerError> {
+        let cols = crate::ledger_integrity::table_columns(conn, "main", "shell_exchanges")?;
+        if cols.is_empty() || cols.iter().any(|c| c == "line_id") {
+            return Ok(());
+        }
+        match conn.execute(
+            "ALTER TABLE shell_exchanges ADD COLUMN line_id TEXT NOT NULL DEFAULT ''",
+            [],
+        ) {
+            Ok(_) => Ok(()),
+            Err(err) if crate::ledger_integrity::is_duplicate_column(&err) => Ok(()),
+            Err(err) => Err(err.into()),
+        }
+    }
+
     fn migrate_add_anchor_msg_id(conn: &Connection) -> Result<(), ShellLedgerError> {
         let cols = crate::ledger_integrity::table_columns(conn, "main", "shell_exchanges")?;
         if cols.is_empty() || cols.iter().any(|c| c == "anchor_msg_id") {
@@ -198,7 +220,7 @@ impl ShellLedger {
         }
     }
 
-    /// Record a settled exchange, assigning the next per-session `seq`, then
+    /// Record a settled exchange, assigning the next per-**line** `seq`, then
     /// evict the oldest rows past the per-session cap (logged).
     ///
     /// Returns the new row's `id` — the identity a restore replays it under.
@@ -208,16 +230,17 @@ impl ShellLedger {
     pub fn record_exchange(&self, ex: &NewShellExchange) -> Result<i64, ShellLedgerError> {
         let conn = self.db.lock().expect("shell ledger mutex");
         let seq: i64 = conn.query_row(
-            "SELECT COALESCE(MAX(seq), 0) + 1 FROM shell_exchanges WHERE tug_session_id = ?1",
-            params![ex.tug_session_id],
+            "SELECT COALESCE(MAX(seq), 0) + 1 FROM shell_exchanges WHERE line_id = ?1",
+            params![ex.line_id],
             |row| row.get(0),
         )?;
         conn.execute(
             "INSERT INTO shell_exchanges
-                (tug_session_id, seq, command, output, exit_code, cwd, cwd_after, started_at_ms, settled_at_ms, anchor_msg_id)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                (tug_session_id, line_id, seq, command, output, exit_code, cwd, cwd_after, started_at_ms, settled_at_ms, anchor_msg_id)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
             params![
                 ex.tug_session_id,
+                ex.line_id,
                 seq,
                 ex.command,
                 ex.output,
@@ -260,133 +283,44 @@ impl ShellLedger {
         Ok(id)
     }
 
-    /// Distinct session ids that currently own at least one exchange.
-    pub fn session_ids_with_rows(
-        &self,
-    ) -> Result<std::collections::HashSet<String>, ShellLedgerError> {
+    /// Distinct lines that currently own at least one exchange, for tests in
+    /// other modules that drive a write gateway and need to see which line it
+    /// keyed the row under.
+    #[cfg(test)]
+    pub fn lines_with_rows(&self) -> Result<std::collections::HashSet<String>, ShellLedgerError> {
         let conn = self.db.lock().expect("shell ledger mutex");
-        let mut stmt = conn.prepare("SELECT DISTINCT tug_session_id FROM shell_exchanges")?;
+        let mut stmt = conn.prepare("SELECT DISTINCT line_id FROM shell_exchanges")?;
         let ids = stmt
             .query_map([], |row| row.get::<_, String>(0))?
             .collect::<Result<std::collections::HashSet<_>, _>>()?;
         Ok(ids)
     }
 
-    /// Move every exchange from `from` onto `to`, preserving `seq`.
-    ///
-    /// The target need not be empty: a fork's ink is merged onto the line's
-    /// head, and both sides may already hold rows. Interleaved `seq` values
-    /// are safe here because nothing reads `seq` as a key — the table
-    /// declares uniqueness on neither `(tug_session_id, seq)` nor `seq`
-    /// alone (only `idx_shell_exchanges_session ON (tug_session_id, id)`),
-    /// the restore orders by `id ASC`, the deck seats each row at its own
-    /// timestamp, and the client's completeness census reads `total` rather
-    /// than `max_seq`.
-    ///
-    /// Idempotent: `from == to` is a no-op, and a second run finds `from`
-    /// already empty. Returns the number of rows moved.
-    pub fn rekey_session(&self, from: &str, to: &str) -> Result<usize, ShellLedgerError> {
-        if from == to {
-            return Ok(0);
-        }
+    /// Distinct session ids on rows that have no line yet — the pre-lines
+    /// shape [`crate::ink_backfill::assign_lines`] resolves ([P09]).
+    pub fn sessions_awaiting_a_line(&self) -> Result<Vec<String>, ShellLedgerError> {
         let conn = self.db.lock().expect("shell ledger mutex");
-        let moved = conn.execute(
-            "UPDATE shell_exchanges SET tug_session_id = ?2 WHERE tug_session_id = ?1",
-            params![from, to],
+        let mut stmt = conn.prepare(
+            "SELECT DISTINCT tug_session_id FROM shell_exchanges
+             WHERE line_id = '' ORDER BY tug_session_id",
         )?;
-        Ok(moved)
+        let ids = stmt
+            .query_map([], |row| row.get::<_, String>(0))?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(ids)
     }
 
-    /// Move every exchange from `from` onto `to` that settled before
-    /// `before_ms`, preserving `seq`. Returns the number of rows moved.
-    ///
-    /// The ink return pass uses this to give an arc stage's parent back the
-    /// rows the retired rotation transfer moved: a row keyed under the stage
-    /// that settled before the stage existed was the parent's.
-    pub fn rekey_session_settled_before(
-        &self,
-        from: &str,
-        to: &str,
-        before_ms: i64,
-    ) -> Result<usize, ShellLedgerError> {
-        if from == to {
-            return Ok(0);
-        }
+    /// Record which line a segment's line-less rows belong to. Returns how
+    /// many rows it named. Touches only rows still carrying the placeholder,
+    /// so it can never re-key a row that already knows its line.
+    pub fn assign_line(&self, session_id: &str, line_id: &str) -> Result<usize, ShellLedgerError> {
         let conn = self.db.lock().expect("shell ledger mutex");
         let moved = conn.execute(
-            "UPDATE shell_exchanges SET tug_session_id = ?2
-             WHERE tug_session_id = ?1 AND settled_at_ms < ?3",
-            params![from, to, before_ms],
+            "UPDATE shell_exchanges SET line_id = ?2
+             WHERE tug_session_id = ?1 AND line_id = ''",
+            params![session_id, line_id],
         )?;
         Ok(moved)
-    }
-
-    /// Recover shell rows orphaned by the pre-F1 fresh-spawn bug ([P07]).
-    ///
-    /// Before F1, a shell-only session (no JSONL, `turn_count == 0`) was
-    /// re-spawned under a FRESH session id on relaunch, orphaning its shell
-    /// ledger rows (keyed by the old id) while the card bound to the new,
-    /// empty session. This moves those rows onto the card's current session so
-    /// they show again.
-    ///
-    /// Conservative by construction — it only acts on a card whose CURRENT
-    /// session is itself empty (zero-turn AND no shell rows), i.e. the exact
-    /// bug aftermath. If the user has since used the new session (any turn or
-    /// shell row), nothing moves. Idempotent: re-keying clears the orphan, so a
-    /// second pass finds nothing.
-    ///
-    /// `sessions` must be ordered most-recent-first per card (the shape
-    /// `SessionLedger::list_with_card_id` returns: `last_used_at DESC`).
-    pub fn reconcile_orphaned_rows(
-        &self,
-        sessions: &[SessionForReconcile],
-    ) -> Result<usize, ShellLedgerError> {
-        let with_rows = self.session_ids_with_rows()?;
-        if with_rows.is_empty() {
-            return Ok(0);
-        }
-        // Group by card_id, preserving the caller's most-recent-first order.
-        let mut order: Vec<&str> = Vec::new();
-        let mut groups: std::collections::HashMap<&str, Vec<&SessionForReconcile>> =
-            std::collections::HashMap::new();
-        for s in sessions {
-            let key = s.card_id.as_str();
-            if !groups.contains_key(key) {
-                order.push(key);
-                groups.insert(key, Vec::new());
-            }
-            groups.get_mut(key).expect("just inserted").push(s);
-        }
-        let mut moved_total = 0;
-        for card in order {
-            let group = &groups[card];
-            let primary = group[0];
-            // Only touch a card whose CURRENT session is empty — the exact
-            // aftermath of the bug. If the new session has any turn or shell
-            // row, the user has moved on; leave everything untouched.
-            if primary.turn_count > 0 || with_rows.contains(&primary.session_id) {
-                continue;
-            }
-            // Adopt the most-recent OTHER zero-turn session that still owns rows.
-            let orphan = group
-                .iter()
-                .skip(1)
-                .find(|s| s.turn_count == 0 && with_rows.contains(&s.session_id));
-            if let Some(orphan) = orphan {
-                let moved = self.rekey_session(&orphan.session_id, &primary.session_id)?;
-                if moved > 0 {
-                    tracing::info!(
-                        card = %card,
-                        from = %orphan.session_id,
-                        to = %primary.session_id,
-                        moved,
-                        "shell ledger: recovered orphaned exchanges onto the card's current session",
-                    );
-                    moved_total += moved;
-                }
-            }
-        }
-        Ok(moved_total)
     }
 
     /// Exchanges matching a filter, newest-first — the read behind the
@@ -405,7 +339,7 @@ impl ShellLedger {
     /// push public ones off the end of the page.
     pub fn search_exchanges(
         &self,
-        tug_session_id: Option<&str>,
+        line_id: Option<&str>,
         query: Option<&str>,
         since_ms: Option<i64>,
         until_ms: Option<i64>,
@@ -415,10 +349,10 @@ impl ShellLedger {
         use rusqlite::types::Value as SqlValue;
 
         let mut sql = String::from(
-            "SELECT id, tug_session_id, seq, command, output, exit_code, cwd, cwd_after,
+            "SELECT id, tug_session_id, line_id, seq, command, output, exit_code, cwd, cwd_after,
                     started_at_ms, settled_at_ms, anchor_msg_id
              FROM shell_exchanges
-             WHERE (?1 IS NULL OR tug_session_id = ?1)
+             WHERE (?1 IS NULL OR line_id = ?1)
                AND (?2 IS NULL OR command LIKE ?2 ESCAPE '\\')
                AND (?3 IS NULL OR settled_at_ms >= ?3)
                AND (?4 IS NULL OR settled_at_ms <= ?4)",
@@ -440,7 +374,7 @@ impl ShellLedger {
         );
 
         let mut binds: Vec<SqlValue> = vec![
-            tug_session_id.map_or(SqlValue::Null, |s| SqlValue::Text(s.to_owned())),
+            line_id.map_or(SqlValue::Null, |s| SqlValue::Text(s.to_owned())),
             query.map_or(SqlValue::Null, |q| SqlValue::Text(like_contains(q))),
             since_ms.map_or(SqlValue::Null, SqlValue::Integer),
             until_ms.map_or(SqlValue::Null, SqlValue::Integer),
@@ -456,32 +390,32 @@ impl ShellLedger {
         Ok(rows)
     }
 
-    /// List a session's exchanges oldest-first (the transcript's natural order).
+    /// List a line's exchanges oldest-first (the transcript's natural order).
     ///
     /// `since_ms` bounds the read to exchanges that settled at or after it —
     /// the transcript's replay window, so restored ink rows describe the same
     /// span as the replayed Claude turns rather than an unbounded one.
-    /// `None` reads the whole session.
+    /// `None` reads the whole line.
     pub fn list_exchanges_since(
         &self,
-        tug_session_id: &str,
+        line_id: &str,
         since_ms: Option<i64>,
     ) -> Result<Vec<ShellExchangeRow>, ShellLedgerError> {
         let conn = self.db.lock().expect("shell ledger mutex");
         let mut stmt = conn.prepare(
-            "SELECT id, tug_session_id, seq, command, output, exit_code, cwd, cwd_after,
+            "SELECT id, tug_session_id, line_id, seq, command, output, exit_code, cwd, cwd_after,
                     started_at_ms, settled_at_ms, anchor_msg_id
              FROM shell_exchanges
-             WHERE tug_session_id = ?1 AND (?2 IS NULL OR settled_at_ms >= ?2)
+             WHERE line_id = ?1 AND (?2 IS NULL OR settled_at_ms >= ?2)
              ORDER BY id ASC",
         )?;
         let rows = stmt
-            .query_map(params![tug_session_id, since_ms], exchange_from_row)?
+            .query_map(params![line_id, since_ms], exchange_from_row)?
             .collect::<Result<Vec<_>, _>>()?;
         Ok(rows)
     }
 
-    /// Per-session ink census for `GET /api/ink-census` — rows, high-water
+    /// Per-line ink census for `GET /api/ink-census` — rows, high-water
     /// `seq`, and the span they cover, newest activity first.
     ///
     /// The durability half of "why is this row not in my transcript". Pair it
@@ -491,11 +425,11 @@ impl ShellLedger {
     pub fn ink_census(&self, only: Option<&str>) -> Result<Vec<InkCensusRow>, ShellLedgerError> {
         let conn = self.db.lock().expect("shell ledger mutex");
         let mut stmt = conn.prepare(
-            "SELECT tug_session_id, COUNT(*), COALESCE(MAX(seq), 0),
+            "SELECT line_id, COUNT(*), COALESCE(MAX(seq), 0),
                     MIN(settled_at_ms), MAX(settled_at_ms)
              FROM shell_exchanges
-             WHERE (?1 IS NULL OR tug_session_id = ?1)
-             GROUP BY tug_session_id
+             WHERE (?1 IS NULL OR line_id = ?1)
+             GROUP BY line_id
              ORDER BY MAX(settled_at_ms) DESC",
         )?;
         let rows = stmt
@@ -512,7 +446,7 @@ impl ShellLedger {
         Ok(rows)
     }
 
-    /// How many rows the session holds in the same window, and its highest
+    /// How many rows the line holds in the same window, and its highest
     /// `seq` — the completeness pair the deck checks its answer against.
     ///
     /// Read on the same connection lock as the rows themselves would be, but
@@ -521,15 +455,15 @@ impl ShellLedger {
     /// detectable rather than indistinguishable from an empty session.
     pub fn exchange_census(
         &self,
-        tug_session_id: &str,
+        line_id: &str,
         since_ms: Option<i64>,
     ) -> Result<(i64, i64), ShellLedgerError> {
         let conn = self.db.lock().expect("shell ledger mutex");
         let census = conn.query_row(
             "SELECT COUNT(*), COALESCE(MAX(seq), 0)
              FROM shell_exchanges
-             WHERE tug_session_id = ?1 AND (?2 IS NULL OR settled_at_ms >= ?2)",
-            params![tug_session_id, since_ms],
+             WHERE line_id = ?1 AND (?2 IS NULL OR settled_at_ms >= ?2)",
+            params![line_id, since_ms],
             |row| Ok((row.get(0)?, row.get(1)?)),
         )?;
         Ok(census)
@@ -561,15 +495,16 @@ fn exchange_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ShellExchangeR
     Ok(ShellExchangeRow {
         id: row.get(0)?,
         tug_session_id: row.get(1)?,
-        seq: row.get(2)?,
-        command: row.get(3)?,
-        output: row.get(4)?,
-        exit_code: row.get(5)?,
-        cwd: row.get(6)?,
-        cwd_after: row.get(7)?,
-        started_at_ms: row.get(8)?,
-        settled_at_ms: row.get(9)?,
-        anchor_msg_id: row.get(10)?,
+        line_id: row.get(2)?,
+        seq: row.get(3)?,
+        command: row.get(4)?,
+        output: row.get(5)?,
+        exit_code: row.get(6)?,
+        cwd: row.get(7)?,
+        cwd_after: row.get(8)?,
+        started_at_ms: row.get(9)?,
+        settled_at_ms: row.get(10)?,
+        anchor_msg_id: row.get(11)?,
     })
 }
 
@@ -580,6 +515,7 @@ mod tests {
     fn ex(sid: &str, cmd: &str, code: Option<i32>) -> NewShellExchange {
         NewShellExchange {
             tug_session_id: sid.to_string(),
+            line_id: sid.to_string(),
             command: cmd.to_string(),
             output: format!("out:{cmd}\n"),
             exit_code: code,
@@ -646,6 +582,7 @@ mod tests {
         let led = ShellLedger::open_in_memory().unwrap();
         let at = |cmd: &str, settled: i64| NewShellExchange {
             tug_session_id: "s1".to_string(),
+            line_id: "s1".to_string(),
             command: cmd.to_string(),
             output: String::new(),
             exit_code: Some(0),
@@ -728,62 +665,6 @@ mod tests {
                 .all(|row| row.tug_session_id == "private")
         );
     }
-
-    fn sess(session_id: &str, card_id: &str, turn_count: i64) -> SessionForReconcile {
-        SessionForReconcile {
-            session_id: session_id.to_string(),
-            card_id: card_id.to_string(),
-            turn_count,
-        }
-    }
-
-    #[test]
-    fn reconcile_moves_orphan_rows_onto_the_cards_empty_current_session() {
-        let led = ShellLedger::open_in_memory().unwrap();
-        // The lost session (`old`) has a shell row; the card's current session
-        // (`new`) is empty. Ordered most-recent-first: new, old.
-        led.record_exchange(&ex("old", "ls", Some(0))).unwrap();
-        let sessions = [sess("new", "card-1", 0), sess("old", "card-1", 0)];
-
-        let moved = led.reconcile_orphaned_rows(&sessions).unwrap();
-        assert_eq!(moved, 1);
-        assert_eq!(led.list_exchanges_since("old", None).unwrap().len(), 0);
-        let recovered = led.list_exchanges_since("new", None).unwrap();
-        assert_eq!(recovered.len(), 1);
-        assert_eq!(recovered[0].command, "ls");
-
-        // Idempotent: a second pass finds no orphan.
-        assert_eq!(led.reconcile_orphaned_rows(&sessions).unwrap(), 0);
-    }
-
-    #[test]
-    fn reconcile_leaves_a_used_current_session_untouched() {
-        let led = ShellLedger::open_in_memory().unwrap();
-        led.record_exchange(&ex("old", "ls", Some(0))).unwrap();
-
-        // Current session has a real Claude turn — the user moved on.
-        let with_turn = [sess("new", "card-1", 3), sess("old", "card-1", 0)];
-        assert_eq!(led.reconcile_orphaned_rows(&with_turn).unwrap(), 0);
-        assert_eq!(led.list_exchanges_since("old", None).unwrap().len(), 1);
-
-        // Current session already owns a shell row — likewise untouched.
-        led.record_exchange(&ex("new", "pwd", Some(0))).unwrap();
-        let with_row = [sess("new", "card-1", 0), sess("old", "card-1", 0)];
-        assert_eq!(led.reconcile_orphaned_rows(&with_row).unwrap(), 0);
-        assert_eq!(led.list_exchanges_since("old", None).unwrap().len(), 1);
-    }
-
-    #[test]
-    fn reconcile_ignores_orphans_from_a_different_card() {
-        let led = ShellLedger::open_in_memory().unwrap();
-        led.record_exchange(&ex("old", "ls", Some(0))).unwrap();
-        // `old` belongs to card-2, the empty current session to card-1 — no
-        // cross-card adoption.
-        let sessions = [sess("new", "card-1", 0), sess("old", "card-2", 0)];
-        assert_eq!(led.reconcile_orphaned_rows(&sessions).unwrap(), 0);
-        assert_eq!(led.list_exchanges_since("old", None).unwrap().len(), 1);
-    }
-
     #[test]
     fn null_exit_code_round_trips() {
         let led = ShellLedger::open_in_memory().unwrap();
@@ -911,7 +792,7 @@ mod tests {
     }
 
     #[test]
-    fn a_pre_anchor_database_is_migrated_and_its_rows_read_null() {
+    fn a_pre_lines_database_is_migrated_and_its_rows_await_a_line() {
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("shell_exchanges.db");
 
@@ -930,21 +811,34 @@ mod tests {
         }
 
         let led = ShellLedger::open(&path).unwrap();
-        let rows = led.list_exchanges_since("s1", None).unwrap();
+        // The legacy row survives, carrying the placeholder its migration
+        // wrote: it has no line yet, and this ledger cannot see the one table
+        // that could say which.
+        assert_eq!(
+            led.sessions_awaiting_a_line().unwrap(),
+            vec!["s1".to_string()]
+        );
+        let rows = led.list_exchanges_since("", None).unwrap();
         assert_eq!(rows.len(), 1, "the legacy row survives the migration");
         assert_eq!(rows[0].command, "/commit");
         assert_eq!(rows[0].anchor_msg_id, None);
 
-        // And the widened table takes a stamped row alongside it.
-        led.record_exchange(&anchored("s1", "/dash-join", "msg_01NEW"))
-            .unwrap();
-        let rows = led.list_exchanges_since("s1", None).unwrap();
+        // The backfill names its line, and from then on it reads back with
+        // every other row the line holds.
+        assert_eq!(led.assign_line("s1", "line-1").unwrap(), 1);
+        led.record_exchange(&NewShellExchange {
+            line_id: "line-1".to_string(),
+            ..anchored("s1", "/dash-join", "msg_01NEW")
+        })
+        .unwrap();
+        let rows = led.list_exchanges_since("line-1", None).unwrap();
         assert_eq!(
             rows.iter()
                 .map(|r| r.anchor_msg_id.as_deref())
                 .collect::<Vec<_>>(),
             vec![None, Some("msg_01NEW")],
         );
+        assert!(led.sessions_awaiting_a_line().unwrap().is_empty());
     }
 
     #[test]
@@ -963,16 +857,5 @@ mod tests {
         let rows = led.list_exchanges_since("s1", None).unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].anchor_msg_id.as_deref(), Some("msg_01KEEP"));
-    }
-
-    #[test]
-    fn rekey_carries_the_anchor_onto_the_new_session() {
-        let led = ShellLedger::open_in_memory().unwrap();
-        led.record_exchange(&anchored("parent", "/dash-join", "msg_01MOVE"))
-            .unwrap();
-
-        assert_eq!(led.rekey_session("parent", "fork").unwrap(), 1);
-        let rows = led.list_exchanges_since("fork", None).unwrap();
-        assert_eq!(rows[0].anchor_msg_id.as_deref(), Some("msg_01MOVE"));
     }
 }

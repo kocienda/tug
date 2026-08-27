@@ -60,6 +60,10 @@ import {
 import { sessionNameStore } from "@/lib/session-name-store";
 import { sessionSynopsisStore } from "@/lib/session-synopsis-store";
 import { sessionTagStore } from "@/lib/session-tag-store";
+import {
+  identityKeyForSession,
+  sessionLineStore,
+} from "@/lib/session-line-store";
 import type { SessionRow } from "@/protocol";
 
 /** Chars of a session UUID that make its short id. Computed here and nowhere else. */
@@ -259,8 +263,10 @@ export function sessionIdentityContextFrom(
 
 /** The project dir of whichever card is bound to `sessionId`, or null. */
 function boundProjectDirFor(sessionId: string): string | null {
+  const lineId = sessionLineStore.lineOf(sessionId);
   for (const binding of cardSessionBindingStore.getSnapshot().values()) {
     if (binding.tugSessionId === sessionId) return binding.projectDir;
+    if (lineId !== null && binding.lineId === lineId) return binding.projectDir;
   }
   return null;
 }
@@ -278,11 +284,14 @@ export function resolveSessionIdentity(
   sessionId: string,
   context?: SessionIdentityContext,
 ): SessionIdentity {
+  // The name, the callsign and the synopsis belong to the **line** ([P12]) —
+  // the segment id is only the address the caller happens to hold.
+  const lineId = identityKeyForSession(sessionId);
   return composeSessionIdentity({
     sessionId,
-    name: sessionNameStore.getName(sessionId),
-    synopsis: sessionSynopsisStore.getSynopsis(sessionId),
-    tag: sessionTagStore.getTag(sessionId),
+    name: sessionNameStore.getName(lineId),
+    synopsis: sessionSynopsisStore.getSynopsis(lineId),
+    tag: sessionTagStore.getTag(lineId),
     recordedTag: context?.recordedTag ?? null,
     recordedProject: context?.recordedProject ?? null,
     projectDir: context?.projectDir ?? boundProjectDirFor(sessionId),
@@ -319,28 +328,38 @@ export function useSessionIdentity(
   sessionId: string | null,
   context?: SessionIdentityContext,
 ): SessionIdentity | null {
+  // The line the segment belongs to, subscribed like the rest: a rotation
+  // re-keys this card's identity, and a hook that read the mapping
+  // unsubscribed would keep resolving under the id the card has left.
+  const lineId = useSyncExternalStore(
+    sessionLineStore.subscribe,
+    useCallback(
+      () => (sessionId === null ? null : identityKeyForSession(sessionId)),
+      [sessionId],
+    ),
+  );
   const name = useSyncExternalStore(
     sessionNameStore.subscribe,
     useCallback(
-      () => (sessionId === null ? null : sessionNameStore.getName(sessionId)),
-      [sessionId],
+      () => (lineId === null ? null : sessionNameStore.getName(lineId)),
+      [lineId],
     ),
   );
   const tag = useSyncExternalStore(
     sessionTagStore.subscribe,
     useCallback(
-      () => (sessionId === null ? null : sessionTagStore.getTag(sessionId)),
-      [sessionId],
+      () => (lineId === null ? null : sessionTagStore.getTag(lineId)),
+      [lineId],
     ),
   );
   const synopsis = useSyncExternalStore(
     sessionSynopsisStore.subscribe,
     useCallback(
       () =>
-        sessionId === null
+        lineId === null
           ? null
-          : sessionSynopsisStore.getSynopsis(sessionId),
-      [sessionId],
+          : sessionSynopsisStore.getSynopsis(lineId),
+      [lineId],
     ),
   );
   // The project dir a caller did not supply. The snapshot is the dir STRING,
@@ -379,10 +398,10 @@ export function useSessionIdentity(
  * whole — it just never rides the title.
  *
  * There is no collision exception, because a collision can no longer occur:
- * `SessionLedger::rename` takes a custom name from any session already wearing
- * it, the same rule the fork path applies ([D154]). Uniqueness at the write is
- * what retired the exception; the callsign the reader would have needed to
- * disambiguate with is a callsign there is nothing to disambiguate.
+ * a user-set name is unique across lines at the write, and a name another line
+ * already wears is refused with the holder named ([D167]). Uniqueness at the
+ * write is what retired the exception; the callsign the reader would have
+ * needed to disambiguate with is a callsign there is nothing to disambiguate.
  *
  * With no name at all, the callsign IS the title and there is no second run.
  * The `callsign` run therefore appears only for an unnamed session, which is
@@ -440,30 +459,6 @@ export function sessionIdentityLine(identity: SessionIdentity): string {
   return identity.project.length > 0
     ? `${identity.project}/${label}`
     : label;
-}
-
-/**
- * How a rename's bulletin names the sessions it took the name from.
- *
- * A custom name is unique, so setting one displaces whoever wore it, and the
- * user learns what their gesture did without being asked to approve it. One
- * name is information, so the singular names that session by the identity line
- * its callsign returns it to; a list of callsigns is noise, so more than one is
- * counted. `null` when nothing was taken, or when a lone displaced id resolves
- * to nothing — the caller adds no line rather than printing a blank.
- *
- * Here rather than at the surface because it reads the identity stores
- * imperatively, which is `lib/`'s to do and a component's not to ([L02]).
- */
-export function displacedSessionsLine(
-  displaced: readonly string[] | undefined,
-): string | null {
-  if (displaced === undefined || displaced.length === 0) return null;
-  if (displaced.length === 1) {
-    const line = sessionIdentityLine(resolveSessionIdentity(displaced[0]!));
-    if (line.length > 0) return `${line} reverted to its callsign.`;
-  }
-  return `${displaced.length} other sessions reverted to their callsigns.`;
 }
 
 /**

@@ -56,6 +56,10 @@ import {
 } from "./lib/card-session-binding-store";
 import { dashBindErrorStore } from "./lib/dash-bind-error-store";
 import { sessionNameStore } from "./lib/session-name-store";
+import {
+  identityKeyForSession,
+  sessionLineStore,
+} from "./lib/session-line-store";
 import { sessionTagStore } from "./lib/session-tag-store";
 import { sessionPrivateStore } from "./lib/session-private-store";
 import { sessionSynopsisStore } from "./lib/session-synopsis-store";
@@ -1133,8 +1137,18 @@ export function initActionDispatch(
     const ackDashId = typeof payload.dash_id === "string" ? payload.dash_id : null;
     const ackDashName =
       typeof payload.dash_name === "string" ? payload.dash_name : null;
+    // The line the ledger settled this card on ([P03]). A fresh spawn sent one
+    // and gets it back verbatim; a resume learns the binding's. The store is
+    // seeded first so every identity write below — and every later frame that
+    // names this segment — keys by the line rather than the segment.
+    const ackLineId =
+      typeof payload.line_id === "string" && payload.line_id.length > 0
+        ? payload.line_id
+        : identityKeyForSession(tugSessionId);
+    sessionLineStore.seat(tugSessionId, ackLineId);
     cardSessionBindingStore.setBinding(cardId, {
       tugSessionId,
+      lineId: ackLineId,
       workspaceKey,
       projectDir: projectDirResolved,
       sessionMode: sessionModeResolved,
@@ -1157,12 +1171,12 @@ export function initActionDispatch(
     const ackTag = typeof payload.tag === "string" ? payload.tag : null;
     const ackSynopsis =
       typeof payload.synopsis === "string" ? payload.synopsis : null;
-    sessionNameStore.seedName(tugSessionId, ackNameUserSet ? ackName : null);
-    sessionTagStore.seedTag(tugSessionId, ackTag);
+    sessionNameStore.seedName(ackLineId, ackNameUserSet ? ackName : null);
+    sessionTagStore.seedTag(ackLineId, ackTag);
     // The description is the second half of the identity's description line;
     // it seeds beside the name for the same reason (a resume binds via this
     // ack alone).
-    sessionSynopsisStore.seedSynopsis(tugSessionId, ackSynopsis);
+    sessionSynopsisStore.seedSynopsis(ackLineId, ackSynopsis);
     // Privacy is authoritative on the ack too: the row is read fresh, and a
     // resumed card must show the marker without waiting for a later push.
     sessionPrivateStore.setPrivate(tugSessionId, payload.private === true);
@@ -1240,15 +1254,29 @@ export function initActionDispatch(
     // session's id, and a lingering citation answer would keep its chips
     // resolvable for the rest of the run.
     if (decoded.removed === true) {
-      sessionNameStore.setName(decoded.session_id, null);
-      sessionTagStore.setTag(decoded.session_id, null);
-      sessionSynopsisStore.setSynopsis(decoded.session_id, null);
+      const goneLine = identityKeyForSession(decoded.session_id);
+      sessionNameStore.setName(goneLine, null);
+      sessionTagStore.setTag(goneLine, null);
+      sessionSynopsisStore.setSynopsis(goneLine, null);
       sessionCitationStore.forgetSession(decoded.session_id);
       sessionPrivateStore.forget(decoded.session_id);
+      sessionLineStore.forgetSession(decoded.session_id);
     }
     if (decoded.fields !== undefined) {
+      // Every identity field on the row is the **line's** ([P02]), so it is
+      // filed under the line the push names — never under the segment, which
+      // is one of several the conversation has worn.
+      const lineId =
+        decoded.fields.line_id.length > 0
+          ? decoded.fields.line_id
+          : identityKeyForSession(decoded.session_id);
+      if (decoded.fields.state === "live") {
+        sessionLineStore.seat(decoded.session_id, lineId);
+      } else {
+        sessionLineStore.bind(decoded.session_id, lineId);
+      }
       sessionNameStore.setName(
-        decoded.session_id,
+        lineId,
         decoded.fields.name_user_set ? (decoded.fields.name ?? null) : null,
       );
       // Make the optimistic provisional tag authoritative: the echoed row
@@ -1256,13 +1284,13 @@ export function initActionDispatch(
       // gate; it always fronts the session when present). Non-clobbering — a
       // row read before the tag landed carries `null`, which must not wipe the
       // optimistic tag back to the id-hash.
-      sessionTagStore.seedTag(decoded.session_id, decoded.fields.tag);
+      sessionTagStore.seedTag(lineId, decoded.fields.tag);
       // The description, unlike the callsign, is authoritative on every push:
       // the Summarize lane rewrites it as the work moves and the ledger row is
       // the only truth, so a push carrying `null` means it really is empty
       // (a rename froze it, or none has been written yet).
       sessionSynopsisStore.setSynopsis(
-        decoded.session_id,
+        lineId,
         decoded.fields.synopsis,
       );
       // Overview privacy is authoritative on every push: the row is the only
@@ -1282,26 +1310,23 @@ export function initActionDispatch(
   // being acked — CONTROL is a broadcast, and a second rename in flight must
   // not have its outcome spoken by the first one's ack.
   registerAction("rename_session_ok", (payload) => {
-    const sessionId = payload.session_id;
-    if (typeof sessionId !== "string" || sessionId.length === 0) return;
+    const lineId = payload.line_id;
+    if (typeof lineId !== "string" || lineId.length === 0) return;
     const name = typeof payload.name === "string" ? payload.name : null;
-    // The rows this rename took the name from. Validated to an array of
-    // strings rather than passed through: a malformed field settles the waiter
-    // with nothing attached, which costs the bulletin a sentence, where
-    // throwing here would cost the gesture its whole outcome.
-    const displaced = Array.isArray(payload.displaced)
-      ? payload.displaced.filter((id): id is string => typeof id === "string")
-      : undefined;
-    sessionNameStore.settle(sessionId, name, { ok: true, displaced });
+    sessionNameStore.settle(lineId, name, { ok: true });
   });
   registerAction("rename_session_err", (payload) => {
     console.warn("rename_session failed", payload);
-    const sessionId = payload.session_id;
-    if (typeof sessionId !== "string" || sessionId.length === 0) return;
+    const lineId = payload.line_id;
+    if (typeof lineId !== "string" || lineId.length === 0) return;
     const name = typeof payload.name === "string" ? payload.name : null;
-    sessionNameStore.settle(sessionId, name, {
+    sessionNameStore.settle(lineId, name, {
       ok: false,
       reason: typeof payload.reason === "string" ? payload.reason : undefined,
+      // The line already wearing the name, so the bulletin can say who holds
+      // it rather than reporting a write that quietly did nothing ([P11]).
+      holderTag:
+        typeof payload.holder_tag === "string" ? payload.holder_tag : undefined,
     });
   });
 
@@ -1361,11 +1386,16 @@ export function initActionDispatch(
     // session renamed in a prior run reads correctly once listed. Only a user
     // `/rename` feeds the chip; an auto `aiTitle` leaves it on the hash.
     for (const row of rows) {
-      sessionNameStore.seedName(row.session_id, row.name_user_set ? row.name : null);
+      // A listing row is one **line** ([P06]): `session_id` is the segment a
+      // resume would seat, and the identity on it is the line's.
+      const lineId =
+        row.line_id.length > 0 ? row.line_id : identityKeyForSession(row.session_id);
+      sessionLineStore.seat(row.session_id, lineId);
+      sessionNameStore.seedName(lineId, row.name_user_set ? row.name : null);
       // Seed the chip's tag cache from the listed rows so a bound session reads
       // its ledger tag once listed (or re-resumed after a legacy backfill).
-      sessionTagStore.seedTag(row.session_id, row.tag);
-      sessionSynopsisStore.seedSynopsis(row.session_id, row.synopsis);
+      sessionTagStore.seedTag(lineId, row.tag);
+      sessionSynopsisStore.seedSynopsis(lineId, row.synopsis);
     }
     publishListSessionsOk({
       project_dir: projectDir,
@@ -1436,14 +1466,52 @@ export function initActionDispatch(
     // in a prior run shows its name the moment its card rebinds. Only a user
     // `/rename` feeds the chip; an auto `aiTitle` leaves it on the hash.
     for (const b of rows) {
-      sessionNameStore.seedName(b.session_id, b.name_user_set ? (b.name ?? null) : null);
+      // One binding per line, seated on the segment a restore should resume
+      // ([P06]).
+      const lineId =
+        (b.line_id ?? "").length > 0
+          ? (b.line_id as string)
+          : identityKeyForSession(b.session_id);
+      sessionLineStore.seat(b.session_id, lineId);
+      sessionNameStore.seedName(lineId, b.name_user_set ? (b.name ?? null) : null);
       // Seed the chip's tag cache on restore so a session's mnemonic shows the
       // moment its card rebinds (parity with the name seed).
-      sessionTagStore.seedTag(b.session_id, b.tag ?? null);
-      sessionSynopsisStore.seedSynopsis(b.session_id, b.synopsis ?? null);
+      sessionTagStore.seedTag(lineId, b.tag ?? null);
+      sessionSynopsisStore.seedSynopsis(lineId, b.synopsis ?? null);
     }
     publishListCardBindingsOk({ bindings: rows });
   });
+  // session_line_rebound: a plain `/new` on an already-bound card births a
+  // fresh line rather than joining the card's ([P03]), so the card's identity
+  // starts over. The push is the only frame that says so — the spawn ack for a
+  // `/clear` names the card's previous line, and every later frame names the
+  // new one, which would leave the binding pointing at a line nothing is on.
+  registerAction("session_line_rebound", (payload) => {
+    const cardId = payload.card_id;
+    const tugSessionId = payload.tug_session_id;
+    const lineId = payload.line_id;
+    if (
+      typeof cardId !== "string" ||
+      typeof tugSessionId !== "string" ||
+      typeof lineId !== "string" ||
+      lineId.length === 0
+    ) {
+      console.warn("session_line_rebound: missing or invalid fields", payload);
+      return;
+    }
+    sessionLineStore.seat(tugSessionId, lineId);
+    cardSessionBindingStore.setLineBinding(cardId, tugSessionId, lineId);
+    // The new line arrives wearing its own callsign, and a `/new` clears the
+    // name: a fresh conversation is untitled until the user says otherwise.
+    sessionTagStore.seedTag(lineId, typeof payload.tag === "string" ? payload.tag : null);
+    sessionNameStore.setName(
+      lineId,
+      payload.name_user_set === true && typeof payload.name === "string"
+        ? payload.name
+        : null,
+    );
+  });
+
   registerAction("list_card_bindings_err", (payload) => {
     const reason = payload.reason;
     if (typeof reason !== "string") {

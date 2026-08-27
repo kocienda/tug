@@ -62,6 +62,7 @@ function bind(cardId: string, tugSessionId: string): CardSessionBinding {
   TOUCHED_CARD_IDS.add(cardId);
   const binding: CardSessionBinding = {
     tugSessionId,
+    lineId: tugSessionId,
     workspaceKey: "/work/csstore-test",
     projectDir: "/work/csstore-test",
     sessionMode: "new",

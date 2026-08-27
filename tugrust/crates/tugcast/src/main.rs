@@ -4,7 +4,6 @@ mod auth;
 mod changes_journal;
 mod changes_writer;
 mod cli;
-mod wheel;
 mod control;
 mod dash_api;
 mod dead_branch;
@@ -21,7 +20,7 @@ mod fs_stat;
 mod fs_write;
 mod git_exclude;
 mod host;
-mod ink_adoption;
+mod ink_backfill;
 mod jots;
 mod ledger_integrity;
 /// Crate-root path utilities (firmlink/synthetic/symlink resolution). Lives
@@ -49,6 +48,7 @@ mod shared_agent;
 mod shell_ledger;
 mod terminal_registry;
 mod turn_engine;
+mod wheel;
 mod workspace_api;
 
 #[cfg(test)]
@@ -1231,79 +1231,12 @@ async fn main() {
             }
         });
 
-    // Ink adoption, ahead of the card-shaped reconciler below. A fork's ink
-    // transfer spans two databases with no shared transaction, so anything an
-    // interruption or a race left under a superseded id is repaired here,
-    // before the supervisor serves its first restore read.
-    //
-    // The order matters: `reconcile_orphaned_rows` moves rows onto whichever
-    // session a card currently holds, which is a heuristic predating fork
-    // provenance. A provenance edge is direct evidence, so it decides first.
-    {
-        let ink = ink_adoption::InkStores {
-            shell: shell_ledger.as_deref(),
-            refs: refs_ledger.as_deref(),
-        };
-        ink_adoption::return_rotation_ink(&ledger, ink);
-        ink_adoption::adopt_by_lineage(&ledger, ink);
-    }
-
-    // The pre-provenance backfill: the forks that happened before the
-    // provenance columns existed left no edge for the sweep above to follow,
-    // so their ink is adopted on transcript evidence instead. In the
-    // background, because a large corpus must never delay serving, and at
-    // most once per machine — the watermark it writes ends it.
-    {
-        let backfill_sessions = Arc::clone(&ledger);
-        let backfill_shell = shell_ledger.clone();
-        let backfill_refs = refs_ledger.clone();
-        let backfill_bank = bank_client.clone();
-        tokio::task::spawn_blocking(move || {
-            ink_adoption::adopt_pre_provenance_orphans(
-                &backfill_sessions,
-                ink_adoption::InkStores {
-                    shell: backfill_shell.as_deref(),
-                    refs: backfill_refs.as_deref(),
-                },
-                backfill_bank.as_deref(),
-            );
-        });
-    }
-
-    // Recover shell rows orphaned by the pre-F1 fresh-spawn bug: move a lost
-    // zero-turn session's exchanges onto the card's current (empty) session so
-    // shell-only sessions that were re-spawned under a fresh id before the fix
-    // show their history again. Conservative + idempotent (see
-    // `reconcile_orphaned_rows`); non-fatal.
-    if let Some(sl) = shell_ledger.as_ref() {
-        match ledger.list_with_card_id() {
-            Ok(rows) => {
-                let sessions: Vec<shell_ledger::SessionForReconcile> = rows
-                    .into_iter()
-                    .filter_map(|r| {
-                        r.card_id.map(|card_id| shell_ledger::SessionForReconcile {
-                            session_id: r.session_id,
-                            card_id,
-                            turn_count: r.turn_count,
-                        })
-                    })
-                    .collect();
-                match sl.reconcile_orphaned_rows(&sessions) {
-                    Ok(n) if n > 0 => {
-                        info!(
-                            recovered = n,
-                            "shell ledger: reconciled orphaned exchanges onto current sessions"
-                        )
-                    }
-                    Ok(_) => {}
-                    Err(e) => warn!(error = %e, "shell ledger: orphan reconciliation failed"),
-                }
-            }
-            Err(e) => {
-                warn!(error = %e, "shell ledger: could not list card sessions for reconciliation")
-            }
-        }
-    }
+    // Give every durable-ink row written before lines existed the line it
+    // belongs to ([P09]). Ahead of the supervisor's first restore read,
+    // because a row still carrying its migration's placeholder key reads as
+    // nothing. Once resolved a row never moves again — which is why the three
+    // adoption passes that used to run here are gone rather than rewritten.
+    ink_backfill::assign_lines(&ledger, shell_ledger.as_deref(), refs_ledger.as_deref());
 
     let ledger_recorder = Arc::new(LedgerSessionsRecorder::with_broadcast(
         Arc::clone(&ledger),
@@ -2270,6 +2203,24 @@ struct SeedSession {
     /// except a human looking at the row.
     #[serde(default)]
     fork_point: Option<String>,
+    /// The line of work this session is a **segment** of ([P01]). Two seeded
+    /// sessions sharing a `line_id` are two segments of one line, which is
+    /// how a test stands up a card that has rotated — without a live `claude`
+    /// to perform the rotation. Defaults to the session's own id, i.e. a line
+    /// of one.
+    #[serde(default)]
+    line_id: Option<String>,
+    /// What a rotation seated this session as, written through the same
+    /// `set_stage_provenance` a real rotation uses.
+    #[serde(default)]
+    stage_label: Option<String>,
+    #[serde(default)]
+    stage_model: Option<String>,
+    /// The row's lifecycle state. `record_spawn` writes `live`; a seed that
+    /// says `closed` is marked closed afterwards, which is how a test seeds a
+    /// line whose older segments are done and whose newest one is not.
+    #[serde(default)]
+    state: Option<String>,
 }
 
 /// One file event to seed, with the sub-file evidence that decides whether
@@ -2374,13 +2325,20 @@ fn seed_ledger(spec_path: &std::path::Path) -> ! {
             &session.project_dir,
             &session.card_id,
             now,
+            // Empty when the spec names none — the ledger then answers the
+            // question itself, and the row becomes a line of one.
+            session.line_id.as_deref().unwrap_or(""),
             session.tag.as_deref(),
         ) {
             eprintln!("tugcast: error: record_spawn failed: {e}");
             std::process::exit(1);
         }
         if let Some(name) = session.name.as_deref() {
-            if let Err(e) = ledger.rename(&session.session_id, Some(name)) {
+            let Some(line_id) = ledger.line_of(&session.session_id) else {
+                eprintln!("tugcast: error: rename failed: the seeded session has no line");
+                std::process::exit(1);
+            };
+            if let Err(e) = ledger.rename(&line_id, Some(name)) {
                 eprintln!("tugcast: error: rename failed: {e}");
                 std::process::exit(1);
             }
@@ -2403,6 +2361,22 @@ fn seed_ledger(spec_path: &std::path::Path) -> ! {
             if let Err(e) = ledger.set_dash_binding(&session.session_id, Some((dash_id, dash_name)))
             {
                 eprintln!("tugcast: error: set_dash_binding failed: {e}");
+                std::process::exit(1);
+            }
+        }
+        if let Some(label) = session.stage_label.as_deref() {
+            if let Err(e) = ledger.set_stage_provenance(
+                &session.session_id,
+                label,
+                session.stage_model.as_deref(),
+            ) {
+                eprintln!("tugcast: error: set_stage_provenance failed: {e}");
+                std::process::exit(1);
+            }
+        }
+        if session.state.as_deref() == Some("closed") {
+            if let Err(e) = ledger.mark_closed(&session.session_id) {
+                eprintln!("tugcast: error: mark_closed failed: {e}");
                 std::process::exit(1);
             }
         }

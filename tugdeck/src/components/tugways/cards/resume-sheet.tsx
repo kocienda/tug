@@ -60,10 +60,15 @@ import {
 import { useSessionLedger } from "@/lib/session-ledger-store";
 import { SESSIONS_CELL_RENDERERS, PickerCellProvider } from "./session-picker-cells";
 import { getConnection } from "@/lib/connection-singleton";
-import { provisionSpawnTag, sendSpawnSession } from "@/lib/session-lifecycle";
+import {
+  provisionSpawnLine,
+  provisionSpawnTag,
+  sendSpawnSession,
+} from "@/lib/session-lifecycle";
 import { fireRestore } from "@/lib/session-restore";
 import { cardSessionBindingStore } from "@/lib/card-session-binding-store";
 import { sessionTagStore } from "@/lib/session-tag-store";
+import { sessionLineStore } from "@/lib/session-line-store";
 
 // Mirrors `session-card.tsx`'s sheet exit duration: defer the wire send so the
 // binding flip (which rebinds + re-renders the card) doesn't unmount the sheet
@@ -136,7 +141,10 @@ export function useResumeSheet({
 
   const resumeByTag = useCallback(
     (tag: string): ResumeByTagFailure | null => {
-      const sessionId = sessionTagStore.resolveTag(tag);
+      // The callsign names a **line**; the session id to resume is the segment
+      // that line is seated on ([P06]).
+      const lineId = sessionTagStore.lineWearing(tag);
+      const sessionId = lineId === null ? null : sessionLineStore.seatOf(lineId);
       if (sessionId === null) return { kind: "unknown-tag", tag };
       if (cardSessionBindingStore.getBinding(cardId)?.tugSessionId === sessionId) {
         return { kind: "already-bound", tag };
@@ -227,10 +235,19 @@ function ResumeSheetBody({
         }, SHEET_EXIT_ANIMATION_MS);
       } else if (row.kind === "session-new") {
         const sessionId = crypto.randomUUID();
-        const tag = provisionSpawnTag(sessionId);
+        const lineId = provisionSpawnLine(sessionId);
+        const tag = provisionSpawnTag(lineId);
         onClose("new");
         window.setTimeout(() => {
-          sendSpawnSession(connection, cardId, sessionId, projectDir, "new", tag);
+          sendSpawnSession(
+            connection,
+            cardId,
+            sessionId,
+            projectDir,
+            "new",
+            tag,
+            lineId,
+          );
         }, SHEET_EXIT_ANIMATION_MS);
       }
       // "loading" — inert.

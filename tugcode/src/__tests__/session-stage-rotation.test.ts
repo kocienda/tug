@@ -34,6 +34,8 @@ const realWrite = Bun.write;
 
 /** The environment each `Bun.spawn` was handed, in launch order. */
 let spawnEnvs: Array<Record<string, string | undefined>> = [];
+/** The argv each `Bun.spawn` was handed, in launch order. */
+let spawnArgs: string[][] = [];
 /** Every JSON line written to stdout since the last reset, in write order. */
 let emitted: any[] = [];
 
@@ -49,14 +51,16 @@ function fakeProcess(): unknown {
 
 beforeEach(() => {
   spawnEnvs = [];
+  spawnArgs = [];
   emitted = [];
   (Bun as unknown as { which: unknown }).which = (cmd: string) =>
     cmd === "claude" ? FAKE_CLAUDE : null;
   (Bun as unknown as { spawn: unknown }).spawn = (
-    _cmd: string[],
+    cmd: string[],
     opts?: { env?: Record<string, string | undefined> },
   ) => {
     spawnEnvs.push(opts?.env ?? {});
+    spawnArgs.push(cmd);
     return fakeProcess();
   };
   const decoder = new TextDecoder();
@@ -135,13 +139,14 @@ describe("a stage rotation announces lineage", () => {
     await rotate(m, "new", STAGE);
 
     const types = emitted.map((e) => e?.type);
-    const stageAt = types.indexOf("session_stage");
+    const stageAt = types.indexOf("session_segment");
     const initAt = types.indexOf("session_init");
     expect(stageAt).toBeGreaterThanOrEqual(0);
     expect(initAt).toBeGreaterThanOrEqual(0);
     expect(stageAt).toBeLessThan(initAt);
 
     const line = emitted[stageAt];
+    expect(line.kind).toBe("rotation");
     expect(line.parentSessionId).toBe(parent);
     expect(line.newSessionId).toBe(m.sessionId);
     expect(line.stage).toBe("devise");
@@ -156,25 +161,27 @@ describe("a stage rotation announces lineage", () => {
     const withModel = manager();
     withModel.handleModelChange("sonnet");
     await rotate(withModel, "new", STAGE);
-    expect(emitted.find((e) => e?.type === "session_stage").model).toBe("sonnet");
+    expect(emitted.find((e) => e?.type === "session_segment").model).toBe("sonnet");
 
     emitted = [];
     const withoutModel = manager();
     await rotate(withoutModel, "new", STAGE);
-    expect(emitted.find((e) => e?.type === "session_stage").model).toBe("");
+    expect(emitted.find((e) => e?.type === "session_segment").model).toBe("");
   });
 
   test("the stage line echoes the opening prompt the command carried", async () => {
     const m = manager();
     await rotate(m, "new", { ...STAGE, prompt: "/tugplug:dash-devise dash/some-brief.md" });
-    expect(emitted.find((e) => e?.type === "session_stage").prompt).toBe(
+    expect(emitted.find((e) => e?.type === "session_segment").prompt).toBe(
       "/tugplug:dash-devise dash/some-brief.md",
     );
 
     emitted = [];
     const bare = manager();
     await rotate(bare, "new", STAGE);
-    expect(emitted.find((e) => e?.type === "session_stage")).not.toHaveProperty("prompt");
+    expect(emitted.find((e) => e?.type === "session_segment")).not.toHaveProperty(
+      "prompt",
+    );
   });
 
   test("the stage's spawn carries the arc name", async () => {
@@ -202,7 +209,8 @@ describe("a rotation with no course behind it", () => {
     m.handleModelChange("opus");
     await rotate(m, "new", { name: "review" });
 
-    const line = emitted.find((e) => e?.type === "session_stage");
+    const line = emitted.find((e) => e?.type === "session_segment");
+    expect(line.kind).toBe("rotation");
     expect(line.stage).toBe("review");
     expect(line.model).toBe("opus");
     expect(line).not.toHaveProperty("document");
@@ -210,7 +218,7 @@ describe("a rotation with no course behind it", () => {
     expect(line).not.toHaveProperty("steps");
 
     const types = emitted.map((e) => e?.type);
-    expect(types.indexOf("session_stage")).toBeLessThan(types.indexOf("session_init"));
+    expect(types.indexOf("session_segment")).toBeLessThan(types.indexOf("session_init"));
   });
 
   test("its spawn carries no TUG_DASH_ARC, and one on a course does", async () => {
@@ -296,11 +304,16 @@ describe("a prompt dispatched behind the rotation", () => {
   });
 });
 
-describe("a session with no stage is unchanged", () => {
-  test("no session_stage line is written", async () => {
+describe("a session with no stage announces itself as a new line", () => {
+  test("the segment is `new` and carries none of the divider's facts", async () => {
     const m = manager();
     await rotate(m, "new");
-    expect(emitted.some((e) => e?.type === "session_stage")).toBe(false);
+    const line = emitted.find((e) => e?.type === "session_segment");
+    // A plain `/new` is the one gesture that means "a different
+    // conversation", so it is the one kind that births a line ([P03]).
+    expect(line.kind).toBe("new");
+    expect(line).not.toHaveProperty("stage");
+    expect(line).not.toHaveProperty("model");
     expect(emitted.some((e) => e?.type === "session_init")).toBe(true);
   });
 
@@ -325,6 +338,38 @@ describe("a session with no stage is unchanged", () => {
     const m = manager();
     await rotate(m, "fork", STAGE);
     await rotate(m, "continue", STAGE);
-    expect(emitted.some((e) => e?.type === "session_stage")).toBe(false);
+    expect(
+      emitted.some((e) => e?.type === "session_segment" && e.kind === "rotation"),
+    ).toBe(false);
+  });
+
+  test("a rotation respawns with --session-id, never --resume", async () => {
+    // A rotation mints an id claude has never written a JSONL for, so a later
+    // effort respawn must re-create it rather than resume it. `--resume` on an
+    // id with no transcript is fatal: claude answers "No conversation found",
+    // the process dies, and the next submit surfaces as a stream that ended
+    // unexpectedly. This is why `newSession` leaves the mode `new` and resets
+    // `claudeReceivedInput` ([P05]).
+    const m = manager();
+    await rotate(m, "new", STAGE);
+    const fresh = m.sessionId;
+
+    spawnArgs = [];
+    await m.handleEffortChange("high");
+    const args = spawnArgs.at(-1) ?? [];
+    expect(args).toContain("--session-id");
+    expect(args).not.toContain("--resume");
+    expect(args[args.indexOf("--session-id") + 1]).toBe(fresh);
+  });
+
+  test("a rewind-fork respawns with --resume — its JSONL exists", async () => {
+    // The other side of the same rule. A `--continue` names no id at all, so
+    // the mode is all there is to read; the transcript is on disk, so resuming
+    // it is correct.
+    const m = manager();
+    await rotate(m, "continue");
+    spawnArgs = [];
+    await m.handleEffortChange("high");
+    expect(spawnArgs.at(-1) ?? []).toContain("--resume");
   });
 });

@@ -4,7 +4,7 @@
  * The tag lives authoritatively in tugcast's ledger and rides the `SessionRow`
  * shape on `list_sessions_ok` rows and `session_updated` pushes. The chooser
  * reads tags straight off those rows, but the Z4B chip needs the tag for *its
- * bound session* by id — so this tiny store indexes `tugSessionId → tag` and the
+ * bound session* by id — so this tiny store indexes `lineId → tag` and the
  * chip subscribes by id ([L02]).
  *
  * Populated from three sources (see `action-dispatch.ts`): a client spawn sets
@@ -19,10 +19,10 @@
  * numeric suffix — the ledger rerolls a complete fresh pair. A callsign shown
  * "from the drop" may therefore change **once**, seconds after spawn, when
  * {@link SessionTagStore.seedTag} takes the ledger's word; after that it is
- * immutable for the life of the session. See `session-tag.ts`'s header.
+ * immutable for the life of the **line**. See `session-tag.ts`'s header.
  *
  * A faithful clone of `session-name-store.ts`, plus the reverse `tag →
- * session_id` index its header once deferred: {@link SessionTagStore.resolveTag}
+ * line_id` index its header once deferred: {@link SessionTagStore.lineWearing}
  * is what makes `/resume <tag>` possible, and it is exact-match only ([P12]).
  *
  * @module lib/session-tag-store
@@ -31,7 +31,7 @@
 class SessionTagStore {
   private tags = new Map<string, string>();
   /**
-   * The reverse index, `tag → tugSessionId` — what makes the callsign
+   * The reverse index, `tag → lineId` — what makes the callsign
    * ADDRESSABLE ([P12]): `/resume stocky-pixie` and any other command that
    * takes a callsign resolve through here.
    *
@@ -60,16 +60,17 @@ class SessionTagStore {
    */
   getVersion = (): number => this.version;
 
-  /** The tag for `tugSessionId`, or `null` when untagged. */
-  getTag = (tugSessionId: string): string | null =>
-    this.tags.get(tugSessionId) ?? null;
+  /** The tag for `lineId`, or `null` when untagged. */
+  getTag = (lineId: string): string | null =>
+    this.tags.get(lineId) ?? null;
 
   /** Every tag currently known — the re-roll exclusion set for minting. */
   knownTags = (): ReadonlySet<string> => new Set(this.tags.values());
 
   /**
-   * The session wearing `tag` right now, or `null` — the callsign resolved
-   * back to an id ([P12]).
+   * The **line** wearing `tag` right now, or `null` — the callsign resolved
+   * back to an id ([P12]). A caller that needs a session id to act on asks
+   * `sessionLineStore.seatOf` for the line's seated segment.
    *
    * **Exact match, deliberately.** A callsign is a name, not a query: `/resume
    * stocky-pix` is a typo, and answering it with `stocky-pixie` would resume a
@@ -82,16 +83,16 @@ class SessionTagStore {
    * holds it. That is the honest failure — the caller says so rather than
    * guessing.
    */
-  resolveTag = (tag: string): string | null =>
+  lineWearing = (tag: string): string | null =>
     this.byTag.get(tag.trim()) ?? null;
 
   /**
-   * Set (trimmed) or clear (`null` / blank) the tag for `tugSessionId`. No-op
+   * Set (trimmed) or clear (`null` / blank) the tag for `lineId`. No-op
    * + no notify when unchanged, so a redundant wire echo doesn't churn React.
    */
-  setTag(tugSessionId: string, tag: string | null): void {
+  setTag(lineId: string, tag: string | null): void {
     const trimmed = tag?.trim() ?? "";
-    const current = this.tags.get(tugSessionId) ?? null;
+    const current = this.tags.get(lineId) ?? null;
     // The reverse index is deleted only when this session still owns the
     // entry: during a reroll the spent callsign may already have been
     // re-seeded onto the session that legitimately wears it, and an
@@ -99,20 +100,20 @@ class SessionTagStore {
     // un-repairable loss, since its own later re-seed short-circuits on
     // "unchanged".
     const ownsReverse = (key: string): boolean =>
-      this.byTag.get(key) === tugSessionId;
+      this.byTag.get(key) === lineId;
     if (trimmed.length === 0) {
       if (current === null) return;
-      this.tags.delete(tugSessionId);
+      this.tags.delete(lineId);
       if (ownsReverse(current)) this.byTag.delete(current);
     } else {
       if (current === trimmed && ownsReverse(trimmed)) return;
-      this.tags.set(tugSessionId, trimmed);
+      this.tags.set(lineId, trimmed);
       // The reroll case: the callsign this session wore a moment ago names
       // nothing now, so it must stop resolving.
       if (current !== null && current !== trimmed && ownsReverse(current)) {
         this.byTag.delete(current);
       }
-      this.byTag.set(trimmed, tugSessionId);
+      this.byTag.set(trimmed, lineId);
     }
     this.version += 1;
     for (const listener of this.listeners) listener();
@@ -129,9 +130,9 @@ class SessionTagStore {
    * tag from outliving its one chance to be wrong. Explicit clears go through
    * `setTag`.
    */
-  seedTag(tugSessionId: string, tag: string | null): void {
+  seedTag(lineId: string, tag: string | null): void {
     if ((tag?.trim() ?? "").length === 0) return;
-    this.setTag(tugSessionId, tag);
+    this.setTag(lineId, tag);
   }
 }
 

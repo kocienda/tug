@@ -457,6 +457,28 @@ export interface LedgerSeedSession {
   forked_from_session_id?: string;
   /** The rewind point's prompt uuid; a placeholder is fine. */
   fork_point?: string;
+  /**
+   * The line of work this session is a **segment** of ([P01]).
+   *
+   * Two seeded sessions sharing a `line_id` are two segments of one line,
+   * which is how a test stands up a card that has rotated through several
+   * claude ids — the callsign, the name and the durable ink are the line's,
+   * and a relaunch seats whichever segment the resume rule picks. Defaults to
+   * the session's own id, i.e. a line of one.
+   */
+  line_id?: string;
+  /**
+   * What a rotation seated this session as, written through the same
+   * `set_stage_provenance` a real rotation uses.
+   */
+  stage_label?: string;
+  stage_model?: string;
+  /**
+   * The row's lifecycle state. The seed writes `live`; `"closed"` marks the
+   * row closed afterwards, which is how a test seeds a line whose older
+   * segments are done and whose newest one is not.
+   */
+  state?: "live" | "closed";
 }
 
 /**

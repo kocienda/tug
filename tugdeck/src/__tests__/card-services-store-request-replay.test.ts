@@ -118,6 +118,7 @@ function bindResume(cardId: string, tugSessionId: string): CardSessionBinding {
   TOUCHED_CARD_IDS.add(cardId);
   const binding: CardSessionBinding = {
     tugSessionId,
+    lineId: tugSessionId,
     workspaceKey: "/work/r1c-test",
     projectDir: "/work/r1c-test",
     sessionMode: "resume",
@@ -130,6 +131,7 @@ function bindNew(cardId: string, tugSessionId: string): CardSessionBinding {
   TOUCHED_CARD_IDS.add(cardId);
   const binding: CardSessionBinding = {
     tugSessionId,
+    lineId: tugSessionId,
     workspaceKey: "/work/r1c-test",
     projectDir: "/work/r1c-test",
     sessionMode: "new",

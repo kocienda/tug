@@ -4228,7 +4228,15 @@ mod tests {
 
         let ledger = Arc::new(SessionLedger::open_in_memory().expect("in-memory ledger"));
         ledger
-            .record_spawn("claude-1", "ws-alpha", "/tmp/project", "card-1", 0, None)
+            .record_spawn(
+                "claude-1",
+                "ws-alpha",
+                "/tmp/project",
+                "card-1",
+                0,
+                "claude-1",
+                None,
+            )
             .expect("seed the row the description lands on");
 
         let (code_tx, _) = broadcast::channel(64);
@@ -4763,7 +4771,15 @@ mod tests {
     fn seeded_ledger() -> Arc<SessionLedger> {
         let ledger = Arc::new(SessionLedger::open_in_memory().expect("in-memory ledger"));
         ledger
-            .record_spawn("claude-1", "ws-alpha", "/tmp/project", "card-1", 0, None)
+            .record_spawn(
+                "claude-1",
+                "ws-alpha",
+                "/tmp/project",
+                "card-1",
+                0,
+                "claude-1",
+                None,
+            )
             .unwrap();
         ledger
     }

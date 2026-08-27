@@ -17,17 +17,17 @@
  * **No suffix, ever.** A collision NEVER produces `azure-heron-2`: the bare
  * `-N` backstop is retired, along with the silent NULL tag it landed on at
  * exhaustion. The lineage-suffix grammar (`stocky-pixie-A1-B2`) is retired
- * too: a rewind-fork **inherits** its parent's callsign by transfer — the
- * callsign names the line of work and is stable for its life — and the only
- * path to a fresh pair is a genuinely new line (a root spawn, or a sibling
- * fork whose parent's name already moved on). Legacy composed spellings
- * survive only in old citations, resolved server-side through the
- * `minted_tags` alias arm. See [D154].
+ * too: the callsign belongs to the **line of work**, and an id change writes
+ * another segment against the same line rather than a session that needs a
+ * name of its own — so the only path to a fresh pair is a line being born
+ * ([D167]). Legacy composed spellings survive only in old citations, resolved
+ * server-side through the `minted_tags` alias arm.
  *
  * Pure logic — no React, no DOM, no store. Unit-testable in isolation. The
  * exact-match `tag → session_id` resolution this header once deferred now lives
- * on `session-tag-store.ts` as `resolveTag`, because it needs the live index
- * rather than a pure function.
+ * on `session-tag-store.ts` as `lineWearing`, because it needs the live index
+ * rather than a pure function — and it answers with the line, since that is
+ * what a callsign names.
  *
  * @module lib/session-tag
  */

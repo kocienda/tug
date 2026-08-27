@@ -122,6 +122,7 @@ function bind(cardId: string, tugSessionId: string): CardSessionBinding {
   TOUCHED_CARD_IDS.add(cardId);
   const binding: CardSessionBinding = {
     tugSessionId,
+    lineId: tugSessionId,
     workspaceKey: "/work/restore-test",
     projectDir: "/work/restore-test",
     sessionMode: "resume",
@@ -210,6 +211,7 @@ describe("session-restore — transport_settled on binding arrival (Step 5)", ()
     );
     cardSessionBindingStore.setBinding(cardId, {
       tugSessionId,
+      lineId: tugSessionId,
       workspaceKey: projectDir,
       projectDir,
       sessionMode: "resume",

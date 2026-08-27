@@ -697,15 +697,17 @@ pub fn execute_run(
     // A partial list is not the session's refs — restoring one would make
     // `/ref N` resolve against a list the user never saw finish.
     if !cancelled && let Some(ledger) = ledger {
-        // Key the run to the line of work, not to a session id a rewind fork
-        // may already have superseded.
-        let ink_session = match sessions.as_ref() {
-            Some(sessions) => sessions.resolve_to_lineage_head(&request.tug_session_id),
-            None => request.tug_session_id.clone(),
-        };
-        // The turn this run follows, read from the head's transcript — the file
-        // the deck will replay. After the resolution above, never before it.
-        // The run's root is the card's project dir, which locates that file.
+        // Key the run to the **line of work** ([P09]); a line-less session
+        // keys under its own id.
+        let ink_line = sessions
+            .as_ref()
+            .and_then(|sessions| sessions.line_of(&request.tug_session_id))
+            .unwrap_or_else(|| request.tug_session_id.clone());
+        let ink_session = request.tug_session_id.clone();
+        // The turn this run follows, read from the **segment's** transcript —
+        // the file the deck will replay. The anchor is a transcript fact, so
+        // it belongs to the id that wrote it rather than to the line. The
+        // run's root is the card's project dir, which locates that file.
         let anchor_msg_id = sessions.as_ref().and_then(|sessions| {
             sessions.latest_assistant_msg_id(
                 &ink_session,
@@ -714,6 +716,7 @@ pub fn execute_run(
         });
         let record = NewRefsRun {
             tug_session_id: ink_session,
+            line_id: ink_line,
             run_id: request.run_id.clone(),
             op_kind: request.kind.as_str().to_string(),
             command: request.command.clone(),

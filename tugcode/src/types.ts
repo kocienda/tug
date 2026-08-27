@@ -440,54 +440,43 @@ export interface ControlRequestForward {
 }
 
 /**
- * A rewind-fork announcement, emitted just before the fork's synthetic
- * `session_init` ([P11]).
+ * Every change of the live claude session id, announced with this one
+ * frame, immediately BEFORE the `session_init` that records the new id
+ * ([P05], Spec S02). tugcode owns the live id and is the only thing that can
+ * see it change; tugcast attaches the new segment to the card's line by
+ * reference and never carries identity on this wire.
  *
- * The fork is a new session that descends from an existing one, and tugcast
- * owns the lineage grammar — it allocates `<root>-<Letter><Number>` against
- * the parent's lineage and stages the composed callsign so the `session_init`
- * that follows records the fork under it. Nothing round-trips: tugcode
- * announces the fork's parentage and the rewind point it was taken at, and
- * tugcast does the naming.
+ * One frame for every kind — a rotation, a rewind-fork, a `--continue`, a
+ * `--continue --fork-session`, a crash respawn that re-ids, and a plain
+ * `/new` — because a second frame for one fact is a second thing to keep in
+ * step, and a bare `session_init` with no announcement is the case that used
+ * to leave a segment orphaned from its line.
  */
-export interface SessionFork {
-  type: "session_fork";
-  /** The session being forked FROM — claude's own id for it. */
+export interface SessionSegment {
+  type: "session_segment";
+  /** The session being left — claude's own id for it. */
   parentSessionId: string;
-  /** The fork's freshly minted claude session id. */
-  newSessionId: string;
-  /** The rewound-to prompt uuid — the branch point, stable across forks. */
-  forkPoint: string;
-}
-
-/**
- * A stage rotation announcement, emitted just before the stage's synthetic
- * `session_init`.
- *
- * A stage is a fresh session the server started on the same card, and it is
- * announced as *lineage* rather than as a stranger: tugcast stages the same
- * identity transfer it stages for a rewind-fork, so the whole arc wears one
- * callsign and durable ink written in any stage resolves to the same head.
- * The one difference is the fork point — a stage has none, because nothing
- * was copied.
- */
-export interface SessionStage {
-  type: "session_stage";
-  /** The session being rotated away from — claude's own id for it. */
-  parentSessionId: string;
-  /** The stage's freshly minted claude session id. */
+  /** The new claude session id this frame precedes the `session_init` of. */
   newSessionId: string;
   /**
-   * The stage label. `devise` / `review` / `implement` are the arc's three;
-   * any other word is a rotation no course is driving.
+   * What made the id change. Only `new` births a line; every other kind
+   * joins the card's existing one.
    */
-  stage: string;
+  kind: "rotation" | "rewind" | "fork" | "continue" | "respawn" | "new";
+  /** The rewound-to prompt uuid — the branch point. `rewind` only. */
+  forkPoint?: string;
+  /**
+   * The stage label. `devise` / `review` / `implement` are the arc's three;
+   * any other word is a rotation no course is driving. `rotation` only, and
+   * present on every one of them.
+   */
+  stage?: string;
   /** The model selector the rotation set, or empty for the account default. */
-  model: string;
+  model?: string;
   /**
    * The document the course opened on, repo-relative. Absent on a courseless
    * rotation. The bridge's parser requires only `parentSessionId`,
-   * `newSessionId`, and `stage`; every other field is optional there.
+   * `newSessionId`, and `kind`; every other field is optional there.
    */
   document?: string;
   /** The dash name the course is keyed by. Absent on a courseless rotation. */
@@ -507,18 +496,18 @@ export interface SessionStage {
 }
 
 /**
- * A stage boundary *replayed* — the divider half of {@link SessionStage},
- * with none of the identity half.
+ * A stage boundary *replayed* — the divider half of a rotation
+ * {@link SessionSegment}, with none of the identity half.
  *
- * A live rotation is two facts at once: a new session started (which tugcast
- * stages as an identity transfer, and records as an `arc-stage` line), and a
- * boundary happened (which the transcript draws). On restore only the second
- * is true — the sessions started long ago and are already recorded — so
- * replay emits its own frame rather than re-emitting `session_stage`. Re-using
- * that type would make the relay re-stage a transfer and append a duplicate
- * `arc-stage` line for a rotation that already happened.
+ * A live rotation is two facts at once: a new segment joined the card's line
+ * (which tugcast records, along with an `arc-stage` line), and a boundary
+ * happened (which the transcript draws). On restore only the second is true —
+ * the sessions started long ago and are already recorded — so replay emits its
+ * own frame rather than re-emitting `session_segment`. Re-using that type
+ * would make the relay re-record a segment and append a duplicate `arc-stage`
+ * line for a rotation that already happened.
  *
- * The deck folds this into the same transcript divider a `session_stage`
+ * The deck folds this into the same transcript divider a rotation
  * produces.
  */
 export interface ReplayStage {
@@ -1556,8 +1545,7 @@ export type OutboundMessage =
   | ContentBlockStart
   | ControlRequestForward
   | SystemMetadata
-  | SessionFork
-  | SessionStage
+  | SessionSegment
   | ReplayStage
   | SessionTitle
   | SessionCapabilities

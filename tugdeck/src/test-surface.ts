@@ -72,10 +72,16 @@ import {
 import { cardServicesStore } from "./lib/card-services-store";
 import { getConnection } from "./lib/connection-singleton";
 import { sendSpawnSession } from "./lib/session-lifecycle";
+import { sessionLineStore } from "./lib/session-line-store";
 import type { AtomSegment } from "./lib/tug-atom-img";
 import { dispatchAction, getResponderChainManager } from "./action-dispatch";
 import { writeSessionAtomToClipboard } from "./lib/session-atom";
-import { resolveSessionIdentity } from "./lib/session-identity";
+import {
+  resolveSessionIdentity,
+  sessionCitation,
+  sessionDisplayTitle,
+} from "./lib/session-identity";
+import { sessionNameStore } from "./lib/session-name-store";
 import { readClipboardViaNative } from "./lib/tug-native-clipboard";
 import { parseClipboardSidecar } from "./components/tugways/tug-text-editor/clipboard-filters";
 import type { ListOverviewPostsOk, RateLimitInfo } from "./protocol";
@@ -1318,6 +1324,21 @@ export interface TugTestSurface {
       endedAt: number;
     }>;
   };
+
+  /**
+   * What a card's binding says about its **line of work** ([P01]), read from
+   * the stores rather than the DOM — see the implementation for the invariant
+   * this answers.
+   */
+  cardLineFacts(cardId: string): {
+    tugSessionId: string;
+    lineId: string;
+    tag: string | null;
+    name: string | null;
+    title: string;
+    citation: string;
+  };
+
   /**
    * Re-ask the shell ledger for one card's ink rows — the refresh a
    * "load previous" page performs, and the only way a restored copy of a
@@ -2482,13 +2503,20 @@ export function createTugTestSurface(deck: DeckManager): TugTestSurface {
       cardId: string,
       options?: {
         tugSessionId?: string;
+        lineId?: string;
         workspaceKey?: string;
         projectDir?: string;
         sessionMode?: CardSessionMode;
       },
     ): void {
+      const tugSessionId = options?.tugSessionId ?? `test-session-${cardId}`;
+      // A card with no line named is a line of one, keyed by its own segment —
+      // the same fallback the identity stores take ([P12]).
+      const lineId = options?.lineId ?? tugSessionId;
+      sessionLineStore.seat(tugSessionId, lineId);
       cardSessionBindingStore.setBinding(cardId, {
-        tugSessionId: options?.tugSessionId ?? `test-session-${cardId}`,
+        tugSessionId,
+        lineId,
         workspaceKey: options?.workspaceKey ?? `test-workspace-${cardId}`,
         projectDir: options?.projectDir ?? "/tmp/test-project",
         sessionMode: options?.sessionMode ?? "new",
@@ -2570,6 +2598,42 @@ export function createTugTestSurface(deck: DeckManager): TugTestSurface {
           createdAt: t.messages[0]?.createdAt ?? t.endedAt,
           endedAt: t.endedAt,
         })),
+      };
+    },
+
+    /**
+     * What a card's binding says about its **line of work** ([P01]), read from
+     * the stores rather than the DOM.
+     *
+     * The invariant every session-lines test asks about: a card that has lived
+     * through several claude ids has one `lineId`, and the callsign, the name
+     * and the citation resolve through it. `tugSessionId` beside it is
+     * whichever segment is seated right now — the one a resume opened — so the
+     * pair is what says "one conversation, this transcript".
+     *
+     * Throws when the card has no binding, which is a real failure rather than
+     * an empty answer: a test asking this has already waited for the bind.
+     */
+    cardLineFacts(cardId: string): {
+      tugSessionId: string;
+      lineId: string;
+      tag: string | null;
+      name: string | null;
+      title: string;
+      citation: string;
+    } {
+      const binding = cardSessionBindingStore.getBinding(cardId);
+      if (binding === undefined) {
+        throw new Error(`cardLineFacts: card "${cardId}" has no bound session`);
+      }
+      const identity = resolveSessionIdentity(binding.tugSessionId);
+      return {
+        tugSessionId: binding.tugSessionId,
+        lineId: binding.lineId,
+        tag: identity.tag,
+        name: sessionNameStore.getName(binding.lineId),
+        title: sessionDisplayTitle(identity),
+        citation: sessionCitation(identity),
       };
     },
 

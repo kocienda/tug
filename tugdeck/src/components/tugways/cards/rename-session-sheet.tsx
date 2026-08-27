@@ -34,7 +34,6 @@ import type { ShowSheetOptions } from "@/components/tugways/tug-sheet";
 import { cardSessionBindingStore } from "@/lib/card-session-binding-store";
 import { getConnection } from "@/lib/connection-singleton";
 import { encodeRenameSession } from "@/protocol";
-import { displacedSessionsLine } from "@/lib/session-identity";
 import {
   renameRefusalDetail,
   sessionNameStore,
@@ -61,11 +60,6 @@ export interface RenameSessionSheetController {
   openRenameSheet: () => void;
 }
 
-/** A bulletin description option, or nothing when there is no line to add. */
-function descriptionOf(line: string | null): { description: string } | undefined {
-  return line === null ? undefined : { description: line };
-}
-
 export function useRenameSessionSheet({
   cardId,
   showSheet,
@@ -80,11 +74,11 @@ export function useRenameSessionSheet({
       const connection = getConnection();
       if (binding === undefined || connection === null) return;
       const trimmed = name.trim();
-      const previous = sessionNameStore.getName(binding.tugSessionId);
+      const previous = sessionNameStore.getName(binding.lineId);
       const bulletin = notify();
-      sessionNameStore.setName(binding.tugSessionId, trimmed);
+      sessionNameStore.setName(binding.lineId, trimmed);
       sessionNameStore.awaitSettle(
-        binding.tugSessionId,
+        binding.lineId,
         trimmed,
         previous,
         (settle) => {
@@ -93,11 +87,6 @@ export function useRenameSessionSheet({
               trimmed.length === 0
                 ? "Session name cleared"
                 : `Session renamed to “${trimmed}”`,
-              // A custom name is unique, so setting one takes it. The user
-              // learns what their gesture did; they are never asked to approve
-              // it. The wording lives in `lib/` because it reads the identity
-              // stores imperatively, which a component may not do ([L02]).
-              descriptionOf(displacedSessionsLine(settle.displaced)),
             );
             return;
           }
@@ -105,11 +94,20 @@ export function useRenameSessionSheet({
             previous === null
               ? "The session was not renamed"
               : `The session is still named “${previous}”`,
-            { description: renameRefusalDetail(settle.reason), sticky: true },
+            {
+              // A name another line already wears is refused, and the refusal
+              // names the holder ([P11]) — the user learns who has it rather
+              // than watching a gesture do nothing.
+              description:
+                settle.holderTag === undefined
+                  ? renameRefusalDetail(settle.reason)
+                  : `“${trimmed}” belongs to ${settle.holderTag}.`,
+              sticky: true,
+            },
           );
         },
       );
-      const frame = encodeRenameSession(binding.tugSessionId, trimmed);
+      const frame = encodeRenameSession(binding.lineId, trimmed);
       connection.send(frame.feedId, frame.payload);
     },
     [cardId, notify],
@@ -123,7 +121,7 @@ export function useRenameSessionSheet({
   const openRenameSheet = useCallback(() => {
     const binding = cardSessionBindingStore.getBinding(cardId);
     if (binding === undefined) return;
-    const current = sessionNameStore.getName(binding.tugSessionId) ?? "";
+    const current = sessionNameStore.getName(binding.lineId) ?? "";
     void showSheet({
       title: "Rename Session",
       icon: "Pencil",

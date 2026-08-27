@@ -29,6 +29,7 @@ describe("sendCloseSession", () => {
     // Pre-seed the binding store so we can observe the clear.
     cardSessionBindingStore.setBinding("card-lc", {
       tugSessionId: "sess-lc",
+      lineId: "line-lc",
       workspaceKey: "/work/lc",
       projectDir: "/work/lc",
       sessionMode: "new",
@@ -85,6 +86,7 @@ describe("sendRequestReplay", () => {
     // dispatch (in contrast to sendCloseSession, which clears).
     cardSessionBindingStore.setBinding("card-rr", {
       tugSessionId: "sess-rr",
+      lineId: "line-rr",
       workspaceKey: "/work/rr",
       projectDir: "/work/rr",
       sessionMode: "resume",

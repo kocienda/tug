@@ -225,23 +225,21 @@ impl<T> Default for BoundedQueue<T> {
 // LedgerEntry
 // ---------------------------------------------------------------------------
 
-/// A rewind-fork's staged identity ([P11]) — what the `session_fork`
-/// announcement resolved and the following `session_init` consumes.
+/// A segment's staged **provenance** ([P04]) — what a `session_segment`
+/// announcement carried, waiting for the `session_init` that names its id.
+///
+/// Provenance only. Identity is the line's and the entry already knows which
+/// line that is, so there is nothing here to inherit and nothing a mismatch
+/// could strand.
 #[derive(Debug, Clone)]
-pub struct PendingFork {
-    /// The callsign the fork inherited from its parent by transfer, or
-    /// `None` when the parent had none to hand down (a legacy tagless row,
-    /// or a sibling fork whose parent's callsign already moved on) — the
-    /// fork then spawns as a root session and mints a fresh pair.
-    pub tag: Option<String>,
-    /// The `/rename` the fork inherited with the callsign, or `None` when
-    /// the parent had none — and always `None` for a stage rotation, which
-    /// inherits nothing. Written through [`SessionLedger::rename`] after
-    /// the spawn record exists.
-    pub user_name: Option<String>,
-    /// The session this fork was rewind-forked from, or — for an arc stage —
-    /// the session the rotation replaced.
+pub struct PendingSegment {
+    /// The new claude session id this announcement precedes the init of.
+    pub new_session_id: String,
+    /// The session being left: the one a rewind forked from, the one a
+    /// rotation replaced, the one a respawn re-identified away from.
     pub parent_session_id: String,
+    /// What made the id change. Only `new` births a line ([P03]).
+    pub kind: String,
     /// The prompt uuid of the rewind point, or `None` for a stage rotation.
     ///
     /// A stage has no branch point because nothing was copied, and the column
@@ -294,15 +292,24 @@ pub struct LedgerEntry {
     /// `session_updated`. `None` when tugdeck sent no tag. Tug-side only — never
     /// forwarded into the child spawn args ([P07]).
     pub tag: Option<String>,
-    /// A rewind-fork's staged identity ([P11]): the parent's callsign the
-    /// fork inherited by transfer (`None` when the parent had none to hand
-    /// down — the fork then spawns as a root and mints fresh), plus the
-    /// provenance pair written onto the row right after `record_spawn`.
-    /// Staged by the `session_fork` announcement and consumed by the
-    /// `session_init` that immediately follows it. Keyed by the fork's claude
-    /// session id so a `session_init` for anything else cannot consume it.
-    /// `None` for every ordinary spawn.
-    pub pending_fork: Option<(String, PendingFork)>,
+    /// The line of work this card is on ([P01]). Every segment the bridge
+    /// records joins it **by reference** — the entry is asked, never the
+    /// ledger — which is what makes an id change cost nothing to attach.
+    ///
+    /// `None` only between [`LedgerEntry::new`] and the spawn payload's
+    /// arrival: `do_spawn_session` sets it from the payload (or, on a resume
+    /// that carries none, from the row it is resuming), and
+    /// `rebind_from_ledger` sets it from the row.
+    pub line_id: Option<String>,
+    /// Announced segments waiting for the `session_init` that names them
+    /// ([P04]).
+    ///
+    /// A **queue**, not a slot: two announcements can be in flight before
+    /// either init arrives, and a single slot let the second overwrite the
+    /// first — which left one segment attached to nothing. Each init takes
+    /// the entry whose `new_session_id` matches, so an init for anything else
+    /// cannot consume one.
+    pub pending_segments: std::collections::VecDeque<PendingSegment>,
     /// Lifecycle state.
     pub spawn_state: SpawnState,
     /// Whether this entry currently owns a `WorkspaceRegistry` refcount for its
@@ -470,7 +477,8 @@ impl LedgerEntry {
             session_mode,
             permission_mode: None,
             tag: None,
-            pending_fork: None,
+            line_id: None,
+            pending_segments: std::collections::VecDeque::new(),
             deck_model: None,
             context_window_tokens: None,
             spawn_state: SpawnState::Idle,
@@ -532,6 +540,10 @@ pub struct SessionRecord<'a> {
     /// Provisional mnemonic tag carried from the `LedgerEntry`, claimed
     /// authoritatively by `record_spawn`. `None` when tugdeck sent none.
     pub tag: Option<&'a str>,
+    /// The line this segment joins ([P04]). `None` where the caller has no
+    /// line to name — a path that has not been taught about lines yet — and
+    /// the segment then takes a line of its own.
+    pub line_id: Option<&'a str>,
 }
 
 /// Writer for the per-session ledger.
@@ -699,9 +711,9 @@ impl LedgerSessionsRecorder {
         let Some(tx) = self.control_tx.as_ref() else {
             return;
         };
-        // The display accessor: a push names the line of work, not whichever
-        // rotation segment is seated ([D164]).
-        match self.ledger.get_for_display(session_id) {
+        // A push names the line of work, not whichever segment is seated —
+        // which is what the row already holds, by the join ([P02]).
+        match self.ledger.get(session_id) {
             Ok(Some(row)) => {
                 let _ = tx.send(build_session_updated_frame(
                     &row,
@@ -806,6 +818,7 @@ impl SessionsRecorder for LedgerSessionsRecorder {
             record.project_dir,
             record.card_id,
             now,
+            record.line_id.unwrap_or(record.session_id),
             record.tag,
         ) {
             warn!(error = %err, session_id = record.session_id, "ledger record_spawn failed");
@@ -1111,6 +1124,10 @@ pub fn build_session_updated_frame(
             "last_user_prompt": row.last_user_prompt,
             "state": row.state,
             "card_id": row.card_id,
+            // The line this segment belongs to ([P01]). Every identity field
+            // beside it is the line's, read through the join, so a push that
+            // omitted this would hand the deck a name it could not key.
+            "line_id": row.line_id,
             "name": row.name,
             "name_user_set": row.name_user_set,
             "tag": row.tag,
@@ -1125,6 +1142,35 @@ pub fn build_session_updated_frame(
     Frame::new(
         FeedId::CONTROL,
         serde_json::to_vec(&body).expect("session_updated serializes"),
+    )
+}
+
+/// Build the `session_line_rebound` push — a card's line changed under it.
+///
+/// Sent on exactly one gesture: a plain `/new`, which is the one id change
+/// that means "a different conversation" and so births a line rather than
+/// joining the card's ([P03]). Everything else is another segment of the line
+/// the card already has, and needs no push because nothing moved.
+///
+/// The deck's binding follows this, and with it every store keyed by line —
+/// the name, the callsign, the description, the side-question history.
+pub fn build_session_line_rebound_frame(
+    card_id: &str,
+    tug_session_id: &str,
+    line: &crate::session_ledger::LineRow,
+) -> Frame {
+    let body = serde_json::json!({
+        "action": "session_line_rebound",
+        "card_id": card_id,
+        "tug_session_id": tug_session_id,
+        "line_id": line.line_id,
+        "tag": line.tag,
+        "name": line.name,
+        "name_user_set": line.name_user_set,
+    });
+    Frame::new(
+        FeedId::CONTROL,
+        serde_json::to_vec(&body).expect("session_line_rebound serializes"),
     )
 }
 
@@ -1304,6 +1350,13 @@ pub enum ControlError {
     /// `detail` so any other observer of the session sees the failure.
     #[error("spawn budget exceeded: {reason}")]
     CapExceeded { reason: &'static str },
+    /// A `mode=new` spawn carried no `line_id` ([P03]). A line is born in
+    /// exactly one place and the deck mints its id from the drop, so a fresh
+    /// spawn that names none is refused rather than served under a line the
+    /// server invented — which the deck's per-line tugbank keys would then
+    /// point past, silently.
+    #[error("spawn_session is missing line_id")]
+    MissingLineId,
 }
 
 /// Central owner of all Claude Code sessions for a single tugcast process.
@@ -1481,15 +1534,13 @@ pub struct ListedSession {
 /// Content-empty rows ([`is_empty_session`]) are dropped from both phases —
 /// they never reach the wire.
 ///
-/// `lines` names, for each session that is an arc stage, the line of work it
-/// is a segment of ([D164]). Those rows do not list on their own: the picker
-/// offers **lines of work**, and an arc's stages are one line with the
-/// session it rotated from. See [`fold_lines`].
+/// Segments of one line do not list on their own: the picker offers **lines
+/// of work**, and every id a card has lived through is one line. See
+/// [`fold_lines`].
 fn build_listed_union(
     rows: Vec<crate::session_ledger::SessionRow>,
     live: &HashMap<String, crate::terminal_registry::TerminalLiveEntry>,
     scan: Option<crate::external_sessions::ScanOutcome>,
-    lines: &HashMap<String, crate::session_ledger::LineIdentity>,
 ) -> Vec<ListedSession> {
     let annotate = |session_id: &str| {
         live.get(session_id).map(|e| TerminalLiveWire {
@@ -1544,9 +1595,8 @@ fn build_listed_union(
             if entry.row.name.is_none() {
                 entry.row.name = meta.name;
             }
-            // A legacy tagless ledger row shows the callsign the scan minted
-            // for it; `record_spawn` persists that same tag onto the row at
-            // its next resume ([Q04]).
+            // A ledger row whose line has no callsign yet shows the one the
+            // scan minted for it.
             if entry.row.tag.is_none() {
                 entry.row.tag = meta.tag;
             }
@@ -1570,10 +1620,10 @@ fn build_listed_union(
                     name: meta.name,
                     // A scanned `aiTitle` is never a user rename.
                     name_user_set: false,
-                    // The callsign minted at scan time ([P12], [Q04]) — the
-                    // picker sees a real tag before the session is ever
-                    // adopted, and adoption carries this same tag onto the
-                    // `sessions` row rather than minting a second one.
+                    // The callsign of the line the scan birthed for this
+                    // session ([P07]) — the picker sees a real tag before the
+                    // session is ever adopted, and adoption seats that same
+                    // line on the card rather than minting a second identity.
                     tag: meta.tag,
                     // A scanned session is a root until it is forked from.
                     // The description is ledger state; a session with no
@@ -1586,6 +1636,10 @@ fn build_listed_union(
                     // ever bound it to a dash.
                     dash_id: None,
                     dash_name: None,
+                    // The card-less line the scan birthed, so a fold groups a
+                    // scanned session's segments exactly as it groups a
+                    // ledger row's.
+                    line_id: meta.line_id.unwrap_or_default(),
                 },
                 origin: "external",
                 terminal_live,
@@ -1594,48 +1648,39 @@ fn build_listed_union(
         }
     }
     listed.retain(|entry| !is_empty_session(&entry.row));
-    let mut listed = fold_lines(listed, lines);
+    let mut listed = fold_lines(listed);
     listed.sort_by(|a, b| b.row.last_used_at.cmp(&a.row.last_used_at));
     listed
 }
 
 /// Collapse each line of work into one row.
 ///
-/// An arc rotation leaves a session per stage, and before [D164] they were
-/// invisible in the picker only because the rotation stole the parent's
-/// callsign and name — one row, bought with a lie. The rows are honest now,
-/// which is what made four of them appear where the user has one
-/// conversation. So the fold happens here, at the read, where it costs
-/// nothing but a grouping:
+/// A card accumulates a session id per rotation, per rewind-fork, per
+/// respawn, and the user has one conversation. They are all segments of one
+/// line ([P01]), so the picker groups by `line_id`:
 ///
 /// - The **row offered** is the line's newest *live* segment, else its newest
 ///   segment. That is the resume target that keeps the whole scroll: a card
 ///   replays parent-ward from the session it is seated on, so seating the
 ///   line's tip replays every stage and the conversation they grew from,
 ///   while seating the root would show the history and drop the arc.
-/// - The **identity shown** is the line's — the root's callsign and name,
-///   already resolved onto the stage rows by `get_for_display`, and taken
-///   from the root's own row when it is one of the members.
+/// - The **identity shown** needs no choosing: every member already carries
+///   the line's callsign and name, because that is what the join reads.
 /// - **Size and turns sum** across the line, because that is what the line
 ///   holds; the segment's own numbers would understate a card the user has
 ///   been working in all afternoon.
 ///
-/// A session with no line entry — every ordinary session, and every external
-/// scan row — is its own group of one and passes through untouched.
-fn fold_lines(
-    listed: Vec<ListedSession>,
-    lines: &HashMap<String, crate::session_ledger::LineIdentity>,
-) -> Vec<ListedSession> {
-    if lines.is_empty() {
-        return listed;
-    }
+/// A row with no line — a synthesized shape no ledger wrote — is its own
+/// group of one and passes through untouched.
+fn fold_lines(listed: Vec<ListedSession>) -> Vec<ListedSession> {
     let mut order: Vec<String> = Vec::new();
     let mut groups: HashMap<String, Vec<ListedSession>> = HashMap::new();
     for entry in listed {
-        let key = lines
-            .get(&entry.row.session_id)
-            .map(|line| line.root_session_id.clone())
-            .unwrap_or_else(|| entry.row.session_id.clone());
+        let key = if entry.row.line_id.is_empty() {
+            entry.row.session_id.clone()
+        } else {
+            entry.row.line_id.clone()
+        };
         groups.entry(key.clone()).or_insert_with(|| {
             order.push(key.clone());
             Vec::new()
@@ -1657,19 +1702,6 @@ fn fold_lines(
             .iter()
             .filter_map(|m| m.file_size)
             .reduce(|a, b| a + b);
-        // The root's own row is the identity when it is listed; otherwise the
-        // line identity every stage carries says the same thing.
-        let identity = members
-            .iter()
-            .find(|m| m.row.session_id == key)
-            .map(|m| (m.row.tag.clone(), m.row.name.clone(), m.row.name_user_set))
-            .or_else(|| {
-                members.iter().find_map(|m| {
-                    lines
-                        .get(&m.row.session_id)
-                        .map(|line| (line.tag.clone(), line.name.clone(), line.name_user_set))
-                })
-            });
         // Newest live segment, else newest segment.
         members.sort_by(|a, b| {
             let live = |m: &ListedSession| m.row.state == crate::session_ledger::SessionState::Live;
@@ -1680,11 +1712,6 @@ fn fold_lines(
         let mut base = members.swap_remove(0);
         base.row.turn_count = turn_count;
         base.file_size = file_size;
-        if let Some((tag, name, name_user_set)) = identity {
-            base.row.tag = tag;
-            base.row.name = name;
-            base.row.name_user_set = name_user_set;
-        }
         folded.push(base);
     }
     folded
@@ -1748,6 +1775,11 @@ struct OwnedControlPayload {
     /// and claimed authoritatively by `record_spawn`; never forwarded to the
     /// child ([P07]).
     tag: Option<String>,
+    /// The line of work a `mode=new` spawn is birthing, minted by the deck
+    /// from the drop beside the tag ([P03]). Required on `mode=new`; on a
+    /// resume it is the binding's, and absent it is read off the row being
+    /// resumed.
+    line_id: Option<String>,
 }
 
 fn parse_control_payload_owned(payload: &[u8]) -> Result<OwnedControlPayload, ControlError> {
@@ -1782,6 +1814,11 @@ fn parse_control_payload_owned(payload: &[u8]) -> Result<OwnedControlPayload, Co
         .and_then(|v| v.as_str())
         .filter(|s| !s.is_empty())
         .map(|s| s.to_string());
+    let line_id = value
+        .get("line_id")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string());
     Ok(OwnedControlPayload {
         card_id,
         tug_session_id: TugSessionId::new(tug_session_id),
@@ -1789,6 +1826,7 @@ fn parse_control_payload_owned(payload: &[u8]) -> Result<OwnedControlPayload, Co
         session_mode,
         permission_mode,
         tag,
+        line_id,
     })
 }
 
@@ -2019,22 +2057,33 @@ fn parse_changeset_disclaim_payload(
     })
 }
 
-/// The commit message enriched with the session trailer pair ([P10], Spec
+/// The commit message enriched with the session trailer pair ([P13], Spec
 /// S03): `Tug-Session` carrying the human citation `<tag> (<shortid8>)` and
 /// `Tug-Session-Id` the full uuid a reader joins against the ledger. Without a
 /// session id the message is returned byte-for-byte. Idempotent via
 /// `append_trailers`.
 ///
-/// `tag` is resolved from the ledger by the caller, not taken from the deck's
-/// payload — the ledger is the authority on a callsign, and the deck may still
-/// be holding the optimistic one it minted at spawn. The citation grammar
-/// itself lives in `tugchanges_core::session_citation`, shared with the dash
-/// lane so the two can never drift.
-fn changeset_commit_message(request: &ChangesetCommitPayload, tag: Option<&str>) -> String {
+/// **The citation names the line, the id pins the segment.** A card that has
+/// rotated through eight ids has one line of work, and a reader following a
+/// commit back wants the conversation rather than whichever segment happened
+/// to be seated — so the short id in parentheses is the line's. `Tug-Session-Id`
+/// beside it is still the segment's full uuid, which is what opens the exact
+/// transcript the commit was made from.
+///
+/// `tag` and `line_id` are resolved from the ledger by the caller, not taken
+/// from the deck's payload — the ledger is the authority on a callsign, and
+/// the deck may still be holding the optimistic one it minted at spawn. The
+/// citation grammar itself lives in `tugchanges_core::session_citation`,
+/// shared with the dash lane so the two can never drift.
+fn changeset_commit_message(
+    request: &ChangesetCommitPayload,
+    tag: Option<&str>,
+    line_id: Option<&str>,
+) -> String {
     let Some(id) = request.session_id.as_deref().filter(|s| !s.is_empty()) else {
         return request.message.clone();
     };
-    let citation = tugchanges_core::session_citation(tag, id);
+    let citation = tugchanges_core::session_citation(tag, line_id.unwrap_or(id));
     tugchanges_core::append_trailers(
         &request.message,
         &[("Tug-Session", &citation), ("Tug-Session-Id", id)],
@@ -2496,17 +2545,22 @@ fn parse_trash_session_payload(payload: &[u8]) -> Result<(String, Option<String>
     Ok((session_id, project_dir))
 }
 
-/// Parse a `rename_session` CONTROL payload: `{ session_id, name }`. A missing /
+/// Parse a `rename_session` CONTROL payload: `{ line_id, name }`. A missing /
 /// empty / whitespace-only `name` clears the name (`None`); otherwise the
-/// trimmed name is kept. ([#step-13d])
+/// trimmed name is kept.
+///
+/// **A rename names a line, not a segment** ([P11]). The name is the line's
+/// title, so the address is the line's id — an id the deck holds for every
+/// card it has a binding for, and one that does not move when the card's
+/// claude id rotates mid-rename.
 fn parse_rename_session_payload(payload: &[u8]) -> Result<(String, Option<String>), ControlError> {
     let value: serde_json::Value =
         serde_json::from_slice(payload).map_err(|_| ControlError::Malformed)?;
     let id = value
-        .get("session_id")
+        .get("line_id")
         .and_then(|v| v.as_str())
         .filter(|s| !s.is_empty())
-        .ok_or(ControlError::MissingSessionId)?
+        .ok_or(ControlError::MissingLineId)?
         .to_string();
     let name = value
         .get("name")
@@ -3268,6 +3322,7 @@ impl AgentSupervisor {
                     parsed.session_mode,
                     parsed.permission_mode,
                     parsed.tag,
+                    parsed.line_id,
                     client_id,
                 )
                 .await
@@ -3447,8 +3502,8 @@ impl AgentSupervisor {
                 Err(e) => return ControlOutcome::Error(e),
             },
             "rename_session" => match parse_rename_session_payload(payload) {
-                Ok((session_id, name)) => {
-                    self.do_rename_session(&session_id, name.as_deref()).await;
+                Ok((line_id, name)) => {
+                    self.do_rename_session(&line_id, name.as_deref()).await;
                     Ok(())
                 }
                 Err(e) => return ControlOutcome::Error(e),
@@ -3763,9 +3818,21 @@ impl AgentSupervisor {
         session_mode: SessionMode,
         permission_mode: Option<String>,
         tag: Option<String>,
+        line_id: Option<String>,
         client_id: ClientId,
     ) -> Result<(), ControlError> {
         let project_dir = PathBuf::from(&project_dir_str);
+        // A fresh spawn births a line, and the deck mints its id from the drop
+        // ([P03]). Refused here, before the workspace refcount is acquired, so
+        // the refusal costs nothing and releases nothing.
+        if session_mode == SessionMode::New && line_id.as_deref().unwrap_or_default().is_empty() {
+            warn!(
+                card_id,
+                session = %tug_session_id,
+                "spawn_session: a mode=new spawn carried no line_id"
+            );
+            return Err(ControlError::MissingLineId);
+        }
         tracing::info!(
             target: "dev::session-lifecycle",
             event = "spawn.supervisor_recv",
@@ -3813,11 +3880,9 @@ impl AgentSupervisor {
         // shell ledger's receipts and the refs ledger's last run — exactly as
         // the client's own zero-turn restore path does.
         //
-        // That invariant is enforced rather than assumed: a rewind-fork moves
-        // the id out from under those rows, so every durable ink write and
-        // read resolves through `SessionLedger::resolve_to_lineage_head` first,
-        // the fork arc transfers the rows, and `ink_adoption` repairs whatever
-        // slipped at the next ledger open ([D155]).
+        // That invariant needs no enforcing now: durable ink is keyed by
+        // **line** ([P09]), so an id change moves nothing out from under it
+        // and there is nothing to repair afterwards.
         //
         // `spawn_mode` is what the entry gets stamped with; `session_mode`
         // stays the mode the client asked for, so the ownership gates below
@@ -3975,6 +4040,21 @@ impl AgentSupervisor {
                 // preserved across reconnects; `record_spawn` claims it
                 // authoritatively when the bridge promotes the session.
                 entry.tag = tag;
+            }
+            // The line the entry is on ([P03]/[P04]). The payload's is the
+            // authority — the deck mints it from the drop on a fresh spawn and
+            // sends the binding's on a resume. A resume that carries none
+            // (every client before this model) reads it off the row it is
+            // resuming, so a card restored by an older deck still lands on its
+            // own line rather than starting a second one.
+            if let Some(line_id) = line_id.filter(|id| !id.is_empty()) {
+                entry.line_id = Some(line_id);
+            } else if entry.line_id.is_none() {
+                entry.line_id = entry
+                    .claude_session_id
+                    .as_deref()
+                    .or(Some(tug_session_id.as_str()))
+                    .and_then(|id| self.session_ledger.as_ref()?.line_of(id));
             }
             entry.session_mode
         };
@@ -4331,6 +4411,15 @@ impl AgentSupervisor {
                 )
             })
             .unwrap_or((None, false, None, None, false));
+        // The line the ack reports is the entry's — the row does not exist yet
+        // on a fresh spawn, and the entry is where the payload's line landed.
+        let row_line_id = match row.as_ref() {
+            Some(row) if !row.line_id.is_empty() => Some(row.line_id.clone()),
+            _ => {
+                let entry = entry_arc.lock().await;
+                entry.line_id.clone()
+            }
+        };
         // The dash binding rides the ack the same way `workspace_key` does —
         // the spawn ack is the binding store's only writer ([P07]) — and reads
         // as unbound when the dash's branch is gone ([P05]).
@@ -4355,6 +4444,10 @@ impl AgentSupervisor {
             // field — `project_dir` is informational for UI display.
             "project_dir": project_dir_str,
             "session_mode": effective_mode.as_wire_str(),
+            // The line this card is on ([P03]). Every identity-shaped store on
+            // the deck keys by it, and the ack is where a fresh spawn learns
+            // the id the ledger actually settled on.
+            "line_id": row_line_id,
             "name": row_name,
             "name_user_set": row_name_user_set,
             "tag": row_tag,
@@ -4609,20 +4702,11 @@ impl AgentSupervisor {
             move || {
                 let rows = ledger_arc.list_for_project_dir(&pd)?;
                 let live = Self::read_terminal_live_sessions(registry_root.as_deref());
-                // Resolved beside the rows, on the same blocking worker: the
-                // fold is part of building the listing, not a second read the
-                // control loop pays for ([D164]).
-                let lines = ledger_arc.line_identities_for(
-                    &rows
-                        .iter()
-                        .map(|r| r.session_id.clone())
-                        .collect::<Vec<_>>(),
-                );
-                Ok::<_, crate::session_ledger::LedgerError>((rows, live, lines))
+                Ok::<_, crate::session_ledger::LedgerError>((rows, live))
             }
         })
         .await;
-        let (rows, live, lines) = match phase1 {
+        let (rows, live) = match phase1 {
             Ok(Ok(t)) => t,
             Ok(Err(err)) => {
                 warn!(error = %err, project_dir, "list_sessions phase 1 failed");
@@ -4637,7 +4721,7 @@ impl AgentSupervisor {
         };
 
         // Phase 1 emit: ledger-only preview, scan still pending.
-        let ledger_preview = build_listed_union(rows, &live, None, &lines);
+        let ledger_preview = build_listed_union(rows, &live, None);
         Self::send_list_sessions_ok(&control_tx, project_dir, dir_exists, &ledger_preview, true);
 
         // ── Phase 2: the expensive JSONL scan, run off the control loop in
@@ -4664,12 +4748,6 @@ impl AgentSupervisor {
                     Vec::new()
                 });
                 let live = Self::read_terminal_live_sessions(registry_root.as_deref());
-                let lines = ledger_arc.line_identities_for(
-                    &rows
-                        .iter()
-                        .map(|r| r.session_id.clone())
-                        .collect::<Vec<_>>(),
-                );
                 // Throttled scan progress: `list_sessions_progress` frames
                 // (≤ ~10 Hz, first and last ticks always) keyed by the
                 // typed path — the client's cache key — so a cold or
@@ -4707,7 +4785,7 @@ impl AgentSupervisor {
                         ));
                     },
                 );
-                build_listed_union(rows, &live, Some(scan), &lines)
+                build_listed_union(rows, &live, Some(scan))
             })
             .await;
             match built {
@@ -5184,22 +5262,27 @@ impl AgentSupervisor {
 
         // The callsign comes from the ledger, never from the payload — the
         // deck may still be holding the optimistic tag it minted at spawn.
-        // Through the display accessor, so a commit made inside an arc stage
-        // cites the line of work rather than the segment; `Tug-Session-Id`
-        // beside it still pins the exact transcript ([D164]).
-        let tag = request
+        // The row's callsign and `line_id` are the line's ([P02]), so a commit
+        // made inside an arc stage cites the line of work rather than the
+        // segment; `Tug-Session-Id` beside it still pins the exact transcript.
+        let identity = request
             .session_id
             .as_deref()
             .filter(|s| !s.is_empty())
             .and_then(|id| self.session_ledger.as_ref().map(|l| (l, id)))
-            .and_then(|(ledger, id)| match ledger.get_for_display(id) {
-                Ok(row) => row.and_then(|r| r.tag),
+            .and_then(|(ledger, id)| match ledger.get(id) {
+                Ok(row) => row.map(|r| (r.tag, r.line_id)),
                 Err(err) => {
                     warn!(error = %err, session_id = id, "ledger read for commit trailer failed");
                     None
                 }
             });
-        let message = changeset_commit_message(request, tag.as_deref());
+        let tag = identity.as_ref().and_then(|(tag, _)| tag.as_deref());
+        let line_id = identity
+            .as_ref()
+            .map(|(_, line_id)| line_id.as_str())
+            .filter(|s| !s.is_empty());
+        let message = changeset_commit_message(request, tag, line_id);
         match crate::feeds::changeset::run_changeset_commit(
             dir,
             &request.files,
@@ -5784,13 +5867,16 @@ impl AgentSupervisor {
         else {
             return None;
         };
-        let session_id = match sessions {
-            Some(sessions) => sessions.resolve_to_lineage_head(session_id),
-            None => session_id.to_string(),
-        };
-        // The anchor reads the *head's* transcript — the file the deck will
-        // replay — so it has to come after the resolution above, never before.
-        // `cwd` is the landing's project dir, which is what locates that file.
+        // The receipt is the **line's** ([P09]); a line-less session keys
+        // under its own id.
+        let line_id = sessions
+            .and_then(|sessions| sessions.line_of(session_id))
+            .unwrap_or_else(|| session_id.to_string());
+        let session_id = session_id.to_string();
+        // The anchor reads the *segment's* transcript — the file the deck will
+        // replay — because which turn a receipt follows is a fact about the id
+        // that wrote it. `cwd` is the landing's project dir, which locates
+        // that file.
         let anchor_msg_id =
             sessions.and_then(|s| s.latest_assistant_msg_id(&session_id, Some(cwd)));
         let now = std::time::SystemTime::now()
@@ -5799,6 +5885,7 @@ impl AgentSupervisor {
             .unwrap_or(0);
         match ledger.record_exchange(&crate::shell_ledger::NewShellExchange {
             tug_session_id: session_id.clone(),
+            line_id,
             command: command.to_string(),
             output: summary.to_string(),
             exit_code: Some(0),
@@ -6697,8 +6784,11 @@ impl AgentSupervisor {
             ));
             return;
         };
-        let rows = match ledger.list_with_card_id() {
-            Ok(r) => r,
+        // One row per **line** ([P06]), each seated on the segment a restore
+        // should resume. A card that has lived through eight id changes is one
+        // binding here, not eight.
+        let lines = match ledger.list_lines_with_card() {
+            Ok(l) => l,
             Err(err) => {
                 warn!(error = %err, "list_card_bindings failed");
                 let body = serde_json::json!({
@@ -6753,10 +6843,10 @@ impl AgentSupervisor {
         // binding whose dash has since been joined or discarded reads as
         // unbound ([P05]) without a git call per row.
         let live_dashes_by_project: std::collections::HashMap<String, _> = {
-            let projects: std::collections::HashSet<String> = rows
+            let projects: std::collections::HashSet<String> = lines
                 .iter()
-                .filter(|row| row.dash_id.is_some())
-                .map(|row| row.project_dir.clone())
+                .filter(|(_, segment, _)| segment.dash_id.is_some())
+                .map(|(_, segment, _)| segment.project_dir.clone())
                 .collect();
             tokio::task::spawn_blocking(move || {
                 projects
@@ -6771,37 +6861,45 @@ impl AgentSupervisor {
             .unwrap_or_default()
         };
         let no_dashes = std::collections::HashSet::new();
-        let bindings: Vec<serde_json::Value> = rows
+        let bindings: Vec<serde_json::Value> = lines
             .into_iter()
-            .filter_map(|row| {
-                let card_id = row.card_id?;
+            .filter_map(|(line, segment, turn_count)| {
+                let card_id = line.card_id.clone()?;
                 let (dash_id, dash_name) = Self::reported_binding(
                     live_dashes_by_project
-                        .get(&row.project_dir)
+                        .get(&segment.project_dir)
                         .unwrap_or(&no_dashes),
-                    row.dash_id,
-                    row.dash_name,
+                    segment.dash_id,
+                    segment.dash_name,
                 );
-                let is_alive = live_session_ids.contains(&row.session_id);
+                // Liveness and the transcript are the **seated segment's**:
+                // they are facts about the file a resume would open, not about
+                // the line.
+                let is_alive = live_session_ids.contains(&segment.session_id);
                 let has_jsonl = {
-                    let (dir, _canonical) =
-                        crate::session_ledger::claude_project_dir(&claude_root, &row.project_dir);
-                    let path = dir.join(format!("{}.jsonl", row.session_id));
+                    let (dir, _canonical) = crate::session_ledger::claude_project_dir(
+                        &claude_root,
+                        &segment.project_dir,
+                    );
+                    let path = dir.join(format!("{}.jsonl", segment.session_id));
                     crate::external_sessions::stat_size_mtime(&path)
                         .is_some_and(|(size, _mtime)| size > 0)
                 };
                 Some(serde_json::json!({
                     "card_id": card_id,
-                    "session_id": row.session_id,
-                    "project_dir": row.project_dir,
-                    "state": row.state,
-                    "turn_count": row.turn_count,
+                    "line_id": line.line_id,
+                    "session_id": segment.session_id,
+                    "project_dir": segment.project_dir,
+                    "state": segment.state,
+                    // The line's turns, summed across its segments: what the
+                    // conversation holds, not what its newest id holds.
+                    "turn_count": turn_count,
                     "is_alive": is_alive,
                     "has_jsonl": has_jsonl,
-                    "name": row.name,
-                    "name_user_set": row.name_user_set,
-                    "tag": row.tag,
-                    "synopsis": row.synopsis,
+                    "name": line.name,
+                    "name_user_set": line.name_user_set,
+                    "tag": line.tag,
+                    "synopsis": segment.synopsis,
                     "dash_id": dash_id,
                     "dash_name": dash_name,
                 }))
@@ -7415,7 +7513,7 @@ impl AgentSupervisor {
         // Read the line of work, answer the asker. The deck routes a response
         // back to the store that asked by matching the echoed
         // `tug_session_id`, so the query resolves and the echo does not.
-        let head = self.resolve_ink_session(tug_session_id);
+        let head = self.resolve_ink_line(tug_session_id);
         let read = self.shell_ledger.as_ref().map(|ledger| {
             let rows = ledger
                 .list_exchanges_since(&head, since_ms)
@@ -7463,15 +7561,15 @@ impl AgentSupervisor {
     /// lineage head, or the id itself when nothing has forked it (or no
     /// session ledger is configured).
     ///
-    /// A rewind-fork supersedes the session it forked from, and the deck stays
-    /// bound to that superseded parent until the next relaunch. Routing both
-    /// ink writes and ink reads through the head keeps all three epochs
-    /// coherent: rows written before the fork, rows written in the
-    /// still-parent-bound window after it, and reads issued once the relaunch
-    /// has rebound the card to the fork.
-    fn resolve_ink_session(&self, tug_session_id: &str) -> String {
+    /// Durable ink is keyed by **line** ([P09]), so a read issued under any
+    /// segment's id — including a superseded one the deck is still bound to —
+    /// finds the whole conversation's rows. A session this ledger has never
+    /// seen keys under its own id, which is the only key its own writer used.
+    fn resolve_ink_line(&self, tug_session_id: &str) -> String {
         match self.session_ledger.as_ref() {
-            Some(sessions) => sessions.resolve_to_lineage_head(tug_session_id),
+            Some(sessions) => sessions
+                .line_of(tug_session_id)
+                .unwrap_or_else(|| tug_session_id.to_string()),
             None => tug_session_id.to_string(),
         }
     }
@@ -7482,7 +7580,7 @@ impl AgentSupervisor {
     /// ledger, or a session that has never searched).
     async fn do_list_refs(&self, tug_session_id: &str) {
         // Resolved query, unresolved echo — see `do_list_shell_exchanges`.
-        let head = self.resolve_ink_session(tug_session_id);
+        let head = self.resolve_ink_line(tug_session_id);
         let run = self.refs_ledger.as_ref().and_then(|ledger| {
             ledger.list_refs(&head).unwrap_or_else(|err| {
                 warn!(error = %err, %tug_session_id, "list_refs failed");
@@ -7619,69 +7717,67 @@ impl AgentSupervisor {
         }
     }
 
-    /// Handle a `rename_session` CONTROL request ([#step-13d]). Writes the name
-    /// to the ledger and broadcasts a `session_updated` so the chooser + the
-    /// Z4B session chip pick it up live, then acks `rename_session_ok` / `_err`.
+    /// Handle a `rename_session` CONTROL request. Writes the name to the
+    /// **line** ([P11]) and broadcasts a `session_updated` for the segment a
+    /// restore would seat, so the chooser + the Z4B session chip pick it up
+    /// live, then acks `rename_session_ok` / `_err`.
     ///
     /// Both acks carry the name they were asked for. CONTROL is a broadcast and
     /// the client renames optimistically, so the name is what lets it tell this
     /// ack from the one for a rename it has already superseded — and a refusal
     /// no client can place is a refusal it cannot undo.
-    async fn do_rename_session(&self, session_id: &str, name: Option<&str>) {
-        let Some(ledger) = self.session_ledger.as_ref() else {
+    async fn do_rename_session(&self, line_id: &str, name: Option<&str>) {
+        let refuse = |reason: &str| {
             let body = serde_json::json!({
                 "action": "rename_session_err",
-                "session_id": session_id,
+                "line_id": line_id,
                 "name": name,
-                "reason": "no_ledger",
+                "reason": reason,
             });
             let _ = self.control_tx.send(Frame::new(
                 FeedId::CONTROL,
                 serde_json::to_vec(&body).expect("rename_session_err serializes"),
             ));
+        };
+        let Some(ledger) = self.session_ledger.as_ref() else {
+            refuse("no_ledger");
             return;
         };
         // Read the name being replaced before it is gone — a rename fact that
         // said only the new name would be half the event.
-        let old_name = ledger
-            .get(session_id)
-            .ok()
-            .flatten()
-            .and_then(|row| row.name);
-        match ledger.rename(session_id, name) {
-            Ok(displaced) => {
-                if let Err(err) =
-                    ledger.record_fact(&crate::feeds::facts_library::session_renamed_fact(
-                        crate::session_ledger::now_millis(),
-                        session_id,
-                        old_name.as_deref(),
-                        name,
-                    ))
-                {
-                    warn!(error = %err, session_id, "rename fact write failed");
-                }
-                // Push the updated row so the chooser + chip reflect the rename
-                // without a re-fetch. A missing row here would be a TOCTOU race
-                // (renamed then trashed); the get is best-effort.
-                if let Ok(Some(row)) = ledger.get(session_id) {
-                    // The scan-cache lookup rides the rename push too — see
-                    // `build_session_updated_frame` for why omitting it would
-                    // blank a known size and zero a scan-derived turn count.
-                    let metrics = ledger.scan_metrics_for(session_id).unwrap_or(None);
-                    let _ = self
-                        .control_tx
-                        .send(build_session_updated_frame(&row, metrics));
-                }
-                // And one push per row this rename took the name from. It has
-                // to be per-row: a client un-learns a name only through a
-                // `session_updated` carrying `name_user_set: false`, and the
-                // list-level refresh seeds names non-clobberingly and returns
-                // early on a blank — so without this the cleared name stays in
-                // every client's map and the collision survives on screen no
-                // matter how unique the database is.
-                for id in &displaced {
-                    if let Ok(Some(row)) = ledger.get(id) {
-                        let metrics = ledger.scan_metrics_for(id).unwrap_or(None);
+        let Some(line) = ledger.get_line(line_id).ok().flatten() else {
+            refuse("not_found");
+            return;
+        };
+        let old_name = line.name;
+        match ledger.rename(line_id, name) {
+            Ok(()) => {
+                // The fact files under the segment a resume would seat. The
+                // fact base is keyed by session id, and that segment is the id
+                // every other fact about this conversation is landing under.
+                let segment = ledger.resume_segment_for_line(line_id).ok().flatten();
+                if let Some(segment) = segment.as_ref() {
+                    if let Err(err) =
+                        ledger.record_fact(&crate::feeds::facts_library::session_renamed_fact(
+                            crate::session_ledger::now_millis(),
+                            &segment.session_id,
+                            old_name.as_deref(),
+                            name,
+                        ))
+                    {
+                        warn!(error = %err, line_id, "rename fact write failed");
+                    }
+                    // Push the updated row so the chooser + chip reflect the
+                    // rename without a re-fetch. The row is re-read rather than
+                    // reused: the name reaches it through the line join ([P02]),
+                    // so the copy taken before the write still carries the old
+                    // one.
+                    if let Ok(Some(row)) = ledger.get(&segment.session_id) {
+                        // The scan-cache lookup rides the rename push too — see
+                        // `build_session_updated_frame` for why omitting it
+                        // would blank a known size and zero a scan-derived turn
+                        // count.
+                        let metrics = ledger.scan_metrics_for(&segment.session_id).unwrap_or(None);
                         let _ = self
                             .control_tx
                             .send(build_session_updated_frame(&row, metrics));
@@ -7689,23 +7785,25 @@ impl AgentSupervisor {
                 }
                 let body = serde_json::json!({
                     "action": "rename_session_ok",
-                    "session_id": session_id,
+                    "line_id": line_id,
                     "name": name,
-                    // Always present, `[]` when nothing was taken. The renamed
-                    // session's own id never appears here.
-                    "displaced": displaced,
                 });
                 let _ = self.control_tx.send(Frame::new(
                     FeedId::CONTROL,
                     serde_json::to_vec(&body).expect("rename_session_ok serializes"),
                 ));
             }
-            Err(crate::session_ledger::LedgerError::NotFound(_)) => {
+            Err(crate::session_ledger::LedgerError::NotFound(_)) => refuse("not_found"),
+            // A name another line already wears ([P11]). The refusal names the
+            // holder, so the sheet can say who has it rather than reporting a
+            // write that quietly did nothing.
+            Err(crate::session_ledger::LedgerError::NameTaken { holder_tag, .. }) => {
                 let body = serde_json::json!({
                     "action": "rename_session_err",
-                    "session_id": session_id,
+                    "line_id": line_id,
                     "name": name,
-                    "reason": "not_found",
+                    "reason": "name_taken",
+                    "holder_tag": holder_tag,
                 });
                 let _ = self.control_tx.send(Frame::new(
                     FeedId::CONTROL,
@@ -7713,17 +7811,8 @@ impl AgentSupervisor {
                 ));
             }
             Err(err) => {
-                warn!(error = %err, session_id, "rename_session ledger error");
-                let body = serde_json::json!({
-                    "action": "rename_session_err",
-                    "session_id": session_id,
-                    "name": name,
-                    "reason": "ledger_write_failed",
-                });
-                let _ = self.control_tx.send(Frame::new(
-                    FeedId::CONTROL,
-                    serde_json::to_vec(&body).expect("rename_session_err serializes"),
-                ));
+                warn!(error = %err, line_id, "rename_session ledger error");
+                refuse("ledger_write_failed");
             }
         }
     }
@@ -8763,10 +8852,6 @@ impl AgentSupervisor {
         };
         let sessions_recorder = self.sessions_recorder.clone();
         let session_ledger_for_bridge = self.session_ledger.clone();
-        let ink_ledgers_for_bridge = crate::feeds::agent_bridge::InkLedgers {
-            shell: self.shell_ledger.clone(),
-            refs: self.refs_ledger.clone(),
-        };
         let changeset_bumper_for_bridge =
             crate::feeds::changeset::ChangesetBumper::new(Arc::clone(&self.registry));
         tokio::spawn(async move {
@@ -8783,7 +8868,6 @@ impl AgentSupervisor {
                 permission_mode,
                 sessions_recorder,
                 session_ledger_for_bridge,
-                ink_ledgers_for_bridge,
                 changeset_bumper_for_bridge,
                 cancel_for_bridge,
                 DEFAULT_RETRY_DELAY,
@@ -8902,6 +8986,10 @@ impl AgentSupervisor {
             // Carry the card binding so the live-elsewhere check fires
             // correctly on a cross-card resume request after rebind.
             entry.card_id = Some(card_id.clone());
+            // The line the rebound entry is on ([P04]) — read off the row, so
+            // a session restored from the ledger at boot attaches its next
+            // segment to the line it already belongs to.
+            entry.line_id = Some(row.line_id.clone());
             tracing::info!(
                 target: "dev::session-lifecycle",
                 event = "rebind.entry",
@@ -9169,6 +9257,7 @@ mod tests {
                 &root.to_string_lossy(),
                 "card-1",
                 1_000,
+                "claude-1",
                 None,
             )
             .unwrap();
@@ -9269,6 +9358,7 @@ mod tests {
                 &root.to_string_lossy(),
                 "card-1",
                 1_000,
+                "claude-1",
                 None,
             )
             .unwrap();
@@ -9329,6 +9419,7 @@ mod tests {
                 &root.to_string_lossy(),
                 "card-1",
                 1_000,
+                "claude-1",
                 None,
             )
             .unwrap();
@@ -9383,6 +9474,7 @@ mod tests {
 
     fn listed(
         session_id: &str,
+        line_id: &str,
         tag: Option<&str>,
         name: Option<&str>,
         state: crate::session_ledger::SessionState,
@@ -9407,6 +9499,7 @@ mod tests {
                 private: false,
                 dash_id: None,
                 dash_name: None,
+                line_id: line_id.to_string(),
             },
             origin: "tug",
             terminal_live: None,
@@ -9416,12 +9509,14 @@ mod tests {
 
     #[test]
     fn an_arcs_stages_fold_into_the_line_they_rotated_from() {
-        use crate::session_ledger::{LineIdentity, SessionState};
-        // `get_for_display` has already resolved the stages' identity, which
-        // is why they arrive here wearing the line's callsign.
+        use crate::session_ledger::SessionState;
+        // Every segment arrives wearing the line's callsign already — that is
+        // what the `LEFT JOIN lines` reads ([P02]) — so the fold has only to
+        // group, never to choose an identity.
         let rows = vec![
             listed(
                 "root",
+                "line-1",
                 Some("primo-pita"),
                 Some("tugrev-bringup"),
                 SessionState::Closed,
@@ -9430,6 +9525,7 @@ mod tests {
             ),
             listed(
                 "devise",
+                "line-1",
                 Some("primo-pita"),
                 Some("tugrev-bringup"),
                 SessionState::Closed,
@@ -9438,6 +9534,7 @@ mod tests {
             ),
             listed(
                 "implement",
+                "line-1",
                 Some("primo-pita"),
                 Some("tugrev-bringup"),
                 SessionState::Live,
@@ -9446,6 +9543,7 @@ mod tests {
             ),
             listed(
                 "stranger",
+                "line-2",
                 Some("lucky-wren"),
                 None,
                 SessionState::Closed,
@@ -9453,18 +9551,8 @@ mod tests {
                 4,
             ),
         ];
-        let line = |root: &str| LineIdentity {
-            root_session_id: root.to_string(),
-            tag: Some("primo-pita".to_string()),
-            name: Some("tugrev-bringup".to_string()),
-            name_user_set: true,
-        };
-        let lines = HashMap::from([
-            ("devise".to_string(), line("root")),
-            ("implement".to_string(), line("root")),
-        ]);
 
-        let folded = fold_lines(rows, &lines);
+        let folded = fold_lines(rows);
         assert_eq!(
             folded.len(),
             2,
@@ -9489,19 +9577,24 @@ mod tests {
                 .and_then(|e| e.file_size),
             Some(30)
         );
-        // A session no line claims passes through untouched.
+        // A line of one passes through untouched.
         let stranger = folded
             .iter()
             .find(|e| e.row.session_id == "stranger")
             .expect("the stranger lists");
         assert_eq!(stranger.row.turn_count, 4);
         assert_eq!(stranger.file_size, Some(10));
-        // And with no stages at all the fold is the identity function.
+        // And a row with no line at all is its own group.
         assert_eq!(
-            fold_lines(
-                vec![listed("solo", None, None, SessionState::Closed, 1, 1)],
-                &HashMap::new()
-            )
+            fold_lines(vec![listed(
+                "solo",
+                "",
+                None,
+                None,
+                SessionState::Closed,
+                1,
+                1
+            )])
             .len(),
             1
         );
@@ -9513,8 +9606,25 @@ mod tests {
         // is immutable, so an old commit keeps saying where it came from.
         let request = commit_request(Some("f6e43925-1a2b-4c3d-8e9f-0a1b2c3d4e5f"));
         assert_eq!(
-            changeset_commit_message(&request, Some("stocky-pixie")),
+            changeset_commit_message(&request, Some("stocky-pixie"), None),
             "commit a\n\nTug-Session: stocky-pixie (f6e43925)\n\
+             Tug-Session-Id: f6e43925-1a2b-4c3d-8e9f-0a1b2c3d4e5f"
+        );
+    }
+
+    /// [P13]. The parenthesized short id is the **line's**, so every commit a
+    /// card ever makes cites one conversation however many ids it rotates
+    /// through; `Tug-Session-Id` beside it still names the segment.
+    #[test]
+    fn the_citation_names_the_line_and_the_id_pins_the_segment() {
+        let request = commit_request(Some("f6e43925-1a2b-4c3d-8e9f-0a1b2c3d4e5f"));
+        assert_eq!(
+            changeset_commit_message(
+                &request,
+                Some("stocky-pixie"),
+                Some("9c14ab70-dead-4beef-8888-000000000001"),
+            ),
+            "commit a\n\nTug-Session: stocky-pixie (9c14ab70)\n\
              Tug-Session-Id: f6e43925-1a2b-4c3d-8e9f-0a1b2c3d4e5f"
         );
     }
@@ -9524,7 +9634,7 @@ mod tests {
         // A doubled hash is noise, so the legacy fallback drops the parens.
         let request = commit_request(Some("f6e43925-1a2b-4c3d-8e9f-0a1b2c3d4e5f"));
         assert_eq!(
-            changeset_commit_message(&request, None),
+            changeset_commit_message(&request, None, None),
             "commit a\n\nTug-Session: f6e43925\n\
              Tug-Session-Id: f6e43925-1a2b-4c3d-8e9f-0a1b2c3d4e5f"
         );
@@ -9534,7 +9644,7 @@ mod tests {
     fn changeset_commit_message_is_byte_for_byte_without_a_session_id() {
         let request = commit_request(None);
         assert_eq!(
-            changeset_commit_message(&request, Some("stocky-pixie")),
+            changeset_commit_message(&request, Some("stocky-pixie"), None),
             "commit a"
         );
     }
@@ -9840,6 +9950,7 @@ mod tests {
             synopsis: Some("Repair ligature fallback in monospace".to_owned()),
             dash_id: None,
             dash_name: None,
+            line_id: String::new(),
         };
         let frame = build_session_updated_frame(&row, None);
         let body: serde_json::Value = serde_json::from_slice(&frame.payload).expect("json");
@@ -9873,6 +9984,7 @@ mod tests {
             private: false,
             dash_id: None,
             dash_name: None,
+            line_id: String::new(),
         };
 
         // No scan-cache row: a null size, and the ledger's own count stands.
@@ -10032,6 +10144,9 @@ mod tests {
             "card_id": card_id,
             "tug_session_id": tug_session_id,
             "project_dir": project_dir,
+            // A `mode=new` spawn births a line and the deck mints its id from
+            // the drop ([P03]); one that names none is refused.
+            "line_id": format!("line-{tug_session_id}"),
         }))
         .unwrap()
     }
@@ -10998,7 +11113,7 @@ mod tests {
             "/p",
         );
         assert!(
-            ledger.session_ids_with_rows().unwrap().is_empty(),
+            ledger.lines_with_rows().unwrap().is_empty(),
             "a sessionless landing writes no row"
         );
 
@@ -11011,7 +11126,7 @@ mod tests {
             "/p",
         );
         assert_eq!(
-            ledger.session_ids_with_rows().unwrap().len(),
+            ledger.lines_with_rows().unwrap().len(),
             1,
             "a named session gets its receipt"
         );
@@ -11049,18 +11164,26 @@ mod tests {
 
     // ── durable ink follows the line of work ────────────────────────────────
 
-    /// A sessions ledger holding `parent` superseded by `fork`, exactly as a
-    /// rewind-fork leaves it ([D154]): the fork carries the callsign, the
-    /// parent row keeps only the edge pointing at its successor.
+    /// A sessions ledger holding two segments of one line — `parent` and the
+    /// `fork` a rewind took from it. Neither supersedes the other: they are
+    /// the same conversation under two ids, which is what the line says.
     fn forked_pair() -> Arc<crate::session_ledger::SessionLedger> {
         let sessions = Arc::new(
             crate::session_ledger::SessionLedger::open_in_memory().expect("sessions ledger"),
         );
         sessions
-            .record_spawn("parent", "ws", "/proj", "card-1", 1_000, None)
+            .record_spawn("parent", "ws", "/proj", "card-1", 1_000, "line-1", None)
             .expect("parent spawn");
         sessions
-            .record_spawn("fork", "ws", "/proj", "card-1", 2_000, Some("stocky-pixie"))
+            .record_spawn(
+                "fork",
+                "ws",
+                "/proj",
+                "card-1",
+                2_000,
+                "line-1",
+                Some("stocky-pixie"),
+            )
             .expect("fork spawn");
         sessions
             .set_fork_provenance("fork", "parent", Some("point-1"))
@@ -11069,7 +11192,7 @@ mod tests {
     }
 
     #[test]
-    fn a_landing_receipt_written_under_a_superseded_id_lands_on_the_head() {
+    fn a_landing_receipt_written_under_any_segment_lands_on_the_line() {
         let shell =
             Arc::new(crate::shell_ledger::ShellLedger::open_in_memory().expect("shell ledger"));
         let sessions = forked_pair();
@@ -11086,21 +11209,25 @@ mod tests {
         );
 
         assert_eq!(
-            shell.session_ids_with_rows().unwrap(),
-            std::collections::HashSet::from(["fork".to_string()]),
-            "the receipt is keyed to the line of work, not to the superseded id"
+            shell.lines_with_rows().unwrap(),
+            std::collections::HashSet::from(["line-1".to_string()]),
+            "the receipt is keyed to the line of work, not to the id it arrived under"
         );
+        // And the row still records which segment wrote it — a transcript
+        // fact, and the only thing that could ever place it.
+        let rows = shell.list_exchanges_since("line-1", None).unwrap();
+        assert_eq!(rows[0].tug_session_id, "parent");
     }
 
     #[test]
-    fn a_landing_receipt_on_an_unforked_session_is_untouched() {
+    fn a_landing_receipt_on_a_line_of_one_keys_under_that_line() {
         let shell =
             Arc::new(crate::shell_ledger::ShellLedger::open_in_memory().expect("shell ledger"));
         let sessions = Arc::new(
             crate::session_ledger::SessionLedger::open_in_memory().expect("sessions ledger"),
         );
         sessions
-            .record_spawn("solo", "ws", "/proj", "card-1", 1_000, None)
+            .record_spawn("solo", "ws", "/proj", "card-1", 1_000, "line-solo", None)
             .expect("spawn");
 
         AgentSupervisor::record_landing_receipt(
@@ -11113,8 +11240,8 @@ mod tests {
         );
 
         assert_eq!(
-            shell.session_ids_with_rows().unwrap(),
-            std::collections::HashSet::from(["solo".to_string()]),
+            shell.lines_with_rows().unwrap(),
+            std::collections::HashSet::from(["line-solo".to_string()]),
         );
     }
 
@@ -11139,7 +11266,15 @@ mod tests {
         std::fs::create_dir_all(&project).expect("project dir");
         for (i, (session, msg_id)) in rows.iter().enumerate() {
             sessions
-                .record_spawn(session, "ws", "/proj", "card-1", 1_000 + i as i64, None)
+                .record_spawn(
+                    session,
+                    "ws",
+                    "/proj",
+                    "card-1",
+                    1_000 + i as i64,
+                    session,
+                    None,
+                )
                 .expect("spawn");
             std::fs::write(
                 project.join(format!("{session}.jsonl")),
@@ -11178,11 +11313,11 @@ mod tests {
     }
 
     #[test]
-    fn the_receipt_anchor_comes_from_the_lineage_heads_transcript() {
-        // The parent and the fork hold different transcripts. A receipt
-        // arriving under the superseded id must anchor into the file the deck
-        // will actually replay — the head's — or the anchor names a turn that
-        // will never appear and the row silently falls back to timestamps.
+    fn the_receipt_anchor_comes_from_the_segments_own_transcript() {
+        // The parent and the fork hold different transcripts. The anchor is a
+        // fact about *which turn this receipt follows*, so it reads the file
+        // the receipt was written in — the id it arrived under — while the row
+        // itself is keyed to the line the two segments share.
         let shell =
             Arc::new(crate::shell_ledger::ShellLedger::open_in_memory().expect("shell ledger"));
         let (sessions, _dir) =
@@ -11200,9 +11335,10 @@ mod tests {
             "/proj",
         );
 
-        let rows = shell.list_exchanges_since("fork", None).unwrap();
-        assert_eq!(rows.len(), 1, "the receipt keyed onto the head");
-        assert_eq!(rows[0].anchor_msg_id.as_deref(), Some("msg_01FORK"));
+        let line = sessions.line_of("parent").expect("the parent has a line");
+        let rows = shell.list_exchanges_since(&line, None).unwrap();
+        assert_eq!(rows.len(), 1, "the receipt keyed onto the line");
+        assert_eq!(rows[0].anchor_msg_id.as_deref(), Some("msg_01PARENT"));
     }
 
     #[test]
@@ -11213,7 +11349,15 @@ mod tests {
             Arc::new(crate::shell_ledger::ShellLedger::open_in_memory().expect("shell ledger"));
         let (sessions, _dir) = sessions_with_transcripts(&[]);
         sessions
-            .record_spawn("zero-turns", "ws", "/proj", "card-1", 1_000, None)
+            .record_spawn(
+                "zero-turns",
+                "ws",
+                "/proj",
+                "card-1",
+                1_000,
+                "zero-turns",
+                None,
+            )
             .expect("spawn");
 
         AgentSupervisor::record_landing_receipt(
@@ -11266,12 +11410,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_restore_read_for_a_superseded_id_returns_the_lines_ink() {
+    async fn a_restore_read_under_any_segment_returns_the_lines_ink() {
         let (sup, mut control_rx, shell) = supervisor_over_forked_ink();
         for command in ["ls", "/commit"] {
             shell
                 .record_exchange(&crate::shell_ledger::NewShellExchange {
                     tug_session_id: "fork".to_string(),
+                    line_id: "line-1".to_string(),
                     command: command.to_string(),
                     output: "out\n".to_string(),
                     exit_code: Some(0),
@@ -11284,7 +11429,7 @@ mod tests {
                 .expect("record");
         }
 
-        // The still-parent-bound deck asks under the superseded id.
+        // The still-parent-bound deck asks under the other segment's id.
         sup.do_list_shell_exchanges("parent", None).await;
 
         let frame = control_rx.recv().await.expect("a control frame");
@@ -11299,7 +11444,7 @@ mod tests {
         assert_eq!(
             body["exchanges"].as_array().unwrap().len(),
             2,
-            "the line's ink, read through the head"
+            "the line's ink, whichever of its segments was asked about"
         );
         assert_eq!(
             body["total"], 2,
@@ -11308,11 +11453,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_restore_read_for_the_head_is_unchanged() {
+    async fn a_restore_read_for_the_newest_segment_is_the_same_answer() {
         let (sup, mut control_rx, shell) = supervisor_over_forked_ink();
         shell
             .record_exchange(&crate::shell_ledger::NewShellExchange {
                 tug_session_id: "fork".to_string(),
+                line_id: "line-1".to_string(),
                 command: "ls".to_string(),
                 output: "out\n".to_string(),
                 exit_code: Some(0),
@@ -11846,6 +11992,7 @@ mod tests {
                 project_dir,
                 card_id,
                 crate::session_ledger::now_millis(),
+                session_id,
                 None,
             )
             .unwrap();
@@ -14173,7 +14320,6 @@ mod tests {
             "/tmp/test-relay-project",
             &recorder,
             None,
-            &crate::feeds::agent_bridge::InkLedgers::default(),
             &crate::feeds::changeset::ChangesetBumper::disconnected(),
             &cancel,
         )
@@ -14285,7 +14431,6 @@ mod tests {
             "/tmp/test-relay-resume-fail",
             &recorder,
             None,
-            &crate::feeds::agent_bridge::InkLedgers::default(),
             &crate::feeds::changeset::ChangesetBumper::disconnected(),
             &cancel,
         )
@@ -14460,7 +14605,6 @@ mod tests {
             "/tmp/test-meta-e2e",
             &recorder,
             Some(ledger.as_ref()),
-            &crate::feeds::agent_bridge::InkLedgers::default(),
             &crate::feeds::changeset::ChangesetBumper::disconnected(),
             &cancel,
         )
@@ -14560,7 +14704,7 @@ mod tests {
         // cannot mask a misdirected write.
         for id in ["sess-title-parent", fork_claude_id] {
             ledger
-                .record_spawn(id, "ws", "/tmp/test-title-fork", "card-1", 1, None)
+                .record_spawn(id, "ws", "/tmp/test-title-fork", "card-1", 1, id, None)
                 .unwrap();
         }
 
@@ -14617,7 +14761,6 @@ mod tests {
             "/tmp/test-title-fork",
             &recorder,
             Some(ledger.as_ref()),
-            &crate::feeds::agent_bridge::InkLedgers::default(),
             &crate::feeds::changeset::ChangesetBumper::disconnected(),
             &cancel,
         )
@@ -15046,6 +15189,7 @@ mod tests {
             project_dir: "/proj/x",
             card_id: "card-1",
             tag: None,
+            line_id: None,
         });
         let row = ledger.get("claude-abc").unwrap().expect("row");
         assert_eq!(row.workspace_key, "ws-1");
@@ -15079,6 +15223,7 @@ mod tests {
             project_dir: "/proj/x",
             card_id: "card-1",
             tag: None,
+            line_id: None,
         });
         expect_ping(Arc::clone(&signal), "record (spawn)").await;
 
@@ -15098,6 +15243,7 @@ mod tests {
             project_dir: "/proj/x",
             card_id: "card-1",
             tag: None,
+            line_id: None,
         });
         recorder.record_user_prompt("claude-abc", "hello world");
         let row = ledger.get("claude-abc").unwrap().unwrap();
@@ -15118,6 +15264,7 @@ mod tests {
             project_dir: "/proj/x",
             card_id: "card-1",
             tag: None,
+            line_id: None,
         });
         // Live turns touch recency only; the count is the engine reconcile
         // ([P08]). Reconcile to 3, then live turns leave the count untouched.
@@ -15147,6 +15294,7 @@ mod tests {
             project_dir: "/proj/x",
             card_id: "card-1",
             tag: None,
+            line_id: None,
         });
 
         recorder.mark_closed("claude-abc");
@@ -15174,6 +15322,7 @@ mod tests {
             project_dir: "/proj/x",
             card_id: "card-1",
             tag: None,
+            line_id: None,
         });
         recorder.mark_failed("claude-abc");
 
@@ -15193,6 +15342,7 @@ mod tests {
             project_dir: "/proj/x",
             card_id: "card-1",
             tag: None,
+            line_id: None,
         });
         recorder.mark_closed("claude-abc");
         recorder.record_turn("claude-abc");
@@ -15248,6 +15398,7 @@ mod tests {
                 "/some/workspace",
                 "card-1",
                 1_700_000_000_000,
+                "claude-1",
                 None,
             )
             .unwrap();
@@ -15388,7 +15539,7 @@ mod tests {
     async fn set_session_private_acks_and_pushes_the_flag() {
         let (sup, ledger, mut rx) = make_supervisor_with_ledger();
         ledger
-            .record_spawn("sess", "ws-1", "/proj", "card-A", 1_000, None)
+            .record_spawn("sess", "ws-1", "/proj", "card-A", 1_000, "sess", None)
             .unwrap();
         let facts_before = ledger.facts_for_test().len();
 
@@ -15474,12 +15625,12 @@ mod tests {
     async fn rename_acks_carry_the_name_they_answer() {
         let (sup, ledger, mut rx) = make_supervisor_with_ledger();
         ledger
-            .record_spawn("sess", "ws-1", "/proj", "card-A", 1_000, None)
+            .record_spawn("sess", "ws-1", "/proj", "card-A", 1_000, "line-A", None)
             .unwrap();
 
         let payload = serde_json::to_vec(&serde_json::json!({
             "action": "rename_session",
-            "session_id": "sess",
+            "line_id": "line-A",
             "name": "harbor light",
         }))
         .unwrap();
@@ -15487,13 +15638,13 @@ mod tests {
             .await
             .expect_handled();
         let ack = drain_until_action(&mut rx, "rename_session_ok");
-        assert_eq!(ack["session_id"], "sess");
+        assert_eq!(ack["line_id"], "line-A");
         assert_eq!(ack["name"], "harbor light");
 
         // A cleared name acks as null — the same value the request carried.
         let payload = serde_json::to_vec(&serde_json::json!({
             "action": "rename_session",
-            "session_id": "sess",
+            "line_id": "line-A",
             "name": "   ",
         }))
         .unwrap();
@@ -15506,7 +15657,7 @@ mod tests {
         // And the refusal names it too.
         let payload = serde_json::to_vec(&serde_json::json!({
             "action": "rename_session",
-            "session_id": "nope",
+            "line_id": "nope",
             "name": "harbor light",
         }))
         .unwrap();
@@ -15518,27 +15669,25 @@ mod tests {
         assert_eq!(err["name"], "harbor light");
     }
 
-    /// A rename takes the name, pushes the row it took it from, and says so.
-    ///
-    /// The push has to be per-row: a client un-learns a name only through a
-    /// `session_updated` carrying `name_user_set: false`, and the list-level
-    /// refresh seeds names non-clobberingly and ignores a blank by design — so
-    /// without it the ghost stays in every client's map and the two sessions
-    /// go on sharing one name on screen however unique the database is.
+    /// A rename onto a name another line wears is refused, and the refusal
+    /// names the holder ([P11]). Nothing is written and nothing is pushed —
+    /// which is the whole of the change from the displacement rule this
+    /// replaced: there is no second row to un-teach, because no second row was
+    /// touched.
     #[tokio::test]
-    async fn a_rename_pushes_every_row_it_took_the_name_from() {
+    async fn rename_by_line_refuses_a_taken_name() {
         let (sup, ledger, mut rx) = make_supervisor_with_ledger();
         ledger
-            .record_spawn("first", "ws-1", "/proj", "card-A", 1_000, None)
+            .record_spawn("first", "ws-1", "/proj", "card-A", 1_000, "line-A", None)
             .unwrap();
         ledger
-            .record_spawn("second", "ws-1", "/proj", "card-B", 1_000, None)
+            .record_spawn("second", "ws-1", "/proj", "card-B", 1_000, "line-B", None)
             .unwrap();
-        ledger.rename("first", Some("harbor light")).unwrap();
+        ledger.rename("line-A", Some("harbor light")).unwrap();
 
         let payload = serde_json::to_vec(&serde_json::json!({
             "action": "rename_session",
-            "session_id": "second",
+            "line_id": "line-B",
             "name": "harbor light",
         }))
         .unwrap();
@@ -15546,58 +15695,64 @@ mod tests {
             .await
             .expect_handled();
 
-        // Two `session_updated` pushes: the renamed row and the displaced one.
-        let mut updated: Vec<serde_json::Value> = Vec::new();
-        let mut ack: Option<serde_json::Value> = None;
-        for _ in 0..64 {
-            let Ok(frame) = rx.try_recv() else { break };
-            let Ok(v) = serde_json::from_slice::<serde_json::Value>(&frame.payload) else {
-                continue;
-            };
-            match v.get("action").and_then(|a| a.as_str()) {
-                Some("session_updated") => updated.push(v),
-                Some("rename_session_ok") => ack = Some(v),
-                _ => {}
-            }
-        }
+        let err = drain_until_action(&mut rx, "rename_session_err");
+        assert_eq!(err["reason"], "name_taken");
+        assert_eq!(err["line_id"], "line-B");
+        assert_eq!(
+            err["holder_tag"],
+            serde_json::json!(
+                ledger
+                    .get("first")
+                    .unwrap()
+                    .unwrap()
+                    .tag
+                    .expect("the holder wears a callsign")
+            )
+        );
 
-        let ack = ack.expect("the rename acks");
-        assert_eq!(ack["displaced"], serde_json::json!(["first"]));
-
-        let displaced = updated
-            .iter()
-            .find(|v| v["session_id"] == "first")
-            .expect("the displaced row is pushed on its own");
-        assert_eq!(displaced["fields"]["name"], serde_json::Value::Null);
-        assert_eq!(displaced["fields"]["name_user_set"], false);
-
-        let renamed = updated
-            .iter()
-            .find(|v| v["session_id"] == "second")
-            .expect("the renamed row is pushed too");
-        assert_eq!(renamed["fields"]["name"], "harbor light");
+        // The holder keeps the name, and the refused line took nothing.
+        assert_eq!(
+            ledger.get("first").unwrap().unwrap().name.as_deref(),
+            Some("harbor light")
+        );
+        assert_eq!(ledger.get("second").unwrap().unwrap().name, None);
     }
 
-    /// `displaced` is always present, so a client reads a list rather than
-    /// telling a missing field from an empty one.
+    /// The name lands on the **line**, so every segment of it reads the new
+    /// name — including one recorded after the rename. That is the whole
+    /// point of addressing the write by line: a card that rotates its claude
+    /// id mid-conversation does not go back to being untitled.
     #[tokio::test]
-    async fn a_rename_that_took_nothing_acks_an_empty_displaced() {
+    async fn a_rename_lands_on_the_line_and_every_segment_reads_it() {
         let (sup, ledger, mut rx) = make_supervisor_with_ledger();
         ledger
-            .record_spawn("sess", "ws-1", "/proj", "card-A", 1_000, None)
+            .record_spawn("root", "ws-1", "/proj", "card-A", 1_000, "line-A", None)
             .unwrap();
 
         let payload = serde_json::to_vec(&serde_json::json!({
             "action": "rename_session",
-            "session_id": "sess",
-            "name": "unspoken for",
+            "line_id": "line-A",
+            "name": "harbor light",
         }))
         .unwrap();
         sup.handle_control("rename_session", &payload, 10)
             .await
             .expect_handled();
-        let ack = drain_until_action(&mut rx, "rename_session_ok");
-        assert_eq!(ack["displaced"], serde_json::json!([]));
+        drain_until_action(&mut rx, "rename_session_ok");
+
+        // A rotation joins the line after the rename has already landed.
+        ledger
+            .record_spawn("stage", "ws-1", "/proj", "card-A", 2_000, "line-A", None)
+            .unwrap();
+        assert_eq!(
+            ledger.get("stage").unwrap().unwrap().name.as_deref(),
+            Some("harbor light"),
+            "the segment reads the line's name through the join"
+        );
+        assert_eq!(
+            ledger.get("root").unwrap().unwrap().name.as_deref(),
+            Some("harbor light")
+        );
     }
 
     /// `list_card_bindings` returns every non-failed row carrying a
@@ -15614,13 +15769,21 @@ mod tests {
         // prompt: spawned (record_spawn fires on session_init) but
         // never had a turn.
         ledger
-            .record_spawn("empty", "ws-1", "/proj/alpha", "card-A", 1_000, None)
+            .record_spawn(
+                "empty",
+                "ws-1",
+                "/proj/alpha",
+                "card-A",
+                1_000,
+                "empty",
+                None,
+            )
             .unwrap();
         ledger.mark_closed("empty").unwrap();
 
         // A card with a real conversation (count from the engine reconcile).
         ledger
-            .record_spawn("real", "ws-1", "/proj/beta", "card-B", 2_000, None)
+            .record_spawn("real", "ws-1", "/proj/beta", "card-B", 2_000, "real", None)
             .unwrap();
         ledger.set_turn_count("real", 1, 3_000).unwrap();
         ledger.mark_closed("real").unwrap();
@@ -15661,6 +15824,62 @@ mod tests {
         assert_eq!(real["is_alive"], false);
     }
 
+    /// A card that has lived through several claude ids is **one** binding,
+    /// seated on the segment a restore should resume ([P06]) and carrying the
+    /// line's identity and the line's summed turns ([P01]). Eight bindings for
+    /// one card is the shape this model exists to remove.
+    #[tokio::test]
+    async fn list_card_bindings_returns_one_row_per_line_seated_on_the_resume_segment() {
+        let (sup, ledger, mut rx) = make_supervisor_with_ledger();
+
+        // The line's root: closed, with turns of its own.
+        ledger
+            .record_spawn("root", "ws-1", "/proj", "card-A", 1_000, "line-A", None)
+            .unwrap();
+        ledger.set_turn_count("root", 4, 1_500).unwrap();
+        ledger.mark_closed("root").unwrap();
+        // A stage the card rotated into, still live and used later.
+        ledger
+            .record_spawn("stage", "ws-1", "/proj", "card-A", 2_000, "line-A", None)
+            .unwrap();
+        ledger.set_turn_count("stage", 3, 2_500).unwrap();
+        ledger.rename("line-A", Some("harbor light")).unwrap();
+
+        let payload = serde_json::to_vec(&serde_json::json!({
+            "action": "list_card_bindings",
+        }))
+        .unwrap();
+        sup.handle_control("list_card_bindings", &payload, 10)
+            .await
+            .expect_handled();
+
+        let response = drain_until_action(&mut rx, "list_card_bindings_ok");
+        let bindings = response["bindings"].as_array().expect("bindings array");
+        assert_eq!(bindings.len(), 1, "one line, one binding: {response}");
+        let binding = &bindings[0];
+        assert_eq!(binding["card_id"], "card-A");
+        assert_eq!(binding["line_id"], "line-A");
+        assert_eq!(
+            binding["session_id"], "stage",
+            "the live segment is the resume target"
+        );
+        assert_eq!(
+            binding["turn_count"], 7,
+            "the line's turns, not the seated segment's"
+        );
+        assert_eq!(binding["name"], "harbor light");
+        assert_eq!(
+            binding["tag"],
+            serde_json::json!(
+                ledger
+                    .get_line("line-A")
+                    .unwrap()
+                    .expect("the line exists")
+                    .tag
+            )
+        );
+    }
+
     /// `resolve_sessions { ids }` answers both ways in one frame — the found
     /// rows keyed by what was asked, and the misses named as misses so the
     /// client can cache a negative instead of re-asking on every repaint
@@ -15676,6 +15895,7 @@ mod tests {
                 "/proj/alpha",
                 "card-A",
                 1_000,
+                full,
                 Some("stocky-pixie"),
             )
             .unwrap();
@@ -15747,6 +15967,7 @@ mod tests {
             shell_ledger
                 .record_exchange(&crate::shell_ledger::NewShellExchange {
                     tug_session_id: "s1".to_string(),
+                    line_id: "s1".to_string(),
                     command: cmd.to_string(),
                     output: format!("out:{cmd}\n"),
                     exit_code: code,
@@ -15815,6 +16036,7 @@ mod tests {
         refs_ledger
             .record_run(&crate::refs_ledger::NewRefsRun {
                 tug_session_id: "s1".to_string(),
+                line_id: "s1".to_string(),
                 run_id: "run-1".to_string(),
                 op_kind: "search".to_string(),
                 command: "/search needle".to_string(),
@@ -16121,10 +16343,26 @@ mod tests {
         // difference between them is whether the in-memory ledger
         // entry exists in a Live state.
         ledger
-            .record_spawn("live", "ws-1", "/proj/alive", "card-Live", 1_000, None)
+            .record_spawn(
+                "live",
+                "ws-1",
+                "/proj/alive",
+                "card-Live",
+                1_000,
+                "live",
+                None,
+            )
             .unwrap();
         ledger
-            .record_spawn("dead", "ws-1", "/proj/dead", "card-Dead", 2_000, None)
+            .record_spawn(
+                "dead",
+                "ws-1",
+                "/proj/dead",
+                "card-Dead",
+                2_000,
+                "dead",
+                None,
+            )
             .unwrap();
 
         // Promote "live" into the supervisor's in-memory ledger as
@@ -16199,11 +16437,20 @@ mod tests {
                 "/proj/withfile",
                 "card-With",
                 1_000,
+                "withfile",
                 None,
             )
             .unwrap();
         ledger
-            .record_spawn("nofile", "ws-1", "/proj/nofile", "card-No", 2_000, None)
+            .record_spawn(
+                "nofile",
+                "ws-1",
+                "/proj/nofile",
+                "card-No",
+                2_000,
+                "nofile",
+                None,
+            )
             .unwrap();
         seed_external_jsonl(&claude_root, "/proj/withfile", "withfile", "resume me");
 
@@ -16251,16 +16498,40 @@ mod tests {
 
         // Never prompted, no transcript — the abandoned session.
         ledger
-            .record_spawn("blank", "ws-1", "/proj/blank", "card-1", 1_000, None)
+            .record_spawn(
+                "blank",
+                "ws-1",
+                "/proj/blank",
+                "card-1",
+                1_000,
+                "blank",
+                None,
+            )
             .unwrap();
         // Never prompted per the ledger, but claude wrote a transcript.
         ledger
-            .record_spawn("ondisk", "ws-1", "/proj/ondisk", "card-2", 2_000, None)
+            .record_spawn(
+                "ondisk",
+                "ws-1",
+                "/proj/ondisk",
+                "card-2",
+                2_000,
+                "ondisk",
+                None,
+            )
             .unwrap();
         seed_external_jsonl(&claude_root, "/proj/ondisk", "ondisk", "resume me");
         // No transcript yet, but the ledger recorded the user's prompt.
         ledger
-            .record_spawn("prompted", "ws-1", "/proj/prompted", "card-3", 3_000, None)
+            .record_spawn(
+                "prompted",
+                "ws-1",
+                "/proj/prompted",
+                "card-3",
+                3_000,
+                "prompted",
+                None,
+            )
             .unwrap();
         ledger.record_user_prompt("prompted", "hello").unwrap();
 
@@ -16299,10 +16570,26 @@ mod tests {
         let (sup, ledger, _rx) = make_supervisor_for_ledger(ledger, None);
 
         ledger
-            .record_spawn("empty", "ws-1", test_project_dir(), "card-1", 1_000, None)
+            .record_spawn(
+                "empty",
+                "ws-1",
+                test_project_dir(),
+                "card-1",
+                1_000,
+                "empty",
+                None,
+            )
             .unwrap();
         ledger
-            .record_spawn("full", "ws-1", test_project_dir(), "card-2", 2_000, None)
+            .record_spawn(
+                "full",
+                "ws-1",
+                test_project_dir(),
+                "card-2",
+                2_000,
+                "full",
+                None,
+            )
             .unwrap();
         ledger.record_user_prompt("full", "hello").unwrap();
 
@@ -16360,17 +16647,17 @@ mod tests {
         let (sup, ledger, mut rx) = make_supervisor_with_ledger();
 
         ledger
-            .record_spawn("s-old", "ws-1", "/proj/alpha", "c1", 1_000, None)
+            .record_spawn("s-old", "ws-1", "/proj/alpha", "c1", 1_000, "s-old", None)
             .unwrap();
         ledger.record_user_prompt("s-old", "old prompt").unwrap();
         ledger.mark_closed("s-old").unwrap();
         ledger
-            .record_spawn("s-new", "ws-1", "/proj/alpha", "c2", 5_000, None)
+            .record_spawn("s-new", "ws-1", "/proj/alpha", "c2", 5_000, "s-new", None)
             .unwrap();
         ledger.record_user_prompt("s-new", "new prompt").unwrap();
         ledger.mark_closed("s-new").unwrap();
         ledger
-            .record_spawn("other", "ws-2", "/proj/beta", "c3", 3_000, None)
+            .record_spawn("other", "ws-2", "/proj/beta", "c3", 3_000, "other", None)
             .unwrap();
         ledger.record_user_prompt("other", "other prompt").unwrap();
         ledger.mark_closed("other").unwrap();
@@ -16509,7 +16796,15 @@ mod tests {
         write_registry_entry(&registry_root, "held-row", std::process::id(), "1");
         let ledger = Arc::new(SessionLedger::open_in_memory().expect("ledger open"));
         ledger
-            .record_spawn("held-row", "ws-1", "/proj/alpha", "c1", 1_000, None)
+            .record_spawn(
+                "held-row",
+                "ws-1",
+                "/proj/alpha",
+                "c1",
+                1_000,
+                "held-row",
+                None,
+            )
             .unwrap();
         ledger.mark_closed("held-row").unwrap();
         let (sup, ledger, mut rx) = make_supervisor_for_ledger(ledger, Some(registry_root));
@@ -16613,7 +16908,15 @@ mod tests {
         let (sup, ledger, mut rx) = make_supervisor_for_ledger(ledger, None);
 
         ledger
-            .record_spawn("tug-row", "ws-1", "/proj/alpha", "c1", 9_000, None)
+            .record_spawn(
+                "tug-row",
+                "ws-1",
+                "/proj/alpha",
+                "c1",
+                9_000,
+                "tug-row",
+                None,
+            )
             .unwrap();
         ledger.record_user_prompt("tug-row", "tug prompt").unwrap();
         ledger.mark_closed("tug-row").unwrap();
@@ -16669,11 +16972,27 @@ mod tests {
         let (sup, ledger, mut rx) = make_supervisor_for_ledger(ledger, None);
 
         ledger
-            .record_spawn("empty-row", "ws-1", "/proj/alpha", "c1", 9_000, None)
+            .record_spawn(
+                "empty-row",
+                "ws-1",
+                "/proj/alpha",
+                "c1",
+                9_000,
+                "empty-row",
+                None,
+            )
             .unwrap();
         ledger.mark_closed("empty-row").unwrap();
         ledger
-            .record_spawn("used-row", "ws-1", "/proj/alpha", "c2", 9_500, None)
+            .record_spawn(
+                "used-row",
+                "ws-1",
+                "/proj/alpha",
+                "c2",
+                9_500,
+                "used-row",
+                None,
+            )
             .unwrap();
         ledger.record_user_prompt("used-row", "real work").unwrap();
         ledger.mark_closed("used-row").unwrap();
@@ -16768,7 +17087,15 @@ mod tests {
 
         // Same id on disk AND in the ledger — an adopted session.
         ledger
-            .record_spawn(EXTERNAL_ID, "ws-1", "/proj/alpha", "c1", 9_000, None)
+            .record_spawn(
+                EXTERNAL_ID,
+                "ws-1",
+                "/proj/alpha",
+                "c1",
+                9_000,
+                EXTERNAL_ID,
+                None,
+            )
             .unwrap();
         ledger.mark_closed(EXTERNAL_ID).unwrap();
         seed_external_jsonl(&claude_root, "/proj/alpha", EXTERNAL_ID, "adopted");
@@ -16809,7 +17136,15 @@ mod tests {
         seed_external_jsonl(&claude_root, "/proj/alpha", EXTERNAL_ID, "rich prompt");
         // Spawn with NO scan-cache row (cold ledger): the row is sparse.
         ledger
-            .record_spawn(EXTERNAL_ID, "ws-1", "/proj/alpha", "c1", 9_000, None)
+            .record_spawn(
+                EXTERNAL_ID,
+                "ws-1",
+                "/proj/alpha",
+                "c1",
+                9_000,
+                EXTERNAL_ID,
+                None,
+            )
             .unwrap();
         ledger.mark_closed(EXTERNAL_ID).unwrap();
         {
@@ -16906,7 +17241,7 @@ mod tests {
         let (sup, ledger, mut rx) = make_supervisor_with_ledger();
 
         ledger
-            .record_spawn("s1", "ws-1", "/p", "c1", 1_000, None)
+            .record_spawn("s1", "ws-1", "/p", "c1", 1_000, "s1", None)
             .unwrap();
         ledger.mark_closed("s1").unwrap();
         // Drain whatever the seed wrote.
@@ -16937,7 +17272,7 @@ mod tests {
     async fn trash_session_on_live_row_returns_error() {
         let (sup, ledger, mut rx) = make_supervisor_with_ledger();
         ledger
-            .record_spawn("live1", "ws-1", "/p", "c1", 1_000, None)
+            .record_spawn("live1", "ws-1", "/p", "c1", 1_000, "live1", None)
             .unwrap();
         while rx.try_recv().is_ok() {}
 
@@ -16964,7 +17299,7 @@ mod tests {
         for i in 0..21 {
             let id = format!("s{i}");
             ledger
-                .record_spawn(&id, "ws-1", "/p", "c", 1_000_000 - i as i64, None)
+                .record_spawn(&id, "ws-1", "/p", "c", 1_000_000 - i as i64, &id, None)
                 .unwrap();
             ledger.mark_closed(&id).unwrap();
         }
@@ -17018,16 +17353,32 @@ mod tests {
         let (sup, ledger, mut rx) = make_supervisor_with_ledger();
 
         ledger
-            .record_spawn("matched-1", "ws-1", "/proj/x", "c1", 1_000, None)
+            .record_spawn(
+                "matched-1",
+                "ws-1",
+                "/proj/x",
+                "c1",
+                1_000,
+                "matched-1",
+                None,
+            )
             .unwrap();
         ledger.mark_closed("matched-1").unwrap();
         ledger
-            .record_spawn("matched-2", "ws-1", "/proj/x", "c2", 2_000, None)
+            .record_spawn(
+                "matched-2",
+                "ws-1",
+                "/proj/x",
+                "c2",
+                2_000,
+                "matched-2",
+                None,
+            )
             .unwrap();
         ledger.mark_closed("matched-2").unwrap();
         // Different project_dir — survives.
         ledger
-            .record_spawn("other", "ws-2", "/proj/y", "c3", 3_000, None)
+            .record_spawn("other", "ws-2", "/proj/y", "c3", 3_000, "other", None)
             .unwrap();
         ledger.mark_closed("other").unwrap();
         while rx.try_recv().is_ok() {}
@@ -17064,6 +17415,7 @@ mod tests {
             project_dir: "/p",
             card_id: "c1",
             tag: None,
+            line_id: None,
         });
         let first = drain_until_action(&mut rx, "session_updated");
         assert_eq!(first["fields"]["turn_count"].as_i64(), Some(0));
@@ -17123,6 +17475,7 @@ mod tests {
                 "/proj/journal",
                 "card-journal",
                 crate::session_ledger::now_millis(),
+                id,
                 None,
             )
             .expect("seed session row");
@@ -17846,7 +18199,9 @@ mod tests {
             entry.claude_session_id = Some("claude-A".to_string());
         }
         ledger
-            .record_spawn("claude-A", "ws-1", "/proj/x", "card-1", 1_000, None)
+            .record_spawn(
+                "claude-A", "ws-1", "/proj/x", "card-1", 1_000, "claude-A", None,
+            )
             .unwrap();
 
         let outcome = sup
@@ -17882,7 +18237,9 @@ mod tests {
             entry.claude_session_id = Some("claude-B".to_string());
         }
         ledger
-            .record_spawn("claude-B", "ws-1", "/proj/x", "card-2", 1_000, None)
+            .record_spawn(
+                "claude-B", "ws-1", "/proj/x", "card-2", 1_000, "claude-B", None,
+            )
             .unwrap();
 
         sup.handle_control(
@@ -17994,7 +18351,15 @@ mod tests {
             entry.claude_session_id = Some("claude-ctx-A".to_string());
         }
         ledger
-            .record_spawn("claude-ctx-A", "ws-1", "/proj/x", "card-1", 1_000, None)
+            .record_spawn(
+                "claude-ctx-A",
+                "ws-1",
+                "/proj/x",
+                "card-1",
+                1_000,
+                "claude-ctx-A",
+                None,
+            )
             .unwrap();
 
         let outcome = sup
@@ -18034,7 +18399,15 @@ mod tests {
             entry.claude_session_id = Some("claude-ctx-B".to_string());
         }
         ledger
-            .record_spawn("claude-ctx-B", "ws-1", "/proj/x", "card-2", 1_000, None)
+            .record_spawn(
+                "claude-ctx-B",
+                "ws-1",
+                "/proj/x",
+                "card-2",
+                1_000,
+                "claude-ctx-B",
+                None,
+            )
             .unwrap();
 
         sup.handle_control(
@@ -18176,7 +18549,15 @@ mod tests {
             entry.claude_session_id = Some("claude-ssc-A".to_string());
         }
         ledger
-            .record_spawn("claude-ssc-A", "ws-1", "/proj/x", "card-1", 1_000, None)
+            .record_spawn(
+                "claude-ssc-A",
+                "ws-1",
+                "/proj/x",
+                "card-1",
+                1_000,
+                "claude-ssc-A",
+                None,
+            )
             .unwrap();
 
         sup.handle_control(
@@ -18222,7 +18603,15 @@ mod tests {
             entry.claude_session_id = Some("claude-ssc-B".to_string());
         }
         ledger
-            .record_spawn("claude-ssc-B", "ws-1", "/proj/x", "card-2", 1_000, None)
+            .record_spawn(
+                "claude-ssc-B",
+                "ws-1",
+                "/proj/x",
+                "card-2",
+                1_000,
+                "claude-ssc-B",
+                None,
+            )
             .unwrap();
 
         sup.handle_control(
@@ -18305,7 +18694,15 @@ mod tests {
             entry.claude_session_id = Some("claude-ssc-L".to_string());
         }
         ledger
-            .record_spawn("claude-ssc-L", "ws-1", "/proj/x", "card-3", 1_000, None)
+            .record_spawn(
+                "claude-ssc-L",
+                "ws-1",
+                "/proj/x",
+                "card-3",
+                1_000,
+                "claude-ssc-L",
+                None,
+            )
             .unwrap();
         ledger
             .record_session_state_change("claude-ssc-L", 100, "idle", "online", false)
@@ -18371,7 +18768,15 @@ mod tests {
         // array — the popover's "no state changes recorded" bug.
         let (sup, ledger, mut rx) = make_supervisor_with_ledger();
         ledger
-            .record_spawn("sess-reload-race", "ws-1", "/proj/x", "card-9", 1_000, None)
+            .record_spawn(
+                "sess-reload-race",
+                "ws-1",
+                "/proj/x",
+                "card-9",
+                1_000,
+                "sess-reload-race",
+                None,
+            )
             .unwrap();
         ledger
             .record_session_state_change("sess-reload-race", 100, "idle", "online", false)
@@ -18417,7 +18822,7 @@ mod tests {
         let ids = ["s-conv", "s-devise", "s-review", "s-implement"];
         for id in ids {
             ledger
-                .record_spawn(id, "ws", &root.to_string_lossy(), "card-1", 0, None)
+                .record_spawn(id, "ws", &root.to_string_lossy(), "card-1", 0, id, None)
                 .expect("record_spawn");
         }
         // Only the conversation's row carries the binding: it is the tug
@@ -18491,7 +18896,7 @@ mod tests {
             Arc::new(crate::session_ledger::SessionLedger::open_in_memory().expect("ledger"));
         for id in ["s-first", "s-rotated"] {
             ledger
-                .record_spawn(id, "ws", &root.to_string_lossy(), "card-1", 0, None)
+                .record_spawn(id, "ws", &root.to_string_lossy(), "card-1", 0, id, None)
                 .expect("record_spawn");
         }
         ledger
@@ -18558,7 +18963,15 @@ mod tests {
         let ledger =
             Arc::new(crate::session_ledger::SessionLedger::open_in_memory().expect("ledger"));
         ledger
-            .record_spawn("solo", "ws", &root.to_string_lossy(), "card-1", 0, None)
+            .record_spawn(
+                "solo",
+                "ws",
+                &root.to_string_lossy(),
+                "card-1",
+                0,
+                "solo",
+                None,
+            )
             .expect("record_spawn");
         let recorder = LedgerSessionsRecorder::new(ledger);
         assert!(replay_lineage(&recorder, "solo", root).is_none());
@@ -18575,7 +18988,7 @@ mod tests {
             Arc::new(crate::session_ledger::SessionLedger::open_in_memory().expect("ledger"));
         for id in ["root", "fork"] {
             ledger
-                .record_spawn(id, "ws", &root.to_string_lossy(), "card-1", 0, None)
+                .record_spawn(id, "ws", &root.to_string_lossy(), "card-1", 0, id, None)
                 .expect("record_spawn");
         }
         ledger

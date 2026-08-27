@@ -251,7 +251,9 @@ pub(crate) fn arc_stop(
             ));
         }
         None => {
-            return DashApiOutcome::Error(format!("card is bound to no dash, so it cannot stop {dash}"));
+            return DashApiOutcome::Error(format!(
+                "card is bound to no dash, so it cannot stop {dash}"
+            ));
         }
     }
     let Some(record) = tugdash_core::arc::read_arc(project_dir, dash) else {
@@ -270,7 +272,9 @@ pub(crate) fn arc_stop(
     // stopping it is an ordinary thing to want. `Devise` is the stage it would
     // have rotated first, and it is the same default the predicate takes when
     // it has to name a stage for a record that has none.
-    let stage = record.current_stage().unwrap_or(tugdash_core::arc::ArcStage::Devise);
+    let stage = record
+        .current_stage()
+        .unwrap_or(tugdash_core::arc::ArcStage::Devise);
     DashApiOutcome::ArcStopped {
         dash: dash.to_string(),
         stage,
@@ -385,8 +389,8 @@ fn same_project(session_project: &str, dash_project: &std::path::Path) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::same_project;
+    use super::*;
     use tempfile::tempdir;
 
     /// A real ledger with one session bound to a live arc on `alpha`, in a
@@ -422,6 +426,7 @@ mod tests {
                 &root.to_string_lossy(),
                 "card-1",
                 1_000,
+                "claude-1",
                 None,
             )
             .unwrap();
@@ -433,7 +438,11 @@ mod tests {
     }
 
     fn bound_dash(ledger: &SessionLedger) -> Option<String> {
-        ledger.get("claude-1").ok().flatten().and_then(|r| r.dash_name)
+        ledger
+            .get("claude-1")
+            .ok()
+            .flatten()
+            .and_then(|r| r.dash_name)
     }
 
     #[test]
@@ -519,6 +528,7 @@ mod tests {
                 &root.to_string_lossy(),
                 "card-1",
                 1_000,
+                "claude-1",
                 None,
             )
             .unwrap();
@@ -588,6 +598,7 @@ mod tests {
                 &root.to_string_lossy(),
                 "card-2",
                 1_000,
+                "claude-2",
                 None,
             )
             .unwrap();
@@ -595,7 +606,8 @@ mod tests {
             .set_dash_binding("claude-2", Some(("tugdash/alpha#1", "alpha")))
             .unwrap();
 
-        let DashApiOutcome::Cleared { cleared, seated } = dash_gone(&ledger, root, "tugdash/alpha#1")
+        let DashApiOutcome::Cleared { cleared, seated } =
+            dash_gone(&ledger, root, "tugdash/alpha#1")
         else {
             panic!("dash_gone reports what it swept");
         };
@@ -625,6 +637,7 @@ mod tests {
                 &root.to_string_lossy(),
                 "card-1",
                 1_000,
+                "claude-1",
                 None,
             )
             .unwrap();
@@ -632,7 +645,8 @@ mod tests {
             .set_dash_binding("claude-1", Some(("tugdash/plain#1", "plain")))
             .unwrap();
 
-        let DashApiOutcome::Cleared { cleared, seated } = dash_gone(&ledger, root, "tugdash/plain#1")
+        let DashApiOutcome::Cleared { cleared, seated } =
+            dash_gone(&ledger, root, "tugdash/plain#1")
         else {
             panic!("dash_gone reports what it swept");
         };
@@ -797,6 +811,7 @@ mod tests {
                         &root.to_string_lossy(),
                         "card-1",
                         1_000,
+                        "claude-1",
                         None,
                     )
                     .unwrap();

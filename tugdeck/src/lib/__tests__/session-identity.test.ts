@@ -23,6 +23,7 @@ import {
 } from "@/lib/session-identity";
 import { sessionNameStore } from "@/lib/session-name-store";
 import { sessionTagStore } from "@/lib/session-tag-store";
+import { sessionLineStore } from "@/lib/session-line-store";
 
 const ID = "f6e43925-1a2b-4c3d-8e9f-0a1b2c3d4e5f";
 const SHORT = "f6e43925";
@@ -270,6 +271,49 @@ describe("a custom name and the callsign, through the real stores", () => {
     expect(sessionIdentityLine(resolveSessionIdentity(SELF))).toContain(
       "nutty-gnat",
     );
+  });
+});
+
+/**
+ * The line is the key ([P12]). A card that has rotated through several claude
+ * ids has one identity, and every segment of it resolves to the same name and
+ * callsign — including one the deck learns about only from a citation, long
+ * after the card moved on.
+ */
+describe("identity resolves through the line map", () => {
+  const ROOT = "bbbbbbbb-0000-4000-8000-000000000001";
+  const STAGE = "bbbbbbbb-0000-4000-8000-000000000002";
+  const LINE = "bbbbbbbb-0000-4000-8000-0000000000ff";
+
+  afterEach(() => {
+    sessionNameStore.setName(LINE, null);
+    sessionTagStore.setTag(LINE, null);
+    sessionLineStore.forgetSession(ROOT);
+    sessionLineStore.forgetSession(STAGE);
+  });
+
+  test("every segment of one line reads the line's name and callsign", () => {
+    sessionLineStore.bind(ROOT, LINE);
+    sessionLineStore.seat(STAGE, LINE);
+    sessionNameStore.setName(LINE, "layout-imposer-xp");
+    sessionTagStore.setTag(LINE, "nutty-gnat");
+
+    for (const segment of [ROOT, STAGE]) {
+      const record = resolveSessionIdentity(segment);
+      expect(sessionTitleParts(record).name).toBe("layout-imposer-xp");
+      expect(record.tag).toBe("nutty-gnat");
+      // The short id is still the segment's — a reference resolves to the
+      // exact transcript it names.
+      expect(record.shortId).toBe(segment.slice(0, 8));
+    }
+  });
+
+  test("a segment with no line yet is a line of one, and reads its own key", () => {
+    sessionNameStore.setName(LINE, "layout-imposer-xp");
+    sessionTagStore.setTag(LINE, "nutty-gnat");
+    expect(resolveSessionIdentity(STAGE).tag).toBeNull();
+    sessionLineStore.seat(STAGE, LINE);
+    expect(resolveSessionIdentity(STAGE).tag).toBe("nutty-gnat");
   });
 });
 

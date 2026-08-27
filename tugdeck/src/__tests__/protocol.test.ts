@@ -364,6 +364,7 @@ describe("session ledger CONTROL encoders / decoders", () => {
       session_id: "sess-abc",
       fields: {
         session_id: "sess-abc",
+        line_id: "line-abc",
         workspace_key: "ws-1",
         project_dir: "/proj",
         created_at: 1,
@@ -379,6 +380,7 @@ describe("session ledger CONTROL encoders / decoders", () => {
       session_id: "sess-abc",
       fields: {
         session_id: "sess-abc",
+        line_id: "line-abc",
         workspace_key: "ws-1",
         project_dir: "/proj",
         created_at: 1,

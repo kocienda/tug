@@ -47,27 +47,27 @@ describe("sessionTagStore", () => {
   });
 });
 
-describe("resolveTag — the callsign is addressable ([P12])", () => {
-  test("a known callsign resolves to its session, exactly", () => {
+describe("lineWearing — the callsign is addressable ([P12])", () => {
+  test("a known callsign resolves to its line, exactly", () => {
     sessionTagStore.setTag("r-1", "stocky-pixie");
-    expect(sessionTagStore.resolveTag("stocky-pixie")).toBe("r-1");
+    expect(sessionTagStore.lineWearing("stocky-pixie")).toBe("r-1");
     // Surrounding whitespace is the composer's, not the user's.
-    expect(sessionTagStore.resolveTag("  stocky-pixie  ")).toBe("r-1");
+    expect(sessionTagStore.lineWearing("  stocky-pixie  ")).toBe("r-1");
   });
 
   test("a near miss is a miss — a callsign is a name, not a query", () => {
     sessionTagStore.setTag("r-2", "syrupy-beam");
-    expect(sessionTagStore.resolveTag("syrupy-bea")).toBeNull();
-    expect(sessionTagStore.resolveTag("syrupy")).toBeNull();
-    expect(sessionTagStore.resolveTag("beam")).toBeNull();
-    expect(sessionTagStore.resolveTag("nobody-home")).toBeNull();
+    expect(sessionTagStore.lineWearing("syrupy-bea")).toBeNull();
+    expect(sessionTagStore.lineWearing("syrupy")).toBeNull();
+    expect(sessionTagStore.lineWearing("beam")).toBeNull();
+    expect(sessionTagStore.lineWearing("nobody-home")).toBeNull();
   });
 
   test("a lineage callsign matches as itself and never as its root", () => {
     sessionTagStore.setTag("r-root", "petit-thaw");
     sessionTagStore.setTag("r-fork", "petit-thaw-A1");
-    expect(sessionTagStore.resolveTag("petit-thaw-A1")).toBe("r-fork");
-    expect(sessionTagStore.resolveTag("petit-thaw")).toBe("r-root");
+    expect(sessionTagStore.lineWearing("petit-thaw-A1")).toBe("r-fork");
+    expect(sessionTagStore.lineWearing("petit-thaw")).toBe("r-root");
   });
 
   test("a rerolled callsign stops resolving — the reason the index is maintained", () => {
@@ -75,16 +75,16 @@ describe("resolveTag — the callsign is addressable ([P12])", () => {
     // legitimately changes once. The old one names nothing after that, and
     // resolving it would resume a session by a name it no longer wears.
     sessionTagStore.setTag("r-3", "optimistic-tag");
-    expect(sessionTagStore.resolveTag("optimistic-tag")).toBe("r-3");
+    expect(sessionTagStore.lineWearing("optimistic-tag")).toBe("r-3");
     sessionTagStore.setTag("r-3", "rerolled-tag");
-    expect(sessionTagStore.resolveTag("optimistic-tag")).toBeNull();
-    expect(sessionTagStore.resolveTag("rerolled-tag")).toBe("r-3");
+    expect(sessionTagStore.lineWearing("optimistic-tag")).toBeNull();
+    expect(sessionTagStore.lineWearing("rerolled-tag")).toBe("r-3");
   });
 
   test("clearing a session's tag withdraws it from the index too", () => {
     sessionTagStore.setTag("r-4", "gone-soon");
     sessionTagStore.setTag("r-4", null);
-    expect(sessionTagStore.resolveTag("gone-soon")).toBeNull();
+    expect(sessionTagStore.lineWearing("gone-soon")).toBeNull();
   });
 
   test("a reroll never deletes another session's mapping", () => {
@@ -94,17 +94,17 @@ describe("resolveTag — the callsign is addressable ([P12])", () => {
     // later re-seed would short-circuit on "unchanged" and never repair it.
     sessionTagStore.setTag("r-owner", "contested-tag");
     sessionTagStore.setTag("r-optimist", "contested-tag"); // steals the index
-    expect(sessionTagStore.resolveTag("contested-tag")).toBe("r-optimist");
+    expect(sessionTagStore.lineWearing("contested-tag")).toBe("r-optimist");
     // The ledger re-seeds the rightful owner, then rerolls the optimist.
     sessionTagStore.setTag("r-owner", "contested-tag");
-    expect(sessionTagStore.resolveTag("contested-tag")).toBe("r-owner");
+    expect(sessionTagStore.lineWearing("contested-tag")).toBe("r-owner");
     sessionTagStore.setTag("r-optimist", "fresh-reroll");
-    expect(sessionTagStore.resolveTag("contested-tag")).toBe("r-owner");
-    expect(sessionTagStore.resolveTag("fresh-reroll")).toBe("r-optimist");
+    expect(sessionTagStore.lineWearing("contested-tag")).toBe("r-owner");
+    expect(sessionTagStore.lineWearing("fresh-reroll")).toBe("r-optimist");
     // Clearing the optimist outright is likewise ownership-checked.
     sessionTagStore.setTag("r-optimist-2", "shared-tag");
     sessionTagStore.setTag("r-owner-2", "shared-tag");
     sessionTagStore.setTag("r-optimist-2", null);
-    expect(sessionTagStore.resolveTag("shared-tag")).toBe("r-owner-2");
+    expect(sessionTagStore.lineWearing("shared-tag")).toBe("r-owner-2");
   });
 });

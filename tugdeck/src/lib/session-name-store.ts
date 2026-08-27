@@ -1,11 +1,17 @@
 /**
- * session-name-store.ts — per-session name cache for the Z4B chip ([#step-13d]).
+ * session-name-store.ts — per-**line** name cache for the Z4B chip.
  *
  * The session name lives authoritatively in tugcast's ledger and rides the
  * `SessionRow` shape on `list_sessions_ok` rows and `session_updated` pushes.
  * The chooser reads names straight off those rows, but the Z4B chip needs the
  * name for *its bound session* by id — so this tiny store indexes
- * `tugSessionId → name` and the chip subscribes by id ([L02]).
+ * `lineId → name` and the chip subscribes by id ([L02]).
+ *
+ * **The key is the line, not the segment** ([P12]). The name is the
+ * conversation's title, and a card rotates through a session id per stage, per
+ * rewind, per respawn; keyed by segment, a rename would go blank the next time
+ * the id changed. `sessionLineStore` is where a session id becomes the key
+ * this store holds.
  *
  * Populated from three sources (see `action-dispatch.ts`): the `/rename` surface
  * sets it **optimistically** so the chip updates instantly; `session_updated`
@@ -16,9 +22,8 @@
  * surface arms a one-shot {@link SessionNameStore.awaitSettle} waiter before it
  * sends, holding the name being replaced, and a `rename_session_err` puts that
  * name back. Nothing else would — a failed write broadcasts no `session_updated`,
- * so an unreconciled optimistic name is permanent. A session is bound to exactly
- * one card (`card_id` is 1:1 on the ledger row), so the session id addresses the
- * waiter as precisely as a card id would.
+ * so an unreconciled optimistic name is permanent. A line is seated on exactly
+ * one card, so the line id addresses the waiter as precisely as a card id would.
  *
  * @module lib/session-name-store
  */
@@ -30,12 +35,12 @@ export interface NameSettle {
   /** Wire reason from `rename_session_err` — absent when `ok`. */
   reason?: string;
   /**
-   * Tug session ids this rename took the name from — a custom name is unique,
-   * and setting one displaces whoever wore it. Absent on a refusal, and `[]`
-   * when nothing was taken. The gesture's bulletin names what reverted; the
-   * user should learn what their rename did without being asked to approve it.
+   * The callsign of the line already wearing the requested name, present only
+   * on a `name_taken` refusal ([P11]). A user-set name is unique at the write,
+   * so a rename onto a taken one takes nothing — it is refused, and the
+   * bulletin says who holds it.
    */
-  displaced?: string[];
+  holderTag?: string;
 }
 
 class SessionNameStore {
@@ -66,23 +71,23 @@ class SessionNameStore {
    */
   getVersion = (): number => this.version;
 
-  /** The name for `tugSessionId`, or `null` when unnamed. */
-  getName = (tugSessionId: string): string | null =>
-    this.names.get(tugSessionId) ?? null;
+  /** The name for `lineId`, or `null` when unnamed. */
+  getName = (lineId: string): string | null =>
+    this.names.get(lineId) ?? null;
 
   /**
-   * Set (trimmed) or clear (`null` / blank) the name for `tugSessionId`. No-op
+   * Set (trimmed) or clear (`null` / blank) the name for `lineId`. No-op
    * + no notify when unchanged, so a redundant wire echo doesn't churn React.
    */
-  setName(tugSessionId: string, name: string | null): void {
+  setName(lineId: string, name: string | null): void {
     const trimmed = name?.trim() ?? "";
-    const current = this.names.get(tugSessionId) ?? null;
+    const current = this.names.get(lineId) ?? null;
     if (trimmed.length === 0) {
       if (current === null) return;
-      this.names.delete(tugSessionId);
+      this.names.delete(lineId);
     } else {
       if (current === trimmed) return;
-      this.names.set(tugSessionId, trimmed);
+      this.names.set(lineId, trimmed);
     }
     this.version += 1;
     for (const listener of this.listeners) listener();
@@ -98,13 +103,13 @@ class SessionNameStore {
    * `name_user_set=false`→clear is by design (an auto title never fronts the
    * chip).
    */
-  seedName(tugSessionId: string, name: string | null): void {
+  seedName(lineId: string, name: string | null): void {
     if ((name?.trim() ?? "").length === 0) return;
-    this.setName(tugSessionId, name);
+    this.setName(lineId, name);
   }
 
   /**
-   * Arm a one-shot waiter for the rename just sent on `tugSessionId`, to be
+   * Arm a one-shot waiter for the rename just sent on `lineId`, to be
    * resolved by the ack for `requested`.
    *
    * `previous` is the name being replaced — a string cannot be recovered from
@@ -117,30 +122,30 @@ class SessionNameStore {
    * arrives means the transport is down, which the deck already says globally.
    */
   awaitSettle(
-    tugSessionId: string,
+    lineId: string,
     requested: string | null,
     previous: string | null,
     notify?: (settle: NameSettle) => void,
   ): void {
-    this.waiters.set(tugSessionId, { requested, previous, notify });
+    this.waiters.set(lineId, { requested, previous, notify });
   }
 
   /**
-   * Resolve the pending waiter for `tugSessionId` if it asked for `requested`.
+   * Resolve the pending waiter for `lineId` if it asked for `requested`.
    * A refusal restores the remembered previous name before notifying — the
    * rollback lives here because this is the only place that value survives.
    */
   settle(
-    tugSessionId: string,
+    lineId: string,
     requested: string | null,
     settle: NameSettle,
   ): void {
-    const waiter = this.waiters.get(tugSessionId);
+    const waiter = this.waiters.get(lineId);
     if (waiter === undefined) return;
     const asked = requested?.trim() ?? "";
     if ((waiter.requested?.trim() ?? "") !== asked) return;
-    this.waiters.delete(tugSessionId);
-    if (!settle.ok) this.setName(tugSessionId, waiter.previous);
+    this.waiters.delete(lineId);
+    if (!settle.ok) this.setName(lineId, waiter.previous);
     waiter.notify?.(settle);
   }
 }
@@ -156,7 +161,9 @@ export const sessionNameStore = new SessionNameStore();
 export function renameRefusalDetail(reason: string | undefined): string {
   switch (reason) {
     case "not_found":
-      return "This session has no ledger row to name.";
+      return "This session has no line to name.";
+    case "name_taken":
+      return "Another session already has that name.";
     case "no_ledger":
       return "The session ledger is unavailable.";
     case "ledger_write_failed":

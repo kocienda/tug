@@ -52,6 +52,10 @@ import { sessionNameStore } from "@/lib/session-name-store";
 import { sessionSynopsisStore } from "@/lib/session-synopsis-store";
 import { sessionTagStore } from "@/lib/session-tag-store";
 import {
+  identityKeyForSession,
+  sessionLineStore,
+} from "@/lib/session-line-store";
+import {
   encodeResolveSessions,
   type ResolveSessionsOk,
   type SessionRow,
@@ -155,13 +159,20 @@ class SessionCitationStore {
     for (const { queried, session } of response.found) {
       // The ledger's own word about this session, on the same three stores the
       // spawn ack and the listings seed — which is what lets the resolver name
-      // a session no card is bound to.
+      // a session no card is bound to. Filed under the row's **line** ([P12]),
+      // so a citation naming a segment the card has long since left still
+      // reads the conversation's callsign and name.
+      const lineId =
+        session.line_id.length > 0
+          ? session.line_id
+          : identityKeyForSession(session.session_id);
+      sessionLineStore.bind(session.session_id, lineId);
       sessionNameStore.seedName(
-        session.session_id,
+        lineId,
         session.name_user_set ? session.name : null,
       );
-      sessionTagStore.seedTag(session.session_id, session.tag);
-      sessionSynopsisStore.seedSynopsis(session.session_id, session.synopsis);
+      sessionTagStore.seedTag(lineId, session.tag);
+      sessionSynopsisStore.seedSynopsis(lineId, session.synopsis);
       this.answers.set(queried.trim(), {
         status: "found",
         sessionId: session.session_id,

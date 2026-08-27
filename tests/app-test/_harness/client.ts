@@ -721,6 +721,7 @@ export function bindSession(
   cardId: string,
   options?: {
     tugSessionId?: string;
+    lineId?: string;
     workspaceKey?: string;
     projectDir?: string;
     sessionMode?: "new" | "resume";

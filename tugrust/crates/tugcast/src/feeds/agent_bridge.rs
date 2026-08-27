@@ -517,41 +517,6 @@ pub const DEFAULT_RETRY_DELAY: Duration = Duration::from_secs(1);
 /// uses [`DEFAULT_RETRY_DELAY`]; tests pass a sub-millisecond value so the
 /// crash-loop completes synchronously.
 /// The two durable ink ledgers, as the fork arc needs them.
-///
-/// A rewind-fork is the conversation continued, so the receipts and search
-/// history of that conversation move to the fork alongside its callsign
-/// ([D154]). The two are separate sqlite files with no shared transaction, so
-/// the transfer is best-effort here and the open-time sweep in `ink_adoption`
-/// is what makes it eventually true.
-#[derive(Clone, Default)]
-pub struct InkLedgers {
-    pub shell: Option<Arc<crate::shell_ledger::ShellLedger>>,
-    pub refs: Option<Arc<crate::refs_ledger::RefsLedger>>,
-}
-
-impl InkLedgers {
-    /// Move every durable ink row keyed to `from` onto `to`. Each ledger
-    /// warns on failure rather than propagating: a bookkeeping write must
-    /// never fail a spawn, and the boot sweep re-runs the same idempotent
-    /// re-key.
-    pub fn transfer(&self, from: &str, to: &str) {
-        if let Some(shell) = self.shell.as_ref() {
-            match shell.rekey_session(from, to) {
-                Ok(0) => {}
-                Ok(moved) => info!(from, to, moved, "shell ink transferred to the fork"),
-                Err(err) => warn!(from, to, error = %err, "shell ink transfer failed"),
-            }
-        }
-        if let Some(refs) = self.refs.as_ref() {
-            match refs.rekey_session(from, to) {
-                Ok(0) => {}
-                Ok(moved) => info!(from, to, moved, "refs ink transferred to the fork"),
-                Err(err) => warn!(from, to, error = %err, "refs ink transfer failed"),
-            }
-        }
-    }
-}
-
 #[allow(clippy::too_many_arguments)]
 pub async fn run_session_bridge(
     tug_session_id: TugSessionId,
@@ -584,7 +549,6 @@ pub async fn run_session_bridge(
     session_ledger: Option<Arc<crate::session_ledger::SessionLedger>>,
     // The durable ink ledgers, so a rewind-fork can carry its line of work's
     // receipts and search history across with its callsign.
-    ink_ledgers: InkLedgers,
     // Recompute signal for the workspace's ChangesetFeed, fired after
     // each file-event write so the changeset card updates without
     // waiting for the poll.
@@ -774,7 +738,6 @@ pub async fn run_session_bridge(
             &canonical_project_dir_str,
             sessions_recorder.as_ref(),
             session_ledger.as_deref(),
-            &ink_ledgers,
             &changeset_bumper,
             &cancel,
         )
@@ -1396,9 +1359,6 @@ pub async fn relay_session_io(
     // during the replay window. `None` in tests that don't wire a
     // ledger — replayed `turn_complete` frames pass through unchanged.
     session_ledger: Option<&crate::session_ledger::SessionLedger>,
-    // The durable ink ledgers — see `InkLedgers::transfer`, called when a
-    // fork's provenance lands.
-    ink_ledgers: &InkLedgers,
     // Fired after each file-event write so the workspace's ChangesetFeed
     // recomputes immediately. Disconnected in harnesses without a
     // workspace registry.
@@ -1540,78 +1500,13 @@ pub async fn relay_session_io(
             line_result = lines.next_line() => {
                 match line_result {
                     Ok(Some(line)) => {
-                        // A rewind-fork announcement ([P11]). It arrives
-                        // immediately BEFORE the fork's synthetic
-                        // `session_init`, so the parent's callsign is
-                        // transferred and staged here and consumed there —
-                        // the fork inherits the name verbatim; a callsign is
-                        // stable for the life of its line of work ([D132]).
-                        // Best-effort: a parent with no callsign to hand down
-                        // (a legacy tagless row, or a sibling fork whose
-                        // parent's name already moved on), or a transfer
-                        // error, leaves the fork to spawn as an ordinary root
-                        // session minting a fresh pair. Provenance is staged
-                        // in either case.
-                        if line.contains("\"type\":\"session_fork\"") {
-                            if let (Some(ledger), Some(fork)) =
-                                (session_ledger, parse_session_fork(line.as_bytes()))
-                            {
-                                let now = crate::session_ledger::now_millis();
-                                match ledger.inherit_fork_identity(
-                                    &fork.parent_session_id,
-                                    &fork.new_session_id,
-                                    now,
-                                ) {
-                                    Ok(inherited) => {
-                                        match inherited.tag.as_deref() {
-                                            Some(tag) => info!(
-                                                session = %tug_session_id,
-                                                parent = %fork.parent_session_id,
-                                                tag = %tag,
-                                                "fork inherited its parent's callsign"
-                                            ),
-                                            None => info!(
-                                                session = %tug_session_id,
-                                                parent = %fork.parent_session_id,
-                                                "fork parent has no callsign to hand \
-                                                 down; the fork spawns as a root"
-                                            ),
-                                        }
-                                        let mut entry = ledger_entry.lock().await;
-                                        entry.pending_fork = Some((
-                                            fork.new_session_id.clone(),
-                                            crate::feeds::agent_supervisor::PendingFork {
-                                                tag: inherited.tag,
-                                                user_name: inherited.user_name,
-                                                parent_session_id: fork
-                                                    .parent_session_id
-                                                    .clone(),
-                                                fork_point: Some(fork.fork_point.clone()),
-                                                // A rewind-fork seats nothing:
-                                                // it continues a conversation
-                                                // rather than opening one.
-                                                stage_label: None,
-                                                stage_model: None,
-                                            },
-                                        ));
-                                    }
-                                    Err(err) => warn!(
-                                        session = %tug_session_id,
-                                        error = %err,
-                                        "fork identity transfer failed"
-                                    ),
-                                }
-                            }
-                        }
-
-                        // A stage rotation is not a fork. It copies nothing,
-                        // and the session it rotates goes on being used, so
-                        // nothing transfers: the stage mints its own callsign,
-                        // keeps its parent's name and ink where they are, and
-                        // records where it came from with no branch point —
-                        // `fork_point: None` is what tells a rotation edge
-                        // from a rewind edge ([P03]).
-                        if line.contains("\"type\":\"session_stage\"") {
+                        // Every change of the live claude session id is
+                        // announced here, immediately BEFORE the `session_init`
+                        // that records it ([P05]). The announcement stages
+                        // **provenance only** — where the segment came from —
+                        // because identity is the line's and the entry already
+                        // knows which line that is ([P04]).
+                        if line.contains("\"type\":\"session_segment\"") {
                             // The `arc-stage` line is written here rather than
                             // by the runner that dispatched the rotation,
                             // because the record names the stage's **claude**
@@ -1619,56 +1514,60 @@ pub async fn relay_session_io(
                             // announces it. What the runner asked for and what
                             // actually started are then the same fact, which
                             // is what the lineage restore reads back ([P10]).
-                            let announcement = parse_session_stage(line.as_bytes());
-                            if let Some(stage) = announcement.as_ref() {
-                                if let (Some(arc_name), Some(kind)) =
-                                    (stage.arc.as_deref(), ArcStage::parse(&stage.stage))
-                                {
-                                    if let Err(err) = append_arc_stage(
-                                        Path::new(project_dir),
-                                        arc_name,
-                                        kind,
-                                        &stage.new_session_id,
-                                        stage.model.as_deref(),
+                            let announcement = parse_session_segment(line.as_bytes());
+                            if let Some(segment) = announcement.as_ref() {
+                                if segment.kind == "rotation" {
+                                    if let (Some(arc_name), Some(kind)) = (
+                                        segment.arc.as_deref(),
+                                        segment.stage.as_deref().and_then(ArcStage::parse),
                                     ) {
-                                        warn!(
-                                            session = %tug_session_id,
-                                            arc = %arc_name,
-                                            error = %err,
-                                            "arc stage line write failed"
-                                        );
+                                        if let Err(err) = append_arc_stage(
+                                            Path::new(project_dir),
+                                            arc_name,
+                                            kind,
+                                            &segment.new_session_id,
+                                            segment.model.as_deref(),
+                                        ) {
+                                            warn!(
+                                                session = %tug_session_id,
+                                                arc = %arc_name,
+                                                error = %err,
+                                                "arc stage line write failed"
+                                            );
+                                        }
                                     }
                                 }
                             }
-                            if let (Some(_), Some(stage)) = (session_ledger, announcement) {
-                                let now = crate::session_ledger::now_millis();
-                                let tag = crate::session_ledger::roll_fresh_tag(
-                                    &stage.new_session_id,
-                                    now,
-                                );
+                            if let Some(segment) = announcement {
                                 info!(
                                     session = %tug_session_id,
-                                    parent = %stage.parent_session_id,
-                                    stage = %stage.stage,
-                                    tag = %tag,
-                                    "stage spawns with its own callsign"
+                                    parent = %segment.parent_session_id,
+                                    kind = %segment.kind,
+                                    stage = segment.stage.as_deref().unwrap_or("-"),
+                                    "a segment was announced"
                                 );
                                 let mut entry = ledger_entry.lock().await;
-                                entry.pending_fork = Some((
-                                    stage.new_session_id.clone(),
-                                    crate::feeds::agent_supervisor::PendingFork {
-                                        tag: Some(tag),
-                                        user_name: None,
-                                        parent_session_id: stage.parent_session_id.clone(),
-                                        fork_point: None,
-                                        // Recorded from the announcement so
-                                        // the restore can redraw this divider
+                                // A queue, not a slot: two announcements can be
+                                // in flight before either init arrives, and a
+                                // slot let the second overwrite the first —
+                                // which left one segment attached to nothing.
+                                entry.pending_segments.push_back(
+                                    crate::feeds::agent_supervisor::PendingSegment {
+                                        new_session_id: segment.new_session_id.clone(),
+                                        parent_session_id: segment.parent_session_id.clone(),
+                                        kind: segment.kind.clone(),
+                                        // `None` on everything but a rewind:
+                                        // `fork_point IS NULL` is what tells a
+                                        // rotation edge from a rewind edge.
+                                        fork_point: segment.fork_point.clone(),
+                                        // Recorded from the announcement so the
+                                        // restore can redraw this divider
                                         // without an arc record to consult
                                         // ([P10]).
-                                        stage_label: Some(stage.stage.clone()),
-                                        stage_model: stage.model.clone(),
+                                        stage_label: segment.stage.clone(),
+                                        stage_model: segment.model.clone(),
                                     },
-                                ));
+                                );
                             }
                         }
 
@@ -1713,8 +1612,16 @@ pub async fn relay_session_io(
                             // ledger row's `card_id` column is the source of
                             // truth for the client-side restore (consumed via
                             // the `list_card_bindings` CONTROL verb).
-                            let (workspace_key, card_id, tag, pending_fork) = {
+                            let (
+                                workspace_key,
+                                card_id,
+                                tag,
+                                segment,
+                                entry_line_id,
+                                rebound,
+                            ) = {
                                 let mut entry = ledger_entry.lock().await;
+                                let previous_claude_id = entry.claude_session_id.clone();
                                 if let Some(id) = &claude_id {
                                     if entry.claude_session_id.as_deref() != Some(id.as_str()) {
                                         entry.turns_ended = 0;
@@ -1727,20 +1634,17 @@ pub async fn relay_session_io(
                                     }
                                     entry.claude_session_id = Some(id.clone());
                                 }
-                                // A staged fork identity ([P11]) is consumed
-                                // by the one `session_init` that follows its
-                                // announcement, and names the spawn: the
-                                // inherited callsign outranks the tag the
-                                // entry is still carrying (that spelling was
-                                // just transferred off the parent's row).
-                                let pending_fork = match &entry.pending_fork {
-                                    Some((fork_id, _))
-                                        if claude_id.as_deref() == Some(fork_id.as_str()) =>
-                                    {
-                                        entry.pending_fork.take().map(|(_, fork)| fork)
-                                    }
-                                    _ => None,
-                                };
+                                // The announcement this init names ([P04]),
+                                // taken from wherever it sits in the queue —
+                                // two can be in flight, and an init consumes
+                                // only the one that named its id.
+                                let segment = claude_id.as_deref().and_then(|id| {
+                                    let at = entry
+                                        .pending_segments
+                                        .iter()
+                                        .position(|s| s.new_session_id == id)?;
+                                    entry.pending_segments.remove(at)
+                                });
                                 if entry.spawn_state == SpawnState::Spawning {
                                     entry.spawn_state.try_transition(SpawnState::Live).ok();
                                     if let Some(tx) = entry.input_tx.clone() {
@@ -1759,21 +1663,95 @@ pub async fn relay_session_io(
                                         None,
                                     ));
                                 }
+                                // Which line this segment joins. A plain
+                                // `/new` is the one kind that births one
+                                // ([P03]); every other kind is another segment
+                                // of the line the card already has, and joins
+                                // it by reference — the entry is asked, never
+                                // the ledger.
+                                let mut rebound = None;
+                                if segment.as_ref().is_some_and(|s| s.kind == "new") {
+                                    if let Some(ledger) = session_ledger {
+                                        let owner = claude_id
+                                            .as_deref()
+                                            .unwrap_or_else(|| tug_session_id.as_str());
+                                        match ledger.birth_line(
+                                            None,
+                                            owner,
+                                            entry.card_id.as_deref(),
+                                            project_dir,
+                                            None,
+                                            crate::session_ledger::now_millis(),
+                                        ) {
+                                            Ok(line) => {
+                                                entry.line_id = Some(line.line_id.clone());
+                                                rebound = Some(line);
+                                            }
+                                            Err(err) => warn!(
+                                                session = %tug_session_id,
+                                                error = %err,
+                                                "line birth failed; the new session joins the card's existing line"
+                                            ),
+                                        }
+                                    }
+                                } else if entry.line_id.is_none() {
+                                    // An entry nothing has told about its line —
+                                    // a bridge started before the spawn payload
+                                    // carried one. Read it off the parent the
+                                    // announcement named, else off whatever row
+                                    // this id already has.
+                                    entry.line_id = session_ledger.and_then(|ledger| {
+                                        segment
+                                            .as_ref()
+                                            .and_then(|s| ledger.line_of(&s.parent_session_id))
+                                            .or_else(|| {
+                                                claude_id
+                                                    .as_deref()
+                                                    .and_then(|id| ledger.line_of(id))
+                                            })
+                                    });
+                                }
+                                // An id that changed with nothing announcing it
+                                // is the case that used to strand a segment from
+                                // its line. It is recorded on the entry's line
+                                // anyway — never as a stranger — and said out
+                                // loud, because a silent one is invisible.
+                                if segment.is_none()
+                                    && claude_id.is_some()
+                                    && previous_claude_id.is_some()
+                                    && previous_claude_id != claude_id
+                                {
+                                    warn!(
+                                        event = "segment.unannounced",
+                                        session = %tug_session_id,
+                                        previous = previous_claude_id.as_deref().unwrap_or("-"),
+                                        current = claude_id.as_deref().unwrap_or("-"),
+                                        "the claude session id changed with no announcement; \
+                                         recording the segment on the card's line"
+                                    );
+                                }
                                 (
                                     entry.workspace_key.as_ref().to_owned(),
                                     entry.card_id.clone(),
                                     entry.tag.clone(),
-                                    pending_fork,
+                                    segment,
+                                    entry.line_id.clone(),
+                                    rebound,
                                 )
                             };
-                            // A fork's inherited callsign outranks the tag
-                            // the entry still carries; an inheritance that
-                            // came back empty (sibling / legacy parent)
-                            // falls through so `record_spawn` mints fresh.
-                            let tag = match &pending_fork {
-                                Some(fork) => fork.tag.clone().or(tag),
-                                None => tag,
-                            };
+                            // The card's line moved, so the binding must follow
+                            // it — and with it every deck store keyed by line.
+                            if let (Some(tx), Some(line), Some(card)) =
+                                (control_tx, rebound.as_ref(), card_id.as_deref())
+                            {
+                                let _ = tx.send(
+                                    crate::feeds::agent_supervisor::build_session_line_rebound_frame(
+                                        card,
+                                        tug_session_id.as_str(),
+                                        line,
+                                    ),
+                                );
+                            }
 
                             // Record under claude's own session id — that
                             // is the on-disk file name, the only thing
@@ -1815,12 +1793,11 @@ pub async fn relay_session_io(
                                 project_dir,
                                 card_id: card_id_for_ledger,
                                 tag: tag.as_deref(),
+                                line_id: entry_line_id.as_deref(),
                             });
-                            // The row now exists under the inherited (or
-                            // freshly minted) callsign; write the fork's
-                            // provenance beside it, and the `/rename` it
-                            // inherited with the callsign ([P11], [D154]).
-                            if let (Some(ledger), Some(fork)) = (session_ledger, &pending_fork) {
+                            // The segment now exists on its line; write its
+                            // provenance beside it.
+                            if let (Some(ledger), Some(fork)) = (session_ledger, &segment) {
                                 if let Err(err) = ledger.set_fork_provenance(
                                     record_id,
                                     &fork.parent_session_id,
@@ -1847,49 +1824,6 @@ pub async fn relay_session_io(
                                             error = %err,
                                             "set_stage_provenance failed; the rotation lands but its divider will not survive a relaunch"
                                         );
-                                    }
-                                }
-                                // The receipts and search history of this
-                                // conversation belong with the line of work,
-                                // exactly as its callsign does. Done here
-                                // rather than at the fork announcement so the
-                                // provenance edge already exists: a write
-                                // racing this transfer resolves through the
-                                // edge and lands on the fork anyway. Only a
-                                // rewind-fork continues the conversation; a
-                                // rotation has no branch point and leaves the
-                                // parent's ink where the parent wrote it.
-                                if fork.fork_point.is_some() {
-                                    ink_ledgers.transfer(&fork.parent_session_id, record_id);
-                                }
-                                if let Some(name) = fork.user_name.as_deref() {
-                                    if let Err(err) = ledger.rename(record_id, Some(name)) {
-                                        warn!(
-                                            session = %tug_session_id,
-                                            error = %err,
-                                            "fork rename transfer failed; the fork keeps its callsign but loses the inherited name"
-                                        );
-                                    } else if let Some(tx) = control_tx {
-                                        // The parent's name was cleared by
-                                        // `inherit_fork_identity`, and a bare
-                                        // `notify_sessions_changed` cannot
-                                        // un-teach it: the list seed path
-                                        // ignores a blank by design, so
-                                        // without this push every client keeps
-                                        // the ghost and the two sessions go on
-                                        // sharing one name on screen.
-                                        if let Ok(Some(row)) =
-                                            ledger.get(&fork.parent_session_id)
-                                        {
-                                            let metrics = ledger
-                                                .scan_metrics_for(&fork.parent_session_id)
-                                                .unwrap_or(None);
-                                            let _ = tx.send(
-                                                crate::feeds::agent_supervisor::build_session_updated_frame(
-                                                    &row, metrics,
-                                                ),
-                                            );
-                                        }
                                     }
                                 }
                             }
@@ -3143,59 +3077,47 @@ fn parse_resume_failed_reason(line: &[u8]) -> Option<String> {
         .map(|s| s.to_string())
 }
 
-/// A parsed `session_fork` IPC line — tugcode's announcement that a rewind
-/// fork was taken, and from where ([P11]).
-struct SessionForkAnnouncement {
+/// A parsed `session_segment` IPC line — tugcode's announcement that the live
+/// claude session id has changed, and how ([P05]).
+///
+/// One shape for every kind, because the fact is one fact. What varies is
+/// which optional fields ride along: a `rewind` carries its branch point, a
+/// `rotation` carries the divider's facts, and the rest carry neither.
+struct SessionSegmentAnnouncement {
     parent_session_id: String,
     new_session_id: String,
-    fork_point: String,
-}
-
-/// Parse a `session_fork` IPC line. All three fields are required: a fork with
-/// no parent, no id, or no branch point has no lineage to allocate.
-fn parse_session_fork(line: &[u8]) -> Option<SessionForkAnnouncement> {
-    let value: serde_json::Value = serde_json::from_slice(line).ok()?;
-    let field = |key: &str| -> Option<String> {
-        let s = value.get(key)?.as_str()?.trim();
-        (!s.is_empty()).then(|| s.to_owned())
-    };
-    Some(SessionForkAnnouncement {
-        parent_session_id: field("parentSessionId")?,
-        new_session_id: field("newSessionId")?,
-        fork_point: field("forkPoint")?,
-    })
-}
-
-/// A parsed `session_stage` IPC line — tugcode's announcement that the
-/// server-driven arc rotated a stage onto a fresh session ([P03]).
-struct SessionStageAnnouncement {
-    parent_session_id: String,
-    new_session_id: String,
-    stage: String,
+    /// `rotation` | `rewind` | `fork` | `continue` | `respawn` | `new`.
+    kind: String,
+    /// The rewound-to prompt uuid. Present on a `rewind` and on nothing else:
+    /// a rotation copies no history, so it has no branch point, and inventing
+    /// one would make it look like a rewind to every reader of the provenance
+    /// columns.
+    fork_point: Option<String>,
+    /// What a rotation seated the segment as. Present on a `rotation`.
+    stage: Option<String>,
     /// The dash the arc is keyed by. Present on every rotation the runner
-    /// originates; absent only on a hand-crafted line.
+    /// originates; absent on a rotation no course is driving.
     arc: Option<String>,
     /// The model the stage was rotated with, or `None` for the account
     /// default — which the log spells `-`.
     model: Option<String>,
 }
 
-/// Parse a `session_stage` IPC line. Parent, id, and stage are required; a
-/// rotation missing any of the three names no lineage edge to stage.
-///
-/// There is deliberately no fork point to read. A stage copies no history, so
-/// it has no branch point, and inventing one would make a rotation look like a
-/// rewind to every reader of the provenance columns.
-fn parse_session_stage(line: &[u8]) -> Option<SessionStageAnnouncement> {
+/// Parse a `session_segment` IPC line. Parent, id, and kind are required: an
+/// announcement missing any of the three says nothing a segment can be
+/// attached by, and is better ignored than guessed at.
+fn parse_session_segment(line: &[u8]) -> Option<SessionSegmentAnnouncement> {
     let value: serde_json::Value = serde_json::from_slice(line).ok()?;
     let field = |key: &str| -> Option<String> {
         let s = value.get(key)?.as_str()?.trim();
         (!s.is_empty()).then(|| s.to_owned())
     };
-    Some(SessionStageAnnouncement {
+    Some(SessionSegmentAnnouncement {
         parent_session_id: field("parentSessionId")?,
         new_session_id: field("newSessionId")?,
-        stage: field("stage")?,
+        kind: field("kind")?,
+        fork_point: field("forkPoint"),
+        stage: field("stage"),
         arc: field("arc"),
         model: field("model"),
     })
@@ -3693,18 +3615,6 @@ mod tests {
         project_dir: &str,
         frames: &[&str],
     ) -> Vec<ForwardedFrame> {
-        drive_relay_with_ink(ledger, InkLedgers::default(), tug_id, project_dir, frames).await
-    }
-
-    /// `drive_relay`, with the durable ink ledgers wired in — what the fork
-    /// arc's transfer needs to be observable.
-    async fn drive_relay_with_ink(
-        ledger: Arc<crate::session_ledger::SessionLedger>,
-        ink: InkLedgers,
-        tug_id: &str,
-        project_dir: &str,
-        frames: &[&str],
-    ) -> Vec<ForwardedFrame> {
         use crate::feeds::agent_supervisor::NoopSessionsRecorder;
         use crate::feeds::workspace_registry::WorkspaceKey;
 
@@ -3748,7 +3658,6 @@ mod tests {
                 &project_dir_owned,
                 &recorder,
                 Some(ledger_for_relay.as_ref()),
-                &ink,
                 &crate::feeds::changeset::ChangesetBumper::disconnected(),
                 &cancel,
             )
@@ -3777,273 +3686,302 @@ mod tests {
         out
     }
 
-    // ---- the fork carries its line of work's durable ink ([D154]) ----------
+    // ---- every new segment joins the card's line ([P04]) -------------------
 
-    /// Drive a rewind-fork through the real relay: tugcode announces the fork,
-    /// then the forked session's `session_init` consumes the staged identity.
-    /// Returns the two ink ledgers so the caller can read where the rows sat
-    /// afterwards.
-    async fn drive_fork(
-        parent: &str,
-        fork: &str,
-        seed_ink: impl Fn(&crate::shell_ledger::ShellLedger, &crate::refs_ledger::RefsLedger),
-    ) -> InkLedgers {
-        let sessions =
-            Arc::new(crate::session_ledger::SessionLedger::open_in_memory().expect("sessions"));
-        for id in [parent, fork] {
-            sessions
-                .record_spawn(id, "ws-test", "/proj", "card-1", 1, None)
-                .expect("spawn");
+    /// Drive a run of tugcode frames through the real relay against a real
+    /// ledger, with the entry seated on `line` and bound to a card.
+    ///
+    /// Returns the entry (so a test can read where the line ended up) and the
+    /// CONTROL frames the relay pushed.
+    async fn drive_segments(
+        ledger: Arc<crate::session_ledger::SessionLedger>,
+        tug_id: &str,
+        line: Option<&str>,
+        frames: &[&str],
+    ) -> (
+        Arc<Mutex<crate::feeds::agent_supervisor::LedgerEntry>>,
+        Vec<serde_json::Value>,
+    ) {
+        use crate::feeds::agent_supervisor::LedgerSessionsRecorder;
+        use crate::feeds::workspace_registry::WorkspaceKey;
+
+        let tug_session_id = TugSessionId::new(tug_id.to_string());
+        let ledger_entry = Arc::new(Mutex::new(
+            crate::feeds::agent_supervisor::LedgerEntry::new(
+                tug_session_id.clone(),
+                WorkspaceKey::from_test_str("ws-test"),
+                PathBuf::from("/proj"),
+                SessionMode::New,
+                CrashBudget::new(3, Duration::from_secs(60)),
+            ),
+        ));
+        {
+            let mut entry = ledger_entry.lock().await;
+            entry.card_id = Some("card-1".to_string());
+            entry.line_id = line.map(str::to_owned);
         }
-        let shell =
-            Arc::new(crate::shell_ledger::ShellLedger::open_in_memory().expect("shell ledger"));
-        let refs = Arc::new(crate::refs_ledger::RefsLedger::open_in_memory().expect("refs ledger"));
-        seed_ink(&shell, &refs);
-        let ink = InkLedgers {
-            shell: Some(Arc::clone(&shell)),
-            refs: Some(Arc::clone(&refs)),
-        };
 
-        let announcement = format!(
-            r#"{{"type":"session_fork","parentSessionId":"{parent}","newSessionId":"{fork}","forkPoint":"prompt-uuid"}}"#
+        let (_input_tx, mut input_rx) = mpsc::channel::<Frame>(16);
+        let (merger_tx, _merger_rx) = mpsc::channel::<Frame>(256);
+        let (state_tx, _state_rx) = broadcast::channel::<Frame>(64);
+        let (control_tx, mut control_rx) = broadcast::channel::<Frame>(64);
+        let cancel = CancellationToken::new();
+
+        let (relay_stdin_w, _tugcode_stdin_r) = tokio::io::duplex(64 * 1024);
+        let (relay_stdout_r, mut feed_w) = tokio::io::duplex(256 * 1024);
+        let reader: Box<dyn AsyncRead + Send + Unpin> = Box::new(relay_stdout_r);
+        let lines = BufReader::new(reader).lines();
+
+        let ledger_for_relay = ledger.clone();
+        let entry_for_relay = ledger_entry.clone();
+        let control_for_relay = control_tx.clone();
+        let relay = tokio::spawn(async move {
+            let recorder = LedgerSessionsRecorder::new(Arc::clone(&ledger_for_relay));
+            relay_session_io(
+                &tug_session_id,
+                &entry_for_relay,
+                &mut input_rx,
+                &merger_tx,
+                &state_tx,
+                Some(&control_for_relay),
+                Box::new(relay_stdin_w),
+                lines,
+                "/proj",
+                &recorder,
+                Some(ledger_for_relay.as_ref()),
+                &crate::feeds::changeset::ChangesetBumper::disconnected(),
+                &cancel,
+            )
+            .await
+        });
+
+        feed_w
+            .write_all(b"{\"type\":\"protocol_ack\"}\n")
+            .await
+            .expect("write ack");
+        for f in frames {
+            feed_w.write_all(f.as_bytes()).await.expect("write frame");
+            feed_w.write_all(b"\n").await.expect("write newline");
+        }
+        drop(feed_w);
+        let _ = relay.await.expect("relay task");
+
+        let mut pushed = Vec::new();
+        while let Ok(frame) = control_rx.try_recv() {
+            if let Ok(v) = serde_json::from_slice::<serde_json::Value>(&frame.payload) {
+                pushed.push(v);
+            }
+        }
+        (ledger_entry, pushed)
+    }
+
+    fn segment_line(kind: &str, parent: &str, new_id: &str, extra: &str) -> String {
+        format!(
+            r#"{{"type":"session_segment","kind":"{kind}","parentSessionId":"{parent}","newSessionId":"{new_id}"{extra},"ipc_version":2}}"#
+        )
+    }
+
+    fn init_line(id: &str) -> String {
+        format!(r#"{{"type":"session_init","session_id":"{id}"}}"#)
+    }
+
+    #[tokio::test]
+    async fn a_rotation_segment_joins_the_entrys_line() {
+        let sessions = Arc::new(crate::session_ledger::SessionLedger::open_in_memory().unwrap());
+        sessions
+            .record_spawn("root", "ws-test", "/proj", "card-1", 1, "line-1", None)
+            .expect("seed the root");
+
+        let stage = segment_line("rotation", "root", "stage-1", r#","stage":"devise""#);
+        let init = init_line("stage-1");
+        let (_entry, _pushed) =
+            drive_segments(sessions.clone(), "root", Some("line-1"), &[&stage, &init]).await;
+
+        assert_eq!(
+            sessions.line_of("stage-1").as_deref(),
+            Some("line-1"),
+            "the stage is another segment of the card's line"
         );
-        let init = format!(r#"{{"type":"session_init","session_id":"{fork}"}}"#);
-        drive_relay_with_ink(
-            Arc::clone(&sessions),
-            ink.clone(),
-            parent,
-            "/proj",
-            &[&announcement, &init],
+        // Same line, so the same callsign — nothing was transferred to make
+        // that true.
+        assert_eq!(
+            sessions.get("stage-1").unwrap().unwrap().tag,
+            sessions.get("root").unwrap().unwrap().tag
+        );
+        assert_eq!(
+            sessions.stage_provenance("stage-1"),
+            Some(("devise".to_string(), None))
+        );
+    }
+
+    #[tokio::test]
+    async fn a_rewind_segment_joins_the_line_and_records_its_fork_point() {
+        let sessions = Arc::new(crate::session_ledger::SessionLedger::open_in_memory().unwrap());
+        sessions
+            .record_spawn("root", "ws-test", "/proj", "card-1", 1, "line-1", None)
+            .expect("seed the root");
+
+        let rewind = segment_line("rewind", "root", "fork-1", r#","forkPoint":"prompt-uuid""#);
+        let init = init_line("fork-1");
+        drive_segments(sessions.clone(), "root", Some("line-1"), &[&rewind, &init]).await;
+
+        assert_eq!(sessions.line_of("fork-1").as_deref(), Some("line-1"));
+        // The branch point is what tells a rewind edge from a rotation edge.
+        assert_eq!(
+            sessions.fork_point_for_test("fork-1").as_deref(),
+            Some("prompt-uuid")
+        );
+    }
+
+    #[tokio::test]
+    async fn a_new_segment_births_a_line_and_rebinds_the_entry() {
+        let sessions = Arc::new(crate::session_ledger::SessionLedger::open_in_memory().unwrap());
+        sessions
+            .record_spawn("root", "ws-test", "/proj", "card-1", 1, "line-1", None)
+            .expect("seed the root");
+
+        let fresh = segment_line("new", "root", "fresh-1", "");
+        let init = init_line("fresh-1");
+        let (entry, pushed) =
+            drive_segments(sessions.clone(), "root", Some("line-1"), &[&fresh, &init]).await;
+
+        let born = sessions
+            .line_of("fresh-1")
+            .expect("the fresh session has a line");
+        assert_ne!(born, "line-1", "a plain `/new` is a different conversation");
+        assert_eq!(
+            entry.lock().await.line_id.as_deref(),
+            Some(born.as_str()),
+            "the entry follows the line it just birthed"
+        );
+        // The card's binding has to follow it, or every store keyed by line
+        // goes on writing under the old one.
+        let rebound = pushed
+            .iter()
+            .find(|v| v["action"] == "session_line_rebound")
+            .expect("the rebind is pushed");
+        assert_eq!(rebound["card_id"], "card-1");
+        assert_eq!(rebound["line_id"], born);
+        assert!(rebound["tag"].is_string());
+        // And the old line is untouched — a different conversation, not a
+        // rename of this one.
+        assert_eq!(sessions.line_of("root").as_deref(), Some("line-1"));
+    }
+
+    #[tokio::test]
+    async fn two_announcements_before_their_inits_both_resolve() {
+        // The single-slot bug ([F10]): with one pending slot the second
+        // announcement overwrote the first, and the first init then matched
+        // nothing — leaving a segment attached to whatever the fallback found.
+        let sessions = Arc::new(crate::session_ledger::SessionLedger::open_in_memory().unwrap());
+        sessions
+            .record_spawn("root", "ws-test", "/proj", "card-1", 1, "line-1", None)
+            .expect("seed the root");
+
+        let first = segment_line("rewind", "root", "seg-a", r#","forkPoint":"point-a""#);
+        let second = segment_line("rewind", "seg-a", "seg-b", r#","forkPoint":"point-b""#);
+        drive_segments(
+            sessions.clone(),
+            "root",
+            Some("line-1"),
+            &[&first, &second, &init_line("seg-a"), &init_line("seg-b")],
         )
         .await;
-        ink
+
+        for id in ["seg-a", "seg-b"] {
+            assert_eq!(sessions.line_of(id).as_deref(), Some("line-1"), "{id}");
+        }
+        // Each init consumed the announcement that named *its* id, so neither
+        // wears the other's branch point.
+        assert_eq!(
+            sessions.fork_point_for_test("seg-a").as_deref(),
+            Some("point-a")
+        );
+        assert_eq!(
+            sessions.fork_point_for_test("seg-b").as_deref(),
+            Some("point-b")
+        );
     }
 
-    /// Drive an arc stage rotation through the real relay: tugcode announces
-    /// the stage, then the stage session's `session_init` consumes the staged
-    /// identity. The mirror of [`drive_fork`], built from the same parts so the
-    /// two can be compared: a stage records a provenance edge with no branch
-    /// point and takes nothing from its parent.
-    async fn drive_stage(
-        parent: &str,
-        stage_session: &str,
-        stage: &str,
-        seed_ink: impl Fn(&crate::shell_ledger::ShellLedger, &crate::refs_ledger::RefsLedger),
-    ) -> (Arc<crate::session_ledger::SessionLedger>, InkLedgers) {
-        let sessions =
-            Arc::new(crate::session_ledger::SessionLedger::open_in_memory().expect("sessions"));
-        for id in [parent, stage_session] {
-            sessions
-                .record_spawn(id, "ws-test", "/proj", "card-1", 1, None)
-                .expect("spawn");
-        }
-        let shell =
-            Arc::new(crate::shell_ledger::ShellLedger::open_in_memory().expect("shell ledger"));
-        let refs = Arc::new(crate::refs_ledger::RefsLedger::open_in_memory().expect("refs ledger"));
-        seed_ink(&shell, &refs);
-        let ink = InkLedgers {
-            shell: Some(Arc::clone(&shell)),
-            refs: Some(Arc::clone(&refs)),
-        };
+    #[tokio::test]
+    async fn an_unannounced_id_change_joins_the_line_and_warns() {
+        // A claude that re-identifies itself with nothing announcing it is
+        // recorded on the entry's line anyway — never as a stranger, which is
+        // what used to leave a segment orphaned.
+        let sessions = Arc::new(crate::session_ledger::SessionLedger::open_in_memory().unwrap());
+        sessions
+            .record_spawn("root", "ws-test", "/proj", "card-1", 1, "line-1", None)
+            .expect("seed the root");
 
-        let announcement = format!(
-            r#"{{"type":"session_stage","parentSessionId":"{parent}","newSessionId":"{stage_session}","stage":"{stage}","model":"","document":"dash/brief.md","arc":"some-dash","ipc_version":2}}"#
-        );
-        let init = format!(r#"{{"type":"session_init","session_id":"{stage_session}"}}"#);
-        drive_relay_with_ink(
-            Arc::clone(&sessions),
-            ink.clone(),
-            parent,
-            "/proj",
-            &[&announcement, &init],
+        drive_segments(
+            sessions.clone(),
+            "root",
+            Some("line-1"),
+            &[&init_line("root"), &init_line("stranger")],
         )
         .await;
-        (sessions, ink)
-    }
 
-    #[tokio::test]
-    async fn a_stage_leaves_the_conversation_as_its_own_head() {
-        // A rotation is not a fork: the conversation goes on being used
-        // after the arc, so its id must keep resolving to itself, and the
-        // stage descends from it with no branch point.
-        let (sessions, _) = drive_stage("conversation", "stage-1", "devise", |_, _| {}).await;
         assert_eq!(
-            sessions.resolve_to_lineage_head("conversation"),
-            "conversation",
-            "the conversation is not superseded by the stage it rotated into"
-        );
-        assert_eq!(
-            sessions.rotation_children().unwrap().len(),
-            1,
-            "the rotation edge is recorded, with no fork point"
+            sessions.line_of("stranger").as_deref(),
+            Some("line-1"),
+            "an unannounced id change still joins the card's line"
         );
     }
 
     #[tokio::test]
-    async fn a_stage_leaves_the_conversations_durable_ink_where_it_was() {
-        // Receipts written before the rotation belong to the session that
-        // wrote them, which is the session the user returns to.
-        let (_sessions, ink) =
-            drive_stage("p-ink-stage", "s-ink-stage", "implement", |shell, _| {
-                shell
-                    .record_exchange(&shell_row("p-ink-stage", "/commit"))
-                    .expect("record");
-            })
-            .await;
-
-        assert_eq!(
-            ink.shell
-                .expect("shell ledger")
-                .session_ids_with_rows()
-                .unwrap(),
-            std::collections::HashSet::from(["p-ink-stage".to_string()]),
-            "the conversation's receipts stay with the conversation"
-        );
-    }
-
-    #[tokio::test]
-    async fn a_stage_line_missing_a_required_field_stages_nothing() {
+    async fn a_segment_line_missing_a_required_field_stages_nothing() {
+        let parse = |s: &str| parse_session_segment(s.as_bytes());
+        // Parent, id, and kind are the three an announcement must carry: with
+        // any of them missing there is nothing a segment can be attached by,
+        // and a guess is worse than silence.
         assert!(
-            parse_session_stage(br#"{"type":"session_stage","newSessionId":"n","stage":"devise"}"#)
-                .is_none()
+            parse(r#"{"type":"session_segment","newSessionId":"n","kind":"rotation"}"#).is_none()
         );
-        assert!(parse_session_stage(
-            br#"{"type":"session_stage","parentSessionId":"p","newSessionId":"","stage":"devise"}"#
-        )
-        .is_none());
         assert!(
-            parse_session_stage(
-                br#"{"type":"session_stage","parentSessionId":"p","newSessionId":"n"}"#
+            parse(
+                r#"{"type":"session_segment","parentSessionId":"p","newSessionId":"","kind":"rotation"}"#
             )
             .is_none()
         );
-        let parsed = parse_session_stage(
-            br#"{"type":"session_stage","parentSessionId":"p","newSessionId":"n","stage":"review"}"#,
+        assert!(
+            parse(r#"{"type":"session_segment","parentSessionId":"p","newSessionId":"n"}"#)
+                .is_none()
+        );
+        assert!(parse("not json").is_none());
+
+        let parsed = parse(
+            r#"{"type":"session_segment","parentSessionId":"p","newSessionId":"n","kind":"rotation","stage":"review"}"#,
         )
         .expect("parses");
         assert_eq!(parsed.parent_session_id, "p");
         assert_eq!(parsed.new_session_id, "n");
-        assert_eq!(parsed.stage, "review");
+        assert_eq!(parsed.kind, "rotation");
+        assert_eq!(parsed.stage.as_deref(), Some("review"));
         // A rotation with no score behind it names no arc and no document,
         // and that absence is what keeps `arc-stage` unwritten: the write is
         // guarded on an arc name *and* a parsable stage, so a `None` here
         // cannot reach the dash-log at all.
         assert!(parsed.arc.is_none());
         assert!(
-            ArcStage::parse(&parsed.stage).is_some(),
+            parsed.stage.as_deref().and_then(ArcStage::parse).is_some(),
             "the label still parses; it is the missing arc that stops the write"
         );
-    }
 
-    fn shell_row(session: &str, command: &str) -> crate::shell_ledger::NewShellExchange {
-        crate::shell_ledger::NewShellExchange {
-            tug_session_id: session.to_string(),
-            command: command.to_string(),
-            output: "out\n".to_string(),
-            exit_code: Some(0),
-            cwd: "/proj".to_string(),
-            cwd_after: None,
-            started_at_ms: 1,
-            settled_at_ms: 2,
-            anchor_msg_id: None,
-        }
-    }
-
-    #[tokio::test]
-    async fn a_fork_carries_the_parents_durable_ink_across() {
-        let ink = drive_fork("parent-ink", "fork-ink", |shell, refs| {
-            for command in ["ls", "/commit"] {
-                shell
-                    .record_exchange(&shell_row("parent-ink", command))
-                    .expect("record");
-            }
-            refs.record_run(&crate::refs_ledger::NewRefsRun {
-                tug_session_id: "parent-ink".to_string(),
-                run_id: "run-1".to_string(),
-                op_kind: "match".to_string(),
-                command: "/match foo".to_string(),
-                refs: Vec::new(),
-                settled_at_ms: 10,
-                anchor_msg_id: None,
-            })
-            .expect("record run");
-        })
-        .await;
-
-        let shell = ink.shell.expect("shell ledger");
-        assert_eq!(
-            shell.session_ids_with_rows().unwrap(),
-            std::collections::HashSet::from(["fork-ink".to_string()]),
-            "the parent's receipts moved to the line's head"
-        );
-        assert_eq!(
-            shell.list_exchanges_since("fork-ink", None).unwrap().len(),
-            2
-        );
-        let refs = ink.refs.expect("refs ledger");
-        assert_eq!(refs.list_refs("parent-ink").unwrap(), None);
-        assert_eq!(refs.list_refs("fork-ink").unwrap().unwrap().run_id, "run-1");
-    }
-
-    #[tokio::test]
-    async fn a_fork_of_an_inkless_parent_transfers_nothing() {
-        let ink = drive_fork("parent-bare", "fork-bare", |_, _| {}).await;
-        assert!(
-            ink.shell
-                .expect("shell ledger")
-                .session_ids_with_rows()
-                .unwrap()
-                .is_empty()
-        );
-        assert_eq!(
-            ink.refs
-                .expect("refs ledger")
-                .list_refs("fork-bare")
-                .unwrap(),
-            None
-        );
-    }
-
-    #[tokio::test]
-    async fn a_fork_transfers_each_ledger_independently() {
-        // The two ink stores are separate sqlite files with no shared
-        // transaction, so a relay wired with only one of them must still move
-        // what it has.
-        let sessions =
-            Arc::new(crate::session_ledger::SessionLedger::open_in_memory().expect("sessions"));
-        for id in ["parent-solo", "fork-solo"] {
-            sessions
-                .record_spawn(id, "ws-test", "/proj", "card-1", 1, None)
-                .expect("spawn");
-        }
-        let shell =
-            Arc::new(crate::shell_ledger::ShellLedger::open_in_memory().expect("shell ledger"));
-        shell
-            .record_exchange(&shell_row("parent-solo", "/dash-join"))
-            .expect("record");
-        let ink = InkLedgers {
-            shell: Some(Arc::clone(&shell)),
-            refs: None,
-        };
-
-        drive_relay_with_ink(
-            sessions,
-            ink,
-            "parent-solo",
-            "/proj",
-            &[
-                r#"{"type":"session_fork","parentSessionId":"parent-solo","newSessionId":"fork-solo","forkPoint":"prompt-uuid"}"#,
-                r#"{"type":"session_init","session_id":"fork-solo"}"#,
-            ],
+        // A rewind carries its branch point and nothing else; every other kind
+        // carries neither, which is what tells a rotation edge from a rewind.
+        let rewind = parse(
+            r#"{"type":"session_segment","parentSessionId":"p","newSessionId":"n","kind":"rewind","forkPoint":"u"}"#,
         )
-        .await;
-
-        assert_eq!(
-            shell.session_ids_with_rows().unwrap(),
-            std::collections::HashSet::from(["fork-solo".to_string()]),
-        );
+        .expect("parses");
+        assert_eq!(rewind.fork_point.as_deref(), Some("u"));
+        assert!(rewind.stage.is_none());
+        let plain = parse(
+            r#"{"type":"session_segment","parentSessionId":"p","newSessionId":"n","kind":"new"}"#,
+        )
+        .expect("parses");
+        assert!(plain.fork_point.is_none());
+        assert!(plain.stage.is_none());
     }
-
     // ---- the facts library, driven through the real relay ([P06], [P07]) ----
 
     /// The map holds calls awaiting a result, and a settled call leaves a dead
@@ -4682,7 +4620,6 @@ mod tests {
                 &project_dir,
                 &recorder,
                 Some(ledger_for_relay.as_ref()),
-                &InkLedgers::default(),
                 &crate::feeds::changeset::ChangesetBumper::disconnected(),
                 &cancel,
             )
@@ -5094,7 +5031,6 @@ mod tests {
                 &project_dir,
                 &recorder,
                 Some(ledger_for_relay.as_ref()),
-                &InkLedgers::default(),
                 &crate::feeds::changeset::ChangesetBumper::disconnected(),
                 &cancel,
             )
@@ -5230,7 +5166,6 @@ mod tests {
                 &project_dir,
                 &recorder,
                 Some(ledger_for_relay.as_ref()),
-                &InkLedgers::default(),
                 &crate::feeds::changeset::ChangesetBumper::disconnected(),
                 &cancel,
             )
@@ -5340,7 +5275,6 @@ mod tests {
                 &project_dir,
                 &recorder,
                 Some(ledger_for_relay.as_ref()),
-                &InkLedgers::default(),
                 &crate::feeds::changeset::ChangesetBumper::disconnected(),
                 &cancel,
             )
@@ -5500,7 +5434,6 @@ mod tests {
                 &project_a,
                 &recorder,
                 Some(ledger_a_for_relay.as_ref()),
-                &InkLedgers::default(),
                 &crate::feeds::changeset::ChangesetBumper::disconnected(),
                 &cancel_a,
             )
@@ -5557,7 +5490,6 @@ mod tests {
                 &project_b,
                 &recorder,
                 Some(ledger_b_for_relay.as_ref()),
-                &InkLedgers::default(),
                 &crate::feeds::changeset::ChangesetBumper::disconnected(),
                 &cancel_b,
             )
@@ -6340,31 +6272,6 @@ mod tests {
         assert_eq!(out, line.to_vec());
         assert_eq!(injected, 0);
     }
-
-    // ---- parse_session_fork -------------------------------------------
-
-    #[test]
-    fn session_fork_needs_all_three_fields() {
-        let full =
-            br#"{"type":"session_fork","parentSessionId":"p","newSessionId":"n","forkPoint":"u"}"#;
-        let parsed = parse_session_fork(full).expect("parses");
-        assert_eq!(parsed.parent_session_id, "p");
-        assert_eq!(parsed.new_session_id, "n");
-        assert_eq!(parsed.fork_point, "u");
-
-        // A fork with no parent, no id, or no branch point has no lineage to
-        // allocate — better to spawn it as a root than to guess.
-        assert!(
-            parse_session_fork(br#"{"type":"session_fork","newSessionId":"n","forkPoint":"u"}"#)
-                .is_none()
-        );
-        assert!(parse_session_fork(
-            br#"{"type":"session_fork","parentSessionId":"p","newSessionId":"","forkPoint":"u"}"#
-        )
-        .is_none());
-        assert!(parse_session_fork(b"not json").is_none());
-    }
-
     // ---- parse_session_title ------------------------------------------
 
     #[test]

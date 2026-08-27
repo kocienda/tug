@@ -188,15 +188,23 @@ export class PendingContextStore {
   };
   private _listeners = new Set<() => void>();
   private _seq = 0;
-  private readonly _tugSessionId: string | undefined;
+  private readonly _lineId: string | undefined;
+  private readonly _legacyKey: string | undefined;
 
   /**
-   * @param tugSessionId When set, the queue + VISIBILITY are durable across an
-   * app relaunch ([P07]): loaded from the per-session tugbank blob at
-   * construction and re-persisted on every change. Omitted in tests / headless.
+   * @param lineId When set, the queue + VISIBILITY are durable across an app
+   * relaunch ([P07]): loaded from the per-**line** tugbank blob at construction
+   * and re-persisted on every change. Keyed by line ([P12]) because a card
+   * rotates through a session id per stage and the staged queue belongs to the
+   * conversation. Omitted in tests / headless.
+   * @param legacyKey The card's tug session id — the key this blob was written
+   * under before the line model. Read once at construction when the line key
+   * holds nothing, and re-persisted under the line key, so the user's staged
+   * context survives the re-key rather than silently emptying.
    */
-  constructor(tugSessionId?: string) {
-    this._tugSessionId = tugSessionId;
+  constructor(lineId?: string, legacyKey?: string) {
+    this._lineId = lineId;
+    this._legacyKey = legacyKey;
     this._loadPersisted();
   }
 
@@ -204,10 +212,17 @@ export class PendingContextStore {
    *  synchronously from the TugbankClient cache. Resumes `_seq` past the
    *  highest `ctx-{n}`. No listeners exist yet — sets state without a notify. */
   private _loadPersisted(): void {
-    if (this._tugSessionId === undefined) return;
+    if (this._lineId === undefined) return;
     // `?.getValue?.` also tolerates a partial mock client (tests) that lacks
     // the method — the durable read simply yields nothing there.
-    const raw = getTugbankClient()?.getValue?.(PENDING_CONTEXT_DOMAIN, this._tugSessionId);
+    const client = getTugbankClient();
+    let raw = client?.getValue?.(PENDING_CONTEXT_DOMAIN, this._lineId);
+    // The one-time carry from the pre-lines key ([P12]).
+    let carried = false;
+    if ((raw === null || typeof raw !== "object") && this._legacyKey !== undefined) {
+      raw = client?.getValue?.(PENDING_CONTEXT_DOMAIN, this._legacyKey);
+      carried = raw !== null && typeof raw === "object";
+    }
     if (raw === null || typeof raw !== "object") return;
     const o = raw as Record<string, unknown>;
     const items = Array.isArray(o.items)
@@ -227,6 +242,9 @@ export class PendingContextStore {
       shellContext: this._shellContext,
       btwContext: this._btwContext,
     };
+    // A carried blob is written under the line key immediately, so the read
+    // above happens exactly once in this line's life.
+    if (carried) this._persist();
   }
 
   /** Persist the queue + VISIBILITY to the durable blob ([P07]). No-op without
@@ -235,9 +253,9 @@ export class PendingContextStore {
     // A real (live-app) TugbankClient exposes `getValue`; a null or partial
     // mock (tests / headless) means no live persistence context — skip so no
     // stray fetch fires.
-    if (this._tugSessionId === undefined) return;
+    if (this._lineId === undefined) return;
     if (typeof getTugbankClient()?.getValue !== "function") return;
-    putPendingContext(this._tugSessionId, {
+    putPendingContext(this._lineId, {
       items: this._items,
       shellContext: this._shellContext,
       btwContext: this._btwContext,

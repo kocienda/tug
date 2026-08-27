@@ -120,6 +120,15 @@ export const CONTROL_ACTION_LIST_SESSION_STATE_CHANGES =
  */
 export interface SessionRow {
   session_id: string;
+  /**
+   * The line of work this row is a **segment** of — the identity that owns the
+   * callsign and the user's name ([P01]). A card that has rotated through
+   * eight claude ids has eight `session_id`s and one `line_id`, so every
+   * identity cache in the deck is keyed by this rather than by `session_id`.
+   * Empty string on a row from an older tugcast that predates the model. Keep
+   * in lockstep with the Rust `SessionRow.line_id`.
+   */
+  line_id: string;
   workspace_key: string;
   project_dir: string;
   created_at: number;
@@ -140,8 +149,9 @@ export interface SessionRow {
    *  never a numeric suffix, and a callsign any session ever minted is spent
    *  forever); `null` on legacy rows until they are next resumed. Layered over
    *  the UUID and the `/rename` name (precedence: name → tag → truncated UUID).
-   *  Stable for the life of the line of work — a rewind-fork inherits it by
-   *  transfer, never a suffix.
+   *  It belongs to the **line**, so it is stable for the whole life of the
+   *  conversation: an id change writes another segment against the same line
+   *  and the callsign never moves.
    *  Defaults to `null` for older tugcast that omits the field. Keep in lockstep
    *  with the Rust `SessionRow.tag`. */
   tag: string | null;
@@ -207,6 +217,7 @@ export function normalizeSessionRow(
     | "name_user_set"
     | "tag"
     | "synopsis"
+    | "line_id"
   > &
     Partial<
       Pick<
@@ -216,6 +227,7 @@ export function normalizeSessionRow(
         | "name_user_set"
         | "tag"
         | "synopsis"
+        | "line_id"
       >
     >,
 ): SessionRow {
@@ -228,6 +240,7 @@ export function normalizeSessionRow(
     tag: row.tag ?? null,
     synopsis: row.synopsis ?? null,
     private: row.private ?? false,
+    line_id: row.line_id ?? "",
   };
 }
 
@@ -257,6 +270,13 @@ export function normalizeSessionRow(
 export interface CardBinding {
   card_id: string;
   session_id: string;
+  /**
+   * The line this card is bound to ([P01]). One binding per line, and
+   * `session_id` beside it is the segment a restore should resume ([P06]) —
+   * so a card that has lived through eight id changes arrives as one row, not
+   * eight. Empty string from an older tugcast.
+   */
+  line_id?: string;
   project_dir: string;
   state: "live" | "closed";
   turn_count: number;
@@ -602,6 +622,12 @@ export type SpawnSessionMode = "new" | "resume";
  * present it's forwarded as `tag`; tugcast stores it on the `LedgerEntry` and
  * claims (or suffixes) it authoritatively at `record_spawn`, echoing the final
  * value back on `session_updated`. Omitted when the caller minted none.
+ *
+ * `lineId` is the line of work this spawn seats the card on ([P03]). A fresh
+ * spawn mints it here, from the drop, and the ledger births a line under that
+ * exact id — which is what lets the callsign and the name minted alongside it
+ * survive every later id change. A resume sends the line the binding already
+ * names. The supervisor requires it for `mode=new`.
  */
 export function encodeSpawnSession(
   cardId: string,
@@ -610,6 +636,7 @@ export function encodeSpawnSession(
   sessionMode: SpawnSessionMode = "new",
   permissionMode?: string,
   tag?: string,
+  lineId?: string,
 ): Frame {
   const payload: Record<string, string> = {
     card_id: cardId,
@@ -622,6 +649,9 @@ export function encodeSpawnSession(
   }
   if (tag !== undefined) {
     payload.tag = tag;
+  }
+  if (lineId !== undefined) {
+    payload.line_id = lineId;
   }
   return controlFrame(CONTROL_ACTION_SPAWN_SESSION, payload);
 }
@@ -707,13 +737,19 @@ export function encodeTrashSession(sessionId: string, projectDir?: string): Fram
 }
 
 /**
- * Rename a session ([#step-13d]). An empty / whitespace-only `name` clears the
- * name (tugcast trims + treats blank as `None`). tugcast writes the ledger and
+ * Rename a **line** ([P11]). An empty / whitespace-only `name` clears the name
+ * (tugcast trims + treats blank as `None`). tugcast writes the line and
  * broadcasts `session_updated` so the chooser + Z4B chip pick it up.
+ *
+ * The address is the line's id, not a session's: the name is the
+ * conversation's title, and a rename that landed on a segment would be lost
+ * the next time the card's claude id changed. A name another line already
+ * wears is refused with `name_taken` — a visible reason, never a silent
+ * displacement.
  */
-export function encodeRenameSession(sessionId: string, name: string): Frame {
+export function encodeRenameSession(lineId: string, name: string): Frame {
   return controlFrame(CONTROL_ACTION_RENAME_SESSION, {
-    session_id: sessionId,
+    line_id: lineId,
     name,
   });
 }

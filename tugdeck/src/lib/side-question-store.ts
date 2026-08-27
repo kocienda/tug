@@ -115,19 +115,32 @@ export class SideQuestionStore {
   private _lastPayloadRef: unknown = undefined;
   private readonly _feedStore: FeedStore;
   private readonly _feedId: FeedIdValue;
+  /** The segment the `/btw` frame is addressed to — the wire's key. */
   private readonly _tugSessionId: string;
+  /** The line the history is filed under — the durable key ([P12]). */
+  private readonly _lineId: string;
   private readonly _pendingContextStore: PendingContextStore | undefined;
   private _seq = 0;
 
+  /**
+   * @param tugSessionId The segment this store speaks to. It addresses the
+   * `side_question` frame, and it is the key the history was written under
+   * before the line model — read once as the carry below.
+   * @param lineId The durable key for the `/btw` history ([P12]) — the line,
+   * not the segment, because the exchanges belong to the conversation and a
+   * card rotates through a session id per stage.
+   */
   constructor(
     feedStore: FeedStore,
     feedId: FeedIdValue,
     tugSessionId: string,
+    lineId: string,
     pendingContextStore?: PendingContextStore,
   ) {
     this._feedStore = feedStore;
     this._feedId = feedId;
     this._tugSessionId = tugSessionId;
+    this._lineId = lineId;
     this._pendingContextStore = pendingContextStore;
     this._unsubscribeFeed = feedStore.subscribe(() => this._onFeedUpdate());
     this._loadPersisted();
@@ -144,8 +157,18 @@ export class SideQuestionStore {
   private _loadPersisted(): void {
     // `?.getValue?.` also tolerates a partial mock client (tests) missing the
     // method — the durable read simply yields nothing there.
-    const raw = getTugbankClient()?.getValue?.(SIDE_QUESTIONS_DOMAIN, this._tugSessionId);
-    const loaded = parsePersistedSideQuestions(raw);
+    const client = getTugbankClient();
+    let loaded = parsePersistedSideQuestions(
+      client?.getValue?.(SIDE_QUESTIONS_DOMAIN, this._lineId),
+    );
+    // The one-time carry from the pre-lines key ([P12]).
+    let carried = false;
+    if (loaded.length === 0 && this._tugSessionId !== this._lineId) {
+      loaded = parsePersistedSideQuestions(
+        client?.getValue?.(SIDE_QUESTIONS_DOMAIN, this._tugSessionId),
+      );
+      carried = loaded.length > 0;
+    }
     if (loaded.length === 0) return;
     this._snapshot = { exchanges: loaded };
     let maxSeq = 0;
@@ -154,6 +177,9 @@ export class SideQuestionStore {
       if (Number.isFinite(n) && n > maxSeq) maxSeq = n;
     }
     this._seq = maxSeq;
+    // Written under the line key immediately, so the carry happens exactly
+    // once in this line's life.
+    if (carried) this._persist();
   }
 
   /** Persist the settled exchanges (capped tail) to the durable blob ([P07]).
@@ -173,7 +199,7 @@ export class SideQuestionStore {
         synthetic: ex.synthetic,
         at: ex.at,
       }));
-    putSideQuestionHistory(this._tugSessionId, settled);
+    putSideQuestionHistory(this._lineId, settled);
   }
 
   private _onFeedUpdate(): void {

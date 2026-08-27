@@ -205,6 +205,7 @@ function makeBinding(
 ): CardSessionBinding {
   return {
     tugSessionId,
+    lineId: tugSessionId,
     workspaceKey: PROJECT_DIR,
     projectDir: PROJECT_DIR,
     sessionMode: "new",

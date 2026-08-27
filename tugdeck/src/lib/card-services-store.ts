@@ -355,8 +355,12 @@ class CardServicesStore {
     // The staged shell / `/btw` context queue. Constructed before the code
     // session store so `send()` can consume it; also surfaced to the composer
     // (staged-count hint) and the shell / `/btw` rows (stage actions + badge).
-    // Keyed by tug_session_id for durability across relaunch ([P07]).
-    const pendingContextStore = new PendingContextStore(binding.tugSessionId);
+    // Keyed by the **line** for durability across relaunch ([P07], [P12]), with
+    // the card's session id as the legacy key a pre-lines blob carries from.
+    const pendingContextStore = new PendingContextStore(
+      binding.lineId,
+      binding.tugSessionId,
+    );
 
     const codeSessionStore = new CodeSessionStore({
       conn: connection,
@@ -503,6 +507,7 @@ class CardServicesStore {
       sideQuestionFeedStore,
       FeedId.CODE_OUTPUT,
       binding.tugSessionId,
+      binding.lineId,
       pendingContextStore,
     );
 

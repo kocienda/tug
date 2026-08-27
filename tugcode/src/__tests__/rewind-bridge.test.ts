@@ -768,24 +768,25 @@ describe("conversation rewind — fork (default)", () => {
     });
 
     const ack = out.find((m) => m.type === "rewind_result");
-    const announcement = out.find((m) => m.type === "session_fork");
+    const announcement = out.find((m) => m.type === "session_segment");
     expect(announcement).toEqual({
-      type: "session_fork",
+      type: "session_segment",
+      kind: "rewind",
       parentSessionId: "live-claude-id",
       newSessionId: ack.newSessionId,
-      // The rewound-to prompt uuid IS the branch point: two forks taken
-      // there share a lineage letter.
+      // The rewound-to prompt uuid IS the branch point.
       forkPoint: anchors[1],
+      ipc_version: 2,
     });
-    // Ordering is the contract — tugcast stages the allocated lineage on the
-    // announcement and consumes it on the init that follows.
+    // Ordering is the contract — tugcast stages the segment's provenance on
+    // the announcement and consumes it on the init that follows.
     const types = out.map((m) => m.type);
-    expect(types.indexOf("session_fork")).toBeLessThan(
+    expect(types.indexOf("session_segment")).toBeLessThan(
       types.indexOf("session_init"),
     );
   });
 
-  test("a destructive in-place rewind announces no fork", async () => {
+  test("a destructive in-place rewind announces no segment", async () => {
     const { jsonl, anchors } = buildSessionJsonl();
     const { manager } = convManager(jsonl);
 
@@ -797,7 +798,7 @@ describe("conversation rewind — fork (default)", () => {
         fork: false,
       });
     });
-    expect(out.map((m) => m.type)).not.toContain("session_fork");
+    expect(out.map((m) => m.type)).not.toContain("session_segment");
   });
 });
 

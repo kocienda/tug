@@ -944,12 +944,14 @@ async fn shell_session_task(
         // Persist the settled exchange for restore ([P07]). Insert-on-settle
         // only: an exchange in flight at a crash never lands (it never settled).
         if let Some(ledger) = ledger.as_ref() {
-            // Key the row to the line of work, not to a session id a rewind
-            // fork may already have superseded.
-            let ink_session = match sessions_ledger.as_ref() {
-                Some(sessions) => sessions.resolve_to_lineage_head(&tug_session_id),
-                None => tug_session_id.clone(),
-            };
+            // Key the row to the **line of work** ([P09]). A line-less session
+            // — one this ledger has never seen — keys under its own id, which
+            // is the only key its own reader will use.
+            let ink_line = sessions_ledger
+                .as_ref()
+                .and_then(|sessions| sessions.line_of(&tug_session_id))
+                .unwrap_or_else(|| tug_session_id.to_string());
+            let ink_session = tug_session_id.to_string();
             // The turn this row follows, read from the head's transcript — the
             // file the deck will replay. After the resolution above, never
             // before it. `spawn_cwd` is the card's project dir, and passing it
@@ -964,6 +966,7 @@ async fn shell_session_task(
             });
             let row = NewShellExchange {
                 tug_session_id: ink_session,
+                line_id: ink_line,
                 command: command.clone(),
                 output: out.clone(),
                 exit_code,

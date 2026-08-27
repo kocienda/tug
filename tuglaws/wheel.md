@@ -24,9 +24,9 @@ A rotation is defined as much by what it cannot change as by what it carries. `R
 
 - The card. A rotation seats a session *under* a card; it never moves one.
 - The tug session id. `session` names which card rotates, never what it rotates into.
-- The transcript and its durable ink. Both follow from the identity transfer in `agent_bridge.rs` — `inherit_fork_identity` plus `set_fork_provenance(…, None)` — which the wheel never calls and cannot influence.
-- The lineage chain. Written by that same transfer, with a NULL fork point, which is what distinguishes a rotation from a rewind for every later reader.
-- The callsign, and the `/rename` that rides with it.
+- The transcript and its durable ink. The stage segment joins the card's line (`session_segment{kind:"rotation"}`), so the callsign, the `/rename`, and the ink are the line's and never move ([D167]). The wheel never calls the write that records it and cannot influence it.
+- The lineage chain. Written by that same record, with a NULL fork point, which is what distinguishes a rotation from a rewind for every later reader.
+- The callsign, and the `/rename` beside it — both the line's, and a rotation is another segment of it.
 - The user's own model to return to. That is `LedgerEntry::deck_model`, and only a WebSocket client's own `model_change` ever writes it.
 
 **Parameters — what a caller may name.**

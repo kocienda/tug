@@ -53,11 +53,14 @@ pub struct ExternalSessionMeta {
     pub last_used_at: i64,
     pub file_size: i64,
     pub file_mtime: i64,
-    /// The callsign minted for this session at scan time ([P12], [Q04]), or
-    /// `None` when the scan ran without a ledger to mint against (the
+    /// The callsign of the line this session belongs to ([P07]), or `None`
+    /// when the scan ran without a ledger to birth one against (the
     /// ledger-less [`scan_external_sessions`] path). Never derived from the
     /// session id — a real tag, permanent from the moment it is claimed.
     pub tag: Option<String>,
+    /// That line's id, so a listing can fold a scanned session's segments the
+    /// same way it folds a ledger row's.
+    pub line_id: Option<String>,
 }
 
 /// Why a candidate file was excluded from the scan. Surfaced only via
@@ -1034,9 +1037,10 @@ fn parse_session_file_inner(
             last_used_at: file_mtime,
             file_size,
             file_mtime,
-            // The parse never mints; the ledger-backed scan backfills the
-            // callsign afterwards ([Q04]).
+            // The parse never births a line; the ledger-backed scan attaches
+            // one afterwards and reads the callsign off it ([P07]).
             tag: None,
+            line_id: None,
         },
         resume,
         resumed,
@@ -1250,9 +1254,9 @@ fn cache_row_from_parsed(parsed: &ParsedSession, project_dir: &str) -> ScanCache
         frontier_leaf_uuid: parsed.resume.frontier.leaf_uuid.clone(),
         effective_uuids: parsed.resume.effective_uuids.clone(),
         lineage_ancestors: encode_lineage(&parsed.lineage_ancestors),
-        // Not a parse product — `upsert_scan_cache` carries the stored tag
-        // across so a re-parse cannot erase a minted callsign.
-        tag: None,
+        // Not a parse product — `upsert_scan_cache` carries the stored line
+        // across so a re-parse cannot orphan the row from it.
+        line_id: None,
     }
 }
 
@@ -1363,7 +1367,10 @@ fn meta_from_cache_row(row: ScanCacheRow) -> ExternalSessionMeta {
         last_used_at: row.last_used_at,
         file_size: row.file_size,
         file_mtime: row.file_mtime,
-        tag: row.tag,
+        line_id: row.line_id,
+        // Filled from the line below, which is the only place a scanned
+        // session's callsign comes from now.
+        tag: None,
     }
 }
 
@@ -1523,7 +1530,7 @@ pub fn scan_external_sessions_cached_with_progress(
                     frontier_leaf_uuid: None,
                     effective_uuids: None,
                     lineage_ancestors: None,
-                    tag: None,
+                    line_id: None,
                 };
                 if let Err(err) = ledger.upsert_scan_cache(&row) {
                     tracing::warn!(error = %err, "external scan: cache write failed");
@@ -1545,20 +1552,31 @@ pub fn scan_external_sessions_cached_with_progress(
         }
     }
     suppress_superseded_lineage(&mut outcome.metas, &lineage_claims);
-    // Pass 4: mint a real callsign for every surfaced session that lacks one
-    // ([P12], [Q04]). Runs after the lineage sweep so a suppressed ancestor
-    // file never burns a tag. Idempotent — a session that already has one
-    // reads it back, so a warm rescan mints nothing. A mint failure is not a
-    // scan failure: the row simply surfaces tagless and the next scan retries.
+    // Pass 4: give every surfaced session a line, and read its callsign off
+    // it ([P07]). Runs after the lineage sweep so a suppressed ancestor file
+    // never births a line of its own. Idempotent — a session that already has
+    // one reads it back, so a warm rescan mints nothing. A failure here is not
+    // a scan failure: the row simply surfaces tagless and the next scan
+    // retries.
     let now = crate::session_ledger::now_millis();
     for meta in &mut outcome.metas {
         if meta.tag.is_some() {
             continue;
         }
-        match ledger.backfill_external_tag(&meta.session_id, now) {
-            Ok(tag) => meta.tag = tag,
+        match ledger.ensure_scan_line(&meta.session_id, now) {
+            Ok(Some(line_id)) => {
+                match ledger.get_line(&line_id) {
+                    Ok(Some(line)) => meta.tag = Some(line.tag),
+                    Ok(None) => {}
+                    Err(err) => {
+                        tracing::warn!(error = %err, "external scan: line read failed");
+                    }
+                }
+                meta.line_id = Some(line_id);
+            }
+            Ok(None) => {}
             Err(err) => {
-                tracing::warn!(error = %err, "external scan: tag backfill failed");
+                tracing::warn!(error = %err, "external scan: line birth failed");
             }
         }
     }
@@ -1931,7 +1949,7 @@ mod tests {
         // A ledger row for the session, so the count reconcile has something to
         // write. Its own `turn_count` starts sparse.
         ledger
-            .record_spawn(SESSION_A, "ws", PROJECT, "card-1", 1, None)
+            .record_spawn(SESSION_A, "ws", PROJECT, "card-1", 1, SESSION_A, None)
             .unwrap();
         scan_external_sessions_cached(&ledger, PROJECT);
         assert_eq!(ledger.get(SESSION_A).unwrap().unwrap().turn_count, 2);
@@ -2114,6 +2132,10 @@ mod tests {
         // optimistic candidate loses to the callsign the picker already
         // showed — "mine is not taken" makes the re-claim idempotent rather
         // than a collision (Spec S08).
+        //
+        // The empty `line_id` is the adoption case saying so: the client has
+        // no line for a session it has never seen, and the scan-born line
+        // ([P07]) is the one the picker has been showing it under.
         ledger
             .record_spawn(
                 SESSION_A,
@@ -2121,6 +2143,7 @@ mod tests {
                 PROJECT,
                 "card-1",
                 1_700_000_000_000,
+                "",
                 Some("some-other"),
             )
             .unwrap();
@@ -2499,7 +2522,7 @@ mod tests {
 
         // A ledger row with an inflated stale count, left live.
         ledger
-            .record_spawn(SESSION_A, "ws", PROJECT, "card-1", 1_000, None)
+            .record_spawn(SESSION_A, "ws", PROJECT, "card-1", 1_000, SESSION_A, None)
             .unwrap();
         ledger.set_turn_count(SESSION_A, 59, 1_000).unwrap();
         assert_eq!(ledger.get(SESSION_A).unwrap().unwrap().turn_count, 59);

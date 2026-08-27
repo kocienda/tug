@@ -74,33 +74,29 @@
 //! same transaction as the row it names, its `PRIMARY KEY` violation is the
 //! collision signal a mint retries against, and **nothing may ever delete from
 //! it** — not trash, not the cascades, not eviction. Deleting rows there
-//! silently restores recycling. `sessions_tag` stays only as the live-row
-//! invariant. The guarantee is per-ledger: `sessions.db` is per-instance, so a
-//! trailer written on another machine simply misses, which is safe.
+//! silently restores recycling. The `lines.tag` unique index stays as the
+//! live-row invariant beside it. The guarantee is per-ledger: `sessions.db` is
+//! per-instance, so a trailer written on another machine simply misses, which
+//! is safe.
 //!
 //! **A collision rerolls; it never suffixes.** The bare `-2`, `-3`… backstop is
 //! retired, along with the silent NULL tag it landed on at exhaustion. On a
 //! genuine collision the mint rolls a complete fresh pair and re-claims.
 //!
-//! **A rewind-fork inherits its callsign; the name never accretes.** The
-//! callsign names the *line of work*, not the JSONL file: a rewind-fork is an
-//! edit to a conversation, not the birth of a new one, so the fork takes the
-//! parent's callsign verbatim by **transfer** ([`inherit_fork_identity`]) — one
-//! transaction repoints `minted_tags.session_id` at the fork and clears the
-//! superseded parent row's `tag`. The tag stays spent forever (permanence
-//! protects a citation from resolving to an *unrelated* session; the fork IS
-//! the same conversation, so resolving there is the right answer, not a
-//! compromise). The retired `<root>-<Letter><Number>` lineage-suffix grammar
-//! (`stocky-pixie-A1-B2`) is composed by nothing anymore — its
-//! `tag_lineage_points` allocator is dropped and existing chains collapse onto
-//! their root spelling on open ([`migrate_collapse_lineage_chains`]) — but
-//! legacy spellings still *parse* ([`is_session_callsign`]) and still resolve,
-//! through `minted_tags`, to the session now heading the line. The only path
-//! to a fresh callsign is a genuinely new line of work: a root spawn, or a
-//! **sibling fork** — forking a parent whose callsign has already moved on to
-//! an earlier fork — which mints a fresh pair like any other new session, with
-//! its parentage held in the `forked_from_session_id` / `fork_point` columns
-//! rather than in its spelling.
+//! **The callsign belongs to the line of work, and never moves.** A `sessions`
+//! row is a **segment** of a [`LineRow`] ([P01]); the callsign, the user's
+//! name, and the auto title live on the line, once, for however many session
+//! ids that line lives through — a rotation, a rewind-fork, a `--continue`, a
+//! crash respawn. So there is nothing on a segment to inherit, strand, or
+//! displace, and every read of a `sessions` row picks the identity up through
+//! a `LEFT JOIN lines` ([P02]). A line is born in exactly one place
+//! ([`birth_line_in`]) and that is the only place a callsign is claimed.
+//! Retired spellings — the `<root>-<Letter><Number>` lineage-suffix grammar
+//! (`stocky-pixie-A1-B2`), and the pair a stage rotation used to roll for
+//! itself — still *parse* ([`is_session_callsign`]) and still resolve, through
+//! `minted_tags`, to the line that spent them. The only path to a fresh
+//! callsign is a genuinely new line of work: a card's first spawn, a plain
+//! `/new`, or a session the external scan has just discovered.
 //!
 //! # Concurrency
 //!
@@ -276,6 +272,21 @@ pub enum LedgerError {
     #[error("tag claim failed: {0}")]
     TagClaimFailed(String),
 
+    /// A schema migration could not establish the invariant it exists to
+    /// establish. The transaction rolls back and the open fails: a ledger
+    /// this build cannot bring to a shape it understands is not one to serve.
+    #[error("migration failed: {0}")]
+    MigrationFailed(String),
+
+    /// A `/rename` asked for a spelling another line already wears as its
+    /// user-set name ([P11]). The gesture is refused rather than taking the
+    /// name, and the holder rides along so the refusal can say who has it.
+    #[error("name already worn by line {holder_line_id} ({holder_tag})")]
+    NameTaken {
+        holder_line_id: String,
+        holder_tag: String,
+    },
+
     #[error("serde error: {0}")]
     Serde(#[from] serde_json::Error),
 
@@ -337,19 +348,24 @@ pub struct SessionRow {
     /// `/rename` choice or the auto-generated `aiTitle` scraped from the JSONL —
     /// see `name_user_set` to tell them apart. Survives re-spawn/resume (never
     /// cleared by lifecycle transitions); the chooser shows it as the row title.
+    ///
+    /// Owned by the **line**, not by this segment: it arrives through the
+    /// `LEFT JOIN lines` every `sessions` query carries ([P02]).
     pub name: Option<String>,
     /// `true` only when `name` was set by the user via `/rename`; `false` when
     /// it's an auto `aiTitle` (or unset). The Z4B session chip shows the hash
     /// unless this is `true`, so an auto title never masquerades as a rename.
+    ///
+    /// The line's, by the same join.
     pub name_user_set: bool,
     /// Mnemonic `adjective-noun` callsign, minted client-side "from the drop"
     /// and made permanent by the append-only `minted_tags` arbiter (Spec S08):
     /// a tag any session ever minted is spent forever, so a collision rerolls a
     /// complete fresh pair rather than suffixing the taken one. `None` on
-    /// legacy rows until they are next resumed. Stable for the life of the
-    /// line of work: a rewind-fork inherits it by transfer ([P11]), so the
-    /// name never accretes suffixes. Keep in lockstep with the TS
-    /// `SessionRow.tag`.
+    /// a scan row whose line has not been named yet. The callsign belongs to
+    /// the **line** and arrives by join, so every segment of one line of work
+    /// reads the same spelling and nothing ever transfers it. Keep in lockstep
+    /// with the TS `SessionRow.tag`.
     pub tag: Option<String>,
     /// The rolling generated description ([P07]) — a standing line saying what
     /// this session is about, composed on the SharedAgent's Summarize lane and
@@ -380,6 +396,13 @@ pub struct SessionRow {
     /// read. `dash_id` is the authority.
     #[serde(default)]
     pub dash_name: Option<String>,
+    /// The line of work this row is a **segment** of ([P01]). Every id change
+    /// a card lives through — a rotation, a rewind-fork, a `--continue`, a
+    /// crash respawn — writes another segment against the same line, and the
+    /// line is what carries the callsign and the user's name. Keep in lockstep
+    /// with the TS `SessionRow.line_id`.
+    #[serde(default)]
+    pub line_id: String,
 }
 
 /// One row of the `turns` submission journal. Authored by tugcast at
@@ -663,32 +686,37 @@ pub struct ScanCacheRow {
     /// pre-rotation lineage embedded in a resumed session's file. The scan
     /// uses these to suppress superseded ancestor files from the listing.
     pub lineage_ancestors: Option<String>,
-    /// The callsign minted for this session at scan time ([Q04]), or `None`
-    /// before its first backfill. Persisted here because an external session
-    /// has no `sessions` row until it is adopted on first resume; uniqueness
-    /// lives in `minted_tags` (Spec S08), not in this table. **Not** part of
-    /// the parse — `upsert_scan_cache` never writes it, so a re-parse of a
-    /// grown file cannot erase a minted callsign.
-    pub tag: Option<String>,
+    /// The line this scanned session belongs to ([P07]), or `None` before the
+    /// scan has reached it once. An external session has no `sessions` row
+    /// until it is adopted on first resume, so the line is where its callsign
+    /// lives in the meantime. **Not** part of the parse —
+    /// `upsert_scan_cache` carries it across rather than writing it, so a
+    /// re-parse of a grown file cannot orphan the row from its line.
+    pub line_id: Option<String>,
 }
 
-/// The identity a line of work wears, for a session that is a segment of one
-/// rather than the whole of it ([D164]).
+/// One row of the `lines` table — a **line of work** and everything that
+/// identifies it ([P01]).
 ///
-/// Produced by [`SessionLedger::line_identity`] and applied at read time. A
-/// stage's own row is never rewritten to hold this — the segment keeps the
-/// callsign it minted, and only the *display* resolves to the line.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct LineIdentity {
-    /// The session the line is named by — the one the first rotation
-    /// rotated away from.
-    pub root_session_id: String,
-    /// The root's callsign, or `None` for a legacy tagless root.
-    pub tag: Option<String>,
-    /// The root's name: the user's `/rename` when `name_user_set`, else the
-    /// scanned `aiTitle`.
+/// A line owns the callsign and the user's name. A `sessions` row is one
+/// segment of a line and carries neither, so there is nothing on a segment to
+/// inherit, strand, or displace when an id changes.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LineRow {
+    pub line_id: String,
+    /// The mnemonic `adjective-noun` callsign, unique per ledger and made
+    /// permanent by `minted_tags`.
+    pub tag: String,
+    /// The user's `/rename`, or the auto `aiTitle` scraped from a segment's
+    /// JSONL. `name_user_set` tells them apart.
     pub name: Option<String>,
     pub name_user_set: bool,
+    /// The card this line is seated on, or `None` for a line the external
+    /// scan discovered and nothing has resumed ([P07]).
+    pub card_id: Option<String>,
+    pub project_dir: String,
+    pub created_at: i64,
+    pub last_used_at: i64,
 }
 
 /// The scan-derived pair a `session_updated` push carries — the on-disk size
@@ -1550,9 +1578,6 @@ impl SessionLedger {
         // build destroy the shared truth. Their schema is governed by the
         // `user_version` gate in `bootstrap_changes_schema`.
         Self::migrate_sessions_first_to_last_user_prompt(conn)?;
-        Self::migrate_sessions_add_name(conn)?;
-        Self::migrate_sessions_add_name_user_set(conn)?;
-        Self::migrate_sessions_add_tag(conn)?;
         Self::migrate_sessions_add_fork_provenance(conn)?;
         Self::migrate_sessions_add_stage_provenance(conn)?;
         Self::migrate_sessions_add_synopsis(conn)?;
@@ -1571,8 +1596,37 @@ impl SessionLedger {
         Self::migrate_facts_add_tokens(conn)?;
         Self::migrate_overview_posts_add_tokens(conn)?;
         Self::migrate_drop_pulse_overviews(conn)?;
+        // Before the batch, because `migrate_sessions_to_lines` writes both
+        // columns and the batch only declares them on a table it creates.
+        Self::migrate_minted_tags_add_line_id(conn)?;
+        Self::migrate_scan_cache_add_line_id(conn)?;
         conn.execute_batch(
             "
+            -- A **line of work** and its identity ([P01]). The callsign and
+            -- the user's name live here, once, for however many session ids
+            -- the line lives through — so an id change has nothing to copy.
+            CREATE TABLE IF NOT EXISTS lines (
+                line_id       TEXT PRIMARY KEY,
+                tag           TEXT NOT NULL UNIQUE,
+                name          TEXT,
+                name_user_set INTEGER NOT NULL DEFAULT 0,
+                -- The card the line is seated on. NULL for a line the
+                -- external scan discovered and nothing has resumed ([P07]).
+                card_id       TEXT,
+                project_dir   TEXT NOT NULL,
+                created_at    INTEGER NOT NULL,
+                last_used_at  INTEGER NOT NULL
+            );
+
+            -- A user-set name is unique across lines, enforced at the write
+            -- ([P11]): a rename onto a taken name is refused, visibly, rather
+            -- than displacing whoever wears it. Auto titles are exempt —
+            -- two lines may perfectly well be auto-titled the same thing.
+            CREATE UNIQUE INDEX IF NOT EXISTS lines_user_name
+                ON lines(name) WHERE name_user_set = 1;
+
+            CREATE INDEX IF NOT EXISTS lines_card ON lines(card_id);
+
             CREATE TABLE IF NOT EXISTS sessions (
                 session_id        TEXT PRIMARY KEY,
                 workspace_key     TEXT NOT NULL,
@@ -1583,14 +1637,14 @@ impl SessionLedger {
                 last_user_prompt  TEXT,
                 state             TEXT NOT NULL,
                 card_id           TEXT,
-                name              TEXT,
-                name_user_set     INTEGER NOT NULL DEFAULT 0,
-                tag               TEXT,
+                -- The line this row is a segment of ([P01]). Identity is the
+                -- line's; nothing here holds a callsign or a name.
+                line_id           TEXT NOT NULL REFERENCES lines(line_id),
                 -- Fork provenance ([P11]): which session this one was
                 -- rewind-forked from, and the prompt uuid of the rewind
                 -- point. Both NULL for a root session. Provenance lives in
-                -- these columns, never in the callsign's spelling — a
-                -- rewind-fork inherits its parent's `tag` verbatim.
+                -- these columns, never in the callsign's spelling — the
+                -- callsign is the line's and does not move.
                 forked_from_session_id TEXT,
                 fork_point        TEXT,
                 -- Stage provenance ([P10]): what a rotation seated this
@@ -1623,18 +1677,10 @@ impl SessionLedger {
                 ON sessions(workspace_key, last_used_at DESC);
 
             -- The fork edge, read child-ward: given a session id, which
-            -- session (if any) was forked from it. `resolve_to_lineage_head`
-            -- walks this index once per hop, on every durable ink write and
-            -- read, so it is a hot lookup rather than a reporting one.
+            -- session (if any) was forked from it. `lineage_chain` walks it
+            -- once per hop to replay a card's transcript parent-ward.
             CREATE INDEX IF NOT EXISTS sessions_forked_from
                 ON sessions(forked_from_session_id);
-
-            -- Per-ledger uniqueness for the mnemonic tag. NULLs are distinct
-            -- in a SQLite unique index, so every legacy tagless row coexists
-            -- (essential for lazy backfill). A UNIQUE column can't be added via
-            -- ALTER TABLE, so the index is the only migration-safe route.
-            CREATE UNIQUE INDEX IF NOT EXISTS sessions_tag
-                ON sessions(tag);
 
             -- The all-time tag arbiter (Spec S08). `sessions` rows are hard
             -- DELETEd — trash, the cascade paths, cap/age eviction — so the
@@ -1654,18 +1700,16 @@ impl SessionLedger {
             -- recycling on that machine.
             CREATE TABLE IF NOT EXISTS minted_tags (
                 tag        TEXT PRIMARY KEY,
+                -- The line that owns this spelling — the whole of what a
+                -- retired spelling resolves to ([P08]). NULL only transiently,
+                -- inside `migrate_sessions_to_lines`, which asserts otherwise
+                -- before it commits.
+                line_id    TEXT,
+                -- The segment that spent the spelling. Kept as history: which
+                -- id was live at the moment the line took this name.
                 session_id TEXT NOT NULL,
                 minted_at  INTEGER NOT NULL
             );
-
-            -- Seed the arbiter from every tag the ledger already displays, so
-            -- a database predating this table starts out authoritative rather
-            -- than treating each live session's tag as unclaimed. Idempotent:
-            -- OR IGNORE, and re-running adds only rows minted since.
-            INSERT OR IGNORE INTO minted_tags (tag, session_id, minted_at)
-                SELECT tag, session_id, created_at
-                FROM sessions
-                WHERE tag IS NOT NULL;
 
             CREATE TABLE IF NOT EXISTS turns (
                 journal_id        TEXT PRIMARY KEY,
@@ -2134,14 +2178,13 @@ impl SessionLedger {
                 frontier_leaf_uuid             TEXT,
                 effective_uuids                BLOB,
                 lineage_ancestors              TEXT,
-                -- The callsign minted for this session at scan time ([Q04]).
-                -- An external row has no `sessions` row to hold a tag until it
-                -- is adopted on first resume, and uniqueness lives in
-                -- `minted_tags` (Spec S08) — which is keyed by tag and
-                -- indifferent to which table holds the session. Adoption
-                -- carries this tag onto the `sessions` row rather than minting
-                -- a second one.
-                tag                            TEXT
+                -- The line this scanned session belongs to ([P07]). A scan
+                -- births a card-less line at scan time, because the callsign
+                -- it mints is spent in `minted_tags` immediately and a spent
+                -- spelling needs an owner that exists. Adoption on first
+                -- resume seats that same line on a card rather than minting a
+                -- second identity.
+                line_id                        TEXT
             );
 
             CREATE INDEX IF NOT EXISTS external_scan_cache_project
@@ -2153,15 +2196,16 @@ impl SessionLedger {
             DROP TRIGGER IF EXISTS file_events_cascade_delete_on_session;
             ",
         )?;
-        // After the batch, because it repoints rows in `minted_tags`, which
-        // the batch creates and seeds.
-        Self::migrate_collapse_lineage_chains(conn)?;
-        // After the collapse, because it repairs what an earlier build's
-        // collapse left behind and must not race the one running now.
-        Self::migrate_release_superseded_fork_names(conn)?;
-        // After both, because it repoints `minted_tags` rows the collapse may
-        // have just repointed and reads the provenance columns as settled.
-        Self::migrate_return_rotation_identity(conn)?;
+        // After the batch, because it reads and repoints `minted_tags` and
+        // rewrites `sessions` — both of which the batch has just guaranteed
+        // exist. On a ledger that already speaks lines this is a no-op.
+        Self::migrate_sessions_to_lines(conn)?;
+        // After the migration, because a pre-lines `sessions` has no
+        // `line_id` for the index to name until it has run. Idempotent on
+        // both paths, which is why it is not inside either.
+        conn.execute_batch(
+            "CREATE INDEX IF NOT EXISTS sessions_line ON sessions(line_id, created_at DESC);",
+        )?;
         // After the batch, because it needs the FTS tables to exist.
         Self::backfill_search_tokens(conn, facts_fts_dropped, posts_fts_dropped)?;
         let changes_write_ok = Self::bootstrap_changes_schema(conn, may_write_changes)?;
@@ -2403,40 +2447,6 @@ impl SessionLedger {
         Ok(())
     }
 
-    /// Self-healing add of the `sessions.name` column ([#step-13d], `/rename`).
-    /// A no-op when the table is absent (the `CREATE TABLE IF NOT EXISTS` below
-    /// then defines `name` directly) or already has the column — so it only
-    /// ALTERs a pre-existing table that predates the column.
-    fn migrate_sessions_add_name(conn: &Connection) -> Result<(), LedgerError> {
-        let cols = Self::table_columns(conn, "sessions")?;
-        if cols.is_empty() {
-            return Ok(());
-        }
-        if !cols.iter().any(|(n, _)| n == "name") {
-            conn.execute("ALTER TABLE sessions ADD COLUMN name TEXT", [])?;
-        }
-        Ok(())
-    }
-
-    /// Self-healing add of the `sessions.name_user_set` column — the provenance
-    /// bit that distinguishes a user `/rename` from an auto `aiTitle`. Pre-column
-    /// rows default to `0` (not user-set): an auto title that predates the column
-    /// correctly stops driving the chip, and a real rename re-sets the bit. No-op
-    /// on a fresh DB (the CREATE TABLE defines it) or when already migrated.
-    fn migrate_sessions_add_name_user_set(conn: &Connection) -> Result<(), LedgerError> {
-        let cols = Self::table_columns(conn, "sessions")?;
-        if cols.is_empty() {
-            return Ok(());
-        }
-        if !cols.iter().any(|(n, _)| n == "name_user_set") {
-            conn.execute(
-                "ALTER TABLE sessions ADD COLUMN name_user_set INTEGER NOT NULL DEFAULT 0",
-                [],
-            )?;
-        }
-        Ok(())
-    }
-
     /// Self-healing add of the `sessions.private` column — the Overview
     /// privacy flag. Pre-column rows default to `0` (public), which is the
     /// right reading: a session recorded before the flag existed was never
@@ -2456,29 +2466,13 @@ impl SessionLedger {
         Ok(())
     }
 
-    /// Self-healing add of the `sessions.tag` column — the mnemonic
-    /// `adjective-noun` handle that fronts a session. Adds the plain column
-    /// only; the `sessions_tag` unique index is created by the CREATE-batch
-    /// (SQLite forbids `ALTER TABLE … ADD COLUMN … UNIQUE`). Pre-column rows
-    /// read `NULL` (no tag) and acquire one lazily on their next resume. No-op
-    /// on a fresh DB (the CREATE TABLE defines it) or when already migrated.
-    fn migrate_sessions_add_tag(conn: &Connection) -> Result<(), LedgerError> {
-        let cols = Self::table_columns(conn, "sessions")?;
-        if cols.is_empty() {
-            return Ok(());
-        }
-        if !cols.iter().any(|(n, _)| n == "tag") {
-            conn.execute("ALTER TABLE sessions ADD COLUMN tag TEXT", [])?;
-        }
-        Ok(())
-    }
-
     /// Self-healing add of the fork-provenance columns ([P11]).
     ///
     /// `forked_from_session_id` names the session a rewind-fork was taken
     /// from and `fork_point` the prompt uuid of the rewind point; both are
     /// NULL for a root session. Provenance lives here, never in the
-    /// callsign's spelling — the fork wears its parent's `tag` verbatim.
+    /// callsign's spelling — the callsign is the line's, and a fork is
+    /// another segment of the same line.
     fn migrate_sessions_add_fork_provenance(conn: &Connection) -> Result<(), LedgerError> {
         let cols = Self::table_columns(conn, "sessions")?;
         if cols.is_empty() {
@@ -2521,317 +2515,540 @@ impl SessionLedger {
         }
         Ok(())
     }
+    /// Self-healing add of `minted_tags.line_id` — the line that owns a
+    /// spelling ([P08]). A no-op when the table is absent (the CREATE-batch
+    /// then declares it) or when the column is already there.
+    fn migrate_minted_tags_add_line_id(conn: &Connection) -> Result<(), LedgerError> {
+        Self::add_line_id_column(conn, "minted_tags")
+    }
 
-    /// Collapse the retired lineage-suffix chains onto their root spelling
-    /// ([D132]). One-shot in effect, self-healing in form: after the first
-    /// run no row carries `root_tag`, so every later open is a no-op, and a
-    /// database that never grew the legacy columns skips outright.
-    ///
-    /// Per distinct `root_tag`: the chain's **head** (deepest `tag_lineage`,
-    /// newest `last_used_at` on a tie) takes the root spelling as its `tag` —
-    /// unless a live row already wears it, a genuine sibling situation the
-    /// sweep leaves alone. Every `minted_tags` spelling in the chain (the
-    /// root and each suffixed intermediate) is repointed at the head session,
-    /// so a legacy citation of `stocky-pixie-A1-B2` resolves to the session
-    /// now heading the line. Superseded chain rows have their `tag` cleared —
-    /// their spellings now belong to the head, and a superseded copy that
-    /// respawns mints a fresh pair like any sibling. The
-    /// `tag_lineage_points` allocator is dropped — nothing composes from it
-    /// anymore.
-    fn migrate_collapse_lineage_chains(conn: &Connection) -> Result<(), LedgerError> {
-        let cols = Self::table_columns(conn, "sessions")?;
-        if !cols.iter().any(|(n, _)| n == "root_tag") {
-            conn.execute("DROP TABLE IF EXISTS tag_lineage_points", [])?;
+    /// Self-healing add of `external_scan_cache.line_id` ([P07]) — the line a
+    /// scanned session belongs to, which replaces the spelling the cache row
+    /// used to carry.
+    fn migrate_scan_cache_add_line_id(conn: &Connection) -> Result<(), LedgerError> {
+        Self::add_line_id_column(conn, "external_scan_cache")
+    }
+
+    fn add_line_id_column(conn: &Connection, table: &str) -> Result<(), LedgerError> {
+        let cols = Self::table_columns(conn, table)?;
+        if cols.is_empty() || cols.iter().any(|(n, _)| n == "line_id") {
             return Ok(());
         }
-        let roots: Vec<String> = {
-            let mut stmt = conn.prepare(
-                "SELECT DISTINCT root_tag FROM sessions
-                 WHERE root_tag IS NOT NULL AND root_tag != ''",
-            )?;
+        match conn.execute(&format!("ALTER TABLE {table} ADD COLUMN line_id TEXT"), []) {
+            Ok(_) => Ok(()),
+            Err(err) if is_duplicate_column(&err) => Ok(()),
+            Err(err) => Err(err.into()),
+        }
+    }
 
-            stmt.query_map([], |row| row.get::<_, String>(0))?
-                .collect::<Result<Vec<_>, _>>()?
+    /// Copy `sessions.db` to `sessions.db.pre-lines` beside it, once, before
+    /// the line migration writes anything ([R01]).
+    ///
+    /// `VACUUM main INTO` takes a transactional copy of the whole database
+    /// with no WAL left to reconcile, which is the only safe way to snapshot a
+    /// file this process holds open. Nothing deletes the sidecar; the user
+    /// removes it.
+    ///
+    /// Best-effort by design. An in-memory ledger has no path, and a copy can
+    /// fail for reasons that have nothing to do with the ledger (a full disk, a
+    /// read-only directory). Refusing to migrate over that would leave the user
+    /// with a database this build cannot serve, in exchange for a backup of it —
+    /// so the migration's own pre-commit assertions are the guarantee, and this
+    /// is the convenience beside them.
+    fn write_pre_lines_sidecar(conn: &Connection) {
+        let path: Option<String> = conn
+            .query_row(
+                "SELECT file FROM pragma_database_list WHERE name = 'main'",
+                [],
+                |row| row.get(0),
+            )
+            .optional()
+            .unwrap_or(None);
+        let Some(path) = path.filter(|p| !p.is_empty()) else {
+            return;
         };
-        for root in roots {
-            let wearer: Option<(String, String)> = conn
-                .query_row(
-                    "SELECT session_id, state FROM sessions WHERE tag = ?1",
-                    params![root],
-                    |row| Ok((row.get(0)?, row.get(1)?)),
-                )
-                .optional()?;
-            let mut root_wearer: Option<String> = None;
-            match wearer {
-                Some((_, state)) if state == "live" => {
-                    // The root spelling is worn by a LIVE session: a genuine
-                    // sibling lineage. Clear the structured columns and move
-                    // on — renaming anything here would steal a live
-                    // session's name.
-                    conn.execute(
-                        "UPDATE sessions SET root_tag = NULL, tag_lineage = NULL
-                         WHERE root_tag = ?1",
-                        params![root],
-                    )?;
-                    continue;
-                }
-                Some((sid, _)) => {
-                    // A superseded pre-fork copy still wears the root
-                    // spelling. It hands the name down exactly as
-                    // `inherit_fork_identity` would have.
-                    conn.execute(
-                        "UPDATE sessions SET tag = NULL WHERE session_id = ?1",
-                        params![sid],
-                    )?;
-                    root_wearer = Some(sid);
-                }
-                None => {}
+        let dest = PathBuf::from(format!("{path}.pre-lines"));
+        if dest.exists() {
+            return;
+        }
+        match conn.execute("VACUUM main INTO ?1", params![dest.to_string_lossy()]) {
+            Ok(_) => tracing::info!(sidecar = %dest.display(), "pre-lines ledger copy written"),
+            Err(err) => tracing::warn!(
+                sidecar = %dest.display(),
+                error = %err,
+                "pre-lines ledger copy failed; migrating without it"
+            ),
+        }
+    }
+
+    /// Give every existing row a line, and take identity off the segment
+    /// ([P10], Spec S04).
+    ///
+    /// Runs once, on the first open of a pre-lines ledger, inside one
+    /// `BEGIN IMMEDIATE`: on any error the transaction rolls back and the open
+    /// fails, because a ledger that cannot be brought to a shape this build
+    /// understands is not one to serve. The guard is the absence of
+    /// `sessions.line_id`, which is true of every pre-lines shape — including
+    /// one old enough never to have grown a `tag` column — and false the
+    /// moment this has run.
+    ///
+    /// **A line is a connected component of the `forked_from_session_id` edge,
+    /// read undirected.** One relation carries both edge kinds — a rewind-fork
+    /// (with a `fork_point`) and a rotation (without one) — and between them
+    /// they are exactly the id changes that used to copy identity from one row
+    /// to the next. A row no edge touches is a component of one.
+    ///
+    /// Each component takes the **earliest** spelling `minted_tags` records for
+    /// any of its segments: the one already written into commit trailers, which
+    /// is what has to keep resolving. A component no spelling was ever minted
+    /// for rolls a fresh pair. It takes the user-set name of its most recently
+    /// used segment, and where two components claim one spelling the more
+    /// recently used one keeps it — the other keeps its callsign and loses the
+    /// name, which is the resting-lie the old displacement loop papered over.
+    ///
+    /// `line_id` is added to `sessions` as a nullable column and made
+    /// non-null by assertion rather than by constraint: `ALTER TABLE … ADD
+    /// COLUMN` cannot declare `NOT NULL` without a default, and rebuilding a
+    /// live `sessions` table to gain the constraint would be a far larger
+    /// irreversible write than this migration already is. A fresh ledger gets
+    /// the constraint from `CREATE TABLE`; a migrated one gets the assertions
+    /// below, which run before the commit.
+    fn migrate_sessions_to_lines(conn: &Connection) -> Result<(), LedgerError> {
+        let cols = Self::table_columns(conn, "sessions")?;
+        if cols.is_empty() || cols.iter().any(|(n, _)| n == "line_id") {
+            return Ok(());
+        }
+        Self::write_pre_lines_sidecar(conn);
+        conn.execute_batch("BEGIN IMMEDIATE")?;
+        match Self::assign_lines_within_transaction(conn, &cols) {
+            Ok(lines) => {
+                conn.execute_batch("COMMIT")?;
+                tracing::info!(lines, "sessions migrated to lines");
+                Ok(())
             }
-            let head: Option<String> = conn
+            Err(err) => {
+                if let Err(rollback) = conn.execute_batch("ROLLBACK") {
+                    tracing::error!(
+                        error = %rollback,
+                        "rollback after a failed line migration failed"
+                    );
+                }
+                Err(err)
+            }
+        }
+    }
+
+    /// The body of [`Self::migrate_sessions_to_lines`], inside its
+    /// transaction. Returns how many lines it created.
+    fn assign_lines_within_transaction(
+        conn: &Connection,
+        cols: &[(String, String)],
+    ) -> Result<usize, LedgerError> {
+        let has = |name: &str| cols.iter().any(|(n, _)| n == name);
+        let has_tag = has("tag");
+        let has_name = has("name");
+        let has_name_user_set = has("name_user_set");
+        let scan_has_tag = Self::table_columns(conn, "external_scan_cache")?
+            .iter()
+            .any(|(n, _)| n == "tag");
+        conn.execute("ALTER TABLE sessions ADD COLUMN line_id TEXT", [])?;
+
+        // A ledger old enough to predate the arbiter carries its spellings only
+        // on its rows. Seed them first, so the walk below reads one table and a
+        // legacy callsign is not mistaken for a component that never had one.
+        if has_tag {
+            conn.execute(
+                "INSERT OR IGNORE INTO minted_tags (tag, session_id, minted_at)
+                 SELECT tag, session_id, created_at FROM sessions WHERE tag IS NOT NULL",
+                [],
+            )?;
+        }
+
+        struct Segment {
+            session_id: String,
+            forked_from: Option<String>,
+            card_id: Option<String>,
+            project_dir: String,
+            created_at: i64,
+            last_used_at: i64,
+            name: Option<String>,
+            name_user_set: bool,
+        }
+        let name_col = if has_name { "name" } else { "NULL" };
+        let user_set_col = if has_name_user_set {
+            "name_user_set"
+        } else {
+            "0"
+        };
+        let segments: Vec<Segment> = {
+            let mut stmt = conn.prepare(&format!(
+                "SELECT session_id, forked_from_session_id, card_id, project_dir,
+                        created_at, last_used_at, {name_col}, {user_set_col}
+                 FROM sessions"
+            ))?;
+            let rows = stmt.query_map([], |row| {
+                Ok(Segment {
+                    session_id: row.get(0)?,
+                    forked_from: row.get(1)?,
+                    card_id: row.get(2)?,
+                    project_dir: row.get(3)?,
+                    created_at: row.get(4)?,
+                    last_used_at: row.get(5)?,
+                    name: row.get(6)?,
+                    name_user_set: row.get::<_, i64>(7)? != 0,
+                })
+            })?;
+            rows.collect::<Result<Vec<_>, _>>()?
+        };
+
+        // Union-find over the fork edge, read undirected.
+        fn find(parent: &mut [usize], mut i: usize) -> usize {
+            while parent[i] != i {
+                parent[i] = parent[parent[i]];
+                i = parent[i];
+            }
+            i
+        }
+        let index: HashMap<&str, usize> = segments
+            .iter()
+            .enumerate()
+            .map(|(i, s)| (s.session_id.as_str(), i))
+            .collect();
+        let mut parent: Vec<usize> = (0..segments.len()).collect();
+        for (i, segment) in segments.iter().enumerate() {
+            let Some(from) = segment.forked_from.as_deref() else {
+                continue;
+            };
+            let Some(&j) = index.get(from) else {
+                continue;
+            };
+            let (a, b) = (find(&mut parent, i), find(&mut parent, j));
+            if a != b {
+                parent[a] = b;
+            }
+        }
+        let mut components: HashMap<usize, Vec<usize>> = HashMap::new();
+        for i in 0..segments.len() {
+            let root = find(&mut parent, i);
+            components.entry(root).or_default().push(i);
+        }
+
+        let now = now_millis();
+        // The names are applied in a second pass: `lines_user_name` refuses a
+        // duplicate at the write, and the rule for which line keeps a
+        // contested spelling is "most recently used", not "inserted first".
+        let mut claims: Vec<(i64, String, String)> = Vec::new();
+        let mut created = 0usize;
+        // Deterministic order, so a migration of one database is one answer.
+        let mut ordered: Vec<Vec<usize>> = components.into_values().collect();
+        for members in &mut ordered {
+            members.sort_unstable();
+        }
+        ordered.sort_by(|a, b| segments[a[0]].session_id.cmp(&segments[b[0]].session_id));
+
+        for members in ordered {
+            let anchor = members
+                .iter()
+                .copied()
+                .min_by_key(|&i| (segments[i].created_at, i))
+                .expect("a component holds at least one segment");
+            // The earliest spelling any segment of this line ever spent.
+            let mut earliest: Option<(i64, String)> = None;
+            for &i in &members {
+                let minted: Option<(String, i64)> = conn
+                    .query_row(
+                        "SELECT tag, minted_at FROM minted_tags WHERE session_id = ?1
+                         ORDER BY minted_at ASC, tag ASC LIMIT 1",
+                        params![segments[i].session_id],
+                        |row| Ok((row.get(0)?, row.get(1)?)),
+                    )
+                    .optional()?;
+                let Some((tag, minted_at)) = minted else {
+                    continue;
+                };
+                let better = match &earliest {
+                    None => true,
+                    Some((at, spelling)) => {
+                        minted_at < *at || (minted_at == *at && tag < *spelling)
+                    }
+                };
+                if better {
+                    earliest = Some((minted_at, tag));
+                }
+            }
+            let tag = match earliest {
+                Some((_, tag)) => tag,
+                None => {
+                    let owner = &segments[anchor].session_id;
+                    let mut attempt: u32 = 0;
+                    let mut candidate = roll_fresh_tag(owner, now);
+                    loop {
+                        match claim_tag(conn, &candidate, owner, now)? {
+                            TagClaim::Claimed => break candidate,
+                            TagClaim::TakenByOther => {
+                                candidate = reroll_or_fail(&candidate, owner, now, &mut attempt)?;
+                            }
+                        }
+                    }
+                }
+            };
+            let card_id = members
+                .iter()
+                .copied()
+                .filter(|&i| {
+                    segments[i]
+                        .card_id
+                        .as_deref()
+                        .is_some_and(|c| !c.is_empty())
+                })
+                .max_by_key(|&i| (segments[i].last_used_at, i))
+                .and_then(|i| segments[i].card_id.clone());
+            let created_at = members
+                .iter()
+                .map(|&i| segments[i].created_at)
+                .min()
+                .unwrap_or(now);
+            let last_used_at = members
+                .iter()
+                .map(|&i| segments[i].last_used_at)
+                .max()
+                .unwrap_or(now);
+            let line_id = uuid::Uuid::new_v4().to_string();
+            conn.execute(
+                "INSERT INTO lines (
+                    line_id, tag, name, name_user_set, card_id,
+                    project_dir, created_at, last_used_at
+                 ) VALUES (?1, ?2, NULL, 0, ?3, ?4, ?5, ?6)",
+                params![
+                    line_id,
+                    tag,
+                    card_id,
+                    segments[anchor].project_dir,
+                    created_at,
+                    last_used_at
+                ],
+            )?;
+            created += 1;
+            for &i in &members {
+                conn.execute(
+                    "UPDATE sessions SET line_id = ?2 WHERE session_id = ?1",
+                    params![segments[i].session_id, line_id],
+                )?;
+                conn.execute(
+                    "UPDATE minted_tags SET line_id = ?2 WHERE session_id = ?1",
+                    params![segments[i].session_id, line_id],
+                )?;
+            }
+            if let Some(i) = members
+                .iter()
+                .copied()
+                .filter(|&i| segments[i].name_user_set && segments[i].name.is_some())
+                .max_by_key(|&i| (segments[i].last_used_at, i))
+            {
+                let name = segments[i].name.clone().expect("filtered to Some");
+                claims.push((segments[i].last_used_at, name, line_id));
+            }
+        }
+
+        // Most recently used wins a contested spelling; every other claimant
+        // simply keeps its callsign and no name.
+        claims.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.2.cmp(&b.2)));
+        let mut taken: HashSet<String> = HashSet::new();
+        for (_, name, line_id) in claims {
+            if !taken.insert(name.clone()) {
+                continue;
+            }
+            conn.execute(
+                "UPDATE lines SET name = ?2, name_user_set = 1 WHERE line_id = ?1",
+                params![line_id, name],
+            )?;
+        }
+
+        // Scanned sessions ([P07]): a spelling spent at scan time needs an
+        // owner that exists, so every cache row wearing one gets a line —
+        // its own, or the one its ledger row or an ancestor already has.
+        if scan_has_tag {
+            let scans: Vec<(String, String, Option<String>, String, i64, i64)> = {
+                let mut stmt = conn.prepare(
+                    "SELECT session_id, tag, lineage_ancestors, project_dir,
+                            created_at, last_used_at
+                     FROM external_scan_cache
+                     WHERE tag IS NOT NULL
+                     ORDER BY session_id",
+                )?;
+                let rows = stmt.query_map([], |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                        row.get(5)?,
+                    ))
+                })?;
+                rows.collect::<Result<Vec<_>, _>>()?
+            };
+            for (session_id, tag, ancestors, project_dir, created_at, last_used_at) in scans {
+                let mut line_id: Option<String> = conn
+                    .query_row(
+                        "SELECT line_id FROM sessions WHERE session_id = ?1",
+                        params![session_id],
+                        |row| row.get(0),
+                    )
+                    .optional()?
+                    .flatten();
+                if line_id.is_none() {
+                    for ancestor in ancestors
+                        .as_deref()
+                        .unwrap_or_default()
+                        .split(',')
+                        .map(str::trim)
+                        .filter(|id| !id.is_empty())
+                    {
+                        line_id = conn
+                            .query_row(
+                                "SELECT line_id FROM sessions WHERE session_id = ?1",
+                                params![ancestor],
+                                |row| row.get(0),
+                            )
+                            .optional()?
+                            .flatten()
+                            .or(conn
+                                .query_row(
+                                    "SELECT line_id FROM external_scan_cache WHERE session_id = ?1",
+                                    params![ancestor],
+                                    |row| row.get(0),
+                                )
+                                .optional()?
+                                .flatten());
+                        if line_id.is_some() {
+                            break;
+                        }
+                    }
+                }
+                if line_id.is_none() {
+                    line_id = conn
+                        .query_row(
+                            "SELECT line_id FROM lines WHERE tag = ?1",
+                            params![tag],
+                            |row| row.get(0),
+                        )
+                        .optional()?;
+                }
+                let line_id = match line_id {
+                    Some(id) => id,
+                    None => {
+                        let id = uuid::Uuid::new_v4().to_string();
+                        conn.execute(
+                            "INSERT INTO minted_tags (tag, line_id, session_id, minted_at)
+                             VALUES (?1, ?2, ?3, ?4)
+                             ON CONFLICT(tag) DO NOTHING",
+                            params![tag, id, session_id, created_at],
+                        )?;
+                        conn.execute(
+                            "INSERT INTO lines (
+                                line_id, tag, name, name_user_set, card_id,
+                                project_dir, created_at, last_used_at
+                             ) VALUES (?1, ?2, NULL, 0, NULL, ?3, ?4, ?5)",
+                            params![id, tag, project_dir, created_at, last_used_at],
+                        )?;
+                        created += 1;
+                        id
+                    }
+                };
+                conn.execute(
+                    "UPDATE external_scan_cache SET line_id = ?2 WHERE session_id = ?1",
+                    params![session_id, line_id],
+                )?;
+                conn.execute(
+                    "UPDATE minted_tags SET line_id = ?2 WHERE tag = ?1",
+                    params![tag, line_id],
+                )?;
+            }
+        }
+
+        // A spelling whose session left both tables still has to resolve, so it
+        // gets a card-less line wearing it and nothing else.
+        let orphans: Vec<(String, i64)> = {
+            let mut stmt = conn.prepare(
+                "SELECT tag, minted_at FROM minted_tags WHERE line_id IS NULL ORDER BY tag",
+            )?;
+            let rows = stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?;
+            rows.collect::<Result<Vec<_>, _>>()?
+        };
+        for (tag, minted_at) in orphans {
+            let owner: Option<String> = conn
                 .query_row(
-                    "SELECT session_id FROM sessions
-                     WHERE root_tag = ?1
-                     ORDER BY LENGTH(COALESCE(tag_lineage, '')) DESC,
-                              last_used_at DESC
-                     LIMIT 1",
-                    params![root],
+                    "SELECT line_id FROM lines WHERE tag = ?1",
+                    params![tag],
                     |row| row.get(0),
                 )
                 .optional()?;
-            let Some(head) = head else { continue };
-            // Repoint every spelling the chain ever minted — the root and
-            // each `<root>-…` suffix — at the head, so legacy citations
-            // resolve to the line's live end. Spellings stay spent forever.
-            conn.execute(
-                "UPDATE minted_tags SET session_id = ?2
-                 WHERE tag = ?1 OR tag LIKE ?1 || '-%'",
-                params![root, head],
-            )?;
-            // Superseded chain rows lose their worn spellings first — those
-            // names now belong to the head, and a copy displaying one would
-            // be a resting lie. Then the head takes the root spelling.
-            conn.execute(
-                "UPDATE sessions SET tag = NULL
-                 WHERE root_tag = ?1 AND session_id != ?2",
-                params![root, head],
-            )?;
-            conn.execute(
-                "UPDATE sessions SET tag = ?1 WHERE session_id = ?2",
-                params![root, head],
-            )?;
-            // The user's name is worn the same way the spelling is, so it
-            // moves the same way ([D154]): the head takes it when it has none
-            // of its own, and every superseded copy gives it up. A copy left
-            // wearing the name would collide with the head's, which is exactly
-            // what puts a callsign back into a title [D145] says shows a name
-            // alone. An auto title is not a worn name and stays where it is.
-            let head_named: bool = conn
-                .query_row(
-                    "SELECT 1 FROM sessions
-                     WHERE session_id = ?1 AND name_user_set = 1
-                       AND COALESCE(name, '') != ''",
-                    params![head],
-                    |_| Ok(true),
-                )
-                .optional()?
-                .unwrap_or(false);
-            if !head_named {
-                let inherited: Option<String> = conn
-                    .query_row(
-                        "SELECT name FROM sessions
-                         WHERE (root_tag = ?1 OR session_id = ?3)
-                           AND session_id != ?2
-                           AND name_user_set = 1 AND COALESCE(name, '') != ''
-                         ORDER BY LENGTH(COALESCE(tag_lineage, '')) DESC,
-                                  last_used_at DESC
-                         LIMIT 1",
-                        params![root, head, root_wearer],
-                        |row| row.get(0),
-                    )
-                    .optional()?;
-                if let Some(name) = inherited {
+            let line_id = match owner {
+                Some(id) => id,
+                None => {
+                    let id = uuid::Uuid::new_v4().to_string();
                     conn.execute(
-                        "UPDATE sessions SET name = ?2, name_user_set = 1
-                         WHERE session_id = ?1",
-                        params![head, name],
+                        "INSERT INTO lines (
+                            line_id, tag, name, name_user_set, card_id,
+                            project_dir, created_at, last_used_at
+                         ) VALUES (?1, ?2, NULL, 0, NULL, '', ?3, ?3)",
+                        params![id, tag, minted_at],
                     )?;
+                    created += 1;
+                    id
                 }
+            };
+            conn.execute(
+                "UPDATE minted_tags SET line_id = ?2 WHERE tag = ?1",
+                params![tag, line_id],
+            )?;
+        }
+
+        // The invariants this migration exists to establish, checked before it
+        // is allowed to become permanent.
+        let assert_empty = |sql: &str, what: &str| -> Result<(), LedgerError> {
+            let count: i64 = conn.query_row(sql, [], |row| row.get(0))?;
+            if count != 0 {
+                return Err(LedgerError::MigrationFailed(format!(
+                    "{count} {what} after assigning lines"
+                )));
             }
-            conn.execute(
-                "UPDATE sessions SET name = NULL, name_user_set = 0
-                 WHERE (root_tag = ?1 OR session_id = ?3)
-                   AND session_id != ?2 AND name_user_set = 1",
-                params![root, head, root_wearer],
-            )?;
-            conn.execute(
-                "UPDATE sessions SET root_tag = NULL, tag_lineage = NULL
-                 WHERE root_tag = ?1",
-                params![root],
-            )?;
-        }
-        conn.execute("DROP TABLE IF EXISTS tag_lineage_points", [])?;
-        Ok(())
-    }
-
-    /// Take the user's name off the superseded fork copies an earlier
-    /// collapse left wearing one.
-    ///
-    /// [D154] hands a custom name down to the fork with the callsign, so a
-    /// superseded copy wears neither.
-    /// [`Self::migrate_collapse_lineage_chains`] moves the name now, but a
-    /// ledger collapsed before it did is past the point where `root_tag`
-    /// still says which rows were a chain — those columns are gone. The
-    /// evidence that survives is in the arbiter: a suffixed `<tag>-A1`
-    /// spelling exists only for a callsign whose line was forked under the
-    /// retired grammar, and it points at the row heading that line. Another
-    /// row wearing that head's exact name with no callsign of its own is a
-    /// copy the chain left behind — and the duplicate is read as a name
-    /// collision, which puts the head's callsign back into a title [D145]
-    /// says shows a name alone.
-    ///
-    /// Self-healing by shape rather than by version stamp, like every other
-    /// instance migration here: one pass leaves nothing matching, and a
-    /// ledger that never ran the retired grammar has no suffixed spelling to
-    /// match on at all.
-    fn migrate_release_superseded_fork_names(conn: &Connection) -> Result<(), LedgerError> {
-        let cols = Self::table_columns(conn, "sessions")?;
-        if !cols.iter().any(|(n, _)| n == "name_user_set") {
-            return Ok(());
-        }
-        conn.execute(
-            "UPDATE sessions SET name = NULL, name_user_set = 0
-             WHERE name_user_set = 1
-               AND COALESCE(name, '') != ''
-               AND COALESCE(tag, '') = ''
-               AND state != 'live'
-               AND EXISTS (
-                     SELECT 1 FROM sessions head
-                     JOIN minted_tags alias
-                       ON alias.tag LIKE head.tag || '-%'
-                     WHERE head.session_id != sessions.session_id
-                       AND COALESCE(head.tag, '') != ''
-                       AND head.name_user_set = 1
-                       AND head.name = sessions.name
-               )",
-            [],
-        )?;
-        Ok(())
-    }
-
-    /// Return the identity an arc stage rotation took from the session it
-    /// rotated.
-    ///
-    /// A rotation is not a fork: it copies nothing and the rotated session
-    /// goes on being used, so the rewind-fork transfer that once ran on a
-    /// `session_stage` announcement moved a callsign and a `/rename` off a
-    /// working session and onto a one-turn stage. The evidence survives in
-    /// the rows: a stage (`stage_label` set, `fork_point` NULL) wearing a tag
-    /// that `minted_tags` records as minted *before* the stage existed can
-    /// only have been handed that tag. The parent takes the tag and the
-    /// user-set name back — the tag stays spent, it just resolves to the
-    /// session the citations meant — and the stage rerolls a fresh pair so it
-    /// keeps a callsign of its own. Whatever tag the parent rerolled onto in
-    /// the meantime stays spent in `minted_tags`, pointing at the parent.
-    ///
-    /// Also clears every `external_scan_cache.tag` that `minted_tags` records
-    /// as belonging to a different session: the cache keeps whatever spelling
-    /// it saw at scan time, and a transferred spelling left three rows
-    /// remembering one tag, which the citation resolver reads as ambiguous.
-    ///
-    /// Idempotent: once returned, the stage wears a tag minted at its own
-    /// creation and the query finds nothing.
-    fn migrate_return_rotation_identity(conn: &Connection) -> Result<(), LedgerError> {
-        let cols = Self::table_columns(conn, "sessions")?;
-        if !cols.iter().any(|(n, _)| n == "stage_label") {
-            return Ok(());
-        }
-        let taken: Vec<(String, String, String, i64, Option<String>, bool)> = {
-            let mut stmt = conn.prepare(
-                "SELECT s.session_id, s.forked_from_session_id, s.tag, s.created_at,
-                        s.name, s.name_user_set
-                 FROM sessions s JOIN minted_tags m ON m.tag = s.tag
-                 WHERE s.stage_label IS NOT NULL
-                   AND s.fork_point IS NULL
-                   AND s.forked_from_session_id IS NOT NULL
-                   AND m.minted_at < s.created_at",
-            )?;
-            stmt.query_map([], |row| {
-                Ok((
-                    row.get(0)?,
-                    row.get(1)?,
-                    row.get(2)?,
-                    row.get(3)?,
-                    row.get(4)?,
-                    row.get::<_, i64>(5)? != 0,
-                ))
-            })?
-            .collect::<Result<Vec<_>, _>>()?
+            Ok(())
         };
-        for (stage, parent, tag, created_at, name, name_user_set) in taken {
-            let parent_exists: bool = conn.query_row(
-                "SELECT COUNT(*) FROM sessions WHERE session_id = ?1",
-                params![parent],
-                |row| row.get::<_, i64>(0),
-            )? != 0;
-            if !parent_exists {
-                continue;
-            }
-            // The stage lets go first so the live-row unique index admits
-            // the parent wearing it again.
-            conn.execute(
-                "UPDATE sessions SET tag = NULL WHERE session_id = ?1",
-                params![stage],
-            )?;
-            conn.execute(
-                "UPDATE sessions SET tag = ?2 WHERE session_id = ?1",
-                params![parent, tag],
-            )?;
-            conn.execute(
-                "UPDATE minted_tags SET session_id = ?2 WHERE tag = ?1",
-                params![tag, parent],
-            )?;
-            if name_user_set {
-                conn.execute(
-                    "UPDATE sessions SET name = NULL, name_user_set = 0 WHERE session_id = ?1",
-                    params![stage],
-                )?;
-                conn.execute(
-                    "UPDATE sessions SET name = ?2, name_user_set = 1 WHERE session_id = ?1",
-                    params![parent, name],
-                )?;
-            }
-            let mut attempt = 0;
-            let mut candidate = roll_tag(roll_seed(&stage, created_at, attempt));
-            loop {
-                match claim_tag(conn, &candidate, &stage, created_at)? {
-                    TagClaim::Claimed => break,
-                    TagClaim::TakenByOther => {
-                        candidate = reroll_or_fail(&candidate, &stage, created_at, &mut attempt)?;
-                    }
-                }
-            }
-            conn.execute(
-                "UPDATE sessions SET tag = ?2 WHERE session_id = ?1",
-                params![stage, candidate],
-            )?;
-            tracing::info!(
-                stage = %stage,
-                parent = %parent,
-                returned = %tag,
-                fresh = %candidate,
-                "rotation identity returned to the session it was taken from"
-            );
-        }
-        conn.execute(
-            "UPDATE external_scan_cache SET tag = NULL
-             WHERE tag IS NOT NULL AND EXISTS (
-                 SELECT 1 FROM minted_tags m
-                 WHERE m.tag = external_scan_cache.tag
-                   AND m.session_id != external_scan_cache.session_id
-             )",
-            [],
+        assert_empty(
+            "SELECT COUNT(*) FROM sessions WHERE line_id IS NULL",
+            "session rows still have no line",
         )?;
-        Ok(())
+        assert_empty(
+            "SELECT COUNT(*) FROM minted_tags WHERE line_id IS NULL",
+            "minted spellings still have no line",
+        )?;
+        assert_empty(
+            "SELECT COUNT(*) FROM (
+                SELECT name FROM lines WHERE name_user_set = 1
+                GROUP BY name HAVING COUNT(*) > 1
+             )",
+            "user-set names are worn by more than one line",
+        )?;
+
+        conn.execute_batch("DROP INDEX IF EXISTS sessions_tag")?;
+        if has_tag {
+            conn.execute("ALTER TABLE sessions DROP COLUMN tag", [])?;
+        }
+        if has_name {
+            conn.execute("ALTER TABLE sessions DROP COLUMN name", [])?;
+        }
+        if has_name_user_set {
+            conn.execute("ALTER TABLE sessions DROP COLUMN name_user_set", [])?;
+        }
+        if scan_has_tag {
+            conn.execute("ALTER TABLE external_scan_cache DROP COLUMN tag", [])?;
+        }
+        // The retired lineage-suffix allocator. Nothing composes from it, and
+        // the migration that used to drop it left with the grammar it served.
+        conn.execute_batch("DROP TABLE IF EXISTS tag_lineage_points")?;
+        Ok(created)
     }
 
     /// Self-healing add of the `sessions.synopsis` column ([P07], [Q02]).
@@ -3108,10 +3325,10 @@ impl SessionLedger {
             // the embedded pre-rotation lineage.
             ("effective_uuids", "BLOB"),
             ("lineage_ancestors", "TEXT"),
-            // The scan-time callsign ([Q04]). Not epoch-gated: a NULL here is
-            // simply "not minted yet", and the scan backfills it on sight
-            // rather than re-streaming the file.
-            ("tag", "TEXT"),
+            // `tag` is deliberately absent: `migrate_sessions_to_lines` drops
+            // it, and a self-healing add here would put it back on the next
+            // open, dead, forever. The line the row belongs to arrives through
+            // `migrate_scan_cache_add_line_id` instead ([P07]).
         ] {
             if !cols.iter().any(|(n, _)| n == name) {
                 // The column set was read once, before the loop; two processes
@@ -3311,14 +3528,11 @@ impl SessionLedger {
     /// All rows in the workspace, ordered newest-first by `last_used_at`.
     pub fn list_for_workspace(&self, workspace_key: &str) -> Result<Vec<SessionRow>, LedgerError> {
         let conn = self.db.lock().expect("ledger mutex");
-        let mut stmt = conn.prepare(
-            "SELECT session_id, workspace_key, project_dir, created_at, last_used_at,
-                    turn_count, last_user_prompt, state, card_id, name, name_user_set, tag,
-                    synopsis, private, dash_id, dash_name
-             FROM sessions
-             WHERE workspace_key = ?1
-             ORDER BY last_used_at DESC",
-        )?;
+        let mut stmt = conn.prepare(&format!(
+            "SELECT {SESSION_COLUMNS} FROM {SESSIONS_JOINED}
+             WHERE s.workspace_key = ?1
+             ORDER BY s.last_used_at DESC"
+        ))?;
         let rows = stmt
             .query_map(params![workspace_key], row_from_query)?
             .collect::<Result<Vec<_>, _>>()?;
@@ -3334,14 +3548,11 @@ impl SessionLedger {
     /// for the supervisor's resume-resolution path.
     pub fn list_for_project_dir(&self, project_dir: &str) -> Result<Vec<SessionRow>, LedgerError> {
         let conn = self.db.lock().expect("ledger mutex");
-        let mut stmt = conn.prepare(
-            "SELECT session_id, workspace_key, project_dir, created_at, last_used_at,
-                    turn_count, last_user_prompt, state, card_id, name, name_user_set, tag,
-                    synopsis, private, dash_id, dash_name
-             FROM sessions
-             WHERE project_dir = ?1
-             ORDER BY last_used_at DESC",
-        )?;
+        let mut stmt = conn.prepare(&format!(
+            "SELECT {SESSION_COLUMNS} FROM {SESSIONS_JOINED}
+             WHERE s.project_dir = ?1
+             ORDER BY s.last_used_at DESC"
+        ))?;
         let rows = stmt
             .query_map(params![project_dir], row_from_query)?
             .collect::<Result<Vec<_>, _>>()?;
@@ -3366,15 +3577,12 @@ impl SessionLedger {
     /// - `state != 'failed'` — failed rows are known-unrecoverable.
     pub fn list_with_card_id(&self) -> Result<Vec<SessionRow>, LedgerError> {
         let conn = self.db.lock().expect("ledger mutex");
-        let mut stmt = conn.prepare(
-            "SELECT session_id, workspace_key, project_dir, created_at, last_used_at,
-                    turn_count, last_user_prompt, state, card_id, name, name_user_set, tag,
-                    synopsis, private, dash_id, dash_name
-             FROM sessions
-             WHERE card_id IS NOT NULL
-               AND state != 'failed'
-             ORDER BY last_used_at DESC",
-        )?;
+        let mut stmt = conn.prepare(&format!(
+            "SELECT {SESSION_COLUMNS} FROM {SESSIONS_JOINED}
+             WHERE s.card_id IS NOT NULL
+               AND s.state != 'failed'
+             ORDER BY s.last_used_at DESC"
+        ))?;
         let rows = stmt
             .query_map([], row_from_query)?
             .collect::<Result<Vec<_>, _>>()?;
@@ -3396,21 +3604,18 @@ impl SessionLedger {
         limit: usize,
     ) -> Result<Vec<SessionRow>, LedgerError> {
         let conn = self.db.lock().expect("ledger mutex");
-        let mut stmt = conn.prepare(
-            "SELECT session_id, workspace_key, project_dir, created_at, last_used_at,
-                    turn_count, last_user_prompt, state, card_id, name, name_user_set, tag,
-                    synopsis, private, dash_id, dash_name
-             FROM sessions
-             WHERE (?1 IS NULL OR last_used_at >= ?1)
-               AND (?2 IS NULL OR last_used_at <= ?2)
-               AND (?3 = 0 OR state = 'live')
+        let mut stmt = conn.prepare(&format!(
+            "SELECT {SESSION_COLUMNS} FROM {SESSIONS_JOINED}
+             WHERE (?1 IS NULL OR s.last_used_at >= ?1)
+               AND (?2 IS NULL OR s.last_used_at <= ?2)
+               AND (?3 = 0 OR s.state = 'live')
                -- The Overview's only reader of this list is the Operator, and a
                -- private session is out of the channel ([P05]). The chooser and
                -- the recents surface read their rows elsewhere and still see it.
-               AND private = 0
-             ORDER BY last_used_at DESC
-             LIMIT ?4",
-        )?;
+               AND s.private = 0
+             ORDER BY s.last_used_at DESC
+             LIMIT ?4"
+        ))?;
         let rows = stmt
             .query_map(
                 params![since_ms, until_ms, active_only as i64, limit as i64],
@@ -3420,37 +3625,14 @@ impl SessionLedger {
         rows.into_iter().collect()
     }
 
-    /// Every session row, newest-first, with nothing filtered out.
-    ///
-    /// Unlike `list_sessions_recent` this includes private sessions: it backs
-    /// ink adoption, which repairs where a session's own receipts are stored
-    /// and must not skip a line of work because it is out of the channel.
-    pub fn list_all_sessions(&self) -> Result<Vec<SessionRow>, LedgerError> {
-        let conn = self.db.lock().expect("ledger mutex");
-        let mut stmt = conn.prepare(
-            "SELECT session_id, workspace_key, project_dir, created_at, last_used_at,
-                    turn_count, last_user_prompt, state, card_id, name, name_user_set, tag,
-                    synopsis, private, dash_id, dash_name
-             FROM sessions
-             ORDER BY last_used_at DESC",
-        )?;
-        let rows = stmt
-            .query_map([], row_from_query)?
-            .collect::<Result<Vec<_>, _>>()?;
-        rows.into_iter().collect()
-    }
-
     /// Look up a single row by session id.
     pub fn get(&self, session_id: &str) -> Result<Option<SessionRow>, LedgerError> {
         let conn = self.db.lock().expect("ledger mutex");
-        let mut stmt = conn.prepare(
-            "SELECT session_id, workspace_key, project_dir, created_at, last_used_at,
-                    turn_count, last_user_prompt, state, card_id, name, name_user_set, tag,
-                    synopsis, private, dash_id, dash_name
-             FROM sessions
-             WHERE session_id = ?1
-             LIMIT 1",
-        )?;
+        let mut stmt = conn.prepare(&format!(
+            "SELECT {SESSION_COLUMNS} FROM {SESSIONS_JOINED}
+             WHERE s.session_id = ?1
+             LIMIT 1"
+        ))?;
         let row = stmt
             .query_row(params![session_id], row_from_query)
             .optional()?;
@@ -3498,25 +3680,18 @@ impl SessionLedger {
     /// Ids absent from the result are absent from the ledger — a negative
     /// answer the client caches, so an unresolvable citation is a fact rather
     /// than a symptom of which listings happened to run.
-    /// A citation names a line of work, so what it resolves to wears the
-    /// line's identity ([D164]): a trailer written inside an arc stage cites
-    /// the line, and rendering the same citation must not answer with the
-    /// segment's own callsign. Resolution itself — every arm below, including
-    /// the `minted_tags` alias arm — is unchanged; only the identity on the
-    /// rows it returns is resolved through.
+    ///
+    /// A citation names a **line of work**, so a callsign resolves to the
+    /// line's seat segment rather than to whichever segment happened to spend
+    /// the spelling, and a short id resolves by line uuid as well as by
+    /// session uuid — the parenthesized token in a `Tug-Session:` trailer is
+    /// the line's eight characters ([P13]). The identity on every row is the
+    /// line's already, by the join, so nothing is resolved through afterwards.
     pub fn resolve_session_ids(
         &self,
         ids: &[String],
     ) -> Result<Vec<(String, SessionRow)>, LedgerError> {
-        let mut resolved = self.resolve_session_id_rows(ids)?;
-        for (_, row) in &mut resolved {
-            if let Some(line) = self.line_identity(&row.session_id) {
-                row.tag = line.tag;
-                row.name = line.name;
-                row.name_user_set = line.name_user_set;
-            }
-        }
-        Ok(resolved)
+        self.resolve_session_id_rows(ids)
     }
 
     /// [`Self::resolve_session_ids`] before the line-identity pass — the
@@ -3525,13 +3700,12 @@ impl SessionLedger {
         &self,
         ids: &[String],
     ) -> Result<Vec<(String, SessionRow)>, LedgerError> {
-        const COLUMNS: &str = "session_id, workspace_key, project_dir, created_at, last_used_at,
-                    turn_count, last_user_prompt, state, card_id, name, name_user_set, tag,
-                    synopsis, private, dash_id, dash_name";
         // The scan cache's own columns, projected into the same row shape the
         // picker union synthesizes for an unadopted session.
-        const SCAN_COLUMNS: &str = "session_id, project_dir, created_at, last_used_at,
-                    turn_count, last_user_prompt, name, tag";
+        const SCAN_COLUMNS: &str = "c.session_id, c.project_dir, c.created_at, c.last_used_at,
+                    c.turn_count, c.last_user_prompt, c.name, l.tag, c.line_id";
+        const SCAN_JOINED: &str =
+            "external_scan_cache c LEFT JOIN lines l ON l.line_id = c.line_id";
         fn scan_row_from_query(row: &rusqlite::Row<'_>) -> rusqlite::Result<SessionRow> {
             let project_dir: String = row.get(1)?;
             Ok(SessionRow {
@@ -3555,47 +3729,65 @@ impl SessionLedger {
                 // row has no session in the ledger at all.
                 dash_id: None,
                 dash_name: None,
+                line_id: row.get::<_, Option<String>>(8)?.unwrap_or_default(),
             })
         }
         let conn = self.db.lock().expect("ledger mutex");
         let mut exact = conn.prepare(&format!(
-            "SELECT {COLUMNS} FROM sessions WHERE session_id = ?1 LIMIT 1"
+            "SELECT {SESSION_COLUMNS} FROM {SESSIONS_JOINED} WHERE s.session_id = ?1 LIMIT 1"
         ))?;
         // `LIMIT 2` is the ambiguity probe: one row is an answer, two are a
         // refusal. The pattern is safe to interpolate into LIKE because the
         // short-id shape is validated first — eight hex chars carry no `%`/`_`.
         let mut prefixed = conn.prepare(&format!(
-            "SELECT {COLUMNS} FROM sessions WHERE session_id LIKE ?1 || '%' LIMIT 2"
+            "SELECT {SESSION_COLUMNS} FROM {SESSIONS_JOINED}
+             WHERE s.session_id LIKE ?1 || '%' LIMIT 2"
+        ))?;
+        // The same eight characters, read as a line's. A `Tug-Session:`
+        // trailer parenthesizes the **line's** short id, so this is the arm a
+        // citation written by this build resolves through; the segment-prefix
+        // arm above answers every trailer written before it.
+        let mut line_prefixed = conn.prepare(&format!(
+            "SELECT {SESSION_COLUMNS} FROM {SESSIONS_JOINED}
+             WHERE s.line_id IN (SELECT line_id FROM lines WHERE line_id LIKE ?1 || '%')
+               AND s.state != 'failed'
+             {RESUME_SEGMENT_ORDER}
+             LIMIT 1"
         ))?;
         let mut scan_exact = conn.prepare(&format!(
-            "SELECT {SCAN_COLUMNS} FROM external_scan_cache
-             WHERE session_id = ?1 AND excluded = 0 LIMIT 1"
+            "SELECT {SCAN_COLUMNS} FROM {SCAN_JOINED}
+             WHERE c.session_id = ?1 AND c.excluded = 0 LIMIT 1"
         ))?;
         let mut scan_prefixed = conn.prepare(&format!(
-            "SELECT {SCAN_COLUMNS} FROM external_scan_cache
-             WHERE session_id LIKE ?1 || '%' AND excluded = 0 LIMIT 2"
+            "SELECT {SCAN_COLUMNS} FROM {SCAN_JOINED}
+             WHERE c.session_id LIKE ?1 || '%' AND c.excluded = 0 LIMIT 2"
         ))?;
-        // The callsign arms. `LIMIT 2` is the same ambiguity probe the prefix
-        // arm uses: a tag two rows wear answers nothing. `sessions.tag` is
-        // UNIQUE, so it is the scan cache — where uniqueness lives in
-        // `minted_tags` rather than in an index — that the probe answers for.
+        // The callsign arms. A callsign names a line, and `lines.tag` is
+        // UNIQUE, so there is no ambiguity to probe for on the ledger side:
+        // the answer is that line's seat segment. The scan cache still gets
+        // the `LIMIT 2` probe, because several scanned files can belong to one
+        // line and no index says which of them the citation meant.
         let mut tagged = conn.prepare(&format!(
-            "SELECT {COLUMNS} FROM sessions WHERE tag = ?1 LIMIT 2"
+            "SELECT {SESSION_COLUMNS} FROM {SESSIONS_JOINED}
+             WHERE l.tag = ?1 AND s.state != 'failed'
+             {RESUME_SEGMENT_ORDER}
+             LIMIT 1"
         ))?;
         let mut scan_tagged = conn.prepare(&format!(
-            "SELECT {SCAN_COLUMNS} FROM external_scan_cache
-             WHERE tag = ?1 AND excluded = 0 LIMIT 2"
+            "SELECT {SCAN_COLUMNS} FROM {SCAN_JOINED}
+             WHERE l.tag = ?1 AND c.excluded = 0 LIMIT 2"
         ))?;
         // The alias arm: a spelling nothing wears anymore but the arbiter
-        // remembers. A rewind-fork inherits its parent's callsign by
-        // transfer, and the retired lineage-suffix chains collapsed onto
-        // their root spelling — either way `minted_tags` points each spent
-        // spelling at the session now heading the line, so a legacy citation
+        // remembers ([P08]). Every spelling a line ever spent — the retired
+        // lineage-suffix chains, the pair a stage rotation used to roll for
+        // itself — points at that line, so a legacy citation
         // (`stocky-pixie-A1-B2` in an old commit trailer) still resolves to
         // the same conversation.
         let mut minted_alias = conn.prepare(&format!(
-            "SELECT {COLUMNS} FROM sessions
-             WHERE session_id = (SELECT session_id FROM minted_tags WHERE tag = ?1)
+            "SELECT {SESSION_COLUMNS} FROM {SESSIONS_JOINED}
+             WHERE s.line_id = (SELECT line_id FROM minted_tags WHERE tag = ?1)
+               AND s.state != 'failed'
+             {RESUME_SEGMENT_ORDER}
              LIMIT 1"
         ))?;
         let mut seen = HashSet::new();
@@ -3616,9 +3808,16 @@ impl SessionLedger {
                     .query_map(params![needle], row_from_query)?
                     .collect::<Result<Vec<_>, _>>()?
             } else if short {
-                prefixed
+                let by_segment = prefixed
                     .query_map(params![needle], row_from_query)?
-                    .collect::<Result<Vec<_>, _>>()?
+                    .collect::<Result<Vec<_>, _>>()?;
+                if by_segment.is_empty() {
+                    line_prefixed
+                        .query_map(params![needle], row_from_query)?
+                        .collect::<Result<Vec<_>, _>>()?
+                } else {
+                    by_segment
+                }
             } else if callsign {
                 tagged
                     .query_map(params![queried], row_from_query)?
@@ -3670,18 +3869,247 @@ impl SessionLedger {
         Ok(resolved)
     }
 
+    /// Every line in the ledger that is seated on a card, with the segment a
+    /// restore should resume and the turn count of the whole line ([P06]).
+    ///
+    /// One row per line, not per session: a card that has lived through eight
+    /// id changes is one line here, and the turn count is the conversation's,
+    /// not the last segment's.
+    pub fn list_lines_with_card(&self) -> Result<Vec<(LineRow, SessionRow, i64)>, LedgerError> {
+        let lines = {
+            let conn = self.db.lock().expect("ledger mutex");
+            let mut stmt = conn.prepare(
+                "SELECT line_id, tag, name, name_user_set, card_id,
+                        project_dir, created_at, last_used_at
+                 FROM lines
+                 WHERE card_id IS NOT NULL AND card_id != ''
+                 ORDER BY last_used_at DESC",
+            )?;
+            let rows = stmt.query_map([], line_row_from_query)?;
+            rows.collect::<Result<Vec<_>, _>>()?
+        };
+        let mut out = Vec::with_capacity(lines.len());
+        for line in lines {
+            let Some(segment) = self.resume_segment_for_line(&line.line_id)? else {
+                // Every segment failed, or the line's last segment was evicted.
+                // A binding with nothing to resume is not a binding.
+                continue;
+            };
+            let turns = self.line_turn_count(&line.line_id)?;
+            out.push((line, segment, turns));
+        }
+        Ok(out)
+    }
+
+    /// The segment a restore should seat the card on ([P06]).
+    ///
+    /// In order: a `live` segment; then a segment nothing else was forked
+    /// from, which is the line's tip; then the newest by `created_at`, and
+    /// `rowid` to break a tie deterministically. Failed segments are never
+    /// offered — they are known-unrecoverable, and a card replays parent-ward
+    /// from wherever it is seated, so seating on the tip keeps the whole
+    /// scroll.
+    pub fn resume_segment_for_line(
+        &self,
+        line_id: &str,
+    ) -> Result<Option<SessionRow>, LedgerError> {
+        let conn = self.db.lock().expect("ledger mutex");
+        let mut stmt = conn.prepare(&format!(
+            "SELECT {SESSION_COLUMNS} FROM {SESSIONS_JOINED}
+             WHERE s.line_id = ?1 AND s.state != 'failed'
+             {RESUME_SEGMENT_ORDER}
+             LIMIT 1"
+        ))?;
+        let row = stmt
+            .query_row(params![line_id], row_from_query)
+            .optional()?;
+        match row {
+            Some(r) => Ok(Some(r?)),
+            None => Ok(None),
+        }
+    }
+
+    /// The turns the whole line has taken, summed across its segments.
+    pub fn line_turn_count(&self, line_id: &str) -> Result<i64, LedgerError> {
+        let conn = self.db.lock().expect("ledger mutex");
+        let total: i64 = conn.query_row(
+            "SELECT COALESCE(SUM(turn_count), 0) FROM sessions WHERE line_id = ?1",
+            params![line_id],
+            |row| row.get(0),
+        )?;
+        Ok(total)
+    }
+
+    /// One line by id.
+    pub fn get_line(&self, line_id: &str) -> Result<Option<LineRow>, LedgerError> {
+        let conn = self.db.lock().expect("ledger mutex");
+        let row = conn
+            .query_row(
+                "SELECT line_id, tag, name, name_user_set, card_id,
+                        project_dir, created_at, last_used_at
+                 FROM lines WHERE line_id = ?1",
+                params![line_id],
+                line_row_from_query,
+            )
+            .optional()?;
+        Ok(row)
+    }
+
+    /// The line a session id belongs to, asked of every table that can answer.
+    ///
+    /// A segment answers first; then a scan row for a session nothing has
+    /// adopted; then the arbiter, which remembers a spelling's owner after
+    /// both other rows are gone. `None` means this ledger has never seen the
+    /// id — the answer a durable-ink write falls back on by keying under the
+    /// id itself.
+    pub fn line_of(&self, session_id: &str) -> Option<String> {
+        let conn = self.db.lock().expect("ledger mutex");
+        line_of_in(&conn, session_id)
+    }
+
+    /// Birth a line ([P03]) — the one place a line of work comes into
+    /// existence, and the only place a callsign is claimed for one.
+    ///
+    /// `line_id` is the deck's uuid on a fresh spawn from the drop, and `None`
+    /// where the server mints one (a plain `/new`, an external scan). `tag` is
+    /// the client's optimistic callsign; a spelling the arbiter says is spent
+    /// rerolls a complete fresh pair, which is the one moment a callsign a
+    /// user has already seen may change.
+    ///
+    /// Idempotent on `line_id`: birthing a line that exists returns it
+    /// unchanged, so a re-spawn re-claims its own line rather than corrupting
+    /// it ([R02]).
+    pub fn birth_line(
+        &self,
+        line_id: Option<&str>,
+        session_id: &str,
+        card_id: Option<&str>,
+        project_dir: &str,
+        tag: Option<&str>,
+        now: i64,
+    ) -> Result<LineRow, LedgerError> {
+        let mut conn = self.db.lock().expect("ledger mutex");
+        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let line = birth_line_in(&tx, line_id, session_id, card_id, project_dir, tag, now)?;
+        tx.commit()?;
+        drop(conn);
+        self.notify_sessions_changed();
+        Ok(line)
+    }
+
+    /// The line a scanned external session belongs to, birthing one if this is
+    /// the first time the scan has reached it ([P07]).
+    ///
+    /// A scan mints a permanent callsign, and a spelling spent in `minted_tags`
+    /// needs an owner that exists — so the line is born here, card-less, rather
+    /// than at some later adoption that may never happen. When the transcript
+    /// names earlier lives of itself (`lineage_ancestors`), the session joins
+    /// the line those ancestors already belong to instead of starting a second
+    /// one for the same conversation.
+    ///
+    /// Returns the line's id, or `None` when there is no cache row to attach
+    /// one to. Safe to call on every scan: an attached row is answered, not
+    /// re-minted.
+    pub fn ensure_scan_line(
+        &self,
+        session_id: &str,
+        now: i64,
+    ) -> Result<Option<String>, LedgerError> {
+        let mut conn = self.db.lock().expect("ledger mutex");
+        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let cached: Option<(Option<String>, Option<String>, String, i64, i64)> = tx
+            .query_row(
+                "SELECT line_id, lineage_ancestors, project_dir, created_at, last_used_at
+                 FROM external_scan_cache WHERE session_id = ?1",
+                params![session_id],
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                    ))
+                },
+            )
+            .optional()?;
+        let Some((existing, ancestors, project_dir, created_at, last_used_at)) = cached else {
+            return Ok(None);
+        };
+        if let Some(line_id) = existing.filter(|id| !id.is_empty()) {
+            return Ok(Some(line_id));
+        }
+        // Already adopted into the ledger since the last scan, or a transcript
+        // that names an earlier life of itself: either way the line exists.
+        let mut found = line_of_in(&tx, session_id);
+        if found.is_none() {
+            for ancestor in ancestors
+                .as_deref()
+                .unwrap_or_default()
+                .split(',')
+                .map(str::trim)
+                .filter(|id| !id.is_empty())
+            {
+                found = line_of_in(&tx, ancestor);
+                if found.is_some() {
+                    break;
+                }
+            }
+        }
+        let line_id = match found {
+            Some(line_id) => line_id,
+            None => {
+                birth_line_in(
+                    &tx,
+                    None,
+                    session_id,
+                    None,
+                    &project_dir,
+                    None,
+                    if created_at > 0 { created_at } else { now },
+                )?
+                .line_id
+            }
+        };
+        tx.execute(
+            "UPDATE external_scan_cache SET line_id = ?2 WHERE session_id = ?1",
+            params![session_id, line_id],
+        )?;
+        tx.execute(
+            "UPDATE lines SET last_used_at = MAX(last_used_at, ?2) WHERE line_id = ?1",
+            params![line_id, last_used_at],
+        )?;
+        tx.commit()?;
+        Ok(Some(line_id))
+    }
+
     /// Insert a new live row, or transition an existing row back to live and
     /// rebind it to `card_id`. `created_at` is preserved across resumes.
+    ///
+    /// The row is a **segment** of `line_id` ([P01]) and holds no identity of
+    /// its own. The line is born here when it does not exist yet — the one
+    /// place that happens for a card ([P03]) — and `tag` is the candidate
+    /// callsign for that birth alone; on an existing line it is ignored,
+    /// because the line is already named.
+    ///
+    /// **An empty `line_id` means "you decide".** A caller that knows the
+    /// card's line — the bridge, recording a segment against the entry it
+    /// holds ([P04]) — names it, and it wins over anything the scanner
+    /// guessed from a file on disk. A caller adopting a session it has never
+    /// seen passes nothing, and the line the external scan already birthed
+    /// for it ([P07]) is the one the card is seated on, so **adoption never
+    /// mints a second identity**. A row that is already a segment of a line
+    /// keeps that line either way.
     ///
     /// The row is hydrated from `external_scan_cache` when the scanner has
     /// already streamed this session's JSONL (the resume-an-external-session
     /// path: the picker row the user clicked came from that cache). A bare
-    /// `turn_count = 0 / NULL prompt / NULL name` insert would otherwise
-    /// shadow the rich on-disk metadata in the picker union — and the picker
-    /// hides zero-turn rows entirely, so the just-resumed session would
-    /// vanish from the list. The conflict path backfills the same fields
-    /// without ever overwriting richer ledger values (`MAX` on turn_count,
-    /// `COALESCE` keeps an existing prompt/name).
+    /// `turn_count = 0 / NULL prompt` insert would otherwise shadow the rich
+    /// on-disk metadata in the picker union — and the picker hides zero-turn
+    /// rows entirely, so the just-resumed session would vanish from the list.
+    /// The conflict path backfills the same fields without ever overwriting
+    /// richer ledger values (`MAX` on turn_count, `COALESCE` keeps an existing
+    /// prompt).
     pub fn record_spawn(
         &self,
         session_id: &str,
@@ -3689,36 +4117,18 @@ impl SessionLedger {
         project_dir: &str,
         card_id: &str,
         now: i64,
+        line_id: &str,
         tag: Option<&str>,
     ) -> Result<(), LedgerError> {
         let mut conn = self.db.lock().expect("ledger mutex");
         let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-        let existing: Option<(i64, Option<String>)> = tx
+        let existing_created_at: Option<i64> = tx
             .query_row(
-                "SELECT created_at, tag FROM sessions WHERE session_id = ?1",
-                params![session_id],
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            )
-            .optional()?;
-        let existing_created_at: Option<i64> = existing.as_ref().map(|(created, _)| *created);
-        // A row that already wears a tag keeps it (the COALESCE below), so any
-        // differing candidate would be claimed and then never displayed — a
-        // `minted_tags` row spent on nothing. Claim the row's own tag instead:
-        // an idempotent re-claim, never a fresh spend.
-        let existing_tag: Option<String> = existing.and_then(|(_, tag)| tag);
-        // Adoption carry-over ([Q04]): a session discovered by the scan already
-        // has a callsign minted against `minted_tags`, so the adoption reuses
-        // it rather than minting a second one. Read outside the epoch gate —
-        // the tag is not a parse product and a stale-epoch row's callsign is
-        // still that session's callsign.
-        let scanned_tag: Option<String> = tx
-            .query_row(
-                "SELECT tag FROM external_scan_cache WHERE session_id = ?1",
+                "SELECT created_at FROM sessions WHERE session_id = ?1",
                 params![session_id],
                 |row| row.get(0),
             )
-            .optional()?
-            .flatten();
+            .optional()?;
         let seed: Option<(i64, Option<String>, Option<String>, i64)> = tx
             .query_row(
                 // Epoch-gated like the scan hit-check: a stale-rule cache row
@@ -3741,96 +4151,85 @@ impl SessionLedger {
         } else {
             now
         });
-        // Claim-then-write (Spec S08). The candidate tag is minted client-side
-        // "from the drop"; the ledger is the authority. `minted_tags` is the
-        // all-time arbiter — a tag another session ever minted is spent, even
-        // if that session has since been trashed — so a collision rerolls a
-        // complete fresh `adjective-noun` rather than suffixing the taken one.
-        // The `sessions_tag` index stays as the live-row invariant and rerolls
-        // on the same terms; a violation there can fire on the fresh INSERT or
-        // on the `DO UPDATE` that backfills a NULL row. A SQLite constraint
-        // error aborts only the statement (ABORT default), so the transaction
-        // survives the retries. On exhaustion this errors rather than landing a
-        // NULL tag — with 524k combinations that is unreachable in practice.
+        // Whose line this row is a segment of.
         //
-        // The reroll is user-visible: the client has already shown its
-        // optimistic tag, and adopts the ledger's on the `session_updated` /
-        // spawn-ack path. A callsign may therefore change once, seconds after
-        // spawn, and is immutable forever after ([P12]).
-        let mut candidate: Option<String> = existing_tag
-            .clone()
-            .or(scanned_tag)
-            .or_else(|| tag.map(str::to_owned));
-        let mut attempt: u32 = 0;
-        loop {
-            // Claim before the write so a tag spent by a dead session rerolls
-            // here rather than sliding past the live-row index.
-            if let Some(c) = candidate.as_deref() {
-                match claim_tag(&tx, c, session_id, now)? {
-                    TagClaim::Claimed => {}
-                    TagClaim::TakenByOther => {
-                        // A row whose own worn tag lost its claim is a
-                        // superseded pre-fork copy: the spelling moved on to
-                        // the lineage head via `inherit_fork_identity`. Clear it
-                        // so the COALESCE below lands the fresh pair instead
-                        // of resurrecting a name that is no longer this
-                        // session's.
-                        if existing_tag.as_deref() == Some(c) {
-                            tx.execute(
-                                "UPDATE sessions SET tag = NULL WHERE session_id = ?1",
-                                params![session_id],
-                            )?;
-                        }
-                        candidate = Some(reroll_or_fail(c, session_id, now, &mut attempt)?);
-                        continue;
-                    }
-                }
-            }
-            let result = tx.execute(
-                // `name_user_set` is hardcoded `0`: a scan-seeded name is always
-                // an auto `aiTitle`, never a user rename. On conflict it's left
-                // out of the SET clause so an existing user-set bit (and its
-                // `name`, kept by COALESCE) survives a respawn untouched. `tag`
-                // is COALESCE'd too: a set tag survives untouched, a NULL tag is
-                // backfilled with the resumed candidate.
-                "INSERT INTO sessions (
-                    session_id, workspace_key, project_dir,
-                    created_at, last_used_at, turn_count,
-                    last_user_prompt, name, name_user_set, state, card_id, tag
-                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 0, 'live', ?9, ?10)
-                 ON CONFLICT(session_id) DO UPDATE SET
-                    workspace_key = excluded.workspace_key,
-                    project_dir   = excluded.project_dir,
-                    last_used_at  = excluded.last_used_at,
-                    turn_count    = MAX(sessions.turn_count, excluded.turn_count),
-                    last_user_prompt = COALESCE(sessions.last_user_prompt, excluded.last_user_prompt),
-                    name          = COALESCE(sessions.name, excluded.name),
-                    state         = 'live',
-                    card_id       = excluded.card_id,
-                    tag           = COALESCE(sessions.tag, excluded.tag)",
-                params![
-                    session_id,
-                    workspace_key,
-                    project_dir,
-                    created_at,
-                    now,
-                    seed_turns,
-                    seed_prompt,
-                    seed_name,
-                    card_id,
-                    candidate,
-                ],
-            );
-            match result {
-                Ok(_) => break,
-                Err(e) if is_tag_unique_violation(&e) => {
-                    // A live row already displays this tag. `candidate` is Some
-                    // whenever this can fire (the statement carried a tag).
-                    let taken = candidate.as_deref().unwrap_or_default().to_owned();
-                    candidate = Some(reroll_or_fail(&taken, session_id, now, &mut attempt)?);
-                }
-                Err(e) => return Err(e.into()),
-            }
+        // The row's own line comes first: a respawn re-enters the line it is
+        // already a segment of, and nothing may move it.
+        //
+        // Then the **caller's**, when it named one. The caller is the bridge
+        // holding the card's `LedgerEntry` ([P04]) — it knows which
+        // conversation this id belongs to, where the scanner only ever
+        // guessed from a file on disk. A rotation whose JSONL the scanner
+        // happened to see first would otherwise join the card's line to a
+        // stranger's, which is the stranding this model exists to remove.
+        //
+        // The scan's line is the fallback, and it is the right one for the
+        // case it was born for ([P07]): adopting a session the picker has
+        // been showing under a callsign, where the caller has no line to
+        // offer.
+        let line_id = line_of_in_sessions(&tx, session_id)
+            .or_else(|| Some(line_id).filter(|id| !id.is_empty()).map(str::to_owned))
+            .or_else(|| line_of_in(&tx, session_id))
+            .unwrap_or_else(|| session_id.to_owned());
+        let line = birth_line_in(
+            &tx,
+            Some(&line_id),
+            session_id,
+            Some(card_id),
+            project_dir,
+            tag,
+            now,
+        )?;
+        tx.execute(
+            // `line_id` is left out of the conflict arm: a respawn re-enters
+            // the line it is already a segment of, and an arm that could
+            // rewrite it is the move this model exists to remove.
+            "INSERT INTO sessions (
+                session_id, workspace_key, project_dir,
+                created_at, last_used_at, turn_count,
+                last_user_prompt, state, card_id, line_id
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'live', ?8, ?9)
+             ON CONFLICT(session_id) DO UPDATE SET
+                workspace_key = excluded.workspace_key,
+                project_dir   = excluded.project_dir,
+                last_used_at  = excluded.last_used_at,
+                turn_count    = MAX(sessions.turn_count, excluded.turn_count),
+                last_user_prompt = COALESCE(sessions.last_user_prompt, excluded.last_user_prompt),
+                state         = 'live',
+                card_id       = excluded.card_id",
+            params![
+                session_id,
+                workspace_key,
+                project_dir,
+                created_at,
+                now,
+                seed_turns,
+                seed_prompt,
+                card_id,
+                line.line_id,
+            ],
+        )?;
+        // Keep the scan cache pointing at the line the row settled on. Where
+        // the two disagree the cache is holding a line the scanner birthed
+        // from a file it saw before the caller named the conversation, and a
+        // read that reached the cache first would answer with the guess.
+        tx.execute(
+            "UPDATE external_scan_cache SET line_id = ?2 WHERE session_id = ?1",
+            params![session_id, line.line_id],
+        )?;
+        // A scanned `aiTitle` becomes the line's auto title on adoption — the
+        // same fact it used to seed onto the row, written where the line has
+        // no title of its own and the user has not named it.
+        if let Some(title) = seed_name
+            .as_deref()
+            .map(str::trim)
+            .filter(|title| !title.is_empty())
+        {
+            tx.execute(
+                "UPDATE lines SET name = ?2
+                 WHERE line_id = ?1 AND name_user_set = 0 AND COALESCE(name, '') = ''",
+                params![line.line_id, title],
+            )?;
         }
         // The lifecycle fact, written inside this same transaction so the fact
         // and the session row land together — and, decisively, **through the
@@ -3849,7 +4248,7 @@ impl SessionLedger {
             now,
             session_id,
             existing_created_at.is_some(),
-            candidate.as_deref().unwrap_or(session_id),
+            &line.tag,
             workspace_key,
             project_dir,
             seed_name.as_deref(),
@@ -3886,63 +4285,49 @@ impl SessionLedger {
         Ok(())
     }
 
-    /// Set (or clear) the user-assigned session `name` ([#step-13d], `/rename`).
-    /// `None` clears it. Survives re-spawn/resume since `record_spawn` only
-    /// backfills a NULL name (it never overwrites a set one). `NotFound` if
-    /// the session id is unknown.
+    /// Set (or clear) the **line's** user-assigned name ([P11], `/rename`).
+    /// `None` clears it. `NotFound` if the line id is unknown.
     ///
-    /// **A custom name is unique, and setting one takes it.** Every other
-    /// session wearing the same spelling with `name_user_set = 1` has its name
-    /// cleared in the same immediate transaction, and their ids are returned so
-    /// the caller can push each displaced row and say what its gesture did.
-    /// This is the rule [D154] already applies on the fork path, where
-    /// `inherit_fork_identity` moves the parent's user-set name onto the fork
-    /// and clears the parent's row because "a superseded copy still wearing it
-    /// would be a resting lie" — enforced at the write on both paths now,
-    /// rather than papered over at every reader.
+    /// **A user-set name is unique across lines, and a taken one is refused.**
+    /// The refusal names the holder so the gesture can say who has it, and
+    /// nothing is written — which is the whole of the change from the rule
+    /// [D141] used to state. Taking the name displaced another line's title
+    /// silently, at a distance, to satisfy an invariant a `UNIQUE` index
+    /// enforces at the write for free.
     ///
-    /// The comparison is exact-match on the spelling asked for. Clearing a name
-    /// displaces nothing.
-    pub fn rename(&self, session_id: &str, name: Option<&str>) -> Result<Vec<String>, LedgerError> {
+    /// The comparison is exact-match on the spelling asked for. Clearing a
+    /// name can never be refused.
+    pub fn rename(&self, line_id: &str, name: Option<&str>) -> Result<(), LedgerError> {
         let mut conn = self.db.lock().expect("ledger mutex");
         // Immediate, because the read of who wears the name and the write that
         // takes it must not interleave with another rename.
         let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-
-        // Ascending id, so a caller — and a test — reads a stable order.
-        let displaced: Vec<String> = match name {
-            Some(n) => tx
-                .prepare(
-                    "SELECT session_id FROM sessions
-                     WHERE name = ?1 AND name_user_set = 1 AND session_id != ?2
-                     ORDER BY session_id",
-                )?
-                .query_map(params![n, session_id], |row| row.get(0))?
-                .collect::<Result<Vec<String>, _>>()?,
-            None => Vec::new(),
-        };
-        for id in &displaced {
-            tx.execute(
-                "UPDATE sessions SET name = NULL, name_user_set = 0
-                 WHERE session_id = ?1",
-                params![id],
-            )?;
+        if let Some(wanted) = name {
+            let holder: Option<(String, String)> = tx
+                .query_row(
+                    "SELECT line_id, tag FROM lines
+                     WHERE name = ?1 AND name_user_set = 1 AND line_id != ?2
+                     LIMIT 1",
+                    params![wanted, line_id],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .optional()?;
+            if let Some((holder_line_id, holder_tag)) = holder {
+                return Err(LedgerError::NameTaken {
+                    holder_line_id,
+                    holder_tag,
+                });
+            }
         }
-
         // Setting a name marks it user-set (the chip then shows it); clearing it
-        // drops the bit so the chip falls back to the hash.
+        // drops the bit so the chip falls back to the callsign.
         let user_set = i64::from(name.is_some());
         let affected = tx.execute(
-            "UPDATE sessions
-             SET name = ?2, name_user_set = ?3
-             WHERE session_id = ?1",
-            params![session_id, name, user_set],
+            "UPDATE lines SET name = ?2, name_user_set = ?3 WHERE line_id = ?1",
+            params![line_id, name, user_set],
         )?;
-        // Checked after the displacement, so a rename naming an unknown session
-        // displaces nobody: the transaction rolls back on this return, which
-        // makes it belt and braces, but the order is what says so.
         if affected == 0 {
-            return Err(LedgerError::NotFound(session_id.to_owned()));
+            return Err(LedgerError::NotFound(line_id.to_owned()));
         }
         tx.commit()?;
         // Dropped before the broadcast, as every neighbouring writer that grew
@@ -3950,7 +4335,7 @@ impl SessionLedger {
         // much wider.
         drop(conn);
         self.notify_sessions_changed();
-        Ok(displaced)
+        Ok(())
     }
 
     /// Mark a session in or out of the Overview ([P05]).
@@ -4006,89 +4391,10 @@ impl SessionLedger {
         Ok(ids)
     }
 
-    /// Transfer the parent's identity onto its rewind-fork ([P11], [D154]).
-    ///
-    /// The callsign — and a `/rename`, when the user gave one — names the
-    /// line of work, not the JSONL file, and a rewind-fork is an edit to a
-    /// conversation rather than the birth of a new one — so the fork wears
-    /// the parent's `tag` (and user-set `name`) verbatim, forever. One
-    /// transaction repoints `minted_tags.session_id` at the fork (the tag
-    /// stays spent; a later [`claim_tag`] by the fork is the idempotent
-    /// mine-is-not-taken path) and clears the superseded parent row's `tag`
-    /// and user-set `name` — the identity moved on, and a superseded copy
-    /// still wearing it would be a resting lie. An auto `aiTitle` is not
-    /// transferred: it is embedded in the JSONL records the fork's file
-    /// copies, so the fork re-derives it on its own.
-    ///
-    /// `tag` is `None` when the parent has none to hand down — a legacy
-    /// tagless row, or a **sibling fork**: the parent's callsign already
-    /// moved on to an earlier fork, so this new branch is a new line of work
-    /// and spawns as an ordinary root session, minting a fresh pair. Its
-    /// parentage is recorded by [`set_fork_provenance`] either way.
-    pub fn inherit_fork_identity(
-        &self,
-        parent_session_id: &str,
-        fork_session_id: &str,
-        now: i64,
-    ) -> Result<InheritedForkIdentity, LedgerError> {
-        let mut conn = self.db.lock().expect("ledger mutex");
-        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-        let parent: Option<(Option<String>, Option<String>, bool)> = tx
-            .query_row(
-                "SELECT tag, name, name_user_set FROM sessions WHERE session_id = ?1",
-                params![parent_session_id],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get::<_, i64>(2)? != 0)),
-            )
-            .optional()?;
-        let Some((tag, name, name_user_set)) = parent else {
-            return Ok(InheritedForkIdentity::default());
-        };
-        let user_name = if name_user_set { name } else { None };
-        if user_name.is_some() {
-            tx.execute(
-                "UPDATE sessions SET name = NULL, name_user_set = 0
-                 WHERE session_id = ?1",
-                params![parent_session_id],
-            )?;
-        }
-        let Some(tag) = tag else {
-            tx.commit()?;
-            drop(conn);
-            if user_name.is_some() {
-                self.notify_sessions_changed();
-            }
-            return Ok(InheritedForkIdentity {
-                tag: None,
-                user_name,
-            });
-        };
-        tx.execute(
-            "UPDATE sessions SET tag = NULL WHERE session_id = ?1",
-            params![parent_session_id],
-        )?;
-        // Repoint the arbiter rather than re-claiming: the spelling stays
-        // spent, and from here on it resolves to the fork — the same
-        // conversation, now living under a new file. INSERT-or-UPDATE covers
-        // a pre-arbiter legacy row whose tag was never seeded.
-        tx.execute(
-            "INSERT INTO minted_tags (tag, session_id, minted_at)
-             VALUES (?1, ?2, ?3)
-             ON CONFLICT(tag) DO UPDATE SET session_id = excluded.session_id",
-            params![tag, fork_session_id, now],
-        )?;
-        tx.commit()?;
-        drop(conn);
-        self.notify_sessions_changed();
-        Ok(InheritedForkIdentity {
-            tag: Some(tag),
-            user_name,
-        })
-    }
-
     /// Write a fork's provenance onto its `sessions` row, after
-    /// `record_spawn` has created it. The inherited callsign already rode in
-    /// as the spawn's tag; these columns record where the fork came from —
-    /// which the spelling no longer does, by design.
+    /// `record_spawn` has created it. Identity rode in as the line the segment
+    /// joined; these columns record where the segment came from, which is a
+    /// different question and the only one they answer.
     ///
     /// `fork_point` is `None` for an arc stage rotation, which descends from
     /// its parent without copying any history and so has no branch point. The
@@ -4145,179 +4451,6 @@ impl SessionLedger {
         Ok(())
     }
 
-    /// The session a line of work is named by: walk parent-ward across
-    /// **rotation** edges only, and stop at the first session that is not a
-    /// stage.
-    ///
-    /// A rotation does not supersede the session it rotates ([D164]), so the
-    /// stage is a session of its own — but it is not a *line of work* of its
-    /// own. It is a segment of the line that rotated into it, and the
-    /// callsign names the line, not the JSONL file ([D154]). This is the walk
-    /// every display read resolves through so a card, a picker row, and a
-    /// commit trailer all name the line rather than whichever segment happens
-    /// to be seated.
-    ///
-    /// A rewind-fork edge stops the walk: identity already moved to the fork,
-    /// which wears the callsign and is its own root. So is a stage whose
-    /// parent row is gone — evicted or trashed — because nothing is left to
-    /// name the line with.
-    ///
-    /// Total by construction, like both lineage walks: an unknown id, a query
-    /// error, a cycle, and a chain past the depth cap all return the input.
-    ///
-    /// The climb and the forward resolution compose. A line that rotated
-    /// through an arc and *then* continued through a rewind-fork is named by
-    /// the fork — identity moved there ([D154]) — so a stage of that arc
-    /// resolves to the fork, not to the superseded row the arc rotated from,
-    /// which wears nothing by design. Only a session that actually climbed a
-    /// rotation edge resolves forward: a superseded parent asked about
-    /// directly is its own answer, because putting its fork's callsign back on
-    /// it is the resting lie [D154] removed.
-    pub fn resolve_to_line_root(&self, session_id: &str) -> String {
-        let root = self.walk_to_rotation_root(session_id);
-        if root == session_id {
-            return root;
-        }
-        let named = self.resolve_to_lineage_head(&root);
-        if named == session_id { root } else { named }
-    }
-
-    /// The rotation climb alone — [`Self::resolve_to_line_root`] before the
-    /// rewind-fork resolution that follows it.
-    fn walk_to_rotation_root(&self, session_id: &str) -> String {
-        /// Same guard, same reasoning as `resolve_to_lineage_head`'s.
-        const MAX_HOPS: usize = 16;
-
-        let conn = self.db.lock().expect("ledger mutex");
-        let mut current = session_id.to_owned();
-        let mut visited = HashSet::new();
-        visited.insert(current.clone());
-        for _ in 0..MAX_HOPS {
-            let parent: Option<String> = match conn
-                .query_row(
-                    "SELECT parent.session_id FROM sessions stage
-                     JOIN sessions parent
-                       ON parent.session_id = stage.forked_from_session_id
-                     WHERE stage.session_id = ?1
-                       AND stage.stage_label IS NOT NULL
-                       AND stage.fork_point IS NULL",
-                    params![current],
-                    |row| row.get(0),
-                )
-                .optional()
-            {
-                Ok(parent) => parent,
-                Err(err) => {
-                    tracing::warn!(
-                        session_id = %session_id,
-                        error = %err,
-                        "line root resolution failed; using the id as given"
-                    );
-                    return session_id.to_owned();
-                }
-            };
-            let Some(parent) = parent else {
-                return current;
-            };
-            if !visited.insert(parent.clone()) {
-                tracing::warn!(
-                    session_id = %session_id,
-                    revisited = %parent,
-                    "rotation edges form a cycle; using the id as given"
-                );
-                return session_id.to_owned();
-            }
-            current = parent;
-        }
-        tracing::warn!(
-            session_id = %session_id,
-            max_hops = MAX_HOPS,
-            "rotation chain exceeds the depth cap; using the id as given"
-        );
-        session_id.to_owned()
-    }
-
-    /// The identity a session should be *displayed* under, or `None` when the
-    /// session is its own line root and its own row already answers.
-    ///
-    /// Nothing is written: the stage's row keeps the callsign it minted, which
-    /// is what keeps `minted_tags` permanence honest and what a trailer
-    /// written during the stage resolves through. This is the read that says
-    /// which line that segment belongs to.
-    pub fn line_identity(&self, session_id: &str) -> Option<LineIdentity> {
-        let root = self.resolve_to_line_root(session_id);
-        if root == session_id {
-            return None;
-        }
-        let conn = self.db.lock().expect("ledger mutex");
-        conn.query_row(
-            "SELECT tag, name, name_user_set FROM sessions WHERE session_id = ?1",
-            params![root],
-            |row| {
-                Ok(LineIdentity {
-                    root_session_id: root.clone(),
-                    tag: row.get(0)?,
-                    name: row.get(1)?,
-                    name_user_set: row.get::<_, i64>(2)? != 0,
-                })
-            },
-        )
-        .optional()
-        .unwrap_or(None)
-    }
-
-    /// [`Self::line_identity`] for a batch, keyed by the session asked about.
-    /// Sessions that are their own root contribute no entry, so an empty map
-    /// means "nothing here is a stage".
-    pub fn line_identities_for(&self, ids: &[String]) -> HashMap<String, LineIdentity> {
-        let mut map = HashMap::new();
-        for id in ids {
-            if let Some(identity) = self.line_identity(id) {
-                map.insert(id.clone(), identity);
-            }
-        }
-        map
-    }
-
-    /// The row as a reader should see it: the persisted row with its identity
-    /// resolved to the line of work ([D164]).
-    ///
-    /// This is the accessor every display and citation path uses;
-    /// [`Self::get`] stays honest about what the row holds, for the writers
-    /// and the bookkeeping that need the segment's own facts.
-    pub fn get_for_display(&self, session_id: &str) -> Result<Option<SessionRow>, LedgerError> {
-        let Some(mut row) = self.get(session_id)? else {
-            return Ok(None);
-        };
-        if let Some(line) = self.line_identity(session_id) {
-            row.tag = line.tag;
-            row.name = line.name;
-            row.name_user_set = line.name_user_set;
-        }
-        Ok(Some(row))
-    }
-
-    /// Every session an arc stage rotation seated, with the session it
-    /// rotated and the moment it was created: `(stage, parent, created_at)`.
-    ///
-    /// A rotation edge is a `forked_from_session_id` with no `fork_point` and
-    /// a `stage_label`. The ink return pass reads this to give back rows the
-    /// retired rotation transfer moved: anything keyed under a stage that
-    /// settled before the stage existed was written by its parent.
-    pub fn rotation_children(&self) -> Result<Vec<(String, String, i64)>, LedgerError> {
-        let conn = self.db.lock().expect("ledger mutex");
-        let mut stmt = conn.prepare(
-            "SELECT session_id, forked_from_session_id, created_at FROM sessions
-             WHERE stage_label IS NOT NULL
-               AND fork_point IS NULL
-               AND forked_from_session_id IS NOT NULL",
-        )?;
-        let rows = stmt
-            .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
-            .collect::<Result<Vec<_>, _>>()?;
-        Ok(rows)
-    }
-
     /// What a rotation seated `session_id` as, or `None` if no rotation did.
     ///
     /// Total: an unknown session, a row written before the migration, and a
@@ -4339,93 +4472,11 @@ impl SessionLedger {
         .and_then(|(label, model)| label.map(|label| (label, model)))
     }
 
-    /// Follow the fork edges child-ward from `session_id` and return the id
-    /// of the line of work's head — the session at the tip, which is the one
-    /// a relaunched deck binds to and therefore the one durable ink must be
-    /// keyed under.
-    ///
-    /// A rewind-fork supersedes its parent: the parent row goes closed and
-    /// tagless while the fork carries the callsign on ([D154]). The ink
-    /// ledgers key their rows by tug session id, so without this resolution a
-    /// receipt written before — or during — a fork becomes unreachable to
-    /// every read that arrives after the next relaunch.
-    ///
-    /// Total by construction: an id with no child, an unknown id, a query
-    /// error, an edge cycle, and a chain past the depth cap all return the
-    /// input unchanged. Resolution sits in front of every durable ink write,
-    /// and a failed resolution must never turn a working write into a lost
-    /// one.
-    ///
-    /// When two children claim the same parent — a sibling fork, where the
-    /// callsign already moved on to an earlier branch — the child wearing a
-    /// tag is the continuation and wins; two tagless children tie-break on
-    /// the newer `last_used_at`.
-    ///
-    /// Only a rewind-fork edge — one carrying a `fork_point` — is followed. An
-    /// arc stage rotation records its parent with a `NULL` `fork_point`: it
-    /// copies nothing and supersedes nothing, so the parent stays the head of
-    /// its own line and the stage is a separate session that happens to
-    /// descend from it.
-    pub fn resolve_to_lineage_head(&self, session_id: &str) -> String {
-        /// Chains are linear and short in practice; the cap is a guard
-        /// against a corrupt edge set, not a real depth.
-        const MAX_HOPS: usize = 16;
-
-        let conn = self.db.lock().expect("ledger mutex");
-        let mut current = session_id.to_owned();
-        let mut visited = HashSet::new();
-        visited.insert(current.clone());
-        for _ in 0..MAX_HOPS {
-            let child: Option<String> = match conn
-                .query_row(
-                    "SELECT session_id FROM sessions
-                     WHERE forked_from_session_id = ?1 AND fork_point IS NOT NULL
-                     ORDER BY (tag IS NULL) ASC, last_used_at DESC
-                     LIMIT 1",
-                    params![current],
-                    |row| row.get(0),
-                )
-                .optional()
-            {
-                Ok(child) => child,
-                Err(err) => {
-                    tracing::warn!(
-                        session_id = %session_id,
-                        error = %err,
-                        "lineage head resolution failed; using the id as given"
-                    );
-                    return session_id.to_owned();
-                }
-            };
-            let Some(child) = child else {
-                return current;
-            };
-            if !visited.insert(child.clone()) {
-                tracing::warn!(
-                    session_id = %session_id,
-                    revisited = %child,
-                    "fork edges form a cycle; using the id as given"
-                );
-                return session_id.to_owned();
-            }
-            current = child;
-        }
-        tracing::warn!(
-            session_id = %session_id,
-            max_hops = MAX_HOPS,
-            "fork chain exceeds the depth cap; using the id as given"
-        );
-        session_id.to_owned()
-    }
-
     /// Follow the fork edges parent-ward from `session_id` and return the
     /// whole chain in reading order — the oldest ancestor first, `session_id`
     /// last.
     ///
-    /// This is [`Self::resolve_to_lineage_head`]'s mirror. That one answers
-    /// "which session is this line of work now?", for a write that must land
-    /// on the tip. This one answers "what did this line of work consist of?",
-    /// for a restore that must replay every session the line passed through —
+    /// A restore must replay every session the line passed through:
     /// an arc's devise, review, and implement stages each own their own JSONL,
     /// and a card that replays only the last of them shows a transcript that
     /// begins in the middle.
@@ -4436,7 +4487,8 @@ impl SessionLedger {
     /// far. A restore is best-effort — a partial chain shows less history, a
     /// failed one shows what it shows today, and neither may fail the replay.
     pub fn lineage_chain(&self, session_id: &str) -> Vec<String> {
-        /// Same guard, same reasoning as `resolve_to_lineage_head`'s.
+        /// Chains are linear and short in practice; the cap is a guard
+        /// against a corrupt edge set, not a real depth.
         const MAX_HOPS: usize = 16;
 
         let conn = self.db.lock().expect("ledger mutex");
@@ -4519,24 +4571,31 @@ impl SessionLedger {
 
     /// Record an auto-generated `aiTitle` for a session, live.
     ///
-    /// Writes `name` **only** when `name_user_set = 0` — a `/rename` is the
-    /// user's word and an auto title never overwrites it. Returns whether a
-    /// row actually changed, so the caller can skip a pointless broadcast.
-    /// Unknown session id or a frozen row is a no-op, not an error: the title
-    /// arrives on a best-effort path and must never fail a turn.
+    /// The title is the **line's** ([P02]), so a title scraped from any
+    /// segment's JSONL titles the whole line of work — which is what a card
+    /// that has rotated three times is. Writes `lines.name` **only** when
+    /// `name_user_set = 0`: a `/rename` is the user's word and an auto title
+    /// never overwrites it. Returns whether a row actually changed, so the
+    /// caller can skip a pointless broadcast. An unknown session id, a
+    /// line-less session, and a line the user has named are all no-ops rather
+    /// than errors: the title arrives on a best-effort path and must never
+    /// fail a turn.
     pub fn record_auto_title(&self, session_id: &str, title: &str) -> Result<bool, LedgerError> {
         let trimmed = title.trim();
         if trimmed.is_empty() {
             return Ok(false);
         }
         let conn = self.db.lock().expect("ledger mutex");
+        let Some(line_id) = line_of_in(&conn, session_id) else {
+            return Ok(false);
+        };
         let affected = conn.execute(
-            "UPDATE sessions
+            "UPDATE lines
              SET name = ?2
-             WHERE session_id = ?1
+             WHERE line_id = ?1
                AND name_user_set = 0
                AND COALESCE(name, '') != ?2",
-            params![session_id, trimmed],
+            params![line_id, trimmed],
         )?;
         if affected > 0 {
             drop(conn);
@@ -4985,7 +5044,12 @@ impl SessionLedger {
         // so each demotion records its own fact. `startup-demote` is the
         // detail because the distinction matters when reading history back:
         // this session did not end, the process under it did.
-        let mut stmt = conn.prepare("SELECT session_id, tag FROM sessions WHERE state = 'live'")?;
+        // The handle a lifecycle fact wears is the **line's** callsign ([P02]).
+        let mut stmt = conn.prepare(
+            "SELECT s.session_id, l.tag FROM sessions s
+             LEFT JOIN lines l ON l.line_id = s.line_id
+             WHERE s.state = 'live'",
+        )?;
         let demoted: Vec<(String, Option<String>)> = stmt
             .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
             .collect::<Result<Vec<_>, _>>()?;
@@ -5132,7 +5196,7 @@ impl SessionLedger {
                     turn_count, last_user_prompt, name, created_at, last_used_at,
                     parse_offset, tail_hash, cwd_checked, created_at_found,
                     frontier_open, frontier_pending_close, frontier_pending_close_msg_id,
-                    frontier_leaf_uuid, effective_uuids, lineage_ancestors, tag
+                    frontier_leaf_uuid, effective_uuids, lineage_ancestors, line_id
              FROM external_scan_cache
              WHERE session_id = ?1 AND rule_epoch = ?2
              LIMIT 1",
@@ -5148,16 +5212,19 @@ impl SessionLedger {
 
     /// Insert or overwrite the cached scan result for a session file.
     ///
-    /// The `tag` column is **carried across**, never taken from `row`: a
-    /// callsign is minted once and is permanent ([P12]), while this row is
-    /// rewritten every time the file changes. Reading it back here is what
-    /// keeps a re-parse from erasing a tag the ledger already recorded in
-    /// `minted_tags`.
+    /// The `line_id` column is **carried across**, never taken from `row`: a
+    /// line is born once and its callsign is permanent ([P07]), while this row
+    /// is rewritten every time the file changes. Reading it back here is what
+    /// keeps a re-parse from orphaning the scan row from its line — and with
+    /// it, dropping the callsign the picker has been showing.
+    ///
+    /// `name` is not carried, and that is the distinction: it is a per-file
+    /// derived fact this scan just regenerated, not identity.
     pub fn upsert_scan_cache(&self, row: &ScanCacheRow) -> Result<(), LedgerError> {
         let conn = self.db.lock().expect("ledger mutex");
-        let existing_tag: Option<String> = conn
+        let existing_line: Option<String> = conn
             .query_row(
-                "SELECT tag FROM external_scan_cache WHERE session_id = ?1",
+                "SELECT line_id FROM external_scan_cache WHERE session_id = ?1",
                 params![row.session_id],
                 |r| r.get(0),
             )
@@ -5169,7 +5236,7 @@ impl SessionLedger {
                 turn_count, last_user_prompt, name, created_at, last_used_at,
                 parse_offset, tail_hash, cwd_checked, created_at_found, rule_epoch,
                 frontier_open, frontier_pending_close, frontier_pending_close_msg_id,
-                frontier_leaf_uuid, effective_uuids, lineage_ancestors, tag
+                frontier_leaf_uuid, effective_uuids, lineage_ancestors, line_id
              ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15,
                        ?16, ?17, ?18, ?19, ?20, ?21, ?22)",
             params![
@@ -5197,111 +5264,10 @@ impl SessionLedger {
                 row.frontier_leaf_uuid,
                 row.effective_uuids,
                 row.lineage_ancestors,
-                existing_tag,
+                existing_line,
             ],
         )?;
         Ok(())
-    }
-
-    /// Mint and persist a callsign for a scanned external session that has
-    /// none ([P12], [Q04]). Returns the tag now on the row — the existing one
-    /// when it already had one, so this is safe to call on every scan.
-    ///
-    /// Three places are asked before anything is minted, in order: the cache
-    /// row, the `sessions` row (adopted since the last scan), and `minted_tags`
-    /// (the arbiter, which outlives both). Only a session no table has ever
-    /// named gets a fresh roll — a callsign is minted **once** per session.
-    ///
-    /// **No `sessions` row is created.** External rows synthesize `state:
-    /// "closed"` / `card_id: null` and adopt into the ledger on first resume,
-    /// which is exactly what `SessionRow.provenance` reports; minting a
-    /// `sessions` row here would flip every discovered session from `external`
-    /// to `tug` — a behavior change with nothing to do with naming.
-    /// `minted_tags` (Spec S08) carries uniqueness instead, which it can
-    /// because it is keyed by tag and indifferent to which table holds the
-    /// session.
-    pub fn backfill_external_tag(
-        &self,
-        session_id: &str,
-        now: i64,
-    ) -> Result<Option<String>, LedgerError> {
-        let mut conn = self.db.lock().expect("ledger mutex");
-        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-        let existing: Option<Option<String>> = tx
-            .query_row(
-                "SELECT tag FROM external_scan_cache WHERE session_id = ?1",
-                params![session_id],
-                |r| r.get(0),
-            )
-            .optional()?;
-        let Some(current) = existing else {
-            // No cache row — nothing to backfill onto.
-            return Ok(None);
-        };
-        if let Some(tag) = current {
-            return Ok(Some(tag));
-        }
-        // Already adopted into the ledger with a callsign? Carry that one onto
-        // the cache row rather than minting a second name for one session.
-        let adopted: Option<String> = tx
-            .query_row(
-                "SELECT tag FROM sessions WHERE session_id = ?1",
-                params![session_id],
-                |r| r.get(0),
-            )
-            .optional()?
-            .flatten();
-        if let Some(tag) = adopted {
-            tx.execute(
-                "UPDATE external_scan_cache SET tag = ?2 WHERE session_id = ?1",
-                params![session_id, tag],
-            )?;
-            tx.commit()?;
-            return Ok(Some(tag));
-        }
-        // Neither table holds a callsign — but the arbiter may still, and it is
-        // the one table that never forgets. `prune_scan_cache_except` drops the
-        // cache row when the backing JSONL vanishes, and a trashed session is
-        // recoverable by design (the user can `mv` the file back), so
-        // "cache row gone, no `sessions` row" is a reachable state for a
-        // session that was already named. Minting again there would hand one
-        // session a second callsign and leave every commit citing the first one
-        // pointing at a name the session no longer wears — the immutability
-        // [P12] promises, broken by a restore. Earliest claim wins: that is the
-        // one already written into trailers.
-        let claimed: Option<String> = tx
-            .query_row(
-                "SELECT tag FROM minted_tags WHERE session_id = ?1
-                 ORDER BY minted_at ASC, tag ASC
-                 LIMIT 1",
-                params![session_id],
-                |r| r.get(0),
-            )
-            .optional()?;
-        if let Some(tag) = claimed {
-            tx.execute(
-                "UPDATE external_scan_cache SET tag = ?2 WHERE session_id = ?1",
-                params![session_id, tag],
-            )?;
-            tx.commit()?;
-            return Ok(Some(tag));
-        }
-        let mut attempt: u32 = 0;
-        let mut candidate = roll_tag(roll_seed(session_id, now, 0));
-        loop {
-            match claim_tag(&tx, &candidate, session_id, now)? {
-                TagClaim::Claimed => break,
-                TagClaim::TakenByOther => {
-                    candidate = reroll_or_fail(&candidate, session_id, now, &mut attempt)?;
-                }
-            }
-        }
-        tx.execute(
-            "UPDATE external_scan_cache SET tag = ?2 WHERE session_id = ?1",
-            params![session_id, candidate],
-        )?;
-        tx.commit()?;
-        Ok(Some(candidate))
     }
 
     /// Delete cache rows under `project_dir` whose session id is not in
@@ -6466,9 +6432,12 @@ impl SessionLedger {
             "SELECT fe.tug_session_id, fe.tool_use_id, fe.file_path,
                     fe.tool_name, fe.op, fe.origin, fe.ambiguous,
                     fe.parent_tool_use_id, fe.project_dir, fe.at,
-                    s.name, s.name_user_set, s.state, s.tag
+                    l.name, l.name_user_set, s.state, l.tag
              FROM changes.file_events fe
              LEFT JOIN sessions s ON s.session_id = fe.tug_session_id
+             -- The owner's display fields are the **line's** ([P02]); the
+             -- segment answers only for liveness, which is its own fact.
+             LEFT JOIN lines l ON l.line_id = s.line_id
              WHERE fe.project_dir = ?1
              ORDER BY fe.at ASC, fe.tool_use_id ASC, fe.file_path ASC",
         )?;
@@ -7361,6 +7330,23 @@ impl SessionLedger {
         Ok(rows.collect::<Result<Vec<_>, _>>()?)
     }
 
+    /// A segment's rewind point, for tests in other modules that drive the
+    /// relay and need to see which edge kind it recorded. `None` on a rotation
+    /// edge, which is exactly the distinction they are checking.
+    #[cfg(test)]
+    pub fn fork_point_for_test(&self, session_id: &str) -> Option<String> {
+        let conn = self.db.lock().expect("ledger mutex");
+        conn.query_row(
+            "SELECT fork_point FROM sessions WHERE session_id = ?1",
+            params![session_id],
+            |row| row.get(0),
+        )
+        .optional()
+        .ok()
+        .flatten()
+        .flatten()
+    }
+
     /// Every recorded fact as `(kind, subject, text)`, oldest-first, for tests
     /// in other modules that drive a recorder and need to see what it wrote.
     /// The typed read verbs land with the Operator that consumes them.
@@ -7594,7 +7580,7 @@ fn scan_cache_row_from_query(row: &rusqlite::Row<'_>) -> rusqlite::Result<ScanCa
         frontier_leaf_uuid: row.get(17)?,
         effective_uuids: row.get(18)?,
         lineage_ancestors: row.get(19)?,
-        tag: row.get(20)?,
+        line_id: row.get(20)?,
     })
 }
 
@@ -7636,6 +7622,189 @@ fn resume_ancestors(conn: &Connection, session_id: &str) -> Vec<String> {
         .collect()
 }
 
+/// Every read of a `sessions` row projects through this list ([P02]). The
+/// segment's own columns come from `sessions`; `tag`, `name` and
+/// `name_user_set` are the **line's** and arrive through the join in
+/// [`SESSIONS_JOINED`], which is why some forty readers across tugcast and the
+/// deck went line-correct without one of them changing.
+const SESSION_COLUMNS: &str = "s.session_id, s.workspace_key, s.project_dir, s.created_at,
+     s.last_used_at, s.turn_count, s.last_user_prompt, s.state, s.card_id,
+     l.name, l.name_user_set, l.tag, s.synopsis, s.private, s.dash_id, s.dash_name, s.line_id";
+
+/// The `FROM` clause [`SESSION_COLUMNS`] is written against. `LEFT`, not
+/// inner: a row whose line is somehow missing reads back as a row with no
+/// identity rather than vanishing from a listing, which is the failure a
+/// reader can see and act on.
+const SESSIONS_JOINED: &str = "sessions s LEFT JOIN lines l ON l.line_id = s.line_id";
+
+/// Which segment answers for a line ([P06]) — one rule, written once, because
+/// a citation, a restore and a picker row must all seat on the same one.
+const RESUME_SEGMENT_ORDER: &str = "ORDER BY (s.state = 'live') DESC,
+              (NOT EXISTS (
+                  SELECT 1 FROM sessions child
+                  WHERE child.forked_from_session_id = s.session_id
+              )) DESC,
+              s.created_at DESC,
+              s.rowid DESC";
+
+fn line_row_from_query(row: &rusqlite::Row<'_>) -> rusqlite::Result<LineRow> {
+    Ok(LineRow {
+        line_id: row.get(0)?,
+        tag: row.get(1)?,
+        name: row.get(2)?,
+        name_user_set: row.get::<_, i64>(3)? != 0,
+        card_id: row.get(4)?,
+        project_dir: row.get(5)?,
+        created_at: row.get(6)?,
+        last_used_at: row.get(7)?,
+    })
+}
+
+/// The line a `sessions` row already carries, and nothing else — the one
+/// answer no other source may override, because a row that is already a
+/// segment of a line stays one.
+fn line_of_in_sessions(conn: &Connection, session_id: &str) -> Option<String> {
+    conn.query_row(
+        "SELECT line_id FROM sessions WHERE session_id = ?1",
+        params![session_id],
+        |row| row.get::<_, Option<String>>(0),
+    )
+    .optional()
+    .ok()
+    .flatten()
+    .flatten()
+    .filter(|line_id| !line_id.is_empty())
+}
+
+/// [`SessionLedger::line_of`] against a connection the caller already holds,
+/// so a writer inside a transaction asks the same question the same way.
+fn line_of_in(conn: &Connection, session_id: &str) -> Option<String> {
+    for sql in [
+        "SELECT line_id FROM sessions WHERE session_id = ?1",
+        "SELECT line_id FROM external_scan_cache WHERE session_id = ?1",
+        "SELECT line_id FROM minted_tags WHERE session_id = ?1
+         ORDER BY minted_at ASC, tag ASC LIMIT 1",
+    ] {
+        match conn
+            .query_row(sql, params![session_id], |row| {
+                row.get::<_, Option<String>>(0)
+            })
+            .optional()
+        {
+            Ok(Some(Some(line_id))) if !line_id.is_empty() => return Some(line_id),
+            Ok(_) => {}
+            Err(err) => {
+                tracing::warn!(
+                    session_id = %session_id,
+                    error = %err,
+                    "line lookup failed; treating the session as line-less"
+                );
+                return None;
+            }
+        }
+    }
+    None
+}
+
+/// Birth a line inside the caller's transaction, or return the one that is
+/// already there ([P03]).
+///
+/// Claim-then-write, exactly as the segment tag claim used to be: `minted_tags`
+/// is the all-time arbiter, so a spelling another line ever spent rerolls a
+/// complete fresh `adjective-noun` rather than suffixing the taken one. The
+/// `lines.tag` UNIQUE index is the live-row invariant and rerolls on the same
+/// terms — it can fire where the arbiter says the spelling is this session's
+/// own from an earlier life whose line still wears it.
+///
+/// Idempotent on `line_id`: an existing line has its `last_used_at` bumped and
+/// its `card_id` seated, and nothing about its identity is touched.
+fn birth_line_in(
+    tx: &Connection,
+    line_id: Option<&str>,
+    session_id: &str,
+    card_id: Option<&str>,
+    project_dir: &str,
+    tag: Option<&str>,
+    now: i64,
+) -> Result<LineRow, LedgerError> {
+    let line_id = line_id
+        .filter(|id| !id.is_empty())
+        .map(str::to_owned)
+        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+    let seat = card_id.filter(|c| !c.is_empty());
+    let existing: Option<LineRow> = tx
+        .query_row(
+            "SELECT line_id, tag, name, name_user_set, card_id,
+                    project_dir, created_at, last_used_at
+             FROM lines WHERE line_id = ?1",
+            params![line_id],
+            line_row_from_query,
+        )
+        .optional()?;
+    if let Some(mut line) = existing {
+        tx.execute(
+            "UPDATE lines
+             SET last_used_at = MAX(last_used_at, ?2),
+                 card_id = COALESCE(?3, card_id)
+             WHERE line_id = ?1",
+            params![line_id, now, seat],
+        )?;
+        line.last_used_at = line.last_used_at.max(now);
+        if let Some(seat) = seat {
+            line.card_id = Some(seat.to_owned());
+        }
+        return Ok(line);
+    }
+    let mut attempt: u32 = 0;
+    let mut candidate = tag
+        .filter(|t| !t.is_empty())
+        .map(str::to_owned)
+        .unwrap_or_else(|| roll_fresh_tag(session_id, now));
+    let tag = loop {
+        match claim_tag(tx, &candidate, session_id, now)? {
+            TagClaim::Claimed => {}
+            TagClaim::TakenByOther => {
+                candidate = reroll_or_fail(&candidate, session_id, now, &mut attempt)?;
+                continue;
+            }
+        }
+        let worn: Option<String> = tx
+            .query_row(
+                "SELECT line_id FROM lines WHERE tag = ?1",
+                params![candidate],
+                |row| row.get(0),
+            )
+            .optional()?;
+        match worn {
+            None => break candidate,
+            Some(_) => {
+                candidate = reroll_or_fail(&candidate, session_id, now, &mut attempt)?;
+            }
+        }
+    };
+    tx.execute(
+        "INSERT INTO lines (
+            line_id, tag, name, name_user_set, card_id,
+            project_dir, created_at, last_used_at
+         ) VALUES (?1, ?2, NULL, 0, ?3, ?4, ?5, ?5)",
+        params![line_id, tag, seat, project_dir, now],
+    )?;
+    tx.execute(
+        "UPDATE minted_tags SET line_id = ?2 WHERE tag = ?1",
+        params![tag, line_id],
+    )?;
+    Ok(LineRow {
+        line_id,
+        tag,
+        name: None,
+        name_user_set: false,
+        card_id: seat.map(str::to_owned),
+        project_dir: project_dir.to_owned(),
+        created_at: now,
+        last_used_at: now,
+    })
+}
+
 fn row_from_query(row: &rusqlite::Row<'_>) -> rusqlite::Result<Result<SessionRow, LedgerError>> {
     let session_id: String = row.get(0)?;
     let workspace_key: String = row.get(1)?;
@@ -7653,6 +7822,7 @@ fn row_from_query(row: &rusqlite::Row<'_>) -> rusqlite::Result<Result<SessionRow
     let private: bool = row.get::<_, i64>(13)? != 0;
     let dash_id: Option<String> = row.get(14)?;
     let dash_name: Option<String> = row.get(15)?;
+    let line_id: String = row.get::<_, Option<String>>(16)?.unwrap_or_default();
     let state = match state_str.parse::<SessionState>() {
         Ok(s) => s,
         Err(e) => return Ok(Err(e)),
@@ -7674,6 +7844,7 @@ fn row_from_query(row: &rusqlite::Row<'_>) -> rusqlite::Result<Result<SessionRow
         private,
         dash_id,
         dash_name,
+        line_id,
     }))
 }
 
@@ -7724,18 +7895,6 @@ fn is_session_callsign(s: &str) -> bool {
             && bytes.len() > 0
             && bytes.all(|b| b.is_ascii_digit())
     })
-}
-
-/// What a rewind-fork inherited from its parent ([P11], [D154]) — the
-/// callsign, and the `/rename` when the user gave one. Both `None` for an
-/// unknown or identity-less parent; the fork then spawns as a root.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct InheritedForkIdentity {
-    /// The transferred callsign, or `None` (legacy tagless parent, or a
-    /// sibling fork whose parent's name already moved on).
-    pub tag: Option<String>,
-    /// The transferred user-set name, or `None` when the parent had none.
-    pub user_name: Option<String>,
 }
 
 /// The verdict of a `minted_tags` claim (Spec S08).
@@ -7816,11 +7975,12 @@ fn roll_seed(session_id: &str, now: i64, attempt: u32) -> u64 {
     hash ^ (now as u64).rotate_left(17) ^ (u64::from(attempt) << 40)
 }
 
-/// A fresh `adjective-noun` candidate for a session that has no callsign to
-/// carry in — an arc stage rotation, which is a new session rather than the
-/// continuation of the one it rotated. `record_spawn` claims it and rerolls
-/// on a collision like any other candidate.
-pub fn roll_fresh_tag(session_id: &str, now: i64) -> String {
+/// A fresh `adjective-noun` candidate for a **line** being born with no
+/// callsign offered — a spawn that named none, or a component the migration
+/// found no spelling for. [`birth_line_in`] claims it and rerolls on a
+/// collision. Nothing outside this module rolls one, because nothing outside
+/// it births a line ([P03]).
+fn roll_fresh_tag(session_id: &str, now: i64) -> String {
     roll_tag(roll_seed(session_id, now, 0))
 }
 
@@ -7858,18 +8018,6 @@ fn is_duplicate_column(err: &rusqlite::Error) -> bool {
     matches!(
         err,
         rusqlite::Error::SqliteFailure(_, Some(msg)) if msg.starts_with("duplicate column name")
-    )
-}
-
-/// True when `err` is the `sessions_tag` unique-index violation — a live row
-/// already displays this tag. Fires on both the fresh INSERT and the backfill
-/// `DO UPDATE`.
-fn is_tag_unique_violation(err: &rusqlite::Error) -> bool {
-    matches!(
-        err,
-        rusqlite::Error::SqliteFailure(e, Some(msg))
-            if e.extended_code == rusqlite::ffi::SQLITE_CONSTRAINT_UNIQUE
-                && msg.contains("sessions.tag")
     )
 }
 
@@ -8241,7 +8389,7 @@ mod tests {
 
     fn seed_live(ledger: &SessionLedger, id: &str, ws: &str, card: &str, now: i64) {
         ledger
-            .record_spawn(id, ws, "/proj", card, now, None)
+            .record_spawn(id, ws, "/proj", card, now, id, None)
             .expect("record_spawn");
     }
 
@@ -8270,6 +8418,7 @@ mod tests {
             "/proj",
             "card-1",
             millis(0),
+            "s1",
             Some("azure-heron"),
         )
         .expect("record_spawn");
@@ -8288,6 +8437,7 @@ mod tests {
             "/proj",
             "card-1",
             millis(0),
+            "s1",
             Some("azure-heron"),
         )
         .unwrap();
@@ -8299,6 +8449,7 @@ mod tests {
             "/proj",
             "card-2",
             millis(0),
+            "s2",
             Some("azure-heron"),
         )
         .unwrap();
@@ -8327,6 +8478,7 @@ mod tests {
             "/proj",
             "card-1",
             millis(0),
+            "s1",
             Some("azure-heron"),
         )
         .unwrap();
@@ -8340,6 +8492,7 @@ mod tests {
             "/proj",
             "card-2",
             millis(0),
+            "s2",
             Some("azure-heron"),
         )
         .unwrap();
@@ -8357,6 +8510,7 @@ mod tests {
             "/proj",
             "card-1",
             millis(3),
+            "s1",
             Some("azure-heron"),
         )
         .unwrap();
@@ -8371,6 +8525,7 @@ mod tests {
             "/proj",
             "card-2",
             millis(0),
+            "s2",
             Some("azure-heron"),
         )
         .unwrap();
@@ -8391,6 +8546,7 @@ mod tests {
                 "/proj",
                 "card-1",
                 millis(0),
+                "s1",
                 Some("azure-heron"),
             )
             .unwrap();
@@ -8413,6 +8569,7 @@ mod tests {
             "/proj",
             "card-1",
             millis(0),
+            "s1",
             Some("azure-heron-A1"),
         )
         .unwrap();
@@ -8422,6 +8579,7 @@ mod tests {
             "/proj",
             "card-2",
             millis(0),
+            "s2",
             Some("azure-heron-A1"),
         )
         .unwrap();
@@ -8469,44 +8627,740 @@ mod tests {
         );
     }
 
+    // ── migrate_sessions_to_lines: every pre-lines row gets a line ───────────
+
+    /// Write a **pre-lines** ledger at `path` and hand back a connection to it.
+    ///
+    /// Hand-written rather than derived, deliberately: this is the shape the
+    /// migration will meet on a real machine, and it stopped changing the day
+    /// the migration was written. Only the three tables identity lived in are
+    /// declared; the ledger's own bootstrap creates the rest on the open that
+    /// migrates.
+    fn pre_lines_ledger(path: &Path) -> Connection {
+        let conn = Connection::open(path).expect("open the file directly");
+        conn.execute_batch(
+            "CREATE TABLE sessions (
+                session_id        TEXT PRIMARY KEY,
+                workspace_key     TEXT NOT NULL,
+                project_dir       TEXT NOT NULL,
+                created_at        INTEGER NOT NULL,
+                last_used_at      INTEGER NOT NULL,
+                turn_count        INTEGER NOT NULL DEFAULT 0,
+                last_user_prompt  TEXT,
+                state             TEXT NOT NULL,
+                card_id           TEXT,
+                name              TEXT,
+                name_user_set     INTEGER NOT NULL DEFAULT 0,
+                tag               TEXT,
+                forked_from_session_id TEXT,
+                fork_point        TEXT,
+                stage_label       TEXT,
+                stage_model       TEXT,
+                synopsis          TEXT,
+                private           INTEGER NOT NULL DEFAULT 0,
+                dash_id           TEXT,
+                dash_name         TEXT
+             );
+             CREATE UNIQUE INDEX sessions_tag ON sessions(tag);
+             CREATE TABLE minted_tags (
+                tag        TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                minted_at  INTEGER NOT NULL
+             );
+             CREATE TABLE external_scan_cache (
+                session_id        TEXT PRIMARY KEY,
+                project_dir       TEXT NOT NULL,
+                file_size         INTEGER NOT NULL,
+                file_mtime        INTEGER NOT NULL,
+                excluded          INTEGER NOT NULL DEFAULT 0,
+                turn_count        INTEGER NOT NULL DEFAULT 0,
+                last_user_prompt  TEXT,
+                name              TEXT,
+                created_at        INTEGER NOT NULL DEFAULT 0,
+                last_used_at      INTEGER NOT NULL DEFAULT 0,
+                lineage_ancestors TEXT,
+                tag               TEXT
+             );",
+        )
+        .expect("the pre-lines schema");
+        conn
+    }
+
+    /// One pre-lines `sessions` row.
+    #[allow(clippy::too_many_arguments)]
+    fn pre_lines_session(
+        conn: &Connection,
+        session_id: &str,
+        card_id: Option<&str>,
+        last_used_at: i64,
+        tag: Option<&str>,
+        name: Option<&str>,
+        name_user_set: bool,
+        forked_from: Option<&str>,
+        fork_point: Option<&str>,
+        stage_label: Option<&str>,
+    ) {
+        conn.execute(
+            "INSERT INTO sessions (
+                session_id, workspace_key, project_dir, created_at, last_used_at,
+                turn_count, state, card_id, name, name_user_set, tag,
+                forked_from_session_id, fork_point, stage_label
+             ) VALUES (?1, 'ws', '/proj', ?2, ?2, 1, 'closed', ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![
+                session_id,
+                last_used_at,
+                card_id,
+                name,
+                i64::from(name_user_set),
+                tag,
+                forked_from,
+                fork_point,
+                stage_label
+            ],
+        )
+        .expect("seed a session");
+    }
+
+    fn mint(conn: &Connection, tag: &str, session_id: &str, minted_at: i64) {
+        conn.execute(
+            "INSERT INTO minted_tags (tag, session_id, minted_at) VALUES (?1, ?2, ?3)",
+            params![tag, session_id, minted_at],
+        )
+        .expect("seed a minted spelling");
+    }
+
+    /// The live `release-main` shapes the brief's audit found, migrated in one
+    /// pass: an arc whose stages each minted their own spelling, a rewind-fork
+    /// that took its parent's, two rows wearing one user-set name, edge-less
+    /// rows, and scan rows with and without a ledger ancestor.
+    ///
+    /// Run against a copy of `release-main` (41 segments, 1109 spent
+    /// spellings), this produced 1091 lines with no `sessions` row and no
+    /// `minted_tags` row left line-less and no user-set name worn twice. The
+    /// largest line was `heroic-mule` / `dash+join-xp` with eight segments —
+    /// `5b4b5867, 8698cbea, 696b12a6, 56617479, 4cde21f9, 7c9d2b49, e78009cd,
+    /// 8fbf9d74` — owning `heroic-mule, open-stoat, sinewy-flash, pearly-horn,
+    /// chummy-carp, plenty-mint, spicy-grain, chichi-jute`. Its shape is the
+    /// one this fixture reproduces: two arc triples with a label-less segment
+    /// between them.
     #[test]
-    fn record_spawn_preserves_tag_on_respawn_and_backfills_null_on_resume() {
+    fn the_migration_gives_every_pre_lines_row_a_line() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("sessions.db");
+        {
+            let conn = pre_lines_ledger(&path);
+
+            // [F04]: root → devise → implement → rewind → devise → implement.
+            // The user's name is on the root; each stage minted its own
+            // spelling, and the label-less rewind sits mid-chain the way a
+            // second arc's does on the live ledger.
+            pre_lines_session(
+                &conn,
+                "root",
+                Some("card-A"),
+                100,
+                Some("heroic-mule"),
+                Some("dash+join-xp"),
+                true,
+                None,
+                None,
+                None,
+            );
+            pre_lines_session(
+                &conn,
+                "devise",
+                Some("card-A"),
+                200,
+                Some("open-stoat"),
+                None,
+                false,
+                Some("root"),
+                None,
+                Some("devise"),
+            );
+            pre_lines_session(
+                &conn,
+                "implement",
+                Some("card-A"),
+                300,
+                None,
+                Some("Keep the spike"),
+                false,
+                Some("devise"),
+                None,
+                Some("implement"),
+            );
+            pre_lines_session(
+                &conn,
+                "rewind",
+                Some("card-A"),
+                400,
+                Some("pearly-horn"),
+                None,
+                false,
+                Some("implement"),
+                Some("prompt-uuid"),
+                None,
+            );
+            pre_lines_session(
+                &conn,
+                "devise-2",
+                Some("card-A"),
+                450,
+                Some("spicy-grain"),
+                None,
+                false,
+                Some("rewind"),
+                None,
+                Some("devise"),
+            );
+            pre_lines_session(
+                &conn,
+                "implement-2",
+                Some("card-A"),
+                480,
+                None,
+                None,
+                false,
+                Some("devise-2"),
+                None,
+                Some("implement"),
+            );
+            mint(&conn, "heroic-mule", "root", 10);
+            mint(&conn, "open-stoat", "devise", 20);
+            mint(&conn, "pearly-horn", "rewind", 30);
+            mint(&conn, "spicy-grain", "devise-2", 35);
+            // A spelling the arc spent on a segment both tables have since
+            // forgotten — an evicted stage. It still has to resolve.
+            mint(&conn, "sinewy-flash", "evicted-stage", 25);
+
+            // [F07]: two rows on one card wearing one user-set name.
+            pre_lines_session(
+                &conn,
+                "dup-old",
+                Some("card-B"),
+                500,
+                Some("glossy-straw"),
+                Some("the parser work"),
+                true,
+                None,
+                None,
+                None,
+            );
+            pre_lines_session(
+                &conn,
+                "dup-new",
+                Some("card-B"),
+                600,
+                Some("chummy-carp"),
+                Some("the parser work"),
+                true,
+                None,
+                None,
+                None,
+            );
+            mint(&conn, "glossy-straw", "dup-old", 40);
+            mint(&conn, "chummy-carp", "dup-new", 50);
+
+            // Edge-less rows: one named, one legacy and tagless.
+            pre_lines_session(
+                &conn,
+                "solo",
+                Some("card-C"),
+                700,
+                Some("plenty-mint"),
+                None,
+                false,
+                None,
+                None,
+                None,
+            );
+            mint(&conn, "plenty-mint", "solo", 60);
+            pre_lines_session(
+                &conn, "legacy", None, 800, None, None, false, None, None, None,
+            );
+
+            // Scan rows: one whose transcript names a ledger row as an earlier
+            // life of itself, one that names nobody.
+            for (id, ancestors, tag) in [
+                ("scan-joined", Some("implement"), "tidy-perch"),
+                ("scan-alone", None, "brisk-otter"),
+            ] {
+                conn.execute(
+                    "INSERT INTO external_scan_cache (
+                        session_id, project_dir, file_size, file_mtime,
+                        created_at, last_used_at, lineage_ancestors, tag
+                     ) VALUES (?1, '/proj', 100, 1, 1, 900, ?2, ?3)",
+                    params![id, ancestors, tag],
+                )
+                .expect("seed a scan row");
+                mint(&conn, tag, id, 70);
+            }
+        }
+
+        let l = SessionLedger::open(&path, 0).expect("the migrating open");
+        let conn = l.db.lock().expect("ledger mutex");
+
+        let line_of = |id: &str| -> String {
+            conn.query_row(
+                "SELECT line_id FROM sessions WHERE session_id = ?1",
+                params![id],
+                |row| row.get(0),
+            )
+            .unwrap_or_else(|e| panic!("{id} has a line: {e}"))
+        };
+        let line = |line_id: &str| -> (String, Option<String>, bool, Option<String>) {
+            conn.query_row(
+                "SELECT tag, name, name_user_set, card_id FROM lines WHERE line_id = ?1",
+                params![line_id],
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get::<_, i64>(2)? != 0,
+                        row.get(3)?,
+                    ))
+                },
+            )
+            .expect("the line")
+        };
+
+        // The whole arc is one line, wearing the earliest spelling any of its
+        // segments ever spent and the user's name.
+        let arc = line_of("root");
+        for segment in ["devise", "implement", "rewind", "devise-2", "implement-2"] {
+            assert_eq!(line_of(segment), arc, "{segment} joins the arc's line");
+        }
+        assert_eq!(
+            line(&arc),
+            (
+                "heroic-mule".to_string(),
+                Some("dash+join-xp".to_string()),
+                true,
+                Some("card-A".to_string())
+            )
+        );
+        // Every spelling the arc spent points at that one line — including the
+        // one whose segment is gone.
+        let owner_of = |tag: &str| -> String {
+            conn.query_row(
+                "SELECT line_id FROM minted_tags WHERE tag = ?1",
+                params![tag],
+                |row| row.get(0),
+            )
+            .unwrap_or_else(|e| panic!("{tag} has an owning line: {e}"))
+        };
+        for spelling in ["heroic-mule", "open-stoat", "pearly-horn", "spicy-grain"] {
+            assert_eq!(owner_of(spelling), arc, "{spelling} belongs to the arc");
+        }
+        // `sinewy-flash` names a segment neither table holds, so it gets a
+        // card-less line of its own rather than going unresolvable.
+        let stranded = owner_of("sinewy-flash");
+        assert_ne!(stranded, arc);
+        assert_eq!(line(&stranded).0, "sinewy-flash");
+
+        // The contested name goes to the more recently used line; the other
+        // keeps its callsign and loses only the name.
+        assert_eq!(
+            line(&line_of("dup-new")).1.as_deref(),
+            Some("the parser work")
+        );
+        let older = line(&line_of("dup-old"));
+        assert_eq!(older.0, "glossy-straw");
+        assert_eq!(older.1, None);
+        assert!(!older.2);
+
+        // Edge-less rows are lines of one; the legacy tagless row rolls a pair.
+        assert_ne!(line_of("solo"), line_of("legacy"));
+        assert_eq!(line(&line_of("solo")).0, "plenty-mint");
+        assert_is_lexicon_pair(&line(&line_of("legacy")).0);
+        assert_eq!(line(&line_of("legacy")).3, None, "no card, no seat");
+
+        // A scan row whose transcript names a ledger row joins that line; one
+        // that names nobody becomes a card-less line of its own.
+        let scan_line = |id: &str| -> String {
+            conn.query_row(
+                "SELECT line_id FROM external_scan_cache WHERE session_id = ?1",
+                params![id],
+                |row| row.get(0),
+            )
+            .unwrap_or_else(|e| panic!("{id} has a line: {e}"))
+        };
+        assert_eq!(scan_line("scan-joined"), arc);
+        let alone = scan_line("scan-alone");
+        assert_ne!(alone, arc);
+        assert_eq!(line(&alone), ("brisk-otter".to_string(), None, false, None));
+
+        // The invariants the migration asserted before it committed.
+        let count = |sql: &str| -> i64 { conn.query_row(sql, [], |row| row.get(0)).unwrap() };
+        assert_eq!(
+            count("SELECT COUNT(*) FROM sessions WHERE line_id IS NULL"),
+            0
+        );
+        assert_eq!(
+            count("SELECT COUNT(*) FROM minted_tags WHERE line_id IS NULL"),
+            0
+        );
+        assert_eq!(
+            count(
+                "SELECT COUNT(*) FROM (
+                    SELECT name FROM lines WHERE name_user_set = 1
+                    GROUP BY name HAVING COUNT(*) > 1
+                 )"
+            ),
+            0
+        );
+    }
+
+    /// The migration runs once. A second open finds `sessions.line_id` already
+    /// there and does nothing — which is what makes the guard a shape rather
+    /// than a version stamp.
+    #[test]
+    fn the_migration_is_a_no_op_on_a_ledger_that_already_speaks_lines() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("sessions.db");
+        {
+            let conn = pre_lines_ledger(&path);
+            pre_lines_session(
+                &conn,
+                "root",
+                Some("card-A"),
+                100,
+                Some("heroic-mule"),
+                Some("held"),
+                true,
+                None,
+                None,
+                None,
+            );
+            mint(&conn, "heroic-mule", "root", 10);
+        }
+        let before = {
+            let l = SessionLedger::open(&path, 0).expect("the migrating open");
+            l.line_of("root").expect("a line")
+        };
+        let l = SessionLedger::open(&path, 0).expect("reopen");
+        assert_eq!(l.line_of("root").as_deref(), Some(before.as_str()));
+        let row = l.get_line(&before).unwrap().expect("the line");
+        assert_eq!(row.tag, "heroic-mule");
+        assert_eq!(row.name.as_deref(), Some("held"));
+    }
+
+    /// The migration leaves a copy of the pre-lines file beside the ledger
+    /// ([R01]) — the one irreversible write in this plan, with a way back.
+    #[test]
+    fn the_migration_writes_a_pre_lines_sidecar() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("sessions.db");
+        {
+            let conn = pre_lines_ledger(&path);
+            pre_lines_session(
+                &conn,
+                "root",
+                Some("card-A"),
+                100,
+                Some("heroic-mule"),
+                None,
+                false,
+                None,
+                None,
+                None,
+            );
+            mint(&conn, "heroic-mule", "root", 10);
+        }
+        let sidecar = dir.path().join("sessions.db.pre-lines");
+        assert!(!sidecar.exists());
+        let _l = SessionLedger::open(&path, 0).expect("the migrating open");
+        assert!(sidecar.exists(), "the pre-lines copy is beside the ledger");
+
+        // It is the *old* shape, which is the whole point of keeping it.
+        let old = Connection::open(&sidecar).expect("open the sidecar");
+        let columns: Vec<String> = old
+            .prepare("SELECT name FROM pragma_table_info('sessions')")
+            .unwrap()
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .collect::<Result<Vec<String>, _>>()
+            .unwrap();
+        assert!(columns.contains(&"tag".to_string()));
+        assert!(!columns.contains(&"line_id".to_string()));
+    }
+
+    #[test]
+    /// A `sessions` row carries no identity ([P01]). This is the invariant the
+    /// whole model rests on: with nothing on a segment to name it, there is
+    /// nothing to inherit, strand, displace, or climb for.
+    fn no_identity_on_segments() {
         let l = fresh();
-        // A respawn carrying a *different* provisional tag must not overwrite the
-        // stored one — COALESCE keeps the set tag.
+        let conn = l.db.lock().expect("ledger mutex");
+        let columns: Vec<String> = conn
+            .prepare("SELECT name FROM pragma_table_info('sessions')")
+            .unwrap()
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .collect::<Result<Vec<String>, _>>()
+            .unwrap();
+        for gone in ["tag", "name", "name_user_set"] {
+            assert!(
+                !columns.contains(&gone.to_string()),
+                "`sessions` still carries `{gone}`: {columns:?}"
+            );
+        }
+        assert!(columns.contains(&"line_id".to_string()));
+    }
+
+    /// [P06]'s tie-break, in order: a live segment, then the line's tip (one
+    /// nothing was forked from), then the newest. A failed segment is never
+    /// offered — it is known-unrecoverable.
+    #[test]
+    fn resume_segment_prefers_live_then_unforked_then_newest() {
+        let l = fresh();
+        let line = "line-1";
+        let seg = |id: &str, days_ago: i64| {
+            l.record_spawn(id, WS_A, "/proj", "card-1", millis(days_ago), line, None)
+                .expect("record_spawn");
+        };
+
+        // Newest alone: three closed segments, no edges.
+        for (id, days_ago) in [("old", 5), ("mid", 3), ("new", 1)] {
+            seg(id, days_ago);
+            l.mark_closed(id).unwrap();
+        }
+        assert_eq!(
+            l.resume_segment_for_line(line).unwrap().unwrap().session_id,
+            "new"
+        );
+
+        // The line's tip beats recency: chain them so `tip` is the only
+        // segment nothing was forked from, and seat there even though it is
+        // the oldest row on the line.
+        seg("tip", 9);
+        l.mark_closed("tip").unwrap();
+        l.set_fork_provenance("mid", "old", Some("point-1"))
+            .unwrap();
+        l.set_fork_provenance("new", "mid", Some("point-2"))
+            .unwrap();
+        l.set_fork_provenance("tip", "new", Some("point-3"))
+            .unwrap();
+        assert_eq!(
+            l.resume_segment_for_line(line).unwrap().unwrap().session_id,
+            "tip",
+            "the tip keeps the whole scroll"
+        );
+
+        // A live segment beats both.
+        seg("live", 7);
+        assert_eq!(
+            l.resume_segment_for_line(line).unwrap().unwrap().session_id,
+            "live"
+        );
+
+        // A failed segment is never offered, however live-looking.
+        l.mark_failed("live").unwrap();
+        assert_eq!(
+            l.resume_segment_for_line(line).unwrap().unwrap().session_id,
+            "tip"
+        );
+    }
+
+    /// A scanned transcript that names an earlier life of itself joins that
+    /// line rather than starting a second one for the same conversation
+    /// ([P07]).
+    #[test]
+    fn ensure_scan_line_joins_an_ancestors_line() {
+        let l = fresh();
+        l.record_spawn("root", WS_A, "/proj", "card-1", millis(0), "root", None)
+            .unwrap();
+        let root_line = l.line_of("root").expect("the root has a line");
+
+        l.upsert_scan_cache(&scan_cache_row("resumed", Some("root")))
+            .unwrap();
+        let joined = l.ensure_scan_line("resumed", millis(0)).unwrap();
+        assert_eq!(joined.as_deref(), Some(root_line.as_str()));
+
+        // A transcript that names nobody gets a card-less line of its own.
+        l.upsert_scan_cache(&scan_cache_row("stranger", None))
+            .unwrap();
+        let own = l
+            .ensure_scan_line("stranger", millis(0))
+            .unwrap()
+            .expect("a line");
+        assert_ne!(own, root_line);
+        let row = l.get_line(&own).unwrap().expect("the line");
+        assert_eq!(row.card_id, None, "a scan line is seated on no card");
+        assert_is_lexicon_pair(&row.tag);
+
+        // And a session with no cache row has nothing to attach a line to.
+        assert_eq!(l.ensure_scan_line("absent", millis(0)).unwrap(), None);
+    }
+
+    /// `upsert_scan_cache` carries `line_id` across, so a re-parse of a grown
+    /// file cannot orphan the row from its line — which would drop the
+    /// callsign the picker has been showing ([P07]).
+    #[test]
+    fn a_rescan_does_not_orphan_the_scan_line() {
+        let l = fresh();
+        l.upsert_scan_cache(&scan_cache_row("ext", None)).unwrap();
+        let line = l
+            .ensure_scan_line("ext", millis(0))
+            .unwrap()
+            .expect("a line");
+
+        // The file grew; the scanner writes a whole fresh row for it, and the
+        // row it writes says nothing about lines.
+        let mut grown = scan_cache_row("ext", None);
+        grown.file_size = 99_999;
+        grown.turn_count = 12;
+        l.upsert_scan_cache(&grown).unwrap();
+
+        assert_eq!(
+            l.get_scan_cache("ext").unwrap().expect("the row").line_id,
+            Some(line.clone())
+        );
+        assert_eq!(l.ensure_scan_line("ext", millis(0)).unwrap(), Some(line));
+    }
+
+    /// A spelling nothing wears anymore still resolves — to the line that
+    /// spent it, seated on the segment a resume would open ([P08]).
+    #[test]
+    fn a_citation_resolves_a_retired_spelling_to_its_line() {
+        let l = fresh();
+        l.record_spawn("root", WS_A, "/proj", "card-1", millis(5), "line-1", None)
+            .unwrap();
+        let worn = l.get("root").unwrap().unwrap().tag.expect("a callsign");
+        // A spelling the line spent under an older grammar: recorded against a
+        // segment, owned by the line, worn by nothing.
+        {
+            let conn = l.db.lock().expect("ledger mutex");
+            conn.execute(
+                "INSERT INTO minted_tags (tag, line_id, session_id, minted_at)
+                 VALUES ('stocky-pixie', 'line-1', 'root', 1)",
+                [],
+            )
+            .unwrap();
+        }
+        // The line moved on to a newer segment.
+        l.record_spawn("stage", WS_A, "/proj", "card-1", millis(1), "line-1", None)
+            .unwrap();
+        l.mark_closed("root").unwrap();
+
+        for spelling in [worn.as_str(), "stocky-pixie"] {
+            let resolved = l.resolve_session_ids(&[spelling.to_owned()]).unwrap();
+            assert_eq!(resolved.len(), 1, "{spelling} resolves");
+            assert_eq!(
+                resolved[0].1.session_id, "stage",
+                "{spelling} seats on the line's resume segment"
+            );
+            assert_eq!(resolved[0].1.tag.as_deref(), Some(worn.as_str()));
+        }
+    }
+
+    /// A `Tug-Session:` trailer parenthesizes the **line's** eight characters
+    /// ([P13]), so the prefix arm has to answer for a line id as well as for a
+    /// session id.
+    #[test]
+    fn a_line_citation_resolves_by_line_short_id() {
+        let l = fresh();
+        let line = "7f3d2c18-4b5a-4c6d-8e9f-0a1b2c3d4e5f";
+        l.record_spawn(
+            "aa11bb22-cc33-4d44-8e55-ff6677889900",
+            WS_A,
+            "/proj",
+            "card-1",
+            millis(0),
+            line,
+            None,
+        )
+        .unwrap();
+
+        let resolved = l.resolve_session_ids(&["7f3d2c18".to_owned()]).unwrap();
+        assert_eq!(resolved.len(), 1);
+        assert_eq!(resolved[0].0, "7f3d2c18");
+        assert_eq!(
+            resolved[0].1.session_id,
+            "aa11bb22-cc33-4d44-8e55-ff6677889900"
+        );
+
+        // The segment's own eight characters keep resolving too — that is what
+        // every trailer written before this model says.
+        let by_segment = l.resolve_session_ids(&["aa11bb22".to_owned()]).unwrap();
+        assert_eq!(by_segment.len(), 1);
+        assert_eq!(
+            by_segment[0].1.session_id,
+            "aa11bb22-cc33-4d44-8e55-ff6677889900"
+        );
+    }
+
+    /// A scan-cache row for `session_id`, optionally naming `ancestor` as an
+    /// earlier life of the same transcript.
+    fn scan_cache_row(session_id: &str, ancestor: Option<&str>) -> ScanCacheRow {
+        ScanCacheRow {
+            session_id: session_id.into(),
+            project_dir: "/proj".into(),
+            file_size: 1_000,
+            file_mtime: millis(0),
+            excluded: false,
+            turn_count: 3,
+            last_user_prompt: None,
+            name: None,
+            created_at: millis(1),
+            last_used_at: millis(0),
+            parse_offset: 0,
+            tail_hash: 0,
+            cwd_checked: false,
+            created_at_found: false,
+            frontier_open: false,
+            frontier_pending_close: false,
+            frontier_pending_close_msg_id: None,
+            frontier_leaf_uuid: None,
+            effective_uuids: None,
+            lineage_ancestors: ancestor.map(str::to_owned),
+            line_id: None,
+        }
+    }
+
+    #[test]
+    fn a_lines_callsign_survives_a_respawn_carrying_a_different_candidate() {
+        let l = fresh();
+        // A callsign is the line's and is minted once. A respawn carrying a
+        // different provisional tag is offering one to a line that already has
+        // one, and is ignored.
         l.record_spawn(
             "s1",
             WS_A,
             "/proj",
             "card-1",
             millis(0),
+            "s1",
             Some("azure-heron"),
         )
         .unwrap();
-        l.record_spawn("s1", WS_A, "/proj", "card-1", millis(0), Some("other-swan"))
-            .unwrap();
+        l.record_spawn(
+            "s1",
+            WS_A,
+            "/proj",
+            "card-1",
+            millis(0),
+            "s1",
+            Some("other-swan"),
+        )
+        .unwrap();
         assert_eq!(
             l.get("s1").unwrap().unwrap().tag.as_deref(),
             Some("azure-heron")
         );
 
-        // A legacy NULL-tag row backfills the provided tag on resume ([P06]).
-        l.record_spawn("s2", WS_A, "/proj", "card-2", millis(0), None)
+        // A spawn that offers none rolls one rather than landing a nameless
+        // line: `lines.tag` is NOT NULL, so there is no tagless state to be in.
+        l.record_spawn("s2", WS_A, "/proj", "card-2", millis(0), "s2", None)
             .unwrap();
-        assert_eq!(l.get("s2").unwrap().unwrap().tag, None);
-        l.record_spawn(
-            "s2",
-            WS_A,
-            "/proj",
-            "card-2",
-            millis(0),
-            Some("coral-otter"),
-        )
-        .unwrap();
-        assert_eq!(
-            l.get("s2").unwrap().unwrap().tag.as_deref(),
-            Some("coral-otter")
-        );
+        let rolled = l
+            .get("s2")
+            .unwrap()
+            .unwrap()
+            .tag
+            .expect("a rolled callsign");
+        assert_is_lexicon_pair(&rolled);
     }
 
     #[test]
@@ -8519,13 +9373,14 @@ mod tests {
             "/proj",
             "card-1",
             millis(0),
+            "s1",
             Some("azure-heron"),
         )
         .unwrap();
         // A second, initially tagless row is resumed with the SAME provisional
         // tag: the claim sees another session already minted it and rerolls
         // before the backfill `DO UPDATE` ever runs (Spec S08).
-        l.record_spawn("s2", WS_A, "/proj", "card-2", millis(0), None)
+        l.record_spawn("s2", WS_A, "/proj", "card-2", millis(0), "s2", None)
             .unwrap();
         l.record_spawn(
             "s2",
@@ -8533,6 +9388,7 @@ mod tests {
             "/proj",
             "card-2",
             millis(0),
+            "s2",
             Some("azure-heron"),
         )
         .unwrap();
@@ -8549,8 +9405,16 @@ mod tests {
         for i in 0..24 {
             let id = format!("s{i}");
             let card = format!("card-{i}");
-            l.record_spawn(&id, WS_A, "/proj", &card, millis(0), Some("azure-heron"))
-                .unwrap();
+            l.record_spawn(
+                &id,
+                WS_A,
+                "/proj",
+                &card,
+                millis(0),
+                &id,
+                Some("azure-heron"),
+            )
+            .unwrap();
             let tag = l
                 .get(&id)
                 .unwrap()
@@ -8574,6 +9438,7 @@ mod tests {
             "/proj",
             "card-1",
             millis(0),
+            "s1",
             Some("azure-heron"),
         )
         .unwrap();
@@ -8583,6 +9448,7 @@ mod tests {
             "/proj",
             "card-1",
             millis(1),
+            "s1",
             Some("coral-otter"),
         )
         .unwrap();
@@ -8612,50 +9478,36 @@ mod tests {
     }
 
     #[test]
-    fn record_spawn_allows_many_null_tags() {
+    fn a_spawn_that_offers_no_callsign_rolls_a_fresh_one_per_line() {
         let l = fresh();
-        // NULLs are distinct in the unique index — legacy tagless rows coexist.
-        l.record_spawn("s1", WS_A, "/proj", "card-1", millis(0), None)
+        // There is no tagless line, so two of them get two distinct spellings
+        // rather than sharing a NULL the unique index would let past.
+        l.record_spawn("s1", WS_A, "/proj", "card-1", millis(0), "s1", None)
             .unwrap();
-        l.record_spawn("s2", WS_A, "/proj", "card-2", millis(0), None)
+        l.record_spawn("s2", WS_A, "/proj", "card-2", millis(0), "s2", None)
             .unwrap();
-        assert_eq!(l.get("s1").unwrap().unwrap().tag, None);
-        assert_eq!(l.get("s2").unwrap().unwrap().tag, None);
+        let a = l.get("s1").unwrap().unwrap().tag.expect("a callsign");
+        let b = l.get("s2").unwrap().unwrap().tag.expect("a callsign");
+        assert_is_lexicon_pair(&a);
+        assert_is_lexicon_pair(&b);
+        assert_ne!(a, b);
     }
 
-    // ── fork identity: the callsign is stable ([D132]) ───────────────────────
+    // ── line identity: every segment wears the line's callsign ([P01]) ───────
 
-    /// Spawn a fork the way the bridge does around `session_init`: transfer
-    /// the parent's callsign, record the spawn under it (or under nothing,
-    /// letting the mint fall through), then write the provenance columns.
-    fn spawn_fork(
-        l: &SessionLedger,
-        parent: &str,
-        fork_point: &str,
-        fork_id: &str,
-    ) -> Option<String> {
-        let inherited = l
-            .inherit_fork_identity(parent, fork_id, millis(0))
-            .expect("inherit");
-        l.record_spawn(
-            fork_id,
-            WS_A,
-            "/proj",
-            "card-1",
-            millis(0),
-            inherited.tag.as_deref(),
-        )
-        .expect("record_spawn");
+    /// A rewind-fork: another **segment** of the parent's line ([P04]).
+    /// Nothing is transferred, because there is nothing on a segment to
+    /// transfer — the fork records where it came from and joins the line.
+    fn spawn_fork(l: &SessionLedger, parent: &str, fork_point: &str, fork_id: &str) {
+        let line_id = l.line_of(parent).expect("the parent belongs to a line");
+        l.record_spawn(fork_id, WS_A, "/proj", "card-1", millis(0), &line_id, None)
+            .expect("record_spawn");
         l.set_fork_provenance(fork_id, parent, Some(fork_point))
             .expect("set_fork_provenance");
-        if let Some(name) = inherited.user_name.as_deref() {
-            l.rename(fork_id, Some(name)).expect("rename");
-        }
-        inherited.tag
     }
 
     #[test]
-    fn a_rewind_fork_inherits_its_parents_callsign() {
+    fn every_segment_of_a_line_wears_the_lines_callsign() {
         let l = fresh();
         l.record_spawn(
             "root",
@@ -8663,22 +9515,27 @@ mod tests {
             "/proj",
             "card-1",
             millis(0),
+            "root",
             Some("stocky-pixie"),
         )
         .unwrap();
 
-        // Five successive rewinds; the name never accretes a single segment.
+        // Five successive rewinds. Nothing accretes and nothing is stranded:
+        // the callsign is the line's, so every segment reads it and the
+        // superseded parent goes on wearing it too.
         let mut parent = "root".to_owned();
         for n in 0..5 {
             let fork_id = format!("f-{n}");
-            let tag = spawn_fork(&l, &parent, &format!("point-{n}"), &fork_id);
-            assert_eq!(tag.as_deref(), Some("stocky-pixie"));
+            spawn_fork(&l, &parent, &format!("point-{n}"), &fork_id);
             assert_eq!(
                 l.get(&fork_id).unwrap().unwrap().tag.as_deref(),
                 Some("stocky-pixie")
             );
-            // The superseded parent handed the name down.
-            assert_eq!(l.get(&parent).unwrap().unwrap().tag, None);
+            assert_eq!(
+                l.get(&parent).unwrap().unwrap().tag.as_deref(),
+                Some("stocky-pixie"),
+                "the parent is still a segment of the same line"
+            );
             parent = fork_id;
         }
 
@@ -8703,7 +9560,7 @@ mod tests {
         // so the two facts the divider needs live on the row.
         let l = fresh();
         for id in ["root", "seated", "untouched"] {
-            l.record_spawn(id, WS_A, "/proj", "card-1", millis(0), None)
+            l.record_spawn(id, WS_A, "/proj", "card-1", millis(0), id, None)
                 .expect("record_spawn");
         }
         l.set_stage_provenance("seated", "review", Some("opus"))
@@ -8748,7 +9605,7 @@ mod tests {
         let path = dir.path().join("sessions.db");
         {
             let l = SessionLedger::open(&path, 0).expect("open");
-            l.record_spawn("older", WS_A, "/proj", "card-1", millis(0), None)
+            l.record_spawn("older", WS_A, "/proj", "card-1", millis(0), "older", None)
                 .expect("record_spawn");
             let conn = l.db.lock().unwrap();
             for name in ["stage_label", "stage_model"] {
@@ -8774,7 +9631,7 @@ mod tests {
         // branch point and the column must be NULL rather than a stand-in.
         let l = fresh();
         for id in ["root", "stage", "rewind"] {
-            l.record_spawn(id, WS_A, "/proj", "card-1", millis(0), None)
+            l.record_spawn(id, WS_A, "/proj", "card-1", millis(0), id, None)
                 .expect("record_spawn");
         }
         l.set_fork_provenance("stage", "root", None)
@@ -8808,6 +9665,7 @@ mod tests {
             "/proj",
             "card-1",
             millis(0),
+            "root",
             Some("stocky-pixie"),
         )
         .unwrap();
@@ -8815,119 +9673,6 @@ mod tests {
         let resolved = l.resolve_session_ids(&["stocky-pixie".to_owned()]).unwrap();
         assert_eq!(resolved.len(), 1);
         assert_eq!(resolved[0].1.session_id, "f-1");
-    }
-
-    #[test]
-    fn a_sibling_fork_mints_a_fresh_pair() {
-        let l = fresh();
-        l.record_spawn(
-            "root",
-            WS_A,
-            "/proj",
-            "card-1",
-            millis(0),
-            Some("stocky-pixie"),
-        )
-        .unwrap();
-        // The first fork carries the name on.
-        assert_eq!(
-            spawn_fork(&l, "root", "point-1", "f-1").as_deref(),
-            Some("stocky-pixie")
-        );
-        // Forking the superseded parent again finds no callsign to hand
-        // down — a sibling is a new line of work. The bridge falls back to
-        // the entry's remembered tag; the claim loses to the head and
-        // rerolls a complete fresh pair.
-        assert_eq!(
-            l.inherit_fork_identity("root", "f-2", millis(0))
-                .unwrap()
-                .tag,
-            None
-        );
-        l.record_spawn(
-            "f-2",
-            WS_A,
-            "/proj",
-            "card-2",
-            millis(0),
-            Some("stocky-pixie"),
-        )
-        .unwrap();
-        l.set_fork_provenance("f-2", "root", Some("point-2"))
-            .unwrap();
-        let sibling = l.get("f-2").unwrap().unwrap().tag.expect("fresh tag");
-        assert_ne!(sibling, "stocky-pixie");
-        assert_is_lexicon_pair(&sibling);
-        // The head still wears the inherited name.
-        assert_eq!(
-            l.get("f-1").unwrap().unwrap().tag.as_deref(),
-            Some("stocky-pixie")
-        );
-    }
-
-    #[test]
-    fn a_fork_of_a_tagless_parent_has_no_callsign_to_inherit() {
-        let l = fresh();
-        l.record_spawn("root", WS_A, "/proj", "card-1", millis(0), None)
-            .unwrap();
-        assert_eq!(
-            l.inherit_fork_identity("root", "f-1", millis(0))
-                .unwrap()
-                .tag,
-            None,
-            "the caller spawns it as a root"
-        );
-        // An unknown parent is the same answer, not an error.
-        assert_eq!(
-            l.inherit_fork_identity("no-such", "f-2", millis(0))
-                .unwrap(),
-            InheritedForkIdentity::default()
-        );
-    }
-
-    #[test]
-    fn a_rewind_fork_inherits_a_rename_with_the_callsign() {
-        let l = fresh();
-        l.record_spawn(
-            "root",
-            WS_A,
-            "/proj",
-            "card-1",
-            millis(0),
-            Some("stocky-pixie"),
-        )
-        .unwrap();
-        l.rename("root", Some("perf hunt")).unwrap();
-        spawn_fork(&l, "root", "point-1", "f-1");
-        // The name moved with the callsign; the superseded copy wears
-        // neither.
-        let fork = l.get("f-1").unwrap().unwrap();
-        assert_eq!(fork.name.as_deref(), Some("perf hunt"));
-        assert!(fork.name_user_set);
-        let parent = l.get("root").unwrap().unwrap();
-        assert_eq!(parent.tag, None);
-        assert_eq!(parent.name, None);
-        assert!(!parent.name_user_set);
-        // An auto title is NOT transferred — the fork's copied JSONL
-        // re-derives it.
-        l.record_spawn(
-            "root2",
-            WS_A,
-            "/proj",
-            "card-2",
-            millis(0),
-            Some("azure-heron"),
-        )
-        .unwrap();
-        l.record_auto_title("root2", "Auto title").unwrap();
-        let inherited = l.inherit_fork_identity("root2", "f-2", millis(0)).unwrap();
-        assert_eq!(inherited.tag.as_deref(), Some("azure-heron"));
-        assert_eq!(inherited.user_name, None);
-        assert_eq!(
-            l.get("root2").unwrap().unwrap().name.as_deref(),
-            Some("Auto title"),
-            "an auto title stays on the superseded copy's row"
-        );
     }
 
     #[test]
@@ -8939,6 +9684,7 @@ mod tests {
             "/proj",
             "card-1",
             millis(0),
+            "root",
             Some("stocky-pixie"),
         )
         .unwrap();
@@ -8953,6 +9699,7 @@ mod tests {
             "/proj",
             "card-2",
             millis(0),
+            "s-new",
             Some("stocky-pixie"),
         )
         .unwrap();
@@ -8962,511 +9709,18 @@ mod tests {
     }
 
     #[test]
-    fn a_collapse_hands_the_user_name_down_with_the_spelling() {
-        let l = fresh();
-        {
-            let conn = l.db.lock().unwrap();
-            // The pre-[D154] fork COPIED the name onto every row of the
-            // chain; only the head may keep it.
-            conn.execute_batch(
-                "ALTER TABLE sessions ADD COLUMN root_tag TEXT;
-                 ALTER TABLE sessions ADD COLUMN tag_lineage TEXT;
-                 INSERT INTO sessions (
-                     session_id, workspace_key, project_dir, created_at,
-                     last_used_at, state, tag, root_tag, tag_lineage,
-                     name, name_user_set
-                 ) VALUES
-                     ('root', 'ws', '/p', 0, 0, 'closed',
-                      'juicy-roach', NULL, NULL, 'dash+join-xp', 1),
-                     ('mid',  'ws', '/p', 0, 1, 'closed',
-                      'juicy-roach-A1', 'juicy-roach', 'A1',
-                      'dash+join-xp', 1),
-                     ('head', 'ws', '/p', 0, 2, 'live',
-                      'juicy-roach-A1-B1', 'juicy-roach', 'A1-B1',
-                      'dash+join-xp', 1);",
-            )
-            .unwrap();
-            SessionLedger::migrate_collapse_lineage_chains(&conn).unwrap();
-        }
-        let head = l.get("head").unwrap().unwrap();
-        assert_eq!(head.tag.as_deref(), Some("juicy-roach"));
-        assert_eq!(head.name.as_deref(), Some("dash+join-xp"));
-        for copy in ["root", "mid"] {
-            let row = l.get(copy).unwrap().unwrap();
-            assert_eq!(row.tag, None, "{copy} kept a spelling");
-            assert_eq!(row.name, None, "{copy} kept the name");
-            assert!(!row.name_user_set, "{copy} kept the name flag");
-        }
-    }
-
-    #[test]
-    fn a_collapse_lifts_the_name_onto_an_unnamed_head() {
-        let l = fresh();
-        {
-            let conn = l.db.lock().unwrap();
-            conn.execute_batch(
-                "ALTER TABLE sessions ADD COLUMN root_tag TEXT;
-                 ALTER TABLE sessions ADD COLUMN tag_lineage TEXT;
-                 INSERT INTO sessions (
-                     session_id, workspace_key, project_dir, created_at,
-                     last_used_at, state, tag, root_tag, tag_lineage,
-                     name, name_user_set
-                 ) VALUES
-                     ('mid',  'ws', '/p', 0, 1, 'closed',
-                      'juicy-roach-A1', 'juicy-roach', 'A1',
-                      'the mint work', 1),
-                     ('head', 'ws', '/p', 0, 2, 'closed',
-                      'juicy-roach-A1-B1', 'juicy-roach', 'A1-B1',
-                      'Auto title', 0);",
-            )
-            .unwrap();
-            SessionLedger::migrate_collapse_lineage_chains(&conn).unwrap();
-        }
-        // The name is not dropped on the floor: it follows the spelling onto
-        // the row that now heads the line, over an auto title.
-        let head = l.get("head").unwrap().unwrap();
-        assert_eq!(head.name.as_deref(), Some("the mint work"));
-        assert!(head.name_user_set);
-        assert_eq!(l.get("mid").unwrap().unwrap().name, None);
-    }
-
-    #[test]
-    fn a_stale_copys_name_is_released_after_the_columns_are_gone() {
-        let l = fresh();
-        {
-            let conn = l.db.lock().unwrap();
-            // An already-collapsed ledger: no `root_tag` to say what was a
-            // chain, only the arbiter's suffixed spellings.
-            conn.execute_batch(
-                "INSERT INTO sessions (
-                     session_id, workspace_key, project_dir, created_at,
-                     last_used_at, state, tag, name, name_user_set
-                 ) VALUES
-                     ('copy', 'ws', '/p', 0, 1, 'closed',
-                      NULL, 'dash+join-xp', 1),
-                     ('head', 'ws', '/p', 0, 2, 'live',
-                      'juicy-roach', 'dash+join-xp', 1),
-                     ('other', 'ws', '/p', 0, 3, 'closed',
-                      NULL, 'unrelated work', 1);
-                 INSERT OR IGNORE INTO minted_tags (tag, session_id, minted_at)
-                 VALUES ('juicy-roach', 'head', 0),
-                        ('juicy-roach-A1', 'head', 0);",
-            )
-            .unwrap();
-            SessionLedger::migrate_release_superseded_fork_names(&conn).unwrap();
-        }
-        assert_eq!(l.get("copy").unwrap().unwrap().name, None);
-        assert!(!l.get("copy").unwrap().unwrap().name_user_set);
-        // The head keeps everything, and a row that is merely tagless is not
-        // touched — only one sharing a forked head's name is.
-        let head = l.get("head").unwrap().unwrap();
-        assert_eq!(head.name.as_deref(), Some("dash+join-xp"));
-        assert_eq!(head.tag.as_deref(), Some("juicy-roach"));
-        assert_eq!(
-            l.get("other").unwrap().unwrap().name.as_deref(),
-            Some("unrelated work")
-        );
-    }
-
-    #[test]
-    fn an_unforked_namesake_keeps_its_name() {
-        let l = fresh();
-        {
-            let conn = l.db.lock().unwrap();
-            // Two sessions named alike with no fork behind either: a genuine
-            // collision, and the callsign is supposed to come back ([D145]).
-            conn.execute_batch(
-                "INSERT INTO sessions (
-                     session_id, workspace_key, project_dir, created_at,
-                     last_used_at, state, tag, name, name_user_set
-                 ) VALUES
-                     ('old', 'ws', '/p', 0, 1, 'closed',
-                      NULL, 'the mint work', 1),
-                     ('new', 'ws', '/p', 0, 2, 'live',
-                      'juicy-roach', 'the mint work', 1);
-                 INSERT OR IGNORE INTO minted_tags (tag, session_id, minted_at)
-                 VALUES ('juicy-roach', 'new', 0);",
-            )
-            .unwrap();
-            SessionLedger::migrate_release_superseded_fork_names(&conn).unwrap();
-        }
-        assert_eq!(
-            l.get("old").unwrap().unwrap().name.as_deref(),
-            Some("the mint work")
-        );
-    }
-
-    #[test]
-    fn migration_collapses_a_suffixed_chain_onto_its_root() {
-        let l = fresh();
-        {
-            let conn = l.db.lock().unwrap();
-            // A legacy-shaped database: the retired structured columns, a
-            // chain whose root row was evicted, and the arbiter rows the old
-            // regime minted.
-            conn.execute_batch(
-                "ALTER TABLE sessions ADD COLUMN root_tag TEXT;
-                 ALTER TABLE sessions ADD COLUMN tag_lineage TEXT;
-                 INSERT INTO sessions (
-                     session_id, workspace_key, project_dir, created_at,
-                     last_used_at, state, tag, root_tag, tag_lineage
-                 ) VALUES
-                     ('mid',  'ws', '/p', 0, 1, 'closed',
-                      'juicy-roach-A1',    'juicy-roach', 'A1'),
-                     ('head', 'ws', '/p', 0, 2, 'closed',
-                      'juicy-roach-A1-B1', 'juicy-roach', 'A1-B1');
-                 INSERT OR IGNORE INTO minted_tags (tag, session_id, minted_at)
-                 VALUES ('juicy-roach', 'gone', 0),
-                        ('juicy-roach-A1', 'mid', 0),
-                        ('juicy-roach-A1-B1', 'head', 0);",
-            )
-            .unwrap();
-            SessionLedger::migrate_collapse_lineage_chains(&conn).unwrap();
-        }
-        // The head wears the root spelling; the superseded copy wears none.
-        assert_eq!(
-            l.get("head").unwrap().unwrap().tag.as_deref(),
-            Some("juicy-roach")
-        );
-        assert_eq!(l.get("mid").unwrap().unwrap().tag, None);
-        // Every legacy spelling resolves to the head — worn, via the tag
-        // arm; spent, via the arbiter alias.
-        for spelling in ["juicy-roach", "juicy-roach-A1", "juicy-roach-A1-B1"] {
-            let resolved = l.resolve_session_ids(&[spelling.to_owned()]).unwrap();
-            assert_eq!(resolved.len(), 1, "unresolved: {spelling}");
-            assert_eq!(resolved[0].1.session_id, "head", "wrong head: {spelling}");
-        }
-        // Idempotent: a second open changes nothing and the allocator table
-        // stays gone.
-        let conn = l.db.lock().unwrap();
-        SessionLedger::migrate_collapse_lineage_chains(&conn).unwrap();
-        let points: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM sqlite_master
-                 WHERE type = 'table' AND name = 'tag_lineage_points'",
-                [],
-                |row| row.get(0),
-            )
-            .unwrap();
-        assert_eq!(points, 0);
-    }
-
-    // ── the lineage head: where durable ink belongs ──────────────────────────
-
-    #[test]
-    fn an_unforked_id_resolves_to_itself() {
-        let l = fresh();
-        l.record_spawn("root", WS_A, "/proj", "card-1", millis(0), None)
-            .unwrap();
-        assert_eq!(l.resolve_to_lineage_head("root"), "root");
-        // An id the ledger has never heard of is answered, not refused.
-        assert_eq!(l.resolve_to_lineage_head("no-such"), "no-such");
-    }
-
-    #[test]
-    fn every_id_on_a_chain_resolves_to_its_tip() {
-        let l = fresh();
-        l.record_spawn(
-            "root",
-            WS_A,
-            "/proj",
-            "card-1",
-            millis(0),
-            Some("stocky-pixie"),
-        )
-        .unwrap();
-        spawn_fork(&l, "root", "point-1", "f-1");
-        spawn_fork(&l, "f-1", "point-2", "f-2");
-        for id in ["root", "f-1", "f-2"] {
-            assert_eq!(l.resolve_to_lineage_head(id), "f-2", "from {id}");
-        }
-    }
-
-    #[test]
-    fn a_sibling_fork_yields_to_the_child_wearing_the_callsign() {
-        let l = fresh();
-        l.record_spawn(
-            "root",
-            WS_A,
-            "/proj",
-            "card-1",
-            millis(0),
-            Some("stocky-pixie"),
-        )
-        .unwrap();
-        // `f-1` takes the callsign; `f-2` forks the same superseded parent
-        // later and spawns as its own line.
-        spawn_fork(&l, "root", "point-1", "f-1");
-        l.record_spawn("f-2", WS_A, "/proj", "card-2", millis(0) + 60_000, None)
-            .unwrap();
-        l.set_fork_provenance("f-2", "root", Some("point-2"))
-            .unwrap();
-        assert_eq!(
-            l.resolve_to_lineage_head("root"),
-            "f-1",
-            "the tagged child is the continuation, even though the sibling is newer"
-        );
-    }
-
-    /// Seat `stage` as a rotation of `parent`, the way the bridge does.
-    fn seat_stage(l: &SessionLedger, parent: &str, stage: &str, label: &str, now: i64) {
-        // The bridge hands a rotation a fresh candidate of its own ([D164]).
-        let tag = roll_fresh_tag(stage, now);
-        l.record_spawn(stage, WS_A, "/proj", "card-1", now, Some(&tag))
-            .expect("record_spawn");
-        l.set_fork_provenance(stage, parent, None)
-            .expect("fork provenance");
-        l.set_stage_provenance(stage, label, None)
-            .expect("stage provenance");
-    }
-
-    #[test]
-    fn a_line_of_work_is_named_by_the_session_the_arc_rotated_from() {
-        let l = fresh();
-        l.record_spawn(
-            "root",
-            WS_A,
-            "/proj",
-            "card-1",
-            millis(3),
-            Some("primo-pita"),
-        )
-        .unwrap();
-        l.rename("root", Some("tugrev-bringup")).unwrap();
-        seat_stage(&l, "root", "devise", "devise", millis(2));
-        seat_stage(&l, "devise", "review", "review", millis(1));
-        seat_stage(&l, "review", "implement", "implement", millis(0));
-
-        for stage in ["devise", "review", "implement"] {
-            assert_eq!(l.resolve_to_line_root(stage), "root", "{stage}");
-            let shown = l.get_for_display(stage).unwrap().unwrap();
-            assert_eq!(shown.tag.as_deref(), Some("primo-pita"));
-            assert_eq!(shown.name.as_deref(), Some("tugrev-bringup"));
-            assert!(shown.name_user_set);
-            // The row itself is untouched: the segment keeps the callsign it
-            // minted, which is what a trailer written there resolves through.
-            let stored = l.get(stage).unwrap().unwrap();
-            assert_ne!(stored.tag.as_deref(), Some("primo-pita"));
-            assert!(stored.tag.is_some());
-            assert!(stored.name.is_none());
-        }
-        // The root is its own line, so nothing is projected onto it.
-        assert_eq!(l.resolve_to_line_root("root"), "root");
-        assert!(l.line_identity("root").is_none());
-        assert_eq!(
-            l.line_identities_for(&["root".into(), "review".into()])
-                .len(),
-            1
-        );
-    }
-
-    #[test]
-    fn a_rewind_fork_stops_the_line_walk_and_a_stranded_stage_names_itself() {
-        let l = fresh();
-        l.record_spawn(
-            "root",
-            WS_A,
-            "/proj",
-            "card-1",
-            millis(2),
-            Some("stocky-pixie"),
-        )
-        .unwrap();
-        // A rewind-fork already carries the identity, so it is its own root
-        // and the walk must not climb past it.
-        spawn_fork(&l, "root", "point-1", "forked");
-        assert_eq!(l.resolve_to_line_root("forked"), "forked");
-        assert!(l.line_identity("forked").is_none());
-
-        // A stage whose parent row is gone has nothing left to name the line.
-        seat_stage(&l, "vanished", "orphan", "implement", millis(0));
-        assert_eq!(l.resolve_to_line_root("orphan"), "orphan");
-        assert!(l.line_identity("orphan").is_none());
-        assert!(l.get_for_display("orphan").unwrap().unwrap().tag.is_some());
-    }
-
-    #[test]
-    fn a_line_that_rotated_and_then_rewound_is_named_by_the_fork() {
-        let l = fresh();
-        l.record_spawn(
-            "root",
-            WS_A,
-            "/proj",
-            "card-1",
-            millis(4),
-            Some("juicy-roach"),
-        )
-        .unwrap();
-        l.rename("root", Some("dash+join-xp")).unwrap();
-        seat_stage(&l, "root", "implement", "implement", millis(3));
-        // Later the user rewinds the conversation itself: identity moves to
-        // the fork and `root` is left superseded and bare.
-        spawn_fork(&l, "root", "point-1", "continued");
-        assert_eq!(l.get("root").unwrap().unwrap().tag, None);
-
-        // The arc's stage belongs to the line, which is now the fork.
-        assert_eq!(l.resolve_to_line_root("implement"), "continued");
-        let shown = l.get_for_display("implement").unwrap().unwrap();
-        assert_eq!(shown.tag.as_deref(), Some("juicy-roach"));
-        assert_eq!(shown.name.as_deref(), Some("dash+join-xp"));
-        // The superseded row asked about directly still wears nothing —
-        // handing it the fork's callsign is the lie [D154] removed.
-        assert_eq!(l.resolve_to_line_root("root"), "root");
-        assert!(l.line_identity("root").is_none());
-        assert_eq!(l.get_for_display("root").unwrap().unwrap().tag, None);
-    }
-
-    #[test]
-    fn a_rotation_edge_never_moves_the_head() {
-        let l = fresh();
-        l.record_spawn(
-            "root",
-            WS_A,
-            "/proj",
-            "card-1",
-            millis(1),
-            Some("stocky-pixie"),
-        )
-        .unwrap();
-        l.record_spawn(
-            "stage",
-            WS_A,
-            "/proj",
-            "card-1",
-            millis(0),
-            Some("azure-heron"),
-        )
-        .unwrap();
-        l.set_fork_provenance("stage", "root", None).unwrap();
-        l.set_stage_provenance("stage", "devise", None).unwrap();
-        assert_eq!(
-            l.resolve_to_lineage_head("root"),
-            "root",
-            "a stage copies nothing and supersedes nothing"
-        );
-        assert_eq!(
-            l.rotation_children().unwrap(),
-            vec![("stage".to_string(), "root".to_string(), millis(0))]
-        );
-    }
-
-    #[test]
-    fn a_rotation_that_took_its_parents_identity_gives_it_back_on_open() {
-        let l = fresh();
-        let born = millis(9);
-        l.record_spawn("parent", WS_A, "/proj", "card-1", born, Some("juicy-roach"))
-            .unwrap();
-        l.rename("parent", Some("dash+join-xp")).unwrap();
-        // The retired rotation path: the rewind transfer, then the stage's
-        // spawn under the handed-down callsign, then the provenance a stage
-        // writes.
-        let rotated = millis(1);
-        let inherited = l.inherit_fork_identity("parent", "stage", rotated).unwrap();
-        l.record_spawn(
-            "stage",
-            WS_A,
-            "/proj",
-            "card-1",
-            rotated,
-            inherited.tag.as_deref(),
-        )
-        .unwrap();
-        l.set_fork_provenance("stage", "parent", None).unwrap();
-        l.set_stage_provenance("stage", "devise", None).unwrap();
-        l.rename("stage", inherited.user_name.as_deref()).unwrap();
-        // The parent is resumed later and rerolls onto a fresh pair, exactly
-        // as `record_spawn` does for a row whose tag moved on.
-        l.record_spawn(
-            "parent",
-            WS_A,
-            "/proj",
-            "card-1",
-            millis(0),
-            Some("juicy-roach"),
-        )
-        .unwrap();
-        let rerolled = l.get("parent").unwrap().unwrap().tag.unwrap();
-        assert_ne!(rerolled, "juicy-roach");
-        assert_eq!(
-            l.get("stage").unwrap().unwrap().tag.as_deref(),
-            Some("juicy-roach")
-        );
-
-        {
-            let conn = l.db.lock().unwrap();
-            SessionLedger::migrate_return_rotation_identity(&conn).unwrap();
-        }
-        let parent = l.get("parent").unwrap().unwrap();
-        let stage = l.get("stage").unwrap().unwrap();
-        assert_eq!(parent.tag.as_deref(), Some("juicy-roach"));
-        assert_eq!(parent.name.as_deref(), Some("dash+join-xp"));
-        assert!(parent.name_user_set);
-        assert!(stage.name.is_none() && !stage.name_user_set);
-        let fresh_tag = stage
-            .tag
-            .clone()
-            .expect("the stage keeps a callsign of its own");
-        assert_ne!(fresh_tag, "juicy-roach");
-        assert_ne!(fresh_tag, rerolled);
-        let owner = |tag: &str| -> String {
-            l.db.lock()
-                .unwrap()
-                .query_row(
-                    "SELECT session_id FROM minted_tags WHERE tag = ?1",
-                    params![tag],
-                    |row| row.get(0),
-                )
-                .unwrap()
-        };
-        assert_eq!(owner("juicy-roach"), "parent");
-        assert_eq!(
-            owner(&rerolled),
-            "parent",
-            "the rerolled spelling stays spent"
-        );
-        assert_eq!(owner(&fresh_tag), "stage");
-
-        // Idempotent: a second open changes nothing.
-        {
-            let conn = l.db.lock().unwrap();
-            SessionLedger::migrate_return_rotation_identity(&conn).unwrap();
-        }
-        assert_eq!(
-            l.get("stage").unwrap().unwrap().tag.as_deref(),
-            Some(fresh_tag.as_str())
-        );
-        assert_eq!(
-            l.get("parent").unwrap().unwrap().tag.as_deref(),
-            Some("juicy-roach")
-        );
-    }
-
-    #[test]
-    fn two_tagless_children_tie_break_on_recency() {
-        let l = fresh();
-        // `millis` counts days *ago*, so the larger argument is the older row.
-        for (id, days_ago) in [("root", 0), ("old", 5), ("new", 1)] {
-            l.record_spawn(id, WS_A, "/proj", "card-1", millis(days_ago), None)
-                .unwrap();
-        }
-        l.set_fork_provenance("old", "root", Some("point-1"))
-            .unwrap();
-        l.set_fork_provenance("new", "root", Some("point-2"))
-            .unwrap();
-        assert_eq!(l.resolve_to_lineage_head("root"), "new");
-    }
-
-    #[test]
     fn a_cycle_in_the_edges_answers_rather_than_hanging() {
         let l = fresh();
         for id in ["a", "b"] {
-            l.record_spawn(id, WS_A, "/proj", "card-1", millis(0), None)
+            l.record_spawn(id, WS_A, "/proj", "card-1", millis(0), id, None)
                 .unwrap();
         }
         l.set_fork_provenance("a", "b", Some("point-1")).unwrap();
         l.set_fork_provenance("b", "a", Some("point-2")).unwrap();
-        assert_eq!(l.resolve_to_lineage_head("a"), "a");
-        assert_eq!(l.resolve_to_lineage_head("b"), "b");
+        // The parent-ward walk is bounded by its own visited set, so a cycle
+        // ends the chain rather than hanging the restore that reads it.
+        assert_eq!(l.lineage_chain("a"), vec!["b".to_string(), "a".to_string()]);
+        assert_eq!(l.lineage_chain("b"), vec!["a".to_string(), "b".to_string()]);
     }
 
     // ── sessions.name: the live auto-title write ─────────────────────────────
@@ -9474,7 +9728,7 @@ mod tests {
     #[test]
     fn an_auto_title_never_overwrites_a_rename() {
         let l = fresh();
-        l.record_spawn("s1", WS_A, "/proj", "card-1", millis(0), None)
+        l.record_spawn("s1", WS_A, "/proj", "card-1", millis(0), "s1", None)
             .unwrap();
 
         // An untitled row takes the auto title, and stays auto.
@@ -9508,7 +9762,7 @@ mod tests {
     #[test]
     fn an_auto_title_for_an_unknown_or_blank_case_is_a_no_op() {
         let l = fresh();
-        l.record_spawn("s1", WS_A, "/proj", "card-1", millis(0), None)
+        l.record_spawn("s1", WS_A, "/proj", "card-1", millis(0), "s1", None)
             .unwrap();
         // The title rides a best-effort path; neither case may fail a turn.
         assert!(!l.record_auto_title("no-such-session", "A title").unwrap());
@@ -9521,7 +9775,7 @@ mod tests {
     #[test]
     fn a_synopsis_persists_and_survives_a_rename() {
         let l = fresh();
-        l.record_spawn("s1", WS_A, "/proj", "card-1", millis(0), None)
+        l.record_spawn("s1", WS_A, "/proj", "card-1", millis(0), "s1", None)
             .unwrap();
 
         // An unnamed row takes the description and reads it back.
@@ -9559,7 +9813,7 @@ mod tests {
     #[test]
     fn a_synopsis_for_an_unknown_or_blank_case_is_a_no_op() {
         let l = fresh();
-        l.record_spawn("s1", WS_A, "/proj", "card-1", millis(0), None)
+        l.record_spawn("s1", WS_A, "/proj", "card-1", millis(0), "s1", None)
             .unwrap();
         // The description rides a best-effort lane; neither case may fail.
         assert!(!l.record_synopsis("no-such-session", "A line").unwrap());
@@ -9577,7 +9831,7 @@ mod tests {
         // came from a scan. A push built from the row alone would report both a
         // null size and 0 turns; the client replaces its cached row wholesale,
         // so that push is a downgrade rather than a partial update.
-        l.record_spawn("s1", WS_A, "/proj", "card-1", millis(0), None)
+        l.record_spawn("s1", WS_A, "/proj", "card-1", millis(0), "s1", None)
             .unwrap();
         assert_eq!(l.get("s1").unwrap().unwrap().turn_count, 0);
         assert!(l.scan_metrics_for("s1").unwrap().is_none());
@@ -9603,7 +9857,7 @@ mod tests {
             frontier_leaf_uuid: None,
             effective_uuids: None,
             lineage_ancestors: None,
-            tag: None,
+            line_id: None,
         })
         .unwrap();
         let metrics = l.scan_metrics_for("s1").unwrap().expect("scan row");
@@ -9640,7 +9894,7 @@ mod tests {
             frontier_leaf_uuid: None,
             effective_uuids: None,
             lineage_ancestors: None,
-            tag: None,
+            line_id: None,
         })
         .unwrap();
         assert!(l.scan_metrics_for("s2").unwrap().is_none());
@@ -9658,6 +9912,7 @@ mod tests {
             "/proj",
             "card-1",
             millis(0),
+            full,
             Some("stocky-pixie"),
         )
         .unwrap();
@@ -9693,6 +9948,7 @@ mod tests {
             "/proj",
             "card-1",
             millis(0),
+            full,
             Some("stocky-pixie"),
         )
         .unwrap();
@@ -9703,6 +9959,7 @@ mod tests {
             "/proj",
             "card-2",
             millis(1),
+            forked,
             Some("stocky-pixie-A1"),
         )
         .unwrap();
@@ -9736,65 +9993,11 @@ mod tests {
     }
 
     #[test]
-    fn an_evicted_session_resolves_by_callsign_from_the_scan_cache() {
-        // Same eviction path the id arms fall back through: the transcript is
-        // still on disk and the picker still lists it, so an atom naming it must
-        // not go dark either.
-        let l = fresh();
-        let evicted = "f6e43925-1a2b-4c3d-8e9f-0a1b2c3d4e5f";
-        l.upsert_scan_cache(&ScanCacheRow {
-            session_id: evicted.into(),
-            project_dir: "/proj/alpha".into(),
-            file_size: 1_000,
-            file_mtime: millis(5),
-            excluded: false,
-            turn_count: 42,
-            last_user_prompt: None,
-            name: None,
-            created_at: millis(1),
-            last_used_at: millis(5),
-            parse_offset: 0,
-            tail_hash: 0,
-            cwd_checked: false,
-            created_at_found: false,
-            frontier_open: false,
-            frontier_pending_close: false,
-            frontier_pending_close_msg_id: None,
-            frontier_leaf_uuid: None,
-            effective_uuids: None,
-            lineage_ancestors: None,
-            tag: None,
-        })
-        .unwrap();
-        l.record_spawn(
-            evicted,
-            WS_A,
-            "/proj/alpha",
-            "card-9",
-            millis(2),
-            Some("stocky-pixie"),
-        )
-        .unwrap();
-        l.backfill_external_tag(evicted, millis(3)).unwrap();
-        l.db.lock()
-            .expect("ledger mutex")
-            .execute(
-                "DELETE FROM sessions WHERE session_id = ?1",
-                params![evicted],
-            )
-            .unwrap();
-
-        let resolved = l.resolve_session_ids(&["stocky-pixie".to_owned()]).unwrap();
-        assert_eq!(resolved.len(), 1);
-        assert_eq!(resolved[0].1.session_id, evicted);
-        assert_eq!(resolved[0].1.state, SessionState::Closed);
-    }
-
-    #[test]
     fn an_ambiguous_callsign_in_the_scan_cache_resolves_to_nothing() {
-        // `sessions.tag` is UNIQUE, so the first arm cannot be ambiguous. The
-        // scan cache carries no such index — uniqueness lives in `minted_tags` —
-        // so the ambiguity probe is load-bearing on the fallback.
+        // `lines.tag` is UNIQUE, so the ledger arm cannot be ambiguous — it
+        // answers with the line's seat segment. Two *scan* rows can belong to
+        // one line, and no index says which of them a citation meant, so the
+        // ambiguity probe is load-bearing on the fallback.
         let l = fresh();
         let a = "f6e43925-1a2b-4c3d-8e9f-0a1b2c3d4e5f";
         let b = "aabbccdd-1111-2222-3333-444455556666";
@@ -9819,23 +10022,23 @@ mod tests {
             frontier_leaf_uuid: None,
             effective_uuids: None,
             lineage_ancestors: None,
-            tag: None,
+            line_id: None,
         };
         for id in [a, b] {
             l.upsert_scan_cache(&scan_row(id)).unwrap();
-            l.db.lock()
-                .expect("ledger mutex")
-                .execute(
-                    "UPDATE external_scan_cache SET tag = 'stocky-pixie' WHERE session_id = ?1",
-                    params![id],
-                )
-                .unwrap();
         }
-        assert!(
-            l.resolve_session_ids(&["stocky-pixie".to_owned()])
-                .unwrap()
-                .is_empty()
-        );
+        // Both scan rows join one line, which is the ambiguity: the callsign
+        // names a conversation two files both claim to be.
+        let line_id = l.ensure_scan_line(a, millis(0)).unwrap().expect("a line");
+        l.db.lock()
+            .expect("ledger mutex")
+            .execute(
+                "UPDATE external_scan_cache SET line_id = ?2 WHERE session_id = ?1",
+                params![b, line_id],
+            )
+            .unwrap();
+        let callsign = l.get_line(&line_id).unwrap().expect("the line").tag;
+        assert!(l.resolve_session_ids(&[callsign]).unwrap().is_empty());
     }
 
     #[test]
@@ -9847,6 +10050,7 @@ mod tests {
             "/proj",
             "card-1",
             millis(0),
+            "f6e43925-1a2b-4c3d-8e9f-0a1b2c3d4e5f",
             None,
         )
         .unwrap();
@@ -9886,9 +10090,9 @@ mod tests {
         // therefore exactly the case nobody would notice going wrong.
         let a = "f6e43925-1a2b-4c3d-8e9f-0a1b2c3d4e5f";
         let b = "f6e43925-9999-4c3d-8e9f-0a1b2c3d4e5f";
-        l.record_spawn(a, WS_A, "/proj", "card-1", millis(0), None)
+        l.record_spawn(a, WS_A, "/proj", "card-1", millis(0), a, None)
             .unwrap();
-        l.record_spawn(b, WS_A, "/proj", "card-2", millis(1), None)
+        l.record_spawn(b, WS_A, "/proj", "card-2", millis(1), b, None)
             .unwrap();
         // A wrong-but-resolvable citation is strictly worse than an
         // unresolvable one ([D132]), so an ambiguous prefix answers nothing.
@@ -9908,9 +10112,9 @@ mod tests {
         let l = fresh();
         let a = "f6e43925-1a2b-4c3d-8e9f-0a1b2c3d4e5f";
         let b = "aabbccdd-1111-2222-3333-444455556666";
-        l.record_spawn(a, WS_A, "/proj", "card-1", millis(0), None)
+        l.record_spawn(a, WS_A, "/proj", "card-1", millis(0), a, None)
             .unwrap();
-        l.record_spawn(b, WS_A, "/proj", "card-2", millis(1), None)
+        l.record_spawn(b, WS_A, "/proj", "card-2", millis(1), b, None)
             .unwrap();
         // A History card asks for every commit on screen at once, and the same
         // session cites many commits — the duplicate is answered once.
@@ -9925,107 +10129,6 @@ mod tests {
         assert_eq!(answered.len(), 2);
         assert_eq!(answered[0].0, a);
         assert_eq!(answered[1].0, b);
-    }
-
-    #[test]
-    fn an_evicted_session_still_on_disk_resolves_from_the_scan_cache() {
-        // Cap eviction and the age sweep hard-delete `sessions` rows while the
-        // transcript stays on disk and listed — a citation must not go dark on
-        // a session the picker can still resume. The scan cache answers, in
-        // the same synthesized shape the picker union uses.
-        let l = fresh();
-        let evicted = "f6e43925-1a2b-4c3d-8e9f-0a1b2c3d4e5f";
-        let scan_row = |id: &str, tag: Option<&str>| ScanCacheRow {
-            session_id: id.into(),
-            project_dir: "/proj/alpha".into(),
-            file_size: 1_000,
-            file_mtime: millis(5),
-            excluded: false,
-            turn_count: 42,
-            last_user_prompt: Some("the last prompt".into()),
-            name: Some("Scanned title".into()),
-            created_at: millis(1),
-            last_used_at: millis(5),
-            parse_offset: 0,
-            tail_hash: 0,
-            cwd_checked: false,
-            created_at_found: false,
-            frontier_open: false,
-            frontier_pending_close: false,
-            frontier_pending_close_msg_id: None,
-            frontier_leaf_uuid: None,
-            effective_uuids: None,
-            lineage_ancestors: None,
-            tag: tag.map(str::to_owned),
-        };
-        // The real path to an evicted-but-on-disk session: scanned, adopted
-        // with a callsign, the callsign backfilled onto the cache row, and
-        // then the `sessions` row hard-deleted by eviction. `upsert_scan_cache`
-        // never writes `tag` itself, so the backfill step is load-bearing.
-        l.upsert_scan_cache(&scan_row(evicted, None)).unwrap();
-        l.record_spawn(
-            evicted,
-            WS_A,
-            "/proj/alpha",
-            "card-9",
-            millis(2),
-            Some("stocky-pixie"),
-        )
-        .unwrap();
-        assert_eq!(
-            l.backfill_external_tag(evicted, millis(3))
-                .unwrap()
-                .as_deref(),
-            Some("stocky-pixie")
-        );
-        l.db.lock()
-            .expect("ledger mutex")
-            .execute(
-                "DELETE FROM sessions WHERE session_id = ?1",
-                params![evicted],
-            )
-            .unwrap();
-
-        // No `sessions` row — the eviction took it. Both spellings still
-        // resolve, carrying the scanned callsign and never a rename.
-        for asked in [evicted, "f6e43925"] {
-            let answered = l.resolve_session_ids(&[asked.to_owned()]).unwrap();
-            assert_eq!(answered.len(), 1, "{asked} should resolve");
-            assert_eq!(answered[0].1.session_id, evicted);
-            assert_eq!(answered[0].1.tag.as_deref(), Some("stocky-pixie"));
-            assert_eq!(answered[0].1.state, SessionState::Closed);
-            assert!(!answered[0].1.name_user_set);
-        }
-
-        // An adopted session answers from `sessions`, not the fallback: the
-        // ledger row owns lifecycle and the rename bit.
-        let adopted = "aabbccdd-1111-2222-3333-444455556666";
-        l.upsert_scan_cache(&scan_row(adopted, Some("coral-otter")))
-            .unwrap();
-        l.record_spawn(adopted, WS_A, "/proj/alpha", "card-1", millis(9), None)
-            .unwrap();
-        let answered = l.resolve_session_ids(&["aabbccdd".to_owned()]).unwrap();
-        assert_eq!(answered.len(), 1);
-        assert_eq!(answered[0].1.state, SessionState::Live);
-
-        // An excluded cache row is not an answer, and an ambiguous prefix in
-        // the cache is a refusal on the same terms as in `sessions`.
-        let excluded = "0badf00d-dead-4bee-8fee-000000000000";
-        let mut row = scan_row(excluded, None);
-        row.excluded = true;
-        l.upsert_scan_cache(&row).unwrap();
-        assert!(
-            l.resolve_session_ids(&["0badf00d".to_owned()])
-                .unwrap()
-                .is_empty()
-        );
-        let twin = "f6e43925-9999-4c3d-8e9f-0a1b2c3d4e5f";
-        l.upsert_scan_cache(&scan_row(twin, None)).unwrap();
-        assert!(
-            l.resolve_session_ids(&["f6e43925".to_owned()])
-                .unwrap()
-                .is_empty()
-        );
     }
 
     #[test]
@@ -11213,7 +11316,7 @@ mod tests {
                 frontier_leaf_uuid: None,
                 effective_uuids: None,
                 lineage_ancestors: None,
-                tag: Some("azure-heron".into()),
+                line_id: None,
             })
             .expect("seed the scan cache");
         seed_live(&ledger, id, WS_A, "card-1", millis(0));
@@ -11393,7 +11496,7 @@ mod tests {
     fn record_spawn_inserts_live_row() {
         let l = fresh();
         let now = millis(0);
-        l.record_spawn("s1", WS_A, "/proj/alpha", "card-1", now, None)
+        l.record_spawn("s1", WS_A, "/proj/alpha", "card-1", now, "s1", None)
             .unwrap();
 
         let row = l.get("s1").unwrap().expect("row exists");
@@ -11436,12 +11539,12 @@ mod tests {
             frontier_leaf_uuid: None,
             effective_uuids: None,
             lineage_ancestors: None,
-            tag: None,
+            line_id: None,
         })
         .unwrap();
 
         let now = millis(10);
-        l.record_spawn("ext-1", WS_A, "/proj/alpha", "card-1", now, None)
+        l.record_spawn("ext-1", WS_A, "/proj/alpha", "card-1", now, "ext-1", None)
             .unwrap();
         let row = l.get("ext-1").unwrap().expect("row exists");
         assert_eq!(row.turn_count, 42);
@@ -11484,7 +11587,7 @@ mod tests {
             frontier_leaf_uuid: None,
             effective_uuids: None,
             lineage_ancestors: None,
-            tag: None,
+            line_id: None,
         })
         .unwrap();
 
@@ -11512,8 +11615,16 @@ mod tests {
 
         // Seed gate: record_spawn must not pull the inflated 99 through its
         // MAX merge — the fresh ledger row stays at 0 until reconcile.
-        l.record_spawn("ext-stale", WS_A, "/proj/alpha", "card-1", millis(10), None)
-            .unwrap();
+        l.record_spawn(
+            "ext-stale",
+            WS_A,
+            "/proj/alpha",
+            "card-1",
+            millis(10),
+            "ext-stale",
+            None,
+        )
+        .unwrap();
         let row = l.get("ext-stale").unwrap().expect("row exists");
         assert_eq!(
             row.turn_count, 0,
@@ -11532,7 +11643,7 @@ mod tests {
         // without ever clobbering richer ledger values.
         let l = fresh();
         let t0 = millis(0);
-        l.record_spawn("ext-1", WS_A, "/proj/alpha", "card-1", t0, None)
+        l.record_spawn("ext-1", WS_A, "/proj/alpha", "card-1", t0, "ext-1", None)
             .unwrap();
         l.mark_closed("ext-1").unwrap();
         assert_eq!(l.get("ext-1").unwrap().unwrap().turn_count, 0);
@@ -11558,12 +11669,20 @@ mod tests {
             frontier_leaf_uuid: None,
             effective_uuids: None,
             lineage_ancestors: None,
-            tag: None,
+            line_id: None,
         })
         .unwrap();
 
-        l.record_spawn("ext-1", WS_A, "/proj/alpha", "card-2", millis(10), None)
-            .unwrap();
+        l.record_spawn(
+            "ext-1",
+            WS_A,
+            "/proj/alpha",
+            "card-2",
+            millis(10),
+            "ext-1",
+            None,
+        )
+        .unwrap();
         let row = l.get("ext-1").unwrap().unwrap();
         assert_eq!(row.turn_count, 7, "backfilled from scan cache");
         assert_eq!(row.last_user_prompt.as_deref(), Some("from disk"));
@@ -11574,8 +11693,16 @@ mod tests {
         // row is staler (7).
         l.record_user_prompt("ext-1", "typed in tug").unwrap();
         l.reconcile_turn_count_from_engine("ext-1", 17).unwrap();
-        l.record_spawn("ext-1", WS_A, "/proj/alpha", "card-3", millis(40), None)
-            .unwrap();
+        l.record_spawn(
+            "ext-1",
+            WS_A,
+            "/proj/alpha",
+            "card-3",
+            millis(40),
+            "ext-1",
+            None,
+        )
+        .unwrap();
         let row = l.get("ext-1").unwrap().unwrap();
         assert_eq!(row.turn_count, 17, "MAX keeps the richer count");
         assert_eq!(row.last_user_prompt.as_deref(), Some("typed in tug"));
@@ -11605,11 +11732,11 @@ mod tests {
             frontier_leaf_uuid: None,
             effective_uuids: None,
             lineage_ancestors: None,
-            tag: None,
+            line_id: None,
         })
         .unwrap();
         let now = millis(10);
-        l.record_spawn("ext-1", WS_A, "/proj/alpha", "card-1", now, None)
+        l.record_spawn("ext-1", WS_A, "/proj/alpha", "card-1", now, "ext-1", None)
             .unwrap();
         let row = l.get("ext-1").unwrap().unwrap();
         assert_eq!(row.turn_count, 0);
@@ -11656,7 +11783,7 @@ mod tests {
         assert!(r.name_user_set);
 
         // A re-spawn (resume) must NOT clear the name OR its user-set bit.
-        l.record_spawn("s1", WS_A, "/proj", "card-1", now + 1_000, None)
+        l.record_spawn("s1", WS_A, "/proj", "card-1", now + 1_000, "s1", None)
             .unwrap();
         let r = l.get("s1").unwrap().unwrap();
         assert_eq!(r.name.as_deref(), Some("My session"));
@@ -11677,129 +11804,99 @@ mod tests {
         assert!(matches!(err, LedgerError::NotFound(ref id) if id == "nope"));
     }
 
-    /// A custom name is unique, and setting one takes it — the rule [D154]
-    /// already applies on the fork path, now true on both write paths.
+    /// A user-set name is unique across lines, and a taken one is refused —
+    /// visibly, naming the holder ([P11]). Nothing is written, which is the
+    /// whole of the change from the displacement rule this replaced.
     #[test]
-    fn rename_takes_the_name_from_whoever_wore_it() {
+    fn a_rename_to_a_taken_name_is_refused() {
         let l = fresh();
         let now = millis(0);
         seed_live(&l, "s1", WS_A, "card-1", now);
         seed_live(&l, "s2", WS_A, "card-2", now);
+        let holder_tag = l.get("s1").unwrap().unwrap().tag.expect("a callsign");
 
-        assert_eq!(
-            l.rename("s1", Some("the parser work")).unwrap(),
-            Vec::<String>::new()
-        );
-        let displaced = l.rename("s2", Some("the parser work")).unwrap();
-        assert_eq!(displaced, vec!["s1".to_string()]);
+        l.rename("s1", Some("the parser work")).unwrap();
+        let err = l.rename("s2", Some("the parser work")).unwrap_err();
+        match err {
+            LedgerError::NameTaken {
+                ref holder_line_id,
+                holder_tag: ref reported,
+            } => {
+                assert_eq!(holder_line_id, "s1");
+                assert_eq!(reported, &holder_tag, "the refusal says who has it");
+            }
+            other => panic!("expected NameTaken, got {other:?}"),
+        }
 
+        // Both sides are where they were: the holder keeps the name, and the
+        // refused line is untouched rather than half-written.
         let a = l.get("s1").unwrap().unwrap();
-        assert_eq!(
-            a.name, None,
-            "a superseded copy still wearing it is a resting lie"
-        );
-        assert!(!a.name_user_set);
+        assert_eq!(a.name.as_deref(), Some("the parser work"));
+        assert!(a.name_user_set);
         let b = l.get("s2").unwrap().unwrap();
-        assert_eq!(b.name.as_deref(), Some("the parser work"));
-        assert!(b.name_user_set);
-    }
-
-    /// A ledger written before this rule could hold two rows wearing one name.
-    /// Setting it clears every one of them, in ascending id order.
-    #[test]
-    fn rename_takes_the_name_from_all_of_them() {
-        let l = fresh();
-        let now = millis(0);
-        for id in ["s1", "s2", "s3"] {
-            seed_live(&l, id, WS_A, "card", now);
-        }
-        // Reach past the verb to build the pre-rule state it is meant to end.
-        {
-            let conn = l.db.lock().expect("ledger mutex");
-            conn.execute(
-                "UPDATE sessions SET name = 'shared', name_user_set = 1
-                 WHERE session_id IN ('s1', 's2')",
-                [],
-            )
-            .unwrap();
-        }
-
-        let displaced = l.rename("s3", Some("shared")).unwrap();
-        assert_eq!(displaced, vec!["s1".to_string(), "s2".to_string()]);
-        for id in ["s1", "s2"] {
-            assert_eq!(l.get(id).unwrap().unwrap().name, None, "{id}");
-        }
-        assert_eq!(
-            l.get("s3").unwrap().unwrap().name.as_deref(),
-            Some("shared")
-        );
+        assert_eq!(b.name, None);
+        assert!(!b.name_user_set);
     }
 
     #[test]
-    fn rename_never_displaces_the_row_it_is_renaming() {
+    fn renaming_a_line_to_the_name_it_already_wears_is_allowed() {
         let l = fresh();
         seed_live(&l, "s1", WS_A, "card-1", millis(0));
         l.rename("s1", Some("steady")).unwrap();
 
-        // The `session_id != ?2` guard: without it the row would take the name
-        // from itself and end up cleared.
-        assert_eq!(
-            l.rename("s1", Some("steady")).unwrap(),
-            Vec::<String>::new()
-        );
+        // The `line_id != ?2` guard: without it a line would be refused its
+        // own name.
+        l.rename("s1", Some("steady")).unwrap();
         let r = l.get("s1").unwrap().unwrap();
         assert_eq!(r.name.as_deref(), Some("steady"));
         assert!(r.name_user_set);
     }
 
     #[test]
-    fn rename_leaves_an_auto_title_wearing_the_same_words_alone() {
+    fn a_rename_ignores_an_auto_title_wearing_the_same_words() {
         // `name_user_set = 0` is a title the machine wrote, not a name the user
-        // spent. Only a name somebody chose can be taken.
+        // spent. Only a name somebody chose can block another line's rename.
         let l = fresh();
         let now = millis(0);
         seed_live(&l, "s1", WS_A, "card-1", now);
         seed_live(&l, "s2", WS_A, "card-2", now);
-        {
-            let conn = l.db.lock().expect("ledger mutex");
-            conn.execute(
-                "UPDATE sessions SET name = 'a shared spelling', name_user_set = 0
-                 WHERE session_id = 's1'",
-                [],
-            )
-            .unwrap();
-        }
+        l.record_auto_title("s1", "a shared spelling").unwrap();
 
-        assert_eq!(
-            l.rename("s2", Some("a shared spelling")).unwrap(),
-            Vec::<String>::new()
-        );
+        l.rename("s2", Some("a shared spelling")).unwrap();
         assert_eq!(
             l.get("s1").unwrap().unwrap().name.as_deref(),
+            Some("a shared spelling"),
+            "the auto title is left alone"
+        );
+        assert_eq!(
+            l.get("s2").unwrap().unwrap().name.as_deref(),
             Some("a shared spelling")
         );
     }
 
     #[test]
-    fn clearing_a_name_displaces_nobody() {
+    fn clearing_a_name_is_never_refused() {
         let l = fresh();
         let now = millis(0);
         seed_live(&l, "s1", WS_A, "card-1", now);
         seed_live(&l, "s2", WS_A, "card-2", now);
         l.rename("s1", Some("kept")).unwrap();
 
-        assert_eq!(l.rename("s2", None).unwrap(), Vec::<String>::new());
+        l.rename("s2", None).unwrap();
         assert_eq!(l.get("s1").unwrap().unwrap().name.as_deref(), Some("kept"));
     }
 
     #[test]
-    fn renaming_an_unknown_session_displaces_nobody() {
+    fn renaming_an_unknown_line_writes_nothing() {
         let l = fresh();
         seed_live(&l, "s1", WS_A, "card-1", millis(0));
         l.rename("s1", Some("held")).unwrap();
 
         let err = l.rename("nope", Some("held")).unwrap_err();
-        assert!(matches!(err, LedgerError::NotFound(ref id) if id == "nope"));
+        // The holder is found first, so an unknown line asking for a name
+        // somebody wears is refused as taken rather than as missing. Either
+        // way nothing is written.
+        assert!(matches!(err, LedgerError::NameTaken { .. }));
         // The transaction rolled back, so the name it would have taken is
         // still where it was.
         let r = l.get("s1").unwrap().unwrap();
@@ -11918,11 +12015,19 @@ mod tests {
             frontier_leaf_uuid: None,
             effective_uuids: None,
             lineage_ancestors: None,
-            tag: None,
+            line_id: None,
         })
         .unwrap();
-        l.record_spawn("ext", WS_A, "/proj/alpha", "card-1", millis(10), None)
-            .unwrap();
+        l.record_spawn(
+            "ext",
+            WS_A,
+            "/proj/alpha",
+            "card-1",
+            millis(10),
+            "ext",
+            None,
+        )
+        .unwrap();
         assert_eq!(
             l.get("ext").unwrap().unwrap().turn_count,
             99,
@@ -11988,7 +12093,7 @@ mod tests {
         l.mark_closed("s1").unwrap();
 
         let t1 = millis(0);
-        l.record_spawn("s1", WS_A, "/proj/alpha", "card-2", t1, None)
+        l.record_spawn("s1", WS_A, "/proj/alpha", "card-2", t1, "s1", None)
             .unwrap();
         let r = l.get("s1").unwrap().unwrap();
         assert_eq!(r.created_at, t0, "created_at must survive resume");
@@ -12037,10 +12142,17 @@ mod tests {
         // `record_spawn` API requires a card_id, so we use raw SQL.
         let conn = l.db.lock().unwrap();
         conn.execute(
+            "INSERT INTO lines (line_id, tag, name, name_user_set, card_id,
+                                project_dir, created_at, last_used_at)
+             VALUES ('headless', 'stocky-pixie', NULL, 0, NULL, ?1, ?2, ?2)",
+            params!["/proj", millis(0)],
+        )
+        .unwrap();
+        conn.execute(
             "INSERT INTO sessions (session_id, workspace_key, project_dir,
                                    created_at, last_used_at, turn_count,
-                                   last_user_prompt, state, card_id)
-             VALUES (?1, ?2, ?3, ?4, ?5, 1, NULL, 'live', NULL)",
+                                   last_user_prompt, state, card_id, line_id)
+             VALUES (?1, ?2, ?3, ?4, ?5, 1, NULL, 'live', NULL, 'headless')",
             params!["headless", WS_A, "/proj", millis(0), millis(0)],
         )
         .unwrap();
@@ -12174,8 +12286,16 @@ mod tests {
         let l =
             SessionLedger::open_with_claude_root(tmp_real.join("sessions.db"), claude_root.clone())
                 .unwrap();
-        l.record_spawn("s1", WS_A, alias.to_str().unwrap(), "c1", millis(0), None)
-            .unwrap();
+        l.record_spawn(
+            "s1",
+            WS_A,
+            alias.to_str().unwrap(),
+            "c1",
+            millis(0),
+            "s1",
+            None,
+        )
+        .unwrap();
         l.mark_closed("s1").unwrap();
 
         let outcome = l.trash("s1").unwrap();
@@ -12359,7 +12479,7 @@ mod tests {
         now: i64,
     ) {
         ledger
-            .record_spawn(id, ws, project_dir, card, now, None)
+            .record_spawn(id, ws, project_dir, card, now, id, None)
             .expect("record_spawn");
     }
 
@@ -12571,7 +12691,7 @@ mod tests {
             PathBuf::from("/tmp/tugcast-tests-no-trash"),
         )
         .unwrap();
-        l1.record_spawn("s1", WS_A, "/proj", "c1", millis(0), None)
+        l1.record_spawn("s1", WS_A, "/proj", "c1", millis(0), "s1", None)
             .unwrap();
         drop(l1);
         // Second open re-runs the idempotent DDL and finds the row intact.
@@ -13072,7 +13192,7 @@ mod tests {
             PathBuf::from("/tmp/tugcast-tests-no-trash"),
         )
         .unwrap();
-        l1.record_spawn("s1", WS_A, "/proj", "c1", millis(0), None)
+        l1.record_spawn("s1", WS_A, "/proj", "c1", millis(0), "s1", None)
             .unwrap();
         drop(l1);
         // Trash both the main db and the attached changes sibling.
@@ -13086,7 +13206,7 @@ mod tests {
             PathBuf::from("/tmp/tugcast-tests-no-trash"),
         )
         .unwrap();
-        l2.record_spawn("s2", WS_A, "/proj", "c2", millis(1), None)
+        l2.record_spawn("s2", WS_A, "/proj", "c2", millis(1), "s2", None)
             .unwrap();
         assert!(l2.get("s2").unwrap().is_some());
         let quarantined: Vec<_> = std::fs::read_dir(dir.path())
@@ -13195,8 +13315,16 @@ mod tests {
         let l = fresh_ledger_with_root(tmp.path());
         write_jsonl(tmp.path(), "/proj/x", "sess-doomed");
 
-        l.record_spawn("sess-doomed", "ws-1", "/proj/x", "c1", millis(0), None)
-            .unwrap();
+        l.record_spawn(
+            "sess-doomed",
+            "ws-1",
+            "/proj/x",
+            "c1",
+            millis(0),
+            "sess-doomed",
+            None,
+        )
+        .unwrap();
         l.mark_closed("sess-doomed").unwrap();
 
         let outcome = l.trash("sess-doomed").unwrap();
@@ -13217,7 +13345,7 @@ mod tests {
         let tmp = tempfile::tempdir().expect("tempdir");
         let l = fresh_ledger_with_root(tmp.path());
         // No JSONL on disk — only the ledger row.
-        l.record_spawn("ghost", "ws-1", "/proj/x", "c1", millis(0), None)
+        l.record_spawn("ghost", "ws-1", "/proj/x", "c1", millis(0), "ghost", None)
             .unwrap();
         l.mark_closed("ghost").unwrap();
 
@@ -15346,7 +15474,7 @@ mod tests {
         /// Seed a session row and write `body` as its transcript.
         fn seed(&self, session: &str, body: &str) {
             self.sessions
-                .record_spawn(session, "ws", "/proj", "card-1", 1, None)
+                .record_spawn(session, "ws", "/proj", "card-1", 1, session, None)
                 .expect("record_spawn");
             let (dir, _) = claude_project_dir(self.sessions.claude_projects_root(), "/proj");
             std::fs::create_dir_all(&dir).expect("create project dir");
@@ -15517,7 +15645,7 @@ mod tests {
         let fx = AnchorFixture::new();
         // A session row with no file on disk — a zero-turn session.
         fx.sessions
-            .record_spawn("s1", "ws", "/proj", "card-1", 1, None)
+            .record_spawn("s1", "ws", "/proj", "card-1", 1, "s1", None)
             .expect("record_spawn");
         assert_eq!(fx.sessions.latest_assistant_msg_id("s1", None), None);
         // And a session the ledger has never heard of, from either source.

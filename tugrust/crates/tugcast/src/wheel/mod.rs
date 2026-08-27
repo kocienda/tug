@@ -251,7 +251,10 @@ impl WheelState {
     /// arming once: the card is handed back after the last stage, not once per
     /// stage.
     pub fn arm_hand_back(&self, session_id: &str) {
-        self.hand_backs.lock().unwrap().insert(session_id.to_owned());
+        self.hand_backs
+            .lock()
+            .unwrap()
+            .insert(session_id.to_owned());
     }
 
     /// Take the hand-back a session is owed. `true` means one was owed.
@@ -1120,6 +1123,7 @@ mod tests {
                 &root.to_string_lossy(),
                 "card-1",
                 1_000,
+                "claude-on-course",
                 None,
             )
             .unwrap();

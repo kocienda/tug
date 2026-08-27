@@ -18,6 +18,7 @@ import {
 function makeBinding(overrides: Partial<CardSessionBinding> = {}): CardSessionBinding {
   return {
     tugSessionId: "sess-1",
+    lineId: "line-1",
     workspaceKey: "/work/alpha",
     projectDir: "/work/alpha",
     sessionMode: "new",
@@ -171,5 +172,41 @@ describe("CardSessionBindingStore – unsubscribe", () => {
     store.setBinding("card-2", makeBinding({ tugSessionId: "sess-2" }));
 
     expect(notifications).toBe(1);
+  });
+});
+
+/**
+ * `session_line_rebound` ([P03]): a plain `/new` on a bound card births a
+ * fresh line, and the binding has to follow it — the merge keeps the
+ * `workspaceKey` the pane's feed filter is built from.
+ */
+describe("CardSessionBindingStore – setLineBinding", () => {
+  test("re-seats the card on a new session and line, preserving the rest", () => {
+    const store = new CardSessionBindingStore();
+    store.setBinding("card-1", makeBinding());
+    store.setDashBinding("card-1", { id: "tugdash/demo#1-abc", name: "demo" });
+
+    store.setLineBinding("card-1", "sess-2", "line-2");
+
+    const bound = store.getBinding("card-1");
+    expect(bound?.tugSessionId).toBe("sess-2");
+    expect(bound?.lineId).toBe("line-2");
+    expect(bound?.workspaceKey).toBe("/work/alpha");
+    expect(bound?.projectDir).toBe("/work/alpha");
+    expect(bound?.dash?.name).toBe("demo");
+  });
+
+  test("no-ops on a card with no binding, and on a rebind to the same pair", () => {
+    const store = new CardSessionBindingStore();
+    store.setLineBinding("card-nope", "sess-2", "line-2");
+    expect(store.getBinding("card-nope")).toBeUndefined();
+
+    store.setBinding("card-1", makeBinding());
+    let notifications = 0;
+    store.subscribe(() => {
+      notifications += 1;
+    });
+    store.setLineBinding("card-1", "sess-1", "line-1");
+    expect(notifications).toBe(0);
   });
 });

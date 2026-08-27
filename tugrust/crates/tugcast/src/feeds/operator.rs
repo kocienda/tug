@@ -2573,7 +2573,7 @@ mod tests {
         let f = fixture();
         f.ctx
             .ledger
-            .record_spawn("sess-a", "ws", "/proj", "card-1", 1_000, None)
+            .record_spawn("sess-a", "ws", "/proj", "card-1", 1_000, "sess-a", None)
             .expect("spawn");
         f.ctx
             .ledger
@@ -2581,7 +2581,7 @@ mod tests {
             .expect("prompt");
         f.ctx
             .ledger
-            .record_spawn("sess-b", "ws", "/proj", "card-2", 2_000, None)
+            .record_spawn("sess-b", "ws", "/proj", "card-2", 2_000, "sess-b", None)
             .expect("spawn");
         f.ctx.ledger.mark_closed("sess-b").expect("closed");
 
@@ -2604,7 +2604,15 @@ mod tests {
         let f = fixture();
         f.ctx
             .ledger
-            .record_spawn("sess-a", "ws", "/proj", "card-1", 1_000, Some("kind-floor"))
+            .record_spawn(
+                "sess-a",
+                "ws",
+                "/proj",
+                "card-1",
+                1_000,
+                "sess-a",
+                Some("kind-floor"),
+            )
             .expect("spawn");
         f.ctx
             .ledger
@@ -2614,7 +2622,7 @@ mod tests {
         // the shape is the same whatever the ledger happens to hold.
         f.ctx
             .ledger
-            .record_spawn("sess-b", "ws", "/proj", "card-2", 2_000, None)
+            .record_spawn("sess-b", "ws", "/proj", "card-2", 2_000, "sess-b", None)
             .expect("spawn");
 
         let out = run_verb(&f.ctx, "sessions.list", &json!({}))
@@ -2632,7 +2640,9 @@ mod tests {
             .iter()
             .find(|r| r["session_id"] == "sess-b")
             .expect("its row");
-        assert!(bare["tag"].is_null());
+        // Every line wears a callsign ([P01]); what this row lacks is a
+        // description, and only that.
+        assert!(bare["tag"].is_string());
         assert!(bare["synopsis"].is_null());
     }
 
@@ -2641,7 +2651,7 @@ mod tests {
         let f = fixture();
         f.ctx
             .ledger
-            .record_spawn("sess-a", "ws", "/proj", "card-1", 1_000, None)
+            .record_spawn("sess-a", "ws", "/proj", "card-1", 1_000, "sess-a", None)
             .expect("spawn");
         f.ctx
             .ledger
@@ -2663,7 +2673,7 @@ mod tests {
         let f = fixture();
         f.ctx
             .ledger
-            .record_spawn("sess-a", "ws", "/proj", "card-1", 1_000, None)
+            .record_spawn("sess-a", "ws", "/proj", "card-1", 1_000, "sess-a", None)
             .expect("spawn");
         let long = "x".repeat(facts_library::PROMPT_TEXT_CAP * 2);
         f.ctx
@@ -2696,6 +2706,7 @@ mod tests {
             .expect("the fixture has a shell ledger")
             .record_exchange(&crate::shell_ledger::NewShellExchange {
                 tug_session_id: session.to_string(),
+                line_id: session.to_string(),
                 command: command.to_string(),
                 output: "o".repeat(SHELL_OUTPUT_MAX_CHARS * 3),
                 exit_code: Some(0),
@@ -3347,7 +3358,7 @@ mod tests {
         let f = fixture();
         f.ctx
             .ledger
-            .record_spawn("sess-a", "ws", "/proj", "card-1", 1_000, None)
+            .record_spawn("sess-a", "ws", "/proj", "card-1", 1_000, "sess-a", None)
             .expect("spawn");
         // Three prompts recorded as facts; the session row remembers only the
         // last of them, which is exactly the gap the library closes.
@@ -3392,7 +3403,7 @@ mod tests {
         let f = fixture();
         f.ctx
             .ledger
-            .record_spawn("sess-a", "ws", "/proj", "card-1", 1_000, None)
+            .record_spawn("sess-a", "ws", "/proj", "card-1", 1_000, "sess-a", None)
             .expect("spawn");
         f.ctx
             .ledger
@@ -4078,6 +4089,7 @@ mod tests {
                 elsewhere.path().to_str().unwrap(),
                 "card-1",
                 1_000,
+                "sess-a",
                 None,
             )
             .expect("spawn");
@@ -4129,7 +4141,15 @@ mod tests {
         let f = fixture();
         f.ctx
             .ledger
-            .record_spawn("sess-priv", "ws", "/proj", "card-1", 1_000, None)
+            .record_spawn(
+                "sess-priv",
+                "ws",
+                "/proj",
+                "card-1",
+                1_000,
+                "sess-priv",
+                None,
+            )
             .expect("spawn");
         seed_fact(
             &f.ctx,
@@ -5113,6 +5133,7 @@ mod tests {
                 "/proj/tugtool",
                 "card-1",
                 1_000,
+                HELD,
                 Some("kind-floor"),
             )
             .expect("spawn");
@@ -5127,7 +5148,7 @@ mod tests {
         // A second session with neither callsign nor synopsis — the fallbacks.
         f.ctx
             .ledger
-            .record_spawn(UNHELD, "ws", "/proj/other", "card-2", 2_000, None)
+            .record_spawn(UNHELD, "ws", "/proj/other", "card-2", 2_000, UNHELD, None)
             .expect("spawn");
 
         let rendered = roster_of(&f.ctx);
@@ -5148,7 +5169,10 @@ mod tests {
         assert!(held.contains("last used "));
 
         let bare = lines.iter().find(|l| l.contains(UNHELD)).expect("its line");
-        assert!(bare.contains("untagged"), "{bare}");
+        assert!(
+            !bare.contains("untagged"),
+            "every line wears a callsign, so no roster line reads as untagged: {bare}"
+        );
         assert!(
             !bare.contains(" —  — "),
             "an absent synopsis takes its separator with it: {bare}"
@@ -5160,7 +5184,7 @@ mod tests {
         let f = fixture();
         f.ctx
             .ledger
-            .record_spawn(HELD, "ws", "/proj", "card-1", 1_000, None)
+            .record_spawn(HELD, "ws", "/proj", "card-1", 1_000, HELD, None)
             .expect("spawn");
         f.ctx
             .ledger
@@ -5181,11 +5205,11 @@ mod tests {
         let f = fixture();
         f.ctx
             .ledger
-            .record_spawn(HELD, "ws", "/proj/public", "card-1", 1_000, None)
+            .record_spawn(HELD, "ws", "/proj/public", "card-1", 1_000, HELD, None)
             .expect("spawn");
         f.ctx
             .ledger
-            .record_spawn(UNHELD, "ws", "/proj/secret", "card-2", 2_000, None)
+            .record_spawn(UNHELD, "ws", "/proj/secret", "card-2", 2_000, UNHELD, None)
             .expect("spawn");
         f.ctx
             .ledger
@@ -5240,6 +5264,7 @@ mod tests {
                     "/proj/tugtool",
                     &format!("card-{i}"),
                     1_000 + i,
+                    &format!("sess-{i:02}"),
                     Some(&format!("kind-floor-{i}")),
                 )
                 .expect("spawn");
@@ -5448,7 +5473,7 @@ mod tests {
         let f = fixture();
         f.ctx
             .ledger
-            .record_spawn(HELD, "ws", "/proj", "card-1", 1_000, None)
+            .record_spawn(HELD, "ws", "/proj", "card-1", 1_000, HELD, None)
             .expect("spawn");
         f
     }
@@ -5487,7 +5512,7 @@ mod tests {
         let f = fixture_with_session();
         f.ctx
             .ledger
-            .record_spawn(UNHELD, "ws", "/proj", "card-2", 2_000, None)
+            .record_spawn(UNHELD, "ws", "/proj", "card-2", 2_000, UNHELD, None)
             .expect("spawn");
         // Two the ledger holds is still ambiguous — the row has one identity.
         assert_eq!(

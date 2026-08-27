@@ -3416,6 +3416,21 @@ export class SessionManager {
   private sessionInitSeen: boolean = false;
 
   /**
+   * The segment announcement armed for the *next* subprocess, when the id it
+   * will run under is not knowable until claude says so ([P05]).
+   *
+   * `--continue` and `--continue --fork-session` mint their id inside claude,
+   * so the only place the change can be seen is the first `system/init` off
+   * the new process's stdout. `sessionFork` / `sessionContinue` arm this
+   * before spawning; the init handler fills in `newSessionId`, writes the
+   * frame, and clears it. `null` at every other moment.
+   */
+  private pendingSegment: {
+    kind: "fork" | "continue";
+    parentSessionId: string;
+  } | null = null;
+
+  /**
    * `request_id` of the `initialize` control-request sent at spawn, or
    * `null` before it's sent / after its response lands. claude answers
    * this turn-free with a `control_response` carrying the session's
@@ -3993,6 +4008,9 @@ export class SessionManager {
 
       // Respawn resume — keep the card bound, reload the intact JSONL.
       this.sessionMode = "resume";
+      // A different process from here on; the flag is a fact about the one
+      // that just died.
+      this.claudeReceivedInput = false;
       const claudeId = this.resolveClaudeId();
       this.claudeProcess = this.spawnClaude(claudeId, "resume");
       this.startStdoutDrain(this.claudeProcess);
@@ -4061,16 +4079,73 @@ export class SessionManager {
   }
 
   /**
-   * Pick the claude session id this session will spawn / resume
-   * against. For new mode it's the tug session id. For resume mode
-   * the persisted claude id wins (the two diverge after a fork; for
-   * un-forked sessions they're equal, so the fallback to `sessionId`
-   * is safe and preserves legacy behavior for older tugbank records).
+   * The claude session id this session is live under.
+   *
+   * Unconditional ([P05]): `resumeSessionId` is now written at the moment the
+   * id changes, on every arm that changes it — a rotation, a rewind-fork, a
+   * `--continue`, a crash respawn — so it is always either the live id or
+   * `null` on a session whose id has never moved. The old `sessionMode`
+   * qualifier made this answer depend on how the session was *started*, which
+   * is a different question and went wrong the moment a fresh rotation left
+   * the mode reading `resume`.
    */
   private resolveClaudeId(): string {
-    return this.sessionMode === "resume"
-      ? (this.resumeSessionId ?? this.sessionId)
-      : this.sessionId;
+    return this.resumeSessionId ?? this.sessionId;
+  }
+
+  /**
+   * Announce a claude session id change the moment it becomes visible ([P05]).
+   *
+   * Called on the **first** `system/init` of every subprocess, before the
+   * event is routed anywhere, so the announcement always precedes the
+   * `session_init` that records the id — which is the ordering tugcast's
+   * bridge relies on to attach the segment to the card's line.
+   *
+   * Two cases reach here. An **armed** announcement (`--continue`, with or
+   * without `--fork-session`) knows what it is and was waiting only for the
+   * id. An **unarmed** init whose id disagrees with the live one is a claude
+   * that re-identified itself without being asked — a crash respawn — and is
+   * announced as `respawn` rather than passed over: an unannounced id change
+   * is exactly what used to strand a segment from its line.
+   *
+   * An init that agrees with the live id is the ordinary case and says
+   * nothing.
+   */
+  private announceSegmentIfIdChanged(event: {
+    session_id?: unknown;
+  }): void {
+    const announced = typeof event.session_id === "string" ? event.session_id : "";
+    if (announced.length === 0) return;
+
+    const armed = this.pendingSegment;
+    if (armed !== null) {
+      this.pendingSegment = null;
+      this.resumeSessionId = announced;
+      writeLine({
+        type: "session_segment",
+        kind: armed.kind,
+        parentSessionId: armed.parentSessionId,
+        newSessionId: announced,
+        ipc_version: 2,
+      });
+      return;
+    }
+
+    const live = this.resolveClaudeId();
+    if (announced === live) return;
+    logSessionLifecycle("tugcode.segment_respawn", {
+      session_id: this.sessionId,
+      parent_session_id: live,
+      new_session_id: announced,
+    });
+    this.resumeSessionId = announced;
+    writeLine({
+      type: "session_segment",
+      kind: "respawn",
+      parentSessionId: live,
+      newSessionId: announced,
+      ipc_version: 2,
+    });
   }
 
   /**
@@ -5736,6 +5811,7 @@ export class SessionManager {
         // Mid-turn re-init (compact boundary). Fall through.
       } else {
         this.sessionInitSeen = true;
+        this.announceSegmentIfIdChanged(event);
       }
     }
     // Open a turn for a buffered follow-on. `handleUserMessage` opens
@@ -7702,20 +7778,26 @@ export class SessionManager {
         };
       }
       // Announce the parentage BEFORE the synthetic `session_init` that
-      // records the spawn: tugcast transfers the parent's callsign to the fork
-      // and stages it, so the fork is recorded as the same line of work rather
-      // than as an unrelated fresh pair. The rewound-to prompt uuid is the
-      // branch point.
+      // records the spawn: the fork is another segment of the same line, and
+      // the announcement is what attaches it to one ([P05]). The rewound-to
+      // prompt uuid is the branch point.
       writeLine({
-        type: "session_fork",
+        type: "session_segment",
+        kind: "rewind",
         parentSessionId: liveId,
         newSessionId: newId,
         forkPoint: promptUuid,
+        ipc_version: 2,
       });
       // Point the manager at the fork for this and every later (re)spawn,
       // and tell tugcast so the card→session binding is rebound + persisted
       // (a cold-boot then resumes the truncated fork, not the original).
       this.resumeSessionId = newId;
+      // The fork's JSONL was just written, so a later effort/add-dir respawn
+      // may legitimately `--resume` it. `claudeReceivedInput` is reset because
+      // it is a fact about the *process*, and this is a different one.
+      this.sessionMode = "resume";
+      this.claudeReceivedInput = false;
       const forked = this.spawnClaude(newId, "resume");
       this.claudeProcess = forked;
       this.startStdoutDrain(forked);
@@ -8110,6 +8192,15 @@ export class SessionManager {
   private async sessionFork(): Promise<void> {
     await this.killAndCleanup();
 
+    // `--continue --fork-session` mints the fork's id inside claude, so the
+    // announcement waits for the first `system/init` to learn it ([P05]).
+    this.pendingSegment = {
+      kind: "fork",
+      parentSessionId: this.resolveClaudeId(),
+    };
+    this.sessionMode = "resume";
+    this.claudeReceivedInput = false;
+
     const claudePath = resolveClaudePath();
     if (!claudePath) throw new Error("claude CLI not found (PATH or ~/.local/bin)");
 
@@ -8148,6 +8239,15 @@ export class SessionManager {
 
   private async sessionContinue(): Promise<void> {
     await this.killAndCleanup();
+
+    // Same as the fork: claude picks the id, so the announcement is written
+    // when its first `system/init` names it ([P05]).
+    this.pendingSegment = {
+      kind: "continue",
+      parentSessionId: this.resolveClaudeId(),
+    };
+    this.sessionMode = "resume";
+    this.claudeReceivedInput = false;
 
     const claudePath = resolveClaudePath();
     if (!claudePath) throw new Error("claude CLI not found (PATH or ~/.local/bin)");
@@ -8211,22 +8311,38 @@ export class SessionManager {
     // it, and the next rotation announces it — not the session it replaced —
     // as the parent.
     this.resumeSessionId = this.sessionId;
+    // **`new`, not `resume`.** The id was minted a line ago and claude has
+    // never written a JSONL for it, so `liveRespawnMode` must pick
+    // `--session-id`; `--resume` on an id with no transcript is fatal, and the
+    // process dies with "No conversation found". `claudeReceivedInput` is
+    // reset for the same reason through the other disjunct — nothing else
+    // resets it, so a rotation on a card that has taken a turn would answer
+    // `resume` on a session that has not.
+    this.sessionMode = "new";
+    this.claudeReceivedInput = false;
     this.claudeProcess = this.spawnClaude(this.sessionId, "session-id");
     this.startStdoutDrain(this.claudeProcess);
-    if (stage) {
-      writeLine({
-        type: "session_stage",
-        parentSessionId,
-        newSessionId: this.sessionId,
-        stage: stage.name,
-        model: this.currentModel ?? "",
-        ...(stage.document !== undefined ? { document: stage.document } : {}),
-        ...(stage.arc !== undefined ? { arc: stage.arc } : {}),
-        ...(stage.steps !== undefined ? { steps: stage.steps } : {}),
-        ...(stage.prompt !== undefined ? { prompt: stage.prompt } : {}),
-        ipc_version: 2,
-      });
-    }
+    // Every id change is announced, including this one ([P05]). A rotation
+    // carries the divider's facts; a bare `/new` carries none, and is the one
+    // gesture that means "a different conversation" — the only kind that
+    // births a line rather than joining the card's.
+    writeLine({
+      type: "session_segment",
+      kind: stage ? "rotation" : "new",
+      parentSessionId,
+      newSessionId: this.sessionId,
+      ...(stage
+        ? {
+            stage: stage.name,
+            model: this.currentModel ?? "",
+            ...(stage.document !== undefined ? { document: stage.document } : {}),
+            ...(stage.arc !== undefined ? { arc: stage.arc } : {}),
+            ...(stage.steps !== undefined ? { steps: stage.steps } : {}),
+            ...(stage.prompt !== undefined ? { prompt: stage.prompt } : {}),
+          }
+        : {}),
+      ipc_version: 2,
+    });
     // Synthesize a session_init for tugcast immediately — the
     // claude id is known synchronously here (we minted it above), so
     // no need to wait for claude's own emission.

@@ -33,6 +33,7 @@ import type { ReplayWindow } from "@tugproto/inbound";
 import { cardSessionBindingStore } from "./card-session-binding-store";
 import { logSessionLifecycle } from "./session-lifecycle-log";
 import { mintTag } from "./session-tag";
+import { sessionLineStore } from "./session-line-store";
 import { sessionTagStore } from "./session-tag-store";
 import { getTugbankClient } from "./tugbank-singleton";
 import {
@@ -70,13 +71,57 @@ function resolveSpawnPermissionMode(cardId: string): string | undefined {
 }
 
 /**
+ * Resolve the **line** a spawn seats its card on ([P03]), and record the pair
+ * so every identity cache can key by it.
+ *
+ * - **A session the deck already knows a line for** — a resume, a re-fire, a
+ *   retry — re-seats that line. Nothing is born: the conversation the card is
+ *   going back to already has an identity, and minting a second one here is
+ *   the move this model exists to remove.
+ * - **A session with no line** — a fresh spawn from the drop — mints a uuid.
+ *   The deck mints it rather than waiting for the server because the callsign
+ *   is minted here too, in the same breath, and both have to name the same
+ *   thing for the optimistic chip to be the one the ledger later confirms. The
+ *   ledger births a line under this exact id at `record_spawn`.
+ *
+ * `known` is the line a caller holding the row or the binding can name
+ * outright; it wins over the store.
+ *
+ * Returns the line to thread into {@link provisionSpawnTag} and
+ * {@link sendSpawnSession}.
+ */
+export function provisionSpawnLine(
+  tugSessionId: string,
+  known?: string | null,
+): string {
+  const settled = (known ?? sessionLineStore.lineOf(tugSessionId) ?? "").trim();
+  const lineId = settled.length > 0 ? settled : crypto.randomUUID();
+  sessionLineStore.seat(tugSessionId, lineId);
+  return lineId;
+}
+
+/**
+ * The line a **resume** offers, or `undefined` when the deck knows none.
+ *
+ * Adoption is why the absence matters. Resuming a session the deck has never
+ * seen — a picker row the external scan discovered — must seat the card on the
+ * line that scan already birthed for it ([P07]), under the callsign the picker
+ * has been showing. Minting one here and sending it would name a second
+ * identity for a conversation that already has one; sending nothing lets the
+ * ledger answer with the line it holds.
+ */
+export function resumeSpawnLine(tugSessionId: string): string | undefined {
+  return sessionLineStore.lineOf(tugSessionId) ?? undefined;
+}
+
+/**
  * Resolve the provisional mnemonic tag to send on a spawn, and set it in the
  * tag store optimistically so the Z4B chip shows one instantly "from the drop".
  *
- * - **Resume of an already-tagged row:** reuse the row's tag verbatim (the tag
- *   follows the ledger row; the server preserves it via COALESCE). The tag is
- *   taken from `existingTag` when the caller has the row in hand, else from the
- *   store (seeded from `list_sessions_ok` / card bindings on the resumed id).
+ * - **Resume of an already-tagged line:** reuse its tag verbatim — the callsign
+ *   belongs to the line and never moves. Taken from `existingTag` when the
+ *   caller has the row in hand, else from the store (seeded from
+ *   `list_sessions_ok` / card bindings under the same line).
  * - **Fresh spawn or legacy tagless resume:** mint a fresh tag, re-rolled
  *   against every tag currently known so the client avoids collisions the
  *   server would otherwise have to suffix.
@@ -84,12 +129,12 @@ function resolveSpawnPermissionMode(cardId: string): string | undefined {
  * Returns the tag to thread into {@link sendSpawnSession}.
  */
 export function provisionSpawnTag(
-  tugSessionId: string,
+  lineId: string,
   existingTag?: string | null,
 ): string {
-  const reuse = (existingTag ?? sessionTagStore.getTag(tugSessionId))?.trim() ?? "";
+  const reuse = (existingTag ?? sessionTagStore.getTag(lineId))?.trim() ?? "";
   const tag = reuse.length > 0 ? reuse : mintTag(sessionTagStore.knownTags());
-  sessionTagStore.setTag(tugSessionId, tag);
+  sessionTagStore.setTag(lineId, tag);
   return tag;
 }
 
@@ -110,6 +155,7 @@ export function sendSpawnSession(
   projectDir: string,
   sessionMode: SpawnSessionMode = "new",
   tag?: string,
+  lineId?: string,
 ): void {
   const permissionMode = resolveSpawnPermissionMode(cardId);
   const frame = encodeSpawnSession(
@@ -119,6 +165,7 @@ export function sendSpawnSession(
     sessionMode,
     permissionMode,
     tag,
+    lineId,
   );
   logSessionLifecycle("spawn.frame_send", {
     card_id: cardId,
@@ -127,6 +174,7 @@ export function sendSpawnSession(
     session_mode: sessionMode,
     permission_mode: permissionMode ?? "",
     tag: tag ?? "",
+    line_id: lineId ?? "",
   });
   connection.send(frame.feedId, frame.payload);
 }

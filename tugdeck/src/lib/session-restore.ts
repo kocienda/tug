@@ -101,7 +101,12 @@
 
 import type { DeckManager } from "../deck-manager";
 import type { TugConnection } from "../connection";
-import { provisionSpawnTag, sendSpawnSession } from "./session-lifecycle";
+import {
+  provisionSpawnLine,
+  provisionSpawnTag,
+  resumeSpawnLine,
+  sendSpawnSession,
+} from "./session-lifecycle";
 import { logSessionLifecycle } from "./session-lifecycle-log";
 import { cardSessionBindingStore } from "./card-session-binding-store";
 import { cardServicesStore } from "./card-services-store";
@@ -958,8 +963,19 @@ export function fireFreshSpawn(
   // delay-gates its centered panel on this, so a fast fresh spawn
   // shows only the backdrop and a slow one explains itself.
   restoreStartedAt.set(cardId, Date.now());
-  const tag = provisionSpawnTag(tugSessionId);
-  sendSpawnSession(connection, cardId, tugSessionId, projectDir, "new", tag);
+  // The card's own line, not a new one: a zero-turn binding is a conversation
+  // that has not started yet, and it keeps the callsign it was born with.
+  const lineId = provisionSpawnLine(tugSessionId);
+  const tag = provisionSpawnTag(lineId);
+  sendSpawnSession(
+    connection,
+    cardId,
+    tugSessionId,
+    projectDir,
+    "new",
+    tag,
+    lineId,
+  );
   sessionRestoreRegistry._register(
     cardId,
     { tugSessionId, projectDir },
@@ -1017,8 +1033,21 @@ export function fireRestore(
   }
   // Resume: reuse the row's tag (from the store, seeded on listing/binding), or
   // mint one to backfill a legacy tagless row.
-  const tag = provisionSpawnTag(tugSessionId);
-  sendSpawnSession(connection, cardId, tugSessionId, projectDir, "resume", tag);
+  //
+  // The line is offered only when the deck knows one: a resume of a session
+  // the external scan discovered has a line already, and the ledger is the one
+  // that holds it ([P07]).
+  const lineId = resumeSpawnLine(tugSessionId);
+  const tag = provisionSpawnTag(lineId ?? tugSessionId);
+  sendSpawnSession(
+    connection,
+    cardId,
+    tugSessionId,
+    projectDir,
+    "resume",
+    tag,
+    lineId,
+  );
   sessionRestoreRegistry._register(
     cardId,
     { tugSessionId, projectDir },
