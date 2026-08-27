@@ -13,13 +13,16 @@
 import { describe, expect, test } from "bun:test";
 
 import { EditorSelection, EditorState, Text } from "@codemirror/state";
+import type { EditorView } from "@codemirror/view";
 
 import type { CompletionItem, CompletionProvider } from "@/lib/tug-text-types";
 import { TUG_ATOM_CHAR } from "@/lib/tug-atom-img";
 import {
+  acceptCompletionAt,
   beginsTokenAt,
   completionField,
   completionQueryMatchesSelection,
+  completionTerminatorFor,
   queryStopChar,
   scanForwardForTokenEnd,
   trimTrailingPunctuation,
@@ -42,6 +45,24 @@ function makeState(doc = "", cursor?: number): EditorState {
       tugCompletionExt(() => ({ "/": slashProvider, "@": fileProvider })),
     ],
   });
+}
+
+/**
+ * Run the real `acceptCompletionAt` against a headless state and return the
+ * state it produced. `acceptCompletionAt` reads `view.state` and hands its one
+ * transaction to `view.dispatch`, so a state plus a conduit is the whole
+ * surface it touches — no DOM, and the accept logic itself is untouched.
+ */
+function acceptOn(state: EditorState, separator?: string): EditorState {
+  let next = state;
+  const conduit = {
+    state,
+    dispatch: (spec: Parameters<EditorState["update"]>[0]) => {
+      next = state.update(spec).state;
+    },
+  } as unknown as EditorView;
+  acceptCompletionAt(conduit, undefined, separator);
+  return next;
 }
 
 describe("scanForwardForTokenEnd", () => {
@@ -433,5 +454,145 @@ describe("promotion — a trigger arriving at a token start engages completion",
     expect(field.trigger).toBe("@");
     expect(field.anchorOffset).toBe(4);
     expect(field.query).toBe("notes");
+  });
+});
+
+describe("a slash command typed in front of a message already written", () => {
+  // The reported flow: the composer holds "Yes, (C) is the way to go." and the
+  // user puts the caret at 0 and types "/dash". The command and the prose are
+  // one unbroken token — "dashYes" matches nothing — so the popup the user is
+  // typing into went dark, and the only way to finish the command was to walk
+  // to the end of the run and edit it there.
+  const dashProvider: CompletionProvider = (query) =>
+    ["dash", "dash-join"].filter((name) => name.startsWith(query)).map((name) =>
+      item(name, "command"),
+    );
+
+  const MESSAGE = "Yes, (C) is the way to go.";
+
+  /** Type `text` one character at a time from offset 0 of a fresh composer. */
+  function typeAtZero(text: string): EditorState {
+    let state = EditorState.create({
+      doc: MESSAGE,
+      selection: EditorSelection.cursor(0),
+      extensions: [tugCompletionExt(() => ({ "/": dashProvider }))],
+    });
+    for (let i = 0; i < text.length; i++) {
+      state = state.update({
+        changes: { from: i, insert: text[i]! },
+        selection: EditorSelection.cursor(i + 1),
+        userEvent: "input.type",
+      }).state;
+    }
+    return state;
+  }
+
+  test("the query is what was typed, not the glued run", () => {
+    const field = typeAtZero("/dash").field(completionField);
+    expect(field.active).toBe(true);
+    expect(field.query).toBe("dash");
+    expect(field.caretBounded).toBe(true);
+    expect(field.filtered.map((f) => f.label)).toEqual(["dash", "dash-join"]);
+  });
+
+  test("it filters on every keystroke, never going dark mid-word", () => {
+    for (const prefix of ["/d", "/da", "/das", "/dash"]) {
+      const field = typeAtZero(prefix).field(completionField);
+      expect(field.query).toBe(prefix.slice(1));
+      expect(field.filtered.length).toBeGreaterThan(0);
+    }
+  });
+
+  test("a command at the end of its line keeps the word-savvy reading", () => {
+    const state = EditorState.create({
+      doc: "",
+      selection: EditorSelection.cursor(0),
+      extensions: [tugCompletionExt(() => ({ "/": dashProvider }))],
+    })
+      .update({
+        changes: { from: 0, insert: "/" },
+        selection: EditorSelection.cursor(1),
+        userEvent: "input.type",
+      })
+      .state.update({
+        changes: { from: 1, insert: "dash" },
+        selection: EditorSelection.cursor(5),
+        userEvent: "input.type",
+      }).state;
+    const field = state.field(completionField);
+    expect(field.query).toBe("dash");
+    expect(field.caretBounded).toBe(false);
+  });
+
+  test("editing inside a command that still matches keeps its tail", () => {
+    // "/dsh-join" with "a" inserted after "/d": the whole token "dash-join"
+    // is a real command, so the tail is the token's, not a neighbor's.
+    const edited = EditorState.create({
+      doc: "/dsh-join",
+      selection: EditorSelection.cursor(2),
+      extensions: [tugCompletionExt(() => ({ "/": dashProvider }))],
+    }).update({
+      changes: { from: 2, insert: "a" },
+      selection: EditorSelection.cursor(3),
+      userEvent: "input.type",
+    }).state;
+    const field = edited.field(completionField);
+    expect(field.query).toBe("dash-join");
+    expect(field.caretBounded).toBe(false);
+  });
+
+  test("accepting leaves the message intact behind a separating space", () => {
+    const accepted = acceptOn(typeAtZero("/dash"));
+    expect(accepted.doc.toString()).toBe(`${TUG_ATOM_CHAR} ${MESSAGE}`);
+    // Caret past the atom and its space, on the message's first character.
+    expect(accepted.selection.main.head).toBe(2);
+    expect(accepted.field(completionField).active).toBe(false);
+  });
+
+  test("a terminator accepts with itself as the separator", () => {
+    const accepted = acceptOn(typeAtZero("/dash"), ",");
+    expect(accepted.doc.toString()).toBe(`${TUG_ATOM_CHAR},${MESSAGE}`);
+  });
+});
+
+describe("completionTerminatorFor — what ends a query", () => {
+  const mods = { shiftKey: false, metaKey: false, ctrlKey: false, altKey: false };
+
+  test("space terminates every trigger", () => {
+    expect(completionTerminatorFor("/", { ...mods, key: " " })).toBe(" ");
+    expect(completionTerminatorFor("@", { ...mods, key: " " })).toBe(" ");
+  });
+
+  test("a slash session also ends on prose punctuation", () => {
+    for (const key of [",", ".", ";", "!", "?", ")", '"', "'"]) {
+      expect(completionTerminatorFor("/", { ...mods, key })).toBe(key);
+    }
+  });
+
+  test("command-name characters never terminate", () => {
+    for (const key of ["a", "Z", "7", ":", "-", "_"]) {
+      expect(completionTerminatorFor("/", { ...mods, key })).toBeNull();
+    }
+  });
+
+  test("a slash is token structure, not a terminator", () => {
+    expect(completionTerminatorFor("/", { ...mods, key: "/" })).toBeNull();
+  });
+
+  test("a file query keeps the space-only rule — its punctuation is path", () => {
+    for (const key of [",", ".", "-", "/"]) {
+      expect(completionTerminatorFor("@", { ...mods, key })).toBeNull();
+    }
+  });
+
+  test("named keys and modifier combos are not terminators", () => {
+    expect(completionTerminatorFor("/", { ...mods, key: "Enter" })).toBeNull();
+    expect(completionTerminatorFor("/", { ...mods, key: "ArrowDown" })).toBeNull();
+    expect(
+      completionTerminatorFor("/", { ...mods, key: " ", shiftKey: true }),
+    ).toBeNull();
+    expect(
+      completionTerminatorFor("/", { ...mods, key: ",", metaKey: true }),
+    ).toBeNull();
   });
 });

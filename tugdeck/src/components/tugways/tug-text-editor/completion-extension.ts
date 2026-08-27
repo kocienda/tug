@@ -47,6 +47,11 @@
  *     matches and keeps its punctuation. Openers on the other side
  *     (`(@plan.md)`) don't break the trigger's claim to the token — see
  *     {@link beginsTokenAt}.
+ *     One exception, and it is the slash trigger's alone: when the glued
+ *     token matches no command, the query falls back to trigger-to-caret
+ *     ({@link resolveQueryBound}), so a `/command` typed in front of a
+ *     message already written keeps completing as it is typed instead of
+ *     going dark against the prose it is glued to.
  *
  *   - **Rejoin**: when inactive, an edit (`docChanged`) or a
  *     user-originated caret move (`isUserEvent("select")` — click,
@@ -159,6 +164,12 @@ export interface TugCompletionState {
   filtered: readonly CompletionItem[];
   /** Index of the keyboard-selected item in `filtered`. */
   selectedIndex: number;
+  /**
+   * True when `query` was bounded at the caret rather than at the end of the
+   * token the caret sits in — the run to the caret's right is a neighbor, not
+   * this token's tail, so an accept must neither filter on it nor consume it.
+   */
+  caretBounded: boolean;
   /** Live provider — used for async refresh. `null` when inactive. */
   provider: CompletionProvider | null;
 }
@@ -170,6 +181,7 @@ const inactiveState: TugCompletionState = {
   query: "",
   filtered: [],
   selectedIndex: 0,
+  caretBounded: false,
   provider: null,
 };
 
@@ -208,6 +220,7 @@ const activateEffect = StateEffect.define<{
   provider: CompletionProvider;
   query: string;
   filtered: readonly CompletionItem[];
+  caretBounded: boolean;
 }>();
 
 /** Refresh the active session's query / filtered / selectedIndex. */
@@ -215,6 +228,7 @@ const updateEffect = StateEffect.define<{
   query: string;
   filtered: readonly CompletionItem[];
   selectedIndex: number;
+  caretBounded: boolean;
 }>();
 
 /** Move the keyboard selection within the active session's list. */
@@ -254,6 +268,7 @@ export const completionField = StateField.define<TugCompletionState>({
           query: effect.value.query,
           filtered: effect.value.filtered,
           selectedIndex: 0,
+          caretBounded: effect.value.caretBounded,
           provider: effect.value.provider,
         };
       } else if (effect.is(updateEffect)) {
@@ -263,6 +278,7 @@ export const completionField = StateField.define<TugCompletionState>({
           query: effect.value.query,
           filtered: effect.value.filtered,
           selectedIndex: effect.value.selectedIndex,
+          caretBounded: effect.value.caretBounded,
         };
       } else if (effect.is(navigateEffect)) {
         if (!next.active) continue;
@@ -508,6 +524,53 @@ export function beginsTokenAt(
 }
 
 /**
+ * Choose which of the two readings of a trigger token the session runs on:
+ * the word-savvy **token** query (trigger through the end of the token the
+ * caret sits in) or the **caret-bounded** one (trigger through the caret).
+ *
+ * The token reading is the default, and stays the whole story for `@`, whose
+ * tail is path structure the user edits from the inside. It is wrong for
+ * exactly one shape, and that shape is ordinary: a `/command` typed at offset
+ * 0 in front of a message already written, with no space between them yet —
+ * `/dash|Yes, (C) is the way…`. The glued token `dashYes` matches no command,
+ * so the popup the user is typing INTO goes dark and the command can never be
+ * accepted without first walking to the end of the run.
+ *
+ * So a slash session falls back to the caret reading when — and only when —
+ * the token reading matches nothing. A command typed at the end of its line
+ * has the two readings equal and never takes this path, and a mid-token edit
+ * of a real command (`/tugplug:imple|ment`) still matches whole and keeps its
+ * tail.
+ */
+function resolveQueryBound(
+  trigger: string,
+  tokenQuery: string,
+  caretQuery: string,
+  probe: (query: string) => boolean,
+): { value: string; caretBounded: boolean } {
+  if (trigger === "/" && caretQuery !== tokenQuery && !probe(tokenQuery)) {
+    return { value: caretQuery, caretBounded: true };
+  }
+  return { value: tokenQuery, caretBounded: false };
+}
+
+/**
+ * The caret-bounded reading of the active token: trigger-to-caret, shorn of
+ * its trailing punctuation the same way the token reading is. Clamped into
+ * `[queryStart, tokenEnd]` so a caret parked ON the trigger (the promotion
+ * case) reads as the empty query rather than an inverted range.
+ */
+function caretBoundedQuery(
+  doc: { sliceString: (from: number, to: number) => string },
+  queryStart: number,
+  caret: number,
+  tokenEnd: number,
+): string {
+  const end = Math.max(queryStart, Math.min(caret, tokenEnd));
+  return trimTrailingPunctuation(doc.sliceString(queryStart, end));
+}
+
+/**
  * Compute the typeahead query from the active session and current
  * doc/caret state, returning either the new query string, `"cancel"`
  * if the session should end, or `"unchanged"` if nothing changed.
@@ -529,12 +592,20 @@ export function beginsTokenAt(
  *     into a new word) — an abandoned run must not swallow later text or
  *     shadow a fresh trigger typed after it.
  *   - The query text would contain a newline.
+ *
+ * `probe` reports whether a candidate query matches anything, and is what
+ * lets {@link resolveQueryBound} fall back to the caret-bounded reading for a
+ * slash command written in front of existing prose.
  */
 export function deriveQueryUpdate(
   state: TugCompletionState,
   doc: { sliceString: (from: number, to: number) => string; length: number },
   selection: { from: number; to: number; head: number },
-): { kind: "unchanged" } | { kind: "cancel" } | { kind: "query"; value: string } {
+  probe: (query: string) => boolean = () => true,
+):
+  | { kind: "unchanged" }
+  | { kind: "cancel" }
+  | { kind: "query"; value: string; caretBounded: boolean } {
   if (!state.active) return { kind: "unchanged" };
   if (selection.from !== selection.to) return { kind: "cancel" };
   if (selection.head > doc.length) return { kind: "cancel" };
@@ -564,8 +635,19 @@ export function deriveQueryUpdate(
   // the trimmed one: a caret resting after the `;` in `@plan.md;` is still
   // inside its token, so the session stays open on a query of "plan.md".
   const query = trimTrailingPunctuation(raw);
-  if (query === state.query) return { kind: "unchanged" };
-  return { kind: "query", value: query };
+  const resolved = resolveQueryBound(
+    state.trigger,
+    query,
+    caretBoundedQuery(doc, queryStart, selection.head, tokenEnd),
+    probe,
+  );
+  if (
+    resolved.value === state.query &&
+    resolved.caretBounded === state.caretBounded
+  ) {
+    return { kind: "unchanged" };
+  }
+  return { kind: "query", ...resolved };
 }
 
 /**
@@ -743,6 +825,7 @@ const completionPlugin = ViewPlugin.fromClass(
             query: live.query,
             filtered,
             selectedIndex,
+            caretBounded: live.caretBounded,
           }),
         });
       });
@@ -772,6 +855,7 @@ const completionPlugin = ViewPlugin.fromClass(
             query: live.query,
             filtered,
             selectedIndex,
+            caretBounded: live.caretBounded,
           }),
         });
       });
@@ -845,30 +929,54 @@ function completionExtender(
       const query = trimTrailingPunctuation(
         tr.state.doc.sliceString(detected.anchorOffset + 1, queryEnd),
       );
-      const filtered = detected.provider(query);
+      const resolved = resolveQueryBound(
+        detected.trigger,
+        query,
+        caretBoundedQuery(
+          tr.state.doc,
+          detected.anchorOffset + 1,
+          tr.state.selection.main.head,
+          queryEnd,
+        ),
+        (candidate) => detected.provider(candidate).length > 0,
+      );
+      const filtered = detected.provider(resolved.value);
       return {
         effects: [
           activateEffect.of({
             trigger: detected.trigger,
             anchorOffset: detected.anchorOffset,
             provider: detected.provider,
-            query,
+            query: resolved.value,
             filtered,
+            caretBounded: resolved.caretBounded,
           }),
         ],
       };
     }
     const rejoin = detectRejoin(tr, providers);
     if (rejoin !== null) {
-      const filtered = rejoin.provider(rejoin.query);
+      const resolved = resolveQueryBound(
+        rejoin.trigger,
+        rejoin.query,
+        caretBoundedQuery(
+          tr.state.doc,
+          rejoin.anchorOffset + 1,
+          tr.state.selection.main.head,
+          rejoin.anchorOffset + 1 + rejoin.query.length,
+        ),
+        (candidate) => rejoin.provider(candidate).length > 0,
+      );
+      const filtered = rejoin.provider(resolved.value);
       return {
         effects: [
           activateEffect.of({
             trigger: rejoin.trigger,
             anchorOffset: rejoin.anchorOffset,
             provider: rejoin.provider,
-            query: rejoin.query,
+            query: resolved.value,
             filtered,
+            caretBounded: resolved.caretBounded,
           }),
         ],
       };
@@ -880,11 +988,12 @@ function completionExtender(
   // `tr.state.field(completionField)` already maps the anchor through
   // any doc changes via the field's own update reducer.
   const sel = tr.state.selection.main;
-  const verdict = deriveQueryUpdate(fieldState, tr.state.doc, {
-    from: sel.from,
-    to: sel.to,
-    head: sel.head,
-  });
+  const verdict = deriveQueryUpdate(
+    fieldState,
+    tr.state.doc,
+    { from: sel.from, to: sel.to, head: sel.head },
+    (candidate) => fieldState.provider!(candidate).length > 0,
+  );
   if (verdict.kind === "cancel") {
     return { effects: [cancelEffect.of(null)] };
   }
@@ -902,6 +1011,7 @@ function completionExtender(
           query: verdict.value,
           filtered,
           selectedIndex: 0,
+          caretBounded: verdict.caretBounded,
         }),
       ],
     };
@@ -945,9 +1055,10 @@ export function subscribeCompletionState(
 /**
  * Insert the chosen completion as a tug atom. Replaces the trigger
  * character + query range — the WHOLE token, since the query spans
- * trigger-to-token-end ({@link deriveQueryUpdate}); accepting from a
- * mid-token caret consumes the full word and can never strand a tail
- * fragment after the atom — with U+FFFC plus a separating space (unless
+ * trigger-to-token-end ({@link deriveQueryUpdate}) unless the session is
+ * caret-bounded; accepting from a mid-token caret consumes the full word
+ * and can never strand a tail fragment after the atom — with U+FFFC plus a
+ * separating space (unless
  * one already follows), attaches the matching `AtomWidget` decoration
  * via `addAtomsEffect`, sets the caret past the space so the next
  * keystroke doesn't glue onto the atom, and cancels the typeahead
@@ -956,8 +1067,16 @@ export function subscribeCompletionState(
  *
  * `index` defaults to the currently-selected item. No-op if
  * typeahead is not active or `filtered` is empty.
+ *
+ * `separator` replaces the default single space placed after the atom, and is
+ * how a terminator keystroke lands as itself: typing `,` on an exact match
+ * accepts to `<chip>,` rather than `<chip> ,`. It must be a single character.
  */
-export function acceptCompletionAt(view: EditorView, index?: number): void {
+export function acceptCompletionAt(
+  view: EditorView,
+  index?: number,
+  separator?: string,
+): void {
   const state = view.state.field(completionField);
   if (!state.active || state.filtered.length === 0) return;
   const idx = index ?? state.selectedIndex;
@@ -970,11 +1089,12 @@ export function acceptCompletionAt(view: EditorView, index?: number): void {
   // and `@plan.md;` accepts to `<atom>;` — the semicolon was prose, not part
   // of the path. Scanning forward from there recovers the run.
   const end = start + 1 + state.query.length;
-  const tokenEnd = scanForwardForTokenEnd(
-    doc,
-    end,
-    queryStopChar(state.trigger),
-  );
+  // A caret-bounded query already stops where the user's caret does, and what
+  // follows is the neighboring prose rather than this token's tail — there is
+  // nothing out there to consume or to carry across the atom.
+  const tokenEnd = state.caretBounded
+    ? end
+    : scanForwardForTokenEnd(doc, end, queryStopChar(state.trigger));
   const trailing = doc.sliceString(end, tokenEnd);
   // Follow the token with a separating space so text the user types next
   // doesn't glue onto it (e.g. accepting "/tugplug:commit" then typing
@@ -982,20 +1102,24 @@ export function acceptCompletionAt(view: EditorView, index?: number): void {
   // Skip it when a space already follows — accepting in front of existing
   // text shouldn't leave a double space. The space goes after any surviving
   // punctuation, never between it and the atom.
-  const needsSpace = doc.sliceString(tokenEnd, tokenEnd + 1) !== " ";
+  // An explicit separator is the character the user just typed, so it is
+  // always written; the default space is skipped when one is already there.
+  const sep = separator ?? " ";
+  const needsSpace =
+    separator !== undefined || doc.sliceString(tokenEnd, tokenEnd + 1) !== " ";
   const changes =
     trailing.length === 0
       ? [
           {
             from: start,
             to: end,
-            insert: needsSpace ? TUG_ATOM_CHAR + " " : TUG_ATOM_CHAR,
+            insert: needsSpace ? TUG_ATOM_CHAR + sep : TUG_ATOM_CHAR,
           },
         ]
       : [
           { from: start, to: end, insert: TUG_ATOM_CHAR },
           ...(needsSpace
-            ? [{ from: tokenEnd, to: tokenEnd, insert: " " }]
+            ? [{ from: tokenEnd, to: tokenEnd, insert: sep }]
             : []),
         ];
   const positioned: PositionedAtom = {
@@ -1138,6 +1262,54 @@ export function completionQueryMatchesSelection(state: {
 }
 
 /**
+ * Characters that can continue a slash-command name — the alphabet a command
+ * is spelled from, plus the `:` of a namespaced plugin command.
+ */
+const COMMAND_NAME_CHAR = /^[A-Za-z0-9:_-]$/;
+
+/**
+ * The character a keystroke should accept the highlighted completion WITH, or
+ * `null` when the keystroke is not a terminator at all.
+ *
+ * A space terminates every trigger's query — it is what has always ended a
+ * `/command` typed at the end of a line. A slash session additionally ends on
+ * any printable character that cannot continue a command name (a comma, a
+ * period, a closing paren, a quote), because a command written into a message
+ * already being edited has no space to end it: `/dash|Yes, (C) is…` reaches
+ * the end of the user's typing at a `,`, not at a gap. `@` keeps the narrow
+ * space-only rule: its queries are paths, full of the very punctuation a
+ * command name excludes.
+ *
+ * `/` is excluded because inside a slash token it is structure rather than
+ * prose — it ends one command's query and begins the next (see
+ * {@link queryStopChar}).
+ *
+ * The caller still gates on {@link completionQueryMatchesSelection}: a
+ * terminator accepts only what the user has already typed in full, never a
+ * prefix, so a printable character can never silently rewrite the query.
+ *
+ * Pure; exported for the test suite.
+ */
+export function completionTerminatorFor(
+  trigger: string,
+  event: {
+    key: string;
+    shiftKey: boolean;
+    metaKey: boolean;
+    ctrlKey: boolean;
+    altKey: boolean;
+  },
+): string | null {
+  if (event.metaKey || event.ctrlKey || event.altKey) return null;
+  if (event.key === " ") return event.shiftKey ? null : " ";
+  if (trigger !== "/") return null;
+  if (event.key.length !== 1) return null;
+  if (event.key === "/") return null;
+  if (COMMAND_NAME_CHAR.test(event.key)) return null;
+  return event.key;
+}
+
+/**
  * Whether the typeahead popup currently owns the navigation / accept
  * keys. True only when a session is active AND has at least one item —
  * i.e. the popup is actually on screen. `paintCompletionPopup` hides an
@@ -1183,17 +1355,17 @@ const tugCompletionKeymap = Prec.highest(
       if (event.key === "Enter" && !completionConsumesEnter(event)) {
         return false;
       }
-      // Space accepts only when the typed query is an exact match for the
-      // highlighted command — unlike Tab/Enter, which complete the
-      // highlighted item from any prefix. A space that doesn't exactly match
-      // is yielded untouched so it inserts as a literal character and keeps
-      // the query going (e.g. "/tug " stays text, never auto-accepts).
-      if (event.key === " ") {
+      // A terminator — a space for any trigger, plus any non-command-name
+      // character for a slash session ({@link completionTerminatorFor}) —
+      // accepts only when the typed query is an exact match for the
+      // highlighted command, unlike Tab/Enter, which complete the highlighted
+      // item from any prefix. A terminator that doesn't exactly match is
+      // yielded untouched so it inserts as a literal character and keeps the
+      // query going (e.g. "/tug " stays text, never auto-accepts). The
+      // character itself becomes the atom's separator.
+      const terminator = completionTerminatorFor(state.trigger, event);
+      if (terminator !== null) {
         if (
-          event.shiftKey ||
-          event.metaKey ||
-          event.ctrlKey ||
-          event.altKey ||
           !completionQueryMatchesSelection({
             query: state.query,
             filtered: state.filtered,
@@ -1204,7 +1376,7 @@ const tugCompletionKeymap = Prec.highest(
         }
         event.preventDefault();
         event.stopPropagation();
-        acceptCompletionAt(view);
+        acceptCompletionAt(view, undefined, terminator);
         return true;
       }
       // A key the active typeahead consumes is fully owned by it: stop it
