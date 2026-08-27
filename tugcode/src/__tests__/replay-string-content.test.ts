@@ -215,14 +215,14 @@ describe("translateJsonlSession — [W5a] command scaffolding is skipped", () =>
   });
 
   test("a CLI-answered command with no model turn closes success, not interrupted", async () => {
-    // `/model` is answered by the CLI itself — the JSONL holds the
+    // `/compact` is answered by the CLI itself — the JSONL holds the
     // envelope and a `<local-command-stdout>` line and no assistant
     // entry. Orphan synthesis must not paint that as an interrupt.
     const jsonl = [
       userStringEntry(
-        "<command-name>/model</command-name>\n<command-args>opus</command-args>",
+        "<command-name>/compact</command-name>\n<command-args></command-args>",
       ),
-      userStringEntry("<local-command-stdout>Set model to opus</local-command-stdout>"),
+      userStringEntry("<local-command-stdout>Compacted</local-command-stdout>"),
       userStringEntry("the next real prompt"),
       assistantEndTurn("m1", "reply"),
     ].join("\n");
@@ -234,6 +234,34 @@ describe("translateJsonlSession — [W5a] command scaffolding is skipped", () =>
     expect(turnCompletes[0].msg_id).toMatch(/^u-/);
     expect(turnCompletes[0].result).toBe("success");
     expect(turnCompletes[1].msg_id).toBe("m1");
+  });
+
+  test("a bridge-issued /model envelope never replays as a user row", async () => {
+    // The model change travels as a `set_model` control_request, so the live
+    // transcript shows nothing; claude writes the envelope into the JSONL
+    // anyway. Replaying it would show a row the first run never had.
+    const jsonl = [
+      userStringEntry(
+        "<command-name>/model</command-name>\n" +
+          "<command-message>model</command-message>\n" +
+          "<command-args>opus[1m]</command-args>",
+      ),
+      userStringEntry("<local-command-stdout>Set model to opus[1m]</local-command-stdout>"),
+      userStringEntry("the next real prompt"),
+      assistantEndTurn("m1", "reply"),
+    ].join("\n");
+
+    const out = await collectSession(jsonl);
+
+    const userReplays = addUserMessagesOf(out);
+    expect(userReplays).toHaveLength(1);
+    expect(((userReplays[0].content[0] ?? {}) as { text?: string }).text).toBe(
+      "the next real prompt",
+    );
+    // No opener for the skipped envelope: one turn, closed by the assistant.
+    const turnCompletes = turnCompletesOf(out);
+    expect(turnCompletes).toHaveLength(1);
+    expect(turnCompletes[0].msg_id).toBe("m1");
   });
 
   test("an isCompactSummary entry is skipped — the summary text never reaches the wire", async () => {

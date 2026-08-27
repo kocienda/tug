@@ -1077,6 +1077,32 @@ function isCommandEnvelope(text: string): boolean {
   return text.replace(COMMAND_ENVELOPE_TAG_RE, "").trim() === "";
 }
 
+/** Reads the `<command-name>` out of a slash-command envelope. */
+const COMMAND_ENVELOPE_NAME_RE = /<command-name>\s*([^<\s]+)\s*<\/command-name>/;
+
+/**
+ * Slash commands the **bridge** issues on the user's behalf, so their
+ * envelope is machinery rather than a submission.
+ *
+ * `/model` is the whole list. The session card never sends `/model` as a
+ * prompt — it is a local command that opens the AI mixer, and the model
+ * change itself travels as a `set_model` control_request
+ * (`SessionManager.handleModelChange`). claude services that request by
+ * writing a `/model` envelope into the JSONL anyway, once per change and
+ * once more per card mount when the restore effect re-applies the
+ * remembered model. Live, nothing of that reaches the transcript; on
+ * replay the envelope would surface as a user row the first run never
+ * showed — a wart that multiplies with every relaunch.
+ */
+const BRIDGE_ISSUED_COMMANDS: readonly string[] = ["/model"];
+
+/** True when {@link isCommandEnvelope} names a {@link BRIDGE_ISSUED_COMMANDS} command. */
+function isBridgeIssuedCommandEnvelope(text: string): boolean {
+  if (!isCommandEnvelope(text)) return false;
+  const name = COMMAND_ENVELOPE_NAME_RE.exec(text)?.[1];
+  return name !== undefined && BRIDGE_ISSUED_COMMANDS.includes(name);
+}
+
 /**
  * True when a `user` entry's bare-string `message.content` is NOT a
  * genuine transcript submission, so the translator skips it rather
@@ -1097,6 +1123,9 @@ function isNonSubmissionUserString(entry: JsonlEntry, text: string): boolean {
     return true;
   }
   const trimmed = text.trimStart();
+  if (isBridgeIssuedCommandEnvelope(trimmed)) {
+    return true;
+  }
   if (
     !isCommandEnvelope(trimmed) &&
     COMMAND_SCAFFOLDING_PREFIXES.some((prefix) => trimmed.startsWith(prefix))
@@ -1427,7 +1456,12 @@ function handleUserEntry(
     const trimmed = rawContent.trimStart();
     // The `<command-*>` envelope IS the user's submission — it falls
     // through to the block walk below and opens a turn like any other
-    // prompt. Every other scaffolding string is CLI bookkeeping.
+    // prompt, unless the bridge issued it rather than the user
+    // ({@link isBridgeIssuedCommandEnvelope}). Every other scaffolding
+    // string is CLI bookkeeping.
+    if (isBridgeIssuedCommandEnvelope(trimmed)) {
+      return out;
+    }
     if (
       !isCommandEnvelope(trimmed) &&
       COMMAND_SCAFFOLDING_PREFIXES.some((prefix) => trimmed.startsWith(prefix))
