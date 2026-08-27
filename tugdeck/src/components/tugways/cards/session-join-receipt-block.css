@@ -57,3 +57,10 @@
 [data-slot="discard-receipt-detail"] {
   padding-block: var(--tug-space-sm);
 }
+
+/* The settled register above the receipt it presages. The gap is the only rule
+   this block adds: the register's own framing is its file's, and the receipt
+   below owns everything under it. */
+.join-receipt-register {
+  margin-block-end: var(--tug-space-xs);
+}

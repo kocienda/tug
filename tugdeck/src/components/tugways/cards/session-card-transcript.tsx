@@ -315,6 +315,35 @@ function isCompactAcknowledgement(text: string): boolean {
  */
 const EMPTY_ATOMS: ReadonlyArray<AtomSegment> = [];
 
+/**
+ * A dash arc's stage boundary — the server rotated this card onto a fresh
+ * claude session, and the row marks where one stage ended and the next began.
+ * The transcript above it is the previous stage's and stays exactly where it
+ * is, which is what makes an arc one scroll. A quiet line with a rule across
+ * the row, saying "boundary" rather than "message"; appearance is CSS-only
+ * ([L06]).
+ *
+ * Rendered from two places for the note's two positions — inside a turn's body
+ * when the rotation caught a turn open, and below the turn's own footer when
+ * it closes one — so the two spellings cannot drift.
+ */
+function StageDivider({ text }: { text: string }): React.ReactElement {
+  return (
+    <div
+      className="session-card-transcript-stage"
+      data-slot="stage-divider"
+      data-source="stage"
+    >
+      <TugQuietLine
+        icon={<Milestone size={16} aria-hidden="true" />}
+        label="stage"
+        subject={text}
+        tone="quiet"
+      />
+    </div>
+  );
+}
+
 interface UserMessageCellProps extends TugListViewCellProps<SessionTranscriptDataSource> {
   /**
    * Typed row descriptor, resolved by the host's renderer lambda
@@ -364,10 +393,12 @@ const UserMessageCell = React.memo(function UserMessageCell({
   // every `user` row that paints; the defensive `?? ""` covers an
   // out-of-range read.
   const userMessage = row.userMessage;
-  // Who spoke: the turn's origin, off the committed entry or the in-flight
-  // projection. A wheel turn lays out as a user turn and is labelled
-  // as the wheel's.
-  const wheel = (row.turn?.origin ?? row.activeTurn?.origin) === "wheel";
+  // Who spoke: the MESSAGE's own origin, never its turn's. A wheel turn lays
+  // out as a user turn and its opener is labelled as the wheel's — but a
+  // message the user typed while that turn was in flight is picked up
+  // mid-bracket and lands in the same turn, and reading the turn here gave
+  // the user's own words the wheel's name.
+  const wheel = userMessage?.origin === "wheel";
   const rawText = userMessage?.text ?? "";
   const strippedTextWithContext = stripUserBodyPrefix(rawText);
   // Split any leading `<tug-context>` sentinel blocks (staged shell / `/btw`
@@ -1289,28 +1320,11 @@ const CodeRowBody: React.FC<CodeRowBodyProps> = ({
         continue;
       }
       if (message.source === "stage") {
-        // A dash arc's stage boundary: the server rotated this card onto a
-        // fresh claude session, and the row marks where one stage ended and
-        // the next began. The transcript above it is the previous stage's and
-        // stays exactly where it is, which is what makes an arc one scroll.
-        // Same quiet-line substrate as the wake chip and the notice row, with
-        // a rule across the row saying "boundary" rather than "message";
-        // appearance is CSS-only ([L06]).
-        elements.push(
-          <div
-            key={message.messageKey}
-            className="session-card-transcript-stage"
-            data-slot="stage-divider"
-            data-source="stage"
-          >
-            <TugQuietLine
-              icon={<Milestone size={16} aria-hidden="true" />}
-              label="stage"
-              subject={message.text}
-              tone="quiet"
-            />
-          </div>,
-        );
+        // A rotation that caught this turn open: the boundary is genuinely
+        // inside the turn's content, so it renders in place. A stage note that
+        // CLOSES a turn is hoisted out by `AssistantTurnCell` and never
+        // reaches here.
+        elements.push(<StageDivider key={message.messageKey} text={message.text} />);
         continue;
       }
       // Other system_note sources (`other`) have no renderer yet —
@@ -1538,6 +1552,29 @@ const AssistantTurnCell = React.memo(function AssistantTurnCell({
     () => allMessages.slice(messageStart, messageEnd),
     [allMessages, messageStart, messageEnd],
   );
+  // A stage divider that CLOSES a turn is a boundary between turns, not a
+  // thing the turn did: the runner rotates at idle, so the note is seated on
+  // the last committed turn and lands as its final message. Rendered in the
+  // body it read as the closing turn's own last act, above that turn's OK ·
+  // duration · tokens footer — a turn that said "the review opens when this
+  // turn ends" and then showed the review's milepost inside itself. So it is
+  // hoisted out of the body and rendered below the footer, where the next
+  // stage's first turn follows it.
+  //
+  // A note that is NOT last stays in the body: the rotation caught a turn
+  // open, and the boundary really is inside that turn's content.
+  const closingStageNote = useMemo(() => {
+    const last = messages[messages.length - 1];
+    return last !== undefined &&
+      last.kind === "system_note" &&
+      last.source === "stage"
+      ? last
+      : null;
+  }, [messages]);
+  const bodyMessages = useMemo(
+    () => (closingStageNote === null ? messages : messages.slice(0, -1)),
+    [messages, closingStageNote],
+  );
   // The bracket's last assistant run is the per-turn end-state / badge /
   // live-indicator anchor ([P02]): committed end-state chrome (Z1B), the
   // in-flight indicator (Z1C), the pending-dialog slots, and the foot
@@ -1750,7 +1787,7 @@ const AssistantTurnCell = React.memo(function AssistantTurnCell({
               // into every top-level tool dispatch.
               <div ref={(el) => { bodyRef.current = el; }}>
                 <CodeRowBody
-                  messages={messages}
+                  messages={bodyMessages}
                   turnKey={turnKey}
                   streamingStore={streamingStore}
                   session={codeSessionStore}
@@ -1836,6 +1873,11 @@ const AssistantTurnCell = React.memo(function AssistantTurnCell({
             }
           />
         </div>
+        {/* Below the footer, so the boundary reads between the turns rather
+            than inside the one it closes. */}
+        {closingStageNote !== null ? (
+          <StageDivider text={closingStageNote.text} />
+        ) : null}
       </div>
       {menu}
       </AnnotationScope>

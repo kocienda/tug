@@ -513,6 +513,7 @@ export interface CodeSessionState {
     text: string;
     atoms: AtomSegment[];
     turnKey: string;
+    origin: "user" | "wheel";
     queuedAt: number;
   }>;
   lastError: {
@@ -952,6 +953,16 @@ export function createInitialState(
 // Transition handlers
 // ---------------------------------------------------------------------------
 
+/**
+ * Who wrote a submission: the sender the event names, else the user.
+ *
+ * One reading for every mint site, so a `UserMessage`'s attribution is a fact
+ * about the submission rather than about the turn it comes to rest in.
+ */
+function senderOrigin(origin: "user" | "wheel" | undefined): "user" | "wheel" {
+  return origin === "wheel" ? "wheel" : "user";
+}
+
 function handleSend(
   state: CodeSessionState,
   event: SendActionEvent,
@@ -974,6 +985,7 @@ function handleSend(
       createdAt: submitAt,
       text: event.text,
       attachments: event.atoms,
+      origin: senderOrigin(event.origin),
       submitAt,
     };
     const next: CodeSessionState = {
@@ -1079,6 +1091,8 @@ function handleSend(
       text: event.text,
       atoms: [...event.atoms],
       turnKey: event.turnKey,
+      // The sender, not the turn it lands in.
+      origin: senderOrigin(event.origin),
       // Submission time, stamped here rather than at the flush: this is
       // the moment the user posted, which is what the row's timestamp
       // shows and what its position among shell rows sorts on.
@@ -2288,6 +2302,7 @@ function handleToolResult(
       createdAt: head.queuedAt,
       text: head.text,
       attachments: head.atoms,
+      origin: head.origin,
       submitAt: head.queuedAt,
     };
     nextMessages.push(steered);
@@ -2856,6 +2871,7 @@ function flushQueuedHeadResult(
     createdAt: next.queuedAt,
     text: next.text,
     attachments: next.atoms,
+    origin: next.origin,
     submitAt: next.queuedAt,
   };
   return {
@@ -4374,6 +4390,7 @@ function handleSeedQueuedSends(
         text: s.text,
         atoms: [...s.atoms],
         turnKey: s.turnKey,
+        origin: s.origin,
         queuedAt: s.queuedAt,
       })),
     },
@@ -5012,6 +5029,7 @@ function handleAddUserMessage(
     createdAt: now,
     text: event.text,
     attachments: event.atoms,
+    origin: senderOrigin(event.origin),
     submitAt: now,
   };
 

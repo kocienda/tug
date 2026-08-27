@@ -145,6 +145,16 @@ export interface UserMessage extends MessageBase {
   text: string;
   attachments: ReadonlyArray<AtomSegment>;
   /**
+   * Who wrote this message — the user, or the wheel opening a stage.
+   *
+   * Stamped on the Message rather than read off its turn, and required so
+   * every mint site has to answer. A turn the wheel opened can carry the
+   * user's own words: a message typed while that turn is in flight is queued
+   * and picked up mid-bracket, and reading attribution from the turn gave the
+   * user's interjection the wheel's name.
+   */
+  origin: "user" | "wheel";
+  /**
    * Wall-clock ms when `send()` was dispatched. Distinct from
    * `TurnEntry.endedAt` — the "submitted at" time the user-row
    * timestamp display reads. Carried on the Message so the data
@@ -818,6 +828,12 @@ export interface QueuedSend {
   text: string;
   atoms: ReadonlyArray<AtomSegment>;
   turnKey: string;
+  /**
+   * Who wrote it, carried across the queue gap so the flushed / picked-up
+   * `UserMessage` is stamped with the sender rather than with whoever's turn
+   * it happens to land inside.
+   */
+  origin: "user" | "wheel";
   /**
    * Wall-clock time the user hit submit — stamped at the queueing `send`,
    * not at the flush. It becomes the flushed turn's `UserMessage`

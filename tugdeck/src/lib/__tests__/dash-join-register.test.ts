@@ -337,3 +337,25 @@ describe("precedence — the part that gets re-derived wrongly", () => {
     expect(blocked?.line).toContain("src/x.ts");
   });
 });
+
+/**
+ * The receipt's register — what a join leaves behind once the live one is gone.
+ *
+ * `SessionJoinReceiptBlock` mounts the register over facts parsed from the
+ * persisted receipt, so a reader scrolling back finds the same row that stood
+ * while the join ran, settled, immediately above the commit it presaged. It
+ * passes no wire state at all: the receipt's existence IS the terminal beat.
+ */
+describe("the register a landed receipt reproduces", () => {
+  test("a terminal ok beat with nothing else settles on the joined sentence", () => {
+    const settled = dashJoinRegister({
+      dash: "imposer2",
+      base: "main",
+      stage: "ready",
+      landBeat: { beat: "record", status: "ok", terminal: true },
+    });
+    expect(settled?.phase).toBe("success");
+    expect(settled?.line).toBe("Joined imposer2 into main");
+    expect(settled?.word).toBe("joined");
+  });
+});

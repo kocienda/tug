@@ -31,7 +31,7 @@ const ZERO_COST: TurnCost = {
 // ---------------------------------------------------------------------------
 
 export function userMessage(
-  args: { turnKey: string; text: string; submitAt?: number },
+  args: { turnKey: string; text: string; submitAt?: number; origin?: "user" | "wheel" },
 ): UserMessage {
   const submitAt = args.submitAt ?? Date.now();
   return {
@@ -40,6 +40,7 @@ export function userMessage(
     createdAt: submitAt,
     text: args.text,
     attachments: [],
+    origin: args.origin ?? "user",
     submitAt,
   };
 }

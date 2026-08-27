@@ -25,6 +25,7 @@ function sends(...texts: string[]): Sends {
     text,
     atoms: [],
     turnKey: `k${i}`,
+    origin: "user" as const,
     queuedAt: 1_700_000_000_000 + i,
   }));
 }

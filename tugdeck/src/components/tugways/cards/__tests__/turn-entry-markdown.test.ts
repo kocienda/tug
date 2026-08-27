@@ -32,6 +32,7 @@ function userMessage(text: string): Message {
     kind: "user_message",
     text,
     attachments: [],
+    origin: "user",
     submitAt: seq,
     messageKey: `u${seq}`,
     createdAt: seq,

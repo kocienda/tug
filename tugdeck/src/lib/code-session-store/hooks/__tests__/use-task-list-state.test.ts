@@ -59,6 +59,7 @@ function userMsg(): Message {
     createdAt: 0,
     text: "hi",
     attachments: [],
+    origin: "user",
     submitAt: 0,
   } as Message;
 }

@@ -138,11 +138,15 @@ pub fn stage_ask(
 
 /// The stage's opening prompt.
 ///
-/// Four clauses, each dropped when its fact is absent: the ask, where to
-/// start, what moved in those files since the document was written, and — for
-/// a course that stopped and is resuming — where it stopped and why. A call
-/// with only an ask returns exactly that ask, which is what makes this a safe
-/// replacement for a bare one.
+/// Four clauses, each dropped when its fact is absent: the ask, the paths the
+/// document cites, what moved in those files since the document was written,
+/// and — for a course that stopped and is resuming — where it stopped and
+/// why. A call with only an ask returns exactly that ask, which is what makes
+/// this a safe replacement for a bare one.
+///
+/// The paths clause **names what the list is** rather than telling the model
+/// what to do with it: they are the files the document cites, and where to
+/// begin is the stage's own judgement.
 pub fn compose(
     ask: &str,
     paths: &[String],
@@ -151,7 +155,7 @@ pub fn compose(
 ) -> String {
     let mut out = ask.to_owned();
     if !paths.is_empty() {
-        out.push_str(&format!("\n\nstart there: {}", paths.join(", ")));
+        out.push_str(&format!("\n\ncited by this document: {}", paths.join(", ")));
     }
     if !commits.is_empty() {
         out.push_str(&format!(
@@ -188,21 +192,22 @@ mod tests {
 
         let with_paths = compose(ASK, &paths, &[], None);
         assert!(with_paths.starts_with(ASK));
-        assert!(with_paths.contains("start there: src/a.rs, src/b.ts"));
+        assert!(with_paths.contains("cited by this document: src/a.rs, src/b.ts"));
         assert!(!with_paths.contains("what changed"));
 
         let with_commits = compose(ASK, &[], &commits, None);
         assert!(with_commits.contains("what changed in those files"));
         assert!(with_commits.contains("abc1234 move the thing"));
-        assert!(!with_commits.contains("start there"));
+        assert!(!with_commits.contains("cited by this document"));
 
         let resuming = compose(ASK, &[], &[], Some(("implement", "lint")));
         assert!(resuming.ends_with("this arc was stopped in implement — lint; it is resuming"));
 
         let everything = compose(ASK, &paths, &commits, Some(("review", "api error")));
         assert!(
-            everything.find("start there").unwrap() < everything.find("what changed").unwrap(),
-            "where to start comes before what moved"
+            everything.find("cited by this document").unwrap()
+                < everything.find("what changed").unwrap(),
+            "the citations come before what moved in them"
         );
         assert!(everything.contains("stopped in review — api error"));
     }

@@ -28,6 +28,7 @@ import type React from "react";
 import { CommitShaText } from "@/components/tugways/commit-sha-text";
 import { CommitMessage } from "@/components/tugways/commit-presentation";
 import { CommitChangesList } from "@/components/tugways/tug-changes-list";
+import { DashJoinRegister } from "@/components/tugways/dash-join-register";
 import { useAnnotatedElement } from "@/components/tugways/annotation-scope";
 import { BlockChrome } from "../blocks/block-chrome";
 import { ToolBlockHistoryCollapse } from "../blocks/collapse-context";
@@ -169,11 +170,28 @@ export function SessionJoinReceiptBlock(props: CommandBlockProps): React.ReactEl
   const parsed = parseJoinReceipt(props.message.output);
   if (parsed === null) return <ShellExchangeBlock {...props} />;
   return (
-    <JoinReceipt
-      parsed={parsed}
-      cwd={props.message.cwd}
-      exchangeId={props.message.exchangeId}
-    />
+    <>
+      {/* The join's own register, settled, standing where it stood while the
+          join ran — the live one departs with the state that derived it, and
+          this is what a reader finds afterwards, immediately above the commit
+          it presaged. Derived rather than written down: `dash` and `base` come
+          off the receipt the ledger already carries, so the row costs no ink
+          of its own and reads identically live and on restore. It goes through
+          `DashJoinRegister` so its sentence is the same derivation the live
+          register runs ([D111] parity, one vocabulary). */}
+      <DashJoinRegister
+        dash={parsed.dash}
+        base={parsed.base}
+        stage="ready"
+        landBeat={{ beat: "record", status: "ok", terminal: true }}
+        className="join-receipt-register"
+      />
+      <JoinReceipt
+        parsed={parsed}
+        cwd={props.message.cwd}
+        exchangeId={props.message.exchangeId}
+      />
+    </>
   );
 }
 

@@ -875,6 +875,7 @@ export interface SeedQueuedSendsEvent {
     text: string;
     atoms: AtomSegment[];
     turnKey: string;
+    origin: "user" | "wheel";
     queuedAt: number;
   }>;
 }

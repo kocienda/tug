@@ -290,3 +290,83 @@ describe("reducer — handleSessionStage", () => {
     expect(compactionNoteText()).toBe("Session compacted");
   });
 });
+
+/**
+ * A message is attributed to whoever SUBMITTED it, never to the turn it comes
+ * to rest in.
+ *
+ * The wheel opens a stage by submitting a prompt, which opens a turn. A
+ * message the user types while that turn is in flight is queued and picked up
+ * mid-bracket, landing in the wheel's turn — so a row that read its turn's
+ * origin put the wheel's name on the user's own words. The origin rides the
+ * `UserMessage` itself, stamped at every mint site.
+ */
+describe("reducer — attribution rides the message, not the turn", () => {
+  const STAGE_PROMPT: CodeSessionEvent = {
+    ...(stage("implement", "opus", "dash/foo.md") as Record<string, unknown>),
+    prompt: "/tugplug:dash-implement foo",
+    turnKey: "arc-1",
+  } as CodeSessionEvent;
+
+  const interjection: CodeSessionEvent = {
+    type: "send",
+    text: "stop after this step completes",
+    atoms: [],
+    content: [{ type: "text" as const, text: "stop after this step completes" }],
+    turnKey: "mine",
+  } as CodeSessionEvent;
+
+  /** Walk the wheel's turn to a tool boundary, with the user's send queued. */
+  function wheelTurnWithAnInterjection(): CodeSessionState {
+    let state = reduce(fresh(), STAGE_PROMPT).state;
+    state = reduce(state, {
+      type: "content_block_start",
+      msg_id: "m1",
+      block_index: 0,
+      kind: "tool_use",
+      tool_use_id: "tu1",
+      tool_name: "Bash",
+    } as CodeSessionEvent).state;
+    state = reduce(state, {
+      type: "tool_use",
+      msg_id: "m1",
+      tool_use_id: "tu1",
+      tool_name: "Bash",
+      input: { command: "ls" },
+    } as CodeSessionEvent).state;
+    // Mid-turn, so it queues rather than opening a turn of its own.
+    state = reduce(state, interjection).state;
+    return reduce(state, {
+      type: "tool_result",
+      tool_use_id: "tu1",
+      output: "ok",
+    } as CodeSessionEvent).state;
+  }
+
+  it("stamps the wheel's stage prompt as the wheel's", () => {
+    const state = reduce(fresh(), STAGE_PROMPT).state;
+    const opener = state.scratch.get("arc-1")?.messages[0];
+    expect(opener?.kind).toBe("user_message");
+    expect((opener as { origin?: string }).origin).toBe("wheel");
+  });
+
+  it("keeps the user's mid-turn interjection the user's, inside the wheel's turn", () => {
+    const state = wheelTurnWithAnInterjection();
+    // The host turn is still the wheel's — that part is correct and stays.
+    expect(state.pendingTurn?.origin).toBe("wheel");
+    const messages = state.scratch.get("arc-1")?.messages ?? [];
+    const users = messages.filter((m) => m.kind === "user_message");
+    expect(users.length).toBe(2);
+    expect((users[0] as { origin?: string }).origin).toBe("wheel");
+    // The regression: this one used to render as `Wheel` because the row read
+    // the turn it landed in.
+    expect((users[1] as { text: string }).text).toBe("stop after this step completes");
+    expect((users[1] as { origin?: string }).origin).toBe("user");
+  });
+
+  it("keeps a queued send the user's across the flush at turn_complete", () => {
+    let state = reduce(fresh(), STAGE_PROMPT).state;
+    state = reduce(state, interjection).state;
+    expect(state.queuedSends.map((s) => s.origin)).toEqual(["user"]);
+  });
+});

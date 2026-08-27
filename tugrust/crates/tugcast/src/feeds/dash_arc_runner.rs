@@ -38,13 +38,13 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use tokio::sync::{Mutex, mpsc, watch};
+use tokio::sync::{mpsc, watch, Mutex};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 use tugcast_core::protocol::{FeedId, Frame, TugSessionId};
 use tugdash_core::arc::{
-    ArcRecord, ArcStage, ArcStopReason, append_arc_done, append_arc_note, append_arc_plan,
-    append_arc_stop, read_arc, stage_model,
+    append_arc_done, append_arc_note, append_arc_plan, append_arc_stop, read_arc, stage_model,
+    ArcRecord, ArcStage, ArcStopReason,
 };
 use tugdash_core::dash::append_dash_log;
 use tugutil_core::config::{Config, DashConfig};
@@ -52,8 +52,8 @@ use tugutil_core::plan;
 
 use super::agent_supervisor::{AgentSupervisor, SpawnState};
 use super::dash_arc::{
-    ArcAction, ArcFacts, PromptKind, PromptWhy, Rotation, StepLedgerFacts, arc_action,
-    context_max_from_breakdown, step_range,
+    arc_action, context_max_from_breakdown, step_range, ArcAction, ArcFacts, PromptKind, PromptWhy,
+    Rotation, StepLedgerFacts,
 };
 use crate::wheel::{self, RotationRequest};
 
@@ -333,7 +333,11 @@ fn describe_action(action: Option<&ArcAction>) -> String {
 /// the count, the "a step just went done" edge would be consumed before the
 /// turn-end tick could see it, and an implement stage would never rotate.
 fn retain_done_count(previous: Option<usize>, current: usize, idle: bool) -> Option<usize> {
-    if idle { Some(current) } else { previous }
+    if idle {
+        Some(current)
+    } else {
+        previous
+    }
 }
 
 /// What one card is doing right now, read from the supervisor's live ledger.
@@ -1585,7 +1589,7 @@ Some context.
         )
         .unwrap();
         assert!(prompt.starts_with("/tugplug:dash-devise a plan for .tug/dashes/demo/brief.md"));
-        assert!(prompt.contains("start there: src/a.rs, src/b.ts"));
+        assert!(prompt.contains("cited by this document: src/a.rs, src/b.ts"));
         assert!(
             !prompt.contains("src/gone.rs"),
             "a backticked token that is not a file on disk is prose"

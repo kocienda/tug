@@ -32,6 +32,7 @@ function userTurn(
     createdAt: submitAt,
     text,
     attachments: [],
+    origin: "user",
     submitAt,
   };
   return {
