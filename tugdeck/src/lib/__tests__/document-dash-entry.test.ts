@@ -75,7 +75,7 @@ describe("documentDashTrackModel", () => {
     const model = documentDashTrackModel(dash());
     expect(model.phase).toBe("brief");
     expect(model.steps).toBeNull();
-    expect(model.poke).toBe(false);
+    expect(model.dashCut).toBe(false);
   });
 
   test("a plan nobody has touched reads review", () => {

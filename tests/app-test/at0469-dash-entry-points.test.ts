@@ -19,12 +19,12 @@
  * **A diverged dash can be replayed by hand, and the answer is always
  * audible.** The base-motion engine replays a dash when the base moves, but
  * its gate skips a repository with autoreplay off, which is what every fixture
- * dash here is. So the `⋯` offers Replay whenever the dash is diverged — bound
- * or not, since boundness has no part in that gate — and a press that moves the
- * rounds settles the row's own divergence facts. A press whose outcome moves
- * *nothing* is the dangerous case, because three of the five outcomes leave the
- * row byte-identical: that one reports on the card's pane bulletin, and it is
- * asserted here directly.
+ * dash here is. So Replay is offered whenever the dash is diverged — bound
+ * or not, since boundness has no part in that gate. No outcome shows itself on
+ * the row — the lifecycle line carries the dash's standing, not the checkout's
+ * git bookkeeping — so every one of the five reports on the card's pane
+ * bulletin, and both halves are asserted here: the replay that moves the
+ * rounds, and the press afterwards that moves nothing.
  *
  * Everything is real: a scratch repository this file owns, real dashes, a real
  * base commit moving underneath one of them, and the real `changeset_replay`
@@ -302,14 +302,9 @@ describe.skipIf(!SHOULD_RUN)("AT0469: acting on a dash from a surface that shows
           { timeoutMs: 30000 },
         );
 
-        // The row knows it is behind before anything is pressed.
-        const BEHIND_MARK = `${lensRow(BEHIND)} [data-slot="tug-dash-lifecycle-fact"][data-fact="behind"]`;
-        await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(BEHIND_MARK)}) !== null`,
-          { timeoutMs: 30000 },
-        );
-
         // ── The verb is offered, on a bound row, naming its destination ────
+        // A live Replay item IS the row's knowledge that it is behind: the
+        // predicate reads the same divergence the line no longer prints.
         const menu = await readDashRowMenu(app, lensRow(BEHIND));
         note("at0469 behind-row menu", JSON.stringify(menu));
         expect(menu.replay.present).toBe(true);
@@ -322,31 +317,45 @@ describe.skipIf(!SHOULD_RUN)("AT0469: acting on a dash from a surface that shows
         // born current. The predicate's whole truth table is a unit test.
 
         // ── The press moves the rounds ─────────────────────────────────────
-        // The row's own facts are the receipt: `base +N` goes because the
-        // dash now contains the base tip. Nothing local flipped it — the
-        // aggregate recomputed after the server's replay.
+        // The bulletin is the receipt. A replay that moves the rounds changes
+        // nothing any dash row prints — the line carries the dash's standing,
+        // not the checkout's git bookkeeping — so success speaks here or it
+        // does not speak at all.
         await pressDashRowMenuItem(app, lensRow(BEHIND), "request-replay-dash");
         await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(BEHIND_MARK)}) === null`,
+          `document.querySelector(${JSON.stringify(BULLETIN)}) !== null`,
           { timeoutMs: 30000 },
         );
-        note("at0469 the replay landed and the behind mark cleared");
+        const landed = await app.evalJS<string>(
+          `(document.querySelector(${JSON.stringify(BULLETIN_TITLE)})?.textContent ?? "")`,
+        );
+        note("at0469 the replay's own bulletin", landed);
+        expect(landed).toContain(BEHIND);
 
         // ── A second press moves nothing — and still speaks ────────────────
         // This is the dead-button guard. The dash is current now, so the item
         // is disabled with its reason in the label rather than offering a
         // press whose answer nothing on the row could show ([L31]).
-        await openDashRowMenu(app, lensRow(BEHIND));
-        const afterwards = await app.evalJS<{ disabled: boolean; label: string }>(
-          `(() => {
-             const el = document.querySelector('[data-slot="tug-editor-context-menu"] [data-item-action="request-replay-dash"]');
-             return {
-               disabled: el !== null && el.hasAttribute("data-disabled"),
-               label: el === null ? "" : (el.textContent || ""),
-             };
-           })()`,
-        );
-        await closeDashRowMenu(app);
+        // The bulletin speaks the moment the server answers, while the
+        // aggregate the predicate reads recomputes on its own beat — so the
+        // reading is taken until it catches up rather than once.
+        let afterwards = { disabled: false, label: "" };
+        const deadline = Date.now() + 30000;
+        while (Date.now() < deadline) {
+          await openDashRowMenu(app, lensRow(BEHIND));
+          afterwards = await app.evalJS<{ disabled: boolean; label: string }>(
+            `(() => {
+               const el = document.querySelector('[data-slot="tug-editor-context-menu"] [data-item-action="request-replay-dash"]');
+               return {
+                 disabled: el !== null && el.hasAttribute("data-disabled"),
+                 label: el === null ? "" : (el.textContent || ""),
+               };
+             })()`,
+          );
+          await closeDashRowMenu(app);
+          if (afterwards.disabled) break;
+          await settle(1000);
+        }
         note("at0469 replay after replaying", JSON.stringify(afterwards));
         expect(afterwards.disabled).toBe(true);
         expect(afterwards.label).toContain("already current with");

@@ -4,7 +4,7 @@
  *
  * This card is the documented home of the dash lifecycle grammar:
  *
- *   - `TugDashAtom` — the one skin, two sizes. A poke is a dash to it.
+ *   - `TugDashAtom` — the one skin, two sizes. A cut is a dash to it.
  *   - `TugDashTrack` — brief · devise · review · implement (ticks) · join, in
  *     a cap-height strip of CONSTANT width, whose current cell breathes;
  *     `dashTrackModelFromEntry` derives it from the wire.
@@ -73,20 +73,20 @@ import { sessionNameStore } from "@/lib/session-name-store";
 import { sessionTagStore } from "@/lib/session-tag-store";
 
 // ---------------------------------------------------------------------------
-// Fixtures — one wire entry per point in a dash's life, plus a poke
+// Fixtures — one wire entry per point in a dash's life, plus a cut
 // ---------------------------------------------------------------------------
 
 const ROOT = "/Users/kocienda/Mounts/u/src/tugtool";
 const WORKER = "5d2e9b10-0000-4000-8000-00000000d45c";
-const POKER = "5d2e9b10-0000-4000-8000-00000000b0ce";
+const CUTTER = "5d2e9b10-0000-4000-8000-00000000b0ce";
 const TOUCHED = 1_760_000_000_000;
 const PLAN = `${ROOT}/.tug/dashes/tugrev-bringup/plan.md`;
 const BRIEF = `${ROOT}/.tug/dashes/tugrev-bringup/brief.md`;
 
 sessionNameStore.setName(WORKER, "tugrev bringup");
 sessionTagStore.setTag(WORKER, "juicy-river-3");
-sessionNameStore.setName(POKER, "Lens polish");
-sessionTagStore.setTag(POKER, "amber-fox-7");
+sessionNameStore.setName(CUTTER, "Lens polish");
+sessionTagStore.setTag(CUTTER, "amber-fox-7");
 
 function steps(done: number, current: number | null, total: number): DashStep[] {
   return Array.from({ length: total }, (_, i) => ({
@@ -136,7 +136,7 @@ interface Moment {
 
 const IMPLEMENT_TITLE = "`tugutil file rev`, the `tugrev` bin, and the receipt";
 const DRAFT_SUBJECT = "Add tugrev-core and the `.rev` edit language";
-const POKE_SUBJECT = "Lens Dashes empty state reads None, centered";
+const CUT_SUBJECT = "Lens Dashes empty state reads None, centered";
 const DASH = "tugrev-bringup";
 
 const MOMENTS: readonly Moment[] = [
@@ -241,19 +241,19 @@ const MOMENTS: readonly Moment[] = [
     }),
   },
   {
-    key: "poke",
-    caption: "A poke — no documents, no arc: two cells, the same atom, the same join",
-    workers: [POKER],
-    prompt: `/tugplug:poke lens-none-empty ${POKE_SUBJECT}`,
+    key: "cut",
+    caption: "A cut — no documents, no arc: two cells, the same atom, the same join",
+    workers: [CUTTER],
+    prompt: `/tugplug:cut lens-none-empty ${CUT_SUBJECT}`,
     branched: true,
     entry: entry("lens-none-empty", {
       branch: "tugdash/lens-none-empty",
-      bound_sessions: [POKER],
+      bound_sessions: [CUTTER],
       stage: "working",
       rounds: 2,
       files: BRANCH_FILES,
       worktree_dirty: true,
-      draft: { fingerprint: "spike", updated_at: TOUCHED, message: POKE_SUBJECT },
+      draft: { fingerprint: "spike", updated_at: TOUCHED, message: CUT_SUBJECT },
     }),
   },
 ];
@@ -323,7 +323,7 @@ export function GalleryDashLifecycle(): React.ReactElement {
     <div className="cg-content" data-testid="gallery-dash-lifecycle">
       <section className="cg-section">
         <TugLabel className="cg-section-title">The atom, once — TugDashAtom</TugLabel>
-        <Stage caption="One skin, two sizes (rail 2xs · reading sm), proportional everywhere; who is on it is the atom beside it. A poke is a dash to the atom: both are work on a worktree">
+        <Stage caption="One skin, two sizes (rail 2xs · reading sm), proportional everywhere; who is on it is the atom beside it. A cut is a dash to the atom: both are work on a worktree">
           <div className="cg-dash-lineup">
             <TugDashAtom name={DASH} size="2xs" />
             <TugDashAtom name={DASH} size="sm" />
@@ -375,7 +375,7 @@ export function GalleryDashLifecycle(): React.ReactElement {
             {MOMENTS.map((m) => (
               <DashPhaseMark key={m.key} model={dashTrackModelFromEntry(m.entry)} size={16} />
             ))}
-            <span className="cg-dash-legend-word">brief · devise · review · implement · stopped · join · poke</span>
+            <span className="cg-dash-legend-word">brief · devise · review · implement · stopped · join · cut</span>
           </div>
         </Stage>
         <p className="cg-dash-prose">
@@ -427,8 +427,8 @@ export function GalleryDashLifecycle(): React.ReactElement {
                   ? `${pair.current}/${pair.total}`
                   : model.stopped !== null
                     ? "Stopped"
-                    : model.poke
-                      ? "Poke"
+                    : model.dashCut
+                      ? "Cut"
                       : DASH_PHASE_LABELS[model.phase];
               const state = model.stopped !== null ? "aborted" : "running";
               return (

@@ -1,6 +1,6 @@
 ---
 name: dash
-description: Start or continue dash work from one conversational entry point — size the idea, route to a spike, a poke, or the brief/plan arc, and carry the arc through review to implementation
+description: Start or continue dash work from one conversational entry point — size the idea, route to a spike, a cut, or the brief/plan arc, and carry the arc through review to implementation
 argument-hint: "[idea…]"
 disable-model-invocation: true
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep, WebFetch, WebSearch, AskUserQuestion
@@ -15,7 +15,7 @@ Everything it routes to already exists as a skill of its own, and each one stays
 
 | Path | Skill | For |
 |---|---|---|
-| Poke | `poke` | A fix, a small feature, a prototype — work that does not want a plan, a review, or an arc |
+| Cut | `cut` | A fix, a small feature, a prototype — work that does not want a plan, a review, or an arc |
 | Design spike | `spike-card` | A layout, a treatment, a shape you want to look at before committing to it |
 | Plan arc | a brief, then `tugutil dash run` | Work with enough parts that the order matters — the server rotates devise → review → implement on this card |
 | Brief first | `tuglaws/brief-skeleton.md`, then the plan arc | Work whose *decisions* are the hard part, and want settling before any step is written |
@@ -26,7 +26,7 @@ Everything it routes to already exists as a skill of its own, and each one stays
 
 **You are the orchestrator, in-thread.** Do not spawn sub-agents (`Task`). The plugin is agentless by charter.
 
-**`/dash` itself never creates a worktree, never commits, and never joins.** While a delegated contract runs, that contract's guardrails govern — including `dash-implement`'s and `poke`'s sanctioned `tugutil dash create` / `tugutil dash commit`. That holds for an arc too: its implement stage *is* `dash-implement`, run by a session the server started, under exactly those guardrails. The shared discipline is [`tuglaws/dash-work-doctrine.md`](../../../tuglaws/dash-work-doctrine.md), and the stop-before-join obligation is unchanged: landing is the user's act. Handing work to the arc does not hand over the join.
+**`/dash` itself never creates a worktree, never commits, and never joins.** While a delegated contract runs, that contract's guardrails govern — including `dash-implement`'s and `cut`'s sanctioned `tugutil dash create` / `tugutil dash commit`. That holds for an arc too: its implement stage *is* `dash-implement`, run by a session the server started, under exactly those guardrails. The shared discipline is [`tuglaws/dash-work-doctrine.md`](../../../tuglaws/dash-work-doctrine.md), and the stop-before-join obligation is unchanged: landing is the user's act. Handing work to the arc does not hand over the join.
 
 **When the project has no `tuglaws/`,** the doctrine and the skeletons are absent. What survives is what the delegated skills carry inline — one working root, verify before every commit, never commit red, rounds through `tugutil dash commit`, stop before the join — plus `tugutil plan lint`, which ships with the product and is what the plan format actually means. Say so once, at the start, so the user knows which fidelity they are getting; do not reconstruct the missing documents from memory.
 
@@ -87,14 +87,14 @@ Then hand off. Never `tugutil dash run` a dash with no brief and no plan — the
 
 Route from the sharpened idea. **The default is to route without asking**: read the shape off what the user said and what the session holds, name the route in one sentence as you take it, and go. The routes:
 
-- **Poke** — `poke`. Small and concrete; the work is clear and a plan, a review, or an arc would be ceremony.
+- **Cut** — `cut`. Small and concrete; the work is clear and a plan, a review, or an arc would be ceremony.
 - **Plan arc** — a brief written here, then handed to the arc, which rotates devise → review → implement on this card. Enough parts that the order matters.
 - **Brief first, then plan** — the decisions are the hard part and want settling before any step is written. Same hand-off; more of the turn spent on the brief.
 - **Design spike** — `spike-card`. Visual or exploratory; the answer is something to look at.
 
 Recommend from the sharpened idea rather than from a rule: small and concrete leans quick, visual leans spike, decision-heavy leans brief-first, many-moving-parts leans plan. The user chooses; the recommendation is a reading, not a verdict.
 
-**Ask only when the reading is genuinely split** — a one-sentence idea that could be a poke or could be a plan, and nothing in the session tips it. Then, and only then, one `AskUserQuestion`, four options, the recommended one first. Everything else is already answered: "spike this", "quick fix:", "plan this out", "write me a brief" name a route outright; "roll out", "across the codebase", "introduce components", or an invocation on a design the session already holds name the plan arc, because a settled design with many mount sites is what the arc exists for. Asking anyway is the ceremony this skill exists to remove, and a dialog whose first option is marked *Recommended* over a design the user just walked you through is that ceremony at its most expensive.
+**Ask only when the reading is genuinely split** — a one-sentence idea that could be a cut or could be a plan, and nothing in the session tips it. Then, and only then, one `AskUserQuestion`, four options, the recommended one first. Everything else is already answered: "spike this", "quick fix:", "plan this out", "write me a brief" name a route outright; "roll out", "across the codebase", "introduce components", or an invocation on a design the session already holds name the plan arc, because a settled design with many mount sites is what the arc exists for. Asking anyway is the ceremony this skill exists to remove, and a dialog whose first option is marked *Recommended* over a design the user just walked you through is that ceremony at its most expensive.
 
 ### 4. Hand off, or delegate
 
@@ -102,7 +102,7 @@ Two of the four routes are contracts you carry out yourself. Read the sibling's 
 
 | Route | Read |
 |---|---|
-| Poke | `../poke/SKILL.md` |
+| Cut | `../cut/SKILL.md` |
 | Design spike | `../spike-card/SKILL.md` |
 
 The plan routes are different, and the difference is the whole of this stage: **you do not run the plan arc, you hand it to something that does.**
@@ -158,4 +158,4 @@ This is the stage `/dash` owns outright, because nothing else in the arc will sp
 
 ## When to reach for something else
 
-Nothing here is exclusive. A user who knows exactly what they want should type it: `/tugplug:poke`, `/tugplug:spike-card`, `/tugplug:dash-review`, `/tugplug:dash-implement`. (`/tugplug:dash-devise` is not among them — it is a stage of this arc and stops when it is run outside one.) `/dash` exists so that knowing the roster is not the price of starting — it is the door for people who do not yet know which room they want, and it stops being needed the moment they do.
+Nothing here is exclusive. A user who knows exactly what they want should type it: `/tugplug:cut`, `/tugplug:spike-card`, `/tugplug:dash-review`, `/tugplug:dash-implement`. (`/tugplug:dash-devise` is not among them — it is a stage of this arc and stops when it is run outside one.) `/dash` exists so that knowing the roster is not the price of starting — it is the door for people who do not yet know which room they want, and it stops being needed the moment they do.

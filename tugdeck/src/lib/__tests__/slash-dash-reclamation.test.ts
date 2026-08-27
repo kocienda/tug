@@ -33,7 +33,7 @@ import {
 const PLUGIN_CATALOG = [
   "tugplug:dash",
   "tugplug:dash-implement",
-  "tugplug:poke",
+  "tugplug:cut",
   "tugplug:draft",
   "tugplug:dash-devise",
   "tugplug:dash-review",

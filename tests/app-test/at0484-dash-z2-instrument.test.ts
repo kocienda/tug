@@ -18,7 +18,7 @@
  *  - **The word is the lifecycle PHASE**, Title Case: `Brief` for a dash whose
  *    git stage is `created`, which is the half of a dash's life this cell used
  *    to draw a fallback glyph for.
- *  - **A poke says `Poke`**, not `Implement`: it has no plan and never will,
+ *  - **A cut says `Cut`**, not `Implement`: it has no plan and never will,
  *    so a phase word would name a stage of a lifecycle it does not have.
  *
  * **The widths are the row's promise, and they are read as the cells' own
@@ -81,8 +81,8 @@ const SID = "a7c0d1ea-0000-4000-8000-000000000484";
 const PLAN_DASH = "at0484-plan";
 /** A brief and nothing else. */
 const BRIEF_DASH = "at0484-brief";
-/** No documents and no arc — the definition of a poke. */
-const POKE_DASH = "at0484-poke";
+/** No documents and no arc — the definition of a cut. */
+const CUT_DASH = "at0484-cut";
 
 const CARD = '[data-card-id="A"]';
 const ROW = `${CARD} [data-slot="session-telemetry-status-row"]`;
@@ -126,9 +126,9 @@ beforeAll(() => {
     dashBriefPath(projectDir(), BRIEF_DASH),
     "# at0484 brief\n\nThe idea, before there is a plan for it.\n",
   );
-  // A poke: a worktree and rounds, no documents, no arc. Nothing is written
+  // A cut: a worktree and rounds, no documents, no arc. Nothing is written
   // for it beyond the dash itself, which is the whole point.
-  createDash(projectDir(), POKE_DASH, "at0484 poke", scratch.cli);
+  createDash(projectDir(), CUT_DASH, "at0484 cut", scratch.cli);
   fixtureDir = seedScratchSession(projectDir(), SID);
 });
 
@@ -347,10 +347,10 @@ describe.skipIf(!SHOULD_RUN)("AT0484: the Z2 DASH instrument", () => {
         await shellAndSettle(app, `${tugutilPath(CHECKOUT)} dash bind ${BRIEF_DASH}`, 1);
         await awaitReading(app, "Brief");
 
-        // ── A poke says Poke ─────────────────────────────────────────────
-        await shellAndSettle(app, `${tugutilPath(CHECKOUT)} dash bind ${POKE_DASH}`, 2);
-        await awaitReading(app, "Poke");
-        note("at0484 z2 at the poke reading", (await app.screenshot()).path);
+        // ── A cut says Cut ───────────────────────────────────────────────
+        await shellAndSettle(app, `${tugutilPath(CHECKOUT)} dash bind ${CUT_DASH}`, 2);
+        await awaitReading(app, "Cut");
+        note("at0484 z2 at the cut reading", (await app.screenshot()).path);
 
         // ── Unbinding gives the width back ───────────────────────────────
         await shellAndSettle(app, `${tugutilPath(CHECKOUT)} dash unbind`, 3);

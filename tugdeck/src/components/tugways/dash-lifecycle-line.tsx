@@ -9,9 +9,10 @@
  * the plan's count, and only while one is; the note is the phase in one word —
  * `brief`, `devise`, `review`, `implement`, `join` — and `stopped · <why>`
  * when the arc stopped; the facts are the tone-colored words `dashMetaFacts`
- * derives, most urgent first, each with its detail on hover. The two arc facts
- * are dropped here: the track already says the arc is running, and the note
- * already says it stopped.
+ * derives, most urgent first, each with its detail on hover — the ones about
+ * the dash's own standing (conflicts, overlap, fit), never the checkout's git
+ * bookkeeping. The two arc facts are dropped too: the track already says the
+ * arc is running, and the note already says it stopped.
  *
  * **The step's TITLE is not a run on this line.** It rode the note during
  * implement, where it was a sentence in a slot sized for a word: on every host
@@ -49,11 +50,26 @@ export function dashLifecycleNote(model: DashTrackModel): string {
   return model.phase;
 }
 
-/** The facts the track and the note have not already said. */
-const SAID_BY_TRACK: ReadonlySet<string> = new Set(["arc", "arc-stopped"]);
+/**
+ * The facts the line drops.
+ *
+ * The arc's two are already the track's own subject — the strip draws the
+ * stage and the note says when it stopped. The git bookkeeping — a dirty
+ * worktree, a base that has moved, a replay that settled — is the checkout's
+ * condition rather than the dash's state. It reaches the eye where a gesture
+ * turns on it instead: the picker's `uncommitted`, the Replay item's label,
+ * the discard confirmation, and the replay bulletin.
+ */
+const NOT_ON_THE_LINE: ReadonlySet<string> = new Set([
+  "arc",
+  "arc-stopped",
+  "uncommitted",
+  "behind",
+  "replayed",
+]);
 
 export function dashLifecycleFacts(facts: readonly DashMetaFact[]): DashMetaFact[] {
-  return facts.filter((fact) => !SAID_BY_TRACK.has(fact.key));
+  return facts.filter((fact) => !NOT_ON_THE_LINE.has(fact.key));
 }
 
 export interface DashLifecycleLineProps {

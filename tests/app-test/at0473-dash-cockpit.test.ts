@@ -495,7 +495,7 @@ describe.skipIf(!SHOULD_RUN)("AT0473: the dash cockpit lists waiting plans", () 
 
         // A real dash on project A, bound to the followed card's session — the
         // fixture runs the same verbs a run does. No documents and no arc, so
-        // the cell reads it as the poke it is indistinguishable from — a word,
+        // the cell reads it as the cut it is indistinguishable from — a word,
         // because there is no plan to count.
         const dash = createDash(dirA(), DASH_NAME, "at0473 fixture", projectA!.cli);
         bindDash(dirA(), DASH_NAME, SID_A, {
@@ -512,7 +512,7 @@ describe.skipIf(!SHOULD_RUN)("AT0473: the dash cockpit lists waiting plans", () 
         // No strip in this box: the cell is an instrument, and the whole
         // track lives on its placard ([D168]).
         expect(bare.tracks).toBe(0);
-        expect(bare.text).toBe("Poke");
+        expect(bare.text).toBe("Cut");
         expect(bare.fractions).toBe(0);
         // TWO dots, one pinned to each edge of the reading — STATE's own
         // construction — and both quiet: a dash nobody has worked yet is not
@@ -602,13 +602,12 @@ describe.skipIf(!SHOULD_RUN)("AT0473: the dash cockpit lists waiting plans", () 
         note("at0473 dash placard", JSON.stringify(placard));
         // The cockpit detail heads with the same block the Lens row and the
         // Changes shade wear: the atom, the track, the run fraction, the step
-        // it is on, and the divergence facts — every mark composed from the
-        // same components, so the three readings of one dash cannot disagree.
+        // it is on — every mark composed from the same components, so the
+        // three readings of one dash cannot disagree.
         expect(placard.blocks).toBe(1);
         expect(placard.tracks).toBe(1);
         expect(placard.text).toContain(DASH_NAME);
         expect(placard.text).toContain("1/3");
-        expect(placard.text).toContain("uncommitted");
         // **The list is the plan's ledger**, not the [D100] task list it used
         // to be. This session is a real `--resume` and has written no tasks at
         // all, so under the old reading the placard said "None" over a dash

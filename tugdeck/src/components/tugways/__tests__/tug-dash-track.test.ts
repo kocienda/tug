@@ -31,14 +31,14 @@ describe("dashTrackModel", () => {
     ["a hand-driven walk is implement", { documents: PLAN, steps: steps(1, 2, 4), stage: "working" }, "implement", false],
     ["every step done is the join", { documents: PLAN, steps: steps(4, null, 4), stage: "draft-ready" }, "join", false],
     ["a walked plan is the join even before the stage moves", { documents: PLAN, steps: steps(4, null, 4), stage: "working" }, "join", false],
-    ["no documents and no arc is a poke, in implement", { stage: "working" }, "implement", true],
-    ["a poke offered its join", { stage: "draft-ready" }, "join", true],
+    ["no documents and no arc is a cut, in implement", { stage: "working" }, "implement", true],
+    ["a cut offered its join", { stage: "draft-ready" }, "join", true],
   ];
-  for (const [name, input, phase, poke] of cases) {
+  for (const [name, input, phase, dashCut] of cases) {
     test(name, () => {
       const model = dashTrackModel(input);
       expect(model.phase).toBe(phase);
-      expect(model.poke).toBe(poke);
+      expect(model.dashCut).toBe(dashCut);
     });
   }
 

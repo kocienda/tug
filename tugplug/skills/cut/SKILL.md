@@ -1,6 +1,6 @@
 ---
-name: poke
-description: A poke — quick, plan-less, review-less work on an isolated worktree, joined back to the base; agentless, in-thread, committing per round, stopping before the join
+name: cut
+description: A cut — quick, plan-less, review-less work on an isolated worktree cut from the base and joined back to it; agentless, in-thread, committing per round, stopping before the join
 argument-hint: "[name] [instruction…]"
 disable-model-invocation: true
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep, AskUserQuestion
@@ -9,7 +9,7 @@ disallowed-tools: Task
 
 ## What this is
 
-A **poke** is the lightweight act — a bug fix, a spike, a small feature, a prototype — that doesn't warrant a plan, a review, or an arc. Underneath it is an ordinary dash: it runs on an isolated dash worktree, rides the `tugutil dash` verbs, and joins back to the base the same way a dash does and **you — the main conversation — do the work directly**. No plan, no steps, no ledger: you execute the user's instruction in-thread, commit each round, and stop before merge.
+A **cut** is the lightweight act — a bug fix, a spike, a small feature, a prototype — that doesn't warrant a plan, a review, or an arc. *Cut me a worktree and let me work* is the whole of it. Underneath it is an ordinary dash: it runs on an isolated dash worktree, rides the `tugutil dash` verbs, and joins back to the base the same way a dash does and **you — the main conversation — do the work directly**. No plan, no steps, no ledger: you execute the user's instruction in-thread, commit each round, and stop before merge.
 
 (If the task is big enough to want a plan with steps, author one with `/tugplug:dash-devise` and run it with `/tugplug:dash-implement` instead.)
 
@@ -19,7 +19,7 @@ A **poke** is the lightweight act — a bug fix, a spike, a small feature, a pro
 
 ## Input grammar
 
-`/tugplug:poke <name> <instruction…>` — create the dash `<name>` if new (or continue it), then carry out `<instruction>`.
+`/tugplug:cut <name> <instruction…>` — create the dash `<name>` if new (or continue it), then carry out `<instruction>`.
 
 That is the whole grammar. `<name>` is alphanumeric + hyphens, 2+ chars, and everything after it is the instruction — there are no reserved words, because there are no sub-verbs to collide with. Joining belongs to the `/dash-join` card verb, of which `/join` is the retired spelling, the readouts are `tugutil dash status|show|list`, and discard is a bare CLI call the user makes.
 

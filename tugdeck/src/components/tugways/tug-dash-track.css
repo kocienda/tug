@@ -74,7 +74,7 @@
 }
 
 .tug-dash-track-cell[data-phase="brief"],
-.tug-dash-track[data-poke="true"] .tug-dash-track-cell[data-phase="implement"] {
+.tug-dash-track[data-dash-cut="true"] .tug-dash-track-cell[data-phase="implement"] {
   border-start-start-radius: 999px;
   border-end-start-radius: 999px;
 }

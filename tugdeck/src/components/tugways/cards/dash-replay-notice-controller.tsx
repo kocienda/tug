@@ -2,19 +2,19 @@
  * DashReplayNoticeController — projects a replay's outcome onto a pane
  * bulletin.
  *
- * Three of the five outcomes move nothing a dash row can show: `current` had
- * nothing to do, `deferred` failed a precondition, `conflicted` stopped at a
- * round without touching the branch. Those are also the common ones, so
- * without a voice the verb would read as a dead button — the failure this arc
- * has already paid for once.
+ * No replay outcome shows itself on a dash row: the row's line carries the
+ * dash's own standing, not the checkout's git bookkeeping. So the bulletin is
+ * the whole answer — `current` had nothing to do, `deferred` failed a
+ * precondition, `conflicted` stopped at a round without touching the branch,
+ * and `replayed`/`recorded` moved the rounds. Without a voice the verb would
+ * read as a dead button — the failure this arc has already paid for once.
  *
  * This zero-render controller mounts inside the card's
  * `TugPaneBulletinProvider`, subscribes straight to
  * {@link dashReplayOutcomeStore} ([L22] — a bulletin is a direct DOM update, so
  * it must not round-trip through `useSyncExternalStore`/render), and says what
- * the server said. `replayed` and `recorded` post nothing: they show themselves
- * in the row's facts on the next recompute, and a caution for a success is
- * noise.
+ * the server said. A success speaks in the plain tone; only a refusal or a
+ * stopped replay is a caution.
  *
  * The subscription registers in `useLayoutEffect` ([L03]); no notice state
  * enters React state ([L02]); appearance is the bulletin's own CSS/DOM ([L06]).
@@ -92,8 +92,13 @@ export function DashReplayNoticeController({
             description: outcome.detail ?? undefined,
           });
           return;
+        case "replayed":
+          api(`${outcome.dash} replayed onto its base`, { id: NOTICE_ID });
+          return;
+        case "recorded":
+          api(`${outcome.dash}'s rebase is recorded`, { id: NOTICE_ID });
+          return;
         default:
-          // `replayed` / `recorded` — the row's own facts carry it.
           return;
       }
     };

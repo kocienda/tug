@@ -883,13 +883,18 @@ function DashesSectionBody({ host }: { host: LensSectionHost }): React.ReactElem
       // No confirm: a replay destroys nothing, and its every refusal path
       // leaves the repository exactly as it found it. What it needs instead is
       // a voice, which is the session id — the outcome posts on that card's
-      // pane bulletin, and the common outcomes move nothing else.
-      requestReplay: (row, tugSessionId) =>
+      // pane bulletin, and nothing else on any surface reports a replay at
+      // all. The card the user is working in is the first choice; a Lens that
+      // is following nothing falls back to the session working the dash,
+      // which is the other card this outcome is about.
+      requestReplay: (row, tugSessionId) => {
+        const voice = tugSessionId ?? (row.entry.bound_sessions ?? [])[0] ?? null;
         replayVerb.replay(
           row.workspaceKey,
           row.entry.display_name,
-          tugSessionId ?? undefined,
-        ),
+          voice ?? undefined,
+        );
+      },
       replayDisabledReason:
         replayVerb.phase === "pending" ? "A replay is in flight" : null,
     }),

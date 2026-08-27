@@ -7,7 +7,7 @@
  * standing beside this one, which every surface already shows, so the
  * typeface carries nothing.
  *
- * A poke is a dash to this atom. Both are work that left the base on a
+ * A cut is a dash to this atom. Both are work that left the base on a
  * worktree and come back through a join, and that is what the pill names; the
  * track beside it says how much of a life the work has.
  *

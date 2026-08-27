@@ -1018,7 +1018,7 @@ export const SessionTelemetryStatusRow = React.forwardRef<
   // and the placard's note use, Title Case like every other named state in
   // this row. Not the git stage: a dash devising or reviewing a plan has no
   // stage at all, which is how this cell came to show a fallback glyph for the
-  // whole first half of a dash's life. A poke says `Poke` rather than
+  // whole first half of a dash's life. A cut says `Cut` rather than
   // `Implement`: it has no plan and never will, so the phase word would be
   // naming a stage of a lifecycle it does not have.
   const dashModel = dashFact === null ? null : dashTrackModelFromEntry(dashFact.entry);
@@ -1031,8 +1031,8 @@ export const SessionTelemetryStatusRow = React.forwardRef<
         ? `${dashFraction.current}/${dashFraction.total}`
         : dashModel.stopped !== null
           ? "Stopped"
-          : dashModel.poke
-            ? "Poke"
+          : dashModel.dashCut
+            ? "Cut"
             : DASH_PHASE_LABELS[dashModel.phase];
 
   const jobsRecent = jobsRecentlyDone(jobsLedger, nowMs, WORK_LINGER_MS);

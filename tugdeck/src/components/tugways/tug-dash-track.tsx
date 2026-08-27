@@ -2,7 +2,7 @@
  * TugDashTrack — a dash's whole life as one cap-height strip.
  *
  * Five cells in lifecycle order — brief · devise · review · implement · join —
- * with implement subdivided into one tick per plan step. A poke, which has no
+ * with implement subdivided into one tick per plan step. A cut, which has no
  * documents and no arc, is the last two cells. Each cell wears one of four
  * states the CSS paints ([L06]): `pending`, `active`, `done`, `stopped`. A stop
  * is the one fact that outranks the rest: the cell it stopped in paints danger
@@ -62,7 +62,7 @@ export type DashTickState = DashCellState | "withdrawn";
 
 /** What the feed says about a dash, as the derivation reads it. */
 export interface DashTrackInput {
-  /** Which documents exist. Absent (or both absent) with no arc is a poke. */
+  /** Which documents exist. Absent (or both absent) with no arc is a cut. */
   documents?: { brief?: string; plan?: string } | undefined;
   arc?: DashArcState | null | undefined;
   /** The plan's ledger, in source order. */
@@ -92,7 +92,9 @@ export interface DashTrackSteps {
 }
 
 export interface DashTrackModel {
-  poke: boolean;
+  /** A plan-less dash — no documents, no arc. Named for the `/cut` it comes
+   *  from, prefixed away from the clipboard verb the vocabulary already owns. */
+  dashCut: boolean;
   phase: DashPhase;
   /** Why the arc stopped, when it did. */
   stopped: string | null;
@@ -135,7 +137,7 @@ export function dashTrackSteps(steps: readonly DashStep[] | undefined): DashTrac
 export function dashTrackModel(input: DashTrackInput): DashTrackModel {
   const documents = input.documents ?? {};
   const arc = input.arc ?? null;
-  const poke = documents.brief === undefined && documents.plan === undefined && arc === null;
+  const dashCut = documents.brief === undefined && documents.plan === undefined && arc === null;
   const steps = dashTrackSteps(input.steps);
   const stage = input.stage ?? null;
   const stopped = arc?.stopped ?? null;
@@ -145,7 +147,7 @@ export function dashTrackModel(input: DashTrackInput): DashTrackModel {
   let phase: DashPhase;
   if ((stage !== null && JOIN_STAGES.has(stage)) || arc?.done === true) {
     phase = "join";
-  } else if (poke) {
+  } else if (dashCut) {
     phase = "implement";
   } else if (stopped !== null && arc?.stopped_stage !== undefined) {
     phase = arcPhase(arc.stopped_stage);
@@ -158,7 +160,7 @@ export function dashTrackModel(input: DashTrackInput): DashTrackModel {
   } else {
     phase = "brief";
   }
-  return { poke, phase, stopped, steps };
+  return { dashCut, phase, stopped, steps };
 }
 
 function arcPhase(stage: string): DashPhase {
@@ -211,14 +213,14 @@ export function TugDashTrack({
   size = "rail",
   "aria-label": ariaLabel,
 }: TugDashTrackProps): React.ReactElement {
-  const phases: readonly DashPhase[] = model.poke ? ["implement", "join"] : DASH_PHASES;
+  const phases: readonly DashPhase[] = model.dashCut ? ["implement", "join"] : DASH_PHASES;
   return (
     <span
       className="tug-dash-track"
       data-slot="tug-dash-track"
       data-size={size}
       data-phase={model.phase}
-      data-poke={model.poke ? "true" : undefined}
+      data-dash-cut={model.dashCut ? "true" : undefined}
       data-stopped={model.stopped !== null ? "true" : undefined}
       aria-label={ariaLabel ?? cellTip(model, model.phase, dashCellState(model, model.phase))}
     >
