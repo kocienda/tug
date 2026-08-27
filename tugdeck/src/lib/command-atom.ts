@@ -240,9 +240,6 @@ export const SESSION_CHIP_BORDER_ALPHA = 0.3;
 export const SESSION_CHIP_INK_TOKEN =
   "--tug7-element-global-text-normal-default-rest";
 
-/** The painted dot's share of its mark box — the pulsing dot's own ratio. */
-export const SESSION_CHIP_DOT_RATIO = 0.6;
-
 // ---------------------------------------------------------------------------
 // Expansion-echo detection
 // ---------------------------------------------------------------------------

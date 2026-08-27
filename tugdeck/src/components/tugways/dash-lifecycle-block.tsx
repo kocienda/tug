@@ -36,6 +36,7 @@ import { DashLifecycleLine, type DashLifecycleLineProps } from "./dash-lifecycle
 import { TugDashAtom } from "./tug-dash-atom";
 import { TugSessionIdentity } from "./tug-session-identity";
 import { useSessionIdentity } from "@/lib/session-identity";
+import type { AtomRegister } from "@/lib/atom-register";
 
 export interface DashLifecycleBlockProps extends DashLifecycleLineProps {
   name: string;
@@ -52,13 +53,13 @@ export interface DashLifecycleBlockProps extends DashLifecycleLineProps {
  * without wearing the whole block: composing this is what keeps it from
  * re-declaring a chip identity by hand ([L20]).
  */
-export function DashWorkerAtom({ sessionId, size }: { sessionId: string; size: "sm" | "2xs" }): React.ReactElement {
+export function DashWorkerAtom({ sessionId, register }: { sessionId: string; register: AtomRegister }): React.ReactElement {
   const identity = useSessionIdentity(sessionId);
   return (
     <TugSessionIdentity
       identity={identity}
       tier="chip"
-      size={size}
+      register={register}
       dash={false}
       tooltip={false}
       data-slot="tug-dash-lifecycle-worker"
@@ -76,14 +77,16 @@ export function DashLifecycleBlock({
   facts,
   size = "rail",
 }: DashLifecycleBlockProps): React.ReactElement {
-  const atomSize = size === "read" ? "sm" : "2xs";
+  // The block's two scales ARE the two registers: the Changes shade reads this
+  // block at reading scale, the Lens's rail sets it in a line of list ink.
+  const register: AtomRegister = size === "read" ? "reading" : "prose";
   return (
     <span className="tug-dash-lifecycle-block" data-slot="tug-dash-lifecycle-block" data-dash={name} data-size={size}>
       <span className="tug-dash-lifecycle-eyebrow" data-slot="tug-dash-lifecycle-eyebrow">
-        <TugDashAtom name={name} size={atomSize} slot="tug-dash-lifecycle-name" />
+        <TugDashAtom name={name} register={register} slot="tug-dash-lifecycle-name" />
         <span className="tug-dash-lifecycle-rule" aria-hidden="true" />
         {workers.map((sessionId) => (
-          <DashWorkerAtom key={sessionId} sessionId={sessionId} size={atomSize} />
+          <DashWorkerAtom key={sessionId} sessionId={sessionId} register={register} />
         ))}
         {trailing}
       </span>

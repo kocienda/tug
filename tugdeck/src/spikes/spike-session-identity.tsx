@@ -953,7 +953,7 @@ export function SpikeSessionIdentity(): React.ReactElement {
               <TugSessionIdentity
                 identity={fixtureIdentity(LIVE)}
                 tier="chip"
-                size="2xs"
+                register="reading"
               />
               <TugSessionIdentity
                 identity={fixtureIdentity(NAMED_LIVE)}

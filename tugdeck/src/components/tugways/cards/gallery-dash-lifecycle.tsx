@@ -69,6 +69,7 @@ import { TUG_SESSION_ROW_STACK_DOT_SIZE } from "@/components/tugways/tug-session
 import type { DashChangesetEntry, DashStep } from "@/lib/changeset-types";
 import type { DashSessionFact } from "@/lib/dash-session-index";
 import { useSessionIdentity } from "@/lib/session-identity";
+import type { AtomRegister } from "@/lib/atom-register";
 import { sessionNameStore } from "@/lib/session-name-store";
 import { sessionTagStore } from "@/lib/session-tag-store";
 
@@ -365,9 +366,9 @@ function Stage({ caption, children }: { caption: string; children: React.ReactNo
   );
 }
 
-function Worker({ sessionId, size }: { sessionId: string; size: "sm" | "2xs" }): React.ReactElement {
+function Worker({ sessionId, register }: { sessionId: string; register: AtomRegister }): React.ReactElement {
   const identity = useSessionIdentity(sessionId);
-  return <TugSessionIdentity identity={identity} tier="chip" size={size} dash={false} tooltip={false} />;
+  return <TugSessionIdentity identity={identity} tier="chip" register={register} dash={false} tooltip={false} />;
 }
 
 const AT_WORK = MOMENTS[3]!;
@@ -391,15 +392,15 @@ export function GalleryDashLifecycle(): React.ReactElement {
     <div className="cg-content" data-testid="gallery-dash-lifecycle">
       <section className="cg-section">
         <TugLabel className="cg-section-title">The atom, once — TugDashAtom</TugLabel>
-        <Stage caption="One skin, two sizes (rail 2xs · reading sm), proportional everywhere; who is on it is the atom beside it. A direct dash is a dash to the atom: both are work on a worktree">
+        <Stage caption="One skin, two registers (prose in a line of running text · reading in a block), proportional everywhere; who is on it is the atom beside it. A direct dash is a dash to the atom: both are work on a worktree">
           <div className="cg-dash-lineup">
-            <TugDashAtom name={DASH} size="2xs" />
-            <TugDashAtom name={DASH} size="sm" />
+            <TugDashAtom name={DASH} register="prose" />
+            <TugDashAtom name={DASH} register="reading" />
             <span className="cg-dash-pair">
-              <Worker sessionId={WORKER} size="sm" />
-              <TugDashAtom name={DASH} size="sm" />
+              <Worker sessionId={WORKER} register="reading" />
+              <TugDashAtom name={DASH} register="reading" />
             </span>
-            <TugDashAtom name="lens-none-empty" size="sm" />
+            <TugDashAtom name="lens-none-empty" register="reading" />
           </div>
         </Stage>
       </section>

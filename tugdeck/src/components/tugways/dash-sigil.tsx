@@ -33,6 +33,12 @@
 
 import React from "react";
 
+import {
+  DEFAULT_ATOM_REGISTER,
+  atomRegisterVars,
+  type AtomRegister,
+} from "@/lib/atom-register";
+
 export interface DashSigilProps {
   /** The dash's short name, without the `^`. */
   name: string;
@@ -56,8 +62,8 @@ export interface DashSigilProps {
    * not move, only the markup carrying it.
    */
   atom?: boolean;
-  /** Atom size, passed through to the skin's own `data-size` scale. */
-  atomSize?: "sm" | "2xs";
+  /** The register the pill is drawn at, passed through to the skin. */
+  atomRegister?: AtomRegister;
 }
 
 export function DashSigil({
@@ -66,7 +72,7 @@ export function DashSigil({
   title,
   ariaLabel,
   atom = false,
-  atomSize = "2xs",
+  atomRegister = DEFAULT_ATOM_REGISTER,
 }: DashSigilProps): React.ReactElement {
   const run = (
     <span
@@ -83,7 +89,12 @@ export function DashSigil({
   );
   if (!atom) return run;
   return (
-    <span className="tug-session-identity" data-tier="chip" data-size={atomSize}>
+    <span
+      className="tug-session-identity"
+      data-tier="chip"
+      data-register={atomRegister}
+      style={atomRegisterVars(atomRegister) as React.CSSProperties}
+    >
       {run}
     </span>
   );

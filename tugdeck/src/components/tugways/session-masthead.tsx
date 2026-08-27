@@ -742,7 +742,6 @@ export function SessionMasthead({
                 <TugSessionIdentity
                   identity={identity}
                   tier="chip"
-                  size="2xs"
                   // This panel is the card's own chrome, so the chip's menu
                   // offers no way to "go to" a session the pointer is already
                   // in — see the row's `hostCardId` above.

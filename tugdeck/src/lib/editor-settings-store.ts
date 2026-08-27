@@ -22,7 +22,7 @@
 import { getTugbankClient } from "./tugbank-singleton";
 import { putEditorSettings } from "@/settings-api";
 import type { EditorSettings } from "@/settings-api";
-import { EDITOR_LINE_HEIGHT, setAtomFont } from "./tug-atom-img";
+import { editorLineHeightFor, setAtomFont } from "./tug-atom-img";
 
 // ── Constants ───────────────────────────────────────────────────────────────
 
@@ -38,7 +38,7 @@ const KEY = "settings";
  * `--tug-line-height-editor` / `--tug-letter-spacing-editor` on the bound
  * element.
  */
-export { EDITOR_LINE_HEIGHT } from "./tug-atom-img";
+export { editorLineHeightFor } from "./tug-atom-img";
 export const EDITOR_LETTER_SPACING = "normal";
 
 export const DEFAULT_SETTINGS: EditorSettings = {
@@ -206,17 +206,19 @@ export class EditorSettingsStore {
     const stack = FONT_STACKS[fontId];
     if (stack) el.style.setProperty("--tug-font-family-editor", stack);
     el.style.setProperty("--tug-font-size-editor", `${fontSize}px`);
-    // Line metrics are fixed (no longer user-tunable) — publish the pinned
-    // constants so the substrate theme's `var(--tug-line-height-editor, …)`
-    // resolves to a stable value.
+    // Letter spacing is fixed; the leading is derived, because an editor line
+    // has to be able to seat an atom and the atom's height is its register's.
     el.style.setProperty("--tug-letter-spacing-editor", EDITOR_LETTER_SPACING);
-    el.style.setProperty("--tug-line-height-editor", String(EDITOR_LINE_HEIGHT));
+    el.style.setProperty(
+      "--tug-line-height-editor",
+      String(editorLineHeightFor(fontSize)),
+    );
   }
 
   private _applyAtomFont(): void {
     const { fontId, fontSize } = this._settings;
     const stack = FONT_STACKS[fontId];
-    if (stack) setAtomFont(stack, fontSize);
+    if (stack) setAtomFont(stack);
     this._regenerateAtoms?.();
     // The chip bake measures and paints its label with the document's
     // Canvas — a face that hasn't finished loading silently falls back

@@ -53,10 +53,10 @@ import "./tug-atom-chip.css";
 import * as React from "react";
 
 import {
-  TRANSCRIPT_CHIP_BASE_FONT_SIZE,
   computeAtomChipGeometry,
   ATOM_RECESS,
 } from "./tug-atom-img";
+import { DEFAULT_ATOM_REGISTER, type AtomRegister } from "./atom-register";
 import { chipStyle, chipDisplayLabel, ATOM_KEY_WASH } from "./command-atom";
 
 /**
@@ -99,12 +99,13 @@ export interface TugAtomChipProps {
   /** Optional max width in px — labels longer than this truncate with `…`. */
   maxLabelWidth?: number;
   /**
-   * Override the chip's pixel font size. Defaults to
-   * {@link TRANSCRIPT_CHIP_BASE_FONT_SIZE} (12px); the Swift host's
-   * `WKWebView.pageZoom` scales the SVG uniformly with the rest of
-   * the page, so the baked size stays fixed.
+   * Which surface this chip stands on — the register decides its type size and
+   * its box. Defaults to `prose`. The Swift host's `WKWebView.pageZoom` scales
+   * the SVG uniformly with the rest of the page, so the register's numbers stay
+   * fixed.
+   * @default "prose"
    */
-  fontSize?: number;
+  register?: AtomRegister;
   className?: string;
   "data-slot"?: string;
   "data-testid"?: string;
@@ -121,12 +122,11 @@ export const TugAtomChip = React.forwardRef<SVGSVGElement, TugAtomChipProps>(
       label,
       value,
       maxLabelWidth,
-      fontSize: fontSizeOverride,
+      register = DEFAULT_ATOM_REGISTER,
       className,
       "data-slot": dataSlot,
       "data-testid": dataTestid,
     } = props;
-    const fontSize = fontSizeOverride ?? TRANSCRIPT_CHIP_BASE_FONT_SIZE;
     const chipFontFamily = getChipFontFamily();
     // A slash command shows its leading slash; other types show their stored
     // label. Same helper the editor path uses, so the text matches.
@@ -135,10 +135,10 @@ export const TugAtomChip = React.forwardRef<SVGSVGElement, TugAtomChipProps>(
       () =>
         computeAtomChipGeometry(type, displayLabel, {
           fontFamily: chipFontFamily,
-          fontSize,
+          register,
           maxLabelWidth,
         }),
-      [type, displayLabel, chipFontFamily, fontSize, maxLabelWidth],
+      [type, displayLabel, chipFontFamily, register, maxLabelWidth],
     );
     // Shared chip token names, referenced as `var(--…)` so a theme switch
     // or a token edit re-paints via CSS cascade — no SVG re-bake [L06].

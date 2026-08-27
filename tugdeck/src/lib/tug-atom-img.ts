@@ -29,7 +29,6 @@ import {
   chipHasIcon,
   ATOM_KEY_WASH,
   SESSION_CHIP_BORDER_ALPHA,
-  SESSION_CHIP_DOT_RATIO,
   SESSION_CHIP_GEOMETRY,
   SESSION_CHIP_INK_TOKEN,
 } from "./command-atom";
@@ -48,6 +47,12 @@ import {
 } from "@/lib/session-identity";
 import { sessionTagStore } from "@/lib/session-tag-store";
 import { sessionLineStore } from "@/lib/session-line-store";
+import {
+  DEFAULT_ATOM_REGISTER,
+  atomEditorLineBoxFloorPx,
+  atomRegisterMetrics,
+  type AtomRegister,
+} from "@/lib/atom-register";
 
 /**
  * Recess-edge geometry shared by both renderers so the inline-`<svg>` chip
@@ -144,114 +149,47 @@ const ATOM_ICON_PATHS: Record<string, string> = {
 
 // ---- Layout constants ----
 
-let _fontSize = 12;
 /** Font family stack for Canvas measurement AND Canvas label painting —
  *  the same string drives both, so measured bounds always fit the
  *  painted glyphs. Custom faces resolve from the parent document's
  *  own @font-face rules (the Canvas shares the document's font set). */
 let _measureFamily = "system-ui, sans-serif";
 /**
- * Atom label size as a fraction of the editor font size. Held at 1.0 so the
- * chip label renders at the *same* px as the surrounding editor text — an
- * atom should read at full prose size, matching the transcript treatment.
- * (An earlier 0.96 shave compensated for SVG text rasterizing slightly
- * heavier than hinted HTML text, but it left the label visibly smaller than
- * the prose, which read as a size break rather than a weight match.)
+ * The editor's line-height, as a multiple of its own font size.
+ *
+ * Derived rather than pinned, and that is the point: an editor line has to be
+ * able to seat an atom, and an atom's height is its register's rather than a
+ * function of the type the line happens to be set in. So the leading is
+ * whatever seats a `prose` atom over the editor's current font size, floored at
+ * the leading a line of code wants when no atom is on it. Before this the
+ * editor pinned 1.5 and the bake sized its chips to fit *that*, which is how
+ * one atom came to be 18px in the composer and 20px in the transcript it was
+ * sent to.
+ *
+ * Lives here rather than in `editor-settings-store` (which imports
+ * {@link setAtomFont} from this module) so the bake and the store cannot
+ * disagree about it; the store publishes it as `--tug-line-height-editor`.
  */
-const ATOM_LABEL_SIZE_RATIO = 1.0;
-/**
- * The editor's pinned line-height. Lives here (not in
- * `editor-settings-store`, which imports {@link setAtomFont} from this
- * module) so the chip bake can size editor chips from the editor's own
- * line box without an import cycle; the settings store imports it back
- * and publishes it as `--tug-line-height-editor`.
- */
-export const EDITOR_LINE_HEIGHT = 1.5;
-/**
- * The transcript prose line-height the React-side chip is *sized to fill*
- * (`--tugx-md-body-line-height`, 1.6). Chips render on two surfaces, each
- * sized to its own host line box minus the 1px-per-edge inset below: the
- * transcript (`TugAtomChip` / the walker floors) fills this 1.6 line, and
- * the editor's data-URI bake fills the tighter {@link EDITOR_LINE_HEIGHT}
- * (1.5) line — so a chip always fits *inside* its host row, and chips on
- * successive visual rows of one wrapped editor line never touch. The
- * `tug-atom-img.test` guards assert the fit on both surfaces across the
- * supported font-size range.
- */
-const ATOM_PROSE_LINE_HEIGHT = 1.6;
-/**
- * Px the chip is inset inside the line box on each vertical edge, so a
- * baseline-aligned chip clears the line-box floor with a hair to spare.
- */
-const ATOM_LINE_INSET = 1;
-
-/**
- * Pixel height of an atom chip for a given font size — the chip fills the
- * host line-box (`size × lineHeight`) minus a 1px inset on each edge.
- * `lineHeight` defaults to the transcript's {@link ATOM_PROSE_LINE_HEIGHT};
- * the editor bake passes {@link EDITOR_LINE_HEIGHT}. Sizing the chip *from
- * the line box* (rather than a tuned multiplier) is what guarantees it fits
- * inside the natural line: adjacent lines never grow to host an atom (no
- * "hop"), the per-line `max(1lh, …)` floors collapse to a plain `1lh`, and
- * chips on adjacent visual rows keep the inset as air between them. Exported
- * because consumers that pixel-bake chips (the transcript walker
- * `TugAtomTextBody`) publish it as the floor's atom-height term. Pure — no
- * module state, no DOM access.
- */
-export function atomHeightFor(
-  size: number,
-  lineHeight: number = ATOM_PROSE_LINE_HEIGHT,
-): number {
-  return Math.round(size * lineHeight) - 2 * ATOM_LINE_INSET;
+export function editorLineHeightFor(fontSizePx: number): number {
+  const seated = atomEditorLineBoxFloorPx() / Math.max(1, fontSizePx);
+  return Math.max(EDITOR_MIN_LINE_HEIGHT, Math.ceil(seated * 100) / 100);
 }
+
+/** The leading a line of editor text wants with no atom on it. */
+const EDITOR_MIN_LINE_HEIGHT = 1.5;
+
 function iconSizeFor(size: number): number { return size; }
 
-// ---- Transcript-side chip sizing ----
-
 /**
- * Base font size (in px) for transcript-side atom chips. Transcript
- * chips don't track the user's editor font *size* — that's
- * editor-surface coupling that surprised users (chips visibly
- * shrinking/growing when they bumped their editor font for code
- * legibility). They DO track the user's editor font *family* so the
- * chip still reads as "code-like" alongside surrounding transcript
- * prose. The size is anchored here at 12px; the Swift host's
- * `WKWebView.pageZoom` scales the rendered chip uniformly with the
- * rest of the page, so the bake size stays fixed.
- *
- * Anchored at the transcript's own prose size (14px) so an atom reads at the
- * same size as the words around it — the legibility fix that paired with the
- * recessed, key-washed treatment. This tracks the *transcript* prose size, a
- * fixed surface constant; it deliberately does NOT track the user's editor
- * font size (the coupling that surprised users — see the note above).
- */
-export const TRANSCRIPT_CHIP_BASE_FONT_SIZE = 14;
-
-/**
- * The transcript atom's box, as CSS custom properties a host publishes for the
- * chips inside it.
- *
- * A session atom in a transcript row is the live {@link TugSessionCitation},
- * not a bake — so its box is CSS, while every atom beside it is an `<svg>`
- * sized in px by {@link computeAtomChipGeometry}. Both read their numbers from
- * here, which is what keeps the live pill the same height and the same type
- * size as the baked chips it sits among. Without it the pill inherits the
- * host's leading and stands a third taller than its neighbours.
- */
-export function transcriptAtomChipVars(): Record<string, string> {
-  const size = TRANSCRIPT_CHIP_BASE_FONT_SIZE;
-  return {
-    "--tugx-transcript-atom-height": `${atomHeightFor(size)}px`,
-    "--tugx-transcript-atom-font-size": `${size}px`,
-  };
-}
-
-/**
- * Set the font used for the editor's atom-chip rendering AND
+ * Set the font FAMILY used for the editor's atom-chip rendering AND
  * measurement. `family` is the full CSS font-family stack
  * (e.g. `"IBM Plex Mono", monospace`). The editor settings store calls this
  * when the user's font preference changes (and at cold-boot
  * construction time).
+ *
+ * The family only. An atom's type size is its register's, not its host's:
+ * chips that grew and shrank with the editor's font size surprised users, and
+ * the same coupling is what made an atom change size the moment it was sent.
  *
  * This drives the *editor*'s data-URI chip path only. React-side
  * surfaces (`TugAtomChip`) intentionally do NOT track this — they
@@ -260,23 +198,20 @@ export function transcriptAtomChipVars(): Record<string, string> {
  * The editor still calls `regenerateAtoms()` separately to bust
  * CM6's widget cache.
  */
-export function setAtomFont(family: string, size?: number): void {
+export function setAtomFont(family: string): void {
   _measureFamily = family;
-  _fontSize = size !== undefined
-    ? Math.round(size * ATOM_LABEL_SIZE_RATIO)
-    : _fontSize;
 }
 
 /**
  * vertical-align offset (px) so the atom's internal text baseline aligns
- * with the surrounding text baseline, for a given font size. The chip
- * draws label text with its baseline at `atomHeightFor(size)/2 + size *
- * 0.32` from the top of the box, so the IMG's bottom must sit
- * `atomHeightFor(size)/2 - size * 0.32` below the parent baseline —
- * i.e. a negative vertical-align of that magnitude.
+ * with the surrounding text baseline. The chip draws label text with its
+ * baseline at `height/2 + fontSize * 0.32` from the top of the box, so the
+ * IMG's bottom must sit `height/2 - fontSize * 0.32` below the parent
+ * baseline — i.e. a negative vertical-align of that magnitude.
  */
-function atomBaselineOffsetFor(size: number, lineHeight?: number): number {
-  return Math.round(size * 0.32 - atomHeightFor(size, lineHeight) / 2);
+function atomBaselineOffsetFor(register: AtomRegister): number {
+  const m = atomRegisterMetrics(register);
+  return Math.round(m.fontSize * 0.32 - m.height / 2);
 }
 
 // ---- Text measurement ----
@@ -296,9 +231,9 @@ function measureTextWidth(text: string, font: string): number {
 function atomFontFor(family: string, size: number): string {
   return `${size}px ${family}`;
 }
-/** Current atom font as a CSS font shorthand (editor-side, module state). */
+/** Current atom font as a CSS font shorthand, at the default register. */
 function atomFont(): string {
-  return atomFontFor(_measureFamily, _fontSize);
+  return atomFontFor(_measureFamily, atomRegisterMetrics().fontSize);
 }
 
 /** Truncate text to fit within maxWidth, appending "…" if needed. */
@@ -365,6 +300,8 @@ export interface AtomChipGeometry {
   /** The font-family stack used for label measurement. Renderers MUST
    *  paint with the same stack or the measured bounds won't fit. */
   fontFamily: string;
+  /** The session dot's painted diameter, in px — the register's. */
+  dotSize: number;
   /** Vertical-align offset (px) for `<img>`-based renderers — see
    *  {@link atomBaselineOffsetFor}. Inline-`<svg>` renderers ignore
    *  this and align via the shared `.tug-atom-chip` CSS rule. */
@@ -372,9 +309,13 @@ export interface AtomChipGeometry {
 }
 
 /**
- * Compute the geometry for an atom chip. Pure on the inputs and the
- * module-state `_measureFamily` / `_fontSize` defaults. Two calls in
- * the same font frame return value-equal geometry.
+ * Compute the geometry for an atom chip. Pure on the inputs, the register
+ * table, and the module-state `_measureFamily` default. Two calls in the same
+ * font frame return value-equal geometry.
+ *
+ * The vertical — type size and box height — comes from the register and from
+ * nowhere else, which is what makes this function and the CSS pill draw the
+ * same box. The horizontal is measured from the label, as it always was.
  */
 export function computeAtomChipGeometry(
   type: string,
@@ -382,25 +323,21 @@ export function computeAtomChipGeometry(
   options?: {
     maxLabelWidth?: number;
     fontFamily?: string;
-    fontSize?: number;
-    /**
-     * Host line-height the chip is sized to fill (minus the per-edge
-     * inset). Defaults to the transcript's {@link ATOM_PROSE_LINE_HEIGHT};
-     * the editor's data-URI bake passes {@link EDITOR_LINE_HEIGHT}.
-     */
-    lineHeight?: number;
+    /** Which surface this chip stands on. @default "prose" */
+    register?: AtomRegister;
   },
 ): AtomChipGeometry {
   const family = options?.fontFamily ?? _measureFamily;
-  const size = options?.fontSize ?? _fontSize;
-  const lineHeight = options?.lineHeight ?? ATOM_PROSE_LINE_HEIGHT;
+  const register = options?.register ?? DEFAULT_ATOM_REGISTER;
+  const metrics = atomRegisterMetrics(register);
+  const size = metrics.fontSize;
   const font = atomFontFor(family, size);
   const displayLabel = options?.maxLabelWidth != null
     ? truncateLabel(label, options.maxLabelWidth, font)
     : label;
   const textWidth = measureTextWidth(displayLabel, font);
   const icon_px = iconSizeFor(size);
-  const height_px = atomHeightFor(size, lineHeight);
+  const height_px = metrics.height;
   // Padding / gap / corner radius come from the shared chip style — one place
   // (not duplicated in the two renderers). Every atom type shares this layout;
   // a slash command differs only in that it has no icon (its `/` is the
@@ -429,7 +366,8 @@ export function computeAtomChipGeometry(
     textY: height_px / 2 + size * 0.32,
     fontSize: size,
     fontFamily: family,
-    baselineOffset: atomBaselineOffsetFor(size, lineHeight),
+    dotSize: metrics.dotSize,
+    baselineOffset: atomBaselineOffsetFor(register),
   };
 }
 
@@ -642,12 +580,14 @@ function paintSessionChip(
   ctx.globalAlpha = 1;
 
   if (g.hasIcon) {
+    // The dot's painted diameter is the register's, so this circle and the
+    // live pill's ring glyph are the same mark rather than two sizes of one.
     const box = g.fontSize;
     ctx.beginPath();
     ctx.arc(
       g.iconX + box / 2,
       g.height / 2,
-      (box * SESSION_CHIP_DOT_RATIO) / 2,
+      g.dotSize / 2,
       0,
       Math.PI * 2,
     );
@@ -719,12 +659,6 @@ export function bakeAtomChipDataUri(
      */
     fontFamily?: string;
     /**
-     * Override the font size (in px) used for label painting and
-     * measurement. When omitted, defaults to the module-state
-     * `_fontSize`.
-     */
-    fontSize?: number;
-    /**
      * Which appearance to bake. `"selected"` resolves the
      * `-selected-rest` chip tokens so a chip covered by the editor
      * selection reads forward of the blue selection wash. Defaults to
@@ -733,12 +667,11 @@ export function bakeAtomChipDataUri(
      */
     variant?: ChipVariant;
     /**
-     * Host line-height the chip is sized to fill. Defaults to
-     * {@link EDITOR_LINE_HEIGHT} — the data-URI bake is the editor's
-     * path, and every bake of one chip (rest and selected variant) must
-     * share this value or the selection swap would resize the chip.
+     * Which surface the chip stands on. Defaults to `prose` — the editor's
+     * composer line and the transcript row it is sent to are the same
+     * register, which is what keeps an atom the same size across a send.
      */
-    lineHeight?: number;
+    register?: AtomRegister;
   },
 ): AtomChipBake {
   // A slash command displays its leading slash (`/tugplug:commit`); every
@@ -754,8 +687,9 @@ export function bakeAtomChipDataUri(
     ? sessionChipLabel(label, value)
     : chipDisplayLabel(type, label, value);
   const g = computeAtomChipGeometry(type, displayLabel, {
-    ...options,
-    lineHeight: options?.lineHeight ?? EDITOR_LINE_HEIGHT,
+    ...(options?.maxLabelWidth !== undefined ? { maxLabelWidth: options.maxLabelWidth } : {}),
+    ...(options?.fontFamily !== undefined ? { fontFamily: options.fontFamily } : {}),
+    register: options?.register ?? DEFAULT_ATOM_REGISTER,
   });
   const scale = bakeScale();
   const canvas = document.createElement("canvas");

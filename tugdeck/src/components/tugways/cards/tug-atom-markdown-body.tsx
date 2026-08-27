@@ -58,12 +58,10 @@ import {
   sessionAtomProject,
 } from "@/lib/session-atom";
 import {
-  TRANSCRIPT_CHIP_BASE_FONT_SIZE,
   TUG_ATOM_CHAR,
-  atomHeightFor,
-  transcriptAtomChipVars,
   type AtomSegment,
 } from "@/lib/tug-atom-img";
+import { atomRegisterVars } from "@/lib/atom-register";
 import { hasLeadingCommandAtom } from "@/lib/command-atom";
 import { parseSlashCommandLine } from "@/lib/annotator/command-grammar";
 import { stampAnnotation } from "@/lib/annotator/annotation-element";
@@ -303,15 +301,11 @@ export const TugAtomMarkdownBody = React.forwardRef<
     [ref],
   );
 
-  // Publish the chip's pixel height so the stylesheet can floor the
-  // line-box of a chip-bearing markdown line to at least atom-tall —
-  // otherwise a chip (taller than the prose line) clips at the line-box
-  // edge. Mirrors `TugAtomTextBody`'s floor; the Swift host's
-  // `WKWebView.pageZoom` scales the floor with the chip.
-  const hostStyle: React.CSSProperties = {
-    ...transcriptAtomChipVars(),
-    ["--tugx-atom-markdown-body-atom-height" as string]: `${atomHeightFor(TRANSCRIPT_CHIP_BASE_FONT_SIZE)}px`,
-  };
+  // Publish the prose register. Everything vertical about an atom in this body
+  // rides these: the baked chips' box, the live citation pill's box, and the
+  // line-box floor that keeps a line the same height whether or not it carries
+  // one. The Swift host's `WKWebView.pageZoom` scales all of them together.
+  const hostStyle = atomRegisterVars("prose") as React.CSSProperties;
 
   return (
     <div
@@ -342,7 +336,6 @@ export const TugAtomMarkdownBody = React.forwardRef<
             <TugSessionCitation
               citedId={sessionAtomCallsign(atom.value)}
               recordedTag={sessionAtomCallsign(atom.value)}
-              size="sm"
               context={{
                 recordedProject: sessionAtomProject(atom.value),
               }}

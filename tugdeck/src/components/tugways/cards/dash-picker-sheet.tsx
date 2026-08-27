@@ -107,9 +107,9 @@ const DashPickerCell: TugListViewCellRenderer<DashPickerDataSource> = ({
       // place a reader is choosing between them.
       leading={
         <span className="dash-picker-identity">
-          <TugDashAtom name={entry.display_name} size="2xs" />
+          <TugDashAtom name={entry.display_name} />
           {(entry.bound_sessions ?? []).map((sessionId) => (
-            <DashWorkerAtom key={sessionId} sessionId={sessionId} size="2xs" />
+            <DashWorkerAtom key={sessionId} sessionId={sessionId} register="prose" />
           ))}
         </span>
       }

@@ -46,6 +46,6 @@
   :is(p, li, h1, h2, h3, h4, h5, h6) {
   line-height: max(
     1lh,
-    calc(var(--tugx-atom-markdown-body-atom-height, 21px) + 4px)
+    var(--tugx-atom-line-box-floor, 26px)
   );
 }

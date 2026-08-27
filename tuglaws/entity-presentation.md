@@ -107,11 +107,28 @@ This is deliberately narrower than it looks. File paths, commands, and session r
 
 One consequence worth stating: because the label is what the DOM holds, and plain copy writes the selection's own text, the label is also the clipboard spelling. One string, not two — and for a commit mention that string is `commit:<8ch>`, the same one the atom's right-click Copy writes.
 
+## An atom's size is its surface's register, never a call site's choice
+
+The rules above settle what an atom *is*. This one settles how big it is, and it exists because the answer used to be "whatever the host it landed in happened to be set in."
+
+**A register is a fact about the surface; a size is a value a call site invents.** That is the whole distinction. There are two, and they are named for what the surface is rather than for how big it wants its marks:
+
+- **`prose`** — an atom standing in a line of running text. A transcript row, a composer line, a list row's hint, a rail's ink. The line box is floored to hold the atom, so the atom never changes the leading of the lines around it by being present.
+- **`reading`** — an atom in a block at reading scale, where there is no line to disturb and the mark can breathe. The Changes shade's dash block, the telemetry placard.
+
+They differ in **one number**, the box height, and agree on everything else — type size, dot diameter, inline padding, corner radius, border. A citation in the transcript and a citation in the Changes shade are the same mark at two densities, not two marks, and a register that drifted on type or dot would make them two.
+
+**One table, three renderers.** `lib/atom-register.ts` holds it. The DOM renderers take it as custom properties a host publishes (`atomRegisterVars`); the pixel renderers — the inline `<svg>` and the Canvas → PNG bake the editor's CM6 widget mounts — take it as numbers (`atomRegisterMetrics`). There is no third place a vertical number may be authored. The dot is published as its **painted** diameter rather than as a box, because the live mark is a ring glyph that paints a fraction of itself while the bake paints a plain circle; publishing the box would have let the two disagree in exactly the way they did.
+
+**The line box is sized for the atom, not the atom for the line box.** This is the inversion the register performs. Every prose surface floors its leading from the register — the transcript's two bodies with a cushion for a baseline-aligned mark's overhang, the editor with a pixel of air so two atoms on adjacent wrapped rows keep apart — and the editor's leading is therefore *derived* rather than pinned. The old arrangement pinned the editor at 1.5 and shrank the chip to fit, which is precisely how an atom came to change size at the moment it was sent.
+
+What that arrangement cost, recorded so the shape of the failure is legible: one session atom stood 18px tall in the composer, 20px in the transcript it was sent to, 21px cited in an Overview post, and 25px in the Changes shade. It stayed invisible for as long as it did because no surface showed two renderers together — the atom gallery showed the bakes and the dash gallery showed the pills. The gallery's Registers section now stands them side by side, and `at0490-atom-register-parity` measures them in the real app, because a stylesheet and a module disagreeing about a number is a defect a type cannot catch.
+
 ## Why prose mentions are not atoms
 
 "Make every actionable thing a chip" is the obvious proposal and it is wrong for two reasons.
 
-**Measurable.** `tug-atom-markdown-body.css` floors *every* markdown line — chip-bearing or not — to `max(1lh, atom-height + 4px)`. The floor serves a hard invariant: an atom must never change line height. Extend chips into assistant prose and the floor extends to every paragraph in the transcript, whether or not it names a file.
+**Measurable.** `tug-atom-markdown-body.css` floors *every* markdown line — chip-bearing or not — to the `prose` register's own line-box floor. The floor serves a hard invariant: an atom must never change line height. Extend chips into assistant prose and the floor extends to every paragraph in the transcript, whether or not it names a file.
 
 **About what a transcript is.** A chip does not decorate text, it **replaces** it. `session-citation-portals.tsx` empties the span it mounts into, and the original spelling has to be preserved on `data-tugx-session-text` precisely so the words can be put back if the mark is later dropped. That is honest when an object is what was there and a lie when it is not: the model wrote the characters `session-restore.ts` into a sentence, and a box asserts it placed an object. The transcript's contract is that it shows what was written.
 

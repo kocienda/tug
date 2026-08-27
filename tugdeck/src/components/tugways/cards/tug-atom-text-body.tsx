@@ -39,11 +39,9 @@ import * as React from "react";
 
 import {
   TUG_ATOM_CHAR,
-  TRANSCRIPT_CHIP_BASE_FONT_SIZE,
-  atomHeightFor,
-  transcriptAtomChipVars,
   type AtomSegment,
 } from "@/lib/tug-atom-img";
+import { atomRegisterVars } from "@/lib/atom-register";
 import { walkAtomText } from "@/lib/atom-text";
 import { TugAtomChip } from "@/lib/tug-atom-chip";
 import { TugSessionCitation } from "@/components/tugways/tug-session-identity";
@@ -136,16 +134,11 @@ export const TugAtomTextBody = React.forwardRef<
   ref,
 ) {
   const segments = walkAtomText(text, atoms);
-  // Publish the atom's pixel height as a component-scope CSS variable
-  // so the stylesheet can floor `line-height: max(1lh, …)` to at
-  // least atom-tall. Derived from the chip's bake size
-  // ({@link TRANSCRIPT_CHIP_BASE_FONT_SIZE}); the Swift host's
-  // `WKWebView.pageZoom` scales the line-height floor uniformly with
-  // the chip itself, so no per-chip magnification handling is needed.
-  const hostStyle: React.CSSProperties = {
-    ...transcriptAtomChipVars(),
-    ["--tugx-atom-text-body-atom-height" as string]: `${atomHeightFor(TRANSCRIPT_CHIP_BASE_FONT_SIZE)}px`,
-  };
+  // Publish the prose register — the box every atom in this body is drawn to,
+  // baked or live, and the line-box floor that keeps a line the same height
+  // whether or not it carries one. The Swift host's `WKWebView.pageZoom`
+  // scales all of them together.
+  const hostStyle = atomRegisterVars("prose") as React.CSSProperties;
   return (
     <span
       ref={ref}
@@ -177,7 +170,6 @@ export const TugAtomTextBody = React.forwardRef<
               key={`a-${i}`}
               citedId={callsign}
               recordedTag={callsign}
-              size="sm"
               context={{
                 recordedProject: sessionAtomProject(seg.atom.value),
               }}

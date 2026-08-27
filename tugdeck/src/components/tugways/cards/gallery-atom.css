@@ -6,6 +6,21 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
+  gap: 8px;
+}
+
+/* One register's row. The caption carries the register's own numbers, so a
+   reader comparing two rows is comparing what the table says to what the
+   browser drew. */
+.gallery-atom-register {
+  margin-block-end: var(--tug-space-md);
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
+.gallery-atom-register-caption {
+  margin-block-end: 4px;
+  color: var(--tug7-element-field-text-normal-label-rest);
+  font-size: 0.75rem;
 }
 
 .gallery-atom-text-sample {

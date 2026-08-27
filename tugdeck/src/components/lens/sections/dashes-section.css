@@ -59,7 +59,7 @@
 .lens-dashes-register {
   display: flex;
   min-width: 0;
-  padding-inline-start: var(--tugx-session-atom-text-inset-2xs);
+  padding-inline-start: var(--tugx-session-atom-text-inset);
 }
 
 .lens-dashes-register:empty {

@@ -67,11 +67,12 @@
  *   `&.cm-readonly`                — readonly state surface + text
  *
  * Line metrics: `.cm-content` carries an explicit `font-size` and
- * `line-height` so the typographic baseline is prop-driven. Atom chips
- * are sized (`atomHeightFor`) to fit inside that line box, so an atom
- * never grows its line and text-only and atom-bearing rows stay the
- * same height — no hop. The `.cm-line::before` ghost is a plain `1lh`
- * row used only as the caret layer's per-row height ruler.
+ * `line-height` so the typographic baseline is prop-driven. The leading is
+ * derived from the atom register (`editorLineHeightFor`) so the line box can
+ * always seat an atom, and the chip is drawn to the register rather than to
+ * the line — so an atom never grows its line and text-only and atom-bearing
+ * rows stay the same height — no hop. The `.cm-line::before` ghost is a plain
+ * `1lh` row used only as the caret layer's per-row height ruler.
  *
  * Host-wrapper styling (rest/hover/focus border, focus-style variants,
  * borderless modifier, disabled state) lives in `tug-text-editor.css` so it
@@ -225,8 +226,8 @@ export const tugTheme: Extension = EditorView.theme({
   // `EditorView.lineWrapping` makes a `.cm-line` span several visual rows
   // (the element's own rect would be the whole wrapped block).
   //
-  // It is plain `1lh`: atom chips are sized (see `atomHeightFor`) to fit
-  // *inside* the line box, so they never force a row taller than the
+  // It is plain `1lh`: the editor's leading is derived to seat an atom
+  // (`editorLineHeightFor`), so a chip never forces a row taller than the
   // line-height and the ghost needs no atom-height floor. Selection is
   // unaffected — the pseudo isn't in the document model, only in line
   // layout.

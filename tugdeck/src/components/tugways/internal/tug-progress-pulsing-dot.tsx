@@ -277,6 +277,21 @@ const SMALL_PEAK = 1.5;
 const DOT_SCALE_MAX = 1;
 
 /**
+ * The glyph box that paints a dot of `diameterPx`.
+ *
+ * The dot is a fraction of its box ({@link sizeGeometry}), so a caller who
+ * knows what the mark must MEASURE — an atom's register does, since a live pill
+ * and a Canvas bake have to show the same dot — states the diameter and gets
+ * the box back. Inverted inside the small band, where the ratio is flat; a
+ * diameter that would put the box above {@link SMALL_SIZE} is clamped there,
+ * because past that point the ratio moves with the size and there is no single
+ * inverse.
+ */
+export function markBoxForDot(diameterPx: number): number {
+  return Math.min(SMALL_SIZE, Math.round(diameterPx / SMALL_DOT_RATIO));
+}
+
+/**
  * Everything about the glyph that cannot be one number across a 10px–40px
  * range, derived from the size in one place.
  *

@@ -18,10 +18,10 @@
  *      line of the body, atom-bearing or not, so a line carries the
  *      same height before and after an atom appears.
  *
- * Atom-height is published by `TugAtomTextBody` on the root span via
- * `style={{ "--tugx-atom-text-body-atom-height": ... }}` from
- * `atomHeightFor(TRANSCRIPT_CHIP_BASE_FONT_SIZE)`. The fallback `21px`
- * only resolves if the component fails to publish the variable — a
+ * The floor is published by `TugAtomTextBody` on the root span, from
+ * `atomRegisterVars("prose")` — the same table the chips inside it are drawn
+ * from, so the floor and the thing it makes room for cannot drift. The
+ * fallback only resolves if the component fails to publish the variable — a
  * wiring bug, not a production state.
  *
  * Laws:
@@ -43,7 +43,7 @@
      clears the chip+room floor. The floor applies to every line — chip-
      bearing or not — so a line carries the same height before and after an
      atom appears. */
-  line-height: max(1lh, calc(var(--tugx-atom-text-body-atom-height, 21px) + 4px));
+  line-height: max(1lh, var(--tugx-atom-line-box-floor, 26px));
 }
 
 /* Chip rendering rules live in `lib/tug-atom-chip.css`, shared with the

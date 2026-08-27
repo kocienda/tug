@@ -1,8 +1,19 @@
 /**
- * gallery-atom.tsx -- Atom img demo tab for the Component Gallery.
+ * gallery-atom.tsx -- the whole atom family, in one place.
  *
- * Shows atom <img> elements in all types, with label formatting,
- * truncation, dismiss affordance, and inline text flow.
+ * **The registers lead, and the live pill stands beside the baked chip.** That
+ * pairing is the point of the page rather than a nicety: an atom is drawn by
+ * three renderers — an inline `<svg>`, a Canvas → PNG bake, and the live CSS
+ * pill a session citation is — and for a long time each derived its own box
+ * from whatever host it landed in. One session atom stood 18px tall in the
+ * composer, 20px in the transcript, 21px in an Overview post and 25px in the
+ * Changes shade, and it stayed invisible because this card showed the bakes and
+ * `gallery-dash-lifecycle` showed the pills and nothing showed them together.
+ * Now they read from one table (`lib/atom-register.ts`) and this row is where a
+ * reader can see that they do.
+ *
+ * The rest of the page is the bake's own business: every type, label
+ * formatting, truncation, and inline flow through prose.
  *
  * Atoms are rendered via createAtomImgElement from tug-atom-img.ts —
  * the same path used by TugTextEngine inside contentEditable.
@@ -20,6 +31,15 @@ import { useResponderForm } from "@/components/tugways/use-responder-form";
 import "./gallery-atom.css";
 import { TugLabel } from "@/components/tugways/tug-label";
 import { TugSeparator } from "@/components/tugways/tug-separator";
+import { TugAtomChip } from "@/lib/tug-atom-chip";
+import { TugSessionIdentity } from "@/components/tugways/tug-session-identity";
+import {
+  ATOM_REGISTERS,
+  atomRegisterMetrics,
+  atomRegisterVars,
+  type AtomRegister,
+} from "@/lib/atom-register";
+import { composeSessionIdentity } from "@/lib/session-identity";
 
 // ---- Sample data ----
 
@@ -59,6 +79,64 @@ function renderAtoms(
     img.style.marginBottom = "4px";
     container.appendChild(img);
   }
+}
+
+/** One resolved session, so the live pill has something to name. */
+const GALLERY_IDENTITY = composeSessionIdentity({
+  sessionId: "b3c4d5e6-1a2b-4c3d-8e4f-5a6b7c8d9e02",
+  name: null,
+  synopsis: null,
+  tag: "brisk-lantern",
+  projectDir: "/Users/tester/src/tugtool",
+});
+
+/** The kinds a register is shown across — one of each family, plus a session. */
+const REGISTER_ATOMS: AtomSegment[] = [
+  { kind: "atom", type: "file", label: "main.ts", value: "/src/main.ts" },
+  { kind: "atom", type: "doc", label: "tuglaws.md", value: "/tuglaws/tuglaws.md" },
+  { kind: "atom", type: "image", label: "screenshot.png", value: "/Desktop/screenshot.png" },
+  { kind: "atom", type: "command", label: "/commit", value: "/commit" },
+  { kind: "atom", type: "link", label: "anthropic.com", value: "https://www.anthropic.com" },
+];
+
+/**
+ * One register's whole family, on a host that publishes it.
+ *
+ * The host publishes {@link atomRegisterVars} exactly as a transcript body or a
+ * dash block does, so the pill inside is sized by the same numbers the chips
+ * beside it are measured with — and a divergence shows up here as two heights
+ * in one row, which is the only way this class of defect is ever visible.
+ */
+function RegisterRow({ register }: { register: AtomRegister }): React.ReactElement {
+  const m = atomRegisterMetrics(register);
+  return (
+    <div className="gallery-atom-register" data-register={register}>
+      <div className="gallery-atom-register-caption">
+        {register} — {m.height}px box · {m.fontSize}px type · {m.dotSize}px dot
+      </div>
+      <div
+        className="gallery-atom-row"
+        style={atomRegisterVars(register) as React.CSSProperties}
+      >
+        {REGISTER_ATOMS.map((seg) => (
+          <TugAtomChip
+            key={seg.type}
+            className="tug-atom-chip"
+            type={seg.type}
+            label={seg.label}
+            value={seg.value}
+            register={register}
+          />
+        ))}
+        <TugSessionIdentity
+          identity={GALLERY_IDENTITY}
+          tier="chip"
+          register={register}
+          tooltip={false}
+        />
+      </div>
+    </div>
+  );
 }
 
 const descStyle: React.CSSProperties = {
@@ -141,6 +219,22 @@ export function GalleryAtom() {
       data-testid="gallery-atom"
       ref={responderRef as (el: HTMLDivElement | null) => void}
     >
+
+      {/* ---- The registers, with the live pill beside the baked chips ---- */}
+      <div className="cg-section">
+        <TugLabel className="cg-section-title">Registers</TugLabel>
+        <div style={descStyle}>
+          Every kind at every register, and the live session pill last in each
+          row — it must be the same height as the chips beside it, because they
+          are drawn from one table. `prose` is an atom in a line of running
+          text; `reading` is one in a block at reading scale.
+        </div>
+        {(Object.keys(ATOM_REGISTERS) as AtomRegister[]).map((register) => (
+          <RegisterRow key={register} register={register} />
+        ))}
+      </div>
+
+      <TugSeparator />
 
       {/* ---- All known types ---- */}
       <div className="cg-section">

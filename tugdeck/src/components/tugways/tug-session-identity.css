@@ -28,7 +28,6 @@ body {
      inset is authored where the padding is, so retuning the skin retunes
      what hangs under it. [L20] */
   --tugx-session-atom-text-inset: 10px;
-  --tugx-session-atom-text-inset-2xs: 8px;
 }
 
 /* The gap between the dot and the run is ONE number for both registers:
@@ -243,48 +242,36 @@ body {
       squared house badge, painted in text ink — the dot is the pill's
       only color. ───────────────────────────────────────────────────── */
 
+/* The pill's box is its REGISTER's, not its host's.
+
+   Every number here that decides how tall the atom is arrives as a custom
+   property the component publishes on itself from `lib/atom-register.ts` — the
+   same table `computeAtomChipGeometry` measures the baked chips beside it
+   with. That is the whole point: a live pill and a Canvas bake of the same
+   atom cannot be two sizes, because there is only one set of numbers.
+
+   What it replaced was a box that came from whatever leading the pill was
+   dropped into, plus a `sm` / `2xs` size prop each call site guessed at. One
+   citation stood 18px tall in the composer, 20px in the transcript it was sent
+   to, 21px cited in an Overview post and 25px in the Changes shade.
+
+   `line-height: 1` with an explicit `block-size` is what makes the box the
+   register's rather than the type's: the label is centred by the flex box, so
+   the leading it inherits cannot inflate the pill. Fallbacks are the `prose`
+   register's own values ([L20]). */
 /* @tug-renders-on var(--tug7-surface-global-primary-normal-default-rest) */
 .tug-session-identity[data-tier="chip"] {
+  box-sizing: border-box;
+  block-size: var(--tugx-atom-height, 22px);
   gap: 5px;
-  padding: 2px 9px;
-  border: 1px solid color-mix(in oklab, currentcolor 30%, transparent);
+  padding-block: 0;
+  padding-inline: 9px;
+  border: var(--tugx-atom-border-width, 1px) solid
+    color-mix(in oklab, currentcolor 30%, transparent);
   border-radius: 999px;
   background-color: transparent;
   color: var(--tug7-element-global-text-normal-default-rest);
-  font-size: var(--tug-font-size-sm);
-  /* The pill's height is a function of its OWN type size, never of the
-     leading it was dropped into. An atom is a compact mark, and a surface
-     that sets a generous line-height for prose — the transcript floors its
-     lines to atom-tall — was inflating the pill by that whole line box: the
-     same citation stood 28px tall in a transcript row and 21px in an Overview
-     post, which read as two different marks. */
-  line-height: var(--tug-line-height-normal);
-}
-
-.tug-session-identity[data-tier="chip"][data-size="2xs"] {
-  gap: 4px;
-  padding: 1px 7px;
-  font-size: var(--tug-font-size-xs);
-}
-
-/* ── The citation that IS an atom ───────────────────────────────────────
-   A session atom in a transcript row is this component, live, standing among
-   baked `<svg>` chips ([P14]). It therefore wears the atom's box rather than
-   its own: the height, the type size and the baseline the host publishes
-   (`transcriptAtomChipVars`) are the very numbers `computeAtomChipGeometry`
-   bakes the chips beside it from — so the live pill and its neighbours are one
-   family on one baseline, and the row's line box holds them all without a
-   line-height floor being raised for the pill alone. The pill skin itself
-   (radius, padding, gap) is untouched; the composer's bake already draws the
-   session atom with these same numbers.
-
-   The vars carry fallbacks, so a citation mounted from an atom on a surface
-   that publishes nothing keeps its ordinary chip box. */
-.tug-session-identity[data-tier="chip"][data-atom-type="session"] {
-  box-sizing: border-box;
-  height: var(--tugx-transcript-atom-height, auto);
-  padding-block: 0;
-  font-size: var(--tugx-transcript-atom-font-size, var(--tug-font-size-sm));
+  font-size: var(--tugx-atom-font-size, 13px);
   line-height: 1;
 }
 
