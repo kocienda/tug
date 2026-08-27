@@ -252,12 +252,40 @@ body {
   background-color: transparent;
   color: var(--tug7-element-global-text-normal-default-rest);
   font-size: var(--tug-font-size-sm);
+  /* The pill's height is a function of its OWN type size, never of the
+     leading it was dropped into. An atom is a compact mark, and a surface
+     that sets a generous line-height for prose — the transcript floors its
+     lines to atom-tall — was inflating the pill by that whole line box: the
+     same citation stood 28px tall in a transcript row and 21px in an Overview
+     post, which read as two different marks. */
+  line-height: var(--tug-line-height-normal);
 }
 
 .tug-session-identity[data-tier="chip"][data-size="2xs"] {
   gap: 4px;
   padding: 1px 7px;
   font-size: var(--tug-font-size-xs);
+}
+
+/* ── The citation that IS an atom ───────────────────────────────────────
+   A session atom in a transcript row is this component, live, standing among
+   baked `<svg>` chips ([P14]). It therefore wears the atom's box rather than
+   its own: the height, the type size and the baseline the host publishes
+   (`transcriptAtomChipVars`) are the very numbers `computeAtomChipGeometry`
+   bakes the chips beside it from — so the live pill and its neighbours are one
+   family on one baseline, and the row's line box holds them all without a
+   line-height floor being raised for the pill alone. The pill skin itself
+   (radius, padding, gap) is untouched; the composer's bake already draws the
+   session atom with these same numbers.
+
+   The vars carry fallbacks, so a citation mounted from an atom on a surface
+   that publishes nothing keeps its ordinary chip box. */
+.tug-session-identity[data-tier="chip"][data-atom-type="session"] {
+  box-sizing: border-box;
+  height: var(--tugx-transcript-atom-height, auto);
+  padding-block: 0;
+  font-size: var(--tugx-transcript-atom-font-size, var(--tug-font-size-sm));
+  line-height: 1;
 }
 
 /* State varies on top of the authored rest values rather than deriving them:

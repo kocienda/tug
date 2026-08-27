@@ -41,6 +41,7 @@ import {
   TUG_ATOM_CHAR,
   TRANSCRIPT_CHIP_BASE_FONT_SIZE,
   atomHeightFor,
+  transcriptAtomChipVars,
   type AtomSegment,
 } from "@/lib/tug-atom-img";
 import { walkAtomText } from "@/lib/atom-text";
@@ -142,6 +143,7 @@ export const TugAtomTextBody = React.forwardRef<
   // `WKWebView.pageZoom` scales the line-height floor uniformly with
   // the chip itself, so no per-chip magnification handling is needed.
   const hostStyle: React.CSSProperties = {
+    ...transcriptAtomChipVars(),
     ["--tugx-atom-text-body-atom-height" as string]: `${atomHeightFor(TRANSCRIPT_CHIP_BASE_FONT_SIZE)}px`,
   };
   return (
@@ -175,6 +177,7 @@ export const TugAtomTextBody = React.forwardRef<
               key={`a-${i}`}
               citedId={callsign}
               recordedTag={callsign}
+              size="sm"
               context={{
                 recordedProject: sessionAtomProject(seg.atom.value),
               }}

@@ -228,6 +228,25 @@ function iconSizeFor(size: number): number { return size; }
 export const TRANSCRIPT_CHIP_BASE_FONT_SIZE = 14;
 
 /**
+ * The transcript atom's box, as CSS custom properties a host publishes for the
+ * chips inside it.
+ *
+ * A session atom in a transcript row is the live {@link TugSessionCitation},
+ * not a bake — so its box is CSS, while every atom beside it is an `<svg>`
+ * sized in px by {@link computeAtomChipGeometry}. Both read their numbers from
+ * here, which is what keeps the live pill the same height and the same type
+ * size as the baked chips it sits among. Without it the pill inherits the
+ * host's leading and stands a third taller than its neighbours.
+ */
+export function transcriptAtomChipVars(): Record<string, string> {
+  const size = TRANSCRIPT_CHIP_BASE_FONT_SIZE;
+  return {
+    "--tugx-transcript-atom-height": `${atomHeightFor(size)}px`,
+    "--tugx-transcript-atom-font-size": `${size}px`,
+  };
+}
+
+/**
  * Set the font used for the editor's atom-chip rendering AND
  * measurement. `family` is the full CSS font-family stack
  * (e.g. `"IBM Plex Mono", monospace`). The editor settings store calls this
