@@ -84,6 +84,7 @@ import React, {
 import {
   AlarmClock,
   Megaphone,
+  ShipWheel,
   Milestone,
   Bell,
   CircleDashed,
@@ -1261,8 +1262,18 @@ const CodeRowBody: React.FC<CodeRowBodyProps> = ({
             data-notice-origin={message.noticeOrigin ?? "tug"}
           >
             <TugQuietLine
-              icon={<Megaphone size={16} aria-hidden="true" />}
-              label={message.noticeOrigin ?? "tug"}
+              icon={
+                message.noticeOrigin === "wheel" ? (
+                  <ShipWheel size={16} aria-hidden="true" />
+                ) : (
+                  <Megaphone size={16} aria-hidden="true" />
+                )
+              }
+              label={
+                message.noticeOrigin === "wheel"
+                  ? WHEEL_IDENTIFIER
+                  : (message.noticeOrigin ?? "tug")
+              }
               subject={
                 <TugMarkdownBlock
                   key={`md-${message.text.length}`}

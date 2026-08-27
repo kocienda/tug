@@ -1494,6 +1494,7 @@ struct ConfigPayload {
     review_model: Option<String>,
     implement_model: Option<String>,
     implement_rotate_at: Option<f32>,
+    implement_compact_at: Option<f32>,
 }
 
 /// Read the declarations the run's ending and the build offer consume.
@@ -1523,6 +1524,7 @@ fn run_config(json: bool, quiet: bool) -> Result<(), String> {
         review_model: dash.review_model,
         implement_model: dash.implement_model,
         implement_rotate_at: dash.implement_rotate_at,
+        implement_compact_at: dash.implement_compact_at,
     };
 
     if json {
@@ -1571,6 +1573,14 @@ fn run_config(json: bool, quiet: bool) -> Result<(), String> {
             "implement_model: {}",
             payload.implement_model.as_deref().unwrap_or(undeclared)
         );
+        match payload.implement_compact_at {
+            Some(at) => println!("implement_compact_at: {}", at),
+            None => println!(
+                "implement_compact_at: {} (defaults to {})",
+                undeclared,
+                tugutil_core::config::IMPLEMENT_COMPACT_AT_DEFAULT
+            ),
+        }
         match payload.implement_rotate_at {
             Some(at) => println!("implement_rotate_at: {}", at),
             None => println!(
@@ -1905,7 +1915,7 @@ mod tests {
 
     #[test]
     fn the_config_payload_reports_every_stage_key_as_null_when_undeclared() {
-        // A project that declares none must still report all four, so a
+        // A project that declares none must still report all five, so a
         // consumer reads the same shape whatever the project says.
         let payload = ConfigPayload {
             surfaces: Vec::new(),
@@ -1915,6 +1925,7 @@ mod tests {
             review_model: None,
             implement_model: None,
             implement_rotate_at: None,
+            implement_compact_at: None,
         };
         let value = serde_json::to_value(&payload).expect("serialize");
         for key in [
@@ -1922,6 +1933,7 @@ mod tests {
             "review_model",
             "implement_model",
             "implement_rotate_at",
+            "implement_compact_at",
         ] {
             assert!(
                 value.get(key).is_some_and(serde_json::Value::is_null),

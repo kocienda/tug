@@ -144,7 +144,9 @@ export function dashMetaFacts(entry: DashChangesetEntry): DashMetaFact[] {
     facts.push({
       key: "arc",
       label: `arc · ${arc.stage}`,
-      tooltip: `A dash arc is running this dash; its ${arc.stage} stage is in flight.`,
+      tooltip:
+        `A dash arc is running this dash; its ${arc.stage} stage is in flight.` +
+        (arc.note !== undefined ? `\nLatest: ${arc.note}` : ""),
       tone: "subtle",
     });
   }

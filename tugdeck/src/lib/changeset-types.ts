@@ -165,6 +165,9 @@ export interface DashArcState {
   stopped_stage?: string;
   /** Whether the arc reached its terminal line. */
   done?: boolean;
+  /** The arc's most recent note — what it last did, in its own words
+   *  (`compacted at 0.73 > 0.60`). */
+  note?: string;
 }
 
 /** A dash worktree branch and its accumulated base..branch changes. */

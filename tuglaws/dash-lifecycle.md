@@ -77,6 +77,7 @@ Two things hold across every row, so they are said once rather than per row. **T
 | A **tugcast relaunch** mid-stage | waits; the startup rebind seeds the recorded claude id, so the stage reads as current and nothing stops | nothing | the arc picks up on the card's first idle after it spawns — `a_card_that_has_not_spawned_since_startup_is_a_wait_not_a_stop` |
 | A **pending rotation** lost to a relaunch | the promise is dropped on purpose; a restart ended the turn it was a promise about | nothing | the next tick decides afresh; the rule is in [wheel.md](wheel.md) — `a_card_that_has_not_spawned_since_startup_is_a_wait_not_a_stop` |
 | A **side question** inside a stage (`/btw`, an `AskUserQuestion`) | nothing at all: the documents are untouched, so the predicate sees no edge | nothing beyond the question itself | the stage carries on — no test of its own; every "no document changed" predicate test asserts it |
+| A **`/compact` the arc sent** ending in an API error | stops as `compact failed`; the arc never walks on with a context the compaction did not reduce | `arc stopped · <dash> · in implement — its /compact turn ended in an API error, so the context was never reduced` | `tugutil dash run <name>` — `a_compact_turn_that_ended_in_an_api_error_stops_as_compact_failed` |
 
 The side-question row is the **only** one whose middle cell is not a receipt, and that is what the row is for: nothing happens, and the table says so rather than leaving a reader to wonder whether it was forgotten.
 
@@ -84,7 +85,7 @@ The side-question row is the **only** one whose middle cell is not a receipt, an
 
 The vocabulary is closed, and the compiler enforces it: `ArcStopReason` in `tugdash-core/src/arc.rs` carries every reason an arc can stop for, `append_arc_stop` takes it, and the receipt formatter matches it exhaustively with no fallback arm. A reason the receipt cannot explain is a reason the arc must not write.
 
-`lint` · `api error` · `review did not stamp` · `document missing` · `plan missing` · `session gone` · `card taken` · `card closed` · `stopped by user` · `discarded` · `joined` · `prompt unavailable` · `session idle` · `session errored` · `session closed` · `spawn queue full` · `no stdin` · `stdin closed` · `arc running`
+`lint` · `api error` · `compact failed` · `review did not stamp` · `document missing` · `plan missing` · `session gone` · `card taken` · `card closed` · `stopped by user` · `discarded` · `joined` · `prompt unavailable` · `session idle` · `session errored` · `session closed` · `spawn queue full` · `no stdin` · `stdin closed` · `arc running`
 
 The last seven are the wheel's own refusals, mapped through `Refusal::stop_reason`. `discarded` and `joined` exist for their sentence alone — nothing writes them to the dash-log, because the ending's own terminal line has already closed the arc's generation.
 

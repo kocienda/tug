@@ -81,11 +81,23 @@ fn looks_like_a_path(token: &str) -> bool {
         || matches!(
             token.rsplit_once('.').map(|(_, ext)| ext),
             Some(
-                "rs" | "ts" | "tsx" | "js" | "jsx" | "swift" | "md" | "toml" | "css" | "json"
+                "rs" | "ts"
+                    | "tsx"
+                    | "js"
+                    | "jsx"
+                    | "swift"
+                    | "md"
+                    | "toml"
+                    | "css"
+                    | "json"
                     | "sh"
             )
         )
 }
+
+/// What every implement ask tells a seated stage about its own pacing.
+const IMPLEMENT_ARC_CLAUSE: &str =
+    " — under this arc, close one step and end your turn; the arc prompts you with the next";
 
 /// The ask a course is making of a stage — the first clause of its prompt.
 ///
@@ -108,11 +120,17 @@ pub fn stage_ask(
             document?
         )),
         "review" => Some(format!("/tugplug:dash-review {dash}")),
+        // Both forms carry the one-step clause: every act the wheel takes on
+        // this session — a compaction, a rotation — happens between turns, so
+        // a step boundary has to be one. Only the model can end a turn, so the
+        // rule lives where the model reads.
         "implement" => Some(match steps {
             // No selector on the first implement stage: the whole plan, and
             // `dash-implement`'s own setup declares `--through`.
-            None => format!("/tugplug:dash-implement {dash}"),
-            Some(steps) => format!("/tugplug:dash-implement {dash} Steps {steps}"),
+            None => format!("/tugplug:dash-implement {dash}{IMPLEMENT_ARC_CLAUSE}"),
+            Some(steps) => {
+                format!("/tugplug:dash-implement {dash} Steps {steps}{IMPLEMENT_ARC_CLAUSE}")
+            }
         }),
         _ => None,
     }
@@ -228,5 +246,20 @@ mod tests {
         }
         assert_eq!(cited_paths(&source, root, 3).len(), 3);
         assert_eq!(cited_paths(&source, root, 0).len(), 0);
+    }
+
+    /// A seated implement stage walks one step and stops, because that is
+    /// where the arc gets to act. Devise and review end by rotating, so the
+    /// clause would be telling them about a turn they do not get.
+    #[test]
+    fn the_implement_ask_tells_a_seated_stage_to_stop_at_one_step() {
+        for steps in [None, Some("2-4")] {
+            let ask = stage_ask("implement", None, "foo", steps).expect("an implement ask");
+            assert!(ask.ends_with(IMPLEMENT_ARC_CLAUSE), "{ask}");
+        }
+        for stage in ["devise", "review"] {
+            let ask = stage_ask(stage, Some("dash/idea.md"), "foo", None).expect("an ask");
+            assert!(!ask.contains("close one step"), "{ask}");
+        }
     }
 }

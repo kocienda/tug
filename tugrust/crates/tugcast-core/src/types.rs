@@ -643,6 +643,11 @@ pub struct DashArcState {
     /// Whether the arc reached its terminal line.
     #[serde(default, skip_serializing_if = "is_false")]
     pub done: bool,
+    /// The arc's most recent note — what it last did, in its own words
+    /// (`compacted at 0.73 > 0.60`). The record has always carried the notes;
+    /// only the wire lacked them, so the placard had nothing to show.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
 }
 
 /// What the last green verify said about the tree a join would land.
@@ -1981,7 +1986,10 @@ mod tests {
             first.documents.plan.as_deref(),
             Some("/repo/.tug/dashes/dash-cockpit/plan.md")
         );
-        assert_eq!(first.documents.brief_title.as_deref(), Some("The dash cockpit"));
+        assert_eq!(
+            first.documents.brief_title.as_deref(),
+            Some("The dash cockpit")
+        );
         assert_eq!(first.review.as_deref(), Some("reviewed"));
         assert_eq!(first.step_total, 5);
         // Begun, not finished: the fraction's numerator and the gesture's

@@ -306,7 +306,7 @@ pub(crate) fn user_message_payload(session: &str, text: &str) -> Vec<u8> {
 /// from the composer echoing its own submission, and an injection has no
 /// composer. Without this frame the agent would start working with no visible
 /// cause.
-fn notice_payload(session: &str, origin: &str, text: &str) -> Vec<u8> {
+pub(crate) fn notice_payload(session: &str, origin: &str, text: &str) -> Vec<u8> {
     serde_json::to_vec(&serde_json::json!({
         "tug_session_id": session,
         "type": "tug_notice",

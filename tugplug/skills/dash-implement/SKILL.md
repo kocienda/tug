@@ -67,6 +67,8 @@ If no plan exists yet, start at `/dash`: it sizes the idea, writes the brief, an
 
 ### 2. Implement (walk the steps)
 
+**Under an arc, one step per turn.** When `printenv TUG_DASH_ARC` names a dash, resolve the selection exactly as Setup says and declare `--through <m>` with the selection's last step — `m` never shrinks to the one step you are walking, because `m` is the run's end and that is what arms the join. Then walk **one** step: the first row that is neither `done` nor `withdrawn`. Close it with `done` or `withdraw`, report the ledger state, and end your turn. The arc reads the boundary and prompts the same session with `Steps N-M` for the next one. The reason is that every act the wheel takes on this session — a compaction, a rotation — happens between turns, so a step boundary has to be one. Run by hand, with no arc, the skill is unchanged: you walk the whole selection.
+
 Walk the resolved steps in dependency order. For each step:
 
 - **Open the step.**
@@ -146,7 +148,7 @@ Write it even on a run that stops mid-plan: the draft is what the shade shows th
 
 **Under an arc, this ending is unchanged** — and that is the finding, not an oversight. When `printenv TUG_DASH_ARC` names a dash, this turn is that arc's **implement stage**, and everything above still applies verbatim: verify the fit, write the draft before closing the final declared step, narrate the three things, print no chip. The reason nothing changes is that the ending was already server-driven — closing the final step arms the join, the shade summons itself, and the arc adds only its own receipt on top of what the join pilot already reads ([P12]). A stage that ended differently would be a second endgame competing with the one that works.
 
-The one thing worth knowing is that an arc may rotate the implement stage **mid-plan**, at a step boundary, when the session's context has run down. A fresh session then resumes at the first row that is neither `done` nor `withdrawn` — which is the ordinary resume this skill already describes, and needs nothing from you beyond keeping the ledger truthful with `dash step start|done|withdraw`. Walk the steps you were given and end where they end; the arc decides whether that end is the plan's end.
+The one thing worth knowing is what the arc does at the step boundaries your turns now end on. Above `implement_compact_at` it **compacts** the seated session in place, and only a window a compaction failed to bring below `implement_rotate_at` costs a rotation — so a mid-plan rotation is the rarer of the two. A fresh session then resumes at the first row that is neither `done` nor `withdrawn`, which is the ordinary resume this skill already describes, and needs nothing from you beyond keeping the ledger truthful with `dash step start|done|withdraw`. You walk one step and end the turn; the arc prompts the next. The turn that closes the run's final declared step is still the one that writes the draft before closing it and still verifies the fit.
 
 **Offer a build when the work wants one.** A change the user will want to *see* — a surface with a face — is worth building and vetting before the join. What to run is the project's to say: the `build` command `tugutil dash config` reports. Run it from the worktree root, read what it says, and relay that to the user rather than describing a build you did not watch.
 

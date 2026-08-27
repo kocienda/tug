@@ -78,6 +78,24 @@ describe("the arc on the dash metadata line", () => {
     expect(last?.tone).toBe("subtle");
   });
 
+  test("a running arc's latest note rides its tooltip", () => {
+    const withNote = entry({
+      stage: "implement",
+      note: "compacted at 0.73 > 0.60",
+    });
+    withNote.worktree_dirty = true;
+    const fact = dashMetaFacts(withNote).find((f) => f.key === "arc");
+    expect(fact?.tooltip).toContain(
+      "its implement stage is in flight.\nLatest: compacted at 0.73 > 0.60",
+    );
+
+    // An arc that has done nothing worth a note says only what it always said.
+    const silent = entry({ stage: "implement" });
+    silent.worktree_dirty = true;
+    const quiet = dashMetaFacts(silent).find((f) => f.key === "arc");
+    expect(quiet?.tooltip).not.toContain("Latest:");
+  });
+
   test("a finished arc says nothing — the join offer speaks then", () => {
     expect(keys(entry({ stage: "implement", done: true }))).toEqual([]);
   });

@@ -77,8 +77,14 @@ pub struct DashConfig {
     /// applies.
     #[serde(default)]
     pub implement_rotate_at: Option<f32>,
-}
 
+    /// The context fraction above which the implement stage is compacted at a
+    /// step boundary, before any rotation is considered. Absent means
+    /// [`IMPLEMENT_COMPACT_AT_DEFAULT`], which [`DashConfig::compact_at`]
+    /// applies.
+    #[serde(default)]
+    pub implement_compact_at: Option<f32>,
+}
 
 /// One surface of a project: the paths it claims, and what checking it means.
 ///
@@ -109,7 +115,12 @@ pub struct Surface {
 
 /// The context fraction the implement stage rotates above when a project
 /// declares none ([P07]).
-pub const IMPLEMENT_ROTATE_AT_DEFAULT: f32 = 0.6;
+pub const IMPLEMENT_ROTATE_AT_DEFAULT: f32 = 0.8;
+
+/// The context fraction the implement stage is compacted above when a project
+/// declares none. Below the rotation threshold on purpose: a compaction is the
+/// cheaper act and gets the first crossing.
+pub const IMPLEMENT_COMPACT_AT_DEFAULT: f32 = 0.6;
 
 impl DashConfig {
     /// The rotation threshold to actually use: the declaration, or the
@@ -118,6 +129,13 @@ impl DashConfig {
     pub fn rotate_at(&self) -> f32 {
         self.implement_rotate_at
             .unwrap_or(IMPLEMENT_ROTATE_AT_DEFAULT)
+    }
+
+    /// The compaction threshold to actually use: the declaration, or the
+    /// default, on the same terms as [`DashConfig::rotate_at`].
+    pub fn compact_at(&self) -> f32 {
+        self.implement_compact_at
+            .unwrap_or(IMPLEMENT_COMPACT_AT_DEFAULT)
     }
 }
 
@@ -164,9 +182,14 @@ post_create = []
 # review_model = "opus"
 # implement_model = "sonnet"
 
+# The context fraction above which a seated implement stage is compacted at a
+# step boundary. Declare none and it is 0.6.
+# implement_compact_at = 0.6
+
 # The context fraction above which the implement stage rotates to a fresh
-# session at a step boundary — never mid-step. Declare none and it is 0.6.
-# implement_rotate_at = 0.6
+# session at a step boundary, when a compaction did not bring it down. Declare
+# none and it is 0.8.
+# implement_rotate_at = 0.8
 "#;
 
 /// Why a config file was refused. Every variant carries the offending value,
@@ -264,7 +287,10 @@ impl DashConfig {
             if surface.name.trim().is_empty() {
                 return Err(ConfigRefusal::EmptyName);
             }
-            if self.surfaces[..index].iter().any(|s| s.name == surface.name) {
+            if self.surfaces[..index]
+                .iter()
+                .any(|s| s.name == surface.name)
+            {
                 return Err(ConfigRefusal::DuplicateName(surface.name.clone()));
             }
             if surface.paths.is_empty() || surface.paths.iter().any(|p| p.trim().is_empty()) {
@@ -305,13 +331,13 @@ impl DashConfig {
                         return Err(ConfigRefusal::UnknownLender {
                             surface: surface.name.clone(),
                             lender: lender.clone(),
-                        })
+                        });
                     }
                     Some(found) if !found.checked_by.is_empty() => {
                         return Err(ConfigRefusal::LenderBorrows {
                             surface: surface.name.clone(),
                             lender: lender.clone(),
-                        })
+                        });
                     }
                     Some(_) => {}
                 }
@@ -320,7 +346,8 @@ impl DashConfig {
 
         Ok(())
     }
-}impl Config {
+}
+impl Config {
     /// Load configuration from a file
     pub fn load(path: &Path) -> Result<Self, TugError> {
         let content = fs::read_to_string(path)
@@ -552,7 +579,8 @@ mod tests {
             !DEFAULT_CONFIG.contains("verify ="),
             "the template must not document the retired key"
         );
-    }    /// This repository's own committed config, through the real loader.
+    }
+    /// This repository's own committed config, through the real loader.
     ///
     /// Cheap, and it catches a hand-edit typo at commit time rather than at the
     /// next dash's ending — which is the moment a config that will not load is
@@ -627,7 +655,7 @@ mod tests {
 
     #[test]
     fn stage_declarations_parse() {
-        let toml = "[tugtool.dash]\ndevise_model = \"sonnet\"\nreview_model = \"opus\"\nimplement_model = \"fable\"\nimplement_rotate_at = 0.75\n";
+        let toml = "[tugtool.dash]\ndevise_model = \"sonnet\"\nreview_model = \"opus\"\nimplement_model = \"fable\"\nimplement_rotate_at = 0.75\nimplement_compact_at = 0.5\n";
         let config: Config = toml::from_str(toml).expect("declaring stage models should parse");
         let dash = &config.tugtool.dash;
         assert_eq!(dash.devise_model.as_deref(), Some("sonnet"));
@@ -635,6 +663,8 @@ mod tests {
         assert_eq!(dash.implement_model.as_deref(), Some("fable"));
         assert_eq!(dash.implement_rotate_at, Some(0.75));
         assert_eq!(dash.rotate_at(), 0.75);
+        assert_eq!(dash.implement_compact_at, Some(0.5));
+        assert_eq!(dash.compact_at(), 0.5);
     }
 
     #[test]
@@ -648,12 +678,19 @@ mod tests {
         assert!(dash.review_model.is_none());
         assert!(dash.implement_model.is_none());
         assert!(dash.implement_rotate_at.is_none());
+        assert!(dash.implement_compact_at.is_none());
         assert_eq!(dash.rotate_at(), IMPLEMENT_ROTATE_AT_DEFAULT);
-        assert_eq!(IMPLEMENT_ROTATE_AT_DEFAULT, 0.6);
+        assert_eq!(IMPLEMENT_ROTATE_AT_DEFAULT, 0.8);
+        assert_eq!(dash.compact_at(), IMPLEMENT_COMPACT_AT_DEFAULT);
+        assert_eq!(IMPLEMENT_COMPACT_AT_DEFAULT, 0.6);
 
         // So does a project with no dash table at all.
         let empty: Config = toml::from_str("").unwrap();
         assert_eq!(empty.tugtool.dash.rotate_at(), IMPLEMENT_ROTATE_AT_DEFAULT);
+        assert_eq!(
+            empty.tugtool.dash.compact_at(),
+            IMPLEMENT_COMPACT_AT_DEFAULT
+        );
     }
 
     #[test]
@@ -668,6 +705,7 @@ mod tests {
             "review_model",
             "implement_model",
             "implement_rotate_at",
+            "implement_compact_at",
         ] {
             assert!(
                 DEFAULT_CONFIG.contains(key),

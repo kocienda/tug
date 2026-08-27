@@ -1291,6 +1291,7 @@ fn document_dash_entries_in(
                             .as_ref()
                             .map(|(stage, _)| stage.as_str().to_owned()),
                         done: record.done,
+                        note: record.notes.last().cloned(),
                     }
                 }),
                 documents: dash_documents(documents),
@@ -1392,6 +1393,7 @@ async fn dash_entries(
                 stopped: arc.stopped,
                 stopped_stage: arc.stopped_stage,
                 done: arc.done,
+                note: arc.note,
             }),
             documents: dash_documents(detail.documents),
             review,

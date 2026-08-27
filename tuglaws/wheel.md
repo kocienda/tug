@@ -68,6 +68,14 @@ A course ends by handing the card back — one `model_change` frame carrying `de
 
 **A pending rotation is withdrawable.** `--cancel` clears it and says whether there was one; cancelling with nothing pending is a state, not an error. Withdrawing leaves nothing behind, which is the correct amount of ceremony for a promise about the next few seconds — unlike a course's stop, which is a durable record with a resume path because a course is a document-driven schedule.
 
+### Two thresholds
+
+**A course that seats a stage with more turns to run watches that session's context, and has two answers to a full one.** Above `[tugtool.dash].implement_compact_at` the seated session is sent a `/compact` — it keeps its session, its lineage, and its stage label, and only its context comes down. Above `[tugtool.dash].implement_rotate_at`, *and only when a compaction has already been tried and did not bring it below the compaction threshold*, the stage rotates to a fresh session. Both are project declarations, both are fractions of the window, and the defaults are ordered the way the answers are: `0.6` and `0.8`, the cheaper act getting the first crossing. A compaction the session never performed — an API error, a user's cancel — is never remembered as one, so the next boundary compacts again rather than falling through to the rotation.
+
+**Like a rotation, a compaction happens at a turn end and never inside one.** The turn-end rule above is the whole reason: a prompt sent into an open turn would queue behind a model still working, and there would be no idle edge to read the result against. Under a course, the implement stage therefore closes one step per turn and ends it, so every step boundary is a turn boundary the course can act on — a rule of the stage's ask and its skill rather than of the wheel, because only a model can end a turn.
+
+**The wheel gains no verb here, and "Three verbs, and no others" stands exactly as written.** Sending a prompt to a seated session is a *client's* act, taken at the edge the wheel already computes: it lives in the arc runner and reaches the session through the supervisor's dispatcher, never through `rotate`. Naming a fourth verb would contradict the sentence under that heading — deciding what runs next is a client's — which is precisely the boundary that keeps a course's policy out of the wheel. And it is the same division "Always dropped" above already draws: carrying context across a rotation is `/compact`'s job, so a course that wants the context kept asks for a compaction rather than a rotation.
+
 ## A course hands over a part, not a title
 
 A stage opens on a prompt, and every character of that prompt is composed from documents. Four clauses, each omitted when its fact is absent:

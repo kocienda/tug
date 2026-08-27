@@ -103,6 +103,14 @@ Git records the diff; the log records the instruction git cannot see. `tug log` 
 
 **Never commit to the base branch.** Every commit goes through `tugutil dash commit` onto the dash worktree.
 
+## A step boundary is a turn boundary
+
+**Under an arc, the implement stage closes one step per turn and ends it.** Not because a longer turn would do worse work, but because the wheel can only act between turns: every act it takes on the seated session — a compaction above `implement_compact_at`, a rotation above `implement_rotate_at` — is sent at a turn's end, since a prompt sent into an open turn would queue behind a model still working. A stage that walks its whole ledger in one turn offers the arc exactly one edge, at the end, when there is nothing left to pace.
+
+So the turn is the unit the arc paces, and the step boundary is where it lands. Walk one step, close it with `dash step done` or `dash step withdraw`, say where the ledger stands, and end the turn; the arc prompts the same session with the next range. Declare `--through` with the run's last step throughout — it never shrinks to the step being walked, because that value is what arms the join.
+
+Run by hand, with no `TUG_DASH_ARC` in the environment, none of this applies: the selector said how far to walk and the run walks it.
+
 ## Stop before the join
 
 Do not merge, and do not run the join on the user's behalf. That is the whole of what "stop" means here; the rest of the ending is one obligation and two offers.

@@ -867,6 +867,44 @@ mod tests {
         assert!(!found.run_complete);
     }
 
+    /// A `compact` line dates the dash and says nothing else. The readers are
+    /// total by construction — `read_declarations` has a catch-all arm and
+    /// `read_arc` reads only `arc-*` markers — so a new marker between two
+    /// step declarations moves neither.
+    #[test]
+    #[serial]
+    fn a_compact_marker_moves_no_declaration_and_no_arc_fact() {
+        let without = format!(
+            "{}{}{}",
+            log_line("d", "run-through", "2"),
+            log_line("d", "step-start", "1/2 Step 1: First"),
+            log_line("d", "step-done", "1/2 a4477d5"),
+        );
+        let with = format!(
+            "{}{}{}{}",
+            log_line("d", "run-through", "2"),
+            log_line("d", "step-start", "1/2 Step 1: First"),
+            log_line("d", "compact", "0.73 > 0.60"),
+            log_line("d", "step-done", "1/2 a4477d5"),
+        );
+
+        let plain = log_repo(&without);
+        let expected = read_declarations(plain.root(), "d");
+        let marked = log_repo(&with);
+        assert_eq!(read_declarations(marked.root(), "d"), expected);
+
+        let arc_log = format!(
+            "{}{}{}",
+            log_line("d", "arc-start", "brief.md"),
+            log_line("d", "compact", "0.73 > 0.60"),
+            log_line("d", "arc-note", "compacted at 0.73 > 0.60"),
+        );
+        let fixture = log_repo(&arc_log);
+        let record = crate::arc::read_arc(fixture.root(), "d").expect("an arc");
+        assert_eq!(record.notes, vec!["compacted at 0.73 > 0.60".to_string()]);
+        assert!(record.stages.is_empty());
+    }
+
     /// The run's first step is latched from the declaration that opens it, and
     /// re-latched by the next `run-through` — so a second selection on one dash
     /// reports its own span rather than the first one's.

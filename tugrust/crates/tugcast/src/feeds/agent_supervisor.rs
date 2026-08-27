@@ -213,6 +213,13 @@ impl<T> BoundedQueue<T> {
     pub fn pop(&mut self) -> Option<T> {
         self.inner.pop_front()
     }
+
+    /// The queued items, oldest first, without consuming them — so a test can
+    /// read what a dispatch left behind and still assert on it again.
+    #[cfg(test)]
+    pub fn iter(&self) -> impl Iterator<Item = &T> {
+        self.inner.iter()
+    }
 }
 
 impl<T> Default for BoundedQueue<T> {
@@ -454,9 +461,12 @@ pub struct LedgerEntry {
     /// ([P07]).
     ///
     /// In memory, like [`Self::deck_model`]: a tugcast restart drops it, and
-    /// the runner's declared fallback for a missing reading is not to rotate.
-    /// A `cost_update` arrives at the end of every turn, and the arc rotates
-    /// at a turn boundary, so in practice the reading is one frame old.
+    /// the runner's declared fallback for a missing reading is to continue the
+    /// stage rather than act on a guess. It moves *live*: every
+    /// `streaming_usage` frame of the open turn overwrites it, and the
+    /// turn-final `cost_update` is the authoritative last write. A
+    /// `session_init` naming a different claude clears it, so a fresh session
+    /// is never judged on the window of the one it replaced.
     pub context_window_tokens: Option<i64>,
 }
 
@@ -2678,8 +2688,23 @@ pub(crate) fn turn_ended_in_user_cancel(payload: &[u8]) -> bool {
 
 fn parse_context_window(payload: &[u8]) -> Option<i64> {
     let value: serde_json::Value = serde_json::from_slice(payload).ok()?;
-    if value.get("type")?.as_str()? != "cost_update" {
-        return None;
+    match value.get("type")?.as_str()? {
+        // Turn-final and main-lane only, so it needs no guard.
+        "cost_update" => {}
+        // Emitted once per `message_start` / `message_delta`, so the most
+        // recent one is the window right now. A background subagent lane gets
+        // its own frames, stamped with the tool use that spawned them — that
+        // usage is the subagent's small window rather than the session's
+        // resident one, and summing it here would misreport both.
+        "streaming_usage" => {
+            if value
+                .get("parent_tool_use_id")
+                .is_some_and(|id| !id.is_null())
+            {
+                return None;
+            }
+        }
+        _ => return None,
     }
     let usage = value.get("usage")?.as_object()?;
     let total: i64 = [
@@ -8396,11 +8421,12 @@ impl AgentSupervisor {
                     // needle but must not end a live turn (`replay_started`
                     // has already incremented the bracket counter by the time
                     // the batch flows through here).
-                    // The turn's resident context window, for the arc's
-                    // rotation reading ([P07]). Captured here because
-                    // `cost_update` is the only frame that carries usage at
-                    // all, and the last iteration's four-token sum *is* the
-                    // window after the turn.
+                    // The session's resident context window, which the arc
+                    // reads at a step boundary to decide a compaction or a
+                    // rotation. Both frames that carry usage write it: a
+                    // `streaming_usage` keeps it current inside the turn, and
+                    // the turn-final `cost_update` is the authoritative last
+                    // write.
                     if let Some(window) = parse_context_window(&frame.payload) {
                         let entry_arc = {
                             let ledger = self.ledger.lock().await;
@@ -9225,6 +9251,36 @@ mod tests {
     use super::super::agent_bridge::{RelayOutcome, SessionChild, SpawnFuture, relay_session_io};
 
     // ── session tag on the wire: inbound parse + outbound frame ───────────────
+
+    /// Both frames that carry usage write the window, and they sum the same
+    /// four fields — a `streaming_usage` keeps the reading current inside the
+    /// turn, a `cost_update` is the turn's last word.
+    #[test]
+    fn parse_context_window_reads_streaming_usage_and_cost_update_alike() {
+        let usage = r#""usage":{"input_tokens":10,"output_tokens":5,"cache_creation_input_tokens":100,"cache_read_input_tokens":1000}"#;
+        let cost = format!(r#"{{"type":"cost_update",{usage}}}"#);
+        let streaming = format!(r#"{{"type":"streaming_usage",{usage}}}"#);
+        assert_eq!(parse_context_window(cost.as_bytes()), Some(1115));
+        assert_eq!(parse_context_window(streaming.as_bytes()), Some(1115));
+
+        // A background subagent lane carries its own small window, stamped
+        // with the tool use that spawned it. That is not the session's
+        // resident context, so it writes nothing.
+        let subagent =
+            format!(r#"{{"type":"streaming_usage","parent_tool_use_id":"toolu_1",{usage}}}"#);
+        assert_eq!(parse_context_window(subagent.as_bytes()), None);
+        let main_lane =
+            format!(r#"{{"type":"streaming_usage","parent_tool_use_id":null,{usage}}}"#);
+        assert_eq!(parse_context_window(main_lane.as_bytes()), Some(1115));
+
+        // Every other frame, and a usage that sums to nothing, is no reading.
+        assert_eq!(parse_context_window(br#"{"type":"turn_complete"}"#), None);
+        assert_eq!(
+            parse_context_window(br#"{"type":"cost_update","usage":{"input_tokens":0}}"#),
+            None
+        );
+        assert_eq!(parse_context_window(b"not json"), None);
+    }
 
     fn commit_request(session_id: Option<&str>) -> ChangesetCommitPayload {
         ChangesetCommitPayload {

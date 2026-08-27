@@ -41,18 +41,19 @@ use std::sync::Arc;
 use tokio::sync::{Mutex, mpsc, watch};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
-use tugcast_core::protocol::{Frame, TugSessionId};
+use tugcast_core::protocol::{FeedId, Frame, TugSessionId};
 use tugdash_core::arc::{
     ArcRecord, ArcStage, ArcStopReason, append_arc_done, append_arc_note, append_arc_plan,
     append_arc_stop, read_arc, stage_model,
 };
+use tugdash_core::dash::append_dash_log;
 use tugutil_core::config::{Config, DashConfig};
 use tugutil_core::plan;
 
 use super::agent_supervisor::{AgentSupervisor, SpawnState};
 use super::dash_arc::{
-    ArcAction, ArcFacts, Rotation, StepLedgerFacts, arc_action, context_max_from_breakdown,
-    step_range,
+    ArcAction, ArcFacts, PromptKind, PromptWhy, Rotation, StepLedgerFacts, arc_action,
+    context_max_from_breakdown, step_range,
 };
 use crate::wheel::{self, RotationRequest};
 
@@ -85,6 +86,28 @@ struct ArcState {
     /// know a step *just* went done, which is what makes a rotation a step
     /// boundary rather than a mid-step interruption.
     last_done_count: Option<usize>,
+    /// A compaction was sent on the seated session and no idle reading since
+    /// has fallen to or below the compaction threshold.
+    ///
+    /// It is what makes a rotation the *second* answer to an oversized window:
+    /// the first crossing compacts, and only a window a compaction failed to
+    /// bring down costs a fresh session. Cleared by a reading at or below the
+    /// threshold, and by a compact turn that ended in an API error or a user
+    /// cancel — a compaction that did not happen is never remembered as one,
+    /// and the fraction only grows, so a latched flag would compact exactly
+    /// once, having compacted not at all.
+    compacted_since_below: bool,
+    /// A prompt the runner sent whose turn has not been read back yet.
+    pending: Option<PendingPrompt>,
+}
+
+/// A prompt already delivered, remembered until the turn it opened ends.
+#[derive(Debug, Clone)]
+struct PendingPrompt {
+    kind: PromptKind,
+    /// The session's `turns_ended` at the moment the prompt went out. The turn
+    /// this prompt opened has ended once the count has moved past it.
+    turns_ended_at: u32,
 }
 
 /// One arc the sweep found: a bound dash, and the card it runs on.
@@ -176,15 +199,29 @@ async fn evaluate(ctx: &ArcContext, state: &Arc<Mutex<HashMap<String, ArcState>>
     let Some(session) = session_snapshot(ctx, &arc.session).await else {
         return;
     };
-    let last_done_count = {
+    // Read the memory before the blocking read, because the blocking read is
+    // what carries it to the predicate. The in-flight guard below runs after
+    // that read and so cannot be what gates this — the *writes* are what the
+    // guard protects, and they happen there.
+    let memory = {
         let map = state.lock().await;
-        map.get(&key).and_then(|s| s.last_done_count)
+        match map.get(&key) {
+            Some(entry) => TickMemory {
+                last_done_count: entry.last_done_count,
+                compacted_since_below: entry.compacted_since_below,
+                compact_turn_just_ended: entry.pending.as_ref().is_some_and(|pending| {
+                    pending.kind == PromptKind::Compact
+                        && session.turns_ended > pending.turns_ended_at
+                }),
+            },
+            None => TickMemory::default(),
+        }
     };
 
     let project = arc.project.clone();
     let dash = arc.dash.clone();
     let Ok(Some(reading)) =
-        tokio::task::spawn_blocking(move || read(&project, &dash, &session, last_done_count)).await
+        tokio::task::spawn_blocking(move || read(&project, &dash, &session, memory)).await
     else {
         return;
     };
@@ -206,18 +243,86 @@ async fn evaluate(ctx: &ArcContext, state: &Arc<Mutex<HashMap<String, ArcState>>
             reading.done_count,
             reading.facts.session_idle,
         );
+        // A pending prompt is read back exactly once: the tick that derived
+        // `compact_turn_just_ended` from it is the tick that consumes it.
+        if memory.compact_turn_just_ended {
+            entry.pending = None;
+        }
+        // A compaction is remembered only while it is still the answer that
+        // was tried. A reading back at or below the threshold retires it, and
+        // so does a compact turn that never happened — an API error or a user
+        // cancel — because the next boundary should compact again rather than
+        // fall straight through to the rotation threshold.
+        let came_down = reading.facts.session_idle
+            && reading
+                .facts
+                .context_fraction
+                .is_some_and(|fraction| fraction <= reading.facts.compact_at);
+        let compaction_never_happened = memory.compact_turn_just_ended
+            && (reading.facts.stage_api_error || reading.facts.stage_turn_cancelled);
+        if came_down || compaction_never_happened {
+            entry.compacted_since_below = false;
+        }
     }
 
-    let Some(action) = arc_action(&reading.record, &reading.facts) else {
-        return;
-    };
+    let action = arc_action(&reading.record, &reading.facts);
+
+    // Every tick says what it read and what it decided, including the ticks
+    // that decided nothing. An arc that advances silently is an arc whose
+    // divergence from the predicate can only be found by guessing.
+    info!(
+        target: "dev::session-lifecycle",
+        event = "arc.tick",
+        dash = %arc.dash,
+        stage = reading
+            .record
+            .current_stage()
+            .map(|stage| stage.as_str())
+            .unwrap_or("-"),
+        fraction = reading
+            .facts
+            .context_fraction
+            .map(|f| format!("{f:.3}"))
+            .unwrap_or_else(|| "-".to_string()),
+        done_count = reading.done_count,
+        last_done_count = ?memory.last_done_count,
+        idle = reading.facts.session_idle,
+        step_just_done = reading.facts.ledger.step_just_done,
+        compacted_since_below = reading.facts.compacted_since_below,
+        compact_turn_just_ended = reading.facts.compact_turn_just_ended,
+        action = %describe_action(action.as_ref()),
+    );
+
+    let Some(action) = action else { return };
 
     match action {
         ArcAction::Rotate(rotation) => rotate(ctx, state, arc, &key, &reading, &rotation).await,
+        ArcAction::Prompt { kind, why } => {
+            deliver_prompt(ctx, state, arc, &key, &reading, &kind, &why).await
+        }
         ArcAction::Done => finish(ctx, arc, &reading, None).await,
         ArcAction::Stop { stage, reason } => {
             finish(ctx, arc, &reading, Some((stage, reason))).await
         }
+    }
+}
+
+/// The `action` word on an `arc.tick` line — one token per decision, so the
+/// log can be grepped for what the arc did at a boundary.
+fn describe_action(action: Option<&ArcAction>) -> String {
+    match action {
+        None => "none".to_string(),
+        Some(ArcAction::Rotate(rotation)) => format!("rotate:{}", rotation.stage.as_str()),
+        Some(ArcAction::Prompt {
+            kind: PromptKind::Compact,
+            ..
+        }) => "prompt:compact".to_string(),
+        Some(ArcAction::Prompt {
+            kind: PromptKind::Continue { .. },
+            ..
+        }) => "prompt:continue".to_string(),
+        Some(ArcAction::Done) => "done".to_string(),
+        Some(ArcAction::Stop { reason, .. }) => format!("stop:{}", reason.as_str()),
     }
 }
 
@@ -241,6 +346,10 @@ struct SessionSnapshot {
     api_error: bool,
     /// Its most recent turn was cancelled by the user.
     turn_cancelled: bool,
+    /// How many turns the seated claude session has ended. The count, not the
+    /// flag, because a pending prompt is read back by comparing against the
+    /// count at the moment it was sent.
+    turns_ended: u32,
     /// The claude session running on the card carries a `stage_label` — a
     /// rotation seated it.
     stage_seated: bool,
@@ -262,7 +371,7 @@ async fn session_snapshot(ctx: &ArcContext, id: &TugSessionId) -> Option<Session
     // would stop every in-flight arc on every restart. `Errored` and `Closed`
     // are the states with nothing left to advance.
     let entry_arc = entry_arc?;
-    let (live, idle, turn_ended, api_error, turn_cancelled, claude_session_id, context_window) = {
+    let (live, idle, turns_ended, api_error, turn_cancelled, claude_session_id, context_window) = {
         let entry = entry_arc.lock().await;
         let live = match entry.spawn_state {
             // The early return costs the taken-card arm its immediacy, and
@@ -279,7 +388,7 @@ async fn session_snapshot(ctx: &ArcContext, id: &TugSessionId) -> Option<Session
         (
             live,
             !entry.turn_active,
-            entry.turns_ended > 0,
+            entry.turns_ended,
             entry.turn_api_error,
             entry.turn_cancelled,
             entry.claude_session_id.clone(),
@@ -303,7 +412,8 @@ async fn session_snapshot(ctx: &ArcContext, id: &TugSessionId) -> Option<Session
     Some(SessionSnapshot {
         live,
         idle,
-        turn_ended,
+        turn_ended: turns_ended > 0,
+        turns_ended,
         api_error,
         turn_cancelled,
         stage_seated,
@@ -330,7 +440,19 @@ struct ArcReading {
     cited_paths: Vec<String>,
     /// What moved in those paths since the document was last written.
     commits_since: Vec<String>,
+    /// How many turns the seated session had ended when this tick read it —
+    /// the mark a delivered prompt's own turn is later recognized against.
+    turns_ended: u32,
     config: DashConfig,
+}
+
+/// The runner's per-arc memory as one tick reads it — the facts no document
+/// can hold, gathered before the blocking read so they reach the predicate.
+#[derive(Debug, Clone, Copy, Default)]
+struct TickMemory {
+    last_done_count: Option<usize>,
+    compacted_since_below: bool,
+    compact_turn_just_ended: bool,
 }
 
 /// Gather the facts. Blocking: file reads and, for an implement stage, one
@@ -339,7 +461,7 @@ fn read(
     project: &Path,
     dash: &str,
     session: &SessionSnapshot,
-    last_done_count: Option<usize>,
+    memory: TickMemory,
 ) -> Option<ArcReading> {
     let record = read_arc(project, dash)?;
     let project_config = Config::load_from_project(project).unwrap_or_default();
@@ -427,6 +549,15 @@ fn read(
         _ => None,
     };
 
+    // The seated stage has more turns to run on this session. Only an
+    // implement stage does: devise and review end by rotating.
+    let run_through = declarations.run_through.map(|n| n as usize);
+    let stage_continues = record.current_stage() == Some(ArcStage::Implement)
+        && !declarations.run_complete
+        && first_pending
+            .zip(run_through)
+            .is_some_and(|(next, through)| next <= through);
+
     let facts = ArcFacts {
         document_exists,
         input_is_plan,
@@ -438,9 +569,11 @@ fn read(
         review,
         ledger: StepLedgerFacts {
             first_pending,
-            run_through: declarations.run_through.map(|n| n as usize),
+            run_through,
             run_complete: declarations.run_complete,
-            step_just_done: last_done_count.is_some_and(|previous| done_count > previous),
+            step_just_done: memory
+                .last_done_count
+                .is_some_and(|previous| done_count > previous),
         },
         session_live: session.live,
         session_idle: session.idle,
@@ -451,6 +584,10 @@ fn read(
         stage_session_current,
         context_fraction,
         rotate_at: config.rotate_at(),
+        compact_at: config.compact_at(),
+        stage_continues,
+        compacted_since_below: memory.compacted_since_below,
+        compact_turn_just_ended: memory.compact_turn_just_ended,
     };
 
     // Where devise writes: the dash's own `plan.md`, repo-relative, which is
@@ -466,6 +603,7 @@ fn read(
         devise_target,
         cited_paths,
         commits_since,
+        turns_ended: session.turns_ended,
         config,
     })
 }
@@ -510,6 +648,108 @@ fn opening_prompt(reading: &ArcReading, rotation: &Rotation) -> Option<String> {
         &reading.commits_since,
         resume,
     ))
+}
+
+/// The origin a wheel-sent prompt's notice row is attributed to.
+///
+/// The deck maps it to the Wheel participant's own label, which is what makes
+/// a turn Tug started itself legible as Tug's rather than the user's.
+const WHEEL_NOTICE_ORIGIN: &str = "wheel";
+
+/// Send a prompt to the stage's own seated session, between turns.
+///
+/// Two frames in one order: the opener on CODE_OUTPUT, then the submission
+/// through the dispatcher. Journaling is not rendering — the dispatcher's
+/// intercept makes the turn real to the server and to a later reload, but the
+/// live user row comes from the composer echoing its own submission, and the
+/// wheel has no composer. Without the opener the stage would start working
+/// with no visible cause, which is the unannounced server turn the doctrine
+/// forbids.
+async fn deliver_prompt(
+    ctx: &ArcContext,
+    state: &Arc<Mutex<HashMap<String, ArcState>>>,
+    arc: &BoundArc,
+    key: &str,
+    reading: &ArcReading,
+    kind: &PromptKind,
+    why: &PromptWhy,
+) {
+    // The same guard `rotate` takes, for the same reason: a tick that raced
+    // another one decided over facts that may already have moved.
+    let project = arc.project.clone();
+    let dash = arc.dash.clone();
+    let fresh = tokio::task::spawn_blocking(move || read_arc(&project, &dash))
+        .await
+        .ok()
+        .flatten();
+    if fresh.as_ref().map(|r| r.stages.len()) != Some(reading.record.stages.len()) {
+        return;
+    }
+
+    let text = match kind {
+        PromptKind::Compact => "/compact".to_string(),
+        PromptKind::Continue { steps } => {
+            let range = step_range(steps.0, steps.1);
+            let Some(ask) = wheel::prompt::stage_ask(
+                ArcStage::Implement.as_str(),
+                reading.record.document.as_deref(),
+                &reading.dash,
+                Some(&range),
+            ) else {
+                return;
+            };
+            // No clauses: the session already holds its own context, and the
+            // opening prompt's start-there and what-changed clauses are for a
+            // session that does not.
+            wheel::prompt::compose(&ask, &[], &[], None)
+        }
+    };
+
+    let session = arc.session.as_str().to_string();
+    ctx.supervisor.code_output.publish_tagged(Frame::new(
+        FeedId::CODE_OUTPUT,
+        super::base_motion::notice_payload(&session, WHEEL_NOTICE_ORIGIN, &text),
+    ));
+    ctx.supervisor
+        .dispatch_one(Frame::new(
+            FeedId::CODE_INPUT,
+            super::base_motion::user_message_payload(&session, &text),
+        ))
+        .await;
+
+    if let PromptWhy::Compact {
+        fraction,
+        compact_at,
+    } = why
+    {
+        let note = format!("{fraction:.2} > {compact_at:.2}");
+        let (project, dash) = (arc.project.clone(), arc.dash.clone());
+        let arc_note = format!("compacted at {note}");
+        let _ = tokio::task::spawn_blocking(move || {
+            let _ = append_dash_log(&project, &dash, "compact", &note);
+            append_arc_note(&project, &dash, &arc_note)
+        })
+        .await;
+
+        let mut map = state.lock().await;
+        let entry = map.entry(key.to_string()).or_default();
+        entry.compacted_since_below = true;
+        entry.pending = Some(PendingPrompt {
+            kind: PromptKind::Compact,
+            turns_ended_at: reading.turns_ended,
+        });
+    }
+
+    info!(
+        target: "dev::session-lifecycle",
+        event = "arc.prompt",
+        dash = %arc.dash,
+        kind = %describe_action(Some(&ArcAction::Prompt {
+            kind: kind.clone(),
+            why: why.clone(),
+        })),
+        "arc prompted the seated session",
+    );
 }
 
 async fn rotate(
@@ -587,9 +827,17 @@ async fn rotate(
         let mut map = state.lock().await;
         let entry = map.entry(key.to_string()).or_default();
         entry.in_flight_at = outcome.is_ok().then_some(dispatched_at);
-        // The rotation replaces the stage, so the next tick's "a step just
-        // went done" comparison starts fresh against the new stage's plan.
-        entry.last_done_count = None;
+        // Seed the comparison rather than clearing it. With `None` the first
+        // idle tick after a rotation can report no step boundary whatever the
+        // plan says — and an implement stage's first idle tick *is* a turn end
+        // at a boundary, so the one moment that should act never could. The
+        // count at rotation is the plan's count when the stage was seated,
+        // which is exactly the baseline "a step went done since this stage
+        // started" needs.
+        entry.last_done_count = Some(reading.done_count);
+        // A fresh session has compacted nothing and is owed no turn.
+        entry.compacted_since_below = false;
+        entry.pending = None;
     }
 
     match outcome {
@@ -914,6 +1162,7 @@ Some context.
             idle,
             // The seated session has run; the never-run case builds its own.
             turn_ended: true,
+            turns_ended: 1,
             api_error: false,
             turn_cancelled: false,
             // A seated stage is the ordinary case; the taken-card tests build
@@ -941,7 +1190,13 @@ Some context.
         project_with_document(root, ".tug/dashes/demo/brief.md");
         tugdash_core::arc::append_arc_start(root, "demo", ".tug/dashes/demo/brief.md").unwrap();
 
-        let reading = read(root, "demo", &snapshot(true, true, None), None).unwrap();
+        let reading = read(
+            root,
+            "demo",
+            &snapshot(true, true, None),
+            TickMemory::default(),
+        )
+        .unwrap();
         assert!(reading.facts.document_exists);
         assert!(!reading.facts.input_is_plan);
         assert_eq!(
@@ -962,7 +1217,13 @@ Some context.
         tugdash_core::arc::append_arc_start(root, "demo", ".tug/dashes/demo/brief.md").unwrap();
         tugdash_core::arc::append_arc_stage(root, "demo", ArcStage::Devise, "gone", None).unwrap();
 
-        let reading = read(root, "demo", &snapshot(true, true, Some("fresh")), None).unwrap();
+        let reading = read(
+            root,
+            "demo",
+            &snapshot(true, true, Some("fresh")),
+            TickMemory::default(),
+        )
+        .unwrap();
         assert!(!reading.facts.stage_session_current);
         assert_eq!(
             arc_action(&reading.record, &reading.facts),
@@ -982,7 +1243,13 @@ Some context.
         tugdash_core::arc::append_arc_start(root, "demo", ".tug/dashes/demo/brief.md").unwrap();
         tugdash_core::arc::append_arc_stage(root, "demo", ArcStage::Devise, "live", None).unwrap();
 
-        let reading = read(root, "demo", &snapshot(true, true, Some("live")), None).unwrap();
+        let reading = read(
+            root,
+            "demo",
+            &snapshot(true, true, Some("live")),
+            TickMemory::default(),
+        )
+        .unwrap();
         assert!(reading.facts.stage_session_current);
         // No plan on disk, so the devise stage stops on lint rather than
         // re-rotating — which is the point: the *stage* arm decided, not the
@@ -1010,7 +1277,7 @@ Some context.
         // stage has not run and nothing may be decided about its documents.
         let mut session = snapshot(true, true, Some("live"));
         session.turn_ended = false;
-        let reading = read(root, "demo", &session, None).unwrap();
+        let reading = read(root, "demo", &session, TickMemory::default()).unwrap();
         assert!(reading.facts.stage_session_current);
         assert!(!reading.facts.stage_turn_ended);
         assert_eq!(arc_action(&reading.record, &reading.facts), None);
@@ -1046,7 +1313,13 @@ Some context.
         std::fs::write(root.join(".tug/dashes/demo/plan.md"), LINTING_PLAN).unwrap();
         tugdash_core::arc::append_arc_start(root, "demo", ".tug/dashes/demo/plan.md").unwrap();
 
-        let reading = read(root, "demo", &snapshot(true, true, None), None).unwrap();
+        let reading = read(
+            root,
+            "demo",
+            &snapshot(true, true, None),
+            TickMemory::default(),
+        )
+        .unwrap();
         assert!(reading.facts.input_is_plan);
         // The document is the plan, and every stage after devise names the
         // dash rather than a path.
@@ -1078,7 +1351,13 @@ Some context.
         tugdash_core::arc::append_arc_start(root, "demo", ".tug/dashes/demo/brief.md").unwrap();
         tugdash_core::arc::append_arc_stage(root, "demo", ArcStage::Review, "s", None).unwrap();
 
-        let reading = read(root, "demo", &snapshot(false, true, Some("s")), None).unwrap();
+        let reading = read(
+            root,
+            "demo",
+            &snapshot(false, true, Some("s")),
+            TickMemory::default(),
+        )
+        .unwrap();
         assert_eq!(
             arc_action(&reading.record, &reading.facts),
             Some(ArcAction::Stop {
@@ -1096,7 +1375,13 @@ Some context.
         tugdash_core::arc::append_arc_start(root, "demo", ".tug/dashes/demo/brief.md").unwrap();
         tugdash_core::arc::append_arc_stage(root, "demo", ArcStage::Devise, "s", None).unwrap();
 
-        let reading = read(root, "demo", &snapshot(true, false, Some("s")), None).unwrap();
+        let reading = read(
+            root,
+            "demo",
+            &snapshot(true, false, Some("s")),
+            TickMemory::default(),
+        )
+        .unwrap();
         assert_eq!(arc_action(&reading.record, &reading.facts), None);
     }
 
@@ -1110,7 +1395,13 @@ Some context.
         tugdash_core::arc::append_arc_stop(root, "demo", ArcStage::Devise, ArcStopReason::Lint)
             .unwrap();
 
-        let reading = read(root, "demo", &snapshot(true, true, Some("s")), None).unwrap();
+        let reading = read(
+            root,
+            "demo",
+            &snapshot(true, true, Some("s")),
+            TickMemory::default(),
+        )
+        .unwrap();
         assert_eq!(arc_action(&reading.record, &reading.facts), None);
     }
 
@@ -1121,7 +1412,13 @@ Some context.
         project_with_document(root, ".tug/dashes/demo/brief.md");
         tugdash_core::arc::append_arc_start(root, "demo", ".tug/dashes/demo/brief.md").unwrap();
 
-        let reading = read(root, "demo", &snapshot(true, true, None), None).unwrap();
+        let reading = read(
+            root,
+            "demo",
+            &snapshot(true, true, None),
+            TickMemory::default(),
+        )
+        .unwrap();
         let prompt = opening_prompt(
             &reading,
             &Rotation {
@@ -1147,11 +1444,15 @@ Some context.
         );
         assert_eq!(
             wheel::prompt::stage_ask("implement", None, "foo", Some("2-4")).as_deref(),
-            Some("/tugplug:dash-implement foo Steps 2-4")
+            Some(
+                "/tugplug:dash-implement foo Steps 2-4 — under this arc, close one step and end your turn; the arc prompts you with the next"
+            )
         );
         assert_eq!(
             wheel::prompt::stage_ask("implement", None, "foo", None).as_deref(),
-            Some("/tugplug:dash-implement foo")
+            Some(
+                "/tugplug:dash-implement foo — under this arc, close one step and end your turn; the arc prompts you with the next"
+            )
         );
     }
 
@@ -1206,7 +1507,13 @@ Some context.
         std::fs::write(root.join("src/a.rs"), "fn a() { todo!() }\n").unwrap();
         commit("change the cited file");
 
-        let reading = read(root, "demo", &snapshot(true, true, None), None).unwrap();
+        let reading = read(
+            root,
+            "demo",
+            &snapshot(true, true, None),
+            TickMemory::default(),
+        )
+        .unwrap();
         assert_eq!(
             reading.commits_since.len(),
             1,
@@ -1224,7 +1531,13 @@ Some context.
             .unwrap()
             .set_modified(SystemTime::now() + Duration::from_secs(2))
             .unwrap();
-        let reading = read(root, "demo", &snapshot(true, true, None), None).unwrap();
+        let reading = read(
+            root,
+            "demo",
+            &snapshot(true, true, None),
+            TickMemory::default(),
+        )
+        .unwrap();
         assert!(
             reading.commits_since.is_empty(),
             "{:?}",
@@ -1251,7 +1564,13 @@ Some context.
         .unwrap();
         tugdash_core::arc::append_arc_start(root, "demo", ".tug/dashes/demo/brief.md").unwrap();
 
-        let reading = read(root, "demo", &snapshot(true, true, None), None).unwrap();
+        let reading = read(
+            root,
+            "demo",
+            &snapshot(true, true, None),
+            TickMemory::default(),
+        )
+        .unwrap();
         assert_eq!(
             reading.cited_paths,
             vec!["src/a.rs".to_string(), "src/b.ts".to_string()]
@@ -1283,7 +1602,13 @@ Some context.
         tugdash_core::arc::append_arc_start(root, "demo", ".tug/dashes/demo/brief.md").unwrap();
         std::fs::write(root.join(".tug/dashes/demo/plan.md"), LINTING_PLAN).unwrap();
 
-        let reading = read(root, "demo", &snapshot(true, true, None), None).unwrap();
+        let reading = read(
+            root,
+            "demo",
+            &snapshot(true, true, None),
+            TickMemory::default(),
+        )
+        .unwrap();
         let prompt = opening_prompt(
             &reading,
             &Rotation {
@@ -1293,7 +1618,10 @@ Some context.
             },
         )
         .unwrap();
-        assert_eq!(prompt, "/tugplug:dash-implement demo Steps 4-9");
+        assert_eq!(
+            prompt,
+            "/tugplug:dash-implement demo Steps 4-9 — under this arc, close one step and end your turn; the arc prompts you with the next"
+        );
     }
 
     #[test]
@@ -1304,7 +1632,13 @@ Some context.
         tugdash_core::arc::append_arc_start(root, "demo", ".tug/dashes/demo/brief.md").unwrap();
         std::fs::write(root.join(".tug/dashes/demo/plan.md"), LINTING_PLAN).unwrap();
 
-        let reading = read(root, "demo", &snapshot(true, true, None), None).unwrap();
+        let reading = read(
+            root,
+            "demo",
+            &snapshot(true, true, None),
+            TickMemory::default(),
+        )
+        .unwrap();
         let prompt = opening_prompt(
             &reading,
             &Rotation {
@@ -1314,7 +1648,10 @@ Some context.
             },
         )
         .unwrap();
-        assert_eq!(prompt, "/tugplug:dash-implement demo");
+        assert_eq!(
+            prompt,
+            "/tugplug:dash-implement demo — under this arc, close one step and end your turn; the arc prompts you with the next"
+        );
     }
 
     /// [`LINTING_PLAN`] with its two ledger rows driven to `first` / `second`.
@@ -1344,7 +1681,13 @@ Some context.
             plan_with_statuses("withdrawn", "pending"),
         )
         .unwrap();
-        let reading = read(root, "demo", &snapshot(true, true, None), None).unwrap();
+        let reading = read(
+            root,
+            "demo",
+            &snapshot(true, true, None),
+            TickMemory::default(),
+        )
+        .unwrap();
         assert_eq!(reading.done_count, 1, "the withdrawn row is closed");
         assert_eq!(
             reading.facts.ledger.first_pending,
@@ -1357,7 +1700,13 @@ Some context.
             plan_with_statuses("done", "withdrawn"),
         )
         .unwrap();
-        let reading = read(root, "demo", &snapshot(true, true, None), None).unwrap();
+        let reading = read(
+            root,
+            "demo",
+            &snapshot(true, true, None),
+            TickMemory::default(),
+        )
+        .unwrap();
         assert_eq!(reading.done_count, 2);
         assert_eq!(
             reading.facts.ledger.first_pending, None,
@@ -2110,6 +2459,393 @@ Some context.
         assert_eq!(
             format_arc_receipt(&record),
             "arc complete · foo\ndevise · account default · claude-a"
+        );
+    }
+
+    /// A project with a seated implement stage: a reviewed two-step plan, an
+    /// `arc-stage implement` line naming the harness's session, and a declared
+    /// run through step 2.
+    fn implementing_project(root: &Path, first: &str, second: &str) {
+        project_with_document(root, ".tug/dashes/demo/brief.md");
+        std::fs::write(
+            root.join(".tugtool/config.toml"),
+            "[tugtool.dash]\nimplement_compact_at = 0.6\nimplement_rotate_at = 0.8\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join(".tug/dashes/demo/plan.md"),
+            plan_with_statuses(first, second),
+        )
+        .unwrap();
+        tugdash_core::arc::append_arc_start(root, "demo", ".tug/dashes/demo/brief.md").unwrap();
+        tugdash_core::arc::append_arc_plan(root, "demo", ".tug/dashes/demo/plan.md").unwrap();
+        tugdash_core::dash::append_dash_log(root, "demo", "run-through", "2").unwrap();
+        tugdash_core::arc::append_arc_stage(root, "demo", ArcStage::Implement, "claude-1", None)
+            .unwrap();
+    }
+
+    /// Give the session a measured window: the used half on the entry, the cap
+    /// on the persisted breakdown row, which is where each half actually
+    /// lives.
+    async fn set_window(
+        ctx: &ArcContext,
+        entry: &Arc<Mutex<super::super::agent_supervisor::LedgerEntry>>,
+        used: i64,
+    ) {
+        entry.lock().await.context_window_tokens = Some(used);
+        ctx.session_ledger
+            .record_context_breakdown("claude-1", br#"{"context_max":1000000,"categories":[]}"#, 0)
+            .unwrap();
+    }
+
+    /// The queue's text submissions, in order.
+    async fn submitted(
+        entry: &Arc<Mutex<super::super::agent_supervisor::LedgerEntry>>,
+    ) -> Vec<String> {
+        entry
+            .lock()
+            .await
+            .queue
+            .iter()
+            .filter_map(|frame| {
+                let value: serde_json::Value = serde_json::from_slice(&frame.payload).ok()?;
+                (value.get("type")?.as_str()? == "user_message").then(|| {
+                    value["content"][0]["text"]
+                        .as_str()
+                        .unwrap_or_default()
+                        .to_string()
+                })
+            })
+            .collect()
+    }
+
+    /// The arc's own key for the harness's project and dash, which is what the
+    /// per-arc memory is filed under.
+    fn demo_key(root: &Path) -> String {
+        format!("{}\u{0}demo", root.display())
+    }
+
+    /// The regression [P04] fixes: with `last_done_count` cleared at rotation,
+    /// an implement stage's first idle tick — which *is* a turn end at a step
+    /// boundary — could never report one, so the arc sat still forever.
+    #[tokio::test]
+    async fn the_first_idle_tick_after_a_rotation_sees_a_step_just_done() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        implementing_project(root, "done", "pending");
+
+        let (ctx, entry, _register_rx) = harness(root).await;
+        set_window(&ctx, &entry, 200_000).await;
+        // What `rotate` now writes: the plan's count when the stage was seated.
+        let state = Arc::new(Mutex::new(HashMap::new()));
+        state.lock().await.insert(
+            demo_key(root),
+            ArcState {
+                last_done_count: Some(0),
+                ..Default::default()
+            },
+        );
+
+        sweep(&ctx, &state).await;
+
+        assert_eq!(
+            submitted(&entry).await,
+            vec![
+                "/tugplug:dash-implement demo Steps 2-2 — under this arc, close one step and end your turn; the arc prompts you with the next"
+                    .to_string()
+            ],
+            "the boundary is seen and the stage is told to walk on"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_prompt_is_an_opener_and_a_submission_in_that_order() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        implementing_project(root, "done", "pending");
+
+        let (ctx, entry, _register_rx) = harness(root).await;
+        // 0.70 of the window: above the declared 0.6, below the declared 0.8.
+        set_window(&ctx, &entry, 700_000).await;
+        let mut opener = ctx.supervisor.code_output.subscribe();
+        let state = Arc::new(Mutex::new(HashMap::new()));
+        state.lock().await.insert(
+            demo_key(root),
+            ArcState {
+                last_done_count: Some(0),
+                ..Default::default()
+            },
+        );
+
+        sweep(&ctx, &state).await;
+
+        let frame = opener.try_recv().expect("the opener is published first");
+        let notice: serde_json::Value = serde_json::from_slice(&frame.payload).unwrap();
+        assert_eq!(notice["type"], "tug_notice");
+        assert_eq!(notice["origin"], "wheel");
+        assert_eq!(notice["text"], "/compact");
+        assert_eq!(submitted(&entry).await, vec!["/compact".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn a_compaction_writes_the_dash_log_line_and_the_arc_note() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        implementing_project(root, "done", "pending");
+
+        let (ctx, entry, _register_rx) = harness(root).await;
+        set_window(&ctx, &entry, 700_000).await;
+        let state = Arc::new(Mutex::new(HashMap::new()));
+        state.lock().await.insert(
+            demo_key(root),
+            ArcState {
+                last_done_count: Some(0),
+                ..Default::default()
+            },
+        );
+
+        sweep(&ctx, &state).await;
+
+        let record = read_arc(root, "demo").unwrap();
+        assert_eq!(
+            record.notes.last().map(String::as_str),
+            Some("compacted at 0.70 > 0.60")
+        );
+        // The new marker moves no declaration: a reader that dates a dash from
+        // every line is untroubled, and `read_arc` never learns the word.
+        let declarations = tugdash_core::dash::read_declarations(root, "demo");
+        assert_eq!(declarations.run_through, Some(2));
+        assert!(!declarations.run_complete);
+
+        let log = std::fs::read_to_string(
+            tugutil_core::paths::project_state_dir(root).join("dash-log.md"),
+        )
+        .unwrap();
+        let compact = log
+            .lines()
+            .filter_map(tugdash_core::dash::split_log_line)
+            .find(|(_, _, marker, _)| *marker == "compact")
+            .expect("a compact line");
+        assert_eq!(compact.1, "demo");
+        assert_eq!(compact.3, "0.70 > 0.60");
+    }
+
+    #[tokio::test]
+    async fn two_sweeps_on_one_idle_reading_prompt_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        implementing_project(root, "done", "pending");
+
+        let (ctx, entry, _register_rx) = harness(root).await;
+        set_window(&ctx, &entry, 700_000).await;
+        let state = Arc::new(Mutex::new(HashMap::new()));
+        state.lock().await.insert(
+            demo_key(root),
+            ArcState {
+                last_done_count: Some(0),
+                ..Default::default()
+            },
+        );
+
+        sweep(&ctx, &state).await;
+        // The prompt opened a turn, so the next tick would read mid-turn on
+        // its own. End it, leaving the moved done count as the only thing
+        // that can stop a second prompt.
+        entry.lock().await.turn_active = false;
+        sweep(&ctx, &state).await;
+
+        assert_eq!(
+            submitted(&entry).await,
+            vec!["/compact".to_string()],
+            "the deciding tick moved the done count, so the second reads no boundary"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_compact_turn_that_ended_continues_or_rotates_by_the_new_reading() {
+        for (used, expected) in [(200_000_i64, "continue"), (850_000, "rotate")] {
+            let dir = tempfile::tempdir().unwrap();
+            let root = dir.path();
+            implementing_project(root, "done", "pending");
+
+            let (ctx, entry, _register_rx) = harness(root).await;
+            set_window(&ctx, &entry, used).await;
+            // The compact turn has ended: the count has moved past the mark.
+            entry.lock().await.turns_ended = 2;
+            let state = Arc::new(Mutex::new(HashMap::new()));
+            state.lock().await.insert(
+                demo_key(root),
+                ArcState {
+                    last_done_count: Some(1),
+                    compacted_since_below: true,
+                    pending: Some(PendingPrompt {
+                        kind: PromptKind::Compact,
+                        turns_ended_at: 1,
+                    }),
+                    ..Default::default()
+                },
+            );
+
+            sweep(&ctx, &state).await;
+
+            match expected {
+                "continue" => assert_eq!(
+                    submitted(&entry).await,
+                    vec![
+                "/tugplug:dash-implement demo Steps 2-2 — under this arc, close one step and end your turn; the arc prompts you with the next"
+                    .to_string()
+            ],
+                    "a window the compaction brought down keeps its session"
+                ),
+                _ => {
+                    assert!(
+                        !submitted(&entry)
+                            .await
+                            .contains(&"/compact".to_string()),
+                        "the window is already compacted; the answer is a fresh session"
+                    );
+                    assert!(
+                        state.lock().await[&demo_key(root)].in_flight_at.is_some(),
+                        "the rotation was dispatched"
+                    );
+                }
+            }
+        }
+    }
+
+    /// A compaction that did not happen is never remembered as one. The
+    /// fraction only grows, so a latched flag would compact exactly once,
+    /// having compacted not at all — and fall through to the rotate threshold
+    /// forever after.
+    #[tokio::test]
+    async fn a_cancelled_compact_turn_lets_the_next_boundary_compact_again() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        implementing_project(root, "done", "pending");
+
+        let (ctx, entry, _register_rx) = harness(root).await;
+        set_window(&ctx, &entry, 700_000).await;
+        {
+            let mut entry = entry.lock().await;
+            entry.turns_ended = 2;
+            entry.turn_cancelled = true;
+        }
+        let state = Arc::new(Mutex::new(HashMap::new()));
+        state.lock().await.insert(
+            demo_key(root),
+            ArcState {
+                last_done_count: Some(1),
+                compacted_since_below: true,
+                pending: Some(PendingPrompt {
+                    kind: PromptKind::Compact,
+                    turns_ended_at: 1,
+                }),
+                ..Default::default()
+            },
+        );
+
+        sweep(&ctx, &state).await;
+        assert!(
+            !state.lock().await[&demo_key(root)].compacted_since_below,
+            "the cancelled compaction is forgotten"
+        );
+
+        // The next step boundary compacts again rather than rotating.
+        {
+            // The continue the cancel's own tick sent opened a turn; the next
+            // boundary is that turn's end.
+            let mut entry = entry.lock().await;
+            entry.turn_cancelled = false;
+            entry.turn_active = false;
+            entry.turns_ended = 3;
+        }
+        {
+            let mut map = state.lock().await;
+            let entry = map.get_mut(&demo_key(root)).unwrap();
+            entry.last_done_count = Some(0);
+        }
+        sweep(&ctx, &state).await;
+        assert!(
+            submitted(&entry).await.contains(&"/compact".to_string()),
+            "{:?}",
+            submitted(&entry).await
+        );
+    }
+
+    /// Every tick says what it read and what it decided — including the ticks
+    /// that decided nothing. The eleven-arc silence that produced this work
+    /// was diagnosable only by reading, because no tick had ever said a word.
+    #[tokio::test]
+    async fn every_tick_logs_its_facts_and_its_decision() {
+        use std::sync::{Arc as StdArc, Mutex as StdMutex};
+        use tracing_subscriber::fmt::MakeWriter;
+
+        #[derive(Clone)]
+        struct Buffer(StdArc<StdMutex<Vec<u8>>>);
+        impl std::io::Write for Buffer {
+            fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().unwrap().extend_from_slice(buf);
+                Ok(buf.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        impl<'a> MakeWriter<'a> for Buffer {
+            type Writer = Buffer;
+            fn make_writer(&'a self) -> Self::Writer {
+                self.clone()
+            }
+        }
+
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        implementing_project(root, "done", "pending");
+
+        let (ctx, entry, _register_rx) = harness(root).await;
+        set_window(&ctx, &entry, 700_000).await;
+        let state = Arc::new(Mutex::new(HashMap::new()));
+        state.lock().await.insert(
+            demo_key(root),
+            ArcState {
+                last_done_count: Some(0),
+                ..Default::default()
+            },
+        );
+
+        let sink = Buffer(StdArc::new(StdMutex::new(Vec::new())));
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(sink.clone())
+            .with_ansi(false)
+            .without_time()
+            .finish();
+        let captured = {
+            let _guard = tracing::subscriber::set_default(subscriber);
+            // Mid-turn: the tick decides nothing, and says so.
+            entry.lock().await.turn_active = true;
+            sweep(&ctx, &state).await;
+            entry.lock().await.turn_active = false;
+            sweep(&ctx, &state).await;
+            String::from_utf8(sink.0.lock().unwrap().clone()).unwrap()
+        };
+
+        let ticks: Vec<&str> = captured
+            .lines()
+            .filter(|line| line.contains("event=\"arc.tick\""))
+            .collect();
+        assert_eq!(ticks.len(), 2, "one line per tick, got {ticks:#?}");
+        assert!(
+            ticks[0].contains("action=none") && ticks[0].contains("idle=false"),
+            "{ticks:#?}"
+        );
+        assert!(
+            ticks[1].contains("action=prompt:compact")
+                && ticks[1].contains("fraction=\"0.700\"")
+                && ticks[1].contains("done_count=1")
+                && ticks[1].contains("last_done_count=Some(0)")
+                && ticks[1].contains("step_just_done=true"),
+            "{}",
+            ticks[1]
         );
     }
 }

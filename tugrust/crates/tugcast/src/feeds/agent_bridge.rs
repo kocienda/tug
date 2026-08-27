@@ -1631,6 +1631,13 @@ pub async fn relay_session_io(
                                         // stage stops the moment it ends its
                                         // first turn.
                                         entry.turn_cancelled = false;
+                                        // The window belongs to the claude
+                                        // that filled it. Carried across, a
+                                        // rotation's fresh session would be
+                                        // judged on the context it was
+                                        // spawned to escape — and compacted
+                                        // or rotated again on its first step.
+                                        entry.context_window_tokens = None;
                                     }
                                     entry.claude_session_id = Some(id.clone());
                                 }
@@ -3719,6 +3726,9 @@ mod tests {
             let mut entry = ledger_entry.lock().await;
             entry.card_id = Some("card-1".to_string());
             entry.line_id = line.map(str::to_owned);
+            // A session that has been running has a window; the reset test is
+            // the one that cares which claude it belongs to.
+            entry.context_window_tokens = Some(700_000);
         }
 
         let (_input_tx, mut input_rx) = mpsc::channel::<Frame>(16);
@@ -3811,6 +3821,31 @@ mod tests {
         assert_eq!(
             sessions.stage_provenance("stage-1"),
             Some(("devise".to_string(), None))
+        );
+    }
+
+    /// A rotation seats a fresh claude, and the window belongs to the claude
+    /// that filled it. Carried across, the fresh session would be judged on
+    /// the context it was spawned to escape.
+    #[tokio::test]
+    async fn a_session_init_naming_a_fresh_claude_clears_the_window() {
+        let sessions = Arc::new(crate::session_ledger::SessionLedger::open_in_memory().unwrap());
+        sessions
+            .record_spawn("root", "ws-test", "/proj", "card-1", 1, "line-1", None)
+            .expect("seed the root");
+
+        let stage = segment_line("rotation", "root", "stage-1", r#","stage":"implement""#);
+        let (entry, _pushed) = drive_segments(
+            sessions.clone(),
+            "root",
+            Some("line-1"),
+            &[&stage, &init_line("stage-1")],
+        )
+        .await;
+        assert_eq!(
+            entry.lock().await.context_window_tokens,
+            None,
+            "a fresh claude starts with no reading"
         );
     }
 

@@ -88,6 +88,10 @@ pub enum ArcStopReason {
     NoStdin,
     StdinClosed,
     ArcRunning,
+    /// A `/compact` turn the arc sent ended in an API error, so the context
+    /// was never reduced. Distinct from [`ArcStopReason::ApiError`] because
+    /// the fix differs: the compaction is retried, not the work.
+    CompactFailed,
 }
 
 impl ArcStopReason {
@@ -114,6 +118,7 @@ impl ArcStopReason {
         ArcStopReason::NoStdin,
         ArcStopReason::StdinClosed,
         ArcStopReason::ArcRunning,
+        ArcStopReason::CompactFailed,
     ];
 
     /// The word written into `arc-stop`'s note.
@@ -138,6 +143,7 @@ impl ArcStopReason {
             ArcStopReason::NoStdin => "no stdin",
             ArcStopReason::StdinClosed => "stdin closed",
             ArcStopReason::ArcRunning => "arc running",
+            ArcStopReason::CompactFailed => "compact failed",
         }
     }
 
@@ -147,9 +153,7 @@ impl ArcStopReason {
         match self {
             ArcStopReason::Lint => "the plan does not lint",
             ArcStopReason::ApiError => "its turn ended in an API error, not a response",
-            ArcStopReason::ReviewDidNotStamp => {
-                "two review rounds ended without stamping the plan"
-            }
+            ArcStopReason::ReviewDidNotStamp => "two review rounds ended without stamping the plan",
             ArcStopReason::DocumentMissing => "the document it opened on is gone",
             ArcStopReason::PlanMissing => "the plan is gone",
             ArcStopReason::SessionGone => "its session ended",
@@ -166,6 +170,9 @@ impl ArcStopReason {
             ArcStopReason::NoStdin => "the card's session had no input channel",
             ArcStopReason::StdinClosed => "the card's input channel closed",
             ArcStopReason::ArcRunning => "the card was already running another score",
+            ArcStopReason::CompactFailed => {
+                "its /compact turn ended in an API error, so the context was never reduced"
+            }
         }
     }
 
@@ -355,7 +362,10 @@ pub fn append_arc_stage(
         "{} {} {}",
         stage.as_str(),
         session_id.trim(),
-        model.map(str::trim).filter(|m| !m.is_empty()).unwrap_or("-")
+        model
+            .map(str::trim)
+            .filter(|m| !m.is_empty())
+            .unwrap_or("-")
     );
     append_dash_log(repo_root, dash, "arc-stage", &note)
 }
@@ -455,9 +465,24 @@ mod tests {
         [
             log_line_at("2026-08-24T10:00:00Z", "d", "arc-start", "dash/idea.md"),
             log_line_at("2026-08-24T10:01:00Z", "d", "arc-plan", "dash/d.md"),
-            log_line_at("2026-08-24T10:02:00Z", "d", "arc-stage", "devise sess-1 opus"),
-            log_line_at("2026-08-24T11:00:00Z", "d", "arc-stage", "review sess-2 fable"),
-            log_line_at("2026-08-24T12:00:00Z", "d", "arc-stage", "implement sess-3 -"),
+            log_line_at(
+                "2026-08-24T10:02:00Z",
+                "d",
+                "arc-stage",
+                "devise sess-1 opus",
+            ),
+            log_line_at(
+                "2026-08-24T11:00:00Z",
+                "d",
+                "arc-stage",
+                "review sess-2 fable",
+            ),
+            log_line_at(
+                "2026-08-24T12:00:00Z",
+                "d",
+                "arc-stage",
+                "implement sess-3 -",
+            ),
             log_line_at("2026-08-24T13:00:00Z", "d", "arc-done", ""),
         ]
         .concat()
@@ -544,7 +569,12 @@ mod tests {
         let stopped = format!(
             "{}{}",
             log_line_at("2026-08-24T10:00:00Z", "d", "arc-start", "dash/idea.md"),
-            log_line_at("2026-08-24T10:05:00Z", "d", "arc-stop", "review lint failed")
+            log_line_at(
+                "2026-08-24T10:05:00Z",
+                "d",
+                "arc-stop",
+                "review lint failed"
+            )
         );
         let fixture = log_repo(&stopped);
         let arc = read_arc(fixture.root(), "d").expect("arc");
@@ -556,7 +586,12 @@ mod tests {
         let resumed = format!(
             "{}{}",
             stopped,
-            log_line_at("2026-08-24T10:10:00Z", "d", "arc-stage", "review sess-9 opus")
+            log_line_at(
+                "2026-08-24T10:10:00Z",
+                "d",
+                "arc-stage",
+                "review sess-9 opus"
+            )
         );
         let fixture = log_repo(&resumed);
         let arc = read_arc(fixture.root(), "d").expect("arc");
@@ -607,7 +642,12 @@ mod tests {
         let bare = format!(
             "{}{}",
             log_line_at("2026-08-24T09:00:00Z", "d", "run-through", "3"),
-            log_line_at("2026-08-24T09:01:00Z", "d", "step-start", "1/3 Step 1: First")
+            log_line_at(
+                "2026-08-24T09:01:00Z",
+                "d",
+                "step-start",
+                "1/3 Step 1: First"
+            )
         );
         let with_arc = format!("{}{}", bare, full_arc_log());
 
@@ -642,7 +682,10 @@ mod tests {
         assert_eq!(read_arc(root, "d"), None);
         append_arc_start(root, "d", "dash/d-brief.md").unwrap();
         let fresh = read_arc(root, "d").unwrap();
-        assert!(fresh.stages.is_empty(), "the discarded arc's stages do not carry over");
+        assert!(
+            fresh.stages.is_empty(),
+            "the discarded arc's stages do not carry over"
+        );
     }
 
     #[test]
@@ -673,6 +716,22 @@ mod tests {
     }
 
     #[test]
+    fn a_two_word_reason_survives_the_stage_first_split() {
+        // `read_stop_line` splits on the first whitespace and keeps the rest
+        // verbatim, so a reason spelled in two words reads back whole — the
+        // way `api error` already does.
+        assert_eq!(
+            read_stop_line("implement compact failed"),
+            Some((ArcStage::Implement, "compact failed".to_string())),
+        );
+        assert_eq!(
+            ArcStopReason::CompactFailed.as_str(),
+            "compact failed",
+            "the log word is what a stop line carries",
+        );
+    }
+
+    #[test]
     fn the_append_helpers_round_trip_through_the_reader() {
         let fixture = log_repo("");
         let root = fixture.root();
@@ -681,7 +740,13 @@ mod tests {
         append_arc_stage(root, "d", ArcStage::Devise, "sess-1", Some("opus")).expect("devise");
         append_arc_stage(root, "d", ArcStage::Review, "sess-2", None).expect("review");
         append_arc_note(root, "d", "second review skipped").expect("note");
-        append_arc_stop(root, "d", ArcStage::Review, ArcStopReason::ReviewDidNotStamp).expect("stop");
+        append_arc_stop(
+            root,
+            "d",
+            ArcStage::Review,
+            ArcStopReason::ReviewDidNotStamp,
+        )
+        .expect("stop");
 
         let arc = read_arc(root, "d").expect("arc");
         assert_eq!(arc.document.as_deref(), Some("dash/idea.md"));

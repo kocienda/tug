@@ -1271,6 +1271,8 @@ pub struct DashArcState {
     pub stopped_stage: Option<String>,
     /// Whether the arc reached its terminal line.
     pub done: bool,
+    /// The arc's most recent note — what it last did, in its own words.
+    pub note: Option<String>,
 }
 
 /// Everything a display needs about one dash, composed from git in one place.
@@ -1517,6 +1519,7 @@ pub fn dash_detail_entries_in(repo_root: &Path) -> Vec<DashDetail> {
                 .map(|(stage, _)| stage.as_str().to_owned()),
             stopped: record.stopped.as_ref().map(|(_, reason)| reason.clone()),
             done: record.done,
+            note: record.notes.last().cloned(),
         });
         let run_span = crate::dash::run_fraction(&declarations);
         // The other reading of a join in flight, and deliberately the wide
@@ -5294,6 +5297,21 @@ Some context.
         let arc = entry.arc.as_ref().expect("the arc composes");
         assert_eq!(arc.stage.as_deref(), Some("review"));
         assert!(arc.stopped.is_none() && !arc.done);
+        assert!(
+            arc.note.is_none(),
+            "an arc that has said nothing carries no note"
+        );
+
+        // The latest note is what the placard shows — the newest, not the
+        // first, so a second act replaces what the first one said.
+        crate::arc::append_arc_note(&root, "arc-dash", "compacted at 0.73 > 0.60").unwrap();
+        crate::arc::append_arc_note(&root, "arc-dash", "compacted at 0.81 > 0.60").unwrap();
+        let noted = dash_detail_entries_in(&root);
+        let entry = noted.iter().find(|d| d.name == "arc-dash").unwrap();
+        assert_eq!(
+            entry.arc.as_ref().and_then(|a| a.note.as_deref()),
+            Some("compacted at 0.81 > 0.60")
+        );
 
         crate::arc::append_arc_stop(
             &root,

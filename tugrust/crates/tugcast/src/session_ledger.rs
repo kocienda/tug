@@ -4017,7 +4017,11 @@ impl SessionLedger {
     ) -> Result<Option<String>, LedgerError> {
         let mut conn = self.db.lock().expect("ledger mutex");
         let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-        let cached: Option<(Option<String>, Option<String>, String, i64, i64)> = tx
+        /// The `external_scan_cache` columns this query selects, in order:
+        /// line id, lineage ancestors, project dir, created-at, last-used-at.
+        type CachedColumns = (Option<String>, Option<String>, String, i64, i64);
+
+        let cached: Option<CachedColumns> = tx
             .query_row(
                 "SELECT line_id, lineage_ancestors, project_dir, created_at, last_used_at
                  FROM external_scan_cache WHERE session_id = ?1",
@@ -4110,6 +4114,10 @@ impl SessionLedger {
     /// The conflict path backfills the same fields without ever overwriting
     /// richer ledger values (`MAX` on turn_count, `COALESCE` keeps an existing
     /// prompt).
+    // The parameters are the row: a spawn writes seven columns, and grouping
+    // them into a struct would put a shape between every caller and the table
+    // it is describing.
+    #[allow(clippy::too_many_arguments)]
     pub fn record_spawn(
         &self,
         session_id: &str,
