@@ -214,6 +214,15 @@ export const TugColumnBadge = React.forwardRef<HTMLSpanElement, TugColumnBadgePr
  * occlude. The fills are the badge's own ground colour and exist only for that
  * occlusion where the surface hands in no fill of its own; where one does, a
  * slice is painted as the chip it stands beside.
+ *
+ * **The run is inset a unit from the box's top and bottom, where the split's
+ * bands are not.** The two glyphs share a box and are meant to read at one
+ * height, and drawn to the same extent they do not: a diamond comes to a point
+ * at each end, so its outermost pixels are a vertex rather than an edge, and
+ * the eye takes the tips as overshoot past the flat band the split ends on.
+ * The inset is the correction — the stack measures shorter and reads level,
+ * which is the only reading that matters, since nothing puts a ruler to a
+ * badge.
  */
 export function StackGlyph({
   lit,
@@ -223,8 +232,8 @@ export function StackGlyph({
 }): React.ReactElement {
   const slices: ReadonlyArray<{ key: TugColumnBadgeLit; dy: number }> = [
     { key: "bottom", dy: 11 },
-    { key: "middle", dy: 5.5 },
-    { key: "top", dy: 0 },
+    { key: "middle", dy: 6 },
+    { key: "top", dy: 1 },
   ];
 
   return (
@@ -240,7 +249,7 @@ export function StackGlyph({
           className="tug-column-badge-slice"
           data-region={key}
           data-lit={key === lit ? "true" : undefined}
-          points={`8,${dy} 15.5,${dy + 4.5} 8,${dy + 9} 0.5,${dy + 4.5}`}
+          points={`8,${dy} 15.5,${dy + 4} 8,${dy + 8} 0.5,${dy + 4}`}
         />
       ))}
     </svg>
