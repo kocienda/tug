@@ -527,6 +527,21 @@ mod tests {
     }
 
     #[test]
+    fn bridge_issued_model_envelope_opens_nothing() {
+        // `/model` travels as a `set_model` control_request; claude writes
+        // the envelope anyway, once per change and again per card mount.
+        // It is machinery, not a submission — only the real prompt after it
+        // opens a turn. Mirrors tugcode's `isBridgeIssuedCommandEnvelope`.
+        let jsonl = r#"
+{"type":"user","message":{"role":"user","content":"<command-name>/model</command-name>\n<command-message>model</command-message>\n<command-args>opus[1m]</command-args>"}}
+{"type":"user","message":{"role":"user","content":"<local-command-stdout>Set model to opus[1m]</local-command-stdout>"}}
+{"type":"user","permissionMode":"default","message":{"role":"user","content":"now do the thing"}}
+{"type":"assistant","message":{"id":"m1","role":"assistant","stop_reason":"end_turn","content":[{"type":"text","text":"done"}]}}
+"#;
+        assert_eq!(origins(jsonl), vec![TurnOrigin::User]);
+    }
+
+    #[test]
     fn compact_continuation_renders_assistant_origin() {
         // A /compact summary (skipped) followed by assistant continuation
         // content opens an assistant-originated turn.

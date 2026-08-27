@@ -18,13 +18,13 @@ mod lex;
 mod parse;
 mod resolve;
 
-pub use apply::{resolve_and_apply, FileOutcome};
+pub use apply::{FileOutcome, resolve_and_apply};
 pub use diff::unified_diff;
 pub use parse::{
-    parse, Addr, Block, Count, DeleteTarget, Hunk, Op, OpKind, Program, Range, RegexLit, Side, Text,
+    Addr, Block, Count, DeleteTarget, Hunk, Op, OpKind, Program, Range, RegexLit, Side, Text, parse,
 };
 pub use resolve::{
-    resolve, Edit, FileSource, OutcomeKind, ResolveErrors, ResolveFailure, ResolvedFile,
+    Edit, FileSource, OutcomeKind, ResolveErrors, ResolveFailure, ResolvedFile, resolve,
 };
 
 /// Where a program failed to parse: 1-based line and column, as an editor

@@ -1108,10 +1108,7 @@ fn rev_steer(stripped: &str, heredocs: &[Heredoc], base_dir: &Path) -> Option<St
                 _ => None,
             })
             .collect();
-        let head = words
-            .first()
-            .map(|w| basename(&w.text))
-            .unwrap_or_default();
+        let head = words.first().map(|w| basename(&w.text)).unwrap_or_default();
 
         // A body belongs to the segment that opened it, joined by its
         // delimiter word: `tokenize` collapses `<` and `<<` into one `Tok::In`,
@@ -1172,7 +1169,11 @@ fn rev_steer(stripped: &str, heredocs: &[Heredoc], base_dir: &Path) -> Option<St
         // the destination but says nothing true about where the content came
         // from.
         if watched || head == "head" {
-            temp_writes.extend(redirect_targets(&segment).into_iter().filter(|t| is_temp(t)));
+            temp_writes.extend(
+                redirect_targets(&segment)
+                    .into_iter()
+                    .filter(|t| is_temp(t)),
+            );
         }
         if head == "mv" {
             let operands: Vec<&str> = words
@@ -1248,8 +1249,7 @@ fn write_targets(program: &str, head: &str) -> Vec<Option<String>> {
             let line_before = &line_before[line_before.rfind('\n').map_or(0, |i| i + 1)..];
             // A method writes to its receiver; a function writes to its
             // first argument.
-            let method = call.starts_with('.')
-                || (start > 0 && text.as_bytes()[start - 1] == b'.');
+            let method = call.starts_with('.') || (start > 0 && text.as_bytes()[start - 1] == b'.');
             if method {
                 // `open(…).write(…)` is the open's write; that branch owns it.
                 if line_before.contains("open(") {
@@ -1274,7 +1274,10 @@ fn write_targets(program: &str, head: &str) -> Vec<Option<String>> {
             .into_iter()
             .skip(1)
             .any(|mode| mode.len() <= 3 && (mode.contains('w') || mode.contains('a')))
-            || args.contains("mode='w") || args.contains("mode=\"w") || args.contains("mode='a") || args.contains("mode=\"a");
+            || args.contains("mode='w")
+            || args.contains("mode=\"w")
+            || args.contains("mode='a")
+            || args.contains("mode=\"a");
         if writes {
             targets.push(leading_literal(args));
         }
@@ -1320,7 +1323,11 @@ fn leading_literal(after: &str) -> Option<String> {
 /// A path literal is repo-shaped when it is a literal (no expansion), resolves
 /// under the checkout, and is not somewhere the ledger has no business.
 fn is_repo_shaped(literal: &str, base_dir: &Path, root: &Path) -> bool {
-    if literal.is_empty() || literal.chars().any(|c| matches!(c, '$' | '`' | '*' | '?' | '~')) {
+    if literal.is_empty()
+        || literal
+            .chars()
+            .any(|c| matches!(c, '$' | '`' | '*' | '?' | '~'))
+    {
         return false;
     }
     if literal.contains(char::is_whitespace) {
@@ -1329,13 +1336,11 @@ fn is_repo_shaped(literal: &str, base_dir: &Path, root: &Path) -> bool {
     // Something a person would recognise as a path: a separator, or a name
     // with an extension. Otherwise every short string in a program resolves
     // under the checkout and means nothing.
-    let has_extension = literal
-        .rsplit_once('.')
-        .is_some_and(|(stem, ext)| {
-            !stem.is_empty()
-                && (1..=6).contains(&ext.len())
-                && ext.chars().all(|c| c.is_ascii_alphanumeric())
-        });
+    let has_extension = literal.rsplit_once('.').is_some_and(|(stem, ext)| {
+        !stem.is_empty()
+            && (1..=6).contains(&ext.len())
+            && ext.chars().all(|c| c.is_ascii_alphanumeric())
+    });
     if !literal.contains('/') && !has_extension {
         return false;
     }
@@ -1357,9 +1362,10 @@ fn is_repo_shaped(literal: &str, base_dir: &Path, root: &Path) -> bool {
     let Ok(inside) = resolved.strip_prefix(root) else {
         return false;
     };
-    if inside.components().any(|c| {
-        EXCLUDED_COMPONENTS.contains(&c.as_os_str().to_string_lossy().as_ref())
-    }) {
+    if inside
+        .components()
+        .any(|c| EXCLUDED_COMPONENTS.contains(&c.as_os_str().to_string_lossy().as_ref()))
+    {
         return false;
     }
     true

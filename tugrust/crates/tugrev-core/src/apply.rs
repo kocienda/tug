@@ -8,7 +8,7 @@
 //! the receipt — out of the language.
 
 use crate::parse::Program;
-use crate::resolve::{resolve, Edit, FileSource, OutcomeKind, ResolveErrors};
+use crate::resolve::{Edit, FileSource, OutcomeKind, ResolveErrors, resolve};
 
 /// What one file would become.
 #[derive(Debug, Clone, PartialEq, Eq)]

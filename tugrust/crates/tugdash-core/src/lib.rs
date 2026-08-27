@@ -51,24 +51,24 @@ pub use dash::{
     DashDeclaration, DashDeclarations, DashRoundMeta, MarkStage, StepPhase, append_dash_log,
     detect_default_branch, is_terminal, read_declarations, split_log_line, validate_dash_name,
 };
-pub use ops::{
-    BaseDirtPath, CommitOutcome, CreateOutcome, DashDetail, DashDetailFile, DashDocuments,
-    DashDraftKey, DashListItem, DashStatus, DiscardOutcome, DocumentArgument, JoinBlocker,
-    JoinOptions, JoinOutcome, JoinStrategy, MarkOutcome, RoundItem, ShowOutcome, StepOutcome,
-    brief_file, commit, create, dash_detail_entries_in, dash_draft_key, derive_stage, discard, discard_in, document_dashes, documents_dir, ensure_tug_excluded, join,
-    join_in, join_in_flight, join_in_with_progress, join_preflight_in, list, mark, plan_file, show,
-    status, status_in, step_done, step_start,
-};
 pub use oplog::{
     JoinPhase, JoinProgress, OpAfter, OpBefore, OpConfig, OpPayload, OpVerb, RedoOutcome,
     UndoOutcome, list_ops, redo_in, undo_in,
 };
+pub use ops::{
+    BaseDirtPath, CommitOutcome, CreateOutcome, DashDetail, DashDetailFile, DashDocuments,
+    DashDraftKey, DashListItem, DashStatus, DiscardOutcome, DocumentArgument, JoinBlocker,
+    JoinOptions, JoinOutcome, JoinStrategy, MarkOutcome, RoundItem, ShowOutcome, StepOutcome,
+    brief_file, commit, create, dash_detail_entries_in, dash_draft_key, derive_stage, discard,
+    discard_in, document_dashes, documents_dir, ensure_tug_excluded, join, join_in, join_in_flight,
+    join_in_with_progress, join_preflight_in, list, mark, plan_file, show, status, status_in,
+    step_done, step_start,
+};
 pub use replay::{ReplayOutcome, ReplayedRounds, replay, replay_onto};
 pub use resolve::{
-    FileMergeRequest, FileMerger, FileResolution, JoinShape, RESOLVE_LEASE,
-    RESOLVE_SUBJECT_PREFIX, ResolveLease, ResolveOutcome, ResolvedBy, mark_resolve_begun,
-    mark_resolve_ended, resolve_conflicts, resolve_conflicts_cwd, resolve_intent, resolve_lease,
-    resolver_program,
+    FileMergeRequest, FileMerger, FileResolution, JoinShape, RESOLVE_LEASE, RESOLVE_SUBJECT_PREFIX,
+    ResolveLease, ResolveOutcome, ResolvedBy, mark_resolve_begun, mark_resolve_ended,
+    resolve_conflicts, resolve_conflicts_cwd, resolve_intent, resolve_lease, resolver_program,
 };
 pub use verify::clear_verification;
 pub use workshop::{Workshop, workshop_branch, workshop_path};

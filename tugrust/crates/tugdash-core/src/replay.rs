@@ -100,7 +100,8 @@ impl OpenOp {
     fn begin(repo: &Path, name: &str) -> Result<Self, String> {
         let before = crate::oplog::capture_before(repo, name)?;
         let tips = crate::oplog::tips_of(&before);
-        let seq = crate::oplog::record_begin(repo, crate::oplog::OpVerb::Replay, name, before, &tips)?;
+        let seq =
+            crate::oplog::record_begin(repo, crate::oplog::OpVerb::Replay, name, before, &tips)?;
         Ok(OpenOp { seq })
     }
 
@@ -186,8 +187,7 @@ pub fn replay_onto(repo_root: &Path, name: &str) -> Result<ReplayOutcome, String
         // a record placed only there would miss every repair of a hand-rebased
         // dash.
         let op = OpenOp::begin(repo, name)?;
-        let reconciled =
-            reconcile_ledger_cells(repo, name, &branch, &base_branch, None)?;
+        let reconciled = reconcile_ledger_cells(repo, name, &branch, &base_branch, None)?;
         if !reconciled.touched_anything() {
             // Nothing moved, so nothing is recorded: `Current` is the outcome
             // that leaves the repository exactly as it found it, and an op

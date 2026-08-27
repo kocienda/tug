@@ -321,10 +321,7 @@ impl Workshop {
         // Nothing moved since the tip — a turn that resolved nothing adds no
         // commit, so the chain stays a record of progress rather than of
         // attempts.
-        let changed = git_stdout(
-            &self.path,
-            &["diff", "--cached", "--name-only", &chain.tip],
-        )?;
+        let changed = git_stdout(&self.path, &["diff", "--cached", "--name-only", &chain.tip])?;
         if changed.trim().is_empty() {
             return Ok(None);
         }
@@ -705,8 +702,7 @@ mod tests {
         let temp = init(true);
         let repo = temp.path();
         let ws = open_conflicted(repo);
-        let merging =
-            || git_stdout(ws.path(), &["rev-parse", "--verify", "MERGE_HEAD"]).is_ok();
+        let merging = || git_stdout(ws.path(), &["rev-parse", "--verify", "MERGE_HEAD"]).is_ok();
 
         assert!(!merging(), "not on open");
         set(ws.path(), "f.txt", "resolved by hand\n");
@@ -817,7 +813,10 @@ mod tests {
         // git would answer "already up to date" and leave no merge state at all.
         let base = ws.base_head().to_string();
         let _ = git_output(ws.path(), &["reset", "--hard", &base]);
-        let _ = git_output(ws.path(), &["merge", "--no-commit", "--no-ff", "tugdash/demo"]);
+        let _ = git_output(
+            ws.path(),
+            &["merge", "--no-commit", "--no-ff", "tugdash/demo"],
+        );
         assert!(
             git_stdout(ws.path(), &["rev-parse", "--verify", "MERGE_HEAD"]).is_ok(),
             "the fixture is a workshop mid-merge"

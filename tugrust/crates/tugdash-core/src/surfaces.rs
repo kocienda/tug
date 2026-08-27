@@ -163,8 +163,10 @@ pub fn plan_verification(
     }
 
     let mut unclaimed = Vec::new();
-    let mut assigned: Vec<(String, Vec<String>)> =
-        surfaces.iter().map(|s| (s.name.clone(), Vec::new())).collect();
+    let mut assigned: Vec<(String, Vec<String>)> = surfaces
+        .iter()
+        .map(|s| (s.name.clone(), Vec::new()))
+        .collect();
     for path in touched {
         match claiming_surface(surfaces, path) {
             Some(surface) => {
@@ -201,14 +203,15 @@ pub fn plan_verification(
                 .find(|s| s.name == *lender)
                 .map(|s| (lender.clone(), s.check.clone()))
         });
-        let declared: Vec<(String, String)> = surface
-            .check
-            .iter()
-            .map(|c| (surface.name.clone(), c.clone()))
-            .chain(borrowed.flat_map(|(lender, checks)| {
-                checks.into_iter().map(move |c| (lender.clone(), c))
-            }))
-            .collect();
+        let declared: Vec<(String, String)> =
+            surface
+                .check
+                .iter()
+                .map(|c| (surface.name.clone(), c.clone()))
+                .chain(borrowed.flat_map(|(lender, checks)| {
+                    checks.into_iter().map(move |c| (lender.clone(), c))
+                }))
+                .collect();
 
         let mut commands = Vec::new();
         for (declared_by, command) in declared {
@@ -237,7 +240,6 @@ pub fn plan_verification(
 
     Resolution::Planned(plans)
 }
-
 
 // --- the run ---------------------------------------------------------------
 
@@ -398,8 +400,11 @@ pub fn verify_in(
 ) -> Result<VerifyReport, String> {
     let repo = crate::ops::main_repo_root(repo_root);
     let branch = crate::ops::branch_name(name);
-    if crate::ops::git_stdout(&repo, &["rev-parse", "--verify", &format!("{branch}^{{commit}}")])
-        .is_err()
+    if crate::ops::git_stdout(
+        &repo,
+        &["rev-parse", "--verify", &format!("{branch}^{{commit}}")],
+    )
+    .is_err()
     {
         return Err(format!("Dash not found: {name}"));
     }
@@ -585,7 +590,12 @@ mod tests {
             surface("prose", &["CLAUDE.md"], &[], &[]),
             surface("rest", &["src/"], &["true"], &[]),
         ];
-        let plans = planned(plan_verification(&table, "b", "h", &touched(&["CLAUDE.md"])));
+        let plans = planned(plan_verification(
+            &table,
+            "b",
+            "h",
+            &touched(&["CLAUDE.md"]),
+        ));
         assert_eq!(plans[0].name, "prose");
 
         assert_eq!(
@@ -657,7 +667,12 @@ mod tests {
         ];
         // Only `prose` is touched, so `code` is absent from the run entirely —
         // which is a different thing from `prose`'s claimed-and-unchecked.
-        let plans = planned(plan_verification(&table, "b", "h", &touched(&["docs/a.md"])));
+        let plans = planned(plan_verification(
+            &table,
+            "b",
+            "h",
+            &touched(&["docs/a.md"]),
+        ));
         assert_eq!(plans.len(), 1);
         assert_eq!(plans[0].name, "prose");
         assert!(plans[0].commands.is_empty());
@@ -684,7 +699,10 @@ mod tests {
         assert_eq!(commands[0].declared_by, "a");
         assert_eq!(commands[1].command, "check-b");
         assert_eq!(commands[1].declared_by, "b");
-        assert_eq!(plans[0].borrowed_from, vec!["a".to_string(), "b".to_string()]);
+        assert_eq!(
+            plans[0].borrowed_from,
+            vec!["a".to_string(), "b".to_string()]
+        );
         assert!(!plans[0].is_claimed_unchecked());
     }
 
@@ -887,11 +905,11 @@ mod fit_tests {
         std::fs::create_dir_all(&root).unwrap();
         let worktree = project(&root, RED, &[("src/a.rs", "a\n")]);
 
-        assert_eq!(
-            verify_in(&root, "demo", None, None).unwrap().verdict,
-            "red"
+        assert_eq!(verify_in(&root, "demo", None, None).unwrap().verdict, "red");
+        assert!(
+            verified_lines(&root).is_empty(),
+            "a red run records nothing"
         );
-        assert!(verified_lines(&root).is_empty(), "a red run records nothing");
 
         // An empty range, on the same dash.
         let head = git_stdout(&worktree, &["rev-parse", "HEAD"]);
@@ -951,7 +969,11 @@ mod fit_tests {
         std::fs::create_dir_all(&root).unwrap();
         project(&root, GREEN, &[("src/a.rs", "a\n")]);
         verify_in(&root, "demo", None, None).unwrap();
-        assert!(crate::dash::read_declarations(&root, "demo").last_verified.is_some());
+        assert!(
+            crate::dash::read_declarations(&root, "demo")
+                .last_verified
+                .is_some()
+        );
 
         crate::dash::append_dash_log(&root, "demo", "join", "joined into main").unwrap();
         assert!(
@@ -971,7 +993,10 @@ mod fit_tests {
         verify_in(&root, "demo", None, None).unwrap();
 
         let fit = crate::ops::status_in(&root, "demo").unwrap().fit;
-        assert!(fit.as_ref().is_some_and(|f| f.current), "green at the recorded pair");
+        assert!(
+            fit.as_ref().is_some_and(|f| f.current),
+            "green at the recorded pair"
+        );
 
         // The base alone gains a commit, with the dash untouched — the case a
         // head-only derivation could not see.
@@ -986,11 +1011,23 @@ mod fit_tests {
 
         // And a round on the dash, with the recorded base back in place.
         git(&root, &["reset", "--hard", "HEAD~1"]);
-        assert!(crate::ops::status_in(&root, "demo").unwrap().fit.unwrap().current);
+        assert!(
+            crate::ops::status_in(&root, "demo")
+                .unwrap()
+                .fit
+                .unwrap()
+                .current
+        );
         std::fs::write(worktree.join("src/b.rs"), "b\n").unwrap();
         git(&worktree, &["add", "-A"]);
         git(&worktree, &["commit", "-m", "another round"]);
-        assert!(!crate::ops::status_in(&root, "demo").unwrap().fit.unwrap().current);
+        assert!(
+            !crate::ops::status_in(&root, "demo")
+                .unwrap()
+                .fit
+                .unwrap()
+                .current
+        );
     }
 
     #[test]
@@ -1022,7 +1059,8 @@ mod fit_tests {
         std::fs::create_dir_all(&root).unwrap();
         project(&root, GREEN, &[("src/a.rs", "a\n")]);
 
-        let unverified = serde_json::to_value(crate::ops::status_in(&root, "demo").unwrap()).unwrap();
+        let unverified =
+            serde_json::to_value(crate::ops::status_in(&root, "demo").unwrap()).unwrap();
         assert!(
             unverified.get("fit").is_none(),
             "a dash nobody verified says nothing about the fit"
@@ -1031,7 +1069,15 @@ mod fit_tests {
         verify_in(&root, "demo", None, None).unwrap();
         let verified = serde_json::to_value(crate::ops::status_in(&root, "demo").unwrap()).unwrap();
         assert_eq!(verified["fit"]["current"], true);
-        assert!(verified["fit"]["head"].as_str().is_some_and(|h| h.len() == 40));
-        assert!(verified["fit"]["base"].as_str().is_some_and(|b| b.len() == 40));
+        assert!(
+            verified["fit"]["head"]
+                .as_str()
+                .is_some_and(|h| h.len() == 40)
+        );
+        assert!(
+            verified["fit"]["base"]
+                .as_str()
+                .is_some_and(|b| b.len() == 40)
+        );
     }
 }

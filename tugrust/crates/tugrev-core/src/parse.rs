@@ -4,8 +4,8 @@
 //! aborts with nothing read — phase 1 of the four-phase model, where the phase
 //! boundary is the contract.
 
-use crate::lex::Scanner;
 use crate::ParseError;
+use crate::lex::Scanner;
 
 /// A parsed program: file blocks in source order.
 #[derive(Debug, Clone)]

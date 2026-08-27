@@ -746,8 +746,7 @@ impl RawStages {
         if ours.0 != theirs.0 {
             return ConflictKind::Mode;
         }
-        let is_binary_blob =
-            |oid: &str| cat_blob(repo, oid).is_ok_and(|body| is_binary(&body));
+        let is_binary_blob = |oid: &str| cat_blob(repo, oid).is_ok_and(|body| is_binary(&body));
         let base_binary = self
             .base
             .as_ref()
@@ -887,7 +886,9 @@ fn salvage_rung(
     // One batched marker read over the candidates rather than one per path.
     let paths: Vec<String> = candidates.iter().map(|p| p.path.clone()).collect();
     let still_conflicted: std::collections::BTreeSet<String> =
-        marker_paths_in_tree(repo, &chain.tip, &paths).into_iter().collect();
+        marker_paths_in_tree(repo, &chain.tip, &paths)
+            .into_iter()
+            .collect();
 
     for path in paths.iter().filter(|p| !still_conflicted.contains(*p)) {
         let oid = git_stdout(repo, &["rev-parse", &format!("{}:{}", chain.tip, path)]);
@@ -2087,8 +2088,8 @@ pub fn write_conflict_commit(
     tree: &str,
     record: &ConflictRecord,
 ) -> Result<String, String> {
-    let body = serde_json::to_string_pretty(record)
-        .map_err(|e| format!("conflict record encode: {e}"))?;
+    let body =
+        serde_json::to_string_pretty(record).map_err(|e| format!("conflict record encode: {e}"))?;
     let message = format!(
         "{}{}): {} unresolved\n\n{}",
         CONFLICT_SUBJECT_PREFIX,
@@ -2243,7 +2244,10 @@ fn append_marker(repo: &Path, name: &str, subject: &str) -> Result<String, Strin
         return Ok(String::new());
     };
     let tree = format!("{}^{{tree}}", chain.tip);
-    let out = git_output(repo, &["commit-tree", &tree, "-p", &chain.tip, "-m", subject])?;
+    let out = git_output(
+        repo,
+        &["commit-tree", &tree, "-p", &chain.tip, "-m", subject],
+    )?;
     if !out.status.success() {
         return Err(format!(
             "resolve marker commit-tree failed: {}",
@@ -2518,7 +2522,12 @@ mod tests {
         assert_eq!(chain.record.base_head, base_head);
         assert_eq!(chain.record.dash_head, dash_head);
         assert_eq!(
-            chain.record.paths.iter().map(|p| &p.path).collect::<Vec<_>>(),
+            chain
+                .record
+                .paths
+                .iter()
+                .map(|p| &p.path)
+                .collect::<Vec<_>>(),
             vec!["f.txt"],
             "the record names exactly what the ladder could not settle"
         );
@@ -2746,7 +2755,12 @@ mod tests {
             "while the unresolved path still does: {unsettled}"
         );
         assert_eq!(
-            chain.record.resolved.iter().map(|r| &r.path).collect::<Vec<_>>(),
+            chain
+                .record
+                .resolved
+                .iter()
+                .map(|r| &r.path)
+                .collect::<Vec<_>>(),
             vec!["g.txt"],
             "and the record names which rung settled it"
         );
@@ -2928,7 +2942,10 @@ mod tests {
         let repo = temp.path();
 
         let first = resolve_conflicts(repo, "demo", None).unwrap();
-        assert_eq!(first.unresolved, vec!["a.txt".to_string(), "b.txt".to_string()]);
+        assert_eq!(
+            first.unresolved,
+            vec!["a.txt".to_string(), "b.txt".to_string()]
+        );
         checkpoint_one(repo, "a.txt", "settled by a person\n");
 
         // Base motion that touches neither conflicted file: the chain is now
@@ -3084,7 +3101,9 @@ mod tests {
         assert!(!has_conflict_markers(
             b"diff3 adds a\n||||||| base\nsection.\n"
         ));
-        assert!(!has_conflict_markers(b"<<<<<<< opener with no closer\nbody\n"));
+        assert!(!has_conflict_markers(
+            b"<<<<<<< opener with no closer\nbody\n"
+        ));
 
         // A marker run butted against other text is not a marker line.
         assert!(!has_conflict_markers(
@@ -3253,11 +3272,7 @@ mod tests {
         // Resolve it the way a resolver would: whole-file bytes that keep the
         // setext underline, which the old predicate read as an unresolved file.
         let workshop = crate::workshop::Workshop::open_conflict(repo, "demo").unwrap();
-        std::fs::write(
-            workshop.path().join("doc.md"),
-            "Heading\n=======\n\nboth\n",
-        )
-        .unwrap();
+        std::fs::write(workshop.path().join("doc.md"), "Heading\n=======\n\nboth\n").unwrap();
         assert!(
             workshop.unresolved().unwrap().is_empty(),
             "the resolved file reads settled despite its underline"

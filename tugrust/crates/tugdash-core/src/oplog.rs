@@ -287,11 +287,7 @@ fn payload_path(repo: &Path, seq: u64) -> PathBuf {
 fn ref_seqs(repo: &Path) -> Vec<u64> {
     let out = git_stdout(
         repo,
-        &[
-            "for-each-ref",
-            "--format=%(refname)",
-            "refs/tug/oplog/",
-        ],
+        &["for-each-ref", "--format=%(refname)", "refs/tug/oplog/"],
     )
     .unwrap_or_default();
     let mut seqs: Vec<u64> = out
@@ -469,8 +465,8 @@ pub fn record_begin(
 
 /// Attach the after-state to a recorded operation, marking it complete.
 pub fn record_complete(repo: &Path, seq: u64, after: OpAfter) -> Result<(), String> {
-    let mut payload = read_op(repo, seq)
-        .ok_or_else(|| format!("oplog: no operation {seq} to complete"))?;
+    let mut payload =
+        read_op(repo, seq).ok_or_else(|| format!("oplog: no operation {seq} to complete"))?;
     payload.after = Some(after);
     write_payload(repo, &payload)
 }
@@ -549,10 +545,7 @@ pub fn join_in_flight(repo: &Path, dash: &str) -> Option<OpPayload> {
         .into_iter()
         .filter_map(|seq| read_op(repo, seq))
         .find(|op| {
-            op.dash == dash
-                && op.verb == OpVerb::Join
-                && op.after.is_none()
-                && op.join.is_some()
+            op.dash == dash && op.verb == OpVerb::Join && op.after.is_none() && op.join.is_some()
         })
 }
 
@@ -690,7 +683,9 @@ pub fn list_ops(repo: &Path) -> Vec<OpPayload> {
     }
     seqs.sort_unstable();
     seqs.reverse();
-    seqs.into_iter().filter_map(|seq| read_op(repo, seq)).collect()
+    seqs.into_iter()
+        .filter_map(|seq| read_op(repo, seq))
+        .collect()
 }
 
 /// The newest completed, not-yet-undone operation, optionally for one dash.
@@ -1412,10 +1407,7 @@ fn restore_dash(repo: &Path, op: &OpPayload, warnings: &mut Vec<String>) -> Resu
 
     let worktree = PathBuf::from(&op.before.worktree);
     if !worktree.exists() {
-        let add = git_output(
-            repo,
-            &["worktree", "add", &op.before.worktree, &branch],
-        )?;
+        let add = git_output(repo, &["worktree", "add", &op.before.worktree, &branch])?;
         if !add.status.success() {
             warnings.push(format!(
                 "The branch is back but its worktree could not be recreated: {}",
@@ -1431,12 +1423,18 @@ fn restore_dash(repo: &Path, op: &OpPayload, warnings: &mut Vec<String>) -> Resu
     // `branch -D` took the whole `branch.<name>.*` section with it, so a
     // recreated branch has forgotten its base, description, and id.
     let facts = [
-        (crate::ops::base_config_key(&op.dash), &op.before.config.tugbase),
+        (
+            crate::ops::base_config_key(&op.dash),
+            &op.before.config.tugbase,
+        ),
         (
             crate::ops::description_config_key(&op.dash),
             &op.before.config.description,
         ),
-        (crate::ops::tugid_config_key(&op.dash), &op.before.config.tugid),
+        (
+            crate::ops::tugid_config_key(&op.dash),
+            &op.before.config.tugid,
+        ),
     ];
     for (key, value) in facts {
         if let Some(value) = value {
@@ -1586,11 +1584,17 @@ mod tests {
         git(f.path(), &["branch", "-D", "doomed"]);
 
         // Nothing but the keepalive refers to it now.
-        let alive = git_output(f.path(), &["cat-file", "-e", &format!("{doomed}^{{commit}}")])
-            .unwrap()
-            .status
-            .success();
-        assert!(alive, "the keepalive ref keeps the deleted branch's tip reachable");
+        let alive = git_output(
+            f.path(),
+            &["cat-file", "-e", &format!("{doomed}^{{commit}}")],
+        )
+        .unwrap()
+        .status
+        .success();
+        assert!(
+            alive,
+            "the keepalive ref keeps the deleted branch's tip reachable"
+        );
     }
 
     /// A payload written before the conflict field existed must still parse —
@@ -1680,7 +1684,10 @@ mod tests {
         for _ in 0..OPLOG_CAP {
             record_begin(f.path(), OpVerb::Join, "demo", before(&f), &[]).unwrap();
         }
-        assert!(read_op(f.path(), 1).is_some(), "op 1 is still here at the cap");
+        assert!(
+            read_op(f.path(), 1).is_some(),
+            "op 1 is still here at the cap"
+        );
 
         record_begin(f.path(), OpVerb::Join, "demo", before(&f), &[]).unwrap();
 
@@ -1702,7 +1709,11 @@ mod tests {
         git(f.path(), &["update-ref", "-d", &oplog_ref_name(first)]);
 
         let ops = list_ops(f.path());
-        assert_eq!(ops.len(), 2, "the payload outliving its ref is still listed");
+        assert_eq!(
+            ops.len(),
+            2,
+            "the payload outliving its ref is still listed"
+        );
         assert_eq!(ops[0].seq, second, "newest first");
         assert_eq!(ops[1].seq, first);
     }
@@ -1836,8 +1847,12 @@ mod tests {
     fn an_undo_recorded_above_an_in_flight_join_does_not_hide_it() {
         let f = init();
         let join = record_begin(f.path(), OpVerb::Join, "demo", before(&f), &[]).unwrap();
-        record_join_progress(f.path(), join, progress(JoinPhase::WorktreeRemoved, "abc123"))
-            .unwrap();
+        record_join_progress(
+            f.path(),
+            join,
+            progress(JoinPhase::WorktreeRemoved, "abc123"),
+        )
+        .unwrap();
 
         let undo = record_begin(f.path(), OpVerb::Undo, "demo", before(&f), &[]).unwrap();
         record_complete(f.path(), undo, OpAfter::default()).unwrap();
@@ -1867,8 +1882,12 @@ mod tests {
     fn an_open_join_with_progress_is_refused_by_undo_as_incomplete() {
         let f = init();
         let seq = record_begin(f.path(), OpVerb::Join, "demo", before(&f), &[]).unwrap();
-        record_join_progress(f.path(), seq, progress(JoinPhase::WorktreeRemoved, "abc123"))
-            .unwrap();
+        record_join_progress(
+            f.path(),
+            seq,
+            progress(JoinPhase::WorktreeRemoved, "abc123"),
+        )
+        .unwrap();
         let err = undo_in(f.path(), Some("demo")).unwrap_err();
         assert!(err.starts_with("incomplete-op:"), "got {err}");
     }
@@ -1894,8 +1913,15 @@ mod tests {
         write_legacy_journal(&f, "resume", "WorktreeRemoved", "main");
 
         let folded = fold_legacy_join_journal(f.path(), "resume").unwrap();
-        assert_eq!(folded, Some(seq), "it attaches rather than recording a second");
-        let join = read_op(f.path(), seq).unwrap().join.expect("progress attached");
+        assert_eq!(
+            folded,
+            Some(seq),
+            "it attaches rather than recording a second"
+        );
+        let join = read_op(f.path(), seq)
+            .unwrap()
+            .join
+            .expect("progress attached");
         assert_eq!(join.phase, JoinPhase::WorktreeRemoved);
         assert_eq!(join.commit_hash, "deadbeef");
         assert_eq!(join.message.as_deref(), Some("from the journal"));
@@ -1918,7 +1944,10 @@ mod tests {
         let op = read_op(f.path(), seq).expect("the payload is on disk");
         assert_eq!(op.verb, OpVerb::Join);
         assert_eq!(op.dash, "orphan");
-        assert!(op.after.is_none(), "and it is open, so --continue can finish it");
+        assert!(
+            op.after.is_none(),
+            "and it is open, so --continue can finish it"
+        );
         assert_eq!(
             op.before.base_branch, "trunk",
             "the journal's base branch wins over what capture_before guesses"
@@ -1937,7 +1966,10 @@ mod tests {
         std::fs::write(&path, "{ not json at all").unwrap();
 
         let err = fold_legacy_join_journal(f.path(), "broken").unwrap_err();
-        assert!(err.starts_with("legacy-join-journal-unreadable:"), "got {err}");
+        assert!(
+            err.starts_with("legacy-join-journal-unreadable:"),
+            "got {err}"
+        );
         assert!(path.exists(), "a file nobody could read is never deleted");
         assert!(
             join_in_flight(f.path(), "broken").is_none(),

@@ -372,6 +372,49 @@ pub(crate) fn is_command_envelope(text: &str) -> bool {
     }
 }
 
+/// Slash commands the **bridge** issues on the user's behalf, so their
+/// envelope is machinery rather than a submission. Mirror of tugcode's
+/// `BRIDGE_ISSUED_COMMANDS`.
+///
+/// `/model` is the whole list. The session card never sends `/model` as a
+/// prompt — the model change travels as a `set_model` control_request, and
+/// claude writes a `/model` envelope into the JSONL anyway, once per change
+/// and once more per card mount when the restore effect re-applies the
+/// remembered model. Nothing of that reaches the live transcript, so nothing
+/// of it may open a turn on replay either.
+const BRIDGE_ISSUED_COMMANDS: [&str; 1] = ["/model"];
+
+/// The `<command-name>` an envelope names, or `None` when no occurrence
+/// holds a single bare token. Mirror of tugcode's
+/// `COMMAND_ENVELOPE_NAME_RE` — `<command-name>\s*([^<\s]+)\s*</command-name>`
+/// scanned from the front, so a malformed first occurrence does not veto a
+/// well-formed later one.
+fn command_envelope_name(text: &str) -> Option<&str> {
+    const OPEN: &str = "<command-name>";
+    const CLOSE: &str = "</command-name>";
+    let mut rest = text;
+    loop {
+        let start = rest.find(OPEN)? + OPEN.len();
+        let after_open = &rest[start..];
+        if let Some(close_at) = after_open.find(CLOSE) {
+            let name = after_open[..close_at].trim();
+            if !name.is_empty() && !name.contains('<') && !name.contains(char::is_whitespace) {
+                return Some(name);
+            }
+        }
+        rest = after_open;
+    }
+}
+
+/// Mirror of tugcode's `isBridgeIssuedCommandEnvelope`: a well-formed
+/// command envelope naming a [`BRIDGE_ISSUED_COMMANDS`] command.
+fn is_bridge_issued_command_envelope(text: &str) -> bool {
+    if !is_command_envelope(text) {
+        return false;
+    }
+    command_envelope_name(text).is_some_and(|name| BRIDGE_ISSUED_COMMANDS.contains(&name))
+}
+
 /// Mirror of tugcode's `isNonSubmissionUserString`: bare-string `user`
 /// content that is NOT a genuine submission — a `/compact` summary
 /// continuation, slash-command scaffolding, or a `<task-notification>` wake
@@ -382,6 +425,9 @@ fn is_non_submission_user_string(is_compact_summary: bool, text: &str) -> bool {
         return true;
     }
     let trimmed = text.trim_start();
+    if is_bridge_issued_command_envelope(trimmed) {
+        return true;
+    }
     if !is_command_envelope(trimmed)
         && COMMAND_SCAFFOLDING_PREFIXES
             .iter()

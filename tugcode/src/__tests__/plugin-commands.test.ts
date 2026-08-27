@@ -102,8 +102,11 @@ describe("enumeratePluginCommands", () => {
     const cmds = enumeratePluginCommands(pluginDir);
     const dash = cmds.find((c) => c.name === "tugplug:dash");
     expect(dash).toBeDefined();
-    expect(dash!.description).toContain("conversational entry point");
-    expect(dash!.argumentHint).toBe("[idea…]");
+    // The frontmatter's own words, so a fabricated entry could not pass;
+    // the leading phrase names the door (the direct dash) rather than any
+    // one wording of what it does.
+    expect(dash!.description).toContain("Dash directly");
+    expect(dash!.argumentHint).toBe("[name] [instruction…]");
 
     const dashLeaves = cmds.filter((c) => c.name.split(":").pop() === "dash");
     expect(dashLeaves.map((c) => c.name)).toEqual(["tugplug:dash"]);
