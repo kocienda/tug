@@ -396,8 +396,8 @@ pub fn frames_for(request: &RotationRequest) -> (Vec<Frame>, Frame) {
         stage["effort"] = serde_json::Value::String(effort.to_owned());
     }
     // The prompt rides the command as well as its own frame: tugcode echoes it
-    // on `session_stage`, which is how the deck opens the turn it is about to
-    // watch.
+    // on the rotation's `session_segment`, which is how the deck opens the turn
+    // it is about to watch.
     stage["prompt"] = serde_json::Value::String(request.prompt.clone());
     frames.push(code_input_frame(&serde_json::json!({
         "type": "session_command",

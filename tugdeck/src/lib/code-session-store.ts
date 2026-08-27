@@ -279,14 +279,17 @@ const KNOWN_CODE_OUTPUT_TYPES: ReadonlySet<string> = new Set([
   // the live and replay paths. The reducer folds it into `compactionSeed` so
   // the carry-forward block restores; no phase change, no transcript ink.
   "compact_summary",
-  // The server rotated this card onto a fresh claude session for the next
-  // stage of a dash arc. The reducer appends a stage `system_note` divider so
-  // the arc reads as one scroll; no phase change, and the transcript survives
-  // the rotation.
-  "session_stage",
+  // tugcode announced that the card's live claude session id changed, and
+  // how. Only `kind: "rotation"` — the server seating the next stage of a
+  // dash arc — reaches the reducer, as its `session_stage` event: a stage
+  // `system_note` divider so the arc reads as one scroll, and the wheel's
+  // turn opened from the prompt the frame echoes. Every other kind is the
+  // bridge's identity record and draws nothing; no phase change, and the
+  // transcript survives the rotation.
+  "session_segment",
   // The same boundary, replayed: tugcode emits this between the JSONLs of an
   // arc's stages during a lineage restore. A separate wire type from
-  // `session_stage` because a replayed rotation is only a divider — the
+  // `session_segment` because a replayed rotation is only a divider — the
   // identity transfer it names already happened.
   "replay_stage",
   // tugcode's forward-compat catch-all: claude streamed a top-level event
@@ -1968,7 +1971,12 @@ export class CodeSessionStore {
           ...(typeof ev.timestamp === "number" ? { timestamp: ev.timestamp } : {}),
         } as unknown as CodeSessionEvent;
       }
-      if (ev.type === "session_stage" || ev.type === "replay_stage") {
+      if (ev.type === "session_segment" && ev.kind !== "rotation") {
+        // A rewind, fork, continue, respawn, or `/new` — the bridge's
+        // lineage record. The transcript has nothing to draw for it.
+        return null;
+      }
+      if (ev.type === "session_segment" || ev.type === "replay_stage") {
         // The arc's stage announcement, straight off tugcode's IPC line. Only
         // the display fields are carried across: the session ids belong to the
         // bridge's identity transfer, not to the divider.
@@ -1983,7 +1991,7 @@ export class CodeSessionStore {
             : {}),
           // A live rotation carries the prompt the runner sent behind it;
           // the turn key is minted here because the reducer is pure.
-          ...(ev.type === "session_stage" &&
+          ...(ev.type === "session_segment" &&
           typeof ev.prompt === "string" &&
           ev.prompt.length > 0
             ? { prompt: ev.prompt, turnKey: mintTurnKey() }

@@ -8162,7 +8162,7 @@ impl AgentSupervisor {
                 // touched, and `stage_model` on the session row is not
                 // rewritten. The divider's subject is what the stage was
                 // *seated* on, which stays true forever. Live it is one-shot
-                // ink minted from the `session_stage` frame; on restore it is
+                // ink minted from the rotation's `session_segment` frame; on restore it is
                 // composed from `stage_provenance`. Moving one and not the
                 // other would make the live divider and the restored one
                 // disagree about the same boundary — a new resting lie in

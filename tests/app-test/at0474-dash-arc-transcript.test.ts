@@ -7,8 +7,9 @@
  *
  * A dash arc rotates a card onto a fresh claude session between stages
  * (devise → review → implement). tugcode announces each rotation with a
- * `session_stage` line and follows it with the fresh session's synthetic
- * `session_init`. Two things have to be true for the arc to read as one
+ * `session_segment` line of `kind: "rotation"` and follows it with the fresh
+ * session's synthetic `session_init`. Two things have to be true for the arc to
+ * read as one
  * piece of work rather than as a card that keeps losing its history:
  *
  *   1. the boundary is visible — a stage divider naming the stage, the model,
@@ -19,7 +20,7 @@
  * The pure halves (`stageNoteText`, the reducer's `handleSessionStage`) are
  * unit-tested and the tugcode emit is covered by
  * `tugcode/src/__tests__/session-stage-rotation.test.ts`. This drives the
- * **live render**: open a turn, inject a synthetic `session_stage` and the
+ * **live render**: open a turn, inject a synthetic rotation `session_segment` and the
  * `session_init` behind it through the store's real `frameToEvent → dispatch`
  * path, and assert both facts on the real DOM.
  *
@@ -94,7 +95,7 @@ describe.skipIf(!SHOULD_RUN)(
   "AT0474: an arc's stage rotation is a divider in one transcript",
   () => {
     test(
-      "a session_stage draws the boundary and the rows above it survive the rotation",
+      "a rotation session_segment draws the boundary and the rows above it survive the rotation",
       async () => {
         const app = await launchTugApp({ testName: "at0474-dash-arc-transcript" });
         try {
@@ -146,7 +147,8 @@ describe.skipIf(!SHOULD_RUN)(
             op: "ingestFrame",
             feedId: CODE_OUTPUT_FEED,
             decoded: {
-              type: "session_stage",
+              type: "session_segment",
+              kind: "rotation",
               tug_session_id: TUG_SESSION_ID,
               parentSessionId: "claude-parent",
               newSessionId: "claude-devise",
@@ -274,7 +276,8 @@ describe.skipIf(!SHOULD_RUN)(
             op: "ingestFrame",
             feedId: CODE_OUTPUT_FEED,
             decoded: {
-              type: "session_stage",
+              type: "session_segment",
+              kind: "rotation",
               tug_session_id: TUG_SESSION_ID,
               parentSessionId: "claude-parent",
               newSessionId: "claude-review",
@@ -337,7 +340,7 @@ describe.skipIf(!SHOULD_RUN)(
         // The restore leg. On relaunch tugcast hands tugcode the arc's whole
         // lineage and tugcode replays each stage's JSONL in turn, emitting a
         // `replay_stage` divider at every boundary — a separate wire type
-        // from `session_stage`, because a replayed rotation is only a divider
+        // from `session_segment`, because a replayed rotation is only a divider
         // and must not re-stage an identity transfer that already happened.
         // This drives that frame sequence through the store's real dispatch
         // and asserts what the card ends up showing.

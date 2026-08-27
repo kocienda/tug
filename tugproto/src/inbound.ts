@@ -193,14 +193,14 @@ export interface SessionStageSpec {
    * measured context reading at a step boundary; absent on every other stage,
    * which is what tells a continued stage from a first one.
    *
-   * Echoed on the `session_stage` announcement so the transcript's divider can
+   * Echoed on the rotation's `session_segment` announcement so the transcript's divider can
    * read `implement, continued · steps N–M` ([B13]) without re-deriving a range
    * the runner already computed.
    */
   steps?: string;
   /**
    * The stage's opening prompt — the `user_message` the runner sends right
-   * behind this command. Echoed on the `session_stage` announcement so the
+   * behind this command. Echoed on the rotation's `session_segment` announcement so the
    * deck can open the turn it is about to watch: a turn nobody in the deck
    * submitted has no pending turn there, and the reducer drops every frame
    * of a turn it did not open.
