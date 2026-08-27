@@ -113,22 +113,36 @@ describe("tasksCellPose", () => {
 });
 
 describe("dashCellPose", () => {
+  const dash = (stage: string | null, arcStage: string | null = null) => ({
+    stage,
+    arcStage,
+  });
+
   test("a dash nobody has worked yet is quiet", () => {
-    expect(dashCellPose(null, false)).toBe("stopped");
-    expect(dashCellPose("created", false)).toBe("stopped");
+    expect(dashCellPose(dash(null), false)).toBe("stopped");
+    expect(dashCellPose(dash("created"), false)).toBe("stopped");
   });
 
   test("a resting point of the arc reads finished", () => {
     for (const stage of ["ready", "built", "audited", "draft-ready"]) {
-      expect(dashCellPose(stage, false)).toBe("completed");
-      expect(dashCellPose(stage, true)).toBe("completed");
+      expect(dashCellPose(dash(stage), false)).toBe("completed");
+      expect(dashCellPose(dash(stage), true)).toBe("completed");
     }
   });
 
   test("work in flight runs, and idle demotes it", () => {
     for (const stage of ["working", "implementing", "joining", "whatever"]) {
-      expect(dashCellPose(stage, false)).toBe("running");
-      expect(dashCellPose(stage, true)).toBe("stopped");
+      expect(dashCellPose(dash(stage), false)).toBe("running");
+      expect(dashCellPose(dash(stage), true)).toBe("stopped");
+    }
+  });
+
+  // The half of a dash's life that happens in documents: an arc is running a
+  // stage and `dash create` has not cut a branch, so the git stage is null.
+  test("an arc under way runs even with no git stage", () => {
+    for (const arcStage of ["brief", "devise", "review", "implement"]) {
+      expect(dashCellPose(dash(null, arcStage), false)).toBe("running");
+      expect(dashCellPose(dash(null, arcStage), true)).toBe("stopped");
     }
   });
 });

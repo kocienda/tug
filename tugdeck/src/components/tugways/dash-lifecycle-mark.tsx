@@ -1,15 +1,20 @@
 /**
- * DashLifecycleMark — a dash's life at a glance: glyph · pill · fraction.
+ * DashLifecycleMark — a dash's life at a glance: pill · glyph · fraction.
  *
  * The compact register of the lifecycle grammar, for the two surfaces where a
  * dash is not the subject — the session masthead's title line and the Lens's
  * session rows. There a session is the subject and the dash is one fact about
  * it, so the reading is three marks wide and cannot grow:
  *
- *   - the {@link DashPhaseMark} — WHERE the dash is, as a glyph;
  *   - one pill — the whole dash as a single stop of color, breathing while the
  *     work is live;
+ *   - the {@link DashPhaseMark} — WHERE the dash is, as a glyph;
  *   - the step fraction, when the plan has steps to count.
+ *
+ * The order is the full register's, one scale down: the graphic that stands for
+ * the whole life first, then the glyph naming the phase, then the count. The
+ * pill is the mark's tie to the identity run it follows, so it is the mark that
+ * touches it.
  *
  * The dash's NAME is not here. Both hosts already render it: the identity run's
  * own `^<dash>` sits immediately to the left, and a second spelling of a name
@@ -98,13 +103,15 @@ export function DashLifecycleMark({
         data-stopped={model.stopped !== null ? "true" : undefined}
         aria-label={sentence}
       >
-        <DashPhaseMark model={model} size={size === "read" ? 13 : 11} tooltip={false} />
         <span
           className="tug-dash-lifecycle-mark-pill"
           data-slot="tug-dash-lifecycle-mark-pill"
           data-phase={model.phase}
           data-state={state}
         />
+        {/* One pixel proud of the pill's own band, the same relation the
+            full register's glyph keeps to the track. */}
+        <DashPhaseMark model={model} size={size === "read" ? 11 : 9} tooltip={false} />
         {fraction !== null ? (
           <TugStepFraction current={fraction.current} total={fraction.total} />
         ) : null}

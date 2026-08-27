@@ -1,6 +1,16 @@
 /* dash-lifecycle-line.css — packing and tones for the line. The note is the
    only run that gives way; everything else is a fixed-width fact, and the
-   line clips at its box rather than overflowing it. */
+   line clips at its box rather than overflowing it.
+
+   **Two alignments, on purpose.** The line sets four kinds of thing beside
+   each other: two graphics (the track, the phase glyph) and three runs of type
+   at two sizes in two faces (the mono fraction, the note, the facts). The type
+   is aligned to its own BASELINE, so the mono fraction's digits and the word
+   beside them sit on one line whatever either's size; the graphics keep the
+   container's `center`, which lands the cap-height strip on the type's cap
+   band. Centring the runs too would hold only while every run's line box is
+   the same height — true today, and not a thing a size change may quietly
+   break. */
 
 .tug-dash-lifecycle-line {
   display: flex;
@@ -10,6 +20,14 @@
   max-width: 100%;
   overflow: hidden;
   font-size: var(--tug-font-size-2xs);
+}
+
+/* The type runs, on one baseline. Named individually rather than as `> *`:
+   the track and the glyph are the two children that must NOT join them. */
+.tug-dash-lifecycle-line > .tug-step-fraction,
+.tug-dash-lifecycle-line > .tug-dash-lifecycle-note,
+.tug-dash-lifecycle-line > .tug-dash-lifecycle-fact {
+  align-self: baseline;
 }
 
 .tug-dash-lifecycle-line[data-size="read"] {

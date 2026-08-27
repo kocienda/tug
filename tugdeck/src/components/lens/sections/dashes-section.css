@@ -66,9 +66,10 @@
   display: none;
 }
 
-/* The row's verbs, on the eyebrow's right. Always visible rather than
-   hover-revealed — a control that appears under the pointer is one a keyboard
-   reader never finds, and every unbound row here is a to-do. */
+/* The row's affordances. A dash row's verbs are its context menu and this box
+   holds only that menu's portal; a plan row's next-gesture button stands in it
+   and is always visible rather than hover-revealed — a control that appears
+   under the pointer is one a keyboard reader never finds. */
 .lens-dashes-verbs {
   flex: 0 0 auto;
   display: inline-flex;

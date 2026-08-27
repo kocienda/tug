@@ -12,16 +12,16 @@
  * Each dash is a two-line block in one grammar, the same grammar the Changes
  * shade's collapsed dash row wears:
  *
- *   [^dash-atom] ──────────────────────── [worker atom] ⋯
- *     track · fraction · note · divergence
+ *   [^dash-atom] ──────────────────────── [worker atom]
+ *     track · glyph · fraction · note · divergence
  *
  * Every row is one `DashLifecycleBlock`, the grammar every dash surface wears.
- * Its EYEBROW holds the identities and the row's own trailing control: the
- * dash atom at the left, the hairline, the "who" at the right — each bound
- * worker as a mini atom (no callsign, no dash run: the row already names
- * both). The dash pill wears no review tint here: that yellow is the WAITING
- * color, and a dash is not waiting for anyone. Beneath it, the lifecycle line
- * carries everything the dash is DOING.
+ * Its EYEBROW holds the identities and nothing else: the dash atom at the
+ * left, the hairline, the "who" at the right — each bound worker as a mini
+ * atom (no callsign, no dash run: the row already names both). The dash pill
+ * wears no review tint here: that yellow is the WAITING color, and a dash is
+ * not waiting for anyone. Beneath it, the lifecycle line carries everything
+ * the dash is DOING, phase glyph included.
  *
  * A dash with no branch yet — a brief being written, a plan being devised or
  * reviewed — is the SAME block, over `documentDashAsEntry`, with its track
@@ -34,7 +34,7 @@
  * and nothing more. Rows key on the dash's **owner key**, which makes two
  * incarnations of a reused name distinct for free.
  *
- * The verbs live behind the `⋯`, composed from the Changes shade's own
+ * The verbs live on the row's right-click, composed from the Changes shade's own
  * {@link useDashRowMenu} so the two dash-row surfaces speak one grammar. Bind
  * mates an unbound dash to the Lens's followed card, or carries its refusal in
  * the item's own label ([L31]); Discard destroys it behind a confirm anchored
@@ -94,7 +94,7 @@ import React, {
   useState,
   useSyncExternalStore,
 } from "react";
-import { EllipsisVertical, GitBranch } from "lucide-react";
+import { GitBranch } from "lucide-react";
 
 import { LENS_LIST_PRESENTATION } from "@/components/lens/lens-list-presentation";
 import { setSectionContent } from "@/components/lens/lens-section-content";
@@ -544,33 +544,38 @@ interface DashVerbs {
 const DashVerbsContext = React.createContext<DashVerbs | null>(null);
 
 /**
- * The row's rare verbs, behind one opener — the same `⋯` grammar the Changes
- * shade's dash lane wears, composed from the same hook ({@link useDashRowMenu}).
+ * The row's rare verbs, on the row's own right-click — the same set the Changes
+ * shade's dash lane offers, composed from the same hook ({@link useDashRowMenu}).
  *
- * They used to stand here as Bind and Discard text buttons. Standing on the
- * eyebrow they read as peers of the acts a reader performs constantly, which
- * they are not: a dash is bound once, discarded almost never, and replayed only
- * when the automatic engine's gates have skipped it. The eyebrow goes back to
- * being read, and the two dash-row surfaces stop speaking two grammars.
+ * They used to stand here as Bind and Discard text buttons, then behind a `⋯`
+ * on the eyebrow. Both spent the eyebrow's right end on verbs a reader almost
+ * never presses: a dash is bound once, discarded almost never, and replayed
+ * only when the automatic engine's gates have skipped it. The eyebrow is now
+ * the identities alone — the dash, the hairline, the worker — and the verbs are
+ * where a list row's rare verbs live everywhere else in the app, under the
+ * pointer's second button.
  *
  * Bind's refusals arrive here as the item's own disabled reason, verbatim from
  * {@link resolveBindTarget} ([L31]). Unbind is deliberately absent: it stays the
  * fronted shade row's verb, and a Lens row routes you there.
  *
  * The press reports **nothing locally** for a bind: on success the worker's atom
- * replaces the opener's neighbours, so a pending state would be reporting into a
- * control that is about to leave. A server-side refusal arrives on the card-level
- * `dash-bind-error-store` surface, which outlives it — and a replay's outcome on
- * its sibling, for the same reason.
+ * arrives on the eyebrow, so a pending state would be reporting into a control
+ * that is about to leave. A server-side refusal arrives on the card-level
+ * `dash-bind-error-store` surface, which outlives the row — and a replay's
+ * outcome on its sibling, for the same reason.
  */
-function DashRowMenuControl({ row }: { row: DashRow }): React.ReactElement | null {
+function useDashRowVerbsMenu(row: DashRow): {
+  onContextMenu: (event: React.MouseEvent) => void;
+  menu: React.ReactNode;
+} {
   const verbs = React.useContext(DashVerbsContext);
   const target = useBindTarget(row);
   const followedSessionId = useFollowedSessionId();
   const entry = row.entry;
   const name = entry.display_name;
   const bound = (entry.bound_sessions ?? []).length > 0;
-  const openerRef = React.useRef<HTMLButtonElement | null>(null);
+  const rowRef = React.useRef<HTMLElement | null>(null);
 
   const rowMenu = useDashRowMenu({
     // Bind only, and only while nobody holds the dash: Unbind belongs to the
@@ -599,13 +604,13 @@ function DashRowMenuControl({ row }: { row: DashRow }): React.ReactElement | nul
         ? null
         : {
             disabledReason: null,
-            // The anchor is the ROW cell, never the opener: the confirm
+            // The anchor is the ROW cell, never the menu item: the confirm
             // outlives the press, and the menu unmounts on selection, so a
             // popover anchored to the item would be destroyed as it opened.
             perform: () =>
               verbs.requestDiscard(
                 row,
-                openerRef.current?.closest(
+                rowRef.current?.closest(
                   ".tug-list-view-cell",
                 ) as HTMLElement | null,
               ),
@@ -624,22 +629,30 @@ function DashRowMenuControl({ row }: { row: DashRow }): React.ReactElement | nul
           },
   });
 
-  if (rowMenu.menu === null) return null;
-  return (
-    <span className="lens-dashes-verbs" data-slot="lens-dashes-verbs">
-      <TugPushButton
-        ref={openerRef}
-        size="2xs"
-        subtype="icon"
-        emphasis="ghost"
-        aria-label={`Actions for dash ${name}`}
-        data-slot="lens-dashes-row-menu-open"
-        icon={<EllipsisVertical size={14} />}
-        onClick={() => rowMenu.openMenu(openerRef.current)}
-      />
-      {rowMenu.menu}
-    </span>
+  const onContextMenu = React.useCallback(
+    (event: React.MouseEvent): void => {
+      if (rowMenu.menu === null) return;
+      event.preventDefault();
+      event.stopPropagation();
+      rowRef.current = event.currentTarget as HTMLElement;
+      rowMenu.openMenuAt(event.clientX, event.clientY);
+    },
+    [rowMenu],
   );
+
+  return {
+    onContextMenu,
+    menu:
+      rowMenu.menu === null ? null : (
+        <span
+          className="lens-dashes-verbs"
+          data-slot="lens-dashes-verbs"
+          aria-label={`Actions for dash ${name}`}
+        >
+          {rowMenu.menu}
+        </span>
+      ),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -662,6 +675,9 @@ const DashCell: TugListViewCellRenderer<CockpitRowsDataSource> = ({
   // so it owes no refusal.
   const activatable = useWorkerCard(entry) !== null;
   const model = dashTrackModelFromEntry(entry);
+  // Bind / Discard / Replay, on the row's second button — the eyebrow carries
+  // no opener of its own any more.
+  const verbsMenu = useDashRowVerbsMenu(row);
   return (
     <TugListRow
       className="lens-dashes-row"
@@ -671,14 +687,15 @@ const DashCell: TugListViewCellRenderer<CockpitRowsDataSource> = ({
       data-dash={entry.display_name}
       data-bound={workers.length > 0 ? "true" : undefined}
       data-activatable={activatable ? "true" : undefined}
+      onContextMenu={verbsMenu.onContextMenu}
     >
       <span className="lens-dashes-block">
-        {/* The dash's whole life in the one block: the atom and the workers
-            over the track, the fraction, the note, and the divergence facts.
-            The pill wears no review tint — that yellow means WAITING, and a
-            dash is not waiting for anyone.
+        {/* The dash's whole life in the one block: line one the identities,
+            line two the track, the phase glyph, the fraction, the word, and
+            the divergence facts. The pill wears no review tint — that yellow
+            means WAITING, and a dash is not waiting for anyone.
 
-            Every row carries the menu opener, held or not: Replay reaches a
+            Every row answers the same menu, held or not: Replay reaches a
             bound dash on the same terms as an unbound one, and a menu that
             came and went with the binding would be the section's old wart in
             miniature. */}
@@ -686,11 +703,12 @@ const DashCell: TugListViewCellRenderer<CockpitRowsDataSource> = ({
           name={entry.display_name}
           workers={workers}
           model={model}
-          note={dashLifecycleNote(model, entry.step_title ?? null)}
+          note={dashLifecycleNote(model)}
+          stepTitle={entry.step_title ?? null}
           facts={dashMetaFacts(entry)}
           size="rail"
-          trailing={<DashRowMenuControl row={row} />}
         />
+        {verbsMenu.menu}
         {/* And what its JOIN is doing, in the one shared register — the same
             sentence the shade and the composer show, because all three call
             one derivation. Renders nothing until there is a join. */}
@@ -778,7 +796,7 @@ const PlanCell: TugListViewCellRenderer<CockpitRowsDataSource> = ({
           name={entry.display_name}
           workers={entry.bound_sessions ?? []}
           model={model}
-          note={dashLifecycleNote(model, null)}
+          note={dashLifecycleNote(model)}
           facts={dashMetaFacts(documentDashAsEntry(entry))}
           size="rail"
           trailing={
@@ -893,7 +911,7 @@ function DashesSectionBody({ host }: { host: LensSectionHost }): React.ReactElem
   // Activation opens the dash's ROOM: it fronts the card working the dash and
   // reveals that card's Changes shade, which is where every decision about a
   // dash already lives ([D152]). Navigation, never a verb — the mutating acts
-  // stay behind the `⋯`, because status is not a control ([D142]).
+  // stay on the row's context menu, because status is not a control ([D142]).
   //
   // Click and Enter are the same act here, unlike the Cards section's split:
   // there, a click both selects and fronts, so the two doors differ. A dash row

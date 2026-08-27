@@ -62,7 +62,7 @@ A pill holds its text a border plus its own inline padding in from its edge. A p
 
 This applies to a pill in a row's leading slot, which is where `TugDashAtom` puts it. A dash atom rendered mid-line inside a content run is not leading anything and takes no outdent — reach for `DashSigil atom` directly there.
 
-The outdent is also why a row does not need a second mark saying the dash is unbound. The register already says it: proportional in a pill means somebody is on this, the mono caret run means nobody is, and in the Lens's Dashes section the eyebrow's right side says it a second way (a worker's atom, or the Bind and Discard verbs). A dashed-circle glyph ahead of the name once said it a third time and was removed for exactly that redundancy.
+The outdent is also why a row does not need a second mark saying the dash is unbound. The register already says it: proportional in a pill means somebody is on this, the mono caret run means nobody is, and in the Lens's Dashes section the eyebrow's right side says it a second way (a worker's atom, or nothing at all). A dashed-circle glyph ahead of the name once said it a third time and was removed for exactly that redundancy.
 
 ### A line stacked under an atom starts on the atom's NAME
 

@@ -429,7 +429,8 @@ function DashRow({
           name={entry.display_name}
           workers={entry.bound_sessions ?? []}
           model={model}
-          note={dashLifecycleNote(model, entry.step_title ?? null)}
+          note={dashLifecycleNote(model)}
+          stepTitle={entry.step_title ?? null}
           facts={dashMetaFacts(entry)}
           size="read"
           trailing={
@@ -656,7 +657,7 @@ function DocumentDashRow({
           name={entry.display_name}
           workers={entry.bound_sessions ?? []}
           model={model}
-          note={dashLifecycleNote(model, null)}
+          note={dashLifecycleNote(model)}
           facts={dashMetaFacts(asEntry)}
           size="read"
           trailing={

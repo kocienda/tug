@@ -100,6 +100,13 @@ export interface DashRowMenuResult {
   menu: React.ReactNode;
   /** Open the menu under `anchor` — the opener button. */
   openMenu: (anchor: HTMLElement | null) => void;
+  /**
+   * Open the menu at a viewport point — the right-click path, for a surface
+   * that carries no opener of its own. The Lens's Dashes rows are that
+   * surface: the verbs are the same set, reached by the gesture every other
+   * list row in the app answers.
+   */
+  openMenuAt: (x: number, y: number) => void;
 }
 
 /** The item's label, carrying its own refusal when it has one. */
@@ -175,6 +182,14 @@ export function useDashRowMenu({
     [manager],
   );
 
+  const openMenuAt = React.useCallback(
+    (x: number, y: number): void => {
+      if (manager === null) return;
+      setOpenAt({ x, y });
+    },
+    [manager],
+  );
+
   const items = React.useMemo<TugEditorContextMenuEntry[]>(() => {
     const entries: TugEditorContextMenuEntry[] = [];
     if (binding !== null) {
@@ -222,5 +237,5 @@ export function useDashRowMenu({
       </ResponderScope>
     ) : null;
 
-  return { menu, openMenu };
+  return { menu, openMenu, openMenuAt };
 }

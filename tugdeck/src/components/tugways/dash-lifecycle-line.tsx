@@ -1,16 +1,23 @@
 /**
  * DashLifecycleLine — what a dash is DOING, as one line with no clock on it.
  *
- *   track · fraction · note · facts
+ *   track · glyph · fraction · note · facts
  *
  * The track is {@link TugDashTrack}, the dash's whole life in a cap-height
- * strip; the fraction is the step in progress over the plan's count, and only
- * while one is; the note is one word for a phase that has nothing more to say
- * — `brief`, `devise`, `review`, `join` — the step's title during implement,
- * and `stopped · <why>` when the arc stopped; the facts are the tone-colored
- * words `dashMetaFacts` derives, most urgent first, each with its detail on
- * hover. The two arc facts are dropped here: the track already says the arc
- * is running, and the note already says it stopped.
+ * strip; the glyph is {@link DashPhaseMark}, which says outright the phase the
+ * strip says by WHICH cell is lit; the fraction is the step in progress over
+ * the plan's count, and only while one is; the note is the phase in one word —
+ * `brief`, `devise`, `review`, `implement`, `join` — and `stopped · <why>`
+ * when the arc stopped; the facts are the tone-colored words `dashMetaFacts`
+ * derives, most urgent first, each with its detail on hover. The two arc facts
+ * are dropped here: the track already says the arc is running, and the note
+ * already says it stopped.
+ *
+ * **The step's TITLE is not a run on this line.** It rode the note during
+ * implement, where it was a sentence in a slot sized for a word: on every host
+ * but the placard it elided mid-word, and on the placard it restated the row
+ * the list below already lights. It is the fraction's hover sentence instead —
+ * the mark that counts the steps is the mark that names the one in hand.
  *
  * There is no age: the ring, the track, and the phase dot say whether
  * anything is moving. And the line never leaves its box: the note elides
@@ -36,10 +43,9 @@ import { TugDashTrack, type DashTrackModel } from "./tug-dash-track";
 import { TugStepFraction } from "./tug-step-fraction";
 import { TugTooltip } from "./tug-tooltip";
 
-/** The note under the model. Pure. */
-export function dashLifecycleNote(model: DashTrackModel, stepTitle: string | null): string {
+/** The note under the model — the phase in a word, or why the arc stopped. Pure. */
+export function dashLifecycleNote(model: DashTrackModel): string {
   if (model.stopped !== null) return `stopped · ${model.stopped}`;
-  if (model.phase === "implement" && stepTitle !== null) return stepTitle;
   return model.phase;
 }
 
@@ -53,24 +59,21 @@ export function dashLifecycleFacts(facts: readonly DashMetaFact[]): DashMetaFact
 export interface DashLifecycleLineProps {
   model: DashTrackModel;
   note: string;
+  /**
+   * The step in hand, when the host holds one — the fraction's hover sentence,
+   * never a run of its own ([D168]).
+   */
+  stepTitle?: string | null;
   facts?: readonly DashMetaFact[];
   size?: "rail" | "read";
-  /**
-   * Set the phase glyph after the track, between the strip and the word.
-   *
-   * The strip says where the dash is by WHICH cell is lit, which is a reading
-   * the eye has to make; the glyph says it outright. Off where the block above
-   * the line already carries one.
-   */
-  mark?: boolean;
 }
 
 export function DashLifecycleLine({
   model,
   note,
+  stepTitle = null,
   facts = [],
   size = "rail",
-  mark = false,
 }: DashLifecycleLineProps): React.ReactElement {
   const steps = model.steps;
   return (
@@ -81,9 +84,18 @@ export function DashLifecycleLine({
       data-stopped={model.stopped !== null ? "true" : undefined}
     >
       <TugDashTrack model={model} size={size} />
-      {mark ? <DashPhaseMark model={model} size={size === "read" ? 13 : 11} /> : null}
+      {/* One pixel proud of the cap band the track occupies (9px at read, 7 at
+          rail), so the glyph reads as the strip's neighbour rather than as a
+          taller mark set beside it. */}
+      <DashPhaseMark model={model} size={size === "read" ? 11 : 9} />
       {steps !== null && steps.current !== null ? (
-        <TugStepFraction current={steps.current} total={steps.total} />
+        stepTitle !== null && stepTitle.length > 0 ? (
+          <TugTooltip content={`step ${steps.current} of ${steps.total} · ${stepTitle}`}>
+            <TugStepFraction current={steps.current} total={steps.total} />
+          </TugTooltip>
+        ) : (
+          <TugStepFraction current={steps.current} total={steps.total} />
+        )
       ) : null}
       <span className="tug-dash-lifecycle-note" data-slot="tug-dash-lifecycle-note" title={note}>
         {note}

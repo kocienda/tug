@@ -1001,7 +1001,13 @@ export const SessionTelemetryStatusRow = React.forwardRef<
   const dashIndicatorState: TugProgressIndicatorState =
     dashFact?.arc?.stopped !== undefined
       ? "aborted"
-      : dashCellPose(dashFact === null ? null : dashFact.stage, isIdle);
+      : dashCellPose(
+          {
+            stage: dashFact?.stage ?? null,
+            arcStage: dashFact?.arc?.stage ?? null,
+          },
+          isIdle,
+        );
   // **Numbers whenever there are numbers.** The declared RUN first — the
   // selection somebody asked for — and the PLAN's own pair when no run was
   // declared, which is what makes a reviewed-but-unstarted plan read `0/10`

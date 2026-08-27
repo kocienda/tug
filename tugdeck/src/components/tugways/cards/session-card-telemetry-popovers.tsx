@@ -1331,9 +1331,10 @@ export function DashStepItems({
  *
  * The cockpit detail for one dash, in the vocabulary the Lens and the Changes
  * shade already speak: `DashLifecycleBlock` at the reading scale — the atom
- * and the workers over the track, the fraction, the current step's title, and
- * every divergence fact the dash carries — then **the plan's ledger**, the
- * dash's own step list. Composed, not restated: every mark here is the same
+ * and the workers over the track, the phase glyph, the fraction, the phase in
+ * a word, and every divergence fact the dash carries — then **the plan's
+ * ledger**, the dash's own step list, which is where a reader reads step
+ * titles. Composed, not restated: every mark here is the same
  * component the row surfaces render, so the three readings of one dash cannot
  * disagree.
  *
@@ -1397,7 +1398,8 @@ export function DashPopoverContent({
             name={fact.name}
             workers={fact.entry.bound_sessions ?? []}
             model={model}
-            note={dashLifecycleNote(model, fact.stepTitle)}
+            note={dashLifecycleNote(model)}
+            stepTitle={fact.stepTitle}
             facts={dashMetaFacts(fact.entry)}
             size="read"
           />

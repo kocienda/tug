@@ -293,6 +293,48 @@ describe.skipIf(!SHOULD_RUN)("AT0484: the Z2 DASH instrument", () => {
         expect(bound.cells.context.width).toBe(bare.cells.context.width);
         expectWholeRow(bound);
 
+        // ── The label rule is centred over the value it names ─────────────
+        // Every cell stacks two rows — the endcap-rule legend and the value —
+        // and the two have to be the same box, or the legend sits off-centre
+        // over its own reading. They used to be sized independently to one
+        // `ch` budget, which held only while the reading fit that budget:
+        // `None` between two dots does not fit the 10ch JOBS wears while a
+        // dash is up, so it spilled out from under a rule that stayed put.
+        // The budget is the CELL's `min-width` now and both rows stretch to
+        // it, which cannot come apart ([D168]).
+        const stacks = await app.evalJS<
+          ReadonlyArray<{ priority: string; rule: number; value: number; cell: number; overflow: number }>
+        >(
+          `Array.from(document.querySelectorAll(${JSON.stringify(`${CARD} [data-slot="tug-status-cell"]`)})).map((el) => {
+             const rule = el.querySelector(".session-telemetry-endcap-rule");
+             const value = el.querySelector(".session-telemetry-status-value-wrap");
+             const round = (n) => Math.round(n * 100) / 100;
+             return {
+               priority: el.getAttribute("data-priority") ?? "",
+               rule: round(rule?.getBoundingClientRect().width ?? 0),
+               value: round(value?.getBoundingClientRect().width ?? 0),
+               cell: round(el.getBoundingClientRect().width),
+               overflow: (value?.scrollWidth ?? 0) - (value?.clientWidth ?? 0),
+             };
+           })`,
+        );
+        note("at0484 stacks", JSON.stringify(stacks));
+        expect(stacks.length).toBe(PRIORITIES.length);
+        for (const stack of stacks) {
+          expect(
+            stack.rule,
+            `${stack.priority}: the legend and the value are one box`,
+          ).toBe(stack.value);
+          expect(
+            stack.value,
+            `${stack.priority}: neither row is wider than the cell`,
+          ).toBeLessThanOrEqual(stack.cell);
+          expect(
+            stack.overflow,
+            `${stack.priority}: the reading does not spill out of its box`,
+          ).toBeLessThanOrEqual(0);
+        }
+
         // ── A declared run wins over the plan's own pair ──────────────────
         await shellAndSettle(
           app,

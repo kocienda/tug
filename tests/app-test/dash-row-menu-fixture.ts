@@ -1,5 +1,5 @@
 /**
- * dash-row-menu-fixture.ts — driving the dash row's `⋯` menu from an app-test.
+ * dash-row-menu-fixture.ts — driving a dash row's verb menu from an app-test.
  *
  * Bind, Unbind and Discard used to be buttons standing on the row, which made
  * them one `querySelector` away. They are menu items now ([P08]), and a menu
@@ -11,6 +11,11 @@
  * menu rather than four, because the interesting failures here are all timing
  * — a portal that has not mounted, a coordinate read between recomposes — and
  * four copies of a retry is three chances for one of them to be subtly wrong.
+ *
+ * The two surfaces open it differently, which {@link openDashRowMenu} hides:
+ * the Changes shade's lane has a `⋯` opener, the Lens's Dashes rows have none
+ * (their eyebrow is the identities alone) and answer a right-click on the row.
+ * Same menu, same items, one way to drive it.
  *
  * The menu portals to `document.body`, so its items are queried globally
  * rather than under the row. That is not a leak in the selector: only one row
@@ -29,15 +34,11 @@ export type DashRowMenuAction =
   | "request-replay-dash";
 
 /**
- * The `⋯` opener on a row. `row` is the row's own selector.
- *
- * A selector list rather than one slot, because the two dash-row surfaces name
- * their opener differently — the shade's row and the Lens's row are distinct
- * test hooks and must stay distinguishable when both are on screen. What the
- * two share is this menu, so the way to drive it is shared too.
+ * The `⋯` opener on a row, for the surface that has one. `row` is the row's
+ * own selector; the Lens's rows match nothing here and are right-clicked.
  */
 export const dashRowMenuOpener = (row: string): string =>
-  `${row} [data-slot="session-changes-dash-row-menu-open"], ${row} [data-slot="lens-dashes-row-menu-open"]`;
+  `${row} [data-slot="session-changes-dash-row-menu-open"]`;
 
 /** The open menu itself, wherever the portal put it. */
 export const DASH_ROW_MENU = '[data-slot="tug-editor-context-menu"]';
@@ -64,6 +65,8 @@ const settle = (ms = 200): Promise<unknown> => new Promise((r) => setTimeout(r, 
  * coordinate read can go stale between aiming and clicking. A missed click
  * opens nothing, which is what makes the retry a retry rather than a
  * double-open.
+ *
+ * A row with no opener is opened by its own right-click — the Lens's grammar.
  */
 export async function openDashRowMenu(
   app: App,
@@ -72,15 +75,21 @@ export async function openDashRowMenu(
 ): Promise<void> {
   const opener = dashRowMenuOpener(row);
   for (let i = 0; i < attempts; i += 1) {
+    const target = (await app.evalJS<boolean>(
+      `document.querySelector(${JSON.stringify(opener)}) !== null`,
+    ))
+      ? opener
+      : row;
     await app.evalJS<null>(
       `(() => {
-         const el = document.querySelector(${JSON.stringify(opener)});
+         const el = document.querySelector(${JSON.stringify(target)});
          if (el !== null) el.scrollIntoView({ block: "center" });
          return null;
        })()`,
     );
     await settle(250);
-    await app.nativeClickAtElement(opener);
+    if (target === opener) await app.nativeClickAtElement(opener);
+    else await app.nativeRightClickAtElement(row);
     try {
       await app.waitForCondition<boolean>(
         `document.querySelector(${JSON.stringify(DASH_ROW_MENU)}) !== null`,

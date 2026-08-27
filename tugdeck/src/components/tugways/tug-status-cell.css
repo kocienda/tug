@@ -11,10 +11,10 @@
  * The cell root is a `<button>` — these rules reset the UA button chrome
  * (border / background / font) so it reads exactly as the `<span>` it
  * replaced, then layer the instrument styling on top. Each cell sets its
- * own static `--tugx-session-status-cell-width` keyed on `data-priority`;
- * both the value wrap and the endcap apparatus read that one slot, so
- * the apparatus and value stack at the same width and the cell never
- * resizes as live values tick.
+ * own static `--tugx-session-status-cell-width` keyed on `data-priority`,
+ * and holds it as its own `min-width`; the value wrap and the endcap
+ * apparatus stretch to the cell, so the apparatus and the value stack at
+ * one width by construction and the cell never resizes as live values tick.
  *
  * Tuglaw cross-check:
  *  - [L19] component-authoring file pair (`.tsx` + `.css`); the cell
@@ -29,9 +29,24 @@
 
 /* Cell root (a `<button>`) — reset UA chrome, then a two-row vertical
    stack: label apparatus on top, value centered below. `flex: 0 0 auto`
-   keeps the cell at its intrinsic fixed width so the row's
+   keeps the cell at its intrinsic width so the row's
    `justify-content: center` distributes leftover width into the row's
-   flexing margins rather than stretching individual cells. */
+   flexing margins rather than stretching individual cells.
+
+   **The two rows are one box, whatever the reading.** The
+   budget is each row's `min-width` and the rows STRETCH to the cell, rather
+   than each row being set to a fixed `width`: two boxes sized independently to
+   the same number cannot overflow the same way, and a reading wider than its
+   budget — `None` between two dots in the 10ch JOBS wears while a dash is up —
+   spilled out of a fixed value row while the label rule above it stayed at the
+   budget, which is exactly the "off centre" that made the pair look broken.
+   Under the stretch the cell sizes to its widest row and the other row follows,
+   so the label stays centred over the value it names whatever the value says.
+
+   The budget stays on the rows rather than moving to the cell: the cell wears
+   `.session-telemetry-status-anchor`'s 6px of inline padding, so a `min-width`
+   there would be a border-box number and would quietly spend 12px of every
+   cell's endcap wings. */
 .session-telemetry-status-cell {
   appearance: none;
   -webkit-appearance: none;
@@ -43,14 +58,14 @@
 
   display: inline-flex;
   flex-direction: column;
-  align-items: center;
+  align-items: stretch;
   gap: 2px;
   flex: 0 0 auto;
 }
 
-/* Per-priority static cell width — read by both
+/* Per-priority static cell width — the `min-width` both
    `.session-telemetry-status-value-wrap` and `.session-telemetry-endcap-rule`
-   (so apparatus and value-wrap share one width). Each cell is sized to
+   hold, and therefore the cell's own content width. Each cell is sized to
    clear its widest realistic content; within a cell the width never
    changes as live values tick (no jitter).
 
@@ -155,13 +170,14 @@
   --tugx-session-status-cell-width: 10ch;
 }
 .session-telemetry-status-value-wrap {
-  /* Wrap centers its single child value within the static cell width —
-     so values can change character count freely and remain centered on
-     the same axis as the label above them. */
+  /* Wrap centers its single child value across the whole cell — so values
+     can change character count freely and remain centered on the same axis
+     as the label above them. The budget is a floor rather than a width, and
+     the stretch is what makes the two rows one box. */
   display: inline-flex;
   justify-content: center;
   align-items: center;
-  width: var(--tugx-session-status-cell-width);
+  min-width: var(--tugx-session-status-cell-width);
 }
 
 /* STATE value row — the phase title centered between two label-less
@@ -370,7 +386,7 @@
   flex-direction: row;
   align-items: center;
   gap: 4px;
-  width: var(--tugx-session-status-cell-width);
+  min-width: var(--tugx-session-status-cell-width);
   /* Tick excursion — `--tugx-session-status-endcap-length` is the cap length
      in px; reserving margin in the tick direction keeps the tick from
      overlapping the adjacent value row. */

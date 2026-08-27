@@ -11,7 +11,8 @@
  * it `SessionIdentityRow`'s own doing, so the row here has nothing dash-shaped
  * to assemble. The fourth line this row used to grow when bound is retired:
  * the title carries the progress in the width the hidden callsign freed, and
- * the step's title lives in the Dashes section.
+ * the step's title is the fraction's hover sentence wherever a fraction is
+ * drawn.
  *
  * The middle line is the agent's rolling description of the session, with the
  * session's creation date standing in until one is written — so the row is the

@@ -10,12 +10,14 @@
  *     `dashTrackModelFromEntry` derives it from the wire.
  *   - `DashPhaseMark` — the same five phases as one glyph, keyed on the
  *     lifecycle phase rather than on the git stage.
- *   - `DashLifecycleMark` — the COMPACT register: glyph · one pill · fraction.
+ *   - `DashLifecycleMark` — the COMPACT register: one pill · glyph · fraction.
  *     For the two surfaces where a session is the subject and the dash is one
  *     fact about it.
- *   - `DashLifecycleLine` — track · fraction · note · facts. No age.
- *   - `DashLifecycleBlock` — eyebrow (glyph · atom · rule · workers) over the
- *     line: the Lens row and the shade row, at the rail and reading scales.
+ *   - `DashLifecycleLine` — track · glyph · fraction · note · facts. No age.
+ *   - `DashLifecycleBlock` — eyebrow (atom · rule · workers) over the line:
+ *     the Lens row and the shade row, at the rail and reading scales. The
+ *     eyebrow says WHO, the line says WHAT — every reading of the dash's
+ *     state, the phase glyph included, is on the second line.
  *
  * **Two registers, one grammar.** The strip belongs to the three surfaces
  * whose subject IS the dash (the Lens's Dashes section, the Changes shade, the
@@ -336,7 +338,7 @@ export function GalleryDashLifecycle(): React.ReactElement {
 
       <section className="cg-section">
         <TugLabel className="cg-section-title">The lifecycle, as one track — TugDashTrack</TugLabel>
-        <Stage caption="brief · devise · review · implement (one tick per step) · join. Each row is the real DashLifecycleLine, so the strip, the fraction, and the word are spaced by the component rather than by this card. Cap-height, so it rides any line the atom is on. What is behind you is a FILL and what is ahead is an OUTLINE: done is the muted text tone, active the theme's key color — the tone the pulsing dot uses for the same claim — the join the theme's selection color, and pending no fill at all">
+        <Stage caption="brief · devise · review · implement (one tick per step) · join. Each row is the real DashLifecycleLine, so the strip, the glyph, the fraction, and the word are spaced by the component rather than by this card. Cap-height, so it rides any line the atom is on. The type runs sit on one baseline and the two graphics are centred, which lands the cap-height strip on the type's own cap band; the glyph is sized a pixel proud of that band rather than four, so it reads as the strip's neighbour. What is behind you is a FILL and what is ahead is an OUTLINE: done is the muted text tone, active the theme's key color — the tone the pulsing dot uses for the same claim — the join the theme's selection color, and pending no fill at all">
           <div className="cg-dash-legend">
             {MOMENTS.map((m) => {
               const model = dashTrackModelFromEntry(m.entry);
@@ -344,7 +346,7 @@ export function GalleryDashLifecycle(): React.ReactElement {
                 <DashLifecycleLine
                   key={m.key}
                   model={model}
-                  note={dashLifecycleNote(model, null)}
+                  note={dashLifecycleNote(model)}
                   size="read"
                 />
               );
@@ -386,7 +388,7 @@ export function GalleryDashLifecycle(): React.ReactElement {
 
       <section className="cg-section">
         <TugLabel className="cg-section-title">The compact register — DashLifecycleMark</TugLabel>
-        <Stage caption="glyph · one pill · fraction. Where the dash is, that it is alive, and how far along — in a box that cannot grow. The dash's NAME is not here: both hosts render the identity's own ^<dash> immediately to its left, and a second spelling of a name already on the line is a second thing to keep in step">
+        <Stage caption="one pill · glyph · fraction — the full register's own order, one scale down. That the dash is alive, where it is, and how far along, in a box that cannot grow. The pill leads because it is the mark that touches the identity run it follows. The dash's NAME is not here: both hosts render the identity's own ^<dash> immediately to its left, and a second spelling of a name already on the line is a second thing to keep in step">
           <div className="cg-dash-legend">
             {MOMENTS.map((m) => (
               <div className="cg-dash-legend-row" key={m.key}>
@@ -455,7 +457,8 @@ export function GalleryDashLifecycle(): React.ReactElement {
         <TugLabel className="cg-section-title">In flight — on every surface, no surface taller</TugLabel>
         {MOMENTS.map((m) => {
           const model = dashTrackModelFromEntry(m.entry);
-          const note = dashLifecycleNote(model, m.entry.step_title ?? null);
+          const note = dashLifecycleNote(model);
+          const stepTitle = m.entry.step_title ?? null;
           const facts = dashMetaFacts(m.entry);
           const name = m.entry.display_name;
           return (
@@ -464,12 +467,12 @@ export function GalleryDashLifecycle(): React.ReactElement {
                 <div className="cg-dash-surface">
                   <span className="cg-dash-surface-name">Lens · DashLifecycleBlock size=rail</span>
                   <TugListRow variant="flush" density="compact">
-                    <DashLifecycleBlock name={name} workers={m.workers} model={model} note={note} facts={facts} size="rail" />
+                    <DashLifecycleBlock name={name} workers={m.workers} model={model} note={note} stepTitle={stepTitle} facts={facts} size="rail" />
                   </TugListRow>
                 </div>
                 <div className="cg-dash-surface">
                   <span className="cg-dash-surface-name">Changes shade · DashLifecycleBlock size=read</span>
-                  <DashLifecycleBlock name={name} workers={m.workers} model={model} note={note} facts={facts} size="read" />
+                  <DashLifecycleBlock name={name} workers={m.workers} model={model} note={note} stepTitle={stepTitle} facts={facts} size="read" />
                 </div>
                 <div className="cg-dash-surface" data-wide="true">
                   <span className="cg-dash-surface-name">Masthead · the real SessionIdentityRow, at SessionMasthead's settings</span>

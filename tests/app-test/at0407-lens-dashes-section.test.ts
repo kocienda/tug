@@ -10,10 +10,11 @@
  * what would carry the dot.
  *
  * Beneath the eyebrow, the lifecycle line says what the dash is DOING: the
- * track, the fraction while a step is open, the note, and the divergence
- * facts. The track is the whole reading — a dash driving a stepped plan
- * stands at `implement` with one tick per plan row, and the note is that
- * step's title.
+ * track, the phase glyph, the fraction while a step is open, the phase in a
+ * word, and the divergence facts. The track is the whole reading — a dash
+ * driving a stepped plan stands at `implement` with one tick per plan row.
+ * The step's TITLE is not on the line at all: it is the fraction's hover
+ * sentence ([D168]).
  *
  * Two decisions of [D141] are pinned as absences: the dash pill wears no
  * review tint here (that yellow means WAITING, and a dash is not waiting for
@@ -190,7 +191,8 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Lens Dashes section", () => {
           atomText: string;
           reviewTinted: boolean;
           reviewGlyphs: number;
-          menus: number;
+          glyphs: number;
+          eyebrowGlyphs: number;
           workers: number;
           dots: number;
           bound: string | null;
@@ -208,7 +210,10 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Lens Dashes section", () => {
                // means WAITING, and a dash is not waiting for anyone.
                reviewTinted: atom?.hasAttribute("data-review") === true,
                reviewGlyphs: row.querySelectorAll('[data-slot="lens-dashes-review"]').length,
-               menus: row.querySelectorAll('[data-slot="lens-dashes-row-menu-open"]').length,
+               glyphs: row.querySelectorAll('[data-slot="tug-dash-phase-mark"]').length,
+               eyebrowGlyphs: row.querySelectorAll(
+                 '[data-slot="tug-dash-lifecycle-eyebrow"] [data-slot="tug-dash-phase-mark"]',
+               ).length,
                workers: row.querySelectorAll('[data-slot="tug-dash-lifecycle-worker"]').length,
                dots: row.querySelectorAll('[data-slot="tug-progress-indicator"]').length,
                bound: row.getAttribute("data-bound"),
@@ -221,9 +226,11 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Lens Dashes section", () => {
         expect(unbound.atomText).toBe(`^${DASH_NAME}`);
         expect(unbound.reviewTinted).toBe(false);
         expect(unbound.reviewGlyphs).toBe(0);
-        // The row's verbs live behind one opener, on every row — the standing
-        // Bind and Discard buttons are gone, and the shade's grammar is here.
-        expect(unbound.menus).toBe(1);
+        // The phase glyph is on the LINE and only there: the eyebrow is the
+        // identities alone, and the verbs are on the row's right-click rather
+        // than behind an opener that spent the eyebrow's right end.
+        expect(unbound.glyphs).toBe(1);
+        expect(unbound.eyebrowGlyphs).toBe(0);
         expect(unbound.workers).toBe(0);
         // No phase dot on a row nobody works: a dash with a phase to report
         // has a session bound to it, and that session's atom carries the dot.
@@ -307,8 +314,10 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Lens Dashes section", () => {
         // the two readings cannot disagree.
         expect(meta.fraction).toBe("1/3");
         expect(meta.ticks).toEqual(["active", "pending", "pending"]);
-        // The note is the current step's title, straight off the declaration.
-        expect(meta.noteText).toBe("The only step");
+        // The note is the PHASE, not the step's title: the title rode this
+        // slot until it elided mid-word in every host that was not the
+        // placard, and it is the fraction's hover sentence now ([D168]).
+        expect(meta.noteText).toBe("implement");
         note("at0407 meta line", await app.screenshot().then((s) => s.path));
 
         // ── A withdrawn step paints its own tick, and the count agrees ────

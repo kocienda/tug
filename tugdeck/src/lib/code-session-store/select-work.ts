@@ -128,25 +128,35 @@ const DASH_SETTLED_STAGES: ReadonlySet<string> = new Set([
  * The DASH reading's indicator pose — the dash lifecycle in the same
  * three poses the TASKS reading it replaces uses:
  *
- *  - no stage, or a dash that has not been worked yet (`created`) →
- *    `stopped`;
  *  - a resting point of the arc (`ready` / `built` / `audited` /
  *    `draft-ready`) → `completed`;
- *  - anything else — the stages that are work in flight — `running`,
- *    demoted to `stopped` while the session is idle, on the same
- *    grounds as TASKS: a dash does not advance between turns, and a
- *    dot still pulsing over an idle session would say it did.
+ *  - a dash under way → `running`, demoted to `stopped` while the
+ *    session is idle, on the same grounds as TASKS: a dash does not
+ *    advance between turns, and a dot still pulsing over an idle
+ *    session would say it did;
+ *  - a dash nobody has begun — no arc, and no stage or `created` →
+ *    `stopped`.
+ *
+ * **"Under way" is the ARC, not the git stage.** A dash writing its
+ * brief, devising a plan, or reviewing one has no stage at all —
+ * `dash create` has not cut a branch yet — so a pose read off the
+ * stage alone showed two idle dots beside `Devise` on a session that
+ * was plainly working, which is the same blindness the phase glyph was
+ * moved off the stage to cure ([D168]). An arc with a stage in hand is
+ * a dash under way whatever the git side says.
  *
  * An unrecognized stage from an older or newer sender falls into the
  * in-flight branch rather than a dead pose, so a stage added later
  * reads as work rather than as nothing.
  */
 export function dashCellPose(
-  stage: string | null,
+  dash: { stage: string | null; arcStage: string | null },
   isIdle: boolean,
 ): "stopped" | "running" | "completed" {
-  if (stage === null || stage === "created") return "stopped";
-  if (DASH_SETTLED_STAGES.has(stage)) return "completed";
+  const { stage, arcStage } = dash;
+  if (stage !== null && DASH_SETTLED_STAGES.has(stage)) return "completed";
+  const begun = arcStage !== null || (stage !== null && stage !== "created");
+  if (!begun) return "stopped";
   return isIdle ? "stopped" : "running";
 }
 

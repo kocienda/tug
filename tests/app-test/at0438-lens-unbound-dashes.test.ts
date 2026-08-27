@@ -74,8 +74,9 @@ const DASH_NAME = "at0438-unbound";
 const SECTION = '.lens-section[data-lens-section="dashes"]';
 const ROW = `${SECTION} [data-slot="lens-dashes-row"][data-dash="${DASH_NAME}"]`;
 const ROW_ATOM = `${ROW} [data-slot="tug-dash-lifecycle-name"]`;
-/** The row's `⋯` opener — the Lens row's verbs live behind it now. */
-const MENU_OPEN = `${ROW} [data-slot="lens-dashes-row-menu-open"]`;
+/* The eyebrow's own children — the identities, and nothing else. A Lens dash
+   row carries no opener: its verbs answer the row's right-click. */
+const EYEBROW_VERBS = `${ROW} [data-slot="tug-dash-lifecycle-eyebrow"] button`;
 const WORKER = `${ROW} [data-slot="tug-dash-lifecycle-worker"]`;
 
 const CARDS = '.lens-section[data-lens-section="cards"]';
@@ -188,7 +189,7 @@ describe.skipIf(!SHOULD_RUN)("AT0438: the always-on Dashes section", () => {
         );
         const unbound = await app.evalJS<{
           atom: string;
-          openers: number;
+          eyebrowButtons: number;
           workers: number;
           bound: string | null;
         }>(
@@ -197,7 +198,7 @@ describe.skipIf(!SHOULD_RUN)("AT0438: the always-on Dashes section", () => {
              const row = document.querySelector(${JSON.stringify(ROW)});
              return {
                atom: (atom?.textContent ?? "").trim(),
-               openers: document.querySelectorAll(${JSON.stringify(MENU_OPEN)}).length,
+               eyebrowButtons: document.querySelectorAll(${JSON.stringify(EYEBROW_VERBS)}).length,
                workers: document.querySelectorAll(${JSON.stringify(WORKER)}).length,
                bound: row?.getAttribute("data-bound") ?? null,
              };
@@ -207,11 +208,12 @@ describe.skipIf(!SHOULD_RUN)("AT0438: the always-on Dashes section", () => {
         // The name wears its sigil here too — a dash is named one way
         // everywhere.
         expect(unbound.atom).toBe(`^${DASH_NAME}`);
-        expect(unbound.openers).toBe(1);
+        expect(unbound.eyebrowButtons).toBe(0);
         expect(unbound.workers).toBe(0);
         expect(unbound.bound).toBeNull();
-        // Bind is behind the `⋯`, in the shade's own grammar. Whether it is
-        // available depends on the Lens having a followed card, which is a
+        // Bind is on the row's right-click, in the shade's own grammar.
+        // Whether it is available depends on the Lens having a followed card,
+        // which is a
         // fact about focus rather than about this row — so what is asserted
         // here is that the verb is offered and that a blocked one says why
         // ([L31]), never a bare disabled word.
@@ -238,7 +240,7 @@ describe.skipIf(!SHOULD_RUN)("AT0438: the always-on Dashes section", () => {
         );
         const bound = await app.evalJS<{
           rows: number;
-          openers: number;
+          eyebrowButtons: number;
           boundFlag: string | null;
           workerDots: number;
           workerDashRuns: number;
@@ -248,7 +250,7 @@ describe.skipIf(!SHOULD_RUN)("AT0438: the always-on Dashes section", () => {
              const row = document.querySelector(${JSON.stringify(ROW)});
              return {
                rows: document.querySelectorAll(${JSON.stringify(ROW)}).length,
-               openers: document.querySelectorAll(${JSON.stringify(MENU_OPEN)}).length,
+               eyebrowButtons: document.querySelectorAll(${JSON.stringify(EYEBROW_VERBS)}).length,
                boundFlag: row?.getAttribute("data-bound") ?? null,
                workerDots: worker?.querySelectorAll('[data-slot="tug-progress-indicator"]').length ?? 0,
                // The worker atom carries NO dash run: the eyebrow's leading
@@ -260,10 +262,11 @@ describe.skipIf(!SHOULD_RUN)("AT0438: the always-on Dashes section", () => {
         );
         note("at0438 bound row", JSON.stringify(bound));
         expect(bound.rows).toBe(1);
-        // The opener stays — every row carries it, held or not — but the dash
-        // is held now, so its menu offers no Bind. Unbind is deliberately not
-        // here either: it belongs to the worker's own shade.
-        expect(bound.openers).toBe(1);
+        // The eyebrow stays the identities alone, held or not — and the menu
+        // the row's right-click opens offers no Bind now that the dash is
+        // held. Unbind is deliberately not here either: it belongs to the
+        // worker's own shade.
+        expect(bound.eyebrowButtons).toBe(0);
         const boundMenu = await readDashRowMenu(app, ROW);
         note("at0438 bound menu", JSON.stringify(boundMenu));
         expect(boundMenu.bind.present).toBe(false);
