@@ -4812,6 +4812,58 @@ impl SessionLedger {
         Ok(by_dash)
     }
 
+    /// Move each seated line's dash binding onto the segment a restore will
+    /// resume ([P06], [P08]).
+    ///
+    /// A binding is written against the session id that was the card's at the
+    /// time — the tug session id, which a rotation never changes while the
+    /// process lives. A relaunch seats the card on the line's tip instead, and
+    /// the tip a rotation minted carries no binding of its own, so the restore
+    /// would report the card unbound while the arc record still names it
+    /// mid-stage. Run once at startup, after the demote and before any client
+    /// asks: the seat is the one row that reports bound, and the row it moved
+    /// from reports nothing — moved, never copied. Returns how many moved.
+    pub fn seat_line_bindings(&self) -> Result<usize, LedgerError> {
+        let seats = self.list_lines_with_card()?;
+        let mut moved = 0usize;
+        {
+            let mut conn = self.db.lock().expect("ledger mutex");
+            let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+            for (_, seat, _) in &seats {
+                if seat.dash_id.is_some() {
+                    continue;
+                }
+                let holder: Option<(String, String, Option<String>)> = tx
+                    .query_row(
+                        "SELECT session_id, dash_id, dash_name FROM sessions
+                         WHERE line_id = ?1 AND dash_id IS NOT NULL AND session_id != ?2
+                         ORDER BY created_at DESC, rowid DESC
+                         LIMIT 1",
+                        params![seat.line_id, seat.session_id],
+                        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                    )
+                    .optional()?;
+                let Some((from, dash_id, dash_name)) = holder else {
+                    continue;
+                };
+                tx.execute(
+                    "UPDATE sessions SET dash_id = ?2, dash_name = ?3 WHERE session_id = ?1",
+                    params![seat.session_id, dash_id, dash_name],
+                )?;
+                tx.execute(
+                    "UPDATE sessions SET dash_id = NULL, dash_name = NULL WHERE session_id = ?1",
+                    params![from],
+                )?;
+                moved += 1;
+            }
+            tx.commit()?;
+        }
+        if moved > 0 {
+            self.notify_sessions_changed();
+        }
+        Ok(moved)
+    }
+
     /// Transition a row to `failed`. Replaces the previous "remove on
     /// resume_failed" semantics — the row is retained as a diagnostic crumb.
     /// `card_id` is preserved across transitions; see [`mark_closed`], whose
@@ -12481,6 +12533,67 @@ mod tests {
         ledger
             .record_spawn(id, ws, project_dir, card, now, id, None)
             .expect("record_spawn");
+    }
+
+    // ── seat_line_bindings ───────────────────────────────────────────────────
+
+    #[test]
+    fn a_relaunch_seats_the_line_binding_on_the_resumed_segment() {
+        let l = fresh();
+        let line = "line-1";
+        l.record_spawn("root", WS_A, "/proj", "card-1", millis(2), line, None)
+            .unwrap();
+        l.set_dash_binding("root", Some(("tugdash/demo#1", "demo")))
+            .unwrap();
+        // The rotation's segment: minted on the same line, forked from the
+        // root, bound to nothing of its own.
+        l.record_spawn("stage", WS_A, "/proj", "card-1", millis(1), line, None)
+            .unwrap();
+        l.set_fork_provenance("stage", "root", None).unwrap();
+        l.demote_live_to_closed().unwrap();
+        assert_eq!(
+            l.resume_segment_for_line(line).unwrap().unwrap().session_id,
+            "stage",
+            "the relaunch seats the tip"
+        );
+
+        assert_eq!(l.seat_line_bindings().unwrap(), 1);
+        let seat = l.get("stage").unwrap().unwrap();
+        assert_eq!(seat.dash_id.as_deref(), Some("tugdash/demo#1"));
+        assert_eq!(seat.dash_name.as_deref(), Some("demo"));
+        assert!(
+            l.get("root").unwrap().unwrap().dash_id.is_none(),
+            "a binding is moved, never copied"
+        );
+        assert_eq!(
+            l.seat_line_bindings().unwrap(),
+            0,
+            "seated once, nothing to move"
+        );
+    }
+
+    #[test]
+    fn seat_line_bindings_leaves_a_seated_or_unbound_line_alone() {
+        let l = fresh();
+        // Bound on the seat already.
+        l.record_spawn("solo", WS_A, "/proj", "card-1", millis(1), "line-1", None)
+            .unwrap();
+        l.set_dash_binding("solo", Some(("tugdash/demo#1", "demo")))
+            .unwrap();
+        // Two segments, neither bound.
+        l.record_spawn("a", WS_A, "/proj", "card-2", millis(2), "line-2", None)
+            .unwrap();
+        l.record_spawn("b", WS_A, "/proj", "card-2", millis(1), "line-2", None)
+            .unwrap();
+        l.set_fork_provenance("b", "a", None).unwrap();
+        l.demote_live_to_closed().unwrap();
+
+        assert_eq!(l.seat_line_bindings().unwrap(), 0);
+        assert_eq!(
+            l.get("solo").unwrap().unwrap().dash_id.as_deref(),
+            Some("tugdash/demo#1")
+        );
+        assert!(l.get("b").unwrap().unwrap().dash_id.is_none());
     }
 
     // ── demote_live_to_closed ────────────────────────────────────────────────

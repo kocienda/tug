@@ -617,6 +617,19 @@ async fn main() {
         Err(e) => warn!(error = %e, "failed to demote stale live ledger rows"),
     }
 
+    // A relaunch seats each card on its line's tip, and the tip a rotation
+    // minted carries no binding: the bind was written against the segment
+    // that was the tug session id at the time. Move it to the seat before any
+    // client asks what the card is bound to.
+    match ledger.seat_line_bindings() {
+        Ok(0) => {}
+        Ok(n) => info!(
+            count = n,
+            "seated line dash bindings on the resumed segments"
+        ),
+        Err(e) => warn!(error = %e, "failed to seat line dash bindings"),
+    }
+
     // Prompt-history ledger — the composer's durable prompt corpus. Non-fatal:
     // a failure leaves the recall routes unregistered, which the deck reports
     // to the user rather than swallowing, and must not take tugcast down.

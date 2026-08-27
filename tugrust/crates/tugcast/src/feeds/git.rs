@@ -294,6 +294,27 @@ pub async fn build_commit_files_snapshot(
             files: Vec::new(),
         };
     }
+    // Every commit-shaped token the annotator finds arrives here as a verdict
+    // query, and most of them are not commits: a session id's first eight hex
+    // digits look exactly like a short sha. Ask the one silent question first,
+    // so a hash that names nothing yields the empty snapshot without three
+    // `git show` failures logged as if something went wrong.
+    let commitish = format!("{sha}^{{commit}}");
+    if run_git_line(repo_dir, &["rev-parse", "--verify", "--quiet", &commitish])
+        .await
+        .is_none()
+    {
+        return GitCommitFilesSnapshot {
+            request_id,
+            workspace_key: workspace_key.to_string(),
+            sha: sha.to_string(),
+            no_repo: false,
+            subject: String::new(),
+            author: String::new(),
+            date: String::new(),
+            files: Vec::new(),
+        };
+    }
     let numstat = run_git_capture(
         repo_dir,
         &[
@@ -1506,6 +1527,29 @@ index 1111111..2222222 100644
         .await;
         assert_eq!(scoped.file_count, 1);
         assert_eq!(scoped.files[0].path, "fresh.txt");
+    }
+
+    #[tokio::test]
+    async fn a_hash_that_names_no_commit_is_an_empty_snapshot_not_an_error() {
+        let temp = init_diff_fixture_repo().await;
+        let repo = temp.path().to_path_buf();
+
+        // A session id's first eight hex digits, the shape the annotator
+        // asks about most.
+        let missing =
+            build_commit_files_snapshot(&repo, "req-m".to_string(), "ws", "580990c5").await;
+        assert!(!missing.no_repo);
+        assert_eq!(missing.sha, "580990c5");
+        assert!(missing.files.is_empty());
+        assert!(missing.subject.is_empty());
+        assert!(missing.author.is_empty());
+        assert!(missing.date.is_empty());
+
+        // The same call on a real sha still describes it.
+        let sha = run_git_line(&repo, &["rev-parse", "HEAD"]).await.unwrap();
+        let found = build_commit_files_snapshot(&repo, "req-f".to_string(), "ws", &sha).await;
+        assert!(!found.subject.is_empty());
+        assert!(!found.files.is_empty());
     }
 
     #[tokio::test]
