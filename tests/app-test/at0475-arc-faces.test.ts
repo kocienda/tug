@@ -13,8 +13,9 @@
  * So the arc gets two faces, both of them existing surfaces:
  *
  *   1. the **Z2 DASH cell**, where it costs no height at all — the arc's stage
- *      and its stopped-ness are attributes the CSS paints ([L06]), because the
- *      cell's box is already spoken for by the fraction and the stage glyph;
+ *      rides the cell's accessible sentence and its stopped-ness turns both
+ *      flanking dots and takes the reading itself, because the cell's box is
+ *      one short word wide and has no room for a clause beside it;
  *   2. the **placard's metadata line**, one press away, where there is room for
  *      the words: which stage it stopped in and why.
  *
@@ -45,15 +46,16 @@
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { appendFileSync, readdirSync, statSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { resolve } from "node:path";
 import { realpathSync } from "node:fs";
 
-import { launchTugApp, note } from "./_harness";
+import { launchTugApp, note, type App } from "./_harness";
 import { mkTempTugbank, rmTempTugbank, seedTugbankForLaunch } from "./_harness/tugbank-helpers";
 import {
+  appendDashLogLine,
   bindDash,
   createDash,
+  dashLogPath,
   discardDash,
   makeDashScratchRepo,
   rmDashScratchRepo,
@@ -82,39 +84,37 @@ const PLACARD = '[data-slot="session-dash-popover-body"]';
  *  on one subject. */
 const ARC_NOTE = `${PLACARD} [data-slot="tug-dash-lifecycle-note"]`;
 const ARC_TRACK = `${PLACARD} [data-slot="tug-dash-track"][data-stopped="true"]`;
+/** The DASH cell's whole sentence — where the arc rides, since the reading
+ *  itself is one short word with no room beside it. */
+const dashLabel = (app: App): Promise<string> =>
+  app.evalJS<string>(
+    `document.querySelector(${JSON.stringify(DASH_VALUE)})?.getAttribute("aria-label") ?? ""`,
+  );
+
+/** The reading between the two dots. */
+const dashReading = (app: App): Promise<string> =>
+  app.evalJS<string>(
+    `(document.querySelector(${JSON.stringify(DASH_VALUE)})?.textContent ?? "").trim()`,
+  );
+
+/** Both flanking dots' states, in order. */
+const dotStates = (app: App): Promise<string[]> =>
+  app.evalJS<string[]>(
+    `Array.from(
+       document.querySelectorAll(
+         ${JSON.stringify(`${DASH_CELL} [data-slot="tug-progress-indicator"]`)},
+       ),
+     ).map((el) => el.getAttribute("data-state") ?? "")`,
+  );
 
 let project: DashScratchRepo | null = null;
 let fixture = "";
 let logPath = "";
 const dir = (): string => project?.repo ?? "";
 
-/**
- * The dash-log this project's state lives in, found rather than composed.
- *
- * Its directory is keyed by a slug of the repository path that this test has
- * no business re-deriving — a second speller of one key is exactly the drift
- * [L29] exists to forbid. `dash create` has already written the file, so the
- * honest way to find it is to look for the one the tool made.
- */
-function findDashLog(dataRoot: string): string {
-  // `TUG_DATA_DIR` names the *parent* of the data root; the root itself is
-  // `<TUG_DATA_DIR>/Tug`, which is what `base_data_dir` composes.
-  const projects = join(dataRoot, "Tug", "projects");
-  for (const entry of readdirSync(projects)) {
-    const candidate = join(projects, entry, "dash-log.md");
-    try {
-      if (statSync(candidate).isFile()) return candidate;
-    } catch {
-      // Not this one.
-    }
-  }
-  throw new Error(`no dash-log.md under ${projects}`);
-}
-
-/** One dash-log line, in the grammar `append_dash_log` writes. */
+/** One dash-log line about this test's dash, in the grammar the engine writes. */
 function appendArcLine(marker: string, arcNote: string): void {
-  const at = new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
-  appendFileSync(logPath, `${at}  ${DASH_NAME}  ${marker}  ${arcNote}\n`);
+  appendDashLogLine(logPath, DASH_NAME, marker, arcNote);
 }
 
 function deckShape() {
@@ -140,7 +140,7 @@ beforeAll(() => {
   if (!SHOULD_RUN) return;
   project = makeDashScratchRepo({ prefix: "at0475", checkout: CHECKOUT });
   createDash(dir(), DASH_NAME, "at0475 arc faces", project.cli);
-  logPath = findDashLog(project.dataRoot);
+  logPath = dashLogPath(project.dataRoot);
   fixture = seedScratchSession(dir(), SID);
 });
 
@@ -187,34 +187,40 @@ describe.skipIf(!SHOULD_RUN)("AT0475: the arc's faces", () => {
         note("at0475 dash-log", logPath);
 
         // A dash with no arc says nothing about one — the absence has to be
-        // silence rather than an empty reading.
-        expect(
-          await app.evalJS<string | null>(
-            `(document.querySelector(${JSON.stringify(DASH_VALUE)})||{}).getAttribute?.("data-arc") ?? null`,
-          ),
-        ).toBeNull();
+        // silence rather than an empty reading. The cell's whole sentence is
+        // its accessible label, which is where the arc rides now: the reading
+        // itself is one short word, so the arc's clause could never have
+        // fitted beside it.
+        // The clause, not the bare word: this dash is *named* `at0475-arc`.
+        expect(await dashLabel(app)).not.toContain(", arc");
 
         // ── A rotation in flight ──────────────────────────────────────────
         appendArcLine("arc-start", "paperwork/at0475-brief.md");
         appendArcLine("arc-stage", "devise claude-at0475-a opus");
         await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(DASH_VALUE)})?.getAttribute("data-arc") === "devise"`,
+          `(document.querySelector(${JSON.stringify(DASH_VALUE)})
+              ?.getAttribute("aria-label") ?? "").includes("arc in devise")`,
           { timeoutMs: 40_000 },
         );
         // …and quietly: a stage in flight is the ordinary case, so nothing is
-        // tinted for it.
-        expect(
-          await app.evalJS<string | null>(
-            `(document.querySelector(${JSON.stringify(DASH_VALUE)})||{}).getAttribute?.("data-arc-stopped") ?? null`,
-          ),
-        ).toBeNull();
+        // tinted for it. The cell reads the lifecycle phase, and both dots
+        // hold the dash's ordinary pose rather than the stopped one.
+        expect(await dashReading(app)).toBe("Devise");
+        expect(await dotStates(app)).not.toContain("aborted");
 
         // ── The stop ──────────────────────────────────────────────────────
         appendArcLine("arc-stop", "review the plan did not lint");
         await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(DASH_VALUE)})?.getAttribute("data-arc-stopped") === "true"`,
+          `(document.querySelector(${JSON.stringify(DASH_VALUE)})?.textContent ?? "").trim()
+             === "Stopped"`,
           { timeoutMs: 40_000 },
         );
+        // A stopped arc outranks every other reading, and it turns BOTH dots
+        // rather than one: the cell is two dots and a reading, and a single
+        // tinted dot would read as a fact about one end of it.
+        const stoppedDots = await dotStates(app);
+        expect(stoppedDots.length).toBe(2);
+        expect(stoppedDots.every((s) => s === "aborted")).toBe(true);
 
         // The words are on the placard, which is where there is room for them.
         await app.click(DASH_CELL);
@@ -242,13 +248,13 @@ describe.skipIf(!SHOULD_RUN)("AT0475: the arc's faces", () => {
           ),
         ).toContain("created");
 
-        // The arc's own stage survives the stop: it says where it got to, which
-        // is what a resume needs and what a cleared field would have thrown away.
-        expect(
-          await app.evalJS<string | null>(
-            `(document.querySelector(${JSON.stringify(DASH_VALUE)})||{}).getAttribute?.("data-arc") ?? null`,
-          ),
-        ).toBe("devise");
+        // The stop says where it got to, which is what a resume needs and what
+        // a cleared field would have thrown away. The cell's sentence carries
+        // both halves — the stage and the reason.
+        const stoppedLabel = await dashLabel(app);
+        note("at0475 dash cell label", stoppedLabel);
+        expect(stoppedLabel).toContain("arc stopped in review");
+        expect(stoppedLabel).toContain("the plan did not lint");
 
         process.stdout.write("VERDICT: PASS\n");
       } catch (err) {

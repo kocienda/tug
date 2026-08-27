@@ -180,9 +180,13 @@ An operation is spelled the same everywhere, and that spelling is its `tugutil` 
 
 `dash` and `join` survive as **retired spellings**, and are not scheduled for deletion. They are kept for muscle memory, which does not expire on a release schedule, and `deprecatedFor` excludes them from the completion popup so they are invisible to discovery. The failure mode is what decides it: a `/verb` that stops matching the local registry is submitted to Claude as a prompt — a burned turn on a line the user meant as a gesture.
 
+## The faces
+
+A dash wears one grammar in two registers. Where the dash is the **subject** — Lens · Dashes, the Changes shade's dash lane, the DASH placard — it draws as the constant-width lifecycle track inside `DashLifecycleLine` / `DashLifecycleBlock`; where it is one **fact about a session** — the card's masthead title run and the Lens's session rows, both `SessionIdentityRow` — it draws as `DashLifecycleMark`, a phase glyph, one pill, and the count of the declared run. The Z2 DASH cell is neither: it is an instrument wearing STATE's construction, two dots around a reading that gives numbers whenever there are numbers and the lifecycle phase in a word otherwise, and it takes STATE's width while JOBS gives exactly that back, so the row never moves. The phase every face keys on is the **lifecycle** phase, never the git stage above — a dash has no stage until `dash create`, which is most of the life this document describes. [D168] holds the rules.
+
 ## See also
 
 - [wheel.md](wheel.md) — what a rotation is, when it may happen, and the other meaning of *stage*. The [Interruptions](#interruptions) table above is what happens when something gets in one's way.
 - [dash-work-doctrine.md](dash-work-doctrine.md) — how an agent behaves on a dash worktree.
 - [tracking-changes.md](tracking-changes.md) — the capture and commit layer beneath a dash, and the landing doctrine.
-- [D112] (scope axiom), [D113], [D116] (the landing workflow), [D138] (derive vs declare), [D139] (one plan home).
+- [D112] (scope axiom), [D113], [D116] (the landing workflow), [D138] (derive vs declare), [D139] (one plan home), [D168] (one grammar, two registers).

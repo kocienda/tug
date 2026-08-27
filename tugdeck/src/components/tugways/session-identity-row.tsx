@@ -610,6 +610,11 @@ export function SessionIdentityRow({
   // A caller holding the binding hands it over — the same argument `row`
   // makes — and the store read is skipped by asking it about no session at all
   // rather than by branching on a hook.
+  //
+  // This read is the ONLY read of the binding under a row: whatever it finds,
+  // including nothing, is handed down to the identity so the marker beneath
+  // never asks the store the same question a beat later and answers it
+  // differently.
   const storeDash = useDashForSession(dashOverride === undefined ? sessionId : null);
   const dashFact = dashOverride ?? storeDash;
   // The numerals count the declared RUN — the selection somebody asked for,
@@ -746,6 +751,11 @@ export function SessionIdentityRow({
       tier="line"
       dot={false}
       highlight={highlight}
+      // The row already holds the binding, so the identity's own marker is
+      // handed the answer rather than subscribing for it. `false` when the row
+      // read no dash — that is the prop's "on no dash, and do not ask" arm,
+      // and it is the case a second subscription most often disagreed about.
+      dash={dashFact ?? false}
       // Where the row answers a right-click, the hover says nothing. Both were
       // showing the session's name and description over a row already showing
       // both, and only one of them can be acted on.

@@ -1,9 +1,8 @@
 /**
- * spike-dash-lifecycle.tsx — can one atom, one track, and one line carry a
- * dash through its whole life, on every surface, without any surface growing?
+ * gallery-dash-lifecycle.tsx — the six components that carry a dash through
+ * its whole life, demoed over wire-shaped fixtures.
  *
- * The answer is components, and this card is only fixture data and the frames
- * that hold them:
+ * This card is the documented home of the dash lifecycle grammar:
  *
  *   - `TugDashAtom` — the one skin, two sizes. A poke is a dash to it.
  *   - `TugDashTrack` — brief · devise · review · implement (ticks) · join, in
@@ -18,36 +17,29 @@
  *   - `DashLifecycleBlock` — eyebrow (glyph · atom · rule · workers) over the
  *     line: the Lens row and the shade row, at the rail and reading scales.
  *
- * **Two registers, one grammar.** The track went out to six surfaces at once
- * and on two of them it did not fit — it grew with the plan, and on a row that
- * leads with an eliding name it grew into whatever was beside it. So the strip
- * belongs to the three surfaces whose subject IS the dash (the Lens's Dashes
- * section, the Changes shade, the DASH placard) and the two where it is not
- * get the mark instead. The sixth, Z2's DASH cell, is an instrument readout
- * and takes the shape its four neighbours already take: two dots and a word.
+ * **Two registers, one grammar.** The strip belongs to the three surfaces
+ * whose subject IS the dash (the Lens's Dashes section, the Changes shade, the
+ * DASH placard); the two where a session is the subject get the mark instead.
+ * The sixth, Z2's DASH cell, is an instrument readout and takes the shape its
+ * four neighbours already take: two dots and a word. The rules are [D168].
+ *
+ * **Every moment below is ONE wire entry.** The track model, the note, the
+ * facts, and the masthead's binding are all projections of that single object,
+ * so no two panels on a row can disagree.
  *
  * **Nothing here is drawn by hand, and the masthead least of all.** The
  * masthead frame mounts the real `SessionIdentityRow` at the real
  * `SessionMasthead`'s settings — one mark per row, the dense dot packed at the
  * column, the description ladder beneath — with the dash binding handed to it
- * rather than read from the store. Where an earlier draft of this card
- * assembled a row out of parts, it produced two pulsing dots in two states,
- * which is a thing the app has never shown and would never show. A frame that
- * can differ from the app is a frame that can lie about it.
- *
- * Every moment below is ONE wire entry. The track model, the note, the facts,
- * the masthead's binding, and the honest "today" rendering are all projections
- * of that single object, so no two panels on a row can disagree.
- *
- * @module spikes/spike-dash-lifecycle
+ * rather than read from the store, which is the demo of the `dash` prop. Where
+ * an earlier draft assembled a row out of parts, it produced two pulsing dots
+ * in two states, which is a thing the app has never shown and would never
+ * show. A frame that can differ from the app is a frame that can lie about it.
  */
 
-import "./spike.css";
-import "./spike-dash-lifecycle.css";
+import "./gallery-dash-lifecycle.css";
 
 import React from "react";
-
-import type { SpikeDef } from "./spike-registry";
 
 import { DashLifecycleBlock } from "@/components/tugways/dash-lifecycle-block";
 import { DashLifecycleLine, dashLifecycleNote } from "@/components/tugways/dash-lifecycle-line";
@@ -294,8 +286,8 @@ function factFor(m: Moment): DashSessionFact {
 
 function Stage({ caption, children }: { caption: string; children: React.ReactNode }): React.ReactElement {
   return (
-    <section className="spdl-stage">
-      <TugLabel size="2xs" emphasis="calm" className="spdl-caption">
+    <section className="cg-dash-stage">
+      <TugLabel size="2xs" emphasis="calm" className="cg-dash-caption">
         {caption}
       </TugLabel>
       {children}
@@ -324,17 +316,16 @@ function planOf(total: number, current: number): DashTrackModel {
   });
 }
 
-export function SpikeDashLifecycle(): React.ReactElement {
-  const worker = useSessionIdentity(WORKER);
+export function GalleryDashLifecycle(): React.ReactElement {
   return (
-    <div className="sp-content spdl" data-testid="spike-dash-lifecycle">
-      <section className="sp-section">
-        <h2 className="sp-section-title">1 · The atom, once — TugDashAtom</h2>
+    <div className="cg-content" data-testid="gallery-dash-lifecycle">
+      <section className="cg-section">
+        <TugLabel className="cg-section-title">The atom, once — TugDashAtom</TugLabel>
         <Stage caption="One skin, two sizes (rail 2xs · reading sm), proportional everywhere; who is on it is the atom beside it. A poke is a dash to the atom: both are work on a worktree">
-          <div className="spdl-lineup">
+          <div className="cg-dash-lineup">
             <TugDashAtom name={DASH} size="2xs" />
             <TugDashAtom name={DASH} size="sm" />
-            <span className="spdl-pair">
+            <span className="cg-dash-pair">
               <Worker sessionId={WORKER} size="sm" />
               <TugDashAtom name={DASH} size="sm" />
             </span>
@@ -343,10 +334,10 @@ export function SpikeDashLifecycle(): React.ReactElement {
         </Stage>
       </section>
 
-      <section className="sp-section">
-        <h2 className="sp-section-title">2 · The lifecycle, as one track — TugDashTrack</h2>
+      <section className="cg-section">
+        <TugLabel className="cg-section-title">The lifecycle, as one track — TugDashTrack</TugLabel>
         <Stage caption="brief · devise · review · implement (one tick per step) · join. Each row is the real DashLifecycleLine, so the strip, the fraction, and the word are spaced by the component rather than by this card. Cap-height, so it rides any line the atom is on. What is behind you is a FILL and what is ahead is an OUTLINE: done is the muted text tone, active the theme's key color — the tone the pulsing dot uses for the same claim — the join the theme's selection color, and pending no fill at all">
-          <div className="spdl-legend">
+          <div className="cg-dash-legend">
             {MOMENTS.map((m) => {
               const model = dashTrackModelFromEntry(m.entry);
               return (
@@ -361,31 +352,31 @@ export function SpikeDashLifecycle(): React.ReactElement {
           </div>
         </Stage>
         <Stage caption="CONSTANT WIDTH. The implement cell is three cells wide at every plan length and its ticks divide it — three steps, eight, twenty-four, and the strip is the same graphic. A cell that sized to its ticks made the strip's width a function of the plan's length, so it grew under the reader and, on a narrow row, grew into whatever was set beside it">
-          <div className="spdl-legend">
+          <div className="cg-dash-legend">
             {[3, 8, 24].map((n) => (
-              <div className="spdl-legend-row" key={n}>
+              <div className="cg-dash-legend-row" key={n}>
                 <TugDashTrack model={planOf(n, Math.ceil(n / 3))} size="read" />
-                <span className="spdl-legend-word">{`${n}-step plan`}</span>
+                <span className="cg-dash-legend-word">{`${n}-step plan`}</span>
               </div>
             ))}
           </div>
         </Stage>
         <Stage caption="The division of labour. A dash counts its steps in the track and nowhere else; the cell it is IN breathes, on the pulsing dot's own 2s envelope — quick in, slow out — so a strip and a dot on one row read as one instrument. A stopped arc holds still">
-          <div className="spdl-legend-row">
+          <div className="cg-dash-legend-row">
             <TugProgressIndicator variant="pulsing-dot" size={12} state="running" aria-hidden />
             <TugDashTrack model={dashTrackModelFromEntry(AT_WORK.entry)} size="read" />
-            <span className="spdl-legend-word">on a dash — the bare phase dot, and the track</span>
+            <span className="cg-dash-legend-word">on a dash — the bare phase dot, and the track</span>
           </div>
         </Stage>
         <Stage caption="The same five phases as one glyph — DashPhaseMark. Keyed on the lifecycle PHASE, never on the git stage: a dash devising or reviewing a plan has no stage at all, which is how the mark that used to do this job came to be blank for the whole first half of a dash's life">
-          <div className="spdl-legend-row">
+          <div className="cg-dash-legend-row">
             {MOMENTS.map((m) => (
               <DashPhaseMark key={m.key} model={dashTrackModelFromEntry(m.entry)} size={16} />
             ))}
-            <span className="spdl-legend-word">brief · devise · review · implement · stopped · join · poke</span>
+            <span className="cg-dash-legend-word">brief · devise · review · implement · stopped · join · poke</span>
           </div>
         </Stage>
-        <p className="spdl-prose">
+        <p className="cg-dash-prose">
           The row's indicator is a bare phase dot for the whole of a dash. A second mark drawing the same step count in
           another geometry would be free to disagree whenever one of them lagged, so the track has the subject alone.
           A stop is the one fact that outranks it: the cell paints danger, it stops breathing, and the note says why, in
@@ -393,23 +384,23 @@ export function SpikeDashLifecycle(): React.ReactElement {
         </p>
       </section>
 
-      <section className="sp-section">
-        <h2 className="sp-section-title">3 · The compact register — DashLifecycleMark</h2>
+      <section className="cg-section">
+        <TugLabel className="cg-section-title">The compact register — DashLifecycleMark</TugLabel>
         <Stage caption="glyph · one pill · fraction. Where the dash is, that it is alive, and how far along — in a box that cannot grow. The dash's NAME is not here: both hosts render the identity's own ^<dash> immediately to its left, and a second spelling of a name already on the line is a second thing to keep in step">
-          <div className="spdl-legend">
+          <div className="cg-dash-legend">
             {MOMENTS.map((m) => (
-              <div className="spdl-legend-row" key={m.key}>
+              <div className="cg-dash-legend-row" key={m.key}>
                 <DashLifecycleMark
                   model={dashTrackModelFromEntry(m.entry)}
                   size="read"
                   name={m.entry.display_name}
                 />
-                <span className="spdl-legend-word">{m.caption}</span>
+                <span className="cg-dash-legend-word">{m.caption}</span>
               </div>
             ))}
           </div>
         </Stage>
-        <p className="spdl-prose">
+        <p className="cg-dash-prose">
           Two surfaces take this rather than the track, and they are the two where a SESSION is the subject and the dash
           is one fact about it: the session card's masthead title line, and the Lens's session rows. Both lead with a
           name that elides, and the strip beside an eliding name is a graphic competing with the thing the row is
@@ -418,13 +409,13 @@ export function SpikeDashLifecycle(): React.ReactElement {
         </p>
       </section>
 
-      <section className="sp-section">
-        <h2 className="sp-section-title">4 · Z2 · the DASH cell — an instrument, not a graphic</h2>
+      <section className="cg-section">
+        <TugLabel className="cg-section-title">Z2 · the DASH cell — an instrument, not a graphic</TugLabel>
         <Stage caption="STATE's shape, exactly: a dot pinned to each edge of the value wrap and the reading centered between them. NUMBERS whenever there are numbers — the declared run, else the plan's own pair, so a reviewed plan reads 0/10 rather than a word. The word is only for a dash with no plan at all. The cell takes STATE's 18ch because it wears STATE's construction, and JOBS gives back exactly that, so the row's total is the same 80ch either way and every container rung keeps its measured value">
           {/* The real row class, so the cells sit in the row's own 10px font
               and endcap apparatus, and the real `data-dash` flag, so the
               widths under test are the ones the app applies. */}
-          <div className="session-telemetry-status-row spdl-z2-row" data-dash="true">
+          <div className="session-telemetry-status-row cg-dash-z2-row" data-dash="true">
             {MOMENTS.map((m) => {
               const model = dashTrackModelFromEntry(m.entry);
               const pair =
@@ -454,40 +445,14 @@ export function SpikeDashLifecycle(): React.ReactElement {
             })}
           </div>
         </Stage>
-        <p className="spdl-prose">
+        <p className="cg-dash-prose">
           The whole track lived in this cell for a while, retuned by four knob overrides to survive a 78px box, and it
           drew ticks a pixel wide — a graphic too small to read at the size it was drawn. The cell now says the one
           thing that changes while somebody watches, and the strip is one press away on this cell's own placard.
         </p>
       </section>
-
-      <section className="sp-section">
-        <h2 className="sp-section-title">5 · In flight — on every surface, no surface taller</h2>
-        <Stage
-          caption={
-            'SETTLED — mark="eyebrow". The glyph leads the dash’s name, where it reads as the dash’s own state rather than as a caption on the strip; and the line below stays what it was, so the strip and the word are not separated by a third mark. The other two are kept as the record of the choice: "line" pushes the glyph between the strip and the fraction, and "both" puts one glyph twice in a two-line block'
-          }
-        >
-          <div className="spdl-surfaces">
-            {(["eyebrow", "line", "both"] as const).map((where) => {
-              const model = dashTrackModelFromEntry(AT_WORK.entry);
-              return (
-                <div className="spdl-surface" key={where}>
-                  <span className="spdl-surface-name">{`mark="${where}"`}</span>
-                  <DashLifecycleBlock
-                    name={AT_WORK.entry.display_name}
-                    workers={AT_WORK.workers}
-                    model={model}
-                    note={dashLifecycleNote(model, AT_WORK.entry.step_title ?? null)}
-                    facts={dashMetaFacts(AT_WORK.entry)}
-                    size="read"
-                    mark={where}
-                  />
-                </div>
-              );
-            })}
-          </div>
-        </Stage>
+      <section className="cg-section">
+        <TugLabel className="cg-section-title">In flight — on every surface, no surface taller</TugLabel>
         {MOMENTS.map((m) => {
           const model = dashTrackModelFromEntry(m.entry);
           const note = dashLifecycleNote(model, m.entry.step_title ?? null);
@@ -495,21 +460,21 @@ export function SpikeDashLifecycle(): React.ReactElement {
           const name = m.entry.display_name;
           return (
             <Stage key={m.key} caption={m.caption}>
-              <div className="spdl-surfaces">
-                <div className="spdl-surface">
-                  <span className="spdl-surface-name">Lens · DashLifecycleBlock size=rail</span>
+              <div className="cg-dash-surfaces">
+                <div className="cg-dash-surface">
+                  <span className="cg-dash-surface-name">Lens · DashLifecycleBlock size=rail</span>
                   <TugListRow variant="flush" density="compact">
                     <DashLifecycleBlock name={name} workers={m.workers} model={model} note={note} facts={facts} size="rail" />
                   </TugListRow>
                 </div>
-                <div className="spdl-surface">
-                  <span className="spdl-surface-name">Changes shade · DashLifecycleBlock size=read</span>
+                <div className="cg-dash-surface">
+                  <span className="cg-dash-surface-name">Changes shade · DashLifecycleBlock size=read</span>
                   <DashLifecycleBlock name={name} workers={m.workers} model={model} note={note} facts={facts} size="read" />
                 </div>
-                <div className="spdl-surface" data-wide="true">
-                  <span className="spdl-surface-name">Masthead · the real SessionIdentityRow, at SessionMasthead's settings</span>
+                <div className="cg-dash-surface" data-wide="true">
+                  <span className="cg-dash-surface-name">Masthead · the real SessionIdentityRow, at SessionMasthead's settings</span>
                   <SessionIdentityRow
-                    className="spdl-masthead-row"
+                    className="cg-dash-masthead-row"
                     sessionId={m.workers[0] ?? WORKER}
                     projectDir={ROOT}
                     dash={factFor(m)}
@@ -525,51 +490,6 @@ export function SpikeDashLifecycle(): React.ReactElement {
           );
         })}
       </section>
-
-      <section className="sp-section">
-        <h2 className="sp-section-title">6 · Where each one mounts</h2>
-        <ul className="spdl-survey">
-          <li>
-            <b>Session masthead — and the Lens's session rows</b> — one component serves both: `SessionIdentityRow`
-            renders `DashLifecycleMark` in its title run, with the `i/N` handed to it counting the declared run rather
-            than the plan. Its own indicator stays the bare phase dot. The row takes a `dash` prop — the binding in
-            hand rather than a second read by id — which is what lets this card mount the real thing.
-          </li>
-          <li>
-            <b>Lens · Dashes</b> — `DashLifecycleBlock size=rail` on every row, branch or documents-only: one grammar
-            from the brief onward. The row menu is the block's `trailing`, and a documents-only row's next-gesture
-            button takes the same slot.
-          </li>
-          <li>
-            <b>Changes shade · dash lane</b> — `DashLifecycleBlock size=read` on the collapsed row and on the
-            documents-only row; the fold cue and the Unbind are `trailing`.
-          </li>
-          <li>
-            <b>Transcript footer DASH cell</b> — no strip at all: one `TugProgressIndicator` with a dot on each side and
-            the pair of counters between them — the declared run, else the plan's own — falling back to a word only for
-            a dash with no plan. STATE's construction, so it takes STATE's 18ch while a dash is up; JOBS gives back the
-            4ch, so the row's total never moves.
-          </li>
-          <li>
-            <b>DASH placard and the dash picker</b> — the block at `read` heads the placard; the picker's rows lead with
-            `TugDashAtom` and one `DashWorkerAtom` per bound session.
-          </li>
-          <li>
-            <b>Wire</b> — no new field. `useDashForSession` and the shade read the documents-only entry too, through
-            `documentDashAsEntry` and `documentDashTrackModel`; `dashTrackModelFromEntry` does the rest.
-          </li>
-        </ul>
-      </section>
     </div>
   );
 }
-
-export const spike: SpikeDef = {
-  name: "dash-lifecycle",
-  title: "Dash Lifecycle",
-  blurb:
-    "One grammar, two registers: the constant-width track where the dash is the subject, the glyph-pill-fraction mark where it is one fact about a session, and two dots and a word in the instrument row.",
-  icon: "Route",
-  size: { min: { width: 520, height: 400 }, preferred: { width: 860, height: 720 } },
-  component: () => <SpikeDashLifecycle />,
-};

@@ -1,0 +1,100 @@
+/* gallery-dash-lifecycle.css — this card's frames only. Everything a dash
+   wears is its own component's stylesheet; nothing here styles a component. */
+
+.cg-dash-stage {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cg-dash-caption {
+  user-select: none;
+}
+
+.cg-dash-prose {
+  margin: 0;
+  max-width: 72ch;
+  font-size: var(--tug-font-size-xs);
+  line-height: 1.5;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+.cg-dash-legend {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cg-dash-legend-row {
+  display: flex;
+  align-items: center;
+  gap: var(--tug-space-sm);
+  min-block-size: 18px;
+}
+
+.cg-dash-legend-word {
+  font-size: var(--tug-font-size-xs);
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+.cg-dash-lineup {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--tug-space-md);
+}
+
+.cg-dash-pair {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tug-space-2xs);
+}
+
+.cg-dash-surfaces {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px 16px;
+}
+
+.cg-dash-surface {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding: 8px 10px;
+  overflow: hidden;
+  border: 1px solid var(--tug7-element-global-border-normal-muted-rest);
+  border-radius: 6px;
+}
+
+/* The masthead is a card-wide chrome tier, so it gets the full width rather
+   than half of one — a two-column cell would make it truncate for a reason
+   the real card never has. */
+.cg-dash-surface[data-wide="true"] {
+  grid-column: 1 / -1;
+}
+
+.cg-dash-surface-name {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--tug7-element-global-text-normal-subtle-rest);
+  user-select: none;
+}
+
+/* The row inside it is the shipping component; only its list padding is
+   zeroed, the same thing SessionMasthead does to seat it in chrome. */
+.cg-dash-masthead-row {
+  padding: 0;
+}
+
+/* The Z2 frame's rail. The cells carry the shipping row's class so they wear
+   its font and apparatus; this only lets the seven of them wrap instead of
+   packing into one card-wide instrument row. */
+.cg-dash-z2-row {
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  background: var(--tug7-surface-card-primary-normal-status-rest);
+  border-radius: var(--tug-radius-sm);
+  padding: var(--tug-space-2xs) var(--tug-space-xs);
+}

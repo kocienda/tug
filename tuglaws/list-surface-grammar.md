@@ -12,8 +12,8 @@ Origin: a design spike, since deleted, whose findings this document carries. Thi
 |---|---|---|
 | The eyebrow over a bucket of rows | `TugSectionLabel` | `--tugx-section-label-*` |
 | The small facts after a row's name | `TugMetaRun` / `TugMetaBullet` | `--tugx-meta-run-*` |
-| A dash's name, in either register | `TugDashName` | `--tugx-dash-name-*` |
-| What a collapsed dash is doing | `DashMetaLine` (ring · stage icon · count · note · age · divergence) | its own type and tones |
+| A dash's name, in either register | `TugDashAtom` (`DashSigil` atom) | `--tugx-dash-atom-*` |
+| What a collapsed dash is doing | `DashLifecycleLine` (track · fraction · note · facts) | its own type and tones |
 
 This is not a style guideline that a careful author upholds. Before the extraction, `tug-changes-list.css` and `session-changes-dash-lane.css` each spelled the eyebrow's five declarations in full, with a comment conceding the duplication was cheaper than a cross-import. That reasoning holds at two users and stops holding at the third. The components exist so that a fourth surface cannot get it wrong by being written carefully.
 
@@ -36,7 +36,7 @@ A row names one thing and then says a few short things about it: a file's `edit 
 Two ways to hand parts over, and the difference is real rather than stylistic:
 
 - **`parts`** — a fixed list where some entries may be absent. Nulls drop out and bullets go between whatever survives, so a run missing its middle fact never shows two bullets in a row. Entries must be elements; a bare string lands as an anonymous flex item that no selector can reach, and the atomicity rule would silently skip it.
-- **`children`** — for facts that are not a list: conditional fragments interleaved by the surface, some carrying their own bullets and some deliberately carrying none. (The dash lane was the original example; its collapsed row now renders `DashMetaLine` instead — see [D141] — so the fact run there is retired, not restyled.)
+- **`children`** — for facts that are not a list: conditional fragments interleaved by the surface, some carrying their own bullets and some deliberately carrying none. (The dash lane was the original example; its collapsed row now renders `DashLifecycleLine` instead — see [D141], [D168] — so the fact run there is retired, not restyled.)
 
 **A run never paints outside its own box.** Atomicity has a cost: parts that will not shrink make a run that cannot shrink, and on a row whose leading and trailing slots are fixed, the excess lands *on top of* the trailing controls — fact text through a Bind button, which is what shipped until it was caught by eye. `fit` is the answer, and a row-borne run has to ask for it: `"clip"` bounds the run to its box and fades the last visible fact out at the trailing edge. `"natural"` stays the default, because a run sized by its own content — the Lens's right-aligned tail, a file row's metadata beside a path that truncates instead — is already correct, and clipping it would cut a fact that had the room.
 
@@ -58,9 +58,9 @@ The dash is **passed, not looked up**. A surface rendering the row already holds
 
 ### The optical outdent
 
-A pill holds its text a border plus its own inline padding in from its edge. A pill that **leads a row**, set flush, makes its edge agree with the glyphs below while its text reads a step right of them. `TugDashName` takes back part of that inset — not all of it, because pulling the border to the glyph column aligns the text and misaligns every enclosure, and the enclosure is what a reader sees first.
+A pill holds its text a border plus its own inline padding in from its edge. A pill that **leads a row**, set flush, makes its edge agree with the glyphs below while its text reads a step right of them. `TugDashAtom` takes back part of that inset — not all of it, because pulling the border to the glyph column aligns the text and misaligns every enclosure, and the enclosure is what a reader sees first.
 
-This applies to a pill in a row's leading slot, which is where `TugDashName` puts it. A dash atom rendered mid-line inside a content run is not leading anything and takes no outdent — reach for `DashSigil atom` directly there.
+This applies to a pill in a row's leading slot, which is where `TugDashAtom` puts it. A dash atom rendered mid-line inside a content run is not leading anything and takes no outdent — reach for `DashSigil atom` directly there.
 
 The outdent is also why a row does not need a second mark saying the dash is unbound. The register already says it: proportional in a pill means somebody is on this, the mono caret run means nobody is, and in the Lens's Dashes section the eyebrow's right side says it a second way (a worker's atom, or the Bind and Discard verbs). A dashed-circle glyph ahead of the name once said it a third time and was removed for exactly that redundancy.
 
@@ -70,7 +70,9 @@ A dash block is two lines and sometimes three: who, then what the dash is doing,
 
 **Indent by that inset, never by a space token that resembles it.** `tug-session-identity.css` publishes it (`--tugx-session-atom-text-inset`, and `-2xs` for the small chip) beside the padding it describes, so retuning the skin retunes what hangs under it. The Lens's Dashes section takes the `-2xs` inset directly; the Changes shade takes `--tugx-dash-stack-indent`, which is the **full** inset plus the row's own content indent minus the outdent above — full because the shade's eyebrow atom wears the chip tier's own size — and the lines are siblings of the row rather than children of it.
 
-**One grammar, two scales — and the atom leads the scale.** The Lens renders the block at the rail scale: the `2xs` atom, `DashMetaLine`'s compact default. The Changes shade renders the same components at the reading scale ([D143]): the atom at the chip tier's own `sm` size, `DashMetaLine size="sm"`, the register spanning the block. The rule that keeps a block coherent is that the atom and the lines beneath it move together — an atom a step smaller than the facts it heads reads as a caption over its own content, and a line a step smaller than the register beneath it reads as a footnote to its own block.
+**One grammar, two scales — and the atom leads the scale.** The Lens renders the block at the rail scale: `DashLifecycleBlock size="rail"`, with the `2xs` atom. The Changes shade renders the same components at the reading scale ([D143]): `size="read"`, the atom at the chip tier's own `sm` size, the register spanning the block. The rule that keeps a block coherent is that the atom and the lines beneath it move together — an atom a step smaller than the facts it heads reads as a caption over its own content, and a line a step smaller than the register beneath it reads as a footnote to its own block.
+
+**And two registers, which is a different axis from scale.** Both scales above are the TRACK register, for a surface whose subject is the dash. Where a SESSION is the subject — the masthead's title run, the Lens's session rows — the row wears `DashLifecycleMark` instead, and never the track ([D168]): a strip beside an eliding name is a graphic competing with the thing the row is named for.
 
 The failure this prevents is specific and it shipped once. A near-miss is worse than no indent at all: a second line two pixels short of the name in the Lens, and nine short of it in the shade, reads as two lines that *missed* each other rather than as a column. Nothing could catch it, because the surfaces were compared by eye against a design that used the same components at a different offset. `at0407` and `at0405` now assert the two lefts are equal, measured against the rendered name so the assertion cannot outlive a retune.
 

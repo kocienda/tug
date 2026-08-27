@@ -95,10 +95,7 @@ import { TugTooltip } from "@/components/tugways/tug-tooltip";
 import { useSessionIdentityMenu } from "@/components/tugways/session-identity-menu";
 import { useCardIdForSession } from "@/lib/card-session-binding-store";
 import { dashReviewPaints, dashReviewTooltip } from "@/lib/dash-review";
-import {
-  useDashForSession,
-  type DashSessionFact,
-} from "@/lib/dash-session-index";
+import { useDashForSession } from "@/lib/dash-session-index";
 import { sessionSessionPhaseVisual } from "@/lib/code-session-store/session-phase-visual";
 import { useCitedSession } from "@/lib/session-citation-store";
 import {
@@ -214,16 +211,19 @@ export interface TugSessionIdentityProps
    * makes that row's atom depend on a feed having arrived in order to say
    * something the row was built from.
    *
-   * `null` is not "no dash": it is "ask the store", which is the default. A
-   * caller that means *this session is on no dash* passes nothing, because a
-   * session with no dash is what the store already reports.
+   * `undefined` is "ask the store", which is the default — for a surface that
+   * knows only a session id. `false` says *this session is on no dash, and do
+   * not ask*, so a row that read the binding and found none leaves no second
+   * subscription standing beneath it. `false` is also the opt-out for the one
+   * surface whose row already names the dash as its own subject (the Dashes
+   * section's eyebrow), where the worker's atom saying it again would state
+   * the pairing twice on one line.
    *
-   * `false` suppresses the run entirely — for the one surface whose row
-   * already names the dash as its own subject (the Dashes section's eyebrow),
-   * where the worker's atom saying it again would state the pairing twice on
-   * one line.
+   * The handed-in shape is `DashSessionFact`-compatible by construction rather
+   * than through an adapter: `review` is the fact's own `string | null`, and
+   * {@link dashMarkerTitle} builds the hover sentence for both branches.
    */
-  dash?: { name: string } | false;
+  dash?: { name: string; review?: string | null } | false;
 }
 
 /**
@@ -293,7 +293,7 @@ function SessionDashMarker({
 }
 
 /** One sentence for the dash marker, review state folded in when it paints. */
-function dashMarkerTitle(dash: DashSessionFact): string {
+function dashMarkerTitle(dash: { name: string; review?: string | null }): string {
   const lead = `Working on dash ${dash.name}`;
   return dashReviewPaints(dash.review)
     ? `${lead} — ${dashReviewTooltip(dash.review!, null)}`
@@ -458,7 +458,7 @@ export const TugSessionIdentity = React.forwardRef<
           <DashSigil
             name={dash.name}
             slot="session-identity-dash"
-            title={`Working on dash ${dash.name}`}
+            title={dashMarkerTitle(dash)}
             ariaLabel={`On dash ${dash.name}`}
           />
         ) : (

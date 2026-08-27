@@ -38,13 +38,16 @@
  */
 
 import {
+  appendFileSync,
   chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   realpathSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import { homedir, tmpdir } from "node:os";
@@ -570,6 +573,48 @@ export function dashPlanPath(projectDir: string, name: string): string {
 /** The dash's `brief.md`, with its directory in place. */
 export function dashBriefPath(projectDir: string, name: string): string {
   return join(dashDocumentsDir(projectDir, name), "brief.md");
+}
+
+/**
+ * The dash-log a scratch repository's state lives in, found rather than
+ * composed.
+ *
+ * Its directory is keyed by a slug of the repository path that a test has no
+ * business re-deriving — a second speller of one key is exactly the drift
+ * [L29] exists to forbid. `dash create` has already written the file, so the
+ * honest way to find it is to look for the one the tool made.
+ */
+export function dashLogPath(dataRoot: string): string {
+  // `TUG_DATA_DIR` names the *parent* of the data root; the root itself is
+  // `<TUG_DATA_DIR>/Tug`, which is what `base_data_dir` composes.
+  const projects = join(dataRoot, "Tug", "projects");
+  for (const entry of readdirSync(projects)) {
+    const candidate = join(projects, entry, "dash-log.md");
+    try {
+      if (statSync(candidate).isFile()) return candidate;
+    } catch {
+      // Not this one.
+    }
+  }
+  throw new Error(`no dash-log.md under ${projects}`);
+}
+
+/**
+ * One dash-log line, in the grammar `append_dash_log` writes.
+ *
+ * The dash is named explicitly rather than closed over, because a fixture that
+ * drives more than one dash through one log needs to say which line is whose —
+ * and a helper that could only ever write about one dash is a helper that has
+ * to be copied the first time a test grows a second.
+ */
+export function appendDashLogLine(
+  logPath: string,
+  dash: string,
+  marker: string,
+  note: string,
+): void {
+  const at = new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
+  appendFileSync(logPath, `${at}  ${dash}  ${marker}  ${note}\n`);
 }
 
 /**

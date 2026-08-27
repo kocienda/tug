@@ -8,9 +8,11 @@
  * with the masthead — and that line is retired ([D141]). What replaced it:
  *
  *  - The TITLE carries the progress cluster after the identity's own
- *    `^<dash>` run: the lifecycle track (`TugDashTrack`), whose cells are the
- *    dash's whole life from its brief to its join, and the `i/N` count
- *    (`TugStepFraction`) once step counters exist.
+ *    `^<dash>` run: the lifecycle mark (`DashLifecycleMark`) — the phase
+ *    glyph, one pill, and the `i/N` count (`TugStepFraction`) once step
+ *    counters exist. The mark is the COMPACT register of the one grammar,
+ *    where a dash is one fact about a session; the track it replaced here
+ *    draws in the other register, where the dash is the subject.
  *  - The INDICATOR stays the bare phase dot, whatever the dash is doing. It
  *    used to become a segmented step ring once counters existed; with the
  *    track on the title line that was two marks drawing one step count in two
@@ -41,6 +43,9 @@
  * @covers tugdeck/src/components/tugways/tug-step-fraction.css
  * @covers tugdeck/src/components/tugways/tug-dash-track.tsx
  * @covers tugdeck/src/components/tugways/tug-dash-track.css
+ * @covers tugdeck/src/components/tugways/dash-lifecycle-mark.tsx
+ * @covers tugdeck/src/components/tugways/dash-lifecycle-mark.css
+ * @covers tugdeck/src/components/tugways/dash-phase-mark.tsx
  * @covers tugdeck/src/lib/dash-session-index.ts
  * @covers tugdeck/src/components/tugways/tug-session-row.tsx
  * @covers tugdeck/src/components/tugways/tug-session-row.css
@@ -86,7 +91,8 @@ const BRIEF_ONLY = "at0424-brief";
 /** The retired fourth line — pinned at zero forever. */
 const DASH_LINE = `${SESSION_ROW} [data-slot="tug-session-row-dashline"]`;
 const PROGRESS = `${SESSION_ROW} [data-slot="session-identity-row-progress"]`;
-const TRACK = `${PROGRESS} [data-slot="tug-dash-track"]`;
+const MARK = `${PROGRESS} [data-slot="tug-dash-lifecycle-mark"]`;
+const PILL = `${MARK} [data-slot="tug-dash-lifecycle-mark-pill"]`;
 const FRACTION = `${PROGRESS} [data-slot="tug-step-fraction"]`;
 
 const LIST_CELLS = `${CARDS} .tug-list-view-cell`;
@@ -208,18 +214,19 @@ describe.skipIf(!SHOULD_RUN)("AT0424: dash progress on the session's row", () =>
           `(() => {
              const cluster = document.querySelector(${JSON.stringify(PROGRESS)});
              const session = document.querySelector(${JSON.stringify(SESSION_ROW)});
-             const track = document.querySelector(${JSON.stringify(TRACK)});
+             const mark = document.querySelector(${JSON.stringify(MARK)});
+             const pill = document.querySelector(${JSON.stringify(PILL)});
              return {
                // The structural claim: the cluster is INSIDE the session's
                // row, on the title's own line.
                insideSessionRow: session.contains(cluster),
                onTitleLine:
                  cluster.closest(".tug-session-row-name-line") !== null,
-               stage: track?.getAttribute("data-phase") ?? null,
+               stage: mark?.getAttribute("data-phase") ?? null,
                stageWord:
-                 track
-                   ?.querySelector('[data-state="active"]')
-                   ?.getAttribute("data-phase") ?? null,
+                 pill?.getAttribute("data-state") === "active"
+                   ? pill.getAttribute("data-phase")
+                   : null,
                fractions: document.querySelectorAll(${JSON.stringify(FRACTION)}).length,
              };
            })()`,
@@ -263,23 +270,14 @@ describe.skipIf(!SHOULD_RUN)("AT0424: dash progress on the session's row", () =>
         const stepped = await app.evalJS<{
           fraction: string;
           phase: string | null;
-          ticks: number;
-          ticksActive: number;
-          ticksDone: number;
           monitorDots: number;
         }>(
           `(() => {
              const fraction = document.querySelector(${JSON.stringify(FRACTION)});
-             const track = document.querySelector(${JSON.stringify(TRACK)});
-             const steps = track?.querySelector('[data-phase="implement"][data-steps="true"]');
-             const ticks = steps ? Array.from(steps.children) : [];
-             const state = (s) => ticks.filter((el) => el.getAttribute("data-state") === s).length;
+             const mark = document.querySelector(${JSON.stringify(MARK)});
              return {
                fraction: (fraction?.textContent ?? "").trim(),
-               phase: track?.getAttribute("data-phase") ?? null,
-               ticks: ticks.length,
-               ticksActive: state("active"),
-               ticksDone: state("done"),
+               phase: mark?.getAttribute("data-phase") ?? null,
                // ONE mark on the row, and it is the bare phase dot.
                monitorDots: document.querySelectorAll(
                  ${JSON.stringify(`${SESSION_ROW} .tug-session-row-dot [data-slot="tug-progress-indicator"]`)},
@@ -292,14 +290,11 @@ describe.skipIf(!SHOULD_RUN)("AT0424: dash progress on the session's row", () =>
         // of them is `1/2`. They are real, selectable text, and they say
         // nothing about the three-row document behind them.
         expect(stepped.fraction).toBe("1/2");
-        // The track says what the numerals cannot: the walk has begun, and the
-        // plan holds three steps with the first of them open. That is the
-        // document's whole shape, wordlessly — and it is the ONLY place this
-        // row draws the step count now.
+        // The mark says what the numerals cannot: which phase of its life the
+        // dash is in while those numerals count. The plan's own shape — one
+        // tick per step — is the OTHER register's to draw, on a surface where
+        // the dash is the subject; a session's row carries the compact one.
         expect(stepped.phase).toBe("implement");
-        expect(stepped.ticks).toBe(3);
-        expect(stepped.ticksActive).toBe(1);
-        expect(stepped.ticksDone).toBe(0);
         // One dot on the row, and no ring around it.
         expect(stepped.monitorDots).toBe(1);
         // Still no fourth line, still the same cells.
@@ -362,9 +357,9 @@ describe.skipIf(!SHOULD_RUN)("AT0424: dash progress on the session's row", () =>
           dashRuns: number;
         }>(
           `(() => {
-             const track = document.querySelector(${JSON.stringify(TRACK)});
+             const mark = document.querySelector(${JSON.stringify(MARK)});
              return {
-               phase: track?.getAttribute("data-phase") ?? null,
+               phase: mark?.getAttribute("data-phase") ?? null,
                fractions: document.querySelectorAll(${JSON.stringify(FRACTION)}).length,
                dashRuns: document.querySelectorAll(${JSON.stringify(SESSION_ROW_DASH)}).length,
              };

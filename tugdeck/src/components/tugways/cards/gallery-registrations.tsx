@@ -117,6 +117,7 @@ import { GalleryDevChrome } from "./gallery-dev-chrome";
 import { GalleryTugLinearGauge } from "./gallery-tug-linear-gauge";
 import { GalleryTugArcGauge } from "./gallery-tug-arc-gauge";
 import { GalleryTugProgressIndicator } from "./gallery-tug-progress-indicator";
+import { GalleryDashLifecycle } from "./gallery-dash-lifecycle";
 import { GalleryMotionBench } from "./gallery-motion-bench";
 import { GalleryBlockHeader } from "./gallery-tool-call-header";
 import "./gallery.css";
@@ -962,6 +963,18 @@ export function registerGalleryCards(): void {
     componentId: "gallery-tug-arc-gauge",
     contentFactory: (_cardId) => <GalleryTugArcGauge />,
     defaultMeta: { title: "TugArcGauge", icon: "Gauge", closable: true },
+    family: "maker",
+    acceptsFamilies: ["maker"],
+    sizePolicy: GALLERY_COMPLEX_SIZE,
+    category: CATEGORIES.feedback,
+  });
+
+  // The dash lifecycle grammar, whole: six components over one wire entry per
+  // moment, and the real SessionIdentityRow reading a handed-in binding.
+  registerCard({
+    componentId: "gallery-dash-lifecycle",
+    contentFactory: (_cardId) => <GalleryDashLifecycle />,
+    defaultMeta: { title: "Dash Lifecycle", icon: "Route", closable: true },
     family: "maker",
     acceptsFamilies: ["maker"],
     sizePolicy: GALLERY_COMPLEX_SIZE,

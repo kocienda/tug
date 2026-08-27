@@ -42,7 +42,6 @@ import { spike as placeCoordinateSpike } from "./spike-place-coordinate";
 import { spike as cardChromeSpike } from "./spike-card-chrome";
 import { spike as modalHeadersSpike } from "./spike-modal-headers";
 import { spike as focusLanguageSpike } from "./spike-focus-language";
-import { spike as dashLifecycleSpike } from "./spike-dash-lifecycle";
 
 /**
  * One design spike. The shape a spike file exports as `spike`.
@@ -108,7 +107,6 @@ export const SPIKES: readonly SpikeDef[] = [
   pinnedHeadersSpike,
   commitSurfacesSpike,
   placeCoordinateSpike,
-  dashLifecycleSpike,
   // Settled references: these began as spikes and closed into the reference
   // for their subject. They stay here rather than becoming permanent gallery
   // furniture, so the graduation path — durable content into tuglaws/, file
