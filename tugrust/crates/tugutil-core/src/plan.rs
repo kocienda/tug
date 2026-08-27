@@ -1325,7 +1325,11 @@ impl fmt::Display for LedgerEditError {
                 write!(f, "no ledger row for #{anchor}")
             }
             LedgerEditError::BadTransition { anchor, from, to } => {
-                write!(f, "#{anchor} is '{from}'; it cannot become '{to}'")
+                write!(f, "#{anchor} is '{from}'; it cannot become '{to}'")?;
+                if from == "pending" && to == "done" {
+                    f.write_str(" — open it with `dash step <name> start` first")?;
+                }
+                Ok(())
             }
             LedgerEditError::RoundTrip { anchor } => {
                 write!(f, "the edited ledger row #{anchor} did not read back")
@@ -1342,6 +1346,16 @@ impl std::error::Error for LedgerEditError {}
 /// re-enter the step it was on without a hand-edit; the rewrite is a no-op and
 /// the returned text is byte-identical. A `done` row is terminal.
 ///
+/// **A step is opened before it is closed**, so `pending` is not a legal source
+/// for `done`. A run that closes a step it never started leaves the row in
+/// progress for exactly no time at all, and every surface that reads this
+/// ledger says the step is finished while somebody is still working it — the
+/// strip's live mark never lands on it, and the fraction jumps by two. That is
+/// a fact the ledger cannot recover after the fact, so it is refused at the
+/// edit instead. A round that covers two steps still opens and closes each in
+/// its turn; the commit cell may hold the same sha twice, and that is the
+/// honest record of a round that carried two.
+///
 /// `withdrawn` is the word for a step the run decided not to walk. It is
 /// reachable from `pending` and from `in progress`, and from itself, so the
 /// verb is idempotent. It is also reversible: `withdrawn` is a legal source for
@@ -1352,7 +1366,7 @@ impl std::error::Error for LedgerEditError {}
 fn transition_allowed(from: &str, to: &str) -> bool {
     match to {
         "in progress" => from == "pending" || from == "in progress" || from == "withdrawn",
-        "done" => from == "pending" || from == "in progress",
+        "done" => from == "in progress",
         "withdrawn" => from == "pending" || from == "in progress" || from == "withdrawn",
         _ => false,
     }
@@ -2113,6 +2127,14 @@ Some context.
                 continue;
             };
             linted += 1;
+            // A task list is not held to the skeleton's contract. A dash worked
+            // directly writes one for itself — the steps and the ledger and
+            // nothing else — and `plan lint` is the devise stage's check, never
+            // run against it. It must PARSE, which is what `linted` counts, and
+            // that is the whole of what this corpus owes.
+            if is_task_list(&doc) {
+                continue;
+            }
             let diagnostics = lint(&doc);
             let errors: Vec<&Diagnostic> = diagnostics
                 .iter()
@@ -2242,7 +2264,8 @@ Some context.
 
     #[test]
     fn ledger_edit_refuses_moving_off_a_done_row() {
-        let done = set_ledger_status(MINIMAL, "step-1", "done", Some("a4477d5")).unwrap();
+        let open = set_ledger_status(MINIMAL, "step-1", "in progress", None).unwrap();
+        let done = set_ledger_status(&open, "step-1", "done", Some("a4477d5")).unwrap();
         for target in ["in progress", "done", "withdrawn"] {
             let err = set_ledger_status(&done, "step-1", target, None).unwrap_err();
             assert_eq!(
@@ -2256,6 +2279,26 @@ Some context.
             // The message names the row's current status.
             assert!(err.to_string().contains("is 'done'"), "{err}");
         }
+    }
+
+    /// A step is opened before it is closed: a run that closes one it never
+    /// started would leave the row finished for the whole time somebody worked
+    /// it, and no surface reading this ledger could tell.
+    #[test]
+    fn ledger_edit_refuses_closing_a_step_that_was_never_opened() {
+        let err = set_ledger_status(MINIMAL, "step-1", "done", Some("a4477d5")).unwrap_err();
+        assert_eq!(
+            err,
+            LedgerEditError::BadTransition {
+                anchor: "step-1".to_string(),
+                from: "pending".to_string(),
+                to: "done".to_string(),
+            }
+        );
+        // The refusal says what to do about it, not only what it refused.
+        assert!(err.to_string().contains("start"), "{err}");
+        // And the document is untouched: a refusal writes nothing.
+        assert!(set_ledger_status(MINIMAL, "step-1", "in progress", None).is_ok());
     }
 
     #[test]

@@ -91,6 +91,15 @@ export interface DashTrackSteps {
    * all eight alike and the withdrawal disappears.
    */
   withdrawn: ReadonlySet<number>;
+  /**
+   * The 1-based positions of the `done` steps.
+   *
+   * The same reason {@link withdrawn} is a set: a run that closes step 5 before
+   * step 4 leaves `done` counting two rows that are not the first two, and
+   * `n <= done` then paints the step in hand as finished — which is the one
+   * reading this strip must never give.
+   */
+  closed: ReadonlySet<number>;
 }
 
 export interface DashTrackModel {
@@ -131,14 +140,17 @@ export function dashTrackSteps(steps: readonly DashStep[] | undefined): DashTrac
   let current: number | null = null;
   let done = 0;
   const withdrawn = new Set<number>();
+  const closed = new Set<number>();
   steps.forEach((s, i) => {
-    if (s.status === "done") done += 1;
-    else if (s.status === "withdrawn") {
+    if (s.status === "done") {
+      done += 1;
+      closed.add(i + 1);
+    } else if (s.status === "withdrawn") {
       done += 1;
       withdrawn.add(i + 1);
     } else if (s.status === "in progress" && current === null) current = i + 1;
   });
-  return { total: steps.length, done, current, withdrawn };
+  return { total: steps.length, done, current, withdrawn, closed };
 }
 
 /** The model, from what the feed carries. Pure. */
@@ -208,8 +220,12 @@ export function dashCellState(model: DashTrackModel, phase: DashPhase): DashCell
 export function tickState(model: DashTrackModel, n: number): DashTickState {
   const steps = model.steps!;
   if (steps.withdrawn.has(n)) return "withdrawn";
-  if (n <= steps.done) return "done";
+  // The step in hand outranks the closed reading. Both are positional facts
+  // off the ledger, so they cannot disagree about a truthful one — but a
+  // ledger that does disagree is one where somebody is working the step, and
+  // that is the reading to show.
   if (n === steps.current) return model.stopped !== null ? "stopped" : "active";
+  if (steps.closed.has(n)) return "done";
   return "pending";
 }
 

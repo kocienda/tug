@@ -80,33 +80,77 @@ describe("documentDashTrackModel", () => {
 
   test("a plan nobody has touched reads review", () => {
     const model = documentDashTrackModel(
-      dash({ documents: WITH_PLAN, step_total: 3, steps_done: 0, steps_begun: 0 }),
+      dash({
+        documents: WITH_PLAN,
+        step_total: 3,
+        steps_done: 0,
+        steps_begun: 0,
+      }),
     );
     expect(model.phase).toBe("review");
-    expect(model.steps).toEqual({ total: 3, done: 0, current: null, withdrawn: new Set() });
+    expect(model.steps).toEqual({
+      total: 3,
+      done: 0,
+      current: null,
+      withdrawn: new Set(),
+      closed: new Set(),
+    });
   });
 
   test("a begun plan reads implement, with the ledger's own counts", () => {
     const model = documentDashTrackModel(
-      dash({ documents: WITH_PLAN, step_total: 3, steps_done: 1, steps_begun: 2 }),
+      dash({
+        documents: WITH_PLAN,
+        step_total: 3,
+        steps_done: 1,
+        steps_begun: 2,
+      }),
     );
     expect(model.phase).toBe("implement");
-    expect(model.steps).toEqual({ total: 3, done: 1, current: 2, withdrawn: new Set() });
+    expect(model.steps).toEqual({
+      total: 3,
+      done: 1,
+      current: 2,
+      withdrawn: new Set(),
+      closed: new Set([1]),
+    });
   });
 
   test("a first row in progress with nothing finished has begun", () => {
     const model = documentDashTrackModel(
-      dash({ documents: WITH_PLAN, step_total: 3, steps_done: 0, steps_begun: 1 }),
+      dash({
+        documents: WITH_PLAN,
+        step_total: 3,
+        steps_done: 0,
+        steps_begun: 1,
+      }),
     );
     expect(model.phase).toBe("implement");
-    expect(model.steps).toEqual({ total: 3, done: 0, current: 1, withdrawn: new Set() });
+    expect(model.steps).toEqual({
+      total: 3,
+      done: 0,
+      current: 1,
+      withdrawn: new Set(),
+      closed: new Set(),
+    });
   });
 
   test("no row in progress leaves `current` null rather than guessing one", () => {
     const model = documentDashTrackModel(
-      dash({ documents: WITH_PLAN, step_total: 3, steps_done: 2, steps_begun: 2 }),
+      dash({
+        documents: WITH_PLAN,
+        step_total: 3,
+        steps_done: 2,
+        steps_begun: 2,
+      }),
     );
-    expect(model.steps).toEqual({ total: 3, done: 2, current: null, withdrawn: new Set() });
+    expect(model.steps).toEqual({
+      total: 3,
+      done: 2,
+      current: null,
+      withdrawn: new Set(),
+      closed: new Set([1, 2]),
+    });
   });
 
   test("the counter-fed surface can never place a withdrawn tick, and says so with an empty set", () => {
@@ -114,7 +158,12 @@ describe("documentDashTrackModel", () => {
     // counters and no per-row statuses, and `step_in` refuses a withdrawal on
     // a dash with no worktree, so no withdrawn row can reach here at all.
     const model = documentDashTrackModel(
-      dash({ documents: WITH_PLAN, step_total: 8, steps_done: 8, steps_begun: 8 }),
+      dash({
+        documents: WITH_PLAN,
+        step_total: 8,
+        steps_done: 8,
+        steps_begun: 8,
+      }),
     );
     expect(model.steps?.withdrawn).toEqual(new Set());
     expect(model.steps?.done).toBe(8);
@@ -139,14 +188,24 @@ describe("documentDashTrackModel", () => {
       }),
     );
     expect(model.phase).toBe("review");
-    expect(model.steps).toEqual({ total: 3, done: 1, current: 2, withdrawn: new Set() });
+    expect(model.steps).toEqual({
+      total: 3,
+      done: 1,
+      current: 2,
+      withdrawn: new Set(),
+      closed: new Set([1]),
+    });
   });
 
   test("a stopped arc says so, in the stage it stopped in", () => {
     const model = documentDashTrackModel(
       dash({
         documents: WITH_PLAN,
-        arc: { stage: "devise", stopped: "the plan lints red", stopped_stage: "devise" },
+        arc: {
+          stage: "devise",
+          stopped: "the plan lints red",
+          stopped_stage: "devise",
+        },
         step_total: 3,
         steps_done: 1,
         steps_begun: 2,

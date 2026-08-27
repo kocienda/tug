@@ -63,7 +63,13 @@ describe("dashTrackModel", () => {
     expect(dashCellState(model, "implement")).toBe("stopped");
     expect(dashCellState(model, "review")).toBe("done");
     expect(dashCellState(model, "join")).toBe("pending");
-    expect(model.steps).toEqual({ total: 10, done: 6, current: 7, withdrawn: new Set() });
+    expect(model.steps).toEqual({
+      total: 10,
+      done: 6,
+      current: 7,
+      withdrawn: new Set(),
+      closed: new Set([1, 2, 3, 4, 5, 6]),
+    });
   });
 });
 
@@ -81,6 +87,7 @@ describe("a withdrawn step", () => {
       done: 3,
       current: null,
       withdrawn: new Set([2]),
+      closed: new Set([1, 3]),
     });
   });
 
@@ -103,5 +110,30 @@ describe("a withdrawn step", () => {
     const statuses = Array.from({ length: 8 }, (_, i) => (i === 6 ? "withdrawn" : "done"));
     const model = dashTrackModel({ documents: PLAN, steps: ledger(...statuses), stage: "working" });
     expect(model.phase).toBe("join");
+  });
+});
+
+/**
+ * The step in hand is the one reading the strip must never lose. A count
+ * cannot carry it: a run that closes a later step first leaves `done` counting
+ * rows that are not the first rows, and a prefix test then paints the tick
+ * somebody is working as finished.
+ */
+describe("a step closed out of order", () => {
+  const ledger = (...statuses: string[]) =>
+    statuses.map((status, i) => ({ title: `s${i + 1}`, status }));
+
+  test("does not take the tick in hand down with it", () => {
+    // 1-3 done, 4 in hand, 5 closed early: `done` counts 4, so `n <= done`
+    // would call tick 4 finished while it is the live one.
+    const model = dashTrackModel({
+      documents: PLAN,
+      steps: ledger("done", "done", "done", "in progress", "done", "pending"),
+      stage: "working",
+    });
+    expect(model.steps?.done).toBe(4);
+    expect(tickState(model, 4)).toBe("active");
+    expect(tickState(model, 5)).toBe("done");
+    expect(tickState(model, 6)).toBe("pending");
   });
 });

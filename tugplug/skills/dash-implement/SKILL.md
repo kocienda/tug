@@ -96,6 +96,8 @@ Walk the resolved steps in dependency order. For each step:
   tugutil dash step <name> done <n> --commit <sha>
   ```
   This writes the ledger row's status *and* its commit cell and appends the paired log line. Omit `--commit` to record the dash branch's tip. Ledger and commit move together, and the verb is what keeps them together.
+
+  **A step that was never opened cannot be closed.** `pending` to `done` is refused, so a round that turns out to carry two steps opens and closes each in its turn rather than closing both at the end — otherwise the second row reads finished for the whole time somebody is working it, and every surface that shows the fraction says so. The same sha in two commit cells is the correct record of one round that carried two steps.
 - **Withdraw a step the run decided not to walk.**
   ```bash
   tugutil dash step <name> withdraw <n>
@@ -106,7 +108,7 @@ Walk the resolved steps in dependency order. For each step:
 
 Pragmatics:
 
-- **A refused `dash step` is telling you about the document, not the tool.** It exits 1, names the plan and the row, and leaves the file untouched — a plan that does not strictly parse, a missing ledger row, an anchor that is not `#step-<n>`, a `done` row you tried to reopen, or a `withdrawn` row you tried to finish (a withdrawn step that is now to be walked goes through `start` first, the same path every other step takes).
+- **A refused `dash step` is telling you about the document, not the tool.** It exits 1, names the plan and the row, and leaves the file untouched — a plan that does not strictly parse, a missing ledger row, an anchor that is not `#step-<n>`, a `pending` row you tried to close without opening, a `done` row you tried to reopen, or a `withdrawn` row you tried to finish (a withdrawn step that is now to be walked goes through `start` first, the same path every other step takes).
 
   Raise the refusal as an `AskUserQuestion` rather than picking a repair yourself, because the wrong guess corrupts the durable record: *"Fix the plan and retry"* / *"Hand-edit the ledger this run"*. Quote what the verb said. A malformed document usually wants fixing; a document that genuinely cannot be made to parse wants the hand-edit — and which one this is depends on what the plan is *for*, which is the user's to know.
 - **A long run does not pause to ask whether to keep going.** However many steps the selector resolved to, walk them all. The selection *is* the answer to "how far": the user made it when they invoked the skill, and asking again at some interior step re-opens a decision they already made — the ledger is the progress surface, and it says where the run is without anybody being interrupted for it.

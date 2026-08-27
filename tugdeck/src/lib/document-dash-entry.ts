@@ -16,7 +16,10 @@
  * @module lib/document-dash-entry
  */
 
-import type { DashChangesetEntry, DocumentDashEntry } from "@/lib/changeset-types";
+import type {
+  DashChangesetEntry,
+  DocumentDashEntry,
+} from "@/lib/changeset-types";
 import {
   type DashTrackModel,
   dashTrackModel,
@@ -32,7 +35,9 @@ import {
  * documents-only dash really carries: its identity, its documents, its review
  * verdict, its arc, and its bound sessions.
  */
-export function documentDashAsEntry(entry: DocumentDashEntry): DashChangesetEntry {
+export function documentDashAsEntry(
+  entry: DocumentDashEntry,
+): DashChangesetEntry {
   return {
     kind: "dash",
     owner_id: entry.owner_id,
@@ -66,7 +71,9 @@ export function documentDashAsEntry(entry: DocumentDashEntry): DashChangesetEntr
  * An arc's own stage still outranks the counts, exactly as the shared ladder
  * has it: it only falls through to the counted rungs when no arc has spoken.
  */
-export function documentDashTrackModel(entry: DocumentDashEntry): DashTrackModel {
+export function documentDashTrackModel(
+  entry: DocumentDashEntry,
+): DashTrackModel {
   const base = dashTrackModel({ documents: entry.documents, arc: entry.arc });
   const steps =
     entry.step_total === 0
@@ -83,6 +90,12 @@ export function documentDashTrackModel(entry: DocumentDashEntry): DashTrackModel
           // worktree, so a document-only plan cannot acquire a withdrawn row
           // through the verb at all.
           withdrawn: new Set<number>(),
+          // A count is all this surface has, so the closed positions are the
+          // prefix it implies. That is exactly as much as a counter can say,
+          // and with no withdrawals possible here it cannot be wrong.
+          closed: new Set(
+            Array.from({ length: entry.steps_done }, (_, i) => i + 1),
+          ),
         };
   const arc = entry.arc;
   const arcSpoke =
