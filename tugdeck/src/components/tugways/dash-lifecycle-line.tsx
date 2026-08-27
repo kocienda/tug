@@ -31,6 +31,7 @@ import "./dash-lifecycle-line.css";
 import React from "react";
 
 import type { DashMetaFact } from "@/lib/dash-meta-facts";
+import { DashPhaseMark } from "./dash-phase-mark";
 import { TugDashTrack, type DashTrackModel } from "./tug-dash-track";
 import { TugStepFraction } from "./tug-step-fraction";
 import { TugTooltip } from "./tug-tooltip";
@@ -54,6 +55,14 @@ export interface DashLifecycleLineProps {
   note: string;
   facts?: readonly DashMetaFact[];
   size?: "rail" | "read";
+  /**
+   * Set the phase glyph after the track, between the strip and the word.
+   *
+   * The strip says where the dash is by WHICH cell is lit, which is a reading
+   * the eye has to make; the glyph says it outright. Off where the block above
+   * the line already carries one.
+   */
+  mark?: boolean;
 }
 
 export function DashLifecycleLine({
@@ -61,6 +70,7 @@ export function DashLifecycleLine({
   note,
   facts = [],
   size = "rail",
+  mark = false,
 }: DashLifecycleLineProps): React.ReactElement {
   const steps = model.steps;
   return (
@@ -71,6 +81,7 @@ export function DashLifecycleLine({
       data-stopped={model.stopped !== null ? "true" : undefined}
     >
       <TugDashTrack model={model} size={size} />
+      {mark ? <DashPhaseMark model={model} size={size === "read" ? 13 : 11} /> : null}
       {steps !== null && steps.current !== null ? (
         <TugStepFraction current={steps.current} total={steps.total} />
       ) : null}

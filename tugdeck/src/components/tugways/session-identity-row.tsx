@@ -89,8 +89,8 @@ import React, {
 } from "react";
 
 import { renderFilterHighlight } from "@/components/tugways/filter-highlight";
-import { TugDashTrack, dashTrackModelFromEntry } from "@/components/tugways/tug-dash-track";
-import { TugStepFraction } from "@/components/tugways/tug-step-fraction";
+import { DashLifecycleMark } from "@/components/tugways/dash-lifecycle-mark";
+import { dashTrackModelFromEntry } from "@/components/tugways/tug-dash-track";
 import { dashGlanceFraction } from "@/lib/dash-meta-facts";
 import { PulseBeatText } from "@/components/tugways/pulse-beat-text";
 import { SessionActivitySparkline } from "@/components/tugways/session-activity-sparkline";
@@ -754,20 +754,25 @@ export function SessionIdentityRow({
   );
 
   // The dash's whole life, riding the title line after the identity's own
-  // `^<dash>` run: the track, then the count of the declared run.
+  // `^<dash>` run — in the COMPACT register: the phase glyph, one pill, and
+  // the count of the declared run.
   //
-  // The track stands where the stage glyph did, and says strictly more. The
-  // glyph could only name the stage GIT had reached, so a card devising or
-  // reviewing a plan showed nothing at all — the half of a dash's life that
-  // happens before a branch exists was invisible on the surface most likely to
-  // be watching it. The guard is the binding itself for the same reason: a
-  // branchless dash has no `stage`, and gating on one kept the track off
-  // exactly the half the track was built to show.
+  // The whole track stood here once, and this line is one of the two places it
+  // could not fit: a session row leads with a name that elides, and a graphic
+  // that grew with the plan drove the name and the strip into each other. The
+  // mark says the same three things in a box that cannot grow — where the dash
+  // is, that it is alive, and how far along. The track itself belongs to the
+  // surfaces whose subject IS the dash: the Lens's Dashes section, the Changes
+  // shade's dash lane, and the DASH placard.
   //
-  // The fraction stays beside it because the two count different things: the
-  // numerals count the RUN somebody asked for, the track draws the PLAN and
-  // marks the run inside it. Past a dozen steps the ticks stop being
-  // countable and the numerals are the only exact reading left.
+  // The glyph is keyed on the lifecycle PHASE, not the git stage — a card
+  // devising or reviewing a plan has no stage at all, and that is the half of
+  // a dash's life the surface most likely to be watching it most needs a word
+  // for. The guard is the binding itself for the same reason.
+  //
+  // The fraction is handed over rather than derived: the numerals count the
+  // RUN somebody asked for, which is a different pair from the plan's own
+  // whenever a run is a slice of a plan.
   //
   // The step's TITLE stays off this line — it lives in the Dashes section.
   const progress =
@@ -776,17 +781,12 @@ export function SessionIdentityRow({
         className="session-identity-row-progress"
         data-slot="session-identity-row-progress"
       >
-        <TugDashTrack
+        <DashLifecycleMark
           model={dashTrackModelFromEntry(dashFact.entry)}
           size="read"
-          aria-label={`dash ${dashFact.name}`}
+          name={dashFact.name}
+          fraction={dashGlance}
         />
-        {dashGlance !== null ? (
-          <TugStepFraction
-            current={dashGlance.current}
-            total={dashGlance.total}
-          />
-        ) : null}
       </span>
     ) : null;
   const titleRun =

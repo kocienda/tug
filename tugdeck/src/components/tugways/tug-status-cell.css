@@ -126,6 +126,34 @@
 .session-telemetry-status-cell[data-priority="jobs"] {
   --tugx-session-status-cell-width: 14ch;
 }
+
+/* The DASH reading needs STATE's box, because it wears STATE's shape.
+
+   The fourth cell reads DASH while the bound session drives one, and before
+   any step is declared its reading is a WORD — `Brief`, `Devise`, `Review`,
+   `Implement`, `Join` — flanked by the same pair of dots STATE carries, under
+   STATE's own `space-between` layout. A fraction fits 14ch; `Implement` with
+   two 12px dots pinned to the wrap's edges and a minimum channel on each side
+   needs what `Disconnected` needs, so it is given the same 18ch rather than a
+   number arrived at separately for the same shape.
+
+   JOBS gives back exactly what DASH takes, so the row's total is 80ch either
+   way and every `@container` rung below keeps the value it was measured at.
+   JOBS can afford it: its widest face is the label `JOBS` at 36px, so 10ch
+   still leaves it more surplus for endcap wings than any other cell has.
+
+   The row's outer edges therefore do not move when a session picks a dash up;
+   one internal boundary does. That is the least motion the widening can cost,
+   and the alternative — a permanent 18ch for a reading most rows never show —
+   would spend the surplus on nothing for every card with no dash on it. */
+.session-telemetry-status-row[data-dash="true"]
+  .session-telemetry-status-cell[data-priority="tasks"] {
+  --tugx-session-status-cell-width: 18ch;
+}
+.session-telemetry-status-row[data-dash="true"]
+  .session-telemetry-status-cell[data-priority="jobs"] {
+  --tugx-session-status-cell-width: 10ch;
+}
 .session-telemetry-status-value-wrap {
   /* Wrap centers its single child value within the static cell width —
      so values can change character count freely and remain centered on
@@ -200,89 +228,42 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* The DASH reading of the work cell — the same box, a different subject.
+/* The DASH reading of the work cell — the same apparatus, a different subject.
 
-   While the bound session drives a dash the fourth cell reads DASH rather
-   than TASKS, inside the width the table above already measured for it: the
-   `data-priority` is unchanged, so nothing in this file moves and the row's
-   geometry cannot shift when a session picks a dash up.
+   While the bound session drives a dash the fourth cell reads DASH rather than
+   TASKS — and it takes STATE's shape, not TASKS's, because its reading is a
+   WORD. The two shapes in this row are genuinely different constructions:
+   TASKS and JOBS are one indicator that stretches to the cell and carries its
+   glyphs and its count inside itself; STATE is three siblings in the value
+   wrap, with `space-between` pinning the two glyphs to the wrap's edges and
+   the title centred between them, staying centred as its text changes width.
 
-   Nothing in here gives way under pressure, because nothing in here can: the
-   value is one graphic — the lifecycle track — and a strip clipped from its
-   end loses the implement ticks and the join cell, the two that say the work
-   is nearly over. So the strip is made to FIT rather than cut to fit, by the
-   knobs the track publishes. That is also what taking the dash's *name* out of
-   the cell bought — the one fact here that could grow without bound, and the
-   one the reader already knows, since they are the one who started it. The
-   name is the cell's accessible label in full and the placard's own heading
-   one click away.
+   So the two rules below are STATE's two rules, aimed at the fourth cell while
+   it reads DASH. They also have to OUTRANK the work-cell rules above, which
+   select `[data-priority="tasks"] .tug-progress-indicator` and would stretch
+   each of the two dots to the full cell — hence the row's `data-dash` in the
+   selector, which is a third attribute rather than a `!important`.
 
-   `center` rather than `baseline`: the value is a graphic with no baseline to
-   share, so it is centred against the dot in the line box. */
-/* The DASH reading's value row — one pulsing dot, then the reading. TASKS and
-   JOBS get their dots from a single indicator that stretches to the cell, but
-   the DASH value is a graphic and cannot ride an indicator's `label`; here the
-   row is the flex container and the indicator is a sibling of the value, the
-   way STATE's are. `flex-start` with the same 2px inset puts the dot exactly
-   where the other cells' sit, so the row does not move when a session picks a
-   dash up. */
-.session-telemetry-status-dash-row {
-  display: flex;
-  width: 100%;
-  align-items: center;
-  justify-content: flex-start;
-  gap: var(--tug-space-2xs);
+   The strip that used to sit here — a five-cell track retuned by its own knobs
+   to survive a 78px box — is gone, with its four knob overrides and its tick
+   flex rule. It was a graphic drawn too small to read; the cell it needed to
+   fit in is the wrong room for it, and it now lives on the surfaces whose
+   subject is the dash, this cell's own placard first among them. */
+.session-telemetry-status-row[data-dash="true"]
+  .session-telemetry-status-cell[data-priority="tasks"]
+  .session-telemetry-status-value-wrap {
+  justify-content: space-between;
+  gap: var(--tug-space-md);
 }
 
-/* Undo the work-cell rule above for this one: it is a dot beside a value, not
-   a whole value row, so it sizes to its glyph. */
-.session-telemetry-status-cell[data-priority="tasks"]
-  .session-telemetry-status-dash-row
+.session-telemetry-status-row[data-dash="true"]
+  .session-telemetry-status-cell[data-priority="tasks"]
   .tug-progress-indicator {
   display: inline-flex;
   width: auto;
+  justify-content: center;
   margin-inline: 2px;
 }
-
-/* The strip, retuned to this box.
-
-   The cell is 14ch against the row's 10px font — about 78px, a width measured
-   to clear the 68px TASKS face. The track's shipped rail geometry needs about
-   101px for a three-step plan and grows ~6px per step, because its implement
-   cell is `auto` over fixed-width ticks. So both are answered here: the cells
-   and the ticks come down, and the implement cell is PINNED — its ticks then
-   divide a fixed box and simply get thinner as the plan grows. Four cells at
-   8px, a 14px implement cell and four 2px gaps is ~54px; with the dot and the
-   row's gap the reading is ~74px inside ~78px at one step or at thirty.
-
-   A tick as narrow as a pixel is the honest reading for a strip in this box.
-   The exact count is in `aria-label` whole, and on the masthead one row up,
-   which renders the same track at reading scale with room for it. */
-.session-telemetry-status-value-dash {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--tug-space-2xs);
-  max-width: 100%;
-  min-width: 0;
-  --tugx-dash-track-cell-w: 8px;
-  --tugx-dash-track-cell-h: 6px;
-  --tugx-dash-track-steps-w: 14px;
-  /* The track ends the row, so it claims no trailing air. */
-  --tugx-dash-track-out: 0;
-}
-
-.session-telemetry-status-value-dash .tug-dash-track-tick {
-  flex: 1 1 0;
-  inline-size: auto;
-  min-inline-size: 1px;
-}
-
-/* A stopped arc paints inside the strip rather than over it: the track wears
-   `data-stopped` and tints the cell it stopped in danger, which says WHERE it
-   stopped as well as that it did. A `color` on this span would reach nothing —
-   every part of the strip is a background — so the arc attributes here are the
-   cell's own record of the fact, and the paint is the track's. The words are
-   on the placard one press away, which has room for them. No box moves. */
 
 /* Dim the indicator + label when the cell is empty so it reads as a
    quiet placeholder. */

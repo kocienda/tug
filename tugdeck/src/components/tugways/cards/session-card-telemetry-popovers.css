@@ -326,6 +326,22 @@
   --tugx-dash-popover-lead-width: 16px;
 }
 
+/* The DASH placard is set in the ambient SANS, not the frame's mono.
+
+   `TugPopupList` puts mono on everything below its title bar, and that is
+   right for what a popup list usually holds: tabular data, where a column of
+   figures has to line up. This one holds none. It holds a dash's name, its
+   phase, and a plan's step titles — prose, written by a person, read as
+   sentences — and mono set those at a width that pushed the titles into an
+   ellipsis three words early. The one thing here with columns to keep is the
+   step fraction, which carries its own mono and is unaffected.
+
+   Scoped to this placard rather than lifted off the frame: every other popup
+   list in the app is the tabular kind the frame's rule was written for. */
+.session-dash-popover > :not(.tug-popup-list-title) {
+  font-family: var(--tug-font-family-sans);
+}
+
 .session-dash-popover-head {
   display: flex;
   flex-direction: column;

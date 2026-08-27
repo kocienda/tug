@@ -94,8 +94,9 @@ import {
   type ScrollToRowHandler,
 } from "./session-card-telemetry-popovers";
 import { dashGlanceFraction } from "@/lib/dash-meta-facts";
+import { dashMarkFraction } from "@/components/tugways/dash-lifecycle-mark";
 import {
-  TugDashTrack,
+  DASH_PHASE_LABELS,
   dashTrackModelFromEntry,
 } from "@/components/tugways/tug-dash-track";
 import { useDashForSession } from "@/lib/dash-session-index";
@@ -995,11 +996,38 @@ export const SessionTelemetryStatusRow = React.forwardRef<
   );
   const tasksSummary = composeTaskSummary(taskCounts);
   // The DASH reading's flanking dots take the dash's stage, under the
-  // same idle demotion the TASKS pose uses.
-  const dashIndicatorState: TugProgressIndicatorState = dashCellPose(
-    dashFact === null ? null : dashFact.stage,
-    isIdle,
-  );
+  // same idle demotion the TASKS pose uses — except a stopped arc, which
+  // outranks every other reading and paints danger.
+  const dashIndicatorState: TugProgressIndicatorState =
+    dashFact?.arc?.stopped !== undefined
+      ? "aborted"
+      : dashCellPose(dashFact === null ? null : dashFact.stage, isIdle);
+  // **Numbers whenever there are numbers.** The declared RUN first — the
+  // selection somebody asked for — and the PLAN's own pair when no run was
+  // declared, which is what makes a reviewed-but-unstarted plan read `0/10`
+  // rather than falling back to a word for a dash that plainly has steps to
+  // count. The word is only for a dash with no plan at all.
+  //
+  // That word is the lifecycle PHASE, the same vocabulary the track's cells
+  // and the placard's note use, Title Case like every other named state in
+  // this row. Not the git stage: a dash devising or reviewing a plan has no
+  // stage at all, which is how this cell came to show a fallback glyph for the
+  // whole first half of a dash's life. A poke says `Poke` rather than
+  // `Implement`: it has no plan and never will, so the phase word would be
+  // naming a stage of a lifecycle it does not have.
+  const dashModel = dashFact === null ? null : dashTrackModelFromEntry(dashFact.entry);
+  const dashFraction =
+    dashModel === null ? null : (dashGlance ?? dashMarkFraction(dashModel));
+  const dashReading =
+    dashModel === null
+      ? ""
+      : dashFraction !== null
+        ? `${dashFraction.current}/${dashFraction.total}`
+        : dashModel.stopped !== null
+          ? "Stopped"
+          : dashModel.poke
+            ? "Poke"
+            : DASH_PHASE_LABELS[dashModel.phase];
 
   const jobsRecent = jobsRecentlyDone(jobsLedger, nowMs, WORK_LINGER_MS);
   const jobsActiveCount = jobsCellActiveCount(jobCounts, goal);
@@ -1148,6 +1176,10 @@ export const SessionTelemetryStatusRow = React.forwardRef<
       ref={rowRef}
       className="session-telemetry-status-row"
       data-slot="session-telemetry-status-row"
+      // The fourth cell's reading. It widens for a word, and JOBS gives back
+      // exactly what it takes, so the row's total is the same 80ch either way
+      // and every `@container` rung below keeps its measured value.
+      data-dash={dashFact !== null ? "true" : undefined}
       data-replay-inert={replayInert ? "true" : undefined}
     >
       {/* One card-scoped placard over whichever Z2 surface is open — auto-
@@ -1240,10 +1272,10 @@ export const SessionTelemetryStatusRow = React.forwardRef<
         {replayInert ? (
           <span className="session-telemetry-status-value">—</span>
         ) : dashFact !== null ? (
-          // The dash's reading, inside the box TASKS already held:
-          // `data-priority` is unchanged, so the measured width table and
-          // the placard's anchor query both keep working, and the row's
-          // geometry does not move when a session picks a dash up.
+          // The dash's reading, in the box TASKS holds when no dash is up:
+          // `data-priority` is unchanged, so the placard's anchor query keeps
+          // working. The box itself widens for the word — see `data-dash` on
+          // the row, where JOBS gives back exactly what this cell takes.
           //
           // **No name.** The cell is ~110px, and a name is the one fact here
           // that can be arbitrarily long — so it ate the box and elided, which
@@ -1254,19 +1286,27 @@ export const SessionTelemetryStatusRow = React.forwardRef<
           // `DASH` label as a reading, in the accessible label in full, and on
           // the placard one click away.
           //
-          // **One dot and the strip.** The reading is the dash's whole life
-          // in one graphic — the same `TugDashTrack` the masthead one row up
-          // renders at reading scale, here at the rail and sized to this box
-          // by the track's own knobs. A glyph could only name the stage git
-          // had reached and a fraction only the run's position; the strip
-          // says both, and says the half of the life that happens before a
-          // branch exists as well.
+          // **The fraction, or the phase's word.** The whole track lived here
+          // for a while and it was the wrong box for it: a five-cell strip
+          // squeezed under 78px draws ticks a pixel wide, which is a graphic
+          // that cannot be read at the size it is drawn. So the cell says the
+          // one thing that changes while somebody watches — the position in
+          // the run — and before any step is declared it says where in the
+          // lifecycle the dash is, in a word. The strip is on the surfaces
+          // whose subject IS the dash: the Lens, the shade, and this cell's
+          // own placard, one press away.
           //
-          // The pulsing dot is the cell's own and there is exactly one, at
-          // the row's 2px inset. The pill with its label and its `00/00`
-          // reservation belongs to the TASKS reading alone: a pill around
-          // a graphic is a second box around a thing that already has one.
-          <span className="session-telemetry-status-dash-row">
+          // **Authored exactly as STATE is.** Three siblings inside the value
+          // wrap — a dot, the reading, a dot — not one indicator carrying a
+          // `label`. That is the difference between the two shapes in this
+          // row: TASKS and JOBS put their glyphs and their count inside one
+          // indicator that stretches to the cell; STATE pins two glyphs to the
+          // wrap's edges with `space-between` and centres a WORD between them.
+          // The dash reading is a word, so it is STATE's shape, from STATE's
+          // markup, under rules that say so.
+          //
+          // A stopped arc turns both dots danger and holds them still.
+          <>
             <TugProgressIndicator
               variant="pulsing-dot"
               size={12}
@@ -1274,27 +1314,19 @@ export const SessionTelemetryStatusRow = React.forwardRef<
               aria-hidden
             />
             <span
-              className="session-telemetry-status-value session-telemetry-status-value-dash"
+              className="session-telemetry-status-value"
               data-slot="session-telemetry-dash-value"
-              // The arc, in the one place the cell has left: attributes the
-              // CSS paints ([L06]), so a stopped arc is a tint on the reading
-              // rather than a fourth thing competing for the box's width. The
-              // *words* live on the placard's meta line, which has room for
-              // them and is one press away.
-              {...(dashFact.arc?.stage !== undefined
-                ? { "data-arc": dashFact.arc.stage }
-                : {})}
-              {...(dashFact.arc?.stopped !== undefined
-                ? { "data-arc-stopped": "true" }
-                : {})}
               aria-label={dashCellLabel}
             >
-              <TugDashTrack
-                model={dashTrackModelFromEntry(dashFact.entry)}
-                size="rail"
-              />
+              {dashReading}
             </span>
-          </span>
+            <TugProgressIndicator
+              variant="pulsing-dot"
+              size={12}
+              state={dashIndicatorState}
+              aria-hidden
+            />
+          </>
         ) : (
           <TugProgressIndicator
             variant="pulsing-dot"

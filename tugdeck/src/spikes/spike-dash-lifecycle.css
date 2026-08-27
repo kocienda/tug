@@ -134,3 +134,14 @@
   color: var(--tug7-element-global-text-normal-rest);
   font-weight: var(--tug-font-weight-semibold);
 }
+
+/* The Z2 study's rail. The cells carry the shipping row's class so they wear
+   its font and apparatus; this only lets the seven of them wrap instead of
+   packing into one card-wide instrument row. */
+.spdl-z2-row {
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  background: var(--tug7-surface-card-primary-normal-status-rest);
+  border-radius: var(--tug-radius-sm);
+  padding: var(--tug-space-2xs) var(--tug-space-xs);
+}

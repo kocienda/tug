@@ -1,16 +1,40 @@
 /* tug-dash-track.css — the strip, its cells, and its ticks.
 
-   Four states on one ladder, chosen to family with the step ring and the
-   pulsing dot: `pending` is the ring's own unfilled stroke, `done` the muted
-   text tone, `active` the theme accent, and the join — the one cell that is a
-   destination rather than a stage — the theme's selection color.
+   Four states on one ladder, chosen to family with the pulsing dot: `done` is
+   the muted text tone, `active` the theme's KEY color — the same tone the dot
+   beside it pulses in, because a dash in flight and a session in flight are
+   the same claim — the join, the one cell that is a destination rather than a
+   stage, the theme's selection color, and `pending` no fill at all.
+
+   **What is behind you is a fill; what is ahead is an outline.** Both were
+   fills once, one muted and one slightly more so, and at cap height that is a
+   difference the eye has to look for. An outline against a fill is a
+   difference it cannot miss, and it says the right thing besides: a pending
+   cell is a box the work has not arrived in yet.
+
+   Not the accent. The accent is the theme's decorative tint and it appears on
+   surfaces that have nothing to do with work being in flight; a strip that
+   wore it read as ornament sitting next to an instrument that did not.
 
    A fifth, `withdrawn`, is tick-only: a step the run decided not to walk. It
-   is the unfilled stroke faded, quieter than both `pending` and `done`, so the
-   row reads as closed-but-not-worked. A whole phase cannot be withdrawn, so no
-   cell wears it.
+   is the pending outline, faded — quieter than both `pending` and `done`, so
+   the row reads as closed-but-not-worked. A whole phase cannot be withdrawn,
+   so no cell wears it.
 
-   The geometry is knobs — `--tugx-dash-track-cell-w`, `-cell-h`, `-tick-w`,
+   The strip is CONSTANT WIDTH. The implement cell is a fixed box like every
+   other cell, and its ticks divide it — so a three-step plan and a thirty-step
+   plan draw the same graphic, and a plan that grows while somebody watches
+   does not push the words beside it along the row. A tick as narrow as a pixel
+   is the honest reading for a long plan in a small strip; the exact count is
+   the fraction beside it and the `aria-label`.
+
+   The current cell BREATHES while the dash is live — the same asymmetric
+   envelope the pulsing dot runs, quick in and slow out, on the same 2s period,
+   so a strip and a dot on one row read as one instrument. A stopped arc does
+   not breathe: nothing is happening, and that is the fact the danger paint is
+   there to say.
+
+   The geometry is knobs — `--tugx-dash-track-cell-w`, `-cell-h`,
    `-steps-w`, `-out` — and their defaults live in the `var(--x, default)` that
    READS them, never on `.tug-dash-track` itself. A declaration on the
    component's own element always beats one on an ancestor, so knobs declared
@@ -60,27 +84,44 @@
   border-end-end-radius: 999px;
 }
 
-/* The implement cell is as wide as its ticks by default — the plan's shape at
-   full size. A host with a fixed box pins it instead and lets the ticks divide
-   what it gives them; the cell is already `align-items: stretch`, so they
-   simply get thinner as the plan grows.
+/* The implement cell is three cells wide at every scale, whatever the plan
+   holds, and the ticks divide it. A cell that sized to its ticks made the
+   strip's width a function of the plan's length — so the strip grew under the
+   reader, and on a narrow surface it grew into whatever was set beside it.
 
    Selected through the track so it outranks the per-size cell rules above,
    which are one attribute more specific than a bare `[data-steps]` would be. */
 .tug-dash-track .tug-dash-track-cell[data-steps="true"] {
-  inline-size: var(--tugx-dash-track-steps-w, auto);
+  inline-size: var(--tugx-dash-track-steps-w, 42px);
   background: transparent;
+  /* The implement cell is a container over its ticks, never a mark of its
+     own — so it takes neither the fill nor the pending OUTLINE. A box drawn
+     around a row of ticks would read as a sixth cell. */
+  box-shadow: none;
   border-radius: 0;
 }
 
+.tug-dash-track[data-size="read"] .tug-dash-track-cell[data-steps="true"] {
+  inline-size: var(--tugx-dash-track-steps-w, 54px);
+}
+
+/* Ticks divide whatever box the implement cell holds — never a width of their
+   own, which is what would make the cell grow. `min-inline-size` keeps the
+   last tick of a long plan visible rather than collapsed. */
 .tug-dash-track-tick {
-  inline-size: var(--tugx-dash-track-tick-w, 5px);
+  flex: 1 1 0;
+  min-inline-size: 1px;
   border-radius: 1px;
   background: var(--tug7-element-global-border-normal-muted-rest);
 }
 
-.tug-dash-track[data-size="read"] .tug-dash-track-tick {
-  inline-size: var(--tugx-dash-track-tick-w, 6px);
+/* What is ahead: an outline, no fill. `inset` rather than a border so the box
+   does not change size between states — a cell that grew by 2px when the work
+   reached it would shift every cell after it. */
+.tug-dash-track-cell[data-state="pending"],
+.tug-dash-track-tick[data-state="pending"] {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--tug7-element-global-border-normal-muted-rest);
 }
 
 .tug-dash-track-cell[data-state="done"],
@@ -90,7 +131,7 @@
 
 .tug-dash-track-cell[data-state="active"],
 .tug-dash-track-tick[data-state="active"] {
-  background: var(--tug7-element-global-border-normal-accent-rest);
+  background: var(--tug7-surface-toggle-primary-normal-active-rest);
 }
 
 .tug-dash-track-cell[data-phase="join"][data-state="active"] {
@@ -103,6 +144,44 @@
 }
 
 .tug-dash-track-tick[data-state="withdrawn"] {
-  background: var(--tug7-element-global-border-normal-muted-rest);
-  opacity: 0.55;
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--tug7-element-global-border-normal-muted-rest);
+  opacity: 0.45;
+}
+
+/* The breath. Exactly one thing on the strip moves: the key-colored mark, the
+   cell or the tick the work is IN. The done marks were tried breathing beside
+   it and they said the wrong thing — a step that is finished is not doing
+   anything, and a whole walked prefix rising and falling made the strip read
+   as busy rather than as an instrument with one live reading on it.
+
+   The envelope is the pulsing dot's: a quick rise over the first 30% of the
+   cycle and a slow fall over the rest, because a symmetric fade reads as a
+   mechanism and this reads as something alive.
+
+   The implement CELL is excluded by `:not([data-steps])` — it is a transparent
+   container over its ticks, and animating its opacity would take the pending
+   ticks down with it, which is the one thing this rule exists to avoid.
+
+   `data-stopped` is the gate: a stopped arc holds still. So is the reader's
+   own preference, which is why the animation is declared inside the query
+   rather than switched off by one. */
+@media (prefers-reduced-motion: no-preference) {
+  .tug-dash-track:not([data-stopped]) .tug-dash-track-cell[data-state="active"]:not([data-steps]),
+  .tug-dash-track:not([data-stopped]) .tug-dash-track-tick[data-state="active"] {
+    animation: tug-dash-track-breath var(--tugx-dash-track-breath-ms, 2000ms)
+      ease-in-out infinite;
+  }
+}
+
+@keyframes tug-dash-track-breath {
+  0% {
+    opacity: 0.4;
+  }
+  30% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0.4;
+  }
 }

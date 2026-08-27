@@ -1373,6 +1373,7 @@ export function DashPopoverContent({
   return (
     <TugPopupListFrame
       kind="item"
+      className="session-dash-popover"
       footer={
         <TugPopupListFooter summary={fact.stage ?? "dash"}>
           <TugPushButton

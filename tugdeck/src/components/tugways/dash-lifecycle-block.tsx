@@ -25,14 +25,25 @@ import "./dash-lifecycle-block.css";
 import React from "react";
 
 import { DashLifecycleLine, type DashLifecycleLineProps } from "./dash-lifecycle-line";
+import { DashPhaseMark } from "./dash-phase-mark";
 import { TugDashAtom } from "./tug-dash-atom";
 import { TugSessionIdentity } from "./tug-session-identity";
 import { useSessionIdentity } from "@/lib/session-identity";
 
-export interface DashLifecycleBlockProps extends DashLifecycleLineProps {
+/**
+ * Where the block sets the phase glyph.
+ *
+ * `eyebrow` leads the dash's name with it, `line` sets it after the track,
+ * `both` does each, `none` leaves the strip to say it alone.
+ */
+export type DashBlockMark = "eyebrow" | "line" | "both" | "none";
+
+export interface DashLifecycleBlockProps extends Omit<DashLifecycleLineProps, "mark"> {
   name: string;
   workers?: readonly string[];
   trailing?: React.ReactNode;
+  /** @default "eyebrow" */
+  mark?: DashBlockMark;
 }
 
 /**
@@ -66,11 +77,15 @@ export function DashLifecycleBlock({
   note,
   facts,
   size = "rail",
+  mark = "eyebrow",
 }: DashLifecycleBlockProps): React.ReactElement {
   const atomSize = size === "read" ? "sm" : "2xs";
   return (
     <span className="tug-dash-lifecycle-block" data-slot="tug-dash-lifecycle-block" data-dash={name} data-size={size}>
       <span className="tug-dash-lifecycle-eyebrow" data-slot="tug-dash-lifecycle-eyebrow">
+        {mark === "eyebrow" || mark === "both" ? (
+          <DashPhaseMark model={model} size={size === "read" ? 14 : 12} />
+        ) : null}
         <TugDashAtom name={name} size={atomSize} slot="tug-dash-lifecycle-name" />
         <span className="tug-dash-lifecycle-rule" aria-hidden="true" />
         {workers.map((sessionId) => (
@@ -78,7 +93,13 @@ export function DashLifecycleBlock({
         ))}
         {trailing}
       </span>
-      <DashLifecycleLine model={model} note={note} {...(facts !== undefined ? { facts } : {})} size={size} />
+      <DashLifecycleLine
+        model={model}
+        note={note}
+        {...(facts !== undefined ? { facts } : {})}
+        size={size}
+        mark={mark === "line" || mark === "both"}
+      />
     </span>
   );
 }

@@ -1,0 +1,79 @@
+/* dash-lifecycle-mark.css — the compact reading: glyph, pill, fraction.
+
+   The pill wears the track's own palette so the two registers of one grammar
+   read as one thing: the theme's KEY color while the work is in flight — the
+   tone the pulsing dot uses for the same claim — the selection color at the
+   join, and the danger tone when the arc stopped. It breathes on the track's
+   cycle, and stops breathing for the same two reasons the track does: a
+   stopped arc, and the reader's own motion preference.
+
+   It is one cell wide, not three. The pill is a stop of color, not a gauge —
+   the fraction beside it is what says how far along — so it wants the smallest
+   box that still reads as a pill rather than as a dot.
+
+   Laws: [L06] phase and state are `data-*`; [L20] owns
+   `--tugx-dash-lifecycle-mark-*`, defaults at their points of use. */
+
+.tug-dash-lifecycle-mark {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tugx-dash-lifecycle-mark-gap, 4px);
+  flex: 0 0 auto;
+}
+
+/* The air the reading keeps from whatever is set after it — the same rule the
+   track carries, for the same reason: a graphic needs more room from a word
+   than two words need from each other. A mark that ends its row claims none. */
+.tug-dash-lifecycle-mark:not(:last-child) {
+  margin-inline-end: var(--tugx-dash-lifecycle-mark-out, 4px);
+}
+
+.tug-dash-lifecycle-mark-pill {
+  display: inline-block;
+  flex: 0 0 auto;
+  inline-size: var(--tugx-dash-lifecycle-mark-pill-w, 14px);
+  block-size: var(--tugx-dash-lifecycle-mark-pill-h, 7px);
+  border-radius: 999px;
+  background: var(--tug7-surface-toggle-primary-normal-active-rest);
+}
+
+.tug-dash-lifecycle-mark[data-size="read"] .tug-dash-lifecycle-mark-pill {
+  inline-size: var(--tugx-dash-lifecycle-mark-pill-w, 18px);
+  block-size: var(--tugx-dash-lifecycle-mark-pill-h, 9px);
+}
+
+.tug-dash-lifecycle-mark-pill[data-phase="join"] {
+  background: var(--tug7-surface-control-primary-normal-selected-rest);
+}
+
+.tug-dash-lifecycle-mark-pill[data-state="stopped"] {
+  background: var(--tug7-element-tone-icon-normal-danger-rest);
+}
+
+.tug-dash-lifecycle-mark[data-size="read"] {
+  --tugx-step-fraction-font-size: var(--tug-font-size-xs);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .tug-dash-lifecycle-mark:not([data-stopped]) .tug-dash-lifecycle-mark-pill {
+    animation: tug-dash-lifecycle-mark-breath
+      var(--tugx-dash-lifecycle-mark-breath-ms, 2000ms)
+      ease-in-out infinite;
+  }
+}
+
+/* The track's envelope, under this component's own name. `@keyframes` is
+   global and un-scoped, so borrowing the track's would make one stylesheet's
+   presence a silent condition of the other's motion. Same curve, stated
+   twice, rather than a dependency nothing declares. */
+@keyframes tug-dash-lifecycle-mark-breath {
+  0% {
+    opacity: 0.4;
+  }
+  30% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0.4;
+  }
+}

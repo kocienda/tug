@@ -35,6 +35,23 @@ import type { DashArcState, DashChangesetEntry, DashStep } from "@/lib/changeset
 export type DashPhase = "brief" | "devise" | "review" | "implement" | "join";
 export const DASH_PHASES: readonly DashPhase[] = ["brief", "devise", "review", "implement", "join"];
 
+/**
+ * Each phase as a reading — Title Case, the register every named state in the
+ * Z2 status row is set in (`Working`, `Disconnected`, `Waiting`). A cell that
+ * spelled its state in lowercase beside four that do not would read as a
+ * different kind of instrument.
+ *
+ * `stopped` is not a phase and has no entry: a stop is a fact ABOUT a phase,
+ * and the surfaces that need the word have {@link DashTrackModel.stopped}.
+ */
+export const DASH_PHASE_LABELS: Record<DashPhase, string> = {
+  brief: "Brief",
+  devise: "Devise",
+  review: "Review",
+  implement: "Implement",
+  join: "Join",
+};
+
 export type DashCellState = "pending" | "active" | "done" | "stopped";
 
 /**
