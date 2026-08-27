@@ -211,6 +211,16 @@ impl WorkspaceEntry {
         // Walk before the FileWatcher task consumes `file_watcher`.
         let (initial_files, ft_truncated) = file_watcher.walk();
 
+        // The GIT_HEAD baseline, then the OS watch — in that order, and both
+        // here rather than inside the tasks below. A commit is only reported
+        // when it lands after the watch is armed AND differs from the
+        // baseline, so anything that arms or baselines late swallows the move
+        // outright. Doing both synchronously means every write that follows
+        // this constructor is reportable; a spawned task that starts late
+        // costs nothing, because the events queue.
+        let baseline_head = crate::feeds::git_watch::read_head_blocking(&project_dir);
+        let armed_watch = file_watcher.arm();
+
         // FILETREE query channel.
         let (ft_query_tx, ft_query_rx) = mpsc::channel::<FileTreeQuery>(16);
 
@@ -245,7 +255,11 @@ impl WorkspaceEntry {
         // the one way a SnapshotFeed gets its task.
         let fw_cancel = cancel.clone();
         let file_watcher_task = tokio::spawn(async move {
-            file_watcher.run(fs_broadcast_tx, fw_cancel).await;
+            if let Some(armed) = armed_watch {
+                file_watcher
+                    .run_armed(armed, fs_broadcast_tx, fw_cancel)
+                    .await;
+            }
         });
 
         let filesystem_task = spawn_snapshot_feed(Box::new(fs_feed), fs_watch_tx, cancel.clone());
@@ -260,6 +274,7 @@ impl WorkspaceEntry {
         let git_watch_task = tokio::spawn(crate::feeds::git_watch::run_git_workspace_watch(
             gw_dir,
             gw_key,
+            baseline_head,
             changeset_all_bump,
             gh_response_tx,
             git_fs_rx,

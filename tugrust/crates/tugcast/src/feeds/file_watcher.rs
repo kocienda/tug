@@ -38,6 +38,16 @@ pub(crate) const POLL_MILLIS: u64 = 50;
 /// Maximum number of files returned by walk()
 const WALK_CAP: usize = 50_000;
 
+/// A live OS watch: the `notify` watcher plus the channel its events land in.
+///
+/// Held by [`FileWatcher::arm`]'s caller between arming and draining. The
+/// watcher must outlive the drain — dropping it unregisters the OS watch —
+/// so it travels with its receiver rather than being reconstructed.
+pub struct ArmedWatch {
+    watcher: notify::RecommendedWatcher,
+    event_rx: std_mpsc::Receiver<notify::Result<Event>>,
+}
+
 /// Shared filesystem watcher service.
 ///
 /// Owns the notify watcher and initial directory walk.
@@ -136,12 +146,17 @@ impl FileWatcher {
         (files, truncated)
     }
 
-    /// Start the filesystem watcher and broadcast events to all subscribers.
+    /// Arm the OS watch, synchronously. Returns `None` when the watcher
+    /// cannot be created or the directory cannot be watched (both logged).
     ///
-    /// Creates a `notify::RecommendedWatcher`, debounces events (100ms),
-    /// converts to `Vec<FsEvent>`, filters via gitignore, detects `.gitignore`
-    /// changes and rebuilds the matcher, then broadcasts batches.
-    pub async fn run(self, tx: broadcast::Sender<Vec<FsEvent>>, cancel: CancellationToken) {
+    /// Arming is split out of the drain loop because it is the only part with
+    /// an ordering obligation: a write that lands before the OS watch is
+    /// registered produces no event at all, and nothing downstream can
+    /// recover it. Every caller therefore arms here, on its own thread, and
+    /// hands the [`ArmedWatch`] to [`Self::run_armed`] in a spawned task. The
+    /// events queue in the channel until that task first runs, so a late task
+    /// loses nothing; a late `watch()` call loses everything.
+    pub fn arm(&self) -> Option<ArmedWatch> {
         let watch_path = self.resolver.watch_path().to_path_buf();
 
         // Create std::sync::mpsc channel for notify watcher
@@ -152,16 +167,34 @@ impl FileWatcher {
             Ok(w) => w,
             Err(e) => {
                 error!(error = %e, "failed to create filesystem watcher");
-                return;
+                return None;
             }
         };
 
         // Start watching — use the resolved path that FSEvents/inotify accepts
         if let Err(e) = watcher.watch(&watch_path, RecursiveMode::Recursive) {
             error!(dir = ?watch_path, error = %e, "failed to watch directory");
-            return;
+            return None;
         }
         info!(dir = ?watch_path, "file watcher started");
+        Some(ArmedWatch { watcher, event_rx })
+    }
+
+    /// Drain an [`ArmedWatch`]: debounce events (100ms), convert to
+    /// `Vec<FsEvent>`, and broadcast batches until `cancel` fires.
+    pub async fn run_armed(
+        self,
+        armed: ArmedWatch,
+        tx: broadcast::Sender<Vec<FsEvent>>,
+        cancel: CancellationToken,
+    ) {
+        let watch_path = self.resolver.watch_path().to_path_buf();
+        // The watcher must stay alive for the duration — dropping it
+        // unregisters the OS watch.
+        let ArmedWatch {
+            watcher: _watcher,
+            event_rx,
+        } = armed;
 
         let debounce_duration = Duration::from_millis(DEBOUNCE_MILLIS);
         let poll_duration = Duration::from_millis(POLL_MILLIS);

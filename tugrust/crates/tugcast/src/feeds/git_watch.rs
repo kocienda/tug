@@ -51,6 +51,27 @@ async fn read_head(repo_dir: &Path) -> String {
         .unwrap_or_default()
 }
 
+/// The same read, blocking — the baseline a workspace takes at construction,
+/// where the constructor is synchronous by contract (it runs under the
+/// registry mutex, alongside the equally blocking initial directory walk).
+///
+/// The baseline has an ordering obligation the async read cannot meet: it must
+/// be taken BEFORE the OS watch arms. Read it after, and a commit that lands
+/// in between is seen by the watch but compares equal to the baseline — the
+/// move is swallowed and no `GIT_HEAD` ever fires for it, leaving the client's
+/// log stale with nothing to correct it.
+pub fn read_head_blocking(repo_dir: &Path) -> String {
+    let out = std::process::Command::new("git")
+        .arg("-C")
+        .arg(repo_dir)
+        .args(["rev-parse", "HEAD"])
+        .output();
+    match out {
+        Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout).trim().to_string(),
+        _ => String::new(),
+    }
+}
+
 /// React to the workspace's `FileWatcher` batches per the module docs. Runs
 /// until `cancel` fires or the watcher's broadcast closes. `workspace_key` is
 /// stamped into every `GitHeadSignal` so the client correlates the signal to
@@ -58,13 +79,16 @@ async fn read_head(repo_dir: &Path) -> String {
 pub async fn run_git_workspace_watch(
     repo_dir: PathBuf,
     workspace_key: String,
+    baseline_head: String,
     bump: Arc<Notify>,
     gh_tx: broadcast::Sender<Frame>,
     mut fs_rx: broadcast::Receiver<Vec<FsEvent>>,
     cancel: CancellationToken,
 ) {
     // Baseline HEAD so only a *move* past the current value emits a signal.
-    let mut last_head = read_head(&repo_dir).await;
+    // Read by the caller before it armed the watch — see
+    // [`read_head_blocking`] for why that order is the whole point.
+    let mut last_head = baseline_head;
 
     loop {
         // `check_git` is set when we must re-read HEAD: a batch that touched
@@ -114,7 +138,6 @@ mod tests {
     use std::time::Duration;
     use tempfile::TempDir;
     use tokio::process::Command;
-    use tokio::time::sleep;
 
     async fn git_in(repo: &Path, args: &[&str]) {
         let mut full = vec!["-C", repo.to_str().unwrap()];
@@ -171,12 +194,12 @@ mod tests {
         let handle = tokio::spawn(run_git_workspace_watch(
             repo.clone(),
             "ws".to_string(),
+            head1.clone(),
             Arc::clone(&bump),
             gh_tx,
             fs_rx,
             cancel.clone(),
         ));
-        sleep(Duration::from_millis(50)).await;
 
         // A working-tree-only batch → bump, no HEAD signal.
         fs_tx

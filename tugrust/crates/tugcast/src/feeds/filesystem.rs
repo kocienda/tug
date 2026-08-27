@@ -131,6 +131,7 @@ mod tests {
         // Create the broadcast channel and FileWatcher
         let (broadcast_tx, _) = broadcast::channel::<Vec<FsEvent>>(256);
         let file_watcher = FileWatcher::new(watch_path.clone());
+        let armed = file_watcher.arm().expect("arm the watch");
 
         // Derive the fixture workspace_key from the real TempDir path —
         // mirrors how WorkspaceRegistry builds the key in production.
@@ -151,7 +152,9 @@ mod tests {
         let watcher_cancel = cancel.clone();
         let watcher_broadcast_tx = broadcast_tx.clone();
         tokio::spawn(async move {
-            file_watcher.run(watcher_broadcast_tx, watcher_cancel).await;
+            file_watcher
+                .run_armed(armed, watcher_broadcast_tx, watcher_cancel)
+                .await;
         });
 
         // Spawn the FilesystemFeed in the background
