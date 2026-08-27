@@ -698,7 +698,9 @@ mod tests {
         let (newest, _) = ledger.list_page(&only("s1"), None, 4).unwrap();
         let oldest_loaded = newest.first().unwrap().id;
 
-        let (older, has_more) = ledger.list_page(&only("s1"), Some(oldest_loaded), 4).unwrap();
+        let (older, has_more) = ledger
+            .list_page(&only("s1"), Some(oldest_loaded), 4)
+            .unwrap();
         assert!(has_more, "two rows still older than this page");
         assert_eq!(
             older.iter().map(|r| r.text.as_str()).collect::<Vec<_>>(),

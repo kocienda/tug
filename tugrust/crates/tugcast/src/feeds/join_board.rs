@@ -757,7 +757,8 @@ mod tests {
         tugdash_core::resolve::resolve_conflicts(repo, "demo", None).unwrap();
         tugdash_core::resolve::mark_resolve_begun(repo, "demo").unwrap();
 
-        let leased = |state: &DashJoinState| state.blockers.iter().any(|b| b.kind == "live-resolve");
+        let leased =
+            |state: &DashJoinState| state.blockers.iter().any(|b| b.kind == "live-resolve");
         assert!(leased(&compose(repo)), "nobody holds it, so git answers");
 
         let detail = detail_for(repo);

@@ -832,8 +832,7 @@ async fn session_handler(
                 let session_id = session_id.clone();
                 tokio::task::spawn_blocking(move || {
                     let known = matches!(ledger.get(&session_id), Ok(Some(_)));
-                    let on_course =
-                        known && crate::wheel::course_is_running(&ledger, &session_id);
+                    let on_course = known && crate::wheel::course_is_running(&ledger, &session_id);
                     (known, on_course)
                 })
                 .await
@@ -886,10 +885,7 @@ async fn session_handler(
             )
                 .into_response()
         }
-        other => err(
-            StatusCode::BAD_REQUEST,
-            &format!("unknown op '{other}'"),
-        ),
+        other => err(StatusCode::BAD_REQUEST, &format!("unknown op '{other}'")),
     }
 }
 
