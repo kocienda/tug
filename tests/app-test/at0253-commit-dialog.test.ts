@@ -129,46 +129,56 @@ describe.skipIf(!SHOULD_RUN)("AT0253: commit mode + read-only shade", () => {
         // heading with a rule under it, the summary as the paragraph it is,
         // and COLLAPSES git's blank separator between them — the rule already
         // draws that break, and drawn twice it read as air the author had
-        // left. Typed with real keys, because the decoration is rebuilt from
+        // left. Typed with real keys, because the decorations are rebuilt from
         // the document and a document nobody typed proves nothing.
-        await app.nativeType("at0253(mode): the subject line");
-        await app.nativeKey("Return");
-        await app.nativeKey("Return");
-        await app.nativeType("The summary paragraph, which is prose.");
-        await settle();
-        const marks = await app.evalJS<{
+        //
+        // The bulleted shape leads, because it is the one the separator rule
+        // has to be read off the DOCUMENT to catch: a body that opens on a
+        // list has no summary paragraph at all, and a collapse scoped to the
+        // summary left exactly this message with its blank line intact.
+        const parts = (): Promise<{
           subject: number;
           summary: number;
           gaps: number;
           gapHeight: number;
           step: number;
           lineHeight: number;
-        }>(
-          `(() => {
-             const content = document.querySelector(${JSON.stringify(PROMPT_INPUT)});
-             const at = (sel) => content.querySelector(sel);
-             const subject = at(".cm-landing-subject").getBoundingClientRect();
-             const summary = at(".cm-landing-summary").getBoundingClientRect();
-             const gap = at(".cm-landing-gap");
-             return {
-               subject: content.querySelectorAll(".cm-landing-subject").length,
-               summary: content.querySelectorAll(".cm-landing-summary").length,
-               gaps: content.querySelectorAll(".cm-landing-gap").length,
-               gapHeight: gap === null ? -1 : Math.round(gap.getBoundingClientRect().height),
-               step: Math.round(summary.top - subject.bottom),
-               lineHeight: Math.round(subject.height),
-             };
-           })()`,
-        );
-        note(`at0253 landing marks: ${JSON.stringify(marks)}`);
-        expect(marks.subject, "the subject line is marked").toBe(1);
-        expect(marks.summary, "and so is the summary's line").toBe(1);
-        expect(marks.gaps, "and the separator between them is marked too").toBe(1);
-        expect(marks.gapHeight, "the separator draws no line of its own").toBe(0);
+          doc: string;
+        }> =>
+          app.evalJS(
+            `(() => {
+               const content = document.querySelector(${JSON.stringify(PROMPT_INPUT)});
+               const lines = content.querySelectorAll(".cm-line");
+               const subject = content.querySelector(".cm-landing-subject").getBoundingClientRect();
+               const after = lines[lines.length - 1].getBoundingClientRect();
+               const gap = content.querySelector(".cm-landing-gap");
+               return {
+                 subject: content.querySelectorAll(".cm-landing-subject").length,
+                 summary: content.querySelectorAll(".cm-landing-summary").length,
+                 gaps: content.querySelectorAll(".cm-landing-gap").length,
+                 gapHeight: gap === null ? -1 : Math.round(gap.getBoundingClientRect().height),
+                 step: Math.round(after.top - subject.bottom),
+                 lineHeight: Math.round(subject.height),
+                 doc: Array.from(lines).map((l) => l.textContent).join("|"),
+               };
+             })()`,
+          );
+
+        await app.nativeType("at0253(mode): a subject over bullets");
+        await app.nativeKey("Return");
+        await app.nativeKey("Return");
+        await app.nativeType("- the first bullet, which is not prose");
+        await settle();
+        const bulleted = await parts();
+        note(`at0253 bulleted marks: ${JSON.stringify(bulleted)}`);
+        expect(bulleted.subject, "the subject line is marked").toBe(1);
+        expect(bulleted.summary, "a bullet list is not a summary paragraph").toBe(0);
+        expect(bulleted.gaps, "and the separator is marked all the same").toBe(1);
+        expect(bulleted.gapHeight, "the separator draws no line of its own").toBe(0);
         expect(
-          marks.step,
-          "so the summary follows the rule rather than a blank line",
-        ).toBeLessThan(marks.lineHeight);
+          bulleted.step,
+          "so the bullets follow the rule rather than a blank line",
+        ).toBeLessThan(bulleted.lineHeight);
 
         // A collapsed line is still an editable one. The caret's line is never
         // marked, so stepping onto the separator gives it back its height —
@@ -183,6 +193,20 @@ describe.skipIf(!SHOULD_RUN)("AT0253: commit mode + read-only shade", () => {
           `document.querySelector(${JSON.stringify(PROMPT_INPUT)}).querySelectorAll(".cm-landing-gap").length`,
         );
         expect(onGap, "the separator is a real line when the caret is on it").toBe(0);
+
+        // Grow a summary paragraph into the same message, ahead of the
+        // bullets: the summary is marked as the prose it is, and the one
+        // separator under the subject stays collapsed.
+        await app.nativeKey("ArrowRight");
+        await app.nativeType("The summary paragraph, which is prose.");
+        await app.nativeKey("Return");
+        await app.nativeKey("Return");
+        await settle();
+        const summarized = await parts();
+        note(`at0253 summarized marks: ${JSON.stringify(summarized)}`);
+        expect(summarized.summary, "the prose paragraph is marked").toBe(1);
+        expect(summarized.gaps, "and the subject's separator is still the one").toBe(1);
+        expect(summarized.gapHeight, "still collapsed").toBe(0);
 
         // Escape exits the mode (sheet drops, composer restores its prompt draft).
         await settle();

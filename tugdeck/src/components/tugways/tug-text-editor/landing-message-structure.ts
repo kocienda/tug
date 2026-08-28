@@ -18,10 +18,13 @@
  * where the summary is. The whole document is walked, not the viewport: the
  * parts are at the top, and a message is a few hundred lines at the most.
  *
- * **The blank line between the subject and the summary is separator, not
- * text.** git's format puts it there and the subject's own rule already says
- * the same thing on screen, so painted at full height it read as a gap the
- * author had left. `cm-landing-gap` collapses it — except on the line the
+ * **The blank run under the subject is separator, not text.** git's format
+ * puts it there and the subject's own rule already says the same thing on
+ * screen, so painted at full height it read as a gap the author had left.
+ * It is read off the document — the blank lines after line one, whatever
+ * follows them — and not off the summary, because a message whose body opens
+ * on a bullet list has no summary and the same separator.
+ * `cm-landing-gap` collapses it — except on the line the
  * caret is on, which is why this rebuilds on selection as well as on change:
  * a collapsed line is still an editable one, and a caret nobody can see
  * would be a worse lie than the gap. It is reached horizontally; CodeMirror's
@@ -50,12 +53,17 @@ function buildDecorations(view: EditorView): DecorationSet {
   const caretLine = doc.lineAt(view.state.selection.main.head).number;
   const subject = doc.line(Math.min(layout.subjectLine, doc.lines));
   builder.add(subject.from, subject.from, SUBJECT);
+  // The separator is git's, so it is read off the DOCUMENT rather than off the
+  // summary: the blank run after the subject, whatever follows it. Scoped to
+  // the summary, a message whose body opens on a bullet list — which has no
+  // summary at all — kept its blank line and the rule under the subject both.
+  for (let n = layout.subjectLine + 1; n <= doc.lines; n += 1) {
+    const line = doc.line(n);
+    if (line.text.trim() !== "") break;
+    if (n === caretLine) continue;
+    builder.add(line.from, line.from, GAP);
+  }
   if (layout.summaryLines !== null) {
-    for (let n = layout.subjectLine + 1; n < layout.summaryLines.from; n += 1) {
-      if (n > doc.lines || n === caretLine) continue;
-      const line = doc.line(n);
-      builder.add(line.from, line.from, GAP);
-    }
     for (let n = layout.summaryLines.from; n < layout.summaryLines.to && n <= doc.lines; n += 1) {
       const line = doc.line(n);
       builder.add(line.from, line.from, SUMMARY);
