@@ -2613,6 +2613,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "tugedit-core"
+version = "0.8.0"
+dependencies = [
+ "regex",
+ "similar",
+]
+
+[[package]]
 name = "tugexec"
 version = "0.8.0"
 dependencies = [
@@ -2658,14 +2666,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tugrev-core"
-version = "0.8.0"
-dependencies = [
- "regex",
- "similar",
-]
-
-[[package]]
 name = "tugutil"
 version = "0.8.0"
 dependencies = [
@@ -2687,7 +2687,7 @@ dependencies = [
  "tugchanges-core",
  "tugcore",
  "tugdash-core",
- "tugrev-core",
+ "tugedit-core",
  "tugutil-core",
  "ureq",
 ]

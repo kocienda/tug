@@ -17,7 +17,7 @@ use crate::parse::{Addr, Count, DeleteTarget, Op, OpKind, Program, Range, Side, 
 /// provable with no temp directory in sight.
 pub trait FileSource {
     /// `Ok(None)` when the file does not exist; `Err` for unreadable or
-    /// non-UTF-8 content — a rev does not edit binaries.
+    /// non-UTF-8 content — an edit program does not edit binaries.
     fn read(&self, path: &str) -> Result<Option<String>, String>;
 }
 

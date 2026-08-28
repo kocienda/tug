@@ -14,11 +14,11 @@ path = "src/lib.rs"
 name = "tugutil"
 path = "src/main.rs"
 
-# The rev interpreter, spelled the way a rev is written. Same package, so it
+# The edit-program interpreter under its own name. Same package, so it
 # reaches the receipt through the lib rather than copying it.
 [[bin]]
-name = "tugrev"
-path = "src/bin/tugrev.rs"
+name = "tugedit"
+path = "src/bin/tugedit.rs"
 
 [dependencies]
 clap.workspace = true
@@ -35,7 +35,7 @@ tugcore.workspace = true
 tugutil-core.workspace = true
 tugdash-core.workspace = true
 tugchanges-core.workspace = true
-tugrev-core.workspace = true
+tugedit-core.workspace = true
 rusqlite.workspace = true
 sha2.workspace = true
 ureq = { version = "3", features = ["json"] }

@@ -52,7 +52,7 @@ fn an_interpreter_writing_a_repo_file_is_denied_and_steered_at_the_rev() {
     let decision = decision(&out);
     assert_eq!(decision["decision"], "deny");
     let reason = decision["reason"].as_str().expect("a reason");
-    assert!(reason.contains("tugutil file rev"), "{reason}");
+    assert!(reason.contains("tugutil file edit"), "{reason}");
     assert!(reason.contains("src/main.tsx"), "{reason}");
     assert!(
         reason.contains('\n'),
@@ -99,11 +99,11 @@ fn the_older_refusals_still_reach_their_own_verbs() {
 }
 
 #[test]
-fn a_rev_is_never_gated_against_itself() {
+fn an_edit_program_is_never_gated_against_itself() {
     let dir = checkout();
     let out = gate(
         dir.path(),
-        "tugutil file rev <<'REV'\nfile src/main.tsx\n  delete 166\nREV",
+        "tugutil file edit <<'EDIT'\nfile src/main.tsx\n  delete 166\nEDIT",
     );
     assert_eq!(decision(&out)["decision"], "allow");
 }
@@ -166,7 +166,7 @@ fn the_hook_renders_the_steer_with_its_example_intact() {
     let reason = hook_output["permissionDecisionReason"]
         .as_str()
         .expect("a reason");
-    assert!(reason.contains("tugutil file rev <<'REV'"), "{reason}");
+    assert!(reason.contains("tugutil file edit <<'EDIT'"), "{reason}");
     assert!(reason.contains("\n  file tugdeck/src/main.tsx"), "{reason}");
     assert!(reason.contains("--preview"), "{reason}");
 }

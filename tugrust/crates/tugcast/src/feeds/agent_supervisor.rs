@@ -9674,7 +9674,7 @@ mod tests {
                 "root",
                 "line-1",
                 Some("primo-pita"),
-                Some("tugrev-bringup"),
+                Some("tugedit-bringup"),
                 SessionState::Closed,
                 100,
                 11,
@@ -9683,7 +9683,7 @@ mod tests {
                 "devise",
                 "line-1",
                 Some("primo-pita"),
-                Some("tugrev-bringup"),
+                Some("tugedit-bringup"),
                 SessionState::Closed,
                 200,
                 1,
@@ -9692,7 +9692,7 @@ mod tests {
                 "implement",
                 "line-1",
                 Some("primo-pita"),
-                Some("tugrev-bringup"),
+                Some("tugedit-bringup"),
                 SessionState::Live,
                 150,
                 6,
@@ -9722,7 +9722,7 @@ mod tests {
         // The live segment is the resume target even though a closed one was
         // used more recently: seating the tip replays the whole scroll.
         assert_eq!(row.session_id, "implement");
-        assert_eq!(row.name.as_deref(), Some("tugrev-bringup"));
+        assert_eq!(row.name.as_deref(), Some("tugedit-bringup"));
         assert!(row.name_user_set);
         assert_eq!(row.state, SessionState::Live);
         assert_eq!(row.turn_count, 18, "the line's turns, not the segment's");

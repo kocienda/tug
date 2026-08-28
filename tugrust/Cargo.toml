@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/tugutil", "crates/tugutil-core", "crates/tugdash-core", "crates/tugchanges-core", "crates/tugrev-core", "crates/tugcast", "crates/tugcast-core", "crates/tugexec", "crates/tugrelaunch", "crates/tugbank-core", "crates/tugbank", "crates/tuggram", "crates/tuglog", "crates/tugcore"]
+members = ["crates/tugutil", "crates/tugutil-core", "crates/tugdash-core", "crates/tugchanges-core", "crates/tugedit-core", "crates/tugcast", "crates/tugcast-core", "crates/tugexec", "crates/tugrelaunch", "crates/tugbank-core", "crates/tugbank", "crates/tuggram", "crates/tuglog", "crates/tugcore"]
 
 [workspace.package]
 version = "0.8.0"
@@ -39,7 +39,7 @@ arc-swap = "1"
 # Regex for parsing
 regex = "1"
 
-# Unified-diff rendering for what a rev would do. Presentation only — hunk
+# Unified-diff rendering for what an edit program would do. Presentation only — hunk
 # identity stays git-derived, so nothing about the receipt depends on it.
 similar = "2"
 
@@ -69,7 +69,7 @@ tugutil-core = { path = "crates/tugutil-core" }
 tuggram = { path = "crates/tuggram" }
 tugdash-core = { path = "crates/tugdash-core" }
 tugchanges-core = { path = "crates/tugchanges-core" }
-tugrev-core = { path = "crates/tugrev-core" }
+tugedit-core = { path = "crates/tugedit-core" }
 
 # Async runtime
 tokio = { version = "1", features = ["full"] }

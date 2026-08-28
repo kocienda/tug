@@ -104,10 +104,10 @@ const ROOT = "/Users/kocienda/Mounts/u/src/tugtool";
 const WORKER = "5d2e9b10-0000-4000-8000-00000000d45c";
 const SOLO = "5d2e9b10-0000-4000-8000-00000000b0ce";
 const TOUCHED = 1_760_000_000_000;
-const PLAN = `${ROOT}/.tug/dashes/tugrev-bringup/plan.md`;
-const BRIEF = `${ROOT}/.tug/dashes/tugrev-bringup/brief.md`;
+const PLAN = `${ROOT}/.tug/dashes/tugedit-bringup/plan.md`;
+const BRIEF = `${ROOT}/.tug/dashes/tugedit-bringup/brief.md`;
 
-sessionNameStore.setName(WORKER, "tugrev bringup");
+sessionNameStore.setName(WORKER, "tugedit bringup");
 sessionTagStore.setTag(WORKER, "juicy-river-3");
 sessionNameStore.setName(SOLO, "Lens polish");
 sessionTagStore.setTag(SOLO, "amber-fox-7");
@@ -144,7 +144,7 @@ function entry(
 /** The dash branch's files, once there is a branch. */
 const BRANCH_FILES = [
   {
-    path: "tugrust/crates/tugrev-core/src/parse.rs",
+    path: "tugrust/crates/tugedit-core/src/parse.rs",
     git_status: "A",
     op: "write",
     origin: "dash",
@@ -165,9 +165,9 @@ interface Moment {
   branched: boolean;
 }
 
-const IMPLEMENT_TITLE = "`tugutil file rev`, the `tugrev` bin, and the receipt";
-const DRAFT_SUBJECT = "Add tugrev-core and the `.rev` edit language";
-const DASH = "tugrev-bringup";
+const IMPLEMENT_TITLE = "`tugutil file edit`, the `tugedit` bin, and the receipt";
+const DRAFT_SUBJECT = "Add tugedit-core and the edit-program language";
+const DASH = "tugedit-bringup";
 const SOLO_SUBJECT = "Lens Dashes empty state reads None, centered";
 const SOLO_DASH = "lens-none-empty";
 const SOLO_PLAN = `${ROOT}/.tug/dashes/${SOLO_DASH}/plan.md`;
@@ -177,7 +177,7 @@ const MOMENTS: readonly Moment[] = [
     key: "brief",
     caption: "The brief is written; the wheel has not turned yet",
     workers: [WORKER],
-    prompt: "/tugplug:dash tugrev — the `.rev` edit language and its gate",
+    prompt: "/tugplug:dash tugedit — the edit-program language and its gate",
     branched: false,
     entry: entry(DASH, { documents: { brief: BRIEF } }),
   },
@@ -186,7 +186,7 @@ const MOMENTS: readonly Moment[] = [
     caption:
       "Devise is on the card — the point every surface but the Lens shows nothing for today",
     workers: [WORKER],
-    prompt: "/tugplug:dash-devise tugrev-bringup",
+    prompt: "/tugplug:dash-devise tugedit-bringup",
     branched: false,
     entry: entry(DASH, {
       documents: { brief: BRIEF },
@@ -197,7 +197,7 @@ const MOMENTS: readonly Moment[] = [
     key: "review",
     caption: "Review is on the card; the plan exists and has ten steps",
     workers: [WORKER],
-    prompt: "/tugplug:dash-review tugrev-bringup",
+    prompt: "/tugplug:dash-review tugedit-bringup",
     branched: false,
     entry: entry(DASH, {
       documents: { brief: BRIEF, plan: PLAN },
@@ -212,7 +212,7 @@ const MOMENTS: readonly Moment[] = [
     caption:
       "Implement, step 4 of 10 — the one point the app draws on every surface today",
     workers: [WORKER],
-    prompt: "/tugplug:dash-implement tugrev-bringup",
+    prompt: "/tugplug:dash-implement tugedit-bringup",
     branched: true,
     entry: entry(DASH, {
       branch: `tugdash/${DASH}`,
@@ -237,7 +237,7 @@ const MOMENTS: readonly Moment[] = [
     key: "stopped",
     caption: "The arc stopped in implement — the stop outranks the track",
     workers: [],
-    prompt: "/tugplug:dash-implement tugrev-bringup",
+    prompt: "/tugplug:dash-implement tugedit-bringup",
     branched: true,
     entry: entry(DASH, {
       branch: `tugdash/${DASH}`,
@@ -263,7 +263,7 @@ const MOMENTS: readonly Moment[] = [
     key: "ready",
     caption: "Every step done; the draft is written and the join is offered",
     workers: [WORKER],
-    prompt: "/tugplug:dash-implement tugrev-bringup",
+    prompt: "/tugplug:dash-implement tugedit-bringup",
     branched: true,
     entry: entry(DASH, {
       branch: `tugdash/${DASH}`,

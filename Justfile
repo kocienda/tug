@@ -21,7 +21,7 @@ build:
         # tugdash/tugmark were folded in); drop any stale symlinks so they
         # don't dangle after this rebuild.
         rm -f ~/.local/bin/tug ~/.local/bin/tugdash ~/.local/bin/tugmark
-        for bin in tugcast tugexec tugutil tugrev tugcode tugpulse tugrelaunch tugbank; do
+        for bin in tugcast tugexec tugutil tugedit tugcode tugpulse tugrelaunch tugbank; do
             ln -sf "$(pwd)/tugrust/target/debug/$bin" ~/.local/bin/"$bin"
         done
     else

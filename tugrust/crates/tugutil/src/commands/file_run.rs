@@ -5,13 +5,13 @@
 //! it changed nothing and prints no receipt. A run keeps what the command did
 //! and testifies to it.
 //!
-//! It exists for the class of edit no grammar can read and no rev can carry:
-//! the **in-place rewriter**. `cargo fmt -p tugrev-core` names no file at all —
+//! It exists for the class of edit no grammar can read and no edit program can
+//! carry: the **in-place rewriter**. `cargo fmt -p tugedit-core` names no file at all —
 //! cargo discovers them from the crate's module tree — and `rustfmt a.rs b.rs`,
 //! `prettier --write`, and `eslint --fix` are not in `shell_ops`'s set of
 //! mutating commands, so all of them reach the ledger as a `bash` bracket hint
-//! and land in UNATTRIBUTED. A rev cannot stand in for them either: a rev
-//! carries bytes the model authored, and a formatter's output is not known
+//! and land in UNATTRIBUTED. An edit program cannot stand in for them either:
+//! it carries bytes the model authored, and a formatter's output is not known
 //! until the formatter has run.
 //!
 //! The receipt is earned rather than asserted. The verb fingerprints every file

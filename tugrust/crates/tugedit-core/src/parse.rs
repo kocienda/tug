@@ -1,4 +1,4 @@
-//! The `.rev` grammar: file blocks and the ten ops.
+//! The edit-program grammar: file blocks and the ten ops.
 //!
 //! The parser reads the whole program before returning, so a syntax error
 //! aborts with nothing read — phase 1 of the four-phase model, where the phase
@@ -1153,7 +1153,7 @@ mod tests {
 
     #[test]
     fn a_replace_carries_a_body_on_both_sides() {
-        // The shape three of the first four field uses of `file rev` were
+        // The shape three of the first four field uses of the verb were
         // written in, and all three were refused: a CSS block replaced whole.
         // A quoted literal cannot span lines, so this is the form that does.
         let ops = ops(concat!(

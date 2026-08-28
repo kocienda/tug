@@ -180,7 +180,7 @@ mod tests {
             "python3 - <<'PY'\nimport pathlib\npathlib.Path('src/main.tsx').write_text('x')\nPY";
         match pre_tool_use(&bash_in(cmd, &dir.path().to_string_lossy())) {
             Some(Decision::Deny(reason)) => {
-                assert!(reason.contains("tugutil file rev"), "{reason}")
+                assert!(reason.contains("tugutil file edit"), "{reason}")
             }
             other => panic!("expected a deny, got {other:?}"),
         }

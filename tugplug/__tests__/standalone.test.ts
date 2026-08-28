@@ -148,14 +148,14 @@ describe("the hook script, from the bundle alone", () => {
     expect(JSON.parse(r.out).hookSpecificOutput.permissionDecision).toBe("allow");
   });
 
-  test("denies an unreadable repo write and steers at the rev", () => {
+  test("denies an unreadable repo write and steers at the edit program", () => {
     const decision = hook({
       tool_name: "Bash",
       tool_input: { command: "python3 - <<'PY'\nimport pathlib\npathlib.Path('src/app.txt').write_text('x')\nPY" },
       cwd: project,
     });
     expect(decision.hookSpecificOutput.permissionDecision).toBe("deny");
-    expect(decision.hookSpecificOutput.permissionDecisionReason).toContain("tugutil file rev");
+    expect(decision.hookSpecificOutput.permissionDecisionReason).toContain("tugutil file edit");
   });
 
   test("has no opinion on an ordinary command", () => {

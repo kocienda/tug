@@ -2,12 +2,12 @@
 //!
 //! Each fixture under `tests/corpus/` holds a command lifted verbatim from a
 //! session transcript, the real file content it ran against — pinned from git
-//! history at a commit where its anchors match — and the rev that expresses it.
-//! The test runs the **original interpreter** in one temp dir and `tugrev` in
-//! another and asserts the results are byte-identical.
+//! history at a commit where its anchors match — and the edit program that
+//! expresses it. The test runs the **original interpreter** in one temp dir and
+//! `tugedit` in another and asserts the results are byte-identical.
 //!
 //! The oracle is the real command, not a golden captured at authoring time,
-//! because a golden cannot catch the case this tier exists for: a rev that
+//! because a golden cannot catch the case this tier exists for: a program that
 //! silently diverges from what the command actually did. For the same reason a
 //! missing `python3`, `sed`, or `perl` is a failure rather than a skip — a
 //! silently-skipped fidelity tier is the same lie as a synthetic fixture.
@@ -52,7 +52,7 @@ fn tree(root: &Path) -> Vec<(String, Vec<u8>)> {
 /// a fresh temp dir.
 fn lay_out(fixture: &Path, into: &Path) {
     for (rel, bytes) in tree(fixture) {
-        if matches!(rel.as_str(), "cmd.sh" | "program.rev" | "note.md") {
+        if matches!(rel.as_str(), "cmd.sh" | "program.edit" | "note.md") {
             continue;
         }
         let target = into.join(&rel);
@@ -64,18 +64,18 @@ fn lay_out(fixture: &Path, into: &Path) {
 fn run_fixture(name: &str) {
     run_program(
         name,
-        &std::fs::read_to_string(corpus(name).join("program.rev")).expect("program"),
+        &std::fs::read_to_string(corpus(name).join("program.edit")).expect("program"),
     );
 }
 
-/// Run the fixture's oracle and the given rev side by side, and insist they
+/// Run the fixture's oracle and the given edit program side by side, and insist they
 /// agree.
 fn run_program(name: &str, program: &str) {
     let fixture = corpus(name);
     let oracle_dir = tempfile::tempdir().expect("temp");
-    let rev_dir = tempfile::tempdir().expect("temp");
+    let edit_dir = tempfile::tempdir().expect("temp");
     lay_out(&fixture, oracle_dir.path());
-    lay_out(&fixture, rev_dir.path());
+    lay_out(&fixture, edit_dir.path());
     let before = tree(oracle_dir.path());
 
     let command = std::fs::read_to_string(fixture.join("cmd.sh")).expect("cmd.sh");
@@ -96,24 +96,24 @@ fn run_program(name: &str, program: &str) {
         "{name}: the original command changed nothing, so the oracle proves nothing"
     );
 
-    let program_file = rev_dir.path().join("program.rev");
+    let program_file = edit_dir.path().join("program.edit");
     std::fs::write(&program_file, program).expect("write program");
-    let rev = Command::new(env!("CARGO_BIN_EXE_tugrev"))
+    let edit = Command::new(env!("CARGO_BIN_EXE_tugedit"))
         .arg(&program_file)
-        .current_dir(rev_dir.path())
+        .current_dir(edit_dir.path())
         .output()
-        .expect("run tugrev");
+        .expect("run tugedit");
     std::fs::remove_file(&program_file).expect("remove program");
     assert!(
-        rev.status.success(),
-        "{name}: the rev failed: {}",
-        String::from_utf8_lossy(&rev.stderr)
+        edit.status.success(),
+        "{name}: the edit program failed: {}",
+        String::from_utf8_lossy(&edit.stderr)
     );
 
     assert_eq!(
         tree(oracle_dir.path()),
-        tree(rev_dir.path()),
-        "{name}: the rev and the command it expresses produced different bytes"
+        tree(edit_dir.path()),
+        "{name}: the program and the command it expresses produced different bytes"
     );
 }
 
@@ -221,14 +221,14 @@ fn the_truncate_through_a_temp_file_and_a_move() {
 
 /// The oracle has to be able to say no, or every test above is a tautology.
 #[test]
-fn a_wrong_rev_fails_against_the_same_oracle() {
-    let good = std::fs::read_to_string(corpus("numeric_delete_chain").join("program.rev"))
+fn a_wrong_program_fails_against_the_same_oracle() {
+    let good = std::fs::read_to_string(corpus("numeric_delete_chain").join("program.edit"))
         .expect("program");
     let wrong = good.replace("delete 115 .. 164", "delete 115 .. 163");
     assert_ne!(good, wrong, "the mutation has to change the program");
     let outcome = std::panic::catch_unwind(|| run_program("numeric_delete_chain", &wrong));
     assert!(
         outcome.is_err(),
-        "a rev that deletes the wrong lines must not pass the fidelity assertion"
+        "a program that deletes the wrong lines must not pass the fidelity assertion"
     );
 }

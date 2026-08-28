@@ -40,27 +40,18 @@ pub enum FileCommands {
         dst: String,
     },
     /// Edit files and report exactly which ones changed, so the edit stays
-    /// attributed. Either a unified diff (`--patch`) or one substitution
-    /// (`--path` with `--replace`/`--with`).
+    /// attributed. Either an edit program — a multi-line, multi-file edit that
+    /// resolves every address against original bytes before writing anything —
+    /// or a unified diff (`--patch`).
     Edit {
+        /// Show the diff the edit would produce and write nothing.
+        #[arg(long)]
+        preview: bool,
         /// Unified diff to apply (`-` for stdin). Multi-file diffs are fine.
-        #[arg(long, conflicts_with_all = ["path", "replace", "with"])]
+        #[arg(long, conflicts_with = "file")]
         patch: Option<String>,
-        /// The file to substitute in.
-        #[arg(long, requires_all = ["replace", "with"])]
-        path: Option<String>,
-        /// The text to replace (a literal substring unless `--regex`).
-        #[arg(long)]
-        replace: Option<String>,
-        /// The replacement text (`$1`-style captures with `--regex`).
-        #[arg(long = "with")]
-        with: Option<String>,
-        /// Replace at most this many occurrences (default: all).
-        #[arg(long)]
-        count: Option<usize>,
-        /// Read `--replace` as a regular expression rather than a literal.
-        #[arg(long)]
-        regex: bool,
+        /// The edit program to run (default: stdin, or `-`).
+        file: Option<String>,
     },
     /// Stage a patch into the index without touching the working tree — the
     /// non-interactive equivalent of `git add -p`, which cannot run in the
@@ -95,16 +86,6 @@ pub enum FileCommands {
         /// The command to run, after `--`.
         #[arg(last = true, allow_hyphen_values = true)]
         command: Vec<String>,
-    },
-    /// Run a `.rev` program: a multi-line, multi-file edit that resolves every
-    /// address against original bytes before writing anything, and reports
-    /// exactly which files moved.
-    Rev {
-        /// Print the diff the program would produce and write nothing.
-        #[arg(long)]
-        preview: bool,
-        /// The program to run (default: stdin, or `-`).
-        file: Option<String>,
     },
     /// Decide whether a Bash command's file operations are readable — the
     /// PreToolUse hook's allow/deny, printed as JSON. Always exits 0.

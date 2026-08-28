@@ -2691,7 +2691,7 @@ pub async fn relay_session_io(
                                         // ON CONFLICT (session, tool_use_id,
                                         // file_path) DO NOTHING, so whichever
                                         // origin lands first wins the row; proof
-                                        // must, or a `tugutil file`/`tugrev`
+                                        // must, or a `tugutil file`/`tugedit`
                                         // edit to an in-tree file loses its
                                         // receipt to the hint and reads as
                                         // UNATTRIBUTED. Read from any successful
@@ -5126,7 +5126,7 @@ mod tests {
         }
     }
 
-    /// The regression: a `tugutil file`/`tugrev` edit to a file in the
+    /// The regression: a `tugutil file`/`tugedit` edit to a file in the
     /// session's own live tree. The command is opaque to the grammar, so the
     /// bracket delta sees the file move and would attribute it a weak `bash`
     /// hint — but the result carries a receipt naming that same file. Both
@@ -5214,13 +5214,13 @@ mod tests {
         // An opaque command: the grammar names no file, so the bracket can
         // only offer a `bash` hint for whatever the window observed move.
         feed_w
-            .write_all(b"{\"type\":\"tool_use\",\"tool_name\":\"Bash\",\"tool_use_id\":\"tu-r\",\"input\":{\"command\":\"tugrev edit.rev\"}}\n")
+            .write_all(b"{\"type\":\"tool_use\",\"tool_name\":\"Bash\",\"tool_use_id\":\"tu-r\",\"input\":{\"command\":\"tugedit prog.edit\"}}\n")
             .await
             .unwrap();
         tokio::time::sleep(Duration::from_millis(300)).await;
         std::fs::write(root.join("a.txt"), "one\ntwo\n").unwrap();
-        // The result carries the receipt a rev prints, naming the absolute
-        // path — exactly what `tugutil file rev` emits.
+        // The result carries the receipt an edit program prints, naming the
+        // absolute path — exactly what `tugutil file edit` emits.
         let receipt = format!(
             "TUG-FILE-RECEIPT: {{\\\"ops\\\":[{{\\\"op\\\":\\\"modified\\\",\\\"path\\\":\\\"{abs_a}\\\"}}]}}"
         );

@@ -88,12 +88,12 @@ Never point the `sqlite3` CLI (or any non-Tug SQLite build) at the live database
 
 `Edit`/`MultiEdit`/`Write` name their file in the tool input, so the change is attributed with certainty, and for a single-file edit they stay the first choice. This section is about the residue — the edit that does not fit them, and reaches for the shell instead.
 
-A shell command is only attributed when the grammar in `tugchanges-core::shell_ops` can read which files it names — and **a `python3` heredoc that writes a repo file cannot be read at all.** Heredoc bodies are stripped before parsing (a body is data, not commands), so nothing inside one is evidence of anything. Same for `python3 -c`, `perl -e`, `bun -e`. **The PreToolUse gate now denies those**: an interpreter handed its program inline whose text carries both a write-shaped call and a repo path is refused, and the refusal shows you the rev to write instead. A heredoc that only reads, or that writes under `/tmp` or `target/`, passes untouched.
+A shell command is only attributed when the grammar in `tugchanges-core::shell_ops` can read which files it names — and **a `python3` heredoc that writes a repo file cannot be read at all.** Heredoc bodies are stripped before parsing (a body is data, not commands), so nothing inside one is evidence of anything. Same for `python3 -c`, `perl -e`, `bun -e`. **The PreToolUse gate now denies those**: an interpreter handed its program inline whose text carries both a write-shaped call and a repo path is refused, and the refusal shows you the edit program to write instead. A heredoc that only reads, or that writes under `/tmp` or `target/`, passes untouched.
 
-So write the multi-line edit as a **rev** — a small program `tugutil` executes itself, which prints the same `TUG-FILE-RECEIPT` an `Edit` would have earned:
+So write the multi-line edit as an **edit program** — a small program `tugutil` executes itself, which prints the same `TUG-FILE-RECEIPT` an `Edit` would have earned:
 
 ```bash
-tugutil file rev <<'REV'
+tugutil file edit <<'EDIT'
 file tugdeck/src/deck-manager.ts
   replace "  // The strip's own stop, one past the picture's." with "  // One stop for the whole strip."
   patch <<
@@ -107,26 +107,24 @@ file tugdeck/src/deck-manager.ts
   delete 166 .. 178
 files tugdeck/src/lib/pulse-store.ts tugdeck/src/lib/local-model-store.ts
   sub /\bpulse_(\w+)/ 'local_model_$1' all
-REV
+EDIT
 ```
 
-Three rules carry nearly every refusal a rev has ever earned. **A body is the file's bytes, verbatim** — indent every line exactly as the file does, keeping the structure *inside* the block, never squared off under the op line; it is the same thing an `Edit`'s `old_string` is. **A block that replaces a block is a `patch` hunk** — one prefix byte per line (` ` context, `-` out, `+` in) and the file's own indentation after it, which is how the indentation stays visible instead of being reconstructed. **A literal that contains `'` goes in `"…"`** — never `'"'"'` or `'\''`, which are the shell's idiom, and a rev is not a shell string.
+Three rules carry nearly every refusal an edit program has ever earned. **A body is the file's bytes, verbatim** — indent every line exactly as the file does, keeping the structure *inside* the block, never squared off under the op line; it is the same thing an `Edit`'s `old_string` is. **A block that replaces a block is a `patch` hunk** — one prefix byte per line (` ` context, `-` out, `+` in) and the file's own indentation after it, which is how the indentation stays visible instead of being reconstructed. **A literal that contains `'` goes in `"…"`** — never `'"'"'` or `'\''`, which are the shell's idiom, and an edit-program literal is not a shell string.
 
 A `<<` body is also an **address**, wherever an address goes — so `after << … >> insert << … >>` anchors past a whole block when no single line in it is worth naming, and beats a line number, which goes stale the moment anything above it moves. `before` takes the block's first line, `after` its last.
 
-Every address resolves against the file's **original** bytes before anything is written, so `delete 166 .. 178` means the lines you just read in `grep -n` however many lines another op inserts above them, ops go in any order, and a program that cannot resolve writes nothing and reports *every* stale address at once — its last line says so, counting the ops that did resolve, and every one of them is still to do. `replace` and `sub` default to `expect 1` — say `all` for a rename campaign. Preview with `tugutil file rev --preview`, which touches no bytes and no mtime and emits no receipt. `tugrev` is the same verb under its own name. The language is specified in [tuglaws/tugrev.md](tuglaws/tugrev.md).
+Every address resolves against the file's **original** bytes before anything is written, so `delete 166 .. 178` means the lines you just read in `grep -n` however many lines another op inserts above them, ops go in any order, and a program that cannot resolve writes nothing and reports *every* stale address at once — its last line says so, counting the ops that did resolve, and every one of them is still to do. `replace` and `sub` default to `expect 1` — say `all` for a rename campaign. Preview with `tugutil file edit --preview`, which touches no bytes and no mtime and emits no receipt. `tugedit` is the same verb under its own name. The language is specified in [tuglaws/tugedit.md](tuglaws/tugedit.md).
 
 The rest of the verbs:
 
 ```bash
-tugutil file edit --path src/x.ts --replace 'old' --with 'new' [--count N] [--regex]
-tugutil file edit --patch changes.diff          # or --patch - to read the diff from stdin
+tugutil file edit --patch changes.diff          # a unified diff you already have; --patch - reads it from stdin
 tugutil file probe --patch p.diff -- just app-test at0287-….test.ts   # patch, run, restore
-tugutil file run -- cargo fmt -p tugrev-core    # run a rewriter, receipt what it moved
+tugutil file run -- cargo fmt -p tugedit-core   # run a rewriter, receipt what it moved
 ```
 
-- **`rev`** is for the shape the interpreters were reached for: several literal pairs on one file, a count guard per pair, a block replaced by a block, as a `patch` hunk, a region between two markers, the same rename across several files, a numeric line-range delete, a block appended, a span cut.
-- **`edit`** remains right for the one-liner — a single substitution, or a unified diff you already have. It prints the same receipt, and a no-match exits non-zero rather than succeeding quietly.
+- **`edit`** is the whole of file editing from the shell: the program shape above for the shapes the interpreters were reached for — several literal pairs on one file, a count guard per pair, a block replaced by a block as a `patch` hunk, a region between two markers, the same rename across several files, a numeric line-range delete, a block appended, a span cut — and `--patch` for a diff you already hold. Either way it prints the same receipt, and a no-match exits non-zero rather than succeeding quietly.
 - **`probe`** is the patch → run → revert cycle in one command: it restores bytes *and* mtime afterwards and records nothing, which is strictly better than doing it by hand (a hand-rolled probe leaves a spurious hint on the file it touched). Use it instead of `git checkout --` to revert, which would also destroy any uncommitted work already on those paths.
 - **`run`** is for the tool that writes files you did not author: a formatter, a linter's `--fix`, a codegen step. `cargo fmt` names none of its files at all, so nothing can read it — `file run` watches the command instead, fingerprints the repo by content before and after, and receipts exactly what moved. A file the command merely touched is never claimed, and the command's own output and exit status pass straight through. Narrow it with `--scope <path>` when you know where the writes land.
 - `sed -i`, `perl -i`, and `ruby -i` are readable **when every file operand is a literal path**. With a glob or a variable they are denied by the PreToolUse gate and steered here — the gate denies only what the grammar proves it cannot resolve.

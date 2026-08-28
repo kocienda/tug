@@ -1,6 +1,6 @@
-//! The scanner the parser reads a `.rev` program through.
+//! The scanner the parser reads an edit program through.
 //!
-//! A rev is line-oriented and its one multi-line construct — the `<<` … `>>`
+//! An edit program is line-oriented and its one multi-line construct — the `<<` … `>>`
 //! body — swallows whatever is between its delimiters, so there is no token
 //! stream that can be produced ahead of the parse: `/` opens a regex after
 //! `sub` and a path after `file`, and a body's lines are text rather than
@@ -213,7 +213,7 @@ impl Scanner {
                     }
                     if quote == '\'' && self.shell_apostrophe_idiom_follows() {
                         return Err(self.error(
-                            "that is the shell's apostrophe idiom, and a rev literal is not a \
+                            "that is the shell's apostrophe idiom, and an edit-program literal is not a \
                              shell string — put a literal that contains ' inside \"…\"",
                         ));
                     }
@@ -251,7 +251,7 @@ impl Scanner {
 
     /// Whether the text at the cursor is `"'"'` or `\''` — the two ways a
     /// shell writes an apostrophe inside a single-quoted string. The model
-    /// writes them inside a rev literal from habit, and what the parser would
+    /// writes them inside an edit-program literal from habit, and what the parser would
     /// otherwise see is a closed literal followed by noise it cannot name.
     fn shell_apostrophe_idiom_follows(&self) -> bool {
         let rest: String = (0..4).filter_map(|i| self.peek_at(i)).collect();

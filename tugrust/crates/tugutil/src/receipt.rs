@@ -3,7 +3,7 @@
 //! Every verb that moves a repo file's bytes testifies to it here — one line,
 //! naming exactly the files that changed, which the relay turns into
 //! proof-class rows. It lives in the package's library rather than beside one
-//! verb because `tugrev` is a second binary that must emit the *same* receipt:
+//! verb because `tugedit` is a second binary that must emit the *same* receipt:
 //! two emitters would be two grammars, and the relay only knows one.
 
 use std::path::Path;

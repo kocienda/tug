@@ -82,7 +82,7 @@ pub enum Suggestion {
     Edit,
     /// An interpreter writing a repo file from a program text the grammar
     /// cannot read — the one refusal that comes from looking inside a body.
-    Rev,
+    Program,
     /// A formatter or codegen step rewriting files in place whose write
     /// targets are not in the command text — `cargo fmt` names none at all.
     Run,
@@ -96,10 +96,10 @@ pub fn parse_shell_ops(command: &str, base_dir: &Path) -> ParseOutcome {
     // the line would otherwise mint — notably the `mv` row a `/tmp` round trip
     // produces, which names the destination but nothing about where the
     // content came from.
-    if let Some(reason) = rev_steer(&stripped, &heredocs, base_dir) {
+    if let Some(reason) = program_steer(&stripped, &heredocs, base_dir) {
         return ParseOutcome::Unparseable {
             reason,
-            suggest: Suggestion::Rev,
+            suggest: Suggestion::Program,
         };
     }
     let tokens = tokenize(&stripped);
@@ -1059,7 +1059,7 @@ fn lexical_normalize(path: &Path) -> PathBuf {
 }
 
 // ---------------------------------------------------------------------------
-// The rev steer
+// The edit-program steer
 // ---------------------------------------------------------------------------
 
 /// Interpreters the steer watches, when their program text arrives **inline** —
@@ -1094,7 +1094,7 @@ const EXCLUDED_COMPONENTS: [&str; 5] = ["target", "node_modules", ".git", ".tug"
 /// so the soundness axioms the proof path holds are untouched. Two independent
 /// signals are required, a write-shaped call *and* a repo-shaped path literal,
 /// because either alone is ordinary read-only analysis.
-fn rev_steer(stripped: &str, heredocs: &[Heredoc], base_dir: &Path) -> Option<String> {
+fn program_steer(stripped: &str, heredocs: &[Heredoc], base_dir: &Path) -> Option<String> {
     let root = checkout_root(base_dir)?;
     let tokens = tokenize(stripped);
     let mut unclaimed: Vec<&Heredoc> = heredocs.iter().collect();
@@ -1655,7 +1655,7 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // The rev steer
+    // The edit-program steer
     // -----------------------------------------------------------------------
 
     /// A real checkout: the steer's ancestor walk needs a `.git` entry to find,
@@ -1671,7 +1671,7 @@ mod tests {
         match parse_shell_ops(command, root) {
             ParseOutcome::Unparseable {
                 reason,
-                suggest: Suggestion::Rev,
+                suggest: Suggestion::Program,
             } => Some(reason),
             _ => None,
         }
@@ -1680,7 +1680,7 @@ mod tests {
     fn assert_steered(root: &Path, command: &str) {
         assert!(
             steered(root, command).is_some(),
-            "`{command}` should have been steered at a rev, got {:?}",
+            "`{command}` should have been steered at an edit program, got {:?}",
             parse_shell_ops(command, root)
         );
     }
@@ -1693,7 +1693,7 @@ mod tests {
     }
 
     #[test]
-    fn an_interpreter_that_writes_a_repo_file_is_steered_at_a_rev() {
+    fn an_interpreter_that_writes_a_repo_file_is_steered_at_a_program() {
         let dir = checkout();
         let reason = steered(
             dir.path(),
@@ -1792,15 +1792,15 @@ mod tests {
     }
 
     #[test]
-    fn a_rev_is_never_steered_at_itself() {
+    fn an_edit_program_is_never_steered_at_itself() {
         let dir = checkout();
         assert_not_steered(
             dir.path(),
-            "tugutil file rev <<'REV'\nfile tugdeck/src/main.tsx\n  delete 166\nREV",
+            "tugutil file edit <<'EDIT'\nfile tugdeck/src/main.tsx\n  delete 166\nEDIT",
         );
         assert_not_steered(
             dir.path(),
-            "tugrev <<'REV'\nfile tugdeck/src/main.tsx\n  delete 166\nREV",
+            "tugedit <<'EDIT'\nfile tugdeck/src/main.tsx\n  delete 166\nEDIT",
         );
     }
 
@@ -1915,7 +1915,7 @@ mod tests {
         assert_no_file_ops("prettier --check src/a.ts");
         assert_no_file_ops("eslint src/a.ts");
         assert_no_file_ops("cargo fmt --check");
-        assert_no_file_ops("cargo fmt -p tugrev-core -- --check");
+        assert_no_file_ops("cargo fmt -p tugedit-core -- --check");
         assert_no_file_ops("cargo build");
     }
 
@@ -1925,7 +1925,7 @@ mod tests {
         // names not one of its files.
         for command in [
             "cargo fmt",
-            "cargo fmt -p tugrev-core",
+            "cargo fmt -p tugedit-core",
             "rustfmt src/*.rs",
             "bunx prettier --write 'src/**/*.ts'",
             "rustfmt $FILE",

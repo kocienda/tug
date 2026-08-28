@@ -15,8 +15,8 @@ use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 use tugchanges_core::shell_ops::{ParseOutcome, Suggestion, parse_shell_ops};
+use tugutil::edit::EditError;
 use tugutil::receipt::{Receipt, current_hunk_ids, hunks_this_edit_produced};
-use tugutil::rev::RevError;
 
 use crate::changes::AppError;
 use crate::cli::FileCommands;
@@ -27,13 +27,10 @@ pub fn run_file(command: FileCommands) -> Result<(), AppError> {
         FileCommands::Mv { src, dst } => run_mv(&src, &dst),
         FileCommands::Cp { src, dst } => run_cp(&src, &dst),
         FileCommands::Edit {
+            preview,
             patch,
-            path,
-            replace,
-            with,
-            count,
-            regex,
-        } => run_edit(patch, path, replace, with, count, regex),
+            file,
+        } => run_edit(preview, patch, file),
         FileCommands::Stage { patch } => run_stage(&patch),
         FileCommands::Probe {
             patch,
@@ -41,7 +38,6 @@ pub fn run_file(command: FileCommands) -> Result<(), AppError> {
             command,
         } => super::file_probe::run_probe(patch, &paths, &command),
         FileCommands::Run { scopes, command } => super::file_run::run_run(&scopes, &command),
-        FileCommands::Rev { preview, file } => run_rev(preview, file),
         FileCommands::Gate { command, base_dir } => run_gate(&command, base_dir),
     }
 }
@@ -179,29 +175,18 @@ fn run_cp(src: &str, dst: &str) -> Result<(), AppError> {
 /// This is the attributable form of the `perl -i`/`python3` heredoc edits the
 /// grammar cannot read: the verb performs the edit itself and prints a receipt
 /// naming every file whose bytes actually moved, which the relay turns into
-/// proof-class rows.
-fn run_edit(
-    patch: Option<String>,
-    path: Option<String>,
-    replace: Option<String>,
-    with: Option<String>,
-    count: Option<usize>,
-    regex: bool,
-) -> Result<(), AppError> {
-    match (patch, path) {
-        (Some(source), _) => edit_by_patch(&source),
-        (None, Some(path)) => {
-            // clap's `requires_all` guarantees both are present here.
-            let (replace, with) = (replace.unwrap_or_default(), with.unwrap_or_default());
-            edit_by_substitution(&path, &replace, &with, count, regex)
-        }
-        (None, None) => Err(AppError::Exit1(
-            "nothing to do — pass --patch, or --path with --replace and --with".to_string(),
-        )),
+/// proof-class rows. An edit program is the main door; `--patch` takes a
+/// unified diff already in hand.
+fn run_edit(preview: bool, patch: Option<String>, file: Option<String>) -> Result<(), AppError> {
+    match patch {
+        Some(source) => edit_by_patch(&source, preview),
+        None => tugutil::edit::read_program(file.as_deref())
+            .and_then(|program| tugutil::edit::run(&program, preview))
+            .map_err(edit_failure),
     }
 }
 
-fn edit_by_patch(source: &str) -> Result<(), AppError> {
+fn edit_by_patch(source: &str, preview: bool) -> Result<(), AppError> {
     use super::file_probe::{git_apply, patch_targets, read_patch};
 
     let text = read_patch(source)?;
@@ -218,6 +203,12 @@ fn edit_by_patch(source: &str) -> Result<(), AppError> {
     // Validate first: a patch that will not apply must change nothing and
     // testify to nothing.
     git_apply(&text, true)?;
+    if preview {
+        // The diff the edit would produce is the patch itself; show it and
+        // touch nothing.
+        print!("{text}");
+        return Ok(());
+    }
     git_apply(&text, false)?;
 
     let mut receipt = Receipt::default();
@@ -236,22 +227,9 @@ fn edit_by_patch(source: &str) -> Result<(), AppError> {
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// rev
-// ---------------------------------------------------------------------------
-
-/// Run a `.rev` program — the multi-line, multi-file shape the interpreters
-/// were reached for. The verb is the language's entry point; `tugrev` is the
-/// same function under the spelling a heredoc reads best.
-fn run_rev(preview: bool, file: Option<String>) -> Result<(), AppError> {
-    tugutil::rev::read_program(file.as_deref())
-        .and_then(|program| tugutil::rev::run(&program, preview))
-        .map_err(rev_failure)
-}
-
-/// The rev's exit-code contract, carried onto the CLI's: 2 parse, 3 resolve,
-/// 4 a write that failed partway.
-fn rev_failure(err: RevError) -> AppError {
+/// The edit program's exit-code contract, carried onto the CLI's: 2 parse,
+/// 3 resolve, 4 a write that failed partway.
+fn edit_failure(err: EditError) -> AppError {
     let message = err.message().to_string();
     match err.exit_code() {
         2 => AppError::Exit2(message),
@@ -295,70 +273,6 @@ fn run_stage(source: &str) -> Result<(), AppError> {
     Ok(())
 }
 
-fn edit_by_substitution(
-    path: &str,
-    replace: &str,
-    with: &str,
-    count: Option<usize>,
-    regex: bool,
-) -> Result<(), AppError> {
-    let target = absolute(Path::new(path));
-    let original = std::fs::read_to_string(&target)
-        .map_err(|e| AppError::Exit1(format!("{}: {e}", target.display())))?;
-    let hunks_before = current_hunk_ids(&target);
-
-    // `--count 0` is refused rather than interpreted. `str::replacen(…, 0)`
-    // replaces nothing and `Regex::replacen(…, 0)` replaces *everything*, so
-    // honouring it would make the same flag mean opposite things in the two
-    // modes — and the regex reading is a silent maximal edit from a flag the
-    // caller wrote to mean "at most".
-    if count == Some(0) {
-        return Err(AppError::Exit1(
-            "--count 0 would replace nothing; omit --count to replace every occurrence".to_string(),
-        ));
-    }
-    let limit = count.unwrap_or(usize::MAX);
-    let updated = if regex {
-        let pattern = regex::Regex::new(replace)
-            .map_err(|e| AppError::Exit1(format!("--replace is not a valid regex: {e}")))?;
-        if !pattern.is_match(&original) {
-            return Err(no_match(&target, replace));
-        }
-        pattern.replacen(&original, limit, with).into_owned()
-    } else {
-        if !original.contains(replace) {
-            return Err(no_match(&target, replace));
-        }
-        original.replacen(replace, with, limit)
-    };
-
-    // A substitution that matched but changed nothing (replacing text with
-    // itself) is still a no-op, and a receipt for it would be a lie.
-    if updated == original {
-        return Err(AppError::Exit1(format!(
-            "{}: the replacement is identical to what it replaced",
-            target.display()
-        )));
-    }
-
-    std::fs::write(&target, updated)
-        .map_err(|e| AppError::Exit1(format!("{}: {e}", target.display())))?;
-
-    let mut receipt = Receipt::default();
-    receipt.modified(&target, hunks_this_edit_produced(&target, &hunks_before));
-    receipt.emit();
-    Ok(())
-}
-
-/// Silence about a substitution that matched nothing is how a stale edit hides,
-/// so it is an error rather than a quiet success.
-fn no_match(target: &Path, replace: &str) -> AppError {
-    AppError::Exit1(format!(
-        "no match for `{replace}` in {} — nothing was changed",
-        target.display()
-    ))
-}
-
 // ---------------------------------------------------------------------------
 // gate
 // ---------------------------------------------------------------------------
@@ -394,29 +308,29 @@ fn steering(suggest: Suggestion) -> &'static str {
              exactly which files it touched, so the change stays attributed."
         }
         Suggestion::Edit => {
-            "Use `tugutil file edit` instead — it performs the edit itself and reports exactly \
-             which files changed, so the change stays attributed. For a patch-run-revert cycle, \
-             `tugutil file probe` does the whole thing and records nothing."
+            "Use `tugutil file edit` instead — it applies the edit program itself and reports \
+             exactly which files changed, so the change stays attributed. For a patch-run-revert \
+             cycle, `tugutil file probe` does the whole thing and records nothing."
         }
         // The model copies the shape it is shown, so the steer shows one.
-        Suggestion::Rev => {
-            r#"Write it as a rev instead — `tugutil file rev` applies the program itself and reports
+        Suggestion::Program => {
+            r#"Write it as an edit program instead — `tugutil file edit` applies the program itself and reports
 exactly which files changed, so the edit stays attributed:
 
-  tugutil file rev <<'REV'
+  tugutil file edit <<'EDIT'
   file tugdeck/src/main.tsx
     replace 'attachPulseStore(connection);' with 'attachLocalModelStore(connection);'
     delete 166
-  REV
+  EDIT
 
-Preview first with `tugutil file rev --preview`. If the edit is computed, run the program
+Preview first with `tugutil file edit --preview`. If the edit is computed, run the program
 read-only to print the result, then put that output in a `write` or `replace` op."#
         }
         Suggestion::Run => {
             r#"Run it through `tugutil file run` instead — it watches the command and reports
 exactly which files it rewrote, so the change stays attributed:
 
-  tugutil file run -- cargo fmt -p tugrev-core
+  tugutil file run -- cargo fmt -p tugedit-core
   tugutil file run --scope tugdeck/src -- bunx prettier --write 'tugdeck/src/**/*.ts'
 
 It fingerprints the repo's files by content before and after, so a file the command
@@ -842,21 +756,22 @@ mod tests {
         assert!(lifecycle.contains("tugutil file rm|mv|cp"), "{lifecycle}");
         assert!(!lifecycle.contains("tugutil file edit"), "{lifecycle}");
 
-        // An interpreter writing a repo file points at the rev, and shows the
-        // shape rather than describing it — the model copies what it is shown.
+        // An interpreter writing a repo file points at the edit program, and
+        // shows the shape rather than describing it — the model copies what it
+        // is shown.
         let checkout = tempfile::tempdir().expect("temp");
         std::fs::write(checkout.path().join(".git"), "gitdir: elsewhere").expect("write .git");
-        let rev = match parse_shell_ops(
+        let steer = match parse_shell_ops(
             "python3 - <<'PY'\nopen('src/x.ts','w').write('y')\nPY",
             checkout.path(),
         ) {
             ParseOutcome::Unparseable { suggest, .. } => steering(suggest).to_string(),
             other => panic!("expected a refusal, got {other:?}"),
         };
-        assert!(rev.contains("tugutil file rev"), "{rev}");
-        assert!(rev.contains("--preview"), "{rev}");
-        assert!(rev.contains("file tugdeck/src/main.tsx"), "{rev}");
-        assert!(!rev.contains("rm|mv|cp"), "{rev}");
+        assert!(steer.contains("tugutil file edit"), "{steer}");
+        assert!(steer.contains("--preview"), "{steer}");
+        assert!(steer.contains("file tugdeck/src/main.tsx"), "{steer}");
+        assert!(!steer.contains("rm|mv|cp"), "{steer}");
     }
 
     // ── stage ([P13]) ──────────────────────────────────────────────────────

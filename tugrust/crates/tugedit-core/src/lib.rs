@@ -1,10 +1,10 @@
-//! `tugrev-core` — the `.rev` edit language.
+//! `tugedit-core` — the edit-program language.
 //!
-//! A rev is a small program that edits text files: literal and regex
+//! An edit program is a small program that edits text files: literal and regex
 //! substitution with a count guard, unified-diff hunks, line-addressed
 //! insert/delete/move, and whole-file create/write, grouped into blocks that
 //! name the files they act on. The language and its semantics are specified
-//! in `tuglaws/tugrev.md`; this crate is the interpreter's language half.
+//! in `tuglaws/tugedit.md`; this crate is the interpreter's language half.
 //!
 //! The crate performs **no I/O**. It reads through a [`FileSource`] and
 //! returns the content each file would have, so every semantic — addresses,
