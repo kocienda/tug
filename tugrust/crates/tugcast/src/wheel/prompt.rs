@@ -155,7 +155,7 @@ pub fn compose(
 ) -> String {
     let mut out = ask.to_owned();
     if !paths.is_empty() {
-        out.push_str(&format!("\n\ncited by this document: {}", paths.join(", ")));
+        out.push_str(&format!("\n\ncitations: {}", paths.join(", ")));
     }
     if !commits.is_empty() {
         out.push_str(&format!(
@@ -192,20 +192,20 @@ mod tests {
 
         let with_paths = compose(ASK, &paths, &[], None);
         assert!(with_paths.starts_with(ASK));
-        assert!(with_paths.contains("cited by this document: src/a.rs, src/b.ts"));
+        assert!(with_paths.contains("citations: src/a.rs, src/b.ts"));
         assert!(!with_paths.contains("what changed"));
 
         let with_commits = compose(ASK, &[], &commits, None);
         assert!(with_commits.contains("what changed in those files"));
         assert!(with_commits.contains("abc1234 move the thing"));
-        assert!(!with_commits.contains("cited by this document"));
+        assert!(!with_commits.contains("citations:"));
 
         let resuming = compose(ASK, &[], &[], Some(("implement", "lint")));
         assert!(resuming.ends_with("this arc was stopped in implement — lint; it is resuming"));
 
         let everything = compose(ASK, &paths, &commits, Some(("review", "api error")));
         assert!(
-            everything.find("cited by this document").unwrap()
+            everything.find("citations:").unwrap()
                 < everything.find("what changed").unwrap(),
             "the citations come before what moved in them"
         );

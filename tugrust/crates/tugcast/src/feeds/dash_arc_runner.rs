@@ -1585,7 +1585,7 @@ Some context.
         )
         .unwrap();
         assert!(prompt.starts_with("/tugplug:dash-devise a plan for .tug/dashes/demo/brief.md"));
-        assert!(prompt.contains("cited by this document: src/a.rs, src/b.ts"));
+        assert!(prompt.contains("citations: src/a.rs, src/b.ts"));
         assert!(
             !prompt.contains("src/gone.rs"),
             "a backticked token that is not a file on disk is prose"
