@@ -55,6 +55,7 @@ import {
   type FindOptions,
   type SegmentedFindMatch,
 } from "@/lib/transcript-search";
+import type { EditorView } from "@codemirror/view";
 import type { FindTargetRegistry } from "@/components/tugways/blocks/find-target-registry";
 import { placeFindFlash, type FindFlashHandle } from "@/components/tugways/find-flash";
 
@@ -189,6 +190,10 @@ export class TranscriptFindHighlighter {
   private readonly matchHighlight: Highlight | null;
   private readonly activeHighlight: Highlight | null;
   private activeRange: Range | null = null;
+  // The registry key of the active EDITOR match, when the active match
+  // lives inside an embedded CodeMirror rather than the DOM walk. Its
+  // reveal geometry comes from the editor's own selection, not a Range.
+  private activeEditorKey: string | null = null;
   private flash: FindFlashHandle | null = null;
   // Editor delegates driven by the LAST paint, so a later paint (or clear)
   // can retract the in-editor highlights of editors that dropped out.
@@ -216,6 +221,7 @@ export class TranscriptFindHighlighter {
     matchHL.clear();
     activeHL.clear();
     this.activeRange = null;
+    this.activeEditorKey = null;
     this.scroller = input.scroller ?? null;
 
     const { matches, activeIndex, query, options, getElementForIndex } = input;
@@ -312,6 +318,7 @@ export class TranscriptFindHighlighter {
             )
             .indexOf(activeMatch);
           delegate.selectMatch(ordinal);
+          this.activeEditorKey = key;
         }
       }
       // Retract highlights from editors that no longer hold matches.
@@ -348,6 +355,53 @@ export class TranscriptFindHighlighter {
    */
   activeRangeElement(): HTMLElement | null {
     return this.activeRange?.startContainer.parentElement ?? null;
+  }
+
+  /**
+   * Viewport rect of the active match WHEREVER it lives — the DOM-walk
+   * Range, or, when the active match is an `editor` segment, the embedded
+   * editor's own selection. CM6 reveals the selected match inside its own
+   * scroller, which says nothing about where that scroller sits in the
+   * transcript; the host still owes the match a place in the visible band,
+   * and cannot compute one without this rect.
+   *
+   * The editor rect is reported only once the editor's inner reveal has
+   * actually put the selection inside its scrollport — before that the
+   * coordinates describe a line the user cannot see, and revealing to them
+   * would settle the transcript on the wrong place. `null` then means
+   * "not yet", which is what the caller's retry is for.
+   */
+  activeMatchRect(): DOMRect | null {
+    return this.activeRangeRect() ?? this.activeEditorRect();
+  }
+
+  /** The element the reveal reads the entry-scoped pin stack from. */
+  activeMatchElement(): HTMLElement | null {
+    return this.activeRangeElement() ?? this.activeEditorView()?.dom ?? null;
+  }
+
+  private activeEditorView(): EditorView | null {
+    const key = this.activeEditorKey;
+    if (key === null || this.lastFindTargets === null) return null;
+    return this.lastFindTargets.resolve(key)?.codeView?.()?.view() ?? null;
+  }
+
+  private activeEditorRect(): DOMRect | null {
+    const view = this.activeEditorView();
+    if (view === null) return null;
+    const { from, to } = view.state.selection.main;
+    const start = view.coordsAtPos(from);
+    if (start === null) return null;
+    const end = view.coordsAtPos(to, -1) ?? start;
+    const top = Math.min(start.top, end.top);
+    const bottom = Math.max(start.bottom, end.bottom);
+    const left = Math.min(start.left, end.left);
+    const right = Math.max(start.right, end.right);
+    // Clipped to the editor's own scrollport: a selection CM6 has not
+    // finished revealing resolves to coordinates outside it.
+    const port = view.scrollDOM.getBoundingClientRect();
+    if (bottom <= port.top || top >= port.bottom) return null;
+    return new DOMRect(left, top, right - left, bottom - top);
   }
 
   /**

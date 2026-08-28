@@ -97,6 +97,21 @@ export interface FindSessionState extends FindSurfaceSnapshot {
    * (a rising-edge boolean would miss them).
    */
   wrapSeq: number;
+  /**
+   * Monotonic counter of user find GESTURES — a query edit, an option
+   * toggle, a next/previous step, and the query replay a surface performs
+   * when it takes the session over (⌘F onto a standing query).
+   *
+   * It is what a host reveals on. Identity ("is this a different match than
+   * the one I last showed?") cannot answer alone: a query the user extends
+   * often keeps the same match alive, and a host that reveals only on a
+   * changed identity leaves that match wherever the transcript happens to
+   * be — off screen, under a chip reading "1 of N". A gesture always owes
+   * the user its match on screen. Nothing else bumps this, so the
+   * background re-searches a streaming transcript provokes never move the
+   * scroll out from under a reader.
+   */
+  navSeq: number;
 }
 
 /** Session-level hooks — store-layer seams, not user-interaction callbacks. */
@@ -130,6 +145,7 @@ export class FindSession implements FindSurface {
       wrapped: false,
       wrapDirection: 0,
       wrapSeq: 0,
+      navSeq: 0,
     };
   }
 
@@ -146,6 +162,7 @@ export class FindSession implements FindSurface {
     this.engine = engine;
     engine?.didAttach?.(this);
     if (engine !== null && this.state.query !== "") {
+      this.state = { ...this.state, navSeq: this.state.navSeq + 1 };
       engine.searchDidChange?.(this.state.query, this.state.options);
       this.refresh();
     }
@@ -167,14 +184,19 @@ export class FindSession implements FindSurface {
   /** Update the query text; the engine re-searches. Clears the wrap flag. */
   setQuery(query: string): void {
     if (query === this.state.query) return;
-    this.state = { ...this.state, query, hasQuery: query !== "" };
+    this.state = {
+      ...this.state,
+      query,
+      hasQuery: query !== "",
+      navSeq: this.state.navSeq + 1,
+    };
     this.engine?.searchDidChange?.(query, this.state.options);
     this.publishInfo(0);
   }
 
   /** Update the option toggles; the engine re-searches. Clears the wrap flag. */
   setOptions = (options: FindOptions): void => {
-    this.state = { ...this.state, options };
+    this.state = { ...this.state, options, navSeq: this.state.navSeq + 1 };
     this.engine?.searchDidChange?.(this.state.query, options);
     this.publishInfo(0);
     this.hooks.onOptionsChanged?.(options);
@@ -183,6 +205,7 @@ export class FindSession implements FindSurface {
   /** Advance the active match. Wrap detection via ordinal movement. */
   next(): void {
     const prev = this.state.activeOrdinal;
+    this.state = { ...this.state, navSeq: this.state.navSeq + 1 };
     this.engine?.findNext?.();
     const info = this.readInfo();
     const wrapped =
@@ -196,6 +219,7 @@ export class FindSession implements FindSurface {
   /** Retreat the active match. Wrap detection via ordinal movement. */
   previous(): void {
     const prev = this.state.activeOrdinal;
+    this.state = { ...this.state, navSeq: this.state.navSeq + 1 };
     this.engine?.findPrevious?.();
     const info = this.readInfo();
     const wrapped =

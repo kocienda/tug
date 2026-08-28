@@ -41,6 +41,16 @@ const SEARCH_DEBOUNCE_MS = 100;
 export interface TranscriptFindEngineSnapshot {
   matches: readonly SegmentedFindMatch[];
   activeIndex: number;
+  /**
+   * The query these matches ARE the answer to — not the query the session
+   * currently holds, which the debounce may still be a keystroke behind. A
+   * host revealing on a gesture reads this to tell a settled result set from
+   * the previous query's, so a fresh keystroke never jumps the transcript to
+   * the old query's match on its way to the new one.
+   */
+  query: string;
+  /** The options those matches were searched with, same contract. */
+  options: FindOptions;
 }
 
 export class TranscriptFindEngine implements FindEngineDelegate {
@@ -49,7 +59,12 @@ export class TranscriptFindEngine implements FindEngineDelegate {
   private query = "";
   private options: FindOptions = DEFAULT_FIND_OPTIONS;
   private timer: ReturnType<typeof setTimeout> | null = null;
-  private state: TranscriptFindEngineSnapshot = { matches: [], activeIndex: -1 };
+  private state: TranscriptFindEngineSnapshot = {
+    matches: [],
+    activeIndex: -1,
+    query: "",
+    options: DEFAULT_FIND_OPTIONS,
+  };
   private readonly listeners = new Set<() => void>();
 
   // ── Delegate protocol (driven by the session) ────────────────────────────
@@ -166,7 +181,12 @@ export class TranscriptFindEngine implements FindEngineDelegate {
     matches: readonly SegmentedFindMatch[],
     activeIndex: number,
   ): void {
-    this.state = { matches, activeIndex };
+    this.state = {
+      matches,
+      activeIndex,
+      query: this.query,
+      options: this.options,
+    };
     for (const listener of [...this.listeners]) {
       try {
         listener();
