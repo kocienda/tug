@@ -3,11 +3,21 @@
  * user stops asking the moment they act.
  *
  * A bubble stands while the pointer rests on something and the user is still
- * wondering what it is. Press, right-click, or scroll and the wondering is
- * over: the press has an outcome to watch, the right-click raises a menu about
- * the very same target, the scroll moves the target out from under the pointer.
- * A bubble that outlives any of those is stale ink sitting on top of the thing
- * the user actually wanted to see.
+ * wondering what it is. Press or right-click and the wondering is over: the
+ * press has an outcome to watch, the right-click raises a menu about the very
+ * same target. A bubble that outlives either is stale ink sitting on top of
+ * the thing the user actually wanted to see.
+ *
+ * A SCROLL is not one of those, and this file is where that was learned. It
+ * was treated as an act for a while — any scroll anywhere took every bubble
+ * down — and a scroll is not an act at all. A transcript following its bottom
+ * scrolls itself every time a streaming session appends a row, so a bubble
+ * standing over the Lens across the window was being torn down several times
+ * a second by a scroller nobody was touching, with the pointer never moving.
+ * The rule a scroll stands for is that the target moved out from under the
+ * pointer, and only a scroller the trigger sits INSIDE can move it. So the
+ * assertion here is the negative one: the editor scrolls, and the title bar's
+ * bubble — which the editor cannot move — stands.
  *
  * The right-click case is the sharp one, and the reason this file exists: a
  * context menu and a tooltip on screen together are two floating surfaces
@@ -31,8 +41,8 @@
  * the trigger's own statement that a bubble is standing, and it clears with
  * the state change rather than with the animation.
  *
- * The three gestures are driven as the real thing, not as a simulation of one:
- * a trusted native click and a trusted native right-click through the harness,
+ * The gestures are driven as the real thing, not as a simulation of one: a
+ * trusted native click and a trusted native right-click through the harness,
  * and a scroll produced by actually scrolling the editor's scroller — which is
  * what emits the `scroll` event the dismissal listens for.
  *
@@ -238,7 +248,7 @@ describe.skipIf(!SHOULD_RUN)("at0431 — acting dismisses the hover bubble", () 
   );
 
   test(
-    "a plain click dismisses it, and so does a scroll",
+    "a plain click dismisses it; a scroll the trigger is not inside does not",
     async () => {
       const app = await launchTugApp({ testName: "at0431-tooltip-dismissal-click-scroll" });
       try {
@@ -251,7 +261,10 @@ describe.skipIf(!SHOULD_RUN)("at0431 — acting dismisses the hover bubble", () 
         await app.waitForCondition<boolean>(`!(${HAS_BUBBLE})`, { timeoutMs: 8000 });
 
         // --- Scroll. Driven by scrolling the scroller for real, which is what
-        // emits the `scroll` event; nothing here synthesizes one.
+        // emits the `scroll` event; nothing here synthesizes one. The bullseye
+        // sits in the pane title bar, which is not inside this scroller and
+        // cannot be moved by it, so the bubble is still the answer to the
+        // question the pointer is still asking.
         await hover(app);
         const scrolled = await app.evalJS<boolean>(
           `(function () {
@@ -262,7 +275,13 @@ describe.skipIf(!SHOULD_RUN)("at0431 — acting dismisses the hover bubble", () 
           })()`,
         );
         expect(scrolled, "the editor had room to scroll").toBe(true);
-        await app.waitForCondition<boolean>(`!(${HAS_BUBBLE})`, { timeoutMs: 8000 });
+        // Long enough that a dismissal would have landed: the listener runs
+        // synchronously in the scroll's own capture phase.
+        await wait(600);
+        expect(
+          await app.evalJS<boolean>(HAS_BUBBLE),
+          "a scroller the trigger is not inside leaves the bubble standing",
+        ).toBe(true);
       } finally {
         await app.close();
       }

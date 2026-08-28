@@ -38,12 +38,28 @@
  * a wheel over a non-scrollable region produces no scroll event, and the
  * user's intent to move on is identical.
  *
+ * ## The event travels with the notification
+ *
+ * Three of the four are acts: the user pressed, right-clicked, or wheeled, and
+ * the bubble goes wherever the act landed. `scroll` is not an act — it is a
+ * consequence, and most of them are nobody's gesture at all. A transcript
+ * following its bottom as a session streams emits one every time a row is
+ * appended, and a bubble the reader is looking at across the window died to a
+ * scroller they were not touching, several times a second, while the pointer
+ * never moved.
+ *
+ * So the event rides along to the subscriber, which is the only party that
+ * knows what it is describing. The reason a scroll ends a hover is that the
+ * scroll moved the target out from under the pointer — a claim only a scroller
+ * that CONTAINS the trigger can make. `dismissTooltips` passes `null`, meaning
+ * unconditional.
+ *
  * Listeners are passive: this module only observes.
  *
  * @module lib/tooltip-dismiss
  */
 
-type Listener = () => void;
+type Listener = (ev: Event | null) => void;
 
 const listeners = new Set<Listener>();
 
@@ -52,10 +68,10 @@ const DISMISS_EVENTS = ["pointerdown", "contextmenu", "wheel", "scroll"] as cons
 
 let installed = false;
 
-function notify(): void {
+function notify(ev: Event | null): void {
   // Copy before iterating: a listener dismisses its own tooltip, which
   // unmounts an effect and calls `unsubscribe` — mutating the set mid-loop.
-  for (const cb of [...listeners]) cb();
+  for (const cb of [...listeners]) cb(ev);
 }
 
 function install(): void {
@@ -77,7 +93,9 @@ function uninstall(): void {
 /**
  * Subscribe to tooltip-dismissing input. The callback runs synchronously in
  * the capture phase of the gesture, so a tooltip closed from it is closed
- * before the gesture reaches whatever surface handles it.
+ * before the gesture reaches whatever surface handles it. The event is handed
+ * over so the subscriber can scope its own dismissal — see the note above on
+ * `scroll`, which is the one of the four that is not a gesture.
  *
  * Returns an unsubscribe function. The document listeners exist only while
  * at least one subscriber is registered.
@@ -97,5 +115,5 @@ export function observeTooltipDismiss(cb: Listener): () => void {
  * keyboard command, say) and need the hover bubble gone with it.
  */
 export function dismissTooltips(): void {
-  notify();
+  notify(null);
 }

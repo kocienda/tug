@@ -46,10 +46,12 @@
  *
  * ## Input gestures and open menus
  *
- * Two more gates sit beside that one. A click, right-click, or scroll ends a
+ * Two more gates sit beside that one. A click, right-click, or wheel ends a
  * hover wherever it lands, heard at the document in the capture phase
  * (`lib/tooltip-dismiss`) — the chain never sees a right-click that only
- * raises a menu. And no bubble opens at all while a menu is on screen
+ * raises a menu. A `scroll` is heard there too but scoped to scrollers the
+ * trigger sits inside, because a scroller nobody touched is not an act.
+ * And no bubble opens at all while a menu is on screen
  * (`lib/open-menu-registry`): a menu and a tooltip float over the same region
  * describing the same target, and the one the user did not ask for gives way.
  *
@@ -353,16 +355,30 @@ export function TugTooltip({
 
   // Input-gesture dismissal. [L06]
   //
-  // Click, right-click, and scroll end a hover — unconditionally, wherever
-  // they land. observeDispatch above catches the deliberate act that reaches
+  // Click, right-click, and wheel end a hover wherever they land.
+  // observeDispatch above catches the deliberate act that reaches
   // the responder chain; this catches the gestures that never get there: a
   // right-click that only raises a menu, a press on a surface owning its own
   // pointer handling, a wheel over the transcript. The subscription is
   // capture-phase at the document, so the bubble is gone before the menu
   // that gesture opens can paint beside it.
+  //
+  // `scroll` is the one that is scoped, because it is the one that is not a
+  // gesture. A transcript following its bottom scrolls itself every time a
+  // streaming session appends a row, and a bubble standing over the Lens
+  // across the window was being torn down by it several times a second with
+  // the pointer never moving. The rule a scroll is standing for is that the
+  // target moved out from under the pointer, so only a scroller the trigger
+  // sits INSIDE can invoke it — which the document itself always does, so a
+  // page scroll still dismisses everything.
   React.useLayoutEffect(() => {
     if (!effectiveOpen) return;
-    return observeTooltipDismiss(() => {
+    return observeTooltipDismiss((ev) => {
+      if (ev !== null && ev.type === "scroll") {
+        const trigger = triggerElRef.current;
+        const scroller = ev.target;
+        if (trigger !== null && scroller instanceof Node && !scroller.contains(trigger)) return;
+      }
       handleOpenChange(false);
     });
     // Same narrowing as above: handleOpenChange is a fresh closure per
