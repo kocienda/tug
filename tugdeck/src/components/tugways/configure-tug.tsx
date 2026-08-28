@@ -22,9 +22,11 @@
  *
  * A logged-out revisit of an app that is already configured (the Log Out
  * gesture, or a relaunch with the login revoked) shows only steps 1 and 2:
- * the directory is already chosen and the session step is answered by the deck
- * being returned to, so re-presenting them would be two settled rows the user
- * cannot act on. A genuine first run still gets the whole checklist.
+ * steps 3 and 4 belong to the first run, which already happened, so
+ * re-presenting them would be two rows the user cannot act on. A genuine first
+ * run still gets the whole checklist — and its directory step says out loud
+ * that the choice can be changed later in Settings → General, so it never
+ * reads as ask-once-live-with-forever.
  *
  * The projects-folder step gates the one below it: where projects live decides
  * what Open Quickly and the session picker reach for, so that answer is settled
@@ -295,18 +297,25 @@ export function ConfigureTug(): ReactElement {
 
   // First launch: show the wizard up front and immediately, even before the
   // auth probe answers, rather than flashing a blank deck. The flag is read
-  // once at mount (tugbank is ready before React mounts) and persisted on the
-  // first run so later launches fall through to the normal probe-driven path.
+  // once at mount (tugbank is ready before React mounts); it is persisted when
+  // the first run *finishes* (see `firstRunComplete`), so later launches fall
+  // through to the normal probe-driven path.
   const [firstRun] = useState(() => {
     const client = getTugbankClient();
     return client ? !readSetupSeen(client) : false;
   });
+  // Set when this launch's first run reaches the end of the checklist. It is
+  // both what writes the persisted flag and what retires the first-run shape
+  // for the rest of this launch — a logout right after finishing is a login
+  // question like any other, not a fresh first run.
+  const [firstRunComplete, setFirstRunComplete] = useState(false);
+  const inFirstRun = firstRun && !firstRunComplete;
 
   // The "open your first session" step claims the empty deck only on a
   // genuine first run. A set-up user whose deck goes empty mid-life (last card
   // closed, or a relaunch with an empty layout) is left alone with it.
   const needsFirstSession =
-    firstRun && effectiveLoggedIn && cardCount === 0 && !openedFirstSession;
+    inFirstRun && effectiveLoggedIn && cardCount === 0 && !openedFirstSession;
 
   // App-test suppression, read once at mount like `firstRun`: tugcast seeds
   // the flag when the app-test harness launched this instance, so the
@@ -316,9 +325,6 @@ export function ConfigureTug(): ReactElement {
     const client = getTugbankClient();
     return client ? readSetupSuppressed(client) : false;
   });
-  useEffect(() => {
-    if (firstRun) putSetupSeen(true);
-  }, [firstRun]);
 
   // Each on-demand visit starts fresh: the wizard is the gesture for changing
   // an answer, so nothing latched in a previous visit outlives it.
@@ -346,7 +352,7 @@ export function ConfigureTug(): ReactElement {
 
   // While the probe is still in flight on a first launch, the login state is
   // unknown — render a "checking" body instead of guessing step statuses.
-  const probing = !forced && firstRun && loggedIn === null;
+  const probing = !forced && inFirstRun && loggedIn === null;
 
   // The version gate takes precedence: while it is open, ConfigureTug suppresses
   // itself so the two app-modals never stack (Spec S02).
@@ -358,6 +364,20 @@ export function ConfigureTug(): ReactElement {
   const required =
     !suppressed && (forced !== false || notReady || needsFirstSession || probing);
   const open = deriveConfigureTugOpen(gateOpen, required || onDemand);
+
+  // The first run is finished when the wizard's own claim on the app lets go:
+  // Claude Code installed, logged in, and a session on the deck. That — not
+  // merely having *seen* the wizard — is what `setup-seen` records, so a user
+  // who quits mid-checklist comes back to the whole checklist rather than to a
+  // two-row login wizard for a setup they never completed. Suppressed
+  // (app-test) instances never write it: nothing was asked, so nothing was
+  // answered.
+  useEffect(() => {
+    if (inFirstRun && !suppressed && !required) {
+      setFirstRunComplete(true);
+      putSetupSeen(true);
+    }
+  }, [inFirstRun, suppressed, required]);
 
   // Which wizard the user is looking at, latched for as long as the panel is on
   // screen. Radix keeps the content mounted through its close animation, so
@@ -605,7 +625,8 @@ export function ConfigureTug(): ReactElement {
       key,
       status: "active",
       label: "Choose a default project directory",
-      detail: "Tug opens new sessions in this directory by default.",
+      detail:
+        "Tug opens new sessions in this directory by default. You can change it later in Settings → General.",
       body: chooser("Choose"),
     };
   })();
@@ -654,12 +675,11 @@ export function ConfigureTug(): ReactElement {
   ];
 
   // Logging out of a configured app is a login question, not a setup question:
-  // the project directory is already chosen and the session step is answered by
-  // the deck the user is returning to. So the wizard shows only what it is
-  // actually asking about — install and login — rather than re-presenting two
-  // settled rows the user cannot act on while logged out. A first run (nothing
-  // stored yet) still gets the whole checklist.
-  const loginOnly = isLoginOnlyWizard(effectiveLoggedIn, storedProjectPath);
+  // the directory and session rows belong to the first run, which already
+  // happened. So the wizard shows only what it is actually asking about —
+  // install and login — rather than re-presenting two rows the user cannot act
+  // on while logged out. A first run still gets the whole checklist.
+  const loginOnly = isLoginOnlyWizard(effectiveLoggedIn, inFirstRun);
 
   const steps: Step[] = transportDown
     ? reconnectingSteps

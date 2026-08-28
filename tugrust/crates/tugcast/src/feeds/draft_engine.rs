@@ -853,6 +853,8 @@ mod tests {
                 own_hunks: Vec::new(),
                 contested_hunks: Vec::new(),
                 shared_with: Vec::new(),
+                added: None,
+                deleted: None,
             }],
             draft: None,
         };

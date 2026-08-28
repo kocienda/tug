@@ -327,10 +327,11 @@ export function putFocusRingModality(mode: string): void {
 
 /**
  * Read the first-launch flag from the TugbankClient cache. `true` once the
- * user has been through ConfigureTug's first launch; `false`/absent means this is
- * a first run, so ConfigureTug shows itself up front (even before the auth probe
- * answers) instead of waiting behind a blank deck. Stored under
- * `dev.tugtool.app` / `setup-seen` (Value::Bool).
+ * user has *completed* ConfigureTug's first launch — Claude Code installed,
+ * logged in, a session on the deck; `false`/absent means this is a first run
+ * (including one abandoned partway), so ConfigureTug shows itself up front
+ * (even before the auth probe answers) instead of waiting behind a blank deck.
+ * Stored under `dev.tugtool.app` / `setup-seen` (Value::Bool).
  */
 export function readSetupSeen(client: TugbankClient): boolean {
   const entry = client.get("dev.tugtool.app", "setup-seen");
@@ -374,7 +375,8 @@ export function readSetupSuppressed(client: TugbankClient): boolean {
 
 /**
  * Persist the first-launch flag to tugbank under `dev.tugtool.app` /
- * `setup-seen`. Fire-and-forget, mirroring `putTheme`.
+ * `setup-seen`, written when the first run finishes rather than when it
+ * starts. Fire-and-forget, mirroring `putTheme`.
  */
 export function putSetupSeen(seen: boolean): void {
   fetch("/api/defaults/dev.tugtool.app/setup-seen", {

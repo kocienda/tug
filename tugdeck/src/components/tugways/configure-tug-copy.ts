@@ -91,18 +91,23 @@ export function claudeInstalledCopy(
 
 /**
  * Whether the wizard is asking a login question rather than a setup question:
- * the user is logged out on an app that already has its default project
- * directory. That is the Log Out gesture (and any relaunch with the login
- * revoked), where the directory and session steps are already answered — the
- * wizard then shows only the install and login rows rather than two settled
- * rows the user cannot act on while logged out. A genuine first run (nothing
- * stored) still gets the whole checklist.
+ * the user is logged out on an app that is past its first run. That is the Log
+ * Out gesture (and any relaunch with the login revoked), where the directory
+ * and session rows belong to a first run that already happened — the wizard
+ * then shows only the install and login rows rather than two rows the user
+ * cannot act on while logged out. A genuine first run still gets the whole
+ * checklist.
+ *
+ * The signal is the first run itself, not the stored project directory: the
+ * directory is an optional answer — the resolved `~/tug` default stands in
+ * when it was never chosen — so keying on it left the common re-login staring
+ * at the whole checklist.
  */
 export function isLoginOnlyWizard(
   loggedIn: boolean,
-  storedProjectPath: string,
+  firstRun: boolean,
 ): boolean {
-  return !loggedIn && storedProjectPath.trim() !== "";
+  return !loggedIn && !firstRun;
 }
 
 /**

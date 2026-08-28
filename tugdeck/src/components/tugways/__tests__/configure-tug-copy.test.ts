@@ -103,18 +103,17 @@ describe("claudeInstalledCopy", () => {
 });
 
 describe("isLoginOnlyWizard", () => {
-  test("logged out on a configured app → only the login questions", () => {
-    expect(isLoginOnlyWizard(false, "/Users/ken/tug")).toBe(true);
+  test("logged out past the first run → only the login questions", () => {
+    expect(isLoginOnlyWizard(false, false)).toBe(true);
   });
 
   test("a first run still gets the whole checklist", () => {
-    expect(isLoginOnlyWizard(false, "")).toBe(false);
-    expect(isLoginOnlyWizard(false, "   ")).toBe(false);
+    expect(isLoginOnlyWizard(false, true)).toBe(false);
   });
 
-  test("logged in is never login-only, configured or not", () => {
-    expect(isLoginOnlyWizard(true, "/Users/ken/tug")).toBe(false);
-    expect(isLoginOnlyWizard(true, "")).toBe(false);
+  test("logged in is never login-only, first run or not", () => {
+    expect(isLoginOnlyWizard(true, false)).toBe(false);
+    expect(isLoginOnlyWizard(true, true)).toBe(false);
   });
 });
 
