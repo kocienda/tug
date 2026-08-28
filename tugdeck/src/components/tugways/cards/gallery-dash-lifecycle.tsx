@@ -887,7 +887,7 @@ export function GalleryDashLifecycle(): React.ReactElement {
               <div className="cg-dash-surfaces">
                 <div className="cg-dash-surface">
                   <span className="cg-dash-surface-name">
-                    Lens · DashLifecycleBlock size=rail
+                    Compact · DashLifecycleBlock size=rail
                   </span>
                   <TugListRow variant="flush" density="compact">
                     <DashLifecycleBlock
@@ -903,7 +903,7 @@ export function GalleryDashLifecycle(): React.ReactElement {
                 </div>
                 <div className="cg-dash-surface">
                   <span className="cg-dash-surface-name">
-                    Changes shade · DashLifecycleBlock size=read
+                    Lens / Changes shade · DashLifecycleBlock size=read
                   </span>
                   <DashLifecycleBlock
                     name={name}
@@ -1017,7 +1017,7 @@ export function GalleryDashLifecycle(): React.ReactElement {
           <div className="cg-dash-surfaces">
             <div className="cg-dash-surface">
               <span className="cg-dash-surface-name">
-                Lens · DashLifecycleBlock size=rail
+                Compact · DashLifecycleBlock size=rail
               </span>
               <TugListRow variant="flush" density="compact">
                 <DashLifecycleBlock
@@ -1038,7 +1038,7 @@ export function GalleryDashLifecycle(): React.ReactElement {
             </div>
             <div className="cg-dash-surface">
               <span className="cg-dash-surface-name">
-                Changes shade · DashLifecycleBlock size=read
+                Lens / Changes shade · DashLifecycleBlock size=read
               </span>
               <DashLifecycleBlock
                 name={BLOCKED_DASH}

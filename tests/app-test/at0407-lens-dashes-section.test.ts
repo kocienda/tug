@@ -370,6 +370,9 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Lens Dashes section", () => {
         const stack = await app.evalJS<{
           lead: number;
           tail: number;
+          size: string;
+          fontSize: string;
+          readScale: string;
           blocks: number[][];
         }>(
           `(() => {
@@ -383,6 +386,9 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Lens Dashes section", () => {
              return {
                lead: R(track.left - box.left),
                tail: R(box.right - read.right),
+               size: first.querySelector('[data-slot="tug-dash-lifecycle-block"]').dataset.size,
+               fontSize: getComputedStyle(line).fontSize,
+               readScale: getComputedStyle(document.body).getPropertyValue("--tug-font-size-sm").trim(),
                blocks: rows.map((r) => {
                  const b = r.getBoundingClientRect();
                  return [Math.round(b.top), Math.round(b.bottom)];
@@ -391,6 +397,16 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Lens Dashes section", () => {
            })()`,
         );
         note("at0407 stack", JSON.stringify(stack));
+        // The Lens shows a whole dash, so it shows it at the scale every other
+        // whole-dash surface uses — the placard's, the shade's. At `rail` the
+        // track was list ink and too small to read as a graphic.
+        expect(stack.size, "the Lens block is set at the reading scale").toBe(
+          "read",
+        );
+        expect(
+          stack.fontSize,
+          "and the line is sized to that scale's token, not the rail's",
+        ).toBe(stack.readScale);
         expect(
           Math.abs(stack.lead - stack.tail),
           "the run — track then reading — is centred in the line",

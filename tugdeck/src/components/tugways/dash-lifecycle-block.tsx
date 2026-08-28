@@ -5,11 +5,18 @@
  * one worker atom per bound session (none is how *unbound* reads — it is the
  * absence of workers, not a stage). Line two is {@link DashLifecycleLine},
  * which carries every reading of what the dash is DOING — the track, the phase
- * glyph, the fraction, the word, the facts. The Lens's Dashes section and the
- * Changes shade's collapsed dash row are this one block at the rail and
- * reading scales, so a reader who learned it once has learned it everywhere,
- * and the block never grows: two lines for every phase, from the brief to the
- * join.
+ * glyph, the fraction, the word, the facts. The Lens's Dashes section, the
+ * Changes shade's collapsed dash row and the masthead's dash placard are this
+ * one block, all three at the reading scale, so a reader who learned it once
+ * has learned it everywhere, and the block never grows: two lines for every
+ * phase, from the brief to the join.
+ *
+ * **One scale, wherever a whole dash is shown.** The Lens set the block at
+ * `rail` for a while — list ink, sized to the section's other rows — and the
+ * track came out too small to read as a graphic. A dash's block is the thing
+ * the section exists for, not an entry in a list of names, so it is sized as
+ * such wherever it appears; `rail` stays for a surface that wants the compact
+ * reading.
  *
  * **The eyebrow says WHO, the line says WHAT.** The phase glyph led the dash's
  * name for a while, which put a reading of the dash's state on the line whose
@@ -78,7 +85,8 @@ export function DashLifecycleBlock({
   size = "rail",
 }: DashLifecycleBlockProps): React.ReactElement {
   // The block's two scales ARE the two registers: the Changes shade reads this
-  // block at reading scale, the Lens's rail sets it in a line of list ink.
+  // block at reading scale, and so does every other surface that shows a whole
+  // dash; `rail` is the compact reading, in a line of list ink.
   const register: AtomRegister = size === "read" ? "reading" : "prose";
   return (
     <span className="tug-dash-lifecycle-block" data-slot="tug-dash-lifecycle-block" data-dash={name} data-size={size}>

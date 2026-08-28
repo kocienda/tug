@@ -706,7 +706,7 @@ const DashCell: TugListViewCellRenderer<CockpitRowsDataSource> = ({
           note={dashLifecycleNote(model)}
           stepTitle={entry.step_title ?? null}
           facts={dashMetaFacts(entry)}
-          size="rail"
+          size="read"
         />
         {verbsMenu.menu}
         {/* And what its JOIN is doing, in the one shared register — the same
@@ -798,7 +798,7 @@ const PlanCell: TugListViewCellRenderer<CockpitRowsDataSource> = ({
           model={model}
           note={dashLifecycleNote(model)}
           facts={dashMetaFacts(documentDashAsEntry(entry))}
-          size="rail"
+          size="read"
           trailing={
             <span className="lens-dashes-verbs">
               <TugPushButton
