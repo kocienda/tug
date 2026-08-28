@@ -59,6 +59,9 @@ const REVIEW_PROMPT = "/tugplug:dash-review foo";
 const CODE_OUTPUT_FEED = 0x40; // FeedId.CODE_OUTPUT
 const TUG_SESSION_ID = "test-session-A"; // bindSession default
 const PROMPT = "write the brief";
+const INTERJECTION = "keep the spike. skip step 7 when you get to it.";
+/** Every attributed transcript row, whoever spoke it. */
+const ENTRY = ".tug-transcript-entry[data-participant]";
 
 let projectDir = "";
 
@@ -411,6 +414,208 @@ describe.skipIf(!SHOULD_RUN)(
 
           // Exactly one divider — a boundary replayed twice would double it.
           expect(order.filter((r) => r === "divider").length).toBe(1);
+
+          process.stdout.write("VERDICT: PASS\n");
+        } catch (err) {
+          process.stdout.write("VERDICT: FAIL\n");
+          const tail = app.tailLog(200);
+          if (tail !== "") process.stderr.write(`\n[at0474] log tail:\n${tail}\n`);
+          throw err;
+        } finally {
+          await app.close();
+        }
+      },
+      TEST_TIMEOUT_MS,
+    );
+
+    test(
+      "a message the user types into the wheel's turn is still the user's",
+      async () => {
+        // The wheel opens a stage turn and the user interjects while it runs.
+        // Claude merges that message at the next agent-loop boundary, so it
+        // lands INSIDE the wheel's turn — and a row that reads its turn's
+        // attribution instead of its own puts the wheel's name and the wheel's
+        // sigil on words the user typed.
+        const app = await launchTugApp({ testName: "at0474-wheel-interjection" });
+        try {
+          await app.enableDeckTrace(true);
+          await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
+          await app.waitForCondition<boolean>(
+            `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
+            { timeoutMs: 30_000 },
+          );
+          await app.bindSession("A", { projectDir });
+          await app.awaitEngineReady("A", { timeoutMs: 30_000 });
+
+          const ingest = (decoded: Record<string, unknown>) =>
+            app.driveSession("A", {
+              op: "ingestFrame",
+              feedId: CODE_OUTPUT_FEED,
+              decoded: { tug_session_id: TUG_SESSION_ID, ipc_version: 2, ...decoded },
+            });
+
+          // The stage opens on the wheel's prompt, which is the turn the
+          // interjection will land in.
+          await ingest({
+            type: "session_segment",
+            kind: "rotation",
+            parentSessionId: "claude-parent",
+            newSessionId: "claude-implement",
+            stage: "implement",
+            model: "opus",
+            document: ".tug/dashes/foo/plan.md",
+            arc: "foo",
+            prompt: STAGE_PROMPT,
+          });
+          await app.waitForCondition<boolean>(
+            `document.querySelector(${JSON.stringify(WHEEL_ROW)}) !== null`,
+            { timeoutMs: 6000 },
+          );
+
+          // The turn reaches a tool call, the user types, and the next
+          // tool_result is the boundary at which the message is picked up.
+          await ingest({
+            type: "tool_use",
+            msg_id: "m9",
+            tool_use_id: "tc-9",
+            tool_name: "Read",
+            input: { file_path: "/tmp/x" },
+            seq: 1,
+          });
+          await app.driveSession("A", { op: "send", text: INTERJECTION, atoms: [] });
+          await ingest({ type: "tool_result", tool_use_id: "tc-9", output: "ok" });
+
+          await app.waitForCondition<boolean>(
+            `Array.from(document.querySelectorAll(${JSON.stringify(
+              ENTRY,
+            )})).some((el) => (el.textContent || "").includes(${JSON.stringify(
+              INTERJECTION,
+            )}))`,
+            { timeoutMs: 8000 },
+          );
+
+          const rows = JSON.parse(
+            await app.evalJS<string>(
+              `JSON.stringify(Array.from(document.querySelectorAll(${JSON.stringify(
+                ENTRY,
+              )})).map((el) => [el.getAttribute("data-participant"), (el.textContent || "").trim()]))`,
+            ),
+          ) as Array<[string, string]>;
+
+          const typed = rows.filter(([, t]) => t.includes(INTERJECTION));
+          expect(typed.length, "the typed message is on screen exactly once").toBe(1);
+          expect(
+            typed[0]![0],
+            "the user's own words carry the user's attribution, not the wheel's",
+          ).toBe("user");
+
+          // The wheel's own prompt keeps its name — this is a per-message
+          // reading, not a turn-wide one, so the same turn holds both.
+          const wheelRows = rows.filter(([p]) => p === "wheel");
+          expect(wheelRows.length, "the stage prompt is still the wheel's").toBe(1);
+          expect(wheelRows[0]![1]).toContain(STAGE_PROMPT_ARGS);
+
+          process.stdout.write("VERDICT: PASS\n");
+        } catch (err) {
+          process.stdout.write("VERDICT: FAIL\n");
+          const tail = app.tailLog(200);
+          if (tail !== "") process.stderr.write(`\n[at0474] log tail:\n${tail}\n`);
+          throw err;
+        } finally {
+          await app.close();
+        }
+      },
+      TEST_TIMEOUT_MS,
+    );
+
+    test(
+      "and it is still the user's after a relaunch replays the stage",
+      async () => {
+        // The restore leg of the same claim. A steered message persists in the
+        // JSONL only as a `queued_command` attachment, which the translator
+        // turns into an origin-less `add_user_message` threaded into the open
+        // bracket — while the stage's opening frame is the one the translator
+        // marks. The reducer must keep those two apart on the replay path as
+        // well as on the live one, or every reopened dash relabels the words
+        // the user typed into it.
+        const app = await launchTugApp({ testName: "at0474-wheel-interjection-replay" });
+        try {
+          await app.enableDeckTrace(true);
+          await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
+          await app.waitForCondition<boolean>(
+            `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
+            { timeoutMs: 30_000 },
+          );
+          await app.bindSession("A", { projectDir });
+          await app.awaitEngineReady("A", { timeoutMs: 30_000 });
+
+          const ingest = (decoded: Record<string, unknown>) =>
+            app.driveSession("A", {
+              op: "ingestFrame",
+              feedId: CODE_OUTPUT_FEED,
+              decoded: { tug_session_id: TUG_SESSION_ID, ipc_version: 2, ...decoded },
+            });
+
+          await ingest({ type: "replay_started" });
+          await ingest({ type: "replay_stage", stage: "implement", model: "opus", arc: "foo" });
+          // The stage opener, as the translator states it.
+          await ingest({
+            type: "add_user_message",
+            content: [{ type: "text", text: STAGE_PROMPT }],
+            origin: "wheel",
+          });
+          await ingest({
+            type: "tool_use",
+            msg_id: "m9",
+            tool_use_id: "tc-9",
+            tool_name: "Read",
+            input: { file_path: "/tmp/x" },
+            seq: 1,
+          });
+          await ingest({ type: "tool_result", tool_use_id: "tc-9", output: "ok" });
+          // The interjection, as a `queued_command` attachment restores it:
+          // mid-bracket, and stating no origin at all.
+          await ingest({
+            type: "add_user_message",
+            content: [{ type: "text", text: INTERJECTION }],
+          });
+          await ingest({
+            type: "assistant_text",
+            msg_id: "m9",
+            block_index: 0,
+            text: "will do",
+            is_partial: false,
+          });
+          await ingest({ type: "turn_complete", msg_id: "m9", result: "success" });
+          await ingest({ type: "replay_complete", count: 1 });
+
+          await app.waitForCondition<boolean>(
+            `Array.from(document.querySelectorAll(${JSON.stringify(
+              ENTRY,
+            )})).some((el) => (el.textContent || "").includes(${JSON.stringify(
+              INTERJECTION,
+            )}))`,
+            { timeoutMs: 8000 },
+          );
+
+          const rows = JSON.parse(
+            await app.evalJS<string>(
+              `JSON.stringify(Array.from(document.querySelectorAll(${JSON.stringify(
+                ENTRY,
+              )})).map((el) => [el.getAttribute("data-participant"), (el.textContent || "").trim()]))`,
+            ),
+          ) as Array<[string, string]>;
+
+          const typed = rows.filter(([, t]) => t.includes(INTERJECTION));
+          expect(typed.length, "the restored message is on screen exactly once").toBe(1);
+          expect(
+            typed[0]![0],
+            "a restored interjection is the user's, not the wheel's",
+          ).toBe("user");
+
+          const wheelRows = rows.filter(([p]) => p === "wheel");
+          expect(wheelRows.length, "the replayed stage prompt is the wheel's").toBe(1);
+          expect(wheelRows[0]![1]).toContain(STAGE_PROMPT_ARGS);
 
           process.stdout.write("VERDICT: PASS\n");
         } catch (err) {
