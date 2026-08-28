@@ -165,6 +165,7 @@ pub fn join_state_for(
             .into_iter()
             .map(|b| DashJoinBlocker {
                 kind: b.kind,
+                title: b.title,
                 detail: b.detail,
                 paths: b.paths,
                 remedy: b.remedy.map(|r| tugcast_core::types::DashJoinRemedy {

@@ -411,9 +411,10 @@ const BLOCKED_CASES: readonly BlockedCase[] = [
     title:
       "A · the base holds the dash's own edit — no longer a blocker at all",
     caption:
-      "Main's uncommitted copy of the file is the edit the dash already made, byte for byte — a note written on main from the dash's work, or something left behind when the dash was cut. Nothing is lost by dropping it, because the dash lands the same bytes, and the server can say so only because it compared blob ids rather than assuming from the fact of the dirt. So this case has no blocker and no button: the join drops the copy and lands, and reports what it dropped, because a file the user last saw as uncommitted work is now committed work. Git compares the working tree against HEAD rather than against the merge result, so the clear is required even though the merge would have written the same bytes",
+      "Main's uncommitted copy is byte for byte what the dash already wrote — the server can say so because it compared blob ids rather than assuming from the fact of the dirt. Nothing is lost by dropping it, so there is no blocker and no button: the join drops the copy, lands, and reports what it dropped. The clear is still required, because git compares the working tree against HEAD rather than against the merge result",
     blocker: {
       kind: "base-dirt",
+      title: "Base work in the way",
       detail: "",
     },
   },
@@ -421,13 +422,15 @@ const BLOCKED_CASES: readonly BlockedCase[] = [
     key: "divergent-mine",
     title: "B · your own live work on main",
     caption:
-      "This session edited the file on main while the dash was running, and the two versions differ. Resolve commits that edit onto the base as one commit of its own — that commit IS the fold, because from it forward the two sides are ordinary git history, so a collision with the dash's work is an ordinary base-versus-dash conflict and reaches the resolution ladder every join conflict already reaches. No new merge machinery. It is op-logged: `tugutil dash undo` resets the base and leaves the same content uncommitted, exactly where the user had it",
+      "This session edited the file on main while the dash ran, and the two versions differ. Resolve commits that edit onto the base as one commit of its own — from there the two sides are ordinary git history, so the collision reaches the same resolution ladder every join conflict already reaches. No new merge machinery, and `tugutil dash undo` puts the work back uncommitted",
     blocker: {
       kind: "base-dirt",
+      title: "Base work in the way",
       detail: `Cannot join: your uncommitted edit to ${BLOCKED_PATH} on the base differs from this dash's version of it.`,
       paths: [BLOCKED_PATH],
       remedy: {
-        explain: `Resolve commits your edit to ${BLOCKED_PATH} on the base as its own commit, so the join can reconcile the two versions. Undo puts it back uncommitted.`,
+        explain:
+          "Resolve commits that work onto the base as its own commit, so the join can reconcile the two versions. Undo puts it back uncommitted.",
       },
     },
   },
@@ -435,14 +438,15 @@ const BLOCKED_CASES: readonly BlockedCase[] = [
     key: "divergent-foreign",
     title: "C · another live session's work",
     caption:
-      "The changeset feed's attribution — the same fold the Changes card renders, passed down rather than re-derived — says another live session holds this path. Nothing here is this user's to move, and folding a half-written edit into a join would take it out from under whoever is writing it. So the frame keeps its shape and the button is dead, wearing whose turn it is rather than whose fault. When that session commits or sets the edit aside the blocker clears on its own",
+      "The changeset feed's attribution — the same fold the Changes card renders, passed down rather than re-derived — says another live session holds this path. Folding a half-written edit into a join would take it out from under whoever is writing it, so the frame keeps its shape and the button is dead, wearing whose turn it is rather than whose fault",
     blocker: {
       kind: "base-dirt",
+      title: "Another session's edit",
       detail: `Cannot join: ^ink-anchor holds an uncommitted edit to ${BLOCKED_PATH} that this dash also changed.`,
       paths: [BLOCKED_PATH],
       remedy: {
         explain:
-          "That edit belongs to ^ink-anchor. When it is committed or set aside there, this join unblocks by itself.",
+          "When ^ink-anchor commits that edit or sets it aside, this join unblocks by itself.",
         refused: "Held by ^ink-anchor",
       },
     },
@@ -844,7 +848,7 @@ export function GalleryDashLifecycle(): React.ReactElement {
         <TugLabel className="cg-section-title">
           Blocked — what the base refuses, and the one way out
         </TugLabel>
-        <Stage caption="A join blocked by uncommitted work on the base used to end at a sentence naming two acts — commit, or stash — that no control here performs, one of which Tug has no affordance for anywhere, and which the server's own code called the wrong advice for the commonest case. One `base-dirt` bit hid three situations. The overlap now says what the base's uncommitted bytes ARE, read off the object database, and whose they are, read from the changeset feed's own attribution — and each case gets the reading its facts earn. Every frame below mounts the real SessionChangesDashJoin over one wire entry, so what is drawn is what the shade draws">
+        <Stage caption="A join blocked by base-side work used to end at a sentence naming two acts — commit, or stash — that no control here performs, and one `base-dirt` bit hid three situations. The overlap now says what the base's uncommitted bytes ARE and whose they are, and each case gets the reading its facts earn. The row states what is wrong once, in the register; the report under it says what Resolve will do, and carries the control that does it. Every frame mounts the real register and report over one wire entry, so what is drawn is what the shade draws">
           <div className="cg-dash-situations">
             {BLOCKED_CASES.map((c) => {
               const blockedEntryForCase = blockedEntry(c.blocker);

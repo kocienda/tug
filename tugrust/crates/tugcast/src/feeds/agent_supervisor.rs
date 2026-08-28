@@ -10022,6 +10022,7 @@ mod tests {
 
         let blocked = tugdash_core::JoinBlocker {
             kind: "off-base".to_string(),
+            title: "The base is on another branch".to_string(),
             detail: "Check out 'main' first.".to_string(),
             paths: vec![],
             overlap: vec![],

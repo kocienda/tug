@@ -250,6 +250,12 @@ pub struct ConflictCommit {
 pub struct JoinBlocker {
     /// `off-base` | `base-dirt` | `stale-journal` | `live-resolve` | `empty`.
     pub kind: String,
+    /// The situation named as a short phrase, for the dialog's title row.
+    ///
+    /// Server-composed like every other sentence here, and never a second
+    /// spelling of `detail` — the two show together, the phrase heading the
+    /// act and the sentence stating the fact.
+    pub title: String,
     /// The human line — the same sentence the execute path returns as its `Err`.
     pub detail: String,
     /// The offending paths, for `base-dirt`; empty otherwise.
@@ -272,6 +278,10 @@ pub struct JoinBlocker {
 /// weighs what will happen before pressing, and the control is always the same
 /// word. A blocker nobody at this card can clear still carries the sentence —
 /// it says whose turn it is — and `refused` is why its button is dead ([L31]).
+///
+/// It also does not restate `detail`. The two run one line apart under a
+/// register already fronting the detail, so a remedy that named the paths
+/// again said the same thing three times over.
 #[derive(Debug, Clone, Serialize)]
 pub struct JoinRemedy {
     /// What Resolve will do, as one sentence.
@@ -3483,6 +3493,11 @@ fn base_dirt_blockers(blocking: Vec<BaseOverlapPath>, untracked: bool) -> Vec<Jo
     if !mine.is_empty() {
         out.push(JoinBlocker {
             kind: "base-dirt".to_string(),
+            title: if untracked {
+                "An untracked file in the way".to_string()
+            } else {
+                "Base work in the way".to_string()
+            },
             detail: if untracked {
                 untracked_overwrite_detail(&overlap_paths(&mine))
             } else {
@@ -3490,10 +3505,7 @@ fn base_dirt_blockers(blocking: Vec<BaseOverlapPath>, untracked: bool) -> Vec<Jo
             },
             paths: overlap_paths(&mine),
             remedy: Some(JoinRemedy {
-                explain: format!(
-                    "Resolve commits your edit to {} on the base as its own commit, so the join can reconcile the two versions. Undo puts it back uncommitted.",
-                    overlap_paths(&mine).join(", ")
-                ),
+                explain: "Resolve commits that work onto the base as its own commit, so the join can reconcile the two versions. Undo puts it back uncommitted.".to_string(),
                 refused: None,
             }),
             overlap: mine,
@@ -3511,11 +3523,12 @@ fn base_dirt_blockers(blocking: Vec<BaseOverlapPath>, untracked: bool) -> Vec<Jo
     for (holder, entries) in by_holder {
         out.push(JoinBlocker {
             kind: "base-dirt".to_string(),
+            title: "Another session's edit".to_string(),
             detail: foreign_dirt_detail(&holder, &overlap_paths(&entries)),
             paths: overlap_paths(&entries),
             remedy: Some(JoinRemedy {
                 explain: format!(
-                    "That edit belongs to {holder}. When it is committed or set aside there, this join unblocks by itself."
+                    "When {holder} commits that edit or sets it aside, this join unblocks by itself."
                 ),
                 refused: Some(format!("Held by {holder}")),
             }),
@@ -3575,6 +3588,7 @@ pub fn join_blockers_from_detail(
     if held != Some("join") && crate::oplog::join_in_flight(repo_root, name).is_some() {
         blockers.push(JoinBlocker {
             kind: "stale-journal".to_string(),
+            title: "A join left a teardown behind".to_string(),
             detail: stale_journal_detail(name),
             paths: vec![],
             overlap: vec![],
@@ -3585,6 +3599,7 @@ pub fn join_blockers_from_detail(
     if current_branch != base_branch {
         blockers.push(JoinBlocker {
             kind: "off-base".to_string(),
+            title: "The base is on another branch".to_string(),
             detail: off_base_detail(current_branch, base_branch),
             paths: vec![],
             overlap: vec![],
@@ -3627,6 +3642,7 @@ pub fn join_blockers_from_detail(
     {
         blockers.push(JoinBlocker {
             kind: "live-resolve".to_string(),
+            title: "A resolve is running".to_string(),
             detail: live_resolve_detail(name, &lease, "join"),
             paths: vec![],
             overlap: vec![],
@@ -3640,6 +3656,7 @@ pub fn join_blockers_from_detail(
     if detail.rounds == 0 && !detail.worktree_dirty_tracked {
         blockers.push(JoinBlocker {
             kind: "empty".to_string(),
+            title: "Nothing to join".to_string(),
             detail: empty_detail(name, base_branch),
             paths: vec![],
             overlap: vec![],

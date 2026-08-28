@@ -4,9 +4,11 @@
  * The fronted row's fold opens on three labeled sections — report, rounds,
  * draft — and this is the first. It carries everything the join has to
  * show for itself, and **no act at all** ([P08]): blocked names each
- * blocker's server-written detail beside the act that would clear it;
- * conflicted names the paths; resolved shows what the ladder decided. Every
- * one of them is something to read.
+ * blocker's act and the one control that performs it, on `TugInlineDialog` —
+ * the same primitive `PermissionDialog` and `QuestionDialog` are built from,
+ * because a refusal with one act to clear it *is* a dialog and Tug has that
+ * vocabulary already; conflicted names the paths; resolved shows what the
+ * ladder decided. Every one of them is something to read.
  *
  * What deliberately does **not** render here ([D142]):
  *
@@ -17,6 +19,10 @@
  *   register's sentence; a refusal rides the control that refuses — the
  *   composer's ⬆, or the row menu item whose label carries its reason. A
  *   refusal standing on the face was a sentence about a press nobody made.
+ * - **No second copy of the first blocker's sentence.** The register fronts
+ *   `blockers[0].detail` as its line, one line above this section, so the
+ *   report begins at what that line does not carry: the remedy, and any
+ *   blocker past the first.
  *
  * With nothing to report the section renders nothing at all — a `report`
  * eyebrow over silence would be a row of chrome saying nothing.
@@ -39,9 +45,10 @@
 import "./session-changes-dash-join.css";
 
 import React from "react";
-import { LoaderCircle } from "lucide-react";
+import { LoaderCircle, Lock, TriangleAlert } from "lucide-react";
 
 import { TugSectionLabel } from "@/components/tugways/tug-section-label";
+import { TugInlineDialog } from "@/components/tugways/tug-inline-dialog";
 import { TugPushButton } from "@/components/tugways/tug-push-button";
 import {
   QuestionWizard,
@@ -190,13 +197,38 @@ export interface SessionChangesDashJoinProps {
  * Pure, and it reads the server's own verdict rather than deciding one: a
  * remedy with `refused` set is a blocker somebody else has to clear, and a
  * blocker with no remedy at all is a kind nothing at this card can act on —
- * an off-base checkout, a teardown left by a crash. Both still render their
- * sentence, so a refusal this deck has never heard of is shown rather than
- * swallowed (Spec S03).
+ * an off-base checkout, a teardown left by a crash. A refusal this deck has
+ * never heard of is still shown rather than swallowed (Spec S03) — as its own
+ * sentence here, or as the register's line when it is the first blocker.
  */
 export function remedyRefusal(blocker: DashJoinBlockerWire): string | null {
   if (blocker.remedy === undefined) return null;
   return blocker.remedy.refused ?? null;
+}
+
+/** One blocker this report has something to add about, and its place. */
+export interface ReportedBlocker {
+  blocker: DashJoinBlockerWire;
+  /** Its index in the server's list — 0 is the one the register fronts. */
+  index: number;
+}
+
+/**
+ * The blockers worth a row here, out of everything the server sent.
+ *
+ * The join register — the row's own line, standing directly above this
+ * section — takes `blockers[0].detail` as its line. So the first blocker
+ * earns a row only for the one thing that line cannot carry, its remedy; a
+ * first blocker with no remedy is already wholly said, and repeating it a
+ * line down was the same sentence twice. Every blocker past the first has no
+ * other voice and always speaks.
+ */
+export function reportedBlockers(
+  blockers: readonly DashJoinBlockerWire[],
+): ReportedBlocker[] {
+  return blockers
+    .map((blocker, index) => ({ blocker, index }))
+    .filter(({ blocker, index }) => index > 0 || blocker.remedy !== undefined);
 }
 
 /**
@@ -240,6 +272,93 @@ export function joinQuestionAsParsed(
   ];
 }
 
+/**
+ * One blocker, as an inline dialog.
+ *
+ * A refusal with one act to clear it is a dialog, and Tug already has that
+ * vocabulary — icon, title, description, trailing actions — in
+ * `TugInlineDialog`, where `PermissionDialog` and `QuestionDialog` also live.
+ * So this composes it rather than stacking spans into a fourth reading of the
+ * same idea. The mapping is the primitive's own: the situation names the title
+ * row, the sentence that says what will happen is the description, and the one
+ * control sits in `actions` where `Allow` and `Deny` sit.
+ *
+ * `detailIsElsewhere` is true for the blocker the join register already fronts
+ * — its sentence is the row's own line, one line above, so the description
+ * begins at the remedy instead of repeating it.
+ *
+ * The icon splits on whose turn it is, not on severity: a hold somebody else
+ * has to release is a lock, and the caution glyph is kept for the one the
+ * reader can act on.
+ */
+function BlockerDialog({
+  blocker,
+  detailIsElsewhere,
+  entry,
+  resolve,
+  actions,
+}: {
+  blocker: DashJoinBlockerWire;
+  detailIsElsewhere: boolean;
+  entry: DashChangesetEntry;
+  resolve: ResolveState;
+  actions: DashJoinActions;
+}): React.ReactElement {
+  const remedy = blocker.remedy;
+  const refused = remedyRefusal(blocker);
+  return (
+    <TugInlineDialog
+      className="session-changes-dash-join-blocker"
+      icon={refused !== null ? <Lock /> : <TriangleAlert />}
+      iconRole={refused !== null ? "default" : "caution"}
+      title={blocker.title}
+      description={
+        <>
+          {detailIsElsewhere ? null : (
+            <span className="session-changes-dash-join-detail">
+              {blocker.detail}
+            </span>
+          )}
+          {remedy !== undefined ? (
+            <span className="session-changes-dash-join-act">
+              {remedy.explain}
+            </span>
+          ) : null}
+        </>
+      }
+      {...(remedy !== undefined
+        ? {
+            actions: (
+              <>
+                {/* The remedy is never IN the button: the description carries
+                    it, so the act is weighed before it is pressed, and the
+                    control is always the same word. A blocker nobody here can
+                    clear keeps the whole shape and wears its reason beside a
+                    dead button ([L31]). */}
+                {refused !== null ? (
+                  <span className="session-changes-dash-join-refused">
+                    {refused}
+                  </span>
+                ) : null}
+                <TugPushButton
+                  size="xs"
+                  emphasis="primary"
+                  role="action"
+                  disabled={refused !== null || resolve.phase === "resolving"}
+                  loading={resolve.phase === "resolving"}
+                  onClick={() => actions.resolveBase(entry)}
+                  data-slot="session-changes-dash-join-resolve-base"
+                >
+                  Resolve
+                </TugPushButton>
+              </>
+            ),
+          }
+        : {})}
+    />
+  );
+}
+
 export function SessionChangesDashJoin({
   entry,
   join,
@@ -259,6 +378,7 @@ export function SessionChangesDashJoin({
   const stuck =
     typeof join?.stuck === "string" && join.stuck !== "" ? join.stuck : null;
   const report = join?.report ?? null;
+  const reported = reportedBlockers(blockers);
   // One decision, made once ({@link deriveJoinFace}) and rendered here.
   const face = deriveJoinFace({ join, resolvePhase: resolve.phase });
   const { outcome, resolve: resolveFace } = face;
@@ -270,7 +390,7 @@ export function SessionChangesDashJoin({
   const speaks =
     staleNote !== null ||
     outcome === "empty" ||
-    blockers.length > 0 ||
+    reported.length > 0 ||
     resolveFace === "progress" ||
     resolveFace === "resolved" ||
     question !== null ||
@@ -309,56 +429,23 @@ export function SessionChangesDashJoin({
           Nothing to join — discard this dash.
         </div>
       ) : null}
-      {blockers.length > 0 ? (
-        <ul
+      {reported.length > 0 ? (
+        <div
           className="session-changes-dash-join-blockers"
           data-slot="session-changes-dash-join-blockers"
         >
-          {blockers.map((blocker, index) => {
-            const remedy = blocker.remedy;
-            const refused = remedyRefusal(blocker);
-            return (
-              <li key={`${index}:${blocker.kind}`} data-blocker={blocker.kind}>
-                <span className="session-changes-dash-join-detail">
-                  {blocker.detail}
-                </span>
-                {/* Three lines, in the order a reader takes them: what is
-                    wrong, what Resolve will do, Resolve. The remedy is never
-                    IN the button — the sentence carries it, so the act is
-                    weighed before it is pressed, and the control is always the
-                    same word. A blocker nobody here can clear keeps the shape
-                    and wears its reason on a dead button ([L31]). */}
-                {remedy !== undefined ? (
-                  <>
-                    <span className="session-changes-dash-join-act">
-                      {remedy.explain}
-                    </span>
-                    <span className="session-changes-dash-join-remedy">
-                      <TugPushButton
-                        size="xs"
-                        emphasis="tinted"
-                        role="action"
-                        disabled={
-                          refused !== null || resolve.phase === "resolving"
-                        }
-                        loading={resolve.phase === "resolving"}
-                        onClick={() => actions.resolveBase(entry)}
-                        data-slot="session-changes-dash-join-resolve-base"
-                      >
-                        Resolve
-                      </TugPushButton>
-                      {refused !== null ? (
-                        <span className="session-changes-dash-join-refused">
-                          {refused}
-                        </span>
-                      ) : null}
-                    </span>
-                  </>
-                ) : null}
-              </li>
-            );
-          })}
-        </ul>
+          {reported.map(({ blocker, index }) => (
+            <div key={`${index}:${blocker.kind}`} data-blocker={blocker.kind}>
+              <BlockerDialog
+                blocker={blocker}
+                detailIsElsewhere={index === 0}
+                entry={entry}
+                resolve={resolve}
+                actions={actions}
+              />
+            </div>
+          ))}
+        </div>
       ) : null}
       {/* A ladder run says so for its whole duration, whether or not it has
           anything to stream yet. The rungs below the AI one resolve without

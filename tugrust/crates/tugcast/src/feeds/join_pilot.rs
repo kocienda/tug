@@ -285,6 +285,7 @@ mod tests {
         let mut state = bare();
         state.blockers.push(DashJoinBlocker {
             kind: "dirty-base".to_string(),
+            title: "Base work in the way".to_string(),
             detail: "commit or stash the base first".to_string(),
             paths: Vec::new(),
             remedy: None,

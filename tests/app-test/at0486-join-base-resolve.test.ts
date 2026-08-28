@@ -19,11 +19,12 @@
  * that they are already there.
  *
  * **A divergent copy of the user's own is one Resolve.** The fixture then
- * writes different bytes to the same path. The shade shows three lines in the
- * order a reader takes them — the refusal, the sentence saying what Resolve
- * will do, and `Resolve` itself — with the control live because the server
- * said it may be. The remedy is in the sentence, never in the button, and the
- * retired advice ("stash") appears nowhere. What the press *does* is pinned in
+ * writes different bytes to the same path. The refusal is stated once, on the
+ * row's own register line; the report under it does not say it a second time,
+ * and carries instead what that line cannot — the sentence saying what Resolve
+ * will do, and `Resolve` itself, live because the server said it may be. The
+ * remedy is in the sentence, never in the button, and the retired advice
+ * ("stash") appears nowhere. What the press *does* is pinned in
  * `tugdash-core` instead; the comment at that point in the test says why the
  * harness cannot drive it.
  *
@@ -39,9 +40,10 @@
  * ## Why the shade rather than the CLI
  *
  * The CLI path has its own tests. What only the real app can show is that the
- * blocker the server composes reaches the surface as three lines and one
- * control, that the control is live when the server says it may be, and that
- * pressing it clears the reading the user was looking at.
+ * blocker the server composes reaches the surface as one statement of what is
+ * wrong and one act that clears it — said once each — that the control is live
+ * when the server says it may be, and that pressing it clears the reading the
+ * user was looking at.
  *
  * @covers tugrust/crates/tugdash-core/src/ops.rs
  * @covers tugrust/crates/tugcast/src/feeds/join_board.rs
@@ -80,8 +82,10 @@ const DASH_NAME = "at0486-resolve";
 const ROW = `${LANE} [data-slot="session-changes-dash-row"][data-dash="${DASH_NAME}"]`;
 const ROW_FOLD = `${ROW} [data-slot="session-changes-dash-fold"]`;
 const BLOCKERS = `${SHEET} [data-slot="session-changes-dash-join-blockers"]`;
-const BASE_DIRT = `${BLOCKERS} li[data-blocker="base-dirt"]`;
+const BASE_DIRT = `${BLOCKERS} [data-blocker="base-dirt"]`;
 const RESOLVE = `${BASE_DIRT} [data-slot="session-changes-dash-join-resolve-base"]`;
+/** The row's own line — where the refusal is stated, once. */
+const REGISTER = `${ROW} [data-slot="dash-join-register"]`;
 
 /** This checkout — the build under test, and never the tree a dash is cut in. */
 const CHECKOUT = realpathSync(resolve(import.meta.dir, "..", ".."));
@@ -211,19 +215,30 @@ describe.skipIf(!SHOULD_RUN)("at0486: a blocked join reads what is wrong and off
           { timeoutMs: 40_000 },
         );
 
-        const detail = await app.evalJS<string>(
-          `document.querySelector('${BASE_DIRT} [data-slot="session-changes-dash-join-detail"], ${BASE_DIRT} .session-changes-dash-join-detail')?.textContent ?? ""`,
+        // The refusal is the register's line, and the register's alone.
+        const line = await app.evalJS<string>(
+          `document.querySelector(${JSON.stringify(REGISTER)})?.textContent ?? ""`,
         );
-        expect(detail).toContain(SHARED);
+        expect(line).toContain(SHARED);
         // The sentence states the fact and names no act no control performs.
-        expect(detail).not.toContain("stash");
+        expect(line).not.toContain("stash");
+        // The report below it does not repeat that sentence.
+        const echoed = await app.evalJS<number>(
+          `document.querySelectorAll('${BASE_DIRT} .session-changes-dash-join-detail').length`,
+        );
+        expect(echoed).toBe(0);
+
+        // The report is the app's dialog vocabulary, not a shape of its own.
+        const dialogTitle = await app.evalJS<string>(
+          `document.querySelector('${BASE_DIRT} [data-slot="tug-inline-dialog"] .tug-inline-dialog-title')?.textContent ?? ""`,
+        );
+        expect(dialogTitle).toBe("Base work in the way");
 
         const explain = await app.evalJS<string>(
           `document.querySelector('${BASE_DIRT} .session-changes-dash-join-act')?.textContent ?? ""`,
         );
         // The remedy is in the sentence, not in the button.
         expect(explain).toContain("Resolve");
-        expect(explain).toContain(SHARED);
 
         const label = await app.evalJS<string>(
           `document.querySelector(${JSON.stringify(RESOLVE)})?.textContent ?? ""`,
@@ -246,7 +261,9 @@ describe.skipIf(!SHOULD_RUN)("at0486: a blocked join reads what is wrong and off
         // a real op log: `resolve_base_folds_the_users_own_edit_onto_the_base`
         // in `tugdash-core`, which also asserts the undo puts the work back
         // uncommitted.
-        note("divergent base copy: the refusal, the sentence, and a live Resolve");
+        note(
+          "divergent base copy: the refusal once on the register, the act and a live Resolve below it",
+        );
       } finally {
         await app.close();
       }

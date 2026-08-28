@@ -284,6 +284,8 @@ export interface DashChangesetEntry {
 export interface DashJoinBlockerWire {
   /** `off-base` | `base-dirt` | `stale-journal` | `empty`. */
   kind: string;
+  /** The situation as a short phrase — the dialog's title row. */
+  title: string;
   /** The human sentence — the same one the CLI's execute path returns. */
   detail: string;
   /** The offending paths, for `base-dirt`; empty otherwise. */

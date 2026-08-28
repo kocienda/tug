@@ -80,39 +80,37 @@
   white-space: nowrap;
 }
 
-.session-changes-dash-join-blockers > li {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
+/* A blocker is a `TugInlineDialog`, so the frame, the icon column, the title
+   row and the actions cluster are all the primitive's. What is left here is
+   the two sentences that share its description slot: they stack rather than
+   run together, and the first is toned so the fact reads ahead of the act. */
+.session-changes-dash-join-blocker .session-changes-dash-join-detail,
+.session-changes-dash-join-blocker .session-changes-dash-join-act {
+  display: block;
 }
 
-/* The server's own sentence — the same bytes the execute path would refuse
-   with, so the preview and the refusal read identically. */
+.session-changes-dash-join-blocker
+  .session-changes-dash-join-detail
+  + .session-changes-dash-join-act {
+  margin-block-start: var(--tug-space-2xs);
+}
+
+/* A blocker's own sentence, for the blockers past the first — the first one's
+   is the register's line, one line above this section, and is not said twice.
+   Server-composed, the same bytes the execute path would refuse with, so the
+   preview and the refusal read identically. */
 .session-changes-dash-join-detail {
-  font-family: var(--tug-font-family-sans);
   color: var(--tug7-element-tone-text-normal-caution-rest);
 }
 
-/* The act that clears it. Quieter than the finding: the reader has already
-   been told what is wrong, and this is only what to do about it. */
-.session-changes-dash-join-act {
-  font-family: var(--tug-font-family-sans);
-  color: var(--tug7-element-global-text-normal-muted-rest);
-}
-
-/* The control, on its own line under the sentence that explains it. Never the
-   other way round: the reader weighs the act before the button offers it. */
-.session-changes-dash-join-remedy {
+/* Why the button is dead — whose turn it is, rather than whose fault. Beside
+   the control it refuses, on the dialog's own action row ([L31]). */
+.session-changes-dash-join-refused {
   display: flex;
   align-items: center;
-  gap: var(--tug-space-xs);
-  padding-block-start: var(--tug-space-2xs);
-}
-
-/* Why the button is dead — whose turn it is, rather than whose fault. */
-.session-changes-dash-join-refused {
-  font-family: var(--tug-font-family-sans);
+  font-size: var(--tug-font-size-xs);
   color: var(--tug7-element-global-text-normal-muted-rest);
+  white-space: nowrap;
 }
 
 /* The path, then its history under it — so the row is a column, and the

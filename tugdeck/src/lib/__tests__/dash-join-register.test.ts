@@ -101,7 +101,7 @@ describe("what the register says", () => {
     // server already wrote — and the server's names the act that clears it.
     const blocked = reg({
       phase: "blocked",
-      blockers: [{ kind: "base-dirt", detail: "commit or stash main's changes first" }],
+      blockers: [{ kind: "base-dirt", title: "Base work in the way", detail: "commit or stash main's changes first" }],
     });
     expect(blocked?.phase).toBe("error");
     expect(blocked?.line).toBe("commit or stash main's changes first");
@@ -167,7 +167,7 @@ describe("what the register says", () => {
     const fresh = reg(
       {
         phase: "blocked",
-        blockers: [{ kind: "empty", detail: "nothing to join" }],
+        blockers: [{ kind: "empty", title: "Nothing to join", detail: "nothing to join" }],
       },
       { stage: "created" },
     );
@@ -176,7 +176,7 @@ describe("what the register says", () => {
     // The same blocker on a dash that IS built is a real refusal.
     const built = reg({
       phase: "blocked",
-      blockers: [{ kind: "empty", detail: "nothing to join" }],
+      blockers: [{ kind: "empty", title: "Nothing to join", detail: "nothing to join" }],
     });
     expect(built?.word).toBe("blocked");
   });
@@ -224,7 +224,7 @@ describe("precedence — the part that gets re-derived wrongly", () => {
     // something the row never mentioned.
     const both = reg({
       ...reconciled(),
-      blockers: [{ kind: "base-dirt", detail: "commit or stash main's changes first" }],
+      blockers: [{ kind: "base-dirt", title: "Base work in the way", detail: "commit or stash main's changes first" }],
     });
     expect(both?.word).toBe("blocked");
   });
@@ -243,6 +243,7 @@ describe("precedence — the part that gets re-derived wrongly", () => {
         blockers: [
           {
             kind: "stale-journal",
+            title: "A join left a teardown behind",
             detail: "A previous join of dash 'd' is incomplete.",
           },
         ],
@@ -257,7 +258,7 @@ describe("precedence — the part that gets re-derived wrongly", () => {
     const notJoining = reg({
       ...reconciled(),
       blockers: [
-        { kind: "stale-journal", detail: "A previous join of dash 'd' is incomplete." },
+        { kind: "stale-journal", title: "A join left a teardown behind", detail: "A previous join of dash 'd' is incomplete." },
       ],
     });
     expect(notJoining?.word).toBe("blocked");
@@ -329,7 +330,7 @@ describe("precedence — the part that gets re-derived wrongly", () => {
     const blocked = reg(
       {
         phase: "previewed",
-        blockers: [{ kind: "base-dirt", detail: "Commit or stash src/x.ts" }],
+        blockers: [{ kind: "base-dirt", title: "Base work in the way", detail: "Commit or stash src/x.ts" }],
       },
       { landBeat: { beat: "failed", status: "error", terminal: true } },
     );

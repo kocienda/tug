@@ -10,6 +10,7 @@ import { describe, expect, it } from "bun:test";
 
 import {
   remedyRefusal,
+  reportedBlockers,
   discardPreflightLine,
 } from "@/components/tugways/cards/session-changes/session-changes-dash-join";
 import { joinDisabledReason } from "@/lib/join-mode-controller";
@@ -23,6 +24,7 @@ const blocker = (
   remedy?: DashJoinBlockerWire["remedy"],
 ): DashJoinBlockerWire => ({
   kind,
+  title: "Base work in the way",
   detail: `detail for ${kind}`,
   ...(remedy !== undefined ? { remedy } : {}),
 });
@@ -46,10 +48,44 @@ describe("remedyRefusal", () => {
   });
 
   it("has nothing to press for a kind that carries no remedy at all", () => {
-    // Still renders its `detail` — an off-base checkout, a teardown left by a
-    // crash, and any refusal this deck has never heard of.
+    // An off-base checkout, a teardown left by a crash, and any refusal this
+    // deck has never heard of. Its sentence still reaches the reader — see
+    // `reportedBlockers` for which surface carries it.
     expect(remedyRefusal(blocker("off-base"))).toBe(null);
     expect(remedyRefusal(blocker("some-future-refusal"))).toBe(null);
+  });
+});
+
+describe("reportedBlockers", () => {
+  const remedy = { explain: "Resolve commits that work onto the base." };
+
+  it("keeps the first blocker for the remedy the register cannot show", () => {
+    const only = blocker("base-dirt", remedy);
+    expect(reportedBlockers([only])).toEqual([{ blocker: only, index: 0 }]);
+  });
+
+  it("drops a first blocker the register has already said in full", () => {
+    expect(reportedBlockers([blocker("off-base")])).toEqual([]);
+  });
+
+  it("always speaks for a blocker past the first, which has no other voice", () => {
+    const first = blocker("base-dirt", remedy);
+    const second = blocker("off-base");
+    expect(reportedBlockers([first, second])).toEqual([
+      { blocker: first, index: 0 },
+      { blocker: second, index: 1 },
+    ]);
+  });
+
+  it("keeps the index the server sent, so a dropped first does not renumber", () => {
+    const second = blocker("base-dirt", remedy);
+    expect(reportedBlockers([blocker("off-base"), second])).toEqual([
+      { blocker: second, index: 1 },
+    ]);
+  });
+
+  it("has nothing to report for a join nothing blocks", () => {
+    expect(reportedBlockers([])).toEqual([]);
   });
 });
 

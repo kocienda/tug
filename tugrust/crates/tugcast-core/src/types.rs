@@ -859,6 +859,8 @@ pub struct DashJoinReportQuestion {
 pub struct DashJoinBlocker {
     /// `off-base` | `base-dirt` | `stale-journal` | `empty`.
     pub kind: String,
+    /// The situation as a short phrase — the dialog's title row.
+    pub title: String,
     /// The human sentence — the same one the CLI's execute path returns.
     pub detail: String,
     /// The offending paths, for `base-dirt`; empty otherwise.

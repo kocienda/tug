@@ -190,7 +190,7 @@ describe("evaluateJoinGate", () => {
     const outcome = deriveJoinOutcome({
       phase: "blocked",
       conflicts: ["a.rs"],
-      blockers: [{ kind: "base-dirt", detail: "commit outstanding changes", paths: ["x.ts"] }],
+      blockers: [{ kind: "base-dirt", title: "Base work in the way", detail: "commit outstanding changes", paths: ["x.ts"] }],
       candidate: "cafe1234",
     });
     expect(outcome).toBe("blocked");
@@ -216,7 +216,12 @@ describe("evaluateJoinGate", () => {
 
 describe("deriveJoinOutcome", () => {
   const base: DashJoinStateWire = { phase: "previewed" };
-  const blocker = (kind: string) => ({ kind, detail: `${kind} detail`, paths: [] });
+  const blocker = (kind: string) => ({
+    kind,
+    title: `${kind} title`,
+    detail: `${kind} detail`,
+    paths: [],
+  });
 
   it("reads a clean merge as clean", () => {
     expect(deriveJoinOutcome(base)).toBe("clean");
@@ -533,7 +538,7 @@ describe("JoinModeController", () => {
 
     changesController._setJoin({
       phase: "blocked",
-      blockers: [{ kind: "base-dirt", detail: "commit outstanding changes", paths: ["x.ts"] }],
+      blockers: [{ kind: "base-dirt", title: "Base work in the way", detail: "commit outstanding changes", paths: ["x.ts"] }],
     });
     expect(controller.getSnapshot().outcome).toBe("blocked");
     expect(controller.getSnapshot().landBlockedReason).toBe(

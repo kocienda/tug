@@ -68,7 +68,7 @@ describe("the outcome and the resolve face, per state", () => {
     // sentence beside its own detail, and the register fronts the word.
     const blocked = face({
       phase: "blocked",
-      blockers: [{ kind: "base-dirt", detail: "commit outstanding changes", paths: ["x.ts"] }],
+      blockers: [{ kind: "base-dirt", title: "Base work in the way", detail: "commit outstanding changes", paths: ["x.ts"] }],
     });
     expect(blocked.outcome).toBe("blocked");
     expect(blocked.resolve).toBe("none");
