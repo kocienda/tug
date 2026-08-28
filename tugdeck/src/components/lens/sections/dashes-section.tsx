@@ -26,8 +26,8 @@
  * A dash with no branch yet — a brief being written, a plan being devised or
  * reviewed — is the SAME block, over `documentDashAsEntry`, with its track
  * model from `documentDashTrackModel` so a plan already under way reads
- * `implement` with the ledger's own counts. Its trailing control is the next
- * gesture rather than the row menu; the two never share an eyebrow.
+ * `implement` with the ledger's own counts. It carries no trailing control at
+ * all: the row menu is a live dash's, and a plan is paperwork to read.
  *
  * The Lens is the account-global surface and `ChangesetAllStore` is the
  * account-global snapshot it already reads, so this section is a projection
@@ -57,19 +57,17 @@
  * aggregate now carries. The back half of the arc was already machine-visible —
  * a dash reads `implementing (i/N)`, the join arms itself, the shade summons —
  * while the front half was a file only `ls` could find. A plan row is the same
- * two-line block one tone quieter, and its trailing button is its next gesture:
- * Review for a plan nothing vouches for, Implement for one a review covers.
+ * two-line block one tone quieter, and that is the whole of it.
  *
- * That button, like every affordance this section grows, **produces a prompt**.
- * It submits a `/tugplug:…` line into the followed card's session and fronts
- * that card; it never calls machinery. `tugutil` is the engine's tool and the
- * models', so a graphical control that ran one would be doing the machine's job
- * behind the reader's back — and the model, not this surface, is what runs the
- * arc. The templates and the target ladder live in `lib/dash-prompts.ts`.
+ * **A plan row carries no button.** It wore its next gesture for a while —
+ * Devise, Review, Implement — a control that composed a `/tugplug:…` line and
+ * submitted it into the followed card. It read as a label rather than as a
+ * control, it made a row about the followed card when the section is about
+ * every project, and the gesture it offered is one sentence to type. The row
+ * reports; the arc is run from the composer.
  *
  * Live work outranks waiting paperwork, so dashes come first and plans follow;
- * plans are listed for every open project, exactly as dashes are, and a plan
- * whose project is not the followed one wears its refusal on its own button.
+ * plans are listed for every open project, exactly as dashes are.
  *
  * The section's `kind` stays `"dashes"` whatever the title says: the kind is
  * the registry key that `sectionOrder` and `collapsedSections` persist under
@@ -125,12 +123,6 @@ import { useResponderChain } from "@/components/tugways/responder-chain-provider
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 import { dispatchCommand } from "@/command-dispatch";
 import { cardSessionBindingStore } from "@/lib/card-session-binding-store";
-import { usePromptTarget } from "./dash-prompt-target";
-import {
-  documentDashNextGestureLabel,
-  documentDashNextGesturePrompt,
-  submitPromptToCard,
-} from "@/lib/dash-prompts";
 import { getConnection } from "@/lib/connection-singleton";
 import { useChangesetAll } from "@/lib/changeset-all-store";
 import { useChangesetDiscard, useChangesetReplay } from "@/lib/changeset-verb-store";
@@ -283,10 +275,6 @@ export interface DocumentDashRow {
   key: string;
   /** The wire entry: the row reads it directly. */
   entry: DocumentDashEntry;
-  /** The project the path is relative to — what the prompt's target must match. */
-  projectDir: string;
-  /** That project's name, for the cross-project refusal sentence. */
-  projectLabel: string;
 }
 
 /** Nearest-to-work-starting first: a reviewed plan is one gesture from a dash. */
@@ -335,9 +323,7 @@ export function compareDocumentDashRows(
  * Every project, not the followed one — the same choice
  * {@link dashRowsFromSnapshot} makes, for the same reason: a listing that
  * changed as the reader moved between cards would be the coming-and-going wart
- * this section already retired. A plan whose project is not the followed one is
- * inert now and actionable the moment a card in that project is followed, and
- * its affordance says exactly that ([L31]).
+ * this section already retired.
  */
 export function documentDashRowsFromSnapshot(
   snapshot: WorkspacesChangesetSnapshot,
@@ -346,8 +332,6 @@ export function documentDashRowsFromSnapshot(
     (project.document_dashes ?? []).map((entry) => ({
       key: `${project.project_dir}:${entry.display_name}`,
       entry,
-      projectDir: project.project_dir,
-      projectLabel: project.display_name,
     })),
   );
   return rows.sort(compareDocumentDashRows);
@@ -762,21 +746,9 @@ const PlanCell: TugListViewCellRenderer<CockpitRowsDataSource> = ({
   dataSource,
 }: TugListViewCellProps<CockpitRowsDataSource>) => {
   const row = dataSource.planAt(index);
-  const target = usePromptTarget({
-    requireProjectDir: row?.projectDir ?? null,
-    projectLabel: row?.projectLabel,
-  });
   if (row === undefined) return null;
   const entry = row.entry;
   const begun = documentDashIsBegun(entry);
-  const hasPlan = entry.documents.plan !== undefined;
-  const label = documentDashNextGestureLabel(entry.review, begun, hasPlan);
-  const prompt = documentDashNextGesturePrompt(
-    entry.review,
-    entry.display_name,
-    begun,
-    hasPlan,
-  );
   // The counted steps, never the composed ones: `dashTrackModelFromEntry` over
   // the adapted entry would find no `steps` at all and read `review` for a
   // plan already half walked.
@@ -799,30 +771,6 @@ const PlanCell: TugListViewCellRenderer<CockpitRowsDataSource> = ({
           note={dashLifecycleNote(model)}
           facts={dashMetaFacts(documentDashAsEntry(entry))}
           size="read"
-          trailing={
-            <span className="lens-dashes-verbs">
-              <TugPushButton
-                size="2xs"
-                emphasis="ghost"
-                data-slot="lens-plans-gesture"
-                // The exact line a press submits, carried on the control rather
-                // than composed at press time — one string, rendered once, so
-                // what the button says it will do and what it does cannot drift.
-                data-prompt={prompt}
-                disabled={target.cardId === null}
-                title={target.reason ?? undefined}
-                aria-label={
-                  target.reason ?? `${label} the dash ${entry.display_name}`
-                }
-                onClick={() => {
-                  if (target.cardId === null) return;
-                  submitPromptToCard(target.cardId, prompt);
-                }}
-              >
-                {label}
-              </TugPushButton>
-            </span>
-          }
         />
       </span>
     </TugListRow>

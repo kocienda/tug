@@ -1,7 +1,7 @@
 /**
  * at0473-dash-cockpit.test.ts — the Lens Dashes section is the dash cockpit:
- * it lists the *waiting paperwork* beside the live dashes, and every plan row
- * carries its next gesture.
+ * it lists the *waiting paperwork* beside the live dashes, in the same
+ * two-line block a live dash wears.
  *
  * The back half of the dash arc was already machine-visible — a dash reads
  * `implementing (i/N)`, the join arms itself, the shade summons the user. The
@@ -20,7 +20,7 @@
  * frozen at all-`pending` ([D139]) — so nothing about the file says a dash
  * owns it, and only the dash's own recorded plan path can.
  *
- * Four facts this pins that nothing else can:
+ * Three facts this pins that nothing else can:
  *
  * 1. **A project with plans and no dashes renders plan rows**, not the empty
  *    state. The body derives one `populated` flag and spends it twice — on the
@@ -32,25 +32,18 @@
  *    listing scoped to the followed card would change as the reader moved
  *    between cards, which is the coming-and-going wart this section already
  *    retired. Two scratch projects are open here, and both contribute rows.
- * 3. **A refusal is a sentence on the control itself** ([L31]). A plan path is
- *    relative to one project root, so a row whose project is not the followed
- *    one cannot be handed to the followed session — and it says so, by name,
- *    rather than presenting a dead button.
- * 4. **A dash adopting a plan takes its row away**, with the file still sitting
+ * 3. **A dash adopting a plan takes its row away**, with the file still sitting
  *    on disk. The dedup is a producer-side join between two lists that arrive
  *    on one frame, so nothing short of the real feed over a real adoption can
  *    show it holding — and the row it is standing in for is asserted present,
  *    because hiding the work entirely would be a worse lie than listing it
  *    twice.
  *
- * **The press itself is deliberately not driven here.** Every affordance in
- * this section submits a `/tugplug:…` prompt into a real session, and an
- * app-test session is a genuine tugcode `--resume` — so a press would start a
- * real model turn against the network. What the press *would* send is asserted
- * instead: the control carries the composed line on itself, rendered by the
- * same function the click hands to the store. Where that line goes, and every
- * rung that can refuse it, are table-tested in
- * `tugdeck/src/lib/__tests__/dash-prompts.test.ts`.
+ * **A plan row carries no control.** It wore its next gesture — Devise,
+ * Review, Implement — for a while, and the label was retired: it read as a
+ * label rather than a control, and it made a row about the followed card when
+ * the section is about every open project. What is left is the reading, and
+ * the reading is what this file asserts.
  *
  * The plans live in scratch repositories this file owns. The checkout's own
  * paperwork is suppressed in an app-test instance for the reason its dashes
@@ -60,9 +53,6 @@
  *
  * @covers tugdeck/src/components/lens/sections/dashes-section.tsx
  * @covers tugdeck/src/components/lens/sections/dashes-section.css
-
- * @covers tugdeck/src/components/lens/sections/dash-prompt-target.ts
- * @covers tugdeck/src/lib/dash-prompts.ts
  * @covers tugdeck/src/lib/document-dash-entry.ts
  * @covers tugdeck/src/components/tugways/dash-lifecycle-block.tsx
  * @covers tugdeck/src/components/tugways/tug-dash-track.tsx
@@ -116,10 +106,6 @@ const SECTION = '.lens-section[data-lens-section="dashes"]';
 const PLAN_ROWS = `${SECTION} [data-slot="lens-document-dash-row"]`;
 const EMPTY = `${SECTION} [data-slot="lens-dashes-empty"]`;
 const planRow = (name: string): string => `${PLAN_ROWS}[data-dash="${name}"]`;
-const gesture = (name: string): string =>
-  `${planRow(name)} [data-slot="lens-plans-gesture"]`;
-
-
 
 /** The Z2 work cell — TASKS or DASH, one `data-priority` either way. */
 const CELL =
@@ -251,16 +237,11 @@ interface PlanRowReading {
   phase: string | null;
   fraction: string;
   ticks: (string | null)[];
-  label: string;
-  prompt: string | null;
-  disabled: boolean;
-  title: string | null;
 }
 
 const readPlanRows = (app: App): Promise<PlanRowReading[]> =>
   app.evalJS<PlanRowReading[]>(
     `Array.from(document.querySelectorAll(${JSON.stringify(PLAN_ROWS)})).map((row) => {
-       const button = row.querySelector('[data-slot="lens-plans-gesture"]');
        const track = row.querySelector('[data-slot="tug-dash-track"]');
        const cell = track?.querySelector(
          '[data-slot="tug-dash-track-cell"][data-phase="implement"]',
@@ -276,17 +257,13 @@ const readPlanRows = (app: App): Promise<PlanRowReading[]> =>
                (el) => el.getAttribute("data-state"),
              )
            : [],
-         label: (button?.textContent ?? "").trim(),
-         prompt: button?.getAttribute("data-prompt") ?? null,
-         disabled: button?.hasAttribute("disabled") ?? false,
-         title: button?.getAttribute("title") ?? null,
        };
      })`,
   );
 
 describe.skipIf(!SHOULD_RUN)("AT0473: the dash cockpit lists waiting plans", () => {
   test(
-    "plan rows render with their next gesture, across every open project",
+    "plan rows render their whole reading, across every open project",
     async () => {
       const tugbankPath = mkTempTugbank();
       seedTugbankForLaunch(tugbankPath, { sourceTreePath: CHECKOUT });
@@ -324,7 +301,7 @@ describe.skipIf(!SHOULD_RUN)("AT0473: the dash cockpit lists waiting plans", () 
           { timeoutMs: 40000 },
         );
         await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(gesture(REVIEWED))})?.hasAttribute("disabled") === false`,
+          `document.querySelector(${JSON.stringify(planRow(REVIEWED))}) !== null`,
           { timeoutMs: 20000 },
         );
 
@@ -359,32 +336,22 @@ describe.skipIf(!SHOULD_RUN)("AT0473: the dash cockpit lists waiting plans", () 
         const sketched = rows.find((r) => r.dash === BRIEFED)!;
         const elsewhere = rows.find((r) => r.dash === OTHER)!;
 
-        // ── The next-gesture ladder, in the DOM ───────────────────────────
+        // ── The plan's own reading, in the DOM ────────────────────────────
         // The row wears the same lifecycle grammar a live dash does: the atom
         // names the dash with its sigil, and the track says where in its life
         // it stands. A plan nobody has touched stands at `review`, whatever
         // the review verdict is — the phase is how far the WORK got, and the
-        // gesture button is what spells the verdict.
+        // verdict rides the row's own `data-review`.
         expect(settled.name).toBe(`^${REVIEWED}`);
         expect(settled.phase).toBe("review");
-        expect(settled.label).toBe("Implement");
-        // Every gesture names the dash, never a path: the skills resolve the
-        // address, so a prompt cannot point at the wrong file.
-        expect(settled.prompt).toBe(`/tugplug:dash-implement ${REVIEWED}`);
-        expect(settled.disabled).toBe(false);
+        expect(settled.review).toBe("reviewed");
 
         expect(unread.review).toBe("never-reviewed");
         expect(unread.phase).toBe("review");
-        expect(unread.label).toBe("Review");
-        expect(unread.prompt).toBe(`/tugplug:dash-review ${FRESH}`);
-        expect(unread.disabled).toBe(false);
 
         // A brief and no plan is the planning phase before devise: the track
-        // stands at `brief`, and the row points at the arc's front door.
+        // stands at `brief`, which is the whole of what the row claims.
         expect(sketched.phase).toBe("brief");
-        expect(sketched.label).toBe("Devise");
-        expect(sketched.prompt).toBe(`/tugplug:dash ${BRIEFED}`);
-        expect(sketched.disabled).toBe(false);
 
         // A begun plan is being IMPLEMENTED, branch or no branch — and the
         // ticks are the plan's own ledger rows, one done, one open, one to go.
@@ -393,16 +360,11 @@ describe.skipIf(!SHOULD_RUN)("AT0473: the dash cockpit lists waiting plans", () 
         expect(underway.phase).toBe("implement");
         expect(underway.ticks).toEqual(["done", "active", "pending"]);
         expect(underway.fraction).toBe("2/3");
-        // It wants resuming whatever its review says — `dash-implement`
-        // re-enters at the first row that is not done, and its own setup gate
-        // owns the review question.
-        expect(underway.label).toBe("Resume");
-        expect(underway.prompt).toBe(`/tugplug:dash-implement ${BEGUN}`);
-        expect(underway.disabled).toBe(false);
 
-        // ── A cross-project row refuses by name, never silently ───────────
-        expect(elsewhere.disabled).toBe(true);
-        expect(elsewhere.title).toContain("belongs to");
+        // ── A row from a project that is not the followed one is a row ────
+        // Not an inert one, and not one wearing a refusal: the section is
+        // about every open project, and a plan row reports rather than acts.
+        expect(elsewhere.name).toBe(`^${OTHER}`);
         note("at0473 cockpit", (await app.screenshot()).path);
 
         // ── Cutting the branch turns the row live; it never doubles ───────
@@ -424,7 +386,7 @@ describe.skipIf(!SHOULD_RUN)("AT0473: the dash cockpit lists waiting plans", () 
         );
         expect(
           await app.evalJS<number>(
-            `document.querySelectorAll(${JSON.stringify(gesture(FRESH))}).length`,
+            `document.querySelectorAll(${JSON.stringify(planRow(FRESH))}).length`,
           ),
         ).toBe(0);
         // And the work is not gone from the section — it moved to the row that

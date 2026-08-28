@@ -373,6 +373,9 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Lens Dashes section", () => {
           size: string;
           fontSize: string;
           readScale: string;
+          leadInset: number;
+          tailInset: number;
+          gestures: number;
           blocks: number[][];
         }>(
           `(() => {
@@ -382,6 +385,8 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Lens Dashes section", () => {
              const box = line.getBoundingClientRect();
              const track = line.querySelector('[data-slot="tug-dash-track"]').getBoundingClientRect();
              const read = line.querySelector('[data-slot="tug-dash-lifecycle-reading"]').getBoundingClientRect();
+             const rowBox = first.getBoundingClientRect();
+             const block = first.querySelector('[data-slot="tug-dash-lifecycle-block"]').getBoundingClientRect();
              const R = (n) => Math.round(n * 10) / 10;
              return {
                lead: R(track.left - box.left),
@@ -389,6 +394,9 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Lens Dashes section", () => {
                size: first.querySelector('[data-slot="tug-dash-lifecycle-block"]').dataset.size,
                fontSize: getComputedStyle(line).fontSize,
                readScale: getComputedStyle(document.body).getPropertyValue("--tug-font-size-sm").trim(),
+               leadInset: R(block.left - rowBox.left),
+               tailInset: R(rowBox.right - block.right),
+               gestures: document.querySelectorAll('[data-slot="lens-plans-gesture"]').length,
                blocks: rows.map((r) => {
                  const b = r.getBoundingClientRect();
                  return [Math.round(b.top), Math.round(b.bottom)];
@@ -407,6 +415,21 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Lens Dashes section", () => {
           stack.fontSize,
           "and the line is sized to that scale's token, not the rail's",
         ).toBe(stack.readScale);
+        // The block's two identities are held apart by a hairline, so the air
+        // outside them has to be even: `TugListRow` reserves a leading focus
+        // gutter the trailing edge does not, and the pair read as leaning
+        // toward the row's right edge. The BLOCK's box is the measure, so the
+        // claim holds for an unbound dash too, whose eyebrow ends in the
+        // hairline rather than in a worker atom. What the reader sees on a
+        // BOUND row — the dash pill's leading margin against the worker
+        // atom's trailing one — is at0438's, which has one.
+        expect(
+          Math.abs(stack.leadInset - stack.tailInset),
+          "the block's inline air is even at both ends",
+        ).toBeLessThanOrEqual(1);
+        // And no plan row wears a next-gesture button: it read as a label
+        // rather than a control, and the row reports rather than acts.
+        expect(stack.gestures, "no next-gesture button survives").toBe(0);
         expect(
           Math.abs(stack.lead - stack.tail),
           "the run — track then reading — is centred in the line",

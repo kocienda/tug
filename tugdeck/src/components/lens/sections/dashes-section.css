@@ -13,8 +13,23 @@
   min-width: 0;
 }
 
-.lens-dashes-row {
+/* The `[data-slot]` is carried for the specificity, not for the match: the
+   padding this overrides is `tug-list-row.css`'s own shorthand, and equal
+   specificity would leave the winner to import order. */
+.lens-dashes-row[data-slot] {
   min-width: 0;
+  /* Symmetric inline air, against `TugListRow`'s own asymmetry.
+
+     Every row reserves a leading focus gutter on top of its inline padding,
+     which is right for a list of labels: the text starts past the gutter and
+     the row's own edge is nowhere in the reading. A dash block is not a label
+     — it is two identities held apart by a hairline, and the eyebrow's ends
+     ARE its composition. With the trailing edge a gutter tighter than the
+     leading one, the worker atom sat nearer the row's edge than the dash pill
+     did, and the pair read as leaning. The end takes the gutter back. */
+  padding-inline-end: calc(
+    var(--tugx-list-row-padding-inline) + var(--tugx-list-row-indicator-gutter)
+  );
 }
 
 /* A row that opens nothing must not look as though it opens something.
@@ -66,10 +81,8 @@
   display: none;
 }
 
-/* The row's affordances. A dash row's verbs are its context menu and this box
-   holds only that menu's portal; a plan row's next-gesture button stands in it
-   and is always visible rather than hover-revealed — a control that appears
-   under the pointer is one a keyboard reader never finds. */
+/* The row's affordances. A dash row's verbs are its context menu, and this box
+   holds only that menu's portal — a plan row has no control at all. */
 .lens-dashes-verbs {
   flex: 0 0 auto;
   display: inline-flex;

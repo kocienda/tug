@@ -384,8 +384,6 @@ describe("documentDashRowsFromSnapshot — the planning phase in flight", () => 
     // The key namespaces the name under its project: two projects may both
     // carry a dash called `plan`, and they are different rows.
     expect(rows[0]!.key).toBe(`${DATA.projects[0]!.project_dir}:dash-cockpit`);
-    expect(rows[0]!.projectDir).toBe(DATA.projects[0]!.project_dir);
-    expect(rows[0]!.projectLabel).toBe(DATA.projects[0]!.display_name);
   });
 
   test("a project with no document-only dash contributes nothing", () => {
@@ -413,8 +411,6 @@ describe("compareDocumentDashRows — nearest to starting work first", () => {
       steps_done: progress?.done ?? 0,
       steps_begun: progress?.begun ?? 0,
     },
-    projectDir: "/p",
-    projectLabel: "p",
   });
 
   // Work in flight is nearer done than work not started — the same

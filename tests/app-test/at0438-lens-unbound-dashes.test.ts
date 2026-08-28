@@ -244,6 +244,8 @@ describe.skipIf(!SHOULD_RUN)("AT0438: the always-on Dashes section", () => {
           boundFlag: string | null;
           workerDots: number;
           workerDashRuns: number;
+          pillInset: number;
+          workerInset: number;
         }>(
           `(() => {
              const worker = document.querySelector(${JSON.stringify(WORKER)});
@@ -257,6 +259,16 @@ describe.skipIf(!SHOULD_RUN)("AT0438: the always-on Dashes section", () => {
                // atom already names the dash, and saying it twice on one line
                // is the drift [D141] closes.
                workerDashRuns: worker?.querySelectorAll('[data-slot="session-identity-dash"]').length ?? 0,
+               // The two identities' margins, which the eye reads as one pair.
+               // The list row reserves a leading focus gutter its trailing
+               // edge does not, and the Dashes row takes that gutter back so
+               // the eyebrow does not lean right.
+               pillInset:
+                 row.querySelector('[data-slot="tug-dash-atom"]').getBoundingClientRect().left -
+                 row.getBoundingClientRect().left,
+               workerInset:
+                 row.getBoundingClientRect().right -
+                 worker.getBoundingClientRect().right,
              };
            })()`,
         );
@@ -274,6 +286,10 @@ describe.skipIf(!SHOULD_RUN)("AT0438: the always-on Dashes section", () => {
         expect(bound.boundFlag).toBe("true");
         expect(bound.workerDots).toBe(1);
         expect(bound.workerDashRuns).toBe(0);
+        expect(
+          Math.abs(bound.pillInset - bound.workerInset),
+          "the dash pill and the worker atom sit the same distance in",
+        ).toBeLessThanOrEqual(1);
         // The band did not move: always on is the whole point.
         expect(await count(app, SECTION)).toBe(1);
         // And the session's Cards row grew its title cluster.
