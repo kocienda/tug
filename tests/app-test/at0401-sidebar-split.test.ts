@@ -724,10 +724,15 @@ describe.skipIf(!SHOULD_RUN)(
               );
               {
                 const roles = await settleRoles(app);
+                // `width` rides the crossing alongside the vertical terms
+                // because the space allocator re-solves the rails on every
+                // arrangement change ([D166]) — a stack/split flip is one.
+                // It sits on the SAME effect, so the bottom-edge cancellation
+                // the assertion below is about is untouched by it.
                 expect(
                   roles[lowerPane]?.properties,
                   "the front member crosses by real geometry — and does not fade, because it never leaves",
-                ).toEqual(["height", "transform"]);
+                ).toEqual(["height", "transform", "width"]);
                 expect(
                   roles[lowerPane]?.transformHeld,
                   "and it really travels: the bottom tile has a top edge to carry up the rail",

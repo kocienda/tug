@@ -170,6 +170,7 @@ enum NativeEventError: Error, CustomStringConvertible {
     case eventCreationFailed(String)
     case webViewUnavailable
     case protocolError(String)
+    case activationClickObstructed(point: CGPoint, ownerName: String, ownerPid: pid_t)
 
     var description: String {
         switch self {
@@ -185,6 +186,16 @@ enum NativeEventError: Error, CustomStringConvertible {
             return "WKWebView unavailable (the harness connection has been torn down)"
         case .protocolError(let message):
             return "protocol error: \(message)"
+        case .activationClickObstructed(let p, let owner, let pid):
+            return """
+                activation click at (\(p.x), \(p.y)) cannot reach this app's window — \
+                "\(owner)" (pid \(pid)) is in front of it there. A click into a \
+                BACKGROUNDED app is routed by WindowServer to whatever window is \
+                actually frontmost at the cursor, so this click would have gone to \
+                that window and the app would never have come forward. Usually a \
+                leftover Tug from a killed run: `just reap` reports them, and \
+                unregistered app-test instances have to be killed by hand.
+                """
         }
     }
 
@@ -198,6 +209,7 @@ enum NativeEventError: Error, CustomStringConvertible {
         case .eventCreationFailed: return "NativeEventError"
         case .webViewUnavailable: return "AppCrashedError"
         case .protocolError: return "ProtocolError"
+        case .activationClickObstructed: return "ActivationClickObstructedError"
         }
     }
 }
@@ -251,6 +263,35 @@ final class NativeEventHandlers {
         } else {
             event.post(tap: .cgSessionEventTap)
         }
+    }
+
+    /// Who owns the frontmost ORDINARY window covering `screenPoint`, or nil
+    /// when nothing does.
+    ///
+    /// Only normal-level windows count. The desktop sits below them and the
+    /// menu bar above, and neither takes a click meant for a window — counting
+    /// them would report an obstruction on every click.
+    /// `CGWindowListCopyWindowInfo` returns on-screen windows front to back,
+    /// so the first hit IS the one WindowServer would route to.
+    private func frontmostWindowOwner(
+        at screenPoint: CGPoint
+    ) -> (name: String, pid: pid_t)? {
+        guard let windows = CGWindowListCopyWindowInfo(
+            [.optionOnScreenOnly, .excludeDesktopElements],
+            kCGNullWindowID,
+        ) as? [[String: Any]] else {
+            return nil
+        }
+        for window in windows {
+            guard let layer = window[kCGWindowLayer as String] as? Int, layer == 0 else { continue }
+            guard let boundsDict = window[kCGWindowBounds as String] as? [String: Any],
+                  let bounds = CGRect(dictionaryRepresentation: boundsDict as CFDictionary),
+                  bounds.contains(screenPoint) else { continue }
+            let pid = pid_t(window[kCGWindowOwnerPID as String] as? Int ?? 0)
+            let name = window[kCGWindowOwnerName as String] as? String ?? "unknown"
+            return (name: name, pid: pid)
+        }
+        return nil
     }
 
     /// The NSEvent type for a mouse CGEvent, or nil for non-mouse events.
@@ -369,6 +410,28 @@ final class NativeEventHandlers {
             // this; the ordinary path already owns the frontmost window.
             CGWarpMouseCursorPosition(screenPoint)
             sleepMs(20)
+            // Verify the click can actually reach us before posting it. With
+            // the app backgrounded, WindowServer routes by what is frontmost
+            // at the cursor — so a stray window over that point silently
+            // swallows the gesture, the app never comes forward, and the
+            // failure surfaces much later as an unrelated timeout on whatever
+            // the test expected the click to cause. Naming it here costs one
+            // window-list read and turns that into a sentence ([L31]).
+            // Session-tap mode only. In pid mode the click never travels
+            // through WindowServer at all — it is rebuilt as an NSEvent and
+            // handed straight to our own window — so no other window can be
+            // in front of anything, and a background test whose deck happens
+            // to overlap a developer's own Tug would fail on a gesture that
+            // works perfectly.
+            if !postToOwnPid,
+               let blocker = frontmostWindowOwner(at: screenPoint),
+               blocker.pid != ownPid {
+                throw NativeEventError.activationClickObstructed(
+                    point: screenPoint,
+                    ownerName: blocker.name,
+                    ownerPid: blocker.pid,
+                )
+            }
         }
 
         guard let down = CGEvent(

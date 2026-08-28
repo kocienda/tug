@@ -23,6 +23,7 @@
 
 import {
   AccessibilityPermissionMissingError,
+  ActivationClickObstructedError,
   AppCrashedError,
   AppLifecycleTimeoutError,
   CoordinateOutOfBoundsError,
@@ -76,11 +77,21 @@ export interface RpcTransport {
  * the wire it always did, including leaving the field absent so the server applies
  * its own per-method default.
  */
-const TIMEOUT_SCALE = ((): number => {
+export const TIMEOUT_SCALE = ((): number => {
   const raw = Number(process.env.TUG_APPTEST_TIMEOUT_SCALE);
   if (!Number.isFinite(raw) || raw < 1) return 1;
   return Math.min(raw, 10);
 })();
+
+/**
+ * The budget a caller's `timeoutMs` is actually enforced at, once the parallel
+ * runner's scale is applied. A test asserting on a `TimeoutError`'s budget
+ * wants this number, not the pre-scaling ask — the error reports what the
+ * server was told to wait, which under contention is deliberately larger.
+ */
+export function enforcedTimeout(askedMs: number): number {
+  return Math.round(askedMs * TIMEOUT_SCALE);
+}
 
 /**
  * The server's own per-method default budget, mirrored here so a scaled run can
@@ -301,6 +312,8 @@ export function translateError(
       return new AccessibilityPermissionMissingError(wire.message);
     case "UnknownKeyError":
       return new UnknownKeyError(wire.message);
+    case "ActivationClickObstructedError":
+      return new ActivationClickObstructedError(wire.message);
     case "TugcodeLaunchError":
       return new TugcodeLaunchError(wire.message);
     case "TugcodeVersionSkewError": {

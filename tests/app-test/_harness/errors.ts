@@ -152,6 +152,26 @@ export class UnknownKeyError extends Error {
 }
 
 /**
+ * Thrown when a `nativeClick(..., { activateFirst: false })` cannot reach the
+ * app's own window, because another application's window is in front of it at
+ * that point.
+ *
+ * A click into a BACKGROUNDED app is routed by WindowServer to whatever window
+ * is actually frontmost at the cursor, so an obstructed one is not a slow
+ * click — it is a click another window received. Without this the app simply
+ * never comes forward and the test fails some seconds later on whatever the
+ * click was supposed to cause, which says nothing about the real cause.
+ */
+export class ActivationClickObstructedError extends Error {
+  readonly name = "ActivationClickObstructedError" as const;
+
+  constructor(message: string) {
+    super(message);
+    Object.setPrototypeOf(this, ActivationClickObstructedError.prototype);
+  }
+}
+
+/**
  * Thrown when `startTugcode` fails — either because the binary
  * path is missing/invalid, the `Process.run()` call errored, the
  * stdout/stderr log file could not be opened, the stub-mode

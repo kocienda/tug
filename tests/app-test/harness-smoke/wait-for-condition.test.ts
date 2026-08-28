@@ -37,7 +37,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { launchTugApp } from "../_harness";
+import { enforcedTimeout, launchTugApp } from "../_harness";
 import { TimeoutError } from "../_harness/errors";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
@@ -101,15 +101,17 @@ describe.skipIf(!SHOULD_RUN)("in-app: waitForCondition", () => {
       expect(caught).toBeInstanceOf(TimeoutError);
       const err = caught as TimeoutError;
       expect(err.name).toBe("TimeoutError");
-      // TimeoutError carries the budget for debuggability.
-      expect(err.timeoutMs).toBe(timeoutMs);
+      // TimeoutError carries the budget for debuggability — the one the server
+      // was actually told to wait, which the parallel runner scales up so a
+      // contended file is not timed out on a budget sized for a quiet machine.
+      expect(err.timeoutMs).toBe(enforcedTimeout(timeoutMs));
       // The server enforces the budget; we give a generous upper bound
       // to avoid flakiness on a loaded CI host, but it must not fire
       // before the budget elapses.
-      expect(elapsed).toBeGreaterThanOrEqual(timeoutMs);
+      expect(elapsed).toBeGreaterThanOrEqual(enforcedTimeout(timeoutMs));
       // 5x budget is a generous ceiling; real elapsed times should sit
       // well below that. This guards against the timer never firing.
-      expect(elapsed).toBeLessThan(timeoutMs * 5 + 1000);
+      expect(elapsed).toBeLessThan(enforcedTimeout(timeoutMs) * 5 + 1000);
     } finally {
       await app.close();
     }

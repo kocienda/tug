@@ -78,8 +78,12 @@ const row = (dash: string): string =>
   `${LANE} [data-slot="session-changes-dash-row"][data-dash="${dash}"]`;
 const landing = (dash: string): string =>
   `${row(dash)} [data-slot="session-changes-dash-join"]`;
-const account = (dash: string): string =>
-  `${row(dash)} [data-slot="session-changes-dash-join-account"]`;
+// Card-scoped, not row-scoped: the register that reports a join in progress is
+// the composer's live-edge one, not a copy inside the lane row. One dash is
+// bound here, so the card's register is this dash's.
+const CANDIDATE = `${CARD} [data-slot="dash-join-register"][data-word="ready"]`;
+const landsAs = (dash: string): string =>
+  `${row(dash)} [data-slot="session-changes-dash-lands-as"]`;
 
 beforeAll(() => {
   if (!SHOULD_RUN) return;
@@ -160,36 +164,6 @@ async function clickUntil(app: App, target: string, expected: string, attempts =
   throw new Error(`at0435: ${expected} never appeared after clicking ${target}`);
 }
 
-/**
- * Put the composer back on the prompt route.
- *
- * Load-bearing before any typed command. `raiseShade` leaves the composer in
- * **commit mode**, where the editor *is* the commit message — so a `/dash-join`
- * typed there is message text, not a command, and submitting it does nothing a
- * route assertion can see. A slash command has to be typed from the prompt
- * route, which is where every one of them is read. at0436 records the same
- * trap.
- */
-async function returnToPrompt(app: App): Promise<void> {
-  await app.nativeClickAtElement(EDITOR);
-  await settle();
-  await app.nativeKey("Escape");
-  await app.waitForCondition<boolean>(
-    `document.querySelector(${JSON.stringify(`${ROUTE_GROUP} [data-choice-value="prompt"][data-state="active"]`)}) !== null`,
-    { timeoutMs: 8000 },
-  );
-}
-
-/** Enter join mode on a dash by its named route — the row offers no control. */
-async function enterJoinMode(app: App, dash: string): Promise<void> {
-  await app.nativeClickAtElement(EDITOR);
-  await app.nativeType(`/dash-join ${dash}`);
-  await settle();
-  await app.nativeKey("Escape");
-  await settle();
-  await app.nativeKey("Return", ["cmd"]);
-}
-
 async function raiseShade(app: App): Promise<void> {
   await app.nativeClickAtElement(EDITOR);
   await app.nativeType("/commit");
@@ -205,15 +179,6 @@ async function raiseShade(app: App): Promise<void> {
     `document.querySelector(${JSON.stringify(LANE)}) !== null`,
     { timeoutMs: 40000 },
   );
-}
-
-async function settledOutcome(app: App, dash: string): Promise<string> {
-  const read = `(document.querySelector(${JSON.stringify(landing(dash))})?.getAttribute("data-outcome") ?? "")`;
-  await app.waitForCondition<boolean>(
-    `(() => { const o = ${read}; return o !== ""; })()`,
-    { timeoutMs: 40000 },
-  );
-  return app.evalJS<string>(read);
 }
 
 /** Every bulletin currently on screen, as text. */
@@ -255,36 +220,44 @@ describe.skipIf(!SHOULD_RUN)("AT0435: a refused land press speaks", () => {
           dash_id: dashId,
           dash_name: DASH,
         });
+        // A landable dash publishes its OFFER — the `lands as` line — so that
+        // is what says the fixture is ready. The report fold is NOT a
+        // readiness signal and cannot be waited on here: a clean join has no
+        // conflict, blocker, question or account to show, and the section
+        // renders nothing it cannot say. Its silence is the clean case's own
+        // shape, so it is asserted rather than waited for.
         await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(landing(DASH))}) !== null`,
+          `document.querySelector(${JSON.stringify(landsAs(DASH))}) !== null`,
           { timeoutMs: 20000 },
         );
-        expect(await settledOutcome(app, DASH), "the fixture must be landable").toBe("clean");
+        expect(
+          await app.evalJS<boolean>(
+            `document.querySelector(${JSON.stringify(landing(DASH))}) === null`,
+          ),
+          "a clean dash shows no report — the fold speaks only with evidence",
+        ).toBe(true);
 
-        // The landable row states its route rather than offering a control,
-        // and this is that route. Entering it resolves the dash and verifies
-        // what that built ([P03]) — the refusal under test is the last one in
-        // the gate's order, so every earlier one has to be clear first.
-        //
-        // Back to the prompt route first: `raiseShade` left the composer in
-        // commit mode, and a slash command typed there is message text.
-        await returnToPrompt(app);
-        await enterJoinMode(app, DASH);
-        await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(`${ROUTE_GROUP} [data-choice-value="changes"][data-state="active"]`)}) !== null`,
-          { timeoutMs: 12000 },
-        );
+        // `/commit` raised the shade in COMMIT mode, and one composer holds one
+        // landing — so commit has to go before the join can have the document.
+        // Escape is that exit, and it is the whole gesture: a bound dash with
+        // work ready to join enters join mode BY ITSELF once the composer is
+        // free. Nothing types `/dash-join`, which would only open by name a
+        // mode the binding opens on its own.
+        await app.nativeClickAtElement(EDITOR);
+        await settle();
+        await app.nativeKey("Escape");
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(JOIN_BUTTON)}) !== null`,
-          { timeoutMs: 8000 },
+          { timeoutMs: 60000 },
         );
 
         // Wait for the candidate before pressing. Entering join mode resolved
-        // the dash ([P03]), and the resolver's account appearing is that
-        // resolution anchoring — a press before it measures the outcome
-        // refusal rather than the empty-message one under test.
+        // the dash ([P03]), and the CANDIDATE standing is that resolution
+        // anchoring — a press before it measures the outcome refusal rather
+        // than the empty-message one under test. The resolver's account is not
+        // the signal: a clean join resolves nothing and files no account.
         await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(account(DASH))}) !== null`,
+          `document.querySelector(${JSON.stringify(CANDIDATE)}) !== null`,
           { timeoutMs: 180000 },
         );
 

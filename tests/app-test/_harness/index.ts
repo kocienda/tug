@@ -80,6 +80,7 @@ export {
   type ExpectedEntry,
   type MatcherResult,
 } from "./matchers";
+export { enforcedTimeout, TIMEOUT_SCALE } from "./rpc";
 export type {
   ActiveElementInfo,
   AppLifecycleOptions,

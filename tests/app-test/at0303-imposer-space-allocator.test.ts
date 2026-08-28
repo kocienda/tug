@@ -99,7 +99,12 @@ const AFTER_LAND_MS = 900;
 /** Frames are measured in device pixels; a rounded pin is within a pixel. */
 const TOL = 1.5;
 
-const FIVE_UP_TILE = '[data-testid="lens-layouts-kind"] [data-choice-value="five-up"]';
+// Three-up, and the fixture seeds three cards into its three slots: the chain
+// the allocator solves is every slot the KIND defines, occupied or not
+// ([D166]), so a three-card deck under five-up is a chain with two holes in it
+// and no surplus left for a rail to flex into. A filled chain is what the
+// arithmetic below describes, and what these claims are about.
+const THREE_UP_TILE = '[data-testid="lens-layouts-kind"] [data-choice-value="three-up"]';
 const KIND_TILES = '[data-testid="lens-layouts-kind"] [data-choice-value]';
 const LENS_FRAME = `.tug-pane[data-pane-id="pLens"]`;
 /** The three chain panes, in slot order. */
@@ -130,8 +135,8 @@ function deckShape(paneWidth: number, lensWidth: number) {
     ],
     panes: [
       pane("p1", 0, "A"),
-      pane("p2", 2, "B"),
-      pane("p3", 4, "C"),
+      pane("p2", 1, "B"),
+      pane("p3", 2, "C"),
       {
         id: "pLens",
         position: { x: 0, y: 0 },
@@ -225,7 +230,7 @@ function railTotalFor(canvas: number, paneWidth: number): number {
 async function seedTwoRails(
   app: App,
   paneWidth: number,
-  kind: "two-up" | "five-up" = "two-up",
+  kind: "two-up" | "three-up" = "two-up",
 ): Promise<void> {
   const shape = deckShape(paneWidth, PREFERRED);
   shape.cards.push({
@@ -302,7 +307,7 @@ describe.skipIf(!SHOULD_RUN)(
           expect(await frameWidth(app, "pLens")).toBeCloseTo(PREFERRED, 0);
 
           // ── The moment: choose Five Up. ──────────────────────────────────
-          await app.nativeClickAtElement(FIVE_UP_TILE);
+          await app.nativeClickAtElement(THREE_UP_TILE);
 
           // The Lens's new width crosses by the settle FLIP rather than
           // cutting — the width is part of the arrangement signature.
@@ -378,7 +383,7 @@ describe.skipIf(!SHOULD_RUN)(
           await wait(AFTER_LAND_MS);
           expect(await frameWidth(app, "pLens")).toBeCloseTo(PREFERRED, 0);
 
-          await app.nativeClickAtElement(FIVE_UP_TILE);
+          await app.nativeClickAtElement(THREE_UP_TILE);
           await wait(AFTER_LAND_MS);
           const grown = await frameWidth(app, "pLens");
           expect(grown).toBeCloseTo(predictedLensWidth(canvas, reachable), 0);
@@ -396,12 +401,12 @@ describe.skipIf(!SHOULD_RUN)(
           await app.seedDeckState({
             state: {
               ...deckShape(unreachable, PREFERRED),
-              imposition: { kind: "five-up", lens: "right" },
+              imposition: { kind: "three-up", lens: "right" },
             },
             focusCardId: "A",
           });
           await wait(AFTER_LAND_MS);
-          await app.nativeClickAtElement(FIVE_UP_TILE);
+          await app.nativeClickAtElement(THREE_UP_TILE);
           await wait(AFTER_LAND_MS);
 
           expect(await frameWidth(app, "pLens")).toBeCloseTo(CEILING, 0);
@@ -411,7 +416,7 @@ describe.skipIf(!SHOULD_RUN)(
 
           // Idempotent: the answer is a function of the inputs, not of where
           // the rail happens to be standing, so re-asserting changes nothing.
-          await app.nativeClickAtElement(FIVE_UP_TILE);
+          await app.nativeClickAtElement(THREE_UP_TILE);
           await wait(AFTER_LAND_MS);
           expect(await frameWidth(app, "pLens")).toBeCloseTo(CEILING, 0);
         } finally {
@@ -435,7 +440,7 @@ describe.skipIf(!SHOULD_RUN)(
           const first = paneWidthFor(canvas, 30);
           await seedFixture(app, first, PREFERRED);
           await wait(AFTER_LAND_MS);
-          await app.nativeClickAtElement(FIVE_UP_TILE);
+          await app.nativeClickAtElement(THREE_UP_TILE);
           await wait(AFTER_LAND_MS);
           expect(await frameWidth(app, "pLens")).toBeCloseTo(
             predictedLensWidth(canvas, first),
@@ -450,7 +455,7 @@ describe.skipIf(!SHOULD_RUN)(
           await app.seedDeckState({
             state: {
               ...deckShape(second, predictedLensWidth(canvas, first)),
-              imposition: { kind: "five-up", lens: "right" },
+              imposition: { kind: "three-up", lens: "right" },
             },
             focusCardId: "A",
           });
@@ -466,7 +471,7 @@ describe.skipIf(!SHOULD_RUN)(
           // Re-click the layout that is ALREADY active. This used to be a
           // total no-op; it now runs the same re-tune the settled-resize
           // observer asks for.
-          await app.nativeClickAtElement(FIVE_UP_TILE);
+          await app.nativeClickAtElement(THREE_UP_TILE);
           await wait(AFTER_LAND_MS);
 
           expect(await frameWidth(app, "pLens")).toBeCloseTo(
@@ -509,7 +514,7 @@ describe.skipIf(!SHOULD_RUN)(
             state: {
               ...shape,
               panes: [...shape.panes],
-              imposition: { kind: "five-up", lens: "right" },
+              imposition: { kind: "three-up", lens: "right" },
             },
             focusCardId: "A",
           });
@@ -520,13 +525,14 @@ describe.skipIf(!SHOULD_RUN)(
           await wait(AFTER_LAND_MS);
           expect(await frameWidth(app, "pLens")).toBeCloseTo(PREFERRED, 0);
 
-          // ── Put the loose card in slot 3 — the assign the Lens row's slot
+          // ── Put the loose card in the chain's one hole — the assign the
+          // Lens row's slot
           // picker dispatches (a ⌘N chord lands on the same verb). The assign
           // completes a chain the allocator can tile, and the assign ITSELF
           // is the moment: the user just asked the deck to arrange itself,
           // and the deck makes room for what it was asked to arrange. ──────
           await app.evalJS<null>(
-            `(window.__tug.dispatchControlAction("assign-slot", { cardId: "B", slot: 2 }), null)`,
+            `(window.__tug.dispatchControlAction("assign-slot", { cardId: "B", slot: 1 }), null)`,
           );
           await wait(AFTER_LAND_MS);
 
@@ -570,7 +576,7 @@ describe.skipIf(!SHOULD_RUN)(
           );
           expect(surplusPane).toBeGreaterThan(200);
           await seedTwoRails(app, surplusPane);
-          await app.nativeClickAtElement(FIVE_UP_TILE);
+          await app.nativeClickAtElement(THREE_UP_TILE);
           await wait(AFTER_LAND_MS);
 
           const surplusTotal = railTotalFor(canvas, surplusPane);
@@ -597,8 +603,8 @@ describe.skipIf(!SHOULD_RUN)(
             PREFERRED + DEFAULT_OVERVIEW_WIDTH_PX - 140,
           );
           expect(deficitPane).toBeGreaterThan(200);
-          await seedTwoRails(app, deficitPane, "five-up");
-          await app.nativeClickAtElement(FIVE_UP_TILE);
+          await seedTwoRails(app, deficitPane, "three-up");
+          await app.nativeClickAtElement(THREE_UP_TILE);
           await wait(AFTER_LAND_MS);
 
           const deficitTotal = railTotalFor(canvas, deficitPane);
@@ -660,8 +666,8 @@ describe.skipIf(!SHOULD_RUN)(
           const tiling = comfortTotal - Math.floor(comfortBand / 2);
           const crowdedPane = twoRailPaneWidth(canvas, tiling);
           expect(crowdedPane).toBeGreaterThan(200);
-          await seedTwoRails(app, crowdedPane, "five-up");
-          await app.nativeClickAtElement(FIVE_UP_TILE);
+          await seedTwoRails(app, crowdedPane, "three-up");
+          await app.nativeClickAtElement(THREE_UP_TILE);
           await wait(AFTER_LAND_MS);
 
           const overview = await frameWidth(app, "pGaz");
@@ -707,7 +713,7 @@ describe.skipIf(!SHOULD_RUN)(
             `(window.__tug.setTugbankValue("dev.tugtool.overview", "widthPx", { kind: "i64", value: ${DEFAULT_OVERVIEW_WIDTH_PX} }), null)`,
           );
           await seedFixture(app, 400, PREFERRED);
-          await seedTwoRails(app, 400, "five-up");
+          await seedTwoRails(app, 400, "three-up");
 
           // The Overview holds the LEFT edge, so its one handle is its east
           // one — a rail exposes only its deck-facing edge.
