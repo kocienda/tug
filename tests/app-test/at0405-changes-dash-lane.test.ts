@@ -575,20 +575,20 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's dash lane", () => {
         expect(fronted.first).toBe(DASH_NAME);
         expect(fronted.expanded).toBe("true");
 
-        // ── The line is centred on the track and flush right on the reading ─
+        // ── The line centres its whole run ────────────────────────────────
         // Line 1 anchors an identity to each edge — the dash atom left, the
-        // worker right, a hairline between. Line 2 answers it: the track sits
-        // at the row's own centre and the reading it explains — glyph,
-        // fraction, word, facts — ends on the same trailing edge the worker
-        // atom does.
+        // worker right, a hairline between. Line 2 answers it from the middle:
+        // the track and the reading it explains — glyph, fraction, word,
+        // facts — are one unit, centred together, so the strip travels along
+        // the row as the words beside it change width.
         //
-        // Measured against the LINE's own box rather than against constants,
-        // so the shade's width, the row's density and the atom's padding can
-        // all move without this becoming a lie. A pixel of tolerance on the
-        // centre: three grid columns over an odd width round somewhere.
+        // Measured as the air on either side of the run rather than against
+        // constants, so the shade's width, the row's density and the atom's
+        // padding can all move without this becoming a lie. A pixel of
+        // tolerance: an odd width has to round somewhere.
         const stack = await app.evalJS<{
-          drift: number;
-          overhang: number;
+          lead: number;
+          tail: number;
         }>(
           `(() => {
              const row = document.querySelector(${JSON.stringify(ROW)});
@@ -598,20 +598,20 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's dash lane", () => {
              const read = line.querySelector('[data-slot="tug-dash-lifecycle-reading"]').getBoundingClientRect();
              const R = (n) => Math.round(n * 10) / 10;
              return {
-               drift: R(Math.abs((track.left + track.right) / 2 - (box.left + box.right) / 2)),
-               overhang: R(box.right - read.right),
+               lead: R(track.left - box.left),
+               tail: R(box.right - read.right),
              };
            })()`,
         );
         note("at0405 stack", JSON.stringify(stack));
         expect(
-          stack.drift,
-          "the track is centred in the line",
+          Math.abs(stack.lead - stack.tail),
+          "the run — track then reading — is centred in the line",
         ).toBeLessThanOrEqual(1);
         expect(
-          stack.overhang,
-          "the reading ends on the line's trailing edge",
-        ).toBeLessThanOrEqual(1);
+          stack.lead,
+          "and it is a centred run, not a line filled edge to edge",
+        ).toBeGreaterThan(1);
 
         // ── The complement rule ───────────────────────────────────────────
         // Unbind on the fronted row, Bind on none of it — a menu carrying both

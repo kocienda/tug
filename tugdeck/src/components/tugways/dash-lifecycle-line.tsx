@@ -24,13 +24,14 @@
  * anything is moving. And the line never leaves its box: the note elides
  * first, and what still does not fit is clipped rather than overflowing.
  *
- * **The track is CENTRED and the reading is flush right.** The line used to
- * pack everything against its left edge, which was the right shape when the
- * note carried a step's title and ran most of the width. It does not any more,
- * so a left-packed line left a long empty tail under an eyebrow whose own two
- * identities are anchored to the two edges. Three columns instead: the graphic
- * in the middle of the row, and the glyph, fraction, word and facts gathered
- * at the end, under the worker atom above them.
+ * **The whole run is CENTRED — track, then reading, as one unit.** The line
+ * used to pack everything against its left edge, which was the right shape
+ * when the note carried a step's title and ran most of the width; it does not
+ * any more, and a left-packed line left a long empty tail under an eyebrow
+ * whose own two identities are anchored to the two edges. Centring the track
+ * alone and setting the reading flush right pinned the graphic, but read as
+ * two things obeying two different rules. So the graphic and the words travel
+ * together, and the track shifts along the row as the reading's width changes.
  *
  * One grammar, two scales — `rail` beside other rails, `read` on a surface
  * whose job is to be read.

@@ -355,20 +355,21 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Lens Dashes section", () => {
         ]);
         note("at0407 withdrawn tick", await app.screenshot().then((s) => s.path));
 
-        // ── The block's two lines are related by centre and trailing edge ──
+        // ── The block's two lines are related by their centre ─────────────
         // The eyebrow anchors an identity to each edge; the line under it
-        // centres the track and sets the reading — glyph, fraction, word,
-        // facts — flush right, under the worker atom above it. The line used
-        // to hang under the dash's NAME instead, which was the right rule
-        // while it packed everything against its leading edge.
+        // centres its whole run — track, then glyph, fraction, word, facts —
+        // as one unit. The line used to hang under the dash's NAME instead,
+        // which was the right rule while it packed everything against its
+        // leading edge.
         //
-        // Measured against the LINE's own box rather than against a constant,
-        // so retuning the row's density or the atom's padding moves the
-        // expectation with it. A pixel of tolerance on the centre: three grid
-        // columns over an odd width round somewhere.
+        // Measured as the air on either side of the run rather than against a
+        // constant, so retuning the row's density or the atom's padding moves
+        // the expectation with it, and so the claim is the UNIT's centring
+        // rather than the track's. A pixel of tolerance: an odd width has to
+        // round somewhere.
         const stack = await app.evalJS<{
-          drift: number;
-          overhang: number;
+          lead: number;
+          tail: number;
           blocks: number[][];
         }>(
           `(() => {
@@ -380,8 +381,8 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Lens Dashes section", () => {
              const read = line.querySelector('[data-slot="tug-dash-lifecycle-reading"]').getBoundingClientRect();
              const R = (n) => Math.round(n * 10) / 10;
              return {
-               drift: R(Math.abs((track.left + track.right) / 2 - (box.left + box.right) / 2)),
-               overhang: R(box.right - read.right),
+               lead: R(track.left - box.left),
+               tail: R(box.right - read.right),
                blocks: rows.map((r) => {
                  const b = r.getBoundingClientRect();
                  return [Math.round(b.top), Math.round(b.bottom)];
@@ -391,13 +392,13 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Lens Dashes section", () => {
         );
         note("at0407 stack", JSON.stringify(stack));
         expect(
-          stack.drift,
-          "the track is centred in the line",
+          Math.abs(stack.lead - stack.tail),
+          "the run — track then reading — is centred in the line",
         ).toBeLessThanOrEqual(1);
         expect(
-          stack.overhang,
-          "the reading ends on the line's trailing edge",
-        ).toBeLessThanOrEqual(1);
+          stack.lead,
+          "and it is a centred run, not a line filled edge to edge",
+        ).toBeGreaterThan(1);
 
         // And one dash is separated from the next by a real step, not a
         // hairline. At 2px of block padding the two-line blocks touched, and
