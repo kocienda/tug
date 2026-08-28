@@ -510,11 +510,19 @@ impl TestWs {
         // before emitting the `pending` SESSION_STATE transition — which
         // manifests as a 10s `await_session_state("pending")` timeout
         // downstream.
+        //
+        // `line_id` is required on the same terms: a `mode=new` spawn that
+        // names no line is refused with `MissingLineId` ([P03]) before any
+        // state transition, with the same 10s-timeout symptom. The deck mints
+        // the id from the drop (`crypto.randomUUID()` in
+        // `tugdeck/src/lib/session-lifecycle.ts`); the harness mints its own
+        // the same way, one per spawn.
         let payload = serde_json::json!({
             "action": "spawn_session",
             "card_id": card_id,
             "tug_session_id": tug_session_id,
             "project_dir": project_dir.to_string_lossy(),
+            "line_id": uuid::Uuid::new_v4().to_string(),
         });
         let bytes = serde_json::to_vec(&payload).expect("control json");
         let frame = Frame::new(FeedId::CONTROL, bytes);
