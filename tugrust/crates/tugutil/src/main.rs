@@ -116,6 +116,9 @@ fn main() -> ExitCode {
         // The wheel's door: rotate this card at the turn's end.
         Some(Commands::Session(cmd)) => session::dispatch(cmd, json),
 
+        // The plugin's hooks, answered from the binary.
+        Some(Commands::Hook(cmd)) => changes::finish(commands::run_hook(cmd)),
+
         // The app-test results ledger.
         Some(Commands::Apptest(cmd)) => changes::finish(match cmd {
             cli::ApptestCommands::Record => apptest::run_record(),

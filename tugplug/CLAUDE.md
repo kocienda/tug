@@ -19,7 +19,18 @@ Both doors open the same kind of thing. A direct dash rides the same `tugutil da
 **Drafting and authoring:**
 
 - **`draft`** — analyze the working changes, decide per-file dispositions, and author the session's landing draft via `tugutil draft set`. **Never commits** — the user lands the draft with `/commit` in the Session card.
-- **`spike-card`** — scaffold a design spike onto the deck: one file in `tugdeck/src/spikes/` plus two lines in its registry, verified by a build and opened from Maker ▸ New Spikes Card. Deliberately not a Component Gallery card — the gallery holds exemplary demos of established `Tug*` components, a spike holds an idea, and `card-taxonomy.test.ts` enforces the split.
+`spike-card` — scaffold a design spike onto the deck — is **not** a plugin skill: it is about `tugdeck/src/spikes/` and nothing else, so it lives with this repository at `.claude/skills/spike-card/` and never ships.
+
+## The standalone contract
+
+Tug ships as `Tug.app`, and the only files a user's session can count on are the ones inside that bundle: the binaries in `Contents/MacOS/` (`tugutil`, `tugcode`, `tugcast`, …) and this plugin at `Contents/Resources/tugplug/`. A user's project has no `tuglaws/`, no `justfile`, no `CLAUDE.md` of ours, and no source checkout, and the machine may have no `jq`, no `bun`, and no `~/.local/bin` symlinks.
+
+So the plugin depends on nothing outside itself and the bundle:
+
+- **Hooks are answered by `tugutil`.** `hooks/pre-tool-use.sh` finds the binary (PATH, which the app seeds with the bundle's `Contents/MacOS/`; then beside the plugin; then `TUG_BUNDLE_PATH`) and pipes the payload to `tugutil hook pre-tool-use`. No `jq`, no other tool. When no binary can be found the hook says so through a `systemMessage` rather than going quiet.
+- **Skills cite `tuglaws/` only with an absence clause.** A doctrine document is a pointer into a project that has one; every skill that reads one says what survives when it is absent, and carries those rules inline.
+- **Skills never name this repository's build or tests.** What to build and what to run is the project's to declare in `.tugtool/config.toml` (`[tugtool.dash]` `build`, `post_create`, and the surfaces `tugutil dash verify` runs); the skill reads `tugutil dash config` and relays it. In Tugtool that declaration is `just app-debug`, and the surface checks are in the config file — the skills do not know this, and must not.
+- **No `just`, no commit hashes, no `tugdeck/`/`tugrust/` paths, no `/Users/`.** `scripts/tugplug-lint.ts` (`just tugplug-lint`, part of `just lint`) refuses each of these in `tugplug/`, and `tugplug/__tests__/standalone.test.ts` (`just test-standalone`, part of `just test`) drives the real hook script and the real `tugutil dash` verbs from a scratch project with an empty PATH and a fresh HOME.
 
 The lifecycle skills run in the main conversation and ride the `tugutil dash` CLI (`create` → `step start` → `commit` → `step done` per step, `mark` for the stages git cannot see). The flow starts at whichever door the user typed — `/dash` for work done here, `/dash-plan` for work the arc carries, under which the server rotates the three stages itself and nothing needs typing between them. The expert path is to type the stage you want: `/tugplug:dash-devise` (which reviews its own plan when it is already on Opus, and otherwise hands you the review chip) → `/tugplug:dash-implement` → the user's join gesture in the Session card (the working run leaves the dash's join draft behind for it).
 

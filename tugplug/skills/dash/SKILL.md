@@ -35,7 +35,7 @@ That is the whole grammar. `<name>` is alphanumeric + hyphens, 2+ chars, and eve
 tugutil dash create <name> --description "<first ~100 chars of the instruction>" --json
 ```
 
-Idempotent — returns the existing active dash if `<name>` already exists. **Capture the absolute `worktree` path** and `branch` from the response; that path is the working root for everything that follows. `create` hydrates the fresh worktree itself, running whatever the project declared in `[tugtool.dash].post_create` — in Tugtool, `bun install` for the web surfaces — so it arrives ready.
+Idempotent — returns the existing active dash if `<name>` already exists. **Capture the absolute `worktree` path** and `branch` from the response; that path is the working root for everything that follows. `create` hydrates the fresh worktree itself, running whatever the project declared in `[tugtool.dash].post_create` (dependency installs, generated files) so it arrives ready.
 
 `create` records that this session is working the dash — every time, including the idempotent call that resumes one — so there is no bind to remember. Boundness is what the server reads to decide whether to work the join at all — an unbound dash is never reconciled, never checked, and never offered.
 
@@ -119,7 +119,7 @@ One command: git commit + a line in the per-project dash-log (the verbatim instr
 
 For a change the user should look at, run the project's **declared build command** from the worktree — the one `tugutil dash config` reports. Relay what it actually says rather than describing a build you did not watch. When `build` is `null` the project declares none, so no build is offered: say so, and say the work is inspectable at the worktree path.
 
-In Tugtool the declaration is `just app-debug`; pair it with `just instances` to confirm the `(debug, <branch>)` instance came up. `tugutil dash mark <name> built` is available and purely optional — it stamps the stage word `built` on the dash's faces in place of the derived `ready`, which is worth doing when you did build, and gates nothing when you didn't.
+`tugutil dash mark <name> built` is available and purely optional — it stamps the stage word `built` on the dash's faces in place of the derived `ready`, which is worth doing when you did build, and gates nothing when you didn't.
 
 ### Stop, with the fit verified and a draft on file
 
@@ -139,7 +139,7 @@ tugutil draft set --owner dash:<name> --message "<subject + durable body>"
 
 **The draft is a commit message, held to the same standard as every other commit on the base.** A join squashes to one commit and this draft is its message, so it is the only durable prose the base will ever carry about this dash. Write an **imperative subject** in the repository's recent-commit style, then a body describing the change the base is about to receive — what it does, and the argument the work rests on — for a reader who never saw the run. Never a narration of the run: no round-by-round digest, no step numbers, no "the run did X and then Y", and no archaeology about defects the run found and fixed along the way. The round count is the receipt's fact rather than the message's — the join receipt shows it and the `Tug-Dash:` trailer names the branch and base. State the argument the work actually rests on and do not append an inferred benefit to make the change sound worthier. **The subject is bare — no `tugdash(<name>): ` prefix**, because the join adds the scope itself and a scope naming a different dash is stripped there rather than preserved. Every line unbroken to its end (**no hard wrapping**), no AI or agent attribution, ever. The join gesture lands this message and does not compose one — a dash that reaches it draftless stops there.
 
-Read a good one before writing yours. In this repository `a18557090` is the exemplar: a dash join whose message says what a project can now declare, what routes through it, which boundary was held, and how it was proven — with no round list and nothing that requires having watched the run.
+Read a good one before writing yours — `tug log` on the base shows the project's recent joins. A good one says what the project can now do, which boundary was held, and how it was proven, with no round list and nothing that requires having watched the run.
 
 Write the draft whether or not you built anything: the Changes shade shows it, and a draftless dash offers to land its branch description — or, with neither, the words `Dash work`.
 

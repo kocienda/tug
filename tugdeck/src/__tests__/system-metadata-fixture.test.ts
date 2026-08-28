@@ -43,7 +43,7 @@ describe("createFixtureSessionMetadataStore", () => {
 
     // Payload counts for the shipped v2.1.241 capture. The tugplug skills
     // are the prefixed set (dash/dash-devise/dash-implement/dash-plan/
-    // dash-review/draft/spike-card);
+    // dash-review/draft; spike-card is repo-local and was in this capture);
     // the agent list is the built-in Claude Code set:
     //   slash_commands: 55  (23 upgrade to "skill", 32 stay "local")
     //   agents: 5

@@ -51,7 +51,15 @@ fetch-fonts *ARGS:
     cd tugdeck && bun run scripts/fetch-fonts.ts {{ARGS}}
 
 # Run all tests (Rust + TypeScript)
-test: test-rust test-ts
+test: test-rust test-ts test-standalone
+
+# Drive the shipped plugin the way a user's machine would: the real hook
+# script and the real `tugutil dash` verbs, from a scratch project with no
+# tuglaws/, no CLAUDE.md, no .tugtool/, an empty PATH, and a fresh HOME —
+# only a bundle-shaped directory holding tugutil and the plugin.
+test-standalone:
+    cd tugrust && cargo build -p tugutil
+    cd tugplug && bun test __tests__/
 
 # Run Rust tests. `--no-fail-fast`: one pass names every failure, so a red
 # gate is one round of fixing rather than one round per broken test.
@@ -244,9 +252,16 @@ fmt:
     cd tugrust && cargo fmt --all
 
 # Run clippy + fmt check
-lint:
+lint: tugplug-lint
     cd tugrust && cargo clippy --workspace --all-targets -- -D warnings
     cd tugrust && cargo fmt --all -- --check
+
+# The plugin ships inside Tug.app to projects that are not this one. Refuse
+# every shape under tugplug/ that leans on this checkout or this machine —
+# `just` recipes, source-tree paths, commit hashes, jq, a tuglaws citation
+# with no absence clause. Contract: tugplug/CLAUDE.md.
+tugplug-lint:
+    bun scripts/tugplug-lint.ts
 
 # Apply the clippy suggestions `cargo clippy --fix` refuses to, and print the
 # ones no tool should apply unattended. `--fix` applies only what rustc marked

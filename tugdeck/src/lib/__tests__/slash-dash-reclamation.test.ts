@@ -37,7 +37,6 @@ const PLUGIN_CATALOG = [
   "tugplug:draft",
   "tugplug:dash-devise",
   "tugplug:dash-review",
-  "tugplug:spike-card",
 ] as const;
 
 /** The catalog as a card sees it: claude's own commands plus the plugin's. */

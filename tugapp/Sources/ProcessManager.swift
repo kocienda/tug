@@ -328,6 +328,19 @@ class ProcessManager {
         return FileManager.default.fileExists(atPath: url.path) ? url : nil
     }
 
+    /// The PATH every child of tugcast inherits: the bundle's own
+    /// `Contents/MacOS/` first, then the user's shell PATH. tugcode, the
+    /// claude it spawns, the plugin hooks, and the shell panes all resolve
+    /// `tugutil` and its siblings from the running bundle — never from a
+    /// symlink into a source checkout, and never from nothing at all on a
+    /// machine that has only Tug.app installed.
+    static func childPATH(shellPATH: String) -> String {
+        guard let executableURL = Bundle.main.executableURL else { return shellPATH }
+        let bin = executableURL.deletingLastPathComponent().path
+        let rest = shellPATH.split(separator: ":").map(String.init).filter { $0 != bin }
+        return ([bin] + rest).joined(separator: ":")
+    }
+
     /// Spawn the Vite dev server with the given source tree, tugcast port, and Vite port.
     ///
     /// Under the dual-mode architecture, this method is only called when dev serving is
@@ -858,7 +871,7 @@ class ProcessManager {
         // user's own tools. Mac apps inherit a minimal PATH that doesn't
         // include Homebrew, nix, etc.
         var env = ProcessInfo.processInfo.environment
-        env["PATH"] = ProcessManager.shellPATH
+        env["PATH"] = ProcessManager.childPATH(shellPATH: ProcessManager.shellPATH)
 
         // Point every tmux invocation (tugcast and its panes) at the
         // self-contained tmux bundled in the app, plus its terminfo — so a

@@ -297,6 +297,10 @@ pub enum Commands {
     /// This card's claude session — ask the wheel to seat a fresh one.
     #[command(subcommand)]
     Session(SessionCommands),
+
+    /// The plugin's Claude Code hooks — payload in on stdin, decision out.
+    #[command(subcommand)]
+    Hook(crate::commands::HookCommands),
 }
 
 #[derive(Subcommand)]

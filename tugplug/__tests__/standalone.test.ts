@@ -1,0 +1,245 @@
+/**
+ * standalone.test.ts — the plugin works from a bundle alone.
+ *
+ * A user's machine has Tug.app and nothing of ours: no source checkout, no
+ * tuglaws/, no CLAUDE.md, no .tugtool/, no ~/.claude, no jq, no ~/.local/bin
+ * symlinks. This drives the real hook script and the real `tugutil dash` verbs
+ * under exactly those conditions — a bundle-shaped directory holding the built
+ * tugutil and this plugin, a scratch git project, an empty PATH, and a fresh
+ * HOME — so a dependence on this checkout fails here before it fails there.
+ *
+ * `just test-standalone` builds tugutil first; run bare, the test says what to
+ * build rather than passing vacuously.
+ */
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+const ROOT = join(import.meta.dir, "../..");
+const PLUGIN_SRC = join(ROOT, "tugplug");
+const TUGUTIL_BUILT = join(ROOT, "tugrust/target/debug/tugutil");
+
+/** What a machine with only the OS on it offers. */
+const BARE_PATH = "/usr/bin:/bin:/usr/sbin:/sbin";
+
+let lab = "";
+let bundle = "";
+let pluginRoot = "";
+let project = "";
+let home = "";
+let dataDir = "";
+
+function env(extra: Record<string, string> = {}): Record<string, string> {
+  return {
+    PATH: BARE_PATH,
+    HOME: home,
+    TUG_DATA_DIR: dataDir,
+    CLAUDE_PLUGIN_ROOT: pluginRoot,
+    GIT_AUTHOR_NAME: "standalone",
+    GIT_AUTHOR_EMAIL: "standalone@example.invalid",
+    GIT_COMMITTER_NAME: "standalone",
+    GIT_COMMITTER_EMAIL: "standalone@example.invalid",
+    ...extra,
+  };
+}
+
+function run(cmd: string[], opts: { cwd?: string; env?: Record<string, string>; stdin?: string } = {}) {
+  const proc = Bun.spawnSync(cmd, {
+    cwd: opts.cwd ?? project,
+    env: opts.env ?? env(),
+    stdin: opts.stdin !== undefined ? new TextEncoder().encode(opts.stdin) : undefined,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  return {
+    code: proc.exitCode,
+    out: new TextDecoder().decode(proc.stdout),
+    err: new TextDecoder().decode(proc.stderr),
+  };
+}
+
+/** The hook exactly as Claude Code runs it: `sh <script>` with the payload on stdin. */
+function hook(payload: unknown, extra: Record<string, string> = {}) {
+  const r = run(["sh", join(pluginRoot, "hooks/pre-tool-use.sh")], {
+    env: env(extra),
+    stdin: JSON.stringify(payload),
+  });
+  expect(r.code).toBe(0);
+  return r.out.trim() === "" ? null : JSON.parse(r.out);
+}
+
+/** tugutil as a session finds it once the app has seeded PATH with the bundle. */
+function tugutil(args: string[], extra: Record<string, string> = {}) {
+  return run([join(bundle, "Contents/MacOS/tugutil"), ...args], {
+    env: env({ PATH: `${join(bundle, "Contents/MacOS")}:${BARE_PATH}`, ...extra }),
+  });
+}
+
+beforeAll(() => {
+  if (!existsSync(TUGUTIL_BUILT)) {
+    throw new Error(`no built tugutil at ${TUGUTIL_BUILT} — run \`cd tugrust && cargo build -p tugutil\` (or \`just test-standalone\`)`);
+  }
+  lab = mkdtempSync(join(tmpdir(), "tug-standalone-"));
+  home = join(lab, "home");
+  mkdirSync(home);
+  dataDir = join(lab, "data");
+  mkdirSync(dataDir);
+
+  // A bundle-shaped directory: the binary where the app puts it, and the plugin
+  // where tugcode resolves it (Contents/Resources/tugplug). The plugin is a
+  // copy, not a symlink — a real bundle's is a real directory.
+  bundle = join(lab, "Tug.app");
+  mkdirSync(join(bundle, "Contents/MacOS"), { recursive: true });
+  mkdirSync(join(bundle, "Contents/Resources"), { recursive: true });
+  symlinkSync(TUGUTIL_BUILT, join(bundle, "Contents/MacOS/tugutil"));
+  pluginRoot = join(bundle, "Contents/Resources/tugplug");
+  cpSync(PLUGIN_SRC, pluginRoot, {
+    recursive: true,
+    filter: (src) => !src.includes("/__tests__") && !src.includes("/node_modules") && !src.endsWith(".DS_Store"),
+  });
+
+  // A user's project: a git checkout with none of our files in it.
+  project = join(lab, "proj");
+  mkdirSync(join(project, "src"), { recursive: true });
+  writeFileSync(join(project, "src/app.txt"), "hello\n");
+  for (const cmd of [
+    ["git", "init", "-q", "-b", "main"],
+    ["git", "add", "."],
+    ["git", "commit", "-q", "-m", "init"],
+  ]) {
+    const r = run(cmd);
+    if (r.code !== 0) throw new Error(`${cmd.join(" ")}: ${r.err}`);
+  }
+});
+
+afterAll(() => {
+  if (lab !== "" && existsSync(lab)) rmSync(lab, { recursive: true, force: true });
+});
+
+describe("the lab is what a user's machine is", () => {
+  test("the project carries none of this repository's files", () => {
+    for (const ours of ["tuglaws", "CLAUDE.md", ".tugtool", ".claude", "justfile"]) {
+      expect(existsSync(join(project, ours))).toBe(false);
+    }
+    expect(existsSync(join(home, ".claude"))).toBe(false);
+  });
+
+  test("the bare PATH offers no tug tool", () => {
+    const r = run(["sh", "-c", "command -v tugutil; command -v tugcode; exit 0"]);
+    expect(r.out.trim()).toBe("");
+  });
+});
+
+describe("the hook script, from the bundle alone", () => {
+  test("finds tugutil beside the plugin when PATH has nothing", () => {
+    const decision = hook({ tool_name: "Skill", tool_input: { skill: "tugplug:dash" } });
+    expect(decision?.hookSpecificOutput?.permissionDecision).toBe("allow");
+  });
+
+  test("finds tugutil through TUG_BUNDLE_PATH when the plugin root is elsewhere", () => {
+    const elsewhere = join(lab, "elsewhere-plugin");
+    if (!existsSync(elsewhere)) cpSync(pluginRoot, elsewhere, { recursive: true });
+    const r = run(["sh", join(elsewhere, "hooks/pre-tool-use.sh")], {
+      env: env({ CLAUDE_PLUGIN_ROOT: elsewhere, TUG_BUNDLE_PATH: bundle }),
+      stdin: JSON.stringify({ tool_name: "Bash", tool_input: { command: "ls -la" } }),
+    });
+    expect(r.code).toBe(0);
+    expect(JSON.parse(r.out).hookSpecificOutput.permissionDecision).toBe("allow");
+  });
+
+  test("denies an unreadable repo write and steers at the rev", () => {
+    const decision = hook({
+      tool_name: "Bash",
+      tool_input: { command: "python3 - <<'PY'\nimport pathlib\npathlib.Path('src/app.txt').write_text('x')\nPY" },
+      cwd: project,
+    });
+    expect(decision.hookSpecificOutput.permissionDecision).toBe("deny");
+    expect(decision.hookSpecificOutput.permissionDecisionReason).toContain("tugutil file rev");
+  });
+
+  test("has no opinion on an ordinary command", () => {
+    expect(hook({ tool_name: "Bash", tool_input: { command: "cargo build" }, cwd: project })).toBeNull();
+  });
+
+  test("says so, visibly, when no tugutil can be found at all", () => {
+    const elsewhere = join(lab, "elsewhere-plugin");
+    if (!existsSync(elsewhere)) cpSync(pluginRoot, elsewhere, { recursive: true });
+    const r = run(["sh", join(elsewhere, "hooks/pre-tool-use.sh")], {
+      env: env({ CLAUDE_PLUGIN_ROOT: elsewhere }),
+      stdin: JSON.stringify({ tool_name: "Bash", tool_input: { command: "ls" } }),
+    });
+    expect(r.code).toBe(0);
+    const out = JSON.parse(r.out);
+    expect(out.systemMessage).toContain("tugutil was not found");
+    expect(out.hookSpecificOutput).toBeUndefined();
+  });
+
+  test("hooks.json routes every matcher at that one script, and nothing else ships in hooks/", () => {
+    const manifest = JSON.parse(readFileSync(join(pluginRoot, "hooks/hooks.json"), "utf8"));
+    const commands = manifest.hooks.PreToolUse.flatMap((m: { hooks: { command: string }[] }) =>
+      m.hooks.map((h) => h.command),
+    );
+    expect(new Set(commands)).toEqual(new Set(["${CLAUDE_PLUGIN_ROOT}/hooks/pre-tool-use.sh"]));
+    expect(readdirSync(join(pluginRoot, "hooks")).sort()).toEqual(["hooks.json", "pre-tool-use.sh"]);
+  });
+});
+
+describe("the dash verbs on a project that declares nothing", () => {
+  test("create → config → documents → verify → discard, with no .tugtool/", () => {
+    const created = tugutil(["--json", "dash", "create", "smoke"]);
+    expect(created.code, created.err).toBe(0);
+    const worktree = JSON.parse(created.out).data.worktree as string;
+    expect(existsSync(worktree)).toBe(true);
+
+    const config = tugutil(["--json", "dash", "config"]);
+    expect(config.code, config.err).toBe(0);
+    const data = JSON.parse(config.out).data;
+    expect(data.build).toBeNull();
+    expect(data.surfaces).toEqual([]);
+    expect(data.post_create).toEqual([]);
+
+    const documents = tugutil(["dash", "documents", "smoke", "--ensure"]);
+    expect(documents.code, documents.err).toBe(0);
+    expect(existsSync(join(project, ".tug/dashes/smoke"))).toBe(true);
+
+    const verify = tugutil(["dash", "verify", "smoke"], { });
+    expect(verify.code, verify.err).toBe(0);
+
+    const discard = tugutil(["dash", "discard", "smoke"]);
+    expect(discard.code, discard.err).toBe(0);
+    expect(existsSync(worktree)).toBe(false);
+  });
+
+  test("the ledgers landed under the scratch data dir, not the author's", () => {
+    expect(readdirSync(dataDir).length).toBeGreaterThan(0);
+  });
+});
+
+describe("every verb a skill names is one the shipped binary has", () => {
+  const namespaces = ["dash", "plan", "draft", "file", "host", "hook", "changes", "session"] as const;
+
+  test("tugutil <namespace> <verb> mentions resolve against --help", () => {
+    const help = new Map<string, string>();
+    for (const ns of namespaces) {
+      help.set(ns, tugutil([ns, "--help"]).out);
+    }
+    const top = tugutil(["--help"]).out;
+    const missing: string[] = [];
+    const skills = join(pluginRoot, "skills");
+    for (const skill of readdirSync(skills).filter((s) => statSync(join(skills, s)).isDirectory())) {
+      const text = readFileSync(join(skills, skill, "SKILL.md"), "utf8");
+      for (const m of text.matchAll(/`tugutil ([a-z-]+)(?: ([a-z-]+))?/g)) {
+        const [, ns, verb] = m;
+        if (!top.includes(`  ${ns}`)) {
+          missing.push(`${skill}: tugutil ${ns}`);
+          continue;
+        }
+        if (verb && help.has(ns) && !help.get(ns)!.includes(`  ${verb}`)) {
+          missing.push(`${skill}: tugutil ${ns} ${verb}`);
+        }
+      }
+    }
+    expect(missing).toEqual([]);
+  });
+});

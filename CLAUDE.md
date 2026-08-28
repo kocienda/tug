@@ -14,6 +14,10 @@ Tugtool is a developer tool suite. Its centerpiece is the **Session card** — a
 
 The `/tugplug:draft` skill **never commits** — it authors the session's landing draft via `tugutil draft set`. Landing is the user's act: `/commit` (main lane) and `/dash-join <name>` (dash lane) in the Session card are the landing gestures — `/join` is a retired spelling of the latter, kept as an alias so a typed `/join` still reaches the verb rather than being submitted as a prompt.
 
+## The standalone contract
+
+Tug is distributed as `Tug.app` to people whose projects have nothing to do with this checkout: no `tuglaws/`, no `justfile`, no `CLAUDE.md` of ours, no `~/.local/bin` symlinks, possibly no `jq` or `bun`. Everything the AI needs to drive Tug on such a project must be inside the bundle — the binaries in `Contents/MacOS/` and the plugin at `Contents/Resources/tugplug/`. The contract and its guards are in [tugplug/CLAUDE.md](tugplug/CLAUDE.md#the-standalone-contract): `just tugplug-lint` (in `just lint`) refuses checkout-only shapes under `tugplug/`, and `just test-standalone` (in `just test`) drives the real hook script and dash verbs from a scratch project with an empty PATH. Anything Tugtool-specific a skill would like to say — which recipe builds, which tests are green — belongs in `.tugtool/config.toml` or in this file, never in the plugin.
+
 ## Repository Structure
 
 | Directory | Description |

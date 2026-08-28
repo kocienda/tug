@@ -120,7 +120,7 @@ fn a_rev_is_never_gated_against_itself() {
 fn the_hook_renders_the_steer_with_its_example_intact() {
     let dir = checkout();
     let hook = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../tugplug/hooks/gate-file-ops.sh")
+        .join("../../../tugplug/hooks/pre-tool-use.sh")
         .canonicalize()
         .expect("the hook is in the tree");
     let tools = Path::new(env!("CARGO_BIN_EXE_tugutil"))

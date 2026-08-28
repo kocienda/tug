@@ -43,7 +43,7 @@ If no plan exists yet, start at `/dash`: it sizes the idea, writes the brief, an
 
    The plan lives at `.tug/dashes/<name>/plan.md` and nothing copies it anywhere ([D139]). `tugutil dash documents <name>` prints that path; **never copy a plan file by hand**, and never write one into the worktree.
 
-   `create` also hydrates the fresh worktree itself, running whatever the project declared in `[tugtool.dash].post_create` — in Tugtool, `bun install` for the web surfaces — so it arrives ready. Never install dependencies by hand; a project that needs none declares none.
+   `create` also hydrates the fresh worktree itself, running whatever the project declared in `[tugtool.dash].post_create` (dependency installs, generated files) so it arrives ready. Never install dependencies by hand; a project that needs none declares none.
 
    You do not bind the dash to this session, and there is nothing to remember here: `create` and `dash step start` each record the claim themselves, so both starting a plan and resuming one mid-way are covered. That matters because boundness is what the server reads to decide whether to work the join at all — an unbound dash is never reconciled, never checked, and never offered — and a rule that load-bearing does not belong in prose a run can skip.
 3. **Check that the plan's review covers the plan.**
@@ -62,7 +62,7 @@ If no plan exists yet, start at `/dash`: it sizes the idea, writes the brief, an
    The message names which verdict it is, and on `stale` quotes `data.last_round`'s date and model, so the user is deciding against a fact rather than a warning. Implementing a plan nobody reviewed is strictly worse than implementing one whose review predates an edit, so both raise the same gate.
 
    The gate reads the one copy there is, and needs no comparison against another: the plan has one home, and moving a ledger row does not move a plan's content stamp, so a `reviewed` plan stays `reviewed` for the length of a run.
-4. Establish a green baseline with the project's own test commands — the ones the plan's step checkpoints name — so you know what "still green" means. In Tugtool that is `bun test`, plus `cd tugrust && cargo nextest run` for Rust changes. When the plan names none and the project has no test command to run, say the baseline is unestablished and proceed on that footing — never invent one.
+4. Establish a green baseline with the project's own test commands — the ones the plan's step checkpoints name — so you know what "still green" means. When the plan names none and the project has no test command to run, say the baseline is unestablished and proceed on that footing — never invent one.
 5. **The Step Status Ledger is the progress surface.** `dash step start`, `dash step done` and `dash step withdraw` move its rows, and the Lens, the Changes card, and the Z2 placard all read from it. There is no second list to keep: the ledger is the record of where the run is, and the verbs are what move it.
 
 ### 2. Implement (walk the steps)
@@ -144,7 +144,7 @@ tugutil draft set --owner dash:<name> --message "<subject + durable body>"
 
 **Write the subject bare — no `tugdash(<name>): ` prefix.** The join adds the scope itself, so one written here is redundant; a scope naming a *different* dash is stripped at the join rather than preserved, so writing one at best changes nothing and at worst hides what you meant.
 
-Read a good one before writing yours. In this repository `a18557090` is the exemplar: a dash join whose message says what a project can now declare, what routes through it, which boundary was held, and how it was proven — with no round list and nothing that requires having watched the run.
+Read a good one before writing yours — `tug log` on the base shows the project's recent joins. A good one says what the project can now do, which boundary was held, and how it was proven, with no round list and nothing that requires having watched the run.
 
 Write it even on a run that stops mid-plan: the draft is what the shade shows the user, and a dash with no draft offers to land its branch description — or, with neither, the words `Dash work`. The fold says which of the three it is, so a missing draft is visible rather than silent, but visible-and-wrong is still wrong.
 
@@ -157,8 +157,6 @@ The one thing worth knowing is what the arc does at the step boundaries your tur
 **Offer a build when the work wants one.** A change the user will want to *see* — a surface with a face — is worth building and vetting before the join. What to run is the project's to say: the `build` command `tugutil dash config` reports. Run it from the worktree root, read what it says, and relay that to the user rather than describing a build you did not watch.
 
 When `build` is `null` the project declares none, so **no build is offered** — say so, and say the work is inspectable at the worktree path.
-
-In Tugtool the declaration is `just app-debug`, which builds + signs + launches a separate `(debug, <branch>)` instance derived from the worktree's cwd, independent of the user's main instance; confirm it's live with `just instances` and report the instance id plus `just launch-debug` / `just logs-debug` / `just stop-debug`.
 
 A purely internal change — a refactor, a doctrine edit, a backend fix already covered by its checkpoint — does not need a build even where one is declared, and a debug instance nobody looks at is cost with no reader. Offer, do not assume.
 
@@ -174,7 +172,7 @@ Optional telemetry, and nothing gates on it. It stamps the stage word `built` on
 
 The user tests and reports issues. Fix them on the worktree, run the relevant checkpoint, and commit each fix as its own round. The round commits are the record of the fixes. (Fix rounds are not plan steps — they get no `dash step` call.)
 
-**Know your build surface.** The general rule is one line: re-run the declared build when the surface you changed needs it to be seen. Which surfaces hot-reload and which need the rebuild is knowledge that belongs to the project's own docs, not to this skill — in Tugtool it is in `CLAUDE.md`, where tugdeck changes are live via Vite HMR (hard-reload the card if Fast Refresh does not repaint a row) and Rust, tugcode, or Swift changes need `just app-debug` again. On a project whose docs say nothing, re-run the declared build when in doubt, and say that is why.
+**Know your build surface.** The general rule is one line: re-run the declared build when the surface you changed needs it to be seen. Which surfaces hot-reload and which need the rebuild is knowledge that belongs to the project's own docs (its `CLAUDE.md`, typically), not to this skill. On a project whose docs say nothing, re-run the declared build when in doubt, and say that is why.
 
 Loop until the user is satisfied. A follow-up "now do Steps 6-8" is just another `dash-implement` run against the same plan and dash.
 

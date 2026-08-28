@@ -364,10 +364,24 @@ fn no_match(target: &Path, replace: &str) -> AppError {
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Serialize)]
-struct GateDecision {
-    decision: &'static str,
+pub(crate) struct GateDecision {
+    pub(crate) decision: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
-    reason: Option<String>,
+    pub(crate) reason: Option<String>,
+}
+
+/// The gate's verdict on one command: deny only when the grammar refuses.
+pub(crate) fn gate_decision(command: &str, base: &Path) -> GateDecision {
+    match parse_shell_ops(command, base) {
+        ParseOutcome::Unparseable { reason, suggest } => GateDecision {
+            decision: "deny",
+            reason: Some(format!("{reason}. {}", steering(suggest))),
+        },
+        ParseOutcome::Ops(_) | ParseOutcome::NoFileOps => GateDecision {
+            decision: "allow",
+            reason: None,
+        },
+    }
 }
 
 /// Where a refusal points. The grammar decides which verb covers what it could
@@ -418,16 +432,7 @@ merely touched is never claimed. The command's own output and exit status pass t
 /// crashed gate must fail open.
 fn run_gate(command: &str, base_dir: Option<PathBuf>) -> Result<(), AppError> {
     let base = base_dir.unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
-    let decision = match parse_shell_ops(command, &base) {
-        ParseOutcome::Unparseable { reason, suggest } => GateDecision {
-            decision: "deny",
-            reason: Some(format!("{reason}. {}", steering(suggest))),
-        },
-        ParseOutcome::Ops(_) | ParseOutcome::NoFileOps => GateDecision {
-            decision: "allow",
-            reason: None,
-        },
-    };
+    let decision = gate_decision(command, &base);
     println!(
         "{}",
         serde_json::to_string(&decision).unwrap_or_else(|_| "{\"decision\":\"allow\"}".to_string())

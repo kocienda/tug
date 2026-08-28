@@ -385,16 +385,24 @@ pub fn find_project_root() -> Result<PathBuf, TugError> {
 }
 
 /// Find the project root starting from a specific directory
+///
+/// A `.tugtool/` directory marks the root outright. Without one, the nearest
+/// enclosing git checkout is the project: a project that declares nothing has
+/// no `.tugtool/` at all, and `load_from_project` already answers for it with
+/// the defaults. Only a directory inside neither is uninitialized.
 pub(crate) fn find_project_root_from(start: PathBuf) -> Result<PathBuf, TugError> {
     let mut current = start;
+    let mut checkout: Option<PathBuf> = None;
     loop {
-        let tugtool_dir = current.join(".tugtool");
-        if tugtool_dir.is_dir() {
+        if current.join(".tugtool").is_dir() {
             return Ok(current);
+        }
+        if checkout.is_none() && current.join(".git").exists() {
+            checkout = Some(current.clone());
         }
         match current.parent() {
             Some(parent) => current = parent.to_path_buf(),
-            None => return Err(TugError::NotInitialized),
+            None => return checkout.ok_or(TugError::NotInitialized),
         }
     }
 }
@@ -720,5 +728,31 @@ mod tests {
         let toml = "[tugtool]\nvalidation_level = \"strict\"\nshow_info = true\n\n[tugtool.dash]\npost_create = [\"echo hi\"]\n";
         let config: Config = toml::from_str(toml).expect("legacy config should still parse");
         assert_eq!(config.tugtool.dash.post_create, vec!["echo hi".to_string()]);
+    }
+
+    /// A project that declares nothing has no `.tugtool/`; its git root is
+    /// still its root, and its config is the defaults.
+    #[test]
+    fn a_checkout_without_tugtool_is_a_project_with_default_config() {
+        let dir = tempfile::tempdir().expect("temp");
+        let root = dir.path().canonicalize().expect("canonical");
+        fs::create_dir_all(root.join(".git")).expect(".git");
+        fs::create_dir_all(root.join("src/deep")).expect("src");
+
+        let found = find_project_root_from(root.join("src/deep")).expect("a root");
+        assert_eq!(found, root);
+        let config = Config::load_from_project(&found).expect("defaults");
+        assert!(config.tugtool.dash.build.is_none());
+
+        fs::create_dir_all(root.join("src/.tugtool")).expect(".tugtool");
+        let found = find_project_root_from(root.join("src/deep")).expect("a root");
+        assert_eq!(found, root.join("src"), ".tugtool outranks the checkout");
+    }
+
+    #[test]
+    fn a_directory_inside_no_checkout_is_uninitialized() {
+        let dir = tempfile::tempdir().expect("temp");
+        let err = find_project_root_from(dir.path().to_path_buf()).expect_err("no root");
+        assert!(matches!(err, TugError::NotInitialized));
     }
 }

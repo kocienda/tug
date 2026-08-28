@@ -41,7 +41,7 @@ The documents are **not tracked**. `.tug/` is gitignored, so a plan lands on no 
 
 ### 1. Understand
 
-Read the relevant code before designing. Use Glob/Grep/Read to map the territory: the components, the data flow, the existing conventions, the laws that apply (tuglaws for tugdeck work). Pull external references with WebFetch/WebSearch only when the idea needs them. The plan must be grounded in how the code actually works, not how you imagine it works.
+Read the relevant code before designing. Use Glob/Grep/Read to map the territory: the components, the data flow, the existing conventions, the laws that apply (a project's `tuglaws/`, where it has one). Pull external references with WebFetch/WebSearch only when the idea needs them. The plan must be grounded in how the code actually works, not how you imagine it works.
 
 ### 2. Clarify (only what matters)
 
@@ -61,7 +61,7 @@ Author the plan at the output path you were given (or asked for) following the *
 - Explicit `{#anchor}` headings; kebab-case; no phase numbers in anchors.
 - Stable labels: plan-local Design Decisions `[P01]` (use `P`, **never** `D` — `[D##]` is reserved for the global `tuglaws/design-decisions.md`, which a plan may cite by reference), Open Questions `[Q01]`, Specs `S01`, Tables `T01`, Lists `L01`, Risks `R01`, Milestones `M01` — always two digits, never reused.
 - **Execution Steps** each carry a `**Commit:**` message, `**References:**` (cite decisions/specs/anchors — never line numbers), `**Depends on:**` where applicable (anchor refs like `#step-1`), Tasks, Tests, and a falsifiable Checkpoint. This is the part `/tugplug:dash-implement` walks. Seed the **Step Status Ledger** with every step marked `pending`.
-- For tugdeck/tugways work, fill the **State Zone Mapping** table — map each new piece of state to its tuglaws zone before writing steps.
+- For frontend work in a project whose laws define state zones, fill the **State Zone Mapping** table — map each new piece of state to its zone before writing steps.
 - Resolve open questions where you can (spike them in-thread — read the code, check a fixture). **Ask the rest before you declare the plan ready** — a design question you cannot settle is an `AskUserQuestion` with the candidate answers as its options, raised while the user is still here, and the answer lands in the plan as a decided item. Only a question the user *declines to settle* stays `[Q##]`, with its rationale and its plan to resolve. That is what makes the notation mean something: **a `[Q##]` in a finished plan was asked and deferred, never never-asked.**
 
 Prefer a tight, real plan over an exhaustive one. Every step should be executable with a clear commit boundary and a falsifiable checkpoint.

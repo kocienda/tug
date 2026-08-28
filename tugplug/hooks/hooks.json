@@ -1,5 +1,5 @@
 {
-  "description": "Auto-approve tugplug plugin tool calls and safe Bash commands; deny file-lifecycle commands the change ledger cannot read",
+  "description": "Auto-approve tugplug skills and safe Bash commands; deny file-lifecycle commands the change ledger cannot read. Decided by `tugutil hook pre-tool-use`.",
   "hooks": {
     "PreToolUse": [
       {
@@ -7,7 +7,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/auto-approve-tug.sh"
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/pre-tool-use.sh"
           }
         ]
       },
@@ -16,11 +16,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/auto-approve-tug.sh"
-          },
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/gate-file-ops.sh"
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/pre-tool-use.sh"
           }
         ]
       }

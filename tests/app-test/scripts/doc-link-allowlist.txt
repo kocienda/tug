@@ -57,7 +57,6 @@ tugdeck/src/components/tugways/internal/use-position-stable-click.ts dash/sessio
 tugdeck/src/components/tugways/tug-prompt-entry.tsx dash/dev-atoms.md
 tugdeck/src/components/tugways/tug-sheet.tsx dash/tugplan-dev-overlay-framework.md
 tugdeck/src/components/tugways/tug-text-editor.tsx dash/dev-atoms.md
-tugdeck/src/components/tugways/tug-text-editor.tsx dash/kbf-mode.md
 tugdeck/src/components/tugways/tug-text-editor/clipboard-filters.ts dash/dev-atoms.md
 tugdeck/src/components/tugways/tug-text-editor/drop-extension.ts dash/dev-atoms.md
 tugdeck/src/deck-trace.ts dash/scroll-height-floor.md
