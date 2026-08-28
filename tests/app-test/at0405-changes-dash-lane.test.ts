@@ -59,6 +59,9 @@
  * asserting it against a fabricated frame.
  *
  * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-dash-lane.tsx
+ * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-dash-brief.tsx
+ * @covers tugdeck/src/lib/dash-file-clusters.ts
+ * @covers tugdeck/src/lib/landing-message.ts
  * @covers tugdeck/src/components/tugways/cards/session-changes/dash-row-menu.tsx
  * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-view.tsx
  * @covers tugdeck/src/lib/changes-route-controller.ts
@@ -477,12 +480,14 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's dash lane", () => {
           // shows the draft plainly. This dash is join-ready — one round, no
           // plan, a clean worktree — so the arc arms it unbidden ([D147]) and
           // `lands as` is what a reader sees. Waiting on the plain slot waited
-          // for a grammar that could not appear.
+          // for a grammar that could not appear. The words are the subject's:
+          // the brief fronts the message's first line as its heading and
+          // folds the rest, so the heading is where a draft's words surface.
           await app.waitForCondition<boolean>(
             `(() => {
                const row = document.querySelector(${JSON.stringify(ROW)});
-               const body = row?.querySelector(".session-changes-dash-draft-message");
-               return (body?.textContent ?? "").includes("at0405 join draft");
+               const subject = row?.querySelector('[data-slot="session-changes-dash-brief-subject"]');
+               return (subject?.textContent ?? "").includes("at0405 join draft");
              })()`,
             { timeoutMs: 25000 },
           );

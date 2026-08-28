@@ -62,6 +62,8 @@ The buckets — **decide a disposition for every one of them:**
    ```
    <brief summary line, max 50 chars>
 
+   <summary: one to three sentences of prose saying what changed and why>
+
    - <what was done>
    - <key files changed>
    - <plan reference if applicable>
@@ -69,6 +71,7 @@ The buckets — **decide a disposition for every one of them:**
 
    Rules:
    - First line: imperative mood, no period, under 50 characters
+   - Second paragraph: the **summary** — one to three sentences of plain prose, no bullets, that a reviewer reads first and can stop at. The Changes shade fronts the subject and this paragraph and folds the rest, so a message without one is shown clamped at a few lines instead of read.
    - Bullets: terse, factual, no filler words
    - Every line runs unbroken to its end: no hard wrapping, no wrapping to 72 or 80 columns, no continuation lines. A bullet that runs 400 characters is one line of 400 characters.
    - No buzzwords, no "enhanced" or "improved" without specifics
@@ -93,12 +96,16 @@ The buckets — **decide a disposition for every one of them:**
 ```
 Add retry logic to API client
 
+Requests that failed on a transient error were surfaced to the caller at once. The client now retries them with exponential backoff, configured per call.
+
 - Implement exponential backoff in src/api/client.rs
 - Add RetryConfig struct with max_attempts, base_delay
 ```
 
 ```
 Fix null pointer in user lookup
+
+A lookup for a user with no record dereferenced the missing row. The lookup guards it and answers not-found.
 
 - Guard against missing user record in auth.py
 - Add test for empty database case

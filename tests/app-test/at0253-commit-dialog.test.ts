@@ -15,6 +15,7 @@
  * round trip is at0340's, so this suite drives the menu door instead.
  *
  * @covers tugdeck/src/lib/commit-mode-controller.ts
+ * @covers tugdeck/src/components/tugways/tug-text-editor/landing-message-structure.ts
  * @covers tugdeck/src/lib/changeset-draft-store.ts
  * @covers tugdeck/src/lib/landing-receipt.ts
  * @covers tugrust/crates/tugchanges-core/

@@ -360,6 +360,14 @@ pub struct ChangesetFile {
     /// from pre-plan servers — an older deck ignores it.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub shared_with: Vec<SharedOwner>,
+    /// Lines added over the dash's `base...branch` range. Only a dash row
+    /// carries it — a working-tree row has no committed range to count — and
+    /// a binary file carries none. Additive: an older deck ignores it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub added: Option<u32>,
+    /// Lines deleted, on the same terms.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deleted: Option<u32>,
 }
 
 /// One row of a dash's plan ledger — the step list a surface can render.

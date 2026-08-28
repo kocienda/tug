@@ -191,6 +191,30 @@ body {
   pointer-events: none;
 }
 
+/* Landing mode is a READING mode. The field grew tall for a human typing a
+   message, to give the task the room; a message the scribe or a skill wrote
+   is read, not written, and a wall of mono at forty lines is not read
+   either. So the message's joints are marked: the subject line reads as
+   the heading it is, over a hairline, and the summary paragraph as the
+   paragraph it is; the detail follows in the muted tone a quote takes.
+   The lines are classed by `landingMessageStructure` ([L06]); nothing
+   here is measured. The height cap is the Session card's ([L20]). */
+.tug-prompt-entry[data-landing] .cm-line.cm-landing-subject {
+  font-weight: var(--tug-font-weight-medium);
+  color: var(--tug7-element-global-text-normal-default-rest);
+  padding-block-end: var(--tug-space-2xs);
+  margin-block-end: var(--tug-space-2xs);
+  border-block-end: 1px solid var(--tug7-element-global-border-normal-muted-rest);
+}
+
+.tug-prompt-entry[data-landing] .cm-line.cm-landing-summary {
+  color: var(--tug7-element-global-text-normal-default-rest);
+}
+
+.tug-prompt-entry[data-landing] .cm-line:not(.cm-landing-subject):not(.cm-landing-summary) {
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
 /* The land button, unavailable: dimmed, cursor-marked, and STILL PRESSABLE.
 
    Two conditions land here — the message is empty (gated on the composer's

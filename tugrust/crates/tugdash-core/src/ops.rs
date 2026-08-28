@@ -1286,13 +1286,18 @@ pub fn show(name: &str) -> Result<ShowOutcome, String> {
 }
 
 /// One file in a dash's `base...branch` diff, as `git diff --name-status`
-/// reports it. The caller maps this into its own file row.
+/// reports it, with the line counts `--numstat` reports for the same range.
+/// The caller maps this into its own file row.
 #[derive(Debug, Clone, Serialize)]
 pub struct DashDetailFile {
     /// Path relative to the repository root. A rename reports its destination.
     pub path: String,
     /// The name-status letter (`A`, `M`, `D`, `R`, …).
     pub status: String,
+    /// Lines added, `None` for a binary file or when the numstat read failed.
+    pub added: Option<u32>,
+    /// Lines deleted, on the same terms.
+    pub deleted: Option<u32>,
 }
 
 /// What a server-driven arc ([P01]) is doing on this dash, when one is running
@@ -1445,10 +1450,45 @@ fn parse_name_status(output: &str) -> Vec<DashDetailFile> {
             files.push(DashDetailFile {
                 path: path.to_owned(),
                 status: status.to_owned(),
+                added: None,
+                deleted: None,
             });
         }
     }
     files
+}
+
+/// Fold a `--numstat` read over the same range onto the name-status rows,
+/// keyed by path. A rename is keyed by its destination on both sides, so the
+/// two reads meet; a path the numstat does not name keeps `None`.
+fn with_numstat(mut files: Vec<DashDetailFile>, numstat: &str) -> Vec<DashDetailFile> {
+    let counts: BTreeMap<String, (Option<u32>, Option<u32>)> =
+        tugchanges_core::parse_numstat(numstat)
+            .into_iter()
+            .map(|e| (e.path, (e.added, e.deleted)))
+            .collect();
+    for file in &mut files {
+        if let Some((added, deleted)) = counts.get(&file.path) {
+            file.added = *added;
+            file.deleted = *deleted;
+        }
+    }
+    files
+}
+
+/// The dash's `base...branch` file list with its line counts: two reads of
+/// one range, joined on path. Either read failing degrades — no status read
+/// is an empty list, no numstat read is a list without counts.
+fn dash_range_files(repo_root: &Path, base: &str, branch: &str) -> Vec<DashDetailFile> {
+    let range = format!("{base}...{branch}");
+    let files = git_stdout(repo_root, &["diff", "--name-status", &range])
+        .ok()
+        .map(|out| parse_name_status(&out))
+        .unwrap_or_default();
+    match git_stdout(repo_root, &["diff", "--numstat", &range]).ok() {
+        Some(numstat) => with_numstat(files, &numstat),
+        None => files,
+    }
 }
 
 /// The paths a `git diff --name-status` output names, renames reported at
@@ -1526,12 +1566,7 @@ pub fn dash_detail_entries_in(repo_root: &Path) -> Vec<DashDetail> {
         };
         let worktree_dirty_tracked = !worktree_dirt_tracked.is_empty();
 
-        let files = git_stdout(
-            repo_root,
-            &["diff", "--name-status", &format!("{base}...{branch}")],
-        )
-        .map(|out| parse_name_status(&out))
-        .unwrap_or_default();
+        let files = dash_range_files(repo_root, &base, &branch);
 
         // Round subjects, newest first — what the discard preflight
         // lists ([P14]). Empty when the dash has no rounds.
@@ -4658,6 +4693,29 @@ mod tests {
     /// join and the base, and there is no gate left to name.
     fn mechanics() -> JoinOptions {
         JoinOptions::default()
+    }
+
+    /// The numstat fold keys on the destination path a rename reports, so the
+    /// two reads of one range meet; a binary file's `-` stays `None`; a path
+    /// the numstat does not name is left uncounted rather than zeroed.
+    #[test]
+    fn numstat_folds_onto_name_status_by_destination_path() {
+        let files = parse_name_status("M\ta.rs\nR100\told.rs\tnew.rs\nA\tpic.png\nD\tgone.rs\n");
+        let numstat = "3\t1\ta.rs\n0\t0\told.rs => new.rs\n-\t-\tpic.png\n";
+        let folded = with_numstat(files, numstat);
+        let got: Vec<(&str, Option<u32>, Option<u32>)> = folded
+            .iter()
+            .map(|f| (f.path.as_str(), f.added, f.deleted))
+            .collect();
+        assert_eq!(
+            got,
+            vec![
+                ("a.rs", Some(3), Some(1)),
+                ("new.rs", Some(0), Some(0)),
+                ("pic.png", None, None),
+                ("gone.rs", None, None),
+            ]
+        );
     }
 
     /// Seed a join interrupted at `phase`, through the real code path: capture,

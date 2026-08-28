@@ -81,6 +81,7 @@ import type {
   ArgumentHintResolver,
 } from "./tug-text-editor/argument-hint-extension";
 import type { PastedCommandResolver } from "./tug-text-editor/clipboard-filters";
+import { landingMessageStructure } from "./tug-text-editor/landing-message-structure";
 import {
   clearDropCaret,
   dropOffsetAtCoords,
@@ -2497,6 +2498,11 @@ export const TugPromptEntry = React.forwardRef<
       // Auto-Message wave caret ([P06]): inert until `setWaveCaretActive`
       // toggles it while the scribe streams the commit draft.
       waveCaretExtension,
+      // Landing mode ([P03]): the message's subject line and summary
+      // paragraph carry their classes at all times — a doc scan per edit —
+      // and the stylesheet paints them only under `data-landing`, so the
+      // extension list stays stable across the mode edge.
+      landingMessageStructure,
     ],
     [],
   );
@@ -3955,6 +3961,7 @@ export const TugPromptEntry = React.forwardRef<
           data-pending-question={snap.pendingQuestion ? "" : undefined}
           data-empty="true"
           data-commit-empty="true"
+          data-landing={landingActive ? "" : undefined}
           // Whole-entry stand-down: `inert` blocks mouse, keyboard,
           // and focus for the entire subtree — the route toggle,
           // chips, and submit included — while a restore replays.

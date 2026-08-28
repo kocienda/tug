@@ -39,6 +39,11 @@ export interface ChangesetFile {
   /** Who else is claiming this file, when `shared` ([P06]). Absent on
    *  non-shared files and from pre-plan servers. */
   shared_with?: SharedOwner[];
+  /** Lines added over the dash's `base...branch` range. Only a dash row
+   *  carries it; absent for a binary file and from older servers. */
+  added?: number;
+  /** Lines deleted, on the same terms. */
+  deleted?: number;
 }
 
 /** One co-owner named on a shared file's badge. */

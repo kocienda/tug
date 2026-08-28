@@ -64,6 +64,7 @@ import {
 import { DashPhaseMark } from "@/components/tugways/dash-phase-mark";
 import { DashJoinRegister } from "@/components/tugways/dash-join-register";
 import { SessionChangesDashJoin } from "@/components/tugways/cards/session-changes/session-changes-dash-join";
+import { SessionChangesDashBrief } from "@/components/tugways/cards/session-changes/session-changes-dash-brief";
 
 import { dashEntryGlanceFraction, dashMetaFacts } from "@/lib/dash-meta-facts";
 import { SessionIdentityRow } from "@/components/tugways/session-identity-row";
@@ -452,6 +453,98 @@ const BLOCKED_CASES: readonly BlockedCase[] = [
     },
   },
 ];
+
+// ---------------------------------------------------------------------------
+// The brief — what a finished dash would land, as a briefing
+// ---------------------------------------------------------------------------
+
+const BRIEF_DASH = "entity-menus";
+
+/** A real-sized change: twenty-one files across six areas, counted. */
+const BRIEF_FILES = (
+  [
+    ["tugdeck/src/components/tugways/annotation-menu.tsx", "A", 212, 0],
+    ["tugdeck/src/components/tugways/annotation-menu.css", "A", 48, 0],
+    ["tugdeck/src/components/tugways/tug-transcript-cell.tsx", "M", 31, 118],
+    ["tugdeck/src/components/tugways/tug-prompt-entry.tsx", "M", 22, 64],
+    ["tugdeck/src/components/tugways/tug-history-list.tsx", "M", 14, 41],
+    ["tugdeck/src/components/tugways/tug-changes-list.tsx", "M", 12, 37],
+    ["tugdeck/src/components/tugways/session-identity-row.tsx", "M", 9, 22],
+    ["tugdeck/src/components/tugways/commit-row-menu.tsx", "D", 0, 96],
+    ["tugdeck/src/components/tugways/session-identity-menu.tsx", "D", 0, 84],
+    ["tugdeck/src/lib/annotation-registry.ts", "M", 88, 12],
+    ["tugdeck/src/lib/annotation-menu-facts.ts", "A", 61, 0],
+    ["tugdeck/src/lib/__tests__/annotation-registry.test.ts", "M", 74, 6],
+    ["tugrust/crates/tugdash-core/src/ops.rs", "M", 40, 9],
+    ["tugrust/crates/tugcast-core/src/types.rs", "M", 6, 0],
+    ["tugrust/crates/tugcast/src/feeds/changeset.rs", "M", 18, 3],
+    ["tests/app-test/at0387-session-identity-menu.test.ts", "M", 33, 21],
+    ["tests/app-test/at0432-commit-row-menu.test.ts", "M", 29, 17],
+    ["tests/app-test/at0499-annotation-menu.test.ts", "A", 140, 0],
+    ["tests/app-test/at0405-changes-dash-lane.test.ts", "M", 4, 4],
+    ["tuglaws/entity-presentation.md", "M", 11, 3],
+    ["tugplug/skills/draft/SKILL.md", "M", 5, 1],
+  ] as const
+).map(([path, git_status, added, deleted]) => ({
+  path,
+  git_status,
+  op: git_status === "A" ? "write" : git_status === "D" ? "deleted" : "edit",
+  origin: "dash",
+  shared: false,
+  last_touched: TOUCHED,
+  added,
+  deleted,
+}));
+
+const BRIEF_SUBJECT = "Answer one right-click menu per entity, from the annotation registry";
+
+/** The message as the skills now write it: subject, a summary paragraph, then the detail. */
+const BRIEF_MESSAGE = `tugdash(${BRIEF_DASH}): ${BRIEF_SUBJECT}
+
+The annotation registry claimed to own what a right-click on an entity offers, and did not: the path was private to the transcript cell, so every other surface wrote its own menu and the same entity said different things depending on where it was clicked. useAnnotationMenu is that path, lifted whole and mountable anywhere, with the entity's actions shared and the surface's own selection actions kept apart.
+
+- useAnnotationMenu: one delegated listener and one context-menu provider for nine entity kinds, mounted by the transcript, the composer, the History list, the Changes shade and the identity row
+- menuEntries takes an AnnotationMenuFacts record beside the payload, discriminated by kind, so a surface holding an id alone is never offered an act it cannot perform ([L31])
+- commit-row-menu and session-identity-menu deleted; their items live in the registry's list, in the registry's order
+- at0499 drives the shared menu on every surface; at0387 and at0432 assert the same items from the new path`;
+
+/** The same message without its summary — how an older draft reads. */
+const BRIEF_MESSAGE_UNSUMMARIZED = `tugdash(${BRIEF_DASH}): ${BRIEF_SUBJECT}
+
+${BRIEF_MESSAGE.split("\n").slice(4).join("\n")}`;
+
+const BRIEF_ROUNDS = [
+  "tugdash(entity-menus): Drive the shared menu on every surface",
+  "tugdash(entity-menus): Delete the two private menus",
+  "tugdash(entity-menus): Discriminate menu facts by kind",
+  "tugdash(entity-menus): Lift useAnnotationMenu out of the cell",
+];
+
+function briefEntry(message: string, source: string): DashChangesetEntry {
+  return entry(BRIEF_DASH, {
+    branch: `tugdash/${BRIEF_DASH}`,
+    bound_sessions: [SOLO],
+    stage: "ready",
+    steps: steps(4, null, 4),
+    step_total: 4,
+    documents: { plan: `${ROOT}/.tug/dashes/${BRIEF_DASH}/plan.md` },
+    task_list: true,
+    rounds: BRIEF_ROUNDS.length,
+    round_subjects: BRIEF_ROUNDS,
+    files: BRIEF_FILES,
+    fit: { current: true, head: "05c9f2ebb0000", base: "fbe9ca5b00000" },
+    join: {
+      phase: "previewed",
+      offer: {
+        request_id: `${BRIEF_DASH}:fbe9ca5b:05c9f2eb`,
+        base_sha: "fbe9ca5b00000",
+        dash_head: "05c9f2ebb0000",
+        message,
+        message_source: source,
+      },
+    },
+  });
+}
 
 /** A ready dash the preflight refused: every step done, the draft written. */
 function blockedEntry(blocker: DashJoinBlockerWire): DashChangesetEntry {
@@ -844,6 +937,42 @@ export function GalleryDashLifecycle(): React.ReactElement {
         })}
       </section>
 
+      <section className="cg-section">
+        <TugLabel className="cg-section-title">
+          The brief — what a finished dash would land, as a briefing
+        </TugLabel>
+        <Stage caption="The fold used to end in three artifacts printed whole: the landing message in monospace at its full length, every changed path in snapshot order, every round's subject. Each was complete and none was a summary. The brief fronts what aggregates — the subject in prose, a strip of counts, the message's own summary paragraph, the tree's areas by churn — and every list stands one fold away, mounted and closed. A cluster of one file is that file. This is the real SessionChangesDashBrief over one wire entry: twenty-one files, six areas, four rounds">
+          <div className="cg-dash-surfaces">
+            <div className="cg-dash-surface">
+              <span className="cg-dash-surface-name">
+                Summarized — the draft as the skills now write it
+              </span>
+              <SessionChangesDashBrief entry={briefEntry(BRIEF_MESSAGE, "draft")} />
+            </div>
+            <div className="cg-dash-surface">
+              <span className="cg-dash-surface-name">
+                Unsummarized — an older draft, clamped at a screenful
+              </span>
+              <SessionChangesDashBrief
+                entry={briefEntry(BRIEF_MESSAGE_UNSUMMARIZED, "draft")}
+              />
+            </div>
+          </div>
+        </Stage>
+        <p className="cg-dash-prose">
+          <strong>The message is not shortened; the presentation is.</strong>{" "}
+          The wire carries one string, exactly what the join lands, and the
+          subject and summary above are a reading of its shape — the first
+          line, then the first paragraph that is prose rather than bullets.
+          The skills write that paragraph once, when the whole session is in
+          context, so nothing summarizes at the join moment and nothing is
+          composed here. The areas are a pure fold of the path list: the
+          deepest directory that gathers more than one changed file, so a lone
+          file two levels under a busy directory joins it, and the root is
+          never climbed to. The line counts ride the same wire row the path
+          does, from one <code>--numstat</code> read of the same range.
+        </p>
+      </section>
       <section className="cg-section">
         <TugLabel className="cg-section-title">
           Blocked — what the base refuses, and the one way out

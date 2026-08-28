@@ -32,6 +32,15 @@
      of the card's own height (`cqh`). The transcript and the pinned Z4 / Z5
      toolbar share the rest. ───────────────────────────────────────────── */
   --session-entry-max-height: 50cqh;
+  /* ── Tune this ──────────────────────────────────────────────────────
+     The same cap in landing mode, where the field holds a message to be
+     READ rather than written: a screenful of lines, and the fraction of
+     the card only when the card is shorter than that. The transcript keeps
+     the rest, which is where the receipt this message becomes will land. */
+  --session-entry-landing-max-height: min(
+    var(--session-entry-max-height),
+    calc(12 * 1lh + 16px)
+  );
   /* No `min-width` here — a leaf cannot widen its container, it only
      overflows and clips. The card's width floor is declared as
      `sizePolicy.min.width` in `registerSessionCard`; the hosting pane's
@@ -223,6 +232,14 @@
    scroll height through its own scoped rule. */
 .session-card-entry-region .tug-text-editor > .cm-editor > .cm-scroller {
   max-height: var(--session-entry-max-height, 50cqh);
+}
+
+.session-card-entry-region
+  .tug-prompt-entry[data-landing]
+  .tug-text-editor
+  > .cm-editor
+  > .cm-scroller {
+  max-height: var(--session-entry-landing-max-height);
 }
 
 /* The `TugPaneBulletinProvider` nested inside the top column carries the same

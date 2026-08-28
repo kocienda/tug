@@ -307,6 +307,8 @@ pub(crate) async fn compose_snapshot(
                 own_hunks: Vec::new(),
                 contested_hunks: Vec::new(),
                 shared_with: Vec::new(),
+                added: None,
+                deleted: None,
             });
         // Provenance display follows proof rows: a later bracket sweep never
         // overwrites the op/origin a proof row established.
@@ -1128,6 +1130,8 @@ fn dash_file_row(file: tugdash_core::DashDetailFile) -> ChangesetFile {
         own_hunks: Vec::new(),
         contested_hunks: Vec::new(),
         shared_with: Vec::new(),
+        added: file.added,
+        deleted: file.deleted,
     }
 }
 
@@ -4203,6 +4207,8 @@ Some context.
             dash_file_row(tugdash_core::DashDetailFile {
                 path: path.to_owned(),
                 status: status.to_owned(),
+                added: None,
+                deleted: None,
             })
         })
         .collect();

@@ -59,12 +59,12 @@ import { EllipsisVertical } from "lucide-react";
 
 import { TugPushButton } from "@/components/tugways/tug-push-button";
 import { TugListRow } from "@/components/tugways/tug-list-row";
-import { TugStatusMark } from "@/components/tugways/tug-status-mark";
 import { replayDisabledReason, useDashRowMenu } from "./dash-row-menu";
 import { BlockFoldCue } from "@/components/tugways/body-kinds/affordances/block-fold-cue";
 import { PopOutDiffButton } from "@/components/tugways/tug-changes-list";
 import { TugSectionLabel } from "@/components/tugways/tug-section-label";
 import { SessionChangesDashDocuments } from "./session-changes-dash-documents";
+import { SessionChangesDashBrief } from "./session-changes-dash-brief";
 import { TugConfirmPopover } from "@/components/tugways/tug-confirm-popover";
 import { DashLifecycleBlock } from "@/components/tugways/dash-lifecycle-block";
 import { dashLifecycleNote } from "@/components/tugways/dash-lifecycle-line";
@@ -268,22 +268,6 @@ export function discardConfirmMessage(entry: DashChangesetEntry): string {
   return clauses.join(" ");
 }
 
-/**
- * Where a standing join's message came from, when that is worth saying.
- *
- * The landing-message precedence is silent by construction — a run that forgot
- * its draft lands the branch description, and nobody is told — and this is the
- * one place it breaks that silence, because the user is about to agree to
- * those exact words at the Z5 button. A drafted message needs no note: it says
- * what somebody wrote, which is the case that needs no explanation.
- *
- * Keyed on the wire spellings `LandingMessageSource::as_str` emits.
- */
-const LANDING_MESSAGE_PROVENANCE: Record<string, string | undefined> = {
-  description: "from the branch description — no draft was written",
-  fallback: "no draft and no description — the generic stand-in",
-};
-
 // ---------------------------------------------------------------------------
 // The row
 // ---------------------------------------------------------------------------
@@ -348,13 +332,6 @@ function DashRow({
     aim(entry);
   }, [aim, expanded, entry]);
 
-  // The join this dash is ready for, when it is ready for one. It carries the
-  // exact bytes a join would land — composed server-side by the same
-  // `landing_message_preview` the landing itself runs — so the fold shows the
-  // message rather than the raw draft it may have come from. The two cannot
-  // drift, because they are one function.
-  const offer = entry.join?.offer ?? null;
-
   const descriptor: DiffDescriptor = {
     kind: "range",
     root: projectRoot,
@@ -367,7 +344,6 @@ function DashRow({
   const hasRange = entry.rounds > 0 || entry.worktree_dirty;
   // Absent, not disabled, when this shade has no business discarding this dash.
   const canDiscard = discard !== null && discard.canDiscard(entry);
-  const subjects = entry.round_subjects ?? [];
   const menuButtonRef = useRef<HTMLButtonElement | null>(null);
   const rowMenu = useDashRowMenu({
     binding:
@@ -493,12 +469,12 @@ function DashRow({
           altitude="entry"
         />
       </span>
-      {/* The fold, ranked: report (the join's evidence, advisories included) ·
-          rounds (what would land) · draft (the message it lands with) — each
-          under the shade's own `TugSectionLabel` eyebrow, the same component
-          the file buckets above render, so the fold is not a third dialect. A
-          section renders nothing it cannot say: the report returns null with
-          nothing to show, and rounds and draft mount only with content. */}
+      {/* The fold, ranked: documents · report (the join's evidence, advisories
+          included) · the brief (what would land, as a briefing: the message's
+          subject and summary, the change's shape, the paths and rounds one
+          fold down) — each under the shade's own `TugSectionLabel` eyebrow,
+          the same component the file buckets above render, so the fold is
+          not a third dialect. A section renders nothing it cannot say. */}
       {expanded ? (
         <div className="session-changes-dash-detail">
           {/* The dash's own documents, first: what it was asked for and what
@@ -537,78 +513,7 @@ function DashRow({
               actions={joinFace.actions}
             />
           ) : null}
-          {subjects.length > 0 || entry.files.length > 0 ? (
-            <div
-              className="session-changes-dash-rounds"
-              data-slot="session-changes-dash-rounds"
-            >
-              <TugSectionLabel
-                label={{
-                  name: "rounds",
-                  ...(entry.rounds > 0 ? { qualifier: String(entry.rounds) } : {}),
-                }}
-                slot="session-changes-dash-rounds-label"
-              />
-              {subjects.length > 0 ? (
-                <ul
-                  className="session-changes-dash-subjects"
-                  data-slot="session-changes-dash-subjects"
-                >
-                  {subjects.map((subject, index) => (
-                    <li key={`${index}:${subject}`}>{subject}</li>
-                  ))}
-                </ul>
-              ) : null}
-              {entry.files.length > 0 ? (
-                <ul
-                  className="session-changes-dash-files"
-                  data-slot="session-changes-dash-files"
-                >
-                  {entry.files.map((file) => (
-                    <li key={file.path}>
-                      <TugStatusMark status={file.git_status} />
-                      <span className="session-changes-dash-file-path">{file.path}</span>
-                    </li>
-                  ))}
-                </ul>
-              ) : null}
-            </div>
-          ) : null}
-          {offer !== null ? (
-            <div
-              className="session-changes-dash-draft"
-              data-slot="session-changes-dash-lands-as"
-            >
-              <TugSectionLabel
-                label={{ name: "lands as" }}
-                slot="session-changes-dash-draft-label"
-              />
-              <div className="session-changes-dash-draft-message">
-                {offer.message}
-              </div>
-              {LANDING_MESSAGE_PROVENANCE[offer.message_source ?? ""] !== undefined ? (
-                <div
-                  className="session-changes-dash-draft-note"
-                  data-slot="session-changes-dash-lands-as-note"
-                >
-                  {LANDING_MESSAGE_PROVENANCE[offer.message_source ?? ""]}
-                </div>
-              ) : null}
-            </div>
-          ) : entry.draft !== undefined ? (
-            <div
-              className="session-changes-dash-draft"
-              data-slot="session-changes-dash-draft"
-            >
-              <TugSectionLabel
-                label={{ name: "draft" }}
-                slot="session-changes-dash-draft-label"
-              />
-              <div className="session-changes-dash-draft-message">
-                {entry.draft.message}
-              </div>
-            </div>
-          ) : null}
+          <SessionChangesDashBrief entry={entry} />
         </div>
       ) : null}
     </div>
