@@ -575,32 +575,43 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's dash lane", () => {
         expect(fronted.first).toBe(DASH_NAME);
         expect(fronted.expanded).toBe("true");
 
-        // ── The stack is one left margin ──────────────────────────────────
-        // Line 1 is who, line 2 is what the dash is doing, line 3 is what its
-        // join is doing — and all three start on the dash NAME's margin.
+        // ── The line is centred on the track and flush right on the reading ─
+        // Line 1 anchors an identity to each edge — the dash atom left, the
+        // worker right, a hairline between. Line 2 answers it: the track sits
+        // at the row's own centre and the reading it explains — glyph,
+        // fraction, word, facts — ends on the same trailing edge the worker
+        // atom does.
         //
-        // Getting there is arithmetic this lane cannot avoid: the metadata
-        // line and the register are siblings of the row, so they begin at its
-        // border box while the atom above them begins at its content box and
-        // is then optically outdented on top of that. Three offsets, and the
-        // lane once took a space token instead and landed nine pixels left of
-        // the name. Measured against the rendered name so the row's density,
-        // the atom's padding and the outdent can all move without this
-        // becoming a lie.
-        const stack = await app.evalJS<{ name: number; mark: number }>(
+        // Measured against the LINE's own box rather than against constants,
+        // so the shade's width, the row's density and the atom's padding can
+        // all move without this becoming a lie. A pixel of tolerance on the
+        // centre: three grid columns over an odd width round somewhere.
+        const stack = await app.evalJS<{
+          drift: number;
+          overhang: number;
+        }>(
           `(() => {
              const row = document.querySelector(${JSON.stringify(ROW)});
-             const L = (el) => Math.round(el.getBoundingClientRect().left * 10) / 10;
+             const line = row.querySelector('[data-slot="tug-dash-lifecycle-line"]');
+             const box = line.getBoundingClientRect();
+             const track = line.querySelector('[data-slot="tug-dash-track"]').getBoundingClientRect();
+             const read = line.querySelector('[data-slot="tug-dash-lifecycle-reading"]').getBoundingClientRect();
+             const R = (n) => Math.round(n * 10) / 10;
              return {
-               name: L(row.querySelector('[data-slot="tug-dash-lifecycle-name"]')),
-               mark: L(row.querySelector('[data-slot="tug-dash-lifecycle-line"] > *')),
+               drift: R(Math.abs((track.left + track.right) / 2 - (box.left + box.right) / 2)),
+               overhang: R(box.right - read.right),
              };
            })()`,
         );
         note("at0405 stack", JSON.stringify(stack));
-        expect(stack.mark, "line 2 starts on the dash name's own margin").toBe(
-          stack.name,
-        );
+        expect(
+          stack.drift,
+          "the track is centred in the line",
+        ).toBeLessThanOrEqual(1);
+        expect(
+          stack.overhang,
+          "the reading ends on the line's trailing edge",
+        ).toBeLessThanOrEqual(1);
 
         // ── The complement rule ───────────────────────────────────────────
         // Unbind on the fronted row, Bind on none of it — a menu carrying both

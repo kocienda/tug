@@ -358,7 +358,7 @@ const MOMENTS: readonly Moment[] = [
   {
     key: "direct-listless",
     caption:
-      "A dash with no documents at all — every dash cut before task lists existed, and any run that skipped writing one. The strip is the same two cells and the implement cell is bare, because there is nothing to divide it into. This is the one case that still reads a WORD where the others read numbers",
+      "A dash with no documents at all — every dash cut before task lists existed, and any run that skipped writing one. The strip is the same three cells and the implement cell is bare, because there is nothing to divide it into. This is the one case that still reads a WORD where the others read numbers",
     workers: [SOLO],
     prompt: `/dash ${SOLO_DASH} ${SOLO_SUBJECT}`,
     branched: true,
@@ -709,7 +709,7 @@ export function GalleryDashLifecycle(): React.ReactElement {
         <TugLabel className="cg-section-title">
           The lifecycle, as one track — TugDashTrack
         </TugLabel>
-        <Stage caption="brief · devise · review · implement (one tick per step) · join. Each row is the real DashLifecycleLine, so the strip, the glyph, the fraction, and the word are spaced by the component rather than by this card. Cap-height, so it rides any line the atom is on. The type runs sit on one baseline and the two graphics are centred, which lands the cap-height strip on the type's own cap band; the glyph is sized a pixel proud of that band rather than four, so it reads as the strip's neighbour. What is behind you is a FILL and what is ahead is an OUTLINE: done is the muted text tone, active the theme's key color — the tone the pulsing dot uses for the same claim — the join the theme's selection color, and pending no fill at all">
+        <Stage caption="brief · devise · review · implement (one tick per step) · join. Each row is the real DashLifecycleLine, so the strip, the glyph, the fraction, and the word are spaced by the component rather than by this card. A direct dash draws brief · implement · join: it never had the two middle cells, but it did have a brief, so both round ends land on whole cells instead of the endcap travelling onto the first tick. The track is centred in its row and the reading — glyph, fraction, word, facts — is flush right, which is the eyebrow's own two-edge anchoring one line down. Cap-height, so it rides any line the atom is on. The type runs sit on one baseline and the two graphics are centred, which lands the cap-height strip on the type's own cap band; the glyph is sized a pixel proud of that band rather than four, so it reads as the strip's neighbour. What is behind you is a FILL and what is ahead is an OUTLINE: done is the muted text tone, active the theme's key color — the tone the pulsing dot uses for the same claim — the join the theme's selection color, and pending no fill at all">
           <div className="cg-dash-legend">
             {MOMENTS.map((m) => {
               const model = dashTrackModelFromEntry(m.entry);

@@ -1350,6 +1350,12 @@ export function DashStepItems({
  * A dash driving no plan has no ledger, and there the task list is the only
  * checklist there is — so that is exactly, and only, when it is shown.
  *
+ * With neither, the placard stops at the block. It used to say `None`, the
+ * word this file's other empty lists earn — but those are lists that could
+ * only be empty, and this one sits under a track, a phase glyph and a word
+ * that have just said what the dash is doing. `None` answered a question the
+ * reader had not asked and denied the reading directly above it.
+ *
  * The one exit is `Show in Changes`, which reveals this card's own Changes
  * shade. That is where every decision about a dash lives, and a placard is a
  * reading rather than a room.
@@ -1409,11 +1415,9 @@ export function DashPopoverContent({
         </div>
         {steps.length > 0 ? (
           <DashStepItems steps={steps} idle={idle} />
-        ) : tasks.length === 0 ? (
-          <TugPopupListEmpty form="word">None</TugPopupListEmpty>
-        ) : (
+        ) : tasks.length > 0 ? (
           <TaskListItems tasks={tasks} idle={idle} />
-        )}
+        ) : null}
       </TugPopupListScroller>
     </TugPopupListFrame>
   );

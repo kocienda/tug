@@ -74,20 +74,12 @@
 }
 
 /* The strip's ends are round, whichever cells it happens to draw. A direct
-   dash starts at implement, so the endcap has to travel — and when that cell
-   holds ticks the cap belongs to the FIRST TICK, since the cell itself is a
-   transparent container and a radius on it paints nothing. The listless case
-   still caps the cell: with no plan there are no ticks and the cell is the
-   mark. */
-.tug-dash-track-cell[data-phase="brief"],
-.tug-dash-track[data-direct="true"] .tug-dash-track-cell[data-phase="implement"] {
-  border-start-start-radius: 999px;
-  border-end-start-radius: 999px;
-}
-
-.tug-dash-track[data-direct="true"]
-  .tug-dash-track-cell[data-phase="implement"]
-  .tug-dash-track-tick:first-child {
+   dash draws brief · implement · join, so both caps land on whole cells and
+   the endcap never has to travel onto a tick. It did once, when a direct
+   strip led with its ticks: a sliver a plan's length wide wore the round end
+   a cell should wear, and the join stood at the other end as the only pill on
+   the row. */
+.tug-dash-track-cell[data-phase="brief"] {
   border-start-start-radius: 999px;
   border-end-start-radius: 999px;
 }

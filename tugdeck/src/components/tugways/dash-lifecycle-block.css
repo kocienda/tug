@@ -29,11 +29,11 @@
   background: var(--tug7-element-global-border-normal-default-rest);
 }
 
-/* The line indents to the atom's text, so the two lines share a left edge.
-   Not a space token: the indent is the one the atom above holds its NAME in
-   from the pill's edge. One number now, because the pill's inline padding is
-   the register's and no longer varies with it. A near-miss is worse than no
-   indent at all — the eye reads two lines that almost line up as a mistake. */
-.tug-dash-lifecycle-block > .tug-dash-lifecycle-line {
-  padding-inline-start: var(--tugx-session-atom-text-inset);
-}
+/* The line takes the block's full width and no indent.
+
+   It used to indent to the atom's text so the two lines shared a left edge,
+   which was the right rule while the line packed everything against that
+   edge. It does not any more: the track is centred and the reading is flush
+   right, so the two lines are related by their CENTRE and their trailing edge
+   instead — an indent would only push the centred graphic off the centre it
+   is aligned to. */

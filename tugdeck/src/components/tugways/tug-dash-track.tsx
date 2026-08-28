@@ -3,8 +3,9 @@
  *
  * Five cells in lifecycle order — brief · devise · review · implement · join —
  * with implement subdivided into one tick per plan step. A direct dash, which
- * has no arc, is the last two cells. Each cell wears one of four
- * states the CSS paints ([L06]): `pending`, `active`, `done`, `stopped`. A stop
+ * has no arc, is brief · implement · join — the two cells an arc would have
+ * filled are the ones it never had. Each cell wears one of four states the CSS
+ * paints ([L06]): `pending`, `active`, `done`, `stopped`. A stop
  * is the one fact that outranks the rest: the cell it stopped in paints danger
  * and its tooltip says why, in the arc receipt's own words.
  *
@@ -34,6 +35,20 @@ import type { DashArcState, DashChangesetEntry, DashStep } from "@/lib/changeset
 /** The phases, in lifecycle order. */
 export type DashPhase = "brief" | "devise" | "review" | "implement" | "join";
 export const DASH_PHASES: readonly DashPhase[] = ["brief", "devise", "review", "implement", "join"];
+
+/**
+ * The phases a direct dash draws.
+ *
+ * A dash with no arc still has a brief: `dash create` is given a topic, and
+ * that topic is what the work is against. What it never had is the devising
+ * and the reviewing of a plan, so those two are the cells it does not draw.
+ *
+ * Leading with the ticks made the strip say two wrong things at once — the
+ * first tick wore the endcap a whole cell should wear, and the join was left
+ * as the one pill on a row of slivers. A brief cell brackets the ticks the way
+ * the join does, and it is a fact rather than a spacer.
+ */
+const DIRECT_PHASES: readonly DashPhase[] = ["brief", "implement", "join"];
 
 /**
  * Each phase as a reading — Title Case, the register every named state in the
@@ -250,8 +265,9 @@ export function TugDashTrack({
   "aria-label": ariaLabel,
 }: TugDashTrackProps): React.ReactElement {
   // The track draws the phases the dash has, never the five with two struck
-  // out: a direct dash did not skip devise and review, it never had them.
-  const phases: readonly DashPhase[] = model.direct ? ["implement", "join"] : DASH_PHASES;
+  // out: a direct dash did not skip devise and review, it never had them. It
+  // did have a brief, so it draws one.
+  const phases: readonly DashPhase[] = model.direct ? DIRECT_PHASES : DASH_PHASES;
   return (
     <span
       className="tug-dash-track"

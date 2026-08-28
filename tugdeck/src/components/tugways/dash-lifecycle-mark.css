@@ -28,6 +28,18 @@
   margin-inline-end: var(--tugx-dash-lifecycle-mark-out, 4px);
 }
 
+/* And the air it keeps from the identity run it follows, which is MORE than
+   the air between its own three marks. Both hosts set this hard against a run
+   ending `^<dash>`, and at the host's own 2px the mark read as a fourth
+   character of the name rather than as a separate reading of it. The gap
+   inside the mark says these three belong together; a wider one before it says
+   they are not part of the name. Unconditional rather than `:not(:first-child)`
+   — one host wraps the mark in a span of its own, where a first-child test
+   would always hold and the rule would never fire. */
+.tug-dash-lifecycle-mark {
+  margin-inline-start: var(--tugx-dash-lifecycle-mark-in, 5px);
+}
+
 .tug-dash-lifecycle-mark-pill {
   display: inline-block;
   flex: 0 0 auto;

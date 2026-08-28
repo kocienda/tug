@@ -24,6 +24,14 @@
  * anything is moving. And the line never leaves its box: the note elides
  * first, and what still does not fit is clipped rather than overflowing.
  *
+ * **The track is CENTRED and the reading is flush right.** The line used to
+ * pack everything against its left edge, which was the right shape when the
+ * note carried a step's title and ran most of the width. It does not any more,
+ * so a left-packed line left a long empty tail under an eyebrow whose own two
+ * identities are anchored to the two edges. Three columns instead: the graphic
+ * in the middle of the row, and the glyph, fraction, word and facts gathered
+ * at the end, under the worker atom above them.
+ *
  * One grammar, two scales — `rail` beside other rails, `read` on a surface
  * whose job is to be read.
  *
@@ -100,40 +108,42 @@ export function DashLifecycleLine({
       data-stopped={model.stopped !== null ? "true" : undefined}
     >
       <TugDashTrack model={model} size={size} />
-      {/* One pixel proud of the cap band the track occupies (9px at read, 7 at
+      <span className="tug-dash-lifecycle-reading" data-slot="tug-dash-lifecycle-reading">
+        {/* One pixel proud of the cap band the track occupies (9px at read, 7 at
           rail), so the glyph reads as the strip's neighbour rather than as a
           taller mark set beside it. */}
-      <DashPhaseMark model={model} size={size === "read" ? 11 : 9} />
-      {steps !== null && steps.current !== null ? (
-        stepTitle !== null && stepTitle.length > 0 ? (
-          <TugTooltip content={`step ${steps.current} of ${steps.total} · ${stepTitle}`}>
+        <DashPhaseMark model={model} size={size === "read" ? 11 : 9} />
+        {steps !== null && steps.current !== null ? (
+          stepTitle !== null && stepTitle.length > 0 ? (
+            <TugTooltip content={`step ${steps.current} of ${steps.total} · ${stepTitle}`}>
+              <TugStepFraction current={steps.current} total={steps.total} />
+            </TugTooltip>
+          ) : (
             <TugStepFraction current={steps.current} total={steps.total} />
-          </TugTooltip>
-        ) : (
-          <TugStepFraction current={steps.current} total={steps.total} />
-        )
-      ) : null}
-      {/* A tooltip is never a second copy of the word under the cursor. The
+          )
+        ) : null}
+        {/* A tooltip is never a second copy of the word under the cursor. The
           note elides first when the line runs out of room, so the bubble is
           for the reading the ellipsis took away — `truncated` measures the
           span at the open edge and stays shut when the whole note fits. */}
-      <TugTooltip content={note} truncated>
-        <span className="tug-dash-lifecycle-note" data-slot="tug-dash-lifecycle-note">
-          {note}
-        </span>
-      </TugTooltip>
-      {dashLifecycleFacts(facts).map((fact) => (
-        <TugTooltip key={fact.key} content={fact.tooltip}>
-          <span
-            className="tug-dash-lifecycle-fact"
-            data-slot="tug-dash-lifecycle-fact"
-            data-fact={fact.key}
-            data-tone={fact.tone}
-          >
-            {fact.label}
+        <TugTooltip content={note} truncated>
+          <span className="tug-dash-lifecycle-note" data-slot="tug-dash-lifecycle-note">
+            {note}
           </span>
         </TugTooltip>
-      ))}
+        {dashLifecycleFacts(facts).map((fact) => (
+          <TugTooltip key={fact.key} content={fact.tooltip}>
+            <span
+              className="tug-dash-lifecycle-fact"
+              data-slot="tug-dash-lifecycle-fact"
+              data-fact={fact.key}
+              data-tone={fact.tone}
+            >
+              {fact.label}
+            </span>
+          </TugTooltip>
+        ))}
+      </span>
     </span>
   );
 }

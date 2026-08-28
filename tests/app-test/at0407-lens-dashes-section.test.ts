@@ -355,29 +355,33 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Lens Dashes section", () => {
         ]);
         note("at0407 withdrawn tick", await app.screenshot().then((s) => s.path));
 
-        // ── The block is two lines on ONE left margin ─────────────────────
-        // The metadata line hangs under the dash's NAME, not under the pill
-        // that holds it. The distinction is the whole reason this assertion
-        // exists: the atom keeps its text 8px in from its own edge, and a
-        // metadata line indented by a space token that merely resembles that
-        // number lands a pixel or two short — near enough that the two lines
-        // read as a mistake rather than as a second column. It shipped that
-        // way once because nothing here could tell the difference.
+        // ── The block's two lines are related by centre and trailing edge ──
+        // The eyebrow anchors an identity to each edge; the line under it
+        // centres the track and sets the reading — glyph, fraction, word,
+        // facts — flush right, under the worker atom above it. The line used
+        // to hang under the dash's NAME instead, which was the right rule
+        // while it packed everything against its leading edge.
         //
-        // Measured against the rendered name rather than against a constant,
-        // so retuning the atom's padding moves the expectation with it.
+        // Measured against the LINE's own box rather than against a constant,
+        // so retuning the row's density or the atom's padding moves the
+        // expectation with it. A pixel of tolerance on the centre: three grid
+        // columns over an odd width round somewhere.
         const stack = await app.evalJS<{
-          name: number;
-          mark: number;
+          drift: number;
+          overhang: number;
           blocks: number[][];
         }>(
           `(() => {
              const rows = Array.from(document.querySelectorAll(${JSON.stringify(`${SECTION} [data-slot="lens-dashes-row"]`)}));
-             const L = (el) => Math.round(el.getBoundingClientRect().left * 10) / 10;
              const first = rows[0];
+             const line = first.querySelector('[data-slot="tug-dash-lifecycle-line"]');
+             const box = line.getBoundingClientRect();
+             const track = line.querySelector('[data-slot="tug-dash-track"]').getBoundingClientRect();
+             const read = line.querySelector('[data-slot="tug-dash-lifecycle-reading"]').getBoundingClientRect();
+             const R = (n) => Math.round(n * 10) / 10;
              return {
-               name: L(first.querySelector('[data-slot="tug-dash-lifecycle-name"]')),
-               mark: L(first.querySelector('[data-slot="tug-dash-lifecycle-line"] > *')),
+               drift: R(Math.abs((track.left + track.right) / 2 - (box.left + box.right) / 2)),
+               overhang: R(box.right - read.right),
                blocks: rows.map((r) => {
                  const b = r.getBoundingClientRect();
                  return [Math.round(b.top), Math.round(b.bottom)];
@@ -386,9 +390,14 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Lens Dashes section", () => {
            })()`,
         );
         note("at0407 stack", JSON.stringify(stack));
-        expect(stack.mark, "line 2 starts on the dash name's own margin").toBe(
-          stack.name,
-        );
+        expect(
+          stack.drift,
+          "the track is centred in the line",
+        ).toBeLessThanOrEqual(1);
+        expect(
+          stack.overhang,
+          "the reading ends on the line's trailing edge",
+        ).toBeLessThanOrEqual(1);
 
         // And one dash is separated from the next by a real step, not a
         // hairline. At 2px of block padding the two-line blocks touched, and

@@ -5,6 +5,13 @@
  * measurements — this is a face on facts that already live here, not a card of
  * its own. Role and review paint through data attributes ([L06]); nothing here
  * is set from React state.
+ *
+ * Every value was spelled in a `--tugx-*` vocabulary that no stylesheet
+ * defines, so the title fell back to the inherited size and read a good deal
+ * larger than the brief under it, and the two tones and the gap resolved to
+ * nothing at all. The tokens are the ones the rest of the shade uses; the
+ * sizes are the ones the brief's own subject and facts are set in, so the
+ * section families with what surrounds it.
  */
 
 .session-changes-dash-documents {
@@ -17,28 +24,29 @@
 }
 
 .session-changes-dash-document-glyph {
-  color: var(--tugx-text-muted);
+  color: var(--tug7-element-global-text-normal-muted-rest);
   flex: none;
 }
 
 .session-changes-dash-document-block {
   display: flex;
   align-items: baseline;
-  gap: var(--tugx-space-2);
+  gap: var(--tug-space-sm);
   min-width: 0;
 }
 
 .session-changes-dash-document-title {
-  color: var(--tugx-text);
-  font-size: var(--tugx-font-size-sm);
+  color: var(--tug7-element-global-text-normal-default-rest);
+  font-size: var(--tug-font-size-sm);
+  line-height: 1.5;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .session-changes-dash-document-facts {
-  color: var(--tugx-text-muted);
-  font-size: var(--tugx-font-size-xs);
+  color: var(--tug7-element-global-text-normal-muted-rest);
+  font-size: var(--tug-font-size-xs);
   white-space: nowrap;
 }
 
@@ -48,5 +56,5 @@
   .session-changes-dash-document-facts,
 .session-changes-dash-document[data-review="stale"]
   .session-changes-dash-document-facts {
-  color: var(--tugx-caution);
+  color: var(--tug7-element-tone-icon-normal-caution-rest);
 }

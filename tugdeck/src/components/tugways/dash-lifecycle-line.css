@@ -2,6 +2,18 @@
    only run that gives way; everything else is a fixed-width fact, and the
    line clips at its box rather than overflowing it.
 
+   **Three columns: a spacer, the track, the reading.** The two 1fr columns
+   are equal by construction, so the track sits at the row's own centre and
+   the reading — glyph, fraction, word, facts — is flush to the trailing edge,
+   under the worker atom the eyebrow anchors there. The spacer is a `::before`
+   rather than an element: it holds a column and says nothing, which is
+   exactly what a spacer is.
+
+   The track's own trailing air is zeroed through its knob. In a flex row that
+   margin is the space it keeps from the next word; here the grid gap and the
+   empty column are what separate it, and a margin on top of them would shift
+   the centred graphic off centre by its own width.
+
    **Two alignments, on purpose.** The line sets four kinds of thing beside
    each other: two graphics (the track, the phase glyph) and three runs of type
    at two sizes in two faces (the mono fraction, the note, the facts). The type
@@ -13,7 +25,8 @@
    break. */
 
 .tug-dash-lifecycle-line {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
   gap: var(--tug-space-2xs);
   min-width: 0;
@@ -22,11 +35,30 @@
   font-size: var(--tug-font-size-2xs);
 }
 
+/* The leading column, which holds nothing so that the track can be centred
+   against a trailing column that holds the reading. */
+.tug-dash-lifecycle-line::before {
+  content: "";
+}
+
+.tug-dash-lifecycle-line > .tug-dash-track {
+  --tugx-dash-track-out: 0px;
+}
+
+.tug-dash-lifecycle-reading {
+  display: flex;
+  align-items: center;
+  justify-self: end;
+  gap: var(--tug-space-2xs);
+  min-width: 0;
+  overflow: hidden;
+}
+
 /* The type runs, on one baseline. Named individually rather than as `> *`:
-   the track and the glyph are the two children that must NOT join them. */
-.tug-dash-lifecycle-line > .tug-step-fraction,
-.tug-dash-lifecycle-line > .tug-dash-lifecycle-note,
-.tug-dash-lifecycle-line > .tug-dash-lifecycle-fact {
+   the glyph is the one child of the reading that must NOT join them. */
+.tug-dash-lifecycle-reading > .tug-step-fraction,
+.tug-dash-lifecycle-reading > .tug-dash-lifecycle-note,
+.tug-dash-lifecycle-reading > .tug-dash-lifecycle-fact {
   align-self: baseline;
 }
 
@@ -35,6 +67,10 @@
   font-size: var(--tug-font-size-sm);
   line-height: calc(var(--tug-font-size-sm) * 1.6);
   --tugx-step-fraction-font-size: var(--tug-font-size-xs);
+}
+
+.tug-dash-lifecycle-line[data-size="read"] > .tug-dash-lifecycle-reading {
+  gap: var(--tug-space-xs);
 }
 
 /* @tug-renders-on var(--tug7-surface-global-primary-normal-default-rest) */
