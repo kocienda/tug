@@ -2,7 +2,7 @@
 
 *The macOS menu bar is a projection of the command registry. One TypeScript table states every user-invocable command — its title, how it dispatches, which menu item it drives, which chords it holds — and the host consumes that table as pushed data: enablement, check marks, dynamic titles, and key equivalents all arrive on one wire. Menu items act by sending control frames back into the web layer, never by mutating web state directly.*
 
-*Cross-references: [commands.md](commands.md) (the registry itself, the two funnels, and [L30] — read that before adding a menu item), [action-naming.md](action-naming.md) (the registry layer above the three-way classification), [responder-chain.md](responder-chain.md) (`validateAction` / `queryActionState`), [app-test-harness.md](app-test-harness.md) (`menuSnapshot` / `menuItemState`). `[L##]` → [tuglaws.md](tuglaws.md).*
+*Cross-references: [commands.md](commands.md) (the registry itself, the two funnels, and [L30] — read that before adding a menu item), [action-naming.md](action-naming.md) (the registry layer above the three-way classification), [responder-chain.md](responder-chain.md) (`validateAction` / `queryActionState`), [app-test-harness.md](app-test-harness.md) (`menuSnapshot` / `menuItemState`), [entity-presentation.md](entity-presentation.md) (what an entity IS, which the context-menu section below says what to DO with). `[L##]` → [tuglaws.md](tuglaws.md).*
 
 ---
 
@@ -366,6 +366,68 @@ Every command has several doors: a chord, a menu item, the palette, a control fr
 | `window.revealStack` | `reveal-stack` | first responder | registry gate |
 | `window.zoom` | `zoom-window` | AppKit performs it | host tier |
 <!-- /generated:catalog -->
+
+## Context menus — one entity, one menu
+
+*The rest of this document is about the menu bar, which is a projection of the command registry. A right-click menu is a projection of something else: the **thing under the pointer**. The rule that follows is what stops it being a projection of the surface that happened to draw it.*
+
+A right-click produces exactly one of three menus, and which one is decided by what the press landed on, never by which component owns the pixels:
+
+| The press landed on | The menu |
+|---|---|
+| an **entity** — an atom, or an annotated run of ink | the entity's items, from `lib/annotator/registry`, above the standard block when the surface has a selection |
+| **text** with no entity under it | the standard editing block alone (`text-editing-menu.ts`) |
+| **chrome** with neither | the "No Actions" fallback |
+
+Never the native browser menu — it reveals the web implementation.
+
+### The registry states the items; the surface states its facts
+
+`registry.ts` is the only place a kind's item list and its order are written. A surface never states items, and this is the whole of the discipline: a file path offered four items in the transcript and two in the Changes shade for as long as the shade was allowed to write its own list.
+
+What a surface *does* supply is `AnnotationMenuFacts` — the live things a payload cannot carry: which card already holds this session, whether another process has it, whether this commit row folds, whether the surface holds a whole commit record or only a sha. The facts are discriminated by kind, so a kind reads its own and narrows without a cast. Annotated ink and a placed atom pass `{ kind: "none" }` and get the items a payload alone can stand behind.
+
+**An item is offered only where it can be performed.** This is [L31] at the menu layer, and it is the reason the facts exist rather than a flag: a session's *Copy as Atom* is written from its identity record, so a surface holding only an id is not offered it. An item that dispatches into silence is worse than an absent one, because the press looked like it worked.
+
+The two reach each other through one typed action. `useAnnotationMenu` samples the press, asks the registry, and hands back both the items and the handlers a consumer folds into its own responder — so the composer, the transcript, the Overview and the shades run one body of code and cannot drift.
+
+### The order is fixed
+
+```
+[ Go to it ]        Open in Editor · Open Diff · Open Image · Show / Resume Session · Show in Finder
+────
+[ Act on it ]       Show / Hide Detail · Bind · Unbind · Discard · Replay
+────
+[ Copy it ]         Copy <Noun> · Copy as <Format>
+────
+[ Send it ]         Insert into Prompt
+────
+[ Standard block ]  Look Up · Cut · Copy · … · Select All
+```
+
+Reading down: reach the thing, act on it, take it, say something about it. A menu that opens with a rule suppresses it — whether an item leads depends on which earlier rows the surface's facts turned on, which the registry cannot know when it marks the rule.
+
+### Copy names its noun
+
+`Copy` alone belongs to the standard block, where the noun is *the selection* and the surface supplies it. An entity menu has no selection to mean, so every copy says what it copies: **Copy Path**, **Copy Link**, **Copy Address**, **Copy Commit Hash**, **Copy Session ID**, **Copy Command**.
+
+`Copy as <Format>` is the one other shape and it is reserved for a genuinely different **serialization of one entity** — *Copy as Atom* beside *Copy as Citation*, *Copy Command as Plain Text* beside *Copy Command*. Never a second entity, never a second field.
+
+`registry.test.ts` fails on a bare `Copy`, on a kind that offers no copy at all, and on a menu that opens with a rule.
+
+### The standard block appears iff the surface has a selection
+
+A **text surface** — transcript, prose, an editor, an input — appends the standard block below the entity items, so a right-click inside a selection keeps Copy and Select All.
+
+An **object** — a badge, a label, a chip, a row, a tile — omits it entirely. It holds no selection, so Cut, Paste and Select All have nothing to be about. They were once drawn dimmed on the theory that a familiar menu with three dead rows reads better than a short live one; it does not, and the flag that chose between the two shapes gave one kind of object a five-row menu and another a one-row menu on nothing but a call site's opt-in.
+
+The **replace** case is narrower and stays: a kind marked `wholeEntitySelection` (both command families) shows its items *instead of* the standard block, because a selection-scoped Copy beside Copy-the-command would copy whatever sub-word WebKit smart-selected.
+
+### What is deliberately not here
+
+- **A dash.** It appears only as a row, `dash-row-menu.tsx` is already its one definition, and a registry keyed by what ink and atoms carry is the wrong home for something no ink ever holds.
+- **`CommitShaText`'s single Copy.** The label *is* the clipboard spelling — see [entity-presentation.md](entity-presentation.md#an-atom-labels-itself-a-mention-is-labelled-by-its-sentence). That copy is the object's own, not a short commit menu.
+- **Chord hints on entity items.** A copyable's text is unselectable and ⌘C is routed natively to the DOM selection, so a chord hint there would advertise a key that does nothing. Hints belong to the standard block, where they are read from the live binding ([P11]).
 
 ## The clipboard exception — native re-dispatch, not a round-trip
 

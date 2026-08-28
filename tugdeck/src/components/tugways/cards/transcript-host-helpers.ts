@@ -28,6 +28,7 @@ import {
 } from "@/components/tugways/text-selection-adapter";
 import { transcriptMarkdownToHtml } from "@/lib/markdown/transcript-copy-html";
 import { clipboardOriginFor } from "@/lib/clipboard-origin";
+import { writeCopyClipboard } from "@/lib/copy-clipboard";
 import {
   hasNativeClipboardBridge,
   writeClipboardViaNative,
@@ -39,13 +40,8 @@ import {
 } from "@/components/tugways/tug-text-editor/clipboard-filters";
 import { atomTextClipboardPayload, formatAtomTextForCopy } from "@/lib/atom-text";
 import type { SelectionSubstrate } from "@/lib/markdown/serialize-selection";
-import { dispatchCommand } from "@/command-dispatch";
-import { revealDirectoryInFinder, revealPathInFinder } from "@/lib/os-open";
-import { openAttachmentPreview } from "@/lib/attachment-preview-open";
-import { useDeckManager } from "@/deck-manager-context";
 import { useCardId } from "@/components/tugways/use-card-state-preservation";
 import type { CodeSessionStore } from "@/lib/code-session-store";
-import { formatAtomLabel, type AtomSegment } from "@/lib/tug-atom-img";
 import type { AnnotationContext } from "@/lib/annotator/types";
 import { pathResolutionStore } from "@/lib/annotator/path-resolution";
 import { fileNameResolverFor } from "@/lib/annotator/file-name-resolution";
@@ -58,16 +54,10 @@ import { resolveSessionRef } from "@/lib/annotator/session-resolution";
 import { VerdictBatcher } from "@/lib/annotator/verdict-batching";
 import { sessionCitationStore } from "@/lib/session-citation-store";
 import { cardSessionBindingStore } from "@/lib/card-session-binding-store";
-import { annotationFromEvent } from "@/lib/annotator/annotation-element";
-import { annotationEntryFor } from "@/lib/annotator/registry";
-import {
-  annotationValue,
-  type AnnotationPayload,
-} from "@/lib/annotator/payloads";
 import type { ActionHandlerResult } from "@/components/tugways/responder-chain";
 import { useResponder } from "@/components/tugways/use-responder";
 import { useTextSurfaceContextMenu } from "@/components/tugways/use-text-surface-context-menu";
-import type { TugEditorContextMenuEntry } from "@/components/tugways/tug-editor-context-menu";
+import { useAnnotationMenu } from "@/components/tugways/use-annotation-menu";
 import { tugDevLogStore } from "@/lib/tug-dev-log-store/tug-dev-log-store";
 import type { SessionMetadataStore, SlashCommandInfo } from "@/lib/session-metadata-store";
 
@@ -306,83 +296,6 @@ export type CopyMarkdownResolver = (
   selection: Selection,
 ) => SelectionSubstrate | null;
 
-/**
- * Write a copied selection to the clipboard in both flavors ([P05]):
- * `text/plain` (markdown for plain paste targets) and, when an HTML
- * rendering is available, `text/html` (rich paste targets). Built and
- * issued synchronously inside the copy gesture so transient activation
- * still holds. Degrades to `writeText` when `ClipboardItem` / async
- * `clipboard.write` is unavailable or the dual-format write rejects, so
- * copy never silently produces nothing ([P07]).
- */
-function writeCopyClipboard(
-  plain: string,
-  html: string | null,
-  origin: string | null,
-  atoms: TugAtomsClipboardPayload | null,
-): void {
-  // Inside Tug.app the native bridge is the only write that can carry the
-  // sidecar — WebKit's pasteboard normalization swallows custom types, which
-  // is the whole reason the bridge exists — so a copy with atoms or provenance
-  // goes that way, carrying its html flavor along rather than losing it.
-  if (hasNativeClipboardBridge()) {
-    const sidecar = withClipboardOrigins(atoms, plain, origin);
-    if (
-      sidecar !== null &&
-      writeClipboardViaNative(plain, JSON.stringify(sidecar), html ?? undefined)
-    ) {
-      return;
-    }
-  }
-  const clip = navigator.clipboard;
-  if (clip === undefined || clip === null) return;
-  if (
-    html !== null &&
-    typeof ClipboardItem !== "undefined" &&
-    typeof clip.write === "function"
-  ) {
-    try {
-      const item = new ClipboardItem({
-        "text/plain": new Blob([plain], { type: "text/plain" }),
-        "text/html": new Blob([html], { type: "text/html" }),
-      });
-      void clip.write([item]).catch(() => {
-        void clip.writeText?.(plain);
-      });
-      return;
-    } catch {
-      // ClipboardItem construction or write threw synchronously —
-      // fall through to the plain-text path below.
-    }
-  }
-  void clip.writeText?.(plain);
-}
-
-/**
- * Escape the five HTML metacharacters so a command string can be embedded
- * in the `text/html` clipboard flavor as `<code>…</code>` without a stray
- * `<` or `&` in the command corrupting the markup.
- */
-function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
-
-/**
- * The canonical text of the annotation a menu handler was invoked for, or
- * `null` when the menu was not opened over one (or the payload carries
- * nothing to act on).
- */
-function sampledAnnotationValue(payload: AnnotationPayload | null): string | null {
-  if (payload === null) return null;
-  const value = annotationValue(payload);
-  return value === "" ? null : value;
-}
-
 /** What a transcript cell hands its context menu. */
 export interface TranscriptCellMenuOptions {
   /**
@@ -412,27 +325,20 @@ export function useTranscriptCellMenu({
 } {
   const bodyRef = useRef<HTMLElement | null>(null);
   const adapterRef = useRef<TextSelectionAdapter | null>(null);
-  // Insert into Prompt brings the annotation's own card forward before
-  // it types into it. Both come from context rather than props: every
-  // transcript cell already renders inside the deck and its card host, so
-  // threading them down through the cell tree would be ceremony.
-  const deck = useDeckManager();
-  const cardId = useCardId();
+  // The entity half of this cell's menu: the registry's per-kind items and
+  // the handlers they dispatch to, which read the annotation the press
+  // landed on rather than the cell's selection. Everything below is the
+  // surface half — the selection Copy and Select All, which are the cell's
+  // own and could not be shared.
+  const annotation = useAnnotationMenu({
+    originRef: bodyRef,
+    ...(codeSessionStore !== undefined ? { codeSessionStore } : {}),
+  });
   // Live-ref the resolver ([L07]) so `handleCopy` keeps a stable
   // identity while always invoking the latest closure (which captures
   // the current messages / store).
   const resolveCopyRef = useRef(resolveCopyMarkdown);
   resolveCopyRef.current = resolveCopyMarkdown;
-
-  // The annotation the current right-click landed on, sampled by
-  // `extraEntries` at menu-open time and read by the menu's handlers when
-  // the user picks an item. `null` when the right-click missed every
-  // annotation. Reading the annotation's own payload (not the DOM
-  // selection) is what makes a Copy copy the WHOLE value regardless of any
-  // sub-word WebKit smart-selected on the right-click. Menu-only: no
-  // keyboard path reads it, and every menu open refreshes it, so there is
-  // no stale-value risk.
-  const contextAnnotationRef = useRef<AnnotationPayload | null>(null);
 
   // Build the adapter once the body element is available. Re-runs
   // whenever the body element identity changes (rare for inline-rendered
@@ -619,166 +525,15 @@ export function useTranscriptCellMenu({
     };
   }, []);
 
-  // Copy the right-clicked command, code formatting preserved: the
-  // `text/plain` flavor is the command wrapped in Markdown backticks and
-  // the `text/html` flavor is a `<code>` element — mirroring how a copied
-  // transcript selection carries markdown + rendered HTML ([P05]). Reads
-  // the whole command from the annotation sampled at menu-open time, so it
-  // never narrows to a smart-selected sub-word. Synchronous (no
-  // continuation) so the clipboard write stays inside the activation
-  // gesture, like `handleCopy`.
-  const handleCopyCommand = useCallback((): ActionHandlerResult => {
-    const cmd = sampledAnnotationValue(contextAnnotationRef.current);
-    if (cmd === null) return;
-    writeCopyClipboard(
-      "`" + cmd + "`",
-      `<code>${escapeHtml(cmd)}</code>`,
-      clipboardOriginFor(bodyRef.current),
-      null,
-    );
-  }, []);
-
-  // Copy the right-clicked command as bare text — no backticks, no
-  // `text/html` flavor — the terminal-paste-friendly variant.
-  const handleCopyCommandPlain = useCallback((): ActionHandlerResult => {
-    const cmd = sampledAnnotationValue(contextAnnotationRef.current);
-    if (cmd === null) return;
-    writeCopyClipboard(cmd, null, clipboardOriginFor(bodyRef.current), null);
-  }, []);
-
-  // Copy the right-clicked annotation's canonical value as bare text — the
-  // URL, the address, the path. The kinds that route here have no code
-  // formatting to preserve, so there is no `text/html` flavor.
-  const handleCopyAnnotationValue = useCallback((): ActionHandlerResult => {
-    const value = sampledAnnotationValue(contextAnnotationRef.current);
-    if (value === null) return;
-    writeCopyClipboard(value, null, clipboardOriginFor(bodyRef.current), null);
-  }, []);
-
-  // Send the right-clicked annotation back into the conversation. Brings
-  // the card forward first, so the prompt it lands in is the one the user
-  // is looking at. Returns a continuation so the insert happens after the
-  // menu's activation blink, like Select All — the prompt takes the
-  // caret, and doing that mid-blink fights the menu's own teardown.
-  //
-  // A file goes in as an object: the same chip an `@` mention mints,
-  // carrying the canonical path as its value, so the prompt treats it as
-  // one thing to move, delete, or send rather than as a run of path
-  // characters. A cited line is deliberately dropped — an atom names a
-  // file, and `path:line` is not one. Every other kind goes in as its text.
-  const handleInsertIntoPrompt = useCallback((): ActionHandlerResult => {
-    const payload = contextAnnotationRef.current;
-    if (payload === null || codeSessionStore === undefined) return;
-    if (payload.kind === "file-path") {
-      const segment: AtomSegment = {
-        kind: "atom",
-        type: "file",
-        // The chip reads as a filename and carries the whole path
-        // underneath — the same split every other file chip in the app
-        // makes, and the reason one fits on a prompt line at all.
-        label: formatAtomLabel(payload.path, "filename"),
-        value: payload.path,
-      };
-      return () => {
-        if (cardId !== null) deck.activateCard(cardId);
-        codeSessionStore.insertAtomDraft(segment);
-      };
-    }
-    const value = sampledAnnotationValue(payload);
-    if (value === null) return;
-    return () => {
-      if (cardId !== null) deck.activateCard(cardId);
-      codeSessionStore.insertJot(value, null);
-    };
-  }, [cardId, codeSessionStore, deck]);
-
-  // Show in Finder for the right-clicked file annotation: the path comes
-  // from the annotation sampled at menu-open time. Open in Editor is NOT
-  // here — `open-file` is a chain-routed command the deck implements, and
-  // a handler on this cell would intercept every dispatch that reaches it
-  // (a click on a file reference among them) to answer one it can only
-  // service after a right-click. Its menu item carries the target as its
-  // own value instead, so it walks past this cell to the deck.
-  const handleRevealAnnotatedFile = useCallback((): ActionHandlerResult => {
-    const payload = contextAnnotationRef.current;
-    // Revealing a file opens the folder around it; a directory is already
-    // that folder, so the two take different routes to the same gesture.
-    if (payload?.kind === "file-path") revealPathInFinder(payload.path);
-    else if (payload?.kind === "directory") revealDirectoryInFinder(payload.path);
-  }, []);
-
-  const handleOpenAnnotatedDiff = useCallback((): ActionHandlerResult => {
-    const payload = contextAnnotationRef.current;
-    if (payload === null || payload.kind !== "commit-sha") return;
-    dispatchCommand(TUG_ACTIONS.OPEN_DIFF, {
-      descriptor: {
-        kind: "commit",
-        root: payload.root,
-        sha: payload.sha,
-        paths: payload.paths,
-      },
-    });
-  }, []);
-
-  const handleOpenImagePreview = useCallback((): ActionHandlerResult => {
-    const payload = contextAnnotationRef.current;
-    if (payload === null || payload.kind !== "image") return;
-    openAttachmentPreview(payload.atomId);
-  }, []);
-
   const responderId = useId();
   const { ResponderScope, responderRef } = useResponder({
     id: responderId,
     actions: {
+      ...annotation.actions,
       [TUG_ACTIONS.COPY]: handleCopy,
-      [TUG_ACTIONS.COPY_COMMAND]: handleCopyCommand,
-      [TUG_ACTIONS.COPY_COMMAND_AS_PLAIN_TEXT]: handleCopyCommandPlain,
-      [TUG_ACTIONS.COPY_ANNOTATION_VALUE]: handleCopyAnnotationValue,
-      [TUG_ACTIONS.INSERT_INTO_PROMPT]: handleInsertIntoPrompt,
-      [TUG_ACTIONS.REVEAL_IN_FINDER]: handleRevealAnnotatedFile,
-      [TUG_ACTIONS.OPEN_IMAGE_PREVIEW]: handleOpenImagePreview,
-      [TUG_ACTIONS.OPEN_DIFF]: handleOpenAnnotatedDiff,
       [TUG_ACTIONS.SELECT_ALL]: handleSelectAll,
     },
   });
-
-  // A right-click on an annotation samples its payload and offers the
-  // items its kind registers. Whether those items replace the standard
-  // text-menu block or sit below it is the kind's call
-  // (`suppressStandardItems`): a command replaces it, because a
-  // selection-scoped Copy beside Copy-the-command would copy whatever
-  // sub-word the browser smart-selected; a kind whose items don't collide
-  // appends, so a right-click inside a selection keeps Copy / Select All.
-  const extraEntries = useCallback(
-    (event: MouseEvent): TugEditorContextMenuEntry[] => {
-      const hit = annotationFromEvent(event);
-      contextAnnotationRef.current = hit?.payload ?? null;
-      if (hit === null) return [];
-      const entries =
-        annotationEntryFor(hit.payload.kind)?.menuEntries(hit.payload) ?? [];
-      // A surface with no live session can't seed a prompt, so it doesn't
-      // offer to.
-      return codeSessionStore === undefined
-        ? entries.filter((e) => e.action !== TUG_ACTIONS.INSERT_INTO_PROMPT)
-        : entries;
-    },
-    [codeSessionStore],
-  );
-
-  const hideStandardItems = useCallback((event: MouseEvent): boolean => {
-    const hit = annotationFromEvent(event);
-    if (hit === null) return false;
-    return annotationEntryFor(hit.payload.kind)?.suppressStandardItems ?? false;
-  }, []);
-
-  // A secondary click on a whole-entity annotation (a command) keeps its
-  // hands off the selection: the browser would smart-select a sub-word, and
-  // every item the menu is about to show acts on the entire command.
-  const suppressSelectionChange = useCallback((event: MouseEvent): boolean => {
-    const hit = annotationFromEvent(event);
-    if (hit === null) return false;
-    return annotationEntryFor(hit.payload.kind)?.wholeEntitySelection ?? false;
-  }, []);
 
   // The shared hook owns menuState, the contextmenu pipeline, and
   // the menu render. We feed it the adapter (read live from the ref
@@ -798,9 +553,9 @@ export function useTranscriptCellMenu({
     menu,
   } = useTextSurfaceContextMenu({
     adapterRef,
-    extraEntries,
-    hideStandardItems,
-    suppressSelectionChange,
+    extraEntries: annotation.extraEntries,
+    hideStandardItems: annotation.hideStandardItems,
+    suppressSelectionChange: annotation.suppressSelectionChange,
   });
 
   // The hook returns native-event handlers; the cell wires them

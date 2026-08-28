@@ -71,7 +71,6 @@ export function CommitShaText({
   const { composedRef, handleContextMenu, contextMenu } = useCopyableText({
     ref,
     getText: () => `commit:${sha.slice(0, SHA_DISPLAY_LEN)}`,
-    copyMenu: true,
     disabled: !menu,
   });
   return (

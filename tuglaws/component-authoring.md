@@ -1302,11 +1302,13 @@ The general framework focus axis (`data-tug-focus-key` / `data-tug-state-key`, t
 
 ### Context menus
 
-The browser's native context menu is suppressed app-wide. Every right-click produces one of:
-- A component-specific `TugEditorContextMenu` (selectable or copyable components)
-- The "No Actions" fallback menu (chrome)
+The browser's native context menu is suppressed app-wide. Every right-click produces one of three, decided by what the press landed on rather than by which component owns the pixels: the **entity's** items when it landed on an atom or an annotated run, the **standard editing block** when it landed on text with no entity under it, or the **"No Actions" fallback** when it landed on chrome with neither.
 
 Never let the native browser context menu appear — it reveals the web implementation.
+
+**Never state a menu's items in a component.** A file path, a session, a commit — every entity's list and its order live in `lib/annotator/registry`, and a component supplies only the live facts the payload cannot carry. Mount `useAnnotationMenu` and hand its three predicates to `useTextSurfaceContextMenu`; a component that writes its own list is how one entity comes to answer two menus. The full doctrine — the fixed order, the copy-noun vocabulary, and when the standard block appears at all — is [menus.md § Context menus](menus.md#context-menus--one-entity-one-menu).
+
+A component that is an **object** rather than a text surface (a badge, a label, a chip, a row, a tile) uses `useCopyableText`, which answers a single Copy. It has no selection, so it never shows Cut / Paste / Select All — not even dimmed.
 
 ### Cursors
 

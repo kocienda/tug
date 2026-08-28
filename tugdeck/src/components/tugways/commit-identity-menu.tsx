@@ -59,6 +59,8 @@ import {
   type TugEditorContextMenuEntry,
 } from "@/components/tugways/tug-editor-context-menu";
 import { useOptionalResponder } from "@/components/tugways/use-responder";
+import { entityMenuItems } from "@/components/tugways/entity-menu-items";
+import { annotationEntryFor } from "@/lib/annotator/registry";
 
 /** What the menu is offered for, and what each item has to write. */
 export interface CommitIdentityMenuOptions {
@@ -145,31 +147,25 @@ export function useCommitIdentityMenu({
   );
 
   const items = React.useMemo<TugEditorContextMenuEntry[]>(() => {
-    const entries: TugEditorContextMenuEntry[] = [];
-    if (folds) {
-      entries.push(
+    // The list and its order are the registry's, for every surface a commit
+    // appears on; this row's contribution is the facts a sha cannot carry —
+    // that it holds the whole record, how many paths it touched, and which
+    // way its fold would move.
+    const entries =
+      annotationEntryFor("commit-sha")?.menuEntries(
+        { kind: "commit-sha", sha: commit.sha, root: "", paths: [...paths] },
         {
-          action: TUG_ACTIONS.TOGGLE_COMMIT_DETAIL,
-          label: expanded === true ? "Hide Detail" : "Show Detail",
+          kind: "commit-sha",
+          ...(folds ? { expanded: expanded === true } : {}),
+          hasRecord: true,
+          pathCount: paths.length,
+          // A History row's own diff is the shade beneath it; the row does
+          // not open a second one from its menu.
+          canOpenDiff: false,
         },
-        { type: "separator" },
-      );
-    }
-    entries.push(
-      { action: TUG_ACTIONS.COPY_COMMIT_HASH, label: "Copy Commit Hash" },
-      { action: TUG_ACTIONS.COPY_COMMIT_SHORT_HASH, label: "Copy Short Hash" },
-      { action: TUG_ACTIONS.COPY_COMMIT_SUBJECT, label: "Copy Subject" },
-      { action: TUG_ACTIONS.COPY_COMMIT_MESSAGE, label: "Copy Message" },
-      { action: TUG_ACTIONS.COPY_COMMIT_RECORD, label: "Copy Commit Record" },
-      { type: "separator" },
-      {
-        action: TUG_ACTIONS.COPY_COMMIT_FILES,
-        label: "Copy Changed Files",
-        disabled: paths.length === 0,
-      },
-    );
-    return entries;
-  }, [folds, expanded, paths.length]);
+      ) ?? [];
+    return entityMenuItems(entries);
+  }, [commit.sha, folds, expanded, paths]);
 
   // Inside this hook's own ResponderScope, so the menu's targeted dispatch
   // lands on the responder above rather than on whatever surrounds the row.

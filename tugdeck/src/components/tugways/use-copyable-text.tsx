@@ -74,13 +74,6 @@ export interface UseCopyableTextOptions {
    * internal ref so both land on the same DOM element.
    */
   forwardedRef?: React.Ref<HTMLElement>;
-  /**
-   * When true, the context menu shows a single "Copy" entry instead
-   * of the four-item editor-style menu (Cut/Copy/Paste/Select All
-   * with only Copy enabled). Use for compact display chips like
-   * badges where the editor menu would be visually heavy.
-   */
-  copyMenu?: boolean;
 }
 
 export interface UseCopyableTextResult {
@@ -111,7 +104,6 @@ export function useCopyableText({
   write,
   disabled,
   forwardedRef,
-  copyMenu,
 }: UseCopyableTextOptions): UseCopyableTextResult {
   const manager = useResponderChain();
 
@@ -189,26 +181,21 @@ export function useCopyableText({
     [disabled, manager],
   );
 
-  // Read-only text: Copy is live, the editing verbs are shown dimmed so the
-  // menu reads as the familiar one rather than as a mystery with three rows
-  // missing.
+  // One item, because there is one act. A copyable is an OBJECT — a badge, a
+  // label, a chip — not a text surface: it holds no selection, so Cut, Paste
+  // and Select All have nothing to be about. They were shown here dimmed, on
+  // the theory that a familiar menu with three dead rows reads better than a
+  // short live one. It does not. A dead row is not information, and the same
+  // press on the same kind of object gave a five-row menu on a TugLabel and a
+  // one-row menu on a TugBadge purely because one had passed a flag.
   //
   // No chord hints. This text is deliberately unselectable, and ⌘C is routed
   // natively to WebKit's copy of the DOM SELECTION — so the chord cannot
   // reach these items, and a chip promising it would be advertising a key
   // that does nothing here. The menu is the whole affordance.
   const menuItems = useMemo<TugEditorContextMenuEntry[]>(
-    () =>
-      copyMenu
-        ? [{ action: TUG_ACTIONS.COPY_COPYABLE, label: "Copy" }]
-        : [
-            { action: TUG_ACTIONS.CUT, label: "Cut", disabled: true },
-            { action: TUG_ACTIONS.COPY_COPYABLE, label: "Copy" },
-            { action: TUG_ACTIONS.PASTE, label: "Paste", disabled: true },
-            { type: "separator" },
-            { action: TUG_ACTIONS.SELECT_ALL, label: "Select All", disabled: true },
-          ],
-    [copyMenu],
+    () => [{ action: TUG_ACTIONS.COPY_COPYABLE, label: "Copy" }],
+    [],
   );
 
   // Wrap the menu in this hook's ResponderScope so TugEditorContextMenu's
@@ -265,7 +252,6 @@ export function useCopyableButton(
     ref,
     getText: () => text,
     write,
-    copyMenu: true,
   });
   return { ref: composedRef, onContextMenu: handleContextMenu, contextMenu };
 }

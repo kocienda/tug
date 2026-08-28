@@ -67,6 +67,8 @@ import {
   type TugEditorContextMenuEntry,
 } from "@/components/tugways/tug-editor-context-menu";
 import { useOptionalResponder } from "@/components/tugways/use-responder";
+import { entityMenuItems } from "@/components/tugways/entity-menu-items";
+import { annotationEntryFor } from "@/lib/annotator/registry";
 import { CardIdContext } from "@/lib/card-id-context";
 import { useCardIdForSession } from "@/lib/card-session-binding-store";
 import { writeSessionAtomToClipboard } from "@/lib/session-atom";
@@ -257,52 +259,34 @@ export function useSessionIdentityMenu({
   );
 
   const items = React.useMemo<TugEditorContextMenuEntry[]>(() => {
-    const entries: TugEditorContextMenuEntry[] = [];
-    // Go to the session — a raise when a card holds it, a resume when none
-    // does. Absent on the session's own card and on a citation that resolves
-    // to nothing; see the module docblock.
-    if (identity.resolved && !isOwnCard) {
-      entries.push(
-        openCardId !== null
-          ? { action: TUG_ACTIONS.SHOW_SESSION, label: "Show Session" }
-          : {
-              action: TUG_ACTIONS.RESUME_SESSION,
-              label: "Resume Session",
-              // Held by another process, or the ledger has not answered yet —
-              // a resume with no project dir has no JSONL to point at.
-              disabled: heldElsewhere || projectDir.length === 0,
-            },
-        { type: "separator" },
-      );
-    }
-    entries.push(
-      {
-        action: TUG_ACTIONS.COPY_SESSION_ATOM,
-        label: "Copy as Atom",
-        disabled: !identity.resolved,
-      },
-      { action: TUG_ACTIONS.COPY_SESSION_CITATION, label: "Copy as Citation" },
-      { action: TUG_ACTIONS.COPY_SESSION_ID, label: "Copy Session ID" },
+    // The list and its order are the registry's, for every surface a session
+    // appears on; this row's contribution is the live facts an id cannot
+    // carry — which card holds it, whether another process does, and which
+    // of the two runs this surface has behind it at all.
+    //
+    // A citation the ledger cannot resolve names no session to go to, so it
+    // is given the facts of a session that is already here: no go-to row.
+    const entries =
+      annotationEntryFor("session")?.menuEntries(
+        { kind: "session", target: identity.id },
+        {
+          kind: "session",
+          openCardId,
+          isOwnCard: isOwnCard || !identity.resolved,
+          heldElsewhere,
+          projectDir,
+          ...(description !== undefined ? { description } : {}),
+          ...(activity !== undefined ? { activity } : {}),
+        },
+      ) ?? [];
+    // No prompt is in reach from a row's menu, and an unresolved citation has
+    // no session to mint an atom for.
+    return entityMenuItems(entries, (e) =>
+      e.action === TUG_ACTIONS.INSERT_INTO_PROMPT ||
+      (e.action === TUG_ACTIONS.COPY_SESSION_ATOM && !identity.resolved),
     );
-    if (description !== undefined || activity !== undefined) {
-      entries.push({ type: "separator" });
-    }
-    if (description !== undefined) {
-      entries.push({
-        action: TUG_ACTIONS.COPY_SESSION_DESCRIPTION,
-        label: "Copy Description",
-        disabled: descriptionText.length === 0,
-      });
-    }
-    if (activity !== undefined) {
-      entries.push({
-        action: TUG_ACTIONS.COPY_SESSION_ACTIVITY,
-        label: "Copy Activity Line",
-        disabled: activityText.length === 0,
-      });
-    }
-    return entries;
   }, [
+    identity.id,
     identity.resolved,
     isOwnCard,
     openCardId,
@@ -310,8 +294,6 @@ export function useSessionIdentityMenu({
     projectDir,
     description,
     activity,
-    descriptionText,
-    activityText,
   ]);
 
   // Inside this hook's own ResponderScope, so the menu's targeted dispatch

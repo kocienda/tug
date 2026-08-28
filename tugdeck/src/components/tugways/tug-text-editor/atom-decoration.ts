@@ -42,6 +42,9 @@ import {
   type AtomSegment,
 } from "@/lib/tug-atom-img";
 import type { AtomBytesStore } from "@/lib/atom-bytes-store";
+import type { AtomPathRoots } from "@/lib/atom-file-path";
+import { stampAnnotation } from "@/lib/annotator/annotation-element";
+import { payloadForAtom } from "@/lib/annotator/payloads";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -79,6 +82,30 @@ export interface PositionedAtom {
 export const atomBytesStoreFacet = Facet.define<
   () => AtomBytesStore | null,
   () => AtomBytesStore | null
+>({
+  combine: (values) => (values.length > 0 ? values[0]! : () => null),
+});
+
+/**
+ * CM6 facet exposing the roots a relative atom value may be resolved
+ * against, so a widget can stamp the annotation contract on the chip it
+ * mounts.
+ *
+ * A `file` or `directory` atom minted by an `@` mention carries a value the
+ * file index reported relative to the project root, and an annotation's
+ * payload is an *openable* target — so the payload cannot be built without
+ * the roots. They are carried as a thunk, and read at `toDOM`, for the same
+ * reason the bytes store is ([L07]): the card's binding and the session's
+ * cwd both arrive after mount, and a snapshot taken at construction would
+ * leave every atom placed before the first turn stamped with nothing.
+ *
+ * An editor that registers no roots still stamps the kinds that need none —
+ * a link atom, a pasted image — because `payloadForAtom` refuses only the
+ * relative path it cannot address.
+ */
+export const atomPathRootsFacet = Facet.define<
+  () => AtomPathRoots | null,
+  () => AtomPathRoots | null
 >({
   combine: (values) => (values.length > 0 ? values[0]! : () => null),
 });
@@ -147,12 +174,25 @@ export class AtomWidget extends WidgetType {
         pending = true;
       }
     }
-    return createAtomImgElement(
+    const img = createAtomImgElement(
       this.segment.type,
       this.segment.label,
       this.segment.value,
       { id: this.segment.id, pending },
     );
+    // The chip carries the annotation contract, so one right-click path
+    // serves the composer and the transcript alike: `annotationFromEvent`
+    // reads a real payload back off this element, and the registry decides
+    // what a file / directory / image / link atom offers. Unguarded, because
+    // an atom in an editor is a manipulable object — the guard's
+    // `preventDefault` on mousedown is also what begins a selection, and a
+    // chip that cannot be selected cannot be deleted where it sits.
+    const payload = payloadForAtom(
+      this.segment,
+      view.state.facet(atomPathRootsFacet)() ?? undefined,
+    );
+    if (payload !== null) stampAnnotation(img, payload, { guardPress: false });
+    return img;
   }
 
   override ignoreEvent(): boolean {

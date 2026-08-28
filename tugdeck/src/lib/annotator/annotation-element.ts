@@ -51,6 +51,14 @@ export interface StampOptions {
  * Mark `element` as an annotation carrying `payload`. Idempotent: the
  * dataset is synced, not merely added, so an element that changed kind
  * sheds the keys of the kind it left behind.
+ *
+ * **The shed only runs over an element that already carried an annotation.**
+ * An element with no `data-tug-annotation` has no previous kind, so there is
+ * nothing of this contract's to clear — and clearing anyway would reach past
+ * this contract into whatever else the element's dataset holds. Two of these
+ * keys (`atomId`, `atomLabel`) are spelled the same as the attributes an atom
+ * chip carries in its own right, so a first stamp onto a chip used to delete
+ * the label the chip is drawn and found by.
  */
 export function stampAnnotation(
   element: HTMLElement,
@@ -58,8 +66,10 @@ export function stampAnnotation(
   options: StampOptions = {},
 ): void {
   const next: AnnotationDataset = datasetForPayload(payload);
-  for (const key of ANNOTATION_DATASET_KEYS) {
-    if (next[key] === undefined) delete element.dataset[key];
+  if (element.dataset.tugAnnotation !== undefined) {
+    for (const key of ANNOTATION_DATASET_KEYS) {
+      if (next[key] === undefined) delete element.dataset[key];
+    }
   }
   element.classList.add(ANNOTATION_CLASS);
   element.dataset.tugAnnotation = payload.kind;

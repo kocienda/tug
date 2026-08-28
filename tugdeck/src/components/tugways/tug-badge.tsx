@@ -196,14 +196,13 @@ export const TugBadge = React.forwardRef<HTMLSpanElement, TugBadgeProps>(
         : style;
 
     // Badges are copyable — right-click → Copy copies the badge's
-    // text content. Intrinsic, not opt-in. `copyMenu` keeps the menu
-    // to a single Copy entry, matching the compact pill shape.
+    // text content. Intrinsic, not opt-in, and a single Copy — the menu
+    // every copyable object answers.
     const badgeRef = useRef<HTMLSpanElement | null>(null);
     const copyable = useCopyableText({
       ref: badgeRef as React.MutableRefObject<HTMLElement | null>,
       forwardedRef: ref as React.Ref<HTMLElement>,
       getText: copyText !== undefined ? () => copyText : undefined,
-      copyMenu: true,
     });
 
     // Inner content: two-line layouts wrap the caption + value in a

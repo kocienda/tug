@@ -40,6 +40,11 @@
  * @covers tugdeck/styles/tug-annotation.css
  * @covers tugdeck/src/components/tugways/tug-markdown-view.css
  * @covers tugdeck/src/components/tugways/cards/transcript-host-helpers.ts
+ * @covers tugdeck/src/components/tugways/use-annotation-menu.tsx
+ * @covers tugdeck/src/components/tugways/entity-menu-items.ts
+ * @covers tugdeck/src/lib/copy-clipboard.ts
+ * @covers tugdeck/src/components/tugways/tug-text-editor/atom-decoration.ts
+ * @covers tugdeck/src/lib/annotator/annotation-element.ts
  * @covers tugdeck/src/components/tugways/use-text-surface-context-menu.tsx
  * @covers tugdeck/src/components/tugways/tug-prompt-entry.tsx
  * @covers tugdeck/src/lib/code-session-store.ts

@@ -114,6 +114,7 @@ import { sessionNameStore } from "@/lib/session-name-store";
 import { subscribeThemeChange, unsubscribeThemeChange } from "@/theme-tokens";
 import type { AtomSegment } from "@/lib/tug-atom-img";
 import type { AtomBytesStore } from "@/lib/atom-bytes-store";
+import type { AtomPathRoots } from "@/lib/atom-file-path";
 import type { HistoryProvider, InputAction } from "@/lib/tug-text-types";
 import {
   hasNativeClipboardBridge,
@@ -125,6 +126,7 @@ import { hostFocusMirror } from "./tug-text-editor/host-state";
 import { hostClickToCaret } from "./tug-text-editor/host-click";
 import {
   atomBytesStoreFacet,
+  atomPathRootsFacet,
   atomDecorationField,
   atomInvertedEffects,
   getAtomsInRange,
@@ -195,6 +197,7 @@ import { tugDevLogStore } from "@/lib/tug-dev-log-store/tug-dev-log-store";
 import { getDeckStore } from "@/lib/deck-store-registry";
 import { selectionGuard } from "./selection-guard";
 import { useTextSurfaceContextMenu } from "./use-text-surface-context-menu";
+import { useAnnotationMenu } from "./use-annotation-menu";
 import { useCardId } from "./use-card-state-preservation";
 import { useCompanionPopupBinding } from "./use-companion-popup-binding";
 import { useOptionalResponder } from "./use-responder";
@@ -680,14 +683,16 @@ export interface TugTextEditorProps
    */
   inlineCommandMatcher?: InlineCommandMatcher;
   /**
-   * Resolver turning a `file` atom's stored value into the absolute path
-   * "Open in Editor" should open. An `@` mention carries the path the file
-   * index handed it — relative to the project root, not to `/` — and the
-   * open handler takes absolute paths only, so a host that knows the root
-   * supplies the join here. Omitted (gallery / standalone) ⇒ the atom's
-   * value is dispatched as written.
+   * The roots a relative atom value is addressed against, read live at the
+   * moment an atom is mounted. An `@` mention carries the path the file index
+   * handed it — relative to the project root, not to `/` — and every gesture
+   * on the atom (its menu's Open in Editor, its Show in Finder, its Copy
+   * Path) speaks absolute only, so a host that knows the roots supplies them
+   * here and the atom is stamped with an openable target. Omitted (gallery /
+   * standalone) ⇒ a relative atom carries no annotation and offers no menu,
+   * which is the honest reading of a path nothing can address.
    */
-  resolveAtomPath?: (value: string) => string;
+  atomPathRoots?: () => AtomPathRoots | null;
   /**
    * Preferred direction for the completion popup relative to the
    * trigger character. `"down"` (default) places the popup below the
@@ -1089,6 +1094,7 @@ function buildExtensions(
   getCompletionProviders: () => Record<string, CompletionProvider>,
   getDropHandler: () => DropHandler | null,
   getBytesStore: () => AtomBytesStore | null,
+  getAtomPathRoots: () => AtomPathRoots | null,
   getArgumentHintResolver: () => ArgumentHintResolver,
   getArgumentHintRefresh: () => ArgumentHintRefreshSource | null,
   getInlineCommandMatcher: () => InlineCommandMatcher,
@@ -1245,6 +1251,9 @@ function buildExtensions(
     // for skeleton atoms (drop / paste inserted them synchronously
     // before the async byte-fill completed).
     atomBytesStoreFacet.of(getBytesStore),
+    // Path-roots facet — read by `AtomWidget.toDOM` so the chip it mounts
+    // can be stamped with an annotation payload naming a real target.
+    atomPathRootsFacet.of(getAtomPathRoots),
     // Subscribes to the bytes-store; on bytes-arrival, walks atom
     // widgets in `view.contentDOM` and toggles `data-pending` via
     // direct DOM mutation ([L06]). No-op when no bytes-store is
@@ -1347,7 +1356,7 @@ export const TugTextEditor = React.forwardRef<TugTextEditorDelegate, TugTextEdit
       argumentHintRefresh,
       pastedCommandResolver,
       inlineCommandMatcher,
-      resolveAtomPath,
+      atomPathRoots,
       completionDirection = "down",
       onTypeaheadChange,
       dropHandler,
@@ -1664,6 +1673,17 @@ export const TugTextEditor = React.forwardRef<TugTextEditorDelegate, TugTextEdit
     useLayoutEffect(() => {
       attachmentBytesStoreRef.current = attachmentBytesStore ?? null;
     }, [attachmentBytesStore]);
+
+    // Live path-roots ref, on the same terms and for the same reason: the
+    // card's project binding and the session's cwd both land after mount,
+    // and an atom mounted before them still has to be stamped with an
+    // openable target when they arrive ([L07]).
+    const atomPathRootsRef = useRef<(() => AtomPathRoots | null) | undefined>(
+      atomPathRoots,
+    );
+    useLayoutEffect(() => {
+      atomPathRootsRef.current = atomPathRoots;
+    }, [atomPathRoots]);
 
     const onAttachmentErrorRef = useRef<(message: string) => void>(
       onAttachmentError ?? (() => undefined),
@@ -2096,39 +2116,25 @@ export const TugTextEditor = React.forwardRef<TugTextEditorDelegate, TugTextEdit
       cmAdapterRef.current = view !== null ? createCMSelectionAdapter(view) : null;
     }, [view]);
 
+    // The entity half of this editor's menu. No `codeSessionStore`, and that
+    // is the honest answer rather than an omission: this editor IS the
+    // prompt, so an Insert into Prompt over an atom already sitting in it
+    // would offer to put a thing where it already is. The hook drops the
+    // item when no store is given.
+    const annotation = useAnnotationMenu({ originRef: hostRef });
+
     const {
       onContextMenu: onContextMenuOpen,
       menu: contextMenu,
     } = useTextSurfaceContextMenu({
       adapterRef: cmAdapterRef,
-      // Target-dependent extras: a right-click on a path-bearing atom
-      // chip (`<img data-atom-type="file">`) offers "Open in Editor",
-      // jumping straight from a prompt mention to the Text card.
-      extraEntries: (event) => {
-        const target = event.target;
-        if (!(target instanceof Element)) return [];
-        const img = target.closest("img[data-atom-type]");
-        if (img === null) return [];
-        const type = img.getAttribute("data-atom-type");
-        const value = img.getAttribute("data-atom-value");
-        if (type !== "file" || value === null || value === "") return [];
-        // An `@` mention's value is whatever the file index handed it —
-        // `dash/kbf-mode.md`, relative to the project root — and the
-        // open handler resolves nothing: a relative path reaches the file
-        // service as written and comes back `bad_path`. The host's
-        // resolver knows the root the mention was written against, so the
-        // join happens here and an absolute path is what rides the item.
-        const path = resolveAtomPath?.(value) ?? value;
-        // The path rides on the item, so the dispatch walks past this
-        // editor to the deck's open-file handler.
-        return [
-          {
-            action: TUG_ACTIONS.OPEN_FILE,
-            label: "Open in Editor",
-            value: { path },
-          },
-        ];
-      },
+      // The entity items come from the registry, keyed off the annotation
+      // `AtomWidget.toDOM` stamped on the chip — so a right-click on a file
+      // atom in the composer offers what a right-click on a file path in the
+      // transcript offers, and neither surface states the list.
+      extraEntries: annotation.extraEntries,
+      hideStandardItems: annotation.hideStandardItems,
+      suppressSelectionChange: annotation.suppressSelectionChange,
     });
 
     // Attach the contextmenu listener only when the click lands inside the
@@ -2506,6 +2512,11 @@ export const TugTextEditor = React.forwardRef<TugTextEditorDelegate, TugTextEdit
     // (next to `viewRef`) so `useImperativeHandle`'s focus closure
     // can reference it; the registration here uses the same id.
     const actions: Partial<Record<TugAction, ActionHandler>> = {
+      // The entity half — Copy Path, Show in Finder, Open Diff, Open Image —
+      // acting on the atom the right-click landed on rather than on the
+      // selection. First in the literal, so a surface verb below can never be
+      // shadowed by one of these silently.
+      ...annotation.actions,
       [TUG_ACTIONS.SELECT_ALL]: handleSelectAll,
       [TUG_ACTIONS.UNDO]: handleUndo,
       [TUG_ACTIONS.REDO]: handleRedo,
@@ -2645,6 +2656,7 @@ export const TugTextEditor = React.forwardRef<TugTextEditorDelegate, TugTextEdit
           () => completionProvidersRef.current,
           () => dropHandlerRef.current,
           () => attachmentBytesStoreRef.current,
+          () => atomPathRootsRef.current?.() ?? null,
           () => (value: string) => argumentHintResolverRef.current(value),
           () => argumentHintRefreshRef.current,
           () => (query: string) => inlineCommandMatcherRef.current(query),

@@ -51,12 +51,12 @@ import { CornerDownLeft, CornerUpRight, SquareArrowOutUpRight } from "lucide-rea
 import { dispatchCommand } from "@/command-dispatch";
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 import { TugCheckbox } from "@/components/tugways/tug-checkbox";
-import { TugContextMenu } from "@/components/tugways/tug-context-menu";
 import { useAnnotationScope } from "@/components/tugways/annotation-scope";
-import {
-  clearAnnotation,
-  stampAnnotation,
-} from "@/lib/annotator/annotation-element";
+import { useAnnotationMenu } from "@/components/tugways/use-annotation-menu";
+import { useTextSurfaceContextMenu } from "@/components/tugways/use-text-surface-context-menu";
+import { useOptionalResponder } from "@/components/tugways/use-responder";
+import { annotationFromEvent } from "@/lib/annotator/annotation-element";
+import { stampAnnotation } from "@/lib/annotator/annotation-element";
 import { TugListRow } from "@/components/tugways/tug-list-row";
 import { TugPushButton } from "@/components/tugways/tug-push-button";
 import { useResponderForm } from "@/components/tugways/use-responder-form";
@@ -167,11 +167,12 @@ function FilePathLink({
 
   // Inside the transcript a file reference has a HOST: one delegated click
   // listener and one context-menu provider that serve every annotation,
-  // whatever surface produced it ([P05] the annotation registry). A row
-  // rendered there is ink like any other, so it hands its path to that host
-  // rather than keeping a private two-item menu beside the four-item one a
-  // path in prose gets. Outside a scope — the Changes shade, the History
-  // shade — there is no host, and the row serves its own gestures.
+  // whatever surface produced it ([P05] the annotation registry). A row is
+  // stamped wherever it is drawn, because the stamp IS the row's answer to
+  // "what is this?" — the shades sample it through `TugChangesList`'s own
+  // menu, the Overview through its cell's. What the scope still decides is
+  // the CLICK: under a host the delegated listener opens the file, and acting
+  // here as well would open it twice.
   const annotationHost = useAnnotationScope() !== null;
 
   const { onMouseDown: handleMouseDown, draggedSincePress } = usePressTracker();
@@ -182,16 +183,12 @@ function FilePathLink({
   useLayoutEffect(() => {
     const el = stampRef.current;
     if (el === null) return;
-    if (!annotationHost) {
-      clearAnnotation(el);
-      return;
-    }
     // `guardPress: false` — the stamp's press guard preventDefaults the
     // mousedown, which is also what begins a text selection. A path in prose
     // wants that guard; a row's path is a whole element the reader sweeps to
     // copy, and the row's surface owns its focus policy.
     stampAnnotation(el, { kind: "file-path", path: absolutePath }, { guardPress: false });
-  }, [annotationHost, absolutePath]);
+  }, [absolutePath]);
 
   const handleClick = useCallback(
     (event: React.MouseEvent) => {
@@ -251,27 +248,13 @@ function FilePathLink({
     </TugTooltip>
   );
 
-  // Under a host the menu comes from the host, built from the registry for
-  // whatever kind the gesture landed on — the same Open in Editor / Show in
-  // Finder / Copy Path / Insert into Prompt over the standard editing block
-  // a file reference in prose offers. A second menu here would be the two
-  // popups over one press this surface used to show.
-  if (annotationHost) return hovered;
-
-  return (
-    <TugContextMenu<string>
-      items={[
-        { action: TUG_ACTIONS.OPEN_FILE, value: absolutePath, label: "Open in Editor" },
-        { action: TUG_ACTIONS.REVEAL_IN_FINDER, value: absolutePath, label: "Show in Finder" },
-      ]}
-    >
-      {/* A box-less anchor, because two Radix `asChild` slots cannot nest: the
-          menu's trigger has to clone a DOM element, and the tooltip is a
-          component. `display: contents` means the path span stays the flex
-          item that elides it, so the anchor costs no layout. */}
-      <span className="tug-changes-list-file-path-menu">{hovered}</span>
-    </TugContextMenu>
-  );
+  // The menu comes from whichever surface hosts this row, built from the
+  // registry for the kind the gesture landed on — the same Open in Editor /
+  // Show in Finder / Copy Path a file reference in prose offers. The row is
+  // stamped either way (above); the host samples the stamp. A menu here as
+  // well would be the two popups over one press this surface used to show,
+  // and a shorter list than the one the same file answers everywhere else.
+  return hovered;
 }
 
 export function PopOutDiffButton({
@@ -1207,10 +1190,45 @@ export function TugChangesList({
   onElectHunks,
   className,
 }: TugChangesListProps): React.ReactElement {
+  // The shades are the surface a changes row's file reference is hosted by:
+  // the rows stamp themselves, this samples the stamp, and the registry says
+  // what a file offers — the same Open in Editor / Show in Finder / Copy Path
+  // the same file answers in transcript prose. Before this the row carried a
+  // two-item menu of its own, so one file had a four-item menu in one place
+  // and a two-item menu in another.
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const annotation = useAnnotationMenu({ originRef: rootRef });
+  const responderId = React.useId();
+  const { ResponderScope, responderRef } = useOptionalResponder({
+    id: responderId,
+    actions: annotation.actions,
+  });
+  const { onMouseDown, onContextMenu, menu } = useTextSurfaceContextMenu({
+    adapterRef: null,
+    extraEntries: annotation.extraEntries,
+    hideStandardItems: annotation.hideStandardItems,
+    suppressSelectionChange: annotation.suppressSelectionChange,
+  });
+  // Only a press that landed on a stamped reference opens this menu. A press
+  // on the list's own chrome carries no entity, and answering it with an
+  // entity menu's empty shell would be worse than the fallback it falls
+  // through to ([L31] — the refusal is the fallback's, and it is visible).
+  const handleContextMenu = useCallback(
+    (event: React.MouseEvent): void => {
+      if (annotationFromEvent(event.nativeEvent) === null) return;
+      event.stopPropagation();
+      onContextMenu(event.nativeEvent);
+    },
+    [onContextMenu],
+  );
   return (
+   <ResponderScope>
     <div
+      ref={responderRef as (node: HTMLDivElement | null) => void}
       className={className !== undefined ? `tug-changes-list ${className}` : "tug-changes-list"}
       data-slot="tug-changes-list"
+      onContextMenu={handleContextMenu}
+      onMouseDown={(event) => onMouseDown(event.nativeEvent)}
     >
       {entries.map((entry) => {
         const label =
@@ -1326,7 +1344,9 @@ export function TugChangesList({
           </React.Fragment>
         );
       })}
+      {menu}
     </div>
+   </ResponderScope>
   );
 }
 

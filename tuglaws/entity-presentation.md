@@ -138,7 +138,7 @@ The counter-evidence, recorded so it is not re-discovered as an objection: we al
 
 ## Behavior is not presentation
 
-`tugdeck/src/lib/annotator/registry.ts` owns what a gesture *does*: nine kinds, one delegated listener, one context-menu provider. A file path opens in a Text card whatever painted it. None of the above changes any of that, and a presentation change that needs to touch `registry.ts` is a sign the change is not a presentation change.
+`tugdeck/src/lib/annotator/registry.ts` owns what a gesture *does*: nine kinds, one delegated listener, one context-menu provider. A file path opens in a Text card whatever painted it, and answers one menu wherever it is shown — the grammar of that menu, and the rule that a surface supplies facts rather than items, is [menus.md](menus.md#context-menus--one-entity-one-menu). None of the above changes any of that, and a presentation change that needs to touch `registry.ts` is a sign the change is not a presentation change.
 
 The read-only skin has two stamping modes for exactly this reason. It stamps the annotation contract on itself where nothing else does (tool headers, pulse beats), and stamps nothing where a host already owns the contract — the Overview's wrapper span, which also owns the pending and unresolvable tooltip states, and `CommitShaText`, which owns every pointer gesture on a sha so a right-click cannot fold the History row out from under its own menu.
 

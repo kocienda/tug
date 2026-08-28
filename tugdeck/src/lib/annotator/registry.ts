@@ -57,7 +57,64 @@ export interface AnnotationMenuEntry {
    * instead of stopping at a host that only knows how to re-send it.
    */
   value?: unknown;
+  /**
+   * Present but non-interactive. An item a surface cannot perform *right
+   * now* is dimmed rather than dropped: a menu whose height changes with
+   * the entity's state is a menu whose items move under the pointer
+   * between one right-click and the next. An item a surface can never
+   * perform is absent instead, which is a different thing — what stays
+   * constant per surface is the menu, and a permanently dead row is not
+   * information.
+   */
+  disabled?: boolean;
+  /** Rule above this item. Separators carry no action and no label. */
+  separatorBefore?: boolean;
 }
+
+/**
+ * The live facts a surface knows that an annotation payload cannot carry.
+ *
+ * A payload is what survived a trip through the DOM: a sha, a session id, a
+ * path. Whether a card already holds that session, whether another process
+ * has it, whether this row's detail is folded — none of that is a property
+ * of the entity, and all of it decides what the menu may offer. So the
+ * surface supplies it, and the registry stays the only place the item list
+ * and its order are stated.
+ *
+ * Discriminated by kind so a kind reads only its own facts, and narrows
+ * them without a cast. `{ kind: "none" }` is what the annotation path
+ * passes: transcript ink and a composer atom know the entity and nothing
+ * else about it, and every kind answers that with the items it can stand
+ * behind knowing only the payload.
+ */
+export type AnnotationMenuFacts =
+  | { kind: "none" }
+  | {
+      kind: "session";
+      /** The card already showing this session, when one is. */
+      openCardId: string | null;
+      /** This menu is mounted in the session's own card — nothing to raise. */
+      isOwnCard: boolean;
+      /** Another process holds it; a resume would be a second claim. */
+      heldElsewhere: boolean;
+      /** The project a resume needs; empty until the ledger answers. */
+      projectDir: string;
+      /** The full description, `undefined` on a surface that carries none. */
+      description?: string | null;
+      /** The newest beat, `undefined` on a surface with no activity feed. */
+      activity?: string | null;
+    }
+  | {
+      kind: "commit-sha";
+      /** The row folds, and the item states which way it would move. */
+      expanded?: boolean;
+      /** The surface holds the subject, message and roster, not just a sha. */
+      hasRecord: boolean;
+      /** How many paths the commit touched, as the surface knows them. */
+      pathCount: number;
+      /** The surface can open a diff scoped to this commit. */
+      canOpenDiff: boolean;
+    };
 
 /**
  * What a registry handler is allowed to reach. Deliberately narrow: the
@@ -83,8 +140,15 @@ export interface AnnotationKindEntry {
    * is already correct (anchors).
    */
   primaryClick?: (payload: AnnotationPayload, ctx: AnnotationDispatchContext) => void;
-  /** Context-menu items offered for an annotation of this kind. */
-  menuEntries: (payload: AnnotationPayload) => AnnotationMenuEntry[];
+  /**
+   * Context-menu items offered for an annotation of this kind, in the order
+   * they are shown. `facts` carries what the surface knows and the payload
+   * cannot; a kind that varies on nothing ignores it.
+   */
+  menuEntries: (
+    payload: AnnotationPayload,
+    facts: AnnotationMenuFacts,
+  ) => AnnotationMenuEntry[];
   /**
    * Whether a menu hit on this kind replaces the standard text-menu block
    * rather than appending below it.
@@ -150,12 +214,18 @@ const INSERT_ENTRY: AnnotationMenuEntry = {
   label: "Insert into Prompt",
 };
 
-/** Copy / Copy as Plain Text — the pair both command families offer. */
+/**
+ * The pair both command families offer, and they name the noun like every
+ * other kind's copy. A bare `Copy` is the standard editing block's word for
+ * "the selection", and a command's menu replaces that block rather than
+ * sitting beside it — so the two never appear together, but naming the noun
+ * is what keeps one rule instead of one rule and an exception.
+ */
 const COMMAND_MENU_ENTRIES: AnnotationMenuEntry[] = [
-  { action: TUG_ACTIONS.COPY_COMMAND, label: "Copy" },
+  { action: TUG_ACTIONS.COPY_COMMAND, label: "Copy Command" },
   {
     action: TUG_ACTIONS.COPY_COMMAND_AS_PLAIN_TEXT,
-    label: "Copy as Plain Text",
+    label: "Copy Command as Plain Text",
   },
   INSERT_ENTRY,
 ];
@@ -261,11 +331,62 @@ const IMAGE_MENU_ENTRIES: AnnotationMenuEntry[] = [
   INSERT_ENTRY,
 ];
 
-const COMMIT_SHA_MENU_ENTRIES: AnnotationMenuEntry[] = [
-  { action: TUG_ACTIONS.OPEN_DIFF, label: "Open Diff" },
-  { action: TUG_ACTIONS.COPY_ANNOTATION_VALUE, label: "Copy Commit Hash" },
-  INSERT_ENTRY,
-];
+/**
+ * A commit's menu — the same list wherever a commit is shown, with the rows
+ * a surface cannot fill left out rather than dimmed forever.
+ *
+ * Transcript ink and a receipt header know a sha and nothing else, so they
+ * get the three items a sha can stand behind. A History row holds the whole
+ * record — the subject, the message, the roster — and its facts say so, which
+ * is what turns on the six copies of facts nothing on screen shows. The fold
+ * leads when the row has one, named in the direction it will move, so the
+ * menu never asks the reader to recall the row's state.
+ */
+function commitMenuEntries(
+  _payload: AnnotationPayload,
+  facts: AnnotationMenuFacts,
+): AnnotationMenuEntry[] {
+  const known = facts.kind === "commit-sha" ? facts : null;
+  const entries: AnnotationMenuEntry[] = [];
+  if (known?.expanded !== undefined) {
+    entries.push({
+      action: TUG_ACTIONS.TOGGLE_COMMIT_DETAIL,
+      label: known.expanded ? "Hide Detail" : "Show Detail",
+    });
+  }
+  // A sha alone can always open its diff; a surface that says it cannot —
+  // a commit with no repository behind it — drops the row.
+  if (known === null || known.canOpenDiff) {
+    entries.push({
+      action: TUG_ACTIONS.OPEN_DIFF,
+      label: "Open Diff",
+      ...(entries.length > 0 ? { separatorBefore: true } : {}),
+    });
+  }
+  if (known?.hasRecord === true) {
+    entries.push(
+      { action: TUG_ACTIONS.COPY_COMMIT_HASH, label: "Copy Commit Hash", separatorBefore: true },
+      { action: TUG_ACTIONS.COPY_COMMIT_SHORT_HASH, label: "Copy Short Hash" },
+      { action: TUG_ACTIONS.COPY_COMMIT_SUBJECT, label: "Copy Subject" },
+      { action: TUG_ACTIONS.COPY_COMMIT_MESSAGE, label: "Copy Message" },
+      { action: TUG_ACTIONS.COPY_COMMIT_RECORD, label: "Copy Commit Record" },
+      {
+        action: TUG_ACTIONS.COPY_COMMIT_FILES,
+        label: "Copy Changed Files",
+        separatorBefore: true,
+        disabled: known.pathCount === 0,
+      },
+    );
+    return entries;
+  }
+  entries.push({
+    action: TUG_ACTIONS.COPY_ANNOTATION_VALUE,
+    label: "Copy Commit Hash",
+    ...(entries.length > 0 ? { separatorBefore: true } : {}),
+  });
+  entries.push(INSERT_ENTRY);
+  return entries;
+}
 
 registerAnnotationKind("commit-sha", {
   // The sha was verified by asking the repository which files the commit
@@ -282,14 +403,84 @@ registerAnnotationKind("commit-sha", {
       },
     });
   },
-  menuEntries: () => COMMIT_SHA_MENU_ENTRIES,
+  menuEntries: commitMenuEntries,
   suppressStandardItems: false,
 });
 
-const SESSION_MENU_ENTRIES: AnnotationMenuEntry[] = [
-  { action: TUG_ACTIONS.COPY_ANNOTATION_VALUE, label: "Copy Session Id" },
-  INSERT_ENTRY,
-];
+/**
+ * A session's menu — how to GET to the session, then the forms it can be
+ * copied as, then the two runs only a row carries.
+ *
+ * **The first item is one item, not two.** A reader right-clicking a session
+ * wants to reach it; whether that costs a raise or a resume is the app's
+ * problem. So the row says which of the two it will be — Show Session when a
+ * card already holds it, Resume Session when none does — and is absent only
+ * where it could say nothing useful: on the session's own card, and on a
+ * citation the ledger cannot resolve. Held by another process is DISABLED
+ * rather than dropped: it is a real session, unresumable for a reason a
+ * reader can act on.
+ *
+ * Description and Activity are dimmed when empty and absent when the surface
+ * carries no such feed at all — a citation chip has no activity behind it,
+ * and a permanently dead row is not information.
+ */
+function sessionMenuEntries(
+  _payload: AnnotationPayload,
+  facts: AnnotationMenuFacts,
+): AnnotationMenuEntry[] {
+  const known = facts.kind === "session" ? facts : null;
+  const entries: AnnotationMenuEntry[] = [];
+  if (known !== null && !known.isOwnCard) {
+    entries.push(
+      known.openCardId !== null
+        ? { action: TUG_ACTIONS.SHOW_SESSION, label: "Show Session" }
+        : {
+            action: TUG_ACTIONS.RESUME_SESSION,
+            label: "Resume Session",
+            disabled: known.heldElsewhere || known.projectDir.length === 0,
+          },
+    );
+  }
+  // The atom and the citation are written from the session's identity RECORD
+  // — its callsign, its project, the sidecar a paste back into Tug rebuilds
+  // the chip from. A payload carries an id and nothing else, so a surface
+  // that knows only the id is not offered two copies it could not perform.
+  // The id itself it can always write.
+  if (known !== null) {
+    entries.push({
+      action: TUG_ACTIONS.COPY_SESSION_ATOM,
+      label: "Copy as Atom",
+      ...(entries.length > 0 ? { separatorBefore: true } : {}),
+    });
+    entries.push({
+      action: TUG_ACTIONS.COPY_SESSION_CITATION,
+      label: "Copy as Citation",
+    });
+  }
+  entries.push({
+    action: TUG_ACTIONS.COPY_SESSION_ID,
+    label: "Copy Session ID",
+    ...(entries.length > 0 && known === null ? { separatorBefore: true } : {}),
+  });
+  if (known?.description !== undefined) {
+    entries.push({
+      action: TUG_ACTIONS.COPY_SESSION_DESCRIPTION,
+      label: "Copy Description",
+      separatorBefore: true,
+      disabled: (known.description ?? "").trim().length === 0,
+    });
+  }
+  if (known?.activity !== undefined) {
+    entries.push({
+      action: TUG_ACTIONS.COPY_SESSION_ACTIVITY,
+      label: "Copy Activity Line",
+      ...(known.description === undefined ? { separatorBefore: true } : {}),
+      disabled: (known.activity ?? "").trim().length === 0,
+    });
+  }
+  entries.push({ ...INSERT_ENTRY, separatorBefore: true });
+  return entries;
+}
 
 registerAnnotationKind("session", {
   // **No `primaryClick`, deliberately.** A confirmed session run is where the
@@ -301,7 +492,7 @@ registerAnnotationKind("session", {
   // sampling see a HIT rather than a miss: a right-click on the run still
   // offers the session's own items, and an unregistered kind would offer
   // nothing while looking annotated.
-  menuEntries: () => SESSION_MENU_ENTRIES,
+  menuEntries: sessionMenuEntries,
   suppressStandardItems: false,
 });
 

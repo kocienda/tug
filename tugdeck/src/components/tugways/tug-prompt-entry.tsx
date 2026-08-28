@@ -161,7 +161,7 @@ import type { ShellClassifyStore } from "@/lib/shell-classify-store";
 import type { FindSession } from "@/lib/find-session";
 import type { LandingKind, LandingMode } from "@/lib/landing-mode";
 import { hasJotDrag, readJotDrag } from "@/lib/jot-drag";
-import { resolveAtomFilePath } from "@/lib/atom-file-path";
+import type { AtomPathRoots } from "@/lib/atom-file-path";
 import { rehydrateDraftAttachments } from "@/lib/attachment-upload";
 import { cardSessionBindingStore } from "@/lib/card-session-binding-store";
 
@@ -1488,24 +1488,22 @@ export const TugPromptEntry = React.forwardRef<
     editor?.focus();
   }, []);
 
-  // The absolute path behind a file chip, for the substrate's "Open in
-  // Editor" item. An `@` mention's value is project-root-relative (that is
-  // what the file index reports) while the open handler speaks absolute
-  // only, so the roots the mention could have been written against are
-  // read live at right-click time [L07] — the binding and the cwd both
-  // arrive after mount, and a resolver frozen at mount would open nothing
-  // on the first turn.
+  // The roots an `@` mention's value is addressed against, for the atoms the
+  // substrate stamps. A mention's value is project-root-relative (that is what
+  // the file index reports) while every gesture on the chip speaks absolute
+  // only. Read live at atom-mount time [L07] — the binding and the cwd both
+  // arrive after mount, and roots frozen at mount would leave a chip placed on
+  // the first turn addressing nothing.
   const atomPathCardId = useCardId();
-  const resolveAtomPath = useCallback(
-    (value: string): string =>
-      resolveAtomFilePath(value, {
-        projectDir:
-          atomPathCardId === null
-            ? null
-            : cardSessionBindingStore.getBinding(atomPathCardId)?.projectDir ??
-              null,
-        cwd: sessionMetadataStore.getSnapshot().cwd,
-      }),
+  const atomPathRoots = useCallback(
+    (): AtomPathRoots => ({
+      projectDir:
+        atomPathCardId === null
+          ? null
+          : cardSessionBindingStore.getBinding(atomPathCardId)?.projectDir ??
+            null,
+      cwd: sessionMetadataStore.getSnapshot().cwd,
+    }),
     [atomPathCardId, sessionMetadataStore],
   );
 
@@ -4029,7 +4027,7 @@ export const TugPromptEntry = React.forwardRef<
               argumentHintRefresh={argumentHintRefresh}
               pastedCommandResolver={landingActive ? undefined : pastedCommandResolver}
               inlineCommandMatcher={landingActive ? undefined : inlineCommandMatcher}
-              resolveAtomPath={resolveAtomPath}
+              atomPathRoots={atomPathRoots}
               dropHandler={dropHandler}
               attachmentBytesStore={attachmentBytesStore}
               onAttachmentError={publishAttachmentError}
