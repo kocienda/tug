@@ -287,6 +287,7 @@ mod tests {
             kind: "dirty-base".to_string(),
             detail: "commit or stash the base first".to_string(),
             paths: Vec::new(),
+            remedy: None,
         });
         assert_eq!(pilot_action(true, true, &state), None);
     }

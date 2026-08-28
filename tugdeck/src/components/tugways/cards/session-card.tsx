@@ -32,17 +32,39 @@
  * fills the entry region edge-to-edge.
  */
 
-import { forwardRef, useCallback, useEffect, useId, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type RefObject } from "react";
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useId,
+  useImperativeHandle,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type RefObject,
+} from "react";
 
-import { LANDING_WORDS, TugPromptEntry, type TugPromptEntryDelegate } from "../tug-prompt-entry";
+import {
+  LANDING_WORDS,
+  TugPromptEntry,
+  type TugPromptEntryDelegate,
+} from "../tug-prompt-entry";
 import { ShadeViewController } from "@/lib/shade-view-controller";
 import type { ChangesRouteController } from "@/lib/changes-route-controller";
 import { getChangesetVerbStore } from "@/lib/changeset-verb-store";
 import { getChangesetJoinStore } from "@/lib/changeset-join-store";
 import { getChangesetDraftStore } from "@/lib/changeset-draft-store";
 import { CommitModeController } from "@/lib/commit-mode-controller";
-import { JoinModeController, joinTargetFromEntry } from "@/lib/join-mode-controller";
-import { SessionTranscriptHost, type SessionTranscriptHandle } from "./session-card-transcript";
+import {
+  JoinModeController,
+  joinTargetFromEntry,
+} from "@/lib/join-mode-controller";
+import {
+  SessionTranscriptHost,
+  type SessionTranscriptHandle,
+} from "./session-card-transcript";
 import { SessionLandingProgressRow } from "./session-landing-progress-row";
 import { AppTestAskDialog } from "../chrome/session-app-test-ask-dialog";
 import { pendingAskStore } from "@/lib/pending-ask-store";
@@ -109,10 +131,7 @@ import { TugIconButton } from "../tug-icon-button";
 import { TugPushButton } from "../tug-push-button";
 import { TugActionTooltip } from "../tug-action-tooltip";
 import { TugTooltip } from "../tug-tooltip";
-import {
-  TugInlineAlert,
-  type TugInlineAlertTone,
-} from "../tug-inline-alert";
+import { TugInlineAlert, type TugInlineAlertTone } from "../tug-inline-alert";
 import { AlertTriangle, Trash2 } from "lucide-react";
 
 import { TugLabel } from "../tug-label";
@@ -125,7 +144,12 @@ import {
   type TugListViewDelegate,
   type TugListViewHandle,
 } from "../tug-list-view";
-import { TugSheet, TugSheetContent, useTugSheet, type TugSheetHandle } from "../tug-sheet";
+import {
+  TugSheet,
+  TugSheetContent,
+  useTugSheet,
+  type TugSheetHandle,
+} from "../tug-sheet";
 import { presentAlertSheet } from "../tug-alert-sheet";
 import { useResponderChain } from "../responder-chain-provider";
 import { useResponderForm } from "../use-responder-form";
@@ -143,7 +167,10 @@ import { useBannerDelegate } from "@/lib/banner-lifecycle";
 import { TUG_ACTIONS } from "../action-vocabulary";
 import { HighlightSelectionAdapter } from "../text-selection-adapter";
 import { dispatchCommand } from "@/command-dispatch";
-import type { CodeSessionSnapshot, CodeSessionStore } from "@/lib/code-session-store";
+import type {
+  CodeSessionSnapshot,
+  CodeSessionStore,
+} from "@/lib/code-session-store";
 import { FindSession } from "@/lib/find-session";
 import {
   TugFindBar,
@@ -161,7 +188,10 @@ import type { PathCommandsStore } from "@/lib/path-commands-store";
 import type { ShellGrammarStore } from "@/lib/shell-grammar-store";
 import type { ShellClassifyStore } from "@/lib/shell-classify-store";
 import type { PendingContextStore } from "@/lib/pending-context-store";
-import { deriveSessionCardBannerSpec, humanizeErrorSummary } from "./session-card-banner-spec";
+import {
+  deriveSessionCardBannerSpec,
+  humanizeErrorSummary,
+} from "./session-card-banner-spec";
 import { TransientNoticeController } from "./transient-notice-controller";
 import { ClaimErrorNoticeController } from "./claim-error-notice-controller";
 import { tugDevLogStore } from "@/lib/tug-dev-log-store/tug-dev-log-store";
@@ -209,13 +239,19 @@ import {
   type ResumeDisplayMetadata,
 } from "@/lib/session-restore";
 import { logSessionLifecycle } from "@/lib/session-lifecycle-log";
-import { pickerNoticeStore, type PickerNotice } from "@/lib/picker-notice-store";
+import {
+  pickerNoticeStore,
+  type PickerNotice,
+} from "@/lib/picker-notice-store";
 import {
   useSpawnError,
   spawnErrorMessage,
   sessionSpawnErrorStore,
 } from "@/lib/session-spawn-error-store";
-import { cardServicesStore, type CardServices } from "@/lib/card-services-store";
+import {
+  cardServicesStore,
+  type CardServices,
+} from "@/lib/card-services-store";
 import { cardTitleStore } from "@/lib/card-title-store";
 import {
   sessionIdentityLine,
@@ -384,7 +420,8 @@ const SESSION_CYCLE_ORDER_ATTACHMENT_BASE = 20;
 // each:
 //   "relinquish" — commit exits focus-cycling; the caret returns to the prompt.
 //   "retain"     — commit keeps cycling; the ring returns to the originating chip.
-const SESSION_CYCLE_PICKER_COMMIT_DISPOSITION: "retain" | "relinquish" = "retain";
+const SESSION_CYCLE_PICKER_COMMIT_DISPOSITION: "retain" | "relinquish" =
+  "retain";
 
 /**
  * Human-readable labels for the `lastError` causes the card surfaces as
@@ -404,7 +441,6 @@ const CAUSE_LABELS: Record<BannerErrorCause, string> = {
   session_unknown: "Session unknown",
   session_not_owned: "Session not owned",
 };
-
 
 // ---------------------------------------------------------------------------
 // Props
@@ -477,7 +513,6 @@ export interface SessionTurnTrailingContext {
   /** Committed turn entry, when present (assistant half post-commit). */
   turn?: import("@/lib/code-session-store").TurnEntry;
 }
-
 
 // ---------------------------------------------------------------------------
 // SessionCardServices
@@ -603,11 +638,7 @@ export function SessionCardContent({
     // re-renders to either `SessionRestoring` (a registry entry landed)
     // or the picker (genuinely a fresh card).
     return (
-      <SessionRestoring
-        variant="pass-pending"
-        cardId={cardId}
-        projectDir=""
-      />
+      <SessionRestoring variant="pass-pending" cardId={cardId} projectDir="" />
     );
   }
   return <SessionProjectPicker cardId={cardId} />;
@@ -1231,7 +1262,9 @@ function parseRecents(entry: TaggedValue | undefined): string[] {
   if (!entry || entry.kind !== "json" || entry.value === undefined) return [];
   const raw = entry.value as { paths?: unknown } | null;
   if (!raw || typeof raw !== "object" || !Array.isArray(raw.paths)) return [];
-  return raw.paths.filter((p): p is string => typeof p === "string" && p.length > 0);
+  return raw.paths.filter(
+    (p): p is string => typeof p === "string" && p.length > 0,
+  );
 }
 
 /**
@@ -1241,7 +1274,8 @@ function parseRecents(entry: TaggedValue | undefined): string[] {
  * or shaped unexpectedly.
  */
 function parseString(entry: TaggedValue | undefined): string {
-  if (!entry || entry.kind !== "string" || typeof entry.value !== "string") return "";
+  if (!entry || entry.kind !== "string" || typeof entry.value !== "string")
+    return "";
   return entry.value;
 }
 
@@ -1430,7 +1464,6 @@ function renderRecentHighlight(
   return parts;
 }
 
-
 function SessionProjectPickerForm({
   notice,
   onOpen,
@@ -1475,9 +1508,8 @@ function SessionProjectPickerForm({
   // "Can't open project" screen, so we drop them from the dropdown seed up
   // front. Best-effort and additive: only paths explicitly reported missing
   // are hidden; a probe failure leaves the set empty and every recent shows.
-  const [missingRecents, setMissingRecents] = useState<ReadonlySet<string>>(
-    EMPTY_STRING_SET,
-  );
+  const [missingRecents, setMissingRecents] =
+    useState<ReadonlySet<string>>(EMPTY_STRING_SET);
   useEffect(() => {
     let cancelled = false;
     if (recents.length === 0) {
@@ -1565,7 +1597,10 @@ function SessionProjectPickerForm({
   // The projection's version, so the selection-invalidation effect below re-runs
   // on every filter recompute and not just on a ledger tick ([L02]).
   const sessionsVersion = useSyncExternalStore(
-    useCallback((cb: () => void) => sessionsDataSource.subscribe(cb), [sessionsDataSource]),
+    useCallback(
+      (cb: () => void) => sessionsDataSource.subscribe(cb),
+      [sessionsDataSource],
+    ),
     useCallback(() => sessionsDataSource.getVersion(), [sessionsDataSource]),
   );
 
@@ -1655,7 +1690,11 @@ function SessionProjectPickerForm({
       // Live-in-Tug and terminal-live rows are untrashable (the cell
       // hides the control; this is the defensive backstop — the
       // supervisor refuses both anyway).
-      if (row === undefined || row.state === "live" || row.terminal_live !== null)
+      if (
+        row === undefined ||
+        row.state === "live" ||
+        row.terminal_live !== null
+      )
         return;
       // Always pass the project dir: external rows (no ledger row
       // server-side) need it to locate the JSONL; ledger rows ignore it.
@@ -1696,8 +1735,7 @@ function SessionProjectPickerForm({
       typeof CSS !== "undefined" && typeof CSS.escape === "function"
         ? CSS.escape(pendingTrashSessionId)
         : pendingTrashSessionId;
-    const selector =
-      `[data-session-id="${escaped}"] [data-slot="tug-icon-button"]`;
+    const selector = `[data-session-id="${escaped}"] [data-slot="tug-icon-button"]`;
     const el = root.querySelector<HTMLElement>(selector);
     setPendingTrashAnchorEl(el ?? null);
   }, [pendingTrashSessionId]);
@@ -1728,13 +1766,15 @@ function SessionProjectPickerForm({
     string | null
   >(null);
 
-  const { ResponderScope: PickerFormResponderScope, responderRef: pickerFormResponderRef } =
-    useResponder({
-      id: formResponderId,
-      actions: {
-        [TUG_ACTIONS.REQUEST_TRASH_SESSION]: handleRequestTrashSession,
-      },
-    });
+  const {
+    ResponderScope: PickerFormResponderScope,
+    responderRef: pickerFormResponderRef,
+  } = useResponder({
+    id: formResponderId,
+    actions: {
+      [TUG_ACTIONS.REQUEST_TRASH_SESSION]: handleRequestTrashSession,
+    },
+  });
 
   // Merged ref: the form's root div carries BOTH the form responder's
   // `data-responder-id` (so the chain DOM walk lands here) AND our
@@ -2061,277 +2101,287 @@ function SessionProjectPickerForm({
       return;
     }
     if (openDisabled || !sessionsReady) {
-      focusManager.place(null, { kind: "focus-key", focusKey: pickerFocusKey(PICKER_ORDER_PATH) }, { modality: "keyboard" });
+      focusManager.place(
+        null,
+        { kind: "focus-key", focusKey: pickerFocusKey(PICKER_ORDER_PATH) },
+        { modality: "keyboard" },
+      );
       return;
     }
     defaultFocusPlacedRef.current = true;
-    focusManager.place(null, { kind: "focus-key", focusKey: pickerFocusKey(PICKER_ORDER_SESSIONS) }, { modality: "keyboard" });
+    focusManager.place(
+      null,
+      { kind: "focus-key", focusKey: pickerFocusKey(PICKER_ORDER_SESSIONS) },
+      { modality: "keyboard" },
+    );
   }, [openDisabled, sessionsReady, focusManager]);
 
   return (
     <PickerFormResponderScope>
       <div ref={setFormRootRef} className="session-card-picker-form">
-      {notice !== null &&
-        (() => {
-          const content = noticeContent(notice);
-          return (
-            <div
-              data-testid="session-card-picker-notice"
-              data-notice-category={notice.category}
-            >
-              <TugInlineAlert
-                title={content.title}
-                message={content.message}
-                tone={content.tone}
-                icon={content.icon}
-                live="alert"
-                actions={
-                  onRetryRestore !== null ? (
-                    <TugPushButton
-                      emphasis="outlined"
-                      role={content.tone === "danger" ? "danger" : "action"}
-                      onClick={onRetryRestore}
-                      data-testid="session-card-picker-notice-retry"
-                    >
-                      Retry
-                    </TugPushButton>
-                  ) : undefined
-                }
-              />
-            </div>
-          );
-        })()}
-      <label className="session-card-picker-field">
-        <span className="session-card-picker-label">Project path</span>
-        {/*
+        {notice !== null &&
+          (() => {
+            const content = noticeContent(notice);
+            return (
+              <div
+                data-testid="session-card-picker-notice"
+                data-notice-category={notice.category}
+              >
+                <TugInlineAlert
+                  title={content.title}
+                  message={content.message}
+                  tone={content.tone}
+                  icon={content.icon}
+                  live="alert"
+                  actions={
+                    onRetryRestore !== null ? (
+                      <TugPushButton
+                        emphasis="outlined"
+                        role={content.tone === "danger" ? "danger" : "action"}
+                        onClick={onRetryRestore}
+                        data-testid="session-card-picker-notice-retry"
+                      >
+                        Retry
+                      </TugPushButton>
+                    ) : undefined
+                  }
+                />
+              </div>
+            );
+          })()}
+        <label className="session-card-picker-field">
+          <span className="session-card-picker-label">Project path</span>
+          {/*
           The path field is a combo box: typing filters the recent projects
           (its seed) AND completes filesystem paths, both in one dropdown; a
           click / chevron / ArrowDown opens the recents as a menu; the Browse
           button is the native-picker escape hatch.
         */}
-        <TugFileChooser
-          ref={inputRef}
-          value={path}
-          onChange={(next) => {
-            // A user edit (typing / completion pick) — not the programmatic
-            // seed, which calls `setPath` directly — claims the field as the
-            // default focus so the smart latch never yanks it to Open.
-            userTouchedFieldRef.current = true;
-            setPath(next);
-          }}
-          base={path !== "" ? path : "/"}
-          kind="directory"
-          onSubmit={submit}
-          seed={buildRecentsSeed}
-          menuMode
-          placeholder="/path/to/project"
-          focusGroup={PICKER_CYCLE_GROUP}
-          focusOrder={PICKER_ORDER_PATH}
-          browseFocusOrder={PICKER_ORDER_BROWSE}
-          chevronFocusOrder={PICKER_ORDER_CHEVRON}
-        />
-      </label>
-      <PickerCellProvider value={cellContextValue}>
-        <div className="session-card-picker-section">
-          <span className="session-card-picker-label">
-            Sessions
-            {sessionsReady && sessionLedger.scanning === true ? (
-              <span
-                className="session-card-picker-scanning"
-                role="status"
-                aria-live="polite"
-                data-testid="session-card-picker-scanning"
-              >
-                {sessionLedger.scanProgress !== undefined &&
-                sessionLedger.scanProgress.total > 0 ? (
-                  // Determinate ticks from the host's scan: the same
-                  // labeled-bar recipe as the restore strip, sized for
-                  // the section header.
-                  <TugProgressIndicator
-                    variant="bar"
-                    size={6}
-                    role="action"
-                    state="running"
-                    label="Scanning…"
-                    glyphPosition="right"
-                    value={Math.min(
-                      sessionLedger.scanProgress.parsed,
-                      sessionLedger.scanProgress.total,
-                    )}
-                    max={sessionLedger.scanProgress.total}
-                    showValue
-                    formatValue={formatScanProgressValue}
-                    className="session-card-picker-scanning-bar"
-                    aria-label="Scanning sessions"
-                  />
-                ) : (
-                  "scanning sessions…"
-                )}
-              </span>
-            ) : null}
-            {/* The filter trims a path's session list — hundreds of rows on a
+          <TugFileChooser
+            ref={inputRef}
+            value={path}
+            onChange={(next) => {
+              // A user edit (typing / completion pick) — not the programmatic
+              // seed, which calls `setPath` directly — claims the field as the
+              // default focus so the smart latch never yanks it to Open.
+              userTouchedFieldRef.current = true;
+              setPath(next);
+            }}
+            base={path !== "" ? path : "/"}
+            kind="directory"
+            onSubmit={submit}
+            seed={buildRecentsSeed}
+            menuMode
+            placeholder="/path/to/project"
+            focusGroup={PICKER_CYCLE_GROUP}
+            focusOrder={PICKER_ORDER_PATH}
+            browseFocusOrder={PICKER_ORDER_BROWSE}
+            chevronFocusOrder={PICKER_ORDER_CHEVRON}
+          />
+        </label>
+        <PickerCellProvider value={cellContextValue}>
+          <div className="session-card-picker-section">
+            <span className="session-card-picker-label">
+              Sessions
+              {sessionsReady && sessionLedger.scanning === true ? (
+                <span
+                  className="session-card-picker-scanning"
+                  role="status"
+                  aria-live="polite"
+                  data-testid="session-card-picker-scanning"
+                >
+                  {sessionLedger.scanProgress !== undefined &&
+                  sessionLedger.scanProgress.total > 0 ? (
+                    // Determinate ticks from the host's scan: the same
+                    // labeled-bar recipe as the restore strip, sized for
+                    // the section header.
+                    <TugProgressIndicator
+                      variant="bar"
+                      size={6}
+                      role="action"
+                      state="running"
+                      label="Scanning…"
+                      glyphPosition="right"
+                      value={Math.min(
+                        sessionLedger.scanProgress.parsed,
+                        sessionLedger.scanProgress.total,
+                      )}
+                      max={sessionLedger.scanProgress.total}
+                      showValue
+                      formatValue={formatScanProgressValue}
+                      className="session-card-picker-scanning-bar"
+                      aria-label="Scanning sessions"
+                    />
+                  ) : (
+                    "scanning sessions…"
+                  )}
+                </span>
+              ) : null}
+              {/* The filter trims a path's session list — hundreds of rows on a
                 busy project. Keyed on the path so switching projects clears a
                 filter that meant something only for the previous one. */}
-            <TugFilterField
-              key={trimmedPath}
-              className="session-card-picker-filter"
-              delegate={filterDelegate}
-              attachment={pickerFilter}
-              placeholder="Filter sessions"
-              data-testid="session-card-picker-filter"
-              focusGroup={PICKER_CYCLE_GROUP}
-              focusOrder={PICKER_ORDER_FILTER}
-            />
-          </span>
-          <div className="session-card-picker-sessions-host">
-            {sessionsReady ? (
-              <TugListView
-                ref={pickerListRef}
-                dataSource={sessionsDataSource}
-                delegate={sessionsDelegate}
-                cellRenderers={SESSIONS_CELL_RENDERERS}
-                scrollKey="session-card-picker-sessions"
-                rowLayout="flush"
-                className="session-card-picker-sessions-list session-card-picker-list-view"
+              <TugFilterField
+                key={trimmedPath}
+                className="session-card-picker-filter"
+                delegate={filterDelegate}
+                attachment={pickerFilter}
+                placeholder="Filter sessions"
+                data-testid="session-card-picker-filter"
                 focusGroup={PICKER_CYCLE_GROUP}
-                focusOrder={PICKER_ORDER_SESSIONS}
-                attachedFilter={pickerFilter}
-                singleSelect
-                // Arrowing out of a non-empty filter field should land on the
-                // first MATCH. A single-select list commits as its cursor
-                // lands, so without this seed the first Down would select
-                // "New session" and silently discard the user's prior pick.
-                initialSelectedIndex={
-                  filterQuery === ""
-                    ? undefined
-                    : sessionsDataSource.firstResumeIndex()
-                }
+                focusOrder={PICKER_ORDER_FILTER}
               />
-            ) : sessionsPending ? (
-              <div
-                className="session-card-picker-empty"
-                role="status"
-                aria-live="polite"
-                data-testid="session-card-picker-pending-placeholder"
-              >
-                checking…
-              </div>
-            ) : (
-              <div
-                className="session-card-picker-empty"
-                data-testid="session-card-picker-sessions-empty"
-              >
-                Type or select a project path to see sessions
-              </div>
-            )}
-          </div>
-          <div
-            className="session-card-picker-trash-all"
-            data-disabled={nonLiveCount === 0 ? "true" : undefined}
-            title={trashAllTooltip}
-          >
-            <TugLabel emphasis="proposal" data-testid="session-card-picker-trash-all-label">
-              Move all sessions to Trash for this path
-            </TugLabel>
-            <TugConfirmPopover
-              ref={trashAllConfirmRef}
-              message={
-                nonLiveCount > 1
-                  ? "Move all sessions to Trash?"
-                  : "Move to Trash?"
-              }
-              confirmLabel="Trash"
-              confirmRole="danger"
-              side="top"
+            </span>
+            <div className="session-card-picker-sessions-host">
+              {sessionsReady ? (
+                <TugListView
+                  ref={pickerListRef}
+                  dataSource={sessionsDataSource}
+                  delegate={sessionsDelegate}
+                  cellRenderers={SESSIONS_CELL_RENDERERS}
+                  scrollKey="session-card-picker-sessions"
+                  rowLayout="flush"
+                  className="session-card-picker-sessions-list session-card-picker-list-view"
+                  focusGroup={PICKER_CYCLE_GROUP}
+                  focusOrder={PICKER_ORDER_SESSIONS}
+                  attachedFilter={pickerFilter}
+                  singleSelect
+                  // Arrowing out of a non-empty filter field should land on the
+                  // first MATCH. A single-select list commits as its cursor
+                  // lands, so without this seed the first Down would select
+                  // "New session" and silently discard the user's prior pick.
+                  initialSelectedIndex={
+                    filterQuery === ""
+                      ? undefined
+                      : sessionsDataSource.firstResumeIndex()
+                  }
+                />
+              ) : sessionsPending ? (
+                <div
+                  className="session-card-picker-empty"
+                  role="status"
+                  aria-live="polite"
+                  data-testid="session-card-picker-pending-placeholder"
+                >
+                  checking…
+                </div>
+              ) : (
+                <div
+                  className="session-card-picker-empty"
+                  data-testid="session-card-picker-sessions-empty"
+                >
+                  Type or select a project path to see sessions
+                </div>
+              )}
+            </div>
+            <div
+              className="session-card-picker-trash-all"
+              data-disabled={nonLiveCount === 0 ? "true" : undefined}
+              title={trashAllTooltip}
             >
-              <TugPushButton
-                subtype="icon"
-                emphasis="ghost"
-                role="danger"
-                icon={<Trash2 size={16} aria-hidden="true" />}
-                onClick={handleTrashAllClick}
-                disabled={nonLiveCount === 0}
-                aria-label="Move all sessions to Trash for this path"
-                data-testid="session-card-picker-trash-all"
-                focusGroup={PICKER_CYCLE_GROUP}
-                focusOrder={PICKER_ORDER_TRASH_ALL}
-              />
-            </TugConfirmPopover>
+              <TugLabel
+                emphasis="proposal"
+                data-testid="session-card-picker-trash-all-label"
+              >
+                Move all sessions to Trash for this path
+              </TugLabel>
+              <TugConfirmPopover
+                ref={trashAllConfirmRef}
+                message={
+                  nonLiveCount > 1
+                    ? "Move all sessions to Trash?"
+                    : "Move to Trash?"
+                }
+                confirmLabel="Trash"
+                confirmRole="danger"
+                side="top"
+              >
+                <TugPushButton
+                  subtype="icon"
+                  emphasis="ghost"
+                  role="danger"
+                  icon={<Trash2 size={16} aria-hidden="true" />}
+                  onClick={handleTrashAllClick}
+                  disabled={nonLiveCount === 0}
+                  aria-label="Move all sessions to Trash for this path"
+                  data-testid="session-card-picker-trash-all"
+                  focusGroup={PICKER_CYCLE_GROUP}
+                  focusOrder={PICKER_ORDER_TRASH_ALL}
+                />
+              </TugConfirmPopover>
+            </div>
           </div>
-        </div>
-      </PickerCellProvider>
-      <div className="tug-sheet-actions">
-        {dirMissing && (
-          <TugLabel
-            className="session-card-picker-dir-warning"
-            emphasis="calm"
-            data-testid="session-card-picker-dir-warning"
+        </PickerCellProvider>
+        <div className="tug-sheet-actions">
+          {dirMissing && (
+            <TugLabel
+              className="session-card-picker-dir-warning"
+              emphasis="calm"
+              data-testid="session-card-picker-dir-warning"
+            >
+              {"Directory doesn't exist"}
+            </TugLabel>
+          )}
+          <TugPushButton
+            size="sm"
+            emphasis="outlined"
+            role="action"
+            onClick={onCancel}
+            focusGroup={PICKER_CYCLE_GROUP}
+            focusOrder={PICKER_ORDER_CANCEL}
           >
-            {"Directory doesn't exist"}
-          </TugLabel>
-        )}
-        <TugPushButton
-          size="sm"
-          emphasis="outlined"
-          role="action"
-          onClick={onCancel}
-          focusGroup={PICKER_CYCLE_GROUP}
-          focusOrder={PICKER_ORDER_CANCEL}
-        >
-          Cancel
-        </TugPushButton>
-        <TugPushButton
-          size="sm"
-          emphasis="primary"
-          role="action"
-          onClick={submit}
-          disabled={openDisabled}
-          focusGroup={PICKER_CYCLE_GROUP}
-          focusOrder={PICKER_ORDER_OPEN}
-          persistentDefaultRing
-        >
-          Open
-        </TugPushButton>
-      </div>
-      {/*
+            Cancel
+          </TugPushButton>
+          <TugPushButton
+            size="sm"
+            emphasis="primary"
+            role="action"
+            onClick={submit}
+            disabled={openDisabled}
+            focusGroup={PICKER_CYCLE_GROUP}
+            focusOrder={PICKER_ORDER_OPEN}
+            persistentDefaultRing
+          >
+            Open
+          </TugPushButton>
+        </div>
+        {/*
         Form-owned trash-session confirmation popover. Driven by
         `pendingTrashSessionId` state set by the chain handler on
         `request-trash-session`. Anchored to the requesting row's
         trash icon via a virtualRef populated in the layout effect.
         One instance, N anchor targets — see [D14] / [D15].
       */}
-      <TugConfirmPopover
-        open={pendingTrashSessionId !== null}
-        anchorEl={pendingTrashAnchorEl}
-        message={pendingTrashMessage}
-        confirmLabel="Trash"
-        confirmRole="danger"
-        side="left"
-        onConfirm={handleConfirmTrash}
-        onCancel={handleCancelTrash}
-      />
-      {/* Form-owned confirm popover for removing a Recent Project Path,
+        <TugConfirmPopover
+          open={pendingTrashSessionId !== null}
+          anchorEl={pendingTrashAnchorEl}
+          message={pendingTrashMessage}
+          confirmLabel="Trash"
+          confirmRole="danger"
+          side="left"
+          onConfirm={handleConfirmTrash}
+          onCancel={handleCancelTrash}
+        />
+        {/* Form-owned confirm popover for removing a Recent Project Path,
           anchored to the (stable) path field. The message names the path since
           the anchor is the field, not the specific dropdown row. */}
-      <TugConfirmPopover
-        open={pendingTrashRecentPath !== null}
-        anchorEl={pendingTrashRecentAnchorEl}
-        message={
-          pendingTrashRecentPath !== null
-            ? `Remove ${pendingTrashRecentPath} from recent paths?`
-            : "Remove from recent paths?"
-        }
-        confirmLabel="Remove"
-        confirmRole="danger"
-        side="bottom"
-        onConfirm={handleConfirmTrashRecent}
-        onCancel={handleCancelTrashRecent}
-      />
+        <TugConfirmPopover
+          open={pendingTrashRecentPath !== null}
+          anchorEl={pendingTrashRecentAnchorEl}
+          message={
+            pendingTrashRecentPath !== null
+              ? `Remove ${pendingTrashRecentPath} from recent paths?`
+              : "Remove from recent paths?"
+          }
+          confirmLabel="Remove"
+          confirmRole="danger"
+          side="bottom"
+          onConfirm={handleConfirmTrashRecent}
+          onCancel={handleCancelTrashRecent}
+        />
       </div>
     </PickerFormResponderScope>
   );
 }
-
 
 interface SessionCardBodyProps {
   cardId: string;
@@ -2453,7 +2503,28 @@ export function SessionCardBody({
   renderTurnTrailing,
   footerContent,
 }: SessionCardBodyProps) {
-  const { codeSessionStore, shellSessionStore, refsSessionStore, pathCommandsStore, shellGrammarStore, shellClassifyStore, sessionMetadataStore, historyStore, completionProviders, argumentHintResolver, inlineCommandMatcher, pastedCommandResolver, editorStore, transcriptStore, skillsInventoryStore, hooksInventoryStore, sideQuestionStore, changesController, pendingContextStore, entryDelegateRef } = services;
+  const {
+    codeSessionStore,
+    shellSessionStore,
+    refsSessionStore,
+    pathCommandsStore,
+    shellGrammarStore,
+    shellClassifyStore,
+    sessionMetadataStore,
+    historyStore,
+    completionProviders,
+    argumentHintResolver,
+    inlineCommandMatcher,
+    pastedCommandResolver,
+    editorStore,
+    transcriptStore,
+    skillsInventoryStore,
+    hooksInventoryStore,
+    sideQuestionStore,
+    changesController,
+    pendingContextStore,
+    entryDelegateRef,
+  } = services;
 
   // One Find session per card body — the transcript-search state for the `⌕`
   // route. Owned here so it is in scope for both the prompt entry (query +
@@ -2525,10 +2596,7 @@ export function SessionCardBody({
     commitModeStoresRef.current = { changesController, codeSessionStore };
   }
   const commitModeController = commitModeControllerRef.current;
-  useEffect(
-    () => () => commitModeController.dispose(),
-    [commitModeController],
-  );
+  useEffect(() => () => commitModeController.dispose(), [commitModeController]);
 
   // Join mode ([P01]/[P04]) — commit mode's twin for the dash lane, rebuilt on
   // the same session-swap boundary and for the same reason: a new session has
@@ -2568,15 +2636,16 @@ export function SessionCardBody({
     cardSessionBindingStore.subscribe,
     () => cardSessionBindingStore.getBinding(cardId)?.dash?.id ?? null,
   );
-  const changesVersion = useSyncExternalStore(
-    changesController.subscribe,
-    () => changesController.getSnapshot(),
+  const changesVersion = useSyncExternalStore(changesController.subscribe, () =>
+    changesController.getSnapshot(),
   );
   const boundDashEntry = useMemo(
     () =>
       dashBindingId === null
         ? null
-        : (changesVersion.dashes.find((row) => row.owner_id === dashBindingId) ?? null),
+        : (changesVersion.dashes.find(
+            (row) => row.owner_id === dashBindingId,
+          ) ?? null),
     [dashBindingId, changesVersion],
   );
 
@@ -2599,7 +2668,9 @@ export function SessionCardBody({
     const entry =
       dashId === undefined
         ? undefined
-        : changesController.getSnapshot().dashes.find((row) => row.owner_id === dashId);
+        : changesController
+            .getSnapshot()
+            .dashes.find((row) => row.owner_id === dashId);
     if (entry !== undefined) {
       joinModeController.enter(joinTargetFromEntry(entry));
       return;
@@ -2778,7 +2849,8 @@ export function SessionCardBody({
         shadeViewController.hide();
         // A passive-shade self-close while a landing is active also exits
         // that mode ([P03]) so the composer returns to the prompt.
-        if (commitModeController.getSnapshot().active) commitModeController.exit();
+        if (commitModeController.getSnapshot().active)
+          commitModeController.exit();
         if (joinModeController.getSnapshot().active) joinModeController.exit();
       }
     },
@@ -2790,14 +2862,17 @@ export function SessionCardBody({
   // shade is a bare glance and hides on its own.
   const dismissChangesShade = useCallback(() => {
     if (commitModeController.getSnapshot().active) commitModeController.leave();
-    else if (joinModeController.getSnapshot().active) joinModeController.leave();
+    else if (joinModeController.getSnapshot().active)
+      joinModeController.leave();
     else shadeViewController.hide();
   }, [commitModeController, joinModeController, shadeViewController]);
   // The same X while the Auto-Message scribe streams: it aborts the draft and
   // leaves the mode standing.
   const cancelActiveDraft = useCallback(() => {
-    if (commitModeController.getSnapshot().active) commitModeController.cancelDraft();
-    else if (joinModeController.getSnapshot().active) joinModeController.cancelDraft();
+    if (commitModeController.getSnapshot().active)
+      commitModeController.cancelDraft();
+    else if (joinModeController.getSnapshot().active)
+      joinModeController.cancelDraft();
   }, [commitModeController, joinModeController]);
   // What the header X is called, and what it does — one object so the view
   // can never show a label from one state and fire the act of another.
@@ -2811,7 +2886,13 @@ export function SessionCardBody({
           : "Close Changes",
       onDismiss: drafting ? cancelActiveDraft : dismissChangesShade,
     }),
-    [drafting, commitModeActive, joinActive, cancelActiveDraft, dismissChangesShade],
+    [
+      drafting,
+      commitModeActive,
+      joinActive,
+      cancelActiveDraft,
+      dismissChangesShade,
+    ],
   );
   const handleHistorySheetOpenChange = useCallback(
     (open: boolean) => {
@@ -2848,7 +2929,8 @@ export function SessionCardBody({
   useEffect(() => {
     const staging = stagedLandingRef.current;
     if (staging === null) return;
-    const stage = (mode: { getSnapshot: () => { active: boolean }; exit: () => void }) =>
+    const stage =
+      (mode: { getSnapshot: () => { active: boolean }; exit: () => void }) =>
       (runLand: () => void) => {
         staging.stage(runLand);
         if (mode.getSnapshot().active) mode.exit();
@@ -2946,8 +3028,7 @@ export function SessionCardBody({
   // reach `lastError` at all — they surface as a card bulletin, so they
   // neither disable the entry nor light its errored ring.
   const sessionErrored =
-    codeSnap.lastError !== null &&
-    codeSnap.lastError.cause !== "resume_failed";
+    codeSnap.lastError !== null && codeSnap.lastError.cause !== "resume_failed";
 
   // Keyboard-focus-cycling ([P09]/[P10]). ⌥⇥ trades the editor's Tab for
   // a trapped tour of the card's chrome zones (the submit is the
@@ -3034,7 +3115,6 @@ export function SessionCardBody({
     ]);
   }, [attachmentCount, findBarOpen]);
   useSpatialOrder(cycle.scopeId, cycleSpatialOrder);
-
 
   const editorSettings = useSyncExternalStore(
     editorStore.subscribe,
@@ -3339,11 +3419,10 @@ export function SessionCardBody({
     // animation completion via tug-animator's commitStyles() path.
     el.style.opacity = "0";
     const g = group({ duration: "--tug-motion-duration-moderate" });
-    g.animate(
-      el,
-      [{ opacity: 0 }, { opacity: 1 }],
-      { key: "session-card-enter", easing: "ease-out" },
-    );
+    g.animate(el, [{ opacity: 0 }, { opacity: 1 }], {
+      key: "session-card-enter",
+      easing: "ease-out",
+    });
     // Run once on first mount; never re-run.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -3524,6 +3603,23 @@ export function SessionCardBody({
   // composer fires on its own when the composer empties.
   const [composerEmpty, setComposerEmpty] = useState(true);
   const revealedOffersRef = useRef<Set<string>>(new Set());
+  // **A cleared block is new work to show, even at the same dash head.**
+  //
+  // The memory above is keyed on the dash head because that is the fact that
+  // means "work you have not seen" — a base move must not re-open the room.
+  // A resolve is the one thing that moves the BASE and changes the answer: a
+  // dash blocked by uncommitted work on the base carries a standing offer its
+  // head already spent, so without this the room would stay shut on the dash
+  // the user just unblocked, which is the moment they most want it open.
+  //
+  // The edge is what is remembered, not the state: forgetting on every clean
+  // frame would re-open the room on every recompute.
+  const joinBlocked = (boundDashEntry?.join?.blockers ?? []).length > 0;
+  const wasBlockedRef = useRef(false);
+  useEffect(() => {
+    if (wasBlockedRef.current && !joinBlocked) revealedOffersRef.current.clear();
+    wasBlockedRef.current = joinBlocked;
+  }, [joinBlocked]);
   useEffect(() => {
     const dashHead = joinOffer?.dash_head;
     if (dashHead === undefined) return;
@@ -3815,9 +3911,11 @@ export function SessionCardBody({
     const notify = paneBulletinRef.current;
     const parsed = parseRefsArgs(kind, args);
     if (parsed.unknown.length > 0) {
-      notify?.caution(`Ignoring unknown ${kind} ${
-        parsed.unknown.length === 1 ? "flag" : "flags"
-      }: ${parsed.unknown.join(" ")}`);
+      notify?.caution(
+        `Ignoring unknown ${kind} ${
+          parsed.unknown.length === 1 ? "flag" : "flags"
+        }: ${parsed.unknown.join(" ")}`,
+      );
     }
     if (parsed.needles.length === 0) {
       notify?.caution(`Usage: /${kind} <needle>…`);
@@ -3920,7 +4018,9 @@ export function SessionCardBody({
       const text = lastAssistantCopyText(
         codeSessionStore.getSnapshot().transcript,
       );
-      const writeText = navigator.clipboard?.writeText.bind(navigator.clipboard);
+      const writeText = navigator.clipboard?.writeText.bind(
+        navigator.clipboard,
+      );
       if (text === null || writeText === undefined) {
         notify?.caution("No message to copy yet");
         return;
@@ -4081,7 +4181,8 @@ export function SessionCardBody({
         // errored. Surface the reason; the refusal text is already in the turn.
         compactionProgressStore.fail(
           cardId,
-          snap.lastError?.message ?? "Compaction didn't run — session left intact",
+          snap.lastError?.message ??
+            "Compaction didn't run — session left intact",
         );
       });
 
@@ -4150,7 +4251,8 @@ export function SessionCardBody({
         jsonl: transcriptToJsonl(transcript),
       }).then((result) => {
         if (result === "saved") notify?.success("Session exported");
-        else if (result === "unavailable") notify?.caution("Export needs the Tug app");
+        else if (result === "unavailable")
+          notify?.caution("Export needs the Tug app");
         // "canceled" → no bulletin.
       });
     },
@@ -4262,7 +4364,9 @@ export function SessionCardBody({
         // no way to choose is what the shade already did; with exactly one,
         // opening a sheet to confirm the only option is ceremony.
         if (snap.dashes.length === 0) {
-          notify?.caution("No dashes in this project — /dash-bind <name> starts one");
+          notify?.caution(
+            "No dashes in this project — /dash-bind <name> starts one",
+          );
           return;
         }
         if (snap.dashes.length === 1) {
@@ -4344,7 +4448,10 @@ export function SessionCardBody({
         return;
       }
       writeLastReviewedPlan(cardId, target.path);
-      const submission = buildCommandSubmission(REVIEW_PLAN_COMMAND, target.path);
+      const submission = buildCommandSubmission(
+        REVIEW_PLAN_COMMAND,
+        target.path,
+      );
       codeSessionStore.send(submission.text, submission.atoms);
     },
     // `/dash-join [name] [message…]` — the dash lane's landing gesture ([P04]).
@@ -4380,7 +4487,10 @@ export function SessionCardBody({
         return;
       }
       const seed = (named === undefined ? rest : tail.join(" ")).trim();
-      joinModeController.enter(joinTargetFromEntry(entry), seed.length > 0 ? seed : undefined);
+      joinModeController.enter(
+        joinTargetFromEntry(entry),
+        seed.length > 0 ? seed : undefined,
+      );
     },
     // The retired spellings ([P08]). They run the new handler and say the new
     // name once — deleting them would send the user's line to Claude as a
@@ -4682,16 +4792,24 @@ export function SessionCardBody({
       // The shade's two buttons remain the granular path.
       [TUG_ACTIONS.CLAIM_ALL_CHANGES]: (_event: ActionEvent) => {
         const verbs = getChangesetVerbStore();
-        if (verbs?.claimState(changesController.entryKey).phase === "pending") return;
+        if (verbs?.claimState(changesController.entryKey).phase === "pending")
+          return;
         const snap = changesController.getSnapshot();
-        const paths = [...snap.unattributed, ...snap.orphaned].map((f) => f.path);
+        const paths = [...snap.unattributed, ...snap.orphaned].map(
+          (f) => f.path,
+        );
         if (paths.length === 0) return;
         changesController.claim(paths);
       },
       [TUG_ACTIONS.DISCLAIM_ALL_CHANGES]: (_event: ActionEvent) => {
         const verbs = getChangesetVerbStore();
-        if (verbs?.disclaimState(changesController.entryKey).phase === "pending") return;
-        const paths = (changesController.getSnapshot().entry?.files ?? []).map((f) => f.path);
+        if (
+          verbs?.disclaimState(changesController.entryKey).phase === "pending"
+        )
+          return;
+        const paths = (changesController.getSnapshot().entry?.files ?? []).map(
+          (f) => f.path,
+        );
         if (paths.length === 0) return;
         changesController.disclaim(paths);
       },
@@ -4702,8 +4820,7 @@ export function SessionCardBody({
       // than burning a turn (unknown) or silently dropping it (unsupported).
       [TUG_ACTIONS.SHOW_SLASH_COMMAND_NOTICE]: (event: ActionEvent) => {
         const payload = event.value as
-          | { name: string; reason: "unknown" | "unsupported" }
-          | undefined;
+          { name: string; reason: "unknown" | "unsupported" } | undefined;
         if (payload === undefined) return;
         const { title, message } =
           payload.reason === "unsupported"
@@ -4776,6 +4893,14 @@ export function SessionCardBody({
           requestId,
           answer,
         ),
+      // Clear the base-side work refusing this dash's join. It clears the
+      // block and stops — landing stays the ⬆ — which is why the control it
+      // rides reads `Resolve` rather than `Resolve and join`.
+      resolveBase: (entry) =>
+        getChangesetJoinStore()?.resolveBase(
+          changesController.workspaceKey,
+          entry.display_name,
+        ),
       // Discard is deliberately absent here. It reaches past the fronted row —
       // any dash no live session holds is releasable from this shade — so it
       // rides the lane's own release bundle, which the view builds, rather than
@@ -4804,7 +4929,10 @@ export function SessionCardBody({
   // source ([L02]).
   const pendingAsk = useSyncExternalStore(
     codeSessionStore.subscribe,
-    useCallback(() => codeSessionStore.getSnapshot().pendingAsk, [codeSessionStore]),
+    useCallback(
+      () => codeSessionStore.getSnapshot().pendingAsk,
+      [codeSessionStore],
+    ),
   );
   const handleAskRespond = useCallback(
     (choice: string) => {
@@ -4863,33 +4991,34 @@ export function SessionCardBody({
     projectDir !== null ? formatPathChipText(projectDir) : null;
   // Right-click → Copy the full project path (not the ellipsized chip face).
   const projectCopy = useCopyableButton(`Project: ${projectDir ?? ""}`);
-  const projectStatusContent = projectDir !== null ? (
-    <>
-      {/* A plain TugTooltip, not a TugActionTooltip: revealing the folder is
+  const projectStatusContent =
+    projectDir !== null ? (
+      <>
+        {/* A plain TugTooltip, not a TugActionTooltip: revealing the folder is
           `openPathInOS`, not a registry command, so there is no chord to read
           and nothing for an action tooltip to add. The chip face is
           ellipsized, so the hover is where the full path lives. */}
-      <TugTooltip content={`Reveal in Finder: ${projectDir}`}>
-        <TugPushButton
-          ref={projectCopy.ref as React.Ref<HTMLButtonElement>}
-          onContextMenu={projectCopy.onContextMenu}
-          size="sm"
-          emphasis="tinted"
-          role="action"
-          layout="label-top"
-          label="Project"
-          data-slot="project-chip"
-          focusGroup={SESSION_CYCLE_GROUP}
-          focusOrder={SESSION_CYCLE_ORDER_PROJECT}
-          aria-label="Reveal project folder in Finder"
-          onClick={() => openPathInOS(projectDir, "folder")}
-        >
-          {projectChipText}
-        </TugPushButton>
-      </TugTooltip>
-      {projectCopy.contextMenu}
-    </>
-  ) : null;
+        <TugTooltip content={`Reveal in Finder: ${projectDir}`}>
+          <TugPushButton
+            ref={projectCopy.ref as React.Ref<HTMLButtonElement>}
+            onContextMenu={projectCopy.onContextMenu}
+            size="sm"
+            emphasis="tinted"
+            role="action"
+            layout="label-top"
+            label="Project"
+            data-slot="project-chip"
+            focusGroup={SESSION_CYCLE_GROUP}
+            focusOrder={SESSION_CYCLE_ORDER_PROJECT}
+            aria-label="Reveal project folder in Finder"
+            onClick={() => openPathInOS(projectDir, "folder")}
+          >
+            {projectChipText}
+          </TugPushButton>
+        </TugTooltip>
+        {projectCopy.contextMenu}
+      </>
+    ) : null;
 
   // Z2 — the session status row. An explicit `statusBarContent` prop
   // (tests / gallery) wins; otherwise the card renders the row itself.
@@ -5007,11 +5136,11 @@ export function SessionCardBody({
           column is always rendered so the transcript's mount identity
           stays stable across slot-content changes ([L26]).
         */}
-          <div
-            className="session-card-top-column"
-            data-slot="session-card-top-column"
-          >
-            {/*
+        <div
+          className="session-card-top-column"
+          data-slot="session-card-top-column"
+        >
+          {/*
               Two pane-bulletin scopes share the top column as sibling Sonner
               toasters (distinct `useId` ids). The OUTER provider anchors
               top-right and carries transient interruption notices (retry,
@@ -5022,14 +5151,16 @@ export function SessionCardBody({
               controller sees the outer (top-right), `PaneBulletinAnchor` sees
               the inner (bottom). [P02]
             */}
-            <TugPaneBulletinProvider
-              placement="top-right"
-              className="session-card-notice-host"
-            >
+          <TugPaneBulletinProvider
+            placement="top-right"
+            className="session-card-notice-host"
+          >
             <TransientNoticeController store={codeSessionStore} />
             <LandingNoticeController controller={commitModeController} />
             <LandingNoticeController controller={joinModeController} />
-            <DiscardErrorNoticeController entryKey={changesController.entryKey} />
+            <DiscardErrorNoticeController
+              entryKey={changesController.entryKey}
+            />
             <ClaimErrorNoticeController entryKey={changesController.entryKey} />
             {boundSessionId !== null ? (
               <DashBindErrorNoticeController tugSessionId={boundSessionId} />
@@ -5041,13 +5172,13 @@ export function SessionCardBody({
               placement="bottom"
               className="session-card-bulletin-host"
             >
-            <div
-              className="session-card-header-content"
-              data-slot="session-card-header-content"
-            >
-              {headerContent}
-            </div>
-            {/*
+              <div
+                className="session-card-header-content"
+                data-slot="session-card-header-content"
+              >
+                {headerContent}
+              </div>
+              {/*
               Route-driven view slot ([P01]/[P02]). The transcript pane is
               ALWAYS visible and its mount identity stays stable ([L26]);
               the History view rides the TugSheet `shade` presentation
@@ -5059,31 +5190,31 @@ export function SessionCardBody({
               is a sibling of all three, at the end of the top column: it
               rises from the top of the prompt entry, over them.
             */}
-            <div className="session-view-slot" data-active-view={activeView}>
-              <div className="session-view-pane" data-view="transcript">
-                <SessionTranscriptHost
-                  ref={transcriptRef}
-                  cardId={cardId}
-                  codeSessionStore={codeSessionStore}
-                  shellSessionStore={shellSessionStore}
-                  refsSessionStore={refsSessionStore}
-                  pendingContextStore={pendingContextStore}
-                  sessionMetadataStore={sessionMetadataStore}
-                  transcriptStore={transcriptStore}
-                  findSession={findSession}
-                  renderTurnTrailing={renderTurnTrailing}
-                  // The landing arc narrates at the live edge, beneath every
-                  // row and above the composer — ink in motion, never
-                  // ledgered. Built inline rather than memoized for the same
-                  // reason the dialogs below are: caching the element would
-                  // freeze the component reference against Fast Refresh.
-                  liveEdgeContent={
-                    <SessionLandingProgressRow
-                      joinModeController={joinModeController}
-                    />
-                  }
-                />
-                {/*
+              <div className="session-view-slot" data-active-view={activeView}>
+                <div className="session-view-pane" data-view="transcript">
+                  <SessionTranscriptHost
+                    ref={transcriptRef}
+                    cardId={cardId}
+                    codeSessionStore={codeSessionStore}
+                    shellSessionStore={shellSessionStore}
+                    refsSessionStore={refsSessionStore}
+                    pendingContextStore={pendingContextStore}
+                    sessionMetadataStore={sessionMetadataStore}
+                    transcriptStore={transcriptStore}
+                    findSession={findSession}
+                    renderTurnTrailing={renderTurnTrailing}
+                    // The landing arc narrates at the live edge, beneath every
+                    // row and above the composer — ink in motion, never
+                    // ledgered. Built inline rather than memoized for the same
+                    // reason the dialogs below are: caching the element would
+                    // freeze the component reference against Fast Refresh.
+                    liveEdgeContent={
+                      <SessionLandingProgressRow
+                        joinModeController={joinModeController}
+                      />
+                    }
+                  />
+                  {/*
                   A question raised from outside the turn stream (`/api/ask`),
                   with a command-line tool blocked on the answer.
 
@@ -5100,19 +5231,19 @@ export function SessionCardBody({
                   `session-card-transcript.tsx` documents for the dialogs it
                   owns.
                 */}
-                {pendingAsk !== null ? (
-                  <AppTestAskDialog
-                    ask={pendingAsk}
-                    onRespond={handleAskRespond}
-                  />
-                ) : null}
-              </div>
-              <div className="session-view-pane" data-view="history">
-                <TugSheet
-                  ref={historySheetRef}
-                  onOpenChange={handleHistorySheetOpenChange}
-                >
-                  {/* History is content-sized ([P17] `shadeAutoSize`): it pages
+                  {pendingAsk !== null ? (
+                    <AppTestAskDialog
+                      ask={pendingAsk}
+                      onRespond={handleAskRespond}
+                    />
+                  ) : null}
+                </div>
+                <div className="session-view-pane" data-view="history">
+                  <TugSheet
+                    ref={historySheetRef}
+                    onOpenChange={handleHistorySheetOpenChange}
+                  >
+                    {/* History is content-sized ([P17] `shadeAutoSize`): it pages
                       the log in as the reader scrolls, so a fixed fraction
                       would cap a list that always has more to show. `fit-
                       content` under a full-slot cap gives the one rule that
@@ -5121,26 +5252,26 @@ export function SessionCardBody({
                       anything longer fills the transcript and scrolls inside.
                       The grabber goes with it (autosize never shows one): the
                       content owns the height, so there is nothing to drag. */}
-                  <TugSheetContent
-                    title="History"
-                    presentation="shade"
-                    persistKey="session-card"
-                    shadeAutoSize
-                    modalScopeSelector='.session-view-pane[data-view="transcript"]'
-                  >
-                    <SessionHistoryView
-                      projectDir={projectDir}
-                      active={activeView === "history"}
-                      onClose={() => shadeViewController.hide()}
-                    />
-                  </TugSheetContent>
-                </TugSheet>
+                    <TugSheetContent
+                      title="History"
+                      presentation="shade"
+                      persistKey="session-card"
+                      shadeAutoSize
+                      modalScopeSelector='.session-view-pane[data-view="transcript"]'
+                    >
+                      <SessionHistoryView
+                        projectDir={projectDir}
+                        active={activeView === "history"}
+                        onClose={() => shadeViewController.hide()}
+                      />
+                    </TugSheetContent>
+                  </TugSheet>
+                </div>
               </div>
-            </div>
-            <PaneBulletinAnchor ref={paneBulletinRef} />
+              <PaneBulletinAnchor ref={paneBulletinRef} />
             </TugPaneBulletinProvider>
-            </TugPaneBulletinProvider>
-            {/*
+          </TugPaneBulletinProvider>
+          {/*
               The find bar ([P06]/[P07]): a flow sibling between the view slot
               and Z2, outside `.session-view-slot` — so History coexists with
               it rather than displacing it, and rises from ITS top edge while
@@ -5152,32 +5283,32 @@ export function SessionCardBody({
               overlay, which is why the card has none of its own: a search is
               live only while the bar is open ([P13]).
             */}
-            {findBarOpen ? (
-              // Under the SAME CycleScope the prompt entry uses, so the bar's
-              // four stops register into this card's one focus cycle rather
-              // than a walk of their own ([P10]) — the card has one Tab order
-              // and the bar takes its seat in it, between the Z4 toolbar and
-              // the Z2 cells.
-              <cycle.CycleScope>
-                <TugFindBar
-                  ref={findBarRef}
-                  session={findSession}
-                  onClose={closeFindBar}
-                  cardRootRef={sessionCardRootRef}
-                  placeholder="Find in transcript"
-                  dataSlot="session-card-find-bar"
-                  inputTestId="session-card-find-input"
-                  initialQuery={lastFindQueryRef.current}
-                  focusGroup={SESSION_CYCLE_GROUP}
-                  focusOrderBase={SESSION_CYCLE_ORDER_FIND_BASE}
-                />
-              </cycle.CycleScope>
-            ) : null}
-            <div
-              className="session-card-status-bar"
-              data-slot="session-card-status-bar"
-            >
-              {/*
+          {findBarOpen ? (
+            // Under the SAME CycleScope the prompt entry uses, so the bar's
+            // four stops register into this card's one focus cycle rather
+            // than a walk of their own ([P10]) — the card has one Tab order
+            // and the bar takes its seat in it, between the Z4 toolbar and
+            // the Z2 cells.
+            <cycle.CycleScope>
+              <TugFindBar
+                ref={findBarRef}
+                session={findSession}
+                onClose={closeFindBar}
+                cardRootRef={sessionCardRootRef}
+                placeholder="Find in transcript"
+                dataSlot="session-card-find-bar"
+                inputTestId="session-card-find-input"
+                initialQuery={lastFindQueryRef.current}
+                focusGroup={SESSION_CYCLE_GROUP}
+                focusOrderBase={SESSION_CYCLE_ORDER_FIND_BASE}
+              />
+            </cycle.CycleScope>
+          ) : null}
+          <div
+            className="session-card-status-bar"
+            data-slot="session-card-status-bar"
+          >
+            {/*
                 Z2 status content. Rendered only when Z2 has content: an
                 empty slot leaves the wrapper `:empty`, which collapses the
                 whole strip (CSS).
@@ -5187,18 +5318,18 @@ export function SessionCardBody({
                 its open/close. It has no cell of its own: `/btw` is how you
                 ask, and the placard pops from the strip's trailing edge.
               */}
-              {effectiveStatusBarContent != null && (
-                <div
-                  className="session-card-status-bar-main"
-                  // Z2 status content is chrome: clicking a status cell, its
-                  // popover trigger, or an empty gap must not pull focus off
-                  // the editor. Ancestor-matched `data-tug-focus="refuse"`
-                  // covers the cells + gaps. Keeping first-responder on the
-                  // editor also lets a status popover restore editor focus on
-                  // Escape / Cmd-. via the service-popup binding.
-                  data-tug-focus="refuse"
-                >
-                  {/*
+            {effectiveStatusBarContent != null && (
+              <div
+                className="session-card-status-bar-main"
+                // Z2 status content is chrome: clicking a status cell, its
+                // popover trigger, or an empty gap must not pull focus off
+                // the editor. Ancestor-matched `data-tug-focus="refuse"`
+                // covers the cells + gaps. Keeping first-responder on the
+                // editor also lets a status popover restore editor focus on
+                // Escape / Cmd-. via the service-popup binding.
+                data-tug-focus="refuse"
+              >
+                {/*
                     Second cycle scope, sharing this card's mode id, so
                     each Z2 status cell's `useFocusable` registers into
                     the same cycle as the prompt-entry stops ([P10]
@@ -5207,13 +5338,11 @@ export function SessionCardBody({
                     the prompt entry's own `CycleScope` — so it needs its
                     own here.
                   */}
-                  <cycle.CycleScope>
-                    {effectiveStatusBarContent}
-                  </cycle.CycleScope>
-                </div>
-              )}
-            </div>
-            {/*
+                <cycle.CycleScope>{effectiveStatusBarContent}</cycle.CycleScope>
+              </div>
+            )}
+          </div>
+          {/*
               Changes glance ([P03] revised): a bottom-anchored PASSIVE shade
               that rises from the TOP OF THE PROMPT ENTRY over the whole
               transcript region — find bar and Z2 status row included. ⌃⌘C
@@ -5230,40 +5359,40 @@ export function SessionCardBody({
               column ends exactly where the entry region begins. Purely a
               positioning move — no measurement, no JS geometry ([L06]).
             */}
-            <div className="session-view-pane" data-view="changes">
-              <TugSheet
-                ref={changesSheetRef}
-                onOpenChange={handleChangesSheetOpenChange}
+          <div className="session-view-pane" data-view="changes">
+            <TugSheet
+              ref={changesSheetRef}
+              onOpenChange={handleChangesSheetOpenChange}
+            >
+              <TugSheetContent
+                title="Changes"
+                presentation="shade"
+                persistKey="session-card"
+                shadeAutoSize
+                shadeAnchor="bottom"
+                shadePassive
+                grabberLabel="Resize the Changes view"
+                modalScopeSelector='.session-view-pane[data-view="transcript"]'
               >
-                <TugSheetContent
-                  title="Changes"
-                  presentation="shade"
-                  persistKey="session-card"
-                  shadeAutoSize
-                  shadeAnchor="bottom"
-                  shadePassive
-                  grabberLabel="Resize the Changes view"
-                  modalScopeSelector='.session-view-pane[data-view="transcript"]'
-                >
-                  <SessionChangesView
-                    cardId={cardId}
-                    projectDir={projectDir}
-                    changesController={changesController}
-                    codeSessionStore={codeSessionStore}
-                    // A landing in flight supplies its own target, so an
-                    // aimed-but-unbound dash still gets its face.
-                    dashJoin={
-                      boundDashId !== null ||
-                      (joinSnapshot.active && joinSnapshot.dash !== null)
-                        ? dashJoin
-                        : undefined
-                    }
-                    dismiss={changesDismiss}
-                  />
-                </TugSheetContent>
-              </TugSheet>
-            </div>
+                <SessionChangesView
+                  cardId={cardId}
+                  projectDir={projectDir}
+                  changesController={changesController}
+                  codeSessionStore={codeSessionStore}
+                  // A landing in flight supplies its own target, so an
+                  // aimed-but-unbound dash still gets its face.
+                  dashJoin={
+                    boundDashId !== null ||
+                    (joinSnapshot.active && joinSnapshot.dash !== null)
+                      ? dashJoin
+                      : undefined
+                  }
+                  dismiss={changesDismiss}
+                />
+              </TugSheetContent>
+            </TugSheet>
           </div>
+        </div>
         {/*
           Prompt-entry region — content-sized and pinned to the card bottom.
           The text area grows with the editor up to `--session-entry-max-height`
@@ -5281,7 +5410,9 @@ export function SessionCardBody({
           >
             {/* Composer-side reminder of staged shell / `/btw` context that
                 will ride the next `❯` submission. Self-hides when empty. */}
-            <SessionPendingContextStrip pendingContextStore={pendingContextStore} />
+            <SessionPendingContextStrip
+              pendingContextStore={pendingContextStore}
+            />
             {/*
               CycleScope keys the prompt entry's authored focus stops
               into this card's cycle mode (not the base mode), so the
@@ -5292,199 +5423,204 @@ export function SessionCardBody({
               additional `CycleScope`s sharing this same mode id.
             */}
             <cycle.CycleScope>
-            <TugPromptEntry
-              ref={entryDelegateRef}
-              id={`${cardId}-entry`}
-              // Code is the only resting mode ([P01]). Draft generation now
-              // lives in the Changes shade's composer ([P02]/[P15]) — the
-              // entry carries no changeset plumbing.
-              // The editor stands down (read-only + caret off + dimmed)
-              // only while an inline dialog owns the keyboard ([P06]) —
-              // which must NOT inert the subtree (the dialog needs the
-              // card alive around it). NOT during cycling: the editor is a
-              // live stop of the cycle that grants the caret when the walk
-              // lands on it, and a deactivated stop is a disabled one,
-              // which the walk skips — standing it down while cycling
-              // removes the composer from traversal entirely.
-              deactivated={inlineDialogPending}
-              // A resume replay disables the WHOLE entry — route toggle,
-              // chips, and submit included — via the inert subtree: nothing
-              // here can act on a session that is still reconstructing. It
-              // reactivates when the window closes (the stood-down effect
-              // re-focuses the editor).
-              disabled={replayHoldActive}
-              submitFocusGroup={SESSION_CYCLE_GROUP}
-              submitFocusOrder={SESSION_CYCLE_ORDER_SUBMIT}
-              commitFocusOrderBase={SESSION_CYCLE_ORDER_COMMIT_BASE}
-              routeFocusGroup={SESSION_CYCLE_GROUP}
-              routeFocusOrder={SESSION_CYCLE_ORDER_ROUTE}
-              editorFocusGroup={SESSION_CYCLE_GROUP}
-              editorFocusOrder={SESSION_CYCLE_ORDER_EDITOR}
-              attachmentFocusGroup={SESSION_CYCLE_GROUP}
-              attachmentFocusOrderBase={SESSION_CYCLE_ORDER_ATTACHMENT_BASE}
-              onAttachmentCountChange={setAttachmentCount}
-              localCommandTargetId={`${cardId}-card-content`}
-              codeSessionStore={codeSessionStore}
-              shellSessionStore={shellSessionStore}
-              pathCommandsStore={pathCommandsStore}
-              shellGrammarStore={shellGrammarStore}
-              shellClassifyStore={shellClassifyStore}
-              findSession={findSession}
-              // A join that has been pressed keeps the slot until something
-              // else claims it ([P03]): landing exits the mode, so handing the
-              // composer straight back to commit mode would take the join's
-              // own account of itself down on the beat it was pressed. Commit
-              // mode going active supersedes it — that is a person asking this
-              // composer for something else.
-              landingMode={
-                joinActive || (joinSnapshot.narrating && !commitModeActive)
-                  ? joinModeController
-                  : commitModeController
-              }
-              // What the Changes room lands for this card: a dash in reach —
-              // bound, or aimed at by name through `/dash-join` — means a join.
-              // The aimed case matters because that command enters join mode
-              // without binding.
-              changesLandingKind={
-                boundDashId !== null || (joinSnapshot.active && joinSnapshot.dash !== null)
-                  ? "join"
-                  : "commit"
-              }
-              // Derived on every render from two live reads, and remembered
-              // nowhere: a join stands for this card's dash, and the room it
-              // stands in is closed. When the join lands the dash leaves the
-              // feed and the offer goes with it, so the dot cannot outlive
-              // what it points at.
-              changesHasOffer={joinOffer !== null && shadeView === "none"}
-              onEnterChanges={enterChanges}
-              // A rejected drop / paste (unsupported, oversize, or
-              // undecodable image) is transient input validation, not a
-              // session fault. Surface it as a calm, dismissible bulletin
-              // above the entry — never the red session-lost banner, and
-              // never `lastError` (which would light the entry's errored
-              // ring). A stable id coalesces repeat rejections into one
-              // notice instead of stacking.
-              onAttachmentError={(message) =>
-                paneBulletinRef.current?.caution(message, {
-                  id: "attachment-error",
-                  sticky: true,
-                })
-              }
-              sessionMetadataStore={sessionMetadataStore}
-              historyStore={historyStore}
-              completionProviders={completionProviders}
-              argumentHintResolver={argumentHintResolver}
-              argumentHintRefresh={sessionMetadataStore}
-              pastedCommandResolver={pastedCommandResolver}
-              inlineCommandMatcher={inlineCommandMatcher}
-              onAfterSubmit={handleAfterSubmit}
-              onDoubleEscapeWhenEmpty={() => rewindSheet.openRewindSheet()}
-              onEmptyChange={setComposerEmpty}
-              indicatorsContent={
-                commitModeActive ? (
-                  // Commit cluster ([P03], Table T01): the Claude-session
-                  // chips (identity / mode / model / effort) describe sending
-                  // a prompt and unmount for the mode; what remains is what a
-                  // commit is about — WHERE it lands (Project) and WHAT it
-                  // lands (Changes). The Changes chip's click toggles the
-                  // changes sheet without leaving the mode.
-                  <>
-                    {projectStatusContent}
-                    <TugActionTooltip
-                      action={TUG_ACTIONS.TOGGLE_CHANGES_VIEW}
-                      content={
-                        commitFileCount === 0 && commitClaimableCount > 0
-                          ? "Nothing attributed to this session yet — open Changes to claim these files into the commit"
-                          : "Show or hide the changes sheet"
-                      }
-                    >
-                      <TugPushButton
-                        size="sm"
-                        emphasis="tinted"
-                        role="action"
-                        layout="label-top"
-                        label="Changes"
-                        data-slot="changes-chip"
-                        focusGroup={SESSION_CYCLE_GROUP}
-                        focusOrder={SESSION_CYCLE_ORDER_CHANGES}
-                        aria-label={
+              <TugPromptEntry
+                ref={entryDelegateRef}
+                id={`${cardId}-entry`}
+                // Code is the only resting mode ([P01]). Draft generation now
+                // lives in the Changes shade's composer ([P02]/[P15]) — the
+                // entry carries no changeset plumbing.
+                // The editor stands down (read-only + caret off + dimmed)
+                // only while an inline dialog owns the keyboard ([P06]) —
+                // which must NOT inert the subtree (the dialog needs the
+                // card alive around it). NOT during cycling: the editor is a
+                // live stop of the cycle that grants the caret when the walk
+                // lands on it, and a deactivated stop is a disabled one,
+                // which the walk skips — standing it down while cycling
+                // removes the composer from traversal entirely.
+                deactivated={inlineDialogPending}
+                // A resume replay disables the WHOLE entry — route toggle,
+                // chips, and submit included — via the inert subtree: nothing
+                // here can act on a session that is still reconstructing. It
+                // reactivates when the window closes (the stood-down effect
+                // re-focuses the editor).
+                disabled={replayHoldActive}
+                submitFocusGroup={SESSION_CYCLE_GROUP}
+                submitFocusOrder={SESSION_CYCLE_ORDER_SUBMIT}
+                commitFocusOrderBase={SESSION_CYCLE_ORDER_COMMIT_BASE}
+                routeFocusGroup={SESSION_CYCLE_GROUP}
+                routeFocusOrder={SESSION_CYCLE_ORDER_ROUTE}
+                editorFocusGroup={SESSION_CYCLE_GROUP}
+                editorFocusOrder={SESSION_CYCLE_ORDER_EDITOR}
+                attachmentFocusGroup={SESSION_CYCLE_GROUP}
+                attachmentFocusOrderBase={SESSION_CYCLE_ORDER_ATTACHMENT_BASE}
+                onAttachmentCountChange={setAttachmentCount}
+                localCommandTargetId={`${cardId}-card-content`}
+                codeSessionStore={codeSessionStore}
+                shellSessionStore={shellSessionStore}
+                pathCommandsStore={pathCommandsStore}
+                shellGrammarStore={shellGrammarStore}
+                shellClassifyStore={shellClassifyStore}
+                findSession={findSession}
+                // A join that has been pressed keeps the slot until something
+                // else claims it ([P03]): landing exits the mode, so handing the
+                // composer straight back to commit mode would take the join's
+                // own account of itself down on the beat it was pressed. Commit
+                // mode going active supersedes it — that is a person asking this
+                // composer for something else.
+                landingMode={
+                  joinActive || (joinSnapshot.narrating && !commitModeActive)
+                    ? joinModeController
+                    : commitModeController
+                }
+                // What the Changes room lands for this card: a dash in reach —
+                // bound, or aimed at by name through `/dash-join` — means a join.
+                // The aimed case matters because that command enters join mode
+                // without binding.
+                changesLandingKind={
+                  boundDashId !== null ||
+                  (joinSnapshot.active && joinSnapshot.dash !== null)
+                    ? "join"
+                    : "commit"
+                }
+                // Derived on every render from two live reads, and remembered
+                // nowhere: a join stands for this card's dash, and the room it
+                // stands in is closed. When the join lands the dash leaves the
+                // feed and the offer goes with it, so the dot cannot outlive
+                // what it points at.
+                changesHasOffer={joinOffer !== null && shadeView === "none"}
+                onEnterChanges={enterChanges}
+                // A rejected drop / paste (unsupported, oversize, or
+                // undecodable image) is transient input validation, not a
+                // session fault. Surface it as a calm, dismissible bulletin
+                // above the entry — never the red session-lost banner, and
+                // never `lastError` (which would light the entry's errored
+                // ring). A stable id coalesces repeat rejections into one
+                // notice instead of stacking.
+                onAttachmentError={(message) =>
+                  paneBulletinRef.current?.caution(message, {
+                    id: "attachment-error",
+                    sticky: true,
+                  })
+                }
+                sessionMetadataStore={sessionMetadataStore}
+                historyStore={historyStore}
+                completionProviders={completionProviders}
+                argumentHintResolver={argumentHintResolver}
+                argumentHintRefresh={sessionMetadataStore}
+                pastedCommandResolver={pastedCommandResolver}
+                inlineCommandMatcher={inlineCommandMatcher}
+                onAfterSubmit={handleAfterSubmit}
+                onDoubleEscapeWhenEmpty={() => rewindSheet.openRewindSheet()}
+                onEmptyChange={setComposerEmpty}
+                indicatorsContent={
+                  commitModeActive ? (
+                    // Commit cluster ([P03], Table T01): the Claude-session
+                    // chips (identity / mode / model / effort) describe sending
+                    // a prompt and unmount for the mode; what remains is what a
+                    // commit is about — WHERE it lands (Project) and WHAT it
+                    // lands (Changes). The Changes chip's click toggles the
+                    // changes sheet without leaving the mode.
+                    <>
+                      {projectStatusContent}
+                      <TugActionTooltip
+                        action={TUG_ACTIONS.TOGGLE_CHANGES_VIEW}
+                        content={
                           commitFileCount === 0 && commitClaimableCount > 0
-                            ? `Claim ${commitClaimableCount} unclaimed ${
-                                commitClaimableCount === 1 ? "file" : "files"
-                              } to commit — open the changes sheet`
+                            ? "Nothing attributed to this session yet — open Changes to claim these files into the commit"
                             : "Show or hide the changes sheet"
                         }
-                        onClick={() => {
-                          if (shadeViewController.getSnapshot() === "changes") {
-                            shadeViewController.hide();
-                          } else {
-                            shadeViewController.show("changes");
-                          }
-                        }}
                       >
-                        {commitFileCount === 0 && commitClaimableCount > 0
-                          ? `claim ${commitClaimableCount}`
-                          : commitFileCount === 1
-                            ? "1 file"
-                            : `${commitFileCount} files`}
-                      </TugPushButton>
-                    </TugActionTooltip>
-                  </>
-                ) : (
-                // Static Code chip set ([P01]/[P10]): the Claude Code identity
-                // chip, then one AI settings chip carrying model · effort ·
-                // mode. The find cluster is not here — it lives in the find
-                // bar, which owns the search for exactly as long as it is open.
-                //
-                // The Session and Project chips are deliberately absent on THIS
-                // route. Both names already read in the pane title bar (the
-                // identity's Line tier), so on the strip they were a
-                // second copy — and they were the two most expensive variable
-                // faces on the one route that has a width problem. The shell and
-                // commit clusters keep theirs: those routes are not
-                // space-challenged, and Project means something different in a
-                // commit (where it lands) than as an identity label.
-                <>
-                  <SessionRouteIndicatorBadge
-                    codeSessionStore={codeSessionStore}
-                    sessionMetadataStore={sessionMetadataStore}
-                    focusGroup={SESSION_CYCLE_GROUP}
-                    focusOrder={SESSION_CYCLE_ORDER_CLAUDE_CODE}
-                  />
-                  {/* Disabled while a turn is in flight so a model/effort/mode
+                        <TugPushButton
+                          size="sm"
+                          emphasis="tinted"
+                          role="action"
+                          layout="label-top"
+                          label="Changes"
+                          data-slot="changes-chip"
+                          focusGroup={SESSION_CYCLE_GROUP}
+                          focusOrder={SESSION_CYCLE_ORDER_CHANGES}
+                          aria-label={
+                            commitFileCount === 0 && commitClaimableCount > 0
+                              ? `Claim ${commitClaimableCount} unclaimed ${
+                                  commitClaimableCount === 1 ? "file" : "files"
+                                } to commit — open the changes sheet`
+                              : "Show or hide the changes sheet"
+                          }
+                          onClick={() => {
+                            if (
+                              shadeViewController.getSnapshot() === "changes"
+                            ) {
+                              shadeViewController.hide();
+                            } else {
+                              shadeViewController.show("changes");
+                            }
+                          }}
+                        >
+                          {commitFileCount === 0 && commitClaimableCount > 0
+                            ? `claim ${commitClaimableCount}`
+                            : commitFileCount === 1
+                              ? "1 file"
+                              : `${commitFileCount} files`}
+                        </TugPushButton>
+                      </TugActionTooltip>
+                    </>
+                  ) : (
+                    // Static Code chip set ([P01]/[P10]): the Claude Code identity
+                    // chip, then one AI settings chip carrying model · effort ·
+                    // mode. The find cluster is not here — it lives in the find
+                    // bar, which owns the search for exactly as long as it is open.
+                    //
+                    // The Session and Project chips are deliberately absent on THIS
+                    // route. Both names already read in the pane title bar (the
+                    // identity's Line tier), so on the strip they were a
+                    // second copy — and they were the two most expensive variable
+                    // faces on the one route that has a width problem. The shell and
+                    // commit clusters keep theirs: those routes are not
+                    // space-challenged, and Project means something different in a
+                    // commit (where it lands) than as an identity label.
+                    <>
+                      <SessionRouteIndicatorBadge
+                        codeSessionStore={codeSessionStore}
+                        sessionMetadataStore={sessionMetadataStore}
+                        focusGroup={SESSION_CYCLE_GROUP}
+                        focusOrder={SESSION_CYCLE_ORDER_CLAUDE_CODE}
+                      />
+                      {/* Disabled while a turn is in flight so a model/effort/mode
                       change never races the running turn — the chip mirrors the
                       submit button, live exactly when `canSubmit`. */}
-                  <AiChip
-                    cardId={cardId}
-                    sessionMetadataStore={sessionMetadataStore}
-                    onOpenSheet={aiConfigSheet.openAiConfigSheet}
-                    disabled={!codeSnap.canSubmit}
-                    focusGroup={SESSION_CYCLE_GROUP}
-                    focusOrder={SESSION_CYCLE_ORDER_AI}
-                  />
-                  {footerContent}
-                </>
-                )
-              }
-              lineWrap={editorSettings.lineWrap}
-              lineNumbers={editorSettings.lineNumbers}
-              highlightActiveLineGutter={editorSettings.highlightActiveLineGutter}
-              returnAction={editorSettings.returnKeyAction}
-              numpadEnterAction={editorSettings.numpadEnterAction}
-              // The other half of the History stand-down above ([P17]/[P14]).
-              // The same state that takes the composer's default ring away and
-              // gives it to the shade's Done has to take the KEY too: the
-              // carve-out leaves the composer live under the shade, so a
-              // Return there was writing a newline while the only ring on
-              // screen promised dismissal. One state, one owner, both halves.
-              defaultButtonOwnsReturn={shadeView === "history"}
-              placeholder={SESSION_PROMPT_PLACEHOLDER}
-            />
+                      <AiChip
+                        cardId={cardId}
+                        sessionMetadataStore={sessionMetadataStore}
+                        onOpenSheet={aiConfigSheet.openAiConfigSheet}
+                        disabled={!codeSnap.canSubmit}
+                        focusGroup={SESSION_CYCLE_GROUP}
+                        focusOrder={SESSION_CYCLE_ORDER_AI}
+                      />
+                      {footerContent}
+                    </>
+                  )
+                }
+                lineWrap={editorSettings.lineWrap}
+                lineNumbers={editorSettings.lineNumbers}
+                highlightActiveLineGutter={
+                  editorSettings.highlightActiveLineGutter
+                }
+                returnAction={editorSettings.returnKeyAction}
+                numpadEnterAction={editorSettings.numpadEnterAction}
+                // The other half of the History stand-down above ([P17]/[P14]).
+                // The same state that takes the composer's default ring away and
+                // gives it to the shade's Done has to take the KEY too: the
+                // carve-out leaves the composer live under the shade, so a
+                // Return there was writing a newline while the only ring on
+                // screen promised dismissal. One state, one owner, both halves.
+                defaultButtonOwnsReturn={shadeView === "history"}
+                placeholder={SESSION_PROMPT_PLACEHOLDER}
+              />
             </cycle.CycleScope>
           </TugBox>
           {cardPickerSheet.renderSheet()}
         </div>
-      {/*
+        {/*
         Single TugPaneBanner driven by `deriveSessionCardBannerSpec`.
         The precedence chain (error > transport > none) is enforced
         in the helper; this JSX maps the spec's discriminated kind
@@ -5498,9 +5634,8 @@ export function SessionCardBody({
         false`; the component runs its exit animation and then
         unmounts via its internal `mounted` state.
       */}
-      {renderSessionCardBanner(bannerSpec, setDismissedAt)}
+        {renderSessionCardBanner(bannerSpec, setDismissedAt)}
       </div>
     </CardContentResponderScope>
   );
 }
-

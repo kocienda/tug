@@ -59,6 +59,7 @@ pub fn dispatch(cmd: DashCommands, json: bool, quiet: bool) -> ExitCode {
             quiet,
         ),
         DashCommands::Replay { name } => return run_replay(&name, json, quiet),
+        DashCommands::ResolveBase { name } => return run_resolve_base(&name, json, quiet),
         DashCommands::Verify { name, base, head } => {
             return run_verify(&name, base, head, json, quiet);
         }
@@ -544,6 +545,45 @@ fn replay_exit_status(outcome: &ReplayOutcome) -> u8 {
         | ReplayOutcome::Deferred { .. } => 0,
         ReplayOutcome::Conflicted { .. } => 1,
     }
+}
+
+fn run_resolve_base(name: &str, json: bool, quiet: bool) -> ExitCode {
+    let repo = match tugutil_core::find_repo_root() {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("error: {}", e);
+            return ExitCode::from(1);
+        }
+    };
+    // The CLI has no attribution view — that is the running instance's — so
+    // every overlap here reads as the user's own, which is the right answer
+    // for a person standing in their own checkout.
+    let outcome =
+        match tugdash_core::ops::resolve_base_in(&repo, name, &std::collections::BTreeMap::new()) {
+            Ok(o) => o,
+            Err(e) => {
+                eprintln!("error: {}", e);
+                return ExitCode::from(1);
+            }
+        };
+    if json {
+        print_ok("dash resolve-base", &outcome);
+    } else if !quiet {
+        for path in &outcome.dropped {
+            println!("dropped  {path}  (the dash carries these bytes)");
+        }
+        for path in &outcome.folded {
+            println!("committed  {path}");
+        }
+        if let Some(sha) = &outcome.committed {
+            println!("Commit: {}", &sha[..sha.len().min(9)]);
+        }
+        for warning in &outcome.warnings {
+            println!("{warning}");
+        }
+        println!("The join of '{name}' is no longer blocked by the base.");
+    }
+    ExitCode::SUCCESS
 }
 
 /// `dash replay` owns its exit code rather than borrowing the dispatcher's;

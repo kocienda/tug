@@ -136,6 +136,7 @@ pub fn join_state_for(
     repo_root: &Path,
     detail: &DashDetail,
     current_branch: &str,
+    live_dirt: &std::collections::BTreeMap<String, String>,
 ) -> DashJoinState {
     // Uncached and uncacheable: what is running on this dash right now. The
     // registry is in-process, so this is the one fact here that answers to the
@@ -159,12 +160,17 @@ pub fn join_state_for(
             detail,
             current_branch,
             run_kind,
+            live_dirt,
         )
             .into_iter()
             .map(|b| DashJoinBlocker {
                 kind: b.kind,
                 detail: b.detail,
                 paths: b.paths,
+                remedy: b.remedy.map(|r| tugcast_core::types::DashJoinRemedy {
+                    explain: r.explain,
+                    refused: r.refused,
+                }),
             })
             .collect();
 
@@ -540,7 +546,7 @@ mod tests {
     fn compose(repo: &Path) -> DashJoinState {
         let detail = detail_for(repo);
         let branch = ops::current_branch(repo).unwrap();
-        join_state_for(repo, &detail, &branch)
+        join_state_for(repo, &detail, &branch, &std::collections::BTreeMap::new())
     }
 
     #[test]

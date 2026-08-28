@@ -13,6 +13,7 @@
 //! cwd-relative (`find_repo_root`), matching `git`'s own behaviour.
 
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, SystemTime};
@@ -254,6 +255,30 @@ pub struct JoinBlocker {
     /// The offending paths, for `base-dirt`; empty otherwise.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub paths: Vec<String>,
+    /// The same paths with what their uncommitted bytes are, for `base-dirt`.
+    /// Empty otherwise, and empty on a blocker whose kind has no paths at all.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub overlap: Vec<BaseOverlapPath>,
+    /// What a `Resolve` on this blocker would do, when one can. Absent on the
+    /// kinds nothing here can clear — an off-base checkout, a teardown left by
+    /// a crash — which are still reported, and still say what they are.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remedy: Option<JoinRemedy>,
+}
+
+/// The one way out of a blocker, and the sentence that explains it.
+///
+/// **The remedy is not in the button.** The sentence carries it, so the reader
+/// weighs what will happen before pressing, and the control is always the same
+/// word. A blocker nobody at this card can clear still carries the sentence —
+/// it says whose turn it is — and `refused` is why its button is dead ([L31]).
+#[derive(Debug, Clone, Serialize)]
+pub struct JoinRemedy {
+    /// What Resolve will do, as one sentence.
+    pub explain: String,
+    /// Why it cannot be pressed, or absent when it can.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refused: Option<String>,
 }
 
 /// Outcome of [`discard`].
@@ -1328,10 +1353,14 @@ pub struct DashDetail {
     /// is its committed diff **plus** its worktree's uncommitted tracked paths,
     /// because the join's preamble commits that dirt before joining and it
     /// therefore blocks exactly as a committed change would.
-    pub base_overlap: Vec<String>,
+    ///
+    /// Each path carries its relation, because the blockers composed from this
+    /// turn on it: an identical copy is the dash's own bytes and refuses
+    /// nothing ([`overlap_relation`]).
+    pub base_overlap: Vec<BaseOverlapPath>,
     /// The untracked half of the same intersection — base-checkout files git
     /// does not track yet, which this dash would overwrite on joining.
-    pub base_overlap_untracked: Vec<String>,
+    pub base_overlap_untracked: Vec<BaseOverlapPath>,
     /// Whether the worktree holds uncommitted changes to **tracked** files.
     ///
     /// Narrower than [`Self::worktree_dirty`], which counts untracked files
@@ -1504,7 +1533,13 @@ pub fn dash_detail_entries_in(repo_root: &Path) -> Vec<DashDetail> {
         // same intersection the preflight uses, so the two cannot drift.
         let mut dash_changed: Vec<String> = files.iter().map(|f| f.path.clone()).collect();
         dash_changed.extend(worktree_dirt_tracked.iter().cloned());
-        let overlap = intersect_base_dirt(&base_dirt, &base_untracked, &dash_changed);
+        let overlap = intersect_base_dirt(
+            repo_root,
+            &branch,
+            &base_dirt,
+            &base_untracked,
+            &dash_changed,
+        );
 
         // Two dash-log reads per dash per recompute — the declarations and the
         // arc record, each folding the same small append-only file through its
@@ -2934,13 +2969,28 @@ fn off_base_detail(current_branch: &str, base_branch: &str) -> String {
     )
 }
 
-/// The remedy sentence for a blocked join that turns out to be jailed by the
-/// dash's *own* plan — the one case where "commit or stash it" is the wrong
-/// advice, because committing the stale base copy enshrines a fork and
-/// stashing only hides it.
+/// What a divergent base copy of the user's own says.
+///
+/// It states the fact and stops. The sentence used to end "Commit or stash
+/// them first", which named two acts no control in the app performs and, for
+/// the commonest case, recommended the wrong one — that case is no longer a
+/// refusal at all, and this one has a control of its own.
 fn base_dirt_detail(paths: &[String]) -> String {
     format!(
-        "Cannot join: the base worktree has uncommitted changes to files this dash also changed ({}). Commit or stash them first.",
+        "Cannot join: your uncommitted edit to {} on the base differs from this dash's version of it.",
+        paths.join(", "),
+    )
+}
+
+/// The same fact when the edit belongs to another live session.
+///
+/// No remedy rides this one, and that is the honest answer rather than a gap:
+/// the edit is somebody's work in progress, and the join unblocks itself the
+/// moment they commit or set it aside.
+fn foreign_dirt_detail(holder: &str, paths: &[String]) -> String {
+    format!(
+        "Cannot join: {} holds an uncommitted edit to {} that this dash also changed.",
+        holder,
         paths.join(", "),
     )
 }
@@ -2962,18 +3012,147 @@ fn empty_detail(name: &str, base_branch: &str) -> String {
     )
 }
 
+/// One base path a dash also changed, and what its uncommitted bytes are.
+///
+/// The relation is the fact everything downstream turns on, and it is worth
+/// stating what it means rather than only how it is spelled: `identical` says
+/// the base's working copy is **byte for byte the version the dash carries**,
+/// which makes restoring it from HEAD lossless — those bytes are on the dash
+/// branch, reachable after the restore as they were before it. That guarantee
+/// is why a machine may act on this without asking; `divergent` carries no
+/// such licence, and is somebody's work.
+#[derive(Debug, Clone, Serialize)]
+pub struct BaseOverlapPath {
+    /// Repo-relative, as git spells it.
+    pub path: String,
+    /// `identical` | `divergent`.
+    pub relation: String,
+    /// The live session holding this path, when it is not one working this
+    /// dash. Present means the edit is somebody else's in-progress work, which
+    /// nothing here may move: folding a half-written edit into a join would
+    /// take it out from under the session writing it. Absent means the user's
+    /// own, which a resolve may act on.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub holder: Option<String>,
+}
+
+/// The base copy is the dash's own bytes; dropping it loses nothing.
+pub const OVERLAP_IDENTICAL: &str = "identical";
+/// The base copy is other work, and only a person or a merge may decide it.
+pub const OVERLAP_DIVERGENT: &str = "divergent";
+
+/// Which of the two a path is, read off the object database.
+///
+/// Both sides are reduced to a blob id before they are compared — the base's
+/// working file through `hash-object`, which applies the same clean filters
+/// git applied to what it stored, and the dash's through `rev-parse`. Comparing
+/// ids rather than bytes is exact, is one read per side, and gets the filter
+/// question right for free; comparing the file's raw bytes against a stored
+/// blob would call every filtered file divergent.
+///
+/// A path absent from **both** sides is identical: the base deleted a file the
+/// dash also deleted, and the join's result is the deletion either way.
+fn overlap_relation(repo_root: &Path, branch: &str, path: &str) -> String {
+    let base_blob = if repo_root.join(path).exists() {
+        git_stdout(repo_root, &["hash-object", "--path", path, "--", path]).ok()
+    } else {
+        None
+    };
+    let dash_blob = git_stdout(
+        repo_root,
+        &["rev-parse", "--verify", &format!("{branch}:{path}")],
+    )
+    .ok();
+    if base_blob == dash_blob {
+        OVERLAP_IDENTICAL.to_string()
+    } else {
+        OVERLAP_DIVERGENT.to_string()
+    }
+}
+
+/// Just the paths, for the sentences and the wire fields that take them.
+fn overlap_paths(overlap: &[BaseOverlapPath]) -> Vec<String> {
+    overlap.iter().map(|o| o.path.clone()).collect()
+}
+
+/// Put the base's identical copies back the way HEAD has them, so the merge
+/// may write the paths it owns.
+///
+/// **This is why the relation is read from the objects.** Every path here holds
+/// exactly what the dash branch carries, so the restore destroys nothing: the
+/// bytes are reachable at `<branch>:<path>` the instant after, and the join
+/// about to run commits those same bytes onto the base. Git refuses the merge
+/// regardless of whether the dirty content happens to equal the merge result —
+/// it compares against HEAD, not against the result — so a path the join would
+/// have written identically still has to be cleared by hand, and this is the
+/// hand.
+///
+/// The untracked half is removed rather than restored, HEAD having nothing to
+/// restore it to, and on the same guarantee.
+///
+/// Every drop is reported. A file the user last saw as uncommitted work is now
+/// committed work, which is a fact about their checkout they are owed.
+fn drop_identical_base_copies(
+    repo_root: &Path,
+    droppable: &BlockingBasePaths,
+    warnings: &mut Vec<String>,
+) -> Result<(), String> {
+    for entry in &droppable.tracked {
+        git_stdout(repo_root, &["checkout", "HEAD", "--", &entry.path])
+            .map_err(|e| format!("failed to drop the base's copy of {}: {e}", entry.path))?;
+    }
+    for entry in &droppable.untracked {
+        let path = repo_root.join(&entry.path);
+        std::fs::remove_file(&path)
+            .map_err(|e| format!("failed to drop the base's copy of {}: {e}", entry.path))?;
+    }
+    let dropped = [
+        overlap_paths(&droppable.tracked),
+        overlap_paths(&droppable.untracked),
+    ]
+    .concat();
+    if !dropped.is_empty() {
+        warnings.push(format!(
+            "Dropped the base checkout's uncommitted copy of {} — this dash carries the same bytes, and lands them.",
+            dropped.join(", ")
+        ));
+    }
+    Ok(())
+}
+
 /// The base paths that would block a join, split by why they block.
 #[derive(Debug, Clone, Default)]
 struct BlockingBasePaths {
     /// Tracked paths with uncommitted changes.
-    tracked: Vec<String>,
+    tracked: Vec<BaseOverlapPath>,
     /// Untracked paths the integration would have to write over.
-    untracked: Vec<String>,
+    untracked: Vec<BaseOverlapPath>,
 }
 
 impl BlockingBasePaths {
     fn is_empty(&self) -> bool {
         self.tracked.is_empty() && self.untracked.is_empty()
+    }
+
+    /// Partition on the one question that decides what the join does: whether
+    /// the base's copy is bytes the dash already carries. The first half still
+    /// refuses; the second the join simply drops.
+    fn split_on_relation(self) -> (BlockingBasePaths, BlockingBasePaths) {
+        let identical = |o: &BaseOverlapPath| o.relation == OVERLAP_IDENTICAL;
+        let (tracked_drop, tracked_block): (Vec<_>, Vec<_>) =
+            self.tracked.into_iter().partition(identical);
+        let (untracked_drop, untracked_block): (Vec<_>, Vec<_>) =
+            self.untracked.into_iter().partition(identical);
+        (
+            BlockingBasePaths {
+                tracked: tracked_block,
+                untracked: untracked_block,
+            },
+            BlockingBasePaths {
+                tracked: tracked_drop,
+                untracked: untracked_drop,
+            },
+        )
     }
 }
 
@@ -3018,7 +3197,13 @@ fn blocking_base_dirt(
     if worktree.exists() {
         dash_changed.extend(dirty_tracked_paths(worktree));
     }
-    intersect_base_dirt(&base_dirt, &base_untracked, &dash_changed)
+    intersect_base_dirt(
+        repo_root,
+        branch,
+        &base_dirt,
+        &base_untracked,
+        &dash_changed,
+    )
 }
 
 /// The intersection itself, over sets the caller has already read.
@@ -3029,21 +3214,34 @@ fn blocking_base_dirt(
 /// without a second definition of what "blocking" means. The card's early
 /// warning and the join's refusal are the same set because they are the same
 /// function.
+///
+/// Each surviving path is read for its relation ([`overlap_relation`]) — two
+/// object reads on a set that is empty in the ordinary case, and small in
+/// every other, because it is already an intersection.
 fn intersect_base_dirt(
+    repo_root: &Path,
+    branch: &str,
     base_dirt: &[String],
     base_untracked: &[String],
     dash_changed: &[String],
 ) -> BlockingBasePaths {
+    let read = |p: &String| BaseOverlapPath {
+        relation: overlap_relation(repo_root, branch, p),
+        path: p.clone(),
+        // Whose work it is arrives with the caller ([`attach_holders`]); git
+        // cannot answer it, and this function reads only git.
+        holder: None,
+    };
     BlockingBasePaths {
         tracked: base_dirt
             .iter()
             .filter(|p| dash_changed.contains(p))
-            .cloned()
+            .map(read)
             .collect(),
         untracked: base_untracked
             .iter()
             .filter(|p| dash_changed.contains(p))
-            .cloned()
+            .map(read)
             .collect(),
     }
 }
@@ -3081,8 +3279,250 @@ pub fn join_preflight_in(repo_root: &Path, name: &str) -> Result<Vec<JoinBlocker
     // Which is exactly why the resolve lease exists — the one occupancy fact a
     // second process can still read, because it is written in git.
     Ok(join_blockers_from_detail(
-        repo_root, &detail, &current, None,
+        repo_root,
+        &detail,
+        &current,
+        None,
+        // The CLI has no attribution view — it is the running instance's. A
+        // preflight from here therefore reads every overlap as the user's own,
+        // which is the right default for a person at a terminal in their own
+        // checkout.
+        &BTreeMap::new(),
     ))
+}
+
+/// What a `resolve-base` did.
+#[derive(Debug, Clone, Serialize)]
+pub struct ResolveBaseOutcome {
+    pub name: String,
+    /// The commit the fold made on the base, when there was divergent work to
+    /// fold. Absent when every overlapping path was the dash's own bytes and
+    /// dropping them was the whole of the job.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub committed: Option<String>,
+    /// Paths folded into that commit.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub folded: Vec<String>,
+    /// Paths dropped as the dash's own bytes.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub dropped: Vec<String>,
+    pub warnings: Vec<String>,
+}
+
+/// Clear the base-side work that is refusing this dash's join.
+///
+/// **It clears the block and stops.** Landing stays the user's own gesture —
+/// which is why the control that runs this reads `Resolve` and not `Resolve and
+/// join`, and why nothing here calls [`join_in`].
+///
+/// Two things happen, in the order that makes a refusal cost nothing. Paths the
+/// dash already carries byte for byte are dropped ([`drop_identical_base_copies`]).
+/// Paths that are the user's own divergent work are **committed onto the base
+/// as their own commit**, which is the whole of the fold: from that commit
+/// forward the two sides are ordinary git history, so a collision between the
+/// user's edit and the dash's is an ordinary base-versus-dash conflict and
+/// reaches the resolution ladder that every join conflict already reaches. No
+/// new merge machinery, and no third side for the ladder to learn.
+///
+/// It is one commit, with its own message naming what it is, and it is
+/// op-logged: `tugutil dash undo` resets the base back and leaves the same
+/// content uncommitted, exactly where the user had it.
+///
+/// A path another live session holds is refused by name and nothing is
+/// touched — folding a half-written edit into a join would take it out from
+/// under whoever is writing it. `live_dirt` is the caller's, on the same terms
+/// as [`join_blockers_from_detail`]'s.
+pub fn resolve_base_in(
+    repo_root: &Path,
+    name: &str,
+    live_dirt: &BTreeMap<String, String>,
+) -> Result<ResolveBaseOutcome, String> {
+    let repo_root = main_repo_root(repo_root);
+    let branch = branch_name(name);
+    if !branch_exists(&repo_root, &branch) {
+        return Err(format!("no such dash: '{name}'"));
+    }
+    let base_branch = dash_base(&repo_root, name)?;
+    let current_branch = git_stdout(&repo_root, &["rev-parse", "--abbrev-ref", "HEAD"])?;
+    if current_branch != base_branch {
+        return Err(off_base_detail(&current_branch, &base_branch));
+    }
+    let worktree = worktree_path(&repo_root, name);
+
+    let (blocking, droppable) =
+        blocking_base_dirt(&repo_root, &worktree, &base_branch, &branch).split_on_relation();
+
+    // Every refusal first, so a resolve that cannot finish has moved nothing
+    // ([L28]).
+    let held = attach_holders(&blocking.tracked, live_dirt)
+        .into_iter()
+        .chain(attach_holders(&blocking.untracked, live_dirt))
+        .filter(|o| o.holder.is_some())
+        .collect::<Vec<_>>();
+    if let Some(first) = held.first() {
+        return Err(foreign_dirt_detail(
+            first.holder.as_deref().unwrap_or_default(),
+            &overlap_paths(&held),
+        ));
+    }
+    if blocking.is_empty() && droppable.is_empty() {
+        return Err(format!(
+            "Nothing to resolve: no uncommitted work on '{base_branch}' touches what dash '{name}' changed."
+        ));
+    }
+
+    let mut warnings = Vec::new();
+    let folded = [
+        overlap_paths(&blocking.tracked),
+        overlap_paths(&blocking.untracked),
+    ]
+    .concat();
+    let dropped = [
+        overlap_paths(&droppable.tracked),
+        overlap_paths(&droppable.untracked),
+    ]
+    .concat();
+
+    let op_before = crate::oplog::capture_before(&repo_root, name)?;
+    let op_tips = crate::oplog::tips_of(&op_before);
+    let op_seq = crate::oplog::record_begin(
+        &repo_root,
+        crate::oplog::OpVerb::ResolveBase,
+        name,
+        op_before,
+        &op_tips,
+    )?;
+
+    drop_identical_base_copies(&repo_root, &droppable, &mut warnings)?;
+
+    let committed = if folded.is_empty() {
+        None
+    } else {
+        let message = fold_commit_message(name, &folded);
+        // Untracked paths are not in the index, and a pathspec commit refuses
+        // a pathspec git does not know. Staging first covers the add/add case
+        // — the base created a file the dash also creates — which is a real
+        // shape of this blocker and not an edge.
+        let mut add = vec!["add", "--"];
+        add.extend(folded.iter().map(String::as_str));
+        git_stdout(&repo_root, &add)
+            .map_err(|e| format!("failed to stage the base's work in progress: {e}"))?;
+        let mut args = vec!["commit", "-m", &message, "--"];
+        args.extend(folded.iter().map(String::as_str));
+        git_stdout(&repo_root, &args)
+            .map_err(|e| format!("failed to commit the base's work in progress: {e}"))?;
+        Some(git_stdout(&repo_root, &["rev-parse", "HEAD"])?)
+    };
+
+    crate::oplog::record_complete(
+        &repo_root,
+        op_seq,
+        crate::oplog::OpAfter {
+            base_tip: Some(git_stdout(&repo_root, &["rev-parse", &base_branch])?),
+            ..Default::default()
+        },
+    )?;
+
+    Ok(ResolveBaseOutcome {
+        name: name.to_string(),
+        committed,
+        folded,
+        dropped,
+        warnings,
+    })
+}
+
+/// The message the fold's commit carries.
+///
+/// It says what the commit is and stops. A machine writing prose about work it
+/// did not do is the thing to avoid here, so it does not describe the change —
+/// it describes the *act*, which is the part the machine actually performed,
+/// and names the paths so the log reads without the op record beside it.
+fn fold_commit_message(dash: &str, paths: &[String]) -> String {
+    format!(
+        "Commit base work in progress to unblock the join of {}\n\n{}\n\nThis commit was made by `tugutil dash resolve-base` to clear a join blocked by uncommitted work on these paths. `tugutil dash undo` reverses it and leaves the same content uncommitted.\n",
+        dash,
+        paths
+            .iter()
+            .map(|p| format!("- {p}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    )
+}
+
+/// Attach each overlapping path's holder — the live session whose work it is.
+///
+/// `live_dirt` maps a base path to the display name of the live session that
+/// holds it — the changeset feed's own attribution, **passed rather than read**
+/// for the same reason `held` is: it is an in-process view a crate away, and a
+/// second definition of it here would be free to disagree with the one the
+/// Changes card renders.
+///
+/// The map arrives already scoped to sessions that are **not** working this
+/// dash — a session mated to it is no stranger to its files, and its dirt is
+/// the user's own by every reading that matters here. That scoping belongs to
+/// the caller, which is the half that knows the bindings.
+fn attach_holders(
+    overlap: &[BaseOverlapPath],
+    live_dirt: &BTreeMap<String, String>,
+) -> Vec<BaseOverlapPath> {
+    overlap
+        .iter()
+        .map(|o| BaseOverlapPath {
+            holder: live_dirt.get(&o.path).cloned(),
+            ..o.clone()
+        })
+        .collect()
+}
+
+/// Split what still blocks into the user's own and somebody else's, each
+/// carrying the sentence its case earns.
+fn base_dirt_blockers(blocking: Vec<BaseOverlapPath>, untracked: bool) -> Vec<JoinBlocker> {
+    let (foreign, mine): (Vec<_>, Vec<_>) = blocking.into_iter().partition(|o| o.holder.is_some());
+    let mut out = Vec::new();
+    if !mine.is_empty() {
+        out.push(JoinBlocker {
+            kind: "base-dirt".to_string(),
+            detail: if untracked {
+                untracked_overwrite_detail(&overlap_paths(&mine))
+            } else {
+                base_dirt_detail(&overlap_paths(&mine))
+            },
+            paths: overlap_paths(&mine),
+            remedy: Some(JoinRemedy {
+                explain: format!(
+                    "Resolve commits your edit to {} on the base as its own commit, so the join can reconcile the two versions. Undo puts it back uncommitted.",
+                    overlap_paths(&mine).join(", ")
+                ),
+                refused: None,
+            }),
+            overlap: mine,
+        });
+    }
+    // One blocker per holder, so the sentence can name whose turn it is
+    // rather than saying "somebody" over a list belonging to two people.
+    let mut by_holder: BTreeMap<String, Vec<BaseOverlapPath>> = BTreeMap::new();
+    for entry in foreign {
+        by_holder
+            .entry(entry.holder.clone().unwrap_or_default())
+            .or_default()
+            .push(entry);
+    }
+    for (holder, entries) in by_holder {
+        out.push(JoinBlocker {
+            kind: "base-dirt".to_string(),
+            detail: foreign_dirt_detail(&holder, &overlap_paths(&entries)),
+            paths: overlap_paths(&entries),
+            remedy: Some(JoinRemedy {
+                explain: format!(
+                    "That edit belongs to {holder}. When it is committed or set aside there, this join unblocks by itself."
+                ),
+                refused: Some(format!("Held by {holder}")),
+            }),
+            overlap: entries,
+        });
+    }
+    out
 }
 
 /// What would refuse a join right now, composed from a detail the caller
@@ -3103,11 +3543,17 @@ pub fn join_preflight_in(repo_root: &Path, name: &str) -> Result<Vec<JoinBlocker
 /// in the body for why the answer cannot be read from disk. A caller with no
 /// occupancy view passes `None` and is answered from git alone, which is what
 /// the resolve lease below is for.
+///
+/// `live_dirt` is the second such input, and the second for the same reason:
+/// base paths another live session holds, mapped to its display name, already
+/// scoped to sessions that are not working this dash ([`attach_holders`]). An
+/// empty map reads every overlap as the user's own.
 pub fn join_blockers_from_detail(
     repo_root: &Path,
     detail: &DashDetail,
     current_branch: &str,
     held: Option<&str>,
+    live_dirt: &BTreeMap<String, String>,
 ) -> Vec<JoinBlocker> {
     let name = detail.name.as_str();
     let base_branch = detail.base.as_str();
@@ -3131,6 +3577,8 @@ pub fn join_blockers_from_detail(
             kind: "stale-journal".to_string(),
             detail: stale_journal_detail(name),
             paths: vec![],
+            overlap: vec![],
+            remedy: None,
         });
     }
 
@@ -3139,23 +3587,37 @@ pub fn join_blockers_from_detail(
             kind: "off-base".to_string(),
             detail: off_base_detail(current_branch, base_branch),
             paths: vec![],
+            overlap: vec![],
+            remedy: None,
         });
     }
 
-    if !detail.base_overlap.is_empty() {
-        blockers.push(JoinBlocker {
-            kind: "base-dirt".to_string(),
-            detail: base_dirt_detail(&detail.base_overlap),
-            paths: detail.base_overlap.clone(),
-        });
-    }
-    if !detail.base_overlap_untracked.is_empty() {
-        blockers.push(JoinBlocker {
-            kind: "base-dirt".to_string(),
-            detail: untracked_overwrite_detail(&detail.base_overlap_untracked),
-            paths: detail.base_overlap_untracked.clone(),
-        });
-    }
+    // Only the paths that are somebody's work. A base copy the dash already
+    // carries byte for byte is dropped by the join rather than refused over,
+    // so reporting it here would be a refusal the join does not make — the
+    // face and the act have to be the same answer.
+    let still_blocks = |o: &&BaseOverlapPath| o.relation != OVERLAP_IDENTICAL;
+    let tracked_blocking: Vec<BaseOverlapPath> = detail
+        .base_overlap
+        .iter()
+        .filter(still_blocks)
+        .cloned()
+        .collect();
+    let untracked_blocking: Vec<BaseOverlapPath> = detail
+        .base_overlap_untracked
+        .iter()
+        .filter(still_blocks)
+        .cloned()
+        .collect();
+
+    blockers.extend(base_dirt_blockers(
+        attach_holders(&tracked_blocking, live_dirt),
+        false,
+    ));
+    blockers.extend(base_dirt_blockers(
+        attach_holders(&untracked_blocking, live_dirt),
+        true,
+    ));
 
     // Only when nobody in this process holds the dash: the in-process registry
     // is exact and instant, and the lease is the two-hour derived answer for
@@ -3167,6 +3629,8 @@ pub fn join_blockers_from_detail(
             kind: "live-resolve".to_string(),
             detail: live_resolve_detail(name, &lease, "join"),
             paths: vec![],
+            overlap: vec![],
+            remedy: None,
         });
     }
 
@@ -3178,6 +3642,8 @@ pub fn join_blockers_from_detail(
             kind: "empty".to_string(),
             detail: empty_detail(name, base_branch),
             paths: vec![],
+            overlap: vec![],
+            remedy: None,
         });
     }
 
@@ -3397,12 +3863,20 @@ pub fn join_in_with_progress(
     // Intersection preflight ([P14]): base dirt blocks only when it touches a
     // file this dash also changed (`base...branch` diff ∪ worktree dirt).
     // Disjoint base dirt is fine — the squash-merge only writes the dash's files.
-    let intersect = blocking_base_dirt(&repo_root, &worktree, &base_branch, &branch);
-    if !intersect.is_empty() {
-        return Err(if intersect.tracked.is_empty() {
-            untracked_overwrite_detail(&intersect.untracked)
+    //
+    // And it blocks only when the base's copy is *other work*. A copy holding
+    // byte for byte what this dash carries is the dash's own edit sitting on
+    // the base — the shape a note written on main from the dash's work leaves
+    // — and refusing over it would be refusing to land bytes on the grounds
+    // that they are already there. The drop is below, past every refusal, so
+    // nothing is touched on a path that ends in `Err` ([L28]).
+    let (blocking, droppable) =
+        blocking_base_dirt(&repo_root, &worktree, &base_branch, &branch).split_on_relation();
+    if !blocking.is_empty() {
+        return Err(if blocking.tracked.is_empty() {
+            untracked_overwrite_detail(&overlap_paths(&blocking.untracked))
         } else {
-            base_dirt_detail(&intersect.tracked)
+            base_dirt_detail(&overlap_paths(&blocking.tracked))
         });
     }
 
@@ -3446,6 +3920,11 @@ pub fn join_in_with_progress(
         // instruction; each surface fronts its own discard affordance.
         return Err(empty_detail(name, &base_branch));
     }
+
+    // The last refusal is behind us, so the base's stale copies of this dash's
+    // own bytes can go. Git would refuse the merge over them otherwise, even
+    // though it is about to write those exact bytes.
+    drop_identical_base_copies(&repo_root, &droppable, &mut warnings)?;
 
     // Record the operation before the integrate, and after the dirt sweep above
     // — the sweep's commit is work the dash owns, so a `before` read any
@@ -5423,7 +5902,7 @@ Some context.
         let entry = moved.iter().find(|d| d.name == "divergence-dash").unwrap();
         assert_eq!(entry.base_ahead, 1);
         assert_eq!(
-            entry.base_overlap,
+            overlap_paths(&entry.base_overlap),
             vec!["shared.txt".to_string()],
             "only the intersection with the dash's own files is a warning"
         );
@@ -5568,7 +6047,11 @@ Some context.
         let blockers = join_preflight_in(&root, "plainly-dash").unwrap();
         let dirt = blockers.iter().find(|b| b.kind == "base-dirt").unwrap();
         assert!(dirt.detail.contains("README.md"), "{:?}", dirt);
-        assert!(dirt.detail.contains("Commit or stash them first."));
+        assert!(
+            dirt.detail.contains("differs from this dash"),
+            "the sentence states the fact and names no act it cannot perform: {}",
+            dirt.detail
+        );
     }
 
     /// An untracked base file at a path the dash changed is what `git merge
@@ -5588,9 +6071,19 @@ Some context.
         let clean = join_preflight_in(&root, "overwrite-dash").unwrap();
         assert!(clean.iter().all(|b| b.kind != "base-dirt"), "{clean:?}");
 
-        // The same path the dash added does.
+        // The same path the dash added does — when it is other content. An
+        // untracked base file holding what the dash adds byte for byte is the
+        // dash's own work sitting on the base, and is dropped rather than
+        // refused over, the same as its tracked twin.
         fs::create_dir_all(root.join("roadmap")).unwrap();
         fs::write(root.join("roadmap/plan.md"), TWO_STEP_PLAN).unwrap();
+        let echo = join_preflight_in(&root, "overwrite-dash").unwrap();
+        assert!(
+            echo.iter().all(|b| b.kind != "base-dirt"),
+            "an identical untracked copy is the dash's own bytes: {echo:?}"
+        );
+
+        fs::write(root.join("roadmap/plan.md"), "somebody else's plan\n").unwrap();
         let blockers = join_preflight_in(&root, "overwrite-dash").unwrap();
         let dirt = blockers.iter().find(|b| b.kind == "base-dirt").unwrap();
         assert_eq!(dirt.paths, vec!["roadmap/plan.md".to_string()]);
@@ -7840,7 +8333,7 @@ Some context.
         let blocked = join("isect", mechanics());
         assert!(blocked.is_err());
         let err = blocked.unwrap_err();
-        assert!(err.contains("also changed"), "{err}");
+        assert!(err.contains("differs from this dash"), "{err}");
         assert!(err.contains("shared.txt"), "{err}");
         assert!(branch_present(repo, "tugdash/isect"));
 
@@ -9660,14 +10153,15 @@ Some context.
         let detail = dash_detail_entry_in(repo, "inflight").expect("detail");
         let current = git_stdout(repo, &["rev-parse", "--abbrev-ref", "HEAD"]).unwrap();
 
-        let unheld = join_blockers_from_detail(repo, &detail, &current, None);
+        let unheld = join_blockers_from_detail(repo, &detail, &current, None, &BTreeMap::new());
         assert!(
             unheld.iter().any(|b| b.kind == "stale-journal"),
             "a teardown nobody holds is stale and must refuse: {:?}",
             unheld.iter().map(|b| &b.kind).collect::<Vec<_>>()
         );
 
-        let held = join_blockers_from_detail(repo, &detail, &current, Some("join"));
+        let held =
+            join_blockers_from_detail(repo, &detail, &current, Some("join"), &BTreeMap::new());
         assert!(
             !held.iter().any(|b| b.kind == "stale-journal"),
             "a join holding the dash opened that record: {:?}",
@@ -9676,7 +10170,8 @@ Some context.
 
         // A *resolve* holder does not excuse it: it would be running over a
         // crashed join's leavings, and the refusal is still right.
-        let resolving = join_blockers_from_detail(repo, &detail, &current, Some("resolve"));
+        let resolving =
+            join_blockers_from_detail(repo, &detail, &current, Some("resolve"), &BTreeMap::new());
         assert!(
             resolving.iter().any(|b| b.kind == "stale-journal"),
             "{:?}",
@@ -10343,7 +10838,7 @@ Some context.
         let composed = || {
             let detail = dash_detail_entry_in(repo, "kinds").expect("detail");
             let current = git_stdout(repo, &["rev-parse", "--abbrev-ref", "HEAD"]).unwrap();
-            join_blockers_from_detail(repo, &detail, &current, None)
+            join_blockers_from_detail(repo, &detail, &current, None, &BTreeMap::new())
         };
         let same = |label: &str| {
             let a = composed();
@@ -10410,7 +10905,7 @@ Some context.
         let hollow_detail = dash_detail_entry_in(repo, "hollow").expect("detail");
         let current = git_stdout(repo, &["rev-parse", "--abbrev-ref", "HEAD"]).unwrap();
         assert_eq!(
-            join_blockers_from_detail(repo, &hollow_detail, &current, None)
+            join_blockers_from_detail(repo, &hollow_detail, &current, None, &BTreeMap::new())
                 .iter()
                 .map(|b| &b.kind)
                 .collect::<Vec<_>>(),
@@ -10464,6 +10959,237 @@ Some context.
         assert_eq!(before, heads(), "still no SHA moved");
     }
 
+    /// The overlap says **what** the base's uncommitted bytes are, not only
+    /// that they are there. A base copy holding exactly what the dash carries
+    /// is `identical`, and everything downstream turns on that being read from
+    /// the objects rather than assumed from the fact of the dirt.
+    #[serial]
+    #[test]
+    fn an_overlap_says_whether_the_base_copy_is_the_dashs_own_bytes() {
+        let temp = TempDir::new().unwrap();
+        seed_dash_with_a_round(&temp, "relation");
+        let repo = temp.path();
+
+        // The base's copy IS the dash's version, to the byte — the shape a
+        // note written on main from the dash's own work leaves behind.
+        fs::write(repo.join("shared.txt"), "base\ndash change\n").unwrap();
+        let detail = dash_detail_entry_in(repo, "relation").expect("detail");
+        assert_eq!(overlap_paths(&detail.base_overlap), vec!["shared.txt"]);
+        assert_eq!(
+            detail.base_overlap[0].relation, OVERLAP_IDENTICAL,
+            "the same bytes the dash carries"
+        );
+
+        // A byte apart is other work, and the reading says so.
+        fs::write(repo.join("shared.txt"), "base\nsomebody else\n").unwrap();
+        let detail = dash_detail_entry_in(repo, "relation").expect("detail");
+        assert_eq!(detail.base_overlap[0].relation, OVERLAP_DIVERGENT);
+
+        // And it rides the blocker, which is where every surface reads it.
+        let blockers = join_preflight_in(repo, "relation").unwrap();
+        let dirt = blockers
+            .iter()
+            .find(|b| b.kind == "base-dirt")
+            .expect("base-dirt");
+        assert_eq!(dirt.overlap[0].path, "shared.txt");
+        assert_eq!(dirt.overlap[0].relation, OVERLAP_DIVERGENT);
+    }
+
+    /// A base copy the dash already carries is not a refusal — it is the
+    /// dash's own edit sitting on the base, and the join drops it and lands
+    /// the same bytes. The blocker never appears, the join runs, and what was
+    /// dropped is reported rather than done quietly.
+    #[serial]
+    #[test]
+    fn an_identical_base_copy_does_not_block_the_join() {
+        let temp = TempDir::new().unwrap();
+        seed_dash_with_a_round(&temp, "echo");
+        let repo = temp.path();
+
+        // Main holds, uncommitted, exactly what the dash committed.
+        fs::write(repo.join("shared.txt"), "base\ndash change\n").unwrap();
+        assert!(
+            join_preflight_in(repo, "echo")
+                .unwrap()
+                .iter()
+                .all(|b| b.kind != "base-dirt"),
+            "the dash's own bytes on the base refuse nothing"
+        );
+
+        let outcome = join("echo", mechanics()).expect("the join runs over its own echo");
+        assert!(outcome.commit_hash.is_some(), "it landed");
+        assert!(
+            outcome.warnings.iter().any(|w| w.contains("shared.txt")),
+            "the drop is reported: {:?}",
+            outcome.warnings
+        );
+        // The bytes are on the base, and the checkout is clean.
+        assert_eq!(
+            fs::read_to_string(repo.join("shared.txt")).unwrap(),
+            "base\ndash change\n"
+        );
+        assert!(
+            dirty_tracked_paths(repo).is_empty(),
+            "nothing left uncommitted"
+        );
+    }
+
+    /// The other half of the same rule: a base copy that is somebody's *work*
+    /// still refuses, and refuses having touched nothing.
+    #[serial]
+    #[test]
+    fn a_divergent_base_copy_still_blocks_and_moves_nothing() {
+        let temp = TempDir::new().unwrap();
+        seed_dash_with_a_round(&temp, "otherwork");
+        let repo = temp.path();
+
+        fs::write(repo.join("shared.txt"), "base\nsomebody else\n").unwrap();
+        let err = join("otherwork", mechanics()).unwrap_err();
+        assert!(err.contains("shared.txt"), "{err}");
+        assert_eq!(
+            fs::read_to_string(repo.join("shared.txt")).unwrap(),
+            "base\nsomebody else\n",
+            "a refusal touches nothing"
+        );
+    }
+
+    /// A divergent overlap another live session holds is not the user's to
+    /// move, and the refusal says whose turn it is instead of offering an act
+    /// that would take a half-written edit out from under somebody.
+    #[serial]
+    #[test]
+    fn a_foreign_hand_on_the_overlap_names_its_holder() {
+        let temp = TempDir::new().unwrap();
+        seed_dash_with_a_round(&temp, "contended");
+        let repo = temp.path();
+        fs::write(repo.join("shared.txt"), "base\nsomebody else\n").unwrap();
+
+        let detail = dash_detail_entry_in(repo, "contended").expect("detail");
+        let current = git_stdout(repo, &["rev-parse", "--abbrev-ref", "HEAD"]).unwrap();
+
+        // With no attribution view — a person at a terminal — it reads as the
+        // user's own, which is the right default for their own checkout.
+        let mine = join_blockers_from_detail(repo, &detail, &current, None, &BTreeMap::new());
+        let dirt = mine.iter().find(|b| b.kind == "base-dirt").expect("dirt");
+        assert!(dirt.detail.contains("your uncommitted edit"), "{dirt:?}");
+        assert!(dirt.overlap[0].holder.is_none());
+
+        // With one, the sentence names the hand that is on it.
+        let held = BTreeMap::from([("shared.txt".to_string(), "^ink-anchor".to_string())]);
+        let theirs = join_blockers_from_detail(repo, &detail, &current, None, &held);
+        let dirt = theirs.iter().find(|b| b.kind == "base-dirt").expect("dirt");
+        assert!(dirt.detail.contains("^ink-anchor holds"), "{dirt:?}");
+        assert_eq!(dirt.overlap[0].holder.as_deref(), Some("^ink-anchor"));
+
+        // And an identical copy is still nobody's problem, held or not.
+        fs::write(repo.join("shared.txt"), "base\ndash change\n").unwrap();
+        let detail = dash_detail_entry_in(repo, "contended").expect("detail");
+        assert!(
+            join_blockers_from_detail(repo, &detail, &current, None, &held)
+                .iter()
+                .all(|b| b.kind != "base-dirt"),
+            "the dash's own bytes refuse nothing, whoever last wrote them"
+        );
+    }
+
+    /// The fold: a divergent base edit of the user's own becomes one commit on
+    /// the base, and the join is no longer blocked. From that commit forward
+    /// the two sides are ordinary history, which is what puts a collision in
+    /// front of the resolution ladder instead of in front of the user.
+    #[serial]
+    #[test]
+    fn resolve_base_folds_the_users_own_edit_onto_the_base() {
+        let temp = TempDir::new().unwrap();
+        seed_dash_with_a_round(&temp, "fold");
+        let repo = temp.path();
+        fs::write(repo.join("shared.txt"), "base\nmy own edit\n").unwrap();
+
+        assert!(
+            join_preflight_in(repo, "fold")
+                .unwrap()
+                .iter()
+                .any(|b| b.kind == "base-dirt"),
+            "blocked to begin with"
+        );
+
+        let before_tip = git_stdout(repo, &["rev-parse", "HEAD"]).unwrap();
+        let outcome = resolve_base_in(repo, "fold", &BTreeMap::new()).expect("resolves");
+        assert_eq!(outcome.folded, vec!["shared.txt"]);
+        assert!(outcome.committed.is_some(), "it made a commit of its own");
+        assert!(outcome.dropped.is_empty());
+
+        // The block is gone and the checkout is clean.
+        assert!(
+            join_preflight_in(repo, "fold")
+                .unwrap()
+                .iter()
+                .all(|b| b.kind != "base-dirt"),
+            "the base no longer refuses"
+        );
+        assert!(dirty_tracked_paths(repo).is_empty());
+        // And the edit is still theirs, on the base, byte for byte.
+        assert_eq!(
+            fs::read_to_string(repo.join("shared.txt")).unwrap(),
+            "base\nmy own edit\n"
+        );
+        assert_ne!(
+            git_stdout(repo, &["rev-parse", "HEAD"]).unwrap(),
+            before_tip
+        );
+
+        // Undo puts it back the way they had it: same content, uncommitted.
+        crate::oplog::undo_in(repo, Some("fold")).expect("undo");
+        assert_eq!(
+            git_stdout(repo, &["rev-parse", "HEAD"]).unwrap(),
+            before_tip
+        );
+        assert_eq!(
+            fs::read_to_string(repo.join("shared.txt")).unwrap(),
+            "base\nmy own edit\n",
+            "undo restores the work, it does not destroy it"
+        );
+        assert_eq!(dirty_tracked_paths(repo), vec!["shared.txt"]);
+    }
+
+    /// A resolve never moves another session's work, and refuses having
+    /// touched nothing.
+    #[serial]
+    #[test]
+    fn resolve_base_refuses_another_sessions_edit() {
+        let temp = TempDir::new().unwrap();
+        seed_dash_with_a_round(&temp, "notmine");
+        let repo = temp.path();
+        fs::write(repo.join("shared.txt"), "base\nsomebody else\n").unwrap();
+        let held = BTreeMap::from([("shared.txt".to_string(), "^ink-anchor".to_string())]);
+
+        let before_tip = git_stdout(repo, &["rev-parse", "HEAD"]).unwrap();
+        let err = resolve_base_in(repo, "notmine", &held).unwrap_err();
+        assert!(err.contains("^ink-anchor holds"), "{err}");
+        assert_eq!(
+            git_stdout(repo, &["rev-parse", "HEAD"]).unwrap(),
+            before_tip
+        );
+        assert_eq!(dirty_tracked_paths(repo), vec!["shared.txt"]);
+    }
+
+    /// An overlap that is all the dash's own bytes needs no commit — dropping
+    /// is the whole of the job, and the outcome says so rather than inventing
+    /// a commit to report.
+    #[serial]
+    #[test]
+    fn resolve_base_drops_an_echo_without_committing() {
+        let temp = TempDir::new().unwrap();
+        seed_dash_with_a_round(&temp, "echofold");
+        let repo = temp.path();
+        fs::write(repo.join("shared.txt"), "base\ndash change\n").unwrap();
+
+        let outcome = resolve_base_in(repo, "echofold", &BTreeMap::new()).expect("resolves");
+        assert_eq!(outcome.dropped, vec!["shared.txt"]);
+        assert!(outcome.folded.is_empty());
+        assert!(outcome.committed.is_none(), "nothing to commit");
+        assert!(dirty_tracked_paths(repo).is_empty());
+    }
+
     /// The dash's uncommitted work counts toward the overlap, because the
     /// join's preamble commits it before joining. The detail walk's warning and
     /// the preflight's refusal are the same set.
@@ -10483,7 +11209,7 @@ Some context.
 
         let detail = dash_detail_entry_in(repo, "wtdirt").expect("detail");
         assert!(
-            detail.base_overlap.contains(&"other.txt".to_string()),
+            overlap_paths(&detail.base_overlap).contains(&"other.txt".to_string()),
             "the detail's warning sees it: {:?}",
             detail.base_overlap
         );

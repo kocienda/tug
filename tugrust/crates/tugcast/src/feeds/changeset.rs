@@ -552,6 +552,21 @@ pub(crate) async fn compose_snapshot(
         })
         .collect();
 
+    // Base paths a live session is working, with whose they are. Read while
+    // `owners` still stands, and handed to the dash composition for the same
+    // reason the occupancy registry is: the join's blockers have to tell the
+    // user's own uncommitted edit — which a resolve may fold into a dash —
+    // from another session's, which nothing may touch.
+    let live_dirt: BTreeMap<String, (String, String)> = owners
+        .iter()
+        .filter(|(_, agg)| agg.live)
+        .flat_map(|(id, agg)| {
+            agg.files
+                .keys()
+                .map(move |path| (path.clone(), (id.clone(), agg.display_name.clone())))
+        })
+        .collect();
+
     let mut changesets: Vec<ChangesetEntry> = owners
         .into_iter()
         .map(|(owner_id, agg)| ChangesetEntry::Session {
@@ -562,7 +577,7 @@ pub(crate) async fn compose_snapshot(
             draft: None,
         })
         .collect();
-    changesets.extend(dash_entries(&repo_root, ledger).await);
+    changesets.extend(dash_entries(&repo_root, ledger, &live_dirt).await);
 
     // Attach maintained drafts (Spec S10) to eligible entries: a session
     // entry with files, a dash with rounds or worktree dirt. The dash gate
@@ -1301,9 +1316,64 @@ fn document_dash_entries_in(
         .collect()
 }
 
+/// Base paths a live session **other than this dash's own** is working, mapped
+/// to that session's display name.
+///
+/// The same fact [`compose_snapshot`] hands the dash composition, read fresh
+/// for a verb that is about to move somebody's files. It recomposes rather
+/// than reusing the feed's last snapshot on purpose: the card's copy is as old
+/// as its last recompute, and a session that has since put its hand on the path
+/// must still be able to stop the fold. One composition on a user's press is a
+/// cost worth paying for that.
+pub(crate) async fn live_base_dirt_for(
+    project_dir: &Path,
+    dash: &str,
+    ledger: Option<&SessionLedger>,
+) -> BTreeMap<String, String> {
+    let Some(snapshot) = compose_snapshot(project_dir, ledger).await else {
+        return BTreeMap::new();
+    };
+    let owner_key = snapshot
+        .changesets
+        .iter()
+        .find_map(|e| match e {
+            ChangesetEntry::Dash {
+                owner_id,
+                display_name,
+                ..
+            } if display_name == dash => Some(owner_id.clone()),
+            _ => None,
+        })
+        .unwrap_or_default();
+    let bound: Vec<String> = ledger
+        .and_then(|l| l.bound_sessions_by_dash().ok())
+        .and_then(|m| m.get(&owner_key).cloned())
+        .unwrap_or_default();
+    snapshot
+        .changesets
+        .iter()
+        .filter_map(|e| match e {
+            ChangesetEntry::Session {
+                owner_id,
+                display_name,
+                live: true,
+                files,
+                ..
+            } if !bound.contains(owner_id) => Some((display_name.clone(), files.clone())),
+            _ => None,
+        })
+        .flat_map(|(name, files)| {
+            files
+                .into_iter()
+                .map(move |f| (f.path.clone(), name.clone()))
+        })
+        .collect()
+}
+
 async fn dash_entries(
     repo_root: &Path,
     ledger: Option<&crate::session_ledger::SessionLedger>,
+    live_dirt: &BTreeMap<String, (String, String)>,
 ) -> Vec<ChangesetEntry> {
     if dashes_hidden_for(repo_root) {
         return Vec::new();
@@ -1313,6 +1383,8 @@ async fn dash_entries(
         .unwrap_or_default();
 
     let root = repo_root.to_path_buf();
+    let dirt = live_dirt.clone();
+    let bound_for_scoping = bound_by_dash.clone();
     // One blocking hop for everything synchronous: the git walk *and* the plan
     // read each dash's review state needs. A second `spawn_blocking` would be a
     // second scheduling round trip for a file read that costs less than one of
@@ -1338,8 +1410,24 @@ async fn dash_entries(
                     .as_deref()
                     .map(|plan| dash_plan_reading(Path::new(plan)))
                     .unwrap_or((None, Vec::new(), false));
-                let join =
-                    crate::feeds::join_board::join_state_for(&root, &detail, &current_branch);
+                // Whose dirt a path is, scoped to *this* dash: a session mated
+                // to it is no stranger to its files, so its edits read as the
+                // user's own and stay resolvable ([D147]).
+                let bound = bound_for_scoping
+                    .get(&detail.owner_key)
+                    .cloned()
+                    .unwrap_or_default();
+                let held_by_others: BTreeMap<String, String> = dirt
+                    .iter()
+                    .filter(|(_, (id, _))| !bound.contains(id))
+                    .map(|(path, (_, name))| (path.clone(), name.clone()))
+                    .collect();
+                let join = crate::feeds::join_board::join_state_for(
+                    &root,
+                    &detail,
+                    &current_branch,
+                    &held_by_others,
+                );
                 (detail, review, steps, task_list, join)
             })
             .collect::<Vec<_>>()
@@ -1410,7 +1498,9 @@ async fn dash_entries(
                 round_subjects: detail.round_subjects,
                 draft: None,
                 base_ahead: detail.base_ahead,
-                base_overlap: detail.base_overlap,
+                // The wire carries the paths; the relations behind them are
+                // the blockers' business and ride `join.blockers[].overlap`.
+                base_overlap: detail.base_overlap.into_iter().map(|o| o.path).collect(),
                 last_replay: detail.last_replay,
                 fit: detail.fit.map(|f| tugcast_core::types::DashFit {
                     head: f.head,
@@ -2967,7 +3057,7 @@ Some context.
 
         // Nobody is bound to it yet, so the pilot leaves it alone — the ask it
         // would be preparing has no card to raise on ([P08]).
-        let entries = dash_entries(&root, None).await;
+        let entries = dash_entries(&root, None, &BTreeMap::new()).await;
         assert_eq!(entries.len(), 2, "both dashes compose");
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         assert_eq!(
@@ -2993,7 +3083,7 @@ Some context.
             .set_dash_binding("sess-1", Some((&owner_key, "finished")))
             .unwrap();
 
-        let entries = dash_entries(&root, Some(&ledger)).await;
+        let entries = dash_entries(&root, Some(&ledger), &BTreeMap::new()).await;
         assert_eq!(entries.len(), 2, "both dashes compose");
 
         // The dispatch is a spawned task, so give it its scheduling turn. It is
@@ -3020,7 +3110,7 @@ Some context.
         );
 
         // A second recompute over unmoved heads adds nothing: the mark holds.
-        let _ = dash_entries(&root, Some(&ledger)).await;
+        let _ = dash_entries(&root, Some(&ledger), &BTreeMap::new()).await;
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         assert_eq!(
             runs.load(Ordering::SeqCst),
@@ -3056,7 +3146,7 @@ Some context.
         );
         let asked_from = root.join(".tug/worktrees/sidecar");
 
-        let entries = dash_entries(&asked_from, None).await;
+        let entries = dash_entries(&asked_from, None, &BTreeMap::new()).await;
         let ChangesetEntry::Dash { review, .. } = entries
             .iter()
             .find(|e| matches!(e, ChangesetEntry::Dash { display_name, .. } if display_name == "demo"))
@@ -3089,7 +3179,7 @@ Some context.
 
         // Visible before the gate applies.
         assert!(
-            !dash_entries(&root, None).await.is_empty(),
+            !dash_entries(&root, None, &BTreeMap::new()).await.is_empty(),
             "the dash composes in an ordinary instance"
         );
 
@@ -3100,7 +3190,7 @@ Some context.
             std::env::set_var(tugutil_core::REPO_UNIVERSE_ENV, &root);
         }
         assert!(
-            dash_entries(&root, None).await.is_empty(),
+            dash_entries(&root, None, &BTreeMap::new()).await.is_empty(),
             "the universe checkout's dashes are hidden from an app-test instance"
         );
 
@@ -3112,7 +3202,9 @@ Some context.
             &["config", "branch.tugdash/fixture.tugbase", "main"],
         );
         assert!(
-            !dash_entries(&scratch, None).await.is_empty(),
+            !dash_entries(&scratch, None, &BTreeMap::new())
+                .await
+                .is_empty(),
             "a fixture repo outside the universe is untouched"
         );
     }

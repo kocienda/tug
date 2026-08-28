@@ -288,6 +288,23 @@ export interface DashJoinBlockerWire {
   detail: string;
   /** The offending paths, for `base-dirt`; empty otherwise. */
   paths?: string[];
+  /**
+   * What a `Resolve` on this blocker would do, when one can. Absent on the
+   * kinds nothing at the card can clear, which are reported all the same.
+   *
+   * The deck composes none of this. The remedy is the server's sentence for
+   * the same reason `detail` is: a second copy here would be free to disagree
+   * with the act the server actually performs.
+   */
+  remedy?: DashJoinRemedyWire;
+}
+
+/** The one way out of a blocker, and the sentence that explains it. */
+export interface DashJoinRemedyWire {
+  /** What Resolve will do, as one sentence the reader weighs before pressing. */
+  explain: string;
+  /** Why it cannot be pressed, or absent when it can. */
+  refused?: string;
 }
 
 /** One base commit behind a conflicted path. */
@@ -533,12 +550,19 @@ function isOptionalStringArray(value: unknown): value is string[] | undefined {
  * — the common case, since the wire skips empty collections — passes, and so
  * does an older server that sends none at all.
  */
-function isOptionalDashArcState(value: unknown): value is DashArcState | undefined {
+function isOptionalDashArcState(
+  value: unknown,
+): value is DashArcState | undefined {
   if (value === undefined) return true;
   if (!isRecord(value)) return false;
-  if (value.stage !== undefined && typeof value.stage !== "string") return false;
-  if (value.stopped !== undefined && typeof value.stopped !== "string") return false;
-  if (value.stopped_stage !== undefined && typeof value.stopped_stage !== "string") {
+  if (value.stage !== undefined && typeof value.stage !== "string")
+    return false;
+  if (value.stopped !== undefined && typeof value.stopped !== "string")
+    return false;
+  if (
+    value.stopped_stage !== undefined &&
+    typeof value.stopped_stage !== "string"
+  ) {
     return false;
   }
   if (value.done !== undefined && typeof value.done !== "boolean") return false;
@@ -565,9 +589,12 @@ function isOptionalDashJoinState(
   if (value === undefined) return true;
   if (!isRecord(value)) return false;
   if (typeof value.phase !== "string") return false;
-  if (value.candidate !== undefined && typeof value.candidate !== "string") return false;
-  if (value.reviewed !== undefined && typeof value.reviewed !== "boolean") return false;
-  if (value.stale_note !== undefined && typeof value.stale_note !== "string") return false;
+  if (value.candidate !== undefined && typeof value.candidate !== "string")
+    return false;
+  if (value.reviewed !== undefined && typeof value.reviewed !== "boolean")
+    return false;
+  if (value.stale_note !== undefined && typeof value.stale_note !== "string")
+    return false;
   if (value.run !== undefined && typeof value.run !== "string") return false;
   if (!isOptionalStringArray(value.conflicts)) return false;
   if (
@@ -579,7 +606,12 @@ function isOptionalDashJoinState(
           isRecord(b) &&
           typeof b.kind === "string" &&
           typeof b.detail === "string" &&
-          isOptionalStringArray(b.paths),
+          isOptionalStringArray(b.paths) &&
+          (b.remedy === undefined ||
+            (isRecord(b.remedy) &&
+              typeof b.remedy.explain === "string" &&
+              (b.remedy.refused === undefined ||
+                typeof b.remedy.refused === "string"))),
       )
     )
   ) {
@@ -598,7 +630,9 @@ function isOptionalDashJoinState(
             (Array.isArray(h.commits) &&
               h.commits.every(
                 (c) =>
-                  isRecord(c) && typeof c.sha === "string" && typeof c.subject === "string",
+                  isRecord(c) &&
+                  typeof c.sha === "string" &&
+                  typeof c.subject === "string",
               ))),
       )
     )
@@ -670,12 +704,14 @@ function isOptionalDraftSelection(value: unknown): boolean {
   if (value === undefined) return true;
   if (!isRecord(value)) return false;
   const isPathArray = (v: unknown): boolean =>
-    v === undefined || (Array.isArray(v) && v.every((p) => typeof p === "string"));
+    v === undefined ||
+    (Array.isArray(v) && v.every((p) => typeof p === "string"));
   const isHunkMap = (v: unknown): boolean =>
     v === undefined ||
     (isRecord(v) &&
       Object.values(v).every(
-        (ids) => Array.isArray(ids) && ids.every((id) => typeof id === "string"),
+        (ids) =>
+          Array.isArray(ids) && ids.every((id) => typeof id === "string"),
       ));
   return (
     isPathArray(value.include) &&
@@ -711,19 +747,26 @@ export function isChangesetEntry(value: unknown): value is ChangesetEntry {
       (value.stage === undefined || typeof value.stage === "string") &&
       isOptionalDashArcState(value.arc) &&
       isOptionalStringArray(value.bound_sessions) &&
-      (value.step_current === undefined || typeof value.step_current === "number") &&
-      (value.step_total === undefined || typeof value.step_total === "number") &&
+      (value.step_current === undefined ||
+        typeof value.step_current === "number") &&
+      (value.step_total === undefined ||
+        typeof value.step_total === "number") &&
       (value.run_position === undefined ||
         typeof value.run_position === "number") &&
-      (value.run_length === undefined || typeof value.run_length === "number") &&
-      (value.step_title === undefined || typeof value.step_title === "string") &&
-      (value.last_activity === undefined || typeof value.last_activity === "string") &&
+      (value.run_length === undefined ||
+        typeof value.run_length === "number") &&
+      (value.step_title === undefined ||
+        typeof value.step_title === "string") &&
+      (value.last_activity === undefined ||
+        typeof value.last_activity === "string") &&
       isOptionalDashDocuments(value.documents) &&
       (value.steps === undefined ||
         (Array.isArray(value.steps) && value.steps.every(isDashStep))) &&
-      (value.base_ahead === undefined || typeof value.base_ahead === "number") &&
+      (value.base_ahead === undefined ||
+        typeof value.base_ahead === "number") &&
       isOptionalStringArray(value.base_overlap) &&
-      (value.last_replay === undefined || typeof value.last_replay === "string") &&
+      (value.last_replay === undefined ||
+        typeof value.last_replay === "string") &&
       isOptionalDashFit(value.fit) &&
       isOptionalStringArray(value.replay_conflict_paths) &&
       isOptionalDashJoinState(value.join)
@@ -732,7 +775,9 @@ export function isChangesetEntry(value: unknown): value is ChangesetEntry {
   return false;
 }
 
-export function isChangesetSnapshot(value: unknown): value is ChangesetSnapshot {
+export function isChangesetSnapshot(
+  value: unknown,
+): value is ChangesetSnapshot {
   return (
     isRecord(value) &&
     typeof value.workspace_key === "string" &&
@@ -795,7 +840,8 @@ export function isDashDocuments(value: unknown): value is DashDocuments {
   return (
     isRecord(value) &&
     (value.brief === undefined || typeof value.brief === "string") &&
-    (value.brief_title === undefined || typeof value.brief_title === "string") &&
+    (value.brief_title === undefined ||
+      typeof value.brief_title === "string") &&
     (value.plan === undefined || typeof value.plan === "string") &&
     (value.plan_title === undefined || typeof value.plan_title === "string")
   );
@@ -838,7 +884,9 @@ export interface DocumentDashEntry {
   bound_sessions?: string[];
 }
 
-export function isDocumentDashEntry(value: unknown): value is DocumentDashEntry {
+export function isDocumentDashEntry(
+  value: unknown,
+): value is DocumentDashEntry {
   return (
     isRecord(value) &&
     typeof value.owner_id === "string" &&

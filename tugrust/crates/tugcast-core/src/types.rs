@@ -864,6 +864,22 @@ pub struct DashJoinBlocker {
     /// The offending paths, for `base-dirt`; empty otherwise.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub paths: Vec<String>,
+    /// What a `Resolve` on this blocker would do, when one can. Absent on the
+    /// kinds nothing at the card can clear, which are reported all the same.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remedy: Option<DashJoinRemedy>,
+}
+
+/// The one way out of a blocker, and the sentence that explains it. The
+/// remedy is never in the button: the sentence carries it, the control is
+/// always `Resolve`, and `refused` is why it is dead when it is ([L31]).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct DashJoinRemedy {
+    /// What Resolve will do, as one sentence.
+    pub explain: String,
+    /// Why it cannot be pressed, or absent when it can.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refused: Option<String>,
 }
 
 /// What the base did to one conflicted path since the two sides parted.

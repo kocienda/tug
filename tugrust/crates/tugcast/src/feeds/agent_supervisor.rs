@@ -3495,6 +3495,17 @@ impl AgentSupervisor {
                 }
                 Err(e) => return ControlOutcome::Error(e),
             },
+            // The base-side resolve, which is a different act from the one
+            // above: that reconciles a conflicted merge, this clears the
+            // uncommitted base work refusing the merge in the first place.
+            // They share a payload shape and nothing else.
+            "changeset_join_resolve_base" => match parse_changeset_join_resolve_payload(payload) {
+                Ok(parsed) => {
+                    self.do_changeset_join_resolve_base(&parsed).await;
+                    Ok(())
+                }
+                Err(e) => return ControlOutcome::Error(e),
+            },
             "changeset_join_question_answer" => {
                 match parse_changeset_join_question_answer_payload(payload) {
                     Ok(parsed) => {
@@ -6430,6 +6441,90 @@ impl AgentSupervisor {
             FeedId::CONTROL,
             serde_json::to_vec(&body).expect("changeset_join_resolve_err serializes"),
         ));
+    }
+
+    /// Clear the base-side work refusing a dash's join ([`resolve_base_in`]).
+    ///
+    /// It reports on the same two frames the ladder's resolve uses, because
+    /// the card is showing one register and a second vocabulary for "the
+    /// resolve finished" would be a second thing to keep in step. The bump is
+    /// what makes the outcome visible: the blockers are never cached, so one
+    /// recompute is the whole of the update.
+    async fn do_changeset_join_resolve_base(&self, request: &ChangesetJoinResolvePayload) {
+        let project_dir = request.project_dir.as_str();
+        let dir = std::path::Path::new(project_dir);
+
+        if self.registry.find_entry_by_path(dir).is_none() {
+            Self::send_changeset_join_resolve_err(
+                &self.control_tx,
+                project_dir,
+                &request.dash,
+                "not an open project",
+            );
+            return;
+        }
+
+        // The attribution the blockers were composed from, read again here
+        // rather than trusted from the press: the card's copy is as old as its
+        // last recompute, and a session that has since put its hand on the
+        // path must still be able to stop this.
+        let live_dirt = crate::feeds::changeset::live_base_dirt_for(
+            dir,
+            &request.dash,
+            self.session_ledger.as_deref(),
+        )
+        .await;
+
+        let dir_owned = dir.to_path_buf();
+        let dash = request.dash.clone();
+        let result = tokio::task::spawn_blocking(move || {
+            tugdash_core::ops::resolve_base_in(&dir_owned, &dash, &live_dirt)
+        })
+        .await;
+
+        match result {
+            Ok(Ok(outcome)) => {
+                tracing::info!(
+                    dash = %outcome.name,
+                    folded = outcome.folded.len(),
+                    dropped = outcome.dropped.len(),
+                    "dash-resolve-base: cleared"
+                );
+                self.registry.changeset_all_bump().notify_one();
+                let mut body =
+                    serde_json::to_value(&outcome).unwrap_or_else(|_| serde_json::json!({}));
+                if let Some(map) = body.as_object_mut() {
+                    map.insert(
+                        "action".into(),
+                        serde_json::Value::String("changeset_join_resolve_base_ok".into()),
+                    );
+                    map.insert(
+                        "project_dir".into(),
+                        serde_json::Value::String(project_dir.to_string()),
+                    );
+                }
+                let _ = self.control_tx.send(Frame::new(
+                    FeedId::CONTROL,
+                    serde_json::to_vec(&body).expect("changeset_join_resolve_base_ok serializes"),
+                ));
+            }
+            Ok(Err(detail)) => {
+                Self::send_changeset_join_resolve_err(
+                    &self.control_tx,
+                    project_dir,
+                    &request.dash,
+                    &detail,
+                );
+            }
+            Err(e) => {
+                Self::send_changeset_join_resolve_err(
+                    &self.control_tx,
+                    project_dir,
+                    &request.dash,
+                    &format!("the resolve did not run: {e}"),
+                );
+            }
+        }
     }
 
     fn send_changeset_join_resolve_err(
@@ -9929,6 +10024,8 @@ mod tests {
             kind: "off-base".to_string(),
             detail: "Check out 'main' first.".to_string(),
             paths: vec![],
+            overlap: vec![],
+            remedy: None,
         };
         let value = serde_json::to_value(vec![blocked]).expect("serializes");
         assert_eq!(value[0]["kind"], "off-base");
@@ -11607,7 +11704,12 @@ mod tests {
         // CONTROL and onto the replayed snapshot feed.
         let detail = tugdash_core::ops::dash_detail_entry_in(&root, "demo").expect("detail");
         let branch = tugdash_core::ops::current_branch(&root).unwrap();
-        let state = crate::feeds::join_board::join_state_for(&root, &detail, &branch);
+        let state = crate::feeds::join_board::join_state_for(
+            &root,
+            &detail,
+            &branch,
+            &std::collections::BTreeMap::new(),
+        );
         assert_eq!(state.phase, "resolved", "{state:?}");
         assert!(
             state.candidate.is_some(),

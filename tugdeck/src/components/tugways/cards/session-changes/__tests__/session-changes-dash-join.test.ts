@@ -9,38 +9,47 @@
 import { describe, expect, it } from "bun:test";
 
 import {
-  blockerAct,
+  remedyRefusal,
   discardPreflightLine,
 } from "@/components/tugways/cards/session-changes/session-changes-dash-join";
 import { joinDisabledReason } from "@/lib/join-mode-controller";
-import type { DashJoinBlockerWire, DashResolvedFileWire } from "@/lib/changeset-types";
+import type {
+  DashJoinBlockerWire,
+  DashResolvedFileWire,
+} from "@/lib/changeset-types";
 
-const blocker = (kind: string, paths: string[] = []): DashJoinBlockerWire => ({
+const blocker = (
+  kind: string,
+  remedy?: DashJoinBlockerWire["remedy"],
+): DashJoinBlockerWire => ({
   kind,
   detail: `detail for ${kind}`,
-  paths,
+  ...(remedy !== undefined ? { remedy } : {}),
 });
 
-describe("blockerAct", () => {
-  it("names the act that clears each kind the server can report", () => {
-    expect(blockerAct(blocker("off-base"), "main")).toBe("Check out main first");
-    expect(blockerAct(blocker("base-dirt", ["a.ts", "b.ts"]), "main")).toBe(
-      "Commit or stash a.ts, b.ts",
-    );
-    expect(blockerAct(blocker("stale-journal"), "main")).toBe(
-      "Resume the interrupted teardown",
-    );
-    expect(blockerAct(blocker("empty"), "main")).toBe("Discard this dash");
+describe("remedyRefusal", () => {
+  it("lets a remedy with no refusal be pressed", () => {
+    expect(
+      remedyRefusal(blocker("base-dirt", { explain: "Resolve commits it." })),
+    ).toBe(null);
   });
 
-  it("falls back to a pathless sentence when base-dirt names nothing", () => {
-    expect(blockerAct(blocker("base-dirt"), "main")).toBe(
-      "Commit or stash the overlapping changes",
-    );
+  it("passes the server's refusal through as the reason the button is dead", () => {
+    expect(
+      remedyRefusal(
+        blocker("base-dirt", {
+          explain: "That edit belongs to ^ink-anchor.",
+          refused: "Held by ^ink-anchor",
+        }),
+      ),
+    ).toBe("Held by ^ink-anchor");
   });
 
-  it("has no act for a kind it has never heard of, leaving the detail to show", () => {
-    expect(blockerAct(blocker("some-future-refusal"), "main")).toBe(null);
+  it("has nothing to press for a kind that carries no remedy at all", () => {
+    // Still renders its `detail` — an off-base checkout, a teardown left by a
+    // crash, and any refusal this deck has never heard of.
+    expect(remedyRefusal(blocker("off-base"))).toBe(null);
+    expect(remedyRefusal(blocker("some-future-refusal"))).toBe(null);
   });
 });
 
@@ -59,13 +68,17 @@ describe("discardPreflightLine", () => {
   });
 
   it("does not invent a stake for a dash with no work", () => {
-    expect(discardPreflightLine(0, 0)).toBe("Discards nothing — this dash has no work");
+    expect(discardPreflightLine(0, 0)).toBe(
+      "Discards nothing — this dash has no work",
+    );
   });
 });
 
 describe("joinDisabledReason", () => {
   it("answers with the gate's own reason before it looks at the outcome", () => {
-    expect(joinDisabledReason("turn", "clean")).toBe("Wait for the turn to finish");
+    expect(joinDisabledReason("turn", "clean")).toBe(
+      "Wait for the turn to finish",
+    );
     expect(joinDisabledReason("pending", "clean")).toBe("Joining…");
   });
 
@@ -82,4 +95,3 @@ describe("joinDisabledReason", () => {
     expect(joinDisabledReason("outcome", "empty")).toBe("Nothing to join");
   });
 });
-

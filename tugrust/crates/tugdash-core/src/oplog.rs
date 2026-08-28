@@ -68,6 +68,7 @@ pub enum OpVerb {
     Join,
     Replay,
     Discard,
+    ResolveBase,
     Undo,
     Redo,
 }
@@ -78,6 +79,7 @@ impl OpVerb {
             OpVerb::Join => "join",
             OpVerb::Replay => "replay",
             OpVerb::Discard => "discard",
+            OpVerb::ResolveBase => "resolve-base",
             OpVerb::Undo => "undo",
             OpVerb::Redo => "redo",
         }
@@ -834,6 +836,7 @@ pub fn undo_in(repo: &Path, dash: Option<&str>) -> Result<UndoOutcome, String> {
         OpVerb::Join => undo_join(repo, &op, &after, &mut warnings),
         OpVerb::Replay => undo_replay(repo, &op, &after),
         OpVerb::Discard => undo_discard(repo, &op, &mut warnings),
+        OpVerb::ResolveBase => undo_resolve_base(repo, &op, &after),
         OpVerb::Undo | OpVerb::Redo => {
             unreachable!("reversal records are filtered out of the candidates")
         }
@@ -1007,6 +1010,11 @@ pub fn redo_in(repo: &Path, dash: Option<&str>) -> Result<RedoOutcome, String> {
 
     let outcome = match original.verb {
         OpVerb::Join => redo_join(repo, &original, &original_after, &mut warnings),
+        // Re-committing is the fold's own act, and the fold is the one that
+        // knows which paths it took. Redo therefore replays the base tip
+        // rather than re-deriving the commit — the object is still there, and
+        // `--keep` refuses over local changes that would be lost.
+        OpVerb::ResolveBase => redo_resolve_base(repo, &original_after),
         OpVerb::Replay => redo_replay(repo, &original, &original_after),
         OpVerb::Discard => redo_discard(repo, &original, &mut warnings),
         OpVerb::Undo | OpVerb::Redo => {
@@ -1091,6 +1099,25 @@ fn refuse_dirty_worktree(op: &OpPayload) -> Result<(), String> {
         op.before.worktree,
         paths.join(", ")
     ))
+}
+
+/// Re-apply a folded base edit: move the base back to the commit the fold made.
+///
+/// The commit object survives the undo — nothing deletes it — so redo is the
+/// tip move and nothing else. `--keep` rather than `--hard` for the reason it
+/// is used everywhere else here: it refuses over tracked changes that would be
+/// lost instead of discarding them, so a redo over work done since the undo
+/// stops rather than eating it.
+fn redo_resolve_base(
+    repo: &Path,
+    after: &OpAfter,
+) -> Result<(Option<String>, Option<String>), String> {
+    let tip = after
+        .base_tip
+        .as_deref()
+        .ok_or("incomplete-op: the resolve recorded no resulting base tip")?;
+    git_stdout(repo, &["reset", "--keep", tip])?;
+    Ok((None, Some(tip.to_string())))
 }
 
 /// Re-land the join: move the base back to what it landed, then tear the dash
@@ -1324,6 +1351,42 @@ fn restore_conflict_ref(repo: &Path, op: &OpPayload, warnings: &mut Vec<String>)
     if let Err(e) = crate::resolve::advance_conflict_ref(repo, &op.dash, recorded) {
         warnings.push(format!("The conflict chain could not be restored: {e}"));
     }
+}
+
+/// Put a folded base edit back the way it was: uncommitted, on the base.
+///
+/// `reset --mixed` is the whole of it, and it is the right reset because it is
+/// the exact inverse of what the fold did. The fold took working-tree content
+/// and made it a commit; `--mixed` moves the branch back and leaves the index
+/// and the working tree alone, so the same content is sitting there
+/// uncommitted again — which is where the user had it. `--hard` would delete
+/// their work and `--soft` would leave it staged, neither of which is what
+/// they had.
+///
+/// The compare-and-swap is [`undo_join`]'s, for the same reason: a base that
+/// has moved since is a base carrying somebody's work past this point, and
+/// winding it back would take that with it.
+fn undo_resolve_base(
+    repo: &Path,
+    op: &OpPayload,
+    after: &OpAfter,
+) -> Result<(Option<String>, Option<String>), String> {
+    let base_branch = &op.before.base_branch;
+    let expected = after
+        .base_tip
+        .as_deref()
+        .ok_or("incomplete-op: the resolve recorded no resulting base tip")?;
+    let current = git_stdout(repo, &["rev-parse", base_branch])?;
+    if current != expected {
+        return Err(format!(
+            "tip-moved: '{base_branch}' is at {} but the resolve left it at {}; something landed \
+             since, so undoing would destroy it",
+            &current[..current.len().min(9)],
+            &expected[..expected.len().min(9)]
+        ));
+    }
+    git_stdout(repo, &["reset", "--mixed", &op.before.base_tip])?;
+    Ok((None, Some(op.before.base_tip.clone())))
 }
 
 /// Move the dash branch back to the tip it had before the replay.

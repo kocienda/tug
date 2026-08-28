@@ -100,6 +100,21 @@
   color: var(--tug7-element-global-text-normal-muted-rest);
 }
 
+/* The control, on its own line under the sentence that explains it. Never the
+   other way round: the reader weighs the act before the button offers it. */
+.session-changes-dash-join-remedy {
+  display: flex;
+  align-items: center;
+  gap: var(--tug-space-xs);
+  padding-block-start: var(--tug-space-2xs);
+}
+
+/* Why the button is dead — whose turn it is, rather than whose fault. */
+.session-changes-dash-join-refused {
+  font-family: var(--tug-font-family-sans);
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
 /* The path, then its history under it — so the row is a column, and the
    truncation lives on the path itself rather than on the row that now has a
    nested list inside it. */

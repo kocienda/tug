@@ -38,15 +38,14 @@
  * in two states, which is a thing the app has never shown and would never
  * show. A frame that can differ from the app is a frame that can lie about it.
  *
- * **The last section is a proposal, and says so.** A join the base refuses
- * today reaches the reader as a sentence — the server's `JoinBlocker.detail`,
- * rendered by the real `DashJoinRegister` and the real `SessionChangesDashJoin`
- * — and the sentence names acts no control on the surface can perform. The
- * frames after the shipping ones show the same refusal in three lines — what
- * is wrong, what Resolve will do, Resolve — off a wire shape the server does
- * not send yet. The proposed button walks the frame's register through the
- * beats it would run, because a gallery button that did nothing would be the
- * defect the proposal exists to remove ([L31]).
+ * **The last section is the blocked join, in three cases.** One `base-dirt`
+ * bit used to hide them all behind one sentence naming acts no control here
+ * performs. Each case now carries what its facts earn — the base copy the dash
+ * already holds is not a refusal at all, the user's own divergent edit gets one
+ * `Resolve`, another session's gets the same shape with a dead button wearing
+ * whose turn it is — and every frame mounts the real `SessionChangesDashJoin`
+ * over one wire entry, so what is drawn is what the shade draws. The remedy is
+ * never in the button: the sentence carries it and the control is one word.
  */
 
 import "./gallery-dash-lifecycle.css";
@@ -54,13 +53,17 @@ import "./gallery-dash-lifecycle.css";
 import React from "react";
 
 import { DashLifecycleBlock } from "@/components/tugways/dash-lifecycle-block";
-import { DashLifecycleLine, dashLifecycleNote } from "@/components/tugways/dash-lifecycle-line";
-import { DashLifecycleMark, dashMarkFraction } from "@/components/tugways/dash-lifecycle-mark";
+import {
+  DashLifecycleLine,
+  dashLifecycleNote,
+} from "@/components/tugways/dash-lifecycle-line";
+import {
+  DashLifecycleMark,
+  dashMarkFraction,
+} from "@/components/tugways/dash-lifecycle-mark";
 import { DashPhaseMark } from "@/components/tugways/dash-phase-mark";
 import { DashJoinRegister } from "@/components/tugways/dash-join-register";
 import { SessionChangesDashJoin } from "@/components/tugways/cards/session-changes/session-changes-dash-join";
-import { TugPushButton } from "@/components/tugways/tug-push-button";
-import { TugSectionLabel } from "@/components/tugways/tug-section-label";
 
 import { dashEntryGlanceFraction, dashMetaFacts } from "@/lib/dash-meta-facts";
 import { SessionIdentityRow } from "@/components/tugways/session-identity-row";
@@ -108,14 +111,21 @@ sessionTagStore.setTag(WORKER, "juicy-river-3");
 sessionNameStore.setName(SOLO, "Lens polish");
 sessionTagStore.setTag(SOLO, "amber-fox-7");
 
-function steps(done: number, current: number | null, total: number): DashStep[] {
+function steps(
+  done: number,
+  current: number | null,
+  total: number,
+): DashStep[] {
   return Array.from({ length: total }, (_, i) => ({
     title: `Step ${i + 1}`,
     status: i < done ? "done" : i + 1 === current ? "in progress" : "pending",
   }));
 }
 
-function entry(name: string, over: Partial<DashChangesetEntry>): DashChangesetEntry {
+function entry(
+  name: string,
+  over: Partial<DashChangesetEntry>,
+): DashChangesetEntry {
   return {
     kind: "dash",
     owner_id: `tugdash/${name}#spike-${name}`,
@@ -172,11 +182,15 @@ const MOMENTS: readonly Moment[] = [
   },
   {
     key: "devise",
-    caption: "Devise is on the card — the point every surface but the Lens shows nothing for today",
+    caption:
+      "Devise is on the card — the point every surface but the Lens shows nothing for today",
     workers: [WORKER],
     prompt: "/tugplug:dash-devise tugrev-bringup",
     branched: false,
-    entry: entry(DASH, { documents: { brief: BRIEF }, arc: { stage: "devise" } }),
+    entry: entry(DASH, {
+      documents: { brief: BRIEF },
+      arc: { stage: "devise" },
+    }),
   },
   {
     key: "review",
@@ -194,7 +208,8 @@ const MOMENTS: readonly Moment[] = [
   },
   {
     key: "implement",
-    caption: "Implement, step 4 of 10 — the one point the app draws on every surface today",
+    caption:
+      "Implement, step 4 of 10 — the one point the app draws on every surface today",
     workers: [WORKER],
     prompt: "/tugplug:dash-implement tugrev-bringup",
     branched: true,
@@ -226,7 +241,11 @@ const MOMENTS: readonly Moment[] = [
     entry: entry(DASH, {
       branch: `tugdash/${DASH}`,
       stage: "working",
-      arc: { stage: "implement", stopped: "card closed", stopped_stage: "implement" },
+      arc: {
+        stage: "implement",
+        stopped: "card closed",
+        stopped_stage: "implement",
+      },
       step_current: 7,
       step_total: 10,
       run_position: 7,
@@ -259,7 +278,11 @@ const MOMENTS: readonly Moment[] = [
       review: "reviewed",
       rounds: 10,
       files: BRANCH_FILES,
-      draft: { fingerprint: "spike", updated_at: TOUCHED, message: `${DRAFT_SUBJECT}\n\nBody.` },
+      draft: {
+        fingerprint: "spike",
+        updated_at: TOUCHED,
+        message: `${DRAFT_SUBJECT}\n\nBody.`,
+      },
     }),
   },
   {
@@ -324,7 +347,11 @@ const MOMENTS: readonly Moment[] = [
       task_list: true,
       rounds: 3,
       files: BRANCH_FILES,
-      draft: { fingerprint: "spike", updated_at: TOUCHED, message: SOLO_SUBJECT },
+      draft: {
+        fingerprint: "spike",
+        updated_at: TOUCHED,
+        message: SOLO_SUBJECT,
+      },
     }),
   },
   {
@@ -341,13 +368,17 @@ const MOMENTS: readonly Moment[] = [
       rounds: 2,
       files: BRANCH_FILES,
       worktree_dirty: true,
-      draft: { fingerprint: "spike", updated_at: TOUCHED, message: SOLO_SUBJECT },
+      draft: {
+        fingerprint: "spike",
+        updated_at: TOUCHED,
+        message: SOLO_SUBJECT,
+      },
     }),
   },
 ];
 
 // ---------------------------------------------------------------------------
-// A join the base refuses — the wire as it is, and the wire as proposed
+// A join the base refuses — one wire entry per case, as the server sends it
 // ---------------------------------------------------------------------------
 
 const BLOCKED_DASH = "durable-commits";
@@ -356,148 +387,103 @@ const OTHER = "5d2e9b10-0000-4000-8000-00000000a11c";
 sessionNameStore.setName(OTHER, "ink anchor");
 sessionTagStore.setTag(OTHER, "ink-anchor");
 
-/** The blocker exactly as `join_blockers_from_detail` writes it today. */
-const BASE_DIRT_TODAY: DashJoinBlockerWire = {
-  kind: "base-dirt",
-  detail: `Cannot join: the base worktree has uncommitted changes to files this dash also changed (${BLOCKED_PATH}). Commit or stash them first.`,
-  paths: [BLOCKED_PATH],
-};
-
-/** A ready dash the preflight refused: every step done, the draft written, one blocker. */
-const BLOCKED_ENTRY: DashChangesetEntry = entry(BLOCKED_DASH, {
-  branch: `tugdash/${BLOCKED_DASH}`,
-  bound_sessions: [SOLO],
-  stage: "ready",
-  steps: steps(6, null, 6),
-  step_total: 6,
-  documents: { plan: `${ROOT}/.tug/dashes/${BLOCKED_DASH}/plan.md` },
-  task_list: true,
-  rounds: 6,
-  files: [
-    {
-      path: BLOCKED_PATH,
-      git_status: "M",
-      op: "write",
-      origin: "dash",
-      shared: false,
-      last_touched: TOUCHED,
-    },
-  ],
-  base_overlap: [BLOCKED_PATH],
-  last_replay: "replayed",
-  draft: { fingerprint: "spike", updated_at: TOUCHED, message: "Doctrine and integration checks for durable commits" },
-  join: { phase: "blocked", blockers: [BASE_DIRT_TODAY] },
-});
-
 const RESOLVE_IDLE: ResolveState = { phase: "idle", progress: [], error: null };
 
-/**
- * PROPOSED — what one overlap path would carry, beyond its name.
- *
- * `owner` is the changes ledger's attribution of the base's dirt, the same
- * bucketing `app-test-changed` selects by. `relation` is a byte comparison of
- * the base's working copy against the dash's version of the path. Neither is
- * on the wire today; both are already computable server-side without a new
- * git call on the recompute's hot path.
- */
-interface ProposedOverlap {
-  path: string;
-  owner: "mine" | "foreign" | "unattributed";
-  /** Who, when `owner` is `foreign`. */
-  holder?: string;
-  /** `identical` — the base copy IS the dash's edit; `divergent` — it is other work. */
-  relation: "identical" | "contained" | "divergent";
-}
-
-/**
- * PROPOSED — the one way out of a blocker, and the sentence that explains it.
- *
- * The remedy is not in the button. The sentence says what Resolve will do,
- * in the server's words; the button does it. A blocker nobody at this card
- * can clear still carries the sentence — it says whose turn it is — and its
- * button is disabled wearing that reason ([L31]).
- */
-interface ProposedRemedy {
-  /** What Resolve does, as one sentence the reader can weigh before pressing. */
-  explain: string;
-  /** Why the button is disabled, or null when it is live. */
-  refused: string | null;
-  /** What the register reads while the resolve runs. */
-  running: string;
-}
-
-/** PROPOSED — a `base-dirt` blocker that carries its facts and its way out. */
-interface ProposedBlocker extends DashJoinBlockerWire {
-  overlap: ProposedOverlap[];
-  remedy: ProposedRemedy;
-}
-
-/** The three situations one `base-dirt` bit hides, and what each deserves. */
-interface Situation {
+/** One shape of blocked join, with the reading its facts earn. */
+interface BlockedCase {
   key: string;
   title: string;
   caption: string;
-  blocker: ProposedBlocker;
-  /** The register's proposed word, where today all three read `blocked`. */
-  word: string;
+  blocker: DashJoinBlockerWire;
 }
 
-const SITUATIONS: readonly Situation[] = [
+/**
+ * The three cases one `base-dirt` bit used to hide.
+ *
+ * Every field below is what `join_blockers_from_detail` composes — the
+ * sentence, the paths, each path's relation and holder, and the one remedy.
+ * The deck writes none of it: a second copy here would be free to disagree
+ * with the act the server performs.
+ */
+const BLOCKED_CASES: readonly BlockedCase[] = [
   {
-    key: "stale-copy",
-    title: "A · the base holds the dash's own edit",
-    word: "blocked · resolvable",
+    key: "identical",
+    title:
+      "A · the base holds the dash's own edit — no longer a blocker at all",
     caption:
-      "The likeliest case, and the one in the screenshot this proposal answers. Main's uncommitted copy of the file is the edit the dash already made, byte for byte — written on main from the dash's notes, or left behind when the dash was cut. Nothing is lost by dropping it, because the dash lands the same bytes. The server can say so only because it compared them, which is what makes this button safe to offer",
+      "Main's uncommitted copy of the file is the edit the dash already made, byte for byte — a note written on main from the dash's work, or something left behind when the dash was cut. Nothing is lost by dropping it, because the dash lands the same bytes, and the server can say so only because it compared blob ids rather than assuming from the fact of the dirt. So this case has no blocker and no button: the join drops the copy and lands, and reports what it dropped, because a file the user last saw as uncommitted work is now committed work. Git compares the working tree against HEAD rather than against the merge result, so the clear is required even though the merge would have written the same bytes",
     blocker: {
       kind: "base-dirt",
-      detail: `Cannot join: main has an uncommitted copy of ${BLOCKED_PATH} that this dash already carries.`,
-      paths: [BLOCKED_PATH],
-      overlap: [{ path: BLOCKED_PATH, owner: "mine", relation: "identical" }],
-      remedy: {
-        explain: "Main's copy is the dash's own edit. Resolve drops it and joins; nothing is lost.",
-        refused: null,
-        running: "resolving · dropping main's copy",
-      },
+      detail: "",
     },
   },
   {
-    key: "own-work",
+    key: "divergent-mine",
     title: "B · your own live work on main",
-    word: "blocked · resolvable",
     caption:
-      "This session edited the file on main while the dash was running, and the two versions differ. The unblocking is mechanical; the merging is not — and the merging is a job the join already has an AI for. Resolve folds the main edit into the join (git's autostash shape underneath), and if the fold conflicts, that is an ordinary join conflict, handled by the resolver ladder where join conflicts are handled today — replay, rerere, merge-file, driver, then the AI with its intent questions. The user's work is never committed behind their back and never hidden: it rides the join and lands with it",
+      "This session edited the file on main while the dash was running, and the two versions differ. Resolve commits that edit onto the base as one commit of its own — that commit IS the fold, because from it forward the two sides are ordinary git history, so a collision with the dash's work is an ordinary base-versus-dash conflict and reaches the resolution ladder every join conflict already reaches. No new merge machinery. It is op-logged: `tugutil dash undo` resets the base and leaves the same content uncommitted, exactly where the user had it",
     blocker: {
       kind: "base-dirt",
-      detail: `Cannot join: your uncommitted edit to ${BLOCKED_PATH} on main differs from this dash's version of it.`,
+      detail: `Cannot join: your uncommitted edit to ${BLOCKED_PATH} on the base differs from this dash's version of it.`,
       paths: [BLOCKED_PATH],
-      overlap: [{ path: BLOCKED_PATH, owner: "mine", relation: "divergent" }],
       remedy: {
-        explain: "Resolve folds your main edit into the join. If the two versions conflict, the resolver reconciles them as it would any join conflict.",
-        refused: null,
-        running: "resolving · folding in your main edit",
+        explain: `Resolve commits your edit to ${BLOCKED_PATH} on the base as its own commit, so the join can reconcile the two versions. Undo puts it back uncommitted.`,
       },
     },
   },
   {
-    key: "foreign",
+    key: "divergent-foreign",
     title: "C · another live session's work",
-    word: "blocked · held by ^ink-anchor",
     caption:
-      "The changes ledger attributes the base's dirt to another session that is still live. Nothing here is this user's to move, and a button that folded another session's half-written edit into this join would be a button that breaks somebody else's work. So the frame is the same shape with the button disabled, wearing the reason — whose turn it is, rather than whose fault. When that session commits or discards its edit the blocker clears on its own, the register flips, and the button comes back",
+      "The changeset feed's attribution — the same fold the Changes card renders, passed down rather than re-derived — says another live session holds this path. Nothing here is this user's to move, and folding a half-written edit into a join would take it out from under whoever is writing it. So the frame keeps its shape and the button is dead, wearing whose turn it is rather than whose fault. When that session commits or sets the edit aside the blocker clears on its own",
     blocker: {
       kind: "base-dirt",
       detail: `Cannot join: ^ink-anchor holds an uncommitted edit to ${BLOCKED_PATH} that this dash also changed.`,
       paths: [BLOCKED_PATH],
-      overlap: [{ path: BLOCKED_PATH, owner: "foreign", holder: "ink-anchor", relation: "divergent" }],
       remedy: {
-        explain: "That edit belongs to ^ink-anchor. When it is committed or set aside there, this join unblocks by itself.",
+        explain:
+          "That edit belongs to ^ink-anchor. When it is committed or set aside there, this join unblocks by itself.",
         refused: "Held by ^ink-anchor",
-        running: "",
       },
     },
   },
 ];
+
+/** A ready dash the preflight refused: every step done, the draft written. */
+function blockedEntry(blocker: DashJoinBlockerWire): DashChangesetEntry {
+  const blockers = blocker.detail === "" ? [] : [blocker];
+  return entry(BLOCKED_DASH, {
+    branch: `tugdash/${BLOCKED_DASH}`,
+    bound_sessions: [SOLO],
+    stage: "ready",
+    steps: steps(6, null, 6),
+    step_total: 6,
+    documents: { plan: `${ROOT}/.tug/dashes/${BLOCKED_DASH}/plan.md` },
+    task_list: true,
+    rounds: 6,
+    files: [
+      {
+        path: BLOCKED_PATH,
+        git_status: "M",
+        op: "write",
+        origin: "dash",
+        shared: false,
+        last_touched: TOUCHED,
+      },
+    ],
+    base_overlap: [BLOCKED_PATH],
+    last_replay: "replayed",
+    draft: {
+      fingerprint: "spike",
+      updated_at: TOUCHED,
+      message: "Doctrine and integration checks for durable commits",
+    },
+    join: {
+      phase: blockers.length > 0 ? "blocked" : "previewed",
+      ...(blockers.length > 0 ? { blockers } : {}),
+    },
+  });
+}
 
 /**
  * The session-scoped binding, projected from the entry exactly as
@@ -527,7 +513,13 @@ function factFor(m: Moment): DashSessionFact {
 // Frames
 // ---------------------------------------------------------------------------
 
-function Stage({ caption, children }: { caption: string; children: React.ReactNode }): React.ReactElement {
+function Stage({
+  caption,
+  children,
+}: {
+  caption: string;
+  children: React.ReactNode;
+}): React.ReactElement {
   return (
     <section className="cg-dash-stage">
       <TugLabel size="2xs" emphasis="calm" className="cg-dash-caption">
@@ -538,9 +530,23 @@ function Stage({ caption, children }: { caption: string; children: React.ReactNo
   );
 }
 
-function Worker({ sessionId, register }: { sessionId: string; register: AtomRegister }): React.ReactElement {
+function Worker({
+  sessionId,
+  register,
+}: {
+  sessionId: string;
+  register: AtomRegister;
+}): React.ReactElement {
   const identity = useSessionIdentity(sessionId);
-  return <TugSessionIdentity identity={identity} tier="chip" register={register} dash={false} tooltip={false} />;
+  return (
+    <TugSessionIdentity
+      identity={identity}
+      tier="chip"
+      register={register}
+      dash={false}
+      tooltip={false}
+    />
+  );
 }
 
 const AT_WORK = MOMENTS[3]!;
@@ -568,75 +574,27 @@ const OUT_OF_ORDER: DashTrackModel = dashTrackModel({
   documents: { brief: BRIEF, plan: PLAN },
   arc: { stage: "implement" },
   stage: "implementing",
-  steps: (["done", "done", "done", "in progress", "done", "pending"] as const).map((status, i) => ({
+  steps: (
+    ["done", "done", "done", "in progress", "done", "pending"] as const
+  ).map((status, i) => ({
     title: `Step ${i + 1}`,
     status,
   })),
 });
 
-/**
- * PROPOSED — the blocked report section: the refusal, what Resolve does,
- * and Resolve. Three lines the reader can take in at a glance, in that order,
- * because the button is the last thing to read and the first thing to press.
- *
- * On this card a press walks the register through the resolve it would run —
- * running, then ready — since the verb behind it is proposal. The button
- * therefore has a visible result rather than none ([L31]), and the frame
- * shows what the row reads at each beat.
- */
-function ProposedResolve({ situation }: { situation: Situation }): React.ReactElement {
-  const { blocker, word } = situation;
-  const { remedy } = blocker;
-  const [beat, setBeat] = React.useState<"blocked" | "running" | "ready">("blocked");
-  const register = beat === "blocked" ? word : beat === "running" ? remedy.running : "ready to join";
-  return (
-    <div className="cg-dash-remedies" data-slot="cg-dash-remedies" data-beat={beat}>
-      <div className="cg-dash-legend-row">
-        <span className="cg-dash-legend-word">register reads</span>
-        <span className="cg-dash-register-word" data-beat={beat}>
-          {register}
-        </span>
-      </div>
-      <TugSectionLabel label={{ name: "report", qualifier: "proposed" }} />
-      {beat === "ready" ? (
-        <div className="cg-dash-remedy-explain" role="status">
-          Resolved. The shade is raised on the ready dash, and the send button is Join.
-        </div>
-      ) : (
-        <>
-          <div className="session-changes-dash-join-detail cg-dash-remedy-detail">{blocker.detail}</div>
-          <div className="cg-dash-remedy-explain">{remedy.explain}</div>
-          <div className="cg-dash-remedy-row">
-            <TugPushButton
-              size="xs"
-              emphasis="tinted"
-              role="action"
-              disabled={remedy.refused !== null || beat === "running"}
-              loading={beat === "running"}
-              onClick={() => {
-                setBeat("running");
-                window.setTimeout(() => setBeat("ready"), 1400);
-              }}
-            >
-              Resolve
-            </TugPushButton>
-            {remedy.refused !== null ? (
-              <span className="cg-dash-remedy-note">{remedy.refused}</span>
-            ) : null}
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
-
-const NO_JOIN_ACTIONS = { aim: () => {}, answerQuestion: () => {} };
+const NO_JOIN_ACTIONS = {
+  aim: () => {},
+  answerQuestion: () => {},
+  resolveBase: () => {},
+};
 
 export function GalleryDashLifecycle(): React.ReactElement {
   return (
     <div className="cg-content" data-testid="gallery-dash-lifecycle">
       <section className="cg-section">
-        <TugLabel className="cg-section-title">The atom, once — TugDashAtom</TugLabel>
+        <TugLabel className="cg-section-title">
+          The atom, once — TugDashAtom
+        </TugLabel>
         <Stage caption="One skin, two registers (prose in a line of running text · reading in a block), proportional everywhere; who is on it is the atom beside it. A direct dash is a dash to the atom: both are work on a worktree">
           <div className="cg-dash-lineup">
             <TugDashAtom name={DASH} register="prose" />
@@ -651,7 +609,9 @@ export function GalleryDashLifecycle(): React.ReactElement {
       </section>
 
       <section className="cg-section">
-        <TugLabel className="cg-section-title">The lifecycle, as one track — TugDashTrack</TugLabel>
+        <TugLabel className="cg-section-title">
+          The lifecycle, as one track — TugDashTrack
+        </TugLabel>
         <Stage caption="brief · devise · review · implement (one tick per step) · join. Each row is the real DashLifecycleLine, so the strip, the glyph, the fraction, and the word are spaced by the component rather than by this card. Cap-height, so it rides any line the atom is on. The type runs sit on one baseline and the two graphics are centred, which lands the cap-height strip on the type's own cap band; the glyph is sized a pixel proud of that band rather than four, so it reads as the strip's neighbour. What is behind you is a FILL and what is ahead is an OUTLINE: done is the muted text tone, active the theme's key color — the tone the pulsing dot uses for the same claim — the join the theme's selection color, and pending no fill at all">
           <div className="cg-dash-legend">
             {MOMENTS.map((m) => {
@@ -679,35 +639,58 @@ export function GalleryDashLifecycle(): React.ReactElement {
         </Stage>
         <Stage caption="The division of labour. A dash counts its steps in the track and nowhere else; the cell it is IN breathes, on the pulsing dot's own 2s envelope — quick in, slow out — so a strip and a dot on one row read as one instrument. A stopped arc holds still">
           <div className="cg-dash-legend-row">
-            <TugProgressIndicator variant="pulsing-dot" size={12} state="running" aria-hidden />
-            <TugDashTrack model={dashTrackModelFromEntry(AT_WORK.entry)} size="read" />
-            <span className="cg-dash-legend-word">on a dash — the bare phase dot, and the track</span>
+            <TugProgressIndicator
+              variant="pulsing-dot"
+              size={12}
+              state="running"
+              aria-hidden
+            />
+            <TugDashTrack
+              model={dashTrackModelFromEntry(AT_WORK.entry)}
+              size="read"
+            />
+            <span className="cg-dash-legend-word">
+              on a dash — the bare phase dot, and the track
+            </span>
           </div>
         </Stage>
         <Stage caption="OUT OF ORDER. Steps 1–3 done, 4 in hand, 5 closed early. Four steps are done, so a strip that painted `n <= done` would fill tick 4 while it is the live one — which is the one reading this instrument must never give. The ticks are positional: done is a set of positions, and the step in hand outranks the closed reading. The ledger now refuses the way this used to happen — a `done` on a step nobody started — so a batched round that closes two steps at its end opens and closes each in turn">
           <div className="cg-dash-legend-row">
             <TugDashTrack model={OUT_OF_ORDER} size="read" />
-            <span className="cg-dash-legend-word">4/6 — the fourth tick breathes, the fifth is filled</span>
+            <span className="cg-dash-legend-word">
+              4/6 — the fourth tick breathes, the fifth is filled
+            </span>
           </div>
         </Stage>
         <Stage caption="The same five phases as one glyph — DashPhaseMark. Keyed on the lifecycle PHASE, never on the git stage: a dash devising or reviewing a plan has no stage at all, which is how the mark that used to do this job came to be blank for the whole first half of a dash's life">
           <div className="cg-dash-legend-row">
             {MOMENTS.map((m) => (
-              <DashPhaseMark key={m.key} model={dashTrackModelFromEntry(m.entry)} size={16} />
+              <DashPhaseMark
+                key={m.key}
+                model={dashTrackModelFromEntry(m.entry)}
+                size={16}
+              />
             ))}
-            <span className="cg-dash-legend-word">brief · devise · review · implement · stopped · join · then the four direct readings</span>
+            <span className="cg-dash-legend-word">
+              brief · devise · review · implement · stopped · join · then the
+              four direct readings
+            </span>
           </div>
         </Stage>
         <p className="cg-dash-prose">
-          The row's indicator is a bare phase dot for the whole of a dash. A second mark drawing the same step count in
-          another geometry would be free to disagree whenever one of them lagged, so the track has the subject alone.
-          A stop is the one fact that outranks it: the cell paints danger, it stops breathing, and the note says why, in
-          the arc receipt's words.
+          The row's indicator is a bare phase dot for the whole of a dash. A
+          second mark drawing the same step count in another geometry would be
+          free to disagree whenever one of them lagged, so the track has the
+          subject alone. A stop is the one fact that outranks it: the cell
+          paints danger, it stops breathing, and the note says why, in the arc
+          receipt's words.
         </p>
       </section>
 
       <section className="cg-section">
-        <TugLabel className="cg-section-title">The compact register — DashLifecycleMark</TugLabel>
+        <TugLabel className="cg-section-title">
+          The compact register — DashLifecycleMark
+        </TugLabel>
         <Stage caption="one pill · glyph · fraction — the full register's own order, one scale down. That the dash is alive, where it is, and how far along, in a box that cannot grow. The pill leads because it is the mark that touches the identity run it follows. The dash's NAME is not here: both hosts render the identity's own ^<dash> immediately to its left, and a second spelling of a name already on the line is a second thing to keep in step">
           <div className="cg-dash-legend">
             {MOMENTS.map((m) => (
@@ -723,21 +706,28 @@ export function GalleryDashLifecycle(): React.ReactElement {
           </div>
         </Stage>
         <p className="cg-dash-prose">
-          Two surfaces take this rather than the track, and they are the two where a SESSION is the subject and the dash
-          is one fact about it: the session card's masthead title line, and the Lens's session rows. Both lead with a
-          name that elides, and the strip beside an eliding name is a graphic competing with the thing the row is
-          named for. The pill wears the track's own palette and breathes on the track's own cycle, so the two registers
-          read as one grammar.
+          Two surfaces take this rather than the track, and they are the two
+          where a SESSION is the subject and the dash is one fact about it: the
+          session card's masthead title line, and the Lens's session rows. Both
+          lead with a name that elides, and the strip beside an eliding name is
+          a graphic competing with the thing the row is named for. The pill
+          wears the track's own palette and breathes on the track's own cycle,
+          so the two registers read as one grammar.
         </p>
       </section>
 
       <section className="cg-section">
-        <TugLabel className="cg-section-title">Z2 · the DASH cell — an instrument, not a graphic</TugLabel>
+        <TugLabel className="cg-section-title">
+          Z2 · the DASH cell — an instrument, not a graphic
+        </TugLabel>
         <Stage caption="STATE's shape, exactly: a dot pinned to each edge of the value wrap and the reading centered between them. NUMBERS whenever there are numbers — the declared run, else the plan's own pair, so a reviewed plan reads 0/10 rather than a word. The word is only for a dash with no plan at all. The cell takes STATE's 18ch because it wears STATE's construction, and JOBS gives back exactly that, so the row's total is the same 80ch either way and every container rung keeps its measured value">
           {/* The real row class, so the cells sit in the row's own 10px font
               and endcap apparatus, and the real `data-dash` flag, so the
               widths under test are the ones the app applies. */}
-          <div className="session-telemetry-status-row cg-dash-z2-row" data-dash="true">
+          <div
+            className="session-telemetry-status-row cg-dash-z2-row"
+            data-dash="true"
+          >
             {MOMENTS.map((m) => {
               const model = dashTrackModelFromEntry(m.entry);
               const pair =
@@ -753,7 +743,12 @@ export function GalleryDashLifecycle(): React.ReactElement {
               const state = model.stopped !== null ? "aborted" : "running";
               return (
                 <TugStatusCell key={m.key} priority="tasks" label="DASH">
-                  <TugProgressIndicator variant="pulsing-dot" size={12} state={state} aria-hidden />
+                  <TugProgressIndicator
+                    variant="pulsing-dot"
+                    size={12}
+                    state={state}
+                    aria-hidden
+                  />
                   <span
                     className="session-telemetry-status-value"
                     data-slot="session-telemetry-dash-value"
@@ -761,20 +756,29 @@ export function GalleryDashLifecycle(): React.ReactElement {
                   >
                     {reading}
                   </span>
-                  <TugProgressIndicator variant="pulsing-dot" size={12} state={state} aria-hidden />
+                  <TugProgressIndicator
+                    variant="pulsing-dot"
+                    size={12}
+                    state={state}
+                    aria-hidden
+                  />
                 </TugStatusCell>
               );
             })}
           </div>
         </Stage>
         <p className="cg-dash-prose">
-          The whole track lived in this cell for a while, retuned by four knob overrides to survive a 78px box, and it
-          drew ticks a pixel wide — a graphic too small to read at the size it was drawn. The cell now says the one
-          thing that changes while somebody watches, and the strip is one press away on this cell's own placard.
+          The whole track lived in this cell for a while, retuned by four knob
+          overrides to survive a 78px box, and it drew ticks a pixel wide — a
+          graphic too small to read at the size it was drawn. The cell now says
+          the one thing that changes while somebody watches, and the strip is
+          one press away on this cell's own placard.
         </p>
       </section>
       <section className="cg-section">
-        <TugLabel className="cg-section-title">In flight — on every surface, no surface taller</TugLabel>
+        <TugLabel className="cg-section-title">
+          In flight — on every surface, no surface taller
+        </TugLabel>
         {MOMENTS.map((m) => {
           const model = dashTrackModelFromEntry(m.entry);
           const note = dashLifecycleNote(model);
@@ -785,17 +789,40 @@ export function GalleryDashLifecycle(): React.ReactElement {
             <Stage key={m.key} caption={m.caption}>
               <div className="cg-dash-surfaces">
                 <div className="cg-dash-surface">
-                  <span className="cg-dash-surface-name">Lens · DashLifecycleBlock size=rail</span>
+                  <span className="cg-dash-surface-name">
+                    Lens · DashLifecycleBlock size=rail
+                  </span>
                   <TugListRow variant="flush" density="compact">
-                    <DashLifecycleBlock name={name} workers={m.workers} model={model} note={note} stepTitle={stepTitle} facts={facts} size="rail" />
+                    <DashLifecycleBlock
+                      name={name}
+                      workers={m.workers}
+                      model={model}
+                      note={note}
+                      stepTitle={stepTitle}
+                      facts={facts}
+                      size="rail"
+                    />
                   </TugListRow>
                 </div>
                 <div className="cg-dash-surface">
-                  <span className="cg-dash-surface-name">Changes shade · DashLifecycleBlock size=read</span>
-                  <DashLifecycleBlock name={name} workers={m.workers} model={model} note={note} stepTitle={stepTitle} facts={facts} size="read" />
+                  <span className="cg-dash-surface-name">
+                    Changes shade · DashLifecycleBlock size=read
+                  </span>
+                  <DashLifecycleBlock
+                    name={name}
+                    workers={m.workers}
+                    model={model}
+                    note={note}
+                    stepTitle={stepTitle}
+                    facts={facts}
+                    size="read"
+                  />
                 </div>
                 <div className="cg-dash-surface" data-wide="true">
-                  <span className="cg-dash-surface-name">Masthead · the real SessionIdentityRow, at SessionMasthead's settings</span>
+                  <span className="cg-dash-surface-name">
+                    Masthead · the real SessionIdentityRow, at SessionMasthead's
+                    settings
+                  </span>
                   <SessionIdentityRow
                     className="cg-dash-masthead-row"
                     sessionId={m.workers[0] ?? WORKER}
@@ -807,7 +834,6 @@ export function GalleryDashLifecycle(): React.ReactElement {
                     activityOverride={m.prompt}
                   />
                 </div>
-
               </div>
             </Stage>
           );
@@ -815,101 +841,112 @@ export function GalleryDashLifecycle(): React.ReactElement {
       </section>
 
       <section className="cg-section">
-        <TugLabel className="cg-section-title">Blocked — a join the base refuses, today</TugLabel>
-        <Stage caption="The shipping reading, off one wire entry with `join.phase = blocked` and one `base-dirt` blocker. The Lens row and the shade row both mount the real DashJoinRegister, which takes `blockers[0].detail` as its line; the shade's fold mounts the real SessionChangesDashJoin, whose blocker list renders the same sentence over the act that clears it — as a SPAN. That is the whole of what the surface offers: a sentence naming two acts, commit and stash, that no control on it can perform, one of which (stash) Tug has no affordance for anywhere, and which the server's own docblock calls the wrong advice for the likeliest case">
+        <TugLabel className="cg-section-title">
+          Blocked — what the base refuses, and the one way out
+        </TugLabel>
+        <Stage caption="A join blocked by uncommitted work on the base used to end at a sentence naming two acts — commit, or stash — that no control here performs, one of which Tug has no affordance for anywhere, and which the server's own code called the wrong advice for the commonest case. One `base-dirt` bit hid three situations. The overlap now says what the base's uncommitted bytes ARE, read off the object database, and whose they are, read from the changeset feed's own attribution — and each case gets the reading its facts earn. Every frame below mounts the real SessionChangesDashJoin over one wire entry, so what is drawn is what the shade draws">
+          <div className="cg-dash-situations">
+            {BLOCKED_CASES.map((c) => {
+              const blockedEntryForCase = blockedEntry(c.blocker);
+              return (
+                <div className="cg-dash-surface" key={c.key}>
+                  <span className="cg-dash-surface-name">{c.title}</span>
+                  <TugLabel
+                    size="2xs"
+                    emphasis="calm"
+                    className="cg-dash-caption"
+                  >
+                    {c.caption}
+                  </TugLabel>
+                  <span className="session-changes-dash-register">
+                    <DashJoinRegister
+                      dash={BLOCKED_DASH}
+                      base="main"
+                      stage={blockedEntryForCase.stage}
+                      join={blockedEntryForCase.join}
+                      bound
+                      altitude="entry"
+                    />
+                  </span>
+                  <SessionChangesDashJoin
+                    entry={blockedEntryForCase}
+                    join={blockedEntryForCase.join ?? null}
+                    error={null}
+                    resolve={RESOLVE_IDLE}
+                    actions={NO_JOIN_ACTIONS}
+                  />
+                </div>
+              );
+            })}
+          </div>
+        </Stage>
+        <Stage caption="The row's whole reading, at both scales, for the case that still refuses. The register takes `blockers[0].detail` as its line — the server's own sentence, never a second copy composed here — and the fact chip counts the overlap beside it">
           <div className="cg-dash-surfaces">
             <div className="cg-dash-surface">
-              <span className="cg-dash-surface-name">Lens · DashLifecycleBlock size=rail + DashJoinRegister</span>
+              <span className="cg-dash-surface-name">
+                Lens · DashLifecycleBlock size=rail
+              </span>
               <TugListRow variant="flush" density="compact">
                 <DashLifecycleBlock
                   name={BLOCKED_DASH}
                   workers={[SOLO]}
-                  model={dashTrackModelFromEntry(BLOCKED_ENTRY)}
-                  note={dashLifecycleNote(dashTrackModelFromEntry(BLOCKED_ENTRY))}
-                  facts={dashMetaFacts(BLOCKED_ENTRY)}
+                  model={dashTrackModelFromEntry(
+                    blockedEntry(BLOCKED_CASES[1]!.blocker),
+                  )}
+                  note={dashLifecycleNote(
+                    dashTrackModelFromEntry(
+                      blockedEntry(BLOCKED_CASES[1]!.blocker),
+                    ),
+                  )}
+                  facts={dashMetaFacts(blockedEntry(BLOCKED_CASES[1]!.blocker))}
                   size="rail"
                 />
               </TugListRow>
-              <span className="lens-dashes-register">
-                <DashJoinRegister
-                  dash={BLOCKED_DASH}
-                  base="main"
-                  stage={BLOCKED_ENTRY.stage}
-                  join={BLOCKED_ENTRY.join}
-                  bound
-                  altitude="section"
-                />
-              </span>
             </div>
             <div className="cg-dash-surface">
-              <span className="cg-dash-surface-name">Changes shade · the register, then the fold's report section</span>
+              <span className="cg-dash-surface-name">
+                Changes shade · DashLifecycleBlock size=read
+              </span>
               <DashLifecycleBlock
                 name={BLOCKED_DASH}
                 workers={[SOLO]}
-                model={dashTrackModelFromEntry(BLOCKED_ENTRY)}
-                note={dashLifecycleNote(dashTrackModelFromEntry(BLOCKED_ENTRY))}
-                facts={dashMetaFacts(BLOCKED_ENTRY)}
+                model={dashTrackModelFromEntry(
+                  blockedEntry(BLOCKED_CASES[1]!.blocker),
+                )}
+                note={dashLifecycleNote(
+                  dashTrackModelFromEntry(
+                    blockedEntry(BLOCKED_CASES[1]!.blocker),
+                  ),
+                )}
+                facts={dashMetaFacts(blockedEntry(BLOCKED_CASES[1]!.blocker))}
                 size="read"
-              />
-              <span className="session-changes-dash-register">
-                <DashJoinRegister
-                  dash={BLOCKED_DASH}
-                  base="main"
-                  stage={BLOCKED_ENTRY.stage}
-                  join={BLOCKED_ENTRY.join}
-                  bound
-                  altitude="entry"
-                />
-              </span>
-              <SessionChangesDashJoin
-                entry={BLOCKED_ENTRY}
-                join={BLOCKED_ENTRY.join ?? null}
-                error={null}
-                resolve={RESOLVE_IDLE}
-                actions={NO_JOIN_ACTIONS}
               />
             </div>
           </div>
         </Stage>
         <p className="cg-dash-prose">
-          The row's actions menu offers Bind, Discard and Replay — none of which clears the block. The Lens shows only the
-          first blocker; a dash that is off-base and dirty at once hides its second refusal. And every situation
-          below reads the same single word, <em>blocked</em>, because the wire carries one bit where there are three
-          facts.
-        </p>
-      </section>
-
-      <section className="cg-section">
-        <TugLabel className="cg-section-title">Proposed — one sentence, one Resolve</TugLabel>
-        <Stage caption="One `base-dirt` bit hides three situations, and every fact that tells them apart is already in hand: the changes ledger attributes the base's dirt to a session, and comparing the base copy's bytes against the dash's version says whether it is the dash's own edit or other work. The server composes the blocker with its one remedy, and the report section reads in three lines: what is wrong, what Resolve will do, Resolve. The remedy is never in the button — the sentence carries it, so the reader weighs it before pressing — and the button is always the same word. The unblocking is mechanical in every case; where judgment is needed, at the merge, the join's own resolver ladder already supplies it. Press Resolve to walk the register through the beats">
-          <div className="cg-dash-situations">
-            {SITUATIONS.map((s) => (
-              <div className="cg-dash-surface" key={s.key}>
-                <span className="cg-dash-surface-name">{s.title}</span>
-                <TugLabel size="2xs" emphasis="calm" className="cg-dash-caption">
-                  {s.caption}
-                </TugLabel>
-                <ProposedResolve situation={s} />
-              </div>
-            ))}
-          </div>
-        </Stage>
-        <p className="cg-dash-prose">
-          Resolve is one server verb, <code>dash resolve-base &lt;name&gt;</code>, that does the one thing the blocker's
-          facts permit: an identical copy is dropped; a divergent one of the user's own is folded into the join, and a
-          conflict from the fold enters the resolver ladder like any other; a foreign one is refused by name. It is
-          op-logged, so <code>dash undo</code> puts main's copy back. The join then runs on the same press — Resolve is
-          not a step before the join, it is the join with the block cleared — and the card's existing quiet-moment
-          reveal raises the shade on the ready dash. "Commit or stash them first" retires, and no surface says{" "}
-          <em>stash</em> again.
+          <strong>The remedy is never in the button.</strong> The sentence
+          carries it, so the reader weighs the act before pressing, and the
+          control is always the same word. A blocker nobody at this card can
+          clear keeps the same shape with its button dead, wearing the reason
+          ([L31]) — and a blocker kind that carries no remedy at all, an
+          off-base checkout or a teardown left by a crash, still renders its
+          sentence, so a refusal this deck has never heard of is shown rather
+          than swallowed.
         </p>
         <p className="cg-dash-prose">
-          Case A may not need the button at all: a base copy that is byte-identical to what the dash lands is an echo,
-          not dirt, and the preflight could pass it with a line in the receipt. The frame keeps the button so the three
-          cases read as one grammar; whether A collapses to zero is the first thing to decide. The order to build it:
-          the Rust facts and verb with a test per owner × relation; the shade's report section; the Lens register
-          word; the reveal memory's blocked→ready edge; one app-test per case over a real dash fixture with a dirtied
-          base, ending on the shade raised.
+          Resolve is one server verb,{" "}
+          <code>tugutil dash resolve-base &lt;name&gt;</code>, and it{" "}
+          <strong>clears the block and stops</strong> — landing stays the
+          composer's send, which is why the button does not read "Resolve and
+          join". Behind it: identical copies dropped, the user's own divergent
+          edits committed onto the base as one commit whose message says what it
+          is, a foreign path refused by name having touched nothing. It is
+          op-logged as its own verb, so <code>dash undo</code> resets the base
+          and leaves the same content uncommitted. When the block clears, the
+          card's quiet-moment reveal raises the shade on the now-ready dash —
+          the reveal memory is keyed on the dash head, and a resolve moves the
+          base, so the blocked-to-ready edge is what forgets the spent head.
         </p>
       </section>
     </div>

@@ -202,7 +202,10 @@ export class ChangesetJoinStore {
     }
     for (const [k, state] of [...this._states]) {
       if (state.phase !== "resolving") continue;
-      this._fail(k, "The connection dropped — the run continues on the server.");
+      this._fail(
+        k,
+        "The connection dropped — the run continues on the server.",
+      );
       landCleared = false;
     }
     if (landCleared) this._emit();
@@ -226,6 +229,7 @@ export class ChangesetJoinStore {
     if (
       action !== "changeset_join_resolve_delta" &&
       action !== "changeset_join_resolve_ok" &&
+      action !== "changeset_join_resolve_base_ok" &&
       action !== "changeset_join_resolve_err" &&
       action !== "changeset_join_question_answer_err" &&
       action !== "changeset_join_land_delta" &&
@@ -237,7 +241,8 @@ export class ChangesetJoinStore {
     // The server echoes `project_dir` back exactly as it was sent, and every
     // send on this path carries the workspace key — so the reply correlates to
     // the same cell the request opened, with no spelling to reconcile ([L29]).
-    const workspaceKey = typeof body.project_dir === "string" ? body.project_dir : null;
+    const workspaceKey =
+      typeof body.project_dir === "string" ? body.project_dir : null;
     const dash = typeof body.dash === "string" ? body.dash : null;
     if (workspaceKey === null || dash === null) return;
     const k = key(workspaceKey, dash);
@@ -291,17 +296,32 @@ export class ChangesetJoinStore {
       const rung = typeof body.rung === "string" ? body.rung : "";
       const status = typeof body.status === "string" ? body.status : "";
       const text = typeof body.text === "string" ? body.text : "";
-      const candidate = typeof body.candidate === "string" ? body.candidate : undefined;
+      const candidate =
+        typeof body.candidate === "string" ? body.candidate : undefined;
       const progress = prev.progress.filter((p) => p.path !== path);
       this._set(k, {
         ...prev,
         phase: "resolving",
         progress: [
           ...progress,
-          { path, rung, status, text, ...(candidate !== undefined ? { candidate } : {}) },
+          {
+            path,
+            rung,
+            status,
+            text,
+            ...(candidate !== undefined ? { candidate } : {}),
+          },
         ],
         error: null,
       });
+      return;
+    }
+
+    if (action === "changeset_join_resolve_base_ok") {
+      // Everything it did is already in git, and the blockers are never
+      // cached — so the recompute this triggered is the whole of the update,
+      // and the overlay's job is to get out of the way.
+      this._set(k, IDLE);
       return;
     }
 
@@ -332,7 +352,8 @@ export class ChangesetJoinStore {
 
     // changeset_join_resolve_err — the ladder's own refusal, which is a better
     // answer than any this store could invent, late or not.
-    const detail = typeof body.detail === "string" ? body.detail : "resolve failed";
+    const detail =
+      typeof body.detail === "string" ? body.detail : "resolve failed";
     // Unless nothing was refused *but the press*. An admission refusal means a
     // run already holds this dash — so it arrives on the cell that run is
     // streaming into, and failing the cell would report the healthy run as dead
@@ -387,6 +408,27 @@ export class ChangesetJoinStore {
     const k = key(workspaceKey, dash);
     this._set(k, { phase: "resolving", progress: [], error: null });
     this._connection.sendControlFrame("changeset_join_resolve", {
+      project_dir: workspaceKey,
+      dash,
+    });
+  }
+
+  /**
+   * Send `changeset_join_resolve_base`: clear the uncommitted base work that
+   * is refusing this dash's join.
+   *
+   * A different act from {@link resolve}, which reconciles a conflicted merge
+   * — this clears what is refusing the merge in the first place. They share
+   * the resolving phase and the error frame, because the card shows one
+   * register and a second vocabulary for "a resolve is running" would be a
+   * second thing to keep in step.
+   *
+   * It clears the block and stops. Landing stays the user's own gesture.
+   */
+  resolveBase(workspaceKey: string, dash: string): void {
+    const k = key(workspaceKey, dash);
+    this._set(k, { phase: "resolving", progress: [], error: null });
+    this._connection.sendControlFrame("changeset_join_resolve_base", {
       project_dir: workspaceKey,
       dash,
     });
@@ -472,7 +514,10 @@ export class ChangesetJoinStore {
    * refused after it was accepted.
    */
   beginLand(workspaceKey: string, dash: string): void {
-    this._land.set(key(workspaceKey, dash), { beat: "requested", status: "start" });
+    this._land.set(key(workspaceKey, dash), {
+      beat: "requested",
+      status: "start",
+    });
     this._emit();
   }
 
@@ -506,7 +551,9 @@ export class ChangesetJoinStore {
 
 let _activeStore: ChangesetJoinStore | null = null;
 
-export function attachChangesetJoinStore(conn: TugConnection): ChangesetJoinStore {
+export function attachChangesetJoinStore(
+  conn: TugConnection,
+): ChangesetJoinStore {
   if (_activeStore !== null) return _activeStore;
   _activeStore = new ChangesetJoinStore(conn);
   return _activeStore;
@@ -531,7 +578,9 @@ export function _resetChangesetJoinStoreForTest(): void {
 export function _ingestJoinFrameForTest(body: unknown): void {
   if (_activeStore === null) return;
   const bytes = new TextEncoder().encode(JSON.stringify(body));
-  (_activeStore as unknown as { _onControl(p: Uint8Array): void })._onControl(bytes);
+  (_activeStore as unknown as { _onControl(p: Uint8Array): void })._onControl(
+    bytes,
+  );
 }
 
 /**
@@ -541,7 +590,11 @@ export function _ingestJoinFrameForTest(body: unknown): void {
 export function useChangesetJoinResolve(
   workspaceKey: string,
   dash: string,
-): ResolveState & { resolve: () => void; clear: () => void; review: (candidate: string) => void } {
+): ResolveState & {
+  resolve: () => void;
+  clear: () => void;
+  review: (candidate: string) => void;
+} {
   const state = useSyncExternalStore(
     (listener) => {
       const store = _activeStore;

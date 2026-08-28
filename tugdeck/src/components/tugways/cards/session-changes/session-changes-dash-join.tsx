@@ -42,6 +42,7 @@ import React from "react";
 import { LoaderCircle } from "lucide-react";
 
 import { TugSectionLabel } from "@/components/tugways/tug-section-label";
+import { TugPushButton } from "@/components/tugways/tug-push-button";
 import {
   QuestionWizard,
   type ParsedQuestion,
@@ -54,7 +55,10 @@ import type {
   DashResolvedFileWire,
 } from "@/lib/changeset-types";
 import type { ResolvePhase, ResolveState } from "@/lib/changeset-join-store";
-import { deriveJoinOutcome, type JoinOutcome } from "@/lib/join-mode-controller";
+import {
+  deriveJoinOutcome,
+  type JoinOutcome,
+} from "@/lib/join-mode-controller";
 
 /**
  * The lane's join gestures, supplied by the card that owns the dash.
@@ -81,6 +85,14 @@ export interface DashJoinActions {
     requestId: string,
     answer: string,
   ) => void;
+  /**
+   * Clear the base-side work refusing this dash's join ([#blocker-acts]).
+   *
+   * One act for every resolvable blocker, because the server decides what the
+   * act *is* and says so in the blocker's own remedy sentence. The control is
+   * always the same word.
+   */
+  resolveBase: (entry: DashChangesetEntry) => void;
 }
 
 /**
@@ -143,8 +155,15 @@ export function deriveJoinFace(input: {
   const { join, resolvePhase } = input;
   const outcome = deriveJoinOutcome(join);
   const candidate =
-    typeof join?.candidate === "string" && join.candidate !== "" ? join.candidate : null;
-  const resolve = deriveResolveFace(outcome, resolvePhase, candidate, join?.run ?? null);
+    typeof join?.candidate === "string" && join.candidate !== ""
+      ? join.candidate
+      : null;
+  const resolve = deriveResolveFace(
+    outcome,
+    resolvePhase,
+    candidate,
+    join?.run ?? null,
+  );
   return { outcome, resolve };
 }
 
@@ -166,26 +185,18 @@ export interface SessionChangesDashJoinProps {
 }
 
 /**
- * The act that clears a blocker ([#blocker-acts]). Pure, and `null` for a kind
- * this deck has never heard of — an unknown blocker still renders its `detail`,
- * so a new server-side refusal is shown rather than swallowed (Spec S03).
+ * Whether this blocker's Resolve can be pressed ([#blocker-acts]).
+ *
+ * Pure, and it reads the server's own verdict rather than deciding one: a
+ * remedy with `refused` set is a blocker somebody else has to clear, and a
+ * blocker with no remedy at all is a kind nothing at this card can act on —
+ * an off-base checkout, a teardown left by a crash. Both still render their
+ * sentence, so a refusal this deck has never heard of is shown rather than
+ * swallowed (Spec S03).
  */
-export function blockerAct(blocker: DashJoinBlockerWire, base: string): string | null {
-  const paths = blocker.paths ?? [];
-  switch (blocker.kind) {
-    case "off-base":
-      return `Check out ${base} first`;
-    case "base-dirt":
-      return paths.length > 0
-        ? `Commit or stash ${paths.join(", ")}`
-        : "Commit or stash the overlapping changes";
-    case "stale-journal":
-      return "Resume the interrupted teardown";
-    case "empty":
-      return "Discard this dash";
-    default:
-      return null;
-  }
+export function remedyRefusal(blocker: DashJoinBlockerWire): string | null {
+  if (blocker.remedy === undefined) return null;
+  return blocker.remedy.refused ?? null;
 }
 
 /**
@@ -241,9 +252,12 @@ export function SessionChangesDashJoin({
   const blockers = join?.blockers ?? [];
   const resolved = join?.resolved ?? [];
   const staleNote =
-    typeof join?.stale_note === "string" && join.stale_note !== "" ? join.stale_note : null;
+    typeof join?.stale_note === "string" && join.stale_note !== ""
+      ? join.stale_note
+      : null;
   const question = join?.question ?? null;
-  const stuck = typeof join?.stuck === "string" && join.stuck !== "" ? join.stuck : null;
+  const stuck =
+    typeof join?.stuck === "string" && join.stuck !== "" ? join.stuck : null;
   const report = join?.report ?? null;
   // One decision, made once ({@link deriveJoinFace}) and rendered here.
   const face = deriveJoinFace({ join, resolvePhase: resolve.phase });
@@ -301,14 +315,45 @@ export function SessionChangesDashJoin({
           data-slot="session-changes-dash-join-blockers"
         >
           {blockers.map((blocker, index) => {
-            const act = blockerAct(blocker, entry.base);
+            const remedy = blocker.remedy;
+            const refused = remedyRefusal(blocker);
             return (
               <li key={`${index}:${blocker.kind}`} data-blocker={blocker.kind}>
                 <span className="session-changes-dash-join-detail">
                   {blocker.detail}
                 </span>
-                {act !== null ? (
-                  <span className="session-changes-dash-join-act">{act}</span>
+                {/* Three lines, in the order a reader takes them: what is
+                    wrong, what Resolve will do, Resolve. The remedy is never
+                    IN the button — the sentence carries it, so the act is
+                    weighed before it is pressed, and the control is always the
+                    same word. A blocker nobody here can clear keeps the shape
+                    and wears its reason on a dead button ([L31]). */}
+                {remedy !== undefined ? (
+                  <>
+                    <span className="session-changes-dash-join-act">
+                      {remedy.explain}
+                    </span>
+                    <span className="session-changes-dash-join-remedy">
+                      <TugPushButton
+                        size="xs"
+                        emphasis="tinted"
+                        role="action"
+                        disabled={
+                          refused !== null || resolve.phase === "resolving"
+                        }
+                        loading={resolve.phase === "resolving"}
+                        onClick={() => actions.resolveBase(entry)}
+                        data-slot="session-changes-dash-join-resolve-base"
+                      >
+                        Resolve
+                      </TugPushButton>
+                      {refused !== null ? (
+                        <span className="session-changes-dash-join-refused">
+                          {refused}
+                        </span>
+                      ) : null}
+                    </span>
+                  </>
                 ) : null}
               </li>
             );
@@ -358,7 +403,9 @@ export function SessionChangesDashJoin({
         >
           {resolved.map((file) => (
             <li key={file.path} data-resolved-by={file.resolved_by}>
-              <span className="session-changes-dash-join-rung-path">{file.path}</span>
+              <span className="session-changes-dash-join-rung-path">
+                {file.path}
+              </span>
               <span className="session-changes-dash-join-rung-word">
                 {file.resolved_by}
               </span>
@@ -394,7 +441,9 @@ export function SessionChangesDashJoin({
               ))}
             </ul>
           ) : null}
-          {report !== null && report.notes !== undefined && report.notes !== "" ? (
+          {report !== null &&
+          report.notes !== undefined &&
+          report.notes !== "" ? (
             <div className="session-changes-dash-join-note">{report.notes}</div>
           ) : null}
         </div>
@@ -471,10 +520,13 @@ export function SessionChangesDashJoin({
             // and knowing what you are resolving against.
             const history = archaeology.find((h) => h.path === path) ?? null;
             const commits = history?.commits ?? [];
-            const elided = history === null ? 0 : history.total - commits.length;
+            const elided =
+              history === null ? 0 : history.total - commits.length;
             return (
               <li key={path}>
-                <span className="session-changes-dash-join-conflict-path">{path}</span>
+                <span className="session-changes-dash-join-conflict-path">
+                  {path}
+                </span>
                 {history !== null ? (
                   <ul
                     className="session-changes-dash-join-archaeology"

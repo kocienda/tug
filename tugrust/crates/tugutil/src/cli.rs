@@ -560,6 +560,22 @@ pub enum DashCommands {
         /// Dash name.
         name: String,
     },
+    /// Clear the base-side work that is blocking this dash's join.
+    ///
+    /// Base copies the dash already carries byte for byte are dropped —
+    /// nothing is lost, because those bytes are on the dash branch. The user's
+    /// own divergent edits are committed onto the base as one commit of their
+    /// own, so a collision with the dash's work becomes an ordinary join
+    /// conflict and reaches the resolution ladder. An edit another live session
+    /// holds is refused by name and nothing moves.
+    ///
+    /// It clears the block and stops; joining stays a separate gesture.
+    /// `tugutil dash undo` reverses the commit and leaves the same content
+    /// uncommitted.
+    ResolveBase {
+        /// Dash name.
+        name: String,
+    },
     /// Verify the fit: check the tree a join would land against the surfaces
     /// this project declares.
     ///

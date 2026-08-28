@@ -95,54 +95,6 @@
   gap: 10px 16px;
 }
 
-.cg-dash-remedies {
-  display: flex;
-  flex-direction: column;
-  gap: var(--tug-space-2xs);
-  font-size: var(--tug-font-size-xs);
-}
-
-.cg-dash-remedy-detail {
-  font-size: var(--tug-font-size-xs);
-  line-height: 1.5;
-}
-
-.cg-dash-remedy-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--tug-space-xs);
-  padding-block-start: var(--tug-space-2xs);
-}
-
-/* What Resolve will do — the reader's line, in the card's normal text tone so
-   it outranks the muted facts around it. */
-.cg-dash-remedy-explain {
-  font-size: var(--tug-font-size-xs);
-  line-height: 1.5;
-  color: var(--tug7-element-global-text-normal-rest);
-}
-
-.cg-dash-remedy-row {
-  align-items: center;
-}
-
-.cg-dash-remedy-note {
-  color: var(--tug7-element-global-text-normal-muted-rest);
-}
-
-.cg-dash-register-word[data-beat="running"] {
-  color: var(--tug7-element-global-text-normal-muted-rest);
-}
-
-.cg-dash-register-word[data-beat="ready"] {
-  color: var(--tug7-element-tone-text-normal-success-rest);
-}
-
-.cg-dash-register-word {
-  font-size: var(--tug-font-size-xs);
-  color: var(--tug7-element-tone-text-normal-caution-rest);
-}
-
 /* The Z2 frame's rail. The cells carry the shipping row's class so they wear
    its font and apparatus; this only lets the seven of them wrap instead of
    packing into one card-wide instrument row. */
