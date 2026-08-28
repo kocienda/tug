@@ -88,6 +88,90 @@
   padding: 0;
 }
 
+/* The proposed remedy frames: one column per situation, each a surface box. */
+.cg-dash-situations {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px 16px;
+}
+
+.cg-dash-remedies {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tug-space-2xs);
+  font-size: var(--tug-font-size-xs);
+}
+
+.cg-dash-remedy-detail {
+  font-size: var(--tug-font-size-xs);
+  line-height: 1.5;
+}
+
+.cg-dash-overlap {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.cg-dash-overlap > li {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--tug-space-sm);
+  min-width: 0;
+}
+
+.cg-dash-overlap-path {
+  font-family: var(--tug-font-family-mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--tug7-element-global-text-normal-rest);
+}
+
+.cg-dash-overlap-fact {
+  flex: none;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+.cg-dash-remedy-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--tug-space-xs);
+  padding-block-start: var(--tug-space-2xs);
+}
+
+/* The prompt each chip seeds, quoted so it reads as a message and not as
+   the card's own voice. */
+.cg-dash-remedy-prompt {
+  margin: 0;
+  padding: var(--tug-space-2xs) var(--tug-space-xs);
+  border-inline-start: 2px solid var(--tug7-element-global-border-normal-muted-rest);
+  font-size: var(--tug-font-size-xs);
+  line-height: 1.45;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+.cg-dash-remedy-prompt-label {
+  display: block;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--tug7-element-global-text-normal-subtle-rest);
+  user-select: none;
+}
+
+.cg-dash-remedy-note {
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+.cg-dash-register-word {
+  font-size: var(--tug-font-size-xs);
+  color: var(--tug7-element-tone-text-normal-caution-rest);
+}
+
 /* The Z2 frame's rail. The cells carry the shipping row's class so they wear
    its font and apparatus; this only lets the seven of them wrap instead of
    packing into one card-wide instrument row. */
