@@ -251,8 +251,14 @@
   position: absolute;
   top: 50%;
   left: 50%;
-  width: var(--tugx-progress-pulsing-dot-dot-size);
-  height: var(--tugx-progress-pulsing-dot-dot-size);
+  width: var(
+    --tugx-progress-pulsing-dot-dot-width,
+    var(--tugx-progress-pulsing-dot-dot-size)
+  );
+  height: var(
+    --tugx-progress-pulsing-dot-dot-height,
+    var(--tugx-progress-pulsing-dot-dot-size)
+  );
   border-radius: 999px;
   background-color: var(--tugx-progress-indicator-fill, currentColor);
   transform-origin: center center;
@@ -263,6 +269,32 @@
         cubic-bezier(0.22, 0.61, 0.36, 1)
       ),
     background-color var(--tugx-progress-pulsing-dot-settle) linear;
+}
+
+/* BAR — the same glyph, drawn long.
+ *
+ * A shape axis, not a second component: everything else about the glyph is
+ * unchanged, so the bar breathes on the same envelope, sheds the same ring,
+ * settles through the same crossing, and answers to the same knobs. Only the
+ * dot's box is restated — a capsule wider than it is tall, still centered,
+ * still scaled by the breath.
+ *
+ * It exists because tone alone could not carry the reading a caller needed.
+ * A session with a backgrounded agent is genuinely working, so it earns the
+ * working tint; it is also not in a turn, and painting it as a round working
+ * dot would say it was. Shape is the axis that separates them: same color,
+ * different mark.
+ *
+ * The proportions stay inside the box at the top of the breath (1.6 × the
+ * dot's diameter across at peak is 0.96 of the glyph box), so a bar never
+ * paints wider than the ring it sheds. */
+.tug-progress-pulsing-dot[data-shape="bar"] {
+  --tugx-progress-pulsing-dot-dot-width: calc(
+    var(--tugx-progress-pulsing-dot-dot-size) * 1.6
+  );
+  --tugx-progress-pulsing-dot-dot-height: calc(
+    var(--tugx-progress-pulsing-dot-dot-size) * 0.58
+  );
 }
 
 /* The stroked circle, doing both of its jobs.
@@ -340,12 +372,16 @@
    paints, and the live machinery plays the crossing. */
 .tug-progress-pulsing-dot[data-static] .tug-progress-pulsing-dot-dot {
   width: calc(
-    var(--tugx-progress-pulsing-dot-dot-size) *
-      var(--tugx-progress-pulsing-dot-static-scale, 1)
+    var(
+        --tugx-progress-pulsing-dot-dot-width,
+        var(--tugx-progress-pulsing-dot-dot-size)
+      ) * var(--tugx-progress-pulsing-dot-static-scale, 1)
   );
   height: calc(
-    var(--tugx-progress-pulsing-dot-dot-size) *
-      var(--tugx-progress-pulsing-dot-static-scale, 1)
+    var(
+        --tugx-progress-pulsing-dot-dot-height,
+        var(--tugx-progress-pulsing-dot-dot-size)
+      ) * var(--tugx-progress-pulsing-dot-static-scale, 1)
   );
   inset: 0;
   margin: auto;

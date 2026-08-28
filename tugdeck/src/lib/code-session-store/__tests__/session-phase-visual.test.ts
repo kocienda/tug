@@ -247,23 +247,25 @@ describe("sessionSessionPhaseVisual — role/state mapping", () => {
     });
   });
 
-  test("background → inherit/running — executing, in the quiet tone", () => {
+  test("background → action/running as a bar — working, drawn long", () => {
     expect(sessionSessionPhaseVisual("background")).toEqual({
-      role: "inherit",
+      role: "action",
       state: "running",
+      shape: "bar",
     });
   });
 
-  test("background is tonally distinct from a live turn", () => {
-    expect(sessionSessionPhaseVisual("background").role).not.toBe(
-      sessionSessionPhaseVisual("streaming").role,
-    );
+  test("background reads apart from a live turn by shape, not by tone", () => {
+    const background = sessionSessionPhaseVisual("background");
+    const streaming = sessionSessionPhaseVisual("streaming");
+    expect(background.role).toBe(streaming.role);
+    expect(background.shape).not.toBe(streaming.shape ?? "dot");
   });
 
-  test("background reads apart from idle by motion, not by tone", () => {
+  test("idle's quiet tone is idle's alone — background never borrows it", () => {
     const background = sessionSessionPhaseVisual("background");
     const idle = sessionSessionPhaseVisual("idle");
-    expect(background.role).toBe(idle.role);
+    expect(background.role).not.toBe(idle.role);
     expect(background.state).not.toBe(idle.state);
   });
 

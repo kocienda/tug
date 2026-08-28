@@ -53,8 +53,8 @@
  *   phase         — caller-defined identifier emitted as data-phase
  *   phaseLabels   — phase → human-readable label map; doubles as the
  *                   width-stabilize set for labelAlign="center"
- *   phaseVisual   — phase → partial { role, state }; explicit role/state
- *                   props win over phaseVisual returns
+ *   phaseVisual   — phase → partial { role, state, shape }; explicit
+ *                   role/state/shape props win over phaseVisual returns
  *
  * Layout:
  *   glyphPosition — left | right | both (paired mirrored glyphs)
@@ -126,6 +126,15 @@ export type TugProgressIndicatorState =
   | "completed"
   | "aborted";
 
+/**
+ * The mark's shape — a third visual axis beside role and state, and the only
+ * one a variant may decline to honor. `dot` is every glyph's own figure;
+ * `bar` asks for a long mark instead, and today the pulsing dot is the
+ * variant that draws one. It exists for the phase that has to share a tint
+ * with another phase and still read apart from it.
+ */
+export type TugProgressIndicatorShape = "dot" | "bar";
+
 export type TugProgressIndicatorGlyphPosition = "left" | "right" | "both";
 
 export type TugProgressIndicatorLabelPosition = "inline" | "tooltip";
@@ -134,12 +143,13 @@ export type TugProgressIndicatorLabelAlign = "start" | "center";
 
 /**
  * Partial visual returned by {@link TugProgressIndicatorProps.phaseVisual}.
- * Explicit `role` / `state` props on the indicator always win over fields
- * returned here.
+ * Explicit `role` / `state` / `shape` props on the indicator always win over
+ * fields returned here.
  */
 export interface TugProgressIndicatorPhaseVisual {
   readonly role?: TugProgressIndicatorRole;
   readonly state?: TugProgressIndicatorState;
+  readonly shape?: TugProgressIndicatorShape;
 }
 
 /**
@@ -266,6 +276,14 @@ export interface TugProgressIndicatorProps
   state?: TugProgressIndicatorState;
 
   /**
+   * The mark's shape. `bar` draws the glyph long where the variant has a
+   * long form (today: `pulsing-dot`); every other variant ignores it.
+   * @selector [data-shape="bar"]
+   * @default "dot"
+   */
+  shape?: TugProgressIndicatorShape;
+
+  /**
    * Disables the indicator (dims + freezes motion). Also driven by the
    * TugBox disabled cascade.
    * @selector [data-disabled]
@@ -388,13 +406,17 @@ export interface TugProgressIndicatorProps
 interface GlyphProps {
   variant: TugProgressIndicatorVariant;
   state: TugProgressIndicatorState;
+  shape: TugProgressIndicatorShape;
   disabled: boolean;
   value?: number;
   max: number;
   size: number;
 }
 
-function renderGlyph({ variant, state, disabled, value, max, size }: GlyphProps): React.ReactElement {
+// Shape reaches the pulsing dot only. The other variants have no long form —
+// a bar-shaped pie is not a thing — and they ignore the axis rather than
+// approximate it.
+function renderGlyph({ variant, state, shape, disabled, value, max, size }: GlyphProps): React.ReactElement {
   switch (variant) {
     case "ring":
       return <TugProgressRing value={value} max={max} size={size} state={state} disabled={disabled} />;
@@ -405,7 +427,14 @@ function renderGlyph({ variant, state, disabled, value, max, size }: GlyphProps)
     case "spinner":
       return <TugProgressSpinner size={size} state={state} disabled={disabled} />;
     case "pulsing-dot":
-      return <TugProgressPulsingDot size={size} state={state} disabled={disabled} />;
+      return (
+        <TugProgressPulsingDot
+          size={size}
+          state={state}
+          shape={shape}
+          disabled={disabled}
+        />
+      );
     case "wave":
       return <TugProgressWave size={size} state={state} disabled={disabled} />;
   }
@@ -421,6 +450,7 @@ export const TugProgressIndicator = React.forwardRef<HTMLSpanElement, TugProgres
       variant = "ring",
       role,
       state,
+      shape,
       disabled = false,
       value,
       max = 1,
@@ -460,6 +490,10 @@ export const TugProgressIndicator = React.forwardRef<HTMLSpanElement, TugProgres
       state ?? phaseDerived?.state ?? "stopped";
     const effectiveRole: TugProgressIndicatorRole =
       role ?? phaseDerived?.role ?? defaultRoleForState(effectiveState);
+    // Shape resolves on the same ladder and defaults to the circle, so every
+    // caller that has never heard of the axis keeps the glyph it had.
+    const effectiveShape: TugProgressIndicatorShape =
+      shape ?? phaseDerived?.shape ?? "dot";
 
     // Visible label text: explicit label wins; otherwise the phase's entry.
     const visibleLabel =
@@ -502,6 +536,7 @@ export const TugProgressIndicator = React.forwardRef<HTMLSpanElement, TugProgres
     const glyphProps: GlyphProps = {
       variant,
       state: effectiveState,
+      shape: effectiveShape,
       disabled: effectiveDisabled,
       value: effectiveValue,
       max,
@@ -606,6 +641,7 @@ export const TugProgressIndicator = React.forwardRef<HTMLSpanElement, TugProgres
         data-variant={variant}
         data-role={effectiveRole}
         data-state={effectiveState}
+        data-shape={effectiveShape === "dot" ? undefined : effectiveShape}
         data-disabled={effectiveDisabled || undefined}
         data-phase={phase}
         data-label-position={labelPosition}

@@ -144,7 +144,10 @@ import "./tug-progress-pulsing-dot.css";
 import React from "react";
 
 import { cn } from "@/lib/utils";
-import type { TugProgressIndicatorState } from "../tug-progress-indicator";
+import type {
+  TugProgressIndicatorShape,
+  TugProgressIndicatorState,
+} from "../tug-progress-indicator";
 
 /**
  * Glyph box diameter when the caller names no size. Sized against the Z5
@@ -835,6 +838,13 @@ export interface TugProgressPulsingDotProps {
   size?: number;
   /** Lifecycle state. @default "running" */
   state?: TugProgressIndicatorState;
+  /**
+   * The mark's shape. `dot` is the circle; `bar` is the same glyph drawn as a
+   * long capsule, for a caller that needs two readings to share one tint.
+   * Geometry only — the breath, the ring, and the crossings are identical.
+   * @default "dot"
+   */
+  shape?: TugProgressIndicatorShape;
   /** When true, opacity dims. */
   disabled?: boolean;
   /** Additional CSS class names. */
@@ -845,7 +855,13 @@ export const TugProgressPulsingDot = React.forwardRef<
   HTMLSpanElement,
   TugProgressPulsingDotProps
 >(function TugProgressPulsingDot(
-  { size = DEFAULT_SIZE, state = "running", disabled = false, className },
+  {
+    size = DEFAULT_SIZE,
+    state = "running",
+    shape = "dot",
+    disabled = false,
+    className,
+  },
   forwardedRef,
 ) {
   // The two treatments and everything derived from the size ([sizeGeometry]).
@@ -1255,6 +1271,10 @@ export const TugProgressPulsingDot = React.forwardRef<
       ref={setRootRef}
       data-slot="tug-progress-pulsing-dot"
       data-state={state}
+      // Geometry only, and CSS's alone: the shape restates the dot's box and
+      // touches nothing the controller below reads, so a change of shape is a
+      // change of two custom properties mid-breath rather than a crossing.
+      data-shape={shape === "dot" ? undefined : shape}
       data-static={mode === "static" ? "" : undefined}
       aria-hidden="true"
       style={rootStyle}

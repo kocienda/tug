@@ -170,7 +170,7 @@ export const SESSION_PHASE_LABELS: Record<SessionPhaseKey, string> = {
  *  - `restoring`, `interrupting` → `{ role: caution, state: running }`
  *  - `awaiting_approval`         → `{ role: caution, state: running }`
  *  - active stream phases        → `{ role: action,  state: running }`
- *  - `background`                → `{ role: inherit, state: running }`
+ *  - `background`                → `{ role: action,  state: running, shape: bar }`
  *  - `idle`                      → `{ role: inherit, state: stopped }`
  *
  * `action` (Key) is the canonical "work in flight" tone across the
@@ -180,12 +180,13 @@ export const SESSION_PHASE_LABELS: Record<SessionPhaseKey, string> = {
  *
  * `background` breathes: agents launched by a committed turn are
  * executing this instant, which is exactly what `running` claims, so
- * the liveness rule is satisfied rather than bent. It breathes in the
- * quiet `inherit` tone rather than an accent, because the session
- * itself is not asking for anything — the turn is committed and the
- * user is free. Motion alone carries the reading, and a tinted dot
- * beside a live turn's would compete with it for the same attention a
- * live turn has the better claim to.
+ * the liveness rule is satisfied rather than bent. It takes the
+ * working tone too, because the tone is the truthful one — the
+ * session IS working — and it separates from a live turn on **shape**
+ * instead: the same cobalt mark drawn long. The quiet `inherit` tone
+ * this used to wear made the dot read as Idle-with-a-twitch, which is
+ * the one thing it is not. Idle owns `inherit`; nothing that is
+ * working may borrow it.
  */
 export function sessionSessionPhaseVisual(phaseKey: string): TugProgressIndicatorPhaseVisual {
   switch (phaseKey as SessionPhaseKey) {
@@ -203,7 +204,7 @@ export function sessionSessionPhaseVisual(phaseKey: string): TugProgressIndicato
       // be. See `indicator-liveness`.
       return { role: "caution", state: "running" };
     case "background":
-      return { role: "inherit", state: "running" };
+      return { role: "action", state: "running", shape: "bar" };
     case "submitting":
     case "awaiting_first_token":
     case "streaming":

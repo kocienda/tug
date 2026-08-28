@@ -443,6 +443,50 @@ export function GalleryTugProgressIndicator(): React.ReactElement {
             </div>
           </div>
           <TugLabel size="2xs" emphasis="calm">
+            The shape axis. Both marks are the same glyph on the same breath in
+            the same working tint — only the box is restated. It exists for the
+            pair of readings that must share a tone: a session in a turn is the
+            dot, a session whose backgrounded agents are still running is the
+            bar. Idle keeps the quiet tone to itself, so nothing that is
+            working can be mistaken for it.
+          </TugLabel>
+          <div className="gpi-grid">
+            <GalleryCell caption="dot — a turn in flight">
+              <TugProgressIndicator
+                variant="pulsing-dot"
+                size={BENCH_SIZE}
+                role="action"
+                state="running"
+              />
+            </GalleryCell>
+            <GalleryCell caption="bar — background work">
+              <TugProgressIndicator
+                variant="pulsing-dot"
+                size={BENCH_SIZE}
+                role="action"
+                state="running"
+                shape="bar"
+              />
+            </GalleryCell>
+            <GalleryCell caption={`bar, at the Lens's ${LENS_SIZE}px`}>
+              <TugProgressIndicator
+                variant="pulsing-dot"
+                size={LENS_SIZE}
+                role="action"
+                state="running"
+                shape="bar"
+              />
+            </GalleryCell>
+            <GalleryCell caption="idle — the quiet tone, still">
+              <TugProgressIndicator
+                variant="pulsing-dot"
+                size={BENCH_SIZE}
+                role="inherit"
+                state="stopped"
+              />
+            </GalleryCell>
+          </div>
+          <TugLabel size="2xs" emphasis="calm">
             The knobs, each shown as the shipped value against the one
             alternative that makes the case for it. The turn cell IS a separate
             keyframe block — the envelope's shape lives in the stops, since an
