@@ -67,6 +67,11 @@
 
 /* ---- Areas ---- */
 
+/* Paths take the size every other file list in the deck takes — the commit
+   receipt's `--tugx-filerow-name-size`, borrowed by the token rather than
+   respelled, so the two cannot drift apart. Only the size is shared: that
+   grammar sets its paths in sans, and here they stay mono, because the areas
+   are read as a tree of directories rather than as prose. */
 .session-changes-dash-clusters,
 .session-changes-dash-cluster-files,
 .session-changes-dash-subjects {
@@ -77,8 +82,8 @@
   padding: 0;
   list-style: none;
   font-family: var(--tug-font-family-mono);
-  font-size: var(--tug-font-size-sm);
-  line-height: 1.5;
+  font-size: var(--tugx-filerow-name-size);
+  line-height: 1.6;
   min-width: 0;
 }
 
@@ -89,11 +94,17 @@
 }
 
 /* A cluster's head and a file row share one grid: mark or chevron, the
-   name, the facts, and the counts on the trailing edge. The button's own
-   padding is zeroed so the head lines up with the single-file rows beside
-   it — the whole list reads as one column whichever rows are folds. */
+   name, the facts, and the counts on the trailing edge — so the whole list
+   reads as one column whichever rows are folds.
+
+   The head is a `TugPushButton` when it folds, and an `icon-text` button puts
+   its chevron and its label inside one `.tug-button-icon-text` span. That span
+   is the row, then, not the button: without this the counts' `margin-inline-
+   start: auto` would push against an inline-flex box shrink-wrapped to its own
+   text rather than against the row's trailing edge. */
 .session-changes-dash-cluster-head,
-.session-changes-dash-cluster-files > li {
+.session-changes-dash-cluster-files > li,
+.session-changes-dash-cluster-toggle.tug-button .tug-button-icon-text {
   display: flex;
   align-items: center;
   gap: var(--tug-space-sm);
@@ -104,21 +115,36 @@
 /* A fold's own label is a HEADING, not a control's caption. `TugPushButton`
    sets tracked-out uppercase, which is right for a verb on a toolbar and
    ridiculous on a row that reads `tugdeck/src/components/tugways` — so the
-   toggles take the tool-call header's cue instead: the block's own text size,
+   toggles take the tool-call header's cue instead: the row's own text size,
    semibold, in the case the words were written in. Weight carries the
-   heading, never size or caps. */
+   heading, never size or caps.
+
+   The padding is real and the row takes it back with a matching negative
+   margin, so the name still starts on the column the file rows start on while
+   the hover wash and the focus ring have somewhere to land. Zeroed, the ring
+   drew itself on the glyphs. */
 .session-changes-dash-cluster-toggle.tug-button {
   justify-content: flex-start;
-  padding-inline: 0;
   height: auto;
   min-height: 0;
+  padding-inline: var(--tug-space-2xs);
+  padding-block: 3px;
+  margin-inline: calc(-1 * var(--tug-space-2xs));
+  border-radius: var(--tug-radius-sm);
   font-family: var(--tug-font-family-sans);
-  font-size: var(--tug-font-size-sm);
+  font-size: var(--tugx-filerow-name-size);
   font-weight: var(--tug-font-weight-semibold);
-  line-height: 1.5;
+  line-height: 1.6;
   text-transform: none;
   letter-spacing: normal;
   color: var(--tug7-element-global-text-normal-default-rest);
+}
+
+/* The rounds and full-message folds are headings over prose rather than over
+   a path list, so they keep the reading size the summary above them has. */
+.session-changes-dash-brief-rounds > .session-changes-dash-cluster-toggle.tug-button,
+.session-changes-dash-brief-detail > .session-changes-dash-cluster-toggle.tug-button {
+  font-size: var(--tug-font-size-sm);
 }
 
 /* A directory is a path, so it keeps the mono family the paths under it
@@ -157,8 +183,12 @@
   flex: none;
 }
 
+/* The chevron is the fold's whole affordance, so it is drained rather than
+   absent: a directory row that opens must look different from one that is
+   already a file. */
 .session-changes-dash-cluster-chevron {
   flex: none;
+  color: var(--tug7-element-global-text-normal-muted-rest);
   transition: transform 120ms ease-out;
 }
 

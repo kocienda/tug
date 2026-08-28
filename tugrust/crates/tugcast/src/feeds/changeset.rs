@@ -1282,7 +1282,7 @@ fn document_dash_entries_in(
         .filter(|name| !tugdash_core::ops::branch_exists(root, &format!("tugdash/{name}")))
         .map(|name| {
             let documents = tugdash_core::DashDocuments::read(root, &name);
-            let (review, steps, _task_list) = documents
+            let (review, steps, task_list) = documents
                 .plan
                 .as_deref()
                 .map(|plan| dash_plan_reading(Path::new(plan)))
@@ -1291,6 +1291,7 @@ fn document_dash_entries_in(
             DocumentDashEntry {
                 bound_sessions: bound_by_dash.get(&owner_id).cloned().unwrap_or_default(),
                 owner_id,
+                task_list,
                 step_total: steps.len() as u32,
                 // The *closed* count: a withdrawn step is over, and the
                 // fraction and the ticks on screen have to agree about how

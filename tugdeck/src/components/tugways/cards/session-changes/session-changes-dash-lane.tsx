@@ -493,6 +493,7 @@ function DashRow({
               <SessionChangesDashDocuments
                 documents={entry.documents}
                 review={entry.review}
+                taskList={entry.task_list ?? false}
                 steps={
                   entry.steps === undefined || entry.steps.length === 0
                     ? undefined
@@ -592,6 +593,7 @@ function DocumentDashRow({
           <SessionChangesDashDocuments
             documents={entry.documents}
             review={entry.review}
+            taskList={entry.task_list ?? false}
             steps={
               entry.step_total > 0
                 ? { done: entry.steps_done, total: entry.step_total }

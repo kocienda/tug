@@ -383,6 +383,18 @@ export function SessionChangesDashJoin({
   const face = deriveJoinFace({ join, resolvePhase: resolve.phase });
   const { outcome, resolve: resolveFace } = face;
 
+  // What the resolved face actually has to show. `resolved` is the face every
+  // standing candidate wears, and the ordinary clean join reaches it having
+  // resolved nothing and filed no account — so the word is not evidence, and
+  // taking it for evidence put a `report` eyebrow over an empty box on every
+  // dash that merged without a conflict.
+  const resolvedRows = resolveFace === "resolved" && resolved.length > 0;
+  const account =
+    resolveFace === "resolved" &&
+    report !== null &&
+    (report.files.length > 0 ||
+      (report.notes !== undefined && report.notes !== ""));
+
   // A section renders nothing it cannot say. Measured against what will
   // actually render below, never against the outcome word — a dash whose arc
   // has not started derives `blocked` with no blockers to show, and a `report`
@@ -392,7 +404,8 @@ export function SessionChangesDashJoin({
     outcome === "empty" ||
     reported.length > 0 ||
     resolveFace === "progress" ||
-    resolveFace === "resolved" ||
+    resolvedRows ||
+    account ||
     question !== null ||
     stuck !== null ||
     resolve.error !== null ||
@@ -483,7 +496,7 @@ export function SessionChangesDashJoin({
           ))}
         </ul>
       ) : null}
-      {resolveFace === "resolved" ? (
+      {resolvedRows ? (
         <ul
           className="session-changes-dash-join-rungs"
           data-slot="session-changes-dash-join-resolved"
@@ -506,12 +519,12 @@ export function SessionChangesDashJoin({
           So what shows here is the resolver's account, and nothing else — what
           the joined tree does was asked at the end of the run, against the
           tree that will actually land. */}
-      {resolveFace === "resolved" ? (
+      {account ? (
         <div
           className="session-changes-dash-join-account"
           data-slot="session-changes-dash-join-account"
         >
-          {report !== null ? (
+          {report !== null && report.files.length > 0 ? (
             <ul
               className="session-changes-dash-join-report"
               data-slot="session-changes-dash-join-report"

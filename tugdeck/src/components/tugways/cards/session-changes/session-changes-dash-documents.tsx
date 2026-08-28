@@ -27,6 +27,7 @@ import React from "react";
 import { FileText } from "lucide-react";
 
 import { TugListRow } from "@/components/tugways/tug-list-row";
+import { dashReviewPaints } from "@/lib/dash-review";
 import { useDeckManager } from "@/deck-manager-context";
 import { openFileInCard } from "@/lib/open-file-in-card";
 import type { DashDocuments } from "@/lib/changeset-types";
@@ -44,6 +45,9 @@ export interface SessionChangesDashDocumentsProps {
   documents: DashDocuments;
   /** The plan's review state, when it has one. */
   review?: string | undefined;
+  /** True when that plan is a task list — steps a direct dash wrote for
+   *  itself, which no review stage was ever going to cover. */
+  taskList?: boolean | undefined;
   /** The plan's ledger counters, for the plan row's facts line. */
   steps?: { done: number; total: number } | undefined;
 }
@@ -55,6 +59,7 @@ export interface SessionChangesDashDocumentsProps {
 function documentRows(
   documents: DashDocuments,
   review: string | undefined,
+  taskList: boolean,
   steps: { done: number; total: number } | undefined,
 ): DocumentRow[] {
   const rows: DocumentRow[] = [];
@@ -68,9 +73,14 @@ function documentRows(
   }
   if (documents.plan !== undefined) {
     // The plan states what a reader would otherwise open it to learn: whether
-    // a review covers it, and how far the walk has got.
+    // a review covers it, and how far the walk has got. The review word is
+    // `dashReviewPaints`'s call, not this row's — a `reviewed` plan says
+    // nothing here, and neither does a task list, which has no review stage
+    // to be behind on.
     const parts: string[] = [];
-    if (review !== undefined) parts.push(review);
+    if (review !== undefined && dashReviewPaints(review, taskList)) {
+      parts.push(review);
+    }
     if (steps !== undefined && steps.total > 0) {
       parts.push(
         steps.done > 0
@@ -93,10 +103,11 @@ function documentRows(
 export function SessionChangesDashDocuments({
   documents,
   review,
+  taskList = false,
   steps,
 }: SessionChangesDashDocumentsProps): React.ReactElement | null {
   const store = useDeckManager();
-  const rows = documentRows(documents, review, steps);
+  const rows = documentRows(documents, review, taskList, steps);
   if (rows.length === 0) return null;
 
   return (
@@ -112,7 +123,7 @@ export function SessionChangesDashDocuments({
           className="session-changes-dash-document"
           data-slot="session-dash-document"
           data-role={row.role}
-          {...(review !== undefined && row.role === "plan"
+          {...(dashReviewPaints(review, taskList) && row.role === "plan"
             ? { "data-review": review }
             : {})}
           // `TugListRow` is presentational by design and owns no activation,

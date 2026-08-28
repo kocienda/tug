@@ -26,7 +26,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { launchTugApp } from "./_harness";
+import { launchTugApp, note } from "./_harness";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
@@ -123,6 +123,66 @@ describe.skipIf(!SHOULD_RUN)("AT0253: commit mode + read-only shade", () => {
            document.querySelector(${JSON.stringify(COMMIT_BUTTON)}) !== null`,
           { timeoutMs: 6000 },
         );
+
+        // ── The message's parts, marked in the field ──────────────────────
+        // Landing mode is a reading mode: the composer marks the subject as a
+        // heading with a rule under it, the summary as the paragraph it is,
+        // and COLLAPSES git's blank separator between them — the rule already
+        // draws that break, and drawn twice it read as air the author had
+        // left. Typed with real keys, because the decoration is rebuilt from
+        // the document and a document nobody typed proves nothing.
+        await app.nativeType("at0253(mode): the subject line");
+        await app.nativeKey("Return");
+        await app.nativeKey("Return");
+        await app.nativeType("The summary paragraph, which is prose.");
+        await settle();
+        const marks = await app.evalJS<{
+          subject: number;
+          summary: number;
+          gaps: number;
+          gapHeight: number;
+          step: number;
+          lineHeight: number;
+        }>(
+          `(() => {
+             const content = document.querySelector(${JSON.stringify(PROMPT_INPUT)});
+             const at = (sel) => content.querySelector(sel);
+             const subject = at(".cm-landing-subject").getBoundingClientRect();
+             const summary = at(".cm-landing-summary").getBoundingClientRect();
+             const gap = at(".cm-landing-gap");
+             return {
+               subject: content.querySelectorAll(".cm-landing-subject").length,
+               summary: content.querySelectorAll(".cm-landing-summary").length,
+               gaps: content.querySelectorAll(".cm-landing-gap").length,
+               gapHeight: gap === null ? -1 : Math.round(gap.getBoundingClientRect().height),
+               step: Math.round(summary.top - subject.bottom),
+               lineHeight: Math.round(subject.height),
+             };
+           })()`,
+        );
+        note(`at0253 landing marks: ${JSON.stringify(marks)}`);
+        expect(marks.subject, "the subject line is marked").toBe(1);
+        expect(marks.summary, "and so is the summary's line").toBe(1);
+        expect(marks.gaps, "and the separator between them is marked too").toBe(1);
+        expect(marks.gapHeight, "the separator draws no line of its own").toBe(0);
+        expect(
+          marks.step,
+          "so the summary follows the rule rather than a blank line",
+        ).toBeLessThan(marks.lineHeight);
+
+        // A collapsed line is still an editable one. The caret's line is never
+        // marked, so stepping onto the separator gives it back its height —
+        // without that, a caret parked there would be invisible. Horizontally,
+        // because that is how a collapsed line is reached: vertical motion in
+        // CodeMirror is geometric and steps over a zero-height line, which is
+        // the behaviour worth having — the reader never arrows into a phantom.
+        await app.nativeKey("ArrowLeft", ["cmd"]);
+        await app.nativeKey("ArrowLeft");
+        await settle();
+        const onGap = await app.evalJS<number>(
+          `document.querySelector(${JSON.stringify(PROMPT_INPUT)}).querySelectorAll(".cm-landing-gap").length`,
+        );
+        expect(onGap, "the separator is a real line when the caret is on it").toBe(0);
 
         // Escape exits the mode (sheet drops, composer restores its prompt draft).
         await settle();

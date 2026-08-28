@@ -129,6 +129,7 @@ function ClusterRow({
           <TugPushButton
             size="xs"
             emphasis="ghost"
+            subtype="icon-text"
             className="session-changes-dash-cluster-head session-changes-dash-cluster-toggle"
             aria-expanded={expanded}
             aria-label={`${expanded ? "Hide" : "Show"} the files under ${cluster.dir === "" ? "the repository root" : cluster.dir}`}
@@ -269,6 +270,7 @@ export function SessionChangesDashBrief({
             <TugPushButton
               size="xs"
               emphasis="ghost"
+              subtype="icon-text"
               className="session-changes-dash-cluster-toggle"
               aria-expanded={roundsOpen}
               icon={<ChevronRight size={12} className="session-changes-dash-cluster-chevron" />}
@@ -295,6 +297,7 @@ export function SessionChangesDashBrief({
               <TugPushButton
                 size="xs"
                 emphasis="ghost"
+                subtype="icon-text"
                 className="session-changes-dash-cluster-toggle"
                 aria-expanded={bodyOpen}
                 icon={<ChevronRight size={12} className="session-changes-dash-cluster-chevron" />}

@@ -60,6 +60,7 @@
  *
  * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-dash-lane.tsx
  * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-dash-brief.tsx
+ * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-dash-brief.css
  * @covers tugdeck/src/lib/dash-file-clusters.ts
  * @covers tugdeck/src/lib/landing-message.ts
  * @covers tugdeck/src/components/tugways/cards/session-changes/dash-row-menu.tsx
@@ -73,7 +74,7 @@
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -132,6 +133,8 @@ let scratch: DashScratchRepo | null = null;
 let fixtureDir = "";
 const projectDir = (): string => scratch?.repo ?? "";
 const ROUND_FILE = "at0405-dash-round.txt";
+/** A directory the round touches twice — the brief's areas fold something. */
+const ROUND_AREA = "at0405-area";
 const ROUND_SUBJECT = "at0405(round): the lane lists this subject";
 const DRAFT_MESSAGE = "at0405 join draft\n\n- the lane renders this read-only";
 
@@ -159,6 +162,12 @@ beforeAll(() => {
   // worktree — `worktree_dirty` would then be false for reasons that have
   // nothing to do with the lane. Rounds read the same from either tree.
   writeFileSync(join(created.worktree, ROUND_FILE), "at0405 round\n");
+  // Two files under one directory, so the brief's areas have a CLUSTER to
+  // fold. A round of a single root file clusters to that file and renders no
+  // toggle at all, which left the fold's own affordances uncovered.
+  mkdirSync(join(created.worktree, ROUND_AREA), { recursive: true });
+  writeFileSync(join(created.worktree, ROUND_AREA, "first.txt"), "at0405 area one\n");
+  writeFileSync(join(created.worktree, ROUND_AREA, "second.txt"), "at0405 area two\n");
   commitRound(projectDir(), DASH_NAME, ROUND_SUBJECT, scratch.cli);
   fixtureDir = seedScratchSession(projectDir(), SID);
   seedScratchSession(projectDir(), HELD_SID);
@@ -551,6 +560,67 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's dash lane", () => {
         expect(detail.files).toContain(ROUND_FILE);
         // Read-only means read-only: no editor, anywhere in the row.
         expect(detail.editors).toBe(0);
+
+        // ── An area that folds says so, and has room to be pressed ────────
+        // The cluster head is the fold's only affordance: a chevron that
+        // turns, a name, and a box big enough that the hover wash and the
+        // focus ring land around the row rather than on its glyphs. It also
+        // takes the size every other file list in the deck takes — a path is
+        // a path, whichever block prints it — so the size is read off the
+        // commit receipt's own token rather than off a number written here.
+        const fold = await app.evalJS<{
+          chevrons: number;
+          rotated: string;
+          expanded: string | null;
+          pad: number;
+          nameSize: string;
+          rowSize: string;
+          receiptSize: string;
+        }>(
+          `(() => {
+             const row = document.querySelector(${JSON.stringify(ROW)});
+             const cluster = row.querySelector('[data-slot="session-changes-dash-cluster"][data-dir$="${ROUND_AREA}"]');
+             const head = cluster.querySelector(".session-changes-dash-cluster-toggle");
+             const chevron = head.querySelector(".session-changes-dash-cluster-chevron");
+             const name = head.querySelector(".session-changes-dash-cluster-dir");
+             const file = cluster.querySelector(".session-changes-dash-cluster-files .session-changes-dash-file-path");
+             const style = getComputedStyle(head);
+             return {
+               chevrons: head.querySelectorAll(".session-changes-dash-cluster-chevron").length,
+               rotated: getComputedStyle(chevron).transform,
+               expanded: cluster.getAttribute("data-expanded"),
+               pad: parseFloat(style.paddingLeft) + parseFloat(style.paddingTop),
+               nameSize: getComputedStyle(name).fontSize,
+               rowSize: getComputedStyle(file).fontSize,
+               receiptSize: getComputedStyle(document.body).getPropertyValue("--tugx-filerow-name-size"),
+             };
+           })()`,
+        );
+        note(`at0405 fold: ${JSON.stringify(fold)}`);
+        expect(fold.chevrons, "an area that folds carries a chevron").toBe(1);
+        expect(fold.expanded, "and starts folded").toBe("false");
+        expect(
+          fold.rotated === "none" || fold.rotated === "matrix(1, 0, 0, 1, 0, 0)",
+          "the chevron rests unturned while the fold is shut",
+        ).toBe(true);
+        expect(
+          fold.pad,
+          "the press has padding, so its ring is not drawn on the text",
+        ).toBeGreaterThan(0);
+        // The token resolves to a length; both rows are measured against what
+        // it resolves to, so retuning the token moves all three together.
+        const receiptPx = await app.evalJS<string>(
+          `(() => {
+             const probe = document.createElement("span");
+             probe.style.fontSize = "var(--tugx-filerow-name-size)";
+             document.body.appendChild(probe);
+             const size = getComputedStyle(probe).fontSize;
+             probe.remove();
+             return size;
+           })()`,
+        );
+        expect(fold.rowSize, "a path takes the commit receipt's size").toBe(receiptPx);
+        expect(fold.nameSize, "and so does the area that holds it").toBe(receiptPx);
 
         // ── Bind: the dash fronts, expanded, under its own label ───────────
         await app.dispatchControlAction("bind_dash_ok", {

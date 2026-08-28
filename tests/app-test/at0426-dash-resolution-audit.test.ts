@@ -186,7 +186,15 @@ async function runCommand(app: App, line: string): Promise<void> {
   await app.nativeKey("Return", ["cmd"]);
 }
 
-/** Open the card on an arc's dash and wait for the pilot's run to finish. */
+/**
+ * Open the card on an arc's dash and front its row, leaving the pilot to run.
+ *
+ * The gate is the ROW, not the report under it. The report section speaks only
+ * when it has evidence to show — a standing candidate that has resolved nothing
+ * and filed no account yet is silence, deliberately, so a clean dash does not
+ * wear an eyebrow over an empty box. Each test below waits on the slot carrying
+ * its own claim, with the pilot's whole run in its budget.
+ */
 async function resolveArc(app: App, arc: Arc): Promise<string> {
   const row = `${LANE} [data-slot="session-changes-dash-row"][data-dash="${arc.dash}"]`;
   await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
@@ -213,7 +221,7 @@ async function resolveArc(app: App, arc: Arc): Promise<string> {
   // not start the run, and on a conflicted dash it never did.
   await runCommand(app, `/dash-join ${arc.dash}`);
   await app.waitForCondition<boolean>(
-    `document.querySelector(${JSON.stringify(`${row} [data-slot="session-changes-dash-join"]`)}) !== null`,
+    `document.querySelector(${JSON.stringify(row)}) !== null`,
     { timeoutMs: 40000 },
   );
   return row;

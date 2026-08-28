@@ -1021,6 +1021,13 @@ pub struct DocumentDashEntry {
     /// `reviewed` | `stale` | `never-reviewed` for the plan, when there is one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub review: Option<String>,
+    /// True when that plan is a **task list** rather than a document devised
+    /// against the skeleton — the same bit `ChangesetEntry::Dash` carries, and
+    /// read off the same parse. A surface pairs it with `review`: a task list
+    /// has no review stage, so `never-reviewed` on one is a phase the dash
+    /// does not have rather than an obligation it is behind on.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub task_list: bool,
     /// Ledger rows the plan declares. 0 when there is no plan yet.
     pub step_total: u32,
     /// Ledger rows reading `done`.

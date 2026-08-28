@@ -130,7 +130,7 @@ const DashPickerCell: TugListViewCellRenderer<DashPickerDataSource> = ({
           entry.worktree_dirty ? (
             <span className="dash-picker-uncommitted">uncommitted</span>
           ) : null,
-          dashReviewPaints(entry.review) ? (
+          dashReviewPaints(entry.review, entry.task_list ?? false) ? (
             <span className="dash-picker-review" data-review={entry.review}>
               {entry.review === "stale" ? "plan stale" : "plan unreviewed"}
             </span>

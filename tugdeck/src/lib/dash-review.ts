@@ -11,6 +11,12 @@
  * not a mark: `reviewed` and an absent field are the quiet, common case, and a
  * surface renders nothing for them.
  *
+ * **And nothing paints on a task list.** A dash worked directly writes its own
+ * steps and is never devised against the skeleton, so no review was ever going
+ * to cover it — `never-reviewed` there is not an unmet obligation, it is a
+ * stage the dash does not have, and a caution-toned word for it read as a
+ * warning about work nobody owed.
+ *
  * The mark is advisory and gates nothing ([P07]) — the gate that matters is
  * `dash-implement`'s setup, which refuses to walk an unreviewed plan long
  * before anything reaches a landing.
@@ -21,9 +27,19 @@
 /** The two states that paint, in the spellings `tugutil plan status` reports. */
 export const DASH_REVIEW_PAINTS = ["stale", "never-reviewed"] as const;
 
-/** Does this review state say anything worth a mark? */
-export function dashReviewPaints(review: string | null | undefined): boolean {
+/**
+ * Does this review state say anything worth a mark?
+ *
+ * `taskList` is the dash's `task_list` bit where the surface has it; a surface
+ * reading a sender that carries no such bit passes nothing and gets the
+ * pre-existing answer.
+ */
+export function dashReviewPaints(
+  review: string | null | undefined,
+  taskList: boolean = false,
+): boolean {
   return (
+    !taskList &&
     review !== null &&
     review !== undefined &&
     (DASH_REVIEW_PAINTS as readonly string[]).includes(review)

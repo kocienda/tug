@@ -207,11 +207,24 @@ body {
   border-block-end: 1px solid var(--tug7-element-global-border-normal-muted-rest);
 }
 
+/* The separator between subject and summary, collapsed. The rule above it
+   already draws the break; the blank line drew it a second time, as air the
+   author looked like they had left. It comes back at full height whenever the
+   caret is on it — the decoration is withheld then, so this rule simply does
+   not apply. */
+.tug-prompt-entry[data-landing] .cm-line.cm-landing-gap {
+  height: 0;
+  min-height: 0;
+  padding-block: 0;
+  overflow: hidden;
+}
+
 .tug-prompt-entry[data-landing] .cm-line.cm-landing-summary {
   color: var(--tug7-element-global-text-normal-default-rest);
 }
 
-.tug-prompt-entry[data-landing] .cm-line:not(.cm-landing-subject):not(.cm-landing-summary) {
+.tug-prompt-entry[data-landing]
+  .cm-line:not(.cm-landing-subject):not(.cm-landing-summary):not(.cm-landing-gap) {
   color: var(--tug7-element-global-text-normal-muted-rest);
 }
 

@@ -875,6 +875,9 @@ export interface DocumentDashEntry {
   documents: DashDocuments;
   /** `reviewed` | `stale` | `never-reviewed` for the plan, when there is one. */
   review?: string;
+  /** True when that plan is a task list rather than a devised document — the
+   *  same bit the branch-bearing entry carries. Absent means false. */
+  task_list?: boolean;
   /** Ledger rows the plan declares. 0 when there is no plan yet. */
   step_total: number;
   /** Ledger rows reading `done`. */
