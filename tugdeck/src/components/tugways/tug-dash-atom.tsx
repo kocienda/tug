@@ -25,6 +25,8 @@ import { DEFAULT_ATOM_REGISTER, type AtomRegister } from "@/lib/atom-register";
 
 export interface TugDashAtomProps {
   name: string;
+  /** The name run's content, when the surface paints those characters itself. */
+  nameContent?: React.ReactNode;
   /** Which surface the atom stands on. @default "prose" */
   register?: AtomRegister;
   /** The `data-slot` the surface names its copy by. */
@@ -34,13 +36,21 @@ export interface TugDashAtomProps {
 
 export function TugDashAtom({
   name,
+  nameContent,
   register = DEFAULT_ATOM_REGISTER,
   slot = "tug-dash-atom",
   title,
 }: TugDashAtomProps): React.ReactElement {
   return (
     <span className="tug-dash-atom" data-slot="tug-dash-atom" data-register={register}>
-      <DashSigil name={name} slot={slot} atom atomRegister={register} title={title} />
+      <DashSigil
+        name={name}
+        nameContent={nameContent}
+        slot={slot}
+        atom
+        atomRegister={register}
+        title={title}
+      />
     </span>
   );
 }

@@ -113,28 +113,18 @@
   color: var(--tug7-element-global-text-normal-muted-rest);
 }
 
-/* Join badge ([P09]) — a commit that landed as a dash join reads differently
-   from a hand commit. */
-/* The citation chip naming the session that made the commit ([P10]). The chip
-   brings its own shape and its own ink, and its live dot is its only color;
-   nothing here may restate any of them ([L20]).
+/* The two marks a commit's subject can carry: the dash atom naming the dash it
+   joined from ([P09]), and the citation chip naming the session that made it
+   ([P10]). Each brings its own shape, its own ink and — for the dash — its own
+   `^` sigil, the same mark the Lens and the Session card show; nothing here may
+   restate any of them ([L20]). Both get a seat and nothing else.
 
    Neither mark carries a left margin: the gap before it is a space in the
    subject's own inline flow (see the note at the mount). A margin would be
    drawn again at the head of a wrapped line, indenting the mark past the
    column its own subject lines start at — which is the misalignment a reader
    sees as the chip floating right of the text it belongs to. */
-.tug-history-list-session-chip {
-  vertical-align: baseline;
-}
-
+.tug-history-list-session-chip,
 .tug-history-list-join-badge {
-  padding: 1px 6px;
-  border-radius: 8px;
-  font-size: 0.625rem;
-  font-weight: 500;
-  font-family: var(--tug-font-family-sans);
-  color: var(--tug7-element-global-text-accent-default-rest, var(--tug7-element-global-text-normal-muted-rest));
-  background: var(--tug7-element-global-surface-raised-rest, rgba(127, 127, 127, 0.1));
-  white-space: nowrap;
+  vertical-align: baseline;
 }

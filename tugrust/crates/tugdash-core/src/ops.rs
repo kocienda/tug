@@ -176,6 +176,16 @@ pub struct JoinOptions {
     /// dash-log's terminal note so a join is attributable after the fact;
     /// `None` writes the bare note the log carried before routes were recorded.
     pub origin: Option<String>,
+    /// The session that asked for this join, when the caller knows it — the
+    /// pressing card's tug session id, which the CONTROL request already
+    /// carries for its receipt ([P06]).
+    ///
+    /// It is here because the join is executed by **tugcast**, not by the
+    /// session: the server exports no `TUG_SESSION_ID`, so without this the
+    /// squash commit can name the dash and nothing else, and the History row
+    /// shows one pill for work that had a session behind it. `None` falls back
+    /// to the running process's own id, which is what the CLI wants.
+    pub session_id: Option<String>,
     /// Proceed past the `live-resolve` refusal, tearing down a conflict chain
     /// the lease says somebody may still be working on.
     ///
@@ -2244,7 +2254,8 @@ pub fn commit(
     };
     // Machine-parseable trailers ([P08], Spec S02): `Tug-Session:` when the
     // committing session resolves + `Tug-Dash: <branch> onto <base>`.
-    let commit_message = with_dash_trailers(&repo_root, name, &branch, &commit_message);
+    // A round commit runs inside the session that made it, so the env answers.
+    let commit_message = with_dash_trailers(&repo_root, name, &branch, &commit_message, None);
 
     // Stage and commit, re-attempting past a held `index.lock` (Spec S02) —
     // the join's preflight sweep commits into this same worktree, and
@@ -2490,19 +2501,29 @@ fn sessions_db_file() -> Option<std::path::PathBuf> {
 /// The committing session's identity for the commit trailers: the human
 /// citation and the machine id ([P10], Spec S03).
 ///
-/// `None` when it can't be resolved — no `TUG_SESSION_ID` env, no
-/// `sessions.db`, or no row for that id. `tugutil dash commit` runs inside a
-/// Claude session where tugcast exports `TUG_SESSION_ID`; the callsign is read
-/// read-only from `sessions.db` (the `dash_draft_message` pattern). Any
-/// absence omits both trailers silently — a commit never fails on trailer
-/// resolution.
+/// **Who is asked first is the caller's, not the environment's.** A round
+/// commit is made by `tugutil dash commit` running *inside* the Claude session,
+/// where tugcast exports `TUG_SESSION_ID`, and the env is the whole answer. A
+/// **join** is not: the card's press is served by tugcast itself, a process
+/// that belongs to no session and exports no such variable — so every join
+/// commit ever made carried the dash trailer alone and the History row showed
+/// one pill where the work had two. The request already names the pressing
+/// card, so the id travels as an argument and the env is the fallback for the
+/// callers that have none.
+///
+/// `None` when it can't be resolved — no id from either source, no
+/// `sessions.db`, or no row for that id. Any absence omits both trailers
+/// silently: a commit never fails on trailer resolution.
 ///
 /// The citation grammar lives in `tugchanges_core::session_citation`, shared
 /// with the deck-commit lane so the two can never drift.
-pub(crate) fn session_citation() -> Option<(String, String)> {
-    let session_id = std::env::var("TUG_SESSION_ID")
-        .ok()
-        .filter(|s| !s.is_empty())?;
+pub(crate) fn session_citation_for(session_id: Option<&str>) -> Option<(String, String)> {
+    let session_id = match session_id {
+        Some(id) if !id.is_empty() => id.to_string(),
+        _ => std::env::var("TUG_SESSION_ID")
+            .ok()
+            .filter(|s| !s.is_empty())?,
+    };
     let db = sessions_db_file()?;
     let conn =
         rusqlite::Connection::open_with_flags(&db, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
@@ -2532,16 +2553,25 @@ pub(crate) fn session_citation() -> Option<(String, String)> {
 /// source `show()` / join use. Idempotent via `append_trailers`, so a draft
 /// that already carries a trailer is never duplicated.
 ///
+/// `session` is the id the caller knows, if any — see
+/// [`session_citation_for`]; `None` falls back to the process's own.
+///
 /// The session travels as a **pair**: `Tug-Session` is the human citation and
 /// `Tug-Session-Id` the full uuid a reader joins against the ledger. Neither
 /// is displayed as body ink — tugcast parses both into typed fields and strips
 /// the lines.
-fn with_dash_trailers(repo: &Path, name: &str, branch: &str, message: &str) -> String {
+fn with_dash_trailers(
+    repo: &Path,
+    name: &str,
+    branch: &str,
+    message: &str,
+    session: Option<&str>,
+) -> String {
     let dash_value = match dash_base(repo, name) {
         Ok(base) if !base.is_empty() => format!("{branch} onto {base}"),
         _ => branch.to_string(),
     };
-    let session = session_citation();
+    let session = session_citation_for(session);
     let mut trailers: Vec<(&str, &str)> = Vec::new();
     if let Some((citation, id)) = session.as_ref() {
         trailers.push(("Tug-Session", citation.as_str()));
@@ -2702,13 +2732,14 @@ pub fn integrate_message(
     name: &str,
     branch: &str,
     override_msg: Option<String>,
+    session: Option<&str>,
 ) -> String {
     let subject = match override_msg {
         Some(body) => compose_landing_subject(name, &body),
         None => landing_message_preview(repo, name, branch).0,
     };
     // Subject stays `tugdash(<name>): …`; the trailers ride the body ([P08]).
-    with_dash_trailers(repo, name, branch, &subject)
+    with_dash_trailers(repo, name, branch, &subject, session)
 }
 
 /// Where a landing message's words came from ([P05]).
@@ -4095,7 +4126,13 @@ fn integrate_join(
         // strategy the caller asked for is what decides the shape, exactly as
         // it does for a join with no candidate, and `Squash` is the default
         // every route asks for.
-        let final_msg = integrate_message(repo_root, name, branch, opts.message.clone());
+        let final_msg = integrate_message(
+            repo_root,
+            name,
+            branch,
+            opts.message.clone(),
+            opts.session_id.as_deref(),
+        );
         let commit_hash = match opts.strategy {
             JoinStrategy::Squash => {
                 // The candidate is a descendant of the base head, so this
@@ -4161,7 +4198,13 @@ fn integrate_join(
         });
     }
 
-    let final_msg = integrate_message(repo_root, name, branch, opts.message.clone());
+    let final_msg = integrate_message(
+        repo_root,
+        name,
+        branch,
+        opts.message.clone(),
+        opts.session_id.as_deref(),
+    );
 
     // Integrate per strategy. A conflict cleanly aborts (pre-join state
     // restored) and returns the structured conflict list — never a dead end.
@@ -6422,7 +6465,8 @@ Some context.
                 &root,
                 "walk",
                 "tugdash/walk",
-                &format!("tugdash(walk): {draft}")
+                &format!("tugdash(walk): {draft}"),
+                None
             )
         );
         assert_eq!(
@@ -8126,6 +8170,107 @@ Some context.
         );
     }
 
+    /// The join the CARD presses is executed by tugcast, which is nobody's
+    /// session and exports no `TUG_SESSION_ID` — so the id travels in
+    /// [`JoinOptions::session_id`] and the squash commit names both the session
+    /// and the dash. Two trailers, which is the two pills a joined commit's
+    /// History row shows ([P10], Spec S03).
+    ///
+    /// The env is deliberately EMPTY here: this is the server's situation, and
+    /// a test that let the env answer would pass without the argument ever
+    /// being read.
+    #[serial]
+    #[test]
+    fn a_card_join_cites_the_session_the_request_names() {
+        let temp = TempDir::new().unwrap();
+        let repo = temp.path();
+        let home = temp.path().join("state");
+        init_git_repo(repo);
+        redirect_state_dir(&home);
+        std::env::set_current_dir(repo).unwrap();
+
+        let line_id = "3c2b1a09-8877-4665-9443-221100ffeedd";
+        let session = "9f8e7d6c-5b4a-4392-8281-706f5e4d3c2b";
+        let sessions_db = temp.path().join("sessions.db");
+        {
+            let conn = rusqlite::Connection::open(&sessions_db).unwrap();
+            conn.execute_batch(
+                "CREATE TABLE lines (
+                    line_id       TEXT PRIMARY KEY,
+                    tag           TEXT NOT NULL UNIQUE,
+                    name          TEXT,
+                    name_user_set INTEGER NOT NULL DEFAULT 0,
+                    card_id       TEXT,
+                    project_dir   TEXT NOT NULL,
+                    created_at    INTEGER NOT NULL,
+                    last_used_at  INTEGER NOT NULL
+                 );
+                 CREATE TABLE sessions (
+                    session_id   TEXT PRIMARY KEY,
+                    line_id      TEXT NOT NULL
+                 );",
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO lines (line_id, tag, name, name_user_set, card_id,
+                                    project_dir, created_at, last_used_at)
+                 VALUES (?1, 'lean-radio', NULL, 0, 'card-1', '/proj', 1, 1)",
+                rusqlite::params![line_id],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO sessions (session_id, line_id) VALUES (?1, ?2)",
+                rusqlite::params![session, line_id],
+            )
+            .unwrap();
+        }
+        // SAFETY: serial test; see redirect_state_dir.
+        unsafe {
+            std::env::set_var(tugcore::instance::ENV_SESSIONS_DB, &sessions_db);
+            std::env::remove_var("TUG_SESSION_ID");
+        }
+
+        create("card-join", Some("Test".to_string()), false, None).unwrap();
+        let worktree = repo.join(".tug/worktrees/card-join");
+        fs::write(worktree.join("f.txt"), "x\n").unwrap();
+        commit("card-join", "Add f", None).unwrap();
+
+        join(
+            "card-join",
+            JoinOptions {
+                message: Some("Land it".to_string()),
+                session_id: Some(session.to_string()),
+                ..mechanics()
+            },
+        )
+        .unwrap();
+        let squash = Command::new("git")
+            .arg("-C")
+            .arg(repo)
+            .args(["log", "-1", "--format=%B"])
+            .output()
+            .unwrap();
+        let squash = String::from_utf8_lossy(&squash.stdout);
+
+        // SAFETY: serial test; see redirect_state_dir.
+        unsafe {
+            std::env::remove_var(tugcore::instance::ENV_SESSIONS_DB);
+        }
+
+        assert!(
+            squash.contains("Tug-Session: lean-radio (3c2b1a09)"),
+            "the squash cites the session the request named: {squash}"
+        );
+        assert!(
+            squash.contains(&format!("Tug-Session-Id: {session}")),
+            "the machine id travels with the citation: {squash}"
+        );
+        assert!(
+            squash.contains("Tug-Dash: tugdash/card-join onto "),
+            "and still names the dash: {squash}"
+        );
+    }
+
     /// The resolution ladder builds a candidate off to the side; `join_in` with
     /// `candidate` fast-forwards the base onto it and tears the dash down
     /// ([P31]). Uses the replay scenario: base advanced to the dash's first
@@ -9671,7 +9816,7 @@ Some context.
 
         // And the preview is what the join would land, minus the trailers the
         // landing composes against its round set.
-        let landed = integrate_message(repo, "prov", "tugdash/prov", None);
+        let landed = integrate_message(repo, "prov", "tugdash/prov", None, None);
         assert!(landed.starts_with(&message), "{landed}");
     }
 
@@ -9811,6 +9956,7 @@ Some context.
             "idem",
             "tugdash/idem",
             Some("tugdash(idem): the authored subject".to_string()),
+            None,
         );
         assert!(
             out.starts_with("tugdash(idem): the authored subject"),
@@ -9836,6 +9982,7 @@ Some context.
             "mine",
             "tugdash/mine",
             Some("tugdash(theirs): borrowed work".to_string()),
+            None,
         );
         assert!(out.starts_with("tugdash(mine): borrowed work"), "{out}");
         assert_eq!(out.matches("tugdash(").count(), 1, "{out}");
@@ -9852,7 +9999,7 @@ Some context.
         let repo = temp.path();
 
         let body = "teach the linter about tugdash(name): prefixes";
-        let out = integrate_message(repo, "inner", "tugdash/inner", Some(body.to_string()));
+        let out = integrate_message(repo, "inner", "tugdash/inner", Some(body.to_string()), None);
         assert!(out.starts_with(&format!("tugdash(inner): {body}")), "{out}");
     }
 
@@ -9872,6 +10019,7 @@ Some context.
                 "malformed",
                 "tugdash/malformed",
                 Some(body.to_string()),
+                None,
             );
             assert!(
                 out.starts_with(&format!("tugdash(malformed): {body}")),
@@ -9893,12 +10041,13 @@ Some context.
             "plain",
             "tugdash/plain",
             Some("a plain subject".to_string()),
+            None,
         );
         assert!(out.starts_with("tugdash(plain): a plain subject"), "{out}");
 
         // No override, no draft row (the ledger is an empty tempdir path), and
         // no branch description — the bare fallback, still wrapped once.
-        let fallback = integrate_message(repo, "plain", "tugdash/plain", None);
+        let fallback = integrate_message(repo, "plain", "tugdash/plain", None, None);
         assert!(
             fallback.starts_with("tugdash(plain): Dash work"),
             "{fallback}"
@@ -9938,6 +10087,7 @@ Some context.
             "pinned",
             "tugdash/pinned",
             &format!("tugdash(pinned): {draft}"),
+            None,
         );
         assert_eq!(committed, expected);
         assert!(committed.starts_with("tugdash(pinned): the subject the author wrote\n"));

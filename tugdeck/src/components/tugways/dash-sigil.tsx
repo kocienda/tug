@@ -42,6 +42,13 @@ import {
 export interface DashSigilProps {
   /** The dash's short name, without the `^`. */
   name: string;
+  /**
+   * The name run's content, when the surface paints those characters itself
+   * rather than merely printing them — a filter's marks over the ones it
+   * matched. `name` still travels, because it is what the run is about; this
+   * only decides how the characters are drawn.
+   */
+  nameContent?: React.ReactNode;
   /** The run's `data-slot` — how each surface names its own copy. */
   slot: string;
   /** The run's hover sentence, when the surface has one to give. */
@@ -68,6 +75,7 @@ export interface DashSigilProps {
 
 export function DashSigil({
   name,
+  nameContent,
   slot,
   title,
   ariaLabel,
@@ -84,7 +92,7 @@ export function DashSigil({
       <span className="tug-session-identity-dash-sigil" aria-hidden="true">
         ^
       </span>
-      <span className="tug-session-identity-dash-name">{name}</span>
+      <span className="tug-session-identity-dash-name">{nameContent ?? name}</span>
     </span>
   );
   if (!atom) return run;

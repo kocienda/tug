@@ -71,6 +71,7 @@ import {
 import { useCommitIdentityMenu } from "@/components/tugways/commit-identity-menu";
 import { renderFilterHighlight } from "@/components/tugways/filter-highlight";
 import { TugSessionCitation } from "@/components/tugways/tug-session-identity";
+import { TugDashAtom } from "@/components/tugways/tug-dash-atom";
 import { dashNameFromTrailer } from "@/lib/landing-receipt";
 import { resolveCitedSession } from "@/lib/session-identity";
 import {
@@ -86,12 +87,13 @@ import {
 } from "@/lib/git-commit-files-store";
 
 /**
- * The join badge's words ([P09]) — what a commit that landed as a dash join
- * says on its row. One function so the filter matches the string the reader
- * sees, marks land on the characters that matched, and the two can never drift.
+ * How a commit that landed as a dash join names its dash on its row ([P09]) —
+ * `^<name>`, the sigil spelling every other surface uses. One function so the
+ * filter matches the string the reader sees, marks land on the characters that
+ * matched, and the two can never drift.
  */
 function joinBadgeText(dashName: string): string {
-  return `from dash ${dashName}`;
+  return `^${dashName}`;
 }
 
 /**
@@ -115,9 +117,9 @@ export function commitFilterFields(
   if (scope.includes("message")) {
     fields.push(commit.subject, commit.body);
     // The dash attribution rides with the message: `Tug-Dash:` is a trailer on
-    // the message itself, and the badge is how the row states it. Matched as
-    // the badge READS, so `from dash lens-routes` and the bare name both find
-    // the commit and both mark the badge.
+    // the message itself, and the dash atom is how the row states it. Matched
+    // as the atom READS, so `^lens-routes` and the bare name both find the
+    // commit and both mark the atom's name.
     const dashName = dashNameFromTrailer(commit.tug_dash);
     if (dashName !== null) fields.push(joinBadgeText(dashName));
   }
@@ -468,10 +470,16 @@ function CommitRow({
                     className="tug-history-list-join-badge"
                     data-testid="session-history-join-badge"
                   >
-                    {renderFilterHighlight(
-                      joinBadgeText(dashName),
-                      scopedQuery(filterQuery, filterScope, "message"),
-                    )}
+                    <TugDashAtom
+                      name={dashName}
+                      register="prose"
+                      slot="session-history-join-dash"
+                      title={`Joined from dash ${dashName}`}
+                      nameContent={renderFilterHighlight(
+                        dashName,
+                        scopedQuery(filterQuery, filterScope, "message"),
+                      )}
+                    />
                   </span>
                 ) : null}
                 {/* Which session made this commit, as a citation chip beside

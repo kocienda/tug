@@ -1232,7 +1232,9 @@ async fn commit_candidate(
         let touched = workshop.touched_since(&baseline)?;
         validate_report(&report_for_validation, &resolution_set, &touched)?;
         let branch = format!("tugdash/{}", dash);
-        let message = tugdash_core::ops::integrate_message(&repo, &dash, &branch, None);
+        // The candidate is an intermediate — the join composes the message the
+        // base actually keeps — so it names no session of its own.
+        let message = tugdash_core::ops::integrate_message(&repo, &dash, &branch, None, None);
         // An audit that changed nothing keeps the candidate it audited.
         // Committing an identical tree anyway would reparent it onto the base
         // head, turning a replay join into a squash without anybody asking.

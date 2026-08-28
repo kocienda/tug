@@ -5711,6 +5711,11 @@ impl AgentSupervisor {
             continue_join: request.continue_join,
             candidate: request.candidate.clone(),
             origin: Some("card".to_string()),
+            // Who landed it. tugcast is nobody's session, so the pressing
+            // card's id is the only way the squash commit can name the session
+            // beside the dash — the two pills a joined commit's History row
+            // shows ([P10], Spec S03).
+            session_id: request.session_id.clone(),
             // The card has no gesture for breaking a lease, and tugcast's own
             // guard is exact: a card join that reaches the lease refusal is by
             // definition a resolve in another process ([P04], [P05]).

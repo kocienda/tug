@@ -53,6 +53,9 @@ pub fn dispatch(cmd: DashCommands, json: bool, quiet: bool) -> ExitCode {
                 continue_join,
                 candidate: None,
                 origin: Some("cli".to_string()),
+                // The CLI runs inside the session it belongs to, so its own
+                // `TUG_SESSION_ID` is the answer and nothing needs passing.
+                session_id: None,
                 break_lease,
             },
             json,
@@ -338,6 +341,7 @@ fn run_join_resolve(
             continue_join: false,
             candidate: Some(candidate),
             origin: Some("cli".to_string()),
+            session_id: None,
             // The ladder already replaced whatever chain stood here, so the
             // join below sees no lease — carried anyway so the two halves of
             // one gesture cannot disagree.

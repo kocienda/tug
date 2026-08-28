@@ -148,12 +148,13 @@ describe("commitFilterFields scope", () => {
   });
 
   test("the dash attribution rides with the message", () => {
-    // `Tug-Dash:` is a trailer ON the message, and the row states it as
-    // `from dash <name>` — so the name, and the badge's own words, both find
-    // the commit under Message and neither does under any other target.
+    // `Tug-Dash:` is a trailer ON the message, and the row states it as the
+    // dash atom `^<name>` — so the name, and the sigil spelling the atom
+    // shows, both find the commit under Message and neither does under any
+    // other target.
     const joined: GitLogCommit = { ...COMMIT, tug_dash: "tugdash/lens-routes" };
     expect(filterQueryMatch("lens-routes", commitFilterFields(joined, ["message"]))).toBe(true);
-    expect(filterQueryMatch("from dash lens-routes", commitFilterFields(joined, ["message"]))).toBe(true);
+    expect(filterQueryMatch("^lens-routes", commitFilterFields(joined, ["message"]))).toBe(true);
     expect(filterQueryMatch("lens-routes", commitFilterFields(joined, ["detail", "files"]))).toBe(false);
     // A hand commit has no attribution to match — and the trailer's own
     // `tugdash/` ref prefix is plumbing, not something the row ever shows.

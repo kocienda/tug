@@ -314,7 +314,9 @@ fn resolve_ladder(
         // replayed rounds with the draft never read — a replay is trivially
         // clean whenever the base has not moved, so the probe answered first
         // and this arm was unreachable for very nearly every dash that joined.
-        let msg = integrate_message(repo, name, &branch, None);
+        // The candidate is an intermediate the join re-composes its own message
+        // over, so the session it names is the running process's if it has one.
+        let msg = integrate_message(repo, name, &branch, None, None);
         let candidate = commit_tree(repo, &cand_tree, &base_head, &msg)?;
         return Ok(ResolveOutcome {
             conflict_record: None,
@@ -356,7 +358,7 @@ fn resolve_ladder(
         });
     }
 
-    let msg = integrate_message(repo, name, &branch, None);
+    let msg = integrate_message(repo, name, &branch, None, None);
 
     // Rungs 2–5, per file. A scratch tempdir holds the merge-file / driver
     // working files; the rerere rung has its own scratch worktree.

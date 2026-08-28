@@ -152,7 +152,7 @@ function rosterOnlyMatch(): { sha: string; token: string } {
 
 /**
  * The newest commit that landed as a dash join, and the dash it came from —
- * the row that wears a `from dash <name>` badge ([P09]).
+ * the row that wears a `^<name>` dash atom ([P09]).
  */
 function joinCommit(): { sha: string; name: string } | null {
   for (const line of gitOut([
@@ -352,9 +352,9 @@ describe.skipIf(!SHOULD_RUN)(
             expect(spread).toBeLessThan(1);
 
             // ── 3D. The dash attribution filters as part of the Message ───
-            // `Tug-Dash:` is a trailer on the message, and the badge is how the
-            // row states it — so the dash's name finds the commit, and the mark
-            // lands on the badge the reader is looking at.
+            // `Tug-Dash:` is a trailer on the message, and the dash atom is how
+            // the row states it — so the dash's name finds the commit, and the
+            // mark lands on the atom the reader is looking at.
             const join = joinCommit();
             if (join !== null) {
               await app.evalJS(
@@ -377,7 +377,7 @@ describe.skipIf(!SHOULD_RUN)(
                   return { text: el.textContent, mark: m ? m.textContent : "" };
                 })()`,
               );
-              expect(badge.text).toContain(`from dash ${join.name}`);
+              expect(badge.text).toContain(`^${join.name}`);
               expect(badge.mark.length).toBeGreaterThan(0);
               expect(join.name).toContain(badge.mark);
             }
