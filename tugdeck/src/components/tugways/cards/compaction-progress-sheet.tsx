@@ -14,11 +14,21 @@
  * The store transitions (begin → succeed/cancel/fail → clear) decide what shows
  * and when it dismisses: the card raises the closing bulletin off the terminal
  * `outcome`, then `clear`s the store; this component watches for that and
- * dismisses the host sheet. A close that arrives from anywhere else — Escape,
- * Cmd-., a host unmount while the sheet is open — dismisses this surface and
- * leaves the run alone; the card's watcher settles it either way. Nothing may
- * read "the sheet went away" as "the user canceled" (see the `compact` handler
- * in `session-card.tsx` for what that cost).
+ * dismisses the host sheet.
+ *
+ * The sheet is opened **exclusive**, so the card is held for the length of the
+ * run: another `showSheet` on this card is refused rather than superseding it,
+ * Escape and Cmd-. do not dismiss, and the pane's title-bar controls read
+ * disabled. Every one of those refusals arrives here as {@link nudgeRef}, which
+ * flashes the line beneath the bar — one voice for the whole card, standing
+ * where the user is already looking rather than on a surface behind the scrim.
+ *
+ * What still dismisses this surface is the pair that belongs to the run: the
+ * store clearing, and the host unmounting (a cross-pane card move, a card
+ * remount on window restore). The run outlives both — the card's watcher is
+ * subscribed to the store, not to this sheet — and nothing may read "the sheet
+ * went away" as "the user canceled" (see the `compact` handler in
+ * `session-card.tsx` for what that cost).
  *
  * Laws: [L02] store state via `useSyncExternalStore`; [L06] appearance via
  *       CSS / the TugProgressIndicator's own DOM attributes; [L20] composed
@@ -36,6 +46,9 @@ import { compactionProgressStore } from "@/lib/compaction-progress-store";
 
 import "./compaction-progress-sheet.css";
 
+/** What every refused door on a compacting card says. */
+export const COMPACTION_REFUSAL_TEXT = "Compacting — press Cancel to stop";
+
 export interface CompactionProgressSheetProps {
   /**
    * The card whose run this sheet shows. The store holds one run per card —
@@ -50,12 +63,21 @@ export interface CompactionProgressSheetProps {
    * interrupt; [Q01] verifies Claude Code aborts it cleanly (session intact).
    */
   onCancel: () => void;
+  /**
+   * Filled in with this sheet's refusal flash while it is mounted, so the
+   * card's `exclusive.onRefused` can reach it. A ref rather than a prop
+   * because the direction is inward: the card opens the sheet and then needs
+   * to speak THROUGH it, and every door that gets refused — a superseded
+   * `showSheet`, an Escape, a ⌘W — is a gesture the card sees first.
+   */
+  nudgeRef: React.MutableRefObject<(() => void) | null>;
 }
 
 export function CompactionProgressSheet({
   cardId,
   close,
   onCancel,
+  nudgeRef,
 }: CompactionProgressSheetProps): React.ReactElement | null {
   const getProgress = React.useCallback(
     () => compactionProgressStore.getFor(cardId),
@@ -73,6 +95,28 @@ export function CompactionProgressSheet({
   }, [progress, close]);
 
   const cancelFocusGroup = React.useId();
+
+  // The refusal flash. The root carries `data-refused` and the CSS runs a
+  // one-shot fade on it ([L06] appearance through a DOM attribute, [L13]
+  // declarative motion in CSS). Removing the attribute and reading `offsetWidth`
+  // before re-adding it is what restarts the animation on a SECOND refused
+  // press — without the forced reflow the browser coalesces the two writes and
+  // the line never moves, which reads as the app ignoring the gesture, the
+  // exact failure the flash exists to prevent.
+  const rootRef = React.useRef<HTMLDivElement | null>(null);
+  React.useLayoutEffect(() => {
+    nudgeRef.current = () => {
+      const el = rootRef.current;
+      if (el === null) return;
+      el.removeAttribute("data-refused");
+      void el.offsetWidth;
+      el.setAttribute("data-refused", "");
+    };
+    return () => {
+      nudgeRef.current = null;
+    };
+  }, [nudgeRef]);
+
   // Cancel only while the run is in flight — once it settles there is nothing
   // left to interrupt (the sheet is about to dismiss).
   const cancelable = progress !== null && progress.outcome === null;
@@ -85,7 +129,11 @@ export function CompactionProgressSheet({
   const settled = progress.outcome !== null;
 
   return (
-    <div className="compaction-progress-sheet" data-slot="compaction-progress">
+    <div
+      ref={rootRef}
+      className="compaction-progress-sheet"
+      data-slot="compaction-progress"
+    >
       {/* Indeterminate bar — the run is opaque (nothing streams until the
           boundary), so there is no determinate fraction to honor. Omitting
           `value` runs the variant's indeterminate motion. The sheet title
@@ -118,6 +166,17 @@ export function CompactionProgressSheet({
           </TugPushButton>
         </div>
       ) : null}
+      {/* The refusal line, always rendered and at rest invisible — a message
+          that mounts on refusal would move the sheet's other rows the moment it
+          appeared. `role="status"` is what makes it reach a reader that cannot
+          see the flash. */}
+      <p
+        className="compaction-progress-sheet-refusal"
+        role="status"
+        data-testid="compaction-refusal"
+      >
+        {COMPACTION_REFUSAL_TEXT}
+      </p>
     </div>
   );
 }

@@ -108,6 +108,12 @@ import { beginResizeEpisode } from "@/lib/resize-episode";
 import { composePaneTitleBarText } from "@/lib/pane-title";
 import { paneTitleBarItemsStore } from "@/lib/pane-title-bar-items-store";
 import {
+  cardModalHoldStore,
+  isCardHeld,
+  refuseCardModalHold,
+  useCardModalHold,
+} from "@/lib/card-modal-hold-store";
+import {
   TugPopupMenu,
   type TugPopupMenuEntry,
 } from "@/components/tugways/internal/tug-popup-menu";
@@ -247,6 +253,15 @@ export interface CardTitleBarProps {
    * close time so the guards always reflect current cards.
    */
   resolveCloseGuard?: (scope: "active" | "pane") => CardCloseDecision | null;
+  /**
+   * Resolve which card, if any, is held by a modal run and therefore refuses
+   * to be closed — the id of the holder, or `null` when the gesture may
+   * proceed. `"active"` asks about the active card; `"pane"` asks about every
+   * hosted card, because the gestures with that scope kill all of them. Called
+   * live at close time, like {@link resolveCloseGuard} beside it, and consulted
+   * ahead of it: a card that is not closable has no save decision to make.
+   */
+  resolveModalHold?: (scope: "active" | "pane") => string | null;
   /**
    * Whether the X button (and the imperative `requestClose()` handle)
    * routes through the close-confirm popover. When `false`, X-click and
@@ -398,6 +413,7 @@ function CardTitleBar({
   widthPreset,
   cardCount = 1,
   resolveCloseGuard,
+  resolveModalHold,
   confirmClose = false,
   activeCardId,
   slotStack = EMPTY_SLOT_STACK,
@@ -447,6 +463,14 @@ function CardTitleBar({
     paneTitleBarItemsStore.subscribe,
     () => paneTitleBarItemsStore.get(activeCardId ?? null),
   );
+  // Whether the active card is held by a modal run — a `/compact` in flight
+  // behind its own sheet. The cluster below is deliberately ABOVE the pane's
+  // modal scrim, which is right for a picker and wrong for a run: a card whose
+  // only honest ways forward are the run settling and the user canceling it
+  // must not also offer a close box, a stack picker, and a rollup of verbs.
+  // While the hold stands the whole cluster reads disabled and the rollup does
+  // not unfurl; the bar itself is untouched, so the pane can still be dragged.
+  const modalHeld = useCardModalHold(activeCardId ?? null);
   // Sorted so the SHARED verbs anchor the trailing end of the card's own run,
   // in one order on every kind of card. See `SHARED_VERB_RANK`.
   const titleBarButtonItems = useMemo(
@@ -697,6 +721,17 @@ function CardTitleBar({
   // handle — Option-click bypasses it at the call site.
   const withCloseDecision = useCallback(
     (proceed: () => void, scope: "active" | "pane"): boolean => {
+      // A card held by a modal run is not closable, and the refusal comes
+      // first — ahead of the save guard, because there is nothing to decide
+      // about a card that is not going anywhere. The X is already disabled,
+      // so what arrives here is a route with no on-screen control to dim:
+      // ⌘W, Close All Card Tabs, the Lens's remote close box. The holder
+      // speaks the reason ([L31]).
+      const heldId = resolveModalHold?.(scope) ?? null;
+      if (heldId !== null) {
+        refuseCardModalHold(heldId);
+        return true;
+      }
       const decision = resolveCloseGuard?.(scope) ?? null;
       if (!decision) return false;
       if (guardRunningRef.current) return true;
@@ -707,7 +742,7 @@ function CardTitleBar({
       });
       return true;
     },
-    [resolveCloseGuard],
+    [resolveCloseGuard, resolveModalHold],
   );
 
   const handleClosePointerUp = useCallback(
@@ -842,6 +877,7 @@ function CardTitleBar({
       data-slot="tug-pane-title-bar"
       data-masthead={masthead !== null ? "true" : undefined}
       data-role={sidebar ? "sidebar" : undefined}
+      {...(modalHeld ? { "data-modal-hold": "" } : {})}
       onPointerDown={handleTitleBarPointerDown}
       data-testid="tug-pane-title-bar"
       // The title bar is an ACTIVATION/DRAG gesture surface, never a
@@ -1335,6 +1371,10 @@ function CardTitleBar({
                           : `Stack of ${badgeCount} cards`
                     }
                     data-testid="tug-pane-title-bar-stack-badge"
+                    // The badge is a door into the OTHER cards in this place —
+                    // showing one, splitting the column. A held card is not a
+                    // card to be navigated away from.
+                    disabled={modalHeld}
                   />
                 }
                 align="end"
@@ -1440,6 +1480,10 @@ function CardTitleBar({
                   onPointerDown={handleClosePointerDown}
                   onPointerUp={handleClosePointerUp}
                   onClick={handleCloseClick}
+                  // Nothing but the run's own settling or its Cancel takes a
+                  // held card down. Disabled rather than guarded, because a
+                  // dimmed box is an answer the eye gets before the press.
+                  disabled={modalHeld}
                   aria-label={
                     isMultiTab ? `Close pane (${cardCount} tabs)` : "Close card"
                   }
@@ -2268,6 +2312,10 @@ export function TugPane({
       [TUG_ACTIONS.CLOSE_TAB]: (event: ActionEvent) => {
         if (typeof event.value !== "string") return;
         const targetId = event.value;
+        // A tab whose card is held by a modal run stays. The tab × is the one
+        // close gesture that can name a card other than the active one, so it
+        // asks the store about ITS target rather than about whatever is front.
+        if (refuseCardModalHold(targetId)) return;
         // The tab × is a close gesture like the pane X — it must honour the
         // target card's close guard rather than destroy a dirty manual File
         // card silently. A card that opts out (e.g. the Session card's
@@ -2351,6 +2399,29 @@ export function TugPane({
       () => cardTitleStore.getMasthead(activeCardId ?? null),
       [activeCardId],
     ),
+  );
+
+  // Which hosted card, if any, is held by a modal run — the same shape as
+  // `resolveCloseGuard` below and read at the same moment, live at close time
+  // ([L07]). `"pane"` scans every hosted card because the gestures carrying
+  // that scope take all of them: a background tab compacting is as good a
+  // reason to refuse as the front one is.
+  const resolveModalHold = useCallback(
+    (scope: "active" | "pane"): string | null => {
+      const holds = cardModalHoldStore.getSnapshot();
+      const activeId = activeCardIdRef.current;
+      if (scope === "active") {
+        return isCardHeld(holds, activeId) ? (activeId ?? null) : null;
+      }
+      const ids = [
+        ...(activeId ? [activeId] : []),
+        ...(cardsRef.current ?? [])
+          .map((c) => c.id)
+          .filter((id) => id !== activeId),
+      ];
+      return ids.find((id) => isCardHeld(holds, id)) ?? null;
+    },
+    [],
   );
 
   // Resolve the close decision for a close gesture, live at close time;
@@ -4310,6 +4381,7 @@ export function TugPane({
               : {})}
             cardCount={cards?.length ?? 1}
             resolveCloseGuard={resolveCloseGuard}
+            resolveModalHold={resolveModalHold}
             confirmClose={paneConfirmClose}
             activeCardId={activeCardId}
             slotStack={slotStack}

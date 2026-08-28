@@ -84,6 +84,15 @@
  *   Promise API adapters (`alert()`, `useTugSheet()`) can resolve
  *   from a single chain handler.
  *
+ * - **Exclusive** (a sheet opened with `exclusive`): modal, plus the
+ *   keyboard exits removed. A sheet covering a RUN rather than a
+ *   decision takes its card's modal hold (`lib/card-modal-hold-store`)
+ *   while open, and Escape, Cmd+., a later `showSheet` on the same
+ *   host, and the pane's close routes are all refused through the
+ *   holder's own `onRefused` rather than acting. The `close(result)`
+ *   callback handed to the sheet's content is the run's door and is
+ *   untouched, so completion and the sheet's own Cancel still work.
+ *
  * - **Pinned** (`tug-placard`): non-blocking like a popover, but
  *   stays open until the user explicitly closes it with the panel's
  *   `×` — no click-outside, no Escape, no card-deactivation dismissal.

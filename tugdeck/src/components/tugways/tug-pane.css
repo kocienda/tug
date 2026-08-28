@@ -1009,6 +1009,27 @@ body {
 }
 
 /*
+ * A card held by a modal run — a `/compact` behind its own sheet — offers no
+ * verbs. The row does not unfurl for a pointer, for a held menu, or for a
+ * keyboard walk, and the mark it hides behind reads disabled beside the two
+ * controls flanking it, which the title bar renders `disabled` outright.
+ *
+ * `display: none` on the row rather than the `opacity: 0` the resting state
+ * uses, and the difference is the tab order: a row hidden by opacity still
+ * takes focus, and `:focus-within` above would then reveal it — a walk into a
+ * cluster the card is refusing would open the one thing the refusal is for.
+ * The measured-width argument the resting state rests on does not apply here:
+ * nothing is about to unfurl.
+ */
+.tug-pane-title-bar[data-modal-hold] .tug-pane-title-bar-rollup-row {
+  display: none;
+}
+
+.tug-pane-title-bar[data-modal-hold] .tug-pane-title-bar-rollup-mark {
+  opacity: var(--tugx-control-disabled-opacity);
+}
+
+/*
  * The icon follows the title-bar button's theme-aware text color in every
  * state. The shared ghost-action svg rules in tug-button.css pin the icon to
  * --tug7-element-control-icon-ghost-action-{hover,active} on interaction, which

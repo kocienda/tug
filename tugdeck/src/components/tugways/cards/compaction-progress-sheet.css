@@ -29,3 +29,46 @@
 .compaction-progress-sheet .tug-sheet-actions {
   margin-top: 0;
 }
+
+/* The refusal line — what a card held by this run says to every door pressed
+   while it stands: a superseded sheet, an Escape, a ⌘W. Always in the layout
+   and at rest invisible, so a flash never shifts the bar or the button above
+   it, and `visibility` rather than `display` for the same reason.
+
+   The flash is one CSS animation keyed on `data-refused` ([L06] appearance
+   through an attribute, [L13] declarative motion in CSS). A second refused
+   press restarts it — the component removes the attribute and forces a reflow
+   before re-adding it, which is what makes a repeated gesture visibly answered
+   rather than silently swallowed. */
+/* @tug-renders-on: --tug7-surface-global-primary-normal-overlay-rest */
+.compaction-progress-sheet-refusal {
+  margin: var(--tug-space-2xs) 0 0;
+  font-size: var(--tug-font-size-2xs);
+  color: var(--tug7-element-global-text-normal-muted-rest);
+  text-align: center;
+  opacity: 0;
+  visibility: hidden;
+}
+
+.compaction-progress-sheet[data-refused] .compaction-progress-sheet-refusal {
+  animation: compaction-refusal-flash 3.2s ease-in-out forwards;
+}
+
+@keyframes compaction-refusal-flash {
+  0% {
+    opacity: 0;
+    visibility: visible;
+  }
+  8% {
+    opacity: 1;
+    visibility: visible;
+  }
+  75% {
+    opacity: 1;
+    visibility: visible;
+  }
+  100% {
+    opacity: 0;
+    visibility: hidden;
+  }
+}

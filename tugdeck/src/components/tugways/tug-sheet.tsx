@@ -42,6 +42,17 @@
  * onOpenChange directly. Consumer buttons must provide their own
  * close path (e.g., via the imperative ref) in that case.
  *
+ * ## Exclusive sheets — the cover of a run
+ *
+ * A sheet opened with `exclusive` (see {@link SheetExclusivity}) is not
+ * dismissible from any of the paths above. It takes the host card's
+ * modal hold while it stands, so a later `showSheet` on this host is
+ * refused instead of superseding it, Escape and Cmd+. report the run's
+ * own refusal, and the pane's chrome reads the hold and renders its
+ * controls disabled. The two doors that still work are the ones that
+ * belong to the run: the `close(result)` callback handed to the sheet's
+ * content, and the host unmounting.
+ *
  * ## No observeDispatch subscription — pane-modal semantics
  *
  * Like TugAlert, TugSheet is modal (pane-scoped via the pane's
@@ -85,10 +96,15 @@ import { createPortal } from "react-dom";
 import * as FocusScopeRadix from "@radix-ui/react-focus-scope";
 import { TugPaneFrameContext, TugPanePortalContext } from "@/components/chrome/tug-pane";
 import { CardIdContext } from "@/lib/card-id-context";
+import {
+  cardModalHoldStore,
+  refuseCardModalHold,
+} from "@/lib/card-modal-hold-store";
 import { useSheetLifecycle } from "@/lib/sheet-lifecycle";
 import { group } from "@/components/tugways/tug-animator";
 import { useTugPaneScrim } from "@/components/tugways/use-tug-pane-scrim";
 import { usePaneInert } from "@/components/tugways/use-pane-inert";
+import type { ActionEvent } from "./responder-chain";
 import { useResponderChain } from "./responder-chain-provider";
 import { useOptionalResponder } from "./use-responder";
 import { useFocusTrap } from "./use-focus-trap";
@@ -564,6 +580,51 @@ export type TugSheetIconRole =
   | "data"
   | "success";
 
+/* ---------------------------------------------------------------------------
+ * Exclusivity
+ * ---------------------------------------------------------------------------*/
+
+/**
+ * What a sheet declares when it covers a **run** rather than a decision.
+ *
+ * An ordinary sheet is dismissible from every direction, and that is right: a
+ * picker the user opened costs nothing to abandon, another `showSheet` may
+ * supersede it, and closing the card takes it with everything else. A run — a
+ * `/compact` that will go on for minutes whether or not anything is watching —
+ * wants the opposite. While it stands there are exactly two honest ways
+ * forward, the run settling and the user canceling it, and every other door is
+ * a way to lose sight of work that is still going.
+ *
+ * A sheet opened with this takes its card's modal hold for as long as it is
+ * open (see `lib/card-modal-hold-store`). Escape, ⌘., a later `showSheet` on
+ * the same host, and the pane's own close routes all find the hold and report
+ * {@link onRefused} instead of acting. What still works is exactly the pair
+ * that should: the `close(result)` callback handed to the sheet's content, and
+ * the host unmounting — because the run's lifetime was never the sheet's, and
+ * a card moved between panes must not strand a hold on a sheet that no longer
+ * exists.
+ */
+export interface SheetExclusivity {
+  /** Why the card is refusing, in the holder's own wording. */
+  reason: string;
+  /**
+   * Speak the refusal. Called with no argument for every door pressed while
+   * the sheet stands, so the answer comes from the run rather than from
+   * whichever piece of chrome was touched ([L31]).
+   */
+  onRefused: () => void;
+}
+
+/**
+ * The `ActionEvent.value` a `CANCEL_DIALOG` must carry to dismiss an exclusive
+ * sheet. The hook's own `close(result)` callback carries it; Escape, ⌘., and a
+ * content-side `useTugSheetClose()` do not, which is what tells the sheet's
+ * responder handler a dismissal from the run apart from one from the user.
+ * Module-private on purpose — the only legitimate dismissal is the one the
+ * sheet's content was handed.
+ */
+const SHEET_SETTLED_DISMISS = "tug-sheet:settled";
+
 export interface TugSheetContentProps {
   /**
    * Sheet title (required — renders in header row, wired to aria-labelledby).
@@ -607,6 +668,13 @@ export interface TugSheetContentProps {
    * threads. See `lib/sheet-lifecycle.ts` for the full contract.
    */
   getResult?: () => string | undefined;
+  /**
+   * Declare this sheet the cover of a **run**: it takes the host card's modal
+   * hold while open, and every dismissal that is not the content's own
+   * `close(result)` is refused through {@link SheetExclusivity.onRefused}.
+   * Omit for an ordinary sheet. See {@link SheetExclusivity}.
+   */
+  exclusive?: SheetExclusivity;
   /**
    * Stable opaque sender id for chain dispatches. Auto-derived via
    * `useId()` if omitted. Parent responders disambiguate multi-sheet
@@ -775,6 +843,7 @@ export function TugSheetContent({
   description,
   onOpenAutoFocus,
   getResult,
+  exclusive,
   senderId: senderIdProp,
   presentation = "scale-fade",
   displayWidth = "sm",
@@ -830,12 +899,49 @@ export function TugSheetContent({
     onOpenChange(false);
   }, [onOpenChange]);
 
+  // Exclusivity, live at dispatch time rather than through the callbacks below
+  // ([L07]): `requestCancel` and the responder handler are registered once and
+  // outlive any number of renders, and a run that settles mid-gesture must not
+  // be refused by a closure holding the value it had at registration.
+  const exclusiveRef = useRef<SheetExclusivity | undefined>(exclusive);
+  exclusiveRef.current = exclusive;
+
+  // The card this sheet stands in — the key its modal hold is filed under.
+  // `null` outside a card host (gallery previews, standalone harnesses), where
+  // there is no card to hold and exclusivity is inert.
+  const holdCardId = useContext(CardIdContext);
+
+  // Take the hold for exactly as long as the sheet is open — the same span the
+  // pane scrim and the body's `inert` cover, because the three answer the same
+  // question from three directions. `useLayoutEffect` so the hold is filed
+  // before the browser paints the sheet ([L03]), and the release is returned by
+  // the acquisition rather than mirrored elsewhere ([L27]), which is what makes
+  // the unmount-while-open path — a card dragged to another pane mid-run —
+  // leave nothing behind.
+  useLayoutEffect(() => {
+    if (!open || exclusive === undefined || holdCardId === null) return;
+    return cardModalHoldStore.hold(holdCardId, {
+      reason: exclusive.reason,
+      refuse: () => exclusiveRef.current?.onRefused(),
+    });
+  }, [open, exclusive, holdCardId]);
+
   // The sheet's cancel request: dispatch `CANCEL_DIALOG` to the sheet's own
   // responder id (so the walk starts inside the sheet regardless of current
   // first-responder state), or call `closeSheet` directly with no provider. Both
   // the engine's Escape ladder (registered as the trap's `onEscapeDismiss`) and
   // the ⌘. keydown route through here — one owner for "the user asked to cancel."
   const requestCancel = useCallback(() => {
+    // An exclusive sheet has no keyboard exit. Refuse here, BEFORE the
+    // dispatch, rather than in the responder handler below: a dispatch that
+    // reached the chain would be seen by `useTugSheet`'s observer, which
+    // resolves the pending promise on any `cancelDialog` carrying its sender —
+    // leaving the caller told its sheet had closed while the sheet stood.
+    const held = exclusiveRef.current;
+    if (held !== undefined) {
+      held.onRefused();
+      return;
+    }
     if (manager) {
       manager.sendToTarget(responderId, {
         action: TUG_ACTIONS.CANCEL_DIALOG,
@@ -855,7 +961,19 @@ export function TugSheetContent({
   const { ResponderScope, responderRef } = useOptionalResponder({
     id: responderId,
     actions: {
-      [TUG_ACTIONS.CANCEL_DIALOG]: closeSheet,
+      // An exclusive sheet closes for its own run and for nothing else. The
+      // dismissal the hook's `close(result)` performs carries
+      // `SHEET_SETTLED_DISMISS`; a cancel arriving from anywhere else — a
+      // content-side `useTugSheetClose()`, a stray chain dispatch — is the
+      // user asking to leave, and gets the run's answer instead ([L31]).
+      [TUG_ACTIONS.CANCEL_DIALOG]: (event: ActionEvent) => {
+        const held = exclusiveRef.current;
+        if (held !== undefined && event.value !== SHEET_SETTLED_DISMISS) {
+          held.onRefused();
+          return;
+        }
+        closeSheet();
+      },
     },
   });
 
@@ -1949,6 +2067,15 @@ export interface ShowSheetOptions {
    * status bar. See {@link TugSheetContentProps.bottomAnchorSelector}.
    */
   bottomAnchorSelector?: string;
+  /**
+   * Present this sheet as the cover of a **run**: it takes the host card's
+   * modal hold while it stands, so a later `showSheet` on this host is refused
+   * rather than superseding it, and Escape / ⌘. report the run's refusal
+   * instead of dismissing. The `close(result)` callback handed to
+   * {@link content} is unaffected — it is how the run dismisses its own sheet.
+   * See {@link SheetExclusivity}.
+   */
+  exclusive?: SheetExclusivity;
 }
 
 interface UseTugSheetState {
@@ -2160,6 +2287,13 @@ export function useTugSheet(): {
   const lastResultRef = useRef<string | undefined>(undefined);
   const manager = useResponderChain();
 
+  // The card this host stands in, held in a ref because `showSheet` is a
+  // stable callback that must read the CURRENT card at call time ([L07]).
+  // `null` outside a card host, where no hold can exist and nothing is refused.
+  const hostCardId = useContext(CardIdContext);
+  const hostCardIdRef = useRef<string | null>(hostCardId);
+  hostCardIdRef.current = hostCardId;
+
   // Stable senderId scoped to this hook call. Passed down to the
   // TugSheetContent rendered by `renderSheet`, and used as the filter
   // key for the observeDispatch subscription below so the hook only
@@ -2207,6 +2341,17 @@ export function useTugSheet(): {
   }, [state, manager, senderId, resolveHook]);
 
   const showSheet = useCallback((options: ShowSheetOptions): Promise<string | undefined> => {
+    // A card held by a run does not take a second sheet. This host is the one
+    // every sheet on the card shares, so without the check `/usage` would not
+    // open OVER a compaction sheet — it would REPLACE it, and dismissing the
+    // usage sheet would leave the card looking like the run had been dismissed
+    // too. Resolve rather than reject: `undefined` is the value every
+    // non-committing close already yields, so a caller awaiting the result
+    // reads a refusal the same way it reads an Escape, and nothing hangs. The
+    // holder speaks the reason ([L31]).
+    if (refuseCardModalHold(hostCardIdRef.current)) {
+      return Promise.resolve(undefined);
+    }
     // A showSheet() while a prior sheet is still pending supersedes it.
     // Resolve the superseded promise with `undefined` (the same "no
     // explicit result" value an Escape dismissal yields) before adopting
@@ -2249,6 +2394,10 @@ export function useTugSheet(): {
         manager.sendToTarget(responderId, {
           action: TUG_ACTIONS.CANCEL_DIALOG,
           sender: senderId,
+          // The token an exclusive sheet's responder requires. This callback is
+          // the run's own door — the one the sheet's content was handed — and
+          // it is the only dismissal that carries it.
+          value: SHEET_SETTLED_DISMISS,
           phase: "discrete",
         });
       } else {
@@ -2284,6 +2433,7 @@ export function useTugSheet(): {
           aspectLockContent={options.aspectLockContent}
           hideHeader={options.hideHeader}
           hideHeaderRule={options.hideHeaderRule}
+          exclusive={options.exclusive}
           onCommitDisposition={options.onCommitDisposition}
           bottomAnchorSelector={options.bottomAnchorSelector}
         >

@@ -290,7 +290,10 @@ import {
 } from "../tug-pane-bulletin";
 import { lastAssistantCopyText } from "./turn-entry-markdown";
 import { compactionProgressStore } from "@/lib/compaction-progress-store";
-import { CompactionProgressSheet } from "./compaction-progress-sheet";
+import {
+  COMPACTION_REFUSAL_TEXT,
+  CompactionProgressSheet,
+} from "./compaction-progress-sheet";
 import { useSessionsDataSource } from "@/lib/session-picker-data-source";
 import {
   PickerCellProvider,
@@ -4208,14 +4211,30 @@ export function SessionCardBody({
       // showing an ordinary in-flight turn, which Stop / Escape can interrupt if
       // that is what the user actually wants.
       compactionProgressStore.begin(cardId);
+      // The sheet is EXCLUSIVE, so the card is held for the length of the run:
+      // this host is the one every sheet on the card shares, and without the
+      // hold a `/usage` would not open over this sheet — it would replace it,
+      // and dismissing the usage sheet would leave the card looking like the
+      // compaction had been dismissed too, while it compacted on. Escape, ⌘.,
+      // ⌘W, and the title bar's controls are refused on the same terms. Every
+      // one of those refusals flashes the sheet's own line, because the run is
+      // what is refusing and the sheet is where the user is looking ([L31]).
+      const nudgeRef: React.MutableRefObject<(() => void) | null> = {
+        current: null,
+      };
       void cardPickerSheet.showSheet({
         title: "Compacting",
         icon: "Archive",
+        exclusive: {
+          reason: COMPACTION_REFUSAL_TEXT,
+          onRefused: () => nudgeRef.current?.(),
+        },
         content: (close) => (
           <CompactionProgressSheet
             cardId={cardId}
             close={close}
             onCancel={onCancel}
+            nudgeRef={nudgeRef}
           />
         ),
       });
