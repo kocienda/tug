@@ -954,6 +954,14 @@ export function createInitialState(
 // ---------------------------------------------------------------------------
 
 /**
+ * The notice origin that names the wheel — the one sender of an injected
+ * submission that is a participant in the transcript rather than an anonymous
+ * subsystem. Matches `WHEEL_NOTICE_ORIGIN` in tugcast's arc runner, which is
+ * what puts it on the wire.
+ */
+const WHEEL_NOTICE_ORIGIN = "wheel";
+
+/**
  * Who wrote a submission: the sender the event names, else the user.
  *
  * One reading for every mint site, so a `UserMessage`'s attribution is a fact
@@ -5131,14 +5139,26 @@ function handleAddUserMessage(
  * Server-originated turn opener — the reducer's response to a wire
  * `tug_notice`.
  *
- * Tug injected a submission into this session (the base-motion engine does,
- * when a dash's base moves under it), and this is what makes that turn
- * visible: an `origin: assistant` turn seeded with one `notice` system_note
- * carrying the injected body. Assistant-originated, not user-originated —
- * attributing Tug's words to the user would put them in the user's mouth in
- * their own transcript.
+ * Tug injected a submission into this session, and this is what makes that
+ * turn visible. Who gets credit for the words depends on whether the sender
+ * is somebody the transcript can name.
  *
- * Admitted only from `idle`, which is the only state the engine's gate ever
+ * The **wheel** is. It is a participant — the thing steering an arc, with its
+ * own name and its own mark in the transcript — so a prompt it sends opens a
+ * `wheel` turn holding a `user_message` the wheel wrote, exactly as a typed
+ * prompt opens a `user` turn. This is the same path a stage's opening prompt
+ * already takes through {@link handleStageNote}, and it is here so that the
+ * arc's later prompts (a continued implement range, a `/compact`) read as the
+ * same voice that opened it. Rendered as a quoted note instead, the wheel
+ * stopped being the thing driving the session and became something the
+ * session was quoting.
+ *
+ * Every other origin is not a participant, and its notice stays what it was:
+ * an `origin: assistant` turn seeded with one `notice` system_note. Nameless
+ * words must not be attributed to the user — that would put them in the
+ * user's mouth in their own transcript.
+ *
+ * Admitted only from `idle`, which is the only state an injecting gate ever
  * injects into. On reload the JSONL records the injection as an ordinary user
  * entry, so the replay translator renders the same text as a user row; the two
  * are two renderings of one submission and never both appear.
@@ -5153,6 +5173,27 @@ function handleTugNotice(
   const text = typeof event.text === "string" ? event.text : "";
   if (text.length === 0) {
     return { state, effects: [] };
+  }
+  if (event.origin === WHEEL_NOTICE_ORIGIN) {
+    // The wheel composed this prompt, so a leading `/command` in it was
+    // *invoked*, not written about, and earns the command atom the composer
+    // mints for a typed one. `content` keeps the raw prompt: it records what
+    // the sender already put on the wire. The `send-frame` effect is dropped
+    // for that same reason — tugcast dispatched the submission itself, and
+    // this event is only its arrival.
+    const minted = mintLeadingCommandAtom(text, [], TUG_ATOM_CHAR);
+    const opened = handleSend(state, {
+      type: "send",
+      origin: "wheel",
+      text: minted?.text ?? text,
+      atoms: minted?.atoms ?? [],
+      content: [{ type: "text", text }],
+      turnKey: event.turnKey,
+    } as SendActionEvent);
+    return {
+      state: opened.state,
+      effects: opened.effects.filter((e) => e.kind !== "send-frame"),
+    };
   }
   const submitAt = event.timestamp ?? Date.now();
   const note: SystemNote = {

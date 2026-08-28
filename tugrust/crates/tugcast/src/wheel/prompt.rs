@@ -205,8 +205,7 @@ mod tests {
 
         let everything = compose(ASK, &paths, &commits, Some(("review", "api error")));
         assert!(
-            everything.find("citations:").unwrap()
-                < everything.find("what changed").unwrap(),
+            everything.find("citations:").unwrap() < everything.find("what changed").unwrap(),
             "the citations come before what moved in them"
         );
         assert!(everything.contains("stopped in review — api error"));

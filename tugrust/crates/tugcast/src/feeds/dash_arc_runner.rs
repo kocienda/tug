@@ -650,10 +650,13 @@ fn opening_prompt(reading: &ArcReading, rotation: &Rotation) -> Option<String> {
     ))
 }
 
-/// The origin a wheel-sent prompt's notice row is attributed to.
+/// The origin a wheel-sent prompt is attributed to.
 ///
-/// The deck maps it to the Wheel participant's own label, which is what makes
-/// a turn Tug started itself legible as Tug's rather than the user's.
+/// The wheel is a participant in the transcript, not a subsystem announcing
+/// itself, so the deck opens a `wheel` turn on this frame and the prompt
+/// speaks in a row of the wheel's own — the same shape a typed prompt gets,
+/// under the wheel's name. Any other origin gets a quiet note instead, because
+/// a sender the reader cannot name has no row to speak from.
 const WHEEL_NOTICE_ORIGIN: &str = "wheel";
 
 /// Send a prompt to the stage's own seated session, between turns.
@@ -662,9 +665,9 @@ const WHEEL_NOTICE_ORIGIN: &str = "wheel";
 /// through the dispatcher. Journaling is not rendering — the dispatcher's
 /// intercept makes the turn real to the server and to a later reload, but the
 /// live user row comes from the composer echoing its own submission, and the
-/// wheel has no composer. Without the opener the stage would start working
-/// with no visible cause, which is the unannounced server turn the doctrine
-/// forbids.
+/// wheel has no composer, so the opener is what puts the wheel's own row on
+/// screen. Without it the stage would start working with no visible cause,
+/// which is the unannounced server turn the doctrine forbids.
 async fn deliver_prompt(
     ctx: &ArcContext,
     state: &Arc<Mutex<HashMap<String, ArcState>>>,

@@ -84,7 +84,6 @@ import React, {
 import {
   AlarmClock,
   Megaphone,
-  ShipWheel,
   Milestone,
   Bell,
   CircleDashed,
@@ -1286,6 +1285,12 @@ const CodeRowBody: React.FC<CodeRowBodyProps> = ({
         // that follows has a visible cause and the words are not read as
         // the user's. Same quiet-line substrate as the wake chip above;
         // appearance is CSS-only ([L06]).
+        //
+        // Only a nameless sender arrives here. The wheel is a participant
+        // rather than a subsystem, so its prompts open a `wheel` turn and
+        // speak in a `#u` row of their own — see `handleTugNotice`. A quiet
+        // line would have made the thing steering the arc read as something
+        // the session was quoting.
         elements.push(
           <div
             key={message.messageKey}
@@ -1294,18 +1299,8 @@ const CodeRowBody: React.FC<CodeRowBodyProps> = ({
             data-notice-origin={message.noticeOrigin ?? "tug"}
           >
             <TugQuietLine
-              icon={
-                message.noticeOrigin === "wheel" ? (
-                  <ShipWheel size={16} aria-hidden="true" />
-                ) : (
-                  <Megaphone size={16} aria-hidden="true" />
-                )
-              }
-              label={
-                message.noticeOrigin === "wheel"
-                  ? WHEEL_IDENTIFIER
-                  : (message.noticeOrigin ?? "tug")
-              }
+              icon={<Megaphone size={16} aria-hidden="true" />}
+              label={message.noticeOrigin ?? "tug"}
               subject={
                 <TugMarkdownBlock
                   key={`md-${message.text.length}`}

@@ -56,6 +56,16 @@ const STAGE_PROMPT =
 const STAGE_PROMPT_ARGS = "a plan for .tug/dashes/foo/brief.md";
 // Every stage after devise names the dash, never a path.
 const REVIEW_PROMPT = "/tugplug:dash-review foo";
+/**
+ * A prompt the arc sends MID-session — a continued implement range. It does
+ * not rotate anything, so it arrives as a bare `tug_notice` rather than
+ * behind a `session_segment`.
+ */
+const CONTINUE_PROMPT =
+  "/tugplug:dash-implement foo Steps 4-13 — close one step and end your turn";
+const CONTINUE_PROMPT_ARGS = "Steps 4-13 — close one step and end your turn";
+/** The quiet-line row a nameless subsystem's notice gets. The wheel has a name. */
+const NOTICE_ROW = '[data-slot="tug-notice"]';
 const CODE_OUTPUT_FEED = 0x40; // FeedId.CODE_OUTPUT
 const TUG_SESSION_ID = "test-session-A"; // bindSession default
 const PROMPT = "write the brief";
@@ -221,6 +231,121 @@ describe.skipIf(!SHOULD_RUN)(
           expect(order).toContain("user");
           expect(order.indexOf("user")).toBeLessThan(order.indexOf("divider"));
 
+          const stillThere = await app.evalJS<boolean>(
+            `Array.from(document.querySelectorAll(${JSON.stringify(
+              USER_ROW,
+            )})).some((el) => (el.textContent || "").includes(${JSON.stringify(PROMPT)}))`,
+          );
+          expect(stillThere).toBe(true);
+
+          process.stdout.write("VERDICT: PASS\n");
+        } catch (err) {
+          process.stdout.write("VERDICT: FAIL\n");
+          const tail = app.tailLog(200);
+          if (tail !== "") process.stderr.write(`\n[at0474] log tail:\n${tail}\n`);
+          throw err;
+        } finally {
+          await app.close();
+        }
+      },
+      TEST_TIMEOUT_MS,
+    );
+
+    test(
+      "the arc's mid-session prompt speaks in the wheel's own row, not as a quote",
+      async () => {
+        // Not every prompt the arc sends rotates a session. Once a stage is
+        // seated, the arc keeps prompting the SAME session — the next step
+        // range, a `/compact` — and those arrive as a bare `tug_notice`
+        // carrying `origin: "wheel"`, with no `session_segment` in front.
+        //
+        // They are the same voice as the prompt that opened the stage, so
+        // they get the same row. Rendered as a quiet-line note instead, the
+        // wheel stopped being the thing steering the session and became
+        // something the session was quoting: the prompt that opened the stage
+        // read as the wheel talking, and every prompt after it read as a
+        // citation of somebody who was no longer in the room.
+        const app = await launchTugApp({ testName: "at0474-wheel-mid-session" });
+        try {
+          await app.enableDeckTrace(true);
+          await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
+          await app.waitForCondition<boolean>(
+            `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
+            { timeoutMs: 30_000 },
+          );
+          await app.bindSession("A", { projectDir });
+          await app.awaitEngineReady("A", { timeoutMs: 30_000 });
+
+          // A turn has to be closed for the arc to prompt at all: it sends
+          // between turns, never into one.
+          await app.driveSession("A", { op: "send", text: PROMPT, atoms: [] });
+          await app.waitForCondition<boolean>(
+            `document.querySelectorAll(${JSON.stringify(USER_ROW)}).length > 0`,
+            { timeoutMs: 6000 },
+          );
+          await app.driveSession("A", {
+            op: "ingestFrame",
+            feedId: CODE_OUTPUT_FEED,
+            decoded: {
+              type: "assistant_text",
+              tug_session_id: TUG_SESSION_ID,
+              msg_id: "m1",
+              block_index: 0,
+              text: "step 3 done",
+              is_partial: false,
+            },
+          });
+          await app.driveSession("A", {
+            op: "ingestFrame",
+            feedId: CODE_OUTPUT_FEED,
+            decoded: {
+              type: "turn_complete",
+              tug_session_id: TUG_SESSION_ID,
+              msg_id: "m1",
+              result: "success",
+            },
+          });
+
+          // The arc's next prompt, exactly as tugcast announces it.
+          await app.driveSession("A", {
+            op: "ingestFrame",
+            feedId: CODE_OUTPUT_FEED,
+            decoded: {
+              type: "tug_notice",
+              tug_session_id: TUG_SESSION_ID,
+              origin: "wheel",
+              text: CONTINUE_PROMPT,
+            },
+          });
+
+          await app.waitForCondition<boolean>(
+            `document.querySelector(${JSON.stringify(WHEEL_ROW)}) !== null`,
+            { timeoutMs: 6000 },
+          );
+          const wheelRow = await app.evalJS<string>(
+            `(document.querySelector(${JSON.stringify(WHEEL_ROW)})||{}).textContent || ""`,
+          );
+          expect(wheelRow).toContain("Wheel");
+          expect(wheelRow).toContain(CONTINUE_PROMPT_ARGS);
+          expect(wheelRow, "nobody typed it").not.toContain("You");
+
+          // The arc invoked a command, so the row shows the chip a typed
+          // command earns — the same treatment the stage opener gets.
+          const chipLabel = await app.evalJS<string>(
+            `(document.querySelector(${JSON.stringify(
+              `${WHEEL_ROW} [data-atom-label]`,
+            )})||{ getAttribute: () => "" }).getAttribute("data-atom-label")`,
+          );
+          expect(chipLabel).toBe("tugplug:dash-implement");
+
+          // The claim: no quote anywhere. The wheel speaks; it is not quoted.
+          const quoted = await app.evalJS<number>(
+            `document.querySelectorAll(${JSON.stringify(NOTICE_ROW)}).length`,
+          );
+          expect(quoted, "the wheel is a participant, not a citation").toBe(0);
+
+          // And the turn above it is untouched — the prompt opened a new turn
+          // rather than being folded into the one that just ended.
           const stillThere = await app.evalJS<boolean>(
             `Array.from(document.querySelectorAll(${JSON.stringify(
               USER_ROW,
