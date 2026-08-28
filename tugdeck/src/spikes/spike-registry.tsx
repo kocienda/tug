@@ -42,6 +42,7 @@ import { spike as placeCoordinateSpike } from "./spike-place-coordinate";
 import { spike as cardChromeSpike } from "./spike-card-chrome";
 import { spike as modalHeadersSpike } from "./spike-modal-headers";
 import { spike as focusLanguageSpike } from "./spike-focus-language";
+import { spike as lightChromeSpike } from "./spike-light-chrome";
 
 /**
  * One design spike. The shape a spike file exports as `spike`.
@@ -114,6 +115,7 @@ export const SPIKES: readonly SpikeDef[] = [
   cardChromeSpike,
   modalHeadersSpike,
   focusLanguageSpike,
+  lightChromeSpike,
 ];
 
 /**

@@ -348,12 +348,19 @@ body {
  * Everything in this bar paints from `--tug7-element-global-*`, because a rail
  * has given up the tinted title band and its ground is the pane's own content
  * surface. The card-titlebar tokens (`--tugx-pane-title-fg-*`,
- * `--tugx-pane-title-bar-icon-*`) are authored against that TINT, which is a
- * saturated near-dark in the light themes — so in `harmony` the title ink is
- * `blue l:980`, near-white, and the first pass painted a near-white label,
- * glyph, and stripes onto a near-white rail. The bar was legible in the dark
- * themes and all but invisible in the light ones. A surface change is a token
- * FAMILY change; carrying the old family across is the whole of that bug.
+ * `--tugx-pane-title-bar-icon-*`) are authored against that TINT, which in the
+ * dark themes is a saturated near-dark carrying near-white ink — so the first
+ * pass painted a near-white label, glyph, and stripes onto a near-white rail.
+ * The bar was legible in the dark themes and all but invisible in the light
+ * ones. A surface change is a token FAMILY change; carrying the old family
+ * across is the whole of that bug.
+ *
+ * The light themes made the same mistake one tier UP, and have since been
+ * fixed: their C1 band was a mid-tone under light ink, so the card lid was the
+ * darkest thing on a light screen. It is now a pale tint of the Key hue under
+ * this same global family, which is why a light theme's rail and its title bar
+ * finally draw from one register. The rule did not change; a second surface
+ * stopped breaking it.
  *
  * ── The recede: one mechanism, not two ──
  * An unfocused pane is already dimmed deck-wide by the two blend layers on

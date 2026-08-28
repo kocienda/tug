@@ -1,0 +1,178 @@
+/**
+ * spike-light-chrome.css — the band, and the tuner's own furniture.
+ *
+ * The band is a set of TITLE-BAR TOKEN overrides on the preview root, because
+ * that is the shape the fix takes in a theme file. Nothing here styles a bar,
+ * a title, an icon, or a control: `tug-pane.css` and `masthead-frame.css` do
+ * all of that, off these tokens.
+ *
+ * Three knobs — `--sp-lc-l`, `--sp-lc-c`, `--sp-lc-off-l` — are written onto
+ * `.sp-lc-preview` by the card's slider effect. Their defaults live in the
+ * `var()` fallbacks at the point of use rather than in a declaration here, so
+ * the preview is already right on the first paint, before the effect runs.
+ *
+ * ── Why the unfocused pane restates the ACTIVE tokens ────────────────────
+ * `tug-pane.css` selects the focused state as `.tug-pane[data-focused="true"]
+ * .tug-pane-title-bar` — a DESCENDANT selector, matching any title bar with a
+ * focused pane anywhere above it. A fixture pane stands inside the spike
+ * card's own pane, which is focused whenever you are looking at it, so an
+ * unfocused fixture matches every active rule through its ancestor and the
+ * whole preview paints one color. The fixtures cannot opt out of a descendant
+ * selector, so an unfocused one ALIASES the active token family onto the
+ * inactive one and lets the ancestor's rule paint the right thing.
+ *
+ * @tug-pairings
+ * | Element                                           | Surface                                           | Role          | Context                  |
+ * |---------------------------------------------------|---------------------------------------------------|---------------|--------------------------|
+ * | --tug7-element-global-text-normal-muted-rest      | --tug7-surface-global-primary-normal-default-rest | informational | .sp-lc-body              |
+ * | --tug7-element-global-text-normal-default-rest    | --tug7-surface-global-primary-normal-raised-rest  | content       | .sp-lc-notice, .sp-lc-readout |
+ */
+
+/* ── The band ─────────────────────────────────────────────────────────── */
+
+.sp-lc-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+
+  /* The theme's own Key hue. The dark themes do not declare the light themes'
+     chrome knob, so the fallback is the theme's titlebar surface token —
+     reading the ELEMENT token (`--tugx-pane-title-bar-bg-active`) instead
+     would be a cycle, since that is the property these rules set. */
+  --sp-lc-key: var(
+    --tugx-chrome-key-surface,
+    var(--tug7-surface-card-primary-normal-titlebar-active)
+  );
+
+  /* ACTIVE: the Key HUE at the tuner's lightness and chroma. `from` reads the
+     source's channels and `h` is the only one that passes through, which is
+     what makes a setting judged in one light theme portable to the other two. */
+  --tugx-pane-title-bar-bg-active: oklch(
+    from var(--sp-lc-key) var(--sp-lc-l, 0.96) var(--sp-lc-c, 0.03) h
+  );
+  /* Ink from the GLOBAL family, because the ground is now a light surface —
+     the lesson the sidebar rail paid for. A surface change is a family change. */
+  --tugx-pane-title-fg-active: var(--tug7-element-global-text-normal-default-rest);
+  /* The card-type glyph keeps the Key hue at FULL saturation. On a mid-tone
+     band the glyph had to be lightened to be seen; on a pale band it can be the
+     one saturated thing in the bar, which is what makes it read as the mark
+     that names the card rather than as more chrome. */
+  --tugx-pane-title-bar-icon-active: var(--sp-lc-key);
+  --tugx-pane-control-on-fg-rest: var(--tug7-element-global-text-normal-muted-rest);
+  --tugx-pane-control-on-fg-hover: var(--tug7-element-global-text-normal-default-rest);
+
+  /* INACTIVE: neutral gray at the tuner's own lightness. */
+  --tugx-pane-title-bar-bg-inactive: oklch(var(--sp-lc-off-l, 0.94) 0 0);
+  --tugx-pane-title-fg-inactive: var(--tug7-element-global-text-normal-muted-rest);
+  --tugx-pane-title-bar-icon-inactive: var(--tug7-element-global-text-normal-muted-rest);
+  --tugx-pane-control-off-fg-rest: var(--tug7-element-global-text-normal-muted-rest);
+  --tugx-pane-control-off-fg-hover: var(--tug7-element-global-text-normal-default-rest);
+}
+
+/* ── The fixture panes ────────────────────────────────────────────────── */
+
+.sp-lc-pane {
+  position: relative;
+  border: 1px solid var(--tugx-pane-border);
+  border-radius: var(--tug-radius-md);
+  overflow: hidden;
+  background-color: var(--tugx-pane-bg);
+  box-shadow: var(--tugx-pane-shadow-inactive);
+}
+
+.sp-lc-pane[data-focused="true"] {
+  box-shadow: var(--tugx-pane-shadow-active);
+}
+
+/* The escape from the ancestor's descendant selector. See the file header. */
+.sp-lc-pane:not([data-focused="true"]) {
+  --tugx-pane-title-bar-bg-active: var(--tugx-pane-title-bar-bg-inactive);
+  --tugx-pane-title-fg-active: var(--tugx-pane-title-fg-inactive);
+  --tugx-pane-title-bar-icon-active: var(--tugx-pane-title-bar-icon-inactive);
+  --tugx-pane-control-on-fg-rest: var(--tugx-pane-control-off-fg-rest);
+  --tugx-pane-control-on-fg-hover: var(--tugx-pane-control-off-fg-hover);
+}
+
+/* A title bar in a fixture is not a drag surface. */
+.sp-lc-bar,
+.sp-lc-bar:active {
+  cursor: default;
+}
+
+/* The masthead tier is three lines tall, not one. The pane publishes its own
+   chrome height as a knob, so the tier is asked for through that rather than by
+   overriding the bar's height — which is how the shipping Session card gets it
+   too. `align-items: flex-start` because the frame top-aligns its row and the
+   control cluster centers in the FIRST band, exactly as on the deck. */
+.sp-lc-bar-masthead {
+  --tugx-pane-chrome-height: 72px;
+  align-items: flex-start;
+  padding-block-start: 0;
+}
+
+/* The cluster centers in the first chrome band, not in the 72px tier. */
+.sp-lc-bar-masthead .tug-pane-title-bar-controls {
+  height: var(--tug-chrome-height);
+  display: flex;
+  align-items: center;
+}
+
+/* The callsign run, at the masthead's own reduced strength — enough to show
+   that the SECOND ink on the title line survives the band too. */
+.sp-lc-callsign {
+  color: color-mix(in oklab, var(--tugx-pane-title-fg-active) 55%, transparent);
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
+.sp-lc-body {
+  padding: var(--tug-space-sm) var(--tug-space-md);
+  font-size: var(--tug-font-size-xs);
+  color: var(--tug7-element-global-text-normal-muted-rest);
+  background-color: var(--tug7-surface-global-primary-normal-default-rest);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  user-select: none;
+}
+
+/* ── The tuner's furniture ────────────────────────────────────────────── */
+
+.sp-lc-tuner {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 380px;
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-raised-rest */
+.sp-lc-readout {
+  margin: 0;
+  padding: var(--tug-space-sm) var(--tug-space-md);
+  border-radius: var(--tug-radius-md);
+  background-color: var(--tug7-surface-global-primary-normal-raised-rest);
+  color: var(--tug7-element-global-text-normal-default-rest);
+  font-family: var(--tug-font-family-mono);
+  font-size: var(--tug-font-size-xs);
+  line-height: var(--tug-line-height-normal);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+.sp-lc-pair {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 14px;
+  align-items: start;
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-raised-rest */
+.sp-lc-notice {
+  padding: var(--tug-space-sm) var(--tug-space-md);
+  border: 1px solid var(--tug7-element-global-border-normal-accent-rest);
+  border-radius: var(--tug-radius-md);
+  background-color: var(--tug7-surface-global-primary-normal-raised-rest);
+  color: var(--tug7-element-global-text-normal-default-rest);
+  font-size: var(--tug-font-size-xs);
+  line-height: var(--tug-line-height-normal);
+}

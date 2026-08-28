@@ -288,16 +288,22 @@ body {
   --tug7-surface-highlight-primary-normal-snap-hover: --tug-color(aqua, l: 930, c: 20, a: 80);
 
   /* Tab — the active tab shares the C1 chrome band (--tugx-chrome-key-surface),
-     so its text flips to white in lockstep with the title bar. */
-  --tug7-element-tab-text-normal-plain-active: --tug-color(seafoam, l: 980, c: 4);
+     so its text tracks the title bar's. That band is a PALE tint of the Key hue
+     now, so the active tab's text is the theme's own dark ink and the washes
+     over it are black: a white wash on a near-white tab is nothing at all. */
+  --tug7-element-tab-text-normal-plain-active: --tug-color(gray, l: 150);
   --tug7-element-tab-text-normal-plain-hover: --tug-color(cyan, l: 270, c: 20);
   --tug7-element-tab-text-normal-plain-rest: --tug-color(cyan, l: 480, c: 40);
   --tug7-element-tab-close-normal-plain-hover: --tug-color(cyan, l: 270, c: 20);
   --tug7-surface-tab-primary-normal-plain-active: var(--tugx-chrome-key-surface);
-  --tug7-surface-tab-primary-normal-plain-collapsed: --tug-color(cyan, l: 910, c: 20);
-  --tug7-surface-tab-primary-normal-plain-hover: --tug-color(white, a: 80);
-  --tug7-surface-tab-primary-normal-plain-inactive: --tug-color(cyan, l: 870, c: 20);
-  --tug7-surface-tab-close-normal-plain-hover: --tug-color(white, a: 120);
+  /* The strip's recede runs in the band's own direction: the active tab is the
+     TINTED one, and the two resting states step down in gray from it — keeping
+     the distance-from-active ordering the saturated band had (inactive furthest,
+     collapsed between) now that the direction of travel has reversed. */
+  --tug7-surface-tab-primary-normal-plain-collapsed: --tug-color(gray, l: 915);
+  --tug7-surface-tab-primary-normal-plain-hover: --tug-color(black, a: 45);
+  --tug7-surface-tab-primary-normal-plain-inactive: --tug-color(gray, l: 895);
+  --tug7-surface-tab-close-normal-plain-hover: --tug-color(black, a: 70);
 
   /* Slider — Track */
   --tug7-surface-slider-primary-normal-track-rest: --tug-color(cyan, l: 840, c: 40);
@@ -313,18 +319,36 @@ body {
   --tug7-element-split-icon-normal-grip-active: --tug-color(cyan, l: 820, c: 120);
 
   /* Card — Title Bar.
-     Chrome level C1 — the card lid. Light themes wear a mid-tone colored band
-     with white text (like the dark themes), so chrome reads distinct from
-     content — but at a higher lightness than the dark themes' near-black bar, so
-     it stays airy, not heavy. Inactive bars desaturate and lighten to recede;
-     collapsed sits between. Text/icons/controls all flip to light (see below). */
+     Chrome level C1 — the card lid. A light theme's lid is a PALE tint of the
+     Key hue under the theme's own dark ink — not the dark themes' recipe of a
+     saturated band under light ink, which is what shipped here first and got
+     the polarity of the whole app backwards: the lid was the darkest thing on
+     screen wearing the lightest text. The Session masthead showed it worst,
+     because its ink ladder steps toward transparent and the third rung of a
+     ladder into a saturated ground is a ghost.
+
+     Focus is carried mainly by CHROMA rather than by weight: the active lid is
+     the one with color in it, and the inactive one is neutral gray a hair
+     LIGHTER than it. Chroma leads because it is the signal the deck's own
+     recede can only reinforce — the desaturating wash on .tug-pane-chrome can
+     only take away what is there — and the small lightness step behind it is
+     what keeps the pair apart once that wash has taken its bite. Collapsed
+     drops further in lightness than either, as the furthest state.
+
+     All three light themes carry the SAME lightness and chroma here, at each
+     one's own Key hue. Tuned by eye per theme and they converged; a future tune
+     is free to split them again.
+
+     The rail learned this one tier down (see tug-pane.css): a surface change is
+     a token FAMILY change. So every ink on this band below comes from the
+     global text family, and every wash over it is black rather than white. */
   /* One shared Key-tinted chrome surface — the single knob for the focused
      title bar and its merged active tab, keeping them unified with the theme's
      Key hue (the action family the Z4B buttons/badges use). Tune this value. */
-  --tugx-chrome-key-surface: --tug-color(seafoam, l: 500, c: 132);
+  --tugx-chrome-key-surface: --tug-color(seafoam, l: 925, c: 65);
   --tug7-surface-card-primary-normal-titlebar-active: var(--tugx-chrome-key-surface);
-  --tug7-surface-card-primary-normal-titlebar-inactive: --tug-color(cyan, l: 580, c: 33);
-  --tug7-surface-card-primary-normal-titlebar-collapsed: --tug-color(cyan, l: 610, c: 24);
+  --tug7-surface-card-primary-normal-titlebar-inactive: --tug-color(gray, l: 935);
+  --tug7-surface-card-primary-normal-titlebar-collapsed: --tug-color(gray, l: 910);
 
   /* Card — Status Bar (Z2) — the STATE/TIME/TOKENS strip beneath the transcript.
      Chrome level C2: a pale rung of the C1 Key hue, landing midway between the Z0
@@ -336,10 +360,11 @@ body {
      surface so Z0 and Z2 tune separately (seeded equal to Z2). */
   --tug7-surface-card-primary-normal-controlbar-rest: --tug-color(seafoam, l: 890, c: 22);
 
-  /* Card — Frame border (.tug-pane-chrome outer edge). Darker/quieter than the
-     global default so the card edge recedes into the canvas instead of glaring
-     white against the dark C1 title band. */
-  --tug7-element-card-border-normal-frame-rest: --tug-color(cyan, l: 650, c: 40);
+  /* Card — Frame border (.tug-pane-chrome outer edge). A step stronger than the
+     global default so the card edge still reads, but nowhere near the old value:
+     that one was chosen not to glare against a DARK C1 band, and around a pale
+     lid it drew a hard outline on every card. */
+  --tug7-element-card-border-normal-frame-rest: --tug-color(cyan, l: 730, c: 40);
 
   /* Card — Tool-block surface (header strip + body panel share it).
      CONTENT level, not chrome: a near-neutral gray, far less colorful than the
@@ -351,37 +376,45 @@ body {
      diff/edit content a cleaner ground for its tint lines to read against. */
   --tug7-surface-card-primary-normal-well-rest: --tug-color(cyan, l: 958, c: 10);
 
-  /* Card — Title Bar Element Tokens (white-on-color, like the dark themes) */
-  --tug7-element-card-text-normal-title-active: --tug-color(seafoam, l: 980, c: 4);
-  --tug7-element-card-text-normal-title-inactive: --tug-color(cyan, l: 920, c: 9);
-  /* Card-type glyph is a lightened, saturated tint of the Key hue (like the dark
-     themes' light-tint glyph), so it reads as colored chrome against the C1 band
-     without competing with the white title text. */
-  --tug7-element-card-icon-normal-title-active: --tug-color(seafoam, l: 925, c: 89);
-  --tug7-element-card-icon-normal-title-inactive: --tug-color(seafoam, l: 780, c: 67);
-  --tug7-element-card-icon-normal-title-hover: --tug-color(seafoam, l: 910, c: 57);
+  /* Card — Title Bar Element Tokens. DARK-on-pale: the ground is a light
+     surface, so the ink is the global text family's, at the same two strengths
+     every other light surface uses. */
+  --tug7-element-card-text-normal-title-active: --tug-color(gray, l: 150);
+  --tug7-element-card-text-normal-title-inactive: --tug-color(cyan, l: 480, c: 40);
+  /* Card-type glyph carries the Key hue at FULL saturation — the mid-tone the
+     whole band used to be. On a pale lid it can be the one vivid thing in the
+     bar, which is what makes it read as the mark that NAMES the card rather
+     than as more chrome. It had to be lightened to survive the old band; here
+     it does not. */
+  --tug7-element-card-icon-normal-title-active: --tug-color(seafoam, l: 500, c: 132);
+  --tug7-element-card-icon-normal-title-inactive: --tug-color(cyan, l: 560, c: 30);
+  --tug7-element-card-icon-normal-title-hover: --tug-color(seafoam, l: 420, c: 140);
 
-  /* Card — Title Bar Control Buttons (ghost-style, focused card) */
-  --tug7-element-card-control-normal-plain-rest: --tug-color(seafoam, l: 900, c: 24);
-  --tug7-element-card-control-normal-plain-hover: --tug-color(seafoam, l: 970, c: 6);
-  --tug7-element-card-control-normal-plain-active: --tug-color(seafoam, l: 995, c: 1);
+  /* Card — Title Bar Control Buttons (ghost-style, focused card).
+     A ghost glyph has the least contrast to give away, so it is the first ink a
+     band loses. The washes are BLACK here: on a pale lid a white wash is
+     invisible, which is the same family mistake as the ink one register up. */
+  --tug7-element-card-control-normal-plain-rest: --tug-color(cyan, l: 480, c: 40);
+  --tug7-element-card-control-normal-plain-hover: --tug-color(gray, l: 150);
+  --tug7-element-card-control-normal-plain-active: --tug-color(gray, l: 150);
   --tug7-surface-card-control-normal-plain-rest: transparent;
-  --tug7-surface-card-control-normal-plain-hover: --tug-color(white, a: 130);
-  --tug7-surface-card-control-normal-plain-active: --tug-color(white, a: 220);
+  --tug7-surface-card-control-normal-plain-hover: --tug-color(black, a: 60);
+  --tug7-surface-card-control-normal-plain-active: --tug-color(black, a: 110);
   --tug7-element-card-border-normal-plain-rest: transparent;
-  --tug7-element-card-border-normal-plain-hover: --tug-color(white, a: 200);
-  --tug7-element-card-border-normal-plain-active: --tug-color(white, a: 200);
+  --tug7-element-card-border-normal-plain-hover: --tug-color(black, a: 90);
+  --tug7-element-card-border-normal-plain-active: --tug-color(black, a: 90);
 
-  /* Card — Title Bar Control Buttons (ghost-style, unfocused card) */
-  --tug7-element-card-control-normal-muted-rest: --tug-color(cyan, l: 860, c: 17);
-  --tug7-element-card-control-normal-muted-hover: --tug-color(seafoam, l: 970, c: 6);
-  --tug7-element-card-control-normal-muted-active: --tug-color(seafoam, l: 995, c: 1);
+  /* Card — Title Bar Control Buttons (ghost-style, unfocused card). The same
+     ladder one notch weaker; the deck's own recede supplies the rest. */
+  --tug7-element-card-control-normal-muted-rest: --tug-color(cyan, l: 560, c: 30);
+  --tug7-element-card-control-normal-muted-hover: --tug-color(gray, l: 150);
+  --tug7-element-card-control-normal-muted-active: --tug-color(gray, l: 150);
   --tug7-surface-card-control-normal-muted-rest: transparent;
-  --tug7-surface-card-control-normal-muted-hover: --tug-color(white, a: 90);
-  --tug7-surface-card-control-normal-muted-active: --tug-color(white, a: 160);
+  --tug7-surface-card-control-normal-muted-hover: --tug-color(black, a: 45);
+  --tug7-surface-card-control-normal-muted-active: --tug-color(black, a: 90);
   --tug7-element-card-border-normal-muted-rest: transparent;
-  --tug7-element-card-border-normal-muted-hover: --tug-color(white, a: 150);
-  --tug7-element-card-border-normal-muted-active: --tug-color(white, a: 150);
+  --tug7-element-card-border-normal-muted-hover: --tug-color(black, a: 70);
+  --tug7-element-card-border-normal-muted-active: --tug-color(black, a: 70);
 
   /* Card — Inactive Content Overlay (two layers: desaturate + wash) */
   --tug7-effect-card-desat-normal-dim-inactive: --tug-color(gray, l: 780);
