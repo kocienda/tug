@@ -266,6 +266,25 @@ describe.skipIf(!SHOULD_RUN)("AT0419: the join and discard receipts", () => {
         // The join's own fact — the identity a plain commit cannot carry —
         // sits in the body, not the header.
         expect(joined.dashIdentity).toBe("join-lane → main");
+        // The settled register comes AFTER the receipt. The commit is the act
+        // and the register is the word for its outcome, so a reader meets what
+        // landed and then what to call it; ahead of the receipt it was an
+        // announcement standing in front of its own subject.
+        const order = await app.evalJS<{ register: number; receipt: number }>(
+          `(() => {
+             const block = document.querySelector(${JSON.stringify(JOIN_RECEIPT)});
+             const kids = Array.from(block.parentElement.children);
+             return {
+               register: kids.findIndex((k) => k.matches('[data-slot="dash-join-register"]')),
+               receipt: kids.indexOf(block),
+             };
+           })()`,
+        );
+        note(`at0419 receipt order: ${JSON.stringify(order)}`);
+        expect(order.register, "the settled register is a sibling of the receipt").toBeGreaterThan(
+          -1,
+        );
+        expect(order.register, "and it follows it").toBeGreaterThan(order.receipt);
         // The subject led the header, so the body carries only what follows
         // it; this squash message is a subject alone.
         expect(joined.body).toBe("");

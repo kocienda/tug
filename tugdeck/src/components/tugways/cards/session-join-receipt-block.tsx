@@ -171,12 +171,19 @@ export function SessionJoinReceiptBlock(props: CommandBlockProps): React.ReactEl
   if (parsed === null) return <ShellExchangeBlock {...props} />;
   return (
     <>
-      {/* The join's own register, settled, standing where it stood while the
-          join ran — the live one departs with the state that derived it, and
-          this is what a reader finds afterwards, immediately above the commit
-          it presaged. Derived rather than written down: `dash` and `base` come
-          off the receipt the ledger already carries, so the row costs no ink
-          of its own and reads identically live and on restore. It goes through
+      <JoinReceipt
+        parsed={parsed}
+        cwd={props.message.cwd}
+        exchangeId={props.message.exchangeId}
+      />
+      {/* The join's own register, settled — the live one departs with the
+          state that derived it, and this is what a reader finds afterwards.
+          It sits UNDER the receipt: the commit is the act and the register is
+          the outcome, so a reader meets what landed and then the word for it.
+          Above, it was an announcement standing in front of its own subject.
+          Derived rather than written down: `dash` and `base` come off the
+          receipt the ledger already carries, so the row costs no ink of its
+          own and reads identically live and on restore. It goes through
           `DashJoinRegister` so its sentence is the same derivation the live
           register runs ([D111] parity, one vocabulary). */}
       <DashJoinRegister
@@ -185,11 +192,6 @@ export function SessionJoinReceiptBlock(props: CommandBlockProps): React.ReactEl
         stage="ready"
         landBeat={{ beat: "record", status: "ok", terminal: true }}
         className="join-receipt-register"
-      />
-      <JoinReceipt
-        parsed={parsed}
-        cwd={props.message.cwd}
-        exchangeId={props.message.exchangeId}
       />
     </>
   );
