@@ -292,6 +292,21 @@ export function markBoxForDot(diameterPx: number): number {
 }
 
 /**
+ * The furthest diameter the whole mark ever paints, for a glyph box of
+ * `boxPx` — the ring at the end of its travel, not the dot.
+ *
+ * The ring is let out of the box below {@link BIG_SIZE} ({@link REACH_MAX}),
+ * and that overflow is free only where nothing bounds the mark. Inside an
+ * enclosure it is not free at all: a caller that sized its dot by the dot
+ * alone gets a ring crossing the wall around it a moment later, which is what
+ * a session atom's pill did. So the envelope is published, and a bounded
+ * caller sizes against this rather than against the diameter it wanted.
+ */
+export function markRingEnvelope(boxPx: number): number {
+  return boxPx * sizeGeometry(boxPx).reach;
+}
+
+/**
  * Everything about the glyph that cannot be one number across a 10px–40px
  * range, derived from the size in one place.
  *

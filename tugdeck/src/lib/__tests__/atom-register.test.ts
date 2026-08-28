@@ -1,0 +1,103 @@
+/**
+ * Pure-logic tests for the atom register table.
+ *
+ * The table decides how big an atom is on every surface, for three renderers
+ * that cannot see each other. Two things have to hold and neither is a type:
+ * the registers must stay one mark at two densities, and the phase mark must
+ * stay inside the pill drawn around it — including the ring it sheds, which
+ * travels well past its own glyph box.
+ */
+
+import { describe, expect, test } from "bun:test";
+
+import {
+  ATOM_DOT_CLEARANCE,
+  ATOM_REGISTERS,
+  atomEditorLineBoxFloorPx,
+  atomRegisterMetrics,
+  type AtomRegister,
+} from "../atom-register";
+import {
+  markBoxForDot,
+  markRingEnvelope,
+} from "@/components/tugways/internal/tug-progress-pulsing-dot";
+import { editorLineHeightFor } from "../tug-atom-img";
+
+const REGISTERS = Object.keys(ATOM_REGISTERS) as AtomRegister[];
+
+describe("the register table", () => {
+  // Registers are densities of one mark, not two marks. Everything except the
+  // box is shared, and a register that drifted on type size or dot would put
+  // two different-looking atoms on two surfaces — the defect the table exists
+  // to make impossible.
+  test("every register agrees on type size, dot and border", () => {
+    const first = atomRegisterMetrics(REGISTERS[0]!);
+    for (const register of REGISTERS) {
+      const m = atomRegisterMetrics(register);
+      expect(m.fontSize).toBe(first.fontSize);
+      expect(m.dotSize).toBe(first.dotSize);
+      expect(m.borderWidth).toBe(first.borderWidth);
+    }
+  });
+
+  // The complaint that produced this table was a box so tight the label had
+  // nowhere to sit. Three pixels of air above and below the type, inside the
+  // border, is the floor — below it the atom reads as clamped.
+  test("every register leaves at least 3px of air around its type", () => {
+    for (const register of REGISTERS) {
+      const m = atomRegisterMetrics(register);
+      const air = (m.height - 2 * m.borderWidth - m.fontSize) / 2;
+      expect(air).toBeGreaterThanOrEqual(3);
+    }
+  });
+});
+
+describe("the phase mark stays inside the pill", () => {
+  // The regression: the dot was sized as a dot, and the mark is not a dot. It
+  // breathes and sheds a ring that runs to 1.75× its glyph box at this scale,
+  // so a 7px dot in a 22px pill put a 24.5px ring through a 20px opening — the
+  // halo crossed the border a moment after every beat. The ring's own overflow
+  // is deliberate and stays; what changed is that a bounded caller now sizes
+  // against the envelope rather than against the diameter it wanted.
+  test("the ring's furthest reach clears the border at every register", () => {
+    for (const register of REGISTERS) {
+      const m = atomRegisterMetrics(register);
+      const envelope = markRingEnvelope(markBoxForDot(m.dotSize));
+      const opening = m.height - 2 * m.borderWidth;
+      expect(envelope).toBeLessThanOrEqual(opening - 2 * ATOM_DOT_CLEARANCE);
+    }
+  });
+
+  // And it is a mark, not a speck: a dot small enough to trivially satisfy the
+  // check above would pass it and say nothing about liveness.
+  test("the dot is still a third of the pill's opening", () => {
+    for (const register of REGISTERS) {
+      const m = atomRegisterMetrics(register);
+      const opening = m.height - 2 * m.borderWidth;
+      expect(m.dotSize / opening).toBeGreaterThan(0.15);
+    }
+  });
+});
+
+describe("editorLineHeightFor", () => {
+  // An atom must fit inside the line box of every surface it stands on. The
+  // editor's leading is derived from the register rather than pinned, so this
+  // holds at every font size the editor offers — including the small end,
+  // where a pinned 1.5 could not seat the atom and the bake compensated by
+  // shrinking the chip, which is how an atom came to change size when it was
+  // sent.
+  test("the derived editor line box seats a prose atom at every font size", () => {
+    for (const size of [11, 12, 13, 14, 15, 16, 18, 20]) {
+      const lineBoxPx = size * editorLineHeightFor(size);
+      expect(lineBoxPx).toBeGreaterThanOrEqual(atomEditorLineBoxFloorPx("prose"));
+    }
+  });
+
+  // A line of code with no atom on it should not be pushed apart by one, so
+  // the leading never drops below the reading minimum however large the type.
+  test("never falls below the editor's own reading leading", () => {
+    for (const size of [11, 13, 16, 20, 24]) {
+      expect(editorLineHeightFor(size)).toBeGreaterThanOrEqual(1.5);
+    }
+  });
+});

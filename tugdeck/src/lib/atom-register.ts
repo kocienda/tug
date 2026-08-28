@@ -62,12 +62,21 @@ export interface AtomRegisterMetrics {
   /** The atom's whole box height, borders included, in px. */
   height: number;
   /**
-   * The painted diameter of the session atom's phase dot, in px.
+   * The resting painted diameter of the session atom's phase dot, in px.
    *
    * Painted, not boxed: the live dot is a ring glyph that paints at half its
    * declared box and lets the ring overhang, while the bake paints a plain
    * circle. Publishing the painted size is what lets the two agree — before
    * this the live pill's dot painted at 6px beside a bake's at 7.8px.
+   *
+   * **It is bounded by the pill, not chosen for the dot.** The live mark
+   * breathes and sheds a ring that travels well past its own glyph box, and
+   * that overflow is free only where nothing encloses the mark. Inside a pill
+   * it is not free: sized for the dot alone, the ring crossed the border a
+   * moment later. So the ceiling is {@link ATOM_DOT_CLEARANCE} inside the
+   * pill's inner height, and the diameter is what fits under it — which is why
+   * this is a smaller number than the mark's rest diameter would suggest.
+   * `atom-register.test` holds the containment.
    */
   dotSize: number;
   /** The pill's border, in px. Part of {@link height}. */
@@ -88,11 +97,26 @@ export interface AtomRegisterMetrics {
  * 22px around 13px type leaves ~3.5px of air above and below the label inside
  * the border — the proportion the Overview's citation already had and that the
  * transcript's did not.
+ *
+ * The dot is one number for both registers, and it is the number the SMALLER
+ * pill can hold: a mark that fit `reading` and crossed `prose`'s border would
+ * be the same defect at one remove.
  */
 export const ATOM_REGISTERS: Readonly<Record<AtomRegister, AtomRegisterMetrics>> = {
-  prose: { fontSize: 13, height: 22, dotSize: 7, borderWidth: 1 },
-  reading: { fontSize: 13, height: 24, dotSize: 7, borderWidth: 1 },
+  prose: { fontSize: 13, height: 22, dotSize: 4.5, borderWidth: 1 },
+  reading: { fontSize: 13, height: 24, dotSize: 4.5, borderWidth: 1 },
 };
+
+/**
+ * Px of air between the furthest the phase mark ever paints and the inside of
+ * the pill's border.
+ *
+ * Not zero: the requirement is not that the ring fit but that it read as a mark
+ * standing inside an enclosure. A ring that stops exactly on the border reads
+ * as touching it, and a mark touching its own pill reads as an error in the
+ * pill rather than as liveness.
+ */
+export const ATOM_DOT_CLEARANCE = 2;
 
 /** The default register — an atom with nothing said about it is in prose. */
 export const DEFAULT_ATOM_REGISTER: AtomRegister = "prose";

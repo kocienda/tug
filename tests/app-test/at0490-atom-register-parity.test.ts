@@ -36,6 +36,13 @@
  *   3. Require: every chip in a row is the register's declared height; the pill
  *      is that same height; and the two registers are not the same height as
  *      each other (or the table has collapsed and the test is vacuous).
+ *   4. Require the phase mark to clear the pill's border — including the ring
+ *      it sheds, which runs to 1.75x its glyph box at this scale and so is
+ *      wider than anything `getBoundingClientRect` reports for the mark. The
+ *      reach is read as the resolved custom property the browser computed, not
+ *      as a number this file knows, and never mid-flight: a transform-scaled
+ *      pseudo-element measured during its animation reports an interpolated
+ *      pose, which would make the assertion a coin flip.
  *
  * Gating: `describe.skipIf(!SHOULD_RUN)`.
  *
@@ -69,6 +76,14 @@ interface RegisterRow {
   pillFontSize: number | null;
   /** The chips' baked type size, in px — the geometry's own answer. */
   chipFontSize: number | null;
+  /** The phase mark's glyph box, in px. */
+  dotBox: number | null;
+  /** The ring's travel as a multiple of that box, as the browser resolved it. */
+  dotReach: number | null;
+  /** Which element in the indicator answered for the reach. */
+  markPath: string | null;
+  /** The pill's opening — its height less both borders. */
+  pillOpening: number | null;
 }
 
 /** Measure every register row the gallery drew. */
@@ -79,6 +94,24 @@ const ROWS_JS = `(function () {
     var declared = getComputedStyle(host).getPropertyValue("--tugx-atom-height");
     var chips = Array.from(host.querySelectorAll("svg[data-atom-type]"));
     var pill = host.querySelector('[data-slot="tug-session-identity"]');
+    // The mark carries its resolved reach as an inline custom property, and
+    // which element in the indicator holds it is the indicator's business — so
+    // find the one that answers rather than naming a node this file guessed.
+    var mark = null;
+    var reach = NaN;
+    if (pill !== null) {
+      var candidates = Array.from(
+        pill.querySelectorAll(".tug-session-identity-dot, .tug-session-identity-dot *"),
+      );
+      for (var i = 0; i < candidates.length; i++) {
+        var v = parseFloat(
+          getComputedStyle(candidates[i]).getPropertyValue(
+            "--tugx-progress-pulsing-dot-emit-reach-auto",
+          ),
+        );
+        if (!isNaN(v)) { mark = candidates[i]; reach = v; break; }
+      }
+    }
     return {
       register: row.getAttribute("data-register"),
       declaredHeight: parseFloat(declared),
@@ -94,6 +127,18 @@ const ROWS_JS = `(function () {
       chipFontSize: chips.length === 0
         ? null
         : parseFloat(chips[0].querySelector("text").getAttribute("font-size")),
+      dotBox: mark === null
+        ? null
+        : Math.round(mark.getBoundingClientRect().width),
+      dotReach: isNaN(reach) ? null : reach,
+      markPath: mark === null ? null : mark.className.toString(),
+      pillOpening: pill === null
+        ? null
+        : Math.round(
+            pill.getBoundingClientRect().height
+              - parseFloat(getComputedStyle(pill).borderTopWidth)
+              - parseFloat(getComputedStyle(pill).borderBottomWidth),
+          ),
     };
   });
 })()`;
@@ -136,6 +181,16 @@ describe.skipIf(!SHOULD_RUN)("atom registers — one table, two renderers", () =
           // Type size travels with the box or the marks read as two families
           // however well their boxes agree.
           expect(row.pillFontSize).toBe(row.chipFontSize);
+        }
+
+        // The mark, ring and all, stands inside the pill rather than through
+        // it. Sized as a dot alone it did not: a 7px dot is a 14px glyph box,
+        // and at this scale the ring runs to 1.75x that — a 24.5px halo through
+        // a 20px opening, crossing the border on every beat.
+        for (const row of rows) {
+          const envelope = row.dotBox! * row.dotReach!;
+          expect(row.dotReach).toBeGreaterThan(1);
+          expect(envelope).toBeLessThanOrEqual(row.pillOpening! - 4);
         }
 
         // A table whose registers had collapsed to one number would pass every
