@@ -159,21 +159,3 @@ export function submitPromptToCard(cardId: string, text: string): void {
   services.codeSessionStore.send(text, []);
   dispatchCommand("focus-session-card", { cardId });
 }
-
-/**
- * Seed a prompt into a card's composer without sending it, then front the
- * card and ring its pane — the shape of a remedy the reader is meant to SEE
- * before the model runs it. The text lands by the jot path the transcript's
- * own "insert into prompt" takes, appended to whatever the composer holds,
- * so an in-progress draft is never overwritten.
- *
- * Returns whether a composer took it: a card with no services is not a
- * session card, and the caller says so in its own words.
- */
-export function seedPromptIntoCard(cardId: string, text: string): boolean {
-  const services = cardServicesStore.getServices(cardId);
-  if (services === null) return false;
-  services.codeSessionStore.insertJot(text, null);
-  dispatchCommand("focus-session-card", { cardId });
-  return true;
-}

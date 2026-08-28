@@ -42,11 +42,11 @@
  * today reaches the reader as a sentence — the server's `JoinBlocker.detail`,
  * rendered by the real `DashJoinRegister` and the real `SessionChangesDashJoin`
  * — and the sentence names acts no control on the surface can perform. The
- * frames after the shipping ones show the same refusal carrying its remedies
- * as CONTROLS, off a wire shape the server does not send yet. Every proposed
- * button presses into a visible line naming the verb it would run, because a
- * gallery button that did nothing would be the defect the proposal exists to
- * remove ([L31]).
+ * frames after the shipping ones show the same refusal in three lines — what
+ * is wrong, what Resolve will do, Resolve — off a wire shape the server does
+ * not send yet. The proposed button walks the frame's register through the
+ * beats it would run, because a gallery button that did nothing would be the
+ * defect the proposal exists to remove ([L31]).
  */
 
 import "./gallery-dash-lifecycle.css";
@@ -61,9 +61,6 @@ import { DashJoinRegister } from "@/components/tugways/dash-join-register";
 import { SessionChangesDashJoin } from "@/components/tugways/cards/session-changes/session-changes-dash-join";
 import { TugPushButton } from "@/components/tugways/tug-push-button";
 import { TugSectionLabel } from "@/components/tugways/tug-section-label";
-import { seedPromptIntoCard } from "@/lib/dash-prompts";
-import { cardIdForSession, cardSessionBindingStore } from "@/lib/card-session-binding-store";
-import { getDeckStore } from "@/lib/deck-store-registry";
 
 import { dashEntryGlanceFraction, dashMetaFacts } from "@/lib/dash-meta-facts";
 import { SessionIdentityRow } from "@/components/tugways/session-identity-row";
@@ -86,7 +83,6 @@ import { TUG_SESSION_ROW_STACK_DOT_SIZE } from "@/components/tugways/tug-session
 import type {
   DashChangesetEntry,
   DashJoinBlockerWire,
-  DashJoinStateWire,
   DashStep,
 } from "@/lib/changeset-types";
 import type { ResolveState } from "@/lib/changeset-join-store";
@@ -414,31 +410,26 @@ interface ProposedOverlap {
 }
 
 /**
- * PROPOSED — one way out of a blocker, as a PROMPT.
+ * PROPOSED — the one way out of a blocker, and the sentence that explains it.
  *
- * A remedy is never a verb the deck runs: it is a message seeded into a live
- * session's composer, which the reader sees, can edit, and sends — and the
- * model runs the verbs from there, in the transcript, where every step is
- * visible and interruptible. The server composes the text, on the same rule
- * it keeps for `detail`.
+ * The remedy is not in the button. The sentence says what Resolve will do,
+ * in the server's words; the button does it. A blocker nobody at this card
+ * can clear still carries the sentence — it says whose turn it is — and its
+ * button is disabled wearing that reason ([L31]).
  */
 interface ProposedRemedy {
-  /** The chip's word. */
-  label: string;
-  /** The prompt the chip seeds, verbatim. */
-  prompt: string;
-  /**
-   * Whose composer takes it: the session `bound` to the dash, or the session
-   * that `holds` the base's dirt — the one that can actually move it.
-   */
-  target: "bound" | "holder";
-  destructive: boolean;
+  /** What Resolve does, as one sentence the reader can weigh before pressing. */
+  explain: string;
+  /** Why the button is disabled, or null when it is live. */
+  refused: string | null;
+  /** What the register reads while the resolve runs. */
+  running: string;
 }
 
-/** PROPOSED — a `base-dirt` blocker that carries its facts and its ways out. */
+/** PROPOSED — a `base-dirt` blocker that carries its facts and its way out. */
 interface ProposedBlocker extends DashJoinBlockerWire {
   overlap: ProposedOverlap[];
-  remedies: ProposedRemedy[];
+  remedy: ProposedRemedy;
 }
 
 /** The three situations one `base-dirt` bit hides, and what each deserves. */
@@ -455,49 +446,37 @@ const SITUATIONS: readonly Situation[] = [
   {
     key: "stale-copy",
     title: "A · the base holds the dash's own edit",
-    word: "blocked · 1 way out",
+    word: "blocked · resolvable",
     caption:
-      "The likeliest case, and the one the shipping copy gets wrong: the base's uncommitted copy of the file IS the edit the dash already made — written on main from the dash's notes, or left behind when the dash was cut. Committing it enshrines a fork; stashing hides it. The one honest act is to drop the base copy, which the server may offer only because it compared the bytes. It is the sole destructive remedy, so it lands behind a confirm that shows the diff, not a sentence",
+      "The likeliest case, and the one in the screenshot this proposal answers. Main's uncommitted copy of the file is the edit the dash already made, byte for byte — written on main from the dash's notes, or left behind when the dash was cut. Nothing is lost by dropping it, because the dash lands the same bytes. The server can say so only because it compared them, which is what makes this button safe to offer",
     blocker: {
       kind: "base-dirt",
-      detail: `Cannot join: main has an uncommitted copy of ${BLOCKED_PATH} that this dash already carries — the base copy is the dash's own edit, not new work.`,
+      detail: `Cannot join: main has an uncommitted copy of ${BLOCKED_PATH} that this dash already carries.`,
       paths: [BLOCKED_PATH],
       overlap: [{ path: BLOCKED_PATH, owner: "mine", relation: "identical" }],
-      remedies: [
-        {
-          label: "Drop the base copy",
-          target: "bound",
-          destructive: true,
-          prompt: `The join of dash ${BLOCKED_DASH} is blocked: main holds an uncommitted copy of ${BLOCKED_PATH} that the dash already carries, byte for byte. Show me the diff between the base copy and the dash's version, then drop the base copy with \`tugutil dash drop-base ${BLOCKED_DASH} --paths ${BLOCKED_PATH}\`, confirm the base is clean, and reconcile the dash.`,
-        },
-      ],
+      remedy: {
+        explain: "Main's copy is the dash's own edit. Resolve drops it and joins; nothing is lost.",
+        refused: null,
+        running: "resolving · dropping main's copy",
+      },
     },
   },
   {
     key: "own-work",
     title: "B · your own live work on main",
-    word: "blocked · 2 ways out",
+    word: "blocked · resolvable",
     caption:
-      "This session edited the file on main while the dash was running, and the two versions differ. Both directions are legitimate and the user is the only one who knows which: CARRY moves the base edit into the dash worktree, where it joins as part of the dash — `carry_working_set_in` narrowed to named paths, the `create --carry` machinery re-plumbed, op-logged so `dash undo` reverses it. COMMIT lands it on main first, after which the dash replays and any real conflict reaches the resolver — `changeset_commit` already takes a file subset, so this one needs nothing new",
+      "This session edited the file on main while the dash was running, and the two versions differ. The unblocking is mechanical; the merging is not — and the merging is a job the join already has an AI for. Resolve folds the main edit into the join (git's autostash shape underneath), and if the fold conflicts, that is an ordinary join conflict, handled by the resolver ladder where join conflicts are handled today — replay, rerere, merge-file, driver, then the AI with its intent questions. The user's work is never committed behind their back and never hidden: it rides the join and lands with it",
     blocker: {
       kind: "base-dirt",
-      detail: `Cannot join: your uncommitted edit to ${BLOCKED_PATH} on main diverges from this dash's version of it.`,
+      detail: `Cannot join: your uncommitted edit to ${BLOCKED_PATH} on main differs from this dash's version of it.`,
       paths: [BLOCKED_PATH],
       overlap: [{ path: BLOCKED_PATH, owner: "mine", relation: "divergent" }],
-      remedies: [
-        {
-          label: `Carry into ${BLOCKED_DASH}`,
-          target: "bound",
-          destructive: false,
-          prompt: `The join of dash ${BLOCKED_DASH} is blocked: my uncommitted edit to ${BLOCKED_PATH} on main diverges from the dash's version. Carry the base edit into the dash worktree with \`tugutil dash carry ${BLOCKED_DASH} --paths ${BLOCKED_PATH}\`, reconcile the two versions there, commit the round, and reconcile the dash.`,
-        },
-        {
-          label: "Commit on main",
-          target: "bound",
-          destructive: false,
-          prompt: `The join of dash ${BLOCKED_DASH} is blocked: my uncommitted edit to ${BLOCKED_PATH} on main diverges from the dash's version. Commit that edit on main by itself with a subject that says what it does, then replay the dash onto main and resolve whatever conflicts the replay raises.`,
-        },
-      ],
+      remedy: {
+        explain: "Resolve folds your main edit into the join. If the two versions conflict, the resolver reconciles them as it would any join conflict.",
+        refused: null,
+        running: "resolving · folding in your main edit",
+      },
     },
   },
   {
@@ -505,20 +484,17 @@ const SITUATIONS: readonly Situation[] = [
     title: "C · another live session's work",
     word: "blocked · held by ^ink-anchor",
     caption:
-      "The changes ledger attributes the base's dirt to another session that is still live. Nothing here is this user's to move — but the remedy is still a prompt, aimed at the session that CAN move it. The chip seeds the holder's composer, not this dash's, so the ask reaches the one card whose model has the file in hand; the register wears the holder's name so the reader knows whose turn it is instead of whose fault",
+      "The changes ledger attributes the base's dirt to another session that is still live. Nothing here is this user's to move, and a button that folded another session's half-written edit into this join would be a button that breaks somebody else's work. So the frame is the same shape with the button disabled, wearing the reason — whose turn it is, rather than whose fault. When that session commits or discards its edit the blocker clears on its own, the register flips, and the button comes back",
     blocker: {
       kind: "base-dirt",
       detail: `Cannot join: ^ink-anchor holds an uncommitted edit to ${BLOCKED_PATH} that this dash also changed.`,
       paths: [BLOCKED_PATH],
       overlap: [{ path: BLOCKED_PATH, owner: "foreign", holder: "ink-anchor", relation: "divergent" }],
-      remedies: [
-        {
-          label: "Ask ^ink-anchor",
-          target: "holder",
-          destructive: false,
-          prompt: `Dash ${BLOCKED_DASH} is ready to join but its join is blocked by this session's uncommitted edit to ${BLOCKED_PATH}. Either commit that edit on main now, or carry it into the dash with \`tugutil dash carry ${BLOCKED_DASH} --paths ${BLOCKED_PATH}\` — whichever keeps its intent — and say which you did.`,
-        },
-      ],
+      remedy: {
+        explain: "That edit belongs to ^ink-anchor. When it is committed or set aside there, this join unblocks by itself.",
+        refused: "Held by ^ink-anchor",
+        running: "",
+      },
     },
   },
 ];
@@ -599,116 +575,57 @@ const OUT_OF_ORDER: DashTrackModel = dashTrackModel({
 });
 
 /**
- * The most-frontmost session card — the walk `frontmostProjectBinding` makes,
- * answering with the card rather than its binding. The demo's last rung, for
- * a fixture session that has no card of its own.
- */
-function frontmostSessionCard(): string | null {
-  const store = getDeckStore();
-  if (store === null) return null;
-  const { panes } = store.getSnapshot();
-  for (let i = panes.length - 1; i >= 0; i--) {
-    const pane = panes[i]!;
-    if (cardSessionBindingStore.getBinding(pane.activeCardId) !== undefined) return pane.activeCardId;
-    for (const cardId of pane.cardIds) {
-      if (cardSessionBindingStore.getBinding(cardId) !== undefined) return cardId;
-    }
-  }
-  return null;
-}
-
-function useFrontmostSessionCard(): string | null {
-  const subscribe = React.useCallback((onChange: () => void): (() => void) => {
-    const deck = getDeckStore();
-    const unDeck = deck ? deck.subscribe(onChange) : () => {};
-    const unBind = cardSessionBindingStore.subscribe(onChange);
-    return () => {
-      unDeck();
-      unBind();
-    };
-  }, []);
-  return React.useSyncExternalStore(subscribe, frontmostSessionCard);
-}
-
-/**
- * PROPOSED — the blocker's remedies as prompt chips under its sentence.
+ * PROPOSED — the blocked report section: the refusal, what Resolve does,
+ * and Resolve. Three lines the reader can take in at a glance, in that order,
+ * because the button is the last thing to read and the first thing to press.
  *
- * A press is REAL: the chip's prompt is seeded into a live session card's
- * composer by the transcript's own insert path, and the card is fronted and
- * its pane rung, so the reader is looking at the words the model will act on
- * before anything runs. The target ladder is the proposal's: the session
- * bound to the dash, or the session holding the base's dirt. Neither fixture
- * session has a card, so on this card the ladder falls through to the Lens's
- * followed card — the same rung the plan rows use — and with no session card
- * open at all the chip is disabled wearing the reason ([L31]).
+ * On this card a press walks the register through the resolve it would run —
+ * running, then ready — since the verb behind it is proposal. The button
+ * therefore has a visible result rather than none ([L31]), and the frame
+ * shows what the row reads at each beat.
  */
-function ProposedRemedies({
-  blocker,
-  bound,
-  holder,
-}: {
-  blocker: ProposedBlocker;
-  bound: string;
-  holder: string | null;
-}): React.ReactElement {
-  const frontmost = useFrontmostSessionCard();
-  const [seeded, setSeeded] = React.useState<string | null>(null);
-  const targetFor = (r: ProposedRemedy): { cardId: string | null; rung: string } => {
-    const session = r.target === "holder" ? holder : bound;
-    const own = session === null ? null : cardIdForSession(session);
-    if (own !== null) return { cardId: own, rung: r.target === "holder" ? "the holder's card" : "the bound card" };
-    return { cardId: frontmost, rung: "the frontmost session card" };
-  };
+function ProposedResolve({ situation }: { situation: Situation }): React.ReactElement {
+  const { blocker, word } = situation;
+  const { remedy } = blocker;
+  const [beat, setBeat] = React.useState<"blocked" | "running" | "ready">("blocked");
+  const register = beat === "blocked" ? word : beat === "running" ? remedy.running : "ready to join";
   return (
-    <div className="cg-dash-remedies" data-slot="cg-dash-remedies">
+    <div className="cg-dash-remedies" data-slot="cg-dash-remedies" data-beat={beat}>
+      <div className="cg-dash-legend-row">
+        <span className="cg-dash-legend-word">register reads</span>
+        <span className="cg-dash-register-word" data-beat={beat}>
+          {register}
+        </span>
+      </div>
       <TugSectionLabel label={{ name: "report", qualifier: "proposed" }} />
-      <div className="session-changes-dash-join-detail cg-dash-remedy-detail">{blocker.detail}</div>
-      <ul className="cg-dash-overlap">
-        {blocker.overlap.map((o) => (
-          <li key={o.path}>
-            <span className="cg-dash-overlap-path">{o.path}</span>
-            <span className="cg-dash-overlap-fact">
-              {o.owner === "foreign" ? `held by ^${o.holder ?? "?"}` : o.owner} · {o.relation}
-            </span>
-          </li>
-        ))}
-      </ul>
-      <div className="cg-dash-remedy-row">
-        {blocker.remedies.map((r) => {
-          const target = targetFor(r);
-          return (
+      {beat === "ready" ? (
+        <div className="cg-dash-remedy-explain" role="status">
+          Resolved. The shade is raised on the ready dash, and the send button is Join.
+        </div>
+      ) : (
+        <>
+          <div className="session-changes-dash-join-detail cg-dash-remedy-detail">{blocker.detail}</div>
+          <div className="cg-dash-remedy-explain">{remedy.explain}</div>
+          <div className="cg-dash-remedy-row">
             <TugPushButton
-              key={r.label}
               size="xs"
               emphasis="tinted"
-              role={r.destructive ? "danger" : "agent"}
-              disabled={target.cardId === null}
+              role="action"
+              disabled={remedy.refused !== null || beat === "running"}
+              loading={beat === "running"}
               onClick={() => {
-                if (target.cardId === null) return;
-                const took = seedPromptIntoCard(target.cardId, r.prompt);
-                setSeeded(took ? `seeded into ${target.rung}` : "That card has no composer");
+                setBeat("running");
+                window.setTimeout(() => setBeat("ready"), 1400);
               }}
             >
-              {r.label}
+              Resolve
             </TugPushButton>
-          );
-        })}
-      </div>
-      {blocker.remedies.map((r) => (
-        <blockquote className="cg-dash-remedy-prompt" key={r.label} data-slot="cg-dash-remedy-prompt">
-          <span className="cg-dash-remedy-prompt-label">{r.label}</span>
-          {r.prompt}
-        </blockquote>
-      ))}
-      {seeded !== null ? (
-        <div className="cg-dash-remedy-note" role="status" data-slot="cg-dash-remedy-note">
-          {seeded}
-        </div>
-      ) : blocker.remedies.some((r) => targetFor(r).cardId === null) ? (
-        <div className="cg-dash-remedy-note" data-slot="cg-dash-remedy-note">
-          Open a session card to seed this
-        </div>
-      ) : null}
+            {remedy.refused !== null ? (
+              <span className="cg-dash-remedy-note">{remedy.refused}</span>
+            ) : null}
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -963,8 +880,8 @@ export function GalleryDashLifecycle(): React.ReactElement {
       </section>
 
       <section className="cg-section">
-        <TugLabel className="cg-section-title">Proposed — the blocker carries its remedies, and a remedy is a prompt</TugLabel>
-        <Stage caption="One `base-dirt` bit hides three situations, and every fact that tells them apart is already in hand: the changes ledger attributes the base's dirt to a session (mine · foreign · unattributed), and comparing the base copy's bytes against the dash's version says whether it is the dash's own edit or other work. The server composes both into the blocker with a `remedies` list, each remedy a PROMPT — the cockpit's standing rule, that every affordance produces a prompt into a real session and never a call into machinery. A chip seeds its prompt into the right session's composer, fronts that card and rings its pane; the reader sees the words, edits or sends them, and the model runs the verbs in the transcript where every step is visible and interruptible. When its turn settles and the base is clean, the pilot reconciles, the offer stands, and the card's own quiet-moment reveal raises the Changes shade — the same reveal a ready dash gets today, once the reveal memory forgets a head on the blocked→candidate edge. PRESS ONE: it seeds for real">
+        <TugLabel className="cg-section-title">Proposed — one sentence, one Resolve</TugLabel>
+        <Stage caption="One `base-dirt` bit hides three situations, and every fact that tells them apart is already in hand: the changes ledger attributes the base's dirt to a session, and comparing the base copy's bytes against the dash's version says whether it is the dash's own edit or other work. The server composes the blocker with its one remedy, and the report section reads in three lines: what is wrong, what Resolve will do, Resolve. The remedy is never in the button — the sentence carries it, so the reader weighs it before pressing — and the button is always the same word. The unblocking is mechanical in every case; where judgment is needed, at the merge, the join's own resolver ladder already supplies it. Press Resolve to walk the register through the beats">
           <div className="cg-dash-situations">
             {SITUATIONS.map((s) => (
               <div className="cg-dash-surface" key={s.key}>
@@ -972,35 +889,27 @@ export function GalleryDashLifecycle(): React.ReactElement {
                 <TugLabel size="2xs" emphasis="calm" className="cg-dash-caption">
                   {s.caption}
                 </TugLabel>
-                <div className="cg-dash-legend-row">
-                  <span className="cg-dash-legend-word">register reads</span>
-                  <span className="cg-dash-register-word" data-word={s.word}>{s.word}</span>
-                </div>
-                <ProposedRemedies blocker={s.blocker} bound={SOLO} holder={OTHER} />
+                <ProposedResolve situation={s} />
               </div>
             ))}
           </div>
         </Stage>
         <p className="cg-dash-prose">
-          The seed is the transcript's own <code>insertJot</code> path plus <code>focus-session-card</code>, which
-          already fronts and rings — <code>seedPromptIntoCard</code> in <code>lib/dash-prompts.ts</code> is the one new
-          export, and it is what the chips above call. The prompt appends to whatever the composer holds, so a draft
-          in progress is never overwritten. The target ladder is the proposal's: the session bound to the dash, or for
-          a foreign holder that session's own card — the ask goes to the model that has the file in hand.
+          Resolve is one server verb, <code>dash resolve-base &lt;name&gt;</code>, that does the one thing the blocker's
+          facts permit: an identical copy is dropped; a divergent one of the user's own is folded into the join, and a
+          conflict from the fold enters the resolver ladder like any other; a foreign one is refused by name. It is
+          op-logged, so <code>dash undo</code> puts main's copy back. The join then runs on the same press — Resolve is
+          not a step before the join, it is the join with the block cleared — and the card's existing quiet-moment
+          reveal raises the shade on the ready dash. "Commit or stash them first" retires, and no surface says{" "}
+          <em>stash</em> again.
         </p>
         <p className="cg-dash-prose">
-          The verbs the prompts name are two small new ones, both op-logged so <code>dash undo</code> reverses them:{" "}
-          <code>dash carry &lt;name&gt; --paths</code>, which is <code>carry_working_set_in</code> narrowed to named
-          paths, and <code>dash drop-base &lt;name&gt; --paths</code>, refused server-side unless the bytes are{" "}
-          <em>identical</em> or <em>contained</em> — the guard rests on the server's fact, not on the model's judgement or
-          the user's belief. The destructive case gets its diff in the transcript, where the reader can interrupt.
-          "Commit or stash them first" retires, and no surface says <em>stash</em> again.
-        </p>
-        <p className="cg-dash-prose">
-          The same chips land in the row's actions menu on both surfaces, and the register wears the count of ways out
-          rather than a bare word. The order to build it: the Rust facts, verbs and prompt copy with a test per owner ×
-          relation; the shade's chips; the Lens menu and register word; the reveal memory's blocked→candidate edge;
-          then one app-test per situation over a real dash fixture with a dirtied base, ending on the shade raised.
+          Case A may not need the button at all: a base copy that is byte-identical to what the dash lands is an echo,
+          not dirt, and the preflight could pass it with a line in the receipt. The frame keeps the button so the three
+          cases read as one grammar; whether A collapses to zero is the first thing to decide. The order to build it:
+          the Rust facts and verb with a test per owner × relation; the shade's report section; the Lens register
+          word; the reveal memory's blocked→ready edge; one app-test per case over a real dash fixture with a dirtied
+          base, ending on the shade raised.
         </p>
       </section>
     </div>
