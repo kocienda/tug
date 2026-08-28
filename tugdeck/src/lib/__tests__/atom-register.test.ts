@@ -77,6 +77,25 @@ describe("the phase mark stays inside the pill", () => {
       expect(m.dotSize / opening).toBeGreaterThan(0.15);
     }
   });
+
+  // A mark this small IS its raster. The dot and the ring are two boxes on one
+  // centre, and the browser snaps each onto the device grid on its own — so
+  // their centres only survive if half the difference of their diameters is a
+  // whole number of device pixels, at 1x and at 2x alike. Whole, same-parity
+  // px is what buys that. At 4.5 the dot's ink centre moved half a device
+  // pixel off the ring's as the pill's sub-pixel position changed, which reads
+  // as a dot sitting in the corner of its own pulse;
+  // `at0493-atom-mark-raster` measures that in the running app, and this holds
+  // the arithmetic behind it.
+  test("the dot and its glyph box are whole, same-parity pixels", () => {
+    for (const register of REGISTERS) {
+      const m = atomRegisterMetrics(register);
+      const box = markBoxForDot(m.dotSize);
+      expect(Number.isInteger(m.dotSize)).toBe(true);
+      expect(Number.isInteger(box)).toBe(true);
+      expect((box - m.dotSize) % 2).toBe(0);
+    }
+  });
 });
 
 describe("editorLineHeightFor", () => {

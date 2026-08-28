@@ -77,6 +77,19 @@ export interface AtomRegisterMetrics {
    * pill's inner height, and the diameter is what fits under it — which is why
    * this is a smaller number than the mark's rest diameter would suggest.
    * `atom-register.test` holds the containment.
+   *
+   * **And it is a WHOLE, EVEN number of pixels, which is not a rounding of the
+   * number that fits — it is the number.** A mark this small is its raster: the
+   * dot and the ring are two boxes centred on one point, and the browser snaps
+   * each of them onto the device grid on its own. Their centres only survive
+   * that if the offset between the boxes — half the difference of their
+   * diameters — is a whole number of device pixels, which needs both diameters
+   * whole and of the same parity. At 4.5 it was neither: the dot's box began on
+   * a half device pixel, so a pill landing on a fractional layout position
+   * (an ordinary Overview row does) painted the dot half a pixel off the ring
+   * it sits in, and shed a pixel of its own width doing it. Measured, not
+   * reasoned: at 4.5 the dot's ink centre moved ±0.5 device px as the host's
+   * sub-pixel offset changed while the ring's never moved at all.
    */
   dotSize: number;
   /** The pill's border, in px. Part of {@link height}. */
@@ -101,10 +114,14 @@ export interface AtomRegisterMetrics {
  * The dot is one number for both registers, and it is the number the SMALLER
  * pill can hold: a mark that fit `reading` and crossed `prose`'s border would
  * be the same defect at one remove.
+ *
+ * 4px is an 8px glyph box, whose ring runs to 14px — three clear pixels inside
+ * the `prose` opening — and every edge of it lands on a device pixel at 1x and
+ * at 2x. See {@link AtomRegisterMetrics.dotSize} for why that is the point.
  */
 export const ATOM_REGISTERS: Readonly<Record<AtomRegister, AtomRegisterMetrics>> = {
-  prose: { fontSize: 13, height: 22, dotSize: 4.5, borderWidth: 1 },
-  reading: { fontSize: 13, height: 24, dotSize: 4.5, borderWidth: 1 },
+  prose: { fontSize: 13, height: 22, dotSize: 4, borderWidth: 1 },
+  reading: { fontSize: 13, height: 24, dotSize: 4, borderWidth: 1 },
 };
 
 /**

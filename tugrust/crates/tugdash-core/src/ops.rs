@@ -1566,7 +1566,7 @@ pub fn dash_detail_entries_in(repo_root: &Path) -> Vec<DashDetail> {
         };
         let worktree_dirty_tracked = !worktree_dirt_tracked.is_empty();
 
-        let files = dash_range_files(repo_root, &base, &branch);
+        let files = dash_range_files(repo_root, &base, branch);
 
         // Round subjects, newest first — what the discard preflight
         // lists ([P14]). Empty when the dash has no rounds.
@@ -1590,7 +1590,7 @@ pub fn dash_detail_entries_in(repo_root: &Path) -> Vec<DashDetail> {
         dash_changed.extend(worktree_dirt_tracked.iter().cloned());
         let overlap = intersect_base_dirt(
             repo_root,
-            &branch,
+            branch,
             &base_dirt,
             &base_untracked,
             &dash_changed,

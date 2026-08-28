@@ -725,6 +725,25 @@ function isQuiet(state: TugProgressIndicatorState): boolean {
 const IDLE_DOT_SCALE = 0.85;
 
 /**
+ * How far a quiet state draws the dot in, at this size.
+ *
+ * It ramps out with {@link smallness} for the same reason the PRESENCE ladder
+ * does, and it was an oversight that it did not: below {@link SMALL_SIZE} the
+ * glyph says its state with tone and with whether the ring is moving, because
+ * a fraction of a dot that is already four pixels across is not a quieter mark
+ * — it is a blurrier one. A 0.85 there asks for 3.4px of dot, which is neither
+ * a whole device pixel at 1x nor at 2x, and a small circle off the device grid
+ * is snapped onto it by the compositor a half pixel away from the ring it is
+ * supposed to sit inside. So the small treatment keeps the whole dot, and the
+ * big treatment — where 15% is a visible ~2.5px and the geometry is coarse
+ * enough to absorb it — is unchanged.
+ */
+function quietScale(state: TugProgressIndicatorState, size: number): number {
+  if (!isQuiet(state)) return 1;
+  return IDLE_DOT_SCALE + (1 - IDLE_DOT_SCALE) * smallness(size);
+}
+
+/**
  * The PRESENCE ladder — how much of the reserved glyph box each state
  * occupies.
  *
@@ -786,7 +805,7 @@ function settledScaleFor(
   state: TugProgressIndicatorState,
   size: number,
 ): number {
-  return (isQuiet(state) ? IDLE_DOT_SCALE : 1) * presenceScale(state, size);
+  return quietScale(state, size) * presenceScale(state, size);
 }
 
 /**
