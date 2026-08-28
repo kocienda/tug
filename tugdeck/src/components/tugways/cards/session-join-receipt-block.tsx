@@ -27,6 +27,7 @@ import type React from "react";
 
 import { CommitShaText } from "@/components/tugways/commit-sha-text";
 import { CommitMessage } from "@/components/tugways/commit-presentation";
+import { useCommitIdentityMenu } from "@/components/tugways/commit-identity-menu";
 import { CommitChangesList } from "@/components/tugways/tug-changes-list";
 import { DashJoinRegister } from "@/components/tugways/dash-join-register";
 import { useAnnotatedElement } from "@/components/tugways/annotation-scope";
@@ -227,7 +228,8 @@ function JoinReceipt({
   // A squash subject names what it touched and the scope tag is often a path —
   // annotated like the commit receipt's subject, whose `<code>` this mirrors.
   // The sha beside it is deliberately not annotated: `CommitShaText` owns every
-  // pointer gesture on it for its own copy menu.
+  // pointer gesture on it, and the identity line around both owns the
+  // right-click.
   const subjectRef = useAnnotatedElement<HTMLElement>([subject]);
   const body = message.slice(subject.length).replace(/^\n+/, "").replace(/\s+$/, "");
   const added = files.reduce((sum, f) => sum + f.added, 0);
@@ -235,9 +237,30 @@ function JoinReceipt({
   // A receipt with no file list (legacy, or a non-squash join) falls back to
   // the identity in the header seat, so the header is never a bare sha.
   const headline = subject.length > 0 ? subject : `${dash} → ${base}`;
+  // A join IS a commit on the base, so its identity answers with the commit's
+  // own menu — the same four copies a `/commit` receipt and a History row
+  // offer, with no fold of its own to name. On the atom alone, for the reason
+  // the commit receipt claims it there: the subject beside it is selectable
+  // transcript text, and its right-click is the standard editing block's.
+  const menu = useCommitIdentityMenu({
+    commit: {
+      sha,
+      subject: headline,
+      body,
+      files,
+      paths: files.map((f) => f.path),
+    },
+  });
   const identity = (
     <span className="join-receipt-header">
-      <CommitShaText sha={sha} />
+      <span
+        className="join-receipt-sha"
+        ref={menu.ref}
+        onContextMenu={menu.onContextMenu}
+      >
+        <CommitShaText sha={sha} menu={false} />
+        {menu.contextMenu}
+      </span>
       {" "}
       <code ref={subjectRef} className="join-receipt-summary">{headline}</code>
     </span>

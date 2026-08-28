@@ -26,6 +26,7 @@ import type React from "react";
 
 import { CommitShaText } from "@/components/tugways/commit-sha-text";
 import { CommitMessage } from "@/components/tugways/commit-presentation";
+import { useCommitIdentityMenu } from "@/components/tugways/commit-identity-menu";
 import { CommitChangesList } from "@/components/tugways/tug-changes-list";
 import { useAnnotatedElement } from "@/components/tugways/annotation-scope";
 import { BlockChrome } from "../blocks/block-chrome";
@@ -170,10 +171,19 @@ function CommitReceipt({
   // A commit subject names what it touched (`tugdash(annotator-perf): …`), and
   // the scope tag often IS a path. Annotated like the Bash header's command
   // line, whose `<code>` this mirrors. The sha beside it is deliberately NOT
-  // annotated — `CommitShaText` already owns every pointer gesture on it for
-  // its own copy menu.
+  // annotated — `CommitShaText` already owns every pointer gesture on it, and
+  // the identity line around both owns the right-click.
   const subjectRef = useAnnotatedElement<HTMLElement>([subject]);
   const body = message.slice(subject.length).replace(/^\n+/, "").replace(/\s+$/, "");
+  // The same menu the History shade's rows carry, minus the fold they alone
+  // have: a commit reads identically wherever it appears, and so should the
+  // press on it. Claimed by the ATOM alone, not the whole identity line — the
+  // subject beside it is transcript text a reader selects, and its right-click
+  // belongs to the standard editing block. The atom stands its own single-item
+  // Copy down in favor of this one.
+  const menu = useCommitIdentityMenu({
+    commit: { sha, subject, body, files, paths: files.map((f) => f.path) },
+  });
   // The commit atom stands where a tool block's verb would: the commit names
   // itself — `commit:<8>`, glyph and all — then a single space, then the
   // subject. The same identity line the History shade's rows lead with, so a
@@ -181,7 +191,14 @@ function CommitReceipt({
   // are what separate the two; a heavier delimiter only spent width.
   const identity = (
     <span className="commit-receipt-header">
-      <CommitShaText sha={sha} />
+      <span
+        className="commit-receipt-sha"
+        ref={menu.ref}
+        onContextMenu={menu.onContextMenu}
+      >
+        <CommitShaText sha={sha} menu={false} />
+        {menu.contextMenu}
+      </span>
       {" "}
       <code ref={subjectRef} className="commit-receipt-summary">{subject}</code>
     </span>
