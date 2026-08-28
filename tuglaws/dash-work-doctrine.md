@@ -103,13 +103,15 @@ Git records the diff; the log records the instruction git cannot see. `tug log` 
 
 **Never commit to the base branch.** Every commit goes through `tugutil dash commit` onto the dash worktree.
 
-## A step boundary is a turn boundary
+## Step work runs to completion
 
-**Under an arc, the implement stage closes one step per turn and ends it.** Not because a longer turn would do worse work, but because the wheel can only act between turns: every act it takes on the seated session — a compaction above `implement_compact_at`, a rotation above `implement_rotate_at` — is sent at a turn's end, since a prompt sent into an open turn would queue behind a model still working. A stage that walks its whole ledger in one turn offers the arc exactly one edge, at the end, when there is nothing left to pace.
+**Once step work has commenced, the run finishes it.** The value passed to `--through` is the run's declared end, and a run that has declared one does not stop before it: not to report a round, not to describe the next step, not to ask whether to keep going, not because a commit landed and a commit looked like a natural place to hand back. It stops at exactly two points — the step it declared it would run through, or a blocker it names and cannot resolve — and nothing else. A round's commit is a checkpoint inside the run, never its end. A turn that ends with a step reading `in progress` and no named blocker is a defect: every dash face reads a live mark that nobody is working, the join cannot arm, and the user is left to discover that the dash needs prodding. Dashes do not need prodding.
 
-So the turn is the unit the arc paces, and the step boundary is where it lands. Walk one step, close it with `dash step done` or `dash step withdraw`, say where the ledger stands, and end the turn; the arc prompts the same session with the next range. Declare `--through` with the run's last step throughout — it never shrinks to the step being walked, because that value is what arms the join.
+**Questions belong to the brief and the task list, not the steps.** The clarifying question has one home: before the first step opens — while the brief is being settled under `/dash-plan`, while a plan is being devised, or while a direct dash is writing its task list. Even there it is narrow, raised only when the run is genuinely at its wits' end on a decision the code cannot answer, and it is bounded by the [never-ask list](#what-never-gets-asked). Once step work has commenced, that door is closed: a question that arrives mid-step is answered by reading the code, by the conventional default, or by the design the session already holds, and the run keeps going. The one mid-run dialog that survives is the refused ledger edit, because a wrong guess there corrupts the durable record.
 
-Run by hand, with no `TUG_DASH_ARC` in the environment, none of this applies: the selector said how far to walk and the run walks it.
+**Under an arc, and only under an arc, a step boundary is also a turn boundary.** When `TUG_DASH_ARC` names a dash in the environment, the implement stage closes one step per turn and ends it — not because a longer turn would do worse work, but because the wheel can only act between turns: every act it takes on the seated session — a compaction above `implement_compact_at`, a rotation above `implement_rotate_at` — is sent at a turn's end, since a prompt sent into an open turn would queue behind a model still working. The arc reads the boundary and prompts the same session with the next range, so the run still runs to its declared end; the turn is only the unit the arc paces it in. Declare `--through` with the run's last step throughout — it never shrinks to the step being walked, because that value is what arms the join.
+
+**With no `TUG_DASH_ARC` in the environment there is no wheel, and nothing will prompt the next step.** That is every direct `/dash` and every `/tugplug:dash-implement` typed by hand. Ending the turn at a step boundary there is not pacing, it is abandonment: the ledger reads `in progress`, the dash sits, and the user finds it stopped. Walk the whole declared range in the one turn, and end the turn only when the step named by `--through` is `done` or `withdrawn`.
 
 ## Stop before the join
 
@@ -204,7 +206,8 @@ A skill in this lane may raise a dialog at a real decision point — an unsettle
 - Never ask to commit a round.
 - Never ask before running a checkpoint.
 - Never ask permission to write the join draft.
-- Never ask "should I continue?" between ordinary steps.
+- Never ask "should I continue?" between ordinary steps — and never end the turn between them as a silent way of asking it. Once step work has commenced, the run finishes its declared range.
+- Never ask a clarifying question once step work has commenced. Clarification is a brief-time and task-list-time act; a mid-step unknown is answered by the code, the conventional default, or the design already in the session.
 - Never ask anything with a conventional default.
 - Never ask which route or which shape the work takes when the invocation, or a design the session already holds, has settled it.
 - Never ask the user to choose between readings of the codebase. Read the code; the answer is a decision in the brief.

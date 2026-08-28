@@ -89,7 +89,11 @@ tugutil dash step <name> done <n>
 
 **The list is not a contract with the past.** Work that turns out to need a step nobody foresaw gets one: add its row and its heading, and go on. Rewriting the list mid-run is ordinary, and it is a better record than a list kept accurate by refusing to learn anything.
 
+**The task list is the last place a question can be asked.** If the instruction leaves a design decision the code cannot settle and no conventional default covers, raise it now, while the list is being written, as an `AskUserQuestion` — and only when you are genuinely at your wits' end, never as a reflex. Once the first step is opened with `start`, that door closes: from there the run answers its own unknowns and finishes.
+
 ### Work (in-thread, per round)
+
+**Walk the whole list in this turn, and do not end the turn before the step named by `--through` is `done` or `withdrawn`.** A direct dash has no arc behind it: nothing prompts the next step, so a turn that ends at a step boundary ends the dash, with a row reading `in progress` and nobody working it. A round's commit is a checkpoint inside the run, not a place to report back — commit, close the step, open the next, and keep going. Never ask whether to continue, never ask a clarifying question mid-step, and never narrate the next step in place of doing it. The only stop short of the declared end is a blocker you name, in a sentence, with what it blocks.
 
 Carry out the instruction yourself in the worktree. Run the checks the doctrine names. **Before the commit, write the dash's join draft** — committing the round is the arming event, so the prompt can raise and the user can join the moment the commit lands, and whatever draft exists at that instant is the message they land with:
 
@@ -156,6 +160,7 @@ The chip belongs only where the prompt cannot raise: a dash the user has left un
 Everything in [`tuglaws/dash-work-doctrine.md`](../../../tuglaws/dash-work-doctrine.md), plus:
 
 - **Write the task list before the first round, and walk it with the step verbs.** A dash whose ledger never moves shows a dead fraction on every face it appears on, and leaves a session picking it up tomorrow nothing to read.
+- **Once a step is open, the run finishes the list.** No turn ends with a step `in progress` unless a named blocker ends it. Questions were for the task list; a mid-step unknown is answered by the code or the conventional default, and the run keeps going.
 - **Never lint the task list, and never grow it into a plan.** Ten steps means the work wanted `/dash-plan`.
 - **Leave the draft behind.** Stopping without one hands the user a join gesture that cannot join.
 - **Never discard on your own initiative.** Discard destroys work.
