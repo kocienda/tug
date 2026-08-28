@@ -117,6 +117,38 @@ fn run_program(name: &str, program: &str) {
     );
 }
 
+/// No fixture may spell in-place editing the BSD way.
+///
+/// `sed -i '' script f` is macOS-only: GNU sed's `-i` takes its suffix
+/// attached, so it reads the `''` as the script and the real script as a
+/// filename — the oracle dies before it edits anything, and the tier reports a
+/// portability accident as a fidelity failure. The portable spelling is
+/// `sed script f > tmp && mv tmp f`, which both seds read alike. Checked here
+/// rather than left to CI, because the machine a fixture is captured on is the
+/// one machine that cannot notice.
+#[test]
+fn no_fixture_spells_in_place_editing_the_bsd_way() {
+    let mut offenders: Vec<String> = Vec::new();
+    for entry in std::fs::read_dir(corpus(""))
+        .expect("read corpus")
+        .flatten()
+    {
+        let cmd = entry.path().join("cmd.sh");
+        let Ok(text) = std::fs::read_to_string(&cmd) else {
+            continue;
+        };
+        if text.contains("-i ''") || text.contains("-i \"\"") {
+            offenders.push(entry.file_name().to_string_lossy().into_owned());
+        }
+    }
+    offenders.sort();
+    assert!(
+        offenders.is_empty(),
+        "BSD-only `-i ''` in: {}. Rewrite to `> tmp && mv tmp f`.",
+        offenders.join(", ")
+    );
+}
+
 #[test]
 fn the_python_multi_pair_edit_with_count_guards() {
     run_fixture("multi_pair_guarded");
