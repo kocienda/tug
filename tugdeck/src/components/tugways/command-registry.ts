@@ -2588,10 +2588,8 @@ export const ACTIONS_OUTSIDE_THE_TABLE: ReadonlySet<string> = new Set<string>([
   TUG_ACTIONS.TOGGLE_COMMIT_DETAIL,
   TUG_ACTIONS.COPY_COMMIT_HASH,
   TUG_ACTIONS.COPY_COMMIT_SHORT_HASH,
-  TUG_ACTIONS.COPY_COMMIT_SUBJECT,
-  TUG_ACTIONS.COPY_COMMIT_MESSAGE,
+  TUG_ACTIONS.COPY_COMMIT_HEADER,
   TUG_ACTIONS.COPY_COMMIT_RECORD,
-  TUG_ACTIONS.COPY_COMMIT_FILES,
   // The dash row's rare verbs. Each means "the dash this row is", which no
   // chord and no menu-bar item can name — and the discard is a "request",
   // arming the lane's confirm rather than performing anything.

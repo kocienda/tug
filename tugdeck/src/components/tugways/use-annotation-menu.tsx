@@ -50,6 +50,7 @@
 import React, { useCallback, useMemo, useRef } from "react";
 
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
+import { SHA_DISPLAY_LEN } from "@/components/tugways/commit-sha-text";
 import type { ActionHandlerResult } from "@/components/tugways/responder-chain";
 import type { TugEditorContextMenuEntry } from "@/components/tugways/tug-editor-context-menu";
 import { entityMenuItems } from "@/components/tugways/entity-menu-items";
@@ -232,6 +233,27 @@ export function useAnnotationMenu({
     else if (payload?.kind === "directory") revealDirectoryInFinder(payload.path);
   }, []);
 
+  // The two hash forms a sha alone can stand behind. Short is the reference
+  // the app writes a commit as — `commit:<8>`, the atom's own text; full is
+  // the hash bare, which is what a git verb takes as an argument. Ink may
+  // carry a sha already short, and slicing a short sha is a no-op.
+  const handleCopyCommitShortHash = useCallback((): ActionHandlerResult => {
+    const payload = contextAnnotationRef.current;
+    if (payload === null || payload.kind !== "commit-sha") return;
+    writeCopyClipboard(
+      `commit:${payload.sha.slice(0, SHA_DISPLAY_LEN)}`,
+      null,
+      origin(),
+      null,
+    );
+  }, [origin]);
+
+  const handleCopyCommitHash = useCallback((): ActionHandlerResult => {
+    const payload = contextAnnotationRef.current;
+    if (payload === null || payload.kind !== "commit-sha") return;
+    writeCopyClipboard(payload.sha, null, origin(), null);
+  }, [origin]);
+
   const handleOpenAnnotatedDiff = useCallback((): ActionHandlerResult => {
     const payload = contextAnnotationRef.current;
     if (payload === null || payload.kind !== "commit-sha") return;
@@ -266,6 +288,8 @@ export function useAnnotationMenu({
       [TUG_ACTIONS.REVEAL_IN_FINDER]: handleRevealAnnotatedFile,
       [TUG_ACTIONS.OPEN_IMAGE_PREVIEW]: handleOpenImagePreview,
       [TUG_ACTIONS.OPEN_DIFF]: handleOpenAnnotatedDiff,
+      [TUG_ACTIONS.COPY_COMMIT_SHORT_HASH]: handleCopyCommitShortHash,
+      [TUG_ACTIONS.COPY_COMMIT_HASH]: handleCopyCommitHash,
     }),
     [
       handleCopyCommand,
@@ -275,6 +299,8 @@ export function useAnnotationMenu({
       handleRevealAnnotatedFile,
       handleOpenImagePreview,
       handleOpenAnnotatedDiff,
+      handleCopyCommitShortHash,
+      handleCopyCommitHash,
     ],
   );
 

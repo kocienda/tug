@@ -108,10 +108,8 @@ export type AnnotationMenuFacts =
       kind: "commit-sha";
       /** The row folds, and the item states which way it would move. */
       expanded?: boolean;
-      /** The surface holds the subject, message and roster, not just a sha. */
+      /** The surface holds the subject and the whole record, not just a sha. */
       hasRecord: boolean;
-      /** How many paths the commit touched, as the surface knows them. */
-      pathCount: number;
       /** The surface can open a diff scoped to this commit. */
       canOpenDiff: boolean;
     };
@@ -335,12 +333,16 @@ const IMAGE_MENU_ENTRIES: AnnotationMenuEntry[] = [
  * A commit's menu — the same list wherever a commit is shown, with the rows
  * a surface cannot fill left out rather than dimmed forever.
  *
+ * **The first copy is the one the app writes commits as.** `commit:<8>` is
+ * what an atom, a receipt, and a line of transcript ink all say, so it leads
+ * the copies and every other form is measured from it: the bare full hash for
+ * a git argument, the header for a sentence, the record for a paste.
+ *
  * Transcript ink and a receipt header know a sha and nothing else, so they
- * get the three items a sha can stand behind. A History row holds the whole
- * record — the subject, the message, the roster — and its facts say so, which
- * is what turns on the six copies of facts nothing on screen shows. The fold
- * leads when the row has one, named in the direction it will move, so the
- * menu never asks the reader to recall the row's state.
+ * get the two forms a sha alone can stand behind. A History row holds the
+ * subject and the whole record, and its facts say so. The fold leads when the
+ * row has one, named in the direction it will move, so the menu never asks
+ * the reader to recall the row's state.
  */
 function commitMenuEntries(
   _payload: AnnotationPayload,
@@ -363,27 +365,19 @@ function commitMenuEntries(
       ...(entries.length > 0 ? { separatorBefore: true } : {}),
     });
   }
+  entries.push({
+    action: TUG_ACTIONS.COPY_COMMIT_SHORT_HASH,
+    label: "Copy Short Hash",
+    ...(entries.length > 0 ? { separatorBefore: true } : {}),
+  });
+  entries.push({ action: TUG_ACTIONS.COPY_COMMIT_HASH, label: "Copy Full Hash" });
   if (known?.hasRecord === true) {
     entries.push(
-      { action: TUG_ACTIONS.COPY_COMMIT_HASH, label: "Copy Commit Hash", separatorBefore: true },
-      { action: TUG_ACTIONS.COPY_COMMIT_SHORT_HASH, label: "Copy Short Hash" },
-      { action: TUG_ACTIONS.COPY_COMMIT_SUBJECT, label: "Copy Subject" },
-      { action: TUG_ACTIONS.COPY_COMMIT_MESSAGE, label: "Copy Message" },
+      { action: TUG_ACTIONS.COPY_COMMIT_HEADER, label: "Copy Commit Header" },
       { action: TUG_ACTIONS.COPY_COMMIT_RECORD, label: "Copy Commit Record" },
-      {
-        action: TUG_ACTIONS.COPY_COMMIT_FILES,
-        label: "Copy Changed Files",
-        separatorBefore: true,
-        disabled: known.pathCount === 0,
-      },
     );
     return entries;
   }
-  entries.push({
-    action: TUG_ACTIONS.COPY_ANNOTATION_VALUE,
-    label: "Copy Commit Hash",
-    ...(entries.length > 0 ? { separatorBefore: true } : {}),
-  });
   entries.push(INSERT_ENTRY);
   return entries;
 }

@@ -282,36 +282,32 @@ describe("a session is offered only the copies its surface can perform", () => {
 });
 
 describe("a commit's menu grows with what the surface holds", () => {
-  test("a sha alone opens its diff and copies its hash", () => {
+  test("a sha alone opens its diff and copies either hash form", () => {
     expect(bareEntries("commit-sha").map((e) => e.label)).toEqual([
       "Open Diff",
-      "Copy Commit Hash",
+      "Copy Short Hash",
+      "Copy Full Hash",
       "Insert into Prompt",
     ]);
   });
 
-  test("a row holding the record offers the facts nothing on screen shows", () => {
+  test("a row holding the record offers the header and the whole record", () => {
     const items = annotationEntryFor("commit-sha")?.menuEntries(
       SAMPLE["commit-sha"] as SamplePayload,
       {
         kind: "commit-sha",
         expanded: false,
         hasRecord: true,
-        pathCount: 0,
         canOpenDiff: false,
       },
     );
     expect(items?.map((e) => e.label)).toEqual([
       "Show Detail",
-      "Copy Commit Hash",
       "Copy Short Hash",
-      "Copy Subject",
-      "Copy Message",
+      "Copy Full Hash",
+      "Copy Commit Header",
       "Copy Commit Record",
-      "Copy Changed Files",
     ]);
-    // A merge or an empty commit changed nothing; the row stays put and dims.
-    expect(items?.[(items.length ?? 1) - 1]?.disabled).toBe(true);
   });
 
   test("the fold row states the direction it will move", () => {
@@ -321,7 +317,6 @@ describe("a commit's menu grows with what the surface holds", () => {
         kind: "commit-sha",
         expanded: true,
         hasRecord: true,
-        pathCount: 1,
         canOpenDiff: false,
       },
     );

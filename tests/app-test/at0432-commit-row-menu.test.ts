@@ -144,7 +144,7 @@ describe.skipIf(!SHOULD_RUN)("at0432 — the commit row's own menu", () => {
 
           // ---- The row's ground answers. ----------------------------------
           await app.nativeRightClickAtElement(
-            `${ROW} .tug-history-list-row-hit`,
+            `${ROW} .tugx-commit-stamp`,
           );
           await app.waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(MENU)}) !== null`,
@@ -163,17 +163,15 @@ describe.skipIf(!SHOULD_RUN)("at0432 — the commit row's own menu", () => {
           note("at0432 menu", JSON.stringify(rows));
           expect(rows.map((r) => r.action)).toEqual([
             "toggle-commit-detail",
-            "copy-commit-hash",
             "copy-commit-short-hash",
-            "copy-commit-subject",
-            "copy-commit-message",
+            "copy-commit-hash",
+            "copy-commit-header",
             "copy-commit-record",
-            "copy-commit-files",
           ]);
           // The fold item SAYS which way it goes — the row is collapsed.
           expect(rows[0].label).toBe("Show Detail");
-          // Every copy of a fact the record always holds is live; the roster is
-          // live too, because the newest commit changed files.
+          // Every item is a copy of a fact the record always holds, so every
+          // one is live.
           expect(rows.every((r) => !r.disabled)).toBe(true);
 
           // ---- …and the item carries the full hash to the pasteboard. -----
@@ -215,6 +213,26 @@ describe.skipIf(!SHOULD_RUN)("at0432 — the commit row's own menu", () => {
             ReadonlyArray<{ action: string; label: string; disabled: boolean }>
           >(menuRows());
           expect(onSha.map((r) => r.action)).toEqual(rows.map((r) => r.action));
+
+          // ---- Short Hash writes the reference, not the bare characters. --
+          //
+          // `commit:<8>` is what the atom itself says and what the app writes
+          // a commit as everywhere else, so it is what the item hands over.
+          setPasteboard(SENTINEL);
+          await app.nativeClickAtElement(
+            `${MENU} [data-item-action="copy-commit-short-hash"]`,
+          );
+          await app.waitForCondition<boolean>(
+            `document.querySelector(${JSON.stringify(MENU)}) === null`,
+            { timeoutMs: 8_000 },
+          );
+          const shortRef = `commit:${sha.slice(0, 8)}`;
+          let shortPaste = readPasteboard();
+          for (let tries = 0; tries < 20 && shortPaste !== shortRef; tries += 1) {
+            await new Promise((r) => setTimeout(r, 200));
+            shortPaste = readPasteboard();
+          }
+          expect(shortPaste).toBe(shortRef);
         } finally {
           await app.close();
         }

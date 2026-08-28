@@ -1042,24 +1042,20 @@ export const TUG_ACTIONS = {
   //                         asks the reader to remember the row's state.
   // COPY_COMMIT_HASH:       payload — none. The complete 40-char hash — what
   //                         every git verb wants and what no row displays.
-  // COPY_COMMIT_SHORT_HASH: payload — none. The 8-char form the row shows,
-  //                         which is the one a sentence quotes.
-  // COPY_COMMIT_SUBJECT:    payload — none. The subject line alone.
-  // COPY_COMMIT_MESSAGE:    payload — none. Subject + body, the message as it
-  //                         was written.
+  //                         Bare, with no `commit:` word in front of it: it is
+  //                         an argument, not a reference.
+  // COPY_COMMIT_SHORT_HASH: payload — none. `commit:<8>` — the atom's own
+  //                         text, the form the app writes a commit as.
+  // COPY_COMMIT_HEADER:     payload — none. `commit:<8> <subject>` — the
+  //                         reference and what it did, one line.
   // COPY_COMMIT_RECORD:     payload — none. The whole record — header line,
   //                         attribution, message — the same text the row's
   //                         Copy button writes, so the two cannot drift.
-  // COPY_COMMIT_FILES:      payload — none. The paths the commit changed, one
-  //                         per line. Disabled for a commit that changed none
-  //                         (a merge, an empty commit).
   TOGGLE_COMMIT_DETAIL:   "toggle-commit-detail",
   COPY_COMMIT_HASH:       "copy-commit-hash",
   COPY_COMMIT_SHORT_HASH: "copy-commit-short-hash",
-  COPY_COMMIT_SUBJECT:    "copy-commit-subject",
-  COPY_COMMIT_MESSAGE:    "copy-commit-message",
+  COPY_COMMIT_HEADER:     "copy-commit-header",
   COPY_COMMIT_RECORD:     "copy-commit-record",
-  COPY_COMMIT_FILES:      "copy-commit-files",
 
   // ---- The dash row's rare verbs ----
   //

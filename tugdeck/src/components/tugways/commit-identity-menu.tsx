@@ -3,34 +3,22 @@
  * whole row.
  *
  * A History row shows a hash, a subject, a stamp, and — expanded — a message
- * and a file roster, and until this hook the only press that meant anything
- * was the one that landed on the eight characters of the sha, which opened a
- * single-item Copy of those same eight characters. Every other pixel of the
- * row fell through to the app's "No Actions" fallback: the subject, the stamp,
- * the whole background. The facts a reader actually wants out of a commit —
- * the FULL hash, the message, the paths it touched — were reachable from no
- * menu at all.
+ * and a file roster, and the press that lands anywhere on it opens this menu:
+ * the four forms a commit is worth carrying away as, in the order a reader
+ * reaches for them.
  *
  * So: ONE menu, claimed by the row, listing every act the row can offer.
  *
  *   Show Detail / Hide Detail   the row's own fold, named rather than remembered
  *   ─────
- *   Copy Commit Hash            the complete 40 characters, which nothing shows
- *   Copy Short Hash             the 8 the row shows, the form a sentence quotes
- *   Copy Subject                the subject line alone
- *   Copy Message                subject + body, the message as written
+ *   Copy Short Hash             `commit:<8>`, the form the app writes commits as
+ *   Copy Full Hash              the complete 40 characters, bare, for a git verb
+ *   Copy Commit Header          `commit:<8>` and the subject, one line
  *   Copy Commit Record          the whole record — the row's Copy button's text
- *   ─────
- *   Copy Changed Files          the paths, one per line
  *
  * **The fold item says which way it goes.** `Show Detail` on a collapsed row,
  * `Hide Detail` on an expanded one — the same act the row's click performs,
  * spelled so the menu never asks the reader to recall the row's state.
- *
- * Copy Changed Files is DISABLED rather than absent when the commit changed
- * none (a merge, an empty commit): a menu whose height changes commit to
- * commit is a menu whose items move under the pointer between one right-click
- * and the next.
  *
  * `TugEditorContextMenu` rather than the Radix-backed `TugContextMenu`, for the
  * reason {@link useSessionIdentityMenu} uses it: its items write to the
@@ -105,10 +93,9 @@ export function useCommitIdentityMenu({
   const closeMenu = React.useCallback(() => setMenuState(null), []);
 
   const paths = commit.paths ?? [];
-  const body = commit.body ?? "";
-  // The message as it was written: the subject, then the body under a blank
-  // line. A subject-only commit copies its one line and no trailing blank.
-  const message = body.length > 0 ? `${commit.subject}\n\n${body}` : commit.subject;
+  // The reference the whole app writes a commit as, and the header line built
+  // on it — the same `commit:<8>` the row's own atom shows.
+  const shortRef = `commit:${commit.sha.slice(0, SHA_DISPLAY_LEN)}`;
   const folds = expanded !== undefined && onToggleDetail !== undefined;
 
   const responderId = React.useId();
@@ -121,14 +108,12 @@ export function useCommitIdentityMenu({
     actions: {
       [TUG_ACTIONS.TOGGLE_COMMIT_DETAIL]: () => onToggleDetail?.(),
       [TUG_ACTIONS.COPY_COMMIT_HASH]: () => writeText(commit.sha),
-      [TUG_ACTIONS.COPY_COMMIT_SHORT_HASH]: () =>
-        writeText(commit.sha.slice(0, SHA_DISPLAY_LEN)),
-      [TUG_ACTIONS.COPY_COMMIT_SUBJECT]: () => writeText(commit.subject),
-      [TUG_ACTIONS.COPY_COMMIT_MESSAGE]: () => writeText(message),
+      [TUG_ACTIONS.COPY_COMMIT_SHORT_HASH]: () => writeText(shortRef),
+      [TUG_ACTIONS.COPY_COMMIT_HEADER]: () =>
+        writeText(`${shortRef} ${commit.subject}`),
       // The row's Copy button's exact text, through the one formatter, so the
       // button and the menu item can never write two different records.
       [TUG_ACTIONS.COPY_COMMIT_RECORD]: () => writeText(commitCopyText(commit)),
-      [TUG_ACTIONS.COPY_COMMIT_FILES]: () => writeText(paths.join("\n")),
     },
   });
 
@@ -149,8 +134,7 @@ export function useCommitIdentityMenu({
   const items = React.useMemo<TugEditorContextMenuEntry[]>(() => {
     // The list and its order are the registry's, for every surface a commit
     // appears on; this row's contribution is the facts a sha cannot carry —
-    // that it holds the whole record, how many paths it touched, and which
-    // way its fold would move.
+    // that it holds the whole record, and which way its fold would move.
     const entries =
       annotationEntryFor("commit-sha")?.menuEntries(
         { kind: "commit-sha", sha: commit.sha, root: "", paths: [...paths] },
@@ -158,7 +142,6 @@ export function useCommitIdentityMenu({
           kind: "commit-sha",
           ...(folds ? { expanded: expanded === true } : {}),
           hasRecord: true,
-          pathCount: paths.length,
           // A History row's own diff is the shade beneath it; the row does
           // not open a second one from its menu.
           canOpenDiff: false,

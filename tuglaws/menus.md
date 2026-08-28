@@ -409,7 +409,7 @@ Reading down: reach the thing, act on it, take it, say something about it. A men
 
 ### Copy names its noun
 
-`Copy` alone belongs to the standard block, where the noun is *the selection* and the surface supplies it. An entity menu has no selection to mean, so every copy says what it copies: **Copy Path**, **Copy Link**, **Copy Address**, **Copy Commit Hash**, **Copy Session ID**, **Copy Command**.
+`Copy` alone belongs to the standard block, where the noun is *the selection* and the surface supplies it. An entity menu has no selection to mean, so every copy says what it copies: **Copy Path**, **Copy Link**, **Copy Address**, **Copy Full Hash**, **Copy Session ID**, **Copy Command**.
 
 `Copy as <Format>` is the one other shape and it is reserved for a genuinely different **serialization of one entity** — *Copy as Atom* beside *Copy as Citation*, *Copy Command as Plain Text* beside *Copy Command*. Never a second entity, never a second field.
 
