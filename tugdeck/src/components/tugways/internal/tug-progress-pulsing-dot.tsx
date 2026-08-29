@@ -839,9 +839,10 @@ export interface TugProgressPulsingDotProps {
   /** Lifecycle state. @default "running" */
   state?: TugProgressIndicatorState;
   /**
-   * The mark's shape. `dot` is the circle; `bar` is the same glyph drawn as a
-   * long capsule, for a caller that needs two readings to share one tint.
-   * Geometry only — the breath, the ring, and the crossings are identical.
+   * The mark's shape. `dot` is the circle; `diamond` is the same glyph turned
+   * 45°, for a caller that needs two readings to share one tint. Geometry
+   * only — the breath, the pulse, and the crossings are identical, and the
+   * pulse takes the mark's shape with it.
    * @default "dot"
    */
   shape?: TugProgressIndicatorShape;

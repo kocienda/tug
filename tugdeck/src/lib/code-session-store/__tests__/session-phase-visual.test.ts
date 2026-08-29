@@ -247,11 +247,11 @@ describe("sessionSessionPhaseVisual — role/state mapping", () => {
     });
   });
 
-  test("background → action/running as a bar — working, drawn long", () => {
+  test("background → action/running as a diamond — working, turned", () => {
     expect(sessionSessionPhaseVisual("background")).toEqual({
       role: "action",
       state: "running",
-      shape: "bar",
+      shape: "diamond",
     });
   });
 

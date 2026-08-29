@@ -129,11 +129,11 @@ export type TugProgressIndicatorState =
 /**
  * The mark's shape — a third visual axis beside role and state, and the only
  * one a variant may decline to honor. `dot` is every glyph's own figure;
- * `bar` asks for a long mark instead, and today the pulsing dot is the
- * variant that draws one. It exists for the phase that has to share a tint
- * with another phase and still read apart from it.
+ * `diamond` asks for the same figure turned 45°, and today the pulsing dot is
+ * the variant that draws one. It exists for the phase that has to share a
+ * tint with another phase and still read apart from it.
  */
-export type TugProgressIndicatorShape = "dot" | "bar";
+export type TugProgressIndicatorShape = "dot" | "diamond";
 
 export type TugProgressIndicatorGlyphPosition = "left" | "right" | "both";
 
@@ -276,9 +276,9 @@ export interface TugProgressIndicatorProps
   state?: TugProgressIndicatorState;
 
   /**
-   * The mark's shape. `bar` draws the glyph long where the variant has a
-   * long form (today: `pulsing-dot`); every other variant ignores it.
-   * @selector [data-shape="bar"]
+   * The mark's shape. `diamond` turns the glyph 45° where the variant has a
+   * turned form (today: `pulsing-dot`); every other variant ignores it.
+   * @selector [data-shape="diamond"]
    * @default "dot"
    */
   shape?: TugProgressIndicatorShape;
@@ -413,9 +413,9 @@ interface GlyphProps {
   size: number;
 }
 
-// Shape reaches the pulsing dot only. The other variants have no long form —
-// a bar-shaped pie is not a thing — and they ignore the axis rather than
-// approximate it.
+// Shape reaches the pulsing dot only. The other variants have no turned form
+// — a diamond-shaped pie is not a thing — and they ignore the axis rather
+// than approximate it.
 function renderGlyph({ variant, state, shape, disabled, value, max, size }: GlyphProps): React.ReactElement {
   switch (variant) {
     case "ring":

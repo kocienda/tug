@@ -170,7 +170,7 @@ export const SESSION_PHASE_LABELS: Record<SessionPhaseKey, string> = {
  *  - `restoring`, `interrupting` → `{ role: caution, state: running }`
  *  - `awaiting_approval`         → `{ role: caution, state: running }`
  *  - active stream phases        → `{ role: action,  state: running }`
- *  - `background`                → `{ role: action,  state: running, shape: bar }`
+ *  - `background`                → `{ role: action,  state: running, shape: diamond }`
  *  - `idle`                      → `{ role: inherit, state: stopped }`
  *
  * `action` (Key) is the canonical "work in flight" tone across the
@@ -183,10 +183,10 @@ export const SESSION_PHASE_LABELS: Record<SessionPhaseKey, string> = {
  * the liveness rule is satisfied rather than bent. It takes the
  * working tone too, because the tone is the truthful one — the
  * session IS working — and it separates from a live turn on **shape**
- * instead: the same cobalt mark drawn long. The quiet `inherit` tone
- * this used to wear made the dot read as Idle-with-a-twitch, which is
- * the one thing it is not. Idle owns `inherit`; nothing that is
- * working may borrow it.
+ * instead: the same cobalt mark, turned 45°, shedding a pulse turned
+ * with it. The quiet `inherit` tone this used to wear made the dot
+ * read as Idle-with-a-twitch, which is the one thing it is not. Idle
+ * owns `inherit`; nothing that is working may borrow it.
  */
 export function sessionSessionPhaseVisual(phaseKey: string): TugProgressIndicatorPhaseVisual {
   switch (phaseKey as SessionPhaseKey) {
@@ -204,7 +204,7 @@ export function sessionSessionPhaseVisual(phaseKey: string): TugProgressIndicato
       // be. See `indicator-liveness`.
       return { role: "caution", state: "running" };
     case "background":
-      return { role: "action", state: "running", shape: "bar" };
+      return { role: "action", state: "running", shape: "diamond" };
     case "submitting":
     case "awaiting_first_token":
     case "streaming":

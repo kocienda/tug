@@ -444,14 +444,15 @@ export function GalleryTugProgressIndicator(): React.ReactElement {
           </div>
           <TugLabel size="2xs" emphasis="calm">
             The shape axis. Both marks are the same glyph on the same breath in
-            the same working tint — the bar is the dot FLATTENED, never
-            lengthened. Its width is the dot's diameter because that is the
-            radius the ring is born on: a mark that reached further would be
-            sawn across by its own pulse for the whole travel instead of
-            shedding it. It exists for the pair of readings that must share a
-            tone: a session in a turn is the dot, a session whose backgrounded
-            agents are still running is the bar. Idle keeps the quiet tone to
-            itself, so nothing that is working can be mistaken for it.
+            the same working tint — the diamond is the whole glyph TURNED, mark
+            and pulse together. That pairing is the rule, not a detail: the
+            pulse is born on the mark's own radius, so a mark of some other
+            shape gets sawn across by its own pulse for the whole travel
+            instead of shedding it. It exists for the pair of readings that
+            must share a tone: a session in a turn is the dot, a session whose
+            backgrounded agents are still running is the diamond. Idle keeps
+            the quiet tone to itself, so nothing that is working can be
+            mistaken for it.
           </TugLabel>
           <div className="gpi-grid">
             <GalleryCell caption="dot — a turn in flight">
@@ -462,22 +463,22 @@ export function GalleryTugProgressIndicator(): React.ReactElement {
                 state="running"
               />
             </GalleryCell>
-            <GalleryCell caption="bar — background work">
+            <GalleryCell caption="diamond — background work">
               <TugProgressIndicator
                 variant="pulsing-dot"
                 size={BENCH_SIZE}
                 role="action"
                 state="running"
-                shape="bar"
+                shape="diamond"
               />
             </GalleryCell>
-            <GalleryCell caption={`bar, at the Lens's ${LENS_SIZE}px`}>
+            <GalleryCell caption={`diamond, at the Lens's ${LENS_SIZE}px`}>
               <TugProgressIndicator
                 variant="pulsing-dot"
                 size={LENS_SIZE}
                 role="action"
                 state="running"
-                shape="bar"
+                shape="diamond"
               />
             </GalleryCell>
             <GalleryCell caption="idle — the quiet tone, still">
