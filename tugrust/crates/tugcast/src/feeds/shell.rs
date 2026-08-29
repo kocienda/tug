@@ -1159,10 +1159,9 @@ async fn run_dispatcher(
                 // land under a "dead" owner and the changeset orphans the
                 // session's own files back at it.
                 if let Some(sessions_ledger) = sessions_ledger.as_ref() {
-                    if let Err(err) = sessions_ledger.revive_on_activity(
-                        &tug_session_id,
-                        crate::session_ledger::now_millis(),
-                    ) {
+                    if let Err(err) = sessions_ledger
+                        .revive_on_activity(&tug_session_id, crate::session_ledger::now_millis())
+                    {
                         warn!(
                             session = %tug_session_id,
                             error = %err,

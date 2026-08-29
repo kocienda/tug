@@ -2514,12 +2514,7 @@ mod tests {
             )
             .unwrap();
         ledger
-            .record_file_event(&event(
-                "sess-seated",
-                "tu-1",
-                &root.join("mine.txt"),
-                &root,
-            ))
+            .record_file_event(&event("sess-seated", "tu-1", &root.join("mine.txt"), &root))
             .unwrap();
         // The demote window: the row reads closed, but the deck holds the
         // card open and says so.
@@ -3639,10 +3634,7 @@ Some context.
         apply_session_rows(&mut snapshot, &rows);
         super::super::deck_seatings::drop_deck_seatings(11);
 
-        let ChangesetEntry::Session {
-            owner_id, live, ..
-        } = &snapshot.changesets[0]
-        else {
+        let ChangesetEntry::Session { owner_id, live, .. } = &snapshot.changesets[0] else {
             panic!("expected session entry");
         };
         assert_eq!(owner_id, "sess-seated-closed");

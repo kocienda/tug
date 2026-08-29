@@ -5857,10 +5857,7 @@ impl AgentSupervisor {
     /// entry, a ledger must be present, and each path maps through
     /// `repo_relative_key` with skip-and-warn. Idempotent — disclaiming a file
     /// the session no longer holds deletes nothing and still replies ok.
-    async fn do_changeset_disclaim(
-        &self,
-        request: &ChangesetDisclaimPayload,
-    ) -> serde_json::Value {
+    async fn do_changeset_disclaim(&self, request: &ChangesetDisclaimPayload) -> serde_json::Value {
         let project_dir = request.project_dir.as_str();
         let dir = std::path::Path::new(project_dir);
 
@@ -5880,8 +5877,8 @@ impl AgentSupervisor {
         // A disclaim is a user gesture in this session, same as a claim —
         // revive a demoted row so the session's remaining files keep a live
         // owner on the recompose this gesture triggers.
-        if let Err(err) = ledger
-            .revive_on_activity(&request.session_id, crate::session_ledger::now_millis())
+        if let Err(err) =
+            ledger.revive_on_activity(&request.session_id, crate::session_ledger::now_millis())
         {
             warn!(
                 error = %err,

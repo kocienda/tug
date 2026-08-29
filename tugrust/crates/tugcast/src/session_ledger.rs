@@ -4833,11 +4833,7 @@ impl SessionLedger {
     /// user closed stays closed no matter what trails in behind it. The
     /// re-entry into the fact base is a `SessionResumed` under the line's
     /// handle ([P02]), the mirror of the demote's `session_end`.
-    pub fn revive_on_activity(
-        &self,
-        session_id: &str,
-        now: i64,
-    ) -> Result<bool, LedgerError> {
+    pub fn revive_on_activity(&self, session_id: &str, now: i64) -> Result<bool, LedgerError> {
         let conn = self.db.lock().expect("ledger mutex");
         let row: Option<(String, String, String)> = conn
             .query_row(
