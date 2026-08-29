@@ -169,11 +169,7 @@ import {
 import { selectionToTranscriptSubstrate } from "@/lib/markdown/serialize-selection";
 import type { AnnotationContext } from "@/lib/annotator/types";
 import { AnnotationScope } from "@/components/tugways/annotation-scope";
-import { annotationFromEvent } from "@/lib/annotator/annotation-element";
-import {
-  annotationEntryFor,
-  type AnnotationDispatchContext,
-} from "@/lib/annotator/registry";
+import { useAnnotationClicks } from "@/components/tugways/use-annotation-clicks";
 import { attachSelectionExtension } from "@/components/tugways/selection-extension";
 import { TugJumpToBottomButton } from "@/components/tugways/tug-jump-to-bottom-button";
 import {
@@ -2459,49 +2455,12 @@ export const SessionTranscriptHost = forwardRef<
   // registered click behavior (URLs and email addresses — real anchors
   // whose native navigation the host already routes correctly) falls
   // through untouched.
-  // [L03] — the listener must be live before any click it services.
-  useLayoutEffect(() => {
-    const root = rootRef.current;
-    if (root === null) return;
-    const dispatchContext: AnnotationDispatchContext = {
-      activateCard: () => deck.activateCard(cardId),
-      codeSessionStore,
-    };
-    const onClick = (event: MouseEvent) => {
-      // Modified clicks fall through so text selection and the platform's
-      // own link gestures keep working.
-      if (event.button !== 0 || event.metaKey || event.shiftKey) return;
-      const hit = annotationFromEvent(event);
-      if (hit === null) return;
-      // An anchor navigates itself, and the host's navigation delegate
-      // routes it to the system browser — acting on it here too would
-      // open it twice.
-      if (hit.element instanceof HTMLAnchorElement) return;
-      // Ignore a click that is the tail of a text drag-selection over the
-      // annotation — only a plain, collapsed-selection click acts.
-      const selection = window.getSelection();
-      if (selection !== null && !selection.isCollapsed) return;
-      const entry = annotationEntryFor(hit.payload.kind);
-      entry?.primaryClick?.(hit.payload, dispatchContext);
-    };
-    // An annotation that opens something must not let the press move DOM
-    // focus (the composer's caret would go with it). The kinds that need
-    // that protection declare it on the element; the rest are left alone
-    // so a press inside prose still starts a selection.
-    const onMouseDown = (event: MouseEvent) => {
-      if (event.button !== 0 || event.metaKey || event.shiftKey) return;
-      const hit = annotationFromEvent(event);
-      if (hit === null) return;
-      if (hit.element.dataset.noActivate === undefined) return;
-      event.preventDefault();
-    };
-    root.addEventListener("click", onClick);
-    root.addEventListener("mousedown", onMouseDown);
-    return () => {
-      root.removeEventListener("click", onClick);
-      root.removeEventListener("mousedown", onMouseDown);
-    };
-  }, [cardId, codeSessionStore, deck]);
+  // The layer itself is `useAnnotationClicks`, which the Overview and the
+  // masthead mount over their own roots.
+  useAnnotationClicks(rootRef, {
+    activateCard: () => deck.activateCard(cardId),
+    codeSessionStore,
+  });
 
   // Deferred-content hold ([P03] as amended: progressive AFFORDANCE,
   // deferred CONTENT). While the INITIAL resume replay window is open

@@ -123,7 +123,6 @@ import {
   ANNOTATION_CLASS,
   type AnnotationContext,
 } from "@/lib/annotator/types";
-import { annotationFromEvent } from "@/lib/annotator/annotation-element";
 import {
   commitResolverFor,
   NO_COMMIT_VERDICT,
@@ -132,7 +131,7 @@ import { commitTip, dashTip, fileTip } from "@/components/tugways/entity-tips";
 import { TugTooltip } from "@/components/tugways/tug-tooltip";
 import { dispatchCommand } from "@/command-dispatch";
 import { fileNameResolverFor } from "@/lib/annotator/file-name-resolution";
-import { annotationEntryFor } from "@/lib/annotator/registry";
+import { useAnnotationClicks } from "@/components/tugways/use-annotation-clicks";
 import { pathResolutionStore } from "@/lib/annotator/path-resolution";
 import { dataAttributesForPayload } from "@/lib/annotator/payloads";
 import { makeReferenceResolver } from "@/lib/annotator/resolve-reference";
@@ -1111,44 +1110,13 @@ export function OverviewContent({
   }, [posts, pendingRequestId, pinToBottom]);
 
   // Annotation gestures — the Session transcript's own delegated layer,
-  // verbatim in shape: one listener on the transcript root, the registry
-  // deciding what a click on a given kind does, the mousedown guard keeping
-  // an opening press from moving DOM focus. The atoms are FULLY stamped
-  // (payload dataset, not just a kind), so `annotationFromEvent` reads a
-  // real payload back off whatever element the press lands on. No
+  // `useAnnotationClicks`, mounted over the Overview's scroller. The atoms
+  // here are FULLY stamped (payload dataset, not just a kind), so the layer
+  // reads a real payload back off whatever element the press lands on. No
   // codeSessionStore in the context: the Overview has no live session, and a
-  // kind that needs one declines on its own. [L03] — live before any click
-  // it services.
-  useLayoutEffect(() => {
-    const root = scrollRef.current;
-    if (root === null) return;
-    const onClick = (event: MouseEvent): void => {
-      if (event.button !== 0 || event.metaKey || event.shiftKey) return;
-      const hit = annotationFromEvent(event);
-      if (hit === null) return;
-      if (hit.element instanceof HTMLAnchorElement) return;
-      // The tail of a drag-selection over the atom is not a click on it.
-      const selection = window.getSelection();
-      if (selection !== null && !selection.isCollapsed) return;
-      annotationEntryFor(hit.payload.kind)?.primaryClick?.(hit.payload, {
-        // The opened card claims activation itself; the rail stays put.
-        activateCard: () => {},
-      });
-    };
-    const onMouseDown = (event: MouseEvent): void => {
-      if (event.button !== 0 || event.metaKey || event.shiftKey) return;
-      const hit = annotationFromEvent(event);
-      if (hit === null) return;
-      if (hit.element.dataset.noActivate === undefined) return;
-      event.preventDefault();
-    };
-    root.addEventListener("click", onClick);
-    root.addEventListener("mousedown", onMouseDown);
-    return () => {
-      root.removeEventListener("click", onClick);
-      root.removeEventListener("mousedown", onMouseDown);
-    };
-  }, []);
+  // kind that needs one declines on its own. `activateCard` is a no-op — the
+  // opened card claims activation itself; the rail stays put.
+  useAnnotationClicks(scrollRef, { activateCard: () => {} });
 
   const onScroll = (): void => {
     const el = scrollRef.current;

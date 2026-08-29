@@ -93,6 +93,10 @@ import { useCopyableButton } from "@/components/tugways/use-copyable-text";
 import { BlockCopyButton } from "@/components/tugways/body-kinds/affordances";
 import { formatByteSize } from "@/components/tugways/cards/session-picker-format";
 import { PulseBeatText } from "@/components/tugways/pulse-beat-text";
+import {
+  annotationClaimsClick,
+  useAnnotationClicks,
+} from "@/components/tugways/use-annotation-clicks";
 import { parseBeatFileTarget } from "@/lib/pulse-line/beat-file-target";
 import { renderPulseLine } from "@/lib/pulse-line/render-pulse-line";
 import { formatRestingStamp } from "@/lib/pulse-line/resting-line";
@@ -175,8 +179,16 @@ function SessionPulseHistory({
   lines: readonly PulseLineEntry[];
 }): React.ReactElement {
   const groups = React.useMemo(() => groupPulseHistory(lines), [lines]);
+  // A beat's file reference is a live reference here too, not a picture of
+  // one: the popover is portalled out of the masthead's tree, so the
+  // delegated layer that services the line has to be mounted again on the
+  // frame. `activateCard` is a no-op — the opened file's card claims
+  // activation itself, and this popover is not a card.
+  const frameRef = React.useRef<HTMLDivElement | null>(null);
+  useAnnotationClicks(frameRef, { activateCard: () => {} });
   return (
     <TugPopupListFrame
+      ref={frameRef}
       title="Recent pulses"
       kind="item"
       className="session-pulse-history"
@@ -486,6 +498,17 @@ export function SessionMasthead({
   */
   const stageElRef = useRef<HTMLElement | null>(null);
 
+  /*
+    The masthead's own delegated annotation layer. The pulse line's file
+    reference is stamped exactly as a path in transcript prose is, and until
+    this listener existed the chrome was the one place that stamp bought
+    nothing: an underline and a hover that named a file, and no way to open it.
+    One listener on the whole masthead, so every reference the chrome ever
+    carries is serviced by the same route.
+  */
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  useAnnotationClicks(rootRef, { activateCard: () => {} });
+
   // The ledger's row for this session, for the telemetry panel: by id, not out
   // of the workspace listing, because a just-spawned session is content-empty
   // and the listing deliberately omits it. The row's own three lines read the
@@ -509,6 +532,7 @@ export function SessionMasthead({
     <div
       className="session-masthead tug-masthead-frame"
       data-slot="session-masthead"
+      ref={rootRef}
     >
       <SessionIdentityRow
         className="session-masthead-row tug-masthead-frame-row"
@@ -598,7 +622,13 @@ export function SessionMasthead({
         )}
         stageProps={{
           ref: stageElRef as React.Ref<HTMLSpanElement>,
-          onClick: () => setHistoryOpen((open) => !open),
+          // The line toggles its history — unless the press landed on the
+          // beat's file reference, which is drilling THROUGH the line to what
+          // it names. One press, one act.
+          onClick: (event) => {
+            if (annotationClaimsClick(event.nativeEvent)) return;
+            setHistoryOpen((open) => !open);
+          },
           className: "session-masthead-stage",
         }}
       />
