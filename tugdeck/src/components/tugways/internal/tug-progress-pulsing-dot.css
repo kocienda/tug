@@ -251,10 +251,10 @@
   position: absolute;
   top: 50%;
   left: 50%;
-  width: var(
-    --tugx-progress-pulsing-dot-dot-width,
-    var(--tugx-progress-pulsing-dot-dot-size)
-  );
+  /* Width is the dot's diameter in every shape — it is what the ring's birth
+     radius is derived from, so nothing may push a mark past it. Only the
+     height varies; see the bar rule below. */
+  width: var(--tugx-progress-pulsing-dot-dot-size);
   height: var(
     --tugx-progress-pulsing-dot-dot-height,
     var(--tugx-progress-pulsing-dot-dot-size)
@@ -271,13 +271,11 @@
     background-color var(--tugx-progress-pulsing-dot-settle) linear;
 }
 
-/* BAR — the same glyph, drawn long.
+/* BAR — the same glyph, flattened.
  *
  * A shape axis, not a second component: everything else about the glyph is
  * unchanged, so the bar breathes on the same envelope, sheds the same ring,
- * settles through the same crossing, and answers to the same knobs. Only the
- * dot's box is restated — a capsule wider than it is tall, still centered,
- * still scaled by the breath.
+ * settles through the same crossing, and answers to the same knobs.
  *
  * It exists because tone alone could not carry the reading a caller needed.
  * A session with a backgrounded agent is genuinely working, so it earns the
@@ -285,15 +283,25 @@
  * dot would say it was. Shape is the axis that separates them: same color,
  * different mark.
  *
- * The proportions stay inside the box at the top of the breath (1.6 × the
- * dot's diameter across at peak is 0.96 of the glyph box), so a bar never
- * paints wider than the ring it sheds. */
+ * **Only the height is restated, and the width is deliberately left alone.**
+ * The ring is born on the DOT'S OWN RADIUS (`--…-emit-birth`, derived in the
+ * component from the ratio and both ends of the swing) and travels outward
+ * from there — the whole gesture is a ring peeling off an edge it starts
+ * flush with. A mark that reaches further from center than that radius does
+ * not get peeled off: the ring is born INSIDE it and saws across it for the
+ * length of the travel. A capsule keeps its extreme points at (±width/2, 0),
+ * so its reach from center IS its half-width, and holding that equal to the
+ * circle's means the bar is tangent to the ring at birth and clear of it
+ * forever after — exactly the circle's own relationship with the ring, at
+ * two points instead of all of them.
+ *
+ * Which fixes the bar's length as the dot's diameter: at 1.82 : 1 it reads as
+ * a bar and still leaves the ring the room it needs. A longer mark cannot be
+ * bought inside a box this size — only by letting the ring's travel out past
+ * the glyph box, which every row that hosts one would pay for. */
 .tug-progress-pulsing-dot[data-shape="bar"] {
-  --tugx-progress-pulsing-dot-dot-width: calc(
-    var(--tugx-progress-pulsing-dot-dot-size) * 1.6
-  );
   --tugx-progress-pulsing-dot-dot-height: calc(
-    var(--tugx-progress-pulsing-dot-dot-size) * 0.58
+    var(--tugx-progress-pulsing-dot-dot-size) * 0.55
   );
 }
 
@@ -372,10 +380,8 @@
    paints, and the live machinery plays the crossing. */
 .tug-progress-pulsing-dot[data-static] .tug-progress-pulsing-dot-dot {
   width: calc(
-    var(
-        --tugx-progress-pulsing-dot-dot-width,
-        var(--tugx-progress-pulsing-dot-dot-size)
-      ) * var(--tugx-progress-pulsing-dot-static-scale, 1)
+    var(--tugx-progress-pulsing-dot-dot-size) *
+      var(--tugx-progress-pulsing-dot-static-scale, 1)
   );
   height: calc(
     var(
