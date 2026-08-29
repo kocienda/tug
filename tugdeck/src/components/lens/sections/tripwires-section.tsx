@@ -475,15 +475,14 @@ function TripwiresSectionBody({ host }: { host: LensSectionHost }): React.ReactE
           // pointing at it — the plane is rebuilt from what each section holds,
           // and this section holds the same nothing before and after, so
           // nothing tells it to look again.
-          <div className="tripwires-empty" data-tripwires-empty="">
-            {snapshot.loaded ? (
-              // Only once the ledger has answered. "None are laid" and "nobody
-              // has asked yet" are different facts, and the first read is fast
-              // enough that saying the wrong one would be a flash of a lie.
-              <TugLabel size="sm" emphasis="calm">
-                No tripwires are laid.
-              </TugLabel>
-            ) : null}
+          // The shared word, centered, on one row's worth of height — the same
+          // empty state every other Lens section shows, because "empty" should
+          // not look like a different thing in each band.
+          <div className="lens-section-empty" data-tripwires-empty="">
+            {/* Only once the ledger has answered. "None are laid" and "nobody
+                has asked yet" are different facts, and the first read is fast
+                enough that saying the wrong one would be a flash of a lie. */}
+            {snapshot.loaded ? "None" : null}
           </div>
         ) : (
           <TugListView

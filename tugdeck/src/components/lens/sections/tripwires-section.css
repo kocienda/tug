@@ -61,7 +61,6 @@
   color: var(--tugx-text-muted);
 }
 
-.tripwires-empty,
 .tripwires-error {
   padding: 10px 12px;
 }
