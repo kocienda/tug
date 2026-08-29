@@ -58,6 +58,7 @@ import { registerKeyboardCard } from "./components/tugways/cards/keyboard-card";
 import { registerDevtoolsCard } from "./components/devtools/devtools-card";
 import { registerLensCard } from "./components/lens/lens-register-card";
 import { registerJotsCard } from "./components/jots/jots-card-registration";
+import { registerWiresCard } from "./components/wires/wires-card-registration";
 import { registerOverviewCard } from "./components/overview/overview-card-registration";
 import { registerCardsSection } from "./components/lens/sections/cards-section";
 import { registerLayoutsSection } from "./components/lens/sections/layouts-section";
@@ -341,6 +342,8 @@ if (!container) {
   // Same unconditional-and-early rule as the Lens: Jots is a sidebar card, and
   // a pane whose only card is unregistered at load is dropped.
   registerJotsCard();
+  // Same unconditional-and-early rule again: Wires is a sidebar card.
+  registerWiresCard();
   // Same unconditional-and-early rule again: the Overview is a sidebar card.
   registerOverviewCard();
   // Registration order is the DEFAULT Lens section order — the fallback

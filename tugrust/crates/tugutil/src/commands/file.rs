@@ -16,6 +16,7 @@ use std::path::{Path, PathBuf};
 use serde::Serialize;
 use tugchanges_core::shell_ops::{ParseOutcome, Suggestion, parse_shell_ops};
 use tugutil::edit::EditError;
+use tugutil::edit_error_marker::EditErrorMarker;
 use tugutil::receipt::{Receipt, current_hunk_ids, hunks_this_edit_produced};
 
 use crate::changes::AppError;
@@ -180,9 +181,16 @@ fn run_cp(src: &str, dst: &str) -> Result<(), AppError> {
 fn run_edit(preview: bool, patch: Option<String>, file: Option<String>) -> Result<(), AppError> {
     match patch {
         Some(source) => edit_by_patch(&source, preview),
-        None => tugutil::edit::read_program(file.as_deref())
-            .and_then(|program| tugutil::edit::run(&program, preview))
-            .map_err(edit_failure),
+        None => {
+            // The program is held rather than piped through: the marker
+            // carries it, and a failure nobody can see the program for is a
+            // failure nobody can diagnose.
+            let program = match tugutil::edit::read_program(file.as_deref()) {
+                Ok(program) => program,
+                Err(err) => return Err(edit_failure(&err, "")),
+            };
+            tugutil::edit::run(&program, preview).map_err(|err| edit_failure(&err, &program))
+        }
     }
 }
 
@@ -192,7 +200,12 @@ fn edit_by_patch(source: &str, preview: bool) -> Result<(), AppError> {
     let text = read_patch(source)?;
     let targets = patch_targets(&text);
     if targets.is_empty() {
-        return Err(AppError::Exit1("the patch names no files".to_string()));
+        return Err(patch_failure(
+            "usage",
+            AppError::Exit1("the patch names no files".to_string()),
+            &text,
+            &[],
+        ));
     }
 
     // Remember each target's bytes so the receipt can name only the files that
@@ -202,14 +215,18 @@ fn edit_by_patch(source: &str, preview: bool) -> Result<(), AppError> {
 
     // Validate first: a patch that will not apply must change nothing and
     // testify to nothing.
-    git_apply(&text, true)?;
+    if let Err(err) = git_apply(&text, true) {
+        return Err(patch_failure("resolve", err, &text, &targets));
+    }
     if preview {
         // The diff the edit would produce is the patch itself; show it and
         // touch nothing.
         print!("{text}");
         return Ok(());
     }
-    git_apply(&text, false)?;
+    if let Err(err) = git_apply(&text, false) {
+        return Err(patch_failure("write", err, &text, &targets));
+    }
 
     let mut receipt = Receipt::default();
     for ((target, was), was_hunks) in targets.iter().zip(before).zip(hunks_before) {
@@ -227,16 +244,37 @@ fn edit_by_patch(source: &str, preview: bool) -> Result<(), AppError> {
     Ok(())
 }
 
-/// The edit program's exit-code contract, carried onto the CLI's: 2 parse,
-/// 3 resolve, 4 a write that failed partway.
-fn edit_failure(err: EditError) -> AppError {
-    let message = err.message().to_string();
-    match err.exit_code() {
-        2 => AppError::Exit2(message),
-        3 => AppError::Exit3(message),
-        4 => AppError::Exit4(message),
-        _ => AppError::Exit1(message),
-    }
+/// A failed edit program: the report, then the `TUG-EDIT-ERROR` marker, then
+/// the exit-code contract carried onto the CLI's — 2 parse, 3 resolve, 4 a
+/// write that failed partway. Both lines go out here because here is where the
+/// program is still in hand.
+fn edit_failure(err: &EditError, program: &str) -> AppError {
+    tugutil::edit_error_marker::report(err, program);
+    AppError::Reported(err.exit_code())
+}
+
+/// The same two lines for a `--patch` failure, whose evidence is the diff
+/// rather than a program: a patch has no ops to count, so the marker carries
+/// the files it named and the diff text itself. The exit code is the one the
+/// mode always produced.
+fn patch_failure(
+    class: &'static str,
+    err: AppError,
+    patch: &str,
+    files: &[std::path::PathBuf],
+) -> AppError {
+    let exit = err.exit_code();
+    eprintln!("error: {}", err.message());
+    EditErrorMarker::new(class, exit, err.message())
+        .with_files(
+            files
+                .iter()
+                .map(|p| p.to_string_lossy().into_owned())
+                .collect(),
+        )
+        .with_program(patch)
+        .emit();
+    AppError::Reported(exit)
 }
 
 // ---------------------------------------------------------------------------

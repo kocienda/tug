@@ -128,8 +128,9 @@ import {
   commitResolverFor,
   NO_COMMIT_VERDICT,
 } from "@/lib/annotator/commit-resolution";
-import { commitTip, fileTip } from "@/components/tugways/entity-tips";
+import { commitTip, dashTip, fileTip } from "@/components/tugways/entity-tips";
 import { TugTooltip } from "@/components/tugways/tug-tooltip";
+import { dispatchAction } from "@/action-dispatch";
 import { fileNameResolverFor } from "@/lib/annotator/file-name-resolution";
 import { annotationEntryFor } from "@/lib/annotator/registry";
 import { pathResolutionStore } from "@/lib/annotator/path-resolution";
@@ -202,6 +203,7 @@ const AUTHOR_LABEL: Record<OverviewAuthor, string> = {
   observer: "Observer",
   operator: "Operator",
   user: "You",
+  tripwire: "Tripwire",
 };
 
 /** The transcript participant each Overview voice renders as. */
@@ -209,6 +211,7 @@ const AUTHOR_PARTICIPANT: Record<OverviewAuthor, Participant> = {
   observer: "observer",
   operator: "operator",
   user: "user",
+  tripwire: "tripwire",
 };
 
 /**
@@ -341,6 +344,34 @@ function RefAtom({
   // whole gesture, including whether to offer it.
   if (chipRef.kind === "session") {
     return <TugSessionCitation citedId={chipRef.target} />;
+  }
+  // A dash ref branches BEFORE resolution, because a dash name is not a path
+  // and must never be resolved as one: `resolveOverviewRef` would look it up
+  // in the repo, come back unresolvable, and render the chip inert with a
+  // not-found tip — the promised click dead, and the reason for it wrong.
+  if (chipRef.kind === "dash") {
+    return (
+      <TugTooltip
+        variant="entity"
+        align="start"
+        content={dashTip({ name: chipRef.target })}
+      >
+        <span
+          // The Lens is where a dash's join is already offered, so the click
+          // reveals it rather than inventing a second landing surface.
+          onClick={() => {
+            dispatchAction({ action: "reveal-lens" });
+          }}
+          // Same contract the file skin's own marks carry: revealing the Lens
+          // activates the target pane, and this chip must not also activate
+          // the pane it sits in.
+          data-no-activate=""
+          data-tug-focus="refuse"
+        >
+          <TugAtomRef entity={{ kind: "dash", name: chipRef.target }} />
+        </span>
+      </TugTooltip>
+    );
   }
   const resolution = resolveOverviewRef(chipRef, root);
   const isDir =

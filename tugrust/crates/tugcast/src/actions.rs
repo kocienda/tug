@@ -322,6 +322,21 @@ pub async fn dispatch_action(action: &str, raw_payload: &[u8], ctx: &ActionConte
                 None => info!("dispatch_action: shared_agent_classify missing text"),
             }
         }
+        // A wire fired by hand. The CLI already wrote the queued row, so this
+        // is only the nudge that says not to wait out the engine's tick — and
+        // with no engine listening, the row simply waits for the next one.
+        "wire_trip" => {
+            let name = serde_json::from_slice::<serde_json::Value>(raw_payload)
+                .ok()
+                .and_then(|p| p.get("wire").and_then(|w| w.as_str()).map(str::to_owned));
+            match name {
+                Some(name) => {
+                    let served = crate::feeds::tripwire::kick(&name);
+                    info!(wire = %name, served, "dispatch_action: wire_trip");
+                }
+                None => info!("dispatch_action: wire_trip names no wire"),
+            }
+        }
         other => {
             info!("dispatch_action: broadcasting client action: {}", other);
             if let Some((tx, _)) = stream_outputs.get(&FeedId::CONTROL) {

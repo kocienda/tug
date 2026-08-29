@@ -979,6 +979,13 @@ fn record_fact_best_effort(
 /// `test_run` verdict is read from the runner's own summary ([P07]): a red
 /// suite is a perfectly successful Bash invocation, so a verdict taken from
 /// `is_error` would call every failing run a pass.
+///
+/// The `edit_failed` fact is read the same way, from the marker rather than
+/// from `is_error`: an edit verb prints one only when a program refused, so
+/// the marker's presence *is* the gate, and gating on `is_error` as well
+/// would lose the failure inside a compound command that went on to exit
+/// zero. The receipt gate beside it stays exactly as strict as it was —
+/// proof rows are a different claim, and only a successful run can make it.
 fn record_shell_facts(
     ledger: &crate::session_ledger::SessionLedger,
     tug_session_id: &TugSessionId,
@@ -1015,6 +1022,18 @@ fn record_shell_facts(
                 Some(session),
                 &run,
                 Some(facts_library::test_run_key(&key)),
+            ),
+        );
+    }
+    if let Some(marker) = crate::feeds::attribution::parse_edit_error_line(output) {
+        record_fact_best_effort(
+            ledger,
+            tug_session_id,
+            &facts_library::edit_failed_fact(
+                pending.at_ms,
+                Some(session),
+                &marker,
+                Some(facts_library::edit_failed_key(session, tool_use_id)),
             ),
         );
     }
@@ -4155,6 +4174,65 @@ mod tests {
         drive_relay(ledger.clone(), "tug-1", "/proj", &[batch]).await;
         let facts = relay_facts(&ledger);
         assert_eq!(facts.len(), 2, "the resume added nothing: {facts:?}");
+    }
+
+    /// The failure is read from the marker, not from `is_error` — and the
+    /// receipt gate beside it is untouched, so a failed call still mints no
+    /// proof rows.
+    #[tokio::test]
+    async fn a_failed_edit_program_records_an_edit_failed_fact() {
+        let ledger = Arc::new(crate::session_ledger::SessionLedger::open_in_memory().unwrap());
+        let tool_use = r#"{"type":"tool_use","tool_name":"Bash","tool_use_id":"tu-1","input":{"command":"tugutil file edit"},"timestamp":1700000000000}"#;
+        let tool_result = r#"{"type":"tool_result","tool_use_id":"tu-1","output":"error: nothing was written\nTUG-EDIT-ERROR: {\"class\":\"resolve\",\"exit\":3,\"message\":\"stale\",\"ops_resolved\":1,\"ops_total\":3,\"files\":[\"a.rs\"],\"program\":\"file a.rs\\n\"}","is_error":true}"#;
+
+        drive_relay(ledger.clone(), "tug-1", "/proj", &[tool_use, tool_result]).await;
+
+        let facts = relay_facts(&ledger);
+        assert_eq!(
+            facts.len(),
+            2,
+            "a shell fact and its edit_failed: {facts:?}"
+        );
+        assert_eq!(facts[1].0, "edit_failed");
+        assert_eq!(
+            facts[1].2,
+            "edit program failed to resolve: 2 of 3 ops stale in a.rs"
+        );
+        assert!(
+            ledger.file_events_for_session("tug-1").unwrap().is_empty(),
+            "a failed run proves nothing about files"
+        );
+    }
+
+    /// The relay re-streams replayed frames on every resume, and the
+    /// per-call key is what keeps one failure one fact.
+    #[tokio::test]
+    async fn a_replayed_edit_failure_driven_twice_records_one_fact() {
+        let ledger = Arc::new(crate::session_ledger::SessionLedger::open_in_memory().unwrap());
+        let batch = r#"{"type":"replay_batch","frames":[{"type":"tool_use","tool_name":"Bash","tool_use_id":"tu-r1","input":{"command":"tugedit"},"timestamp":1753460000000},{"type":"tool_result","tool_use_id":"tu-r1","output":"TUG-EDIT-ERROR: {\"class\":\"parse\",\"exit\":2,\"message\":\"2:3: bad op\"}","is_error":true}],"ipc_version":2}"#;
+
+        drive_relay(ledger.clone(), "tug-1", "/proj", &[batch]).await;
+        assert_eq!(relay_facts(&ledger).len(), 2, "shell + edit_failed");
+
+        drive_relay(ledger.clone(), "tug-1", "/proj", &[batch]).await;
+        let facts = relay_facts(&ledger);
+        assert_eq!(facts.len(), 2, "the resume added nothing: {facts:?}");
+        assert_eq!(facts[1].2, "edit program failed to parse: 2:3: bad op");
+    }
+
+    /// The timid posture, end to end: a marker whose JSON cannot be read
+    /// records nothing rather than a failure with invented fields.
+    #[tokio::test]
+    async fn a_malformed_marker_records_no_edit_failed_fact() {
+        let ledger = Arc::new(crate::session_ledger::SessionLedger::open_in_memory().unwrap());
+        let tool_use = r#"{"type":"tool_use","tool_name":"Bash","tool_use_id":"tu-1","input":{"command":"tugedit"},"timestamp":1700000000000}"#;
+        let tool_result = r#"{"type":"tool_result","tool_use_id":"tu-1","output":"TUG-EDIT-ERROR: {\"class\":","is_error":true}"#;
+
+        drive_relay(ledger.clone(), "tug-1", "/proj", &[tool_use, tool_result]).await;
+
+        let facts = relay_facts(&ledger);
+        assert_eq!(facts.len(), 1, "the shell fact alone: {facts:?}");
+        assert_eq!(facts[0].0, "shell");
     }
 
     /// A compaction boundary, live and inside a replay batch, and idempotent

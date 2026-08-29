@@ -1018,6 +1018,19 @@ async fn shell_session_task(
                     warn!(error = %e, %tug_session_id, "test_run fact write failed");
                 }
             }
+            // An edit program that refused says so on stderr, which this route
+            // captures alongside stdout. No dedupe key, for the same reason
+            // the shell fact beside it has none: a `$` command settles once.
+            if let Some(marker) = crate::feeds::attribution::parse_edit_error_line(&out) {
+                if let Err(e) = sessions.record_fact(&facts_library::edit_failed_fact(
+                    at_ms,
+                    Some(&tug_session_id),
+                    &marker,
+                    None,
+                )) {
+                    warn!(error = %e, %tug_session_id, "edit_failed fact write failed");
+                }
+            }
         }
 
         // A command just finished running, which is when installs happen in

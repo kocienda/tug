@@ -812,7 +812,7 @@ fn compose_turn(instructions: &str, input: &str) -> String {
 /// The variable reaches tugcast because `ProcessManager.swift` seeds the
 /// tugcast child's environment from the app's own, and the app is what the
 /// harness launches with `TUGAPP_APP_TEST=1`.
-fn app_test_gated() -> bool {
+pub(crate) fn app_test_gated() -> bool {
     std::env::var("TUGAPP_APP_TEST").as_deref() == Ok("1")
 }
 

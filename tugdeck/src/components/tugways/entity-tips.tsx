@@ -181,3 +181,26 @@ export function fileTip(facts: FileTipFacts): React.ReactNode {
     </span>
   );
 }
+
+/** What a dash hover says. */
+export interface DashTipFacts {
+  /** The dash's name — its address everywhere else in the app. */
+  name: string;
+}
+
+/**
+ * The dash hover: the name, and where the click goes.
+ *
+ * A dash is not a path and not a sha, so neither of the other tips fits: it
+ * has no basename to elide and no subject line to quote. What a reader wants
+ * before clicking is confirmation that this is a dash and that clicking will
+ * take them somewhere, which is exactly the two lines here.
+ */
+export function dashTip(facts: DashTipFacts): React.ReactNode {
+  return (
+    <span className="tugx-tip">
+      <span className="tugx-tip-mono">{facts.name}</span>
+      <span className="tugx-tip-meta">dash — reveal in the Lens</span>
+    </span>
+  );
+}

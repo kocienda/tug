@@ -112,7 +112,7 @@ const SEND = '[data-testid="overview-composer-send"]';
 interface WirePost {
   id: number;
   at_ms: number;
-  author: "observer" | "operator" | "user";
+  author: "observer" | "operator" | "user" | "tripwire";
   body: string;
   refs: { kind: string; target: string }[];
   session_id?: string;
@@ -148,6 +148,10 @@ const ROWS_JS = `Array.from(document.querySelectorAll(${JSON.stringify(POST)}))
     var body = el.querySelector(".overview-post-body");
     return {
       author: el.getAttribute("data-author"),
+      identifier: (function () {
+        var i = el.querySelector(".tug-transcript-entry__identifier");
+        return i === null ? null : (i.textContent || "").trim();
+      })(),
       body: (body === null ? "" : body.textContent || "").trim(),
       chips: Array.from(el.querySelectorAll(".overview-post-refs .tug-atom-ref"))
         .map(function (c) { return (c.textContent || "").trim(); }),
@@ -169,6 +173,7 @@ const ROWS_JS = `Array.from(document.querySelectorAll(${JSON.stringify(POST)}))
 
 interface Row {
   author: string;
+  identifier: string | null;
   body: string;
   chips: string[];
   glyph: boolean;
@@ -304,6 +309,19 @@ describe.skipIf(!SHOULD_RUN)("at0365 — the Overview card", () => {
           wake_reason: "turn-end",
           project_dir: REPO_ROOT,
         };
+        // The fourth voice. A wire speaks because an event it was watching
+        // for happened — nobody asked it a question — and the row has to say
+        // so: the author names the voice, `wake_reason` names which wire, and
+        // the dash chip is the one ref kind no path lookup could ever resolve.
+        const tripwirePost: WirePost = {
+          id: 9010,
+          at_ms: AT_MS + 240_000,
+          author: "tripwire",
+          body: "The edit program went stale against a tree that had moved on.",
+          refs: [{ kind: "dash", target: "wire-tugedit-abc12345" }],
+          wake_reason: "wire:tugedit",
+          project_dir: REPO_ROOT,
+        };
 
         expect(
           await publish(app, observerPost),
@@ -311,16 +329,20 @@ describe.skipIf(!SHOULD_RUN)("at0365 — the Overview card", () => {
         ).toBe(true);
         expect(await publish(app, operatorPost)).toBe(true);
         expect(await publish(app, commitPost)).toBe(true);
+        expect(
+          await publish(app, tripwirePost),
+          "the tripwire author survives the parse edge",
+        ).toBe(true);
 
         await app.waitForCondition<boolean>(
-          `document.querySelectorAll(${JSON.stringify(POST)}).length >= 3`,
+          `document.querySelectorAll(${JSON.stringify(POST)}).length >= 4`,
           { timeoutMs: 10_000 },
         );
 
         const rows = await app.evalJS<Row[]>(ROWS_JS);
         note("rendered rows", JSON.stringify(rows));
 
-        expect(rows.length, "one row per published post").toBe(3);
+        expect(rows.length, "one row per published post").toBe(4);
 
         // Arrival order, oldest first — the channel is read as a running feed.
         expect(rows[0]!.author).toBe("observer");
@@ -329,6 +351,16 @@ describe.skipIf(!SHOULD_RUN)("at0365 — the Overview card", () => {
         expect(rows[1]!.body).toBe(operatorPost.body);
         expect(rows[2]!.author).toBe("observer");
         expect(rows[2]!.body).toContain("landed the sticky-header fixes");
+
+        // The tripwire row: its own author, its own label, and a dash chip
+        // that a path resolver would have rendered inert.
+        expect(rows[3]!.author).toBe("tripwire");
+        expect(rows[3]!.identifier).toBe("Tripwire");
+        expect(rows[3]!.body).toBe(tripwirePost.body);
+        expect(
+          rows[3]!.chips,
+          "a dash chip names the dash, not a basename of it",
+        ).toContain("wire-tugedit-abc12345");
 
         // Every row leads with its author's glyph — the only thing on the row
         // that says who is speaking.

@@ -825,6 +825,35 @@ pub fn op_for_receipt(op: &str) -> Option<&'static str> {
     }
 }
 
+/// The stderr marker `tugutil file edit` and `tugedit` print when a program
+/// failed — the receipt's counterpart, and the reason `tugutil` can testify to
+/// a failure without ever opening a session ledger.
+pub const EDIT_ERROR_MARKER: &str = "TUG-EDIT-ERROR: ";
+
+/// Scan a tool result's output for the first edit-error marker, returning its
+/// JSON whole.
+///
+/// Whole, because the block *is* the evidence bundle: the class, the exit, the
+/// report, the op counts, the files, and the program the model wrote. A
+/// projection here would decide for every later reader which of those matters,
+/// and the reader that matters most — a wire diagnosing why the edit failed —
+/// wants all of it.
+///
+/// The first, because a compound command stops at its first failure, and the
+/// fact this feeds is keyed one-per-tool-call.
+///
+/// Timid, in the `parse_shell_ops` posture: a line carrying the prefix whose
+/// payload is not a JSON object with a `class` string yields `None`, and
+/// nothing is recorded. A guessed failure reads exactly like a real one.
+pub fn parse_edit_error_line(output: &str) -> Option<serde_json::Value> {
+    output.lines().find_map(|line| {
+        let payload = line.trim_start().strip_prefix(EDIT_ERROR_MARKER)?;
+        let value: serde_json::Value = serde_json::from_str(payload.trim()).ok()?;
+        value.get("class")?.as_str()?;
+        Some(value)
+    })
+}
+
 /// Classify the working-tree transition of one path across the bracket
 /// window, or `None` when its state is unchanged (identical status AND
 /// mtime — no attribution). `still_on_disk` disambiguates the disappearance
@@ -1489,6 +1518,44 @@ mod tests {
             InspectedToolResult::from_slice(br#"{"tool_use_id":"tu-1","output":{"a":1}}"#)
                 .expect("parses");
         assert_eq!(structured.output, "");
+    }
+
+    #[test]
+    fn an_edit_error_line_parses_whole() {
+        let marker = parse_edit_error_line(
+            "error: nothing was written\nTUG-EDIT-ERROR: {\"class\":\"resolve\",\"exit\":3,\"ops_resolved\":1,\"ops_total\":3,\"files\":[\"a.rs\"],\"program\":\"file a.rs\\n\"}\n",
+        )
+        .expect("the marker parses");
+        assert_eq!(marker["class"], "resolve");
+        assert_eq!(marker["exit"], 3);
+        assert_eq!(marker["ops_total"], 3);
+        assert_eq!(
+            marker["program"], "file a.rs\n",
+            "the block is kept whole, program and all"
+        );
+    }
+
+    /// The timid posture: a line that carries the prefix but not a readable
+    /// marker records nothing at all. A guessed failure reads exactly like a
+    /// real one.
+    #[test]
+    fn a_malformed_edit_error_line_yields_nothing() {
+        assert!(parse_edit_error_line("TUG-EDIT-ERROR: {\"class\":").is_none());
+        assert!(parse_edit_error_line("TUG-EDIT-ERROR: 42").is_none());
+        assert!(
+            parse_edit_error_line("TUG-EDIT-ERROR: {\"exit\":3}").is_none(),
+            "a marker with no class names no failure"
+        );
+        assert!(parse_edit_error_line("just some output").is_none());
+    }
+
+    /// A compound command stops at its first failure, so the first marker is
+    /// the one that explains the run.
+    #[test]
+    fn the_first_of_several_edit_error_lines_wins() {
+        let out =
+            "TUG-EDIT-ERROR: {\"class\":\"parse\"}\nTUG-EDIT-ERROR: {\"class\":\"resolve\"}\n";
+        assert_eq!(parse_edit_error_line(out).unwrap()["class"], "parse");
     }
 
     #[test]

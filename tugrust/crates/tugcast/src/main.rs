@@ -49,6 +49,7 @@ mod shell_ledger;
 mod terminal_registry;
 mod turn_engine;
 mod wheel;
+mod wires_api;
 mod workspace_api;
 
 #[cfg(test)]
@@ -1890,6 +1891,33 @@ async fn main() {
         gh_response_tx.subscribe(),
         workspace_open_rx,
         turn_complete_rx,
+    ));
+
+    // TRIPWIRE — standing wires that watch this instance's facts and every
+    // workspace's commits, and decide whether either is worth acting on. A
+    // sibling of the Overview rather than a part of it: it reads the same
+    // facts and will post to the same feed, but it is its own task with its
+    // own machine-global ledger, so nothing here is reachable from an Observer
+    // wake. Its GIT_HEAD subscription is a second one off the same sender
+    // base-motion takes its from.
+    tokio::spawn(feeds::tripwire::run_tripwire_engine(
+        feeds::tripwire::TripwireEngineConfig {
+            ledger: Arc::clone(&ledger),
+            db_path: tugcore::instance::tripwires_db_path(),
+            instance: tugcore::instance::instance_id().unwrap_or_else(|| "default".to_string()),
+            now_ms: Arc::new(crate::session_ledger::now_millis),
+            spawner: Arc::new(shared_agent::ClaudeAgentWorkerSpawner),
+            // The work tier borrows the supervisor to open its cardless
+            // sessions ([P11]) — the same supervisor the cards use, because a
+            // wire's session is an ordinary one in every respect but who
+            // asked for it.
+            sessions: Some(Arc::new(feeds::wire_session::SupervisorWireSessions::new(
+                Arc::clone(&supervisor),
+            ))),
+            overview_tx: Some(overview_tx.clone()),
+            cancel: cancel.clone(),
+        },
+        gh_response_tx.subscribe(),
     ));
 
     // The arc runner: rotate a server-driven dash arc's next stage onto the

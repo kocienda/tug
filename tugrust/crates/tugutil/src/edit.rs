@@ -31,9 +31,21 @@ pub enum EditError {
     /// A syntax error, named by line and column (exit 2).
     Parse(String),
     /// Addresses that no longer resolve — every one of them (exit 3).
-    Resolve(String),
+    Resolve(String, EditOps),
     /// A write that failed partway (exit 4).
-    Write(String),
+    Write(String, EditOps),
+}
+
+/// What the program amounted to, for the classes that got far enough to know:
+/// the counts the refusal already states in words, and every file the program
+/// addressed. The `TUG-EDIT-ERROR` marker carries them so a reader that never
+/// saw the program can tell a one-stale-address slip from a program written
+/// against a tree that has moved on.
+#[derive(Debug, Clone, Default)]
+pub struct EditOps {
+    pub resolved: usize,
+    pub total: usize,
+    pub files: Vec<String>,
 }
 
 impl EditError {
@@ -41,8 +53,27 @@ impl EditError {
         match self {
             EditError::Usage(_) => 1,
             EditError::Parse(_) => 2,
-            EditError::Resolve(_) => 3,
-            EditError::Write(_) => 4,
+            EditError::Resolve(..) => 3,
+            EditError::Write(..) => 4,
+        }
+    }
+
+    /// Which phase refused, as the marker names it.
+    pub fn class(&self) -> &'static str {
+        match self {
+            EditError::Usage(_) => "usage",
+            EditError::Parse(_) => "parse",
+            EditError::Resolve(..) => "resolve",
+            EditError::Write(..) => "write",
+        }
+    }
+
+    /// The counts and files, where the failure got far enough to have them.
+    /// A `usage` or `parse` failure never parsed a program, so it has none.
+    pub fn evidence(&self) -> Option<&EditOps> {
+        match self {
+            EditError::Usage(_) | EditError::Parse(_) => None,
+            EditError::Resolve(_, ops) | EditError::Write(_, ops) => Some(ops),
         }
     }
 
@@ -50,8 +81,8 @@ impl EditError {
         match self {
             EditError::Usage(m)
             | EditError::Parse(m)
-            | EditError::Resolve(m)
-            | EditError::Write(m) => m,
+            | EditError::Resolve(m, _)
+            | EditError::Write(m, _) => m,
         }
     }
 }
@@ -87,8 +118,10 @@ pub fn run(program: &str, preview: bool) -> Result<(), EditError> {
     let parsed = tugedit_core::parse(program)
         .map_err(|e| EditError::Parse(format!("{e}\nnothing was written")))?;
     let tree = Tree::new();
-    let outcomes = resolve_and_apply(&parsed, &tree)
-        .map_err(|e| EditError::Resolve(nothing_written(&parsed, &e)))?;
+    let outcomes = resolve_and_apply(&parsed, &tree).map_err(|e| {
+        let (message, ops) = nothing_written(&parsed, &e);
+        EditError::Resolve(message, ops)
+    })?;
 
     // Byte-identical is not a change: it is neither written nor receipted, and
     // it has no diff to show.
@@ -142,15 +175,22 @@ pub fn run(program: &str, preview: bool) -> Result<(), EditError> {
 
     match failure {
         None => Ok(()),
-        Some(message) => Err(EditError::Write(format!(
-            "{message} — wrote {} file(s) before failing: {}",
-            written.len(),
-            if written.is_empty() {
-                "none".to_string()
-            } else {
-                written.join(", ")
-            }
-        ))),
+        Some(message) => Err(EditError::Write(
+            format!(
+                "{message} — wrote {} file(s) before failing: {}",
+                written.len(),
+                if written.is_empty() {
+                    "none".to_string()
+                } else {
+                    written.join(", ")
+                }
+            ),
+            EditOps {
+                resolved: op_count(&parsed),
+                total: op_count(&parsed),
+                files: program_files(&parsed),
+            },
+        )),
     }
 }
 
@@ -158,7 +198,7 @@ pub fn run(program: &str, preview: bool) -> Result<(), EditError> {
 /// refusal tends to carry on as though the ops that did resolve had landed —
 /// its next program then addresses text this one never wrote. So the refusal
 /// counts what resolved and says, in so many words, that none of it is done.
-fn nothing_written(program: &Program, errors: &ResolveErrors) -> String {
+fn nothing_written(program: &Program, errors: &ResolveErrors) -> (String, EditOps) {
     let failed: BTreeSet<usize> = errors.failures.iter().map(|f| f.op_line).collect();
     let ops: BTreeSet<usize> = program
         .blocks
@@ -166,12 +206,46 @@ fn nothing_written(program: &Program, errors: &ResolveErrors) -> String {
         .flat_map(|block| block.ops.iter().map(|op| op.line))
         .collect();
     let resolved = ops.iter().filter(|line| !failed.contains(line)).count();
-    format!(
+    let message = format!(
         "{errors}\nnothing was written — {resolved} op{} resolved and {} did not, so every op in \
          this program is still pending",
         if resolved == 1 { "" } else { "s" },
         failed.len()
-    )
+    );
+    // The marker's total is the count the message just stated, not the op
+    // tally: a block-level failure is reported against the block's own line,
+    // which is no op's line, and a marker that disagreed with the sentence
+    // beside it would be the harder of the two to trust.
+    let ops = EditOps {
+        resolved,
+        total: resolved + failed.len(),
+        files: program_files(program),
+    };
+    (message, ops)
+}
+
+/// Every file the program addresses, in the order it names them.
+fn program_files(program: &Program) -> Vec<String> {
+    let mut files: Vec<String> = Vec::new();
+    for block in &program.blocks {
+        for path in &block.paths {
+            if !files.contains(path) {
+                files.push(path.clone());
+            }
+        }
+    }
+    files
+}
+
+/// The program's distinct ops, counted by the source lines they were written
+/// on — the same tally the refusal counts against.
+fn op_count(program: &Program) -> usize {
+    program
+        .blocks
+        .iter()
+        .flat_map(|block| block.ops.iter().map(|op| op.line))
+        .collect::<BTreeSet<usize>>()
+        .len()
 }
 
 /// Write-temp-and-rename inside the target's own directory, preserving mode.

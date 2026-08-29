@@ -1175,6 +1175,10 @@ pub enum OverviewAuthor {
     Operator,
     /// The human, asking through the card's composer.
     User,
+    /// A standing tripwire, reporting what one of its firings amounted to.
+    /// The only author nobody asked for a post from — a wire speaks because
+    /// an event it was watching for happened.
+    Tripwire,
 }
 
 impl OverviewAuthor {
@@ -1184,6 +1188,7 @@ impl OverviewAuthor {
             Self::Observer => "observer",
             Self::Operator => "operator",
             Self::User => "user",
+            Self::Tripwire => "tripwire",
         }
     }
 
@@ -1195,6 +1200,7 @@ impl OverviewAuthor {
             "observer" => Some(Self::Observer),
             "operator" => Some(Self::Operator),
             "user" => Some(Self::User),
+            "tripwire" => Some(Self::Tripwire),
             _ => None,
         }
     }
@@ -1216,6 +1222,8 @@ pub enum OverviewRefKind {
     Plan,
     /// A brief document under the roadmap.
     Brief,
+    /// A dash by name — reveals it in the Lens, where its join is offered.
+    Dash,
 }
 
 impl OverviewRefKind {
@@ -1228,6 +1236,7 @@ impl OverviewRefKind {
             Self::Commit => "commit",
             Self::Plan => "plan",
             Self::Brief => "brief",
+            Self::Dash => "dash",
         }
     }
 }
@@ -1325,6 +1334,44 @@ fn is_false(value: &bool) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Every author and ref kind round-trips through its wire spelling, and
+    /// an unknown one is `None` rather than a default — a drifted writer has
+    /// to surface as a skipped row, never as a post in the wrong voice.
+    #[test]
+    fn every_overview_author_and_ref_kind_round_trips_its_spelling() {
+        for author in [
+            OverviewAuthor::Observer,
+            OverviewAuthor::Operator,
+            OverviewAuthor::User,
+            OverviewAuthor::Tripwire,
+        ] {
+            assert_eq!(OverviewAuthor::parse(author.as_str()), Some(author));
+        }
+        assert_eq!(
+            OverviewAuthor::parse("tripwire"),
+            Some(OverviewAuthor::Tripwire)
+        );
+        assert_eq!(OverviewAuthor::parse("Tripwire"), None);
+        assert_eq!(OverviewAuthor::parse("wire"), None);
+
+        for kind in [
+            OverviewRefKind::Session,
+            OverviewRefKind::File,
+            OverviewRefKind::Commit,
+            OverviewRefKind::Plan,
+            OverviewRefKind::Brief,
+            OverviewRefKind::Dash,
+        ] {
+            let json = serde_json::to_string(&kind).unwrap();
+            assert_eq!(json, format!("\"{}\"", kind.as_str()));
+            assert_eq!(
+                serde_json::from_str::<OverviewRefKind>(&json).unwrap(),
+                kind
+            );
+        }
+        assert!(serde_json::from_str::<OverviewRefKind>("\"portent\"").is_err());
+    }
 
     #[test]
     fn test_fsevent_created_json() {

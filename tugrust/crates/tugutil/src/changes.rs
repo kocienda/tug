@@ -25,13 +25,35 @@ pub enum AppError {
     Exit1(String),
     Exit2(String),
     Exit3(String),
-    /// A rev whose write failed partway (Spec S04) — the one case where the
-    /// program's all-or-nothing guarantee gives way to per-file atomicity, so
-    /// the error names the files that did move.
-    Exit4(String),
     /// A child process's exit status, propagated verbatim and silently — the
     /// child has already said whatever it had to say.
     ExitStatus(u8),
+    /// A failure whose report has already gone to stderr — carry the status,
+    /// print nothing more. The edit verb reaches for this because it emits a
+    /// `TUG-EDIT-ERROR` marker *after* its report, and only the site that
+    /// still holds the program can compose one.
+    Reported(u8),
+}
+
+impl AppError {
+    /// The process exit this error produces. `ExitStatus` and `Reported` carry
+    /// theirs; the numbered variants are their own number.
+    pub fn exit_code(&self) -> u8 {
+        match self {
+            AppError::Exit1(_) => 1,
+            AppError::Exit2(_) => 2,
+            AppError::Exit3(_) => 3,
+            AppError::ExitStatus(code) | AppError::Reported(code) => *code,
+        }
+    }
+
+    /// The report, empty for the two variants that carry none.
+    pub fn message(&self) -> &str {
+        match self {
+            AppError::Exit1(m) | AppError::Exit2(m) | AppError::Exit3(m) => m,
+            AppError::ExitStatus(_) | AppError::Reported(_) => "",
+        }
+    }
 }
 
 impl From<ChangesError> for AppError {
@@ -76,11 +98,8 @@ pub fn finish(result: Result<(), AppError>) -> ExitCode {
             eprintln!("error: {msg}");
             ExitCode::from(3)
         }
-        Err(AppError::Exit4(msg)) => {
-            eprintln!("error: {msg}");
-            ExitCode::from(4)
-        }
         Err(AppError::ExitStatus(code)) => ExitCode::from(code),
+        Err(AppError::Reported(code)) => ExitCode::from(code),
     }
 }
 

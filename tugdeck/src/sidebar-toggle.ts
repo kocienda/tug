@@ -54,3 +54,31 @@ export function toggleSidebarCard(
     modality: "keyboard",
   });
 }
+
+/**
+ * Show a sidebar card and bring the keyboard to it, never hiding it.
+ *
+ * The toggle's third state is wrong for a link: a chip that promises to
+ * reveal something must not take it away because it happened to be showing
+ * already. Everything else is the shortcut's own path, so a revealed rail
+ * lands ringed exactly as a pressed ⌃⌘L does.
+ *
+ * The modality is `pointer` rather than `keyboard`, because this door is a
+ * click: the ring is for the keyboard's gestures, and painting one on a
+ * mouse click would tell the reader their focus moved somewhere it did not.
+ */
+export function revealSidebarCard(
+  store: IDeckManagerStore,
+  componentId: string,
+): void {
+  const outgoingCardId = store.getFirstResponderCardId();
+  const incomingCardId = store.showSidebarPane(componentId);
+  if (incomingCardId === null) return;
+  transferFocusForActivation({
+    outgoingCardId,
+    incomingCardId,
+    store,
+    commitMutation: () => store.activateCard(incomingCardId),
+    modality: "pointer",
+  });
+}

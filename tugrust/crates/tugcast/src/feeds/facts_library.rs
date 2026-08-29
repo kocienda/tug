@@ -74,6 +74,11 @@ const COMMAND_RENDER_CAP: usize = 200;
 /// Longest prompt echoed into a `prompt` fact's rendering.
 const PROMPT_RENDER_CAP: usize = 200;
 
+/// How much of a failed edit's refusal report rides its `detail`. The whole
+/// report is in the payload, which is where a wire diagnosing the failure
+/// reads it; this is the share a question about the fact gets back.
+const EDIT_MESSAGE_DETAIL_CAP: usize = 500;
+
 // MARK: - Kinds
 
 /// Every kind of fact the library records. The `as_str` spelling is what
@@ -92,6 +97,7 @@ pub enum FactKind {
     Commit,
     Shell,
     TestRun,
+    EditFailed,
 }
 
 impl FactKind {
@@ -112,6 +118,7 @@ impl FactKind {
             "commit" => FactKind::Commit,
             "shell" => FactKind::Shell,
             "test_run" => FactKind::TestRun,
+            "edit_failed" => FactKind::EditFailed,
             _ => return None,
         };
         Some(kind)
@@ -130,6 +137,7 @@ impl FactKind {
             FactKind::Commit => "commit",
             FactKind::Shell => "shell",
             FactKind::TestRun => "test_run",
+            FactKind::EditFailed => "edit_failed",
         }
     }
 }
@@ -239,6 +247,28 @@ pub fn render_text(kind: FactKind, payload: &serde_json::Value) -> String {
                 _ => format!("tests: {runner} — {verdict}"),
             }
         }
+        FactKind::EditFailed => {
+            let class = str_field("class").unwrap_or("run");
+            let where_clause = match edit_files_phrase(payload) {
+                Some(files) => format!(" in {files}"),
+                None => String::new(),
+            };
+            // The counts are the reading that says *how* stale a program went:
+            // one address out of five is a slip, five out of five is a program
+            // written against a tree that has moved on. Classes that never
+            // parsed have no counts, and say what the report said instead.
+            match (int_field("ops_resolved"), int_field("ops_total")) {
+                (Some(resolved), Some(total)) if total > 0 => format!(
+                    "edit program failed to {class}: {} of {total} ops stale{where_clause}",
+                    total - resolved
+                ),
+                _ => {
+                    let report = str_field("message").unwrap_or_default();
+                    let first = collapse(report.lines().next().unwrap_or_default());
+                    format!("edit program failed to {class}: {first}")
+                }
+            }
+        }
     };
     truncate(rendered.as_str(), TEXT_CAP)
 }
@@ -324,6 +354,22 @@ pub fn render_detail(kind: FactKind, payload: &serde_json::Value) -> Option<serd
         }
         // Nothing to add: the rendering already says the whole fact.
         FactKind::SessionReset => {}
+        FactKind::EditFailed => {
+            copy("class");
+            copy("exit");
+            copy("ops_resolved");
+            copy("ops_total");
+            copy("files");
+            if let Some(message) = payload.get("message").and_then(|v| v.as_str()) {
+                out.insert(
+                    "message".to_string(),
+                    json!(truncate(message, EDIT_MESSAGE_DETAIL_CAP)),
+                );
+            }
+            // No `program`: it runs to 16 KiB, and a detail projection is a
+            // handful of named fields. The program is in the payload, which is
+            // where the reader that wants it looks.
+        }
     }
     if out.is_empty() {
         return None;
@@ -372,6 +418,12 @@ pub fn test_run_key(shell_key: &str) -> String {
         Some(suffix) => format!("test:{suffix}"),
         None => format!("test:{shell_key}"),
     }
+}
+
+/// The key for the `edit_failed` fact a Bash call's output carried. One per
+/// call, on the same replay-stable `tool_use_id` the shell key uses.
+pub fn edit_failed_key(session_id: &str, tool_use_id: &str) -> String {
+    format!("edit_failed:{session_id}:{tool_use_id}")
 }
 
 /// The key for a compaction fact, from the boundary frame's timestamp.
@@ -637,6 +689,54 @@ pub fn shell_fact(
         }),
         dedupe_key,
     )
+}
+
+/// One edit program that refused, from the `TUG-EDIT-ERROR` marker its verb
+/// printed.
+///
+/// The marker's JSON *is* the payload, unprojected: it was composed as an
+/// evidence bundle for exactly this reader, and a second shaping here would
+/// only give the two ends of one wire two opinions about what a failed edit
+/// is. Everything the sentence and the detail show is read back off it.
+pub fn edit_failed_fact(
+    at_ms: i64,
+    session_id: Option<&str>,
+    marker: &serde_json::Value,
+    dedupe_key: Option<String>,
+) -> NewFact {
+    let subject = edit_files_phrase(marker).or_else(|| {
+        marker
+            .get("class")
+            .and_then(|v| v.as_str())
+            .map(str::to_owned)
+    });
+    compose(
+        at_ms,
+        FactKind::EditFailed,
+        session_id,
+        subject.as_deref().and_then(subject_of),
+        marker.clone(),
+        dedupe_key,
+    )
+}
+
+/// The files a failed edit named, as a sentence says them: one path, or the
+/// first and a count of the rest. `None` when the marker named none — the
+/// classes that never parsed a program name none, and a phrase invented for
+/// them would be a file list with no files in it.
+fn edit_files_phrase(payload: &serde_json::Value) -> Option<String> {
+    let files: Vec<&str> = payload
+        .get("files")?
+        .as_array()?
+        .iter()
+        .filter_map(|f| f.as_str())
+        .collect();
+    let (first, rest) = files.split_first()?;
+    Some(match rest.len() {
+        0 => (*first).to_string(),
+        1 => format!("{first} and 1 other"),
+        n => format!("{first} and {n} others"),
+    })
 }
 
 /// A test run derived from a shell command's settled output.
@@ -962,6 +1062,15 @@ pub fn synthesize_facts_from_frames(frames: &[SynthFrame<'_>]) -> SynthesizedFac
                         Some(test_run_key(&key)),
                     ));
                     note(FactKind::TestRun.as_str(), &mut kinds);
+                }
+                if let Some(marker) = crate::feeds::attribution::parse_edit_error_line(output) {
+                    facts.push(edit_failed_fact(
+                        at_ms,
+                        Some(session_id),
+                        &marker,
+                        Some(edit_failed_key(session_id, id)),
+                    ));
+                    note(FactKind::EditFailed.as_str(), &mut kinds);
                 }
             }
             "compact_boundary" => {
@@ -1546,6 +1655,117 @@ VERDICT: PASS  (20/20 files green; 137/137 tests passed)";
         ]);
         assert!(out.facts.is_empty());
         assert!(out.kinds.is_empty());
+    }
+
+    #[test]
+    fn a_stale_edit_program_reads_as_its_counts_and_its_file() {
+        let marker = json!({
+            "class": "resolve",
+            "exit": 3,
+            "message": "a.rs: line 3: no match\nnothing was written",
+            "ops_resolved": 3,
+            "ops_total": 5,
+            "files": ["tugdeck/src/deck-manager.ts"],
+            "program": "file tugdeck/src/deck-manager.ts\n",
+        });
+        let fact = edit_failed_fact(1_700_000_000_000, Some("s1"), &marker, None);
+        assert_eq!(fact.kind, "edit_failed");
+        assert_eq!(
+            fact.text,
+            "edit program failed to resolve: 2 of 5 ops stale in tugdeck/src/deck-manager.ts"
+        );
+        assert_eq!(fact.subject.as_deref(), Some("tugdeck/src/deck-manager.ts"));
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&fact.payload).unwrap(),
+            marker,
+            "the marker rides whole, program and all"
+        );
+    }
+
+    #[test]
+    fn several_files_read_as_the_first_and_a_count() {
+        let marker = json!({
+            "class": "resolve",
+            "ops_resolved": 0,
+            "ops_total": 2,
+            "files": ["a.rs", "b.rs", "c.rs"],
+        });
+        let fact = edit_failed_fact(1, Some("s1"), &marker, None);
+        assert_eq!(
+            fact.text,
+            "edit program failed to resolve: 2 of 2 ops stale in a.rs and 2 others"
+        );
+    }
+
+    /// A class that never parsed a program has no counts and names no files,
+    /// so the sentence says what the refusal said rather than inventing a
+    /// tally of zero.
+    #[test]
+    fn a_parse_failure_reads_as_its_report() {
+        let marker = json!({
+            "class": "parse",
+            "exit": 2,
+            "message": "2:3: unknown op `frobnicate`\nnothing was written",
+            "ops_resolved": 0,
+            "ops_total": 0,
+            "files": [],
+        });
+        let fact = edit_failed_fact(1, Some("s1"), &marker, None);
+        assert_eq!(
+            fact.text,
+            "edit program failed to parse: 2:3: unknown op `frobnicate`"
+        );
+        assert_eq!(fact.subject.as_deref(), Some("parse"));
+    }
+
+    #[test]
+    fn an_edit_failed_detail_projects_the_counts_and_withholds_the_program() {
+        let marker = json!({
+            "class": "resolve",
+            "exit": 3,
+            "message": "stale",
+            "ops_resolved": 1,
+            "ops_total": 3,
+            "files": ["a.rs"],
+            "program": "x".repeat(20_000),
+        });
+        let detail = render_detail(FactKind::EditFailed, &marker).expect("a detail");
+        assert_eq!(detail["class"], "resolve");
+        assert_eq!(detail["ops_total"], 3);
+        assert_eq!(detail["files"], json!(["a.rs"]));
+        assert!(
+            detail.get("program").is_none(),
+            "the program is payload depth, not a projected field"
+        );
+    }
+
+    #[test]
+    fn the_edit_failed_key_is_stable_per_call() {
+        assert_eq!(edit_failed_key("s1", "tu-1"), "edit_failed:s1:tu-1");
+        assert_ne!(edit_failed_key("s1", "tu-1"), edit_failed_key("s1", "tu-2"));
+    }
+
+    /// Harness parity: a transcript carries tool results, so the replay
+    /// harness derives the same `edit_failed` fact the live recorder does.
+    #[test]
+    fn synthesis_derives_an_edit_failed_fact_from_a_marker_in_the_output() {
+        let use_frame = r#"{"tug_session_id":"s1","type":"tool_use","tool_name":"Bash","tool_use_id":"toolu_01","input":{"command":"tugedit"}}"#;
+        let result = r#"{"tug_session_id":"s1","type":"tool_result","tool_use_id":"toolu_01","output":"error: stale\nTUG-EDIT-ERROR: {\"class\":\"resolve\",\"ops_resolved\":0,\"ops_total\":1,\"files\":[\"a.rs\"]}","is_error":true}"#;
+        let out = synthesize_facts_from_frames(&[
+            frame(1_000, "tool_use", use_frame),
+            frame(1_100, "tool_result", result),
+        ]);
+        assert!(out.kinds.contains(&"edit_failed"), "{:?}", out.kinds);
+        let fact = out
+            .facts
+            .iter()
+            .find(|f| f.kind == "edit_failed")
+            .expect("an edit_failed fact");
+        assert_eq!(
+            fact.text,
+            "edit program failed to resolve: 1 of 1 ops stale in a.rs"
+        );
+        assert_eq!(fact.dedupe_key.as_deref(), Some("edit_failed:s1:toolu_01"));
     }
 
     #[test]

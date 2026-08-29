@@ -26,7 +26,7 @@ import type { ResponderChainManager } from "./components/tugways/responder-chain
 import { FeedId } from "./protocol";
 import { BASE_THEME_NAME } from "./theme-constants";
 import { raiseCard } from "./focus-transfer";
-import { toggleSidebarCard } from "./sidebar-toggle";
+import { revealSidebarCard, toggleSidebarCard } from "./sidebar-toggle";
 import { isSlotWindowSize, writeSlotWindow } from "@/lib/slot-window-pref";
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 import { COMMANDS_BY_ID, isCommandId } from "@/components/tugways/command-registry";
@@ -47,6 +47,7 @@ import {
   isSidebarSide,
 } from "@/lib/layout-imposer";
 import { JOTS_CARD_ID } from "@/lib/jots-card-id";
+import { WIRES_CARD_ID } from "@/lib/wires-card-id";
 import { LENS_CARD_ID } from "@/lib/lens-card-id";
 import { OVERVIEW_CARD_ID } from "@/lib/overview-card-id";
 import { PERMISSION_MODE_CYCLE } from "./lib/permission-mode";
@@ -529,6 +530,18 @@ export function initActionDispatch(
 
   registerAction("toggle-overview", () => {
     toggleSidebarCard(deckManager, OVERVIEW_CARD_ID);
+  });
+
+  registerAction("toggle-wires", () => {
+    toggleSidebarCard(deckManager, WIRES_CARD_ID);
+  });
+
+  // reveal-lens: show the Lens and bring the keyboard to it, never hide it.
+  // What a link means, as distinct from what a shortcut means — a dash chip
+  // on an Overview post promises to reveal the dash, and a toggle would take
+  // the rail away from a reader who already had it open.
+  registerAction("reveal-lens", () => {
+    revealSidebarCard(deckManager, LENS_CARD_ID);
   });
 
   // next/previous-keyboard-focus: move the keyboard focus ring one stop, the

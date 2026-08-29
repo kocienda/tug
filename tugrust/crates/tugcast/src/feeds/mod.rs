@@ -49,5 +49,8 @@ pub mod shell_words;
 pub mod stats;
 pub mod terminal;
 pub mod text_ref;
+pub mod tripwire;
 pub mod walk;
+pub mod wire_agent;
+pub mod wire_session;
 pub mod workspace_registry;

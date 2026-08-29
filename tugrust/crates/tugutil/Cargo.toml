@@ -38,6 +38,7 @@ tugchanges-core.workspace = true
 tugedit-core.workspace = true
 rusqlite.workspace = true
 sha2.workspace = true
+uuid.workspace = true
 ureq = { version = "3", features = ["json"] }
 
 [dev-dependencies]

@@ -237,4 +237,64 @@ mod tests {
         cancel.cancel();
         let _ = handle.await;
     }
+
+    /// The channel is a broadcast, and the tripwire engine will be a second
+    /// subscriber on it beside the base-motion engine. One HEAD move has to
+    /// reach both — a `Sender::send` that fanned out to only the first
+    /// receiver would leave whichever engine happened to subscribe later
+    /// blind, with nothing in either engine's own code to show for it.
+    #[tokio::test]
+    async fn every_subscriber_on_the_shared_channel_sees_one_head_move() {
+        let temp = spawn_committed_repo();
+        let repo = temp.path().to_path_buf();
+        git_in(&repo, &["init", "-b", "main"]).await;
+        git_in(&repo, &["config", "user.name", "test"]).await;
+        git_in(&repo, &["config", "user.email", "test@test.com"]).await;
+        std::fs::write(repo.join("a.txt"), "one\n").unwrap();
+        git_in(&repo, &["add", "-A"]).await;
+        git_in(&repo, &["commit", "-m", "first"]).await;
+        let head1 = run_git_line(&repo, &["rev-parse", "HEAD"]).await.unwrap();
+
+        let bump = Arc::new(Notify::new());
+        let (gh_tx, mut first_rx) = broadcast::channel::<Frame>(16);
+        // The second subscription, taken exactly as `main.rs` takes the
+        // base-motion engine's: off the shared sender, before the watch runs.
+        let mut second_rx = gh_tx.subscribe();
+        let (fs_tx, fs_rx) = broadcast::channel::<Vec<FsEvent>>(16);
+        let cancel = CancellationToken::new();
+        let handle = tokio::spawn(run_git_workspace_watch(
+            repo.clone(),
+            "ws".to_string(),
+            head1.clone(),
+            Arc::clone(&bump),
+            gh_tx,
+            fs_rx,
+            cancel.clone(),
+        ));
+
+        std::fs::write(repo.join("b.txt"), "two\n").unwrap();
+        git_in(&repo, &["add", "-A"]).await;
+        git_in(&repo, &["commit", "-m", "second"]).await;
+        let head2 = run_git_line(&repo, &["rev-parse", "HEAD"]).await.unwrap();
+
+        fs_tx
+            .send(vec![FsEvent::Modified {
+                path: ".git/logs/HEAD".to_string(),
+            }])
+            .unwrap();
+
+        for (label, rx) in [("first", &mut first_rx), ("second", &mut second_rx)] {
+            let frame = tokio::time::timeout(Duration::from_secs(5), rx.recv())
+                .await
+                .unwrap_or_else(|_| panic!("{label} subscriber saw no GIT_HEAD"))
+                .expect("broadcast frame");
+            assert_eq!(frame.feed_id, FeedId::GIT_HEAD);
+            let signal: GitHeadSignal = serde_json::from_slice(&frame.payload).unwrap();
+            assert_eq!(signal.workspace_key, "ws", "{label}");
+            assert_eq!(signal.head, head2, "{label}");
+        }
+
+        cancel.cancel();
+        let _ = handle.await;
+    }
 }

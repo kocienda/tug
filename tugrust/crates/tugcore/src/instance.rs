@@ -290,6 +290,24 @@ pub fn apptest_results_db_path() -> PathBuf {
     guard_isolated(base_data_dir().join("apptest_results.db"))
 }
 
+/// Environment variable overriding the shared tripwires ledger path. Set by
+/// test harnesses so an isolated run never lays a wire on the real machine.
+pub const ENV_TRIPWIRES_DB: &str = "TUG_TRIPWIRES_DB";
+
+/// The **machine-global** tripwires ledger path: one `tripwires.db` holding
+/// every standing wire and every trip any instance has claimed. Deliberately
+/// independent of `TUG_INSTANCE_ID`, and for a stronger reason than the other
+/// shared ledgers: the `UNIQUE(wire_id, event_key)` claim two instances race
+/// for is only an arbitration if both are racing in the same table. Partition
+/// it per instance and every instance fires the same wire on the same event.
+/// Honors the [`ENV_TRIPWIRES_DB`] override for isolated test runs.
+pub fn tripwires_db_path() -> PathBuf {
+    if let Some(p) = env::var_os(ENV_TRIPWIRES_DB).filter(|v| !v.is_empty()) {
+        return guard_isolated(PathBuf::from(p));
+    }
+    guard_isolated(base_data_dir().join("tripwires.db"))
+}
+
 /// Environment variable overriding the shared jots-file path.
 /// Set by test harnesses so isolated runs never touch the user's real
 /// jots file.
@@ -842,6 +860,41 @@ mod tests {
     fn apptest_results_db_path_ignores_empty_env() {
         let _s = VarGuard::set(ENV_APPTEST_RESULTS_DB, Some(std::path::Path::new("")));
         assert!(apptest_results_db_path().ends_with("Tug/apptest_results.db"));
+    }
+
+    /// The claim two instances race for is only arbitration if both are
+    /// racing in one table, so this path must not move with the instance id.
+    #[test]
+    #[serial]
+    fn tripwires_db_path_default_is_machine_global_and_instance_independent() {
+        let _g = EnvGuard::snapshot();
+        let _s = VarGuard::set(ENV_TRIPWIRES_DB, None);
+        set_instance(None);
+        let unset = tripwires_db_path();
+        set_instance(Some("debug-foo"));
+        let set = tripwires_db_path();
+        assert_eq!(unset, set);
+        assert!(set.ends_with("Tug/tripwires.db"));
+    }
+
+    #[test]
+    #[serial]
+    fn tripwires_db_path_env_override_wins() {
+        let _s = VarGuard::set(
+            ENV_TRIPWIRES_DB,
+            Some(std::path::Path::new("/tmp/custom-tripwires.db")),
+        );
+        assert_eq!(
+            tripwires_db_path(),
+            PathBuf::from("/tmp/custom-tripwires.db")
+        );
+    }
+
+    #[test]
+    #[serial]
+    fn tripwires_db_path_ignores_empty_env() {
+        let _s = VarGuard::set(ENV_TRIPWIRES_DB, Some(std::path::Path::new("")));
+        assert!(tripwires_db_path().ends_with("Tug/tripwires.db"));
     }
 
     #[test]

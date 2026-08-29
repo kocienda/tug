@@ -1981,6 +1981,10 @@ function resolveLaunchOptions(opts: LaunchTugAppOptions): ResolvedLaunch {
       // submits prompts must not append them to the developer's real corpus,
       // and — since nothing ever trims that file — must not be able to.
       TUG_PROMPT_HISTORY_DB: `${homedir()}/Library/Application Support/Tug/instances/${instanceId}/prompt_history.db`,
+      // And the third shared ledger. A test that lays a wire must not arm one
+      // on the developer's machine: a tripwire is a standing thing that fires
+      // later, so an un-isolated one would outlive the run that made it.
+      TUG_TRIPWIRES_DB: `${homedir()}/Library/Application Support/Tug/instances/${instanceId}/tripwires.db`,
     },
     logPath,
     expectedSurfaceVersion: opts.expectedSurfaceVersion ?? EXPECTED_SURFACE_VERSION,

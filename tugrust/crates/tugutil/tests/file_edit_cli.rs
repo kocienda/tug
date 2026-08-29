@@ -81,6 +81,22 @@ fn has_receipt(out: &Output) -> bool {
     String::from_utf8_lossy(&out.stdout).contains("TUG-FILE-RECEIPT: ")
 }
 
+/// The `TUG-EDIT-ERROR` evidence line, parsed — the half of a failed edit the
+/// relay reads. Panics when it is missing, because a failure that leaves none
+/// is the regression these tests exist to catch.
+fn error_marker(out: &Output) -> serde_json::Value {
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    let line = stderr
+        .lines()
+        .find_map(|l| l.strip_prefix("TUG-EDIT-ERROR: "))
+        .unwrap_or_else(|| panic!("no error marker in stderr: {stderr}"));
+    serde_json::from_str(line).expect("the marker is valid json")
+}
+
+fn has_error_marker(out: &Output) -> bool {
+    String::from_utf8_lossy(&out.stderr).contains("TUG-EDIT-ERROR: ")
+}
+
 fn code(out: &Output) -> i32 {
     out.status.code().expect("an exit code")
 }
@@ -600,4 +616,114 @@ fn a_created_file_names_no_hunks() {
     let ops = receipt_ops(&out);
     assert_eq!(ops[0]["op"], "created");
     assert!(ops[0].get("hunks").is_none(), "no regions to name");
+}
+
+// ---------------------------------------------------------------------------
+// The TUG-EDIT-ERROR marker
+// ---------------------------------------------------------------------------
+
+#[test]
+fn a_stale_program_leaves_an_error_marker_carrying_its_counts_and_program() {
+    let (_dir, root) = init_repo();
+    let program =
+        "file a.txt\n  replace 'two' with 'deux'\n  replace 'gone' with 'x'\n  delete 99\n";
+    let out = edit(&root, &[], program);
+    assert_eq!(code(&out), 3);
+
+    let marker = error_marker(&out);
+    assert_eq!(marker["class"], "resolve");
+    assert_eq!(marker["exit"], 3);
+    assert_eq!(marker["ops_resolved"], 1);
+    assert_eq!(marker["ops_total"], 3);
+    assert_eq!(marker["files"], serde_json::json!(["a.txt"]));
+    assert_eq!(
+        marker["program"], program,
+        "the program is the evidence a diagnosing reader needs"
+    );
+    assert!(
+        marker["message"]
+            .as_str()
+            .unwrap()
+            .contains("nothing was written"),
+        "the marker carries the report the human read: {marker}"
+    );
+}
+
+/// The marker is an addition to stderr, never a replacement: the human-readable
+/// report is still there, and still first.
+#[test]
+fn the_marker_follows_the_report_it_does_not_replace_it() {
+    let (_dir, root) = init_repo();
+    let out = edit(&root, &[], "file a.txt\n  replace 'gone' with 'x'\n");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    let report = stderr.find("nothing was written").expect("the report");
+    let marker = stderr.find("TUG-EDIT-ERROR: ").expect("the marker");
+    assert!(report < marker, "the report comes first: {stderr}");
+}
+
+#[test]
+fn a_syntax_error_marks_itself_parse_with_no_ops_counted() {
+    let (_dir, root) = init_repo();
+    let out = edit(&root, &[], "file a.txt\n  frobnicate 3\n");
+    assert_eq!(code(&out), 2);
+    let marker = error_marker(&out);
+    assert_eq!(marker["class"], "parse");
+    assert_eq!(marker["exit"], 2);
+    assert_eq!(marker["ops_total"], 0);
+    assert_eq!(marker["files"], serde_json::json!([]));
+    assert_eq!(marker["program"], "file a.txt\n  frobnicate 3\n");
+}
+
+/// A preview that cannot resolve is evidence too — the program is stale
+/// whether or not the run meant to write.
+#[test]
+fn a_preview_that_cannot_resolve_still_marks_the_failure() {
+    let (_dir, root) = init_repo();
+    let out = edit(
+        &root,
+        &["--preview"],
+        "file a.txt\n  replace 'gone' with 'x'\n",
+    );
+    assert_eq!(code(&out), 3);
+    assert_eq!(error_marker(&out)["class"], "resolve");
+}
+
+#[test]
+fn a_patch_that_will_not_apply_marks_itself_resolve_and_carries_the_diff() {
+    let (_dir, root) = init_repo();
+    let diff = "--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-nothing like this\n+replacement\n";
+    let patch = root.join("stale.diff");
+    std::fs::write(&patch, diff).unwrap();
+    let out = edit(&root, &["--patch", patch.to_str().unwrap()], "");
+    assert_ne!(code(&out), 0);
+    let marker = error_marker(&out);
+    assert_eq!(marker["class"], "resolve");
+    assert_eq!(marker["program"], diff);
+    assert!(
+        marker["files"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|f| f.as_str().unwrap().ends_with("a.txt")),
+        "the patch's targets are named: {marker}"
+    );
+}
+
+#[test]
+fn the_tugedit_binary_emits_the_same_marker() {
+    let (_dir, root) = init_repo();
+    let out = tugedit(&root, &[], "file a.txt\n  replace 'gone' with 'x'\n");
+    assert_eq!(code(&out), 3);
+    assert_eq!(error_marker(&out)["class"], "resolve");
+}
+
+#[test]
+fn a_run_that_succeeds_leaves_no_marker() {
+    let (_dir, root) = init_repo();
+    let out = edit(&root, &[], "file a.txt\n  replace 'two' with 'deux'\n");
+    assert_eq!(code(&out), 0, "{}", String::from_utf8_lossy(&out.stderr));
+    assert!(
+        !has_error_marker(&out),
+        "success testifies with a receipt only"
+    );
 }

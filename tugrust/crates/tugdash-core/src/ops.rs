@@ -96,6 +96,10 @@ pub struct DashListItem {
     pub round_count: i64,
     pub worktree: Option<String>,
     pub base_branch: String,
+    /// Who laid this dash, when it was not a person — `wire/<name>` for a
+    /// tripwire's staged work ([P15]). `None` on every hand-made dash.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub laid_by: Option<String>,
 }
 
 /// Outcome of [`show`].
@@ -863,6 +867,25 @@ pub(crate) fn description_config_key(name: &str) -> String {
     format!("branch.{}.description", branch_name(name))
 }
 
+/// Who laid this dash down, when it was not a person: `wire/<name>` for a
+/// tripwire's work tier ([P15]). Absent on every dash a person created, which
+/// is what makes its presence mean something.
+pub(crate) fn laid_by_config_key(name: &str) -> String {
+    format!("branch.{}.laidby", branch_name(name))
+}
+
+/// Stamp a dash's provenance. Written beside the description because it is the
+/// same kind of fact and dies with the same branch.
+pub fn set_laid_by(repo_root: &Path, name: &str, by: &str) {
+    let repo_root = main_repo_root(repo_root);
+    let _ = git_output(&repo_root, &["config", &laid_by_config_key(name), by]);
+}
+
+/// Read a dash's provenance, or `None` for one a person laid.
+pub fn laid_by(repo_root: &Path, name: &str) -> Option<String> {
+    config_get(&main_repo_root(repo_root), &laid_by_config_key(name))
+}
+
 /// Resolve a dash's base branch: git config first ([P03]), else detection.
 pub(crate) fn dash_base(repo: &Path, name: &str) -> Result<String, String> {
     if let Some(base) = config_get(repo, &base_config_key(name)) {
@@ -999,9 +1022,22 @@ pub fn create(
     carry: bool,
     base: Option<&str>,
 ) -> Result<CreateOutcome, String> {
-    validate_dash_name(name).map_err(|e| e.to_string())?;
-
     let repo_root = find_repo_root().map_err(|e| e.to_string())?;
+    create_in(&repo_root, name, description, carry, base)
+}
+
+/// Like [`create`], but against an explicit repo root instead of the process
+/// cwd — for callers such as tugcast, which has no cwd worth consulting and
+/// knows exactly which checkout it means.
+pub fn create_in(
+    repo_root: &Path,
+    name: &str,
+    description: Option<String>,
+    carry: bool,
+    base: Option<&str>,
+) -> Result<CreateOutcome, String> {
+    validate_dash_name(name).map_err(|e| e.to_string())?;
+    let repo_root = main_repo_root(repo_root);
     migrate_worktrees(&repo_root, &mut Vec::new());
     let base_branch = match base {
         Some(requested) => {
@@ -1220,6 +1256,7 @@ pub fn list() -> Result<Vec<DashListItem>, String> {
         let round_count = dash_rounds(&repo_root, &base, branch).len() as i64;
         let worktree = worktree_path(&repo_root, &name);
         let description = config_get(&repo_root, &description_config_key(&name));
+        let laid_by = config_get(&repo_root, &laid_by_config_key(&name));
 
         items.push(DashListItem {
             id: Some(dash_owner_key(&repo_root, &name)),
@@ -1231,10 +1268,37 @@ pub fn list() -> Result<Vec<DashListItem>, String> {
                 .exists()
                 .then(|| worktree.to_string_lossy().into_owned()),
             base_branch: base,
+            laid_by,
         });
     }
 
     Ok(items)
+}
+
+/// Whether a dash's branch is still there, against an explicit repo root.
+///
+/// The branch is the dash ([P02]): a worktree can be pruned and a dash still
+/// stands, but a deleted branch is a dash that is gone. Read by callers
+/// deciding whether staged work is still waiting on somebody.
+pub fn dash_exists_in(repo_root: &Path, name: &str) -> bool {
+    branch_exists(&main_repo_root(repo_root), &branch_name(name))
+}
+
+/// How many rounds a dash carries — commits its branch has past its base.
+///
+/// Zero means nobody wrote in the worktree, which is the whole of the
+/// tip-vs-base question a caller tearing an unused dash down is asking. Takes
+/// its repo root explicitly, for callers such as tugcast.
+pub fn round_count_in(repo_root: &Path, name: &str) -> usize {
+    let repo_root = main_repo_root(repo_root);
+    let branch = branch_name(name);
+    if !branch_exists(&repo_root, &branch) {
+        return 0;
+    }
+    let Ok(base) = dash_base(&repo_root, name) else {
+        return 0;
+    };
+    dash_rounds(&repo_root, &base, &branch).len()
 }
 
 /// Show one dash's metadata + rounds (commits ahead of base) + worktree dirt.
@@ -6236,6 +6300,62 @@ Some context.
         let repo = repo_beside_state(&temp);
         let root = fs::canonicalize(&repo).unwrap();
         (temp, root)
+    }
+
+    /// A dash created against an explicit root, by a caller with no cwd worth
+    /// consulting, and stamped with who laid it. The provenance is readable
+    /// both directly and off the list every dash surface reads, because a
+    /// badge nobody can see is not provenance.
+    #[serial]
+    #[test]
+    fn a_dash_created_against_an_explicit_root_carries_its_provenance() {
+        let (_temp, root) = repo_for_create();
+        // Somewhere other than the repo, so nothing can be resolving the root
+        // from the cwd behind the explicit one.
+        std::env::set_current_dir(std::env::temp_dir()).unwrap();
+
+        let created = create_in(&root, "wire-ci-abc12345", None, false, None).unwrap();
+        assert!(created.created);
+        set_laid_by(&root, "wire-ci-abc12345", "wire/ci");
+
+        assert_eq!(
+            laid_by(&root, "wire-ci-abc12345").as_deref(),
+            Some("wire/ci")
+        );
+        std::env::set_current_dir(&root).unwrap();
+        let listed = list().unwrap();
+        let row = listed
+            .iter()
+            .find(|d| d.name == "wire-ci-abc12345")
+            .expect("the staged dash is listed");
+        assert_eq!(row.laid_by.as_deref(), Some("wire/ci"));
+        assert!(
+            listed.iter().all(|d| d.name != "hand-made"),
+            "no other dash exists to confuse the reading"
+        );
+    }
+
+    /// The tip-vs-base question the wire's cleanup turns on: a worktree
+    /// nobody wrote in has no rounds, and one round is one commit.
+    #[serial]
+    #[test]
+    fn round_count_reads_the_branch_against_its_base() {
+        let (_temp, root) = repo_for_create();
+        create_in(&root, "counted", None, false, None).unwrap();
+        assert_eq!(round_count_in(&root, "counted"), 0);
+        assert_eq!(
+            round_count_in(&root, "never-created"),
+            0,
+            "a dash that does not exist has no rounds rather than an error"
+        );
+
+        let worktree = worktree_path(&root, "counted");
+        fs::write(worktree.join("touched.txt"), "x").unwrap();
+        for args in [vec!["add", "-A"], vec!["commit", "-m", "a round"]] {
+            let out = git_output(&worktree, &args).unwrap();
+            assert!(out.status.success(), "{args:?}");
+        }
+        assert_eq!(round_count_in(&root, "counted"), 1);
     }
 
     /// A repo with one plain dash and no documents anywhere.

@@ -262,6 +262,10 @@ pub enum Commands {
     #[command(subcommand)]
     Dash(DashCommands),
 
+    /// Standing tripwires — what watches, what it says, and what it did.
+    #[command(subcommand)]
+    Wire(WireCommands),
+
     /// Plan documents — mechanical conformance against the devise skeleton.
     #[command(subcommand)]
     Plan(PlanCommands),
@@ -470,6 +474,112 @@ pub enum DraftCommands {
         /// registered port via $TMPDIR/tug-instances.json).
         #[arg(long)]
         instance: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum WireCommands {
+    /// Lay a wire: what to watch for, and what to say about it when it fires.
+    Lay {
+        /// Wire name (its address; must be unique on this machine).
+        name: String,
+        /// What trips it: `fact:<kind>`, `commit`, or `commit:<branch>`.
+        #[arg(long)]
+        on: String,
+        /// Narrow a fact trigger by its payload, repeatable:
+        /// `field=value` (exact), `field~=substr`, `field^=prefix`.
+        #[arg(long = "where")]
+        clauses: Vec<String>,
+        /// Only fire on events under this path. Unscoped fires machine-wide.
+        #[arg(long)]
+        scope: Option<String>,
+        /// A command run before any model is summoned. Exit 0 settles the trip
+        /// for free; a probe implies the work tier, because a probe may write.
+        #[arg(long)]
+        probe: Option<String>,
+        /// What the wire asks for when it fires. `@path` reads a file.
+        #[arg(long)]
+        brief: String,
+        /// Model to run the trip on. Absent uses the default.
+        #[arg(long)]
+        model: Option<String>,
+        /// Tier override. `auto` reads the probe.
+        #[arg(long)]
+        tier: Option<String>,
+        /// Permission mode for a work-tier session.
+        #[arg(long = "permission-mode")]
+        permission_mode: Option<String>,
+        /// When to post the outcome to the Overview.
+        #[arg(long)]
+        post: Option<String>,
+        /// Seconds before this wire will fire again.
+        #[arg(long)]
+        cooldown: Option<i64>,
+        /// Parse and echo the normalized wire, writing nothing.
+        #[arg(long)]
+        preview: bool,
+    },
+    /// Every wire laid on this machine.
+    List,
+    /// Change a wire. Every flag is optional; what is not named is left alone.
+    Edit {
+        /// Wire name.
+        name: String,
+        #[arg(long)]
+        on: Option<String>,
+        #[arg(long = "where")]
+        clauses: Vec<String>,
+        #[arg(long)]
+        scope: Option<String>,
+        #[arg(long)]
+        probe: Option<String>,
+        #[arg(long)]
+        brief: Option<String>,
+        #[arg(long)]
+        model: Option<String>,
+        #[arg(long)]
+        tier: Option<String>,
+        #[arg(long = "permission-mode")]
+        permission_mode: Option<String>,
+        #[arg(long)]
+        post: Option<String>,
+        #[arg(long)]
+        cooldown: Option<i64>,
+        /// Clear a column rather than set it, repeatable:
+        /// `scope`, `probe`, or `model`.
+        #[arg(long)]
+        clear: Vec<String>,
+        /// Parse and echo the change, writing nothing.
+        #[arg(long)]
+        preview: bool,
+    },
+    /// Remove a wire and its trip log.
+    Rm {
+        /// Wire name.
+        name: String,
+    },
+    /// Take a wire out of service, keeping it and its log.
+    Pause {
+        /// Wire name.
+        name: String,
+    },
+    /// Put a paused wire back into service.
+    Resume {
+        /// Wire name.
+        name: String,
+    },
+    /// A wire's trip log — every firing, including the swallowed ones.
+    Log {
+        /// Wire name.
+        name: String,
+        /// How many trips to show, newest first.
+        #[arg(long, default_value_t = 20)]
+        limit: i64,
+    },
+    /// Fire a wire by hand, whatever it is watching for.
+    Trip {
+        /// Wire name.
+        name: String,
     },
 }
 

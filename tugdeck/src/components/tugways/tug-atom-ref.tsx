@@ -73,7 +73,7 @@
 import "./tug-atom-ref.css";
 
 import React from "react";
-import { FileText, GitCommit } from "lucide-react";
+import { FileText, GitBranch, GitCommit } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { fileTip } from "@/components/tugways/entity-tips";
@@ -113,7 +113,13 @@ export type TugAtomRefEntity =
        */
       annotate?: boolean;
     }
-  | { kind: "commit"; sha: string };
+  | { kind: "commit"; sha: string }
+  /**
+   * A dash, by the name that is its address everywhere else in the app.
+   * Presentational like a commit: the host owns the gesture, because where a
+   * dash click goes is the host's business rather than the skin's.
+   */
+  | { kind: "dash"; name: string };
 
 export interface TugAtomRefProps {
   entity: TugAtomRefEntity;
@@ -203,7 +209,9 @@ export function TugAtomRef({
   const defaultLabel =
     entity.kind === "file"
       ? fileRefBasename(entity.path)
-      : commitAtomLabel(entity.sha);
+      : entity.kind === "dash"
+        ? entity.name
+        : commitAtomLabel(entity.sha);
 
   const skin = (
     <span
@@ -212,7 +220,14 @@ export function TugAtomRef({
       {...marks}
     >
       <span className="tug-atom-ref-icon" aria-hidden="true">
-        {icon ?? (entity.kind === "file" ? <FileText /> : <GitCommit />)}
+        {icon ??
+          (entity.kind === "file" ? (
+            <FileText />
+          ) : entity.kind === "dash" ? (
+            <GitBranch />
+          ) : (
+            <GitCommit />
+          ))}
       </span>
       {label ?? defaultLabel}
     </span>

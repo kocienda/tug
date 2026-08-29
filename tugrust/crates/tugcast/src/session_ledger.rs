@@ -923,6 +923,12 @@ pub struct SessionLedger {
     /// generically (the ledger names no consumer) at the end of every
     /// session-row mutation — see [`notify_sessions_changed`].
     sessions_changed: OnceLock<Arc<Notify>>,
+    /// "A fact was appended" signal — what the tripwire engine waits on
+    /// instead of polling. Owned rather than injected, unlike
+    /// [`sessions_changed`](Self::sessions_changed): the consumer asks for it
+    /// with [`fact_signal`](Self::fact_signal), so there is nothing to wire at
+    /// startup and nothing that goes quiet when somebody forgets to.
+    facts_changed: Arc<Notify>,
     /// Verdict of the shared-schema `user_version` gate at open: false
     /// when the on-disk `changes.db` schema is newer than this build, in
     /// which case row INSERT/UPDATEs to the shared tables are refused
@@ -1110,6 +1116,7 @@ impl SessionLedger {
             db: Mutex::new(conn),
             claude_projects_root,
             sessions_changed: OnceLock::new(),
+            facts_changed: Arc::new(Notify::new()),
             changes_write_ok,
             changes_journal: Mutex::new(None),
             changes_access: Mutex::new(changes_access),
@@ -1150,6 +1157,7 @@ impl SessionLedger {
             db: Mutex::new(conn),
             claude_projects_root: PathBuf::from("/tmp/tugcast-tests-no-trash"),
             sessions_changed: OnceLock::new(),
+            facts_changed: Arc::new(Notify::new()),
             changes_write_ok,
             changes_journal: Mutex::new(None),
             changes_access: Mutex::new(crate::changes_writer::ChangesAccess::Unclaimed),
@@ -7324,9 +7332,63 @@ impl SessionLedger {
 
     /// Append one fact, acquiring the ledger lock. Callers that already hold
     /// it must use [`SessionLedger::record_fact_tx`] instead.
+    ///
+    /// Signals [`fact_signal`](Self::fact_signal) on a row that actually
+    /// landed — a refused duplicate is not news, and waking a watcher for one
+    /// would have it re-read a tail that did not move. The `record_fact_tx`
+    /// path signals nothing, because a caller holding the lock is mid-batch
+    /// and has no business publishing a half-written state; those rows reach
+    /// the tripwire engine on its sweep tick instead.
     pub fn record_fact(&self, fact: &NewFact) -> Result<Option<i64>, LedgerError> {
+        let rowid = {
+            let conn = self.db.lock().expect("ledger mutex");
+            Self::record_fact_tx(&conn, fact)?
+        };
+        if rowid.is_some() {
+            self.facts_changed.notify_waiters();
+        }
+        Ok(rowid)
+    }
+
+    // The three reads below are the tripwire engine's event stream, and its
+    // subscription is what will make them live. Their tests exercise them now;
+    // the `not(test)` allow is what says so out loud rather than leaving a
+    // reader to wonder which build uses them.
+
+    /// The "a fact was appended" signal, for a watcher that would otherwise
+    /// poll. `notify_waiters` rather than `notify_one`: this is a broadcast to
+    /// however many watchers are parked, and a stored permit would make a
+    /// watcher that arrives later believe it missed something.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn fact_signal(&self) -> Arc<Notify> {
+        Arc::clone(&self.facts_changed)
+    }
+
+    /// The facts newer than `after_rowid`, oldest first, capped.
+    ///
+    /// By rowid rather than by timestamp, because a tail has to be exact: two
+    /// facts can share a millisecond, and a reader that resumed from a
+    /// timestamp would either re-read one or skip one, with no way to tell
+    /// which. The rowid is monotonic per insert and is what a caller carries
+    /// forward.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn facts_after(&self, after_rowid: i64, cap: usize) -> Result<Vec<FactRow>, LedgerError> {
         let conn = self.db.lock().expect("ledger mutex");
-        Self::record_fact_tx(&conn, fact)
+        let mut stmt = conn.prepare(
+            "SELECT id, at_ms, kind, session_id, subject, text, payload
+             FROM facts WHERE id > ?1 ORDER BY id ASC LIMIT ?2",
+        )?;
+        let rows = stmt.query_map(params![after_rowid, cap as i64], fact_from_row)?;
+        Ok(rows.collect::<Result<Vec<_>, _>>()?)
+    }
+
+    /// The newest fact's rowid, or 0 when there are none — where a tail
+    /// starts. A watcher boots from here rather than from zero, so opening
+    /// one does not replay the whole history as though it just happened.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn max_fact_rowid(&self) -> Result<i64, LedgerError> {
+        let conn = self.db.lock().expect("ledger mutex");
+        Ok(conn.query_row("SELECT COALESCE(MAX(id), 0) FROM facts", [], |r| r.get(0))?)
     }
 
     /// Facts about one session, optionally narrowed to a single kind and to
@@ -11248,6 +11310,76 @@ mod tests {
     }
 
     #[test]
+    fn the_fact_tail_pages_by_rowid_oldest_first() {
+        let ledger = fresh();
+        assert_eq!(ledger.max_fact_rowid().expect("empty"), 0);
+
+        // Two facts share a millisecond on purpose: a tail keyed by timestamp
+        // would have to re-read one or skip one here, with no way to tell
+        // which. The rowid is what makes the resume exact.
+        for i in 0..5 {
+            ledger
+                .record_fact(&fact(
+                    1_000,
+                    "shell",
+                    &format!("cmd-{i}"),
+                    &format!("$ cmd-{i}"),
+                ))
+                .expect("record");
+        }
+
+        let first_two = ledger.facts_after(0, 2).expect("tail");
+        assert_eq!(first_two.len(), 2);
+        assert_eq!(first_two[0].text, "$ cmd-0");
+        assert_eq!(first_two[1].text, "$ cmd-1");
+        assert!(first_two[0].id < first_two[1].id, "oldest first");
+
+        let rest = ledger.facts_after(first_two[1].id, 10).expect("tail");
+        assert_eq!(rest.len(), 3);
+        assert_eq!(rest[0].text, "$ cmd-2");
+
+        let tip = ledger.max_fact_rowid().expect("tip");
+        assert_eq!(tip, rest[2].id);
+        assert!(
+            ledger.facts_after(tip, 10).expect("tail").is_empty(),
+            "a watcher booting from the tip replays nothing"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_fact_signal_fires_on_a_row_that_landed_and_not_on_a_refused_duplicate() {
+        let ledger = fresh();
+        let signal = ledger.fact_signal();
+
+        let waiter = signal.notified();
+        tokio::pin!(waiter);
+        // Arm the waiter before the write, the way a parked watcher is.
+        assert!(
+            futures::poll!(waiter.as_mut()).is_pending(),
+            "nothing has happened yet"
+        );
+
+        let mut f = fact(1_000, "shell", "cargo build", "$ cargo build → ok");
+        f.dedupe_key = Some("shell:s1:toolu_1".to_string());
+        assert!(ledger.record_fact(&f).expect("first").is_some());
+        assert!(
+            futures::poll!(waiter.as_mut()).is_ready(),
+            "the row that landed woke the watcher"
+        );
+
+        // A refused duplicate is not news: waking for one would send a watcher
+        // to re-read a tail that did not move.
+        let waiter = signal.notified();
+        tokio::pin!(waiter);
+        assert!(futures::poll!(waiter.as_mut()).is_pending());
+        assert_eq!(ledger.record_fact(&f).expect("second"), None);
+        assert!(
+            futures::poll!(waiter.as_mut()).is_pending(),
+            "the duplicate said nothing"
+        );
+    }
+
+    #[test]
     fn a_null_dedupe_key_never_collides_with_another_null() {
         // NULLs are distinct in a SQLite unique index, which is what lets the
         // live-only paths (the `$` shell route, session lifecycle) pass none.
@@ -13501,6 +13633,7 @@ mod tests {
             db: Mutex::new(conn),
             claude_projects_root: root.to_path_buf(),
             sessions_changed: OnceLock::new(),
+            facts_changed: Arc::new(Notify::new()),
             changes_write_ok,
             changes_journal: Mutex::new(None),
             changes_access: Mutex::new(crate::changes_writer::ChangesAccess::Unclaimed),

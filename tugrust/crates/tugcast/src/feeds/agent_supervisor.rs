@@ -56,6 +56,15 @@ pub const BOUNDED_QUEUE_CAP: usize = 256;
 /// `client_id_counter` type.
 pub type ClientId = u64;
 
+/// The card-id prefix a wire's own session carries.
+///
+/// `spawn_headless_session` writes it and the tripwire engine reads it back
+/// off a fact's session: a fact from a wire's session never trips anything,
+/// because a work-tier wire that re-tripped on its own commits would be a
+/// loop with no floor. Writer and reader share the one definition so the two
+/// halves cannot drift apart.
+pub(crate) const WIRE_CARD_PREFIX: &str = "wire:";
+
 // ---------------------------------------------------------------------------
 // SpawnState
 // ---------------------------------------------------------------------------
@@ -3406,7 +3415,7 @@ impl AgentSupervisor {
                         return ControlOutcome::Error(e);
                     }
                 };
-                self.do_close_session(&parsed.card_id, &parsed.tug_session_id, client_id)
+                self.do_close_session(&parsed.card_id, &parsed.tug_session_id)
                     .await;
                 Ok(())
             }
@@ -4552,12 +4561,149 @@ impl AgentSupervisor {
         Ok(())
     }
 
-    async fn do_close_session(
+    /// Spawn a session no card owns ([P11]).
+    ///
+    /// The pipeline is `do_spawn_session`'s minus everything that belongs to a
+    /// client: no `client_sessions` affinity row, no `spawn_session_ok` ack,
+    /// and none of the resume arbitration — a headless spawn always mints a
+    /// fresh id, so there is no other holder to arbitrate against. What
+    /// remains is what makes a session a session: the workspace refcount, the
+    /// ledger entry, the P13 spawn budget, and the eager subprocess. The
+    /// session is therefore ordinary everywhere downstream — it gets a
+    /// transcript, a ledger row, a citation identity, and an id a deck client
+    /// can later resume.
+    ///
+    /// The card id is `wire:<name>`. It names the wire that asked rather than
+    /// addressing a card, because no card by that id exists; the tripwire
+    /// engine reads the same prefix back off a fact's session to keep a wire
+    /// from tripping on its own work.
+    #[cfg_attr(not(test), allow(dead_code))] // the work tier is the caller
+    pub(crate) async fn spawn_headless_session(
         &self,
-        card_id: &str,
+        wire_name: &str,
+        project_dir: &Path,
+        permission_mode: Option<String>,
+        tag: Option<String>,
+    ) -> Result<TugSessionId, ControlError> {
+        let card_id = format!("{WIRE_CARD_PREFIX}{wire_name}");
+        let tug_session_id = TugSessionId::new(uuid::Uuid::new_v4().to_string());
+        // A headless session is the only session on its line, and it mints the
+        // line itself because no drop preceded it ([P03]).
+        let line_id = uuid::Uuid::new_v4().to_string();
+
+        // Phase 0: validate + canonicalize + acquire the workspace refcount,
+        // before the ledger is touched, so a bad path costs nothing.
+        let workspace_entry = self
+            .registry
+            .get_or_create(project_dir, self.cancel.clone())
+            .map_err(|e| match e {
+                WorkspaceError::InvalidProjectDir { reason, .. } => {
+                    warn!(
+                        card_id,
+                        session = %tug_session_id,
+                        path = ?project_dir,
+                        reason,
+                        "spawn_headless_session: invalid project_dir"
+                    );
+                    ControlError::InvalidProjectDir { reason }
+                }
+                WorkspaceError::UnknownKey(_) => {
+                    unreachable!("get_or_create never returns UnknownKey")
+                }
+            })?;
+        let workspace_key = workspace_entry.workspace_key.clone();
+        drop(workspace_entry);
+
+        // Phase 1: the budget check and the insert, atomic under the ledger
+        // lock. The id is fresh, so this is always an insert and the
+        // reconnect arithmetic `do_spawn_session` carries has nothing to
+        // decide here. The budget is not waived: a wire's session is a real
+        // subprocess and counts like every other.
+        let entry_arc = {
+            let mut ledger = self.ledger.lock().await;
+            if let Some(reason) = cap_check_reason(
+                &ledger,
+                self.config.max_concurrent_sessions,
+                &self.spawn_timestamps,
+                self.config.max_spawns_per_minute,
+            ) {
+                drop(ledger);
+                if let Err(e) = self.registry.release(&workspace_key) {
+                    warn!(
+                        card_id,
+                        session = %tug_session_id,
+                        error = %e,
+                        "spawn_headless_session: cap-reject workspace release failed (ignored)"
+                    );
+                }
+                warn!(
+                    card_id,
+                    session = %tug_session_id,
+                    reason,
+                    "spawn_headless_session: rejected by spawn budget"
+                );
+                return Err(ControlError::CapExceeded { reason });
+            }
+            let arc = Arc::new(Mutex::new(LedgerEntry::new(
+                tug_session_id.clone(),
+                workspace_key.clone(),
+                project_dir.to_path_buf(),
+                SessionMode::New,
+                CrashBudget::new(3, Duration::from_secs(60)),
+            )));
+            ledger.insert(tug_session_id.clone(), Arc::clone(&arc));
+            arc
+        };
+
+        // Phase 2: stamp the entry and claim the spawn. The refcount Phase 0
+        // acquired is this entry's for its lifetime; `do_close_session`
+        // releases it on the strength of this flag.
+        {
+            let mut entry = entry_arc.lock().await;
+            entry.card_id = Some(card_id.clone());
+            entry.permission_mode = permission_mode;
+            entry.tag = tag;
+            entry.line_id = Some(line_id);
+            entry.holds_workspace_refcount = true;
+            entry
+                .spawn_state
+                .try_transition(SpawnState::Spawning)
+                .expect("a just-minted entry is Idle");
+        }
+
+        self.session_state.publish_tagged(build_session_state_frame(
+            &tug_session_id,
+            "pending",
+            None,
+        ));
+        tracing::info!(
+            target: "dev::session-lifecycle",
+            event = "supervisor.headless_spawn",
+            tug_session_id = %tug_session_id,
+            card_id = %card_id,
+            project_dir = ?project_dir,
+        );
+
+        self.spawn_session_worker(&tug_session_id).await;
+
+        Ok(tug_session_id)
+    }
+
+    /// Close a session `spawn_headless_session` opened. The close path is the
+    /// card's own — the workspace refcount comes back, the ledger row goes
+    /// `closed`, and the session-closed fact is recorded — because a headless
+    /// session differs from a card's only in who asked for it.
+    #[cfg_attr(not(test), allow(dead_code))] // the work tier is the caller
+    pub(crate) async fn close_headless_session(
+        &self,
+        wire_name: &str,
         tug_session_id: &TugSessionId,
-        _client_id: ClientId,
     ) {
+        let card_id = format!("{WIRE_CARD_PREFIX}{wire_name}");
+        self.do_close_session(&card_id, tug_session_id).await;
+    }
+
+    async fn do_close_session(&self, card_id: &str, tug_session_id: &TugSessionId) {
         // Phase 1: remove the ledger entry AND drop the id from every client's
         // affinity set, atomically under ledger_lock + client_sessions_lock.
         // Cleaning across all clients (not just `_client_id`) guarantees the
@@ -12648,6 +12794,113 @@ mod tests {
         let cs = sup.client_sessions.lock().await;
         let set = cs.get(&10).expect("client 10 has a session set");
         assert!(set.contains(&TugSessionId::new("sess-1")));
+    }
+
+    /// A headless spawn is a whole session — ledger entry, workspace
+    /// refcount, spawn claim — carrying the wire's card id, and no client
+    /// holds it, because no client asked.
+    #[tokio::test]
+    async fn a_headless_spawn_is_held_by_a_wire_and_by_no_client() {
+        let (sup, mut state_rx, _meta_rx, _control_rx) = make_supervisor_with_store();
+
+        let session = sup
+            .spawn_headless_session(
+                "tugedit",
+                Path::new(test_project_dir()),
+                Some("acceptEdits".to_string()),
+                Some("wire".to_string()),
+            )
+            .await
+            .expect("headless spawn succeeds");
+
+        let entry_arc = {
+            let ledger = sup.ledger.lock().await;
+            ledger
+                .get(&session)
+                .cloned()
+                .expect("ledger holds the entry")
+        };
+        let entry = entry_arc.lock().await;
+        assert_eq!(entry.card_id.as_deref(), Some("wire:tugedit"));
+        assert_eq!(entry.session_mode, SessionMode::New);
+        assert_eq!(entry.permission_mode.as_deref(), Some("acceptEdits"));
+        assert_eq!(entry.tag.as_deref(), Some("wire"));
+        assert!(entry.line_id.is_some(), "a headless session mints its line");
+        assert!(entry.holds_workspace_refcount);
+        drop(entry);
+
+        let cs = sup.client_sessions.lock().await;
+        assert!(
+            cs.values().all(|set| !set.contains(&session)),
+            "no client connection may hold a wire's session"
+        );
+        drop(cs);
+
+        let frame = state_rx.try_recv().expect("pending state published");
+        let (id, state) = session_state_of(&frame);
+        assert_eq!(id, session.as_str());
+        assert_eq!(state, "pending");
+    }
+
+    /// Closing a headless session gives the workspace back. The refcount the
+    /// spawn acquired is the entry's alone, so the last close tears the
+    /// workspace down rather than leaving it open with nobody in it.
+    #[tokio::test]
+    async fn closing_a_headless_session_gives_the_workspace_back() {
+        let (sup, _state_rx, _meta_rx, _control_rx) = make_supervisor_with_store();
+        let project_dir = Path::new(test_project_dir());
+
+        let session = sup
+            .spawn_headless_session("tugedit", project_dir, None, None)
+            .await
+            .expect("headless spawn succeeds");
+        assert!(sup.registry.find_entry_by_path(project_dir).is_some());
+
+        sup.close_headless_session("tugedit", &session).await;
+
+        assert!(
+            sup.ledger.lock().await.get(&session).is_none(),
+            "the close removes the ledger entry"
+        );
+        assert!(
+            sup.registry.find_entry_by_path(project_dir).is_none(),
+            "the last refcount released tears the workspace down"
+        );
+    }
+
+    /// The id a wire's session ran under is an ordinary session id
+    /// afterwards: a card can resume it, and the supervisor arbitrates that
+    /// resume against nothing, because a headless session was never in any
+    /// client's set to begin with.
+    #[tokio::test]
+    async fn a_card_can_adopt_a_headless_sessions_id_afterwards() {
+        let (sup, _state_rx, _meta_rx, _control_rx) = make_supervisor_with_store();
+
+        let session = sup
+            .spawn_headless_session("tugedit", Path::new(test_project_dir()), None, None)
+            .await
+            .expect("headless spawn succeeds");
+        sup.close_headless_session("tugedit", &session).await;
+
+        sup.handle_control(
+            "spawn_session",
+            &resume_payload("card-1", session.as_str()),
+            10,
+        )
+        .await
+        .expect_handled();
+
+        let entry_arc = {
+            let ledger = sup.ledger.lock().await;
+            ledger.get(&session).cloned().expect("the card's entry")
+        };
+        assert_eq!(
+            entry_arc.lock().await.card_id.as_deref(),
+            Some("card-1"),
+            "the card now holds the session the wire opened"
+        );
+        let cs = sup.client_sessions.lock().await;
+        assert!(cs.get(&10).expect("client 10's set").contains(&session));
     }
 
     /// A `resume` payload for a session already bound to a different

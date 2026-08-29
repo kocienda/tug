@@ -19,6 +19,7 @@ Both doors open the same kind of thing. A direct dash rides the same `tugutil da
 **Drafting and authoring:**
 
 - **`draft`** — analyze the working changes, decide per-file dispositions, and author the session's landing draft via `tugutil draft set`. **Never commits** — the user lands the draft with `/commit` in the Session card.
+- **`wire`** — lay, revise, and shake down a **tripwire**: a standing watch that fires on a recorded fact or a commit, answers a brief, and reports itself in the Overview. Rides `tugutil wire` and authors nothing else. **Never joins** — a wire may stage work on a dash and say so, and landing it is the user's act.
 `spike-card` — scaffold a design spike onto the deck — is **not** a plugin skill: it is about `tugdeck/src/spikes/` and nothing else, so it lives with this repository at `.claude/skills/spike-card/` and never ships.
 
 ## The standalone contract

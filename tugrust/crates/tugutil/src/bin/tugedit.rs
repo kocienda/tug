@@ -28,12 +28,20 @@ struct Args {
 
 fn main() -> ExitCode {
     let args = Args::parse();
-    let result = tugutil::edit::read_program(args.file.as_deref())
-        .and_then(|program| tugutil::edit::run(&program, args.preview));
-    match result {
+    // The program is held rather than piped through: the TUG-EDIT-ERROR marker
+    // carries it, and a failure nobody can see the program for is a failure
+    // nobody can diagnose.
+    let program = match tugutil::edit::read_program(args.file.as_deref()) {
+        Ok(program) => program,
+        Err(err) => {
+            tugutil::edit_error_marker::report(&err, "");
+            return ExitCode::from(err.exit_code());
+        }
+    };
+    match tugutil::edit::run(&program, args.preview) {
         Ok(()) => ExitCode::SUCCESS,
         Err(err) => {
-            eprintln!("error: {err}");
+            tugutil::edit_error_marker::report(&err, &program);
             ExitCode::from(err.exit_code())
         }
     }

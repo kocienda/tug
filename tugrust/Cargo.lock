@@ -2690,6 +2690,7 @@ dependencies = [
  "tugedit-core",
  "tugutil-core",
  "ureq",
+ "uuid",
 ]
 
 [[package]]

@@ -955,19 +955,29 @@ export interface ListSessionStateChangesOk {
 }
 
 /**
- * Who wrote a Overview post. The channel has exactly three authors; an
- * unrecognized spelling is a parse failure at the edge rather than a row
- * rendered in the wrong voice.
+ * Who wrote a Overview post. An unrecognized spelling is a parse failure at
+ * the edge rather than a row rendered in the wrong voice.
  */
-export type OverviewAuthor = "observer" | "operator" | "user";
+export type OverviewAuthor = "observer" | "operator" | "user" | "tripwire";
 
-const OVERVIEW_AUTHORS: readonly string[] = ["observer", "operator", "user"];
+const OVERVIEW_AUTHORS: readonly string[] = [
+  "observer",
+  "operator",
+  "user",
+  "tripwire",
+];
 
 /**
  * What a ref chip points at. Each kind has its own chip action, so a kind
  * with no action to offer is dropped at parse instead of rendered inert.
  */
-export type OverviewRefKind = "session" | "file" | "commit" | "plan" | "brief";
+export type OverviewRefKind =
+  | "session"
+  | "file"
+  | "commit"
+  | "plan"
+  | "brief"
+  | "dash";
 
 const OVERVIEW_REF_KINDS: readonly string[] = [
   "session",
@@ -975,6 +985,7 @@ const OVERVIEW_REF_KINDS: readonly string[] = [
   "commit",
   "plan",
   "brief",
+  "dash",
 ];
 
 /** One clickable provenance chip on a post. */
