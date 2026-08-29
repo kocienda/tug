@@ -23,6 +23,7 @@ import { installActivationClickBridge } from "./lib/activation-click-bridge";
 import { installUpdateBridge } from "./lib/update-bridge";
 import { cardServicesStore } from "./lib/card-services-store";
 import { restoreSessions } from "./lib/session-restore";
+import { installDeckSeatingsReporter } from "./lib/deck-seatings-reporter";
 import { attachSessionLedgerStore } from "./lib/session-ledger-store";
 import { attachSessionStateChangesStore } from "./lib/session-state-changes-store";
 import { attachPulseStore } from "./lib/pulse-store";
@@ -456,6 +457,13 @@ if (!container) {
   // (installed here vs newest on the stable channel). Same timing rule as the
   // auth probe: sent after `initActionDispatch` registered its handler.
   connection.sendControlFrame("check_claude_version");
+
+  // The seating report: tugcast learns which sessions this deck has seated
+  // on open Session cards, so the changeset never orphans an open card's
+  // files during the startup-demote window. Same timing rule as the probes
+  // above; the reporter subscribes to `cardSessionBindingStore` and handles
+  // reconnects itself.
+  installDeckSeatingsReporter(connection);
 
   // Wire the menuState host push: the aggregator subscribes to the
   // deck store and posts the menu-relevant projection to the Swift

@@ -255,6 +255,12 @@ pub(crate) async fn compose_snapshot(
         }
     }
     let mut owners: BTreeMap<String, OwnerAgg> = BTreeMap::new();
+    // Deck-reported seatings, folded into owner liveness: a session seated
+    // on an open card is not abandoned no matter what `sessions.state` says
+    // between a startup demote and the card's next spawn, so its files must
+    // not orphan-lift ([D120]). Read once per compose; empty with no deck
+    // connected, which is the truth in that case.
+    let seated = super::deck_seatings::seated_session_ids();
     // Per-path liveness cut, computed once per dirty path with events.
     let mut live_cuts: HashMap<String, i64> = HashMap::new();
     // Per repo-relative path, the owners with a live **proof** row
@@ -291,7 +297,7 @@ pub(crate) async fn compose_snapshot(
             .entry(pfe.event.tug_session_id.clone())
             .or_insert_with(|| OwnerAgg {
                 display_name: session_display_name(pfe),
-                live: pfe.owner_live,
+                live: pfe.owner_live || seated.contains(&pfe.event.tug_session_id),
                 files: BTreeMap::new(),
             });
         let file = owner
@@ -702,7 +708,7 @@ pub(crate) async fn compose_snapshot(
 ///   `display_name` from [`session_row_title`] (the identity grammar:
 ///   `<name> : <project>/<callsign>`, with the legacy tagless fallbacks
 ///   name → prompt snippet → id prefix) and its `live` flag from the row's
-///   state.
+///   state OR the deck seating board — an open card outranks a demoted row.
 ///
 /// Entries re-sort to (sessions by id, dashes by ref) so injection order
 /// never perturbs diff-suppression.
@@ -712,6 +718,10 @@ pub(crate) fn apply_session_rows(snapshot: &mut ChangesetSnapshot, rows: &[Sessi
         .map(|row| (row.session_id.as_str(), row))
         .collect();
 
+    // Deck seatings fold into liveness here exactly as they do in the owner
+    // aggregation: a session seated on an open card reads live to the deck
+    // even while its `sessions.state` waits out the startup-demote window.
+    let seated = super::deck_seatings::seated_session_ids();
     let mut present: HashSet<String> = HashSet::new();
     for entry in &mut snapshot.changesets {
         if let ChangesetEntry::Session {
@@ -724,13 +734,14 @@ pub(crate) fn apply_session_rows(snapshot: &mut ChangesetSnapshot, rows: &[Sessi
             present.insert(owner_id.clone());
             if let Some(row) = by_id.get(owner_id.as_str()) {
                 *display_name = session_row_title(row);
-                *live = row.state == SessionState::Live;
+                *live = row.state == SessionState::Live || seated.contains(owner_id.as_str());
             }
         }
     }
 
     for row in rows {
-        if row.state != SessionState::Live || present.contains(&row.session_id) {
+        let live = row.state == SessionState::Live || seated.contains(&row.session_id);
+        if !live || present.contains(&row.session_id) {
             continue;
         }
         snapshot.changesets.push(ChangesetEntry::Session {
@@ -2481,6 +2492,65 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn compose_never_orphans_a_seated_session() {
+        // The ivory-gumbo incident: a startup demote closes every row while
+        // the user's card sits open on the work, and the lift — reading
+        // `closed` as abandoned — offers the user their own files back. A
+        // session the deck reports seated must read live to the compose no
+        // matter what `sessions.state` says.
+        let (_dir, root) = init_repo();
+        std::fs::write(root.join("mine.txt"), "x").unwrap();
+
+        let ledger = SessionLedger::open_in_memory().unwrap();
+        ledger
+            .record_spawn(
+                "sess-seated",
+                "ws",
+                &root.to_string_lossy(),
+                "card",
+                0,
+                "sess-seated",
+                Some("seated-badge"),
+            )
+            .unwrap();
+        ledger
+            .record_file_event(&event(
+                "sess-seated",
+                "tu-1",
+                &root.join("mine.txt"),
+                &root,
+            ))
+            .unwrap();
+        // The demote window: the row reads closed, but the deck holds the
+        // card open and says so.
+        ledger.mark_closed("sess-seated").unwrap();
+        super::super::deck_seatings::set_deck_seatings(
+            7,
+            std::iter::once("sess-seated".to_string()).collect(),
+        );
+
+        let snapshot = compose_snapshot(&root, Some(&ledger)).await.expect("repo");
+        super::super::deck_seatings::drop_deck_seatings(7);
+
+        assert!(
+            snapshot.orphaned.is_empty(),
+            "a seated session's files never orphan, demoted row or not"
+        );
+        let entry = snapshot.changesets.iter().find_map(|e| match e {
+            ChangesetEntry::Session {
+                owner_id,
+                live,
+                files,
+                ..
+            } if owner_id == "sess-seated" => Some((*live, files)),
+            _ => None,
+        });
+        let (live, files) = entry.expect("seated session owns its entry");
+        assert!(live, "seated folds into liveness");
+        assert_eq!(files[0].path, "mine.txt");
+    }
+
+    #[tokio::test]
     async fn compose_promotes_sole_holder_structural_op() {
         // The screenshot case: the session's shell deleted a tracked file
         // (`git rm` / `rm`), so only a bracket saw it — no Edit/Write proof
@@ -3538,6 +3608,45 @@ Some context.
         };
         assert_eq!(display_name, "fix the parser bug");
         assert!(*live, "row state overrides the event-derived flag");
+    }
+
+    #[test]
+    fn apply_session_rows_injects_and_enlivens_seated_closed_rows() {
+        // The demote window: a closed row whose session the deck reports
+        // seated must gain an entry and read live, exactly as a Live row
+        // does — an open card outranks a demoted state.
+        let mut snapshot = ChangesetSnapshot {
+            workspace_key: "ws".to_owned(),
+            branch: "main".to_owned(),
+            ahead: 0,
+            behind: 0,
+            head_sha: String::new(),
+            head_message: String::new(),
+            changesets: Vec::new(),
+            unattributed: Vec::new(),
+            orphaned: Vec::new(),
+        };
+        let rows = vec![session_row(
+            "sess-seated-closed",
+            Some("open card"),
+            None,
+            SessionState::Closed,
+        )];
+        super::super::deck_seatings::set_deck_seatings(
+            11,
+            std::iter::once("sess-seated-closed".to_string()).collect(),
+        );
+        apply_session_rows(&mut snapshot, &rows);
+        super::super::deck_seatings::drop_deck_seatings(11);
+
+        let ChangesetEntry::Session {
+            owner_id, live, ..
+        } = &snapshot.changesets[0]
+        else {
+            panic!("expected session entry");
+        };
+        assert_eq!(owner_id, "sess-seated-closed");
+        assert!(*live, "seated folds into liveness");
     }
 
     /// The relaunch case: a live session with a persisted draft but zero

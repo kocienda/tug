@@ -1152,6 +1152,24 @@ async fn run_dispatcher(
                 command,
                 cwd,
             } => {
+                // A `$` exec is the user acting in this session's card right
+                // now — live-borne by construction (the restore tail is a
+                // CONTROL read, never a SHELL_INPUT frame). Revive a row the
+                // startup demote closed, or the exchange's attribution rows
+                // land under a "dead" owner and the changeset orphans the
+                // session's own files back at it.
+                if let Some(sessions_ledger) = sessions_ledger.as_ref() {
+                    if let Err(err) = sessions_ledger.revive_on_activity(
+                        &tug_session_id,
+                        crate::session_ledger::now_millis(),
+                    ) {
+                        warn!(
+                            session = %tug_session_id,
+                            error = %err,
+                            "shell exec revive_on_activity failed"
+                        );
+                    }
+                }
                 let session_words = words.entry(tug_session_id.clone()).or_default().clone();
                 let session = sessions.entry(tug_session_id.clone()).or_insert_with(|| {
                     let (tx, rx) = mpsc::channel(64);

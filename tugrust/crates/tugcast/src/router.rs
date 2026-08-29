@@ -635,7 +635,9 @@ async fn intercept_session_control(
         return ControlIntercept::PassThrough;
     };
     match sup.handle_control(action, payload, client_id).await {
-        ControlOutcome::Handled => ControlIntercept::Handled,
+        // `HandledWith` carries a reply body for the HTTP tell bridge; the
+        // WebSocket clients already received it as a CONTROL broadcast.
+        ControlOutcome::Handled | ControlOutcome::HandledWith(_) => ControlIntercept::Handled,
         ControlOutcome::PassThrough => ControlIntercept::PassThrough,
         ControlOutcome::Error(ControlError::MissingCardId) => ControlIntercept::HandledError {
             detail: "missing_card_id",

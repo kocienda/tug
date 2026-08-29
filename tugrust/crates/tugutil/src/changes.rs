@@ -213,13 +213,61 @@ fn tell_ownership_verb(
     });
     let url = format!("http://127.0.0.1:{port}/api/tell");
     match ureq::post(&url).send_json(&body) {
-        Ok(resp) if resp.status().as_u16() == 200 => {
+        Ok(mut resp) if resp.status().as_u16() == 200 => {
+            // The bridge returns the handler's own reply frame — the same
+            // `changeset_claim_ok` / `_err` a deck client sees — so report
+            // what actually happened rather than inferring success from a
+            // bare 200 (the old behavior, which printed "claimed N" for a
+            // batch the server had refused or a claimant it could not hold).
+            let reply = resp
+                .body_mut()
+                .read_json::<serde_json::Value>()
+                .ok()
+                .and_then(|v| v.get("reply").cloned());
+            let action_name = reply
+                .as_ref()
+                .and_then(|r| r.get("action"))
+                .and_then(|a| a.as_str())
+                .map(str::to_owned);
+            if action_name.as_deref() == Some(&format!("changeset_{verb}_err")) {
+                let detail = reply
+                    .as_ref()
+                    .and_then(|r| r.get("detail"))
+                    .and_then(|d| d.as_str())
+                    .unwrap_or("refused");
+                return Err(AppError::Exit1(format!("{verb} refused: {detail}")));
+            }
+            let count_key = format!("{verb}ed");
+            let count = reply
+                .as_ref()
+                .and_then(|r| r.get(&count_key))
+                .and_then(|c| c.as_u64())
+                .unwrap_or(paths.len() as u64);
+            let warning = reply
+                .as_ref()
+                .and_then(|r| r.get("warning"))
+                .and_then(|w| w.as_str())
+                .map(str::to_owned);
             if json {
                 let mut data = serde_json::Map::new();
-                data.insert(format!("{verb}ed"), paths.len().into());
+                data.insert(count_key, count.into());
+                if let Some(w) = &warning {
+                    data.insert("warning".to_string(), w.as_str().into());
+                }
                 print_ok(verb, serde_json::Value::Object(data));
             } else {
-                println!("{verb}ed {} file(s) for session {session_id}", paths.len());
+                println!("{verb}ed {count} file(s) for session {session_id}");
+                if let Some(w) = &warning {
+                    eprintln!("warning: {w}");
+                }
+            }
+            // A shortfall is a failure with a receipt attached, not a
+            // success: the caller asked for N and got fewer.
+            if (count as usize) < paths.len() {
+                return Err(AppError::Exit1(format!(
+                    "{verb} shortfall: {count} of {} file(s) landed",
+                    paths.len()
+                )));
             }
             Ok(())
         }

@@ -831,6 +831,28 @@ impl LedgerSessionsRecorder {
             .unwrap_or_else(|| session_id.to_owned())
     }
 
+    /// Revive a demoted row on live-borne evidence, best-effort. The caller
+    /// vouches the event could not have come from replay backfill; the
+    /// ledger's own write primitives stay non-resurrecting. A failed revive
+    /// warns and the activity write proceeds — it may then no-op on the
+    /// still-closed row, which is the pre-existing behavior, not a new hole.
+    fn revive_on_activity(&self, session_id: &str, now: i64) {
+        match self.ledger.revive_on_activity(session_id, now) {
+            Ok(true) => {
+                tracing::info!(
+                    target: "dev::session-lifecycle",
+                    event = "ledger.revive_on_activity",
+                    session_id,
+                );
+                self.broadcast_row(session_id);
+            }
+            Ok(false) => {}
+            Err(err) => {
+                warn!(error = %err, session_id, "ledger revive_on_activity failed");
+            }
+        }
+    }
+
     /// Write one lifecycle fact, best-effort. A failed write warns; it never
     /// gates the transition it describes.
     fn record_lifecycle_fact(&self, fact: &crate::session_ledger::NewFact) {
@@ -872,6 +894,11 @@ impl SessionsRecorder for LedgerSessionsRecorder {
 
     fn record_turn(&self, session_id: &str) {
         let now = crate::session_ledger::now_millis();
+        // A live turn is proof of a running subprocess — the bridge only
+        // calls this outside replay. A row the startup demote closed under
+        // a surviving agent revives here, or the live-gated write below
+        // silently no-ops and the ledger goes on misreporting the session.
+        self.revive_on_activity(session_id, now);
         if let Err(err) = self.ledger.record_turn(session_id, now) {
             warn!(error = %err, session_id, "ledger record_turn failed");
             return;
@@ -904,6 +931,9 @@ impl SessionsRecorder for LedgerSessionsRecorder {
     }
 
     fn record_user_prompt(&self, session_id: &str, prompt: &str) {
+        // A prompt only arrives on the live input relay — never from replay
+        // backfill — so it is proof of activity the same way a turn is.
+        self.revive_on_activity(session_id, crate::session_ledger::now_millis());
         if let Err(err) = self.ledger.record_user_prompt(session_id, prompt) {
             // `NotFound` means the row was never created (claude_session_id
             // was missing from `session_init`). Other errors are real
@@ -1345,6 +1375,12 @@ pub fn default_spawner_factory(config: &AgentSupervisorConfig) -> SpawnerFactory
 pub enum ControlOutcome {
     /// Action handled successfully.
     Handled,
+    /// Action handled, with the reply body it broadcast on CONTROL. The
+    /// WebSocket ingress treats this exactly like `Handled` (its clients
+    /// already received the broadcast); the `/api/tell` bridge returns the
+    /// body to the HTTP caller — which is what lets `tugutil claim` report
+    /// what actually happened instead of inferring success from a bare 200.
+    HandledWith(serde_json::Value),
     /// Action belongs to the supervisor but failed validation or
     /// payload parsing. The router emits a CONTROL error frame.
     Error(ControlError),
@@ -1360,7 +1396,7 @@ impl ControlOutcome {
     /// signature changed.
     pub(crate) fn expect_handled(self) {
         match self {
-            ControlOutcome::Handled => {}
+            ControlOutcome::Handled | ControlOutcome::HandledWith(_) => {}
             other => panic!("expected ControlOutcome::Handled, got {other:?}"),
         }
     }
@@ -1370,7 +1406,7 @@ impl ControlOutcome {
     /// context to the failure ("first spawn admitted", etc.).
     pub(crate) fn expect_handled_with(self, msg: &str) {
         match self {
-            ControlOutcome::Handled => {}
+            ControlOutcome::Handled | ControlOutcome::HandledWith(_) => {}
             other => panic!("{msg}: expected ControlOutcome::Handled, got {other:?}"),
         }
     }
@@ -1385,7 +1421,10 @@ impl ControlOutcome {
     }
 
     pub(crate) fn is_handled(&self) -> bool {
-        matches!(self, ControlOutcome::Handled)
+        matches!(
+            self,
+            ControlOutcome::Handled | ControlOutcome::HandledWith(_)
+        )
     }
 }
 
@@ -2098,6 +2137,30 @@ fn parse_changeset_claim_payload(payload: &[u8]) -> Result<ChangesetClaimPayload
         session_id,
         files,
     })
+}
+
+/// A `deck_seatings` CONTROL request: the deck's full-replacement report of
+/// which tug sessions its open Session cards are seated on. Only the session
+/// ids matter server-side (the changeset compose folds them into liveness);
+/// the `card_id` each entry carries is observability the payload keeps for
+/// the wire log. An empty list is a valid report — "seated on nothing".
+fn parse_deck_seatings_payload(payload: &[u8]) -> Result<HashSet<String>, ControlError> {
+    let value: serde_json::Value =
+        serde_json::from_slice(payload).map_err(|_| ControlError::Malformed)?;
+    let seatings = value
+        .get("seatings")
+        .and_then(|v| v.as_array())
+        .ok_or(ControlError::Malformed)?;
+    let mut session_ids = HashSet::new();
+    for entry in seatings {
+        let id = entry
+            .get("tug_session_id")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .ok_or(ControlError::Malformed)?;
+        session_ids.insert(id.to_string());
+    }
+    Ok(session_ids)
 }
 
 /// A `changeset_disclaim` CONTROL request: a session renounces the listed
@@ -3480,17 +3543,21 @@ impl AgentSupervisor {
                 }
                 Err(e) => return ControlOutcome::Error(e),
             },
+            // Claim and disclaim return their reply body: the WebSocket
+            // ingress ignores it (the body was already broadcast on CONTROL),
+            // and the `/api/tell` bridge hands it back over HTTP so the CLI
+            // reports the actual outcome rather than inferring one from 200.
             "changeset_claim" => match parse_changeset_claim_payload(payload) {
                 Ok(parsed) => {
-                    self.do_changeset_claim(&parsed).await;
-                    Ok(())
+                    let reply = self.do_changeset_claim(&parsed).await;
+                    return ControlOutcome::HandledWith(reply);
                 }
                 Err(e) => return ControlOutcome::Error(e),
             },
             "changeset_disclaim" => match parse_changeset_disclaim_payload(payload) {
                 Ok(parsed) => {
-                    self.do_changeset_disclaim(&parsed).await;
-                    Ok(())
+                    let reply = self.do_changeset_disclaim(&parsed).await;
+                    return ControlOutcome::HandledWith(reply);
                 }
                 Err(e) => return ControlOutcome::Error(e),
             },
@@ -3503,6 +3570,22 @@ impl AgentSupervisor {
             "changeset_refresh" => {
                 self.registry.changeset_all_bump().notify_one();
                 Ok(())
+            }
+            "deck_seatings" => {
+                // Full-replacement report of which sessions this deck client
+                // has seated on open Session cards. Keyed by the WebSocket
+                // client id, so the state can never outlive the deck that
+                // reported it (`on_client_disconnect` drops it; a reconnect
+                // is a fresh id that starts empty).
+                match parse_deck_seatings_payload(payload) {
+                    Ok(session_ids) => {
+                        if super::deck_seatings::set_deck_seatings(client_id, session_ids) {
+                            self.registry.changeset_all_bump().notify_one();
+                        }
+                        Ok(())
+                    }
+                    Err(e) => return ControlOutcome::Error(e),
+                }
             }
             "changeset_draft_request" => match parse_changeset_draft_request_payload(payload) {
                 Ok(parsed) => {
@@ -5605,17 +5688,19 @@ impl AgentSupervisor {
     /// Guards mirror the other changeset verbs: `project_dir` must be a current
     /// `WorkspaceRegistry` entry. Idempotent — re-claiming writes another proof
     /// row, which composes identically.
-    async fn do_changeset_claim(&self, request: &ChangesetClaimPayload) {
+    async fn do_changeset_claim(&self, request: &ChangesetClaimPayload) -> serde_json::Value {
         let project_dir = request.project_dir.as_str();
         let dir = std::path::Path::new(project_dir);
 
         if self.registry.find_entry_by_path(dir).is_none() {
-            Self::send_changeset_claim_err(&self.control_tx, project_dir, "not an open project");
-            return;
+            return Self::send_changeset_claim_err(
+                &self.control_tx,
+                project_dir,
+                "not an open project",
+            );
         }
         let Some(ledger) = self.session_ledger.as_ref() else {
-            Self::send_changeset_claim_err(&self.control_tx, project_dir, "no ledger");
-            return;
+            return Self::send_changeset_claim_err(&self.control_tx, project_dir, "no ledger");
         };
 
         let canonical = crate::path_resolver::CanonicalPath::from_raw(dir);
@@ -5625,6 +5710,18 @@ impl AgentSupervisor {
         // captured tool call can.
         let repo_root = crate::feeds::attribution::repo_root_for(dir).await;
         let at = crate::session_ledger::now_millis();
+        // A claim is a user gesture in this session — proof of activity.
+        // Revive a row the startup demote closed, or the fresh claim rows
+        // land under a "dead" owner and the next recompose lifts every one
+        // of them straight back into `orphaned` — the treadmill this verb
+        // exists to end.
+        if let Err(err) = ledger.revive_on_activity(&request.session_id, at) {
+            warn!(
+                error = %err,
+                session_id = %request.session_id,
+                "changeset_claim revive_on_activity failed"
+            );
+        }
         // One synthetic tool_use_id groups the batch, mirroring how a Bash
         // call's N rows share an id.
         let tool_use_id = format!("claim:{at}");
@@ -5688,22 +5785,55 @@ impl AgentSupervisor {
         }
 
         self.registry.changeset_all_bump().notify_one();
+        // Honesty check: a claim whose claimant this instance's ledger has
+        // never seen (a cross-instance or mistyped `--session`) will read as
+        // a dead owner on the very next recompose and its files re-orphan.
+        // The rows are still written — `changes.db` is machine-global and
+        // another instance may hold the session — but the reply must say so
+        // rather than hand back a green count that undoes itself ([D120]).
+        let claimant = ledger.get(&request.session_id).ok().flatten();
+        let claimant_live = claimant
+            .as_ref()
+            .is_some_and(|r| r.state == crate::session_ledger::SessionState::Live);
+        let claimant_seated =
+            super::deck_seatings::seated_session_ids().contains(&request.session_id);
+        let warning = if claimed == 0 {
+            None
+        } else if claimant.is_none() && !claimant_seated {
+            Some(format!(
+                "session {} is unknown to this instance's ledger; \
+                 the claimed files may surface as orphaned here",
+                request.session_id
+            ))
+        } else if !claimant_live && !claimant_seated {
+            Some(format!(
+                "session {} is closed and seated on no card; \
+                 the claimed files will surface as orphaned until it reopens",
+                request.session_id
+            ))
+        } else {
+            None
+        };
         let body = serde_json::json!({
             "action": "changeset_claim_ok",
             "project_dir": project_dir,
             "claimed": claimed,
+            "warning": warning,
         });
         let _ = self.control_tx.send(Frame::new(
             FeedId::CONTROL,
             serde_json::to_vec(&body).expect("changeset_claim_ok serializes"),
         ));
+        body
     }
 
+    /// Broadcast a claim error on CONTROL and return the body, so the
+    /// `/api/tell` bridge can hand the same reply to an HTTP caller.
     fn send_changeset_claim_err(
         control_tx: &broadcast::Sender<Frame>,
         project_dir: &str,
         detail: &str,
-    ) {
+    ) -> serde_json::Value {
         let body = serde_json::json!({
             "action": "changeset_claim_err",
             "project_dir": project_dir,
@@ -5713,6 +5843,7 @@ impl AgentSupervisor {
             FeedId::CONTROL,
             serde_json::to_vec(&body).expect("changeset_claim_err serializes"),
         ));
+        body
     }
 
     /// Handle a `changeset_disclaim` CONTROL request: a session renounces the
@@ -5726,21 +5857,38 @@ impl AgentSupervisor {
     /// entry, a ledger must be present, and each path maps through
     /// `repo_relative_key` with skip-and-warn. Idempotent — disclaiming a file
     /// the session no longer holds deletes nothing and still replies ok.
-    async fn do_changeset_disclaim(&self, request: &ChangesetDisclaimPayload) {
+    async fn do_changeset_disclaim(
+        &self,
+        request: &ChangesetDisclaimPayload,
+    ) -> serde_json::Value {
         let project_dir = request.project_dir.as_str();
         let dir = std::path::Path::new(project_dir);
 
         if self.registry.find_entry_by_path(dir).is_none() {
-            Self::send_changeset_disclaim_err(&self.control_tx, project_dir, "not an open project");
-            return;
+            return Self::send_changeset_disclaim_err(
+                &self.control_tx,
+                project_dir,
+                "not an open project",
+            );
         }
         let Some(ledger) = self.session_ledger.as_ref() else {
-            Self::send_changeset_disclaim_err(&self.control_tx, project_dir, "no ledger");
-            return;
+            return Self::send_changeset_disclaim_err(&self.control_tx, project_dir, "no ledger");
         };
 
         let canonical = crate::path_resolver::CanonicalPath::from_raw(dir);
         let repo_root = crate::feeds::attribution::repo_root_for(dir).await;
+        // A disclaim is a user gesture in this session, same as a claim —
+        // revive a demoted row so the session's remaining files keep a live
+        // owner on the recompose this gesture triggers.
+        if let Err(err) = ledger
+            .revive_on_activity(&request.session_id, crate::session_ledger::now_millis())
+        {
+            warn!(
+                error = %err,
+                session_id = %request.session_id,
+                "changeset_disclaim revive_on_activity failed"
+            );
+        }
         let mut paths = Vec::with_capacity(request.files.len());
         for path in &request.files {
             let Some(file_path) = crate::feeds::attribution::repo_relative_key(
@@ -5761,12 +5909,11 @@ impl AgentSupervisor {
                 Ok(deleted) => deleted,
                 Err(err) => {
                     warn!(error = %err, project_dir, "changeset_disclaim failed");
-                    Self::send_changeset_disclaim_err(
+                    return Self::send_changeset_disclaim_err(
                         &self.control_tx,
                         project_dir,
                         &err.to_string(),
                     );
-                    return;
                 }
             };
 
@@ -5780,13 +5927,16 @@ impl AgentSupervisor {
             FeedId::CONTROL,
             serde_json::to_vec(&body).expect("changeset_disclaim_ok serializes"),
         ));
+        body
     }
 
+    /// Broadcast a disclaim error on CONTROL and return the body, so the
+    /// `/api/tell` bridge can hand the same reply to an HTTP caller.
     fn send_changeset_disclaim_err(
         control_tx: &broadcast::Sender<Frame>,
         project_dir: &str,
         detail: &str,
-    ) {
+    ) -> serde_json::Value {
         let body = serde_json::json!({
             "action": "changeset_disclaim_err",
             "project_dir": project_dir,
@@ -5796,6 +5946,7 @@ impl AgentSupervisor {
             FeedId::CONTROL,
             serde_json::to_vec(&body).expect("changeset_disclaim_err serializes"),
         ));
+        body
     }
 
     /// Handle a `changeset_join` CONTROL request (Spec S03, [P14]): preview or
@@ -9198,8 +9349,15 @@ impl AgentSupervisor {
     /// ledger state or tugbank — a client disconnecting is not a session
     /// close.
     pub async fn on_client_disconnect(&self, client_id: ClientId) {
-        let mut cs = self.client_sessions.lock().await;
-        cs.remove(&client_id);
+        {
+            let mut cs = self.client_sessions.lock().await;
+            cs.remove(&client_id);
+        }
+        // A departed deck's seatings must not keep counting toward the
+        // changeset's liveness — drop them (and recompute) with the socket.
+        if super::deck_seatings::drop_deck_seatings(client_id) {
+            self.registry.changeset_all_bump().notify_one();
+        }
     }
 
     /// Re-materialize ledger entries from the sqlite-backed

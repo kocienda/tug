@@ -10,6 +10,7 @@ pub mod attribution;
 pub mod base_motion;
 pub mod changeset;
 pub mod changeset_all;
+pub mod deck_seatings;
 pub mod claude_auth;
 pub mod claude_usage;
 pub mod code;

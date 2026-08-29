@@ -414,9 +414,14 @@ export class ChangesetVerbStore {
       const claimed = typeof body.claimed === "number" ? body.claimed : 0;
       // A shortfall is a failure with a receipt attached, not a success.
       const shortfall = requested !== null && claimed < requested;
+      // The server's honesty check ([D120]): a claim whose rows landed but
+      // whose claimant it cannot vouch for warns instead of handing back a
+      // green count that undoes itself. Surfaced through the same error
+      // path — a claim that will not hold is not a success.
+      const warning = typeof body.warning === "string" ? body.warning : null;
       this._setClaim(entryKey, {
-        phase: shortfall ? "error" : "done",
-        error: shortfall ? claimShortfallDetail(claimed, requested) : null,
+        phase: shortfall || warning !== null ? "error" : "done",
+        error: shortfall ? claimShortfallDetail(claimed, requested) : warning,
         claimed,
         requested,
       });

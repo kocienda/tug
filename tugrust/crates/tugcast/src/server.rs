@@ -41,6 +41,11 @@ struct TellResponse {
     status: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     message: Option<String>,
+    /// The handler's own reply body, when the action produced one (the
+    /// `changeset_claim_ok` / `_err` frame a WebSocket client would have
+    /// received). What lets the CLI report the actual outcome.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reply: Option<serde_json::Value>,
 }
 
 /// Handle POST /api/tell requests for triggering actions
@@ -60,6 +65,7 @@ async fn tell_handler(
             axum::Json(TellResponse {
                 status: "error".to_string(),
                 message: Some("forbidden".to_string()),
+                reply: None,
             }),
         )
             .into_response();
@@ -74,6 +80,7 @@ async fn tell_handler(
                 axum::Json(TellResponse {
                     status: "error".to_string(),
                     message: Some("invalid JSON".to_string()),
+                    reply: None,
                 }),
             )
                 .into_response();
@@ -89,6 +96,7 @@ async fn tell_handler(
                 axum::Json(TellResponse {
                     status: "error".to_string(),
                     message: Some("missing action field".to_string()),
+                    reply: None,
                 }),
             )
                 .into_response();
@@ -117,6 +125,22 @@ async fn tell_handler(
                     axum::Json(TellResponse {
                         status: "ok".to_string(),
                         message: None,
+                        reply: None,
+                    }),
+                )
+                    .into_response();
+            }
+            ControlOutcome::HandledWith(reply) => {
+                // The handler's own reply frame (e.g. `changeset_claim_ok`
+                // with its count and warning) — returned verbatim so the CLI
+                // reports what actually happened instead of inferring
+                // success from a bare 200.
+                return (
+                    StatusCode::OK,
+                    axum::Json(TellResponse {
+                        status: "ok".to_string(),
+                        message: None,
+                        reply: Some(reply),
                     }),
                 )
                     .into_response();
@@ -127,6 +151,7 @@ async fn tell_handler(
                     axum::Json(TellResponse {
                         status: "error".to_string(),
                         message: Some(format!("{err:?}")),
+                        reply: None,
                     }),
                 )
                     .into_response();
@@ -144,6 +169,7 @@ async fn tell_handler(
         axum::Json(TellResponse {
             status: "ok".to_string(),
             message: None,
+            reply: None,
         }),
     )
         .into_response()

@@ -1591,6 +1591,7 @@ impl SessionLedger {
         Self::migrate_sessions_add_synopsis(conn)?;
         Self::migrate_sessions_add_private(conn)?;
         Self::migrate_sessions_add_dash_binding(conn)?;
+        Self::migrate_sessions_add_demoted(conn)?;
         Self::migrate_scan_cache_add_resume_columns(conn)?;
         Self::migrate_pulse_lines_add_intent(conn)?;
         // First of the post-table migrations: everything below it names
@@ -1678,7 +1679,14 @@ impl SessionLedger {
                 -- cleared when the session closes — bound-ness is defined
                 -- over live sessions ([L27]).
                 dash_id           TEXT,
-                dash_name         TEXT
+                dash_name         TEXT,
+                -- Which kind of `closed` this row is. `1` marks the startup
+                -- demote — the *process* under the session ended, not the
+                -- session — and is the one state `revive_on_activity` may
+                -- correct on live-borne evidence. A deliberate close
+                -- (`mark_closed`) and a spawn both clear it: closed-by-hand
+                -- stays closed, and a spawned row is live on its own terms.
+                demoted           INTEGER NOT NULL DEFAULT 0
             );
 
             CREATE INDEX IF NOT EXISTS sessions_workspace_recent
@@ -2503,6 +2511,24 @@ impl SessionLedger {
         if !cols.iter().any(|(n, _)| n == "private") {
             conn.execute(
                 "ALTER TABLE sessions ADD COLUMN private INTEGER NOT NULL DEFAULT 0",
+                [],
+            )?;
+        }
+        Ok(())
+    }
+
+    /// Self-healing add of the `demoted` marker — which kind of `closed` a
+    /// row is. Pre-column rows default to `0` (deliberately closed), the
+    /// conservative reading: a row that cannot say it was demoted is not
+    /// revivable. No-op on a fresh DB or when already migrated.
+    fn migrate_sessions_add_demoted(conn: &Connection) -> Result<(), LedgerError> {
+        let cols = Self::table_columns(conn, "sessions")?;
+        if cols.is_empty() {
+            return Ok(());
+        }
+        if !cols.iter().any(|(n, _)| n == "demoted") {
+            conn.execute(
+                "ALTER TABLE sessions ADD COLUMN demoted INTEGER NOT NULL DEFAULT 0",
                 [],
             )?;
         }
@@ -4247,6 +4273,7 @@ impl SessionLedger {
                 turn_count    = MAX(sessions.turn_count, excluded.turn_count),
                 last_user_prompt = COALESCE(sessions.last_user_prompt, excluded.last_user_prompt),
                 state         = 'live',
+                demoted       = 0,
                 card_id       = excluded.card_id",
             params![
                 session_id,
@@ -4773,15 +4800,85 @@ impl SessionLedger {
     pub fn mark_closed(&self, session_id: &str) -> Result<bool, LedgerError> {
         let conn = self.db.lock().expect("ledger mutex");
         let affected = conn.execute(
+            // `demoted = 0`: a deliberate close outranks a prior demote —
+            // this row is done and no late event may revive it. The guard
+            // admits an already-demote-closed row for exactly that reason:
+            // closing a card the startup demote beat to `closed` must still
+            // strip its revivability.
             "UPDATE sessions
-             SET state = 'closed', dash_id = NULL, dash_name = NULL
+             SET state = 'closed', demoted = 0, dash_id = NULL, dash_name = NULL
              WHERE session_id = ?1
-               AND state != 'closed'",
+               AND (state != 'closed' OR demoted != 0)",
             params![session_id],
         )?;
         drop(conn);
         self.notify_sessions_changed();
         Ok(affected > 0)
+    }
+
+    /// Flip a non-live row back to `live` on proof of activity — a live
+    /// turn, a submitted prompt, a `$` shell exec, a claim gesture. The
+    /// startup demote closes every row because the *process* under it
+    /// ended; a session that then keeps producing events is not closed,
+    /// and every read keyed on `state` — the changeset owner join, the
+    /// orphan lift, `record_turn`'s live gate — misreports it until the
+    /// row is corrected. The caller vouches that its event is live-borne:
+    /// replay backfill must never come through here, which is why
+    /// [`Self::record_turn`] and friends stay non-resurrecting and this
+    /// is a separate, explicit act.
+    ///
+    /// Returns whether a row moved. An absent row, a live row, and — by the
+    /// `demoted` gate — a *deliberately* closed row are all no-ops: revival
+    /// corrects the administrative demote and nothing else, so a card the
+    /// user closed stays closed no matter what trails in behind it. The
+    /// re-entry into the fact base is a `SessionResumed` under the line's
+    /// handle ([P02]), the mirror of the demote's `session_end`.
+    pub fn revive_on_activity(
+        &self,
+        session_id: &str,
+        now: i64,
+    ) -> Result<bool, LedgerError> {
+        let conn = self.db.lock().expect("ledger mutex");
+        let row: Option<(String, String, String)> = conn
+            .query_row(
+                "SELECT s.workspace_key, s.project_dir,
+                        COALESCE(l.tag, s.session_id)
+                 FROM sessions s
+                 LEFT JOIN lines l ON l.line_id = s.line_id
+                 WHERE s.session_id = ?1 AND s.state != 'live' AND s.demoted = 1",
+                params![session_id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .optional()?;
+        let Some((workspace_key, project_dir, handle)) = row else {
+            return Ok(false);
+        };
+        conn.execute(
+            "UPDATE sessions
+             SET state = 'live', demoted = 0, last_used_at = ?2
+             WHERE session_id = ?1",
+            params![session_id, now],
+        )?;
+        let fact = crate::feeds::facts_library::session_start_fact(
+            now,
+            session_id,
+            true,
+            &handle,
+            &workspace_key,
+            &project_dir,
+            None,
+        );
+        // The lock is held right here, so this is the `_tx` form ([P11]).
+        if let Err(e) = Self::record_fact_tx(&conn, &fact) {
+            tracing::warn!(
+                session = %session_id,
+                error = %e,
+                "revive fact write failed; the session row is unaffected"
+            );
+        }
+        drop(conn);
+        self.notify_sessions_changed();
+        Ok(true)
     }
 
     /// Bind a session to a dash, or clear its binding with `None` ([P08],
@@ -5158,8 +5255,11 @@ impl SessionLedger {
             .collect::<Result<Vec<_>, _>>()?;
         drop(stmt);
         let count = conn.execute(
+            // `demoted = 1` marks this as the administrative close — the
+            // process ended, not the session — which is the one closed
+            // state `revive_on_activity` may correct.
             "UPDATE sessions
-             SET state = 'closed'
+             SET state = 'closed', demoted = 1
              WHERE state = 'live'",
             [],
         )?;
@@ -12244,6 +12344,57 @@ mod tests {
         let r = l.get("s1").unwrap().unwrap();
         assert_eq!(r.turn_count, 0);
         assert_eq!(r.state, SessionState::Closed);
+    }
+
+    #[test]
+    fn revive_on_activity_flips_a_demoted_row_back_to_live() {
+        let l = fresh();
+        let t0 = millis(0);
+        seed_live(&l, "s1", WS_A, "card-1", t0);
+        // The startup demote — the administrative close revival corrects.
+        assert_eq!(l.demote_live_to_closed().unwrap(), 1);
+
+        // Live-borne evidence corrects the demoted state, and the
+        // previously live-gated activity writes bite again.
+        assert!(l.revive_on_activity("s1", t0 + 1_000).unwrap());
+        let r = l.get("s1").unwrap().unwrap();
+        assert_eq!(r.state, SessionState::Live);
+        assert_eq!(r.last_used_at, t0 + 1_000);
+        l.record_turn("s1", t0 + 2_000).unwrap();
+        assert_eq!(l.get("s1").unwrap().unwrap().last_used_at, t0 + 2_000);
+    }
+
+    #[test]
+    fn revive_on_activity_never_resurrects_a_deliberate_close() {
+        let l = fresh();
+        let t0 = millis(0);
+        // A user-closed card stays closed: `mark_closed` is not a demote.
+        seed_live(&l, "s1", WS_A, "card-1", t0);
+        l.mark_closed("s1").unwrap();
+        assert!(!l.revive_on_activity("s1", t0 + 1_000).unwrap());
+        assert_eq!(l.get("s1").unwrap().unwrap().state, SessionState::Closed);
+
+        // Closing an already-demoted row strips its revivability too: the
+        // demote beat the user's close to `closed`, but the close is the
+        // later intent and outranks it.
+        seed_live(&l, "s2", WS_A, "card-2", t0);
+        l.demote_live_to_closed().unwrap();
+        l.mark_closed("s2").unwrap();
+        assert!(!l.revive_on_activity("s2", t0 + 1_000).unwrap());
+        assert_eq!(l.get("s2").unwrap().unwrap().state, SessionState::Closed);
+    }
+
+    #[test]
+    fn revive_on_activity_no_ops_on_live_and_absent_rows() {
+        let l = fresh();
+        let t0 = millis(0);
+        // Absent: revival corrects a record, it never creates one.
+        assert!(!l.revive_on_activity("ghost", t0).unwrap());
+        assert!(l.get("ghost").unwrap().is_none());
+        // Already live: nothing to correct.
+        seed_live(&l, "s1", WS_A, "card-1", t0);
+        assert!(!l.revive_on_activity("s1", t0 + 1_000).unwrap());
+        assert_eq!(l.get("s1").unwrap().unwrap().last_used_at, t0);
     }
 
     #[test]
