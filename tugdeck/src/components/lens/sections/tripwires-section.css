@@ -23,6 +23,25 @@
   min-height: 0;
 }
 
+/* The roster's second line is the Cards section's session description, and it
+   has to read as that line rather than as a heavier relative of it: a plain
+   run at the row's own color, not `TugLabel`'s medium weight over muted ink.
+   `TugListRow` renders every subtitle through a label, so the correction is
+   here rather than a second subtitle API on the row. */
+.tripwires-list .tug-list-row-subtitle {
+  font-weight: var(--tug-font-weight-normal);
+  color: var(--tug7-element-global-text-normal-default-rest);
+}
+
+/* The arm/pause control rides the title's line, not the row's centre. Every
+   other Lens row hangs its leading glyph off the first line, and a two-line
+   row that centred its control put it between the two lines, pointing at
+   neither. */
+.tripwires-list .tug-list-row-leading,
+.tripwires-detail-head .tug-list-row-leading {
+  align-items: flex-start;
+}
+
 .tripwires-row-trailing {
   display: inline-flex;
   align-items: center;
@@ -69,6 +88,32 @@
   display: flex;
   flex-direction: column;
   min-height: 0;
+  /* The section's one scroller. Everything in the detail — the definition, the
+     knobs, the whole trip log — scrolls together as one document, which is
+     what the reader asked the level for. The alternative the Lens uses
+     elsewhere (a section that shrinks and hands overflow to an inner list's
+     scroller) puts a scrollbar around the log alone and leaves the definition
+     above it clipped with no way to reach the rest. */
+  overflow-y: auto;
+}
+
+/* Inside the scroller nothing scrolls on its own and nothing shrinks: each
+   part stands at its full height and the column carries the overflow. */
+.tripwires-detail > * {
+  flex: 0 0 auto;
+}
+
+.tripwires-detail .tripwires-trips {
+  overflow: visible;
+  min-height: 0;
+}
+
+/* The head is a row outside a list, so it pays the inline padding the list
+   would have given its cells. Stated as the list's own knob rather than a
+   copied number: the title has to land on the same vertical as the closed
+   row's, and two numbers that must agree should be one number. */
+.tripwires-detail-head {
+  margin-inline: var(--tugx-list-view-padding-inline);
 }
 
 .tripwires-detail-knobs {
@@ -76,7 +121,7 @@
   flex-direction: column;
   align-items: flex-start;
   gap: 4px;
-  padding: 6px 12px 8px;
+  padding-block: 6px 8px;
 }
 
 /* The knob's name and its control on one line, the caption beneath. */
@@ -96,11 +141,21 @@
   align-items: baseline;
   gap: 3px 10px;
   margin: 0;
-  padding: 4px 12px 6px;
+  padding-block: 4px 6px;
   /* Whole, never scrolled. The definition is what the log below it is about,
      and a definition behind its own scrollbar is one a reader has to work to
      finish — the section band scrolls, which is the right place for it. */
   flex: 0 0 auto;
+}
+
+/* Everything below the head lines up with the head's own content edge — the
+   list's inset plus the row's inline padding, both read from the knobs that
+   set them rather than copied as a number. */
+.tripwires-definition,
+.tripwires-detail-knobs {
+  padding-inline: calc(
+    var(--tugx-list-view-padding-inline) + var(--tugx-list-row-padding-inline-compact)
+  );
 }
 
 .tripwires-definition > dt,

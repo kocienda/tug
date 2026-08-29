@@ -246,19 +246,56 @@ export function postPolicyCaption(value: string): string {
 }
 
 /**
+ * A brief's gist: its first sentence, and no more than a line's worth of it.
+ *
+ * A brief is the whole instruction a trip runs on, and a good one is
+ * paragraphs — printing it whole turned the definition into a wall of text
+ * that buried the six other rows and the trip log under it. The first sentence
+ * is what the author wrote to say what the tripwire is for; the rest is how.
+ * The full text is still reachable, on the row itself.
+ */
+export function briefGist(brief: string): string {
+  const flat = brief.trim().replace(/\s+/g, " ");
+  // The sentence end, not a period: `tugutil file edit` and `v1.2` both carry
+  // one, and neither ends a sentence. A terminator followed by a space and a
+  // capital is the shape a sentence actually ends on.
+  const end = flat.search(/[.!?](?=\s+[A-Z(`"'“])/u);
+  const first = end === -1 ? flat : flat.slice(0, end + 1);
+  if (first.length <= GIST_MAX) return first;
+  const cut = first.lastIndexOf(" ", GIST_MAX);
+  return `${first.slice(0, cut === -1 ? GIST_MAX : cut)}…`;
+}
+
+/** Two lines at the rail's width. Past it the gist is the wall it replaced. */
+const GIST_MAX = 120;
+
+/**
  * The tripwire's definition, as the rows the detail level leads with.
  *
  * A trip log with no statement of what the tripwire is watching for is a list
  * of answers to an unasked question — this is the question.
+ *
+ * A row's `full` is the whole text when the `value` is an abbreviation of it,
+ * and absent when the value is already whole — which is what tells the surface
+ * whether there is anything more to show.
  */
 export function tripwireDefinition(
   tripwire: TripwireRow,
-): readonly { readonly label: string; readonly value: string; readonly mono?: boolean }[] {
+): readonly {
+  readonly label: string;
+  readonly value: string;
+  readonly mono?: boolean;
+  readonly full?: string;
+}[] {
   return [
     { label: "Watches for", value: describeTrigger(tripwire.trigger) },
     { label: "In", value: describeScope(tripwire.scope) },
     { label: "Runs first", value: describeProbe(tripwire.probe), mono: tripwire.probe !== null },
-    { label: "Asks the AI to", value: tripwire.brief },
+    {
+      label: "Asks the AI to",
+      value: briefGist(tripwire.brief),
+      full: briefGist(tripwire.brief) === tripwire.brief.trim() ? undefined : tripwire.brief,
+    },
     { label: "Model", value: tripwire.model ?? "The session default" },
     { label: "Permissions", value: describePermissions(tripwire.permission_mode) },
     { label: "Cooldown", value: describeCooldown(tripwire.cooldown_secs) },

@@ -59,8 +59,23 @@ function instanceTripwiresDb(instanceId: string): string {
   );
 }
 
+/** A brief a real tripwire carries: a first sentence saying what it is for,
+ *  then several more saying how. The detail level shows the first and reaches
+ *  the rest on hover — printed whole, this is the shape that crushed the Lens. */
+const LONG_BRIEF =
+  "Diagnose the failure and say whether the tool or the caller was wrong. " +
+  "The evidence carries the failure class, the rendered report, how many ops " +
+  "resolved, the files named, and the program itself. Read the program " +
+  "against the current bytes of the files it names before judging. If the " +
+  "tool could have done better, implement it with tests and say what changed.";
+
 /** Lay a tripwire into this launch's ledger, through the real CLI. */
-function layTripwire(app: App, name: string, extra: string[] = []): void {
+function layTripwire(
+  app: App,
+  name: string,
+  extra: string[] = [],
+  brief = `say whether ${name} saw anything worth reporting`,
+): void {
   tugutil(
     [
       "tripwire",
@@ -72,7 +87,7 @@ function layTripwire(app: App, name: string, extra: string[] = []): void {
       // A real brief, because `tripwire lay` refuses a placeholder — the guard
       // that retired the tripwire whose every firing reported it had been told
       // nothing.
-      `say whether ${name} saw anything worth reporting`,
+      brief,
       "--json",
       ...extra,
     ],
@@ -119,7 +134,7 @@ describe.skipIf(!SHOULD_RUN)(
 
             // Seeded before the Lens opens, so the section's first read already
             // has them and the assertion is not waiting out a poll interval.
-            layTripwire(app, "alpha");
+            layTripwire(app, "alpha", [], LONG_BRIEF);
             layTripwire(app, "beta");
             pauseTripwire(app, "beta");
 
@@ -149,6 +164,10 @@ describe.skipIf(!SHOULD_RUN)(
             ).toBe("false");
 
             // The second level, through the affordance a pointer takes.
+            // The closed row's title x, so the open one can be held to it.
+            const closedTitleX = await app.evalJS<number>(
+              `document.querySelector("[data-tripwire='alpha'] .tug-list-row-title").getBoundingClientRect().left`,
+            );
             await app.click(`[data-tripwires-open='alpha']`);
             await app.waitForCondition<boolean>(
               `document.querySelector("[data-tripwire-detail='alpha']") !== null`,
@@ -166,6 +185,37 @@ describe.skipIf(!SHOULD_RUN)(
                 `document.querySelector("[data-tripwires-definition]").textContent`,
               ),
             ).toContain("Any commit, on any branch");
+
+            // The name does not move when the level does. The head is the same
+            // row the roster drew, so this is a structural equality rather
+            // than two paddings tuned to agree.
+            expect(
+              await app.evalJS<number>(
+                `document.querySelector(".tripwires-detail-head .tug-list-row-title").getBoundingClientRect().left`,
+              ),
+            ).toBeCloseTo(closedTitleX, 0);
+
+            // The brief is a paragraph and the row shows its first sentence.
+            // Printed whole it claimed more height than every other Lens
+            // section put together, and the rail had no way to give it.
+            const gist = await app.evalJS<string>(
+              `document.querySelector("[data-tripwires-gist]").textContent`,
+            );
+            expect(gist).toBe(
+              "Diagnose the failure and say whether the tool or the caller was wrong.",
+            );
+
+            // The detail carries its own overflow. Whatever the trip log grows
+            // to, the section hands the rail a scroller instead of a column
+            // that pushes its siblings off the bottom.
+            expect(
+              await app.evalJS<boolean>(
+                `(() => { const d = document.querySelector(".tripwires-detail");
+                    return getComputedStyle(d).overflowY === "auto"
+                      && d.getBoundingClientRect().height
+                         <= document.querySelector(".lens-sections").getBoundingClientRect().height + 1; })()`,
+              ),
+            ).toBe(true);
             // The post control names itself and says what the setting does.
             expect(
               await app.evalJS<string>(

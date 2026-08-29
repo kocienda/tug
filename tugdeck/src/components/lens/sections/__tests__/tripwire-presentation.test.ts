@@ -11,6 +11,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  briefGist,
   describeCooldown,
   describePermissions,
   describeProbe,
@@ -190,6 +191,43 @@ describe("the rest of a tripwire's definition", () => {
     expect(describeCooldown(300)).toBe("Waits 5 minutes between trips");
     expect(describeCooldown(3600)).toBe("At most one trip an hour");
     expect(describeCooldown(90)).toBe("Waits 90 seconds between trips");
+  });
+
+  test("a paragraph-long brief shows its first sentence, and keeps the rest", () => {
+    const brief =
+      "Diagnose the failure and say who was wrong. The evidence carries the " +
+      "class, the report, and the program itself.";
+    expect(briefGist(brief)).toBe("Diagnose the failure and say who was wrong.");
+    const row = tripwireDefinition(tripwire({ brief })).find(
+      (r) => r.label === "Asks the AI to",
+    );
+    expect(row?.value).toBe("Diagnose the failure and say who was wrong.");
+    // The whole text is still carried, which is what the surface shows on hover.
+    expect(row?.full).toBe(brief);
+  });
+
+  test("a brief already short enough is shown whole, with nothing held back", () => {
+    const row = tripwireDefinition(tripwire({ brief: "Flag anything red." })).find(
+      (r) => r.label === "Asks the AI to",
+    );
+    expect(row?.value).toBe("Flag anything red.");
+    expect(row?.full).toBeUndefined();
+  });
+
+  test("a period inside a name does not end the sentence", () => {
+    // `tugutil file edit` and `v1.2` both carry a period, and neither closes a
+    // sentence — a naive split on `.` would cut the gist mid-phrase.
+    expect(briefGist("Watch v1.2 of the parser and report drift. Then stop.")).toBe(
+      "Watch v1.2 of the parser and report drift.",
+    );
+  });
+
+  test("one long sentence is cut at a word, never mid-word", () => {
+    const long = `${"alpha ".repeat(40)}omega.`;
+    const gist = briefGist(long);
+    expect(gist.endsWith("…")).toBe(true);
+    expect(gist.length).toBeLessThanOrEqual(121);
+    expect(gist).not.toContain("alp…");
   });
 
   test("the definition leads with what the tripwire watches for", () => {

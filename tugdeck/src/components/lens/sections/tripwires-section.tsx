@@ -62,6 +62,7 @@ import { TugLabel } from "@/components/tugways/tug-label";
 import { TugListRow } from "@/components/tugways/tug-list-row";
 import { TugListView } from "@/components/tugways/tug-list-view";
 import { TugSectionLabel } from "@/components/tugways/tug-section-label";
+import { TugTooltip } from "@/components/tugways/tug-tooltip";
 import type {
   TugListViewCellProps,
   TugListViewDataSource,
@@ -367,13 +368,25 @@ function TripwireDetail({
                 </TugLabel>
               </dt>
               <dd data-mono={row.mono === true ? "" : undefined}>
-                {/* No line cap. The brief is the longest of these and the one
-                    worth reading whole — a definition that elided the
-                    instruction the tripwire runs on would hide the field that
-                    decides what every trip below it means. */}
-                <TugLabel size="2xs">
-                  {row.value}
-                </TugLabel>
+                {/* Whole when it fits, and the brief's gist when it does not —
+                    with the full text on hover, the same way a session row
+                    shows a description too long for its line. `truncated` does
+                    the measuring, so a row already showing everything opens
+                    nothing ([L06]). */}
+                {row.full === undefined ? (
+                  <TugLabel size="2xs">{row.value}</TugLabel>
+                ) : (
+                  <TugTooltip
+                    content={row.full}
+                    side="bottom"
+                    align="start"
+                    arrow={false}
+                  >
+                    <TugLabel size="2xs" data-tripwires-gist="">
+                      {row.value}
+                    </TugLabel>
+                  </TugTooltip>
+                )}
               </dd>
             </React.Fragment>
           ))}
