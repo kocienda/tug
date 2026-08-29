@@ -1439,7 +1439,12 @@ mod tests {
     }
 
     fn lay(conn: &Connection, name: &str, trigger: &str) -> Tripwire {
-        ledger::lay(conn, &NewTripwire::new(name, trigger, "brief"), 1).unwrap()
+        ledger::lay(
+            conn,
+            &NewTripwire::new(name, trigger, "diagnose the failure and propose a fix"),
+            1,
+        )
+        .unwrap()
     }
 
     fn fact_event(kind: &str, project_dir: Option<&str>, card: Option<&str>) -> TripwireEvent {
@@ -1550,7 +1555,11 @@ mod tests {
         // about, and both reached the model.
         let seen = spawner.turns_seen();
         assert_eq!(seen.len(), 1);
-        assert!(seen[0].contains("BRIEF\nbrief"), "{}", seen[0]);
+        assert!(
+            seen[0].contains("BRIEF\ndiagnose the failure and propose a fix"),
+            "{}",
+            seen[0]
+        );
         assert!(seen[0].contains("edit_failed"), "{}", seen[0]);
     }
 
@@ -1583,7 +1592,11 @@ mod tests {
     #[test]
     fn a_scoped_tripwire_ignores_a_foreign_path_and_takes_one_beneath_it() {
         let h = harness();
-        let mut tripwire = NewTripwire::new("w", r#"{"fact":{"kind":"edit_failed"}}"#, "b");
+        let mut tripwire = NewTripwire::new(
+            "w",
+            r#"{"fact":{"kind":"edit_failed"}}"#,
+            "diagnose the failure and propose a fix",
+        );
         tripwire.scope = Some("/proj".to_string());
         ledger::lay(&h.conn, &tripwire, 1).unwrap();
 
@@ -1615,7 +1628,11 @@ mod tests {
     #[test]
     fn a_scoped_tripwire_matches_no_pathless_event() {
         let h = harness();
-        let mut tripwire = NewTripwire::new("scoped", r#"{"fact":{"kind":"edit_failed"}}"#, "b");
+        let mut tripwire = NewTripwire::new(
+            "scoped",
+            r#"{"fact":{"kind":"edit_failed"}}"#,
+            "diagnose the failure and propose a fix",
+        );
         tripwire.scope = Some("/proj".to_string());
         ledger::lay(&h.conn, &tripwire, 1).unwrap();
         lay(&h.conn, "unscoped", r#"{"fact":{"kind":"edit_failed"}}"#);
@@ -1960,7 +1977,11 @@ mod tests {
     #[tokio::test]
     async fn a_work_tier_tripwire_settles_at_the_log_only_floor_without_a_turn() {
         let h = harness();
-        let mut new = NewTripwire::new("ci", r#"{"fact":{"kind":"edit_failed"}}"#, "brief");
+        let mut new = NewTripwire::new(
+            "ci",
+            r#"{"fact":{"kind":"edit_failed"}}"#,
+            "diagnose the failure and propose a fix",
+        );
         new.probe = Some("just ci".to_string());
         new.scope = Some("/tmp/tripwire-scope".to_string());
         let tripwire = ledger::lay(&h.conn, &new, 1).unwrap();
@@ -2000,8 +2021,11 @@ mod tests {
     #[tokio::test]
     async fn each_tripwires_model_column_routes_its_turn_to_that_models_pool() {
         let h = harness();
-        let mut named =
-            NewTripwire::new("opus-tripwire", r#"{"fact":{"kind":"edit_failed"}}"#, "b");
+        let mut named = NewTripwire::new(
+            "opus-tripwire",
+            r#"{"fact":{"kind":"edit_failed"}}"#,
+            "diagnose the failure and propose a fix",
+        );
         named.model = Some("opus".to_string());
         ledger::lay(&h.conn, &named, 1).unwrap();
         lay(
@@ -2173,7 +2197,11 @@ mod tests {
     #[tokio::test]
     async fn post_never_writes_no_post_however_interesting_the_verdict() {
         let (h, mut rx) = posting_harness();
-        let mut new = NewTripwire::new("quiet", r#"{"fact":{"kind":"edit_failed"}}"#, "b");
+        let mut new = NewTripwire::new(
+            "quiet",
+            r#"{"fact":{"kind":"edit_failed"}}"#,
+            "diagnose the failure and propose a fix",
+        );
         new.post = PostPolicy::Never;
         ledger::lay(&h.conn, &new, 1).unwrap();
         let (pools, _) = scripted(vec![Ok(
@@ -2230,7 +2258,11 @@ mod tests {
     #[tokio::test]
     async fn the_log_only_floor_is_sayable_under_always_and_quiet_under_auto() {
         let (h, mut rx) = posting_harness();
-        let mut new = NewTripwire::new("ci", r#"{"fact":{"kind":"edit_failed"}}"#, "b");
+        let mut new = NewTripwire::new(
+            "ci",
+            r#"{"fact":{"kind":"edit_failed"}}"#,
+            "diagnose the failure and propose a fix",
+        );
         new.probe = Some("just ci".to_string());
         new.scope = Some("/tmp/tripwire-scope".to_string());
         new.post = PostPolicy::Always;

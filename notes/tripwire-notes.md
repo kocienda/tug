@@ -15,7 +15,7 @@ A tripwire is four things plus state:
 
 - **Trigger** — a predicate over events (facts, feed frames).
 - **Probe** — an optional plain command run when tripped. The machinery runs it, not the AI: no tokens spent on green runs.
-- **Brief** — what the AI is asked to do with the event and the probe's output.
+- **Brief** — what the AI is asked to do with the event and the probe's output. Required to say something: `lay` and `edit` refuse a placeholder, because a tripwire with no probe buys a model run per firing and a brief that gives the agent nothing to do buys a trip log of paraphrased events. The refusal is at the arming gesture for the same reason the work-tier scope check is [B07].
 - **Model** — chosen per tripwire, read at trip time.
 
 State: armed/paused, cooldown, permission posture, post policy, and the trip history.

@@ -69,7 +69,10 @@ function layTripwire(app: App, name: string, extra: string[] = []): void {
       "--on",
       "commit",
       "--brief",
-      `watch ${name}`,
+      // A real brief, because `tripwire lay` refuses a placeholder — the guard
+      // that retired the tripwire whose every firing reported it had been told
+      // nothing.
+      `say whether ${name} saw anything worth reporting`,
       "--json",
       ...extra,
     ],

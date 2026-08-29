@@ -37,6 +37,8 @@ tugutil tripwire lay <name> --on <trigger> --brief <text|@file>
 
 **`--brief`** is the whole of what the tripwire will be asked when it fires. Write it as a question with a decision in it, not a topic. "Say whether this failure is the tool's fault or the program's, and name the file" earns a useful headline; "look at edit failures" earns a paraphrase of the event.
 
+**A brief that says nothing is refused, at the lay and at the `--preview`.** A tripwire with no probe summons a model on every firing, so a placeholder brief is not merely useless — it is a model run per event, answered by a paraphrase of the event and nothing else. If the refusal fires, the repair is to write the question, never to pad the words: say what to look at and what to report.
+
 **`--scope`** confines the tripwire to events under one path. Unscoped, it watches the whole machine.
 
 **`--probe`** is a command run before any model is summoned. **Exit 0 settles the trip for free** — no tokens, no session, nothing posted unless the tripwire's policy is `always`. This is the single most valuable field on a tripwire: a probe turns "ask an AI every time" into "ask an AI about the residue", and an armed tripwire with a good probe is cheap enough to leave armed forever.

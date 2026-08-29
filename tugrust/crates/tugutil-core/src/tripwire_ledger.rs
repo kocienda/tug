@@ -117,6 +117,51 @@ pub enum TripwireLedgerError {
         "tripwire {0} runs at the work tier, which stages its work on a dash, and a dash lives in a checkout — give it --scope <path>"
     )]
     WorkTripwireNeedsScope(String),
+    #[error(
+        "the brief for tripwire {0} says nothing for the AI to do: {1}. A brief is the whole instruction a trip runs on, so a placeholder buys a model run per firing and a trip log full of `no further detail available to assess significance` — say what to look at and what to report."
+    )]
+    EmptyBrief(String, &'static str),
+}
+
+/// The floor a brief has to clear to be worth firing on.
+///
+/// Three words and twelve characters is deliberately low: it is a placeholder
+/// filter, not a quality bar, and a terse real brief ("Say what broke") clears
+/// it. What it stops is the shape that has actually happened — a tripwire laid
+/// with `--brief b` during a shakedown, which then summoned a model on every
+/// commit to report that it had been told nothing.
+///
+/// The character floor earns its place beside the word count rather than
+/// duplicating it: `aa bb cc` is three words and still says nothing.
+const BRIEF_MIN_WORDS: usize = 3;
+const BRIEF_MIN_CHARS: usize = 12;
+
+/// Whether a brief gives a trip anything to do, and if not, why not.
+///
+/// The same [B07] posture as the work-tier scope check above: a tripwire that
+/// cannot possibly produce anything useful is refused at the arming gesture,
+/// because the alternative is finding out from a trip log weeks later — and in
+/// this case paying for a model run on every firing until you do.
+fn brief_fault(brief: &str) -> Option<&'static str> {
+    let trimmed = brief.trim();
+    if trimmed.is_empty() {
+        return Some("it is empty");
+    }
+    if trimmed.chars().count() < BRIEF_MIN_CHARS
+        || trimmed.split_whitespace().count() < BRIEF_MIN_WORDS
+    {
+        return Some("it is a placeholder, not an instruction");
+    }
+    None
+}
+
+/// Refuse a brief that gives a trip nothing to do. Called by every write path
+/// that sets one, so no route into the table can leave a no-op behind.
+pub fn check_brief(name: &str, brief: &str) -> Result<(), TripwireLedgerError> {
+    match brief_fault(brief) {
+        Some(why) => Err(TripwireLedgerError::EmptyBrief(name.to_string(), why)),
+        None => Ok(()),
+    }
 }
 
 // MARK: - Rows
@@ -458,6 +503,7 @@ pub fn lay(
             tripwire.name.clone(),
         ));
     }
+    check_brief(&tripwire.name, &tripwire.brief)?;
     let inserted = conn.execute(
         "INSERT OR IGNORE INTO wires
            (name, created_at, trigger, scope, probe, brief, model, tier, permission_mode, post,
@@ -551,6 +597,7 @@ pub fn update(
         set("probe", v.clone().map_or(Value::Null, Value::Text))?;
     }
     if let Some(v) = &edit.brief {
+        check_brief(name, v)?;
         set("brief", Value::Text(v.clone()))?;
     }
     if let Some(v) = &edit.model {
@@ -924,7 +971,11 @@ mod tests {
     fn lay_one(conn: &Connection, name: &str) -> Tripwire {
         lay(
             conn,
-            &NewTripwire::new(name, r#"{"fact":{"kind":"edit_failed"}}"#, "diagnose it"),
+            &NewTripwire::new(
+                name,
+                r#"{"fact":{"kind":"edit_failed"}}"#,
+                "diagnose the failure and propose a fix",
+            ),
             1_000,
         )
         .unwrap()
@@ -968,13 +1019,17 @@ mod tests {
 
         let again = lay(
             &conn,
-            &NewTripwire::new("tugedit", r#"{"commit":{}}"#, "other"),
+            &NewTripwire::new(
+                "tugedit",
+                r#"{"commit":{}}"#,
+                "report anything that looks wrong",
+            ),
             2_000,
         );
         assert!(matches!(again, Err(TripwireLedgerError::DuplicateName(n)) if n == "tugedit"));
         assert_eq!(
             get(&conn, "tugedit").unwrap().unwrap().brief,
-            "diagnose it",
+            "diagnose the failure and propose a fix",
             "the refusal left the original alone"
         );
     }
@@ -998,7 +1053,10 @@ mod tests {
         .unwrap();
         assert_eq!(edited.cooldown_secs, 5);
         assert_eq!(edited.probe.as_deref(), Some("just ci"));
-        assert_eq!(edited.brief, "diagnose it", "untouched");
+        assert_eq!(
+            edited.brief, "diagnose the failure and propose a fix",
+            "untouched"
+        );
         assert_eq!(edited.trigger, r#"{"fact":{"kind":"edit_failed"}}"#);
 
         let cleared = update(
@@ -1013,6 +1071,51 @@ mod tests {
         assert!(cleared.probe.is_none(), "Some(None) clears the column");
     }
 
+    /// A brief that gives the AI nothing to do is refused at both arming
+    /// gestures, for the same [B07] reason the work-tier scope check is: the
+    /// tripwire this rules out is not merely useless, it is expensive. The `w`
+    /// tripwire laid with `--brief b` during a shakedown summoned a model on
+    /// every commit for days, and every one of them reported that it had been
+    /// told nothing.
+    #[test]
+    fn a_brief_that_says_nothing_is_refused_at_both_arming_gestures() {
+        let conn = ledger();
+        let placeholder = NewTripwire::new("w", r#"{"commit":{}}"#, "b");
+        assert!(matches!(
+            lay(&conn, &placeholder, 1),
+            Err(TripwireLedgerError::EmptyBrief(n, _)) if n == "w"
+        ));
+        assert!(matches!(
+            lay(&conn, &NewTripwire::new("w", r#"{"commit":{}}"#, "   "), 1),
+            Err(TripwireLedgerError::EmptyBrief(_, _))
+        ));
+
+        // The bar is a placeholder filter, not a quality bar: the shortest real
+        // brief anybody has written clears it.
+        let real = lay(
+            &conn,
+            &NewTripwire::new("w", r#"{"commit":{}}"#, "Flag anything red."),
+            1,
+        )
+        .unwrap();
+        assert_eq!(real.brief, "Flag anything red.");
+
+        // And the second door: editing a good brief down to a placeholder is
+        // the same no-op tripwire arriving another way.
+        let edit = TripwireEdit {
+            brief: Some("b".to_string()),
+            ..Default::default()
+        };
+        assert!(matches!(
+            update(&conn, "w", &edit),
+            Err(TripwireLedgerError::EmptyBrief(_, _))
+        ));
+        assert_eq!(
+            get(&conn, "w").unwrap().unwrap().brief,
+            "Flag anything red."
+        );
+    }
+
     /// A work-tier tripwire stages on a dash, and a dash lives in a checkout. The
     /// refusal is at the arming gesture — both of them — rather than at the
     /// firing, because a tripwire nobody could have run is a tripwire that should
@@ -1020,7 +1123,11 @@ mod tests {
     #[test]
     fn a_work_tier_tripwire_cannot_arm_without_somewhere_to_work() {
         let conn = ledger();
-        let mut tripwire = NewTripwire::new("w", r#"{"commit":{}}"#, "b");
+        let mut tripwire = NewTripwire::new(
+            "w",
+            r#"{"commit":{}}"#,
+            "diagnose the failure and propose a fix",
+        );
         tripwire.probe = Some("just ci".to_string());
         assert!(matches!(
             lay(&conn, &tripwire, 1),
@@ -1363,7 +1470,11 @@ mod tests {
     #[test]
     fn auto_resolves_to_work_when_the_tripwire_has_a_probe() {
         let conn = ledger();
-        let mut tripwire = NewTripwire::new("w", r#"{"commit":{}}"#, "b");
+        let mut tripwire = NewTripwire::new(
+            "w",
+            r#"{"commit":{}}"#,
+            "diagnose the failure and propose a fix",
+        );
         let verdict = lay(&conn, &tripwire, 1).unwrap();
         assert_eq!(verdict.resolved_tier(), Tier::Verdict);
 
@@ -1391,7 +1502,11 @@ mod tests {
         let conn = ledger();
         lay(
             &conn,
-            &NewTripwire::new("future", r#"{"portent":{"omen":"raven"}}"#, "b"),
+            &NewTripwire::new(
+                "future",
+                r#"{"portent":{"omen":"raven"}}"#,
+                "diagnose the failure and propose a fix",
+            ),
             1,
         )
         .unwrap();

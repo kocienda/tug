@@ -117,7 +117,7 @@ fn the_where_spellings_compile_into_the_stored_trigger() {
             "--where",
             "command~=file edit",
             "--brief",
-            "b",
+            "diagnose the failure and propose a fix",
         ],
     );
     assert_eq!(
@@ -144,7 +144,7 @@ fn a_probe_resolves_the_auto_tier_to_work() {
             "--scope",
             "/repo",
             "--brief",
-            "b",
+            "diagnose the failure and propose a fix",
         ],
     );
     assert_eq!(laid["data"]["tier"], "auto");
@@ -168,7 +168,7 @@ fn a_preview_reports_the_tripwire_and_writes_nothing() {
             "--probe",
             "just ci",
             "--brief",
-            "b",
+            "diagnose the failure and propose a fix",
             "--preview",
         ],
     );
@@ -188,7 +188,15 @@ fn an_invalid_preview_refuses_without_touching_the_ledger() {
     let (_dir, db) = db();
     let out = tripwire(
         &db,
-        &["lay", "w", "--on", "factt:x", "--brief", "b", "--preview"],
+        &[
+            "lay",
+            "w",
+            "--on",
+            "factt:x",
+            "--brief",
+            "diagnose the failure and propose a fix",
+            "--preview",
+        ],
     );
     assert_eq!(code(&out), 1);
     assert!(stderr(&out).contains("factt"), "{}", stderr(&out));
@@ -206,7 +214,14 @@ fn a_bad_where_spelling_names_the_clause_it_choked_on() {
     let out = tripwire(
         &db,
         &[
-            "lay", "w", "--on", "fact:x", "--where", "nonsense", "--brief", "b",
+            "lay",
+            "w",
+            "--on",
+            "fact:x",
+            "--where",
+            "nonsense",
+            "--brief",
+            "diagnose the failure and propose a fix",
         ],
     );
     assert_eq!(code(&out), 1);
@@ -218,14 +233,73 @@ fn a_second_tripwire_under_one_name_refuses_and_leaves_the_first() {
     let (_dir, db) = db();
     tripwire_json(
         &db,
-        &["tripwire", "lay", "w", "--on", "commit", "--brief", "first"],
+        &[
+            "tripwire",
+            "lay",
+            "w",
+            "--on",
+            "commit",
+            "--brief",
+            "diagnose the failure and propose a fix",
+        ],
     );
-    let out = tripwire(&db, &["lay", "w", "--on", "commit", "--brief", "second"]);
+    let out = tripwire(
+        &db,
+        &[
+            "lay",
+            "w",
+            "--on",
+            "commit",
+            "--brief",
+            "report anything that looks wrong",
+        ],
+    );
     assert_eq!(code(&out), 1);
     assert!(stderr(&out).contains("already exists"), "{}", stderr(&out));
     assert_eq!(
         tripwire_json(&db, &["tripwire", "list"])["data"][0]["brief"],
-        "first"
+        "diagnose the failure and propose a fix"
+    );
+}
+
+/// A brief that gives the AI nothing to do is refused, and the refusal says
+/// what is wrong rather than exiting 1 with a shrug — this is the whole point
+/// of catching it here instead of in a trip log full of a model politely
+/// reporting that it was told nothing.
+#[test]
+fn a_placeholder_brief_is_refused_at_the_lay_and_at_the_preview() {
+    let (_dir, db) = db();
+    let out = tripwire(&db, &["lay", "w", "--on", "commit", "--brief", "b"]);
+    assert_eq!(code(&out), 1);
+    assert!(
+        stderr(&out).contains("says nothing for the AI to do"),
+        "{}",
+        stderr(&out)
+    );
+    assert!(
+        stderr(&out).contains("say what to look at"),
+        "{}",
+        stderr(&out)
+    );
+    assert!(
+        tripwire_json(&db, &["tripwire", "list"])["data"]
+            .as_array()
+            .unwrap()
+            .is_empty(),
+        "a refused lay writes no row"
+    );
+
+    // The preview refuses on the same terms. A preview that showed a tripwire
+    // the lay would refuse would be a preview of something that cannot happen.
+    let previewed = tripwire(
+        &db,
+        &["lay", "w", "--on", "commit", "--brief", "b", "--preview"],
+    );
+    assert_eq!(code(&previewed), 1);
+    assert!(
+        stderr(&previewed).contains("says nothing for the AI to do"),
+        "{}",
+        stderr(&previewed)
     );
 }
 
@@ -234,7 +308,15 @@ fn the_lay_pause_resume_rm_lifecycle_walks() {
     let (_dir, db) = db();
     tripwire_json(
         &db,
-        &["tripwire", "lay", "w", "--on", "commit", "--brief", "b"],
+        &[
+            "tripwire",
+            "lay",
+            "w",
+            "--on",
+            "commit",
+            "--brief",
+            "diagnose the failure and propose a fix",
+        ],
     );
 
     let paused = tripwire_json(&db, &["tripwire", "pause", "w"]);
@@ -269,14 +351,26 @@ fn an_edit_moves_only_what_it_names_and_clear_empties_a_column() {
     tripwire_json(
         &db,
         &[
-            "tripwire", "lay", "w", "--on", "commit", "--probe", "just ci", "--scope", "/repo",
-            "--brief", "b",
+            "tripwire",
+            "lay",
+            "w",
+            "--on",
+            "commit",
+            "--probe",
+            "just ci",
+            "--scope",
+            "/repo",
+            "--brief",
+            "diagnose the failure and propose a fix",
         ],
     );
     let edited = tripwire_json(&db, &["tripwire", "edit", "w", "--cooldown", "5"]);
     assert_envelope(&edited, "tripwire edit");
     assert_eq!(edited["data"]["cooldown_secs"], 5);
-    assert_eq!(edited["data"]["brief"], "b", "untouched");
+    assert_eq!(
+        edited["data"]["brief"], "diagnose the failure and propose a fix",
+        "untouched"
+    );
     assert_eq!(edited["data"]["probe"], "just ci", "untouched");
 
     let cleared = tripwire_json(&db, &["tripwire", "edit", "w", "--clear", "probe"]);
@@ -298,7 +392,15 @@ fn where_without_on_refuses_rather_than_half_replacing_a_trigger() {
     let (_dir, db) = db();
     tripwire_json(
         &db,
-        &["tripwire", "lay", "w", "--on", "fact:shell", "--brief", "b"],
+        &[
+            "tripwire",
+            "lay",
+            "w",
+            "--on",
+            "fact:shell",
+            "--brief",
+            "diagnose the failure and propose a fix",
+        ],
     );
     let out = tripwire(&db, &["edit", "w", "--where", "route=claude"]);
     assert_eq!(code(&out), 1);
@@ -337,7 +439,15 @@ fn trip_queues_a_manual_row_without_a_live_instance_and_says_so() {
     let (_dir, db) = db();
     tripwire_json(
         &db,
-        &["tripwire", "lay", "w", "--on", "commit", "--brief", "b"],
+        &[
+            "tripwire",
+            "lay",
+            "w",
+            "--on",
+            "commit",
+            "--brief",
+            "diagnose the failure and propose a fix",
+        ],
     );
 
     let tripped = tripwire_json(&db, &["tripwire", "trip", "w"]);
@@ -368,7 +478,15 @@ fn a_second_hand_fired_trip_supersedes_the_first() {
     let (_dir, db) = db();
     tripwire_json(
         &db,
-        &["tripwire", "lay", "w", "--on", "commit", "--brief", "b"],
+        &[
+            "tripwire",
+            "lay",
+            "w",
+            "--on",
+            "commit",
+            "--brief",
+            "diagnose the failure and propose a fix",
+        ],
     );
     tripwire_json(&db, &["tripwire", "trip", "w"]);
     tripwire_json(&db, &["tripwire", "trip", "w"]);
@@ -404,7 +522,15 @@ fn a_tripwire_that_never_fired_has_an_empty_log_rather_than_a_refusal() {
     let (_dir, db) = db();
     tripwire_json(
         &db,
-        &["tripwire", "lay", "w", "--on", "commit", "--brief", "b"],
+        &[
+            "tripwire",
+            "lay",
+            "w",
+            "--on",
+            "commit",
+            "--brief",
+            "diagnose the failure and propose a fix",
+        ],
     );
     let log = tripwire_json(&db, &["tripwire", "log", "w"]);
     assert!(log["data"].as_array().unwrap().is_empty());

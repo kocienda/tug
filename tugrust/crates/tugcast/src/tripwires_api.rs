@@ -304,7 +304,7 @@ mod tests {
         let conn = ledger::open_ledger(path).unwrap();
         ledger::lay(
             &conn,
-            &NewTripwire::new(name, r#"{"commit":{}}"#, "watch it"),
+            &NewTripwire::new(name, r#"{"commit":{}}"#, "report anything that looks wrong"),
             1,
         )
         .unwrap();

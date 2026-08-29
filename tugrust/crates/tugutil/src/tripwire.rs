@@ -267,6 +267,11 @@ fn run_lay(args: LayArgs, preview: bool, json: bool, quiet: bool) -> Result<(), 
     // echoes what would be stored, touching no ledger. Whether the tripwire ever
     // fires is a question only a real event answers, and `tripwire trip` is how
     // that question gets asked.
+    //
+    // The brief is checked before the preview branch, not after it: a preview
+    // that showed a tripwire the lay would refuse would be a preview of
+    // something that cannot happen.
+    ledger::check_brief(&tripwire.name, &tripwire.brief).map_err(|e| e.to_string())?;
     if preview {
         let payload = TripwirePayload::preview(&tripwire);
         if json {
@@ -354,7 +359,9 @@ fn run_edit(args: EditArgs, preview: bool, json: bool, quiet: bool) -> Result<()
         edit.probe = Some(Some(probe));
     }
     if let Some(brief) = &args.brief {
-        edit.brief = Some(read_brief(brief)?);
+        let text = read_brief(brief)?;
+        ledger::check_brief(&args.name, &text).map_err(|e| e.to_string())?;
+        edit.brief = Some(text);
     }
     if let Some(model) = args.model {
         edit.model = Some(Some(model));
