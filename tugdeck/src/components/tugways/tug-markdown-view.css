@@ -425,33 +425,12 @@ body {
    confirmed path would override what the author wrote. See
    `tuglaws/entity-presentation.md`.
 
-   The rule's declaration is the same one `styles/tug-annotation.css`
-   applies to split-out runs, so a path reads identically backticked or
-   bare. There is deliberately no `commit-sha` selector here:
-   `classifyInlineCode` can only stamp these four kinds on a whole span,
-   and a backticked sha arrives as a wrapped run *inside* the code element,
-   which the other sheet already covers.
-
-   @tug-renders-on: --tugx-md-inline-code-bg */
-.tugx-md-block code[data-tug-annotation="slash-command"],
-.tugx-md-block code[data-tug-annotation="shell-command"],
-.tugx-md-block code[data-tug-annotation="file-path"],
-.tugx-md-block code[data-tug-annotation="directory"] {
-  cursor: pointer;
-  text-decoration-line: underline;
-  text-decoration-style: solid;
-  text-decoration-thickness: 1px;
-  text-decoration-color: color-mix(in srgb, currentColor 45%, transparent);
-  text-underline-offset: 0.2em;
-}
-/* @tug-renders-on: --tugx-md-inline-code-bg */
-.tugx-md-block code[data-tug-annotation="slash-command"]:hover,
-.tugx-md-block code[data-tug-annotation="shell-command"]:hover,
-.tugx-md-block code[data-tug-annotation="file-path"]:hover,
-.tugx-md-block code[data-tug-annotation="directory"]:hover {
-  color: var(--tugx-md-link-color-hover);
-  text-decoration: var(--tugx-md-link-decoration);
-}
+   Only the tone is declared here. The rule lives in
+   `styles/tug-annotation.css`, keyed on the annotation contract rather
+   than on the element it landed on, so a path reads identically
+   backticked, bare, or placed in a tool header. This sheet used to
+   restate it for `<code>`, which is how a `<code>` span and an atom came
+   to wear the same fact two different ways. */
 
 /* Fenced code chrome — `enhanceFencedCode` wraps each `<pre>` in a
    `.tugx-md-fenced-code` div with the shared `.tugx-md-chrome-header`

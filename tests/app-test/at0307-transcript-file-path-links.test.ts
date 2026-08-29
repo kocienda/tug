@@ -31,7 +31,9 @@
  *
  *  - **a tool-call header's file ref** — born confirmed (the tool just
  *    touched the file) and owning no handlers of its own; the delegated
- *    layer services it exactly as it services prose.
+ *    layer services it exactly as it services prose, and it wears the
+ *    same resting rule a mention wears — on its label, so the leading
+ *    glyph takes no line.
  *  - **a Glob result row** — the same annotation from a third source,
  *    cashing in the "make rows interactive" deferral `PathListBlock`'s
  *    docstring carried.
@@ -397,6 +399,29 @@ describe.skipIf(!SHOULD_RUN)(
           expect(ref.path).toBe(realPath);
           expect(ref.focus).toBe("refuse");
           expect(ref.noActivate).toBe(true);
+
+          // And it wears the same resting rule a confirmed mention wears
+          // in prose — the whole point of one declaration keyed on the
+          // contract. The rule sits on the LABEL, not on the skin: a
+          // decoration on the skin would paint across the leading glyph
+          // too, and an atom's mark is its name.
+          const decoration = (selector: string) =>
+            app.evalJS<string>(`JSON.stringify((function(){
+              var el = document.querySelector(${JSON.stringify(selector)});
+              if (el === null) return null;
+              var s = getComputedStyle(el);
+              return { line: s.textDecorationLine, thickness: s.textDecorationThickness, style: s.textDecorationStyle };
+            })())`);
+          const labelRule = JSON.parse(
+            await decoration(`${HEADER_REF} .tug-atom-ref-label`),
+          ) as { line: string; thickness: string; style: string };
+          expect(labelRule.line).toBe("underline");
+          expect(labelRule.thickness).toBe("1px");
+          expect(labelRule.style).toBe("solid");
+          const skinRule = JSON.parse(await decoration(HEADER_REF)) as {
+            line: string;
+          };
+          expect(skinRule.line).toBe("none");
 
           // And the delegated layer — not any handler the component owns
           // — turns a click on it into an open.

@@ -3,25 +3,31 @@
  *
  * The annotator marks entities on any surface that asks: rendered
  * markdown, a tool-call header, a result row. The mark is the same DOM
- * contract everywhere (`data-tug-annotation` plus, for a run the annotator
- * split out of surrounding text, `data-tugx-wrapped`), so its appearance
- * belongs in one global sheet rather than being re-stated by each surface.
- * A surface that wants something different overrides it; a surface that
- * wants nothing special gets the affordance for free, which is the point —
- * a new block kind becomes clickable by being annotated, not by also
- * remembering to style it.
+ * contract everywhere — `.tugx-annotation` plus `data-tug-annotation` —
+ * so its appearance belongs in one global sheet rather than being
+ * re-stated by each surface. A surface that wants something different
+ * overrides it; a surface that wants nothing special gets the affordance
+ * for free, which is the point — a new block kind becomes clickable by
+ * being annotated, not by also remembering to style it.
  *
- * Surfaces with their own chip-shaped treatment for whole-element
- * annotations (inline `<code>` in `tug-markdown-view.css`, atom chips in
- * `tug-atom-markdown-body.css`) keep those; this sheet governs the
- * split-out runs, which have no element of their own to inherit from.
+ * **This is the only place the rule is declared.** It used to be three:
+ * here for runs the annotator split out of prose, `tug-markdown-view.css`
+ * for whole inline `<code>` spans, and `tug-atom-ref.css` for the
+ * read-only atom skin — which had drifted to hover-only, so the same fact
+ * ("this responds to a click") wore two costumes depending on whether the
+ * reference was written or placed. Keying on the contract rather than on
+ * the element the contract landed on is what collapses them: a split-out
+ * run, a `<code>` span, a self-stamping `TugAtomRef`, and the Overview's
+ * wrapper span all carry it, so all four take one declaration. Atom chips
+ * (`tug-atom-markdown-body.css`) keep their own treatment — a box is a
+ * skin with its own affordance, not a mark on running text.
  *
- * **The resting rule.** A run a resolver confirmed carries a 1px underline
- * at rest, and the full link treatment on hover. Density is answered by
- * weight rather than by absence: quiet enough that six in a paragraph read
- * as a referenced document, present enough that the reader knows there is
- * something to hover. The doctrine — placed atoms, written mentions, and
- * why the rule is an underline rather than a tint — is
+ * **The resting rule.** A reference a resolver confirmed carries a 1px
+ * underline at rest, and the full link treatment on hover. Density is
+ * answered by weight rather than by absence: quiet enough that six in a
+ * paragraph read as a referenced document, present enough that the reader
+ * knows there is something to hover. The doctrine — placed atoms, written
+ * mentions, and why the rule is an underline rather than a tint — is
  * `tuglaws/entity-presentation.md`.
  *
  * Tuglaw cross-check:
@@ -31,27 +37,17 @@
  *  - [L17] tokens resolve to a `--tugx-md-*` / `--tug7-*` base in one hop.
  */
 
-/* A run the annotator split out of surrounding text and marked as
-   actionable. Its characters are exactly the prose around it — somebody
-   wrote them, so they are what shows. */
-[data-tugx-wrapped][data-tug-annotation] {
+/* Anything the annotator marked as actionable, whoever painted it. */
+.tugx-annotation[data-tug-annotation] {
   cursor: pointer;
 }
 
-/* The resting rule, on the kinds that are Mentions — a written value the
-   resolver confirmed. The colour is derived from the ink it underlines
-   rather than from a token, so it cannot drift across the six themes and
-   needs no contrast budget of its own.
+/* ---------- The rule ----------
 
-   The list is explicit, and adding a kind to it is the registration point
-   for a new Mention kind. What is deliberately absent:
-     - `session` — a confirmed session run is the mount point for a live
-       citation chip, which carries its own affordance and empties the span
-       it mounts into. The chip is the atom; the run is a host.
-     - `url` / `email` — anchors, already links.
-   Atom skins (`.tug-atom-ref`, `.tug-atom-chip-host`) are elements of
-   their own and never carry `data-tugx-wrapped`, so they match nothing
-   here.
+   A reference a resolver confirmed carries a 1px underline at rest. The
+   colour is derived from the ink it underlines rather than from a token,
+   so it cannot drift across the six themes and needs no contrast budget of
+   its own.
 
    Only `text-decoration` is set, and that is load-bearing rather than
    minimal: a verdict lands after the ink is painted, and decoration is the
@@ -59,10 +55,50 @@
    a padding, or a font change here would reflow a streaming transcript
    every time an answer arrived.
 
+   **The rule marks a reference, not every element that answers a click.**
+   `.tugx-annotation` is the *behaviour* contract — `annotationFromEvent`
+   finds a target by walking up to it — and row-shaped hosts wear it too:
+   a Grep match row and a path-list row are annotated so a click anywhere
+   along them opens the file. Underlining those would draw a line across a
+   whole line of code, so the rule keys on the four shapes a reference
+   itself takes, and a host that is merely a target says so in its own
+   sheet (`search-result-block.css`, `path-list-block.css`) with a wash and
+   a cursor. The shapes:
+
+     - `[data-tugx-wrapped]` — a run the annotator split out of prose. Its
+       characters are exactly the prose around them; somebody wrote them,
+       so they are what shows.
+     - `code` — a whole inline `<code>` span the annotator classified.
+     - `.tug-atom-ref-label` — the read-only atom skin's name, whether the
+       skin stamped its own contract (a tool-call header, a pulse beat) or
+       sits inside a wrapper that stamped one (the Overview's trailing refs
+       row). The rule lands on the LABEL rather than on the skin because
+       the skin also holds a leading glyph, and a decoration set on the
+       skin paints across every inline box inside it, glyph included. An
+       atom's mark is its name; the glyph is not a character.
+
+   The kind lists are explicit, and adding a kind to one is the
+   registration point for a new one. They differ because the producers do:
+   `classifyInlineCode` is the only source of `slash-command` and
+   `shell-command`, and it classifies whole elements rather than splitting
+   runs, so those two exist only on `code`. What is absent everywhere:
+     - `session` — a confirmed session run is the mount point for a live
+       citation chip, which carries its own affordance and empties the span
+       it mounts into. The chip is the atom; the run is a host.
+     - `url` / `email` — anchors, already links.
+   An atom's own arms are not kind-qualified: an atom carries `file-path`
+   or `commit-sha` and nothing else, and both take the rule.
+
    @tug-renders-on: the surrounding surface's own background */
-[data-tugx-wrapped][data-tug-annotation="file-path"],
-[data-tugx-wrapped][data-tug-annotation="directory"],
-[data-tugx-wrapped][data-tug-annotation="commit-sha"] {
+[data-tugx-wrapped].tugx-annotation[data-tug-annotation="file-path"],
+[data-tugx-wrapped].tugx-annotation[data-tug-annotation="directory"],
+[data-tugx-wrapped].tugx-annotation[data-tug-annotation="commit-sha"],
+code.tugx-annotation[data-tug-annotation="file-path"],
+code.tugx-annotation[data-tug-annotation="directory"],
+code.tugx-annotation[data-tug-annotation="slash-command"],
+code.tugx-annotation[data-tug-annotation="shell-command"],
+.tug-atom-ref[data-tug-annotation] > .tug-atom-ref-label,
+.tugx-annotation[data-tug-annotation] > .tug-atom-ref > .tug-atom-ref-label {
   text-decoration-line: underline;
   text-decoration-style: solid;
   text-decoration-thickness: 1px;
@@ -70,8 +106,35 @@
   text-underline-offset: 0.2em;
 }
 
-/* @tug-renders-on: the surrounding surface's own background */
-[data-tugx-wrapped][data-tug-annotation]:hover {
+/* Hover takes the full link treatment: the colour moves and the rule goes
+   to its full weight.
+
+   @tug-renders-on: the surrounding surface's own background */
+[data-tugx-wrapped].tugx-annotation[data-tug-annotation="file-path"]:hover,
+[data-tugx-wrapped].tugx-annotation[data-tug-annotation="directory"]:hover,
+[data-tugx-wrapped].tugx-annotation[data-tug-annotation="commit-sha"]:hover,
+code.tugx-annotation[data-tug-annotation="file-path"]:hover,
+code.tugx-annotation[data-tug-annotation="directory"]:hover,
+code.tugx-annotation[data-tug-annotation="slash-command"]:hover,
+code.tugx-annotation[data-tug-annotation="shell-command"]:hover {
   color: var(--tugx-md-link-color-hover);
+  text-decoration: var(--tugx-md-link-decoration);
+}
+
+/* An atom lights as one thing — the glyph is part of the name's mark even
+   though it never carries the rule — so the colour goes on the skin and
+   the decoration stays on the label, exactly as it does at rest.
+
+   @tug-renders-on: the host surface's own background */
+.tug-atom-ref[data-tug-annotation]:hover,
+.tugx-annotation[data-tug-annotation]:hover > .tug-atom-ref {
+  color: var(--tugx-md-link-color-hover);
+}
+
+/* @tug-renders-on: the host surface's own background */
+.tug-atom-ref[data-tug-annotation]:hover > .tug-atom-ref-label,
+.tugx-annotation[data-tug-annotation]:hover
+  > .tug-atom-ref
+  > .tug-atom-ref-label {
   text-decoration: var(--tugx-md-link-decoration);
 }

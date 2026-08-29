@@ -120,6 +120,7 @@ import {
 } from "@/components/tugways/tug-code-view";
 import { useChromeActionsTarget } from "@/components/tugways/blocks/block-chrome";
 import { useOuterScrollport } from "@/components/tugways/internal/outer-scrollport-context";
+import { basename } from "@/lib/display-path";
 import { attachOuterScrollOnModifierWheel } from "@/components/tugways/internal/use-outer-scroll-on-modifier-wheel";
 import { useSavedRegionScroll } from "@/components/tugways/use-component-state-preservation";
 import { dispatchCommand } from "@/command-dispatch";
@@ -413,13 +414,6 @@ export function composeLineCountLabel(
     return `${numLines} ${numLines === 1 ? "line" : "lines"}`;
   }
   return `Showing ${numLines} of ${totalLines} lines`;
-}
-
-/** Last segment of a path, with leading "/" stripped. Empty input → "". */
-export function basename(filePath: string): string {
-  if (filePath.length === 0) return "";
-  const segments = filePath.split(/[\\/]/);
-  return segments[segments.length - 1] ?? "";
 }
 
 // ---------------------------------------------------------------------------

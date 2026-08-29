@@ -87,6 +87,7 @@ import { TugChoiceGroup, type TugChoiceItem } from "@/components/tugways/tug-cho
 import { useResponderForm } from "@/components/tugways/use-responder-form";
 import { useChromeActionsTarget } from "@/components/tugways/blocks/block-chrome";
 import { useOuterScrollport } from "@/components/tugways/internal/outer-scrollport-context";
+import { basename } from "@/lib/display-path";
 import { useScroller } from "@/components/tugways/internal/scroller-context";
 import { useOuterScrollOnModifierWheel } from "@/components/tugways/internal/use-outer-scroll-on-modifier-wheel";
 import { usePositionStableClick } from "@/components/tugways/internal/use-position-stable-click";
@@ -268,13 +269,6 @@ const DATA_SLOT_LOADING = "diff-loading";
 // ---------------------------------------------------------------------------
 // Pure helpers
 // ---------------------------------------------------------------------------
-
-/** Last segment of a path; empty input → "". */
-export function basename(filePath: string): string {
-  if (filePath.length === 0) return "";
-  const segments = filePath.split(/[\\/]/);
-  return segments[segments.length - 1] ?? "";
-}
 
 /**
  * Compose the conventional unified-diff hunk-header text for display.

@@ -36,25 +36,17 @@
  * skin that stamped its own annotation, or one sitting inside a wrapper
  * that stamped one, is clickable — and a ref nothing could resolve carries
  * no annotation anywhere and so invites nothing. "Annotated" and
- * "actionable" are the same fact, which is the move
- * `tug-atom-markdown-body.css` already makes for chips; keying off it means
- * no consumer has to thread a prop to stay honest.
+ * "actionable" are the same fact.
  *
- * The resting treatment stays indistinguishable from its host's text —
- * hover reveals the link — so a header stays quiet until the user reaches
- * for it. The label is a name, not prose, so it needs no resting rule of
- * its own: the glyph beside it already says an object is here. */
-.tug-atom-ref[data-tug-annotation],
-[data-tug-annotation] > .tug-atom-ref {
-  cursor: pointer;
-}
-
-/* @tug-renders-on: the host surface's own background */
-.tug-atom-ref[data-tug-annotation]:hover,
-[data-tug-annotation] > .tug-atom-ref:hover {
-  text-decoration: underline;
-  text-underline-offset: 0.2em;
-}
+ * **That affordance is not declared here.** `styles/tug-annotation.css`
+ * declares it once for everything the annotator marked, and a self-stamping
+ * skin carries the same `.tugx-annotation` the annotator stamps on a run of
+ * prose, so it inherits the rule by being annotated rather than by this
+ * sheet remembering to say so. A wrapper-owned skin gets it the same way,
+ * since text-decoration paints down the inline box it opened. This sheet
+ * held a hover-only version of the same fact for long enough that a placed
+ * file and a written one visibly disagreed about whether they were
+ * clickable. */
 
 /* Leading glyph — sized to the surrounding text (1em) and nudged so its
  * optical center sits on the lowercase text rather than the baseline. */
@@ -68,4 +60,11 @@
 .tug-atom-ref-icon svg {
   width: 1em;
   height: 1em;
+}
+
+/* The name. It contributes nothing of its own — it exists so the annotation
+ * rule in `styles/tug-annotation.css` has a box that holds the name and not
+ * the glyph. */
+.tug-atom-ref-label {
+  white-space: inherit;
 }

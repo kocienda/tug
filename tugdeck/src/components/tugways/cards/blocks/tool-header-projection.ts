@@ -43,7 +43,7 @@
  */
 
 import type { ToolUseMessage } from "@/lib/code-session-store/types";
-import { fileRefBasename } from "@/components/tugways/tug-atom-ref";
+import { basename } from "@/lib/display-path";
 import {
   NullToolBlock,
   extractTextOutput,
@@ -175,7 +175,7 @@ function fileRefHeader(
   return {
     name: message.toolName,
     target:
-      path !== undefined && path.length > 0 ? fileRefBasename(path) : undefined,
+      path !== undefined && path.length > 0 ? basename(path) : undefined,
   };
 }
 

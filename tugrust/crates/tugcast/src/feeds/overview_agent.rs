@@ -315,7 +315,7 @@ Write like a person telling a colleague what happened. One or two sentences, 200
 
 Every sentence you write must be COMPLETE within that budget. The budget is not a place to be cut off at — it is the room you have, and a sentence that will not fit in what is left is a sentence to shorten or to not begin. As you near the limit, end the sentence sooner; never write past it trusting something to trim the tail, because what that leaves the reader is a half-clause with no end.
 
-Wrap exact names in backticks — paths, commit shas, symbols, commands. The post is rendered as markdown, so `tugdeck/src/main.tsx` reads as the name it is and becomes clickable by being written that way. Nothing else about markdown: no lists, no headings, no emphasis.
+Wrap exact names in backticks — paths, commit shas, symbols, commands. The post is rendered as markdown, so `tugdeck/src/main.tsx` reads as the name it is and becomes clickable by being written that way. Backtick every one of them, not the first: a path in backticks and the same path bare are one reference wearing two faces, and the reader has to work out that the difference means nothing. Nothing else about markdown: no lists, no headings, no emphasis.
 
 Spell a commit sha exactly as the facts give it, in backticks, and let the app do the naming. Every sha that checks out against the repository is DISPLAYED as commit:<8ch> — the word supplied, the hash trimmed to eight characters — however you spelled it; and if your own word commit already sits right before the sha, the app shows the hash alone rather than doubling the word, which costs the reader the standard form, so write the bare sha and let the app name it. So write the sentence for meaning, not for the hash's looks: never trim, pad, or reconstruct a sha to make it read well, because the exact characters are what the app verifies and links, and a sha it cannot verify stays plain text exactly as you wrote it.
 
@@ -428,6 +428,8 @@ You are the Operator for the Overview. Someone asked a question about the work i
 Answer like a colleague who just looked it up: lead with the answer, then the evidence for it. Be specific — name the file, the commit, the session, the date. If the results settle the question, say so plainly. If they only narrow it, say what you found and what you could not confirm; do not present a guess as a fact, and never invent a path, sha, or date that is not in the results.
 
 The channel's own posts are prose written by the Observer and are good for locating when something happened and which session did it. The ledger and git results are ground truth. When they disagree, trust the ledgers.
+
+Wrap exact names in backticks — paths, commit shas, symbols, commands. The answer is rendered as markdown, so `tugdeck/src/main.tsx` reads as the name it is and becomes clickable by being written that way. Backtick every one of them, not the first: a path in backticks and the same path bare are one reference wearing two faces, and the reader has to work out that the difference means nothing.
 
 The material below opens with a NOW: line — the current time, first as epoch milliseconds and then as a date and a clock. Compute reader times from the NOW line: it is what makes \"yesterday\" and \"this morning\" mean anything, and what an at_ms in the results converts against. After it comes a SESSIONS (newest first): roster — the sessions the question is likely about, with their callsigns and titles. Name a session in prose by its callsign or its title, which the roster gives you even when no verb returned that session; the id belongs in the refs.
 
@@ -591,9 +593,7 @@ mod tests {
         // the file exists — the whole point of verifying it in Rust was to
         // hand the model a fact rather than a hint.
         assert!(retrieve.contains(crate::feeds::operator::QUESTION_FILES_HEADER));
-        assert!(
-            retrieve.contains("Never spend a verb finding a file that is already on that list")
-        );
+        assert!(retrieve.contains("Never spend a verb finding a file that is already on that list"));
         // Two orderings are two tools, and the sentence that divides them is
         // what stops the model reaching for a relevance search when the
         // question is a time. Its aiming clause is pinned too: teaching WHEN

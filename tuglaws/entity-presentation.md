@@ -46,6 +46,14 @@ They compose four ways and every combination is legible: backticked and resolves
 
 The code tone **stays** on a confirmed path. Stripping it would be us overriding what the author wrote, which is the same fidelity violation the rule refuses when it declines to replace prose with a box.
 
+### The house voices backtick every path
+
+The four combinations are legible, but a paragraph that uses two of them for the *same file* is not saying anything by the difference — and that is what produced most of the variance a reader sees. The fix is not at the renderer, which must show what was written; it is at the writer.
+
+**Anything authoring prose for these surfaces backticks every file path it writes, every time** — this assistant in a transcript, the Overview's Observer and Operator, the tripwire's headline, the dash skills. Not the first mention and then bare afterwards: one reference, one face. This is the same move the commit sha already makes, for the same reason and one step further along — there the app supplies a *word* the writer omits, here the writer supplies a *tone* only they can, because backticks are authorship and the renderer may not invent them.
+
+A **user's** prose is untouched by this. Their spelling is theirs, backticked or not, and the resolver confirms it either way; the rule binds the voices we write, which are the ones that were inconsistent.
+
 ## One detection gate
 
 `resolvePath` is the gate, and it is the only one. Detection is permissive by design and every path-shaped token on every surface is sent to the resolver; nothing becomes a link until a resolver confirms a real file. Markup does not gate, and neither does the surface: there is no per-surface "this prose cites paths" flag, and there is no license earned by sitting inside `<code>`.
@@ -54,7 +62,7 @@ The cost of a wrong guess is one cached lookup and text that stays text. The cos
 
 ## The resting rule
 
-A confirmed **Mention** carries, at rest:
+A confirmed **Mention**, and an **Atom** the annotator marked, carry the same thing at rest:
 
 ```css
 text-decoration-line: underline;
@@ -74,18 +82,22 @@ Three things about this are load-bearing:
 
 The colour is derived from the ink it underlines, so it needs no per-theme value, cannot drift across the six themes, and is deliberately absent from `audit:theme-contrast`. Do not give it a `--tug7-*` token.
 
+**An atom wears it too.** The rule says one thing — *this responds to a click* — and that fact is the same fact whether the reference was written into a sentence or placed in a field. For a while it was not: the atom skin declared a hover-only version of its own, so the identical file, named in prose and named in the tool header of the very edit that touched it, disagreed at rest about whether it could be clicked. A reader cannot hover what nothing tells them to hover, and "there is a small glyph beside it" is not that signal — the glyph says *an object is here*, which is the other channel again. The affordance is one channel, one weight, everywhere.
+
 ### Where the rule is registered
 
-The kinds that take the rule are enumerated, not wildcarded, in two places:
+**One place: `tugdeck/styles/tug-annotation.css`.** One declaration, keyed on the annotation contract rather than on the element the contract landed on — which is what lets a split-out run, a whole `<code>` span, and an atom's label share it instead of restating it three times, as they did until they drifted.
 
-- `tugdeck/styles/tug-annotation.css` — runs the annotator split out of prose (`[data-tugx-wrapped]`).
-- `tugdeck/src/components/tugways/tug-markdown-view.css` — whole inline `<code>` spans the annotator marked.
+Two lists are enumerated there, not wildcarded, and **adding a kind means adding it to them.**
 
-**Adding a Mention kind means adding it to those lists.** What is excluded, and why:
+The **kinds** that take the rule: `file-path`, `directory`, `commit-sha`, and — on `<code>` only, because `classifyInlineCode` is their only producer — `slash-command` and `shell-command`. Excluded:
 
 - `session` — a confirmed session run is the mount point for a live citation chip, which carries its own affordance and empties the span it mounts into. The chip is the atom; the run is only its host.
 - `url` / `email` — anchors, already links.
-- The atom skins — elements of their own, with their own hover; they never carry `[data-tugx-wrapped]` and match nothing in those lists.
+
+The **shapes** a reference takes, because `.tugx-annotation` is the *behaviour* contract and more than references wear it. A Grep match row and a path-list row are annotated so that a click anywhere along them opens the file; underlining those would draw a line across a whole line of code. So the rule reaches `[data-tugx-wrapped]` runs, `code` spans, and `.tug-atom-ref-label` — and a host that is merely a target says so in its own sheet, with a wash and a cursor.
+
+The label is a box of its own for exactly this reason: a decoration set on the skin paints across every inline box inside it, and the leading glyph is one. **An atom's mark is its name.** The glyph is not a character and takes no rule; on hover the whole skin lights, because the colour is not the affordance and never was.
 
 An inline `<code>` span with no annotation matches nothing and looks exactly as it always has. That is the test that the two channels really are independent.
 
@@ -144,7 +156,7 @@ The counter-evidence, recorded so it is not re-discovered as an objection: we al
 
 The read-only skin has two stamping modes for exactly this reason. It stamps the annotation contract on itself where nothing else does (tool headers, pulse beats), and stamps nothing where a host already owns the contract — the Overview's wrapper span, which also owns the pending and unresolvable tooltip states, and `CommitShaText`, which owns every pointer gesture on a sha so a right-click cannot fold the History row out from under its own menu.
 
-The link affordance rides the annotation contract rather than a modifier class: an annotated skin, or a skin inside an annotated wrapper, is clickable. A ref nothing could resolve carries no annotation anywhere and so invites nothing, with no prop threaded to say so. "Annotated" and "actionable" are the same fact.
+The link affordance rides the annotation contract rather than a modifier class: an annotated skin, or a skin inside an annotated wrapper, is clickable. A ref nothing could resolve carries no annotation anywhere and so invites nothing, with no prop threaded to say so. "Annotated" and "actionable" are the same fact — and because the affordance is declared once against that fact, in `tug-annotation.css`, the skin's own sheet does not restate it. A presentation change that adds a second declaration of the rule is re-opening the drift this doc closed.
 
 ## Retired — do not re-propose
 
@@ -158,3 +170,4 @@ Each was considered and rejected with a reason, and each is the obvious next ide
 - **Stripping the code tone from a confirmed path so backticked and bare look identical.** That overrides the author's own emphasis, which is the same violation as replacing prose with a box.
 - **Suppressing the Overview's `unmentionedRefs` rule.** A ref the prose already named should still not also appear in the trailing row. The suppression was never the bug.
 - **A theme token for the rule's colour.** It is `currentColor`-derived by construction. A token would let it drift.
+- **A hover-only affordance for a placed atom**, on the theory that a header should stay quiet until reached for. It made a placed reference and a written one disagree at rest about the same fact, which is the drift this doc exists to prevent. Quiet is what the 45% weight is for; absence is not a quieter weight, it is no signal.

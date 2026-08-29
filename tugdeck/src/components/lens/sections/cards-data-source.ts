@@ -78,22 +78,15 @@ import {
   resolveLensGroup,
   type LensCardsGroup,
 } from "./cards-groups";
+import { basename, dirname } from "@/lib/display-path";
 
 // ---------------------------------------------------------------------------
-// Path helpers — the display vocabulary shared by every file-kind row
+// Path helpers — the display vocabulary shared by every file-kind row.
+// `basename` / `dirname` are re-exported from `lib/display-path` so this
+// section's rows and a tool header spell a path the same way.
 // ---------------------------------------------------------------------------
 
-/** The trailing filename of a path (`/a/b/c.txt` → `c.txt`). */
-export function basename(path: string): string {
-  const i = path.lastIndexOf("/");
-  return i >= 0 ? path.slice(i + 1) : path;
-}
-
-/** The directory portion of a path (`/a/b/c.txt` → `/a/b`), or "" at root. */
-export function dirname(path: string): string {
-  const i = path.lastIndexOf("/");
-  return i > 0 ? path.slice(0, i) : "";
-}
+export { basename, dirname };
 
 /**
  * Abbreviate a macOS home prefix (`/Users/<name>`) to `~` for display. It lives

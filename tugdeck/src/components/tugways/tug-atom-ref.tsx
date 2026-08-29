@@ -81,6 +81,7 @@ import { TugTooltip } from "@/components/tugways/tug-tooltip";
 import { ANNOTATION_CLASS } from "@/lib/annotator/types";
 import { datasetForPayload } from "@/lib/annotator/payloads";
 import { COMMIT_LABEL_LENGTH } from "@/lib/commit-format";
+import { basename } from "@/lib/display-path";
 
 /** What was placed. The kind decides the glyph and the default label. */
 export type TugAtomRefEntity =
@@ -134,16 +135,6 @@ export interface TugAtomRefProps {
   icon?: React.ReactNode;
   "data-slot"?: string;
   className?: string;
-}
-
-/**
- * Compute a path's basename — the segment after the last `/`, with any
- * trailing slashes ignored. A path with no separator returns unchanged.
- */
-export function fileRefBasename(path: string): string {
-  const trimmed = path.replace(/\/+$/, "");
-  const idx = trimmed.lastIndexOf("/");
-  return idx >= 0 ? trimmed.slice(idx + 1) : trimmed;
 }
 
 /** The label a commit atom carries when nothing overrides it. */
@@ -208,7 +199,7 @@ export function TugAtomRef({
     : {};
   const defaultLabel =
     entity.kind === "file"
-      ? fileRefBasename(entity.path)
+      ? basename(entity.path)
       : entity.kind === "dash"
         ? entity.name
         : commitAtomLabel(entity.sha);
@@ -229,7 +220,10 @@ export function TugAtomRef({
             <GitCommit />
           ))}
       </span>
-      {label ?? defaultLabel}
+      {/* The name, in an element of its own so the annotation rule can land
+          on it. A decoration set on the skin would paint across every inline
+          box inside it, glyph included; an atom's mark is its name. */}
+      <span className="tug-atom-ref-label">{label ?? defaultLabel}</span>
     </span>
   );
 

@@ -86,8 +86,11 @@ anything.
 
 headline — one sentence, under 140 characters, saying what happened and what \
 it means. Write it for someone who will read only this line. Name the file, \
-the command, or the sha exactly; do not spend the sentence describing the \
-tripwire.
+the command, or the sha exactly, in backticks; do not spend the sentence \
+describing the tripwire. The headline renders as markdown, so a backticked \
+name reads as the name it is and becomes clickable by being written that \
+way — and a path written bare is the same reference wearing a different \
+face for no reason the reader can see.
 
 refs — anything the headline names that a reader would want to open, as \
 {\"kind\": \"file|commit|session|dash\", \"target\": \"...\"}. An empty list is \
