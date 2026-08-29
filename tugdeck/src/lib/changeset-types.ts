@@ -170,7 +170,7 @@ export function isDashStep(value: unknown): value is DashStep {
  * state where both have to be sayable at once.
  */
 export interface DashArcState {
-  /** The stage last rotated: `devise` | `review` | `implement`. */
+  /** The stage last rotated: `devise` | `review` | `implement` | `audit`. */
   stage?: string;
   /** Why the arc stopped, when it did. Cleared by the next rotation, because
    *  resuming a stopped arc *is* rotating it again. */

@@ -33,7 +33,7 @@ Tug is distributed as `Tug.app` to people whose projects have nothing to do with
 | `tugcode/` | Claude Code bridge (stream-json IPC); bun-compiled binary |
 | `tugdeck/` | Web frontend (the Session card lives here) |
 | `tugapp/` | Swift macOS app (Tug.app host) |
-| `tugplug/` | Claude Code plugin (agentless skills: dash/dash-plan/dash-devise/dash-review/dash-implement/draft/spike-card). A dash's documents live at `.tug/dashes/<name>/` and are never tracked. |
+| `tugplug/` | Claude Code plugin (agentless skills: dash/dash-plan/dash-devise/dash-review/dash-implement/dash-audit/draft/tripwire). A dash's documents live at `.tug/dashes/<name>/` and are never tracked. |
 | `tuglaws/` | Architecture laws + design decisions — the curated durable doc surface |
 | `tests/` | App-test harness that drives the real Tug.app |
 

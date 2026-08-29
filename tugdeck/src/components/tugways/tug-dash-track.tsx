@@ -33,8 +33,15 @@ import { TugTooltip } from "./tug-tooltip";
 import type { DashArcState, DashChangesetEntry, DashStep } from "@/lib/changeset-types";
 
 /** The phases, in lifecycle order. */
-export type DashPhase = "brief" | "devise" | "review" | "implement" | "join";
-export const DASH_PHASES: readonly DashPhase[] = ["brief", "devise", "review", "implement", "join"];
+export type DashPhase = "brief" | "devise" | "review" | "implement" | "check" | "join";
+export const DASH_PHASES: readonly DashPhase[] = [
+  "brief",
+  "devise",
+  "review",
+  "implement",
+  "check",
+  "join",
+];
 
 /**
  * The phases a direct dash draws.
@@ -47,8 +54,11 @@ export const DASH_PHASES: readonly DashPhase[] = ["brief", "devise", "review", "
  * first tick wore the endcap a whole cell should wear, and the join was left
  * as the one pill on a row of slivers. A brief cell brackets the ticks the way
  * the join does, and it is a fact rather than a spacer.
+ *
+ * The check cell is drawn on both routes, because both verify: what a run does
+ * after its last commit is the same work whoever asked for it.
  */
-const DIRECT_PHASES: readonly DashPhase[] = ["brief", "implement", "join"];
+const DIRECT_PHASES: readonly DashPhase[] = ["brief", "implement", "check", "join"];
 
 /**
  * Each phase as a reading — Title Case, the register every named state in the
@@ -64,6 +74,7 @@ export const DASH_PHASE_LABELS: Record<DashPhase, string> = {
   devise: "Devise",
   review: "Review",
   implement: "Implement",
+  check: "Check",
   join: "Join",
 };
 
@@ -86,6 +97,17 @@ export interface DashTrackInput {
   steps?: readonly DashStep[] | undefined;
   /** The derived git stage: `created` | `working` | `implementing` | `ready` | `built` | `audited` | `draft-ready` | `joining` | `landing`. */
   stage?: string | null | undefined;
+  /**
+   * Whether any session holding this dash is still working — mid-turn, or
+   * waiting on a job it launched.
+   *
+   * The git stage says the last round is committed on a clean worktree, which
+   * is all `ready` has ever meant; it cannot say whether the run that made
+   * those commits has stopped. A test sweep launched after the final commit
+   * runs for minutes with the dash reading `ready` the whole time, and the
+   * strip lit the join cell over work nobody had finished.
+   */
+  holdersBusy?: boolean | undefined;
 }
 
 export interface DashTrackSteps {
@@ -188,19 +210,28 @@ export function dashTrackModel(input: DashTrackInput): DashTrackModel {
   const walked = steps !== null && steps.done === steps.total;
 
   let phase: DashPhase;
-  if ((stage !== null && JOIN_STAGES.has(stage)) || arc?.done === true) {
-    phase = "join";
+  // An arc still rotating has not arrived, whatever git says. Between the
+  // implement stage's last step and the audit stage being seated, the branch
+  // is committed on a clean worktree and every git fact reads joinable — for
+  // the seconds it takes the wheel to rotate, and with a whole stage still to
+  // run. `holdersBusy` cannot cover that gap, because in it nobody is working.
+  const arcRunning = arc !== null && arc.done !== true && arc.stopped === undefined;
+  const arrived = (!arcRunning && stage !== null && JOIN_STAGES.has(stage)) || arc?.done === true;
+  if (arrived) {
+    // Arrived by its git facts, and the run that got it here is still going:
+    // the checks a run ends with are the one part of it no commit records.
+    phase = input.holdersBusy === true ? "check" : "join";
   } else if (direct) {
     // Before the first step starts there is nothing else to read: a direct
     // dash's plan is its task list, so the plan-means-review arm below would
     // seat it in a phase it does not have.
-    phase = walked ? "join" : "implement";
+    phase = walked ? "check" : "implement";
   } else if (stopped !== null && arc?.stopped_stage !== undefined) {
     phase = arcPhase(arc.stopped_stage);
   } else if (arc?.stage !== undefined) {
-    phase = walked ? "join" : arcPhase(arc.stage);
+    phase = walked ? "check" : arcPhase(arc.stage);
   } else if (begun || stage === "implementing") {
-    phase = walked ? "join" : "implement";
+    phase = walked ? "check" : "implement";
   } else if (documents.plan !== undefined) {
     phase = "review";
   } else {
@@ -210,6 +241,10 @@ export function dashTrackModel(input: DashTrackInput): DashTrackModel {
 }
 
 function arcPhase(stage: string): DashPhase {
+  // The arc's audit stage is the check cell: what it does — read the code
+  // against the plan and fix what does not match — is the verification a
+  // direct dash does for itself in the same place on the strip.
+  if (stage === "audit") return "check";
   return stage === "devise" || stage === "review" || stage === "implement" ? stage : "implement";
 }
 
@@ -221,6 +256,7 @@ export function dashTrackModelFromEntry(entry: DashChangesetEntry): DashTrackMod
     taskList: entry.task_list,
     steps: entry.steps,
     stage: entry.stage,
+    holdersBusy: entry.holders_busy,
   });
 }
 

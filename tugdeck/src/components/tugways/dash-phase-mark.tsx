@@ -1,8 +1,8 @@
 /**
  * DashPhaseMark — where a dash is, as one glyph.
  *
- * Five glyphs for the five phases the track draws — brief · devise · review ·
- * implement · join — and a sixth for a stop, which outranks all of them.
+ * One glyph per phase the track draws — brief · devise · review · implement ·
+ * check · join — and one more for a stop, which outranks all of them.
  *
  * It is keyed on the **lifecycle phase**, not on the git stage. An earlier
  * mark of this kind read `stage`, and a dash has no stage until `dash create`
@@ -25,6 +25,7 @@ import React from "react";
 import {
   Compass,
   FileText,
+  FlaskConical,
   GitMerge,
   Hammer,
   OctagonX,
@@ -41,6 +42,7 @@ export const DASH_PHASE_ICONS: Record<DashPhase, LucideIcon> = {
   devise: Compass,
   review: ShieldCheck,
   implement: Hammer,
+  check: FlaskConical,
   join: GitMerge,
 };
 

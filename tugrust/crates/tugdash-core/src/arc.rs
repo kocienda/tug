@@ -19,13 +19,21 @@ use tugutil_core::paths::project_state_dir;
 
 use crate::dash::{append_dash_log, is_terminal, split_log_line};
 
-/// The three stages an arc rotates through.
+/// The stages an arc rotates through.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ArcStage {
     Devise,
     Review,
     Implement,
+    /// Read the implemented code cold against the plan it was written from,
+    /// fix what does not match, and mark the dash `audited`.
+    ///
+    /// It is a stage rather than the implement stage's last step for the same
+    /// reason review is one: the session that wrote the code is the weakest
+    /// possible reader of it, and a fresh one opening on the plan and the
+    /// branch's diff has nothing to defend.
+    Audit,
 }
 
 impl ArcStage {
@@ -35,6 +43,7 @@ impl ArcStage {
             ArcStage::Devise => "devise",
             ArcStage::Review => "review",
             ArcStage::Implement => "implement",
+            ArcStage::Audit => "audit",
         }
     }
 
@@ -45,6 +54,7 @@ impl ArcStage {
             "devise" => Some(ArcStage::Devise),
             "review" => Some(ArcStage::Review),
             "implement" => Some(ArcStage::Implement),
+            "audit" => Some(ArcStage::Audit),
             _ => None,
         }
     }
@@ -67,6 +77,10 @@ pub enum ArcStopReason {
     Lint,
     ApiError,
     ReviewDidNotStamp,
+    /// The audit stage ended its turn without marking the dash `audited`. The
+    /// mark is the stage's whole product, exactly as the stamp is the
+    /// review's, so a turn that ends without one has answered nothing.
+    AuditDidNotMark,
     DocumentMissing,
     PlanMissing,
     SessionGone,
@@ -102,6 +116,7 @@ impl ArcStopReason {
         ArcStopReason::Lint,
         ArcStopReason::ApiError,
         ArcStopReason::ReviewDidNotStamp,
+        ArcStopReason::AuditDidNotMark,
         ArcStopReason::DocumentMissing,
         ArcStopReason::PlanMissing,
         ArcStopReason::SessionGone,
@@ -127,6 +142,7 @@ impl ArcStopReason {
             ArcStopReason::Lint => "lint",
             ArcStopReason::ApiError => "api error",
             ArcStopReason::ReviewDidNotStamp => "review did not stamp",
+            ArcStopReason::AuditDidNotMark => "audit did not mark",
             ArcStopReason::DocumentMissing => "document missing",
             ArcStopReason::PlanMissing => "plan missing",
             ArcStopReason::SessionGone => "session gone",
@@ -154,6 +170,7 @@ impl ArcStopReason {
             ArcStopReason::Lint => "the plan does not lint",
             ArcStopReason::ApiError => "its turn ended in an API error, not a response",
             ArcStopReason::ReviewDidNotStamp => "two review rounds ended without stamping the plan",
+            ArcStopReason::AuditDidNotMark => "the audit ended without marking the dash audited",
             ArcStopReason::DocumentMissing => "the document it opened on is gone",
             ArcStopReason::PlanMissing => "the plan is gone",
             ArcStopReason::SessionGone => "its session ended",
@@ -197,6 +214,7 @@ pub fn stage_model(config: &DashConfig, stage: ArcStage) -> Option<String> {
         ArcStage::Devise => config.devise_model.clone(),
         ArcStage::Review => config.review_model.clone(),
         ArcStage::Implement => config.implement_model.clone(),
+        ArcStage::Audit => config.audit_model.clone(),
     }
 }
 

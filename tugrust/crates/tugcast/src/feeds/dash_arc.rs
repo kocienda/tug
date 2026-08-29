@@ -158,6 +158,12 @@ pub struct ArcFacts {
     /// what lets the predicate continue the stage anyway — and what tells an
     /// API error there apart from one on the work.
     pub compact_turn_just_ended: bool,
+    /// The dash carries an `audited` declaration — the audit stage's whole
+    /// product, and the one document fact that says it ran.
+    ///
+    /// Read from the dash-log's declarations rather than from anything the
+    /// stage said: a stage announces nothing and is believed about nothing.
+    pub audit_declared: bool,
 }
 
 /// The inclusive step range a continued implement stage walks, as the opening
@@ -371,6 +377,7 @@ pub fn arc_action(record: &ArcRecord, facts: &ArcFacts) -> Option<ArcAction> {
         Some(ArcStage::Devise) => Some(devise_action(facts)),
         Some(ArcStage::Review) => Some(review_action(record, facts)),
         Some(ArcStage::Implement) => implement_action(facts),
+        Some(ArcStage::Audit) => Some(audit_action(facts)),
     }
 }
 
@@ -432,7 +439,14 @@ fn review_action(record: &ArcRecord, facts: &ArcFacts) -> ArcAction {
 
 fn implement_action(facts: &ArcFacts) -> Option<ArcAction> {
     if facts.ledger.run_complete {
-        return Some(ArcAction::Done);
+        // The walk is over and the code is unread by anyone but its author.
+        // An audit that had already run is what `Done` means now — a second
+        // rotation here would re-audit work the mark says was audited.
+        return Some(if facts.audit_declared {
+            ArcAction::Done
+        } else {
+            ArcAction::Rotate(Rotation::plain(ArcStage::Audit))
+        });
     }
     // The `/compact` the arc sent has just ended. It closed no step, so
     // `step_just_done` is false — but this boundary is the compaction's, and
@@ -492,6 +506,30 @@ fn implement_action(facts: &ArcFacts) -> Option<ArcAction> {
         },
         why: PromptWhy::Continue,
     })
+}
+
+/// The audit stage's one question: did it mark the dash?
+///
+/// The mark is the stage's product, exactly as the stamp is the review's, and
+/// the stage's own turn has ended by the time this is asked — so a dash still
+/// unmarked is one whose audit is over and answered nothing. Waiting another
+/// tick would wait forever.
+///
+/// There is no second round here, and the asymmetry with the review's cap is
+/// deliberate: a review that did not stamp leaves a plan the implement stage
+/// would walk anyway, so a retry buys something. An audit that did not mark
+/// leaves committed code and a run that is finished — the honest end is to
+/// stop and say the audit did not happen, because the alternative is a dash
+/// that offers its join wearing a word nothing earned.
+fn audit_action(facts: &ArcFacts) -> ArcAction {
+    if facts.audit_declared {
+        ArcAction::Done
+    } else {
+        ArcAction::Stop {
+            stage: ArcStage::Audit,
+            reason: ArcStopReason::AuditDidNotMark,
+        }
+    }
 }
 
 /// The continue prompt for whatever the ledger says is left, or `None` when
@@ -557,6 +595,7 @@ mod tests {
             stage_continues: false,
             compacted_since_below: false,
             compact_turn_just_ended: false,
+            audit_declared: false,
         }
     }
 
@@ -935,12 +974,51 @@ mod tests {
     }
 
     #[test]
-    fn a_finished_run_is_done() {
+    fn a_finished_run_rotates_to_the_audit() {
         let mut facts = facts();
         facts.ledger.run_complete = true;
         assert_eq!(
             arc_action(&record(&[ArcStage::Implement]), &facts),
+            Some(ArcAction::Rotate(Rotation::plain(ArcStage::Audit)))
+        );
+    }
+
+    /// The mark is what makes a finished run finished, and it is read from the
+    /// dash's own declarations rather than from anything a stage said.
+    #[test]
+    fn a_finished_run_that_was_already_audited_is_done() {
+        let mut facts = facts();
+        facts.ledger.run_complete = true;
+        facts.audit_declared = true;
+        assert_eq!(
+            arc_action(&record(&[ArcStage::Implement]), &facts),
             Some(ArcAction::Done)
+        );
+    }
+
+    #[test]
+    fn an_audit_that_marked_the_dash_ends_the_arc() {
+        let mut facts = facts();
+        facts.ledger.run_complete = true;
+        facts.audit_declared = true;
+        assert_eq!(
+            arc_action(&record(&[ArcStage::Audit]), &facts),
+            Some(ArcAction::Done)
+        );
+    }
+
+    /// One round and no more: the code is committed and the run is over, so a
+    /// second audit would re-read the same bytes to reach the same silence.
+    #[test]
+    fn an_audit_that_did_not_mark_stops_and_says_so() {
+        let mut facts = facts();
+        facts.ledger.run_complete = true;
+        assert_eq!(
+            arc_action(&record(&[ArcStage::Audit]), &facts),
+            Some(ArcAction::Stop {
+                stage: ArcStage::Audit,
+                reason: ArcStopReason::AuditDidNotMark,
+            })
         );
     }
 

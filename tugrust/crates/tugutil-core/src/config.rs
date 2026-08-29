@@ -71,6 +71,11 @@ pub struct DashConfig {
     #[serde(default)]
     pub implement_model: Option<String>,
 
+    /// The model the arc's audit stage runs on. Absent means the account
+    /// default.
+    #[serde(default)]
+    pub audit_model: Option<String>,
+
     /// The context size, in tokens, above which a seated implement stage is
     /// compacted at a step boundary. Absent means
     /// [`IMPLEMENT_COMPACT_TOKENS_DEFAULT`], which
@@ -167,6 +172,7 @@ post_create = []
 # devise_model = "sonnet"
 # review_model = "opus"
 # implement_model = "sonnet"
+# audit_model = "opus"
 
 # The context size, in tokens, above which a seated implement stage is
 # compacted at a step boundary. A stage a compaction cannot bring back under

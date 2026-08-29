@@ -589,6 +589,10 @@ fn read(
         stage_continues,
         compacted_since_below: memory.compacted_since_below,
         compact_turn_just_ended: memory.compact_turn_just_ended,
+        audit_declared: matches!(
+            declarations.latest,
+            Some(tugdash_core::dash::DashDeclaration::Audited)
+        ),
     };
 
     // Where devise writes: the dash's own `plan.md`, repo-relative, which is

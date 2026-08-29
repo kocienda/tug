@@ -7,8 +7,8 @@
  * strip; the glyph is {@link DashPhaseMark}, which says outright the phase the
  * strip says by WHICH cell is lit; the fraction is the step in progress over
  * the plan's count, and only while one is; the note is the phase in one word —
- * `brief`, `devise`, `review`, `implement`, `join` — and `stopped · <why>`
- * when the arc stopped; the facts are the tone-colored words `dashMetaFacts`
+ * `brief`, `devise`, `review`, `implement`, `check`, `join` — and
+ * `stopped · <why>` when the arc stopped; the facts are the tone-colored words `dashMetaFacts`
  * derives, most urgent first, each with its detail on hover — the ones about
  * the dash's own standing (conflicts, overlap, fit), never the checkout's git
  * bookkeeping. The two arc facts are dropped too: the track already says the

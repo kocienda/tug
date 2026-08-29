@@ -1537,6 +1537,7 @@ struct ConfigPayload {
     devise_model: Option<String>,
     review_model: Option<String>,
     implement_model: Option<String>,
+    audit_model: Option<String>,
     implement_compact_tokens: Option<u64>,
 }
 
@@ -1566,6 +1567,7 @@ fn run_config(json: bool, quiet: bool) -> Result<(), String> {
         devise_model: dash.devise_model,
         review_model: dash.review_model,
         implement_model: dash.implement_model,
+        audit_model: dash.audit_model,
         implement_compact_tokens: dash.implement_compact_tokens,
     };
 
@@ -1614,6 +1616,10 @@ fn run_config(json: bool, quiet: bool) -> Result<(), String> {
         println!(
             "implement_model: {}",
             payload.implement_model.as_deref().unwrap_or(undeclared)
+        );
+        println!(
+            "audit_model:     {}",
+            payload.audit_model.as_deref().unwrap_or(undeclared)
         );
         match payload.implement_compact_tokens {
             Some(tokens) => println!("implement_compact_tokens: {}", tokens),
@@ -1958,6 +1964,7 @@ mod tests {
             devise_model: None,
             review_model: None,
             implement_model: None,
+            audit_model: None,
             implement_compact_tokens: None,
         };
         let value = serde_json::to_value(&payload).expect("serialize");

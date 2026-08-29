@@ -74,7 +74,7 @@
 }
 
 /* The strip's ends are round, whichever cells it happens to draw. A direct
-   dash draws brief · implement · join, so both caps land on whole cells and
+   dash draws brief · implement · check · join, so both caps land on whole cells and
    the endcap never has to travel onto a tick. It did once, when a direct
    strip led with its ticks: a sliver a plan's length wide wore the round end
    a cell should wear, and the join stood at the other end as the only pill on

@@ -18,6 +18,11 @@ build = "just app-debug"
 review_model = "opus"
 # implement_model = "sonnet"
 
+# The audit stage reads the landed code cold against the plan it was written
+# from and fixes what does not match, so it wants the strongest reader
+# available, on the same grounds as the review.
+audit_model = "opus"
+
 # The context size, in tokens, above which a seated implement stage is
 # compacted at a step boundary — never mid-step. A stage a compaction cannot
 # bring back under this line rotates to a fresh session instead. Undeclared,

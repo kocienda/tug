@@ -120,6 +120,10 @@ pub fn stage_ask(
             document?
         )),
         "review" => Some(format!("/tugplug:dash-review {dash}")),
+        // The audit opens on the dash, and resolves the plan and the branch's
+        // diff from it — the same one-name rule every stage after devise
+        // follows ([P10]).
+        "audit" => Some(format!("/tugplug:dash-audit {dash}")),
         // Both forms carry the one-step clause: every act the wheel takes on
         // this session — a compaction, a rotation — happens between turns, so
         // a step boundary has to be one. Only the model can end a turn, so the

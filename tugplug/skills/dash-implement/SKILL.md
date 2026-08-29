@@ -176,6 +176,16 @@ The user tests and reports issues. Fix them on the worktree, run the relevant ch
 
 Loop until the user is satisfied. A follow-up "now do Steps 6-8" is just another `dash-implement` run against the same plan and dash.
 
+### 4b. The audit
+
+**Under an arc, this is not yours.** When `TUG_DASH_ARC` names a dash, the run's last step ending rotates the arc to its audit stage — a fresh session that reads the whole branch cold against the plan. Do nothing about it: end the turn as usual and the wheel seats it.
+
+**Off an arc there is nobody to rotate**, so the audit is a turn the user opens. Say the run is finished and name it as the next stage, as its own backticked chip:
+
+`` `/tugplug:dash-audit my-dash` ``
+
+That is one of the few chips this skill prints, and it is not the join chip: it names the stage that has not run yet, not a landing the shade will offer on its own.
+
 ### 5. Join (the user's join gesture)
 
 **The shade is the door.** The Changes shade reveals itself on the bound card in the first quiet moment, showing the dash's row, the message the join would land, and where those words came from. Entering the landing mode and pressing the composer's ⬆ squash-lands the dash with the draft you wrote in phase 3, narrating the beats and settling on the outcome. The user does that; you do not. Your part ended at the draft.

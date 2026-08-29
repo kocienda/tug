@@ -30,7 +30,16 @@ describe("dashTrackModel", () => {
     ["implement, a step in progress", { documents: PLAN, arc: { stage: "implement" }, steps: steps(1, 2, 4), stage: "implementing" }, "implement", false],
     ["a hand-driven walk is implement", { documents: PLAN, steps: steps(1, 2, 4), stage: "working" }, "implement", false],
     ["every step done is the join", { documents: PLAN, steps: steps(4, null, 4), stage: "draft-ready" }, "join", false],
-    ["a walked plan is the join even before the stage moves", { documents: PLAN, steps: steps(4, null, 4), stage: "working" }, "join", false],
+    ["a walked plan is checking until the stage moves", { documents: PLAN, steps: steps(4, null, 4), stage: "working" }, "check", false],
+    // The one the report was about: every git fact says joinable, and the run
+    // that produced them is still in its test sweep.
+    ["a joinable dash whose holder is still working is checking", { documents: PLAN, steps: steps(4, null, 4), stage: "ready", holdersBusy: true }, "check", false],
+    ["and reads the join the moment that holder goes quiet", { documents: PLAN, steps: steps(4, null, 4), stage: "ready", holdersBusy: false }, "join", false],
+    // The seam the wheel leaves: implement's last step is committed and the
+    // audit stage is not seated yet, so nobody is busy and git says joinable.
+    ["an arc still rotating has not arrived", { documents: PLAN, arc: { stage: "implement" }, steps: steps(4, null, 4), stage: "ready" }, "check", false],
+    ["the audit stage draws in the check cell", { documents: PLAN, arc: { stage: "audit" }, steps: steps(4, null, 4), stage: "ready" }, "check", false],
+    ["and the arc calling itself done is the join", { documents: PLAN, arc: { stage: "audit", done: true }, steps: steps(4, null, 4), stage: "audited" }, "join", false],
     ["no documents and no arc is direct, in implement", { stage: "working" }, "implement", true],
     ["a direct dash offered its join", { stage: "draft-ready" }, "join", true],
     // A direct dash's task list IS a plan document, so nothing about the
@@ -38,7 +47,8 @@ describe("dashTrackModel", () => {
     // server's reading of the document's own shape, and it is what does.
     ["a task list is direct, in implement before any step opens", { documents: { plan: "/p" }, taskList: true, steps: steps(0, null, 3), stage: "working" }, "implement", true],
     ["a direct dash mid-walk", { documents: { plan: "/p" }, taskList: true, steps: steps(1, 2, 3), stage: "implementing" }, "implement", true],
-    ["a direct dash that walked its list is the join", { documents: { plan: "/p" }, taskList: true, steps: steps(3, null, 3), stage: "working" }, "join", true],
+    ["a direct dash that walked its list is checking", { documents: { plan: "/p" }, taskList: true, steps: steps(3, null, 3), stage: "working" }, "check", true],
+    ["a direct dash still checking while its holder works", { documents: { plan: "/p" }, taskList: true, steps: steps(3, null, 3), stage: "ready", holdersBusy: true }, "check", true],
     // The same document shape WITHOUT the task-list reading is a devised plan
     // adopted onto a briefless dash — which stands at review, as it always has.
     ["a devised plan with no brief still reads review", { documents: { plan: "/p" }, steps: steps(0, null, 3), stage: "working" }, "review", false],
@@ -106,10 +116,10 @@ describe("a withdrawn step", () => {
     expect(tickState(model, 8)).toBe("done");
   });
 
-  test("still leaves the plan walked, so the phase is the join", () => {
+  test("still leaves the plan walked, so the phase is the check", () => {
     const statuses = Array.from({ length: 8 }, (_, i) => (i === 6 ? "withdrawn" : "done"));
     const model = dashTrackModel({ documents: PLAN, steps: ledger(...statuses), stage: "working" });
-    expect(model.phase).toBe("join");
+    expect(model.phase).toBe("check");
   });
 });
 

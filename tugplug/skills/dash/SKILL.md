@@ -13,7 +13,7 @@ A **dash** is work that leaves the base on an isolated worktree and comes back t
 
 Directly does not mean blind. Before the first round you write the dash's **task list** — the steps the work breaks into, in the dash's own plan file. It is not the arc's plan: no brief, no phase overview, no review, no linting. It is the ledger that every dash face counts its fraction from, and the memory a session that has never seen this conversation reads when the dash is picked up tomorrow. [The task list](#the-task-list) says what to write and how much.
 
-(When the *decisions* are the hard part, or the parts are many enough that their order is itself a problem, the other route is the arc: `/dash-plan` settles the idea into a brief and hands it to the wheel, which rotates devise → review → implement on fresh sessions of its own. This skill's work is yours; that one's is delegated.)
+(When the *decisions* are the hard part, or the parts are many enough that their order is itself a problem, the other route is the arc: `/dash-plan` settles the idea into a plan and hands it to the wheel, which rotates review → implement → audit on fresh sessions of its own. This skill's work is yours; that one's is delegated.)
 
 **Read [`tuglaws/dash-work-doctrine.md`](../../../tuglaws/dash-work-doctrine.md) before you start.** It is the discipline every dash run works under — the one-and-only-working-root rule, the verification bar, test discipline and the banned test shapes, law discipline, round mechanics, the stop-before-join obligation, and no plan numbers in durable artifacts. This skill states the flow; the doctrine states the rules, and it is not repeated here.
 
@@ -95,6 +95,8 @@ tugutil dash step <name> done <n>
 
 **Walk the whole list in this turn, and do not end the turn before the step named by `--through` is `done` or `withdrawn`.** A direct dash has no arc behind it: nothing prompts the next step, so a turn that ends at a step boundary ends the dash, with a row reading `in progress` and nobody working it. A round's commit is a checkpoint inside the run, not a place to report back — commit, close the step, open the next, and keep going. Never ask whether to continue, never ask a clarifying question mid-step, and never narrate the next step in place of doing it. The only stop short of the declared end is a blocker you name, in a sentence, with what it blocks.
 
+Closing the last step is not the end of the turn either: the audit and the ending below are part of the same run, and nothing will prompt them.
+
 Carry out the instruction yourself in the worktree. Run the checks the doctrine names. **Before the commit, write the dash's join draft** — committing the round is the arming event, so the prompt can raise and the user can join the moment the commit lands, and whatever draft exists at that instant is the message they land with:
 
 ```bash
@@ -121,7 +123,28 @@ For a change the user should look at, run the project's **declared build command
 
 `tugutil dash mark <name> built` is available and purely optional — it stamps the stage word `built` on the dash's faces in place of the derived `ready`, which is worth doing when you did build, and gates nothing when you didn't.
 
-### Stop, with the fit verified and a draft on file
+### Audit, before the run is over
+
+When the last step is closed, read the branch's **whole diff** in one pass and judge it against the task list. Not the rounds one at a time — you already read those as you wrote them, and each looked right on its own. What has never been read is the change entire: the second round's fix to the first round's shape, the helper added in step two that step three duplicated, the step that closed on something adjacent to what its title promised.
+
+```bash
+tugutil dash show <name>
+```
+
+Then the diff itself, from the worktree, as one range against the base. Four questions, in this order:
+
+- **Does the code do what the task list said?** Row by row. A step marked `done` whose behaviour is not in the tree is what this pass exists to catch — including the honest version, where the step did something adjacent and nobody noticed the difference.
+- **Does it do anything the list did not say?** Scope that arrived without a decision behind it. Not every unplanned line is wrong — work discovers things — but an unplanned line that changes a contract, a default, or a surface is a decision made silently.
+- **Is it right?** The unhandled case, the wrong boundary, the state that can be reached and is not handled, the check that passes for the wrong reason.
+- **Does it fit?** The laws the change touches, the conventions of the files it sits in, the tests at the layer that can actually see the behaviour.
+
+**Fix what you find, as ordinary rounds** — verified before the commit, like every other round. Findings here are usually small; a finding that is not is still a round, not a reason to stop.
+
+**Know what this pass is and is not.** It is your own re-read, not a cold one: the arc hands its audit to a session that has never seen the run, and that reader is strictly better, because a session cannot be surprised by code it remembers writing. What a direct dash buys instead is cheapness and immediacy — one pass over the whole diff, in the room, before anybody is asked to look. Take it for what it is, and be harder on the code than you were while writing it.
+
+**Never lint the task list here**, and never grow it to accommodate a finding. A fix is a round; the list stays what the run walked.
+
+### Stop, with the fit verified, the audit declared, and a draft on file
 
 **Verify the fit first** ([D149]). What you checked as you worked was the dash's own tree; what a join lands is that work replayed onto the live base, and nothing has tested it:
 
@@ -143,6 +166,14 @@ Read a good one before writing yours — `tug log` on the base shows the project
 
 Write the draft whether or not you built anything: the Changes shade shows it, and a draftless dash offers to land its branch description — or, with neither, the words `Dash work`.
 
+Then declare the audit — **after** the fit is verified and every round is committed, because the mark is a claim about the tree as it now stands, and a round landed after it would make it a lie:
+
+```bash
+tugutil dash mark <name> audited --note "<one line: what was checked, and what was fixed>"
+```
+
+It stamps the stage word `audited` on the dash's faces in place of the derived `ready`. Unlike `built` it is not optional: the audit is part of the run, and the mark is what says the run had one.
+
 Then **stop.** Don't merge.
 
 ### Join (only on the user's word)
@@ -162,5 +193,6 @@ Everything in [`tuglaws/dash-work-doctrine.md`](../../../tuglaws/dash-work-doctr
 - **Write the task list before the first round, and walk it with the step verbs.** A dash whose ledger never moves shows a dead fraction on every face it appears on, and leaves a session picking it up tomorrow nothing to read.
 - **Once a step is open, the run finishes the list.** No turn ends with a step `in progress` unless a named blocker ends it. Questions were for the task list; a mid-step unknown is answered by the code or the conventional default, and the run keeps going.
 - **Never lint the task list, and never grow it into a plan.** Ten steps means the work wanted `/dash-plan`.
+- **Audit before you stop, and mark it.** The whole diff read at once against the task list, findings fixed as rounds, `dash mark audited` last. A run that skipped it offers a join nobody has read.
 - **Leave the draft behind.** Stopping without one hands the user a join gesture that cannot join.
 - **Never discard on your own initiative.** Discard destroys work.
