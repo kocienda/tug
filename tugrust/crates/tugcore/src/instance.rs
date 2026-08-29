@@ -291,15 +291,15 @@ pub fn apptest_results_db_path() -> PathBuf {
 }
 
 /// Environment variable overriding the shared tripwires ledger path. Set by
-/// test harnesses so an isolated run never lays a wire on the real machine.
+/// test harnesses so an isolated run never lays a tripwire on the real machine.
 pub const ENV_TRIPWIRES_DB: &str = "TUG_TRIPWIRES_DB";
 
 /// The **machine-global** tripwires ledger path: one `tripwires.db` holding
-/// every standing wire and every trip any instance has claimed. Deliberately
+/// every standing tripwire and every trip any instance has claimed. Deliberately
 /// independent of `TUG_INSTANCE_ID`, and for a stronger reason than the other
 /// shared ledgers: the `UNIQUE(wire_id, event_key)` claim two instances race
 /// for is only an arbitration if both are racing in the same table. Partition
-/// it per instance and every instance fires the same wire on the same event.
+/// it per instance and every instance fires the same tripwire on the same event.
 /// Honors the [`ENV_TRIPWIRES_DB`] override for isolated test runs.
 pub fn tripwires_db_path() -> PathBuf {
     if let Some(p) = env::var_os(ENV_TRIPWIRES_DB).filter(|v| !v.is_empty()) {

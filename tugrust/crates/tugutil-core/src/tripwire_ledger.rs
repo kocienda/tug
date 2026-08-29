@@ -1,11 +1,11 @@
-//! The standing-wire ledger — every wire laid on this machine, and every
+//! The standing-tripwire ledger — every tripwire laid on this machine, and every
 //! firing any instance has claimed.
 //!
 //! **Machine-global**, beside `changes.db` rather than inside an instance
 //! directory (`tugcore::instance::tripwires_db_path`), and for a stronger
 //! reason than the other shared ledgers have. Two tugcasts watching the same
 //! workspace see the same commit, and the thing that stops both of them
-//! firing one wire twice is the `UNIQUE(wire_id, event_key)` constraint on
+//! firing one tripwire twice is the `UNIQUE(wire_id, event_key)` constraint on
 //! `trips`: the first insert wins, the second gets a constraint violation and
 //! stops. That is only arbitration if both writers are in the same table.
 //!
@@ -21,7 +21,7 @@
 //! every other instance's claim for the length of a model turn, and the
 //! reason the pattern works is that nothing here is ever open that long.
 //!
-//! Schema changes forever mean bumping [`WIRE_SCHEMA_VERSION`] with a
+//! Schema changes forever mean bumping [`TRIPWIRE_SCHEMA_VERSION`] with a
 //! registered migration, never editing the DDL alone — the same regime as
 //! `changes.db` and the app-test results ledger.
 
@@ -30,18 +30,18 @@ use std::path::Path;
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 
-use crate::wire_predicate::Predicate;
+use crate::tripwire_predicate::Predicate;
 
 /// Current on-disk schema version, stamped into `PRAGMA user_version`.
-pub const WIRE_SCHEMA_VERSION: i64 = 1;
+pub const TRIPWIRE_SCHEMA_VERSION: i64 = 1;
 
 /// Registered migrations, each keyed by the on-disk version it upgrades
 /// *from*. Every migration whose `from` is at or above the version found on
 /// disk is applied in order. Empty at v1; a schema change adds an entry here
-/// and bumps [`WIRE_SCHEMA_VERSION`] — never edits the DDL alone.
-const WIRE_MIGRATIONS: &[(i64, &str)] = &[];
+/// and bumps [`TRIPWIRE_SCHEMA_VERSION`] — never edits the DDL alone.
+const TRIPWIRE_MIGRATIONS: &[(i64, &str)] = &[];
 
-/// Default seconds a wire waits before it will fire again. A flapping trigger
+/// Default seconds a tripwire waits before it will fire again. A flapping trigger
 /// — the same edit program failing in a retry loop — is exactly what this
 /// swallows, and the swallow is written down rather than dropped.
 pub const DEFAULT_COOLDOWN_SECS: i64 = 60;
@@ -57,6 +57,9 @@ pub const SETTING_MAX_CONCURRENT_TRIPS: &str = "max_concurrent_trips";
 /// that failed says why at the end.
 pub const PROBE_TAIL_CAP: usize = 8 * 1024;
 
+/// The tables keep the short name the first schema gave them. A table is not
+/// a reading surface, and renaming one costs a migration on a ledger that
+/// already holds rows to buy nothing anybody sees.
 const CREATE_TRIPWIRES_SQL: &str = "
     CREATE TABLE IF NOT EXISTS wires (
         id              INTEGER PRIMARY KEY,
@@ -99,21 +102,21 @@ const CREATE_TRIPWIRES_SQL: &str = "
 ";
 
 #[derive(Debug, thiserror::Error)]
-pub enum WireLedgerError {
+pub enum TripwireLedgerError {
     #[error("sqlite error: {0}")]
     Sqlite(#[from] rusqlite::Error),
     #[error("tripwires schema on disk is v{on_disk}, newer than this build's v{supported}")]
     SchemaTooNew { on_disk: i64, supported: i64 },
-    #[error("a wire named {0} already exists")]
+    #[error("a tripwire named {0} already exists")]
     DuplicateName(String),
-    #[error("no wire named {0}")]
-    NoSuchWire(String),
+    #[error("no tripwire named {0}")]
+    NoSuchTripwire(String),
     #[error("{0}")]
     BadTrigger(String),
     #[error(
-        "wire {0} runs at the work tier, which stages its work on a dash, and a dash lives in a checkout — give it --scope <path>"
+        "tripwire {0} runs at the work tier, which stages its work on a dash, and a dash lives in a checkout — give it --scope <path>"
     )]
-    WorkWireNeedsScope(String),
+    WorkTripwireNeedsScope(String),
 }
 
 // MARK: - Rows
@@ -181,11 +184,11 @@ impl PostPolicy {
 pub enum TripStatus {
     /// This instance won the insert and owns the firing.
     Claimed,
-    /// Refused before any work: cooldown, a paused wire, a wire's own session.
+    /// Refused before any work: cooldown, a paused tripwire, a tripwire's own session.
     Swallowed,
-    /// Serviceable, but the machine is at its ceiling or the wire is busy.
+    /// Serviceable, but the machine is at its ceiling or the tripwire is busy.
     Queued,
-    /// A newer queued event for this wire replaced this one.
+    /// A newer queued event for this tripwire replaced this one.
     Superseded,
     /// An agent or a probe is working it now.
     Running,
@@ -222,14 +225,14 @@ impl TripStatus {
     }
 }
 
-/// One standing wire, as the table holds it.
+/// One standing tripwire, as the table holds it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct Wire {
+pub struct Tripwire {
     pub id: i64,
     pub name: String,
     pub created_at: i64,
     /// The Spec S01 JSON, exactly as stored — the engine parses it with
-    /// [`Wire::predicate`], and a row whose trigger this build cannot read is
+    /// [`Tripwire::predicate`], and a row whose trigger this build cannot read is
     /// still a row it can list and remove.
     pub trigger: String,
     pub scope: Option<String>,
@@ -243,17 +246,17 @@ pub struct Wire {
     pub cooldown_secs: i64,
 }
 
-impl Wire {
+impl Tripwire {
     /// The parsed trigger, or the reason it could not be read. Parsed on
-    /// demand rather than at load: a wire laid by a newer build against a
+    /// demand rather than at load: a tripwire laid by a newer build against a
     /// grammar this one does not know must still list and remove cleanly.
-    pub fn predicate(&self) -> Result<Predicate, WireLedgerError> {
+    pub fn predicate(&self) -> Result<Predicate, TripwireLedgerError> {
         serde_json::from_str(&self.trigger)
-            .map_err(|e| WireLedgerError::BadTrigger(format!("{}: {e}", self.name)))
+            .map_err(|e| TripwireLedgerError::BadTrigger(format!("{}: {e}", self.name)))
     }
 
-    /// Which tier this wire runs at, resolving `auto` against the probe: a
-    /// probe may write, so a wire that has one needs the dash worktree.
+    /// Which tier this tripwire runs at, resolving `auto` against the probe: a
+    /// probe may write, so a tripwire that has one needs the dash worktree.
     /// "Read-only brief" is not machine-decidable; the probe is.
     pub fn resolved_tier(&self) -> Tier {
         resolve_tier(
@@ -267,10 +270,10 @@ impl Wire {
     }
 }
 
-/// Resolve `auto` against whether a probe exists: a probe may write, so a wire
-/// that has one needs the dash worktree. Stated once, because a laid wire and
-/// a wire about to be laid must resolve identically or the arming refusal and
-/// the firing would disagree about which tier a wire is.
+/// Resolve `auto` against whether a probe exists: a probe may write, so a tripwire
+/// that has one needs the dash worktree. Stated once, because a laid tripwire and
+/// a tripwire about to be laid must resolve identically or the arming refusal and
+/// the firing would disagree about which tier a tripwire is.
 fn resolve_tier(declared: Tier, has_probe: bool) -> Tier {
     match declared {
         Tier::Auto if has_probe => Tier::Work,
@@ -279,11 +282,11 @@ fn resolve_tier(declared: Tier, has_probe: bool) -> Tier {
     }
 }
 
-/// A wire to lay. Every field the CLI can set, with the defaults the schema
-/// carries so one shape describes a wire whether it came from a command line
+/// A tripwire to lay. Every field the CLI can set, with the defaults the schema
+/// carries so one shape describes a tripwire whether it came from a command line
 /// or a table.
 #[derive(Debug, Clone, PartialEq)]
-pub struct NewWire {
+pub struct NewTripwire {
     pub name: String,
     pub trigger: String,
     pub scope: Option<String>,
@@ -296,22 +299,22 @@ pub struct NewWire {
     pub cooldown_secs: i64,
 }
 
-impl NewWire {
-    /// Which tier this wire will run at once laid — the same resolution
-    /// [`Wire::resolved_tier`] does, available before the row exists, which is
+impl NewTripwire {
+    /// Which tier this tripwire will run at once laid — the same resolution
+    /// [`Tripwire::resolved_tier`] does, available before the row exists, which is
     /// where the arming refusal has to read it.
     pub fn resolved_tier(&self) -> Tier {
         resolve_tier(self.tier, self.probe.is_some())
     }
 
-    /// A wire with the schema's defaults, needing only what it watches and
+    /// A tripwire with the schema's defaults, needing only what it watches and
     /// what to say about it.
     pub fn new(
         name: impl Into<String>,
         trigger: impl Into<String>,
         brief: impl Into<String>,
     ) -> Self {
-        NewWire {
+        NewTripwire {
             name: name.into(),
             trigger: trigger.into(),
             scope: None,
@@ -326,10 +329,10 @@ impl NewWire {
     }
 }
 
-/// The fields `wire edit` can move. `None` leaves a column alone, which is
+/// The fields `tripwire edit` can move. `None` leaves a column alone, which is
 /// what makes one verb able to change one thing without restating the rest.
 #[derive(Debug, Clone, Default, PartialEq)]
-pub struct WireEdit {
+pub struct TripwireEdit {
     pub trigger: Option<String>,
     pub scope: Option<Option<String>>,
     pub probe: Option<Option<String>>,
@@ -374,7 +377,7 @@ pub enum Claim {
 // MARK: - Open
 
 /// Open (creating if absent) the tripwires ledger at `path`.
-pub fn open_ledger(path: impl AsRef<Path>) -> Result<Connection, WireLedgerError> {
+pub fn open_ledger(path: impl AsRef<Path>) -> Result<Connection, TripwireLedgerError> {
     if let Some(dir) = path.as_ref().parent() {
         let _ = std::fs::create_dir_all(dir);
     }
@@ -384,44 +387,44 @@ pub fn open_ledger(path: impl AsRef<Path>) -> Result<Connection, WireLedgerError
 }
 
 /// Open the machine's ledger at its canonical path.
-pub fn open() -> Result<Connection, WireLedgerError> {
+pub fn open() -> Result<Connection, TripwireLedgerError> {
     open_ledger(tugcore::instance::tripwires_db_path())
 }
 
 /// Bring a connection's schema to the current version. Split out so tests can
 /// exercise it against an in-memory connection.
-fn prepare(conn: &Connection) -> Result<(), WireLedgerError> {
-    // `trips` cascades from `wires`, and SQLite leaves foreign keys off per
+fn prepare(conn: &Connection) -> Result<(), TripwireLedgerError> {
+    // `trips` cascades from `tripwires`, and SQLite leaves foreign keys off per
     // connection unless asked.
     conn.pragma_update(None, "foreign_keys", true)?;
     // A version newer than this build means a newer tugutil owns the shape:
-    // refuse the open rather than laying wires against an unknown schema.
+    // refuse the open rather than laying tripwires against an unknown schema.
     let on_disk: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-    if on_disk > WIRE_SCHEMA_VERSION {
-        return Err(WireLedgerError::SchemaTooNew {
+    if on_disk > TRIPWIRE_SCHEMA_VERSION {
+        return Err(TripwireLedgerError::SchemaTooNew {
             on_disk,
-            supported: WIRE_SCHEMA_VERSION,
+            supported: TRIPWIRE_SCHEMA_VERSION,
         });
     }
-    if on_disk > 0 && on_disk < WIRE_SCHEMA_VERSION {
-        for (from, sql) in WIRE_MIGRATIONS {
+    if on_disk > 0 && on_disk < TRIPWIRE_SCHEMA_VERSION {
+        for (from, sql) in TRIPWIRE_MIGRATIONS {
             if *from >= on_disk {
                 conn.execute_batch(sql)?;
             }
         }
     }
     conn.execute_batch(CREATE_TRIPWIRES_SQL)?;
-    conn.pragma_update(None, "user_version", WIRE_SCHEMA_VERSION)?;
+    conn.pragma_update(None, "user_version", TRIPWIRE_SCHEMA_VERSION)?;
     Ok(())
 }
 
-// MARK: - Wires
+// MARK: - Tripwires
 
-const WIRE_COLUMNS: &str = "id, name, created_at, trigger, scope, probe, brief, model, tier, \
+const TRIPWIRE_COLUMNS: &str = "id, name, created_at, trigger, scope, probe, brief, model, tier, \
                             permission_mode, post, paused, cooldown_secs";
 
-fn wire_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Wire> {
-    Ok(Wire {
+fn tripwire_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Tripwire> {
+    Ok(Tripwire {
         id: row.get(0)?,
         name: row.get(1)?,
         created_at: row.get(2)?,
@@ -438,16 +441,22 @@ fn wire_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Wire> {
     })
 }
 
-/// Lay a wire. The name is its address, so a second wire under one name is a
+/// Lay a tripwire. The name is its address, so a second tripwire under one name is a
 /// refusal rather than a silent overwrite.
-pub fn lay(conn: &Connection, wire: &NewWire, now_ms: i64) -> Result<Wire, WireLedgerError> {
-    // A work-tier wire commits on a dash, and `create_in` needs a checkout to
+pub fn lay(
+    conn: &Connection,
+    tripwire: &NewTripwire,
+    now_ms: i64,
+) -> Result<Tripwire, TripwireLedgerError> {
+    // A work-tier tripwire commits on a dash, and `create_in` needs a checkout to
     // cut it from. Refused at the arming gesture rather than at the firing:
-    // a wire that cannot possibly run is a wire that should never have been
+    // a tripwire that cannot possibly run is a tripwire that should never have been
     // laid, and finding that out from a trip log weeks later is finding out
     // too late [B07].
-    if wire.resolved_tier() == Tier::Work && wire.scope.is_none() {
-        return Err(WireLedgerError::WorkWireNeedsScope(wire.name.clone()));
+    if tripwire.resolved_tier() == Tier::Work && tripwire.scope.is_none() {
+        return Err(TripwireLedgerError::WorkTripwireNeedsScope(
+            tripwire.name.clone(),
+        ));
     }
     let inserted = conn.execute(
         "INSERT OR IGNORE INTO wires
@@ -455,71 +464,78 @@ pub fn lay(conn: &Connection, wire: &NewWire, now_ms: i64) -> Result<Wire, WireL
             paused, cooldown_secs)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 0, ?11)",
         params![
-            wire.name,
+            tripwire.name,
             now_ms,
-            wire.trigger,
-            wire.scope,
-            wire.probe,
-            wire.brief,
-            wire.model,
-            wire.tier.as_str(),
-            wire.permission_mode,
-            wire.post.as_str(),
-            wire.cooldown_secs,
+            tripwire.trigger,
+            tripwire.scope,
+            tripwire.probe,
+            tripwire.brief,
+            tripwire.model,
+            tripwire.tier.as_str(),
+            tripwire.permission_mode,
+            tripwire.post.as_str(),
+            tripwire.cooldown_secs,
         ],
     )?;
     if inserted == 0 {
-        return Err(WireLedgerError::DuplicateName(wire.name.clone()));
+        return Err(TripwireLedgerError::DuplicateName(tripwire.name.clone()));
     }
-    get(conn, &wire.name)?.ok_or_else(|| WireLedgerError::NoSuchWire(wire.name.clone()))
+    get(conn, &tripwire.name)?
+        .ok_or_else(|| TripwireLedgerError::NoSuchTripwire(tripwire.name.clone()))
 }
 
-/// One wire by name, or `None`.
-pub fn get(conn: &Connection, name: &str) -> Result<Option<Wire>, WireLedgerError> {
-    let sql = format!("SELECT {WIRE_COLUMNS} FROM wires WHERE name = ?1");
+/// One tripwire by name, or `None`.
+pub fn get(conn: &Connection, name: &str) -> Result<Option<Tripwire>, TripwireLedgerError> {
+    let sql = format!("SELECT {TRIPWIRE_COLUMNS} FROM wires WHERE name = ?1");
     Ok(conn
-        .query_row(&sql, params![name], wire_from_row)
+        .query_row(&sql, params![name], tripwire_from_row)
         .optional()?)
 }
 
-/// Every wire, oldest first — the order they were laid in, which is the order
+/// Every tripwire, oldest first — the order they were laid in, which is the order
 /// a reader who laid them expects.
-pub fn list(conn: &Connection) -> Result<Vec<Wire>, WireLedgerError> {
-    let sql = format!("SELECT {WIRE_COLUMNS} FROM wires ORDER BY id");
+pub fn list(conn: &Connection) -> Result<Vec<Tripwire>, TripwireLedgerError> {
+    let sql = format!("SELECT {TRIPWIRE_COLUMNS} FROM wires ORDER BY id");
     let mut stmt = conn.prepare(&sql)?;
-    let rows = stmt.query_map([], wire_from_row)?;
+    let rows = stmt.query_map([], tripwire_from_row)?;
     Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
 }
 
-/// Every wire that is armed — not paused. What the engine re-reads on each
+/// Every tripwire that is armed — not paused. What the engine re-reads on each
 /// event, so `pause` and `edit` apply on the next firing with no notification
 /// plumbing at all.
-pub fn armed(conn: &Connection) -> Result<Vec<Wire>, WireLedgerError> {
-    let sql = format!("SELECT {WIRE_COLUMNS} FROM wires WHERE paused = 0 ORDER BY id");
+pub fn armed(conn: &Connection) -> Result<Vec<Tripwire>, TripwireLedgerError> {
+    let sql = format!("SELECT {TRIPWIRE_COLUMNS} FROM wires WHERE paused = 0 ORDER BY id");
     let mut stmt = conn.prepare(&sql)?;
-    let rows = stmt.query_map([], wire_from_row)?;
+    let rows = stmt.query_map([], tripwire_from_row)?;
     Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
 }
 
 /// Move the fields an edit names and leave the rest. Each column is its own
 /// single-statement update, which is what keeps a writer from holding the
 /// table while it decides.
-pub fn update(conn: &Connection, name: &str, edit: &WireEdit) -> Result<Wire, WireLedgerError> {
+pub fn update(
+    conn: &Connection,
+    name: &str,
+    edit: &TripwireEdit,
+) -> Result<Tripwire, TripwireLedgerError> {
     let Some(before) = get(conn, name)? else {
-        return Err(WireLedgerError::NoSuchWire(name.to_string()));
+        return Err(TripwireLedgerError::NoSuchTripwire(name.to_string()));
     };
     // The same rule as `lay`, against the row the edit would produce: an edit
-    // that clears a work wire's scope, or promotes a scopeless wire to the
-    // work tier, is the same unrunnable wire arriving by another door.
+    // that clears a work tripwire's scope, or promotes a scopeless tripwire to the
+    // work tier, is the same unrunnable tripwire arriving by another door.
     let after_scope = edit.scope.clone().unwrap_or(before.scope.clone());
     let after_probe = edit.probe.clone().unwrap_or(before.probe.clone());
     let after_tier = edit
         .tier
         .unwrap_or_else(|| Tier::parse(&before.tier).unwrap_or(Tier::Auto));
     if resolve_tier(after_tier, after_probe.is_some()) == Tier::Work && after_scope.is_none() {
-        return Err(WireLedgerError::WorkWireNeedsScope(name.to_string()));
+        return Err(TripwireLedgerError::WorkTripwireNeedsScope(
+            name.to_string(),
+        ));
     }
-    let set = |column: &str, value: rusqlite::types::Value| -> Result<(), WireLedgerError> {
+    let set = |column: &str, value: rusqlite::types::Value| -> Result<(), TripwireLedgerError> {
         let sql = format!("UPDATE wires SET {column} = ?1 WHERE name = ?2");
         conn.execute(&sql, params![value, name])?;
         Ok(())
@@ -552,27 +568,31 @@ pub fn update(conn: &Connection, name: &str, edit: &WireEdit) -> Result<Wire, Wi
     if let Some(v) = edit.cooldown_secs {
         set("cooldown_secs", Value::Integer(v))?;
     }
-    get(conn, name)?.ok_or_else(|| WireLedgerError::NoSuchWire(name.to_string()))
+    get(conn, name)?.ok_or_else(|| TripwireLedgerError::NoSuchTripwire(name.to_string()))
 }
 
-/// Pause or arm a wire. Paused is a column rather than a deletion, so the
-/// trip log a wire earned survives being taken out of service.
-pub fn set_paused(conn: &Connection, name: &str, paused: bool) -> Result<Wire, WireLedgerError> {
+/// Pause or arm a tripwire. Paused is a column rather than a deletion, so the
+/// trip log a tripwire earned survives being taken out of service.
+pub fn set_paused(
+    conn: &Connection,
+    name: &str,
+    paused: bool,
+) -> Result<Tripwire, TripwireLedgerError> {
     let moved = conn.execute(
         "UPDATE wires SET paused = ?1 WHERE name = ?2",
         params![i64::from(paused), name],
     )?;
     if moved == 0 {
-        return Err(WireLedgerError::NoSuchWire(name.to_string()));
+        return Err(TripwireLedgerError::NoSuchTripwire(name.to_string()));
     }
-    get(conn, name)?.ok_or_else(|| WireLedgerError::NoSuchWire(name.to_string()))
+    get(conn, name)?.ok_or_else(|| TripwireLedgerError::NoSuchTripwire(name.to_string()))
 }
 
-/// Remove a wire and, by cascade, its trips.
-pub fn remove(conn: &Connection, name: &str) -> Result<(), WireLedgerError> {
+/// Remove a tripwire and, by cascade, its trips.
+pub fn remove(conn: &Connection, name: &str) -> Result<(), TripwireLedgerError> {
     let removed = conn.execute("DELETE FROM wires WHERE name = ?1", params![name])?;
     if removed == 0 {
-        return Err(WireLedgerError::NoSuchWire(name.to_string()));
+        return Err(TripwireLedgerError::NoSuchTripwire(name.to_string()));
     }
     Ok(())
 }
@@ -618,7 +638,7 @@ pub fn claim_trip(
     at_ms: i64,
     instance: &str,
     event_payload: Option<&str>,
-) -> Result<Claim, WireLedgerError> {
+) -> Result<Claim, TripwireLedgerError> {
     let inserted = conn.execute(
         "INSERT OR IGNORE INTO trips (wire_id, event_key, at_ms, instance, status, event_payload)
          VALUES (?1, ?2, ?3, ?4, 'claimed', ?5)",
@@ -636,7 +656,7 @@ pub fn claim_trip(
 ///
 /// This is how a firing is refused: every guard runs *after* the claim, so a
 /// swallow is a transition on the row the claim made rather than a second row
-/// beside it. One event is one row per wire, which is what the unique
+/// beside it. One event is one row per tripwire, which is what the unique
 /// constraint already promises — and a refusal that wrote its own row would
 /// quietly break that promise the first time two instances raced.
 pub fn set_status(
@@ -644,7 +664,7 @@ pub fn set_status(
     trip_id: i64,
     status: TripStatus,
     swallow_reason: Option<&str>,
-) -> Result<(), WireLedgerError> {
+) -> Result<(), TripwireLedgerError> {
     conn.execute(
         "UPDATE trips SET status = ?1, swallow_reason = COALESCE(?2, swallow_reason) WHERE id = ?3",
         params![status.as_str(), swallow_reason, trip_id],
@@ -653,13 +673,17 @@ pub fn set_status(
 }
 
 /// Queue a trip the machine cannot serve yet, superseding any older queued
-/// trip on the same wire.
+/// trip on the same tripwire.
 ///
-/// One slot per wire, because coalescing to the newest pending event is what
-/// a wire actually wants: a CI wire asked to verdict five commits in a storm
+/// One slot per tripwire, because coalescing to the newest pending event is what
+/// a tripwire actually wants: a CI tripwire asked to verdict five commits in a storm
 /// wants the last one's verdict, not five worktrees. The superseded row stays
 /// in the log — the coalescing is visible, which is the point.
-pub fn queue_trip(conn: &Connection, wire_id: i64, trip_id: i64) -> Result<(), WireLedgerError> {
+pub fn queue_trip(
+    conn: &Connection,
+    wire_id: i64,
+    trip_id: i64,
+) -> Result<(), TripwireLedgerError> {
     conn.execute(
         "UPDATE trips SET status = 'superseded', swallow_reason = 'superseded'
          WHERE wire_id = ?1 AND status = 'queued' AND id != ?2",
@@ -675,7 +699,7 @@ pub fn queue_trip(conn: &Connection, wire_id: i64, trip_id: i64) -> Result<(), W
 /// How many trips are running machine-wide. Read immediately before a run
 /// starts, and deliberately not cached: another instance's count is as real
 /// as this one's.
-pub fn running_count(conn: &Connection) -> Result<i64, WireLedgerError> {
+pub fn running_count(conn: &Connection) -> Result<i64, TripwireLedgerError> {
     Ok(conn.query_row(
         "SELECT COUNT(*) FROM trips WHERE status = 'running'",
         [],
@@ -685,14 +709,14 @@ pub fn running_count(conn: &Connection) -> Result<i64, WireLedgerError> {
 
 /// The oldest queued trip, or `None`. What the engine starts when one of its
 /// own runs settles.
-pub fn oldest_queued(conn: &Connection) -> Result<Option<Trip>, WireLedgerError> {
+pub fn oldest_queued(conn: &Connection) -> Result<Option<Trip>, TripwireLedgerError> {
     let sql = format!(
         "SELECT {TRIP_COLUMNS} FROM trips WHERE status = 'queued' ORDER BY at_ms, id LIMIT 1"
     );
     Ok(conn.query_row(&sql, [], trip_from_row).optional()?)
 }
 
-/// When this wire last fired for real, ignoring the trip that is asking.
+/// When this tripwire last fired for real, ignoring the trip that is asking.
 ///
 /// The exclusion is not a convenience: every guard runs *after* the claim, so
 /// by the time the cooldown is read the asking trip is already a row of its
@@ -700,13 +724,13 @@ pub fn oldest_queued(conn: &Connection) -> Result<Option<Trip>, WireLedgerError>
 /// swallow nothing.
 ///
 /// `swallowed` and `superseded` rows are deliberately not counted: a swallow
-/// is not work, and counting it would extend the window every time the wire
-/// declined to fire, which is a wire that goes quiet permanently.
+/// is not work, and counting it would extend the window every time the tripwire
+/// declined to fire, which is a tripwire that goes quiet permanently.
 pub fn previous_active_trip_at(
     conn: &Connection,
     wire_id: i64,
     this_trip: i64,
-) -> Result<Option<i64>, WireLedgerError> {
+) -> Result<Option<i64>, TripwireLedgerError> {
     Ok(conn.query_row(
         "SELECT MAX(at_ms) FROM trips
              WHERE wire_id = ?1 AND id != ?2 AND status NOT IN ('swallowed', 'superseded')",
@@ -722,7 +746,7 @@ pub fn record_probe(
     trip_id: i64,
     exit: i64,
     output_tail: &str,
-) -> Result<(), WireLedgerError> {
+) -> Result<(), TripwireLedgerError> {
     conn.execute(
         "UPDATE trips SET probe_exit = ?1, probe_tail = ?2 WHERE id = ?3",
         params![exit, tail(output_tail, PROBE_TAIL_CAP), trip_id],
@@ -736,7 +760,7 @@ pub fn record_run(
     trip_id: i64,
     session_id: Option<&str>,
     dash: Option<&str>,
-) -> Result<(), WireLedgerError> {
+) -> Result<(), TripwireLedgerError> {
     conn.execute(
         "UPDATE trips SET status = 'running', session_id = ?1, dash = ?2 WHERE id = ?3",
         params![session_id, dash, trip_id],
@@ -761,7 +785,7 @@ pub fn settle(
     status: TripStatus,
     settlement: &Settlement,
     at_ms: i64,
-) -> Result<(), WireLedgerError> {
+) -> Result<(), TripwireLedgerError> {
     conn.execute(
         "UPDATE trips SET status = ?1, interest = ?2, outcome = ?3, headline = ?4, refs = ?5,
                           settled_at_ms = ?6
@@ -780,21 +804,21 @@ pub fn settle(
 }
 
 /// One trip by id.
-pub fn trip(conn: &Connection, trip_id: i64) -> Result<Option<Trip>, WireLedgerError> {
+pub fn trip(conn: &Connection, trip_id: i64) -> Result<Option<Trip>, TripwireLedgerError> {
     let sql = format!("SELECT {TRIP_COLUMNS} FROM trips WHERE id = ?1");
     Ok(conn
         .query_row(&sql, params![trip_id], trip_from_row)
         .optional()?)
 }
 
-/// A wire's trips, newest first, capped. The log is the record — no retention
+/// A tripwire's trips, newest first, capped. The log is the record — no retention
 /// policy trims it, and `limit` is the reader's window rather than the
 /// ledger's memory.
-pub fn trips_for_wire(
+pub fn trips_for_tripwire(
     conn: &Connection,
     wire_id: i64,
     limit: i64,
-) -> Result<Vec<Trip>, WireLedgerError> {
+) -> Result<Vec<Trip>, TripwireLedgerError> {
     let sql =
         format!("SELECT {TRIP_COLUMNS} FROM trips WHERE wire_id = ?1 ORDER BY id DESC LIMIT ?2");
     let mut stmt = conn.prepare(&sql)?;
@@ -809,7 +833,7 @@ pub fn sweep_stale_running(
     conn: &Connection,
     instance: &str,
     at_ms: i64,
-) -> Result<usize, WireLedgerError> {
+) -> Result<usize, TripwireLedgerError> {
     Ok(conn.execute(
         "UPDATE trips SET status = 'failed', swallow_reason = 'instance restarted',
                           settled_at_ms = ?1
@@ -823,14 +847,17 @@ pub fn sweep_stale_running(
 /// [`sweep_stale_running`] is the clean half and cannot be the whole of it: an
 /// instance only ever knows its own name, so a tugcast that crashed and never
 /// came back leaves rows no boot sweep will ever reach. `running_count` is
-/// machine-wide, so those rows spend the ceiling for every wire on the machine
+/// machine-wide, so those rows spend the ceiling for every tripwire on the machine
 /// — and nothing recovers on its own, because draining the queue is what a
 /// settle does and no settle is coming for a dead instance's trip.
 ///
 /// Age is the only evidence available from here, and the caller sets the bound
 /// past the longest run any engine can produce, so a live run is never mistaken
 /// for an abandoned one.
-pub fn sweep_orphaned_running(conn: &Connection, before_ms: i64) -> Result<usize, WireLedgerError> {
+pub fn sweep_orphaned_running(
+    conn: &Connection,
+    before_ms: i64,
+) -> Result<usize, TripwireLedgerError> {
     Ok(conn.execute(
         "UPDATE trips SET status = 'failed', swallow_reason = 'abandoned',
                           settled_at_ms = ?1
@@ -842,7 +869,7 @@ pub fn sweep_orphaned_running(conn: &Connection, before_ms: i64) -> Result<usize
 // MARK: - Settings
 
 /// One setting, or `None`.
-pub fn setting(conn: &Connection, key: &str) -> Result<Option<String>, WireLedgerError> {
+pub fn setting(conn: &Connection, key: &str) -> Result<Option<String>, TripwireLedgerError> {
     Ok(conn
         .query_row(
             "SELECT value FROM settings WHERE key = ?1",
@@ -853,7 +880,7 @@ pub fn setting(conn: &Connection, key: &str) -> Result<Option<String>, WireLedge
 }
 
 /// Write one setting.
-pub fn set_setting(conn: &Connection, key: &str, value: &str) -> Result<(), WireLedgerError> {
+pub fn set_setting(conn: &Connection, key: &str, value: &str) -> Result<(), TripwireLedgerError> {
     conn.execute(
         "INSERT INTO settings (key, value) VALUES (?1, ?2)
          ON CONFLICT (key) DO UPDATE SET value = excluded.value",
@@ -864,8 +891,8 @@ pub fn set_setting(conn: &Connection, key: &str, value: &str) -> Result<(), Wire
 
 /// The machine-wide ceiling on concurrent runs. An absent or unreadable
 /// setting is the default rather than an error: a typo in a settings row must
-/// not stop every wire on the machine.
-pub fn max_concurrent_trips(conn: &Connection) -> Result<i64, WireLedgerError> {
+/// not stop every tripwire on the machine.
+pub fn max_concurrent_trips(conn: &Connection) -> Result<i64, TripwireLedgerError> {
     Ok(setting(conn, SETTING_MAX_CONCURRENT_TRIPS)?
         .and_then(|v| v.parse::<i64>().ok())
         .filter(|v| *v > 0)
@@ -894,10 +921,10 @@ mod tests {
         conn
     }
 
-    fn lay_one(conn: &Connection, name: &str) -> Wire {
+    fn lay_one(conn: &Connection, name: &str) -> Tripwire {
         lay(
             conn,
-            &NewWire::new(name, r#"{"fact":{"kind":"edit_failed"}}"#, "diagnose it"),
+            &NewTripwire::new(name, r#"{"fact":{"kind":"edit_failed"}}"#, "diagnose it"),
             1_000,
         )
         .unwrap()
@@ -909,12 +936,12 @@ mod tests {
         let stamped: i64 = conn
             .query_row("PRAGMA user_version", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(stamped, WIRE_SCHEMA_VERSION);
+        assert_eq!(stamped, TRIPWIRE_SCHEMA_VERSION);
         prepare(&conn).unwrap();
         let again: i64 = conn
             .query_row("PRAGMA user_version", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(again, WIRE_SCHEMA_VERSION);
+        assert_eq!(again, TRIPWIRE_SCHEMA_VERSION);
     }
 
     /// A newer build owns a shape this one cannot read, so the open refuses
@@ -922,16 +949,16 @@ mod tests {
     #[test]
     fn a_newer_schema_on_disk_refuses_the_open() {
         let conn = Connection::open_in_memory().unwrap();
-        conn.pragma_update(None, "user_version", WIRE_SCHEMA_VERSION + 1)
+        conn.pragma_update(None, "user_version", TRIPWIRE_SCHEMA_VERSION + 1)
             .unwrap();
         assert!(matches!(
             prepare(&conn),
-            Err(WireLedgerError::SchemaTooNew { .. })
+            Err(TripwireLedgerError::SchemaTooNew { .. })
         ));
     }
 
     #[test]
-    fn a_wire_lays_reads_back_and_refuses_a_second_under_one_name() {
+    fn a_tripwire_lays_reads_back_and_refuses_a_second_under_one_name() {
         let conn = ledger();
         let laid = lay_one(&conn, "tugedit");
         assert_eq!(laid.name, "tugedit");
@@ -941,10 +968,10 @@ mod tests {
 
         let again = lay(
             &conn,
-            &NewWire::new("tugedit", r#"{"commit":{}}"#, "other"),
+            &NewTripwire::new("tugedit", r#"{"commit":{}}"#, "other"),
             2_000,
         );
-        assert!(matches!(again, Err(WireLedgerError::DuplicateName(n)) if n == "tugedit"));
+        assert!(matches!(again, Err(TripwireLedgerError::DuplicateName(n)) if n == "tugedit"));
         assert_eq!(
             get(&conn, "tugedit").unwrap().unwrap().brief,
             "diagnose it",
@@ -959,10 +986,10 @@ mod tests {
         let edited = update(
             &conn,
             "w",
-            &WireEdit {
+            &TripwireEdit {
                 cooldown_secs: Some(5),
                 probe: Some(Some("just ci".to_string())),
-                // The probe promotes the wire to the work tier, which cannot
+                // The probe promotes the tripwire to the work tier, which cannot
                 // arm without somewhere to stage its work.
                 scope: Some(Some("/repo".to_string())),
                 ..Default::default()
@@ -977,7 +1004,7 @@ mod tests {
         let cleared = update(
             &conn,
             "w",
-            &WireEdit {
+            &TripwireEdit {
                 probe: Some(None),
                 ..Default::default()
             },
@@ -986,36 +1013,36 @@ mod tests {
         assert!(cleared.probe.is_none(), "Some(None) clears the column");
     }
 
-    /// A work-tier wire stages on a dash, and a dash lives in a checkout. The
+    /// A work-tier tripwire stages on a dash, and a dash lives in a checkout. The
     /// refusal is at the arming gesture — both of them — rather than at the
-    /// firing, because a wire nobody could have run is a wire that should
+    /// firing, because a tripwire nobody could have run is a tripwire that should
     /// never have been laid [B07].
     #[test]
-    fn a_work_tier_wire_cannot_arm_without_somewhere_to_work() {
+    fn a_work_tier_tripwire_cannot_arm_without_somewhere_to_work() {
         let conn = ledger();
-        let mut wire = NewWire::new("w", r#"{"commit":{}}"#, "b");
-        wire.probe = Some("just ci".to_string());
+        let mut tripwire = NewTripwire::new("w", r#"{"commit":{}}"#, "b");
+        tripwire.probe = Some("just ci".to_string());
         assert!(matches!(
-            lay(&conn, &wire, 1),
-            Err(WireLedgerError::WorkWireNeedsScope(_))
+            lay(&conn, &tripwire, 1),
+            Err(TripwireLedgerError::WorkTripwireNeedsScope(_))
         ));
 
-        wire.scope = Some("/repo".to_string());
-        lay(&conn, &wire, 1).unwrap();
+        tripwire.scope = Some("/repo".to_string());
+        lay(&conn, &tripwire, 1).unwrap();
 
         // And the same rule against the row an edit would produce: clearing
-        // the scope of a wire that is already at the work tier is the same
-        // unrunnable wire arriving by another door.
+        // the scope of a tripwire that is already at the work tier is the same
+        // unrunnable tripwire arriving by another door.
         assert!(matches!(
             update(
                 &conn,
                 "w",
-                &WireEdit {
+                &TripwireEdit {
                     scope: Some(None),
                     ..Default::default()
                 },
             ),
-            Err(WireLedgerError::WorkWireNeedsScope(_))
+            Err(TripwireLedgerError::WorkTripwireNeedsScope(_))
         ));
         assert_eq!(
             get(&conn, "w").unwrap().unwrap().scope.as_deref(),
@@ -1025,7 +1052,7 @@ mod tests {
     }
 
     #[test]
-    fn pausing_leaves_the_wire_and_its_log_and_takes_it_out_of_armed() {
+    fn pausing_leaves_the_tripwire_and_its_log_and_takes_it_out_of_armed() {
         let conn = ledger();
         let w = lay_one(&conn, "w");
         claim_trip(&conn, w.id, "e1", 1, "inst", None).unwrap();
@@ -1034,23 +1061,23 @@ mod tests {
         set_paused(&conn, "w", true).unwrap();
         assert!(armed(&conn).unwrap().is_empty());
         assert_eq!(list(&conn).unwrap().len(), 1, "still laid, just not armed");
-        assert_eq!(trips_for_wire(&conn, w.id, 10).unwrap().len(), 1);
+        assert_eq!(trips_for_tripwire(&conn, w.id, 10).unwrap().len(), 1);
 
         set_paused(&conn, "w", false).unwrap();
         assert_eq!(armed(&conn).unwrap().len(), 1);
     }
 
     #[test]
-    fn removing_a_wire_takes_its_trips_with_it() {
+    fn removing_a_tripwire_takes_its_trips_with_it() {
         let conn = ledger();
         let w = lay_one(&conn, "w");
         claim_trip(&conn, w.id, "e1", 1, "inst", None).unwrap();
         remove(&conn, "w").unwrap();
         assert!(get(&conn, "w").unwrap().is_none());
-        assert!(trips_for_wire(&conn, w.id, 10).unwrap().is_empty());
+        assert!(trips_for_tripwire(&conn, w.id, 10).unwrap().is_empty());
         assert!(matches!(
             remove(&conn, "w"),
-            Err(WireLedgerError::NoSuchWire(_))
+            Err(TripwireLedgerError::NoSuchTripwire(_))
         ));
     }
 
@@ -1063,13 +1090,13 @@ mod tests {
         let second = claim_trip(&conn, w.id, "sha-abc", 11, "inst-b", Some("{}")).unwrap();
         assert!(matches!(first, Claim::Claimed { .. }));
         assert_eq!(second, Claim::AlreadyClaimed);
-        assert_eq!(trips_for_wire(&conn, w.id, 10).unwrap().len(), 1);
+        assert_eq!(trips_for_tripwire(&conn, w.id, 10).unwrap().len(), 1);
     }
 
-    /// Two wires watching one commit are two firings, not one — the claim is
-    /// per wire, not per event.
+    /// Two tripwires watching one commit are two firings, not one — the claim is
+    /// per tripwire, not per event.
     #[test]
-    fn two_wires_each_claim_the_same_event() {
+    fn two_tripwires_each_claim_the_same_event() {
         let conn = ledger();
         let a = lay_one(&conn, "a");
         let b = lay_one(&conn, "b");
@@ -1088,7 +1115,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("tripwires.db");
         let setup = open_ledger(&path).unwrap();
-        let wire = lay_one(&setup, "w");
+        let tripwire = lay_one(&setup, "w");
         drop(setup);
 
         let outcomes: Vec<Claim> = std::thread::scope(|scope| {
@@ -1097,7 +1124,7 @@ mod tests {
                     let path = path.clone();
                     scope.spawn(move || {
                         let conn = open_ledger(&path).unwrap();
-                        claim_trip(&conn, wire.id, "one-event", 100 + i, "inst", None).unwrap()
+                        claim_trip(&conn, tripwire.id, "one-event", 100 + i, "inst", None).unwrap()
                     })
                 })
                 .collect();
@@ -1111,11 +1138,14 @@ mod tests {
         assert_eq!(won, 1, "exactly one writer owns the firing: {outcomes:?}");
 
         let conn = open_ledger(&path).unwrap();
-        assert_eq!(trips_for_wire(&conn, wire.id, 100).unwrap().len(), 1);
+        assert_eq!(
+            trips_for_tripwire(&conn, tripwire.id, 100).unwrap().len(),
+            1
+        );
     }
 
     /// A swallowed firing keeps its row and its reason — and stops counting
-    /// toward the window, because a wire whose every refusal reset the clock
+    /// toward the window, because a tripwire whose every refusal reset the clock
     /// would go quiet permanently.
     #[test]
     fn a_swallowed_claim_keeps_its_reason_and_stops_counting_toward_the_window() {
@@ -1129,7 +1159,7 @@ mod tests {
         };
         set_status(&conn, trip_id, TripStatus::Swallowed, Some("cooldown")).unwrap();
 
-        let trips = trips_for_wire(&conn, w.id, 10).unwrap();
+        let trips = trips_for_tripwire(&conn, w.id, 10).unwrap();
         assert_eq!(trips[0].status, "swallowed");
         assert_eq!(trips[0].swallow_reason.as_deref(), Some("cooldown"));
         assert_eq!(
@@ -1154,7 +1184,7 @@ mod tests {
     }
 
     #[test]
-    fn queuing_supersedes_the_older_queued_trip_on_the_same_wire() {
+    fn queuing_supersedes_the_older_queued_trip_on_the_same_tripwire() {
         let conn = ledger();
         let w = lay_one(&conn, "w");
         let other = lay_one(&conn, "other");
@@ -1182,7 +1212,7 @@ mod tests {
         assert_eq!(
             trip(&conn, elsewhere).unwrap().unwrap().status,
             "queued",
-            "another wire's queue is its own"
+            "another tripwire's queue is its own"
         );
         assert_eq!(
             trip(&conn, first)
@@ -1227,7 +1257,7 @@ mod tests {
         else {
             panic!("claimed");
         };
-        record_run(&conn, trip_id, Some("tug-1"), Some("wire-w-abc")).unwrap();
+        record_run(&conn, trip_id, Some("tug-1"), Some("tripwire-w-abc")).unwrap();
         assert_eq!(running_count(&conn).unwrap(), 1);
 
         settle(
@@ -1238,7 +1268,7 @@ mod tests {
                 interest: Some("interesting".to_string()),
                 outcome: Some("verdict".to_string()),
                 headline: Some("it broke".to_string()),
-                refs: Some(r#"[{"kind":"dash","target":"wire-w-abc"}]"#.to_string()),
+                refs: Some(r#"[{"kind":"dash","target":"tripwire-w-abc"}]"#.to_string()),
             },
             9_000,
         )
@@ -1248,7 +1278,7 @@ mod tests {
         let settled = trip(&conn, trip_id).unwrap().unwrap();
         assert_eq!(settled.status, "settled");
         assert_eq!(settled.session_id.as_deref(), Some("tug-1"));
-        assert_eq!(settled.dash.as_deref(), Some("wire-w-abc"));
+        assert_eq!(settled.dash.as_deref(), Some("tripwire-w-abc"));
         assert_eq!(settled.headline.as_deref(), Some("it broke"));
         assert_eq!(settled.settled_at_ms, Some(9_000));
     }
@@ -1320,7 +1350,7 @@ mod tests {
         assert_eq!(
             max_concurrent_trips(&conn).unwrap(),
             DEFAULT_MAX_CONCURRENT_TRIPS,
-            "a typo must not stop every wire on the machine"
+            "a typo must not stop every tripwire on the machine"
         );
         set_setting(&conn, SETTING_MAX_CONCURRENT_TRIPS, "0").unwrap();
         assert_eq!(
@@ -1329,36 +1359,39 @@ mod tests {
         );
     }
 
-    /// A probe may write, so a wire that has one needs the dash worktree.
+    /// A probe may write, so a tripwire that has one needs the dash worktree.
     #[test]
-    fn auto_resolves_to_work_when_the_wire_has_a_probe() {
+    fn auto_resolves_to_work_when_the_tripwire_has_a_probe() {
         let conn = ledger();
-        let mut wire = NewWire::new("w", r#"{"commit":{}}"#, "b");
-        let verdict = lay(&conn, &wire, 1).unwrap();
+        let mut tripwire = NewTripwire::new("w", r#"{"commit":{}}"#, "b");
+        let verdict = lay(&conn, &tripwire, 1).unwrap();
         assert_eq!(verdict.resolved_tier(), Tier::Verdict);
 
-        wire.name = "p".to_string();
-        wire.probe = Some("just ci".to_string());
-        wire.scope = Some("/repo".to_string());
-        assert_eq!(lay(&conn, &wire, 1).unwrap().resolved_tier(), Tier::Work);
-
-        wire.name = "forced".to_string();
-        wire.tier = Tier::Verdict;
+        tripwire.name = "p".to_string();
+        tripwire.probe = Some("just ci".to_string());
+        tripwire.scope = Some("/repo".to_string());
         assert_eq!(
-            lay(&conn, &wire, 1).unwrap().resolved_tier(),
+            lay(&conn, &tripwire, 1).unwrap().resolved_tier(),
+            Tier::Work
+        );
+
+        tripwire.name = "forced".to_string();
+        tripwire.tier = Tier::Verdict;
+        assert_eq!(
+            lay(&conn, &tripwire, 1).unwrap().resolved_tier(),
             Tier::Verdict,
             "an explicit tier is a capability boundary, not an optimization"
         );
     }
 
-    /// A wire laid by a newer build against a grammar this one cannot read is
-    /// still a wire this one can list and remove.
+    /// A tripwire laid by a newer build against a grammar this one cannot read is
+    /// still a tripwire this one can list and remove.
     #[test]
     fn an_unreadable_trigger_costs_the_predicate_never_the_row() {
         let conn = ledger();
         lay(
             &conn,
-            &NewWire::new("future", r#"{"portent":{"omen":"raven"}}"#, "b"),
+            &NewTripwire::new("future", r#"{"portent":{"omen":"raven"}}"#, "b"),
             1,
         )
         .unwrap();
@@ -1366,7 +1399,7 @@ mod tests {
         assert_eq!(listed.len(), 1);
         assert!(matches!(
             listed[0].predicate(),
-            Err(WireLedgerError::BadTrigger(_))
+            Err(TripwireLedgerError::BadTrigger(_))
         ));
         remove(&conn, "future").unwrap();
     }
@@ -1394,15 +1427,15 @@ mod tests {
     }
 
     #[test]
-    fn editing_or_pausing_a_wire_that_is_not_there_refuses() {
+    fn editing_or_pausing_a_tripwire_that_is_not_there_refuses() {
         let conn = ledger();
         assert!(matches!(
-            update(&conn, "ghost", &WireEdit::default()),
-            Err(WireLedgerError::NoSuchWire(_))
+            update(&conn, "ghost", &TripwireEdit::default()),
+            Err(TripwireLedgerError::NoSuchTripwire(_))
         ));
         assert!(matches!(
             set_paused(&conn, "ghost", true),
-            Err(WireLedgerError::NoSuchWire(_))
+            Err(TripwireLedgerError::NoSuchTripwire(_))
         ));
     }
 }

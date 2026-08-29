@@ -56,14 +56,14 @@ pub const BOUNDED_QUEUE_CAP: usize = 256;
 /// `client_id_counter` type.
 pub type ClientId = u64;
 
-/// The card-id prefix a wire's own session carries.
+/// The card-id prefix a tripwire's own session carries.
 ///
 /// `spawn_headless_session` writes it and the tripwire engine reads it back
-/// off a fact's session: a fact from a wire's session never trips anything,
-/// because a work-tier wire that re-tripped on its own commits would be a
-/// loop with no floor. Writer and reader share the one definition so the two
-/// halves cannot drift apart.
-pub(crate) const WIRE_CARD_PREFIX: &str = "wire:";
+/// off a fact's session: a fact from a tripwire's session never trips
+/// anything, because a work-tier tripwire that re-tripped on its own commits
+/// would be a loop with no floor. Writer and reader share the one definition
+/// so the two halves cannot drift apart.
+pub(crate) const TRIPWIRE_CARD_PREFIX: &str = "tripwire:";
 
 // ---------------------------------------------------------------------------
 // SpawnState
@@ -4656,19 +4656,19 @@ impl AgentSupervisor {
     /// transcript, a ledger row, a citation identity, and an id a deck client
     /// can later resume.
     ///
-    /// The card id is `wire:<name>`. It names the wire that asked rather than
-    /// addressing a card, because no card by that id exists; the tripwire
-    /// engine reads the same prefix back off a fact's session to keep a wire
-    /// from tripping on its own work.
+    /// The card id is `tripwire:<name>`. It names the tripwire that asked
+    /// rather than addressing a card, because no card by that id exists; the
+    /// tripwire engine reads the same prefix back off a fact's session to keep
+    /// a tripwire from tripping on its own work.
     #[cfg_attr(not(test), allow(dead_code))] // the work tier is the caller
     pub(crate) async fn spawn_headless_session(
         &self,
-        wire_name: &str,
+        tripwire_name: &str,
         project_dir: &Path,
         permission_mode: Option<String>,
         tag: Option<String>,
     ) -> Result<TugSessionId, ControlError> {
-        let card_id = format!("{WIRE_CARD_PREFIX}{wire_name}");
+        let card_id = format!("{TRIPWIRE_CARD_PREFIX}{tripwire_name}");
         let tug_session_id = TugSessionId::new(uuid::Uuid::new_v4().to_string());
         // A headless session is the only session on its line, and it mints the
         // line itself because no drop preceded it ([P03]).
@@ -4779,10 +4779,10 @@ impl AgentSupervisor {
     #[cfg_attr(not(test), allow(dead_code))] // the work tier is the caller
     pub(crate) async fn close_headless_session(
         &self,
-        wire_name: &str,
+        tripwire_name: &str,
         tug_session_id: &TugSessionId,
     ) {
-        let card_id = format!("{WIRE_CARD_PREFIX}{wire_name}");
+        let card_id = format!("{TRIPWIRE_CARD_PREFIX}{tripwire_name}");
         self.do_close_session(&card_id, tug_session_id).await;
     }
 
@@ -12993,10 +12993,10 @@ mod tests {
     }
 
     /// A headless spawn is a whole session — ledger entry, workspace
-    /// refcount, spawn claim — carrying the wire's card id, and no client
+    /// refcount, spawn claim — carrying the tripwire's card id, and no client
     /// holds it, because no client asked.
     #[tokio::test]
-    async fn a_headless_spawn_is_held_by_a_wire_and_by_no_client() {
+    async fn a_headless_spawn_is_held_by_a_tripwire_and_by_no_client() {
         let (sup, mut state_rx, _meta_rx, _control_rx) = make_supervisor_with_store();
 
         let session = sup
@@ -13004,7 +13004,7 @@ mod tests {
                 "tugedit",
                 Path::new(test_project_dir()),
                 Some("acceptEdits".to_string()),
-                Some("wire".to_string()),
+                Some("tripwire".to_string()),
             )
             .await
             .expect("headless spawn succeeds");
@@ -13017,10 +13017,10 @@ mod tests {
                 .expect("ledger holds the entry")
         };
         let entry = entry_arc.lock().await;
-        assert_eq!(entry.card_id.as_deref(), Some("wire:tugedit"));
+        assert_eq!(entry.card_id.as_deref(), Some("tripwire:tugedit"));
         assert_eq!(entry.session_mode, SessionMode::New);
         assert_eq!(entry.permission_mode.as_deref(), Some("acceptEdits"));
-        assert_eq!(entry.tag.as_deref(), Some("wire"));
+        assert_eq!(entry.tag.as_deref(), Some("tripwire"));
         assert!(entry.line_id.is_some(), "a headless session mints its line");
         assert!(entry.holds_workspace_refcount);
         drop(entry);
@@ -13028,7 +13028,7 @@ mod tests {
         let cs = sup.client_sessions.lock().await;
         assert!(
             cs.values().all(|set| !set.contains(&session)),
-            "no client connection may hold a wire's session"
+            "no client connection may hold a tripwire's session"
         );
         drop(cs);
 
@@ -13064,7 +13064,7 @@ mod tests {
         );
     }
 
-    /// The id a wire's session ran under is an ordinary session id
+    /// The id a tripwire's session ran under is an ordinary session id
     /// afterwards: a card can resume it, and the supervisor arbitrates that
     /// resume against nothing, because a headless session was never in any
     /// client's set to begin with.
@@ -13093,7 +13093,7 @@ mod tests {
         assert_eq!(
             entry_arc.lock().await.card_id.as_deref(),
             Some("card-1"),
-            "the card now holds the session the wire opened"
+            "the card now holds the session the tripwire opened"
         );
         let cs = sup.client_sessions.lock().await;
         assert!(cs.get(&10).expect("client 10's set").contains(&session));

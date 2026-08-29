@@ -11,7 +11,7 @@ mod output;
 mod plan;
 mod session;
 mod splash;
-mod wire;
+mod tripwire;
 
 use std::process::ExitCode;
 
@@ -111,7 +111,7 @@ fn main() -> ExitCode {
 
         // Dashes (tugdash_core) and host plumbing (command modules).
         Some(Commands::Dash(cmd)) => dash::dispatch(cmd, json, quiet),
-        Some(Commands::Wire(cmd)) => wire::dispatch(cmd, json, quiet),
+        Some(Commands::Tripwire(cmd)) => tripwire::dispatch(cmd, json, quiet),
         Some(Commands::Plan(cmd)) => plan::dispatch(cmd, json),
         Some(Commands::Host(cmd)) => host::dispatch(cmd, json, quiet),
 

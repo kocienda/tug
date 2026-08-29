@@ -1,11 +1,11 @@
-//! What a wire watches for, and whether an event is it.
+//! What a tripwire watches for, and whether an event is it.
 //!
 //! A trigger is JSON with exactly one source — a fact kind, or a commit — and
 //! this module is its types, its serde shape, and the pure `matches` that
 //! decides. Nothing here touches IO, a clock, or a database: the engine reads
-//! a wire row, hands the trigger an event, and gets a bool.
+//! a tripwire row, hands the trigger an event, and gets a bool.
 //!
-//! **Two sources, because two things trip a wire.** Facts are the uniform,
+//! **Two sources, because two things trip a tripwire.** Facts are the uniform,
 //! searchable record of everything a session does, so a new trigger source is
 //! normally a new fact kind rather than new machinery here. Commits are the
 //! exception that earns its own arm: `GIT_HEAD` catches the terminal and
@@ -13,7 +13,7 @@
 //!
 //! **A `where` clause reads the fact's payload and nothing else.** A missing
 //! field never matches — the same posture the shell-op grammar takes, because
-//! a predicate that treats absence as a match fires a wire on evidence that
+//! a predicate that treats absence as a match fires a tripwire on evidence that
 //! was not there.
 //!
 //! The v1 shape is deliberately flat: no regex, no numeric comparison, no
@@ -24,7 +24,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-/// What a wire is armed to watch for. Exactly one source, and the untagged
+/// What a tripwire is armed to watch for. Exactly one source, and the untagged
 /// serde shape is what makes `{"fact": …}` and `{"commit": …}` the whole
 /// grammar rather than a `type` discriminator nobody would ever type.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -41,7 +41,7 @@ pub enum Predicate {
 #[serde(deny_unknown_fields)]
 pub struct FactTrigger {
     /// A `facts.kind` string, in the `FactKind::as_str` spelling. Unknown
-    /// kinds are legal on purpose: a wire laid against a kind a newer build
+    /// kinds are legal on purpose: a tripwire laid against a kind a newer build
     /// records must be storable by an older one, and simply never fire.
     pub kind: String,
     /// A flat map over the fact's payload. Absent means "any fact of this
@@ -99,7 +99,7 @@ impl Matcher {
 /// one struct describes an event whole rather than two halves the caller has
 /// to keep together.
 #[derive(Debug, Clone, PartialEq)]
-pub enum WireEvent {
+pub enum TripwireEvent {
     Fact {
         kind: String,
         payload: serde_json::Value,
@@ -120,13 +120,13 @@ pub enum WireEvent {
     },
 }
 
-impl WireEvent {
+impl TripwireEvent {
     /// The path a scope is compared against ([P12]): the fact's session's
     /// project directory, or the committing workspace.
     pub fn project_path(&self) -> Option<&str> {
         match self {
-            WireEvent::Fact { project_dir, .. } => project_dir.as_deref(),
-            WireEvent::Commit { workspace_path, .. } => Some(workspace_path),
+            TripwireEvent::Fact { project_dir, .. } => project_dir.as_deref(),
+            TripwireEvent::Commit { workspace_path, .. } => Some(workspace_path),
         }
     }
 
@@ -135,21 +135,21 @@ impl WireEvent {
     /// never trips again.
     pub fn key(&self) -> Option<String> {
         match self {
-            WireEvent::Commit { sha, .. } => Some(sha.clone()),
-            WireEvent::Fact { .. } => None,
+            TripwireEvent::Commit { sha, .. } => Some(sha.clone()),
+            TripwireEvent::Fact { .. } => None,
         }
     }
 }
 
-/// Whether an event is what a wire is watching for.
+/// Whether an event is what a tripwire is watching for.
 ///
 /// Kind and source must agree exactly. A `where` clause then reads the fact's
-/// payload: every named field must be present *and* match, because a wire
+/// payload: every named field must be present *and* match, because a tripwire
 /// narrowed to `route=claude` that fires on a fact with no route at all is a
-/// wire that quietly ignores the narrowing it was given.
-pub fn matches(predicate: &Predicate, event: &WireEvent) -> bool {
+/// tripwire that quietly ignores the narrowing it was given.
+pub fn matches(predicate: &Predicate, event: &TripwireEvent) -> bool {
     match (predicate, event) {
-        (Predicate::Fact(trigger), WireEvent::Fact { kind, payload, .. }) => {
+        (Predicate::Fact(trigger), TripwireEvent::Fact { kind, payload, .. }) => {
             if trigger.kind != *kind {
                 return false;
             }
@@ -162,9 +162,10 @@ pub fn matches(predicate: &Predicate, event: &WireEvent) -> bool {
                     .is_some_and(|value| matcher.matches(value))
             })
         }
-        (Predicate::Commit(trigger), WireEvent::Commit { branch, .. }) => match &trigger.branch {
+        (Predicate::Commit(trigger), TripwireEvent::Commit { branch, .. }) => match &trigger.branch
+        {
             // A branch the engine could not resolve is not "any branch": it is
-            // an unknown, and a wire narrowed to `main` must not fire on one.
+            // an unknown, and a tripwire narrowed to `main` must not fire on one.
             Some(want) => branch.as_deref() == Some(want.as_str()),
             None => true,
         },
@@ -177,8 +178,8 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    fn fact(kind: &str, payload: serde_json::Value) -> WireEvent {
-        WireEvent::Fact {
+    fn fact(kind: &str, payload: serde_json::Value) -> TripwireEvent {
+        TripwireEvent::Fact {
             kind: kind.to_string(),
             payload,
             project_dir: Some("/proj".to_string()),
@@ -187,8 +188,8 @@ mod tests {
         }
     }
 
-    fn commit(branch: Option<&str>) -> WireEvent {
-        WireEvent::Commit {
+    fn commit(branch: Option<&str>) -> TripwireEvent {
+        TripwireEvent::Commit {
             branch: branch.map(str::to_owned),
             sha: "abc123".to_string(),
             workspace_path: "/proj".to_string(),
@@ -273,8 +274,8 @@ mod tests {
         assert!(!matches(&main, &fact("commit", json!({}))));
     }
 
-    /// A wire laid against a kind this build has never heard of must store
-    /// and load — it is a wire for a newer build's fact, and it simply never
+    /// A tripwire laid against a kind this build has never heard of must store
+    /// and load — it is a tripwire for a newer build's fact, and it simply never
     /// fires here.
     #[test]
     fn an_unknown_fact_kind_is_legal() {
@@ -305,7 +306,7 @@ mod tests {
         assert!(serde_json::from_str::<Predicate>(r#"{"tag":{"kind":"x"}}"#).is_err());
         assert!(
             serde_json::from_str::<Predicate>(r#"{"fact":{"knid":"edit_failed"}}"#).is_err(),
-            "a misspelled field is a refusal, not a wire that watches nothing"
+            "a misspelled field is a refusal, not a tripwire that watches nothing"
         );
     }
 

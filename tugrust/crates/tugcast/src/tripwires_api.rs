@@ -1,10 +1,10 @@
-//! Wires HTTP routes: the list, one wire's trip log, and the card's small
+//! Tripwires HTTP routes: the list, one tripwire's trip log, and the card's small
 //! knobs (Spec S06).
 //!
 //! HTTP rather than a feed for the same reason the prompt-history corpus is:
 //! the card asks a question and wants that question's answer, and a broadcast
 //! would make every reader carry echo discipline for a surface only one card
-//! looks at. The live half — a wire that just settled — arrives on OVERVIEW
+//! looks at. The live half — a tripwire that just settled — arrives on OVERVIEW
 //! already, and the card re-asks on it.
 //!
 //! Every handler opens its own connection to `tripwires.db` and closes it
@@ -15,7 +15,7 @@
 //!
 //! Authoring stays on the CLI [B15]. What this surface writes is the three
 //! things a reader of the card would reach for without leaving it — paused,
-//! model, post policy — and nothing that could make a wire unrunnable.
+//! model, post policy — and nothing that could make a tripwire unrunnable.
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -28,17 +28,17 @@ use rusqlite::Connection;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use tracing::warn;
-use tugutil_core::wire_ledger::{
-    self as ledger, PostPolicy, Trip, TripStatus, Wire, WireEdit, WireLedgerError,
+use tugutil_core::tripwire_ledger::{
+    self as ledger, PostPolicy, Trip, TripStatus, Tripwire, TripwireEdit, TripwireLedgerError,
 };
 
-/// Trips a wire's log returns when the caller names no limit.
+/// Trips a tripwire's log returns when the caller names no limit.
 const DEFAULT_TRIP_LIMIT: i64 = 50;
 /// Ceiling on a caller-named limit. The log is a window, not the table.
 const MAX_TRIP_LIMIT: i64 = 500;
-/// How far back the list projection looks for a wire's live state. The card
+/// How far back the list projection looks for a tripwire's live state. The card
 /// shows "running now" and "has staged work", both of which are recent facts;
-/// a wire whose last twenty trips are all settled is not running.
+/// a tripwire whose last twenty trips are all settled is not running.
 const PROJECTION_DEPTH: i64 = 20;
 
 /// Where `tripwires.db` lives. Resolved per request rather than injected: the
@@ -55,7 +55,7 @@ pub(crate) struct TripsQuery {
 }
 
 /// The card's three knobs. Every field optional; a body naming none is a
-/// no-op that still answers with the wire, so the control that sent it can
+/// no-op that still answers with the tripwire, so the control that sent it can
 /// settle on what the ledger holds rather than on what it hoped.
 #[derive(Debug, Deserialize)]
 pub(crate) struct KnobsBody {
@@ -67,10 +67,10 @@ pub(crate) struct KnobsBody {
     post: Option<String>,
 }
 
-/// One wire as the card reads it: the row, plus the three facts about it that
+/// One tripwire as the card reads it: the row, plus the three facts about it that
 /// are not in the row at all.
-fn project(conn: &Connection, wire: &Wire) -> Value {
-    let trips = ledger::trips_for_wire(conn, wire.id, PROJECTION_DEPTH).unwrap_or_default();
+fn project(conn: &Connection, tripwire: &Tripwire) -> Value {
+    let trips = ledger::trips_for_tripwire(conn, tripwire.id, PROJECTION_DEPTH).unwrap_or_default();
     let running = trips
         .iter()
         .any(|t| t.status == TripStatus::Running.as_str());
@@ -81,20 +81,20 @@ fn project(conn: &Connection, wire: &Wire) -> Value {
     let staged = trips
         .iter()
         .find(|t| t.outcome.as_deref() == Some("staged") && t.dash.is_some())
-        .filter(|t| dash_present(wire, t));
+        .filter(|t| dash_present(tripwire, t));
     let last = trips.first();
     json!({
-        "name": wire.name,
-        "trigger": wire.trigger,
-        "scope": wire.scope,
-        "probe": wire.probe,
-        "brief": wire.brief,
-        "model": wire.model,
-        "tier": wire.resolved_tier().as_str(),
-        "permission_mode": wire.permission_mode,
-        "post": wire.post,
-        "paused": wire.paused,
-        "cooldown_secs": wire.cooldown_secs,
+        "name": tripwire.name,
+        "trigger": tripwire.trigger,
+        "scope": tripwire.scope,
+        "probe": tripwire.probe,
+        "brief": tripwire.brief,
+        "model": tripwire.model,
+        "tier": tripwire.resolved_tier().as_str(),
+        "permission_mode": tripwire.permission_mode,
+        "post": tripwire.post,
+        "paused": tripwire.paused,
+        "cooldown_secs": tripwire.cooldown_secs,
         "running": running,
         "staged_dash": staged.and_then(|t| t.dash.clone()),
         "last_trip": last.map(|t| json!({
@@ -109,43 +109,55 @@ fn project(conn: &Connection, wire: &Wire) -> Value {
 
 /// Whether the dash a settled trip staged is still on disk.
 ///
-/// A wire with no scope never staged anything, so it never has one to look
+/// A tripwire with no scope never staged anything, so it never has one to look
 /// for; an unreadable checkout answers "no dash" rather than failing the whole
 /// list, because one missing repository must not blank the card.
-fn dash_present(wire: &Wire, trip: &Trip) -> bool {
-    let (Some(scope), Some(dash)) = (wire.scope.as_deref(), trip.dash.as_deref()) else {
+fn dash_present(tripwire: &Tripwire, trip: &Trip) -> bool {
+    let (Some(scope), Some(dash)) = (tripwire.scope.as_deref(), trip.dash.as_deref()) else {
         return false;
     };
     tugdash_core::ops::dash_exists_in(std::path::Path::new(scope), dash)
 }
 
-fn list_wires(db_path: &std::path::Path) -> (StatusCode, Value) {
+fn list_tripwires(db_path: &std::path::Path) -> (StatusCode, Value) {
     let conn = match ledger::open_ledger(db_path) {
         Ok(conn) => conn,
         Err(e) => return ledger_error("list", e),
     };
     match ledger::list(&conn) {
-        Ok(wires) => {
-            let projected: Vec<Value> = wires.iter().map(|w| project(&conn, w)).collect();
-            (StatusCode::OK, json!({ "wires": projected }))
+        Ok(tripwires) => {
+            let projected: Vec<Value> = tripwires.iter().map(|w| project(&conn, w)).collect();
+            (StatusCode::OK, json!({ "tripwires": projected }))
         }
         Err(e) => ledger_error("list", e),
     }
 }
 
-fn wire_trips(db_path: &std::path::Path, name: &str, limit: Option<i64>) -> (StatusCode, Value) {
+fn tripwire_trips(
+    db_path: &std::path::Path,
+    name: &str,
+    limit: Option<i64>,
+) -> (StatusCode, Value) {
     let conn = match ledger::open_ledger(db_path) {
         Ok(conn) => conn,
         Err(e) => return ledger_error("trips", e),
     };
-    let wire = match ledger::get(&conn, name) {
-        Ok(Some(wire)) => wire,
-        Ok(None) => return (StatusCode::NOT_FOUND, json!({ "error": "no_such_wire" })),
+    let tripwire = match ledger::get(&conn, name) {
+        Ok(Some(tripwire)) => tripwire,
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                json!({ "error": "no_such_tripwire" }),
+            );
+        }
         Err(e) => return ledger_error("trips", e),
     };
     let limit = limit.unwrap_or(DEFAULT_TRIP_LIMIT).clamp(1, MAX_TRIP_LIMIT);
-    match ledger::trips_for_wire(&conn, wire.id, limit) {
-        Ok(trips) => (StatusCode::OK, json!({ "name": wire.name, "trips": trips })),
+    match ledger::trips_for_tripwire(&conn, tripwire.id, limit) {
+        Ok(trips) => (
+            StatusCode::OK,
+            json!({ "name": tripwire.name, "trips": trips }),
+        ),
         Err(e) => ledger_error("trips", e),
     }
 }
@@ -156,7 +168,10 @@ fn set_knobs(db_path: &std::path::Path, name: &str, body: KnobsBody) -> (StatusC
         Err(e) => return ledger_error("knobs", e),
     };
     if ledger::get(&conn, name).ok().flatten().is_none() {
-        return (StatusCode::NOT_FOUND, json!({ "error": "no_such_wire" }));
+        return (
+            StatusCode::NOT_FOUND,
+            json!({ "error": "no_such_tripwire" }),
+        );
     }
     if let Some(paused) = body.paused
         && let Err(e) = ledger::set_paused(&conn, name, paused)
@@ -172,7 +187,7 @@ fn set_knobs(db_path: &std::path::Path, name: &str, body: KnobsBody) -> (StatusC
         None => None,
     };
     if body.model.is_some() || post.is_some() {
-        let edit = WireEdit {
+        let edit = TripwireEdit {
             model: body.model,
             post,
             ..Default::default()
@@ -182,14 +197,20 @@ fn set_knobs(db_path: &std::path::Path, name: &str, body: KnobsBody) -> (StatusC
         }
     }
     match ledger::get(&conn, name) {
-        Ok(Some(wire)) => (StatusCode::OK, json!({ "wire": project(&conn, &wire) })),
-        Ok(None) => (StatusCode::NOT_FOUND, json!({ "error": "no_such_wire" })),
+        Ok(Some(tripwire)) => (
+            StatusCode::OK,
+            json!({ "tripwire": project(&conn, &tripwire) }),
+        ),
+        Ok(None) => (
+            StatusCode::NOT_FOUND,
+            json!({ "error": "no_such_tripwire" }),
+        ),
         Err(e) => ledger_error("knobs", e),
     }
 }
 
-fn ledger_error(route: &str, err: WireLedgerError) -> (StatusCode, Value) {
-    warn!(error = %err, "wires: {route} failed");
+fn ledger_error(route: &str, err: TripwireLedgerError) -> (StatusCode, Value) {
+    warn!(error = %err, "tripwires: {route} failed");
     (
         StatusCode::INTERNAL_SERVER_ERROR,
         json!({ "error": "internal" }),
@@ -223,33 +244,35 @@ fn finish(result: Result<(StatusCode, Value), tokio::task::JoinError>) -> Respon
     }
 }
 
-/// `GET /api/wires`. Restricted to loopback.
-pub(crate) async fn get_wires(ConnectInfo(addr): ConnectInfo<SocketAddr>) -> Response {
-    if let Some(denied) = deny_non_loopback(&addr, "get_wires") {
+/// `GET /api/tripwires`. Restricted to loopback.
+pub(crate) async fn get_tripwires(ConnectInfo(addr): ConnectInfo<SocketAddr>) -> Response {
+    if let Some(denied) = deny_non_loopback(&addr, "get_tripwires") {
         return denied;
     }
-    finish(tokio::task::spawn_blocking(move || list_wires(&db_path())).await)
+    finish(tokio::task::spawn_blocking(move || list_tripwires(&db_path())).await)
 }
 
-/// `GET /api/wires/{name}/trips`. Restricted to loopback.
-pub(crate) async fn get_wire_trips(
+/// `GET /api/tripwires/{name}/trips`. Restricted to loopback.
+pub(crate) async fn get_tripwire_trips(
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
     Path(name): Path<String>,
     Query(query): Query<TripsQuery>,
 ) -> Response {
-    if let Some(denied) = deny_non_loopback(&addr, "get_wire_trips") {
+    if let Some(denied) = deny_non_loopback(&addr, "get_tripwire_trips") {
         return denied;
     }
-    finish(tokio::task::spawn_blocking(move || wire_trips(&db_path(), &name, query.limit)).await)
+    finish(
+        tokio::task::spawn_blocking(move || tripwire_trips(&db_path(), &name, query.limit)).await,
+    )
 }
 
-/// `POST /api/wires/{name}`. Restricted to loopback.
-pub(crate) async fn post_wire(
+/// `POST /api/tripwires/{name}`. Restricted to loopback.
+pub(crate) async fn post_tripwire(
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
     Path(name): Path<String>,
     bytes: Bytes,
 ) -> Response {
-    if let Some(denied) = deny_non_loopback(&addr, "post_wire") {
+    if let Some(denied) = deny_non_loopback(&addr, "post_tripwire") {
         return denied;
     }
     let body: KnobsBody = match serde_json::from_slice(&bytes) {
@@ -268,7 +291,7 @@ pub(crate) async fn post_wire(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tugutil_core::wire_ledger::NewWire;
+    use tugutil_core::tripwire_ledger::NewTripwire;
 
     fn scratch() -> (tempfile::TempDir, PathBuf) {
         let dir = tempfile::tempdir().unwrap();
@@ -281,7 +304,7 @@ mod tests {
         let conn = ledger::open_ledger(path).unwrap();
         ledger::lay(
             &conn,
-            &NewWire::new(name, r#"{"commit":{}}"#, "watch it"),
+            &NewTripwire::new(name, r#"{"commit":{}}"#, "watch it"),
             1,
         )
         .unwrap();
@@ -291,17 +314,17 @@ mod tests {
     fn the_list_carries_the_row_and_the_facts_that_are_not_in_it() {
         let (_dir, path) = scratch();
         lay(&path, "ci");
-        let (status, body) = list_wires(&path);
+        let (status, body) = list_tripwires(&path);
         assert_eq!(status, StatusCode::OK);
-        let wire = &body["wires"][0];
-        assert_eq!(wire["name"], "ci");
-        assert_eq!(wire["tier"], "verdict");
-        assert_eq!(wire["paused"], false);
-        assert_eq!(wire["running"], false);
-        assert!(wire["staged_dash"].is_null());
+        let tripwire = &body["tripwires"][0];
+        assert_eq!(tripwire["name"], "ci");
+        assert_eq!(tripwire["tier"], "verdict");
+        assert_eq!(tripwire["paused"], false);
+        assert_eq!(tripwire["running"], false);
+        assert!(tripwire["staged_dash"].is_null());
         assert!(
-            wire["last_trip"].is_null(),
-            "a wire that never fired has no last trip rather than an empty one"
+            tripwire["last_trip"].is_null(),
+            "a tripwire that never fired has no last trip rather than an empty one"
         );
     }
 
@@ -309,48 +332,48 @@ mod tests {
     /// projection over the trip log rather than a column, so it cannot drift
     /// from the log the detail level shows.
     #[test]
-    fn a_running_trip_shows_on_the_wire_it_is_running_for() {
+    fn a_running_trip_shows_on_the_tripwire_it_is_running_for() {
         let (_dir, path) = scratch();
         lay(&path, "ci");
         lay(&path, "other");
         let conn = ledger::open_ledger(&path).unwrap();
-        let wire = ledger::get(&conn, "ci").unwrap().unwrap();
+        let tripwire = ledger::get(&conn, "ci").unwrap().unwrap();
         let ledger::Claim::Claimed { trip_id } =
-            ledger::claim_trip(&conn, wire.id, "abc", 10, "inst", None).unwrap()
+            ledger::claim_trip(&conn, tripwire.id, "abc", 10, "inst", None).unwrap()
         else {
             panic!("the claim is uncontested");
         };
         ledger::record_run(&conn, trip_id, None, None).unwrap();
 
-        let (_, body) = list_wires(&path);
-        let wires = body["wires"].as_array().unwrap();
-        assert_eq!(wires[0]["running"], true);
-        assert_eq!(wires[0]["last_trip"]["status"], "running");
-        assert_eq!(wires[1]["running"], false, "and only that wire");
+        let (_, body) = list_tripwires(&path);
+        let tripwires = body["tripwires"].as_array().unwrap();
+        assert_eq!(tripwires[0]["running"], true);
+        assert_eq!(tripwires[0]["last_trip"]["status"], "running");
+        assert_eq!(tripwires[1]["running"], false, "and only that tripwire");
     }
 
     #[test]
-    fn the_trip_log_reads_newest_first_and_refuses_an_unknown_wire() {
+    fn the_trip_log_reads_newest_first_and_refuses_an_unknown_tripwire() {
         let (_dir, path) = scratch();
         lay(&path, "ci");
         let conn = ledger::open_ledger(&path).unwrap();
-        let wire = ledger::get(&conn, "ci").unwrap().unwrap();
+        let tripwire = ledger::get(&conn, "ci").unwrap().unwrap();
         for (i, key) in ["one", "two"].iter().enumerate() {
-            ledger::claim_trip(&conn, wire.id, key, 10 + i as i64, "inst", None).unwrap();
+            ledger::claim_trip(&conn, tripwire.id, key, 10 + i as i64, "inst", None).unwrap();
         }
 
-        let (status, body) = wire_trips(&path, "ci", None);
+        let (status, body) = tripwire_trips(&path, "ci", None);
         assert_eq!(status, StatusCode::OK);
         let trips = body["trips"].as_array().unwrap();
         assert_eq!(trips.len(), 2);
         assert_eq!(trips[0]["event_key"], "two");
 
-        let (status, body) = wire_trips(&path, "nobody", None);
+        let (status, body) = tripwire_trips(&path, "nobody", None);
         assert_eq!(status, StatusCode::NOT_FOUND);
-        assert_eq!(body["error"], "no_such_wire");
+        assert_eq!(body["error"], "no_such_tripwire");
     }
 
-    /// The knobs answer with the wire as the ledger now holds it, which is
+    /// The knobs answer with the tripwire as the ledger now holds it, which is
     /// what lets the control settle on a fact rather than on its own optimism.
     #[test]
     fn the_knobs_move_what_they_name_and_answer_with_the_row() {
@@ -367,9 +390,9 @@ mod tests {
             },
         );
         assert_eq!(status, StatusCode::OK);
-        assert_eq!(body["wire"]["paused"], true);
-        assert_eq!(body["wire"]["model"], "claude-opus-5");
-        assert_eq!(body["wire"]["post"], "never");
+        assert_eq!(body["tripwire"]["paused"], true);
+        assert_eq!(body["tripwire"]["model"], "claude-opus-5");
+        assert_eq!(body["tripwire"]["post"], "never");
 
         // Absent fields move nothing — the same body twice must not be the
         // second one undoing the first.
@@ -382,8 +405,8 @@ mod tests {
                 post: None,
             },
         );
-        assert_eq!(body["wire"]["paused"], true);
-        assert_eq!(body["wire"]["model"], "claude-opus-5");
+        assert_eq!(body["tripwire"]["paused"], true);
+        assert_eq!(body["tripwire"]["model"], "claude-opus-5");
 
         // And a clear is a different request from an absence.
         let (_, body) = set_knobs(
@@ -395,8 +418,8 @@ mod tests {
                 post: None,
             },
         );
-        assert_eq!(body["wire"]["paused"], false);
-        assert!(body["wire"]["model"].is_null());
+        assert_eq!(body["tripwire"]["paused"], false);
+        assert!(body["tripwire"]["model"].is_null());
     }
 
     #[test]

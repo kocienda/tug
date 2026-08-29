@@ -1,6 +1,6 @@
 //! The work tier's session — a real `claude`, on a real worktree, with no card.
 //!
-//! A verdict-tier wire asks a pooled worker a question. A work-tier wire needs
+//! A verdict-tier tripwire asks a pooled worker a question. A work-tier tripwire needs
 //! hands: a checkout it may write in, permission to write there, and the whole
 //! tool surface a session carries. That is an ordinary Tug session in every
 //! respect except who asked for it, which is what
@@ -23,28 +23,28 @@ use crate::feeds::payload_inspector::InspectedPayload;
 
 /// How long a work-tier run may take before the engine stops waiting on it.
 ///
-/// A wire's session is unattended: nobody is watching for the turn that never
+/// A tripwire's session is unattended: nobody is watching for the turn that never
 /// ends, so the engine has to be the one that notices. Twenty minutes is long
 /// enough for a real fix on a real tree and short enough that a wedged session
 /// does not hold a concurrency slot for the rest of the day.
-pub const WIRE_RUN_TIMEOUT: Duration = Duration::from_secs(20 * 60);
+pub const TRIPWIRE_RUN_TIMEOUT: Duration = Duration::from_secs(20 * 60);
 
 /// What the engine asks a session to do.
-pub struct WireSessionRequest {
-    /// The wire that asked — the session's card id and the run's identity.
-    pub wire: String,
+pub struct TripwireSessionRequest {
+    /// The tripwire that asked — the session's card id and the run's identity.
+    pub tripwire: String,
     /// The dash worktree the session works in.
     pub worktree: PathBuf,
-    /// The wire's permission mode, forwarded to `claude` at spawn [B09].
+    /// The tripwire's permission mode, forwarded to `claude` at spawn [B09].
     pub permission_mode: String,
-    /// The model the wire named, or the account default ([P06]).
+    /// The model the tripwire named, or the account default ([P06]).
     pub model: Option<String>,
     /// The whole prompt: brief, evidence, probe result, and the S04 contract.
     pub prompt: String,
 }
 
 /// What came back.
-pub struct WireSessionOutcome {
+pub struct TripwireSessionOutcome {
     /// The session the run happened in, for the trip row and the post's ref.
     pub session_id: String,
     /// Every CODE_OUTPUT payload the session emitted, concatenated. Read as
@@ -59,25 +59,25 @@ pub struct WireSessionOutcome {
 }
 
 #[async_trait::async_trait]
-pub trait WireSessionRunner: Send + Sync {
-    async fn run(&self, request: WireSessionRequest) -> Result<WireSessionOutcome, String>;
+pub trait TripwireSessionRunner: Send + Sync {
+    async fn run(&self, request: TripwireSessionRequest) -> Result<TripwireSessionOutcome, String>;
 }
 
 /// The production runner: spawn cardless, rotate the prompt in, watch the
 /// output, close.
-pub struct SupervisorWireSessions {
+pub struct SupervisorTripwireSessions {
     supervisor: Arc<AgentSupervisor>,
 }
 
-impl SupervisorWireSessions {
+impl SupervisorTripwireSessions {
     pub fn new(supervisor: Arc<AgentSupervisor>) -> Self {
-        SupervisorWireSessions { supervisor }
+        SupervisorTripwireSessions { supervisor }
     }
 }
 
 #[async_trait::async_trait]
-impl WireSessionRunner for SupervisorWireSessions {
-    async fn run(&self, request: WireSessionRequest) -> Result<WireSessionOutcome, String> {
+impl TripwireSessionRunner for SupervisorTripwireSessions {
+    async fn run(&self, request: TripwireSessionRequest) -> Result<TripwireSessionOutcome, String> {
         // Subscribe before the spawn. A session that answers fast would
         // otherwise have its opening frames broadcast into a feed nobody was
         // listening on yet, and the transcript would be missing its head.
@@ -86,38 +86,39 @@ impl WireSessionRunner for SupervisorWireSessions {
         let session = self
             .supervisor
             .spawn_headless_session(
-                &request.wire,
+                &request.tripwire,
                 &request.worktree,
                 Some(request.permission_mode.clone()),
-                Some("wire".to_string()),
+                Some("tripwire".to_string()),
             )
             .await
-            .map_err(|e| format!("the wire's session could not be spawned: {e:?}"))?;
+            .map_err(|e| format!("the tripwire's session could not be spawned: {e:?}"))?;
 
         // The rotation is the deck's own opening gesture: `model_change` first
         // so tugcode records the selector before it spawns claude ([P06]), then
         // the prompt through the dispatcher. Reused rather than re-derived,
         // because the `Spawning`-queue / `Live`-send matrix it carries is the
         // part that is easy to get subtly wrong.
-        let rotation = crate::wheel::RotationRequest::new(session.clone(), &request.prompt, "wire")
-            .model(request.model.clone());
+        let rotation =
+            crate::wheel::RotationRequest::new(session.clone(), &request.prompt, "tripwire")
+                .model(request.model.clone());
         if let Err(refusal) = crate::wheel::rotate(&self.supervisor, &rotation).await {
             self.supervisor
-                .close_headless_session(&request.wire, &session)
+                .close_headless_session(&request.tripwire, &session)
                 .await;
-            return Err(format!("the wire's prompt was refused: {refusal:?}"));
+            return Err(format!("the tripwire's prompt was refused: {refusal:?}"));
         }
 
         let (transcript, completed) = watch_turn(code_rx, &session).await;
         self.supervisor
-            .close_headless_session(&request.wire, &session)
+            .close_headless_session(&request.tripwire, &session)
             .await;
         if completed {
-            info!(wire = %request.wire, session = %session, "wire session finished its turn");
+            info!(tripwire = %request.tripwire, session = %session, "tripwire session finished its turn");
         } else {
-            warn!(wire = %request.wire, session = %session, "wire session timed out");
+            warn!(tripwire = %request.tripwire, session = %session, "tripwire session timed out");
         }
-        Ok(WireSessionOutcome {
+        Ok(TripwireSessionOutcome {
             session_id: session.as_str().to_string(),
             transcript,
             completed,
@@ -136,7 +137,7 @@ async fn watch_turn(
     mut code_rx: tokio::sync::broadcast::Receiver<Frame>,
     session: &TugSessionId,
 ) -> (String, bool) {
-    let deadline = tokio::time::Instant::now() + WIRE_RUN_TIMEOUT;
+    let deadline = tokio::time::Instant::now() + TRIPWIRE_RUN_TIMEOUT;
     let mut transcript = String::new();
     loop {
         let frame = match tokio::time::timeout_at(deadline, code_rx.recv()).await {
@@ -145,7 +146,7 @@ async fn watch_turn(
             // transcript is now incomplete, which the envelope scan will
             // notice on its own by finding nothing.
             Ok(Err(tokio::sync::broadcast::error::RecvError::Lagged(n))) => {
-                warn!(session = %session, dropped = n, "wire session output lagged");
+                warn!(session = %session, dropped = n, "tripwire session output lagged");
                 continue;
             }
             Ok(Err(tokio::sync::broadcast::error::RecvError::Closed)) => {

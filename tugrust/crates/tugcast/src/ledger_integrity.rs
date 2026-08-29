@@ -500,7 +500,7 @@ mod tests {
         use crate::session_ledger::LedgerError;
         health::reset_for_test();
         assert!(!health::is_degraded());
-        // A non-corruption sqlite error (busy) must not trip the wire.
+        // A non-corruption sqlite error (busy) must not trip the alarm.
         let busy = rusqlite::Error::SqliteFailure(
             rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_BUSY),
             None,

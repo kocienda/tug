@@ -47,7 +47,6 @@ import {
   isSidebarSide,
 } from "@/lib/layout-imposer";
 import { JOTS_CARD_ID } from "@/lib/jots-card-id";
-import { WIRES_CARD_ID } from "@/lib/wires-card-id";
 import { LENS_CARD_ID } from "@/lib/lens-card-id";
 import { OVERVIEW_CARD_ID } from "@/lib/overview-card-id";
 import { PERMISSION_MODE_CYCLE } from "./lib/permission-mode";
@@ -518,8 +517,8 @@ export function initActionDispatch(
   // toggle-lens / toggle-jots / toggle-overview: the three-state sidebar
   // shortcut — show-and-activate, activate, hide ({@link toggleSidebarCard}).
   // Fired by the Swift menu's "Show Lens" (⌃⌘L), "Show Jots" (⌃⌘J), "Show
-  // Overview" (⌃⌘O) and "Show Wires" (⌃⌘W) items and the browser-dev
-  // keybindings; the deck-canvas key handlers run the same performer.
+  // Overview" (⌃⌘O) items and the browser-dev keybindings; the deck-canvas
+  // key handlers run the same performer.
   registerAction("toggle-lens", () => {
     toggleSidebarCard(deckManager, LENS_CARD_ID);
   });
@@ -530,10 +529,6 @@ export function initActionDispatch(
 
   registerAction("toggle-overview", () => {
     toggleSidebarCard(deckManager, OVERVIEW_CARD_ID);
-  });
-
-  registerAction(TUG_ACTIONS.TOGGLE_WIRES, () => {
-    toggleSidebarCard(deckManager, WIRES_CARD_ID);
   });
 
   // reveal-lens: show the Lens and bring the keyboard to it, never hide it.

@@ -1,5 +1,5 @@
-//! Tripwires — standing watchers (`tugutil wire …`). A thin shell over
-//! [`tugutil_core::wire_ledger`]: compile the command line's trigger spelling
+//! Tripwires — standing watchers (`tugutil tripwire …`). A thin shell over
+//! [`tugutil_core::tripwire_ledger`]: compile the command line's trigger spelling
 //! to Spec S01 JSON, call the typed ledger API, and format the outcome as
 //! `--json` (the shared envelope) or a plain human read-out.
 //!
@@ -15,19 +15,20 @@ use std::process::ExitCode;
 
 use serde::Serialize;
 
-use tugutil_core::wire_ledger::{
-    self as ledger, Claim, NewWire, PostPolicy, Tier, Wire, WireEdit, WireLedgerError,
+use tugutil_core::tripwire_ledger::{
+    self as ledger, Claim, NewTripwire, PostPolicy, Tier, Tripwire, TripwireEdit,
+    TripwireLedgerError,
 };
-use tugutil_core::wire_predicate::{CommitTrigger, FactTrigger, Matcher, Predicate};
+use tugutil_core::tripwire_predicate::{CommitTrigger, FactTrigger, Matcher, Predicate};
 
-use crate::cli::WireCommands;
+use crate::cli::TripwireCommands;
 use crate::output::print_ok;
 
-/// Dispatch a `wire` subcommand, mapping a `Result<(), String>` to an exit
+/// Dispatch a `tripwire` subcommand, mapping a `Result<(), String>` to an exit
 /// code — 1 on any refusal, the shape every other verb group here uses.
-pub fn dispatch(cmd: WireCommands, json: bool, quiet: bool) -> ExitCode {
+pub fn dispatch(cmd: TripwireCommands, json: bool, quiet: bool) -> ExitCode {
     let result: Result<(), String> = match cmd {
-        WireCommands::Lay {
+        TripwireCommands::Lay {
             name,
             on,
             clauses,
@@ -58,8 +59,8 @@ pub fn dispatch(cmd: WireCommands, json: bool, quiet: bool) -> ExitCode {
             json,
             quiet,
         ),
-        WireCommands::List => run_list(json, quiet),
-        WireCommands::Edit {
+        TripwireCommands::List => run_list(json, quiet),
+        TripwireCommands::Edit {
             name,
             on,
             clauses,
@@ -92,11 +93,11 @@ pub fn dispatch(cmd: WireCommands, json: bool, quiet: bool) -> ExitCode {
             json,
             quiet,
         ),
-        WireCommands::Rm { name } => run_rm(&name, json, quiet),
-        WireCommands::Pause { name } => run_paused(&name, true, json, quiet),
-        WireCommands::Resume { name } => run_paused(&name, false, json, quiet),
-        WireCommands::Log { name, limit } => run_log(&name, limit, json, quiet),
-        WireCommands::Trip { name } => run_trip(&name, json, quiet),
+        TripwireCommands::Rm { name } => run_rm(&name, json, quiet),
+        TripwireCommands::Pause { name } => run_paused(&name, true, json, quiet),
+        TripwireCommands::Resume { name } => run_paused(&name, false, json, quiet),
+        TripwireCommands::Log { name, limit } => run_log(&name, limit, json, quiet),
+        TripwireCommands::Trip { name } => run_trip(&name, json, quiet),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
@@ -112,7 +113,7 @@ pub fn dispatch(cmd: WireCommands, json: bool, quiet: bool) -> ExitCode {
 /// Compile `--on` and `--where` to a Spec S01 predicate.
 ///
 /// A refusal names the token it choked on rather than the whole spelling: a
-/// wire is typed once and read for months, and "unknown trigger source
+/// tripwire is typed once and read for months, and "unknown trigger source
 /// `factt`" is the sentence that gets it laid on the second try.
 fn compile_trigger(on: &str, clauses: &[String]) -> Result<Predicate, String> {
     let (source, rest) = match on.split_once(':') {
@@ -143,7 +144,7 @@ fn compile_trigger(on: &str, clauses: &[String]) -> Result<Predicate, String> {
             }))
         }
         other => Err(format!(
-            "unknown trigger source `{other}` — a wire watches `fact:<kind>`, \
+            "unknown trigger source `{other}` — a tripwire watches `fact:<kind>`, \
              `commit`, or `commit:<branch>`"
         )),
     }
@@ -197,9 +198,9 @@ fn read_brief(brief: &str) -> Result<String, String> {
 }
 
 /// A scope as the engine will compare it ([P12]): canonical, and deliberately
-/// **not** folded to its base checkout — a work-tier wire commits on its own
+/// **not** folded to its base checkout — a work-tier tripwire commits on its own
 /// dash worktree, and folding worktrees into their base would make those
-/// commits re-trip the wire that made them. A path that cannot be
+/// commits re-trip the tripwire that made them. A path that cannot be
 /// canonicalized keeps its literal form rather than failing the lay.
 fn canonical_scope(scope: &str) -> String {
     std::fs::canonicalize(scope)
@@ -242,34 +243,34 @@ fn run_lay(args: LayArgs, preview: bool, json: bool, quiet: bool) -> Result<(), 
     let tier = args.tier.as_deref().map(parse_tier).transpose()?;
     let post = args.post.as_deref().map(parse_post).transpose()?;
 
-    let mut wire = NewWire::new(&args.name, &trigger, read_brief(&args.brief)?);
-    wire.scope = args.scope.as_deref().map(canonical_scope);
-    wire.probe = args.probe;
-    wire.model = args.model;
+    let mut tripwire = NewTripwire::new(&args.name, &trigger, read_brief(&args.brief)?);
+    tripwire.scope = args.scope.as_deref().map(canonical_scope);
+    tripwire.probe = args.probe;
+    tripwire.model = args.model;
     if let Some(tier) = tier {
-        wire.tier = tier;
+        tripwire.tier = tier;
     }
     if let Some(mode) = args.permission_mode {
-        wire.permission_mode = mode;
+        tripwire.permission_mode = mode;
     }
     if let Some(post) = post {
-        wire.post = post;
+        tripwire.post = post;
     }
     if let Some(cooldown) = args.cooldown {
         if cooldown < 0 {
             return Err("--cooldown is a number of seconds, so it is not negative".to_string());
         }
-        wire.cooldown_secs = cooldown;
+        tripwire.cooldown_secs = cooldown;
     }
 
     // A preview is syntax and nothing else ([P13]): it parses, normalizes, and
-    // echoes what would be stored, touching no ledger. Whether the wire ever
-    // fires is a question only a real event answers, and `wire trip` is how
+    // echoes what would be stored, touching no ledger. Whether the tripwire ever
+    // fires is a question only a real event answers, and `tripwire trip` is how
     // that question gets asked.
     if preview {
-        let payload = WirePayload::preview(&wire);
+        let payload = TripwirePayload::preview(&tripwire);
         if json {
-            print_ok("wire lay --preview", &payload);
+            print_ok("tripwire lay --preview", &payload);
         } else if !quiet {
             payload.print("would lay");
         }
@@ -277,10 +278,10 @@ fn run_lay(args: LayArgs, preview: bool, json: bool, quiet: bool) -> Result<(), 
     }
 
     let conn = open()?;
-    let laid = ledger::lay(&conn, &wire, now_ms()).map_err(|e| e.to_string())?;
-    let payload = WirePayload::of(&laid);
+    let laid = ledger::lay(&conn, &tripwire, now_ms()).map_err(|e| e.to_string())?;
+    let payload = TripwirePayload::of(&laid);
     if json {
-        print_ok("wire lay", &payload);
+        print_ok("tripwire lay", &payload);
     } else if !quiet {
         payload.print("laid");
     }
@@ -291,23 +292,24 @@ fn run_lay(args: LayArgs, preview: bool, json: bool, quiet: bool) -> Result<(), 
 
 fn run_list(json: bool, quiet: bool) -> Result<(), String> {
     let conn = open()?;
-    let wires = ledger::list(&conn).map_err(|e| e.to_string())?;
-    let payload: Vec<WirePayload> = wires.iter().map(WirePayload::of).collect();
+    let tripwires = ledger::list(&conn).map_err(|e| e.to_string())?;
+    let payload: Vec<TripwirePayload> = tripwires.iter().map(TripwirePayload::of).collect();
     if json {
-        print_ok("wire list", &payload);
+        print_ok("tripwire list", &payload);
     } else if !quiet {
         if payload.is_empty() {
-            println!("no wires laid");
+            println!("no tripwires laid");
         }
-        for wire in &payload {
+        for tripwire in &payload {
             println!(
                 "{}{}  {}  tier={}  post={}{}",
-                wire.name,
-                if wire.paused { " (paused)" } else { "" },
-                wire.trigger,
-                wire.tier,
-                wire.post,
-                wire.scope
+                tripwire.name,
+                if tripwire.paused { " (paused)" } else { "" },
+                tripwire.trigger,
+                tripwire.tier,
+                tripwire.post,
+                tripwire
+                    .scope
                     .as_deref()
                     .map(|s| format!("  scope={s}"))
                     .unwrap_or_default(),
@@ -333,7 +335,7 @@ struct EditArgs {
 }
 
 fn run_edit(args: EditArgs, preview: bool, json: bool, quiet: bool) -> Result<(), String> {
-    let mut edit = WireEdit::default();
+    let mut edit = TripwireEdit::default();
 
     // `--where` without `--on` would have to merge new clauses into a trigger
     // this verb never parsed, and a half-replaced predicate is the one shape
@@ -387,7 +389,10 @@ fn run_edit(args: EditArgs, preview: bool, json: bool, quiet: bool) -> Result<()
 
     if preview {
         if json {
-            print_ok("wire edit --preview", EditPreview::of(&args.name, &edit));
+            print_ok(
+                "tripwire edit --preview",
+                EditPreview::of(&args.name, &edit),
+            );
         } else if !quiet {
             EditPreview::of(&args.name, &edit).print();
         }
@@ -396,9 +401,9 @@ fn run_edit(args: EditArgs, preview: bool, json: bool, quiet: bool) -> Result<()
 
     let conn = open()?;
     let edited = ledger::update(&conn, &args.name, &edit).map_err(|e| e.to_string())?;
-    let payload = WirePayload::of(&edited);
+    let payload = TripwirePayload::of(&edited);
     if json {
-        print_ok("wire edit", &payload);
+        print_ok("tripwire edit", &payload);
     } else if !quiet {
         payload.print("edited");
     }
@@ -410,24 +415,31 @@ fn run_rm(name: &str, json: bool, quiet: bool) -> Result<(), String> {
     ledger::remove(&conn, name).map_err(|e| e.to_string())?;
     if json {
         print_ok(
-            "wire rm",
+            "tripwire rm",
             &RemovedPayload {
-                wire: name.to_string(),
+                tripwire: name.to_string(),
                 removed: true,
             },
         );
     } else if !quiet {
-        println!("removed wire {name} and its trip log");
+        println!("removed tripwire {name} and its trip log");
     }
     Ok(())
 }
 
 fn run_paused(name: &str, paused: bool, json: bool, quiet: bool) -> Result<(), String> {
     let conn = open()?;
-    let wire = ledger::set_paused(&conn, name, paused).map_err(|e| e.to_string())?;
-    let payload = WirePayload::of(&wire);
+    let tripwire = ledger::set_paused(&conn, name, paused).map_err(|e| e.to_string())?;
+    let payload = TripwirePayload::of(&tripwire);
     if json {
-        print_ok(if paused { "wire pause" } else { "wire resume" }, &payload);
+        print_ok(
+            if paused {
+                "tripwire pause"
+            } else {
+                "tripwire resume"
+            },
+            &payload,
+        );
     } else if !quiet {
         payload.print(if paused { "paused" } else { "resumed" });
     }
@@ -438,20 +450,20 @@ fn run_paused(name: &str, paused: bool, json: bool, quiet: bool) -> Result<(), S
 
 fn run_log(name: &str, limit: i64, json: bool, quiet: bool) -> Result<(), String> {
     let conn = open()?;
-    let wire = ledger::get(&conn, name)
+    let tripwire = ledger::get(&conn, name)
         .map_err(|e| e.to_string())?
-        .ok_or_else(|| WireLedgerError::NoSuchWire(name.to_string()).to_string())?;
-    let trips = ledger::trips_for_wire(&conn, wire.id, limit).map_err(|e| e.to_string())?;
+        .ok_or_else(|| TripwireLedgerError::NoSuchTripwire(name.to_string()).to_string())?;
+    let trips = ledger::trips_for_tripwire(&conn, tripwire.id, limit).map_err(|e| e.to_string())?;
     let payload: Vec<TripPayload> = trips.iter().map(TripPayload::of).collect();
     if json {
-        print_ok("wire log", &payload);
+        print_ok("tripwire log", &payload);
     } else if !quiet {
         if payload.is_empty() {
-            println!("wire {name} has never fired");
+            println!("tripwire {name} has never fired");
         }
         for trip in &payload {
-            // The swallowed firings print too. A wire that swallowed a hundred
-            // and a wire that never saw one look identical from outside, and
+            // The swallowed firings print too. A tripwire that swallowed a hundred
+            // and a tripwire that never saw one look identical from outside, and
             // only one of them is working.
             println!(
                 "{}  {}  {}{}{}",
@@ -472,7 +484,7 @@ fn run_log(name: &str, limit: i64, json: bool, quiet: bool) -> Result<(), String
     Ok(())
 }
 
-/// Fire a wire by hand.
+/// Fire a tripwire by hand.
 ///
 /// The queued row is written first and the live instance is told second, in
 /// that order on purpose: the row is the firing, and the tell is only a nudge
@@ -481,18 +493,18 @@ fn run_log(name: &str, limit: i64, json: bool, quiet: bool) -> Result<(), String
 /// reports which of the two happened rather than claiming the firing was lost.
 fn run_trip(name: &str, json: bool, quiet: bool) -> Result<(), String> {
     let conn = open()?;
-    let wire = ledger::get(&conn, name)
+    let tripwire = ledger::get(&conn, name)
         .map_err(|e| e.to_string())?
-        .ok_or_else(|| WireLedgerError::NoSuchWire(name.to_string()).to_string())?;
+        .ok_or_else(|| TripwireLedgerError::NoSuchTripwire(name.to_string()).to_string())?;
 
     // A manual key is unique by construction, so a hand-fired trip bypasses
     // both guards a real event meets: the permanent event-key claim and the
-    // cooldown window. Firing by hand is how a wire is tested, and a test that
+    // cooldown window. Firing by hand is how a tripwire is tested, and a test that
     // could be swallowed would test nothing.
     let event_key = format!("manual:{}", uuid::Uuid::new_v4());
     let claimed = ledger::claim_trip(
         &conn,
-        wire.id,
+        tripwire.id,
         &event_key,
         now_ms(),
         &instance_label(),
@@ -502,23 +514,23 @@ fn run_trip(name: &str, json: bool, quiet: bool) -> Result<(), String> {
     let Claim::Claimed { trip_id } = claimed else {
         return Err("a manual event key collided, which should not be possible".to_string());
     };
-    ledger::queue_trip(&conn, wire.id, trip_id).map_err(|e| e.to_string())?;
+    ledger::queue_trip(&conn, tripwire.id, trip_id).map_err(|e| e.to_string())?;
 
     let payload = TripQueuedPayload {
-        wire: name.to_string(),
+        tripwire: name.to_string(),
         trip_id,
         event_key,
         status: "queued".to_string(),
         served: kick_live_instance(name),
     };
     if json {
-        print_ok("wire trip", &payload);
+        print_ok("tripwire trip", &payload);
     } else if !quiet {
         if payload.served {
-            println!("wire {name} queued trip {trip_id} and a live instance took it up");
+            println!("tripwire {name} queued trip {trip_id} and a live instance took it up");
         } else {
             println!(
-                "wire {name} queued trip {trip_id} ({}) — the next engine to run picks it up",
+                "tripwire {name} queued trip {trip_id} ({}) — the next engine to run picks it up",
                 payload.event_key
             );
         }
@@ -529,17 +541,17 @@ fn run_trip(name: &str, json: bool, quiet: bool) -> Result<(), String> {
 /// Nudge a live instance to work the queued row now, reporting whether one
 /// answered. A failure here is not the verb's failure: the row is written, and
 /// no instance running is the ordinary case for a machine with the app closed.
-fn kick_live_instance(wire: &str) -> bool {
-    crate::commands::tell::tell_quietly("wire_trip", &[format!("wire={wire}")]).is_ok()
+fn kick_live_instance(tripwire: &str) -> bool {
+    crate::commands::tell::tell_quietly("tripwire_trip", &[format!("tripwire={tripwire}")]).is_ok()
 }
 
 // MARK: - Payloads
 
-/// One wire as `--json` reports it. The resolved tier rides beside the stored
-/// one, because `auto` is the value most wires carry and the resolution is
+/// One tripwire as `--json` reports it. The resolved tier rides beside the stored
+/// one, because `auto` is the value most tripwires carry and the resolution is
 /// what a reader actually wants to know.
 #[derive(Debug, Serialize)]
-struct WirePayload {
+struct TripwirePayload {
     name: String,
     trigger: String,
     scope: Option<String>,
@@ -554,50 +566,50 @@ struct WirePayload {
     cooldown_secs: i64,
 }
 
-impl WirePayload {
-    fn of(wire: &Wire) -> Self {
-        WirePayload {
-            name: wire.name.clone(),
-            trigger: wire.trigger.clone(),
-            scope: wire.scope.clone(),
-            probe: wire.probe.clone(),
-            brief: wire.brief.clone(),
-            model: wire.model.clone(),
-            tier: wire.tier.clone(),
-            resolved_tier: wire.resolved_tier().as_str().to_string(),
-            permission_mode: wire.permission_mode.clone(),
-            post: wire.post.as_str().to_string(),
-            paused: wire.paused,
-            cooldown_secs: wire.cooldown_secs,
+impl TripwirePayload {
+    fn of(tripwire: &Tripwire) -> Self {
+        TripwirePayload {
+            name: tripwire.name.clone(),
+            trigger: tripwire.trigger.clone(),
+            scope: tripwire.scope.clone(),
+            probe: tripwire.probe.clone(),
+            brief: tripwire.brief.clone(),
+            model: tripwire.model.clone(),
+            tier: tripwire.tier.clone(),
+            resolved_tier: tripwire.resolved_tier().as_str().to_string(),
+            permission_mode: tripwire.permission_mode.clone(),
+            post: tripwire.post.as_str().to_string(),
+            paused: tripwire.paused,
+            cooldown_secs: tripwire.cooldown_secs,
         }
     }
 
-    /// The same shape for a wire that was never written, so a preview and a
+    /// The same shape for a tripwire that was never written, so a preview and a
     /// lay report identically and a reader can compare them field by field.
-    fn preview(wire: &NewWire) -> Self {
-        let resolved = match wire.tier {
-            Tier::Auto if wire.probe.is_some() => Tier::Work,
+    fn preview(tripwire: &NewTripwire) -> Self {
+        let resolved = match tripwire.tier {
+            Tier::Auto if tripwire.probe.is_some() => Tier::Work,
             Tier::Auto => Tier::Verdict,
             explicit => explicit,
         };
-        WirePayload {
-            name: wire.name.clone(),
-            trigger: wire.trigger.clone(),
-            scope: wire.scope.clone(),
-            probe: wire.probe.clone(),
-            brief: wire.brief.clone(),
-            model: wire.model.clone(),
-            tier: wire.tier.as_str().to_string(),
+        TripwirePayload {
+            name: tripwire.name.clone(),
+            trigger: tripwire.trigger.clone(),
+            scope: tripwire.scope.clone(),
+            probe: tripwire.probe.clone(),
+            brief: tripwire.brief.clone(),
+            model: tripwire.model.clone(),
+            tier: tripwire.tier.as_str().to_string(),
             resolved_tier: resolved.as_str().to_string(),
-            permission_mode: wire.permission_mode.clone(),
-            post: wire.post.as_str().to_string(),
+            permission_mode: tripwire.permission_mode.clone(),
+            post: tripwire.post.as_str().to_string(),
             paused: false,
-            cooldown_secs: wire.cooldown_secs,
+            cooldown_secs: tripwire.cooldown_secs,
         }
     }
 
     fn print(&self, verb: &str) {
-        println!("{verb} wire {}", self.name);
+        println!("{verb} tripwire {}", self.name);
         println!("  on:       {}", self.trigger);
         println!(
             "  scope:    {}",
@@ -614,12 +626,12 @@ impl WirePayload {
 /// the named columns move.
 #[derive(Debug, Serialize)]
 struct EditPreview {
-    wire: String,
+    tripwire: String,
     changes: BTreeMap<String, Option<String>>,
 }
 
 impl EditPreview {
-    fn of(name: &str, edit: &WireEdit) -> Self {
+    fn of(name: &str, edit: &TripwireEdit) -> Self {
         let mut changes: BTreeMap<String, Option<String>> = BTreeMap::new();
         let mut set = |k: &str, v: Option<String>| {
             changes.insert(k.to_string(), v);
@@ -652,13 +664,13 @@ impl EditPreview {
             set("cooldown_secs", Some(v.to_string()));
         }
         EditPreview {
-            wire: name.to_string(),
+            tripwire: name.to_string(),
             changes,
         }
     }
 
     fn print(&self) {
-        println!("would edit wire {}", self.wire);
+        println!("would edit tripwire {}", self.tripwire);
         if self.changes.is_empty() {
             println!("  (nothing named — every column left alone)");
         }
@@ -670,13 +682,13 @@ impl EditPreview {
 
 #[derive(Debug, Serialize)]
 struct RemovedPayload {
-    wire: String,
+    tripwire: String,
     removed: bool,
 }
 
 #[derive(Debug, Serialize)]
 struct TripQueuedPayload {
-    wire: String,
+    tripwire: String,
     trip_id: i64,
     event_key: String,
     status: String,
@@ -684,8 +696,8 @@ struct TripQueuedPayload {
     served: bool,
 }
 
-/// One trip as `wire log --json` reports it — the full workings, because the
-/// log is the record and a reader asking why a wire did nothing is asking
+/// One trip as `tripwire log --json` reports it — the full workings, because the
+/// log is the record and a reader asking why a tripwire did nothing is asking
 /// about a row it would otherwise have to guess at.
 #[derive(Debug, Serialize)]
 struct TripPayload {
@@ -831,7 +843,7 @@ mod tests {
     }
 
     /// A dash worktree is not its base checkout, and folding it into one would
-    /// make a work-tier wire re-trip on its own commits.
+    /// make a work-tier tripwire re-trip on its own commits.
     #[test]
     fn a_scope_is_canonicalized_and_never_folded_to_a_base_checkout() {
         let dir = tempfile::tempdir().unwrap();

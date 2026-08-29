@@ -183,7 +183,6 @@ An untabled code throws in dev and publishes `null` in production, so a bad bind
 | ⌃⌘S | `toggle-column-split` | Split or Stack Column | menu bar (swept) |
 | ⌃⌘T | `next-theme` | Next Theme | menu bar (swept) |
 | ⌃⌘U | `run-slash-command:usage` | Show Usage | menu bar (swept) |
-| ⌃⌘W | `toggle-wires` | Show Wires | menu bar (swept) |
 | ⌃⌘↑ | `move-in-column:up` | Move Card Up in Column | menu bar (swept) |
 | ⌃⌘↓ | `move-in-column:down` | Move Card Down in Column | menu bar (swept) |
 | ⌃⌥⌘P | `cycle-permission-mode` | Cycle Permission Mode | JS, global |
@@ -308,7 +307,6 @@ Every command has several doors: a chord, a menu item, the palette, a control fr
 | `maker.newCardInPane` | `add-card-to-active-pane` | first responder | registry gate |
 | `maker.overview` | `toggle-overview` | registered handler | host tier |
 | `maker.reload` | `reload` | registered handler | host tier |
-| `maker.wires` | `toggle-wires` | registered handler | host tier |
 | `session.addDir` | `run-slash-command:add-dir` | key card | registry gate |
 | `session.agents` | `run-slash-command:agents` | key card | registry gate |
 | `session.ai` | `run-slash-command:ai` | key card | registry gate |

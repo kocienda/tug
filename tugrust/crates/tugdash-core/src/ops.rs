@@ -96,7 +96,7 @@ pub struct DashListItem {
     pub round_count: i64,
     pub worktree: Option<String>,
     pub base_branch: String,
-    /// Who laid this dash, when it was not a person — `wire/<name>` for a
+    /// Who laid this dash, when it was not a person — `tripwire/<name>` for a
     /// tripwire's staged work ([P15]). `None` on every hand-made dash.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub laid_by: Option<String>,
@@ -867,7 +867,7 @@ pub(crate) fn description_config_key(name: &str) -> String {
     format!("branch.{}.description", branch_name(name))
 }
 
-/// Who laid this dash down, when it was not a person: `wire/<name>` for a
+/// Who laid this dash down, when it was not a person: `tripwire/<name>` for a
 /// tripwire's work tier ([P15]). Absent on every dash a person created, which
 /// is what makes its presence mean something.
 pub(crate) fn laid_by_config_key(name: &str) -> String {
@@ -6314,21 +6314,21 @@ Some context.
         // from the cwd behind the explicit one.
         std::env::set_current_dir(std::env::temp_dir()).unwrap();
 
-        let created = create_in(&root, "wire-ci-abc12345", None, false, None).unwrap();
+        let created = create_in(&root, "tripwire-ci-abc12345", None, false, None).unwrap();
         assert!(created.created);
-        set_laid_by(&root, "wire-ci-abc12345", "wire/ci");
+        set_laid_by(&root, "tripwire-ci-abc12345", "tripwire/ci");
 
         assert_eq!(
-            laid_by(&root, "wire-ci-abc12345").as_deref(),
-            Some("wire/ci")
+            laid_by(&root, "tripwire-ci-abc12345").as_deref(),
+            Some("tripwire/ci")
         );
         std::env::set_current_dir(&root).unwrap();
         let listed = list().unwrap();
         let row = listed
             .iter()
-            .find(|d| d.name == "wire-ci-abc12345")
+            .find(|d| d.name == "tripwire-ci-abc12345")
             .expect("the staged dash is listed");
-        assert_eq!(row.laid_by.as_deref(), Some("wire/ci"));
+        assert_eq!(row.laid_by.as_deref(), Some("tripwire/ci"));
         assert!(
             listed.iter().all(|d| d.name != "hand-made"),
             "no other dash exists to confuse the reading"

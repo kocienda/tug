@@ -1,4 +1,4 @@
-//! The tripwire engine — what turns a standing wire into a firing.
+//! The tripwire engine — what turns a standing tripwire into a firing.
 //!
 //! One engine per tugcast. It watches two streams, and every firing it decides
 //! on becomes a row in `tripwires.db`, including the ones it refuses.
@@ -17,8 +17,8 @@
 //! sha, which is why re-checking out a tripped commit never trips again.
 //!
 //! **Every refusal is written down.** A cooldown swallow, a ceiling queue, a
-//! superseded coalesce — each is a `trips` row with a reason. A wire that
-//! swallowed a hundred firings and a wire that never saw one look identical
+//! superseded coalesce — each is a `trips` row with a reason. A tripwire that
+//! swallowed a hundred firings and a tripwire that never saw one look identical
 //! from the outside, and only one of them is working.
 //!
 //! **The guard half is synchronous, the run half is not — and that split is
@@ -42,12 +42,14 @@ use tugcast_core::types::{
     GitHeadSignal, OverviewAuthor, OverviewPost, OverviewRef, OverviewRefKind,
 };
 use tugcast_core::{FeedId, Frame};
-use tugutil_core::wire_ledger::{self as ledger, Claim, PostPolicy, Tier, TripStatus, Wire};
-use tugutil_core::wire_predicate::{self, WireEvent};
+use tugutil_core::tripwire_ledger::{
+    self as ledger, Claim, PostPolicy, Tier, TripStatus, Tripwire,
+};
+use tugutil_core::tripwire_predicate::{self, TripwireEvent};
 
-use crate::feeds::agent_supervisor::WIRE_CARD_PREFIX;
-use crate::feeds::wire_agent::{self, Outcome, WirePools};
-use crate::feeds::wire_session::{self, WireSessionRunner};
+use crate::feeds::agent_supervisor::TRIPWIRE_CARD_PREFIX;
+use crate::feeds::tripwire_agent::{self, Outcome, TripwirePools};
+use crate::feeds::tripwire_session::{self, TripwireSessionRunner};
 use crate::session_ledger::SessionLedger;
 
 /// How often the engine re-reads the fact tail regardless of the signal.
@@ -65,7 +67,7 @@ const FACT_TAIL_CAP: usize = 200;
 
 /// How long a probe may run before the engine stops waiting on it.
 ///
-/// A probe is an arbitrary command from a wire row, run unattended, and the two
+/// A probe is an arbitrary command from a tripwire row, run unattended, and the two
 /// failure modes it has no defence against on its own are the one that blocks
 /// on a prompt and the one that never terminates. Neither announces itself:
 /// without a deadline the trip stays `running` forever, holding its slot, and
@@ -79,7 +81,7 @@ const PROBE_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 /// which is the clean case. It cannot clear another instance's: from here, an
 /// instance that crashed and one that is mid-run look identical. But the
 /// concurrency count is machine-wide, so rows nobody will ever settle consume
-/// the ceiling for every wire on the machine — at the default ceiling of two,
+/// the ceiling for every tripwire on the machine — at the default ceiling of two,
 /// two orphans stop the facility outright, and nothing recovers, because
 /// draining the queue is something a settle triggers and no settle is coming.
 /// Age is the only evidence available, so it is set comfortably past the
@@ -87,7 +89,7 @@ const PROBE_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 /// twenty-minute session.
 const ORPHANED_RUN_AGE: Duration = Duration::from_secs(90 * 60);
 
-/// The channel a hand-fired `wire trip` reaches the engine on.
+/// The channel a hand-fired `tripwire trip` reaches the engine on.
 ///
 /// Process-global rather than threaded through `ActionContext`, the same shape
 /// the registry's `workspace_open_tx` uses: one optional consumer, set at boot
@@ -95,12 +97,12 @@ const ORPHANED_RUN_AGE: Duration = Duration::from_secs(90 * 60);
 /// build without one.
 static MANUAL_KICK: OnceLock<mpsc::Sender<String>> = OnceLock::new();
 
-/// Tell the engine a wire was fired by hand. Returns whether anybody was
+/// Tell the engine a tripwire was fired by hand. Returns whether anybody was
 /// listening — the CLI already wrote the queued row, so a `false` means the
 /// row waits for the next engine rather than that the firing was lost.
-pub fn kick(wire_name: &str) -> bool {
+pub fn kick(tripwire_name: &str) -> bool {
     match MANUAL_KICK.get() {
-        Some(tx) => tx.try_send(wire_name.to_string()).is_ok(),
+        Some(tx) => tx.try_send(tripwire_name.to_string()).is_ok(),
         None => false,
     }
 }
@@ -118,18 +120,18 @@ pub struct TripwireEngineConfig {
     /// The clock, injected so a test can place two events in one cooldown
     /// window without sleeping through it.
     pub now_ms: Arc<dyn Fn() -> i64 + Send + Sync>,
-    /// What spawns a wire pool's worker. Injected for the same reason the
+    /// What spawns a tripwire pool's worker. Injected for the same reason the
     /// clock is: a test scripts what the model says, and nothing in the loop
     /// has to know which of the two it is talking to.
     pub spawner: Arc<dyn crate::shared_agent::AgentWorkerSpawner>,
     /// Where a trip's post goes. `None` in a test that is only asserting on
     /// the ledger; the post is skipped rather than faked.
     pub overview_tx: Option<broadcast::Sender<Frame>>,
-    /// What runs a work-tier wire's session. `None` leaves the work tier at
+    /// What runs a work-tier tripwire's session. `None` leaves the work tier at
     /// its floor — the firing is recorded and nothing is asked — which is what
     /// a tugcast with no supervisor to lend, and a test asserting only on the
     /// verdict tier, both want.
-    pub sessions: Option<Arc<dyn WireSessionRunner>>,
+    pub sessions: Option<Arc<dyn TripwireSessionRunner>>,
     pub cancel: CancellationToken,
 }
 
@@ -149,11 +151,11 @@ type Db = Mutex<Connection>;
 fn work_event(
     config: &Arc<TripwireEngineConfig>,
     db: &Arc<Db>,
-    pools: &Arc<WirePools>,
-    event: &WireEvent,
+    pools: &Arc<TripwirePools>,
+    event: &TripwireEvent,
 ) {
     let pending = {
-        let conn = db.lock().expect("wire ledger mutex");
+        let conn = db.lock().expect("tripwire ledger mutex");
         evaluate(config, &conn, event).1
     };
     for run in pending {
@@ -178,7 +180,7 @@ fn work_event(
 fn spawn_run(
     config: &Arc<TripwireEngineConfig>,
     db: &Arc<Db>,
-    pools: &Arc<WirePools>,
+    pools: &Arc<TripwirePools>,
     mut run: PendingRun,
 ) {
     let config = Arc::clone(config);
@@ -187,7 +189,7 @@ fn spawn_run(
     tokio::spawn(async move {
         let settled = run_pending(&config, &db, &pools, &mut run).await;
         {
-            let conn = db.lock().expect("wire ledger mutex");
+            let conn = db.lock().expect("tripwire ledger mutex");
             settle(&config, &conn, &run, &settled);
         }
         drain_queue(&config, &db, &pools).await;
@@ -196,7 +198,7 @@ fn spawn_run(
 
 /// Look for a queued trip to start, on a task of its own. The tick's door into
 /// [`drain_queue`], which otherwise only ever runs behind a settle.
-fn spawn_drain(config: &Arc<TripwireEngineConfig>, db: &Arc<Db>, pools: &Arc<WirePools>) {
+fn spawn_drain(config: &Arc<TripwireEngineConfig>, db: &Arc<Db>, pools: &Arc<TripwirePools>) {
     let config = Arc::clone(config);
     let db = Arc::clone(db);
     let pools = Arc::clone(pools);
@@ -208,9 +210,9 @@ fn spawn_drain(config: &Arc<TripwireEngineConfig>, db: &Arc<Db>, pools: &Arc<Wir
 /// One per settle rather than a loop to empty the queue: each settle frees one
 /// slot, so serving more than one would put the machine straight back over its
 /// own ceiling.
-async fn drain_queue(config: &TripwireEngineConfig, db: &Db, pools: &WirePools) {
+async fn drain_queue(config: &TripwireEngineConfig, db: &Db, pools: &TripwirePools) {
     let mut run = {
-        let conn = db.lock().expect("wire ledger mutex");
+        let conn = db.lock().expect("tripwire ledger mutex");
         // Another instance's orphans hold the ceiling for everybody, and this
         // is exactly where that bites: the count read below is machine-wide.
         // Swept here rather than at boot alone, because boot only ever reaches
@@ -230,24 +232,27 @@ async fn drain_queue(config: &TripwireEngineConfig, db: &Db, pools: &WirePools) 
         let Ok(Some(trip)) = ledger::oldest_queued(&conn) else {
             return;
         };
-        let Ok(Some(wire)) = wire_by_id(&conn, trip.wire_id) else {
+        let Ok(Some(tripwire)) = tripwire_by_id(&conn, trip.wire_id) else {
             return;
         };
         start_run(
             &conn,
-            &wire,
+            &tripwire,
             trip.id,
             &trip.event_key,
             trip.event_payload.clone(),
         )
     };
     let settled = run_pending(config, db, pools, &mut run).await;
-    let conn = db.lock().expect("wire ledger mutex");
+    let conn = db.lock().expect("tripwire ledger mutex");
     settle(config, &conn, &run, &settled);
 }
 
-/// A wire by its row id — what a queued trip names it by.
-fn wire_by_id(conn: &Connection, wire_id: i64) -> Result<Option<Wire>, ledger::WireLedgerError> {
+/// A tripwire by its row id — what a queued trip names it by.
+fn tripwire_by_id(
+    conn: &Connection,
+    wire_id: i64,
+) -> Result<Option<Tripwire>, ledger::TripwireLedgerError> {
     Ok(ledger::list(conn)?.into_iter().find(|w| w.id == wire_id))
 }
 
@@ -256,15 +261,15 @@ fn wire_by_id(conn: &Connection, wire_id: i64) -> Result<Option<Wire>, ledger::W
 #[derive(Debug, Clone)]
 pub struct PendingRun {
     pub trip_id: i64,
-    pub wire: String,
+    pub tripwire: String,
     /// The key the claim arbitrated on — the dash's name is derived from it,
     /// so one event's dash is one dash however often the engine restarts.
     pub event_key: String,
     pub tier: Tier,
     pub model: Option<String>,
     pub brief: String,
-    /// The checkout a work-tier run happens in. A work wire cannot arm without
-    /// one ([B07]); a verdict wire may have none.
+    /// The checkout a work-tier run happens in. A work tripwire cannot arm without
+    /// one ([B07]); a verdict tripwire may have none.
     pub scope: Option<String>,
     /// The command that decides whether an AI is needed at all ([P05]).
     pub probe: Option<String>,
@@ -290,7 +295,7 @@ pub struct PendingRun {
 /// Run the engine until cancelled.
 ///
 /// Goes quiet under the app-test harness for the same reason the agent pools
-/// do: an app-test must be free, fast and deterministic, and a wire that fired
+/// do: an app-test must be free, fast and deterministic, and a tripwire that fired
 /// during one would spend tokens nobody asked for on a tree nobody kept.
 pub async fn run_tripwire_engine(
     config: TripwireEngineConfig,
@@ -305,7 +310,7 @@ pub async fn run_tripwire_engine(
         Ok(conn) => conn,
         Err(e) => {
             warn!(error = %e, path = %config.db_path.display(),
-                  "tripwire engine: cannot open the wire ledger; no wire will fire");
+                  "tripwire engine: cannot open the tripwire ledger; no tripwire will fire");
             return;
         }
     };
@@ -336,7 +341,7 @@ pub async fn run_tripwire_engine(
 
     let mut ticker = tokio::time::interval(SWEEP_TICK);
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-    let pools = Arc::new(WirePools::new(Arc::clone(&config.spawner)));
+    let pools = Arc::new(TripwirePools::new(Arc::clone(&config.spawner)));
 
     info!(instance = %config.instance, from_rowid = tail, "tripwire engine: watching");
 
@@ -390,7 +395,7 @@ pub async fn run_tripwire_engine(
 async fn drain_facts(
     config: &Arc<TripwireEngineConfig>,
     db: &Arc<Db>,
-    pools: &Arc<WirePools>,
+    pools: &Arc<TripwirePools>,
     tail: &mut i64,
 ) {
     loop {
@@ -419,30 +424,30 @@ async fn drain_facts(
 
 /// One fact as an event, or `None` when it must not be considered at all.
 ///
-/// The wire-session drop lives here rather than in the per-wire loop because
-/// it is a property of the event, not of any wire: a fact a wire's own session
-/// produced is not evidence about the project, it is the wire's own residue.
+/// The tripwire-session drop lives here rather than in the per-tripwire loop because
+/// it is a property of the event, not of any tripwire: a fact a tripwire's own session
+/// produced is not evidence about the project, it is the tripwire's own residue.
 fn fact_event(
     config: &TripwireEngineConfig,
     row: &crate::session_ledger::FactRow,
-) -> Option<WireEvent> {
+) -> Option<TripwireEvent> {
     let payload = serde_json::from_str(&row.payload).unwrap_or(serde_json::Value::Null);
     let (project_dir, session_card) = match &row.session_id {
         Some(id) => match config.ledger.get(id) {
             Ok(Some(session)) => (Some(session.project_dir), session.card_id),
             // A fact whose session the ledger cannot name is app-scoped or
-            // orphaned. It still counts; it simply matches no scoped wire.
+            // orphaned. It still counts; it simply matches no scoped tripwire.
             _ => (None, None),
         },
         None => (None, None),
     };
     if session_card
         .as_deref()
-        .is_some_and(|card| card.starts_with(WIRE_CARD_PREFIX))
+        .is_some_and(|card| card.starts_with(TRIPWIRE_CARD_PREFIX))
     {
         return None;
     }
-    Some(WireEvent::Fact {
+    Some(TripwireEvent::Fact {
         kind: row.kind.clone(),
         payload,
         project_dir,
@@ -453,13 +458,13 @@ fn fact_event(
 
 /// Resolve a HEAD move into a commit event, or `None` when there is no commit
 /// to be about.
-async fn commit_event(signal: GitHeadSignal) -> Option<WireEvent> {
+async fn commit_event(signal: GitHeadSignal) -> Option<TripwireEvent> {
     if signal.head.is_empty() {
         // An unborn or non-repo workspace has no commit to be about.
         return None;
     }
     let branch = current_branch(&signal.workspace_key).await;
-    Some(WireEvent::Commit {
+    Some(TripwireEvent::Commit {
         branch,
         sha: signal.head,
         workspace_path: signal.workspace_key,
@@ -468,7 +473,7 @@ async fn commit_event(signal: GitHeadSignal) -> Option<WireEvent> {
 
 /// The workspace's current branch, or `None` when detached or unreadable.
 ///
-/// `None` is not "any branch": a wire narrowed to `main` must not fire on a
+/// `None` is not "any branch": a tripwire narrowed to `main` must not fire on a
 /// branch nobody could name, which is what the predicate's own commit arm
 /// enforces.
 async fn current_branch(workspace: &str) -> Option<String> {
@@ -486,7 +491,7 @@ async fn current_branch(workspace: &str) -> Option<String> {
     (!branch.is_empty()).then_some(branch)
 }
 
-/// Serve a hand-fired trip: find the wire's queued manual row and work it.
+/// Serve a hand-fired trip: find the tripwire's queued manual row and work it.
 ///
 /// The CLI wrote the row before this arrived, so there is nothing to claim —
 /// the queue already holds the firing, and this is only the nudge that says
@@ -494,28 +499,28 @@ async fn current_branch(workspace: &str) -> Option<String> {
 fn serve_manual(
     config: &Arc<TripwireEngineConfig>,
     db: &Arc<Db>,
-    pools: &Arc<WirePools>,
-    wire_name: &str,
+    pools: &Arc<TripwirePools>,
+    tripwire_name: &str,
 ) {
     let run = {
-        let conn = db.lock().expect("wire ledger mutex");
-        let Ok(Some(wire)) = ledger::get(&conn, wire_name) else {
-            warn!(wire = %wire_name, "tripwire engine: kicked for a wire that is not there");
+        let conn = db.lock().expect("tripwire ledger mutex");
+        let Ok(Some(tripwire)) = ledger::get(&conn, tripwire_name) else {
+            warn!(tripwire = %tripwire_name, "tripwire engine: kicked for a tripwire that is not there");
             return;
         };
-        let Ok(trips) = ledger::trips_for_wire(&conn, wire.id, 8) else {
+        let Ok(trips) = ledger::trips_for_tripwire(&conn, tripwire.id, 8) else {
             return;
         };
         let Some(queued) = trips
             .iter()
             .find(|t| t.status == TripStatus::Queued.as_str())
         else {
-            debug!(wire = %wire_name, "tripwire engine: kicked with nothing queued");
+            debug!(tripwire = %tripwire_name, "tripwire engine: kicked with nothing queued");
             return;
         };
         start_run(
             &conn,
-            &wire,
+            &tripwire,
             queued.id,
             &queued.event_key,
             queued.event_payload.clone(),
@@ -524,7 +529,7 @@ fn serve_manual(
     spawn_run(config, db, pools, run);
 }
 
-/// The outcome of considering one wire against one event — the whole of what
+/// The outcome of considering one tripwire against one event — the whole of what
 /// the guard half decides, named so a test can assert on it rather than on
 /// whatever rows happened to appear.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -539,28 +544,28 @@ pub enum Decision {
     Fired,
 }
 
-/// Consider every armed wire against one event.
+/// Consider every armed tripwire against one event.
 ///
-/// The wires table is re-read per event rather than cached, which is what
+/// The tripwires table is re-read per event rather than cached, which is what
 /// makes `pause` and `edit` apply on the next firing with no notification
 /// plumbing at all: the next event reads the row as it now stands.
 pub fn evaluate(
     config: &TripwireEngineConfig,
     conn: &Connection,
-    event: &WireEvent,
+    event: &TripwireEvent,
 ) -> (Vec<(String, Decision)>, Vec<PendingRun>) {
-    let wires = match ledger::armed(conn) {
-        Ok(wires) => wires,
+    let tripwires = match ledger::armed(conn) {
+        Ok(tripwires) => tripwires,
         Err(e) => {
-            warn!(error = %e, "tripwire engine: cannot read the wires table");
+            warn!(error = %e, "tripwire engine: cannot read the tripwires table");
             return (Vec::new(), Vec::new());
         }
     };
-    let mut decisions = Vec::with_capacity(wires.len());
+    let mut decisions = Vec::with_capacity(tripwires.len());
     let mut pending = Vec::new();
-    for wire in &wires {
-        let (decision, run) = consider(config, conn, wire, event);
-        decisions.push((wire.name.clone(), decision));
+    for tripwire in &tripwires {
+        let (decision, run) = consider(config, conn, tripwire, event);
+        decisions.push((tripwire.name.clone(), decision));
         if let Some(run) = run {
             pending.push(run);
         }
@@ -571,18 +576,18 @@ pub fn evaluate(
 fn consider(
     config: &TripwireEngineConfig,
     conn: &Connection,
-    wire: &Wire,
-    event: &WireEvent,
+    tripwire: &Tripwire,
+    event: &TripwireEvent,
 ) -> (Decision, Option<PendingRun>) {
-    let Ok(predicate) = wire.predicate() else {
-        // A trigger this build cannot read belongs to a newer one. The wire
+    let Ok(predicate) = tripwire.predicate() else {
+        // A trigger this build cannot read belongs to a newer one. The tripwire
         // stays listable and removable; it simply never fires here.
         return (Decision::NoMatch, None);
     };
-    if !wire_predicate::matches(&predicate, event) {
+    if !tripwire_predicate::matches(&predicate, event) {
         return (Decision::NoMatch, None);
     }
-    if !in_scope(wire.scope.as_deref(), event.project_path()) {
+    if !in_scope(tripwire.scope.as_deref(), event.project_path()) {
         return (Decision::NoMatch, None);
     }
 
@@ -595,11 +600,11 @@ fn consider(
     // row it made. Asking about the cooldown first would have the loser of a
     // race between two instances write a `cooldown` row for a firing the
     // winner already owns — a log that names the wrong reason for the right
-    // outcome. Claiming first keeps one event to one row per wire, which is
+    // outcome. Claiming first keeps one event to one row per tripwire, which is
     // what the unique constraint already promises.
     match ledger::claim_trip(
         conn,
-        wire.id,
+        tripwire.id,
         &key,
         now,
         &config.instance,
@@ -609,27 +614,27 @@ fn consider(
         // would be two instances narrating one event.
         Ok(Claim::AlreadyClaimed) => (Decision::NoMatch, None),
         Err(e) => {
-            warn!(error = %e, wire = %wire.name, "tripwire engine: claim failed");
+            warn!(error = %e, tripwire = %tripwire.name, "tripwire engine: claim failed");
             (Decision::NoMatch, None)
         }
         Ok(Claim::Claimed { trip_id }) => {
-            // A work wire cannot arm without a scope, so one reaching this
+            // A work tripwire cannot arm without a scope, so one reaching this
             // point is a row laid by an older build. Re-checked here rather
             // than trusted, and swallowed with its reason: the claim is
-            // already made, and a wire that cannot run has to say so
+            // already made, and a tripwire that cannot run has to say so
             // somewhere a reader will look [B07].
-            if wire.resolved_tier() == Tier::Work && wire.scope.is_none() {
+            if tripwire.resolved_tier() == Tier::Work && tripwire.scope.is_none() {
                 let _ = ledger::set_status(conn, trip_id, TripStatus::Swallowed, Some("no-scope"));
                 return (Decision::Swallowed("no-scope"), None);
             }
-            // A firing inside the wire's own window: the flapping case, and
+            // A firing inside the tripwire's own window: the flapping case, and
             // the swallow is this row rather than a second one. It stops
-            // counting toward the window the moment it is written, so a wire
+            // counting toward the window the moment it is written, so a tripwire
             // that swallows does not push its own next firing further away.
-            if let Some(last) = ledger::previous_active_trip_at(conn, wire.id, trip_id)
+            if let Some(last) = ledger::previous_active_trip_at(conn, tripwire.id, trip_id)
                 .ok()
                 .flatten()
-                && now - last < wire.cooldown_secs * 1_000
+                && now - last < tripwire.cooldown_secs * 1_000
             {
                 let _ = ledger::set_status(conn, trip_id, TripStatus::Swallowed, Some("cooldown"));
                 return (Decision::Swallowed("cooldown"), None);
@@ -637,12 +642,12 @@ fn consider(
             let running = ledger::running_count(conn).unwrap_or(0);
             let ceiling = ledger::max_concurrent_trips(conn).unwrap_or(2);
             if running >= ceiling {
-                let _ = ledger::queue_trip(conn, wire.id, trip_id);
+                let _ = ledger::queue_trip(conn, tripwire.id, trip_id);
                 return (Decision::Queued, None);
             }
             (
                 Decision::Fired,
-                Some(start_run(conn, wire, trip_id, &key, payload)),
+                Some(start_run(conn, tripwire, trip_id, &key, payload)),
             )
         }
     }
@@ -654,7 +659,7 @@ fn consider(
 /// an `await` and the connection cannot come along.
 fn start_run(
     conn: &Connection,
-    wire: &Wire,
+    tripwire: &Tripwire,
     trip_id: i64,
     event_key: &str,
     payload: Option<String>,
@@ -667,15 +672,15 @@ fn start_run(
     let context = event_context(&evidence);
     PendingRun {
         trip_id,
-        wire: wire.name.clone(),
+        tripwire: tripwire.name.clone(),
         event_key: event_key.to_string(),
-        tier: wire.resolved_tier(),
-        model: wire.model.clone(),
-        brief: wire.brief.clone(),
-        scope: wire.scope.clone(),
-        probe: wire.probe.clone(),
-        permission_mode: wire.permission_mode.clone(),
-        post: wire.post_policy(),
+        tier: tripwire.resolved_tier(),
+        model: tripwire.model.clone(),
+        brief: tripwire.brief.clone(),
+        scope: tripwire.scope.clone(),
+        probe: tripwire.probe.clone(),
+        permission_mode: tripwire.permission_mode.clone(),
+        post: tripwire.post_policy(),
         engine_refs: context.refs,
         project_dir: context.project_dir,
         session_id: None,
@@ -693,7 +698,7 @@ fn start_run(
 pub async fn run_pending(
     config: &TripwireEngineConfig,
     db: &Db,
-    pools: &WirePools,
+    pools: &TripwirePools,
     run: &mut PendingRun,
 ) -> Settled {
     match run.tier {
@@ -708,63 +713,65 @@ pub async fn run_pending(
 /// The order is the point. The dash comes first because the probe may write
 /// and must not write on the user's checkout. The probe comes next because it
 /// is free, and a green probe settles the trip with no tokens spent at all —
-/// which is what makes an armed wire cheap enough to leave armed. The session
+/// which is what makes an armed tripwire cheap enough to leave armed. The session
 /// is last, and runs only on the residue the probe could not answer.
 async fn run_work(config: &TripwireEngineConfig, db: &Db, run: &mut PendingRun) -> Settled {
     let Some(sessions) = config.sessions.clone() else {
         // No runner, so nothing can be asked. The firing is a recorded fact
-        // about the wire and no more; it is not a failure, because the wire
+        // about the tripwire and no more; it is not a failure, because the tripwire
         // matched, the guards passed, and nothing claims work was done.
         return Settled::logged(format!(
             "{} fired, and this instance has no session runner to ask",
-            run.wire
+            run.tripwire
         ));
     };
     let Some(scope) = run.scope.clone() else {
         return Settled::failed(
-            "the wire runs at the work tier and named no scope, so there is no checkout to \
+            "the tripwire runs at the work tier and named no scope, so there is no checkout to \
              stage its work in"
                 .to_string(),
         );
     };
     let repo_root = PathBuf::from(&scope);
-    let dash = wire_dash_name(&run.wire, &run.event_key);
+    let dash = tripwire_dash_name(&run.tripwire, &run.event_key);
 
     let created = match tokio::task::spawn_blocking({
         let repo_root = repo_root.clone();
         let dash = dash.clone();
-        let wire = run.wire.clone();
+        let tripwire = run.tripwire.clone();
         move || {
             let outcome = tugdash_core::ops::create_in(
                 &repo_root,
                 &dash,
-                Some(format!("wire {wire}")),
+                Some(format!("tripwire {tripwire}")),
                 false,
                 None,
             )?;
-            tugdash_core::ops::set_laid_by(&repo_root, &dash, &format!("wire/{wire}"));
+            tugdash_core::ops::set_laid_by(&repo_root, &dash, &format!("tripwire/{tripwire}"));
             Ok::<_, String>(outcome)
         }
     })
     .await
     {
         Ok(Ok(outcome)) => outcome,
-        Ok(Err(e)) => return Settled::failed(format!("the wire's dash could not be created: {e}")),
-        Err(e) => return Settled::failed(format!("the wire's dash could not be created: {e}")),
+        Ok(Err(e)) => {
+            return Settled::failed(format!("the tripwire's dash could not be created: {e}"));
+        }
+        Err(e) => return Settled::failed(format!("the tripwire's dash could not be created: {e}")),
     };
     let worktree = PathBuf::from(&created.worktree);
     {
-        let conn = db.lock().expect("wire ledger mutex");
+        let conn = db.lock().expect("tripwire ledger mutex");
         let _ = ledger::record_run(&conn, run.trip_id, None, Some(&dash));
     }
 
-    // The probe, when the wire has one. Its exit is the tier's own decision
-    // procedure: green means the thing the wire watches for is not wrong here,
+    // The probe, when the tripwire has one. Its exit is the tier's own decision
+    // procedure: green means the thing the tripwire watches for is not wrong here,
     // and no model needs to be asked.
     if let Some(command) = run.probe.clone() {
         let probe = run_probe(&command, &worktree).await;
         {
-            let conn = db.lock().expect("wire ledger mutex");
+            let conn = db.lock().expect("tripwire ledger mutex");
             let _ = ledger::record_probe(&conn, run.trip_id, probe.exit, &probe.tail);
         }
         if probe.exit == 0 {
@@ -784,8 +791,8 @@ async fn run_work(config: &TripwireEngineConfig, db: &Db, run: &mut PendingRun) 
     post_placeholder(config, run);
 
     let outcome = sessions
-        .run(wire_session::WireSessionRequest {
-            wire: run.wire.clone(),
+        .run(tripwire_session::TripwireSessionRequest {
+            tripwire: run.tripwire.clone(),
             worktree: worktree.clone(),
             permission_mode: run.permission_mode.clone(),
             model: run.model.clone(),
@@ -796,22 +803,22 @@ async fn run_work(config: &TripwireEngineConfig, db: &Db, run: &mut PendingRun) 
         Ok(outcome) => outcome,
         Err(e) => {
             cleanup_or_keep(run, &repo_root, &dash).await;
-            return Settled::failed(format!("the wire's session did not run: {e}"));
+            return Settled::failed(format!("the tripwire's session did not run: {e}"));
         }
     };
     run.session_id = Some(outcome.session_id.clone());
     {
-        let conn = db.lock().expect("wire ledger mutex");
+        let conn = db.lock().expect("tripwire ledger mutex");
         let _ = ledger::record_run(&conn, run.trip_id, Some(&outcome.session_id), Some(&dash));
     }
 
-    let envelope = wire_agent::parse_wire_envelope(&outcome.transcript);
+    let envelope = tripwire_agent::parse_tripwire_envelope(&outcome.transcript);
     let kept = cleanup_or_keep(run, &repo_root, &dash).await;
     let Some(envelope) = envelope else {
         return Settled::failed(if outcome.completed {
-            "the wire's session finished with no readable envelope".to_string()
+            "the tripwire's session finished with no readable envelope".to_string()
         } else {
-            "the wire's session did not finish inside its twenty minutes".to_string()
+            "the tripwire's session did not finish inside its twenty minutes".to_string()
         });
     };
     let mut settled = Settled::from_envelope(&envelope);
@@ -821,12 +828,13 @@ async fn run_work(config: &TripwireEngineConfig, db: &Db, run: &mut PendingRun) 
         // otherwise leave a dash on the machine that nothing tells anybody
         // about, which is the one outcome this tier must not produce.
         settled.settlement.outcome = Some(Outcome::Staged.as_str().to_string());
-        settled.settlement.interest = Some(wire_agent::Interest::Interesting.as_str().to_string());
+        settled.settlement.interest =
+            Some(tripwire_agent::Interest::Interesting.as_str().to_string());
     }
     settled
 }
 
-/// The dash a firing stages on: `wire-<wire>-<key8>`.
+/// The dash a firing stages on: `tripwire-<tripwire>-<key8>`.
 ///
 /// Derived from the event key rather than minted, so the same firing named
 /// twice — a queued trip drained after a restart — is the same dash and not a
@@ -837,11 +845,11 @@ async fn run_work(config: &TripwireEngineConfig, db: &Db, run: &mut PendingRun) 
 /// it is about. Every other key is digested instead of sanitized. Sanitizing
 /// drops the punctuation a fact key carries its discriminator behind, so eight
 /// surviving characters are eight characters of the *shape* `fact:<instance>:`
-/// — identical for every firing of one wire. Two firings sharing a name is not
+/// — identical for every firing of one tripwire. Two firings sharing a name is not
 /// a cosmetic collision: `create_in` is idempotent, so the second adopts the
 /// first's dash, counts its rounds as its own, and a green probe on the second
 /// discards the work the first staged.
-fn wire_dash_name(wire: &str, event_key: &str) -> String {
+fn tripwire_dash_name(tripwire: &str, event_key: &str) -> String {
     let key8 = if event_key.len() >= 8 && event_key.chars().all(|c| c.is_ascii_alphanumeric()) {
         event_key.chars().take(8).collect()
     } else {
@@ -852,7 +860,7 @@ fn wire_dash_name(wire: &str, event_key: &str) -> String {
             acc
         })
     };
-    format!("wire-{wire}-{key8}")
+    format!("tripwire-{tripwire}-{key8}")
 }
 
 /// What a probe said.
@@ -861,7 +869,7 @@ struct ProbeResult {
     tail: String,
 }
 
-/// Run a wire's probe in its dash worktree, under a deadline.
+/// Run a tripwire's probe in its dash worktree, under a deadline.
 ///
 /// The environment is inherited, with two changes. `TUG_SESSION_ID` is removed
 /// — a probe is not a session, and leaking whichever session tugcast last
@@ -890,7 +898,7 @@ async fn run_probe(command: &str, worktree: &std::path::Path) -> ProbeResult {
         .kill_on_drop(true);
     // A probe that could not be launched is a failing probe, not a green one:
     // reading "could not run" as "nothing wrong" is the one mistake that
-    // silences a wire without anybody noticing.
+    // silences a tripwire without anybody noticing.
     let child = match cmd.spawn() {
         Ok(child) => child,
         Err(e) => {
@@ -965,17 +973,17 @@ async fn cleanup_dash(repo_root: &std::path::Path, dash: &str) {
     let repo_root = repo_root.to_path_buf();
     let dash_name = dash.to_string();
     let removed = tokio::task::spawn_blocking(move || {
-        tugdash_core::ops::discard_in(&repo_root, &dash_name, Some("wire"), false)
+        tugdash_core::ops::discard_in(&repo_root, &dash_name, Some("tripwire"), false)
     })
     .await;
     if let Ok(Err(e)) = removed {
-        warn!(dash, error = %e, "tripwire: the wire's empty dash could not be removed");
+        warn!(dash, error = %e, "tripwire: the tripwire's empty dash could not be removed");
     }
 }
 
 /// What the work-tier session is told.
 ///
-/// The brief is the wire's own words; the evidence is what happened; the rest
+/// The brief is the tripwire's own words; the evidence is what happened; the rest
 /// is the standing contract — how to commit, that joining is not its to do,
 /// and the envelope it has to close with.
 fn compose_work_prompt(run: &PendingRun, dash: &str) -> String {
@@ -991,11 +999,11 @@ fn compose_work_prompt(run: &PendingRun, dash: &str) -> String {
          did not. `headline` is one sentence a reader who saw none of this will understand.",
         brief = run.brief,
         evidence = run.evidence,
-        contract = wire_agent::ENVELOPE_CONTRACT,
+        contract = tripwire_agent::ENVELOPE_CONTRACT,
     )
 }
 
-/// Say that a wire is working, before it has anything to report.
+/// Say that a tripwire is working, before it has anything to report.
 ///
 /// Transient ([P09]): it is a live signal rather than a record, so it is
 /// broadcast and never written down. A run that dies without settling leaves
@@ -1012,8 +1020,8 @@ fn post_placeholder(config: &TripwireEngineConfig, run: &PendingRun) {
         at_ms: (config.now_ms)(),
         author: OverviewAuthor::Tripwire,
         session_id: None,
-        wake_reason: Some(format!("wire:{}", run.wire)),
-        body: format!("{} is working on what it found.", run.wire),
+        wake_reason: Some(format!("tripwire:{}", run.tripwire)),
+        body: format!("{} is working on what it found.", run.tripwire),
         refs: run.engine_refs.clone(),
         elapsed_ms: None,
         project_dir: run.project_dir.clone(),
@@ -1027,30 +1035,31 @@ fn post_placeholder(config: &TripwireEngineConfig, run: &PendingRun) {
 }
 
 /// One pool turn, read as an envelope.
-async fn run_verdict(pools: &WirePools, run: &PendingRun) -> Settled {
+async fn run_verdict(pools: &TripwirePools, run: &PendingRun) -> Settled {
     let pool = pools.for_model(run.model.as_deref());
-    let input = wire_agent::compose_input(&run.brief, &run.evidence);
-    let answer = match pool.run(wire_agent::WIRE_VERDICT, input).await {
+    let input = tripwire_agent::compose_input(&run.brief, &run.evidence);
+    let answer = match pool.run(tripwire_agent::TRIPWIRE_VERDICT, input).await {
         Ok(answer) => answer,
         Err(e) => {
-            warn!(wire = %run.wire, error = %e, "tripwire: the verdict turn failed");
-            return Settled::failed(format!("the wire's turn did not complete: {e}"));
+            warn!(tripwire = %run.tripwire, error = %e, "tripwire: the verdict turn failed");
+            return Settled::failed(format!("the tripwire's turn did not complete: {e}"));
         }
     };
-    let Some(envelope) = wire_agent::parse_wire_envelope(&answer) else {
-        // A wire that was asked a question and did not answer has to say so.
-        // Silence here would make a wire broken for a week look exactly like a
-        // wire with nothing to report.
-        warn!(wire = %run.wire, "tripwire: no readable envelope in the answer");
-        return Settled::failed("the wire's answer carried no readable envelope".to_string());
+    let Some(envelope) = tripwire_agent::parse_tripwire_envelope(&answer) else {
+        // A tripwire that was asked a question and did not answer has to say so.
+        // Silence here would make a tripwire broken for a week look exactly like a
+        // tripwire with nothing to report.
+        warn!(tripwire = %run.tripwire, "tripwire: no readable envelope in the answer");
+        return Settled::failed("the tripwire's answer carried no readable envelope".to_string());
     };
-    // A verdict-tier wire has no hands, so a claim of staged work is a
+    // A verdict-tier tripwire has no hands, so a claim of staged work is a
     // contract violation rather than something to reinterpret. Reading it as
     // a verdict would put a model's mistaken claim in the log as a fact.
     if envelope.outcome == Outcome::Staged {
-        warn!(wire = %run.wire, "tripwire: a no-hands wire claimed staged work");
+        warn!(tripwire = %run.tripwire, "tripwire: a no-hands tripwire claimed staged work");
         return Settled::failed(
-            "the wire has no hands and claimed staged work, so its answer was not read".to_string(),
+            "the tripwire has no hands and claimed staged work, so its answer was not read"
+                .to_string(),
         );
     }
     Settled::from_envelope(&envelope)
@@ -1067,16 +1076,16 @@ impl Settled {
     /// The floor: the firing happened and nothing was asked about it.
     ///
     /// It still carries a headline. A settlement with none cannot be posted at
-    /// all — `post_settled` has no body to send — so a wire laid `--post
+    /// all — `post_settled` has no body to send — so a tripwire laid `--post
     /// always` to shake it down would say nothing on exactly the outcome a
-    /// probe-carrying wire produces most: green. `auto` still stays quiet on
+    /// probe-carrying tripwire produces most: green. `auto` still stays quiet on
     /// it, because that is `interest` doing its job rather than an absent
     /// sentence doing it by accident.
     fn logged(headline: String) -> Self {
         Settled {
             status: TripStatus::Settled,
             settlement: ledger::Settlement {
-                interest: Some(wire_agent::Interest::Routine.as_str().to_string()),
+                interest: Some(tripwire_agent::Interest::Routine.as_str().to_string()),
                 outcome: Some(Outcome::Verdict.as_str().to_string()),
                 headline: Some(headline),
                 refs: None,
@@ -1090,7 +1099,7 @@ impl Settled {
         Settled {
             status: TripStatus::Failed,
             settlement: ledger::Settlement {
-                interest: Some(wire_agent::Interest::Interesting.as_str().to_string()),
+                interest: Some(tripwire_agent::Interest::Interesting.as_str().to_string()),
                 outcome: None,
                 headline: Some(headline),
                 refs: None,
@@ -1098,12 +1107,12 @@ impl Settled {
         }
     }
 
-    fn from_envelope(envelope: &wire_agent::WireEnvelope) -> Self {
+    fn from_envelope(envelope: &tripwire_agent::TripwireEnvelope) -> Self {
         // Staged work is always worth telling, whatever the model said about
         // it: a dash left on the machine that nobody is told about is a dash
         // nobody joins.
         let interest = if envelope.outcome == Outcome::Staged {
-            wire_agent::Interest::Interesting
+            tripwire_agent::Interest::Interesting
         } else {
             envelope.interest
         };
@@ -1134,11 +1143,11 @@ fn settle(config: &TripwireEngineConfig, conn: &Connection, run: &PendingRun, se
         &settled.settlement,
         (config.now_ms)(),
     ) {
-        warn!(error = %e, wire = %run.wire, "tripwire engine: settle failed");
+        warn!(error = %e, tripwire = %run.tripwire, "tripwire engine: settle failed");
         return;
     }
     info!(
-        wire = %run.wire,
+        tripwire = %run.tripwire,
         trip = run.trip_id,
         tier = run.tier.as_str(),
         status = settled.status.as_str(),
@@ -1149,10 +1158,10 @@ fn settle(config: &TripwireEngineConfig, conn: &Connection, run: &PendingRun, se
 
 /// Whether this outcome reaches the Overview.
 ///
-/// `auto` is the judgment the wire's own turn made: a routine firing is a row
-/// in the trip log and nothing more, which is what keeps an armed wire from
+/// `auto` is the judgment the tripwire's own turn made: a routine firing is a row
+/// in the trip log and nothing more, which is what keeps an armed tripwire from
 /// filling the channel with the pattern it was laid to watch for. A failure
-/// always posts under `auto`, because a wire that has stopped working is
+/// always posts under `auto`, because a tripwire that has stopped working is
 /// exactly the thing nobody would otherwise find out about.
 fn should_post(policy: PostPolicy, settled: &Settled) -> bool {
     match policy {
@@ -1161,15 +1170,15 @@ fn should_post(policy: PostPolicy, settled: &Settled) -> bool {
         PostPolicy::Auto => {
             settled.status == TripStatus::Failed
                 || settled.settlement.interest.as_deref()
-                    == Some(wire_agent::Interest::Interesting.as_str())
+                    == Some(tripwire_agent::Interest::Interesting.as_str())
         }
     }
 }
 
 /// Post a settled trip to the Overview.
 ///
-/// The wire's name rides `wake_reason` as `wire:<name>`, which is what the
-/// deck labels the row from — the author says a wire spoke, and the reason
+/// The tripwire's name rides `wake_reason` as `tripwire:<name>`, which is what the
+/// deck labels the row from — the author says a tripwire spoke, and the reason
 /// says which one.
 ///
 /// Two provenances of ref, and they are not the same claim. The engine's own —
@@ -1202,25 +1211,27 @@ fn post_settled(config: &TripwireEngineConfig, run: &PendingRun, settled: &Settl
         at_ms: (config.now_ms)(),
         author: OverviewAuthor::Tripwire,
         session_id: run.session_id.clone(),
-        wake_reason: Some(format!("wire:{}", run.wire)),
+        wake_reason: Some(format!("tripwire:{}", run.tripwire)),
         body,
         refs,
         elapsed_ms: None,
         project_dir: run.project_dir.clone(),
-        // A wire reports in words.
+        // A tripwire reports in words.
         attachments: Vec::new(),
         request_id: None,
         transient: false,
     };
     match config.ledger.record_overview_post(&record) {
         Ok(id) => record.id = Some(id),
-        Err(e) => warn!(error = %e, wire = %run.wire, "tripwire: overview ledger write failed"),
+        Err(e) => {
+            warn!(error = %e, tripwire = %run.tripwire, "tripwire: overview ledger write failed")
+        }
     }
     match serde_json::to_vec(&record) {
         Ok(bytes) => {
             let _ = overview_tx.send(Frame::new(FeedId::OVERVIEW, bytes));
         }
-        Err(e) => warn!(error = %e, wire = %run.wire, "tripwire: post did not serialize"),
+        Err(e) => warn!(error = %e, tripwire = %run.tripwire, "tripwire: post did not serialize"),
     }
 }
 
@@ -1231,7 +1242,7 @@ fn envelope_refs(settled: &Settled) -> Vec<OverviewRef> {
     let Some(raw) = settled.settlement.refs.as_deref() else {
         return Vec::new();
     };
-    let Ok(authored) = serde_json::from_str::<Vec<wire_agent::WireRef>>(raw) else {
+    let Ok(authored) = serde_json::from_str::<Vec<tripwire_agent::TripwireRef>>(raw) else {
         return Vec::new();
     };
     authored
@@ -1255,13 +1266,13 @@ fn parse_ref_kind(kind: &str) -> Option<OverviewRefKind> {
     }
 }
 
-/// Whether an event's path falls under a wire's scope.
+/// Whether an event's path falls under a tripwire's scope.
 ///
 /// Raw prefix, compared as canonical paths, and deliberately **not** folded to
-/// a base checkout: a work-tier wire commits on its own dash worktree, and
+/// a base checkout: a work-tier tripwire commits on its own dash worktree, and
 /// folding worktrees into the checkout they forked from would make those
-/// commits re-trip the wire that made them. An unscoped wire watches the
-/// machine; a scoped wire against an event with no path matches nothing,
+/// commits re-trip the tripwire that made them. An unscoped tripwire watches the
+/// machine; a scoped tripwire against an event with no path matches nothing,
 /// because a scope that was given cannot be silently ignored.
 fn in_scope(scope: Option<&str>, path: Option<&str>) -> bool {
     let Some(scope) = scope else {
@@ -1284,10 +1295,10 @@ fn in_scope(scope: Option<&str>, path: Option<&str>) -> bool {
 /// arrival time — two facts of one kind landing in one millisecond would share
 /// a key, and the loser of that claim is a firing with no row at all, which is
 /// the one silence this facility is built to refuse.
-fn event_key(event: &WireEvent, instance: &str) -> String {
+fn event_key(event: &TripwireEvent, instance: &str) -> String {
     match event {
-        WireEvent::Commit { sha, .. } => sha.clone(),
-        WireEvent::Fact { seq, .. } => format!("fact:{instance}:{seq}"),
+        TripwireEvent::Commit { sha, .. } => sha.clone(),
+        TripwireEvent::Fact { seq, .. } => format!("fact:{instance}:{seq}"),
     }
 }
 
@@ -1300,9 +1311,9 @@ fn event_key(event: &WireEvent, instance: &str) -> String {
 /// is also what lets a trip drained off the queue minutes later compose the
 /// same post as one worked immediately — the live event is gone by then, and
 /// this row is the only record of it there is.
-fn event_payload(event: &WireEvent) -> Option<String> {
+fn event_payload(event: &TripwireEvent) -> Option<String> {
     match event {
-        WireEvent::Fact {
+        TripwireEvent::Fact {
             kind,
             payload,
             project_dir,
@@ -1316,7 +1327,7 @@ fn event_payload(event: &WireEvent) -> Option<String> {
             "seq": seq,
         }))
         .ok(),
-        WireEvent::Commit {
+        TripwireEvent::Commit {
             branch,
             sha,
             workspace_path,
@@ -1365,11 +1376,11 @@ fn event_context(payload: &str) -> EventContext {
     }
 }
 
-/// Whether a wire's resolved tier needs a worktree — read by the tiers that
+/// Whether a tripwire's resolved tier needs a worktree — read by the tiers that
 /// follow, and named here because the guard half already knows the answer.
 #[allow(dead_code)]
-pub fn needs_worktree(wire: &Wire) -> bool {
-    wire.resolved_tier() == Tier::Work
+pub fn needs_worktree(tripwire: &Tripwire) -> bool {
+    tripwire.resolved_tier() == Tier::Work
 }
 
 #[cfg(test)]
@@ -1377,7 +1388,7 @@ mod tests {
     use super::*;
     use crate::shared_agent::AgentWorkerSpawner;
     use crate::shared_agent::test_support::FakeSpawner;
-    use tugutil_core::wire_ledger::NewWire;
+    use tugutil_core::tripwire_ledger::NewTripwire;
 
     /// A clock the test moves by hand, so two events can sit inside one
     /// cooldown window without anybody sleeping through it.
@@ -1427,16 +1438,16 @@ mod tests {
         }
     }
 
-    fn lay(conn: &Connection, name: &str, trigger: &str) -> Wire {
-        ledger::lay(conn, &NewWire::new(name, trigger, "brief"), 1).unwrap()
+    fn lay(conn: &Connection, name: &str, trigger: &str) -> Tripwire {
+        ledger::lay(conn, &NewTripwire::new(name, trigger, "brief"), 1).unwrap()
     }
 
-    fn fact_event(kind: &str, project_dir: Option<&str>, card: Option<&str>) -> WireEvent {
+    fn fact_event(kind: &str, project_dir: Option<&str>, card: Option<&str>) -> TripwireEvent {
         // A fresh rowid per call, because each call stands for a separate
         // fact. A fixed one would make two firings one claim, and quietly turn
         // every cooldown and ceiling test into a test of the key instead.
         static SEQ: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(1);
-        WireEvent::Fact {
+        TripwireEvent::Fact {
             kind: kind.to_string(),
             payload: serde_json::json!({"class": "resolve"}),
             project_dir: project_dir.map(str::to_owned),
@@ -1445,11 +1456,11 @@ mod tests {
         }
     }
 
-    fn decision(outcomes: &[(String, Decision)], wire: &str) -> Decision {
+    fn decision(outcomes: &[(String, Decision)], tripwire: &str) -> Decision {
         outcomes
             .iter()
-            .find(|(name, _)| name == wire)
-            .unwrap_or_else(|| panic!("{wire} was not considered: {outcomes:?}"))
+            .find(|(name, _)| name == tripwire)
+            .unwrap_or_else(|| panic!("{tripwire} was not considered: {outcomes:?}"))
             .1
     }
 
@@ -1459,7 +1470,7 @@ mod tests {
     fn decisions(
         config: &TripwireEngineConfig,
         conn: &Connection,
-        event: &WireEvent,
+        event: &TripwireEvent,
     ) -> Vec<(String, Decision)> {
         evaluate(config, conn, event).0
     }
@@ -1469,8 +1480,8 @@ mod tests {
     async fn work(
         config: &TripwireEngineConfig,
         conn: &Connection,
-        pools: &WirePools,
-        event: &WireEvent,
+        pools: &TripwirePools,
+        event: &TripwireEvent,
     ) -> Vec<(String, Decision)> {
         let (decisions, mut pending) = evaluate(config, conn, event);
         // The run half opens its own handle. `run_pending` takes the ledger
@@ -1485,14 +1496,14 @@ mod tests {
         decisions
     }
 
-    fn scripted(answers: Vec<Result<String, String>>) -> (WirePools, Arc<FakeSpawner>) {
+    fn scripted(answers: Vec<Result<String, String>>) -> (TripwirePools, Arc<FakeSpawner>) {
         let spawner = FakeSpawner::new(answers);
-        let pools = WirePools::new(Arc::clone(&spawner) as Arc<dyn AgentWorkerSpawner>);
+        let pools = TripwirePools::new(Arc::clone(&spawner) as Arc<dyn AgentWorkerSpawner>);
         (pools, spawner)
     }
 
     fn statuses(conn: &Connection, wire_id: i64) -> Vec<String> {
-        ledger::trips_for_wire(conn, wire_id, 20)
+        ledger::trips_for_tripwire(conn, wire_id, 20)
             .unwrap()
             .into_iter()
             .map(|t| t.status)
@@ -1500,9 +1511,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_matching_fact_fires_the_wire_and_settles_from_the_models_envelope() {
+    async fn a_matching_fact_fires_the_tripwire_and_settles_from_the_models_envelope() {
         let h = harness();
-        let wire = lay(&h.conn, "tugedit", r#"{"fact":{"kind":"edit_failed"}}"#);
+        let tripwire = lay(&h.conn, "tugedit", r#"{"fact":{"kind":"edit_failed"}}"#);
         let (pools, spawner) = scripted(vec![Ok(r#"{"interest":"interesting","outcome":"verdict","headline":"a.rs went stale","refs":[{"kind":"file","target":"a.rs"}]}"#.to_string())]);
         let out = work(
             &h.config,
@@ -1513,7 +1524,7 @@ mod tests {
         .await;
         assert_eq!(decision(&out, "tugedit"), Decision::Fired);
 
-        let trips = ledger::trips_for_wire(&h.conn, wire.id, 10).unwrap();
+        let trips = ledger::trips_for_tripwire(&h.conn, tripwire.id, 10).unwrap();
         assert_eq!(trips.len(), 1);
         assert_eq!(trips[0].status, "settled");
         assert_eq!(trips[0].interest.as_deref(), Some("interesting"));
@@ -1546,23 +1557,23 @@ mod tests {
     #[test]
     fn a_fact_of_another_kind_never_reaches_the_claim() {
         let h = harness();
-        let wire = lay(&h.conn, "w", r#"{"fact":{"kind":"edit_failed"}}"#);
+        let tripwire = lay(&h.conn, "w", r#"{"fact":{"kind":"edit_failed"}}"#);
         let out = decisions(&h.config, &h.conn, &fact_event("shell", None, None));
         assert_eq!(decision(&out, "w"), Decision::NoMatch);
-        assert!(statuses(&h.conn, wire.id).is_empty(), "no row at all");
+        assert!(statuses(&h.conn, tripwire.id).is_empty(), "no row at all");
     }
 
     /// `pause` applies on the next firing because the table is re-read per
     /// event — there is no notification to forget to send.
     #[test]
-    fn a_paused_wire_is_not_even_considered() {
+    fn a_paused_tripwire_is_not_even_considered() {
         let h = harness();
-        let wire = lay(&h.conn, "w", r#"{"fact":{"kind":"edit_failed"}}"#);
+        let tripwire = lay(&h.conn, "w", r#"{"fact":{"kind":"edit_failed"}}"#);
         ledger::set_paused(&h.conn, "w", true).unwrap();
 
         let out = decisions(&h.config, &h.conn, &fact_event("edit_failed", None, None));
         assert!(out.is_empty(), "an armed-only read: {out:?}");
-        assert!(statuses(&h.conn, wire.id).is_empty());
+        assert!(statuses(&h.conn, tripwire.id).is_empty());
 
         ledger::set_paused(&h.conn, "w", false).unwrap();
         let out = decisions(&h.config, &h.conn, &fact_event("edit_failed", None, None));
@@ -1570,11 +1581,11 @@ mod tests {
     }
 
     #[test]
-    fn a_scoped_wire_ignores_a_foreign_path_and_takes_one_beneath_it() {
+    fn a_scoped_tripwire_ignores_a_foreign_path_and_takes_one_beneath_it() {
         let h = harness();
-        let mut wire = NewWire::new("w", r#"{"fact":{"kind":"edit_failed"}}"#, "b");
-        wire.scope = Some("/proj".to_string());
-        ledger::lay(&h.conn, &wire, 1).unwrap();
+        let mut tripwire = NewTripwire::new("w", r#"{"fact":{"kind":"edit_failed"}}"#, "b");
+        tripwire.scope = Some("/proj".to_string());
+        ledger::lay(&h.conn, &tripwire, 1).unwrap();
 
         let foreign = decisions(
             &h.config,
@@ -1600,13 +1611,13 @@ mod tests {
     }
 
     /// A scope that was given cannot be silently ignored, so an event with no
-    /// path matches no scoped wire.
+    /// path matches no scoped tripwire.
     #[test]
-    fn a_scoped_wire_matches_no_pathless_event() {
+    fn a_scoped_tripwire_matches_no_pathless_event() {
         let h = harness();
-        let mut wire = NewWire::new("scoped", r#"{"fact":{"kind":"edit_failed"}}"#, "b");
-        wire.scope = Some("/proj".to_string());
-        ledger::lay(&h.conn, &wire, 1).unwrap();
+        let mut tripwire = NewTripwire::new("scoped", r#"{"fact":{"kind":"edit_failed"}}"#, "b");
+        tripwire.scope = Some("/proj".to_string());
+        ledger::lay(&h.conn, &tripwire, 1).unwrap();
         lay(&h.conn, "unscoped", r#"{"fact":{"kind":"edit_failed"}}"#);
 
         let out = decisions(&h.config, &h.conn, &fact_event("edit_failed", None, None));
@@ -1614,12 +1625,12 @@ mod tests {
         assert_eq!(
             decision(&out, "unscoped"),
             Decision::Fired,
-            "an unscoped wire watches the machine"
+            "an unscoped tripwire watches the machine"
         );
     }
 
     /// A dash worktree is not folded into the checkout it forked from — that
-    /// folding is what would make a work-tier wire re-trip on its own commits.
+    /// folding is what would make a work-tier tripwire re-trip on its own commits.
     #[test]
     fn a_worktree_path_is_not_folded_into_its_base_checkout() {
         assert!(in_scope(Some("/proj"), Some("/proj/.tug/worktrees/x")));
@@ -1640,7 +1651,7 @@ mod tests {
         let main = lay(&h.conn, "main-only", r#"{"commit":{"branch":"main"}}"#);
         lay(&h.conn, "any-branch", r#"{"commit":{}}"#);
 
-        let on_dash = WireEvent::Commit {
+        let on_dash = TripwireEvent::Commit {
             branch: Some("tugdash/x".to_string()),
             sha: "abc123".to_string(),
             workspace_path: "/proj".to_string(),
@@ -1669,12 +1680,12 @@ mod tests {
     #[test]
     fn two_facts_in_one_millisecond_are_two_firings() {
         let h = harness();
-        let wire = lay(&h.conn, "w", r#"{"fact":{"kind":"edit_failed"}}"#);
+        let tripwire = lay(&h.conn, "w", r#"{"fact":{"kind":"edit_failed"}}"#);
         // No cooldown, so a second row is refused for its key or not at all.
         ledger::update(
             &h.conn,
             "w",
-            &ledger::WireEdit {
+            &ledger::TripwireEdit {
                 cooldown_secs: Some(0),
                 ..Default::default()
             },
@@ -1683,14 +1694,14 @@ mod tests {
         for _ in 0..2 {
             decisions(&h.config, &h.conn, &fact_event("edit_failed", None, None));
         }
-        let trips = ledger::trips_for_wire(&h.conn, wire.id, 50).unwrap();
+        let trips = ledger::trips_for_tripwire(&h.conn, tripwire.id, 50).unwrap();
         assert_eq!(trips.len(), 2, "the clock never moved: {trips:?}");
     }
 
     #[test]
     fn a_second_firing_inside_the_window_is_swallowed_with_its_reason() {
         let h = harness();
-        let wire = lay(&h.conn, "w", r#"{"fact":{"kind":"edit_failed"}}"#);
+        let tripwire = lay(&h.conn, "w", r#"{"fact":{"kind":"edit_failed"}}"#);
         assert_eq!(
             decision(
                 &decisions(&h.config, &h.conn, &fact_event("edit_failed", None, None)),
@@ -1708,12 +1719,12 @@ mod tests {
             Decision::Swallowed("cooldown")
         );
 
-        let trips = ledger::trips_for_wire(&h.conn, wire.id, 10).unwrap();
+        let trips = ledger::trips_for_tripwire(&h.conn, tripwire.id, 10).unwrap();
         assert_eq!(trips[0].status, "swallowed");
         assert_eq!(trips[0].swallow_reason.as_deref(), Some("cooldown"));
 
         // Past the window it fires again — and the swallow did not extend it.
-        h.clock.advance(wire.cooldown_secs * 1_000);
+        h.clock.advance(tripwire.cooldown_secs * 1_000);
         assert_eq!(
             decision(
                 &decisions(&h.config, &h.conn, &fact_event("edit_failed", None, None)),
@@ -1743,10 +1754,10 @@ mod tests {
         assert_eq!(statuses(&h.conn, waiting.id), vec!["queued"]);
     }
 
-    /// One slot per wire: a newer queued event replaces the older, and the
+    /// One slot per tripwire: a newer queued event replaces the older, and the
     /// coalescing stays visible in the log.
     #[test]
-    fn a_newer_queued_event_supersedes_the_older_on_one_wire() {
+    fn a_newer_queued_event_supersedes_the_older_on_one_tripwire() {
         let h = harness();
         let other = lay(&h.conn, "other", r#"{"fact":{"kind":"edit_failed"}}"#);
         let w = lay(&h.conn, "w", r#"{"fact":{"kind":"edit_failed"}}"#);
@@ -1772,7 +1783,7 @@ mod tests {
     #[test]
     fn two_engines_over_one_ledger_claim_one_commit_once() {
         let h = harness();
-        let wire = lay(&h.conn, "w", r#"{"commit":{}}"#);
+        let tripwire = lay(&h.conn, "w", r#"{"commit":{}}"#);
         let second_conn = ledger::open_ledger(&h.config.db_path).unwrap();
         let second = TripwireEngineConfig {
             ledger: Arc::new(SessionLedger::open_in_memory().unwrap()),
@@ -1784,7 +1795,7 @@ mod tests {
             overview_tx: None,
             cancel: CancellationToken::new(),
         };
-        let event = WireEvent::Commit {
+        let event = TripwireEvent::Commit {
             branch: Some("main".to_string()),
             sha: "deadbeef".to_string(),
             workspace_path: "/proj".to_string(),
@@ -1800,16 +1811,16 @@ mod tests {
             "the loser stops silently"
         );
         assert_eq!(
-            statuses(&h.conn, wire.id),
+            statuses(&h.conn, tripwire.id),
             vec!["running"],
             "one row, and the winner is working it"
         );
     }
 
     /// A trigger written against a grammar this build cannot read never fires
-    /// — and never stops the wires beside it from being considered.
+    /// — and never stops the tripwires beside it from being considered.
     #[test]
-    fn an_unreadable_trigger_costs_its_own_wire_and_no_other() {
+    fn an_unreadable_trigger_costs_its_own_tripwire_and_no_other() {
         let h = harness();
         lay(&h.conn, "future", r#"{"portent":{"omen":"raven"}}"#);
         lay(&h.conn, "ordinary", r#"{"fact":{"kind":"edit_failed"}}"#);
@@ -1822,10 +1833,10 @@ mod tests {
     #[test]
     fn the_boot_sweep_fails_this_instances_orphans_only() {
         let h = harness();
-        let wire = lay(&h.conn, "w", r#"{"commit":{}}"#);
+        let tripwire = lay(&h.conn, "w", r#"{"commit":{}}"#);
         for (key, instance) in [("mine", "inst-a"), ("theirs", "inst-b")] {
             let Claim::Claimed { trip_id } =
-                ledger::claim_trip(&h.conn, wire.id, key, 1, instance, None).unwrap()
+                ledger::claim_trip(&h.conn, tripwire.id, key, 1, instance, None).unwrap()
             else {
                 panic!("claimed");
             };
@@ -1838,12 +1849,12 @@ mod tests {
         assert_eq!(ledger::running_count(&h.conn).unwrap(), 1);
     }
 
-    /// A wire was asked a question and did not answer. Silence here would make
-    /// a wire broken for a week look exactly like a wire with nothing to say.
+    /// A tripwire was asked a question and did not answer. Silence here would make
+    /// a tripwire broken for a week look exactly like a tripwire with nothing to say.
     #[tokio::test]
     async fn an_answer_with_no_readable_envelope_fails_the_trip_and_says_why() {
         let h = harness();
-        let wire = lay(&h.conn, "w", r#"{"fact":{"kind":"edit_failed"}}"#);
+        let tripwire = lay(&h.conn, "w", r#"{"fact":{"kind":"edit_failed"}}"#);
         let (pools, _) = scripted(vec![Ok("I could not tell.".to_string())]);
         work(
             &h.config,
@@ -1853,7 +1864,7 @@ mod tests {
         )
         .await;
 
-        let trips = ledger::trips_for_wire(&h.conn, wire.id, 10).unwrap();
+        let trips = ledger::trips_for_tripwire(&h.conn, tripwire.id, 10).unwrap();
         assert_eq!(trips[0].status, "failed");
         assert!(
             trips[0].headline.as_deref().unwrap().contains("envelope"),
@@ -1866,7 +1877,7 @@ mod tests {
     #[tokio::test]
     async fn a_turn_that_never_completes_fails_the_trip() {
         let h = harness();
-        let wire = lay(&h.conn, "w", r#"{"fact":{"kind":"edit_failed"}}"#);
+        let tripwire = lay(&h.conn, "w", r#"{"fact":{"kind":"edit_failed"}}"#);
         let (pools, _) = scripted(vec![Err("the worker died".to_string())]);
         work(
             &h.config,
@@ -1875,7 +1886,7 @@ mod tests {
             &fact_event("edit_failed", None, None),
         )
         .await;
-        let trips = ledger::trips_for_wire(&h.conn, wire.id, 10).unwrap();
+        let trips = ledger::trips_for_tripwire(&h.conn, tripwire.id, 10).unwrap();
         assert_eq!(trips[0].status, "failed");
         assert!(
             trips[0]
@@ -1888,12 +1899,12 @@ mod tests {
         );
     }
 
-    /// A verdict-tier wire has no hands, so a claim of staged work is a
+    /// A verdict-tier tripwire has no hands, so a claim of staged work is a
     /// contract violation rather than something to quietly reinterpret.
     #[tokio::test]
-    async fn a_no_hands_wire_claiming_staged_work_fails_rather_than_being_reread() {
+    async fn a_no_hands_tripwire_claiming_staged_work_fails_rather_than_being_reread() {
         let h = harness();
-        let wire = lay(&h.conn, "w", r#"{"fact":{"kind":"edit_failed"}}"#);
+        let tripwire = lay(&h.conn, "w", r#"{"fact":{"kind":"edit_failed"}}"#);
         let (pools, _) = scripted(vec![Ok(
             r#"{"interest":"routine","outcome":"staged","headline":"I fixed it"}"#.to_string(),
         )]);
@@ -1905,7 +1916,7 @@ mod tests {
         )
         .await;
 
-        let trips = ledger::trips_for_wire(&h.conn, wire.id, 10).unwrap();
+        let trips = ledger::trips_for_tripwire(&h.conn, tripwire.id, 10).unwrap();
         assert_eq!(trips[0].status, "failed");
         assert!(
             trips[0].headline.as_deref().unwrap().contains("no hands"),
@@ -1924,7 +1935,7 @@ mod tests {
     #[tokio::test]
     async fn an_unknown_ref_kind_never_reaches_the_row() {
         let h = harness();
-        let wire = lay(&h.conn, "w", r#"{"fact":{"kind":"edit_failed"}}"#);
+        let tripwire = lay(&h.conn, "w", r#"{"fact":{"kind":"edit_failed"}}"#);
         let (pools, _) = scripted(vec![Ok(r#"{"interest":"routine","outcome":"verdict","headline":"h","refs":[{"kind":"portent","target":"raven"},{"kind":"commit","target":"abc1234"}]}"#.to_string())]);
         work(
             &h.config,
@@ -1934,7 +1945,7 @@ mod tests {
         )
         .await;
 
-        let refs = ledger::trips_for_wire(&h.conn, wire.id, 10).unwrap()[0]
+        let refs = ledger::trips_for_tripwire(&h.conn, tripwire.id, 10).unwrap()[0]
             .refs
             .clone()
             .unwrap();
@@ -1947,24 +1958,24 @@ mod tests {
     /// not a model turn. Nothing on disk is touched either, because the floor
     /// is reached before the dash would be created.
     #[tokio::test]
-    async fn a_work_tier_wire_settles_at_the_log_only_floor_without_a_turn() {
+    async fn a_work_tier_tripwire_settles_at_the_log_only_floor_without_a_turn() {
         let h = harness();
-        let mut new = NewWire::new("ci", r#"{"fact":{"kind":"edit_failed"}}"#, "brief");
+        let mut new = NewTripwire::new("ci", r#"{"fact":{"kind":"edit_failed"}}"#, "brief");
         new.probe = Some("just ci".to_string());
-        new.scope = Some("/tmp/wire-scope".to_string());
-        let wire = ledger::lay(&h.conn, &new, 1).unwrap();
-        assert_eq!(wire.resolved_tier(), Tier::Work);
+        new.scope = Some("/tmp/tripwire-scope".to_string());
+        let tripwire = ledger::lay(&h.conn, &new, 1).unwrap();
+        assert_eq!(tripwire.resolved_tier(), Tier::Work);
 
         let (pools, spawner) = scripted(vec![Ok("never asked".to_string())]);
         work(
             &h.config,
             &h.conn,
             &pools,
-            &fact_event("edit_failed", Some("/tmp/wire-scope"), None),
+            &fact_event("edit_failed", Some("/tmp/tripwire-scope"), None),
         )
         .await;
 
-        let trips = ledger::trips_for_wire(&h.conn, wire.id, 10).unwrap();
+        let trips = ledger::trips_for_tripwire(&h.conn, tripwire.id, 10).unwrap();
         assert_eq!(trips[0].status, "settled");
         assert_eq!(trips[0].interest.as_deref(), Some("routine"));
         // The floor still says what it was. A settlement with no headline can
@@ -1984,17 +1995,18 @@ mod tests {
         );
     }
 
-    /// The wire's `model` column is what routes the turn, and a wire with none
+    /// The tripwire's `model` column is what routes the turn, and a tripwire with none
     /// takes the default rather than nothing.
     #[tokio::test]
-    async fn each_wires_model_column_routes_its_turn_to_that_models_pool() {
+    async fn each_tripwires_model_column_routes_its_turn_to_that_models_pool() {
         let h = harness();
-        let mut named = NewWire::new("opus-wire", r#"{"fact":{"kind":"edit_failed"}}"#, "b");
+        let mut named =
+            NewTripwire::new("opus-tripwire", r#"{"fact":{"kind":"edit_failed"}}"#, "b");
         named.model = Some("opus".to_string());
         ledger::lay(&h.conn, &named, 1).unwrap();
         lay(
             &h.conn,
-            "default-wire",
+            "default-tripwire",
             r#"{"fact":{"kind":"edit_failed"}}"#,
         );
 
@@ -2016,11 +2028,11 @@ mod tests {
         assert_eq!(
             pools.pool_count(),
             2,
-            "two wires on two models are two pools"
+            "two tripwires on two models are two pools"
         );
         assert!(Arc::ptr_eq(
             &pools.for_model(None),
-            &pools.for_model(Some(wire_agent::DEFAULT_WIRE_MODEL)),
+            &pools.for_model(Some(tripwire_agent::DEFAULT_TRIPWIRE_MODEL)),
         ));
     }
 
@@ -2039,7 +2051,7 @@ mod tests {
             panic!("claimed");
         };
         ledger::record_run(&h.conn, trip_id, None, None).unwrap();
-        let event = WireEvent::Commit {
+        let event = TripwireEvent::Commit {
             branch: Some("main".to_string()),
             sha: "abc".to_string(),
             workspace_path: "/proj".to_string(),
@@ -2062,7 +2074,7 @@ mod tests {
         let db: Db = Mutex::new(ledger::open_ledger(&h.config.db_path).unwrap());
         drain_queue(&h.config, &db, &pools).await;
 
-        let trips = ledger::trips_for_wire(&h.conn, waiting.id, 10).unwrap();
+        let trips = ledger::trips_for_tripwire(&h.conn, waiting.id, 10).unwrap();
         assert_eq!(trips[0].status, "settled");
         assert_eq!(trips[0].headline.as_deref(), Some("drained"));
     }
@@ -2082,9 +2094,9 @@ mod tests {
     }
 
     /// The whole reporting path: an interesting verdict becomes a post in the
-    /// Tripwire's voice, on the wire's name, carrying both provenances of ref.
+    /// Tripwire's voice, on the tripwire's name, carrying both provenances of ref.
     #[tokio::test]
-    async fn an_interesting_verdict_posts_as_the_tripwire_naming_its_wire() {
+    async fn an_interesting_verdict_posts_as_the_tripwire_naming_its_tripwire() {
         let (h, mut rx) = posting_harness();
         lay(&h.conn, "ci", r#"{"commit":{}}"#);
         let (pools, _) = scripted(vec![Ok(r#"{"interest":"interesting","outcome":"verdict","headline":"the suite went red on abc1234","refs":[{"kind":"file","target":"src/a.rs"}]}"#.to_string())]);
@@ -2093,7 +2105,7 @@ mod tests {
             &h.config,
             &h.conn,
             &pools,
-            &WireEvent::Commit {
+            &TripwireEvent::Commit {
                 branch: Some("main".to_string()),
                 sha: "abc1234".to_string(),
                 workspace_path: "/proj".to_string(),
@@ -2105,7 +2117,7 @@ mod tests {
         assert_eq!(written.len(), 1, "{written:?}");
         let post = &written[0];
         assert_eq!(post.author, OverviewAuthor::Tripwire);
-        assert_eq!(post.wake_reason.as_deref(), Some("wire:ci"));
+        assert_eq!(post.wake_reason.as_deref(), Some("tripwire:ci"));
         assert_eq!(post.body, "the suite went red on abc1234");
         assert_eq!(post.project_dir.as_deref(), Some("/proj"));
 
@@ -2125,7 +2137,7 @@ mod tests {
     }
 
     /// The regression this pins is the engine's own dash ref being eaten:
-    /// a generated wire dash name appears nowhere in what the model was
+    /// a generated tripwire dash name appears nowhere in what the model was
     /// shown, so passing it through the Observer's validator would silently
     /// drop the chip the post exists to offer.
     #[tokio::test]
@@ -2134,13 +2146,13 @@ mod tests {
         lay(&h.conn, "ci", r#"{"commit":{}}"#);
         // The model names a dash it was never shown — which is exactly the
         // shape a work-tier settle produces.
-        let (pools, _) = scripted(vec![Ok(r#"{"interest":"interesting","outcome":"verdict","headline":"staged a fix","refs":[{"kind":"dash","target":"wire-ci-abc12345"}]}"#.to_string())]);
+        let (pools, _) = scripted(vec![Ok(r#"{"interest":"interesting","outcome":"verdict","headline":"staged a fix","refs":[{"kind":"dash","target":"tripwire-ci-abc12345"}]}"#.to_string())]);
 
         work(
             &h.config,
             &h.conn,
             &pools,
-            &WireEvent::Commit {
+            &TripwireEvent::Commit {
                 branch: Some("main".to_string()),
                 sha: "deadbeef".to_string(),
                 workspace_path: "/proj".to_string(),
@@ -2152,7 +2164,7 @@ mod tests {
         assert!(
             post.refs
                 .iter()
-                .any(|r| r.kind == OverviewRefKind::Dash && r.target == "wire-ci-abc12345"),
+                .any(|r| r.kind == OverviewRefKind::Dash && r.target == "tripwire-ci-abc12345"),
             "the dash ref survived: {:?}",
             post.refs
         );
@@ -2161,7 +2173,7 @@ mod tests {
     #[tokio::test]
     async fn post_never_writes_no_post_however_interesting_the_verdict() {
         let (h, mut rx) = posting_harness();
-        let mut new = NewWire::new("quiet", r#"{"fact":{"kind":"edit_failed"}}"#, "b");
+        let mut new = NewTripwire::new("quiet", r#"{"fact":{"kind":"edit_failed"}}"#, "b");
         new.post = PostPolicy::Never;
         ledger::lay(&h.conn, &new, 1).unwrap();
         let (pools, _) = scripted(vec![Ok(
@@ -2177,22 +2189,22 @@ mod tests {
         .await;
 
         assert!(posts(&h.config.ledger).is_empty());
-        assert!(rx.try_recv().is_err(), "nothing on the wire either");
+        assert!(rx.try_recv().is_err(), "nothing on the tripwire either");
     }
 
     /// Under `auto` a routine firing is a trip-log row and nothing more —
-    /// which is what keeps an armed wire from filling the channel with the
+    /// which is what keeps an armed tripwire from filling the channel with the
     /// pattern it was laid to watch for.
     #[tokio::test]
     async fn auto_posts_the_interesting_and_the_failed_but_not_the_routine() {
-        let routine = Settled::from_envelope(&wire_agent::WireEnvelope {
-            interest: wire_agent::Interest::Routine,
+        let routine = Settled::from_envelope(&tripwire_agent::TripwireEnvelope {
+            interest: tripwire_agent::Interest::Routine,
             outcome: Outcome::Verdict,
             headline: "ordinary".to_string(),
             refs: Vec::new(),
         });
-        let interesting = Settled::from_envelope(&wire_agent::WireEnvelope {
-            interest: wire_agent::Interest::Interesting,
+        let interesting = Settled::from_envelope(&tripwire_agent::TripwireEnvelope {
+            interest: tripwire_agent::Interest::Interesting,
             outcome: Outcome::Verdict,
             headline: "worth telling".to_string(),
             refs: Vec::new(),
@@ -2203,7 +2215,7 @@ mod tests {
         assert!(should_post(PostPolicy::Auto, &interesting));
         assert!(
             should_post(PostPolicy::Auto, &failed),
-            "a wire that stopped working is what nobody would otherwise find out about"
+            "a tripwire that stopped working is what nobody would otherwise find out about"
         );
 
         for settled in [&routine, &interesting, &failed] {
@@ -2213,14 +2225,14 @@ mod tests {
     }
 
     /// `always` is the shakedown policy, so it has to reach the outcome a
-    /// freshly laid probe-carrying wire actually produces: the quiet one.
+    /// freshly laid probe-carrying tripwire actually produces: the quiet one.
     /// `auto` reads `interest` and stays out of the channel.
     #[tokio::test]
     async fn the_log_only_floor_is_sayable_under_always_and_quiet_under_auto() {
         let (h, mut rx) = posting_harness();
-        let mut new = NewWire::new("ci", r#"{"fact":{"kind":"edit_failed"}}"#, "b");
+        let mut new = NewTripwire::new("ci", r#"{"fact":{"kind":"edit_failed"}}"#, "b");
         new.probe = Some("just ci".to_string());
-        new.scope = Some("/tmp/wire-scope".to_string());
+        new.scope = Some("/tmp/tripwire-scope".to_string());
         new.post = PostPolicy::Always;
         ledger::lay(&h.conn, &new, 1).unwrap();
 
@@ -2229,12 +2241,12 @@ mod tests {
             &h.config,
             &h.conn,
             &pools,
-            &fact_event("edit_failed", Some("/tmp/wire-scope"), None),
+            &fact_event("edit_failed", Some("/tmp/tripwire-scope"), None),
         )
         .await;
 
-        // `always` is how a freshly laid wire is shaken down, and the outcome a
-        // probe-carrying wire produces most is the quiet one. A floor with no
+        // `always` is how a freshly laid tripwire is shaken down, and the outcome a
+        // probe-carrying tripwire produces most is the quiet one. A floor with no
         // headline could not be posted at all — `post_settled` had no body to
         // send — so the policy said nothing on exactly the firing it was set
         // for.
@@ -2249,7 +2261,7 @@ mod tests {
         ledger::update(
             &h.conn,
             "ci",
-            &ledger::WireEdit {
+            &ledger::TripwireEdit {
                 post: Some(PostPolicy::Auto),
                 cooldown_secs: Some(0),
                 ..Default::default()
@@ -2260,7 +2272,7 @@ mod tests {
             &h.config,
             &h.conn,
             &pools,
-            &fact_event("edit_failed", Some("/tmp/wire-scope"), None),
+            &fact_event("edit_failed", Some("/tmp/tripwire-scope"), None),
         )
         .await;
         assert_eq!(posts(&h.config.ledger).len(), 1, "auto added nothing");
@@ -2271,7 +2283,7 @@ mod tests {
     #[tokio::test]
     async fn the_running_engine_trips_on_a_fact_recorded_after_it_booted() {
         let h = harness();
-        let wire = lay(&h.conn, "tugedit", r#"{"fact":{"kind":"edit_failed"}}"#);
+        let tripwire = lay(&h.conn, "tugedit", r#"{"fact":{"kind":"edit_failed"}}"#);
         let session_ledger = Arc::clone(&h.config.ledger);
         let cancel = h.config.cancel.clone();
         let db_path = h.config.db_path.clone();
@@ -2322,7 +2334,7 @@ mod tests {
 
         let deadline = std::time::Instant::now() + Duration::from_secs(10);
         loop {
-            let trips = ledger::trips_for_wire(&h.conn, wire.id, 10).unwrap();
+            let trips = ledger::trips_for_tripwire(&h.conn, tripwire.id, 10).unwrap();
             if trips.first().is_some_and(|t| t.status == "settled") {
                 assert_eq!(trips.len(), 1, "the pre-boot fact did not trip: {trips:?}");
                 assert_eq!(
@@ -2348,14 +2360,14 @@ mod tests {
     /// stand in for.
     mod work_tier {
         use super::*;
-        use crate::feeds::wire_session::{WireSessionOutcome, WireSessionRequest};
+        use crate::feeds::tripwire_session::{TripwireSessionOutcome, TripwireSessionRequest};
 
         /// What the fake was asked to do, so a test can assert on the request as
         /// well as on the outcome — the permission mode and the worktree are
         /// promises the tier makes, and an outcome alone would not show them kept.
         #[derive(Debug, Clone)]
         struct SeenRun {
-            wire: String,
+            tripwire: String,
             worktree: PathBuf,
             permission_mode: String,
             model: Option<String>,
@@ -2400,11 +2412,17 @@ mod tests {
         }
 
         #[async_trait::async_trait]
-        impl WireSessionRunner for FakeSessions {
-            async fn run(&self, request: WireSessionRequest) -> Result<WireSessionOutcome, String> {
+        impl TripwireSessionRunner for FakeSessions {
+            async fn run(
+                &self,
+                request: TripwireSessionRequest,
+            ) -> Result<TripwireSessionOutcome, String> {
                 if self.commits {
                     std::fs::write(request.worktree.join("fixed.txt"), "fixed").unwrap();
-                    for args in [vec!["add", "-A"], vec!["commit", "-m", "the wire's round"]] {
+                    for args in [
+                        vec!["add", "-A"],
+                        vec!["commit", "-m", "the tripwire's round"],
+                    ] {
                         let out = std::process::Command::new("git")
                             .args(&args)
                             .current_dir(&request.worktree)
@@ -2414,14 +2432,14 @@ mod tests {
                     }
                 }
                 self.seen.lock().unwrap().push(SeenRun {
-                    wire: request.wire,
+                    tripwire: request.tripwire,
                     worktree: request.worktree,
                     permission_mode: request.permission_mode,
                     model: request.model,
                     prompt: request.prompt,
                 });
-                Ok(WireSessionOutcome {
-                    session_id: "sess-wire".to_string(),
+                Ok(TripwireSessionOutcome {
+                    session_id: "sess-tripwire".to_string(),
                     transcript: self.transcript.clone(),
                     completed: self.completed,
                 })
@@ -2457,8 +2475,8 @@ mod tests {
             (temp, root)
         }
 
-        fn work_wire(conn: &Connection, root: &std::path::Path, probe: &str) -> Wire {
-            let mut new = NewWire::new("ci", r#"{"commit":{}}"#, "put the suite back to green");
+        fn work_tripwire(conn: &Connection, root: &std::path::Path, probe: &str) -> Tripwire {
+            let mut new = NewTripwire::new("ci", r#"{"commit":{}}"#, "put the suite back to green");
             new.probe = Some(probe.to_string());
             new.scope = Some(root.to_string_lossy().into_owned());
             new.permission_mode = "acceptEdits".to_string();
@@ -2466,8 +2484,8 @@ mod tests {
             ledger::lay(conn, &new, 1).unwrap()
         }
 
-        fn commit_event(root: &std::path::Path) -> WireEvent {
-            WireEvent::Commit {
+        fn commit_event(root: &std::path::Path) -> TripwireEvent {
+            TripwireEvent::Commit {
                 branch: Some("main".to_string()),
                 sha: "abc1234def".to_string(),
                 workspace_path: root.to_string_lossy().into_owned(),
@@ -2499,15 +2517,15 @@ mod tests {
         async fn a_green_probe_settles_the_trip_and_leaves_nothing_behind() {
             let (_temp, root) = scratch_repo();
             let (h, _rx) = posting_harness();
-            let wire = work_wire(&h.conn, &root, "true");
+            let tripwire = work_tripwire(&h.conn, &root, "true");
             let sessions = FakeSessions::new("never asked", false);
             let mut config = h.config;
-            config.sessions = Some(Arc::clone(&sessions) as Arc<dyn WireSessionRunner>);
+            config.sessions = Some(Arc::clone(&sessions) as Arc<dyn TripwireSessionRunner>);
 
             let (pools, spawner) = scripted(vec![Ok("never asked".to_string())]);
             work(&config, &h.conn, &pools, &commit_event(&root)).await;
 
-            let trips = ledger::trips_for_wire(&h.conn, wire.id, 10).unwrap();
+            let trips = ledger::trips_for_tripwire(&h.conn, tripwire.id, 10).unwrap();
             assert_eq!(trips[0].status, "settled");
             assert_eq!(trips[0].interest.as_deref(), Some("routine"));
             assert_eq!(trips[0].probe_exit, Some(0));
@@ -2530,23 +2548,23 @@ mod tests {
         async fn a_red_probe_stages_work_on_a_dash_that_survives_the_settle() {
             let (_temp, root) = scratch_repo();
             let (h, _rx) = posting_harness();
-            let wire = work_wire(&h.conn, &root, "exit 3");
+            let tripwire = work_tripwire(&h.conn, &root, "exit 3");
             let sessions = FakeSessions::new(
                 r#"{"interest":"routine","outcome":"staged","headline":"put the suite back to green"}"#,
                 true,
             );
             let mut config = h.config;
-            config.sessions = Some(Arc::clone(&sessions) as Arc<dyn WireSessionRunner>);
+            config.sessions = Some(Arc::clone(&sessions) as Arc<dyn TripwireSessionRunner>);
 
             let (pools, _) = scripted(vec![Ok("never asked".to_string())]);
             work(&config, &h.conn, &pools, &commit_event(&root)).await;
 
-            let trips = ledger::trips_for_wire(&h.conn, wire.id, 10).unwrap();
+            let trips = ledger::trips_for_tripwire(&h.conn, tripwire.id, 10).unwrap();
             let trip = &trips[0];
             assert_eq!(trip.status, "settled");
             assert_eq!(trip.probe_exit, Some(3));
-            assert_eq!(trip.session_id.as_deref(), Some("sess-wire"));
-            assert_eq!(trip.dash.as_deref(), Some("wire-ci-abc1234d"));
+            assert_eq!(trip.session_id.as_deref(), Some("sess-tripwire"));
+            assert_eq!(trip.dash.as_deref(), Some("tripwire-ci-abc1234d"));
             assert_eq!(
                 trip.outcome.as_deref(),
                 Some("staged"),
@@ -2560,22 +2578,24 @@ mod tests {
 
             assert_eq!(
                 dashes_in(&root),
-                vec!["tugdash/wire-ci-abc1234d".to_string()]
+                vec!["tugdash/tripwire-ci-abc1234d".to_string()]
             );
             assert_eq!(
-                tugdash_core::ops::laid_by(&root, "wire-ci-abc1234d").as_deref(),
-                Some("wire/ci")
+                tugdash_core::ops::laid_by(&root, "tripwire-ci-abc1234d").as_deref(),
+                Some("tripwire/ci")
             );
 
             let run = sessions.seen().first().cloned().expect("the session ran");
-            assert_eq!(run.wire, "ci");
+            assert_eq!(run.tripwire, "ci");
             assert_eq!(run.permission_mode, "acceptEdits");
             assert_eq!(run.model.as_deref(), Some("claude-opus-5"));
-            assert!(run.worktree.ends_with("wire-ci-abc1234d"), "{run:?}");
+            assert!(run.worktree.ends_with("tripwire-ci-abc1234d"), "{run:?}");
             assert!(
                 run.prompt.contains("put the suite back to green")
                     && run.prompt.contains("exit 3")
-                    && run.prompt.contains("tugutil dash commit wire-ci-abc1234d"),
+                    && run
+                        .prompt
+                        .contains("tugutil dash commit tripwire-ci-abc1234d"),
                 "the prompt carries the brief, the probe's failure and the commit path: {}",
                 run.prompt
             );
@@ -2587,7 +2607,7 @@ mod tests {
             assert!(
                 post.refs
                     .iter()
-                    .any(|r| r.kind == OverviewRefKind::Dash && r.target == "wire-ci-abc1234d"),
+                    .any(|r| r.kind == OverviewRefKind::Dash && r.target == "tripwire-ci-abc1234d"),
                 "the post names the dash to join: {:?}",
                 post.refs
             );
@@ -2600,15 +2620,15 @@ mod tests {
         async fn a_session_with_no_envelope_fails_the_trip_and_still_cleans_up() {
             let (_temp, root) = scratch_repo();
             let (h, _rx) = posting_harness();
-            let wire = work_wire(&h.conn, &root, "exit 1");
+            let tripwire = work_tripwire(&h.conn, &root, "exit 1");
             let sessions = FakeSessions::new("I had a look around.", false);
             let mut config = h.config;
-            config.sessions = Some(Arc::clone(&sessions) as Arc<dyn WireSessionRunner>);
+            config.sessions = Some(Arc::clone(&sessions) as Arc<dyn TripwireSessionRunner>);
 
             let (pools, _) = scripted(vec![Ok("never asked".to_string())]);
             work(&config, &h.conn, &pools, &commit_event(&root)).await;
 
-            let trips = ledger::trips_for_wire(&h.conn, wire.id, 10).unwrap();
+            let trips = ledger::trips_for_tripwire(&h.conn, tripwire.id, 10).unwrap();
             assert_eq!(trips[0].status, "failed");
             assert!(
                 trips[0]
@@ -2630,14 +2650,14 @@ mod tests {
         async fn a_session_that_never_finished_settles_as_a_timeout() {
             let (_temp, root) = scratch_repo();
             let (h, _rx) = posting_harness();
-            let wire = work_wire(&h.conn, &root, "exit 1");
+            let tripwire = work_tripwire(&h.conn, &root, "exit 1");
             let mut config = h.config;
-            config.sessions = Some(FakeSessions::timed_out() as Arc<dyn WireSessionRunner>);
+            config.sessions = Some(FakeSessions::timed_out() as Arc<dyn TripwireSessionRunner>);
 
             let (pools, _) = scripted(vec![Ok("never asked".to_string())]);
             work(&config, &h.conn, &pools, &commit_event(&root)).await;
 
-            let trips = ledger::trips_for_wire(&h.conn, wire.id, 10).unwrap();
+            let trips = ledger::trips_for_tripwire(&h.conn, tripwire.id, 10).unwrap();
             assert_eq!(trips[0].status, "failed");
             assert!(
                 trips[0]
@@ -2652,30 +2672,31 @@ mod tests {
         /// One firing is one dash, whatever the event was, and the name survives
         /// a key that is not itself a legal dash name.
         #[test]
-        fn a_dash_is_named_for_its_wire_and_its_firing() {
+        fn a_dash_is_named_for_its_tripwire_and_its_firing() {
             assert_eq!(
-                wire_dash_name("ci", "abc1234def5678"),
-                "wire-ci-abc1234d",
+                tripwire_dash_name("ci", "abc1234def5678"),
+                "tripwire-ci-abc1234d",
                 "a commit key is already eight legal characters"
             );
-            // The property, not the spelling: two firings of one wire must
+            // The property, not the spelling: two firings of one tripwire must
             // never name one dash. Sanitizing a fact key to eight characters
-            // used to yield `wire-tugedit-factedit` for every firing there
+            // used to yield `tripwire-tugedit-factedit` for every firing there
             // would ever be, and `create_in` is idempotent — so the second
             // firing adopted the first's dash, counted its rounds as its own,
             // and a green probe on the second discarded what the first staged.
-            let first = wire_dash_name("tugedit", "fact:inst-a:41");
-            let second = wire_dash_name("tugedit", "fact:inst-a:42");
-            let elsewhere = wire_dash_name("tugedit", "fact:inst-b:41");
+            let first = tripwire_dash_name("tugedit", "fact:inst-a:41");
+            let second = tripwire_dash_name("tugedit", "fact:inst-a:42");
+            let elsewhere = tripwire_dash_name("tugedit", "fact:inst-b:41");
             assert_ne!(first, second, "two facts are two dashes");
             assert_ne!(first, elsewhere, "two instances are two dashes");
             assert_eq!(
                 first,
-                wire_dash_name("tugedit", "fact:inst-a:41"),
+                tripwire_dash_name("tugedit", "fact:inst-a:41"),
                 "one firing named twice is one dash, however often the engine restarts"
             );
             assert!(
-                first.starts_with("wire-tugedit-") && first.len() == "wire-tugedit-".len() + 8,
+                first.starts_with("tripwire-tugedit-")
+                    && first.len() == "tripwire-tugedit-".len() + 8,
                 "a digested key is still eight characters: {first}"
             );
         }

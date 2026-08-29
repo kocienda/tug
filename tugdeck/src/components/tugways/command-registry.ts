@@ -1797,21 +1797,6 @@ export const COMMANDS: readonly CommandEntry[] = [
       ),
     ],
   },
-  {
-    // ⌃⌘W — the fourth rail in the sidebar-toggle grammar (⌃⌘L Lens,
-    // ⌃⌘J Jots, ⌃⌘O Overview). ⌘W and ⌥⌘W are the card-closing pair, so the
-    // control tier is free here and the letter still says which rail.
-    id: TUG_ACTIONS.TOGGLE_WIRES,
-    title: "Show Wires",
-    routing: "registry",
-    menuItemId: "maker.wires",
-    bindings: [
-      chord(
-        { key: "KeyW", ctrl: true, meta: true, label: "w" },
-        { preventDefault: true, menuEligible: true },
-      ),
-    ],
-  },
 
   // ---- App level ----
   {

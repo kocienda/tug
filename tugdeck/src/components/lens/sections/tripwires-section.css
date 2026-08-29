@@ -1,25 +1,29 @@
 /**
- * wires-card.css — the Wires card's own layout and its four status glyphs.
+ * tripwires-section.css — the Tripwires section's own layout and its four
+ * status glyphs.
  *
  * Everything here is appearance [L06]: the glyph colors are role tokens, and
  * the state a glyph reads comes off the store through a `data-` attribute the
- * card stamps, never through a class the component computes.
+ * section stamps, never through a class the component computes.
  */
 
-.wires-card {
+/* Content-sized, not pane-sized: the Lens stack never scrolls, so a section
+   sizes to its content and hands its overflow to the list's own scroller
+   (`lens-section-band.css`). A `height: 100%` here — right for the card this
+   used to be — would claim the whole rail from its siblings. */
+.tripwires-section {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  height: 100%;
 }
 
-.wires-list,
-.wires-trips {
+.tripwires-list,
+.tripwires-trips {
   flex: 1 1 auto;
   min-height: 0;
 }
 
-.wires-row-trailing {
+.tripwires-row-trailing {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -29,58 +33,57 @@
    now; a failure is danger; an interesting settle is the caution tone the
    Overview uses for the same idea; a routine one is quiet on purpose — the
    whole point of `auto` posting is that routine is the ordinary case. */
-.wires-glyph {
+.tripwires-glyph {
   flex: 0 0 auto;
 }
 
-.wires-glyph-running {
+.tripwires-glyph-running {
   color: var(--tugx-accent);
 }
 
-.wires-glyph-failed {
+.tripwires-glyph-failed {
   color: var(--tugx-danger);
 }
 
-.wires-glyph-interesting {
+.tripwires-glyph-interesting {
   color: var(--tugx-caution);
 }
 
-.wires-glyph-routine,
-.wires-glyph-paused {
+.tripwires-glyph-routine,
+.tripwires-glyph-paused {
   color: var(--tugx-text-muted);
 }
 
-.wires-empty,
-.wires-error {
+.tripwires-empty,
+.tripwires-error {
   padding: 10px 12px;
 }
 
-.wires-detail {
+.tripwires-detail {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  height: 100%;
 }
 
-.wires-detail-head {
+.tripwires-detail-head {
   display: flex;
   align-items: center;
   gap: 6px;
   padding: 6px 8px;
 }
 
-/* The wire's name takes the room the two buttons do not, so a long name
+/* The tripwire's name takes the room the two buttons do not, so a long name
    truncates rather than pushing the pause control off the rail. */
-.wires-detail-head > :nth-child(2) {
+.tripwires-detail-head > :nth-child(2) {
   flex: 1 1 auto;
   min-width: 0;
 }
 
-.wires-detail-brief {
+.tripwires-detail-brief {
   padding: 0 12px 8px;
 }
 
-.wires-detail-knobs {
+.tripwires-detail-knobs {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
@@ -88,14 +91,14 @@
   padding: 0 12px 10px;
 }
 
-.wires-trip {
+.tripwires-trip {
   display: flex;
   flex-direction: column;
   gap: 3px;
   min-width: 0;
 }
 
-.wires-trip-meta {
+.tripwires-trip-meta {
   display: inline-flex;
   align-items: center;
   flex-wrap: wrap;

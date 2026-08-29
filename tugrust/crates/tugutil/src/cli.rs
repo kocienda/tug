@@ -264,7 +264,7 @@ pub enum Commands {
 
     /// Standing tripwires — what watches, what it says, and what it did.
     #[command(subcommand)]
-    Wire(WireCommands),
+    Tripwire(TripwireCommands),
 
     /// Plan documents — mechanical conformance against the devise skeleton.
     #[command(subcommand)]
@@ -478,10 +478,10 @@ pub enum DraftCommands {
 }
 
 #[derive(Subcommand)]
-pub enum WireCommands {
-    /// Lay a wire: what to watch for, and what to say about it when it fires.
+pub enum TripwireCommands {
+    /// Lay a tripwire: what to watch for, and what to say about it when it fires.
     Lay {
-        /// Wire name (its address; must be unique on this machine).
+        /// Tripwire name (its address; must be unique on this machine).
         name: String,
         /// What trips it: `fact:<kind>`, `commit`, or `commit:<branch>`.
         #[arg(long)]
@@ -497,7 +497,7 @@ pub enum WireCommands {
         /// for free; a probe implies the work tier, because a probe may write.
         #[arg(long)]
         probe: Option<String>,
-        /// What the wire asks for when it fires. `@path` reads a file.
+        /// What the tripwire asks for when it fires. `@path` reads a file.
         #[arg(long)]
         brief: String,
         /// Model to run the trip on. Absent uses the default.
@@ -512,18 +512,18 @@ pub enum WireCommands {
         /// When to post the outcome to the Overview.
         #[arg(long)]
         post: Option<String>,
-        /// Seconds before this wire will fire again.
+        /// Seconds before this tripwire will fire again.
         #[arg(long)]
         cooldown: Option<i64>,
-        /// Parse and echo the normalized wire, writing nothing.
+        /// Parse and echo the normalized tripwire, writing nothing.
         #[arg(long)]
         preview: bool,
     },
-    /// Every wire laid on this machine.
+    /// Every tripwire laid on this machine.
     List,
-    /// Change a wire. Every flag is optional; what is not named is left alone.
+    /// Change a tripwire. Every flag is optional; what is not named is left alone.
     Edit {
-        /// Wire name.
+        /// Tripwire name.
         name: String,
         #[arg(long)]
         on: Option<String>,
@@ -553,32 +553,32 @@ pub enum WireCommands {
         #[arg(long)]
         preview: bool,
     },
-    /// Remove a wire and its trip log.
+    /// Remove a tripwire and its trip log.
     Rm {
-        /// Wire name.
+        /// Tripwire name.
         name: String,
     },
-    /// Take a wire out of service, keeping it and its log.
+    /// Take a tripwire out of service, keeping it and its log.
     Pause {
-        /// Wire name.
+        /// Tripwire name.
         name: String,
     },
-    /// Put a paused wire back into service.
+    /// Put a paused tripwire back into service.
     Resume {
-        /// Wire name.
+        /// Tripwire name.
         name: String,
     },
-    /// A wire's trip log — every firing, including the swallowed ones.
+    /// A tripwire's trip log — every firing, including the swallowed ones.
     Log {
-        /// Wire name.
+        /// Tripwire name.
         name: String,
         /// How many trips to show, newest first.
         #[arg(long, default_value_t = 20)]
         limit: i64,
     },
-    /// Fire a wire by hand, whatever it is watching for.
+    /// Fire a tripwire by hand, whatever it is watching for.
     Trip {
-        /// Wire name.
+        /// Tripwire name.
         name: String,
     },
 }

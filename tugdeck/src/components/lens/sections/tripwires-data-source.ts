@@ -1,24 +1,25 @@
 /**
- * wires-data-source.ts — the two `TugListView` data sources the **Wires** card
- * stands on: one wire per row at level one, one trip per row at level two.
+ * tripwires-data-source.ts — the two `TugListView` data sources the
+ * **Tripwires** section stands on: one tripwire per row at level one, one trip
+ * per row at level two.
  *
  * Both are the same shape and both are trivial projections of the store's
  * snapshot, because neither level filters, sorts, or groups: the ledger's
- * order is the order (wires oldest-first, the order they were laid in; trips
- * newest-first, the order a log is read in), and a card that re-sorted them
- * would be inventing a second opinion about a question the ledger already
- * answered.
+ * order is the order (tripwires oldest-first, the order they were laid in;
+ * trips newest-first, the order a log is read in), and a section that
+ * re-sorted them would be inventing a second opinion about a question the
+ * ledger already answered.
  *
- * One cell kind per source — a wire row's appearance evolves with its state
+ * One cell kind per source — a tripwire row's appearance evolves with its state
  * and never with its kind ([L26]).
  *
- * @module components/wires/wires-data-source
+ * @module components/lens/sections/tripwires-data-source
  */
 
 import { useLayoutEffect, useRef } from "react";
 
 import type { TugListViewDataSource } from "@/components/tugways/tug-list-view";
-import type { TripRow, WireRow } from "@/lib/wires-store";
+import type { TripRow, TripwireRow } from "@/lib/tripwires-store";
 
 /** A list over an array whose identity is its own change signal. */
 class ArrayDataSource<T> implements TugListViewDataSource {
@@ -73,7 +74,7 @@ class ArrayDataSource<T> implements TugListViewDataSource {
   }
 }
 
-export type WiresDataSource = ArrayDataSource<WireRow>;
+export type TripwiresDataSource = ArrayDataSource<TripwireRow>;
 export type TripsDataSource = ArrayDataSource<TripRow>;
 
 function useArrayDataSource<T>(
@@ -93,12 +94,12 @@ function useArrayDataSource<T>(
   return ds;
 }
 
-/** The wire list — a wire's name is its address everywhere, so it is the id. */
-export function useWiresDataSource(wires: readonly WireRow[]): WiresDataSource {
-  return useArrayDataSource(wires, "wire", (w) => w.name);
+/** The tripwire list — a tripwire's name is its address everywhere, so it is the id. */
+export function useTripwiresDataSource(tripwires: readonly TripwireRow[]): TripwiresDataSource {
+  return useArrayDataSource(tripwires, "tripwire", (w) => w.name);
 }
 
-/** One wire's trip log. */
+/** One tripwire's trip log. */
 export function useTripsDataSource(trips: readonly TripRow[]): TripsDataSource {
   return useArrayDataSource(trips, "trip", (t) => String(t.id));
 }

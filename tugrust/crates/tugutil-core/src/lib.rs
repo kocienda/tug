@@ -25,9 +25,9 @@ pub mod plan;
 /// The app-test results ledger
 pub mod apptest_ledger;
 
-/// The standing-wire ledger, and the predicates a wire's trigger compiles to.
-pub mod wire_ledger;
-pub mod wire_predicate;
+/// The tripwire ledger, and the predicates a tripwire's trigger compiles to.
+pub mod tripwire_ledger;
+pub mod tripwire_predicate;
 
 // Re-exports — exactly the surface consumed by the `tugutil` binary.
 pub use config::{Config, find_project_root};

@@ -1,22 +1,22 @@
 /**
- * `wiresStore` — the [L02] store behind the **Wires** card.
+ * `tripwiresStore` — the [L02] store behind the **Tripwires** Lens section.
  *
- * The wires ledger is machine-global and written by processes this deck does
- * not talk to: another instance's engine claims a trip, a `tugutil wire`
+ * The tripwires ledger is machine-global and written by processes this deck does
+ * not talk to: another instance's engine claims a trip, a `tugutil tripwire`
  * invocation lays one from a terminal. There is no feed that carries those, so
- * the card asks — `GET /api/wires` — and asks again while it is on screen.
+ * the section asks — `GET /api/tripwires` — and asks again while it is open.
  *
  * Two things bring it back sooner than the poll would. A knob write adopts the
- * wire the server answers with, so a settled control shows what the ledger
+ * tripwire the server answers with, so a settled control shows what the ledger
  * holds rather than what the click hoped. And an OVERVIEW frame authored by
  * the Tripwire means a trip just settled, which is exactly when the list is
  * stale — so the store refreshes on it instead of waiting out the interval.
  *
- * Polling is retained rather than unconditional: `retain()` while the card is
- * mounted, `release()` when it goes. A deck with no Wires card open makes no
- * requests at all.
+ * Polling is retained rather than unconditional: `retain()` while the section is
+ * mounted, `release()` when it goes. A deck with the Tripwires section out of
+ * sight makes no requests at all.
  *
- * @module lib/wires-store
+ * @module lib/tripwires-store
  */
 
 import { FeedId } from "../protocol";
@@ -24,11 +24,11 @@ import type { TugConnection } from "../connection";
 import { getConnection } from "./connection-singleton";
 import { tugDevLogStore } from "./tug-dev-log-store/tug-dev-log-store";
 
-/** How often the card re-asks while it is on screen. */
+/** How often the section re-asks while it is open. */
 const POLL_INTERVAL_MS = 5_000;
 
-/** One wire, as `GET /api/wires` projects it. */
-export interface WireRow {
+/** One tripwire, as `GET /api/tripwires` projects it. */
+export interface TripwireRow {
   readonly name: string;
   readonly trigger: string;
   readonly scope: string | null;
@@ -40,14 +40,14 @@ export interface WireRow {
   readonly post: string;
   readonly paused: boolean;
   readonly cooldown_secs: number;
-  /** A trip is running for this wire right now. */
+  /** A trip is running for this tripwire right now. */
   readonly running: boolean;
   /** The dash a settled trip staged and nobody has joined or discarded. */
   readonly staged_dash: string | null;
-  readonly last_trip: WireLastTrip | null;
+  readonly last_trip: TripwireLastTrip | null;
 }
 
-export interface WireLastTrip {
+export interface TripwireLastTrip {
   readonly at_ms: number;
   readonly status: string;
   readonly interest: string | null;
@@ -55,10 +55,10 @@ export interface WireLastTrip {
   readonly headline: string | null;
 }
 
-/** One firing, as `GET /api/wires/<name>/trips` serializes the row. */
+/** One firing, as `GET /api/tripwires/<name>/trips` serializes the row. */
 export interface TripRow {
   readonly id: number;
-  readonly wire_id: number;
+  readonly tripwire_id: number;
   readonly event_key: string;
   readonly at_ms: number;
   readonly instance: string;
@@ -75,26 +75,26 @@ export interface TripRow {
   readonly settled_at_ms: number | null;
 }
 
-export interface WiresSnapshot {
-  readonly wires: readonly WireRow[];
-  /** Trip logs, keyed by wire name, for wires the card has opened. */
+export interface TripwiresSnapshot {
+  readonly tripwires: readonly TripwireRow[];
+  /** Trip logs, keyed by tripwire name, for tripwires the section has opened. */
   readonly trips: Readonly<Record<string, readonly TripRow[]>>;
   /** Non-null when the last read failed. The rows stay as they were. */
   readonly error: string | null;
-  /** False until the first answer lands, so the card can tell empty from
+  /** False until the first answer lands, so the section can tell empty from
    *  unasked — an empty list and a list nobody has fetched look identical. */
   readonly loaded: boolean;
 }
 
-const EMPTY: WiresSnapshot = Object.freeze({
-  wires: [],
+const EMPTY: TripwiresSnapshot = Object.freeze({
+  tripwires: [],
   trips: {},
   error: null,
   loaded: false,
 });
 
-export class WiresStore {
-  private snapshot: WiresSnapshot = EMPTY;
+export class TripwiresStore {
+  private snapshot: TripwiresSnapshot = EMPTY;
   private readonly listeners = new Set<() => void>();
   private unsubFeed: (() => void) | null = null;
   private pollTimer: ReturnType<typeof setInterval> | null = null;
@@ -102,7 +102,7 @@ export class WiresStore {
 
   constructor(conn: TugConnection | null) {
     if (conn === null) {
-      tugDevLogStore.warn("wires-store", "no connection at construction; live refresh inactive");
+      tugDevLogStore.warn("tripwires-store", "no connection at construction; live refresh inactive");
       return;
     }
     this.unsubFeed = conn.onFrame(FeedId.OVERVIEW, (payload) => this.onOverview(payload));
@@ -120,11 +120,11 @@ export class WiresStore {
     return () => this.listeners.delete(listener);
   };
 
-  getSnapshot = (): WiresSnapshot => this.snapshot;
+  getSnapshot = (): TripwiresSnapshot => this.snapshot;
 
   /**
    * Start polling, or join a poll already running. Balanced by `release`;
-   * the card calls both from one effect, so a remount cannot leak an
+   * the section calls both from one effect, so a remount cannot leak an
    * interval.
    */
   retain(): void {
@@ -150,19 +150,19 @@ export class WiresStore {
   /** Re-read the list. Errors keep the rows they could not replace. */
   async refresh(): Promise<void> {
     try {
-      const resp = await fetch("/api/wires");
+      const resp = await fetch("/api/tripwires");
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-      const body = (await resp.json()) as { wires?: WireRow[] };
-      this.commit({ wires: body.wires ?? [], error: null, loaded: true });
+      const body = (await resp.json()) as { tripwires?: TripwireRow[] };
+      this.commit({ tripwires: body.tripwires ?? [], error: null, loaded: true });
     } catch (err) {
       this.commit({ error: String(err), loaded: true });
     }
   }
 
-  /** Read one wire's trip log — the card's second level. */
+  /** Read one tripwire's trip log — the section's second level. */
   async loadTrips(name: string): Promise<void> {
     try {
-      const resp = await fetch(`/api/wires/${encodeURIComponent(name)}/trips`);
+      const resp = await fetch(`/api/tripwires/${encodeURIComponent(name)}/trips`);
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const body = (await resp.json()) as { trips?: TripRow[] };
       this.commit({
@@ -175,7 +175,7 @@ export class WiresStore {
   }
 
   /**
-   * Write one of the card's knobs and adopt the wire the server answers with.
+   * Write one of the section's knobs and adopt the tripwire the server answers with.
    *
    * The answer is the ledger's row, not the request's echo, so a write the
    * ledger refused leaves the control showing what is actually stored rather
@@ -186,20 +186,20 @@ export class WiresStore {
     knobs: { paused?: boolean; model?: string | null; post?: string },
   ): Promise<void> {
     try {
-      const resp = await fetch(`/api/wires/${encodeURIComponent(name)}`, {
+      const resp = await fetch(`/api/tripwires/${encodeURIComponent(name)}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(knobs),
       });
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-      const body = (await resp.json()) as { wire?: WireRow };
-      if (body.wire === undefined) {
+      const body = (await resp.json()) as { tripwire?: TripwireRow };
+      if (body.tripwire === undefined) {
         await this.refresh();
         return;
       }
-      const wire = body.wire;
+      const tripwire = body.tripwire;
       this.commit({
-        wires: this.snapshot.wires.map((w) => (w.name === wire.name ? wire : w)),
+        tripwires: this.snapshot.tripwires.map((w) => (w.name === tripwire.name ? tripwire : w)),
         error: null,
       });
     } catch (err) {
@@ -217,8 +217,8 @@ export class WiresStore {
 
   /**
    * A Tripwire-authored post means a trip settled. Only that author refreshes:
-   * every other post on the feed says nothing about a wire, and refreshing on
-   * all of them would make the card's request rate the deck's post rate.
+   * every other post on the feed says nothing about a tripwire, and refreshing on
+   * all of them would make the section's request rate the deck's post rate.
    */
   private onOverview(payload: Uint8Array): void {
     let author: unknown;
@@ -229,26 +229,26 @@ export class WiresStore {
     }
     if (author !== "tripwire") return;
     void this.refresh();
-    // A settled trip changes the log of exactly the wires already open, and
+    // A settled trip changes the log of exactly the tripwires already open, and
     // those are the only ones worth re-reading.
     for (const name of Object.keys(this.snapshot.trips)) void this.loadTrips(name);
   }
 
-  private commit(next: Partial<WiresSnapshot>): void {
+  private commit(next: Partial<TripwiresSnapshot>): void {
     this.snapshot = Object.freeze({ ...this.snapshot, ...next });
     for (const listener of this.listeners) listener();
   }
 }
 
-let singleton: WiresStore | null = null;
+let singleton: TripwiresStore | null = null;
 
-export function getWiresStore(): WiresStore {
-  if (singleton === null) singleton = new WiresStore(getConnection());
+export function getTripwiresStore(): TripwiresStore {
+  if (singleton === null) singleton = new TripwiresStore(getConnection());
   return singleton;
 }
 
 /** Test seam — drop the singleton so the next `get` builds a fresh one. */
-export function resetWiresStoreForTests(): void {
+export function resetTripwiresStoreForTests(): void {
   singleton?.dispose();
   singleton = null;
 }

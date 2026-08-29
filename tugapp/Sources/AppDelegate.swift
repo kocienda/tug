@@ -1331,7 +1331,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         mMenu.addItem(NSMenuItem(title: "Show Lens", action: #selector(showLens(_:)), keyEquivalent: "").identified("maker.lens"))
         mMenu.addItem(NSMenuItem(title: "Show Jots", action: #selector(showJots(_:)), keyEquivalent: "").identified("maker.jots"))
         mMenu.addItem(NSMenuItem(title: "Show Overview", action: #selector(showOverview(_:)), keyEquivalent: "").identified("maker.overview"))
-        mMenu.addItem(NSMenuItem(title: "Show Wires", action: #selector(showWires(_:)), keyEquivalent: "").identified("maker.wires"))
         if BuildInfo.profile == "debug" {
             // Debug-only card creators, relocated from the flattened
             // File ▸ New submenu. Compile-time gated so release bundles
@@ -1473,12 +1472,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// Show or hide the Overview rail — the third of the sidebar toggles.
     @objc private func showOverview(_ sender: Any) {
         sendControl("toggle-overview")
-    }
-
-    /// Show or hide the Wires rail — the standing tripwires on this machine,
-    /// and the fourth of the sidebar toggles.
-    @objc private func showWires(_ sender: Any) {
-        sendControl("toggle-wires")
     }
 
     /// Create a jot and land the caret in it, revealing the Jots rail if it is

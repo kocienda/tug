@@ -73,7 +73,7 @@ check = ["cd tests/app-test && bunx tsc --noEmit", "just app-test-changed {paths
 
 [[tugtool.dash.surface]]
 name  = "prose"
-paths = ["tuglaws/", "CLAUDE.md", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md"]
+paths = ["tuglaws/", "notes/", "CLAUDE.md", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md"]
 check = []
 
 [[tugtool.dash.surface]]

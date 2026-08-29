@@ -47,9 +47,9 @@ mod session_tag_lexicon;
 mod shared_agent;
 mod shell_ledger;
 mod terminal_registry;
+mod tripwires_api;
 mod turn_engine;
 mod wheel;
-mod wires_api;
 mod workspace_api;
 
 #[cfg(test)]
@@ -1893,7 +1893,7 @@ async fn main() {
         turn_complete_rx,
     ));
 
-    // TRIPWIRE — standing wires that watch this instance's facts and every
+    // TRIPWIRE — standing tripwires that watch this instance's facts and every
     // workspace's commits, and decide whether either is worth acting on. A
     // sibling of the Overview rather than a part of it: it reads the same
     // facts and will post to the same feed, but it is its own task with its
@@ -1909,11 +1909,11 @@ async fn main() {
             spawner: Arc::new(shared_agent::ClaudeAgentWorkerSpawner),
             // The work tier borrows the supervisor to open its cardless
             // sessions ([P11]) — the same supervisor the cards use, because a
-            // wire's session is an ordinary one in every respect but who
+            // tripwire's session is an ordinary one in every respect but who
             // asked for it.
-            sessions: Some(Arc::new(feeds::wire_session::SupervisorWireSessions::new(
-                Arc::clone(&supervisor),
-            ))),
+            sessions: Some(Arc::new(
+                feeds::tripwire_session::SupervisorTripwireSessions::new(Arc::clone(&supervisor)),
+            )),
             overview_tx: Some(overview_tx.clone()),
             cancel: cancel.clone(),
         },
