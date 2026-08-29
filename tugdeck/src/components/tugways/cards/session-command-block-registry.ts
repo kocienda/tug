@@ -86,6 +86,30 @@ export type CommandBlockAttribution = "shell" | "git";
 export interface CommandBlockOptions {
   /** Defaults to `shell` — see {@link CommandBlockAttribution}. */
   attribution?: CommandBlockAttribution;
+  /**
+   * The projection half of `data-tugx-findable` for this row kind — the
+   * text this renderer puts on screen, in the order it renders it, one
+   * entry per marked container.
+   *
+   * A bespoke renderer does not show the exchange's raw output; it shows
+   * what it parsed out of it, rearranged. So the transcript's search index
+   * cannot project a claimed row the way it projects a generic one, and the
+   * two halves have to be declared together or they drift: a receipt whose
+   * body the index counted but whose DOM carried no marked container
+   * produced matches that could be counted and never painted, revealed, or
+   * flashed — a find that reported "1 of 18" and moved nothing.
+   *
+   * Declare it beside the matcher, mark the same containers in the
+   * renderer, and the two stay one edit apart. A registration that declares
+   * nothing is projected as its COMMAND alone (the header the chrome always
+   * renders), which is the safe floor: never a match the painter cannot
+   * reach.
+   *
+   * Returning `null` says "this output fell through to the generic block" —
+   * a receipt whose text would not parse renders as a plain exchange, and
+   * projects like one.
+   */
+  findParts?: (message: ShellExchangeMessage) => string[] | null;
 }
 
 interface CommandBlockRegistration {
@@ -93,6 +117,7 @@ interface CommandBlockRegistration {
   matcher: CommandBlockMatcher;
   renderer: CommandBlockRenderer;
   attribution: CommandBlockAttribution;
+  findParts: ((message: ShellExchangeMessage) => string[] | null) | undefined;
 }
 
 const COMMAND_BLOCK_REGISTRY: CommandBlockRegistration[] = [];
@@ -121,6 +146,7 @@ export function registerCommandBlock(
     matcher,
     renderer,
     attribution: options.attribution ?? "shell",
+    findParts: options.findParts,
   });
 }
 
@@ -149,6 +175,33 @@ export function resolveCommandAttribution(command: string): CommandBlockAttribut
     if (registration.matcher(trimmed)) return registration.attribution;
   }
   return "shell";
+}
+
+/**
+ * The searchable text of a claimed exchange row, or `null` when no bespoke
+ * renderer claims it (the caller then projects the generic block's command +
+ * terminal output itself). Resolved by the same walk in the same order as
+ * {@link resolveCommandBlock}, so what a row renders and what the search
+ * index counts for it are decided by one reading of the command.
+ *
+ * A claimed row with no declared projection answers with its command alone —
+ * see {@link CommandBlockOptions.findParts} for why that floor is the safe
+ * one.
+ */
+export function resolveCommandBlockSearchParts(
+  message: ShellExchangeMessage,
+): string[] | null {
+  const trimmed = message.command.trim();
+  for (const registration of COMMAND_BLOCK_REGISTRY) {
+    if (!registration.matcher(trimmed)) continue;
+    const parts =
+      registration.findParts !== undefined
+        ? registration.findParts(message)
+        : [message.command];
+    if (parts === null) return null;
+    return parts.filter((part) => part !== "");
+  }
+  return null;
 }
 
 /** Enumerate registered names, in registration (= resolution) order. */

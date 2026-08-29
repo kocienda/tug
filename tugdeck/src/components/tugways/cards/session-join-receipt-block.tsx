@@ -27,6 +27,7 @@ import type React from "react";
 
 import { CommitShaText } from "@/components/tugways/commit-sha-text";
 import { CommitMessage } from "@/components/tugways/commit-presentation";
+import { markdownTextParts } from "@/components/tugways/tug-markdown-text";
 import { useCommitIdentityMenu } from "@/components/tugways/commit-identity-menu";
 import { CommitChangesList } from "@/components/tugways/tug-changes-list";
 import { DashJoinRegister } from "@/components/tugways/dash-join-register";
@@ -38,6 +39,7 @@ import {
   registerCommandBlock,
   type CommandBlockProps,
 } from "./session-command-block-registry";
+import type { ShellExchangeMessage } from "@/lib/code-session-store/types";
 import {
   FILES_PREFIX,
   parseFilesLine,
@@ -262,7 +264,13 @@ function JoinReceipt({
         {menu.contextMenu}
       </span>
       {" "}
-      <code ref={subjectRef} className="join-receipt-summary">{headline}</code>
+      <code
+        ref={subjectRef}
+        className="join-receipt-summary"
+        data-tugx-findable=""
+      >
+        {headline}
+      </code>
     </span>
   );
   return (
@@ -288,18 +296,22 @@ function JoinReceipt({
       >
         {subject.length > 0 ? (
           <div className="join-receipt-identity" data-slot="join-receipt-identity">
-            <code>
+            <code data-tugx-findable="">
               {dash} → {base}
             </code>
             {fit !== undefined ? (
-              <code data-slot="join-receipt-fit" data-verified={fit.verified}>
+              <code
+                data-slot="join-receipt-fit"
+                data-verified={fit.verified}
+                data-tugx-findable=""
+              >
                 fit {fit.verified ? "verified" : "stale"} {fit.head} onto {fit.base}
               </code>
             ) : null}
           </div>
         ) : null}
         {body.length > 0 ? (
-          <CommitMessage body={body} dataSlot="join-receipt-detail" />
+          <CommitMessage body={body} dataSlot="join-receipt-detail" findable />
         ) : null}
         {/* The landed files as sha-backed rows, each expanding into the join
             commit's own hunks. `cwd` is the base repo dir the join ran in,
@@ -321,7 +333,7 @@ export function SessionDiscardReceiptBlock(props: CommandBlockProps): React.Reac
   // existing, and its body is what went with it.
   const identity = (
     <span className="join-receipt-header join-receipt-header-discard">
-      <code className="join-receipt-summary">{dash}</code>
+      <code className="join-receipt-summary" data-tugx-findable="">{dash}</code>
     </span>
   );
   return (
@@ -339,7 +351,11 @@ export function SessionDiscardReceiptBlock(props: CommandBlockProps): React.Reac
         copyText={props.message.output}
       >
         {subjects.length > 0 ? (
-          <CommitMessage body={subjects.join("\n")} dataSlot="discard-receipt-detail" />
+          <CommitMessage
+            body={subjects.join("\n")}
+            dataSlot="discard-receipt-detail"
+            findable
+          />
         ) : null}
       </BlockChrome>
     </ToolBlockHistoryCollapse>
@@ -366,6 +382,51 @@ export function matchesDiscardReceipt(command: string): boolean {
   );
 }
 
+/**
+ * The join receipt's searchable text, in render order: the headline on the
+ * identity line, the `dash → base` line and its fit note, then the message
+ * body as the markdown styler lays it out — exactly the containers this
+ * block marks `data-tugx-findable`. `null` when the output does not parse:
+ * the row renders as a plain exchange then, and projects as one.
+ *
+ * The landed-files list is deliberately absent, on the refs block's terms —
+ * its rows are a fold state the index cannot observe.
+ */
+export function joinReceiptFindParts(
+  message: ShellExchangeMessage,
+): string[] | null {
+  const parsed = parseJoinReceipt(message.output);
+  if (parsed === null) return null;
+  const subject = parsed.message.split("\n", 1)[0] ?? "";
+  const body = parsed.message
+    .slice(subject.length)
+    .replace(/^\n+/, "")
+    .replace(/\s+$/, "");
+  const headline = subject.length > 0 ? subject : `${parsed.dash} → ${parsed.base}`;
+  const parts = [headline];
+  // The identity line renders only when there IS a subject — otherwise the
+  // headline already carries `dash → base` and the line would repeat it.
+  if (subject.length > 0) {
+    parts.push(`${parsed.dash} → ${parsed.base}`);
+    if (parsed.fit !== undefined) {
+      parts.push(
+        `fit ${parsed.fit.verified ? "verified" : "stale"} ${parsed.fit.head} onto ${parsed.fit.base}`,
+      );
+    }
+  }
+  return [...parts, ...markdownTextParts(body)];
+}
+
+/** The discard receipt's: the dash it ended, then the subjects that went
+ *  with it — the two containers that block marks findable. */
+export function discardReceiptFindParts(
+  message: ShellExchangeMessage,
+): string[] | null {
+  const parsed = parseDiscardReceipt(message.output);
+  if (parsed === null) return null;
+  return [parsed.dash, ...markdownTextParts(parsed.subjects.join("\n"))];
+}
+
 // Registration is a side effect of importing this module (the import sits
 // beside the commit block's in `session-card-transcript.tsx`, so both are
 // registered before the first resolve).
@@ -375,9 +436,11 @@ registerCommandBlock("dash-join-receipt", matchesJoinReceipt, SessionJoinReceipt
   // attribution — the discard below deletes a branch and commits nothing, so
   // it keeps the shell default.
   attribution: "git",
+  findParts: joinReceiptFindParts,
 });
 registerCommandBlock(
   "dash-discard-receipt",
   matchesDiscardReceipt,
   SessionDiscardReceiptBlock,
+  { findParts: discardReceiptFindParts },
 );

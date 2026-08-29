@@ -53,6 +53,25 @@ export interface TugMarkdownTextProps {
   className?: string;
   /** Test hook on the block element. */
   dataSlot?: string;
+  /**
+   * Stamps `data-tugx-findable` on the root, opting the rendered lines into
+   * transcript Find. The painter walks the marked container and re-runs the
+   * matcher over its live text, so whoever sets this owes the search index a
+   * projection of the SAME text — for a receipt row that is its
+   * registration's `findParts` ({@link session-command-block-registry}).
+   */
+  findable?: boolean;
+}
+
+/**
+ * The text {@link TugMarkdownText} will put on screen for `text`, one entry
+ * per rendered line — the projection half of its `findable` marker. It runs
+ * the SAME styler the component does, so a surface that marks the block
+ * findable and projects this into the transcript's search index cannot
+ * count a line the painter will not see.
+ */
+export function markdownTextParts(text: string): string[] {
+  return applyMarkdownTextStyle(text).map((line) => line.text);
 }
 
 export function TugMarkdownText({
@@ -60,6 +79,7 @@ export function TugMarkdownText({
   highlightQuery = "",
   className,
   dataSlot,
+  findable = false,
 }: TugMarkdownTextProps): React.ReactElement {
   // A fenced block's grammar loads lazily, and the filter is synchronous, so
   // its first pass over a ```ts fence returns a flat body. The revision
@@ -88,6 +108,7 @@ export function TugMarkdownText({
         className !== undefined ? `tug-markdown-text ${className}` : "tug-markdown-text"
       }
       data-slot={dataSlot}
+      data-tugx-findable={findable ? "" : undefined}
     >
       {lines.map((line, i) => (
         <div

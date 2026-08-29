@@ -28,6 +28,10 @@
  * @covers tugdeck/src/components/tugways/transcript-find-highlighter.ts
  * @covers tugdeck/src/lib/transcript-find-engine.ts
  * @covers tugdeck/src/lib/find-session.ts
+ * @covers tugdeck/src/lib/transcript-search-index.ts
+ * @covers tugdeck/src/components/tugways/cards/session-command-block-registry.ts
+ * @covers tugdeck/src/components/tugways/cards/session-join-receipt-block.tsx
+ * @covers tugdeck/src/components/tugways/cards/session-commit-receipt-block.tsx
  */
 
 import { describe, expect, test } from "bun:test";
@@ -812,6 +816,111 @@ describe.skipIf(!SHOULD_RUN)("AT0494: every mounted match paints", () => {
           "exactly one is the active one",
         ).toBe(1);
         expect(census[0]?.kind, "and it is the topmost match").toBe("active");
+      } finally {
+        await app.close();
+      }
+    },
+    TEST_TIMEOUT_MS,
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Counted means paintable
+// ---------------------------------------------------------------------------
+
+const RECEIPT_SID = "c7c0d1ea-0000-4000-8000-000000000500";
+/** Planted in a receipt BODY — text only the receipt block renders. */
+const RECEIPT_PROBE = "cinnabarline";
+
+/** The bytes `format_join_summary` writes for a squash landing (at0419's). */
+const JOIN_SUMMARY = [
+  "joined 0123456789 · join-lane → main · 5 round(s)",
+  'files: [{"path":"src/a.rs","status":"modified","added":16,"removed":1}]',
+  "tugdash(join-lane): land the join surface",
+  "",
+  `The ${RECEIPT_PROBE} rides the body, which the receipt renders and the`,
+  "raw terminal never shows.",
+].join("\n");
+
+/** And the `/commit` receipt's own shape, with the probe in its body too. */
+const COMMIT_SUMMARY = [
+  "committed 89abcdef01 · 1 file(s) · +3 −0",
+  'files: [{"path":"src/c.rs","status":"created","added":3,"removed":0}]',
+  "tugways(find-paint): mark what the index counts",
+  "",
+  `A second ${RECEIPT_PROBE} in a commit receipt body.`,
+].join("\n");
+
+describe.skipIf(!SHOULD_RUN)("AT0494: a counted match is a paintable match", () => {
+  test(
+    "matches inside landing receipts paint, reveal, and flash like any other",
+    async () => {
+      const app = await launchTugApp({ testName: "at0494-find-receipt-paint" });
+      try {
+        await app.enableDeckTrace(true);
+        await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
+        await app.waitForCondition<boolean>(
+          `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
+          { timeoutMs: 15_000 },
+        );
+        await app.bindSession("A", { tugSessionId: RECEIPT_SID });
+        await app.awaitEngineReady("A", { timeoutMs: 20_000 });
+
+        for (const [i, pair] of [
+          ["/dash-join", JOIN_SUMMARY],
+          ["/commit", COMMIT_SUMMARY],
+        ].entries()) {
+          await app.driveSession("A", {
+            op: "shellExchange",
+            exchangeId: `${RECEIPT_SID}-x${i}`,
+            command: pair[0],
+            output: pair[1],
+            cwd: "/tmp",
+            exitCode: 0,
+            startedAtMs: 1_700_000_000_000 + i,
+          });
+        }
+        await app.waitForCondition<boolean>(
+          `document.querySelector('${CARD} [data-slot="join-receipt-block"]') !== null &&
+           document.querySelector('${CARD} [data-slot="commit-receipt-block"]') !== null`,
+          { timeoutMs: 10_000 },
+        );
+
+        await app.nativeClickAtElement(EDITOR);
+        await chord(app, "KeyF", "f", { meta: true });
+        await app.waitForCondition<boolean>(
+          `document.querySelector(${JSON.stringify(FIND_INPUT)}) !== null`,
+          { timeoutMs: 8000 },
+        );
+        await app.nativeType(RECEIPT_PROBE);
+        await app.waitForCondition<boolean>(
+          `(document.querySelector('${CARD} [data-slot="find-count-value"]')?.textContent || "") !== ""`,
+          { timeoutMs: 10_000 },
+        );
+        await new Promise((r) => setTimeout(r, 1500));
+
+        const chip = await app.evalJS<string>(
+          `(document.querySelector('${CARD} [data-slot="find-count-value"]')?.textContent || "")`,
+        );
+        const census = await app.evalJS<
+          Array<{ kind: string; row: number; top: number; left: number; text: string }>
+        >(PAINT_CENSUS_EXPR);
+        const reveal = await readReveal(app);
+        note(`receipt chip: ${JSON.stringify(chip)}`);
+        note(`receipt paint census: ${JSON.stringify(census)}`);
+        note(`receipt reveal: ${JSON.stringify(reveal)}`);
+
+        // Both receipt bodies are mounted and on screen, so the chip's count
+        // and the painted count are the same number. A match the index
+        // counts and the painter cannot reach is the defect this pins: it
+        // reads "1 of 2" over a transcript that never moves.
+        expect(chip).toBe("1 of 2");
+        expect(census.length, "every counted match is painted").toBe(2);
+        expect(
+          census.filter((c) => c.kind === "active").length,
+          "one of them is active",
+        ).toBe(1);
+        expect(reveal?.inView, "and the active one is on screen").toBe(true);
       } finally {
         await app.close();
       }

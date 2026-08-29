@@ -85,6 +85,7 @@ import {
 } from "@/components/tugways/cards/blocks/default-tool-block";
 import { ReadToolBlock } from "@/components/tugways/cards/blocks/read-tool-block";
 import { collapseDefaultForMessage } from "@/components/tugways/cards/blocks/tool-collapse-defaults";
+import { resolveCommandBlockSearchParts } from "@/components/tugways/cards/session-command-block-registry";
 import type { ToolBlockExpansionState } from "@/components/tugways/blocks/expansion-state";
 import type { ToolUseMessage } from "@/lib/code-session-store/types";
 import type { PropertyStore } from "@/components/tugways/property-store";
@@ -386,6 +387,12 @@ function userBodyParts(
  * header and stays on screen when the exchange is collapsed, so it projects
  * either way; only the output — unmounted with the body — is gated. Shell
  * rows default expanded.
+ *
+ * A row a BESPOKE command block claims (a `/commit` or `/dash-join` receipt)
+ * renders none of that: it parses the output and shows its own arrangement
+ * of it. Those rows project what their registration declares — the same text
+ * their renderer marks findable — because projecting the raw output would
+ * count matches no painter could ever reach.
  */
 function shellSegments(
   descriptor: SessionRowDescriptor,
@@ -393,6 +400,8 @@ function shellSegments(
 ): RowSegment[] {
   const message = descriptor.turn?.messages[0];
   if (message === undefined || message.kind !== "shell_exchange") return [];
+  const claimed = resolveCommandBlockSearchParts(message);
+  if (claimed !== null) return domSegments(claimed);
   const segments: RowSegment[] = [];
   if (message.command !== "") {
     segments.push({ kind: "dom", text: message.command });

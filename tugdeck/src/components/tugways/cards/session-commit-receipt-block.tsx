@@ -26,6 +26,7 @@ import type React from "react";
 
 import { CommitShaText } from "@/components/tugways/commit-sha-text";
 import { CommitMessage } from "@/components/tugways/commit-presentation";
+import { markdownTextParts } from "@/components/tugways/tug-markdown-text";
 import { useCommitIdentityMenu } from "@/components/tugways/commit-identity-menu";
 import { CommitChangesList } from "@/components/tugways/tug-changes-list";
 import { useAnnotatedElement } from "@/components/tugways/annotation-scope";
@@ -36,6 +37,7 @@ import {
   registerCommandBlock,
   type CommandBlockProps,
 } from "./session-command-block-registry";
+import type { ShellExchangeMessage } from "@/lib/code-session-store/types";
 import { ShellExchangeBlock } from "./shell-exchange-block";
 import "./session-commit-receipt-block.css";
 
@@ -200,7 +202,13 @@ function CommitReceipt({
         {menu.contextMenu}
       </span>
       {" "}
-      <code ref={subjectRef} className="commit-receipt-summary">{subject}</code>
+      <code
+        ref={subjectRef}
+        className="commit-receipt-summary"
+        data-tugx-findable=""
+      >
+        {subject}
+      </code>
     </span>
   );
   return (
@@ -224,7 +232,7 @@ function CommitReceipt({
             list, which can run arbitrarily long. Both fold together under the
             header chevron; expanded is the default. */}
         {body.length > 0 ? (
-          <CommitMessage body={body} dataSlot="commit-receipt-detail" />
+          <CommitMessage body={body} dataSlot="commit-receipt-detail" findable />
         ) : null}
         {/* The committed files as sha-backed changes rows ([P08]) — the same
             compact rows as the live list, each expanding into the committed
@@ -248,10 +256,35 @@ export function matchesCommitReceipt(command: string): boolean {
   return command === "/commit" || command.startsWith("/commit ");
 }
 
+/**
+ * The receipt's searchable text, in render order: the subject on the
+ * identity line, then the message body as the markdown styler lays it out —
+ * the two containers the block marks `data-tugx-findable`. An output this
+ * block cannot parse falls through to `ShellExchangeBlock` — `null` says so,
+ * and the index projects that row as the plain exchange it renders as.
+ *
+ * The file list is deliberately absent, on the refs block's terms: which
+ * rows it shows is a fold state the index cannot observe, so counting them
+ * would desync the badge from the paint the first time a reader folds one.
+ */
+export function commitReceiptFindParts(
+  message: ShellExchangeMessage,
+): string[] | null {
+  const parsed = parseCommitReceipt(message.output);
+  if (parsed === null) return null;
+  const subject = parsed.message.split("\n", 1)[0] ?? "";
+  const body = parsed.message
+    .slice(subject.length)
+    .replace(/^\n+/, "")
+    .replace(/\s+$/, "");
+  return [subject, ...markdownTextParts(body)];
+}
+
 // Registration happens at import time (the side-effect import in
 // session-card-transcript.tsx loads it before the first resolve, [P08]).
 registerCommandBlock("commit-receipt", matchesCommitReceipt, SessionCommitReceiptBlock, {
   // A commit rides the shell ledger, but the user typed no shell command: the
   // row is a git operation and its header says so.
   attribution: "git",
+  findParts: commitReceiptFindParts,
 });

@@ -233,6 +233,7 @@ export function CommitMessage({
   body,
   highlightQuery,
   dataSlot,
+  findable = false,
 }: {
   /** The message body (subject excluded — it leads the identity line). */
   body: string;
@@ -242,6 +243,10 @@ export function CommitMessage({
   highlightQuery?: string;
   /** `data-slot` for the well, so each surface keeps its own test hook. */
   dataSlot: string;
+  /** Opt the body into transcript Find — see `TugMarkdownText.findable`. The
+   *  receipt rows set it; the History shade (outside the transcript) does
+   *  not. */
+  findable?: boolean;
 }): React.ReactElement {
   return (
     <TugMarkdownText
@@ -249,6 +254,7 @@ export function CommitMessage({
       highlightQuery={highlightQuery}
       className="tugx-commit-message"
       dataSlot={dataSlot}
+      findable={findable}
     />
   );
 }
