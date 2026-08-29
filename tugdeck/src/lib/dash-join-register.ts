@@ -250,7 +250,7 @@ export function dashJoinRegister(
   // On an **unbound** one it is not a gap at all: the pilot never runs for a
   // dash nobody holds, so naming a reconcile would be a promise the machine
   // has already declined to keep, standing forever. Say nothing instead —
-  // `/join <name>` and binding a card are both still open, and neither is a
+  // `/dash-join <name>` and binding a card are both still open, and neither is a
   // thing this line was reporting.
   if (JOINABLE_STAGES.has(input.stage ?? "")) {
     return (input.bound ?? true)

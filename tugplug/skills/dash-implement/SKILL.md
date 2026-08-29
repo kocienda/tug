@@ -148,7 +148,7 @@ Read a good one before writing yours — `tug log` on the base shows the project
 
 Write it even on a run that stops mid-plan: the draft is what the shade shows the user, and a dash with no draft offers to land its branch description — or, with neither, the words `Dash work`. The fold says which of the three it is, so a missing draft is visible rather than silent, but visible-and-wrong is still wrong.
 
-**Then say what happened and stop.** The ending narration is three things: what was built, that the fit is verified (or that the replay reported `Current`, so it was already), and that the draft is written. At most add *"the Changes shade will reveal itself momentarily."* **Do not print a `/join <name>` chip.** The dash is bound and armed; the shade summons itself on this card, and a chip alongside it teaches the user that nothing happens until they type — which is the belief this whole arc exists to retire ([D147], [D152]).
+**Then say what happened and stop.** The ending narration is three things: what was built, that the fit is verified (or that the replay reported `Current`, so it was already), and that the draft is written. At most add *"the Changes shade will reveal itself momentarily."* **Do not print a `/dash-join <name>` chip.** The dash is bound and armed; the shade summons itself on this card, and a chip alongside it teaches the user that nothing happens until they type — which is the belief this whole arc exists to retire ([D147], [D152]).
 
 **Under an arc, this ending is unchanged** — and that is the finding, not an oversight. When `printenv TUG_DASH_ARC` names a dash, this turn is that arc's **implement stage**, and everything above still applies verbatim: verify the fit, write the draft before closing the final declared step, narrate the three things, print no chip. The reason nothing changes is that the ending was already server-driven — closing the final step arms the join, the shade summons itself, and the arc adds only its own receipt on top of what the join pilot already reads ([P12]). A stage that ended differently would be a second endgame competing with the one that works.
 
@@ -182,11 +182,11 @@ Loop until the user is satisfied. A follow-up "now do Steps 6-8" is just another
 
 Closing the shade costs nothing and answers nothing — the row is still in there, and new work on the dash reveals it again. There is no "not yet" to record and nothing that can lock the offer out.
 
-**`/join <name>` in the Session card is the escape hatch**, the same join by hand, previewing the merge in memory before anything is touched. Reach for it only in the cases below.
+**`/dash-join <name>` in the Session card is the escape hatch**, the same join by hand, previewing the merge in memory before anything is touched. Reach for it only in the cases below.
 
 **The escapes.** Print the chip in exactly two situations, because in both of them the shade genuinely has nothing to reveal:
 
-- **The dash is unbound by choice.** The offer only reaches a card bound to the dash, and an unbound dash is never even reconciled. If the user has declined to bind one, `/join <name>` is their only path.
+- **The dash is unbound by choice.** The offer only reaches a card bound to the dash, and an unbound dash is never even reconciled. If the user has declined to bind one, `/dash-join <name>` is their only path.
 - **A legacy dash** with no declared run and no mark — nothing arms it, so no offer ever stands.
 
 Everywhere else the chip is noise at best and misinformation at worst. If the user reports the join blocked on base dirt, the preflight is intersection-aware: only base changes overlapping the dash's files block; unrelated base dirt should be committed or stashed first.

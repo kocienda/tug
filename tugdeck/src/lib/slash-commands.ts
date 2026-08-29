@@ -47,26 +47,6 @@ export interface LocalSlashCommandSpec {
    * Defaults to `false`.
    */
   readonly takesArgs?: boolean;
-  /**
-   * A retired spelling kept alive so muscle memory still lands ([P08]): it
-   * runs the same handler as the name it points at, and raises a one-time
-   * bulletin naming the new one. Aliases are deliberately excluded from the
-   * command picker — an alias is for muscle memory, not for discovery.
-   *
-   * Deleting one is normally the wrong move: a `/verb` that stops matching the
-   * registry is submitted to Claude as a prompt, which is the one outcome worse
-   * than a rename.
-   *
-   * The carve-out is when something in Claude's own catalog is *reclaiming* the
-   * bare name — as `tugplug:dash` did for `/dash`. There, falling through to
-   * Claude is the intent rather than the accident: the three-tier classifier
-   * makes the name a pass-through, `resolveRemoteCommand` finds the qualified
-   * entry by unique namespace suffix, and `canonicalizeBareCommandLine` rewrites
-   * the wire form, so no unknown-command alert can fire. Delete the alias then,
-   * and only then — the test is whether a catalog entry answers to the bare
-   * name, not whether the alias has outlived its usefulness.
-   */
-  readonly deprecatedFor?: string;
 }
 
 /**
@@ -251,12 +231,6 @@ export const LOCAL_SLASH_COMMANDS = [
     name: "dash-join",
     description: "Land a dash — opens the join editor over a previewed merge",
     takesArgs: true,
-  },
-  {
-    name: "join",
-    description: "Retired spelling of /dash-join",
-    takesArgs: true,
-    deprecatedFor: "dash-join",
   },
   {
     name: "dash-review",

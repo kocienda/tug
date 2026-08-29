@@ -58,10 +58,6 @@ describe("the bare /dash reaches the orchestrator skill", () => {
     for (const name of ["dash-bind", "dash-join"]) {
       expect(LOCAL_SLASH_COMMANDS.some((c) => c.name === name)).toBe(true);
     }
-    // The `join` retired spelling stays: nothing in the catalog reclaims it.
-    expect(
-      LOCAL_SLASH_COMMANDS.find((c) => c.name === "join")?.deprecatedFor,
-    ).toBe("dash-join");
   });
 
   test("it falls through the classifier as a pass-through", () => {

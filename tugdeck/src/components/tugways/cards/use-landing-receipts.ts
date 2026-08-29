@@ -132,7 +132,7 @@ export function useLandingReceipts(
       }
       prevDiscard = discarded.phase;
 
-      // The arc's ending ([P12]): one receipt row, and no `/join` chip —
+      // The arc's ending ([P12]): one receipt row, and no `/dash-join` chip —
       // the join offer is the shade's to raise ([D147], [D152]).
       const arc = verbStore.arcReceipt(tugSessionId);
       if (arc !== null && arc.receiptId !== prevArcReceipt) {

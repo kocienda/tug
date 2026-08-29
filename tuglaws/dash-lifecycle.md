@@ -180,7 +180,7 @@ The doctrine — the two beats, the one-slot `LandingMode`, and the five outcome
 
 An operation is spelled the same everywhere, and that spelling is its `tugutil` verb path, hyphenated: the card verbs are **`/dash-bind`** and **`/dash-join`**.
 
-`dash` and `join` survive as **retired spellings**, and are not scheduled for deletion. They are kept for muscle memory, which does not expire on a release schedule, and `deprecatedFor` excludes them from the completion popup so they are invisible to discovery. The failure mode is what decides it: a `/verb` that stops matching the local registry is submitted to Claude as a prompt — a burned turn on a line the user meant as a gesture.
+There are no alias spellings. `dash` belongs to the `tugplug:dash` orchestrator skill, and `join` is not registered at all: the registry carries the names an operation has, and only those. A typed `/join` is submitted to Claude as a prompt, which spends a turn — the one-time cost of the rename, paid by whoever's fingers remember.
 
 ## The faces
 

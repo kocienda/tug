@@ -62,9 +62,6 @@ export function localCommandCompletionProvider(
   return (query: string): CompletionItem[] => {
     const items: CompletionItem[] = [];
     for (const cmd of LOCAL_SLASH_COMMANDS) {
-      // A retired spelling still runs, but it is not offered ([P08]) — the
-      // picker teaches the one name the operation actually has.
-      if ("deprecatedFor" in cmd) continue;
       if (isOffered !== undefined && !isOffered(cmd.name)) continue;
       const match = scoreCommandMatch(query, cmd.name);
       if (match === null) continue;

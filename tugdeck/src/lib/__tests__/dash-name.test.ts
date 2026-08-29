@@ -72,11 +72,4 @@ describe("/dash-bind in the local registry", () => {
   test("classifies as supported-local with no second edit", () => {
     expect(classifySlashCommand("dash-bind")).toBe("supported-local");
   });
-
-  test("does not shadow /join", () => {
-    expect(matchLocalSlashCommand("/join snippets")).toEqual({
-      name: "join",
-      args: "snippets",
-    });
-  });
 });

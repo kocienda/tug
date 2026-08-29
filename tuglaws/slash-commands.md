@@ -168,21 +168,20 @@ the pair unlearnable, and because it decides collisions without argument:
 `/commit` is `tugutil commit` (the base branch's landing), so `tugutil dash
 commit` can only ever be `/dash-commit` — reserved, and deliberately unshipped.
 
-**Retire a spelling**: keep the old name registered as an alias rather than
-deleting it. An unmatched `/verb` is not an error — it is submitted to claude as
-a prompt, which spends a turn on a line the user meant as a command, and that is
-worse than a rename. An alias runs the new handler, raises a one-time bulletin
-naming the new spelling, and carries `deprecatedFor` so the `/` picker offers
-only the name the operation actually has. `/join` → `/dash-join` is the exemplar.
+**Retire a spelling**: delete the old name. Two deletions do it — the descriptor
+in `LOCAL_SLASH_COMMANDS` and its `slashCommandSurfaces` handler, which the
+exhaustive `Record<LocalCommandName, …>` forces you to make in the same edit.
+The registry carries the names an operation has, and only those: a card that
+answers to two spellings of one verb teaches both. A typed old spelling is
+submitted to claude as a prompt, which spends a turn — the cost of the rename,
+paid once by whoever's fingers remember.
 
 **Reclaim a bare name for a catalogued command**: the one case where deleting a
 local entry is right, because falling through to claude is the *intent* rather
 than the accident the rule above guards against. `/dash` is the worked example.
-It was a retired-spelling alias for `/dash-bind`, so a typed `/dash` was
-intercepted at tier 1 and never left the client; the bare name is now the
-`tugplug:dash` orchestrator skill's. Two deletions do it — the descriptor in
-`LOCAL_SLASH_COMMANDS` and its `slashCommandSurfaces` handler, which the
-exhaustive `Record<LocalCommandName, …>` forces you to make in the same edit.
+It was a local alias for `/dash-bind`, so a typed `/dash` was intercepted at
+tier 1 and never left the client; the bare name is now the `tugplug:dash`
+orchestrator skill's.
 
 What makes the fall-through safe is that **every hop after the local miss
 resolves**: the name is in no hidden group, so it classifies as pass-through;

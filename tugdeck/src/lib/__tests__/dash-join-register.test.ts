@@ -152,7 +152,7 @@ describe("what the register says", () => {
     // the Lens row would be a promise the machine has already declined to
     // keep — standing there forever.
     expect(reg({ phase: "previewed" }, { stage: "ready", bound: false })).toBeNull();
-    // A candidate that DID land (from a `/join` on demand, or from a bind
+    // A candidate that DID land (from a `/dash-join` on demand, or from a bind
     // since withdrawn) is a fact and still reported.
     expect(
       reg(reconciled(), { stage: "ready", bound: false })?.word,

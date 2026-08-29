@@ -124,7 +124,7 @@ This is the stage this skill owns outright, because nothing else in the arc will
 - **The ending is the join offer.** When the run's last step lands, the Changes shade reveals itself on this card, carrying the message the join would land. Plus one receipt row saying which stages ran, on which sessions.
 - **Nothing needs typing in between.** That is the claim the whole arc rests on, and it is worth stating plainly.
 
-**Do not print a `/join <name>` chip**, here or anywhere. The shade summons itself; a chip beside it teaches the user that nothing happens until they type, which is the belief this whole arc exists to retire ([D147], [D152]).
+**Do not print a `/dash-join <name>` chip**, here or anywhere. The shade summons itself; a chip beside it teaches the user that nothing happens until they type, which is the belief this whole arc exists to retire ([D147], [D152]).
 
 **On the hand-driven path**, continuing has two doors and both are already built: `dash-review` prints the `/tugplug:dash-implement <path>` chip, and a bare `/dash-plan` orients ([stage 1](#1-orient)), finds the reviewed plan, and offers to carry it. Either way, continuing means reading `../dash-implement/SKILL.md` and carrying the plan through that contract — its setup gate, its ledger walk, its per-step checkpoints and rounds, its ending. Nothing about the run changes for having arrived through `/dash-plan`, and its ending is the same one the arc reaches: the fit verified, the join draft written, the arc armed, no chip.
 

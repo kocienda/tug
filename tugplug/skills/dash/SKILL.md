@@ -23,7 +23,7 @@ Directly does not mean blind. Before the first round you write the dash's **task
 
 `/dash <name> <instruction…>` — create the dash `<name>` if new (or continue it), then carry out `<instruction>`.
 
-That is the whole grammar. `<name>` is alphanumeric + hyphens, 2+ chars, and everything after it is the instruction — there are no reserved words, because there are no sub-verbs to collide with. Joining belongs to the `/dash-join` card verb, of which `/join` is the retired spelling, the readouts are `tugutil dash status|show|list`, and discard is a bare CLI call the user makes.
+That is the whole grammar. `<name>` is alphanumeric + hyphens, 2+ chars, and everything after it is the instruction — there are no reserved words, because there are no sub-verbs to collide with. Joining belongs to the `/dash-join` card verb, the readouts are `tugutil dash status|show|list`, and discard is a bare CLI call the user makes.
 
 **A bare `/dash <name>` that names an existing dash is a continuation.** No instruction means there is nothing new to do, so read what the dash already knows — `tugutil dash documents <name> --json` for its task list, `tugutil plan status <name> --json` for where the ledger stopped — say which step is next, and go on from there. Guessing "new idea" here starts a second dash beside the one they meant.
 
@@ -147,7 +147,7 @@ Then **stop.** Don't merge.
 
 ### Join (only on the user's word)
 
-The join is the user's, and the **Changes shade** is how it reaches them: the shade reveals itself on the bound card in the first quiet moment, showing the dash's row and the message the join would land, and the composer's ⬆ lands the squash with the draft you left. Say the draft is written and stop — do not print a `/join <name>` chip, which reads as "nothing will happen until you type this" beside a room that is about to open on its own.
+The join is the user's, and the **Changes shade** is how it reaches them: the shade reveals itself on the bound card in the first quiet moment, showing the dash's row and the message the join would land, and the composer's ⬆ lands the squash with the draft you left. Say the draft is written and stop — do not print a `/dash-join <name>` chip, which reads as "nothing will happen until you type this" beside a room that is about to open on its own.
 
 The chip belongs only where the prompt cannot raise: a dash the user has left unbound, or a legacy dash with no declared run and no mark.
 

@@ -2652,9 +2652,6 @@ export function SessionCardBody({
     [dashBindingId, changesVersion],
   );
 
-  /** Retired verb spellings this card has already named ([P08]). */
-  const retiredVerbsSeenRef = useRef(new Set<string>());
-
   /**
    * The Changes door. Every way into the room — the Z4A segment, ⌃⌘C, the
    * Session menu — arrives here, and the landing it opens is a function of
@@ -3893,24 +3890,6 @@ export function SessionCardBody({
   });
 
   /**
-   * Run a retired verb's replacement, saying the new name the first time this
-   * card sees it ([P08]). Once per card, not once per press: a rename is worth
-   * one sentence, and a bulletin on every use would be a scold.
-   */
-  const runRetiredVerb = (
-    from: string,
-    to: LocalCommandName,
-    args: string,
-    draft?: SlashCommandDraft,
-  ): void => {
-    if (!retiredVerbsSeenRef.current.has(from)) {
-      retiredVerbsSeenRef.current.add(from);
-      paneBulletinRef.current?.caution(`/${from} is now /${to}`);
-    }
-    slashCommandSurfaces[to](args, draft);
-  };
-
-  /**
    * Run one refs op ([P01]/[P07]). The typed line is the truth: it is parsed
    * once here into needles + normalized flags, and the same line is echoed to
    * the feed so the block header shows what the user typed rather than a
@@ -4520,10 +4499,6 @@ export function SessionCardBody({
         seed.length > 0 ? seed : undefined,
       );
     },
-    // The retired spellings ([P08]). They run the new handler and say the new
-    // name once — deleting them would send the user's line to Claude as a
-    // prompt, which is worse than either.
-    join: (args, draft) => runRetiredVerb("join", "dash-join", args, draft),
     // `/shell <command>` — the deliberate override under the shell
     // auto-router: the classifier decides by default, and a user who knows
     // better forces one exchange against the card's shell session (the row
