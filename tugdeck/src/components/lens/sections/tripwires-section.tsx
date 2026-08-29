@@ -14,11 +14,14 @@
  * band. Armed, running, staged — that reads every time the Lens is up, which is
  * how tripwires nobody thought to look at stay legible.
  *
- * The knobs here are deliberately three. Pausing, the model, and when to post
- * are what a reader of this section reaches for without leaving it; authoring a
- * tripwire — its trigger, its scope, its brief — stays on the CLI and the
+ * The detail level leads with what the tripwire IS — trigger, scope, probe,
+ * brief, model, permissions, cooldown, each stated in English rather than in
+ * the JSON and the enums the ledger holds — and only then shows what it has
+ * done. Those rows are read-only: authoring a tripwire stays on the CLI and the
  * `/tripwire` skill [B15], because those are the parts where a wrong value
- * makes a tripwire silently useless rather than visibly wrong.
+ * makes a tripwire silently useless rather than visibly wrong. The two knobs
+ * that are writable here, pause and the post policy, are the ones a reader of
+ * the log reaches for without leaving it.
  *
  * Laws: [L02] the store enters through `useSyncExternalStore`; the level and
  * the opened tripwire are local data in `useState`; [L06] row hover and press
@@ -36,7 +39,17 @@ import React, {
   useState,
   useSyncExternalStore,
 } from "react";
-import { ChevronLeft, ChevronRight, CircleDot, Pause, Play, Zap } from "lucide-react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  CircleAlert,
+  CircleDot,
+  CircleMinus,
+  Clock,
+  Pause,
+  Play,
+  Zap,
+} from "lucide-react";
 
 import { registerLensSection } from "@/components/lens/lens-section-registry";
 import type { LensSectionHost } from "@/components/lens/lens-section-registry";
@@ -48,17 +61,28 @@ import { TugIconButton } from "@/components/tugways/tug-icon-button";
 import { TugLabel } from "@/components/tugways/tug-label";
 import { TugListRow } from "@/components/tugways/tug-list-row";
 import { TugListView } from "@/components/tugways/tug-list-view";
+import { TugSectionLabel } from "@/components/tugways/tug-section-label";
 import type {
   TugListViewCellProps,
   TugListViewDataSource,
   TugListViewDelegate,
 } from "@/components/tugways/tug-list-view";
+import { formatContextualStamp } from "@/lib/contextual-stamp";
 import { useResponderForm } from "@/components/tugways/use-responder-form";
 import {
   getTripwiresStore,
   type TripRow,
   type TripwireRow,
 } from "@/lib/tripwires-store";
+import {
+  POST_CHOICES,
+  describeTrigger,
+  postPolicyCaption,
+  tripSentence,
+  tripState,
+  tripStateLabel,
+  tripwireDefinition,
+} from "./tripwire-presentation";
 import {
   useTripsDataSource,
   useTripwiresDataSource,
@@ -75,13 +99,6 @@ import "./tripwires-section.css";
  * silently resets everyone's section order and re-expands what they collapsed.
  */
 export const TRIPWIRES_SECTION_KIND = "tripwires";
-
-/** The post policies the section offers, quietest first. */
-const POST_CHOICES = [
-  { value: "never", label: "Never" },
-  { value: "auto", label: "Auto" },
-  { value: "always", label: "Always" },
-];
 
 /**
  * How a tripwire row opens its log.
@@ -163,7 +180,9 @@ function TripwireCell({
     <TugListRow
       leading={<LastTripGlyph tripwire={tripwire} />}
       title={tripwire.name}
-      subtitle={tripwire.last_trip?.headline ?? tripwire.brief}
+      // Before it has fired, what it watches for — a brief can be a paragraph,
+      // and the trigger is the shorter answer to "what is this one for?".
+      subtitle={tripwire.last_trip?.headline ?? describeTrigger(tripwire.trigger)}
       data-tripwire={tripwire.name}
       data-tripwire-paused={tripwire.paused ? "true" : "false"}
       data-tripwire-running={tripwire.running ? "true" : "false"}
@@ -191,29 +210,65 @@ function TripwireCell({
 }
 
 /**
- * One firing. The headline when there is one, and otherwise the reason there
- * is not: a swallowed trip says what swallowed it, and a trip still running
- * says so. Every row says something, because the whole value of the log is
- * that a firing which produced no post is still visible here [B11].
+ * The glyph a trip's state earns, so the log reads at a glance before any of
+ * it is read as prose.
+ */
+function TripGlyph({ trip }: { trip: TripRow }): React.ReactElement {
+  const state = tripState(trip);
+  const className = `tripwires-glyph tripwires-glyph-${state === "finished" ? "routine" : state}`;
+  switch (state) {
+    case "running":
+      return <Zap size={12} className={className} />;
+    case "failed":
+      return <CircleAlert size={12} className={className} />;
+    case "skipped":
+      return <CircleMinus size={12} className={className} />;
+    case "waiting":
+      return <Clock size={12} className={className} />;
+    case "finished":
+      return <CircleDot size={12} className={className} />;
+  }
+}
+
+/**
+ * One firing. The agent's headline when there is one, and otherwise a sentence
+ * saying what happened instead — a trip that never ran gives its reason in
+ * English rather than as the ledger's own status word. Every row says
+ * something, because the whole value of the log is that a firing which
+ * produced no post is still visible here [B11].
+ *
+ * The state word beside the time is omitted exactly when the body already
+ * carries the state ({@link tripStateLabel}), so no row says it twice.
  */
 function TripCell({
   dataSource,
   index,
 }: TugListViewCellProps<TripsDataSource>): React.ReactElement {
   const trip = dataSource.rowAt(index);
-  const body =
-    trip.headline ??
-    (trip.swallow_reason !== null ? `swallowed: ${trip.swallow_reason}` : trip.status);
+  const headline = trip.headline;
+  const stateLabel = headline === null ? null : tripStateLabel(trip);
   return (
-    <TugListRow data-trip-id={trip.id} data-trip-status={trip.status}>
+    <TugListRow
+      data-trip-id={trip.id}
+      data-trip-status={trip.status}
+      data-trip-state={tripState(trip)}
+    >
       <span className="tripwires-trip">
-        <TugLabel size="sm" maxLines={2}>
-          {body}
-        </TugLabel>
+        <span className="tripwires-trip-body">
+          <TripGlyph trip={trip} />
+          <TugLabel size="sm" maxLines={3}>
+            {headline ?? tripSentence(trip)}
+          </TugLabel>
+        </span>
         <span className="tripwires-trip-meta">
           <TugLabel size="2xs" emphasis="calm">
-            {trip.status}
+            {formatContextualStamp(trip.at_ms, { seconds: true, ratioSeparator: true })}
           </TugLabel>
+          {stateLabel !== null ? (
+            <TugLabel size="2xs" emphasis="calm">
+              {stateLabel}
+            </TugLabel>
+          ) : null}
           {trip.probe_exit !== null ? (
             <TugLabel size="2xs" emphasis="calm">
               {`probe ${trip.probe_exit}`}
@@ -277,12 +332,38 @@ function TripwireDetail({
             data-tripwires-pause=""
           />
         </div>
-        <div className="tripwires-detail-brief">
-          <TugLabel size="sm" maxLines={4}>
-            {tripwire.brief}
-          </TugLabel>
-        </div>
+        {/*
+          What this tripwire IS, before what it has done. The log below is a
+          list of answers, and the trigger, the scope and the brief are the
+          question they answer — a reader who cannot see those is reading
+          verdicts about an event they cannot name.
+        */}
+        <dl className="tripwires-definition" data-tripwires-definition="">
+          {tripwireDefinition(tripwire).map((row) => (
+            <React.Fragment key={row.label}>
+              <dt>
+                <TugLabel size="2xs" emphasis="calm">
+                  {row.label}
+                </TugLabel>
+              </dt>
+              <dd data-mono={row.mono === true ? "" : undefined}>
+                <TugLabel size="xs" maxLines={4}>
+                  {row.value}
+                </TugLabel>
+              </dd>
+            </React.Fragment>
+          ))}
+        </dl>
         <div className="tripwires-detail-knobs">
+          {/*
+            The control says its own name and what the chosen setting does.
+            Never / Auto / Always alone named neither the thing being decided
+            nor where the posting goes, which left three words a reader could
+            only pick between by trying them.
+          */}
+          <TugLabel size="2xs" emphasis="calm">
+            Post to Overview
+          </TugLabel>
           <TugChoiceGroup
             items={POST_CHOICES}
             value={tripwire.post}
@@ -290,15 +371,17 @@ function TripwireDetail({
             size="2xs"
             data-tripwires-post=""
           />
-          {tripwire.model !== null ? (
-            <TugLabel size="2xs" emphasis="calm" data-tripwires-model="">
-              {tripwire.model}
-            </TugLabel>
-          ) : null}
+          <TugLabel size="2xs" emphasis="calm" data-tripwires-post-caption="">
+            {postPolicyCaption(tripwire.post)}
+          </TugLabel>
           {tripwire.staged_dash !== null ? (
             <TugAtomRef entity={{ kind: "dash", name: tripwire.staged_dash }} />
           ) : null}
         </div>
+        <TugSectionLabel
+          label={{ name: "Trip log", qualifier: "every firing, posted or not" }}
+          slot="tripwires-trip-log"
+        />
         <TugListView
           dataSource={dataSource as unknown as TugListViewDataSource}
           cellRenderers={TRIP_CELLS as never}

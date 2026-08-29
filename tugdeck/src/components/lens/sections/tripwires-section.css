@@ -54,6 +54,13 @@
   color: var(--tugx-text-muted);
 }
 
+/* A trip that never ran and one that has not started yet are both quiet: the
+   log's ink belongs to the firings that did something. */
+.tripwires-glyph-skipped,
+.tripwires-glyph-waiting {
+  color: var(--tugx-text-muted);
+}
+
 .tripwires-empty,
 .tripwires-error {
   padding: 10px 12px;
@@ -79,16 +86,47 @@
   min-width: 0;
 }
 
-.tripwires-detail-brief {
-  padding: 0 12px 8px;
-}
-
 .tripwires-detail-knobs {
   display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-  padding: 0 12px 10px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 8px 12px 10px;
+}
+
+/* The tripwire's definition: a label column that sizes to its longest word and
+   a value column that takes the rest. A grid rather than a flex row per pair
+   so the values line up down the block — a definition read as a column of
+   ragged left edges is a list of unrelated facts. */
+.tripwires-definition {
+  display: grid;
+  grid-template-columns: minmax(0, max-content) minmax(0, 1fr);
+  align-items: baseline;
+  gap: 3px 10px;
+  margin: 0;
+  padding: 0 12px 4px;
+  /* The definition yields before the log does. In a short Lens the rail cannot
+     hold both whole, and a trip log squeezed to nothing is the worse loss: the
+     definition is seven fixed rows a reader consults once, the log is what they
+     opened the level for. So the definition shrinks and scrolls, and the list
+     below keeps a floor of a few rows. */
+  flex: 0 1 auto;
+  overflow-y: auto;
+}
+
+.tripwires-detail > .tripwires-trips {
+  min-height: 96px;
+}
+
+.tripwires-definition > dt,
+.tripwires-definition > dd {
+  margin: 0;
+  min-width: 0;
+}
+
+/* A probe is a command, and a command is read character by character. */
+.tripwires-definition > dd[data-mono] {
+  font-family: var(--tug-font-family-mono);
 }
 
 .tripwires-trip {
@@ -96,6 +134,20 @@
   flex-direction: column;
   gap: 3px;
   min-width: 0;
+}
+
+/* The state glyph rides the first line of the body rather than the block's
+   centre, so a three-line headline does not float its glyph into the middle of
+   the paragraph. */
+.tripwires-trip-body {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 0;
+}
+
+.tripwires-trip-body > .tripwires-glyph {
+  margin-block-start: 2px;
 }
 
 .tripwires-trip-meta {

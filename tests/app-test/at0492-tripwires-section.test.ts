@@ -24,6 +24,7 @@
  * own suite.
  *
  * @covers tugdeck/src/components/lens/sections/tripwires-section.tsx
+ * @covers tugdeck/src/components/lens/sections/tripwire-presentation.ts
  * @covers tugdeck/src/components/lens/sections/tripwires-data-source.ts
  * @covers tugdeck/src/lib/tripwires-store.ts
  * @covers tugrust/crates/tugcast/src/tripwires_api.rs
@@ -153,6 +154,21 @@ describe.skipIf(!SHOULD_RUN)(
             expect(
               await app.evalJS<number>(`document.querySelectorAll("[data-trip-id]").length`),
             ).toBe(0);
+
+            // What the tripwire IS, before what it has done, and in English:
+            // the stored trigger is `{"commit":{}}` and no reader should ever
+            // meet it in that form.
+            expect(
+              await app.evalJS<string>(
+                `document.querySelector("[data-tripwires-definition]").textContent`,
+              ),
+            ).toContain("Any commit, on any branch");
+            // The post control names itself and says what the setting does.
+            expect(
+              await app.evalJS<string>(
+                `document.querySelector("[data-tripwires-post-caption]").textContent`,
+              ),
+            ).toContain("Overview");
 
             await app.click(`[data-tripwires-back]`);
             await app.waitForCondition<boolean>(
