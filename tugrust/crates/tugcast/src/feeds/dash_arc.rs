@@ -132,17 +132,14 @@ pub struct ArcFacts {
     /// `/new` reset, a rewind fork, a re-spawn onto a picked session.
     /// `true` when the arc has rotated nothing yet.
     pub stage_seated: bool,
-    /// The used fraction of the stage session's context window, from the
-    /// latest recorded `context_breakdown`. `None` when nothing has been
-    /// recorded — a missing measurement is not a reason to guess.
-    pub context_fraction: Option<f32>,
-    /// The fraction above which a continued implement stage rotates,
-    /// `[tugtool.dash].implement_rotate_at`.
-    pub rotate_at: f32,
-    /// The fraction above which a continued stage is compacted at a step
-    /// boundary, `[tugtool.dash].implement_compact_at`. Below `rotate_at` by
-    /// default: the cheaper act gets the first crossing.
-    pub compact_at: f32,
+    /// The stage session's context size in tokens, from the latest recorded
+    /// `context_breakdown`. `None` when nothing has been recorded — a missing
+    /// measurement is not a reason to guess.
+    pub context_tokens: Option<u64>,
+    /// The context size above which a continued stage is compacted at a step
+    /// boundary, `[tugtool.dash].implement_compact_tokens`. The arc's one
+    /// threshold: a stage a compaction cannot bring back under it rotates.
+    pub compact_tokens: u64,
     /// The seated stage has more turns to run on this session — it is an
     /// implement stage whose run is not complete and whose next pending step
     /// is within the declared range. Devise and review end by rotating, so
@@ -152,30 +149,15 @@ pub struct ArcFacts {
     /// multi-turn stage inherits the behaviour without a second arm.
     pub stage_continues: bool,
     /// A compaction was sent on this session and no idle reading since has
-    /// fallen to or below `compact_at`. Runner memory: the documents cannot
+    /// fallen to or below `compact_tokens`. Runner memory: the documents cannot
     /// hold it, exactly as with [`StepLedgerFacts::step_just_done`]. It is
-    /// what makes a rotation the *second* answer to an oversized window.
+    /// what makes a rotation the *second* answer to an oversized context.
     pub compacted_since_below: bool,
     /// The turn that just ended was the `/compact` the arc sent. A compaction
     /// closes no step, so `step_just_done` is false at its end; this fact is
     /// what lets the predicate continue the stage anyway — and what tells an
     /// API error there apart from one on the work.
     pub compact_turn_just_ended: bool,
-}
-
-/// The used fraction of a session's context window, from the two halves that
-/// carry it.
-///
-/// The persisted `context_breakdown_latest` payload holds the **cap** and the
-/// session-stable categories; it deliberately carries no total and no
-/// `messages` category, both of which the deck derives feed-exact. So the cap
-/// comes from that row and the used figure from the session's latest
-/// `cost_update` window. One helper, so a payload shape change breaks in one
-/// place.
-pub fn context_max_from_breakdown(payload: &[u8]) -> Option<i64> {
-    let value: serde_json::Value = serde_json::from_slice(payload).ok()?;
-    let max = value.get("context_max")?.as_i64()?;
-    (max > 0).then_some(max)
 }
 
 /// The inclusive step range a continued implement stage walks, as the opening
@@ -223,7 +205,7 @@ pub enum PromptKind {
 /// what decided rather than re-reading it a hop later.
 #[derive(Debug, Clone, PartialEq)]
 pub enum PromptWhy {
-    Compact { fraction: f32, compact_at: f32 },
+    Compact { tokens: u64, compact_tokens: u64 },
     Continue,
 }
 
@@ -371,13 +353,13 @@ pub fn arc_action(record: &ArcRecord, facts: &ArcFacts) -> Option<ArcAction> {
     // multi-turn stage inherits it; devise and review end by rotating and
     // never reach it.
     if facts.stage_continues && facts.ledger.step_just_done && !facts.compacted_since_below {
-        if let Some(fraction) = facts.context_fraction {
-            if fraction > facts.compact_at {
+        if let Some(tokens) = facts.context_tokens {
+            if tokens > facts.compact_tokens {
                 return Some(ArcAction::Prompt {
                     kind: PromptKind::Compact,
                     why: PromptWhy::Compact {
-                        fraction,
-                        compact_at: facts.compact_at,
+                        tokens,
+                        compact_tokens: facts.compact_tokens,
                     },
                 });
             }
@@ -455,17 +437,24 @@ fn implement_action(facts: &ArcFacts) -> Option<ArcAction> {
     // The `/compact` the arc sent has just ended. It closed no step, so
     // `step_just_done` is false — but this boundary is the compaction's, and
     // the stage is owed its next turn either way. The only question left is
-    // whether the compaction worked: a window still above the rotation
-    // threshold gets the fresh session it was trying to avoid.
+    // whether the compaction worked: a context still above the threshold gets
+    // the fresh session it was trying to avoid.
+    //
+    // `compacted_since_below` is what says the compaction was really performed
+    // — a cancel or an API error retires it — so a compaction that never
+    // happened continues here and compacts again at the next boundary, rather
+    // than costing a rotation for a turn nobody took.
     if facts.compact_turn_just_ended {
         let steps = facts.ledger.first_pending.zip(facts.ledger.run_through);
-        if let (Some(fraction), Some((next, through))) = (facts.context_fraction, steps) {
-            if fraction > facts.rotate_at && next <= through {
-                return Some(ArcAction::Rotate(Rotation {
-                    stage: ArcStage::Implement,
-                    steps: Some((next, through)),
-                    note: None,
-                }));
+        if facts.compacted_since_below {
+            if let (Some(tokens), Some((next, through))) = (facts.context_tokens, steps) {
+                if tokens > facts.compact_tokens && next <= through {
+                    return Some(ArcAction::Rotate(Rotation {
+                        stage: ArcStage::Implement,
+                        steps: Some((next, through)),
+                        note: None,
+                    }));
+                }
             }
         }
         return continue_prompt(facts);
@@ -479,11 +468,15 @@ fn implement_action(facts: &ArcFacts) -> Option<ArcAction> {
     if next > through {
         return None;
     }
-    // A window a compaction already failed to bring down: rotate, which is the
-    // second and last answer. Above the compaction threshold *without* a
-    // compaction behind it the stage never reaches here — the compaction arm
-    // above `match stage` returned first.
-    if facts.compacted_since_below && facts.context_fraction.is_some_and(|f| f > facts.rotate_at) {
+    // A context a compaction already failed to bring down: rotate, which is
+    // the second and last answer. Above the threshold *without* a compaction
+    // behind it the stage never reaches here — the compaction arm above
+    // `match stage` returned first.
+    if facts.compacted_since_below
+        && facts
+            .context_tokens
+            .is_some_and(|tokens| tokens > facts.compact_tokens)
+    {
         return Some(ArcAction::Rotate(Rotation {
             stage: ArcStage::Implement,
             steps: Some((next, through)),
@@ -559,9 +552,8 @@ mod tests {
             stage_turn_cancelled: false,
             stage_seated: true,
             stage_session_current: true,
-            context_fraction: None,
-            rotate_at: 0.8,
-            compact_at: 0.6,
+            context_tokens: None,
+            compact_tokens: 300_000,
             stage_continues: false,
             compacted_since_below: false,
             compact_turn_just_ended: false,
@@ -953,38 +945,38 @@ mod tests {
     }
 
     /// A seated implement stage with steps 4 through 9 left to walk.
-    /// `compact_at` is `0.6` and `rotate_at` `0.8`, the declared defaults.
-    fn implementing(fraction: Option<f32>, step_just_done: bool) -> ArcFacts {
+    /// `compact_tokens` is 300,000, the declared default.
+    fn implementing(tokens: Option<u64>, step_just_done: bool) -> ArcFacts {
         let mut facts = facts();
         facts.ledger.step_just_done = step_just_done;
         facts.ledger.first_pending = Some(4);
         facts.ledger.run_through = Some(9);
-        facts.context_fraction = fraction;
+        facts.context_tokens = tokens;
         facts.stage_continues = true;
         facts
     }
 
     #[test]
-    fn above_compact_at_at_a_step_boundary_prompts_a_compaction() {
+    fn above_the_threshold_at_a_step_boundary_prompts_a_compaction() {
         let (kind, why) = prompt(arc_action(
             &record(&[ArcStage::Implement]),
-            &implementing(Some(0.72), true),
+            &implementing(Some(350_000), true),
         ));
         assert_eq!(kind, PromptKind::Compact);
         assert_eq!(
             why,
             PromptWhy::Compact {
-                fraction: 0.72,
-                compact_at: 0.6,
+                tokens: 350_000,
+                compact_tokens: 300_000,
             }
         );
     }
 
     #[test]
-    fn below_compact_at_at_a_step_boundary_prompts_the_next_step() {
+    fn below_the_threshold_at_a_step_boundary_prompts_the_next_step() {
         let (kind, why) = prompt(arc_action(
             &record(&[ArcStage::Implement]),
-            &implementing(Some(0.41), true),
+            &implementing(Some(120_000), true),
         ));
         assert_eq!(kind, PromptKind::Continue { steps: (4, 9) });
         assert_eq!(why, PromptWhy::Continue);
@@ -1002,28 +994,28 @@ mod tests {
     }
 
     #[test]
-    fn above_rotate_at_after_a_compaction_rotates_with_the_step_range() {
-        let mut facts = implementing(Some(0.85), true);
+    fn still_above_the_threshold_after_a_compaction_rotates_with_the_step_range() {
+        let mut facts = implementing(Some(500_000), true);
         facts.compacted_since_below = true;
         let rotation = rotation(arc_action(&record(&[ArcStage::Implement]), &facts));
         assert_eq!(rotation.stage, ArcStage::Implement);
         assert_eq!(rotation.steps, Some((4, 9)));
     }
 
-    /// Rotation is the second answer, never the first: a window nothing has
+    /// Rotation is the second answer, never the first: a context nothing has
     /// tried to compact is compacted.
     #[test]
-    fn above_rotate_at_without_a_compaction_compacts_first() {
+    fn above_the_threshold_without_a_compaction_compacts_first() {
         let (kind, _) = prompt(arc_action(
             &record(&[ArcStage::Implement]),
-            &implementing(Some(0.85), true),
+            &implementing(Some(500_000), true),
         ));
         assert_eq!(kind, PromptKind::Compact);
     }
 
     #[test]
-    fn a_compact_turns_end_continues_when_the_window_came_down() {
-        let mut facts = implementing(Some(0.2), false);
+    fn a_compact_turns_end_continues_when_the_context_came_down() {
+        let mut facts = implementing(Some(120_000), false);
         facts.compact_turn_just_ended = true;
         facts.compacted_since_below = true;
         let (kind, _) = prompt(arc_action(&record(&[ArcStage::Implement]), &facts));
@@ -1031,8 +1023,8 @@ mod tests {
     }
 
     #[test]
-    fn a_compact_turns_end_rotates_when_the_window_did_not_come_down() {
-        let mut facts = implementing(Some(0.85), false);
+    fn a_compact_turns_end_rotates_when_the_context_did_not_come_down() {
+        let mut facts = implementing(Some(500_000), false);
         facts.compact_turn_just_ended = true;
         facts.compacted_since_below = true;
         let rotation = rotation(arc_action(&record(&[ArcStage::Implement]), &facts));
@@ -1040,9 +1032,20 @@ mod tests {
         assert_eq!(rotation.steps, Some((4, 9)));
     }
 
+    /// A compact turn nobody took — the runner retires `compacted_since_below`
+    /// on a cancel or an API error — costs no rotation, however high the
+    /// context reads. The stage walks on and the next boundary compacts again.
+    #[test]
+    fn a_compact_turn_nobody_took_continues_rather_than_rotating() {
+        let mut facts = implementing(Some(500_000), false);
+        facts.compact_turn_just_ended = true;
+        let (kind, _) = prompt(arc_action(&record(&[ArcStage::Implement]), &facts));
+        assert_eq!(kind, PromptKind::Continue { steps: (4, 9) });
+    }
+
     #[test]
     fn a_compact_turn_that_ended_in_an_api_error_stops_as_compact_failed() {
-        let mut facts = implementing(Some(0.85), false);
+        let mut facts = implementing(Some(500_000), false);
         facts.stage_api_error = true;
         facts.compact_turn_just_ended = true;
         assert_eq!(
@@ -1067,8 +1070,8 @@ mod tests {
     /// Every act on the seated session happens on an idle reading ([P05]) —
     /// a prompt sent into an open turn would queue behind a working model.
     #[test]
-    fn a_mid_turn_reading_prompts_nothing_even_above_compact_at() {
-        let mut facts = implementing(Some(0.94), true);
+    fn a_mid_turn_reading_prompts_nothing_even_above_the_threshold() {
+        let mut facts = implementing(Some(600_000), true);
         facts.session_idle = false;
         assert_eq!(arc_action(&record(&[ArcStage::Implement]), &facts), None);
     }
@@ -1077,12 +1080,12 @@ mod tests {
     /// compaction arm, keyed on `stage_continues`, never fires for them.
     #[test]
     fn devise_and_review_never_compact() {
-        // Each ends by rotating onward, whatever the window reads.
+        // Each ends by rotating onward, whatever the context reads.
         for (stage, onward) in [
             (ArcStage::Devise, ArcStage::Review),
             (ArcStage::Review, ArcStage::Implement),
         ] {
-            let mut facts = implementing(Some(0.95), true);
+            let mut facts = implementing(Some(600_000), true);
             facts.stage_continues = false;
             let action = arc_action(&record(&[stage]), &facts);
             assert!(
@@ -1097,12 +1100,12 @@ mod tests {
     /// the fresh session resumes past it, at a step it can actually close.
     #[test]
     fn a_rotation_resumes_past_a_withdrawn_row() {
-        let mut facts = implementing(Some(0.72), true);
+        let mut facts = implementing(Some(350_000), true);
         facts.compacted_since_below = true;
         // Row 2 is withdrawn, so the ledger's answer to "where next" is 3.
         facts.ledger.first_pending = Some(3);
         facts.ledger.run_through = Some(3);
-        facts.context_fraction = Some(0.85);
+        facts.context_tokens = Some(500_000);
 
         let rotation = rotation(arc_action(&record(&[ArcStage::Implement]), &facts));
         assert_eq!(rotation.stage, ArcStage::Implement);
@@ -1114,7 +1117,7 @@ mod tests {
         assert_eq!(
             arc_action(
                 &record(&[ArcStage::Implement]),
-                &implementing(Some(0.94), false)
+                &implementing(Some(600_000), false)
             ),
             None
         );
@@ -1123,19 +1126,6 @@ mod tests {
     #[test]
     fn a_step_range_is_spelled_the_same_everywhere_it_appears() {
         assert_eq!(step_range(4, 9), "4-9");
-    }
-
-    #[test]
-    fn a_context_cap_is_read_from_the_breakdown_payload_and_nowhere_else() {
-        assert_eq!(
-            context_max_from_breakdown(br#"{"context_max":200000,"categories":[]}"#),
-            Some(200_000)
-        );
-        // No cap, a zero cap, or a payload that is not one at all: no reading,
-        // and a missing measurement never becomes a guess.
-        assert_eq!(context_max_from_breakdown(br#"{"categories":[]}"#), None);
-        assert_eq!(context_max_from_breakdown(br#"{"context_max":0}"#), None);
-        assert_eq!(context_max_from_breakdown(b"not json"), None);
     }
 
     #[test]

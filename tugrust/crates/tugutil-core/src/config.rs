@@ -71,19 +71,12 @@ pub struct DashConfig {
     #[serde(default)]
     pub implement_model: Option<String>,
 
-    /// The context fraction above which the implement stage rotates to a fresh
-    /// session at a step boundary. Absent means
-    /// [`IMPLEMENT_ROTATE_AT_DEFAULT`], which [`DashConfig::rotate_at`]
-    /// applies.
+    /// The context size, in tokens, above which a seated implement stage is
+    /// compacted at a step boundary. Absent means
+    /// [`IMPLEMENT_COMPACT_TOKENS_DEFAULT`], which
+    /// [`DashConfig::compact_tokens`] applies.
     #[serde(default)]
-    pub implement_rotate_at: Option<f32>,
-
-    /// The context fraction above which the implement stage is compacted at a
-    /// step boundary, before any rotation is considered. Absent means
-    /// [`IMPLEMENT_COMPACT_AT_DEFAULT`], which [`DashConfig::compact_at`]
-    /// applies.
-    #[serde(default)]
-    pub implement_compact_at: Option<f32>,
+    pub implement_compact_tokens: Option<u64>,
 }
 
 /// One surface of a project: the paths it claims, and what checking it means.
@@ -113,29 +106,22 @@ pub struct Surface {
     pub checked_by: Vec<String>,
 }
 
-/// The context fraction the implement stage rotates above when a project
-/// declares none ([P07]).
-pub const IMPLEMENT_ROTATE_AT_DEFAULT: f32 = 0.8;
-
-/// The context fraction the implement stage is compacted above when a project
-/// declares none. Below the rotation threshold on purpose: a compaction is the
-/// cheaper act and gets the first crossing.
-pub const IMPLEMENT_COMPACT_AT_DEFAULT: f32 = 0.6;
+/// The context size, in tokens, a seated implement stage is compacted above
+/// when a project declares none ([P07]).
+///
+/// A token count rather than a share of the model's window, because what makes
+/// a stage work badly is a long context, and long is a number of tokens. The
+/// share it happens to be of whatever model the stage is running on is not the
+/// same judgement, and on a very large window it is not even close to it.
+pub const IMPLEMENT_COMPACT_TOKENS_DEFAULT: u64 = 300_000;
 
 impl DashConfig {
-    /// The rotation threshold to actually use: the declaration, or the
+    /// The compaction threshold to actually use: the declaration, or the
     /// default. The default lives at the consumer rather than in the parse so
     /// `dash config` can still report honestly that nothing was declared.
-    pub fn rotate_at(&self) -> f32 {
-        self.implement_rotate_at
-            .unwrap_or(IMPLEMENT_ROTATE_AT_DEFAULT)
-    }
-
-    /// The compaction threshold to actually use: the declaration, or the
-    /// default, on the same terms as [`DashConfig::rotate_at`].
-    pub fn compact_at(&self) -> f32 {
-        self.implement_compact_at
-            .unwrap_or(IMPLEMENT_COMPACT_AT_DEFAULT)
+    pub fn compact_tokens(&self) -> u64 {
+        self.implement_compact_tokens
+            .unwrap_or(IMPLEMENT_COMPACT_TOKENS_DEFAULT)
     }
 }
 
@@ -182,14 +168,10 @@ post_create = []
 # review_model = "opus"
 # implement_model = "sonnet"
 
-# The context fraction above which a seated implement stage is compacted at a
-# step boundary. Declare none and it is 0.6.
-# implement_compact_at = 0.6
-
-# The context fraction above which the implement stage rotates to a fresh
-# session at a step boundary, when a compaction did not bring it down. Declare
-# none and it is 0.8.
-# implement_rotate_at = 0.8
+# The context size, in tokens, above which a seated implement stage is
+# compacted at a step boundary. A stage a compaction cannot bring back under
+# this line rotates to a fresh session instead. Declare none and it is 300000.
+# implement_compact_tokens = 300000
 "#;
 
 /// Why a config file was refused. Every variant carries the offending value,
@@ -663,16 +645,14 @@ mod tests {
 
     #[test]
     fn stage_declarations_parse() {
-        let toml = "[tugtool.dash]\ndevise_model = \"sonnet\"\nreview_model = \"opus\"\nimplement_model = \"fable\"\nimplement_rotate_at = 0.75\nimplement_compact_at = 0.5\n";
+        let toml = "[tugtool.dash]\ndevise_model = \"sonnet\"\nreview_model = \"opus\"\nimplement_model = \"fable\"\nimplement_compact_tokens = 120000\n";
         let config: Config = toml::from_str(toml).expect("declaring stage models should parse");
         let dash = &config.tugtool.dash;
         assert_eq!(dash.devise_model.as_deref(), Some("sonnet"));
         assert_eq!(dash.review_model.as_deref(), Some("opus"));
         assert_eq!(dash.implement_model.as_deref(), Some("fable"));
-        assert_eq!(dash.implement_rotate_at, Some(0.75));
-        assert_eq!(dash.rotate_at(), 0.75);
-        assert_eq!(dash.implement_compact_at, Some(0.5));
-        assert_eq!(dash.compact_at(), 0.5);
+        assert_eq!(dash.implement_compact_tokens, Some(120_000));
+        assert_eq!(dash.compact_tokens(), 120_000);
     }
 
     #[test]
@@ -685,19 +665,15 @@ mod tests {
         assert!(dash.devise_model.is_none());
         assert!(dash.review_model.is_none());
         assert!(dash.implement_model.is_none());
-        assert!(dash.implement_rotate_at.is_none());
-        assert!(dash.implement_compact_at.is_none());
-        assert_eq!(dash.rotate_at(), IMPLEMENT_ROTATE_AT_DEFAULT);
-        assert_eq!(IMPLEMENT_ROTATE_AT_DEFAULT, 0.8);
-        assert_eq!(dash.compact_at(), IMPLEMENT_COMPACT_AT_DEFAULT);
-        assert_eq!(IMPLEMENT_COMPACT_AT_DEFAULT, 0.6);
+        assert!(dash.implement_compact_tokens.is_none());
+        assert_eq!(dash.compact_tokens(), IMPLEMENT_COMPACT_TOKENS_DEFAULT);
+        assert_eq!(IMPLEMENT_COMPACT_TOKENS_DEFAULT, 300_000);
 
         // So does a project with no dash table at all.
         let empty: Config = toml::from_str("").unwrap();
-        assert_eq!(empty.tugtool.dash.rotate_at(), IMPLEMENT_ROTATE_AT_DEFAULT);
         assert_eq!(
-            empty.tugtool.dash.compact_at(),
-            IMPLEMENT_COMPACT_AT_DEFAULT
+            empty.tugtool.dash.compact_tokens(),
+            IMPLEMENT_COMPACT_TOKENS_DEFAULT
         );
     }
 
@@ -712,8 +688,7 @@ mod tests {
             "devise_model",
             "review_model",
             "implement_model",
-            "implement_rotate_at",
-            "implement_compact_at",
+            "implement_compact_tokens",
         ] {
             assert!(
                 DEFAULT_CONFIG.contains(key),

@@ -18,14 +18,12 @@ build = "just app-debug"
 review_model = "opus"
 # implement_model = "sonnet"
 
-# The context fraction above which a seated implement stage is compacted at a
-# step boundary. Undeclared, it is 0.6.
-# implement_compact_at = 0.6
+# The context size, in tokens, above which a seated implement stage is
+# compacted at a step boundary — never mid-step. A stage a compaction cannot
+# bring back under this line rotates to a fresh session instead. Undeclared,
+# it is 300000.
+# implement_compact_tokens = 300000
 
-# The context fraction above which the implement stage rotates to a fresh
-# session at a step boundary, when a compaction did not bring it down — never
-# mid-step. Undeclared, it is 0.8.
-# implement_rotate_at = 0.8
 # The surfaces this project is made of. `tugutil dash verify <dash>` resolves
 # every path a dash would land to the surface declaring the longest matching
 # path, refuses — naming them — when one resolves to no surface, and runs what

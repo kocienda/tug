@@ -52,8 +52,7 @@ use tugutil_core::plan;
 
 use super::agent_supervisor::{AgentSupervisor, SpawnState};
 use super::dash_arc::{
-    ArcAction, ArcFacts, PromptKind, PromptWhy, Rotation, StepLedgerFacts, arc_action,
-    context_max_from_breakdown, step_range,
+    ArcAction, ArcFacts, PromptKind, PromptWhy, Rotation, StepLedgerFacts, arc_action, step_range,
 };
 use crate::wheel::{self, RotationRequest};
 
@@ -89,12 +88,12 @@ struct ArcState {
     /// A compaction was sent on the seated session and no idle reading since
     /// has fallen to or below the compaction threshold.
     ///
-    /// It is what makes a rotation the *second* answer to an oversized window:
-    /// the first crossing compacts, and only a window a compaction failed to
+    /// It is what makes a rotation the *second* answer to an oversized context:
+    /// the first crossing compacts, and only a context a compaction failed to
     /// bring down costs a fresh session. Cleared by a reading at or below the
     /// threshold, and by a compact turn that ended in an API error or a user
     /// cancel — a compaction that did not happen is never remembered as one,
-    /// and the fraction only grows, so a latched flag would compact exactly
+    /// and the context only grows, so a latched flag would compact exactly
     /// once, having compacted not at all.
     compacted_since_below: bool,
     /// A prompt the runner sent whose turn has not been read back yet.
@@ -217,6 +216,16 @@ async fn evaluate(ctx: &ArcContext, state: &Arc<Mutex<HashMap<String, ArcState>>
             None => TickMemory::default(),
         }
     };
+    // A compaction the session never performed — an API error, a user's cancel
+    // — is retired here as well as written away below, because the predicate
+    // reads this value: left standing it would cost a rotation for a turn
+    // nobody took.
+    let compaction_never_happened =
+        memory.compact_turn_just_ended && (session.api_error || session.turn_cancelled);
+    let memory = TickMemory {
+        compacted_since_below: memory.compacted_since_below && !compaction_never_happened,
+        ..memory
+    };
 
     let project = arc.project.clone();
     let dash = arc.dash.clone();
@@ -256,10 +265,8 @@ async fn evaluate(ctx: &ArcContext, state: &Arc<Mutex<HashMap<String, ArcState>>
         let came_down = reading.facts.session_idle
             && reading
                 .facts
-                .context_fraction
-                .is_some_and(|fraction| fraction <= reading.facts.compact_at);
-        let compaction_never_happened = memory.compact_turn_just_ended
-            && (reading.facts.stage_api_error || reading.facts.stage_turn_cancelled);
+                .context_tokens
+                .is_some_and(|tokens| tokens <= reading.facts.compact_tokens);
         if came_down || compaction_never_happened {
             entry.compacted_since_below = false;
         }
@@ -279,10 +286,10 @@ async fn evaluate(ctx: &ArcContext, state: &Arc<Mutex<HashMap<String, ArcState>>
             .current_stage()
             .map(|stage| stage.as_str())
             .unwrap_or("-"),
-        fraction = reading
+        tokens = reading
             .facts
-            .context_fraction
-            .map(|f| format!("{f:.3}"))
+            .context_tokens
+            .map(|t| t.to_string())
             .unwrap_or_else(|| "-".to_string()),
         done_count = reading.done_count,
         last_done_count = ?memory.last_done_count,
@@ -355,7 +362,6 @@ struct SessionSnapshot {
     stage_seated: bool,
     claude_session_id: Option<String>,
     context_window: Option<i64>,
-    context_max: Option<i64>,
 }
 
 async fn session_snapshot(ctx: &ArcContext, id: &TugSessionId) -> Option<SessionSnapshot> {
@@ -395,14 +401,6 @@ async fn session_snapshot(ctx: &ArcContext, id: &TugSessionId) -> Option<Session
             entry.context_window_tokens,
         )
     };
-    // `context_max` is the one half of the reading that is durable — the
-    // persisted breakdown row carries the model's window cap. The used half
-    // is the live `cost_update` figure above, because the breakdown frame
-    // deliberately carries no total.
-    let context_max = claude_session_id
-        .as_deref()
-        .and_then(|id| ctx.session_ledger.get_context_breakdown(id).ok().flatten())
-        .and_then(|row| context_max_from_breakdown(&row.payload));
     // Only a rotation writes a `stage_label`, at the `session_init` that
     // follows its announcement, so the label is the durable fact that this
     // session was seated by the wheel rather than reached by the deck.
@@ -419,7 +417,6 @@ async fn session_snapshot(ctx: &ArcContext, id: &TugSessionId) -> Option<Session
         stage_seated,
         claude_session_id,
         context_window,
-        context_max,
     })
 }
 
@@ -544,10 +541,11 @@ fn read(
         Some(line) => session.claude_session_id.as_deref() == Some(line.session_id.as_str()),
         None => true,
     };
-    let context_fraction = match (session.context_window, session.context_max) {
-        (Some(used), Some(max)) if max > 0 => Some(used as f32 / max as f32),
-        _ => None,
-    };
+    // Tokens, not a share of the model's window: what makes a stage work badly
+    // is a long context, and long is a number.
+    let context_tokens = session
+        .context_window
+        .and_then(|used| u64::try_from(used).ok());
 
     // The seated stage has more turns to run on this session. Only an
     // implement stage does: devise and review end by rotating.
@@ -582,9 +580,8 @@ fn read(
         stage_turn_cancelled: session.turn_cancelled,
         stage_seated: session.stage_seated,
         stage_session_current,
-        context_fraction,
-        rotate_at: config.rotate_at(),
-        compact_at: config.compact_at(),
+        context_tokens,
+        compact_tokens: config.compact_tokens(),
         stage_continues,
         compacted_since_below: memory.compacted_since_below,
         compact_turn_just_ended: memory.compact_turn_just_ended,
@@ -727,11 +724,11 @@ async fn deliver_prompt(
         .record_wheel_prompt(&session, &text);
 
     if let PromptWhy::Compact {
-        fraction,
-        compact_at,
+        tokens,
+        compact_tokens,
     } = why
     {
-        let note = format!("{fraction:.2} > {compact_at:.2}");
+        let note = format!("{tokens} > {compact_tokens}");
         let (project, dash) = (arc.project.clone(), arc.dash.clone());
         let arc_note = format!("compacted at {note}");
         let _ = tokio::task::spawn_blocking(move || {
@@ -1179,7 +1176,6 @@ Some context.
             stage_seated: true,
             claude_session_id: claude.map(str::to_string),
             context_window: None,
-            context_max: None,
         }
     }
 
@@ -2483,7 +2479,7 @@ Some context.
         project_with_document(root, ".tug/dashes/demo/brief.md");
         std::fs::write(
             root.join(".tugtool/config.toml"),
-            "[tugtool.dash]\nimplement_compact_at = 0.6\nimplement_rotate_at = 0.8\n",
+            "[tugtool.dash]\nimplement_compact_tokens = 300000\n",
         )
         .unwrap();
         std::fs::write(
@@ -2498,18 +2494,13 @@ Some context.
             .unwrap();
     }
 
-    /// Give the session a measured window: the used half on the entry, the cap
-    /// on the persisted breakdown row, which is where each half actually
-    /// lives.
-    async fn set_window(
-        ctx: &ArcContext,
+    /// Give the session a measured context — the live `cost_update` figure,
+    /// which is the only half of the old reading the arc still needs.
+    async fn set_context(
         entry: &Arc<Mutex<super::super::agent_supervisor::LedgerEntry>>,
         used: i64,
     ) {
         entry.lock().await.context_window_tokens = Some(used);
-        ctx.session_ledger
-            .record_context_breakdown("claude-1", br#"{"context_max":1000000,"categories":[]}"#, 0)
-            .unwrap();
     }
 
     /// The queue's text submissions, in order.
@@ -2549,7 +2540,7 @@ Some context.
         implementing_project(root, "done", "pending");
 
         let (ctx, entry, _register_rx) = harness(root).await;
-        set_window(&ctx, &entry, 200_000).await;
+        set_context(&entry, 100_000).await;
         // What `rotate` now writes: the plan's count when the stage was seated.
         let state = Arc::new(Mutex::new(HashMap::new()));
         state.lock().await.insert(
@@ -2579,8 +2570,8 @@ Some context.
         implementing_project(root, "done", "pending");
 
         let (ctx, entry, _register_rx) = harness(root).await;
-        // 0.70 of the window: above the declared 0.6, below the declared 0.8.
-        set_window(&ctx, &entry, 700_000).await;
+        // Above the declared 300,000.
+        set_context(&entry, 350_000).await;
         let mut opener = ctx.supervisor.code_output.subscribe();
         let state = Arc::new(Mutex::new(HashMap::new()));
         state.lock().await.insert(
@@ -2608,7 +2599,7 @@ Some context.
         implementing_project(root, "done", "pending");
 
         let (ctx, entry, _register_rx) = harness(root).await;
-        set_window(&ctx, &entry, 700_000).await;
+        set_context(&entry, 350_000).await;
         let state = Arc::new(Mutex::new(HashMap::new()));
         state.lock().await.insert(
             demo_key(root),
@@ -2623,7 +2614,7 @@ Some context.
         let record = read_arc(root, "demo").unwrap();
         assert_eq!(
             record.notes.last().map(String::as_str),
-            Some("compacted at 0.70 > 0.60")
+            Some("compacted at 350000 > 300000")
         );
         // The new marker moves no declaration: a reader that dates a dash from
         // every line is untroubled, and `read_arc` never learns the word.
@@ -2641,7 +2632,39 @@ Some context.
             .find(|(_, _, marker, _)| *marker == "compact")
             .expect("a compact line");
         assert_eq!(compact.1, "demo");
-        assert_eq!(compact.3, "0.70 > 0.60");
+        assert_eq!(compact.3, "350000 > 300000");
+    }
+
+    /// The threshold is a token count and nothing else: the harness declares a
+    /// million-token model, and two readings either side of 300,000 say that
+    /// the model's own capacity does not enter into it.
+    #[tokio::test]
+    async fn the_threshold_is_read_in_tokens_not_as_a_share_of_the_window() {
+        for (used, compacts) in [(250_000_i64, false), (310_000, true)] {
+            let dir = tempfile::tempdir().unwrap();
+            let root = dir.path();
+            implementing_project(root, "done", "pending");
+
+            let (ctx, entry, _register_rx) = harness(root).await;
+            set_context(&entry, used).await;
+            let state = Arc::new(Mutex::new(HashMap::new()));
+            state.lock().await.insert(
+                demo_key(root),
+                ArcState {
+                    last_done_count: Some(0),
+                    ..Default::default()
+                },
+            );
+
+            sweep(&ctx, &state).await;
+
+            let sent = submitted(&entry).await;
+            assert_eq!(
+                sent.first().map(String::as_str) == Some("/compact"),
+                compacts,
+                "at {used} of a million-token window the arc sent {sent:?}"
+            );
+        }
     }
 
     #[tokio::test]
@@ -2651,7 +2674,7 @@ Some context.
         implementing_project(root, "done", "pending");
 
         let (ctx, entry, _register_rx) = harness(root).await;
-        set_window(&ctx, &entry, 700_000).await;
+        set_context(&entry, 350_000).await;
         let state = Arc::new(Mutex::new(HashMap::new()));
         state.lock().await.insert(
             demo_key(root),
@@ -2677,13 +2700,13 @@ Some context.
 
     #[tokio::test]
     async fn a_compact_turn_that_ended_continues_or_rotates_by_the_new_reading() {
-        for (used, expected) in [(200_000_i64, "continue"), (850_000, "rotate")] {
+        for (used, expected) in [(100_000_i64, "continue"), (425_000, "rotate")] {
             let dir = tempfile::tempdir().unwrap();
             let root = dir.path();
             implementing_project(root, "done", "pending");
 
             let (ctx, entry, _register_rx) = harness(root).await;
-            set_window(&ctx, &entry, used).await;
+            set_context(&entry, used).await;
             // The compact turn has ended: the count has moved past the mark.
             entry.lock().await.turns_ended = 2;
             let state = Arc::new(Mutex::new(HashMap::new()));
@@ -2741,7 +2764,7 @@ Some context.
         implementing_project(root, "done", "pending");
 
         let (ctx, entry, _register_rx) = harness(root).await;
-        set_window(&ctx, &entry, 200_000).await;
+        set_context(&entry, 100_000).await;
         entry.lock().await.turns_ended = 2;
         let state = Arc::new(Mutex::new(HashMap::new()));
         state.lock().await.insert(
@@ -2771,9 +2794,9 @@ Some context.
     }
 
     /// A compaction that did not happen is never remembered as one. The
-    /// fraction only grows, so a latched flag would compact exactly once,
-    /// having compacted not at all — and fall through to the rotate threshold
-    /// forever after.
+    /// context only grows, so a latched flag would compact exactly once,
+    /// having compacted not at all — and fall through to a rotation forever
+    /// after.
     #[tokio::test]
     async fn a_cancelled_compact_turn_lets_the_next_boundary_compact_again() {
         let dir = tempfile::tempdir().unwrap();
@@ -2781,7 +2804,7 @@ Some context.
         implementing_project(root, "done", "pending");
 
         let (ctx, entry, _register_rx) = harness(root).await;
-        set_window(&ctx, &entry, 700_000).await;
+        set_context(&entry, 350_000).await;
         {
             let mut entry = entry.lock().await;
             entry.turns_ended = 2;
@@ -2860,7 +2883,7 @@ Some context.
         implementing_project(root, "done", "pending");
 
         let (ctx, entry, _register_rx) = harness(root).await;
-        set_window(&ctx, &entry, 700_000).await;
+        set_context(&entry, 350_000).await;
         let state = Arc::new(Mutex::new(HashMap::new()));
         state.lock().await.insert(
             demo_key(root),
@@ -2897,7 +2920,7 @@ Some context.
         );
         assert!(
             ticks[1].contains("action=prompt:compact")
-                && ticks[1].contains("fraction=\"0.700\"")
+                && ticks[1].contains("tokens=\"350000\"")
                 && ticks[1].contains("done_count=1")
                 && ticks[1].contains("last_done_count=Some(0)")
                 && ticks[1].contains("step_just_done=true"),

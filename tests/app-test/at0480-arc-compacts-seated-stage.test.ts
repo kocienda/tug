@@ -88,14 +88,26 @@ const DASH_NAME = "at0480-compact";
 const CHECKOUT = realpathSync(resolve(import.meta.dir, "..", ".."));
 
 /**
- * A threshold nothing can stay under and one nothing can cross. The first
- * boundary compacts because any real turn is above 0.01 of the window; nothing
- * rotates, because no window reaches 0.99. That isolates the compaction: what
- * the test observes cannot be a rotation wearing its clothes.
+ * A threshold no real turn can stay under, so the first step boundary
+ * compacts. It is raised out of reach the moment the compaction is observed —
+ * see `LOOSE_CONFIG`.
  */
 const SCRATCH_CONFIG = `[tugtool.dash]
-implement_compact_at = 0.01
-implement_rotate_at = 0.99
+implement_compact_tokens = 1
+`;
+
+/**
+ * The threshold, out of reach. Written once the compaction has been seen,
+ * because the arc's second answer to a context still over the line is a
+ * rotation, and claude usually declines a `/compact` on a plan this small —
+ * so leaving the threshold at 1 would rotate the stage away rather than
+ * continue it. Raising it isolates the compaction the same way a second
+ * threshold used to: what the test observes next cannot be a rotation wearing
+ * the continue's clothes. The arc reads the project's config on every tick,
+ * so the new line is in force by the next boundary.
+ */
+const LOOSE_CONFIG = `[tugtool.dash]
+implement_compact_tokens = 1000000000
 `;
 
 let scratch: DashScratchRepo | null = null;
@@ -223,18 +235,19 @@ describe.skipIf(!SHOULD_RUN)("AT0480: the arc compacts a seated implement stage"
         note("at0480 implement stage seated", (await app.screenshot()).path);
 
         // The stage closes its first step and ends its turn. The boundary is
-        // above 0.01 of any real window, so the arc's answer is a compaction —
+        // above a one-token threshold, so the arc's answer is a compaction —
         // delivered as a row the card attributes to the Wheel, not to the user.
         await waitForWheelNotice(app, "/compact");
         note("at0480 wheel rows after the compaction", JSON.stringify(await wheelNotices(app)));
+        writeFileSync(resolve(projectDir(), ".tugtool", "config.toml"), LOOSE_CONFIG);
 
         // And it said so where a reader can find it: the dash-log line, whose
-        // note is the fraction that decided against the threshold that
-        // decided it.
+        // note is the context that decided against the threshold that decided
+        // it.
         const notes = compactNotes();
         note("at0480 dash-log compact lines", JSON.stringify(notes));
         expect(notes.length).toBeGreaterThanOrEqual(1);
-        expect(notes[0]).toMatch(/^\d\.\d\d > 0\.01$/);
+        expect(notes[0]).toMatch(/^\d+ > 1$/);
 
         // Then the stage keeps its session and walks on: the compact turn
         // closed no step, so the boundary it ends on is the compaction's, and
