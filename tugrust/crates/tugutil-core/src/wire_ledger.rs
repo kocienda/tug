@@ -818,6 +818,27 @@ pub fn sweep_stale_running(
     )?)
 }
 
+/// Fail every `running` trip claimed before `before_ms`, whoever owns it.
+///
+/// [`sweep_stale_running`] is the clean half and cannot be the whole of it: an
+/// instance only ever knows its own name, so a tugcast that crashed and never
+/// came back leaves rows no boot sweep will ever reach. `running_count` is
+/// machine-wide, so those rows spend the ceiling for every wire on the machine
+/// — and nothing recovers on its own, because draining the queue is what a
+/// settle does and no settle is coming for a dead instance's trip.
+///
+/// Age is the only evidence available from here, and the caller sets the bound
+/// past the longest run any engine can produce, so a live run is never mistaken
+/// for an abandoned one.
+pub fn sweep_orphaned_running(conn: &Connection, before_ms: i64) -> Result<usize, WireLedgerError> {
+    Ok(conn.execute(
+        "UPDATE trips SET status = 'failed', swallow_reason = 'abandoned',
+                          settled_at_ms = ?1
+         WHERE status = 'running' AND at_ms < ?1",
+        params![before_ms],
+    )?)
+}
+
 // MARK: - Settings
 
 /// One setting, or `None`.

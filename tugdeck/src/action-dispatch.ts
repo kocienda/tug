@@ -517,9 +517,9 @@ export function initActionDispatch(
 
   // toggle-lens / toggle-jots / toggle-overview: the three-state sidebar
   // shortcut — show-and-activate, activate, hide ({@link toggleSidebarCard}).
-  // Fired by the Swift menu's "Show Lens" (⌃⌘L), "Show Jots" (⌃⌘J), and "Show
-  // Overview" (⌃⌘O) items and the browser-dev keybindings; the deck-canvas key
-  // handlers run the same performer.
+  // Fired by the Swift menu's "Show Lens" (⌃⌘L), "Show Jots" (⌃⌘J), "Show
+  // Overview" (⌃⌘O) and "Show Wires" (⌃⌘W) items and the browser-dev
+  // keybindings; the deck-canvas key handlers run the same performer.
   registerAction("toggle-lens", () => {
     toggleSidebarCard(deckManager, LENS_CARD_ID);
   });
@@ -532,7 +532,7 @@ export function initActionDispatch(
     toggleSidebarCard(deckManager, OVERVIEW_CARD_ID);
   });
 
-  registerAction("toggle-wires", () => {
+  registerAction(TUG_ACTIONS.TOGGLE_WIRES, () => {
     toggleSidebarCard(deckManager, WIRES_CARD_ID);
   });
 

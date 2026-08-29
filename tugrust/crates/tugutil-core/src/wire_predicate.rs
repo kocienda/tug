@@ -105,6 +105,13 @@ pub enum WireEvent {
         payload: serde_json::Value,
         project_dir: Option<String>,
         session_card: Option<String>,
+        /// The rowid the fact was read at. Unique within an instance, which is
+        /// what the claim key needs — two instances never read one fact,
+        /// because a session ledger is per-instance. A fact with no stable
+        /// identity of its own would have to be keyed by its arrival time, and
+        /// two facts of one kind arriving in one millisecond would then be one
+        /// firing with the second silently lost.
+        seq: i64,
     },
     Commit {
         branch: Option<String>,
@@ -176,6 +183,7 @@ mod tests {
             payload,
             project_dir: Some("/proj".to_string()),
             session_card: None,
+            seq: 1,
         }
     }
 

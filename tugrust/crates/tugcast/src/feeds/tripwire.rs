@@ -33,6 +33,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use rusqlite::Connection;
+use sha2::{Digest, Sha256};
 use tokio::sync::{broadcast, mpsc};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
@@ -61,6 +62,30 @@ const SWEEP_TICK: Duration = Duration::from_secs(5);
 /// a burst is worked in bounded chunks and the engine stays responsive to its
 /// cancel between them.
 const FACT_TAIL_CAP: usize = 200;
+
+/// How long a probe may run before the engine stops waiting on it.
+///
+/// A probe is an arbitrary command from a wire row, run unattended, and the two
+/// failure modes it has no defence against on its own are the one that blocks
+/// on a prompt and the one that never terminates. Neither announces itself:
+/// without a deadline the trip stays `running` forever, holding its slot, and
+/// the run it is inside never settles. Generous, because `just fix && just ci`
+/// is the motivating probe and a cold build is slow.
+const PROBE_TIMEOUT: Duration = Duration::from_secs(15 * 60);
+
+/// How long a `running` trip may sit before any engine may declare it dead.
+///
+/// [`ledger::sweep_stale_running`] clears *this* instance's orphans at boot,
+/// which is the clean case. It cannot clear another instance's: from here, an
+/// instance that crashed and one that is mid-run look identical. But the
+/// concurrency count is machine-wide, so rows nobody will ever settle consume
+/// the ceiling for every wire on the machine — at the default ceiling of two,
+/// two orphans stop the facility outright, and nothing recovers, because
+/// draining the queue is something a settle triggers and no settle is coming.
+/// Age is the only evidence available, so it is set comfortably past the
+/// longest run this build can produce: a fifteen-minute probe followed by a
+/// twenty-minute session.
+const ORPHANED_RUN_AGE: Duration = Duration::from_secs(90 * 60);
 
 /// The channel a hand-fired `wire trip` reaches the engine on.
 ///
@@ -121,19 +146,61 @@ type Db = Mutex<Connection>;
 /// The two halves are visible in the shape: the decision runs under the lock,
 /// the model's turn runs with the lock released, and the settle takes it
 /// again.
-async fn work_event(config: &TripwireEngineConfig, db: &Db, pools: &WirePools, event: &WireEvent) {
-    let mut pending = {
+fn work_event(
+    config: &Arc<TripwireEngineConfig>,
+    db: &Arc<Db>,
+    pools: &Arc<WirePools>,
+    event: &WireEvent,
+) {
+    let pending = {
         let conn = db.lock().expect("wire ledger mutex");
         evaluate(config, &conn, event).1
     };
-    for run in &mut pending {
-        let settled = run_pending(config, db, pools, run).await;
+    for run in pending {
+        spawn_run(config, db, pools, run);
+    }
+}
+
+/// Work one claimed firing on a task of its own.
+///
+/// Off the engine's task, because a run is not a fast thing: a probe may take
+/// fifteen minutes and a session twenty, and awaiting that inline meant the
+/// `select!` loop stopped reading for the whole of it. Facts survived that —
+/// the tail is a rowid and catches up — but `GIT_HEAD` is a broadcast, so
+/// commits past the channel's depth were lost outright, and every one of them
+/// was a firing that never happened and left no row saying so.
+///
+/// Unbounded here only in the shape of the code. The trip is already `running`
+/// in the ledger before this is called and the ceiling is read against that
+/// count, so the number alive at once is exactly what the ceiling permits —
+/// and the ceiling only becomes true *within* one instance now that runs are
+/// concurrent at all.
+fn spawn_run(
+    config: &Arc<TripwireEngineConfig>,
+    db: &Arc<Db>,
+    pools: &Arc<WirePools>,
+    mut run: PendingRun,
+) {
+    let config = Arc::clone(config);
+    let db = Arc::clone(db);
+    let pools = Arc::clone(pools);
+    tokio::spawn(async move {
+        let settled = run_pending(&config, &db, &pools, &mut run).await;
         {
             let conn = db.lock().expect("wire ledger mutex");
-            settle(config, &conn, run, &settled);
+            settle(&config, &conn, &run, &settled);
         }
-        drain_queue(config, db, pools).await;
-    }
+        drain_queue(&config, &db, &pools).await;
+    });
+}
+
+/// Look for a queued trip to start, on a task of its own. The tick's door into
+/// [`drain_queue`], which otherwise only ever runs behind a settle.
+fn spawn_drain(config: &Arc<TripwireEngineConfig>, db: &Arc<Db>, pools: &Arc<WirePools>) {
+    let config = Arc::clone(config);
+    let db = Arc::clone(db);
+    let pools = Arc::clone(pools);
+    tokio::spawn(async move { drain_queue(&config, &db, &pools).await });
 }
 
 /// Start the oldest queued trip now that a slot came free.
@@ -144,6 +211,17 @@ async fn work_event(config: &TripwireEngineConfig, db: &Db, pools: &WirePools, e
 async fn drain_queue(config: &TripwireEngineConfig, db: &Db, pools: &WirePools) {
     let mut run = {
         let conn = db.lock().expect("wire ledger mutex");
+        // Another instance's orphans hold the ceiling for everybody, and this
+        // is exactly where that bites: the count read below is machine-wide.
+        // Swept here rather than at boot alone, because boot only ever reaches
+        // this instance's own rows.
+        match ledger::sweep_orphaned_running(
+            &conn,
+            (config.now_ms)() - ORPHANED_RUN_AGE.as_millis() as i64,
+        ) {
+            Ok(0) | Err(_) => {}
+            Ok(n) => info!(count = n, "tripwire engine: failed abandoned running trips"),
+        }
         if ledger::running_count(&conn).unwrap_or(0)
             >= ledger::max_concurrent_trips(&conn).unwrap_or(2)
         {
@@ -241,7 +319,10 @@ pub async fn run_tripwire_engine(
         Ok(n) => info!(count = n, "tripwire engine: swept stale running trips"),
         Err(e) => warn!(error = %e, "tripwire engine: boot sweep failed"),
     }
-    let db: Db = Mutex::new(conn);
+    // Shared rather than owned by the loop, because a run now happens on a task
+    // of its own and has to carry the ledger and the pools with it.
+    let config = Arc::new(config);
+    let db: Arc<Db> = Arc::new(Mutex::new(conn));
 
     // The tail starts at the tip, not at zero: an engine that replayed the
     // whole fact history at boot would narrate months of old work as though it
@@ -255,7 +336,7 @@ pub async fn run_tripwire_engine(
 
     let mut ticker = tokio::time::interval(SWEEP_TICK);
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-    let pools = WirePools::new(Arc::clone(&config.spawner));
+    let pools = Arc::new(WirePools::new(Arc::clone(&config.spawner)));
 
     info!(instance = %config.instance, from_rowid = tail, "tripwire engine: watching");
 
@@ -266,9 +347,18 @@ pub async fn run_tripwire_engine(
                 return;
             }
             _ = fact_signal.notified() => drain_facts(&config, &db, &pools, &mut tail).await,
-            _ = ticker.tick() => drain_facts(&config, &db, &pools, &mut tail).await,
+            _ = ticker.tick() => {
+                drain_facts(&config, &db, &pools, &mut tail).await;
+                // The tick is the only thing that reaches a queue nothing is
+                // going to settle behind: a trip queued while the machine was
+                // at its ceiling waits for a slot to come free, and the settle
+                // that would have freed one may have died with another
+                // instance. Without this the queue is drained only by a settle
+                // that already happened, which on an idle machine is never.
+                spawn_drain(&config, &db, &pools);
+            }
             kicked = kick_rx.recv() => match kicked {
-                Some(name) => serve_manual(&config, &db, &pools, name.as_str()).await,
+                Some(name) => serve_manual(&config, &db, &pools, name.as_str()),
                 None => return,
             },
             recv = gh_rx.recv() => match recv {
@@ -279,7 +369,7 @@ pub async fn run_tripwire_engine(
                     // borrow spanning this await would not compile at all.
                     Ok(signal) => {
                         if let Some(event) = commit_event(signal).await {
-                            work_event(&config, &db, &pools, &event).await;
+                            work_event(&config, &db, &pools, &event);
                         }
                     }
                     Err(e) => warn!(error = %e, "tripwire engine: unreadable GIT_HEAD signal"),
@@ -297,7 +387,12 @@ pub async fn run_tripwire_engine(
 }
 
 /// Read every fact past the tail and evaluate each one.
-async fn drain_facts(config: &TripwireEngineConfig, db: &Db, pools: &WirePools, tail: &mut i64) {
+async fn drain_facts(
+    config: &Arc<TripwireEngineConfig>,
+    db: &Arc<Db>,
+    pools: &Arc<WirePools>,
+    tail: &mut i64,
+) {
     loop {
         let batch = match config.ledger.facts_after(*tail, FACT_TAIL_CAP) {
             Ok(batch) => batch,
@@ -314,7 +409,7 @@ async fn drain_facts(config: &TripwireEngineConfig, db: &Db, pools: &WirePools, 
             let Some(event) = fact_event(config, row) else {
                 continue;
             };
-            work_event(config, db, pools, &event).await;
+            work_event(config, db, pools, &event);
         }
         if batch.len() < FACT_TAIL_CAP {
             return;
@@ -352,6 +447,7 @@ fn fact_event(
         payload,
         project_dir,
         session_card,
+        seq: row.id,
     })
 }
 
@@ -395,8 +491,13 @@ async fn current_branch(workspace: &str) -> Option<String> {
 /// The CLI wrote the row before this arrived, so there is nothing to claim —
 /// the queue already holds the firing, and this is only the nudge that says
 /// not to wait for the tick.
-async fn serve_manual(config: &TripwireEngineConfig, db: &Db, pools: &WirePools, wire_name: &str) {
-    let mut run = {
+fn serve_manual(
+    config: &Arc<TripwireEngineConfig>,
+    db: &Arc<Db>,
+    pools: &Arc<WirePools>,
+    wire_name: &str,
+) {
+    let run = {
         let conn = db.lock().expect("wire ledger mutex");
         let Ok(Some(wire)) = ledger::get(&conn, wire_name) else {
             warn!(wire = %wire_name, "tripwire engine: kicked for a wire that is not there");
@@ -420,9 +521,7 @@ async fn serve_manual(config: &TripwireEngineConfig, db: &Db, pools: &WirePools,
             queued.event_payload.clone(),
         )
     };
-    let settled = run_pending(config, db, pools, &mut run).await;
-    let conn = db.lock().expect("wire ledger mutex");
-    settle(config, &conn, &run, &settled);
+    spawn_run(config, db, pools, run);
 }
 
 /// The outcome of considering one wire against one event — the whole of what
@@ -488,7 +587,7 @@ fn consider(
     }
 
     let now = (config.now_ms)();
-    let key = event_key(event, now);
+    let key = event_key(event, &config.instance);
 
     let payload = event_payload(event);
 
@@ -616,7 +715,10 @@ async fn run_work(config: &TripwireEngineConfig, db: &Db, run: &mut PendingRun) 
         // No runner, so nothing can be asked. The firing is a recorded fact
         // about the wire and no more; it is not a failure, because the wire
         // matched, the guards passed, and nothing claims work was done.
-        return Settled::logged();
+        return Settled::logged(format!(
+            "{} fired, and this instance has no session runner to ask",
+            run.wire
+        ));
     };
     let Some(scope) = run.scope.clone() else {
         return Settled::failed(
@@ -667,7 +769,7 @@ async fn run_work(config: &TripwireEngineConfig, db: &Db, run: &mut PendingRun) 
         }
         if probe.exit == 0 {
             cleanup_dash(&repo_root, &dash).await;
-            return Settled::logged();
+            return Settled::logged(format!("`{command}` exited 0; nothing to report"));
         }
         run.evidence = format!(
             "{}\n\nThe probe `{command}` exited {}. Its output ends:\n{}",
@@ -728,14 +830,28 @@ async fn run_work(config: &TripwireEngineConfig, db: &Db, run: &mut PendingRun) 
 ///
 /// Derived from the event key rather than minted, so the same firing named
 /// twice — a queued trip drained after a restart — is the same dash and not a
-/// second one. The key is sanitized because a commit sha is already a legal
-/// dash name and a fact key is not.
+/// second one, and *different* firings are never the same dash.
+///
+/// A commit sha is already legal dash-name material, so it keeps its own first
+/// eight characters: a dash a person will open is worth naming after the thing
+/// it is about. Every other key is digested instead of sanitized. Sanitizing
+/// drops the punctuation a fact key carries its discriminator behind, so eight
+/// surviving characters are eight characters of the *shape* `fact:<instance>:`
+/// — identical for every firing of one wire. Two firings sharing a name is not
+/// a cosmetic collision: `create_in` is idempotent, so the second adopts the
+/// first's dash, counts its rounds as its own, and a green probe on the second
+/// discards the work the first staged.
 fn wire_dash_name(wire: &str, event_key: &str) -> String {
-    let key8: String = event_key
-        .chars()
-        .filter(|c| c.is_ascii_alphanumeric())
-        .take(8)
-        .collect();
+    let key8 = if event_key.len() >= 8 && event_key.chars().all(|c| c.is_ascii_alphanumeric()) {
+        event_key.chars().take(8).collect()
+    } else {
+        let digest = <Sha256 as Digest>::digest(event_key.as_bytes());
+        digest.iter().take(4).fold(String::new(), |mut acc, b| {
+            use std::fmt::Write;
+            let _ = write!(acc, "{b:02x}");
+            acc
+        })
+    };
     format!("wire-{wire}-{key8}")
 }
 
@@ -745,14 +861,20 @@ struct ProbeResult {
     tail: String,
 }
 
-/// Run a wire's probe in its dash worktree.
+/// Run a wire's probe in its dash worktree, under a deadline.
 ///
-/// The environment is composed rather than inherited wholesale, on the
-/// `$`-route's discipline: `TUG_INSTANCE_ID` is carried through so a `tugutil`
-/// inside the probe addresses this same instance, and `TUG_SESSION_ID` is
-/// explicitly removed. A probe is not a session, and leaking whichever session
-/// tugcast last handled would attribute the probe's writes to a card that
-/// never ran it.
+/// The environment is inherited, with two changes. `TUG_SESSION_ID` is removed
+/// — a probe is not a session, and leaking whichever session tugcast last
+/// handled would attribute the probe's writes to a card that never ran it —
+/// and the pagers are pinned off, because a probe with no terminal that pages
+/// its output waits for a keypress nobody is there to give. `TUG_INSTANCE_ID`
+/// rides through untouched, so a `tugutil` inside the probe addresses this
+/// same instance.
+///
+/// A probe that outlives [`PROBE_TIMEOUT`] is killed and reported red.
+/// `kill_on_drop` is what makes that true rather than aspirational: dropping
+/// the timed-out future drops the child, and the child is signalled rather
+/// than left running detached with its pipes still open.
 async fn run_probe(command: &str, worktree: &std::path::Path) -> ProbeResult {
     let mut cmd = tokio::process::Command::new("/bin/sh");
     cmd.arg("-c")
@@ -761,9 +883,25 @@ async fn run_probe(command: &str, worktree: &std::path::Path) -> ProbeResult {
         .env_remove("TUG_SESSION_ID")
         .env("PAGER", "cat")
         .env("GIT_PAGER", "cat")
-        .env("GIT_TERMINAL_PROMPT", "0");
-    match cmd.output().await {
-        Ok(output) => {
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .kill_on_drop(true);
+    // A probe that could not be launched is a failing probe, not a green one:
+    // reading "could not run" as "nothing wrong" is the one mistake that
+    // silences a wire without anybody noticing.
+    let child = match cmd.spawn() {
+        Ok(child) => child,
+        Err(e) => {
+            return ProbeResult {
+                exit: -1,
+                tail: format!("the probe could not be launched: {e}"),
+            };
+        }
+    };
+    match tokio::time::timeout(PROBE_TIMEOUT, child.wait_with_output()).await {
+        Ok(Ok(output)) => {
             let mut text = String::from_utf8_lossy(&output.stdout).into_owned();
             text.push_str(&String::from_utf8_lossy(&output.stderr));
             ProbeResult {
@@ -771,12 +909,16 @@ async fn run_probe(command: &str, worktree: &std::path::Path) -> ProbeResult {
                 tail: tail(&text, ledger::PROBE_TAIL_CAP),
             }
         }
-        // A probe that could not be launched is a failing probe, not a green
-        // one: reading "could not run" as "nothing wrong" is the one mistake
-        // that silences a wire without anybody noticing.
-        Err(e) => ProbeResult {
+        Ok(Err(e)) => ProbeResult {
             exit: -1,
-            tail: format!("the probe could not be launched: {e}"),
+            tail: format!("the probe could not be read: {e}"),
+        },
+        Err(_) => ProbeResult {
+            exit: -1,
+            tail: format!(
+                "the probe was still running after {} minutes and was killed",
+                PROBE_TIMEOUT.as_secs() / 60
+            ),
         },
     }
 }
@@ -923,13 +1065,20 @@ pub struct Settled {
 
 impl Settled {
     /// The floor: the firing happened and nothing was asked about it.
-    fn logged() -> Self {
+    ///
+    /// It still carries a headline. A settlement with none cannot be posted at
+    /// all — `post_settled` has no body to send — so a wire laid `--post
+    /// always` to shake it down would say nothing on exactly the outcome a
+    /// probe-carrying wire produces most: green. `auto` still stays quiet on
+    /// it, because that is `interest` doing its job rather than an absent
+    /// sentence doing it by accident.
+    fn logged(headline: String) -> Self {
         Settled {
             status: TripStatus::Settled,
             settlement: ledger::Settlement {
                 interest: Some(wire_agent::Interest::Routine.as_str().to_string()),
                 outcome: Some(Outcome::Verdict.as_str().to_string()),
-                headline: None,
+                headline: Some(headline),
                 refs: None,
             },
         }
@@ -1128,13 +1277,17 @@ fn in_scope(scope: Option<&str>, path: Option<&str>) -> bool {
 /// The key the claim arbitrates on.
 ///
 /// A commit's is its sha, so two instances seeing one commit is one firing and
-/// a re-checkout of a tripped sha is none. A fact has no natural machine-wide
-/// key — its rowid is per-instance-ledger — so it takes its timestamp, which
-/// dedups a fact two engines read from one shared ledger and nothing else.
-fn event_key(event: &WireEvent, now_ms: i64) -> String {
+/// a re-checkout of a tripped sha is none. A fact takes the instance it was
+/// read in and its rowid there: a session ledger is per-instance, so no two
+/// engines ever read one fact, and qualifying by instance is what stops one
+/// instance's fact 42 from being read as another's. Deliberately not the
+/// arrival time — two facts of one kind landing in one millisecond would share
+/// a key, and the loser of that claim is a firing with no row at all, which is
+/// the one silence this facility is built to refuse.
+fn event_key(event: &WireEvent, instance: &str) -> String {
     match event {
         WireEvent::Commit { sha, .. } => sha.clone(),
-        WireEvent::Fact { kind, .. } => format!("fact:{kind}:{now_ms}"),
+        WireEvent::Fact { seq, .. } => format!("fact:{instance}:{seq}"),
     }
 }
 
@@ -1154,11 +1307,13 @@ fn event_payload(event: &WireEvent) -> Option<String> {
             payload,
             project_dir,
             session_card,
+            seq,
         } => serde_json::to_string(&serde_json::json!({
             "kind": kind,
             "payload": payload,
             "project_dir": project_dir,
             "session_card": session_card,
+            "seq": seq,
         }))
         .ok(),
         WireEvent::Commit {
@@ -1277,11 +1432,16 @@ mod tests {
     }
 
     fn fact_event(kind: &str, project_dir: Option<&str>, card: Option<&str>) -> WireEvent {
+        // A fresh rowid per call, because each call stands for a separate
+        // fact. A fixed one would make two firings one claim, and quietly turn
+        // every cooldown and ceiling test into a test of the key instead.
+        static SEQ: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(1);
         WireEvent::Fact {
             kind: kind.to_string(),
             payload: serde_json::json!({"class": "resolve"}),
             project_dir: project_dir.map(str::to_owned),
             session_card: card.map(str::to_owned),
+            seq: SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
         }
     }
 
@@ -1498,6 +1658,33 @@ mod tests {
             "a re-checkout of a tripped sha is not a new event"
         );
         assert!(statuses(&h.conn, main.id).is_empty());
+    }
+
+    /// Two facts of one kind arriving in one millisecond are two firings.
+    ///
+    /// Keyed by arrival time they were one: the second claim lost, `consider`
+    /// read that as `NoMatch`, and the firing left no row at all — a firing
+    /// that never happened and never said so, which is the one silence this
+    /// facility exists to refuse.
+    #[test]
+    fn two_facts_in_one_millisecond_are_two_firings() {
+        let h = harness();
+        let wire = lay(&h.conn, "w", r#"{"fact":{"kind":"edit_failed"}}"#);
+        // No cooldown, so a second row is refused for its key or not at all.
+        ledger::update(
+            &h.conn,
+            "w",
+            &ledger::WireEdit {
+                cooldown_secs: Some(0),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        for _ in 0..2 {
+            decisions(&h.config, &h.conn, &fact_event("edit_failed", None, None));
+        }
+        let trips = ledger::trips_for_wire(&h.conn, wire.id, 50).unwrap();
+        assert_eq!(trips.len(), 2, "the clock never moved: {trips:?}");
     }
 
     #[test]
@@ -1780,7 +1967,16 @@ mod tests {
         let trips = ledger::trips_for_wire(&h.conn, wire.id, 10).unwrap();
         assert_eq!(trips[0].status, "settled");
         assert_eq!(trips[0].interest.as_deref(), Some("routine"));
-        assert!(trips[0].headline.is_none());
+        // The floor still says what it was. A settlement with no headline can
+        // never be posted at all, so `--post always` was silent on it.
+        assert!(
+            trips[0]
+                .headline
+                .as_deref()
+                .is_some_and(|h| h.contains("no session runner")),
+            "the floor says why nothing was asked: {:?}",
+            trips[0].headline
+        );
         assert!(
             spawner.turns_seen().is_empty(),
             "no model was summoned: {:?}",
@@ -2016,10 +2212,11 @@ mod tests {
         }
     }
 
-    /// The log-only floor settles with no headline, and a post with an empty
-    /// body is worse than no post.
+    /// `always` is the shakedown policy, so it has to reach the outcome a
+    /// freshly laid probe-carrying wire actually produces: the quiet one.
+    /// `auto` reads `interest` and stays out of the channel.
     #[tokio::test]
-    async fn a_settle_with_no_headline_posts_nothing_even_under_always() {
+    async fn the_log_only_floor_is_sayable_under_always_and_quiet_under_auto() {
         let (h, mut rx) = posting_harness();
         let mut new = NewWire::new("ci", r#"{"fact":{"kind":"edit_failed"}}"#, "b");
         new.probe = Some("just ci".to_string());
@@ -2027,7 +2224,7 @@ mod tests {
         new.post = PostPolicy::Always;
         ledger::lay(&h.conn, &new, 1).unwrap();
 
-        let (pools, _) = scripted(vec![Ok("never asked".to_string())]);
+        let (pools, _) = scripted(vec![Ok("never asked".to_string()); 2]);
         work(
             &h.config,
             &h.conn,
@@ -2036,8 +2233,37 @@ mod tests {
         )
         .await;
 
-        assert!(posts(&h.config.ledger).is_empty());
-        assert!(rx.try_recv().is_err());
+        // `always` is how a freshly laid wire is shaken down, and the outcome a
+        // probe-carrying wire produces most is the quiet one. A floor with no
+        // headline could not be posted at all — `post_settled` had no body to
+        // send — so the policy said nothing on exactly the firing it was set
+        // for.
+        assert_eq!(
+            posts(&h.config.ledger).len(),
+            1,
+            "always says the quiet one"
+        );
+        assert!(rx.try_recv().is_ok());
+        // `auto` still stays quiet on it, and that is `interest` doing the work
+        // rather than a missing sentence doing it by accident.
+        ledger::update(
+            &h.conn,
+            "ci",
+            &ledger::WireEdit {
+                post: Some(PostPolicy::Auto),
+                cooldown_secs: Some(0),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        work(
+            &h.config,
+            &h.conn,
+            &pools,
+            &fact_event("edit_failed", Some("/tmp/wire-scope"), None),
+        )
+        .await;
+        assert_eq!(posts(&h.config.ledger).len(), 1, "auto added nothing");
     }
 
     /// The whole loop, driven by a real fact through a real ledger: the engine
@@ -2432,10 +2658,25 @@ mod tests {
                 "wire-ci-abc1234d",
                 "a commit key is already eight legal characters"
             );
+            // The property, not the spelling: two firings of one wire must
+            // never name one dash. Sanitizing a fact key to eight characters
+            // used to yield `wire-tugedit-factedit` for every firing there
+            // would ever be, and `create_in` is idempotent — so the second
+            // firing adopted the first's dash, counted its rounds as its own,
+            // and a green probe on the second discarded what the first staged.
+            let first = wire_dash_name("tugedit", "fact:inst-a:41");
+            let second = wire_dash_name("tugedit", "fact:inst-a:42");
+            let elsewhere = wire_dash_name("tugedit", "fact:inst-b:41");
+            assert_ne!(first, second, "two facts are two dashes");
+            assert_ne!(first, elsewhere, "two instances are two dashes");
             assert_eq!(
-                wire_dash_name("tugedit", "fact:edit_failed:1700000000000"),
-                "wire-tugedit-factedit",
-                "a fact key keeps only what a dash name may carry"
+                first,
+                wire_dash_name("tugedit", "fact:inst-a:41"),
+                "one firing named twice is one dash, however often the engine restarts"
+            );
+            assert!(
+                first.starts_with("wire-tugedit-") && first.len() == "wire-tugedit-".len() + 8,
+                "a digested key is still eight characters: {first}"
             );
         }
     }

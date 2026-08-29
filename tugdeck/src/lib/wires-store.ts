@@ -203,10 +203,15 @@ export class WiresStore {
         error: null,
       });
     } catch (err) {
-      this.commit({ error: String(err) });
       // The ledger is the authority on what happened, and after a failed write
       // this store no longer knows. Ask.
       await this.refresh();
+      // Then say what went wrong — after the refresh, not before it. A
+      // successful re-read clears `error`, so setting the reason first meant
+      // the control settled back to the ledger's value with no word about why,
+      // which is a refused gesture that produced neither the act nor a reason
+      // [L31].
+      this.commit({ error: String(err) });
     }
   }
 

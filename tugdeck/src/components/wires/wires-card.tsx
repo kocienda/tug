@@ -288,42 +288,49 @@ export function WiresContent(_props: WiresContentProps): React.ReactElement {
   );
   const back = useCallback(() => setOpenWire(null), []);
 
+  // One strip, rendered at both levels. It used to live only on the list, and
+  // both writable knobs — pause, and the post policy — are on the detail, so a
+  // refused write reached a surface nobody looking at it could see [L31].
+  const errorStrip =
+    snapshot.error !== null ? (
+      <div className="wires-error" data-wires-error="">
+        <TugLabel size="2xs" role="danger">
+          {snapshot.error}
+        </TugLabel>
+      </div>
+    ) : null;
+
   if (open !== null) {
     return (
       <div className="wires-card" data-wires-level="detail">
         <WireDetail wire={open} trips={snapshot.trips[open.name] ?? []} onBack={back} />
+        {errorStrip}
       </div>
     );
   }
 
   return (
     <OpenWireContext.Provider value={setOpenWire}>
-    <div className="wires-card" data-wires-level="list">
-      {snapshot.loaded && wires.length === 0 ? (
-        <div className="wires-empty" data-wires-empty="">
-          <TugLabel size="sm" emphasis="calm">
-            No wires are laid.
-          </TugLabel>
-        </div>
-      ) : (
-        <TugListView
-          dataSource={dataSource as unknown as TugListViewDataSource}
-          cellRenderers={WIRE_CELLS as never}
-          delegate={delegate}
-          className="wires-list"
-          focusGroup="wires"
-          scrollKey="wires-list"
-          selectionRequired
-        />
-      )}
-      {snapshot.error !== null ? (
-        <div className="wires-error" data-wires-error="">
-          <TugLabel size="2xs" role="danger">
-            {snapshot.error}
-          </TugLabel>
-        </div>
-      ) : null}
-    </div>
+      <div className="wires-card" data-wires-level="list">
+        {snapshot.loaded && wires.length === 0 ? (
+          <div className="wires-empty" data-wires-empty="">
+            <TugLabel size="sm" emphasis="calm">
+              No wires are laid.
+            </TugLabel>
+          </div>
+        ) : (
+          <TugListView
+            dataSource={dataSource as unknown as TugListViewDataSource}
+            cellRenderers={WIRE_CELLS as never}
+            delegate={delegate}
+            className="wires-list"
+            focusGroup="wires"
+            scrollKey="wires-list"
+            selectionRequired
+          />
+        )}
+        {errorStrip}
+      </div>
     </OpenWireContext.Provider>
   );
 }

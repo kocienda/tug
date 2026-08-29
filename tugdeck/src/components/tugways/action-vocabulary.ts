@@ -712,6 +712,9 @@ export const TUG_ACTIONS = {
   // TOGGLE_OVERVIEW:         payload — none. Show/hide the Overview rail. Third
   //                         in the ⌃⌘⟨letter⟩ sidebar-toggle grammar, beside
   //                         TOGGLE_LENS and TOGGLE_JOTS.
+  // TOGGLE_WIRES:           payload — none. Show/hide the Wires rail — the
+  //                         standing tripwires on this machine. Fourth in the
+  //                         ⌃⌘⟨letter⟩ sidebar-toggle grammar.
   // NEW_JOT:                payload — none. Capture a jot in one gesture:
   //                         reveal the Jots card if it is hidden, create an
   //                         empty jot, and land the caret in its editor.
@@ -883,6 +886,7 @@ export const TUG_ACTIONS = {
   TOGGLE_LENS:            "toggle-lens",
   TOGGLE_JOTS:            "toggle-jots",
   TOGGLE_OVERVIEW:         "toggle-overview",
+  TOGGLE_WIRES:           "toggle-wires",
   NEW_JOT:                "new-jot",
   // SET_CARD_WIDTH: payload — `{ paneId, preset }`. Set one content pane's
   //                 width to a named preset (slim / comfy / wide), clamped up
