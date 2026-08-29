@@ -229,15 +229,19 @@ export const POST_CHOICES = [
  * what is being posted, where, or which one a reader would want. The caption is
  * the control's meaning, and it changes with the selection so the reader is
  * always reading about the setting they are looking at.
+ *
+ * Short enough to sit on one line at the rail's width. A caption that wrapped
+ * to three lines pushed the trip log off the bottom of the section, which is
+ * a high price for prose the reader consults once.
  */
 export function postPolicyCaption(value: string): string {
   switch (value) {
     case "never":
-      return "Nothing reaches the Overview. Trips are recorded here and nowhere else.";
+      return "Nothing posts. Trips are logged here only.";
     case "always":
-      return "Every trip reaches the Overview, routine ones included — how you shake down a new tripwire.";
+      return "Every trip posts, routine ones included.";
     default:
-      return "Only trips worth your attention reach the Overview. Routine ones stay in this log.";
+      return "Only trips worth your attention post.";
   }
 }
 

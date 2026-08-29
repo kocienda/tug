@@ -71,26 +71,19 @@
   min-height: 0;
 }
 
-.tripwires-detail-head {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 8px;
-}
-
-/* The tripwire's name takes the room the two buttons do not, so a long name
-   truncates rather than pushing the pause control off the rail. */
-.tripwires-detail-head > :nth-child(2) {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-
 .tripwires-detail-knobs {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   gap: 4px;
-  padding: 8px 12px 10px;
+  padding: 6px 12px 8px;
+}
+
+/* The knob's name and its control on one line, the caption beneath. */
+.tripwires-post-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 /* The tripwire's definition: a label column that sizes to its longest word and
@@ -103,18 +96,11 @@
   align-items: baseline;
   gap: 3px 10px;
   margin: 0;
-  padding: 0 12px 4px;
-  /* The definition yields before the log does. In a short Lens the rail cannot
-     hold both whole, and a trip log squeezed to nothing is the worse loss: the
-     definition is seven fixed rows a reader consults once, the log is what they
-     opened the level for. So the definition shrinks and scrolls, and the list
-     below keeps a floor of a few rows. */
-  flex: 0 1 auto;
-  overflow-y: auto;
-}
-
-.tripwires-detail > .tripwires-trips {
-  min-height: 96px;
+  padding: 4px 12px 6px;
+  /* Whole, never scrolled. The definition is what the log below it is about,
+     and a definition behind its own scrollbar is one a reader has to work to
+     finish — the section band scrolls, which is the right place for it. */
+  flex: 0 0 auto;
 }
 
 .tripwires-definition > dt,

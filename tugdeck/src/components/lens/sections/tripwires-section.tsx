@@ -40,7 +40,6 @@ import React, {
   useSyncExternalStore,
 } from "react";
 import {
-  ChevronLeft,
   ChevronRight,
   CircleAlert,
   CircleDot,
@@ -48,6 +47,7 @@ import {
   Clock,
   Pause,
   Play,
+  X,
   Zap,
 } from "lucide-react";
 
@@ -146,25 +146,31 @@ function TripwiresCollapsedSummary(): React.ReactElement {
 }
 
 /**
- * The glyph a tripwire's last firing earned.
+ * Arm or pause, in the row's leading column — the one knob a reader of the
+ * roster reaches for without opening anything.
  *
- * A tripwire that has never fired shows nothing rather than a neutral dot: "has
- * not fired yet" and "fired and found nothing" are different facts, and one
- * glyph that meant both would mean neither.
+ * The same control at both levels, in the same slot, so the title beside it
+ * sits at the same x whether the tripwire is open or closed. It replaces the
+ * status dot that used to stand here: a dot that said "has fired" was a fact
+ * the subtitle beneath it already carried in words.
  */
-function LastTripGlyph({ tripwire }: { tripwire: TripwireRow }): React.ReactElement | null {
-  if (tripwire.running) {
-    return <Zap size={13} className="tripwires-glyph tripwires-glyph-running" />;
-  }
-  const last = tripwire.last_trip;
-  if (last === null) return null;
-  const tone =
-    last.status === "failed"
-      ? "failed"
-      : last.interest === "interesting"
-        ? "interesting"
-        : "routine";
-  return <CircleDot size={13} className={`tripwires-glyph tripwires-glyph-${tone}`} />;
+function PauseToggle({ tripwire }: { tripwire: TripwireRow }): React.ReactElement {
+  const store = getTripwiresStore();
+  return (
+    <TugIconButton
+      icon={tripwire.paused ? <Play size={12} /> : <Pause size={12} />}
+      size="xs"
+      aria-label={tripwire.paused ? `Arm ${tripwire.name}` : `Pause ${tripwire.name}`}
+      // Swallowed, or the press that pauses would also open the log: the row
+      // itself is a door, and a control standing on a door has to say it was
+      // pressed instead of the door.
+      onClick={(e) => {
+        e?.stopPropagation();
+        void store.setKnobs(tripwire.name, { paused: !tripwire.paused });
+      }}
+      data-tripwires-pause={tripwire.name}
+    />
+  );
 }
 
 function TripwireCell({
@@ -178,8 +184,12 @@ function TripwireCell({
   const open = React.useContext(OpenTripwireContext);
   return (
     <TugListRow
-      leading={<LastTripGlyph tripwire={tripwire} />}
+      leading={<PauseToggle tripwire={tripwire} />}
       title={tripwire.name}
+      // The session rows in the Cards section are the house shape for a
+      // name-over-a-line-of-status row, and this is the same shape: their
+      // size, not the row default's larger one.
+      titleSize="sm"
       // Before it has fired, what it watches for — a brief can be a paragraph,
       // and the trigger is the shorter answer to "what is this one for?".
       subtitle={tripwire.last_trip?.headline ?? describeTrigger(tripwire.trigger)}
@@ -189,13 +199,13 @@ function TripwireCell({
       data-tripwire-staged={tripwire.staged_dash === null ? "false" : "true"}
       trailing={
         <span className="tripwires-row-trailing">
+          {tripwire.running ? (
+            <Zap size={12} className="tripwires-glyph tripwires-glyph-running" />
+          ) : null}
           {tripwire.staged_dash !== null ? (
             <TugBadge size="2xs" role="accent">
               staged
             </TugBadge>
-          ) : null}
-          {tripwire.paused ? (
-            <Pause size={12} className="tripwires-glyph tripwires-glyph-paused" />
           ) : null}
           <TugIconButton
             icon={<ChevronRight size={13} />}
@@ -256,7 +266,7 @@ function TripCell({
       <span className="tripwires-trip">
         <span className="tripwires-trip-body">
           <TripGlyph trip={trip} />
-          <TugLabel size="sm" maxLines={3}>
+          <TugLabel size="xs" maxLines={3}>
             {headline ?? tripSentence(trip)}
           </TugLabel>
         </span>
@@ -317,21 +327,31 @@ function TripwireDetail({
         ref={responderRef}
         data-tripwire-detail={tripwire.name}
       >
-        <div className="tripwires-detail-head">
-          <TugIconButton
-            icon={<ChevronLeft size={14} />}
-            aria-label="Back to the tripwire list"
-            onClick={onBack}
-            data-tripwires-back=""
-          />
-          <TugLabel emphasis="strong">{tripwire.name}</TugLabel>
-          <TugIconButton
-            icon={tripwire.paused ? <Play size={13} /> : <Pause size={13} />}
-            aria-label={tripwire.paused ? "Arm this tripwire" : "Pause this tripwire"}
-            onClick={() => void store.setKnobs(tripwire.name, { paused: !tripwire.paused })}
-            data-tripwires-pause=""
-          />
-        </div>
+        {/*
+          The roster row again, not a head that resembles one: the same
+          `TugListRow`, the same leading control, the same title size. A head
+          assembled out of its own parts is a head whose title lands a few
+          pixels off the closed row's, and the name appears to jump on open.
+
+          The trailing slot closes where it opened. A back chevron on the left
+          would put the same shape on the opposite edge from the one that
+          brought the reader here, which reads as the affordance moving.
+        */}
+        <TugListRow
+          className="tripwires-detail-head"
+          density="compact"
+          leading={<PauseToggle tripwire={tripwire} />}
+          title={tripwire.name}
+          titleSize="sm"
+          trailing={
+            <TugIconButton
+              icon={<X size={13} />}
+              aria-label="Back to the tripwire list"
+              onClick={onBack}
+              data-tripwires-back=""
+            />
+          }
+        />
         {/*
           What this tripwire IS, before what it has done. The log below is a
           list of answers, and the trigger, the scope and the brief are the
@@ -347,7 +367,11 @@ function TripwireDetail({
                 </TugLabel>
               </dt>
               <dd data-mono={row.mono === true ? "" : undefined}>
-                <TugLabel size="xs" maxLines={4}>
+                {/* No line cap. The brief is the longest of these and the one
+                    worth reading whole — a definition that elided the
+                    instruction the tripwire runs on would hide the field that
+                    decides what every trip below it means. */}
+                <TugLabel size="2xs">
                   {row.value}
                 </TugLabel>
               </dd>
@@ -360,17 +384,23 @@ function TripwireDetail({
             Never / Auto / Always alone named neither the thing being decided
             nor where the posting goes, which left three words a reader could
             only pick between by trying them.
+
+            Name and control share a line; the caption takes the line beneath.
+            Stacked, the three took as much height as the trip log they sit
+            above, for a knob that is set once.
           */}
-          <TugLabel size="2xs" emphasis="calm">
-            Post to Overview
-          </TugLabel>
-          <TugChoiceGroup
-            items={POST_CHOICES}
-            value={tripwire.post}
-            senderId={postSender}
-            size="2xs"
-            data-tripwires-post=""
-          />
+          <div className="tripwires-post-line">
+            <TugLabel size="2xs" emphasis="calm">
+              Post to Overview
+            </TugLabel>
+            <TugChoiceGroup
+              items={POST_CHOICES}
+              value={tripwire.post}
+              senderId={postSender}
+              size="2xs"
+              data-tripwires-post=""
+            />
+          </div>
           <TugLabel size="2xs" emphasis="calm" data-tripwires-post-caption="">
             {postPolicyCaption(tripwire.post)}
           </TugLabel>
@@ -489,6 +519,7 @@ function TripwiresSectionBody({ host }: { host: LensSectionHost }): React.ReactE
             dataSource={dataSource as unknown as TugListViewDataSource}
             cellRenderers={TRIPWIRE_CELLS as never}
             delegate={delegate}
+            rowDensity="compact"
             className="tripwires-list"
             focusGroup={host.focusGroup}
             scrollKey="tripwires-list"

@@ -169,9 +169,14 @@ describe.skipIf(!SHOULD_RUN)(
             // The post control names itself and says what the setting does.
             expect(
               await app.evalJS<string>(
-                `document.querySelector("[data-tripwires-post-caption]").textContent`,
+                `document.querySelector("[data-tripwires-post-caption]").closest(".tripwires-detail-knobs").textContent`,
               ),
             ).toContain("Overview");
+            expect(
+              await app.evalJS<string>(
+                `document.querySelector("[data-tripwires-post-caption]").textContent`,
+              ),
+            ).toContain("post");
 
             await app.click(`[data-tripwires-back]`);
             await app.waitForCondition<boolean>(

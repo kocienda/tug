@@ -217,10 +217,14 @@ describe("the rest of a tripwire's definition", () => {
 });
 
 describe("the post policy's caption", () => {
-  test("each setting says where its trips go and where they do not", () => {
-    expect(postPolicyCaption("never")).toContain("Nothing reaches the Overview");
-    expect(postPolicyCaption("always")).toContain("Every trip");
-    expect(postPolicyCaption("auto")).toContain("Only trips worth your attention");
+  test("each setting says what posts, in one line's worth of words", () => {
+    expect(postPolicyCaption("never")).toBe("Nothing posts. Trips are logged here only.");
+    expect(postPolicyCaption("always")).toBe("Every trip posts, routine ones included.");
+    expect(postPolicyCaption("auto")).toBe("Only trips worth your attention post.");
+    // The rail is narrow and the caption sits under the control on one line.
+    for (const value of ["never", "auto", "always"]) {
+      expect(postPolicyCaption(value).length).toBeLessThanOrEqual(48);
+    }
   });
 
   test("an unknown value reads as auto, which is the column's own default", () => {
