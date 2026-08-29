@@ -34,13 +34,12 @@
   --session-entry-max-height: 50cqh;
   /* ── Tune this ──────────────────────────────────────────────────────
      The same cap in landing mode, where the field holds a message to be
-     READ rather than written: a screenful of lines, and the fraction of
-     the card only when the card is shorter than that. The transcript keeps
-     the rest, which is where the receipt this message becomes will land. */
-  --session-entry-landing-max-height: min(
-    var(--session-entry-max-height),
-    calc(12 * 1lh + 16px)
-  );
+     READ rather than written. How many lines it shows before it scrolls is
+     the knob — the card fraction stands only as a ceiling, for a card too
+     short to give them. The transcript keeps the rest, which is where the
+     receipt this message becomes will land. What a line MEASURES is not
+     declared here — see the rule that applies this count, below. */
+  --session-entry-landing-lines: 10;
   /* No `min-width` here — a leaf cannot widen its container, it only
      overflows and clips. The card's width floor is declared as
      `sizePolicy.min.width` in `registerSessionCard`; the hosting pane's
@@ -234,12 +233,41 @@
   max-height: var(--session-entry-max-height, 50cqh);
 }
 
+/* The landing field's height, in LINES — a count declared on the card above,
+   turned into pixels here, where every term is in scope.
+
+   It is composed at the point of use and not up there, because a custom
+   property's `var()`s are substituted where the property is DECLARED: a cap
+   assembled on the card can only see what the card can see, and two of these
+   three terms are published further in. That is not a detail — it is the whole
+   reason an earlier spelling of this silently dropped a term and showed nine
+   lines for ten.
+
+   - `--tugx-editor-line-box` is what a line MEASURES, published by the editor
+     from CodeMirror's own measurement (`line-box-metric.ts`). Not
+     `line-height`, and not `1lh`: this composer computes a 23px line-height
+     and occupies 30px per line, and `1lh` on this element is the card's
+     inherited 18px. Both were tried; both showed the wrong number of lines.
+   - `--tugx-landing-subject-extra` is the gap the subject's rule sits in
+     (tug-prompt-entry.css) — a subject over a body is taller than a line by
+     exactly that, and a count that ignores it loses a line.
+   - 16px is the content's own block padding, 8px top and bottom, from the
+     editor theme.
+
+   The card fraction stands over all of it as a ceiling, for a card too short
+   to give the lines it asked for. */
 .session-card-entry-region
   .tug-prompt-entry[data-landing]
   .tug-text-editor
   > .cm-editor
   > .cm-scroller {
-  max-height: var(--session-entry-landing-max-height);
+  max-height: min(
+    var(--session-entry-max-height),
+    calc(
+      var(--session-entry-landing-lines) * var(--tugx-editor-line-box, 1.6em) + 16px +
+        var(--tugx-landing-subject-extra, 0px)
+    )
+  );
 }
 
 /* The `TugPaneBulletinProvider` nested inside the top column carries the same

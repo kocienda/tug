@@ -50,7 +50,7 @@ import {
   Plus,
   Square,
 } from "lucide-react";
-import { Prec } from "@codemirror/state";
+import { Prec, Transaction } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
 
 import { cn } from "@/lib/utils";
@@ -82,6 +82,7 @@ import type {
 } from "./tug-text-editor/argument-hint-extension";
 import type { PastedCommandResolver } from "./tug-text-editor/clipboard-filters";
 import { landingMessageStructure } from "./tug-text-editor/landing-message-structure";
+import { lineBoxMetric } from "./tug-text-editor/line-box-metric";
 import {
   clearDropCaret,
   dropOffsetAtCoords,
@@ -717,6 +718,42 @@ export function applyAppendInsertion(
     doc.isEffectivelyEmpty || doc.length === 0 ? text : `\n${text}`;
   return { from: doc.length, insert };
 }
+
+/**
+ * The change that carries a streamed draft's next reading into the editor.
+ *
+ * The scribe's text only ever grows, so the reading that just arrived is the
+ * one before it plus a tail. Written as that tail — an insertion at the end —
+ * the document's whole prefix stays put: nothing above the insertion point is
+ * touched, so no line is re-rendered, no decoration is rebuilt, and the only
+ * thing that moves on screen is the wave riding the end. Replacing the
+ * document per delta is what made the text jump.
+ *
+ * `null` when the reading is unchanged. A reading that does NOT continue the
+ * document — a scribe that rewrote what it had already said — is the whole
+ * document replaced, which is correct and rare.
+ *
+ * Pure over the two strings and exported so the unit tests pin the rule
+ * without a live editor.
+ */
+export function streamedDraftChange(
+  doc: string,
+  next: string,
+): { from: number; to: number; insert: string } | null {
+  if (next === doc) return null;
+  if (next.startsWith(doc)) {
+    return { from: doc.length, to: doc.length, insert: next.slice(doc.length) };
+  }
+  return { from: 0, to: doc.length, insert: next };
+}
+
+/**
+ * The beat between the last word of a generated message and the field
+ * returning to its top. Long enough that the tail the reader was watching does
+ * not vanish at the instant it stops moving; short enough that the reader is
+ * not left at the bottom of a message they have not read.
+ */
+const LANDING_TOP_REVEAL_MS = 450;
 
 // ---------------------------------------------------------------------------
 // Props / delegate
@@ -1587,6 +1624,37 @@ export const TugPromptEntry = React.forwardRef<
   const landingDrafting = landingActive && landingSnap?.draftPhase === "drafting";
   const inLandingModeRef = useRef(false);
   const prevLandingActiveRef = useRef(false);
+  // The pending return-to-top, held so a second generation, an exit from
+  // landing mode, or an unmount cancels it rather than scrolling a field the
+  // reader has since taken back.
+  const topRevealTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cancelLandingTopReveal = useCallback(() => {
+    if (topRevealTimerRef.current !== null) {
+      clearTimeout(topRevealTimerRef.current);
+      topRevealTimerRef.current = null;
+    }
+  }, []);
+  const scheduleLandingTopReveal = useCallback(
+    (view: EditorView | null) => {
+      cancelLandingTopReveal();
+      if (view === null) return;
+      topRevealTimerRef.current = setTimeout(() => {
+        topRevealTimerRef.current = null;
+        if (!view.contentDOM.isConnected) return;
+        // The same reason the pin restates itself: the write that survives is
+        // the one made after the editor has measured what it just rendered.
+        view.scrollDOM.scrollTop = 0;
+        view.requestMeasure({
+          read: () => null,
+          write: (_read, measured) => {
+            measured.scrollDOM.scrollTop = 0;
+          },
+        });
+      }, LANDING_TOP_REVEAL_MS);
+    },
+    [cancelLandingTopReveal],
+  );
+  useLayoutEffect(() => cancelLandingTopReveal, [cancelLandingTopReveal]);
   const landingModeRef = useRef(landingMode);
   landingModeRef.current = landingMode;
   const landingSnapRef = useRef(landingSnap);
@@ -1691,9 +1759,10 @@ export const TugPromptEntry = React.forwardRef<
       if (exitScroller !== null) exitScroller.style.minHeight = "";
       rootRef.current?.setAttribute("data-commit-empty", "true");
       editor.view()?.dispatch({ effects: setWaveCaretActive.of(false) });
+      cancelLandingTopReveal();
       editor.focus();
     }
-  }, [landingActive, clearCommitPersistTimer]);
+  }, [landingActive, clearCommitPersistTimer, cancelLandingTopReveal]);
 
   // Auto-Message stream ([P06]): the scribe's draft fills the editor live while
   // `drafting`. The editor is read-only
@@ -1713,22 +1782,36 @@ export const TugPromptEntry = React.forwardRef<
     if (!landingActive) return;
     const editor = textEditorRef.current;
     if (editor === null) return;
-    const streamState = buildCommitModeState(landingSnap?.draftText ?? "");
+    const draftText = landingSnap?.draftText ?? "";
     if (phase === "drafting") {
       // Stream ephemerally — no per-delta undo events; the settle folds the
       // whole generation into one. On the first delta, remember what we're
       // replacing and light the wave caret.
       if (prevPhase !== "drafting") {
         preDraftMessageRef.current = readCommitMessage();
-        editor.restoreState(streamState, { addToHistory: false });
+        cancelLandingTopReveal();
+        editor.restoreState(buildCommitModeState(draftText), {
+          addToHistory: false,
+        });
         editor.view()?.dispatch({ effects: setWaveCaretActive.of(true) });
-      } else {
-        editor.restoreState(streamState, { addToHistory: false });
       }
-      // Follow the wave caret at the tail so the newest text stays in view as
-      // it streams (a no-op while the message fits). Reset to the top on settle.
       const view = editor.view();
-      if (view !== null) view.scrollDOM.scrollTop = view.scrollDOM.scrollHeight;
+      if (view !== null) {
+        // Write the TAIL, never the document: the prefix is untouched, so no
+        // line above the insertion re-renders and the wave is the only thing
+        // that moves.
+        const changes = streamedDraftChange(view.state.doc.toString(), draftText);
+        if (changes !== null) {
+          // The wave is the caret ([P06]), so the selection goes where the wave
+          // goes. Keeping the wave in view is the wave's own business — the
+          // extension pins the field for as long as the glyph is lit.
+          view.dispatch({
+            changes,
+            selection: { anchor: changes.from + changes.insert.length },
+            annotations: Transaction.addToHistory.of(false),
+          });
+        }
+      }
     } else if (prevPhase === "drafting") {
       editor.view()?.dispatch({ effects: setWaveCaretActive.of(false) });
       if (phase === "ready") {
@@ -1739,9 +1822,10 @@ export const TugPromptEntry = React.forwardRef<
           addToHistory: false,
         });
         editor.restoreState(buildCommitModeState(landingSnap?.draftText ?? ""));
-        // Show the START of the generated message, not its tail.
-        const view = editor.view();
-        if (view !== null) view.scrollDOM.scrollTop = 0;
+        // The message is finished, so the reader's place is its beginning —
+        // but not the instant the last word lands. A beat holds the tail where
+        // the eye still is, then the field returns to the top for the read.
+        scheduleLandingTopReveal(editor.view());
       } else {
         // Cancel / error: revert to the persisted message, leaving no undo
         // trace (the ephemeral stream never entered history).
@@ -1757,6 +1841,8 @@ export const TugPromptEntry = React.forwardRef<
     landingSnap?.draftText,
     landingSnap?.persistedMessage,
     readCommitMessage,
+    cancelLandingTopReveal,
+    scheduleLandingTopReveal,
   ]);
 
   // Exit commit mode (Cancel button, the Z4A commit chip, Escape): persist the
@@ -2508,6 +2594,9 @@ export const TugPromptEntry = React.forwardRef<
       // and the stylesheet paints them only under `data-landing`, so the
       // extension list stays stable across the mode edge.
       landingMessageStructure,
+      // The measured height of one line, published for the card's landing cap
+      // to count in ([L06]).
+      lineBoxMetric,
     ],
     [],
   );

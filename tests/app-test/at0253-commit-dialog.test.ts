@@ -66,7 +66,10 @@ function deckShape() {
       {
         id: "p1",
         position: { x: 40, y: 40 },
-        size: { width: 820, height: 620 },
+        // Tall enough that the landing field's card-fraction ceiling does not
+        // bind: the field's height is a count of lines, and the count is only
+        // the answer on a card that can afford it.
+        size: { width: 820, height: 780 },
         cardIds: ["A"],
         activeCardId: "A",
         title: "",
@@ -124,7 +127,6 @@ describe.skipIf(!SHOULD_RUN)("AT0253: commit mode + read-only shade", () => {
           { timeoutMs: 6000 },
         );
 
-        // ── The message's parts, marked in the field ──────────────────────
         // Landing mode is a reading mode: the composer marks the subject as a
         // heading with a rule under it, the summary as the paragraph it is,
         // and COLLAPSES git's blank separator between them — the rule already
@@ -138,6 +140,7 @@ describe.skipIf(!SHOULD_RUN)("AT0253: commit mode + read-only shade", () => {
         // summary left exactly this message with its blank line intact.
         const parts = (): Promise<{
           subject: number;
+          ruled: number;
           summary: number;
           gaps: number;
           gapHeight: number;
@@ -154,6 +157,7 @@ describe.skipIf(!SHOULD_RUN)("AT0253: commit mode + read-only shade", () => {
                const gap = content.querySelector(".cm-landing-gap");
                return {
                  subject: content.querySelectorAll(".cm-landing-subject").length,
+                 ruled: content.querySelectorAll(".cm-landing-subject-over-body").length,
                  summary: content.querySelectorAll(".cm-landing-summary").length,
                  gaps: content.querySelectorAll(".cm-landing-gap").length,
                  gapHeight: gap === null ? -1 : Math.round(gap.getBoundingClientRect().height),
@@ -164,7 +168,39 @@ describe.skipIf(!SHOULD_RUN)("AT0253: commit mode + read-only shade", () => {
              })()`,
           );
 
+        // A subject and nothing else wears no rule: the hairline is
+        // SEPARATION, and under the last line of a document it would promise a
+        // body that never comes. The one-line commit is the common message, so
+        // this is the shape most often on screen.
         await app.nativeType("at0253(mode): a subject over bullets");
+        await settle();
+        const alone = await parts();
+        // The pinned line has to be opaque — text passing behind it would
+        // otherwise pass through it — and it has to be invisible: any color but
+        // the field's own reads as a band drawn across the message. It is
+        // painted from the surface the entry shell publishes as it paints the
+        // field, so the two computed colors are one string.
+        const surfaces = await app.evalJS<{ subject: string; field: string }>(
+          `(() => {
+             const content = document.querySelector(${JSON.stringify(PROMPT_INPUT)});
+             const paint = (el) => getComputedStyle(el).backgroundColor;
+             return {
+               subject: paint(content.querySelector(".cm-landing-subject")),
+               field: paint(content.closest(".cm-editor")),
+             };
+           })()`,
+        );
+        note(`at0253 sticky surface: ${JSON.stringify(surfaces)}`);
+        expect(
+          surfaces.subject,
+          "the pinned line shows no band of its own",
+        ).toBe(surfaces.field);
+        note(`at0253 subject-alone marks: ${JSON.stringify(alone)}`);
+        expect(alone.subject, "the subject is still marked as the heading").toBe(1);
+        expect(alone.ruled, "but nothing follows it, so no rule").toBe(0);
+        expect(alone.gaps, "and no separator either").toBe(0);
+
+        // Give that same subject a body, and both marks arrive together.
         await app.nativeKey("Return");
         await app.nativeKey("Return");
         await app.nativeType("- the first bullet, which is not prose");
@@ -172,6 +208,7 @@ describe.skipIf(!SHOULD_RUN)("AT0253: commit mode + read-only shade", () => {
         const bulleted = await parts();
         note(`at0253 bulleted marks: ${JSON.stringify(bulleted)}`);
         expect(bulleted.subject, "the subject line is marked").toBe(1);
+        expect(bulleted.ruled, "and now it has a body, so it takes the rule").toBe(1);
         expect(bulleted.summary, "a bullet list is not a summary paragraph").toBe(0);
         expect(bulleted.gaps, "and the separator is marked all the same").toBe(1);
         expect(bulleted.gapHeight, "the separator draws no line of its own").toBe(0);
@@ -207,6 +244,81 @@ describe.skipIf(!SHOULD_RUN)("AT0253: commit mode + read-only shade", () => {
         expect(summarized.summary, "the prose paragraph is marked").toBe(1);
         expect(summarized.gaps, "and the subject's separator is still the one").toBe(1);
         expect(summarized.gapHeight, "still collapsed").toBe(0);
+
+        // The subject STAYS. A message longer than the field is read by
+        // scrolling it, and the one line that must never leave is the topline —
+        // it is what the reader is deciding on. It is sticky at the top of the
+        // scroller, so scrolled to the very bottom the subject is still there,
+        // flush with the top edge, with the detail moving underneath it.
+        for (let n = 0; n < 16; n += 1) {
+          await app.nativeType(`- detail line ${n}`);
+          await app.nativeKey("Return");
+        }
+        await settle();
+
+        // The field shows the number of lines the card asks for — counted the
+        // way a reader counts them, as lines of the message standing whole
+        // inside the field, not as a height divided by a height. The subject
+        // is one of them and is taller than the rest (it wears the rule), which
+        // is exactly the difference a height-over-height count misses.
+        const visible = await app.evalJS<{
+          shown: number;
+          declared: number;
+          clientHeight: number;
+          lineBoxVar: string;
+        }>(
+          `(() => {
+             const content = document.querySelector(${JSON.stringify(PROMPT_INPUT)});
+             const scroller = content.closest(".cm-scroller");
+             scroller.scrollTop = 0;
+             const box = scroller.getBoundingClientRect();
+             const card = content.closest(".session-card");
+             const shown = Array.from(content.querySelectorAll(".cm-line")).filter((line) => {
+               const rect = line.getBoundingClientRect();
+               // The collapsed separator is not a line anybody counts.
+               if (rect.height === 0) return false;
+               return rect.top >= box.top - 1 && rect.bottom <= box.bottom + 1;
+             }).length;
+             return {
+               shown,
+               clientHeight: scroller.clientHeight,
+               lineBoxVar: getComputedStyle(scroller).getPropertyValue("--tugx-editor-line-box"),
+               declared: parseFloat(
+                 getComputedStyle(card).getPropertyValue("--session-entry-landing-lines"),
+               ),
+             };
+           })()`,
+        );
+        note(`at0253 visible lines: ${JSON.stringify(visible)}`);
+        expect(visible.shown, "the field shows the lines the card declared").toBe(visible.declared);
+        const stuck = await app.evalJS<{
+          overflow: number;
+          scrolled: number;
+          offset: number;
+          visible: boolean;
+        }>(
+          `(() => {
+             const content = document.querySelector(${JSON.stringify(PROMPT_INPUT)});
+             const scroller = content.closest(".cm-scroller");
+             scroller.scrollTop = scroller.scrollHeight;
+             const box = scroller.getBoundingClientRect();
+             const subject = content.querySelector(".cm-landing-subject").getBoundingClientRect();
+             return {
+               overflow: Math.round(scroller.scrollHeight - scroller.clientHeight),
+               scrolled: Math.round(scroller.scrollTop),
+               offset: Math.round(subject.top - box.top),
+               visible: subject.bottom > box.top && subject.top < box.bottom,
+             };
+           })()`,
+        );
+        note(`at0253 sticky subject: ${JSON.stringify(stuck)}`);
+        expect(stuck.overflow, "the message outgrew the field, so it scrolls").toBeGreaterThan(0);
+        expect(stuck.scrolled, "and it is scrolled away from the top").toBeGreaterThan(0);
+        expect(stuck.visible, "the subject is on screen all the same").toBe(true);
+        expect(
+          Math.abs(stuck.offset),
+          "held flush against the scroller's top edge",
+        ).toBeLessThanOrEqual(2);
 
         // Escape exits the mode (sheet drops, composer restores its prompt draft).
         await settle();

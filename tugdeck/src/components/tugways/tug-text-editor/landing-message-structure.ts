@@ -35,15 +35,26 @@
  */
 
 import { RangeSetBuilder } from "@codemirror/state";
-import type { Extension } from "@codemirror/state";
+import type { Extension, Text } from "@codemirror/state";
 import { Decoration, EditorView, ViewPlugin } from "@codemirror/view";
 import type { DecorationSet, ViewUpdate } from "@codemirror/view";
 
 import { landingMessageLayout } from "@/lib/landing-message";
 
 const SUBJECT = Decoration.line({ class: "cm-landing-subject" });
+const SUBJECT_OVER_BODY = Decoration.line({
+  class: "cm-landing-subject cm-landing-subject-over-body",
+});
 const SUMMARY = Decoration.line({ class: "cm-landing-summary" });
 const GAP = Decoration.line({ class: "cm-landing-gap" });
+
+/** Whether anything but blank lines follows the subject. */
+function documentHasBody(doc: Text, subjectLine: number): boolean {
+  for (let n = subjectLine + 1; n <= doc.lines; n += 1) {
+    if (doc.line(n).text.trim() !== "") return true;
+  }
+  return false;
+}
 
 function buildDecorations(view: EditorView): DecorationSet {
   const builder = new RangeSetBuilder<Decoration>();
@@ -52,16 +63,24 @@ function buildDecorations(view: EditorView): DecorationSet {
   const layout = landingMessageLayout(doc.toString());
   const caretLine = doc.lineAt(view.state.selection.main.head).number;
   const subject = doc.line(Math.min(layout.subjectLine, doc.lines));
-  builder.add(subject.from, subject.from, SUBJECT);
-  // The separator is git's, so it is read off the DOCUMENT rather than off the
-  // summary: the blank run after the subject, whatever follows it. Scoped to
-  // the summary, a message whose body opens on a bullet list — which has no
-  // summary at all — kept its blank line and the rule under the subject both.
-  for (let n = layout.subjectLine + 1; n <= doc.lines; n += 1) {
-    const line = doc.line(n);
-    if (line.text.trim() !== "") break;
-    if (n === caretLine) continue;
-    builder.add(line.from, line.from, GAP);
+  // The rule and the collapsed blank run are both SEPARATION, so they exist
+  // only when there is something to separate the subject from. A message that
+  // is a subject and nothing else — the one-line commit — gets neither: a rule
+  // under the last line of a document promises a body that never comes.
+  const hasBody = documentHasBody(doc, layout.subjectLine);
+  builder.add(subject.from, subject.from, hasBody ? SUBJECT_OVER_BODY : SUBJECT);
+  if (hasBody) {
+    // The separator is git's, so it is read off the DOCUMENT rather than off
+    // the summary: the blank run after the subject, whatever follows it.
+    // Scoped to the summary, a message whose body opens on a bullet list —
+    // which has no summary at all — kept its blank line and the rule under the
+    // subject both.
+    for (let n = layout.subjectLine + 1; n <= doc.lines; n += 1) {
+      const line = doc.line(n);
+      if (line.text.trim() !== "") break;
+      if (n === caretLine) continue;
+      builder.add(line.from, line.from, GAP);
+    }
   }
   if (layout.summaryLines !== null) {
     for (let n = layout.summaryLines.from; n < layout.summaryLines.to && n <= doc.lines; n += 1) {

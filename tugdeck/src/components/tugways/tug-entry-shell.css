@@ -122,11 +122,18 @@ body {
 
    Specificity (4 classes) intentionally beats the substrate's `&` (1),
    `&.cm-focused` (2), and `&[data-disabled]` (2) generated theme rules. --- */
+/* Each of these rules also PUBLISHES what it painted as
+   `--tugx-entry-shell-editor-surface`. A descendant that has to be opaque over
+   the field — the landing message's sticky subject line — reads the variable
+   instead of guessing a token, and since the value is declared in the same rule
+   as the paint, the two cannot come apart in any state. */
 .tug-entry-shell .tug-text-editor .cm-editor:not(.cm-focused) {
   background-color: var(--tugx-entry-shell-rest);
+  --tugx-entry-shell-editor-surface: var(--tugx-entry-shell-rest);
 }
 .tug-entry-shell .tug-text-editor .cm-editor.cm-focused {
   background-color: var(--tugx-entry-shell-focus);
+  --tugx-entry-shell-editor-surface: var(--tugx-entry-shell-focus);
 }
 
 /* Drop the field border outright. `borderless` only zeroes its COLOR, leaving
@@ -203,6 +210,7 @@ html[data-app-active="false"]
 }
 .tug-entry-shell[data-entry-keyboard] .tug-text-editor .cm-editor:not(.cm-focused) {
   background-color: var(--tugx-entry-shell-focus);
+  --tugx-entry-shell-editor-surface: var(--tugx-entry-shell-focus);
 }
 
 /* A background window's entry is not the live one — stand the wash down with
@@ -215,6 +223,7 @@ html[data-app-active="false"]
   .tug-text-editor
   .cm-editor:not(.cm-focused) {
   background-color: var(--tugx-entry-shell-rest);
+  --tugx-entry-shell-editor-surface: var(--tugx-entry-shell-rest);
 }
 
 /* ----------------------------------------------------------------------------

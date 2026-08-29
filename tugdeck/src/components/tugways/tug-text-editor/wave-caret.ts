@@ -22,8 +22,8 @@
 import "../internal/tug-progress-wave.css";
 import "./wave-caret.css";
 
-import { Decoration, EditorView, WidgetType } from "@codemirror/view";
-import type { DecorationSet } from "@codemirror/view";
+import { Decoration, EditorView, ViewPlugin, WidgetType } from "@codemirror/view";
+import type { DecorationSet, ViewUpdate } from "@codemirror/view";
 import { StateEffect, StateField } from "@codemirror/state";
 import type { Extension } from "@codemirror/state";
 
@@ -91,5 +91,99 @@ const waveCaretField = StateField.define<DecorationSet>({
   provide: (field) => EditorView.decorations.from(field),
 });
 
+/**
+ * While the wave is lit, the field is held at the end of the document.
+ *
+ * This is the wave's own invariant rather than a caller's: the wave IS the
+ * caret, and a caret is never off screen, so the state that lights the glyph is
+ * the state that pins the view. Nothing outside has to remember to scroll.
+ *
+ * It is held on EVERY FRAME, not on every delta, because the things that break
+ * it are not all deltas. CodeMirror estimates the height of a line it has not
+ * laid out and corrects the estimate a pass later; the field itself is still
+ * auto-growing toward its cap, which changes how much of the document fits;
+ * a font finishes loading and every wrapped line re-wraps. Each of those moves
+ * the end of the document out from under a scroll already written, and a pin
+ * that answers only document changes sees none of them. Answering the causes
+ * one at a time is how the wave ends up under the fold for a beat, which is
+ * what reads as the text jumping.
+ *
+ * So the pin states the invariant instead of chasing its violations: on each
+ * frame the wave is lit, the scroller is at its end. One property write per
+ * frame, for the seconds a message takes to write, and the glyph cannot be
+ * anywhere but on screen when the frame is painted.
+ *
+ * Not an [L05] frame-wait: nothing here is waiting for a React commit, or for
+ * anything else. The invariant is stated on whatever frames the window is
+ * given, and a window that is given none (a covered one suspends animation
+ * entirely) still gets the pin on every delta through `update`.
+ */
+const waveCaretPin = ViewPlugin.fromClass(
+  class {
+    private frame: number | null = null;
+
+    constructor(view: EditorView) {
+      this.sync(view);
+    }
+
+    update(update: ViewUpdate): void {
+      this.sync(update.view);
+    }
+
+    destroy(): void {
+      this.stop();
+    }
+
+    /** Run exactly while the glyph is lit. */
+    private sync(view: EditorView): void {
+      const lit = view.state.field(waveCaretField).size > 0;
+      if (!lit) {
+        this.stop();
+        return;
+      }
+      if (this.frame !== null) return;
+      const tick = (): void => {
+        pinToEnd(view);
+        this.frame = requestAnimationFrame(tick);
+      };
+      this.frame = requestAnimationFrame(tick);
+    }
+
+    private stop(): void {
+      if (this.frame === null) return;
+      cancelAnimationFrame(this.frame);
+      this.frame = null;
+    }
+  },
+);
+
+/** The whole of the pin: the scroller, at its end. */
+function pinToEnd(view: EditorView): void {
+  view.scrollDOM.scrollTop = view.scrollDOM.scrollHeight;
+}
+
+/**
+ * The same pin, on the delta itself.
+ *
+ * An `updateListener` and not the plugin's own `update`, which is the mistake
+ * worth naming: a view plugin is updated BEFORE the view writes the DOM, so a
+ * scroller read there reports the height of the document as it was, and pinning
+ * to it leaves the field exactly one delta's worth of text short of the end —
+ * which is where the wave was found, every time, hanging just under the bottom
+ * edge. An update listener runs after the write, against the document that is
+ * now on screen.
+ *
+ * This is what carries a window that never animates; the per-frame pin above
+ * carries everything that moves the end after the delta has been written.
+ */
+const waveCaretDeltaPin = EditorView.updateListener.of((update) => {
+  if (update.state.field(waveCaretField).size === 0) return;
+  pinToEnd(update.view);
+});
+
 /** Install in the editor's host extensions; inert until `setWaveCaretActive`. */
-export const waveCaretExtension: Extension = [waveCaretField];
+export const waveCaretExtension: Extension = [
+  waveCaretField,
+  waveCaretPin,
+  waveCaretDeltaPin,
+];

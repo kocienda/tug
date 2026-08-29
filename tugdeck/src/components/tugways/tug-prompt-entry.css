@@ -196,15 +196,53 @@ body {
    is read, not written, and a wall of mono at forty lines is not read
    either. So the message's joints are marked: the subject line reads as
    the heading it is, over a hairline, and the summary paragraph as the
-   paragraph it is; the detail follows in the muted tone a quote takes.
+   paragraph it is. Every line of the message reads at the field's own text
+   color — the detail is the message, not provenance about it, and a message
+   the reader is about to commit is the last place to whisper.
    The lines are classed by `landingMessageStructure` ([L06]); nothing
-   here is measured. The height cap is the Session card's ([L20]). */
+   here is measured. The height cap is the Session card's ([L20]).
+
+   The subject STAYS: it is sticky at the top of the scroller, so a message
+   longer than the field keeps its first line in sight while the detail moves
+   under it. That is what makes the wave at the tail affordable — the two ends
+   of the message are both on screen, the topline above and the writing below,
+   instead of the reader choosing one.
+
+   A sticky line has to be opaque — text passing behind it would otherwise pass
+   THROUGH it — and it must be opaque in exactly the field's own color, or the
+   backing reads as a band drawn across the message. So it takes the surface the
+   shell published from the rule that painted the field
+   (`--tugx-entry-shell-editor-surface`, tug-entry-shell.css), which follows the
+   field state for state. Nothing here picks a color. */
 .tug-prompt-entry[data-landing] .cm-line.cm-landing-subject {
   font-weight: var(--tug-font-weight-medium);
   color: var(--tug7-element-global-text-normal-default-rest);
-  padding-block-end: var(--tug-space-2xs);
-  margin-block-end: var(--tug-space-2xs);
-  border-block-end: 1px solid var(--tug7-element-global-border-normal-muted-rest);
+  background-color: var(--tugx-entry-shell-editor-surface);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+/* The rule is separation, so it is worn only by a subject with something
+   under it — `landingMessageStructure` withholds the class otherwise. */
+.tug-prompt-entry[data-landing] {
+  /* The gap the hairline sits in, and the hairline. Named here rather than
+     written twice into the rule below, because a THIRD reader needs them: the
+     card's landing cap is a count of LINES, and a subject wearing a rule is
+     taller than a line by exactly this much. Without it, ten declared lines
+     showed as a subject and nine. */
+  --tugx-landing-subject-gap: var(--tug-space-2xs);
+  --tugx-landing-subject-rule: 1px;
+  --tugx-landing-subject-extra: calc(
+    2 * var(--tugx-landing-subject-gap) + var(--tugx-landing-subject-rule)
+  );
+}
+
+.tug-prompt-entry[data-landing] .cm-line.cm-landing-subject-over-body {
+  padding-block-end: var(--tugx-landing-subject-gap);
+  margin-block-end: var(--tugx-landing-subject-gap);
+  border-block-end: var(--tugx-landing-subject-rule) solid
+    var(--tug7-element-global-border-normal-muted-rest);
 }
 
 /* The separator between subject and summary, collapsed. The rule above it
@@ -221,11 +259,6 @@ body {
 
 .tug-prompt-entry[data-landing] .cm-line.cm-landing-summary {
   color: var(--tug7-element-global-text-normal-default-rest);
-}
-
-.tug-prompt-entry[data-landing]
-  .cm-line:not(.cm-landing-subject):not(.cm-landing-summary):not(.cm-landing-gap) {
-  color: var(--tug7-element-global-text-normal-muted-rest);
 }
 
 /* The land button, unavailable: dimmed, cursor-marked, and STILL PRESSABLE.

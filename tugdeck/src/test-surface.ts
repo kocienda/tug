@@ -52,6 +52,7 @@ import {
   getOverviewStore,
 } from "./lib/overview-store";
 import { _ingestPulseFrameForTest, getPulseStore } from "./lib/pulse-store";
+import { _ingestDraftFrameForTest } from "./lib/changeset-draft-store";
 import {
   ACTIVITY_DESCRIPTORS,
   getSessionActivityStore,
@@ -346,8 +347,15 @@ import {
  * the real fonts loaded. The only other way to see the number is to activate
  * the menu row, which puts a system panel on the user's screen; the probe reads
  * the payload without asking AppKit for anything. Additive; major stays `2`.
+ *
+ * `2.14.0`: adds {@link TugTestSurface.publishDraftFrame} — delivers a
+ * `changeset_draft_state` / `changeset_draft_delta` CONTROL body as if it had
+ * arrived over the wire, so a test can watch the landing composer take a
+ * streamed commit message without a live scribe behind it. The store, the
+ * composer, the editor and the scroll are all the production ones; only the
+ * transport is stood in for. Additive; major stays `2`.
  */
-export const SURFACE_VERSION = "2.13.0" as const;
+export const SURFACE_VERSION = "2.14.0" as const;
 
 /**
  * A {@link TugTestSurface.dictionaryLookupProbe} reading: the payload Look Up
@@ -920,6 +928,21 @@ export interface TugTestSurface {
    * assert on what rendered, never on this alone.
    */
   publishPulseFrame(payloadJson: string): boolean;
+
+  /**
+   * Deliver a changeset-draft CONTROL body as if it had arrived over the wire
+   * (SURFACE_VERSION 2.14.0).
+   *
+   * `payloadJson` is the frame the draft engine broadcasts — a
+   * `changeset_draft_state` carrying `state`, or a `changeset_draft_delta`
+   * carrying the message SO FAR (the stream is cumulative, not incremental).
+   * The bytes go through the production control handler, so what the composer
+   * does with them is what it would do behind a live scribe.
+   *
+   * Returns `false` when the JSON does not parse. The handler drops a
+   * malformed body silently, so assert on what rendered.
+   */
+  publishDraftFrame(payloadJson: string): boolean;
 
   /**
    * Deliver a OVERVIEW frame body as if it had arrived over the wire
@@ -2162,6 +2185,15 @@ export function createTugTestSurface(deck: DeckManager): TugTestSurface {
       if (getPulseStore() === null) return false;
       try {
         _ingestPulseFrameForTest(JSON.parse(payloadJson));
+      } catch {
+        return false;
+      }
+      return true;
+    },
+
+    publishDraftFrame(payloadJson: string): boolean {
+      try {
+        _ingestDraftFrameForTest(JSON.parse(payloadJson));
       } catch {
         return false;
       }
