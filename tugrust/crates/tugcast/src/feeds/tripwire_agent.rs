@@ -261,13 +261,53 @@ impl TripwireEnvelope {
 ///
 /// Finding an envelope, never repairing one: what parses is still the model's
 /// own JSON, still whole, and still strict about its fields.
+///
+/// Two passes, because the two tiers hand this parser different material. The
+/// verdict tier's answer is prose, and the first pass reads it directly. The
+/// work tier's transcript is CODE_OUTPUT frame payloads kept verbatim, so the
+/// model's answer — envelope included — is an *escaped string* inside a
+/// frame's JSON, where no top-level span scan can see it. The second pass
+/// reads each line as JSON and scans every string value it carries, newest
+/// line first.
 pub fn parse_tripwire_envelope(raw: &str) -> Option<TripwireEnvelope> {
     for span in json_object_spans(raw.trim()).into_iter().rev() {
         if let Some(envelope) = parse_one(span) {
             return Some(envelope);
         }
     }
+    for line in raw.lines().rev() {
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(line.trim()) else {
+            continue;
+        };
+        let mut strings = Vec::new();
+        collect_strings(&value, &mut strings);
+        for text in strings.into_iter().rev() {
+            for span in json_object_spans(text).into_iter().rev() {
+                if let Some(envelope) = parse_one(span) {
+                    return Some(envelope);
+                }
+            }
+        }
+    }
     None
+}
+
+/// Every string value in a JSON tree, in document order.
+fn collect_strings<'a>(value: &'a serde_json::Value, out: &mut Vec<&'a str>) {
+    match value {
+        serde_json::Value::String(s) => out.push(s),
+        serde_json::Value::Array(items) => {
+            for item in items {
+                collect_strings(item, out);
+            }
+        }
+        serde_json::Value::Object(map) => {
+            for item in map.values() {
+                collect_strings(item, out);
+            }
+        }
+        _ => {}
+    }
 }
 
 fn parse_one(span: &str) -> Option<TripwireEnvelope> {
@@ -319,6 +359,49 @@ mod tests {
         );
         assert_eq!(e.interest, Interest::Routine);
         assert_eq!(e.headline, "ordinary");
+    }
+
+    /// The work tier's transcript is CODE_OUTPUT frame payloads verbatim, so
+    /// the envelope arrives escaped inside a frame's `text` field. The first
+    /// real work-tier firing answered perfectly and still settled `failed`
+    /// because the scan only read top-level spans.
+    #[test]
+    fn a_work_tier_transcript_of_frame_json_still_yields_its_envelope() {
+        let answer = "Caller error, already reported precisely; nothing staged.\n\n{\"interest\": \"routine\", \"outcome\": \"verdict\", \"headline\": \"caller error\", \"refs\": [{\"kind\": \"file\", \"target\": \"a.css\"}]}";
+        let frame = serde_json::json!({
+            "type": "assistant",
+            "tug_session_id": "5cca27ab",
+            "message": {"content": [{"type": "text", "text": answer}]},
+        });
+        let done = serde_json::json!({
+            "type": "turn_complete",
+            "tug_session_id": "5cca27ab",
+        });
+        let transcript = format!("{frame}\n{done}\n");
+        let e = envelope(&transcript);
+        assert_eq!(e.interest, Interest::Routine);
+        assert_eq!(e.outcome, Outcome::Verdict);
+        assert_eq!(e.headline, "caller error");
+        assert_eq!(e.refs.len(), 1);
+    }
+
+    /// Newest first holds across frames too: a model that corrected its own
+    /// envelope in a later frame supersedes the one it corrected.
+    #[test]
+    fn the_newest_frames_envelope_wins() {
+        let first = serde_json::json!({
+            "type": "assistant",
+            "message": {"content": [{"type": "text",
+                "text": "{\"interest\":\"routine\",\"outcome\":\"verdict\",\"headline\":\"first\"}"}]},
+        });
+        let second = serde_json::json!({
+            "type": "assistant",
+            "message": {"content": [{"type": "text",
+                "text": "{\"interest\":\"interesting\",\"outcome\":\"verdict\",\"headline\":\"corrected\"}"}]},
+        });
+        let e = envelope(&format!("{first}\n{second}\n"));
+        assert_eq!(e.headline, "corrected");
+        assert_eq!(e.interest, Interest::Interesting);
     }
 
     #[test]

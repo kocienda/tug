@@ -2582,7 +2582,12 @@ mod tests {
             let (h, _rx) = posting_harness();
             let tripwire = work_tripwire(&h.conn, &root, "exit 3");
             let sessions = FakeSessions::new(
-                r#"{"interest":"routine","outcome":"staged","headline":"put the suite back to green"}"#,
+                // Frame-shaped, the way the real runner hands a transcript
+                // back: the envelope escaped inside an assistant frame's text
+                // field, never as bare prose. A plain-text fake here is what
+                // hid the work tier's unreadable-envelope bug from this suite.
+                r#"{"type":"assistant","message":{"content":[{"type":"text","text":"Done.\n\n{\"interest\":\"routine\",\"outcome\":\"staged\",\"headline\":\"put the suite back to green\"}"}]}}
+{"type":"turn_complete"}"#,
                 true,
             );
             let mut config = h.config;
