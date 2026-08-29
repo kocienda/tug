@@ -164,6 +164,12 @@ export class ChangesetJoinStore {
    * `useSyncExternalStore` sees a stable snapshot identity between beats.
    */
   private readonly _land = new Map<string, LandProgress>();
+  /**
+   * The last `Set` {@link ChangesetJoinStore.landingDashes} answered per
+   * workspace, held so an unchanged answer keeps its identity — which is what
+   * a `useSyncExternalStore` reader needs of a derived snapshot.
+   */
+  private readonly _landingDashes = new Map<string, ReadonlySet<string>>();
 
   constructor(connection: TugConnection) {
     this._connection = connection;
@@ -444,6 +450,37 @@ export class ChangesetJoinStore {
   }
 
   /**
+   * The dashes in `workspaceKey` whose join is **running** — a beat has been
+   * written and none of them was terminal.
+   *
+   * The Changes room reads this to stop offering a dash it is already joining.
+   * Answered as a `Set` of display names, and rebuilt only when the contents
+   * change, so a `useSyncExternalStore` reader does not re-render on every
+   * unrelated frame the store forwards.
+   */
+  landingDashes(workspaceKey: string): ReadonlySet<string> {
+    const prefix = `${workspaceKey}|`;
+    const next = new Set<string>();
+    for (const [k, progress] of this._land) {
+      if (!k.startsWith(prefix) || progress.terminal === true) continue;
+      next.add(k.slice(prefix.length));
+    }
+    const held = this._landingDashes.get(workspaceKey);
+    if (held !== undefined && held.size === next.size) {
+      let same = true;
+      for (const dash of next) {
+        if (!held.has(dash)) {
+          same = false;
+          break;
+        }
+      }
+      if (same) return held;
+    }
+    this._landingDashes.set(workspaceKey, next);
+    return next;
+  }
+
+  /**
    * Record that the user has read what the ladder decided — the second beat of
    * the review the land gate holds for.
    *
@@ -635,5 +672,29 @@ export function useChangesetJoinLand(
     },
     () => _activeStore?.landProgress(workspaceKey, dash) ?? null,
     () => null,
+  );
+}
+
+/** No store attached, or nothing joining — one frozen empty set for both. */
+const NO_LANDING_DASHES: ReadonlySet<string> = new Set<string>();
+
+/**
+ * React hook: which dashes in this workspace have a join running ([L02]).
+ *
+ * The Changes room stops offering a dash the moment its join is pressed — the
+ * acts the room held for it are spent, and a dash still on offer while it is
+ * being joined invites the second press that can only be refused. It comes
+ * back if the join fails, because a failure is the one outcome that still
+ * wants somebody.
+ */
+export function useChangesetLandingDashes(workspaceKey: string): ReadonlySet<string> {
+  return useSyncExternalStore(
+    (listener) => {
+      const store = _activeStore;
+      if (store === null) return () => {};
+      return store.subscribe(listener);
+    },
+    () => _activeStore?.landingDashes(workspaceKey) ?? NO_LANDING_DASHES,
+    () => NO_LANDING_DASHES,
   );
 }

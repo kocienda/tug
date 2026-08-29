@@ -416,6 +416,86 @@ describe("the join narrates itself ([P03])", () => {
   });
 });
 
+/**
+ * What the Changes room reads to stop offering a dash it is already joining.
+ *
+ * The press spends every act the room held for that dash, and a dash left on
+ * offer while its join runs invites the one gesture that can only be refused —
+ * which is how a join in progress came to read to its own author as a join
+ * that had failed.
+ */
+describe("a dash whose join is running is not on offer ([P05])", () => {
+  const beat = (dash: string, name: string, status: string): void =>
+    _ingestJoinFrameForTest({
+      action: "changeset_join_land_delta",
+      project_dir: "/p",
+      dash,
+      beat: name,
+      status,
+    });
+  /** The join is over — the frame that settles the narration. */
+  const ended = (dash: string, ok: boolean): void =>
+    _ingestJoinFrameForTest({
+      action: ok ? "changeset_join_ok" : "changeset_join_err",
+      project_dir: "/p",
+      dash,
+      ...(ok ? { commit_hash: "cafe1234" } : { detail: "the merge did not build" }),
+    });
+
+  test("the press names it, and the terminal beat hands it back", () => {
+    const store = attachChangesetJoinStore(fakeConn);
+    expect(store.landingDashes("/p").size).toBe(0);
+
+    // The press's own first beat, written before the request leaves.
+    store.beginLand("/p", "demo");
+    expect([...store.landingDashes("/p")]).toEqual(["demo"]);
+
+    // Still running through every beat the server reports.
+    beat("demo", "squash", "start");
+    expect([...store.landingDashes("/p")]).toEqual(["demo"]);
+
+    // Over. A failure hands the dash straight back to the room, because a
+    // failure is the one outcome that still wants somebody; a success takes
+    // the dash out of the feed and it never returns by this door at all.
+    ended("demo", false);
+    expect(store.landingDashes("/p").size).toBe(0);
+  });
+
+  test("it is one workspace's answer, and one dash's", () => {
+    const store = attachChangesetJoinStore(fakeConn);
+    store.beginLand("/p", "demo");
+    store.beginLand("/p", "other");
+    store.beginLand("/elsewhere", "demo");
+    expect([...store.landingDashes("/p")].sort()).toEqual(["demo", "other"]);
+    expect([...store.landingDashes("/elsewhere")]).toEqual(["demo"]);
+    expect(store.landingDashes("/nowhere").size).toBe(0);
+  });
+
+  test("a retracted press hands the dash back too", () => {
+    // `clearLand` is what a press accepted and then refused on the live
+    // re-check undoes. The room must offer the dash again — nothing is
+    // running, and the user has something to fix.
+    const store = attachChangesetJoinStore(fakeConn);
+    store.beginLand("/p", "demo");
+    expect(store.landingDashes("/p").size).toBe(1);
+    store.clearLand("/p", "demo");
+    expect(store.landingDashes("/p").size).toBe(0);
+  });
+
+  test("an unchanged answer keeps its identity, so a reader does not re-render", () => {
+    // The room reads this through `useSyncExternalStore`, which compares by
+    // reference: a fresh `Set` per store frame would re-render the whole lane
+    // on every unrelated beat the store forwards.
+    const store = attachChangesetJoinStore(fakeConn);
+    store.beginLand("/p", "demo");
+    const first = store.landingDashes("/p");
+    beat("demo", "squash", "start");
+    expect(store.landingDashes("/p")).toBe(first);
+    store.beginLand("/p", "other");
+    expect(store.landingDashes("/p")).not.toBe(first);
+  });
+});
+
 describe("the client does not guess at liveness ([P03])", () => {
   const settle = (ms: number): Promise<void> =>
     new Promise((done) => setTimeout(done, ms));

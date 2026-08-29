@@ -31,7 +31,7 @@
 
 import "./session-changes-view.css";
 
-import React, { useCallback, useState, useSyncExternalStore } from "react";
+import React, { useCallback, useMemo, useState, useSyncExternalStore } from "react";
 import { GitCommitHorizontal, LoaderCircle, X } from "lucide-react";
 
 import { TugNonRepoNotice } from "@/components/tugways/tug-non-repo-notice";
@@ -62,7 +62,10 @@ import {
 } from "./session-changes-dash-lane";
 import type { DashJoinActions } from "./session-changes-dash-join";
 import type { JoinOutcome } from "@/lib/join-mode-controller";
-import { useChangesetJoinResolve } from "@/lib/changeset-join-store";
+import {
+  useChangesetJoinResolve,
+  useChangesetLandingDashes,
+} from "@/lib/changeset-join-store";
 import type { DiffDescriptor } from "@/lib/git-diff-store";
 import { cardSessionBindingStore } from "@/lib/card-session-binding-store";
 import { getConnection } from "@/lib/connection-singleton";
@@ -201,6 +204,28 @@ export function SessionChangesView({
   const resolveState = useChangesetJoinResolve(
     project.workspace_key,
     frontedDash?.display_name ?? "",
+  );
+
+  // A dash whose join is RUNNING is no longer offered here ([P05]).
+  //
+  // The press spends every act this room held for that dash: there is nothing
+  // left to resolve, review, discard, or press again. Left on offer it invited
+  // exactly one gesture — a second press — and the only answer that gesture
+  // can get is `Joining…` as a refusal, which is how a join in progress came
+  // to read as a join that had failed. Where the join is *narrated* is the
+  // transcript's live edge, in front of the reader, not behind a panel.
+  //
+  // A failed join brings its dash straight back: the beat turns terminal and
+  // the row returns with its blockers, because a failure is the one outcome
+  // that still wants somebody. A landed one never returns — the server drops
+  // it from the feed.
+  const landingDashes = useChangesetLandingDashes(project.workspace_key);
+  const offeredDashes = useMemo(
+    () =>
+      landingDashes.size === 0
+        ? snap.dashes
+        : snap.dashes.filter((entry) => !landingDashes.has(entry.display_name)),
+    [snap.dashes, landingDashes],
   );
 
   const sessionFiles = snap.entry?.files ?? [];
@@ -534,7 +559,7 @@ export function SessionChangesView({
         />
       ) : null}
       <SessionChangesDashLane
-        dashes={snap.dashes}
+        dashes={offeredDashes}
         boundDashId={boundDashId}
         frontedDashId={frontedDashId}
         projectRoot={project.project_dir}

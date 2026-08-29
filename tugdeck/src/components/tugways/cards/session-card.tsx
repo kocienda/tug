@@ -2937,7 +2937,16 @@ export function SessionCardBody({
       (runLand: () => void) => {
         staging.stage(runLand);
         if (mode.getSnapshot().active) mode.exit();
-        else shadeViewController.hide();
+        // The room closes on the press, as the press's own act. Exiting the
+        // mode also drops it — through `anyLandingActive` flipping, a render,
+        // and an effect — but a dismissal that has to survive three hops is a
+        // dismissal that can fail to arrive, and when it failed the shade sat
+        // over the transcript for the whole of a fifteen-second join: the
+        // narration was behind it, the dash was still on offer, and the only
+        // gesture left was a second press nothing could accept. Hiding here
+        // is idempotent with the coupling — `ShadeViewController.commit`
+        // no-ops when the view is already what it is being set to.
+        shadeViewController.hide();
       };
     commitModeController.setLandHook(stage(commitModeController));
     joinModeController.setLandHook(stage(joinModeController));

@@ -882,6 +882,11 @@ export interface TugPromptEntryProps {
    * Optional callback fired AFTER a successful submit has cleared the
    * input. Does NOT fire on the `canInterrupt` Stop branch, on
    * `canSubmit=false`, or on the empty-input guard.
+   *
+   * An accepted **landing** fires it too — a commit or a join is a submission,
+   * and the host's jump-to-the-live-edge is what puts the landing's own
+   * narration in front of the reader who pressed for it. A refused landing
+   * does not: it is answered in the room the press was made from.
    */
   onAfterSubmit?: () => void;
   /**
@@ -2596,7 +2601,14 @@ export const TugPromptEntry = React.forwardRef<
       const outcome = landingModeRef.current?.land(view.state.doc.toString());
       if (outcome?.kind === "refused") {
         tugDevLogStore.debug("prompt-entry", "land refused", { sentence: outcome.sentence });
+        return;
       }
+      // An accepted landing hands the reader back to the conversation, exactly
+      // as a sent prompt does: the landing narrates itself at the transcript's
+      // live edge, and a reader left wherever they had scrolled to would be
+      // looking away from the one thing that answers their press. A refusal
+      // returns above instead — it is answered where it was made, in the room.
+      onAfterSubmitRef.current?.();
       return;
     }
 
