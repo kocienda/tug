@@ -1195,15 +1195,16 @@ export interface AddUserMessage {
   promptUuid?: string;
   /**
    * Who authored this submission. Present only on the replay path, and only
-   * on the one frame the translator knows is a stage session's opening prompt
-   * — the Wheel's words rather than the user's. Absent everywhere else, and
-   * the reader defaults to `"user"`, matching the live path.
+   * on a frame Tug's own record names as the wheel's words rather than the
+   * user's. Absent everywhere else, and the reader defaults to `"user"`,
+   * matching the live path.
    *
-   * Stated by the producer rather than inferred by the consumer: the deck used
-   * to latch off a replayed stage divider's *position*, and a windowed replay
-   * whose stage opener fell outside the window handed that label to the first
-   * user message the window did contain — the user's own. A frame the
-   * translator marks is one it identified from the file, whatever the window.
+   * Stated, never inferred. Claude's JSONL records a prompt the wheel sent
+   * exactly as it records one the user typed, so tugcast writes down what the
+   * wheel puts on the wire and the translator reads that record back. Nothing
+   * is deduced from a prompt's position in the file — which could only ever
+   * recognize one prompt per session, and could hand the wheel's name to
+   * somebody else's words when a window moved.
    */
   origin?: "user" | "wheel";
   ipc_version: number;

@@ -65,6 +65,8 @@ import {
   type SubagentTranscript,
   type SubagentTranscriptMeta,
   translateJsonlSession,
+  type WheelPromptLedger,
+  wheelPromptLedger,
 } from "./replay.ts";
 import { ContextBreakdownEmitter } from "./context-breakdown.ts";
 import { SubagentTailer } from "./subagent-tail.ts";
@@ -294,8 +296,11 @@ export function subagentsDirFor(
 
 /**
  * Default on-disk location of the tugcast SessionLedger database.
- * Mirrors the Rust-side `SessionLedger::default_path()` resolution so
- * tugcast (writer) and tugcode (reader) hit the same file:
+ *
+ * `sessions.db` is **per-instance**, and the instance is tugcast's to know —
+ * so the answer is the one tugcast puts on the spawn, and these paths are
+ * only the pre-instances location a tugcode running without a tugcast falls
+ * back to:
  *
  *   - macOS: `~/Library/Application Support/Tug/sessions.db`
  *   - Linux: `$XDG_DATA_HOME/tugcast/sessions.db` (falling back to
@@ -305,6 +310,12 @@ export function subagentsDirFor(
  * option so they don't read the real user's database.
  */
 export function defaultSessionsDbPath(): string {
+  // What tugcast told us, which is the ledger tugcast itself opened. Set on
+  // the spawn (`TUG_SESSIONS_DB`), and authoritative: `sessions.db` is
+  // per-instance, so the paths below are the pre-instances location and are a
+  // fallback for a tugcode run outside a tugcast — a test, or a bare launch.
+  const told = process.env.TUG_SESSIONS_DB;
+  if (told !== undefined && told.length > 0) return told;
   const home = homedir();
   if (platform() === "darwin") {
     return join(home, "Library", "Application Support", "Tug", "sessions.db");
@@ -4768,6 +4779,7 @@ export class SessionManager {
   private async collectLineagePrefix(
     lineage: ReplayLineageEntry[],
     canonicalProjectDir: string,
+    wheelPrompts: WheelPromptLedger,
   ): Promise<OutboundMessage[]> {
     const frames: OutboundMessage[] = [];
     for (let i = 0; i < lineage.length; i++) {
@@ -4808,10 +4820,10 @@ export class SessionManager {
           // An ancestor is finished by definition: any cycle left open at its
           // end-of-JSONL has no live turn to continue it.
           synthesizeDanglingTerminal: true,
-          // The same condition that decided whether to push this entry's
-          // divider above: an entry that ran a stage opened on the Wheel's
-          // prompt, and the translator marks that one frame.
-          stageSession: entry.stage !== undefined && entry.stage !== "",
+          // One ledger for the whole restore, walked file by file in the order
+          // the work happened — so a prompt the wheel sent in an earlier stage
+          // is claimed there and cannot be claimed again downstream.
+          wheelPrompts,
         },
       );
       for await (const msg of iter) {
@@ -4968,9 +4980,17 @@ export class SessionManager {
     // the single-session loop it has always been: with no lineage this is an
     // empty array and every byte on the wire is what it was before lineage
     // existed ([P10]).
+    // Read once, spent across every file this restore walks — the lineage
+    // prefix first, then the resumed session — so the wheel's prompts come
+    // back under the wheel's name wherever in the work they were sent.
+    const wheelPrompts = wheelPromptLedger(this.readWheelPromptsForLine());
     const lineagePrefix: OutboundMessage[] =
       lineage !== undefined && lineage.length > 1
-        ? await this.collectLineagePrefix(lineage, canonicalProjectDir)
+        ? await this.collectLineagePrefix(
+            lineage,
+            canonicalProjectDir,
+            wheelPrompts,
+          )
         : [];
     if (lineagePrefix.length > 0) {
       logReplay("lineage_prefix", {
@@ -5127,11 +5147,10 @@ export class SessionManager {
       // and reports the window on `replay_complete`, which the buffered
       // bracket-close below forwards verbatim.
       window,
-      // The resumed session is the lineage's last entry — `collectLineagePrefix`
-      // pushes its divider and leaves its turns to this pass — so whether IT
-      // ran a stage is what decides if this file opens on the Wheel's prompt.
-      // False whenever there is no lineage, which is every non-arc replay.
-      stageSession: (lineage?.[lineage.length - 1]?.stage ?? "") !== "",
+      // The same ledger the lineage prefix walked, carrying whatever it did
+      // not spend. The resumed session is the lineage's last entry, so this
+      // pass is the end of one continuous walk, not a second one.
+      wheelPrompts,
     });
 
     try {
@@ -5192,7 +5211,11 @@ export class SessionManager {
             for (const frame of lineagePrefix) batch.push(frame);
             if (!pendingRowSyntheticsInjected) {
               pendingRowSyntheticsInjected = true;
-              this.injectPendingRowSynthetics(input, (m) => batch.push(m));
+              this.injectPendingRowSynthetics(
+                input,
+                (m) => batch.push(m),
+                wheelPrompts,
+              );
             }
             continue;
           }
@@ -5482,6 +5505,43 @@ export class SessionManager {
   }
 
   /**
+   * Tug's own record of what the **wheel** put on the wire, for this card's
+   * line of work — read through the same cross-process bun:sqlite handle, and
+   * read-only for the same reason: tugcast's wheel owns the writes.
+   *
+   * The wheel speaks in the transcript under its own name, and claude's JSONL
+   * cannot say so — that file is claude's, and it records a prompt the wheel
+   * sent exactly as it records one the user typed. So the wheel writes down
+   * what it sends, and a reload states authorship from that record instead of
+   * guessing it from a prompt's position in the file.
+   *
+   * Keyed on the **line**, not on `this.sessionId`: an arc rotates a card
+   * through several session ids and the wheel's prompts belong to the work.
+   * Kept in lockstep with `SessionLedger::list_wheel_prompts_for_line`.
+   *
+   * Answers `[]` when the handle is unavailable or the read fails, which
+   * attributes nothing to the wheel — the same transcript this replay produced
+   * before the record existed.
+   */
+  private readWheelPromptsForLine(): string[] {
+    if (this.sessionsDb === null) return [];
+    try {
+      const stmt = this.sessionsDb.query<{ text: string }, [string]>(
+        `SELECT text FROM wheel_prompts
+         WHERE line_id = (SELECT line_id FROM sessions WHERE session_id = ?)
+         ORDER BY sent_at ASC, prompt_id ASC`,
+      );
+      return stmt.all(this.sessionId).map((row) => row.text);
+    } catch (err) {
+      logReplay("sessions_db_read_error", {
+        session_id: this.sessionId,
+        reason: err instanceof Error ? err.message : String(err),
+      });
+      return [];
+    }
+  }
+
+  /**
    * Decode the BLOB-encoded `user_attachments` JSON array into the
    * `Attachment[]` shape the wire `add_user_message` carries. A
    * malformed BLOB (shouldn't happen under tugcast's writer; pinned
@@ -5547,6 +5607,7 @@ export class SessionManager {
   private injectPendingRowSynthetics(
     input: ReplayInput,
     emit: (m: OutboundMessage) => void,
+    wheelPrompts: WheelPromptLedger,
   ): void {
     const pendingRows = this.readPendingTurnsForSession();
     if (pendingRows.length === 0) return;
@@ -5576,6 +5637,11 @@ export class SessionManager {
       emit({
         type: "add_user_message",
         content,
+        // A submission still pending is one claude has not written down yet,
+        // so this frame is the only place its author can be named. The row
+        // holds the text as it went out, which is what the wheel's record
+        // holds too.
+        ...(wheelPrompts.claim(row.user_text) ? { origin: "wheel" as const } : {}),
         ipc_version: 2,
       });
       logReplay("pending_row_synthetic_emit", {

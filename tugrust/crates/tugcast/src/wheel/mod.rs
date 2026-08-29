@@ -460,6 +460,9 @@ pub async fn rotate(
                 // Queued in order behind the command: the dispatcher buffers
                 // into the same queue while the entry spawns.
                 supervisor.dispatch_one(prompt).await;
+                supervisor
+                    .sessions_recorder
+                    .record_wheel_prompt(tug_session_id.as_str(), &request.prompt);
                 tracing::info!(
                     target: "dev::session-lifecycle",
                     event = "wheel.stage_queued",
@@ -488,6 +491,9 @@ pub async fn rotate(
         }
     }
     supervisor.dispatch_one(prompt).await;
+    supervisor
+        .sessions_recorder
+        .record_wheel_prompt(tug_session_id.as_str(), &request.prompt);
     tracing::info!(
         target: "dev::session-lifecycle",
         event = "wheel.stage_sent",
@@ -564,7 +570,9 @@ pub async fn hand_back(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::feeds::agent_supervisor::{insert_ledger_entry_for_tests, test_minimal_supervisor};
+    use crate::feeds::agent_supervisor::{
+        insert_ledger_entry_for_tests, test_minimal_supervisor, test_minimal_supervisor_with_ledger,
+    };
     use tokio::sync::mpsc;
 
     /// Every refusal the wheel can return becomes a stop the receipt can
@@ -900,6 +908,80 @@ mod tests {
         let frame = input_rx.recv().await.expect("model_change frame");
         assert_eq!(body(&frame)["type"], "model_change");
         assert_eq!(body(&frame)["model"], "opus");
+    }
+
+    /// A rotation writes down what it said.
+    ///
+    /// Claude's JSONL records the wheel's opening prompt exactly as it records
+    /// one the user typed, so unless the wheel keeps its own record the prompt
+    /// comes back after a reload attributed to the user. This is that record
+    /// being written; tugcode's replay reads it.
+    #[tokio::test]
+    async fn a_rotation_records_the_prompt_the_wheel_sent() {
+        let (sup, sessions, _register_rx) = test_minimal_supervisor_with_ledger();
+        let tug_id = TugSessionId::new("sess-stage-live");
+        sessions
+            .record_spawn(
+                tug_id.as_str(),
+                "ws",
+                "/proj",
+                "card-1",
+                1_000,
+                "line-1",
+                None,
+            )
+            .expect("record_spawn");
+        let entry_arc = insert_ledger_entry_for_tests(&sup, &tug_id).await;
+        let (input_tx, _input_rx) = mpsc::channel::<Frame>(8);
+        {
+            let mut entry = entry_arc.lock().await;
+            entry.spawn_state = SpawnState::Live;
+            entry.input_tx = Some(input_tx);
+        }
+
+        rotate(&sup, &request(None)).await.expect("sent");
+
+        assert_eq!(
+            sessions
+                .list_wheel_prompts_for_line(tug_id.as_str())
+                .unwrap(),
+            vec!["/tugplug:dash-devise a plan for dash/some-brief.md"],
+        );
+    }
+
+    /// The queued door writes the same record as the live one — a stage
+    /// rotated onto a card that is still spawning is still the wheel talking.
+    #[tokio::test]
+    async fn a_queued_rotation_records_its_prompt_too() {
+        let (sup, sessions, _register_rx) = test_minimal_supervisor_with_ledger();
+        let tug_id = TugSessionId::new("sess-stage-live");
+        sessions
+            .record_spawn(
+                tug_id.as_str(),
+                "ws",
+                "/proj",
+                "card-1",
+                1_000,
+                "line-1",
+                None,
+            )
+            .expect("record_spawn");
+        let entry_arc = insert_ledger_entry_for_tests(&sup, &tug_id).await;
+        {
+            let mut entry = entry_arc.lock().await;
+            entry.spawn_state = SpawnState::Spawning;
+        }
+
+        assert_eq!(
+            rotate(&sup, &request(None)).await.expect("queued"),
+            Delivery::Queued,
+        );
+        assert_eq!(
+            sessions
+                .list_wheel_prompts_for_line(tug_id.as_str())
+                .unwrap(),
+            vec!["/tugplug:dash-devise a plan for dash/some-brief.md"],
+        );
     }
 
     /// The registry holds at most one request per session, and a tick performs

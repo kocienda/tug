@@ -523,6 +523,18 @@ export interface LedgerSeedSpan {
 export interface LedgerSeedSpec {
   sessions?: LedgerSeedSession[];
   file_events?: LedgerSeedFileEvent[];
+  /** What the wheel is to be recorded as having put on the wire (Spec: the
+   *  wheel's own record; see `tuglaws/wheel.md`). A replay attributes a
+   *  submission whose sent text one of these holds to the wheel. */
+  wheel_prompts?: LedgerSeedWheelPrompt[];
+}
+
+/** One prompt the wheel sent. See {@link LedgerSeedSpec.wheel_prompts}. */
+export interface LedgerSeedWheelPrompt {
+  /** A session on the line the prompt belongs to. */
+  session_id: string;
+  /** The prompt as it went on the wire — NOT claude's `<command-*>` envelope. */
+  text: string;
 }
 
 export interface LaunchTugAppOptions {

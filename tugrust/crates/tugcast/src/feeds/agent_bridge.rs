@@ -408,6 +408,19 @@ impl ChildSpawner for TugcodeSpawner {
                 // (also passed as claude's `--session-id`, so the two
                 // coincide).
                 .env("TUG_SESSION_ID", &session_id)
+                // Where this instance's session ledger is. tugcode reads it
+                // through its own bun:sqlite handle — the pending-submission
+                // journal and the wheel's record of what it put on the wire —
+                // and it must be the ledger THIS tugcast opened. Resolving it
+                // again in the child from its own inherited environment would
+                // be the same answer by coincidence rather than by contract,
+                // and was silently the wrong one once the ledger became
+                // per-instance: the child fell back to the pre-instances
+                // top-level file, which nothing writes any more.
+                .envs(
+                    tugcore::instance::resolve_sessions_db_path()
+                        .map(|p| (tugcore::instance::ENV_SESSIONS_DB, p)),
+                )
                 .stdin(Stdio::piped())
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())

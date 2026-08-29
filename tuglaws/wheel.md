@@ -93,6 +93,16 @@ A rotation's transcript is an invariant, and an invariant that only held while t
 
 The restore reads the row. It consults a course's record only for the two facts that are genuinely the course's — the arc name and the document it opened on — and only where a course seated that entry. That is why a card rotated with nothing driving it replays as one scroll: there is no arc record to consult, and none is needed.
 
+## The wheel keeps its own record of what it said
+
+Claude's JSONL is claude's. It records a prompt the wheel sent exactly as it records one the user typed, and Tug cannot stamp authorship into it. So on the reload the row that read **Wheel** while the session was live would come back reading **You** — the transcript changing its mind about who was steering, purely because the app was relaunched.
+
+The wheel therefore writes down what it puts on the wire. Every prompt it sends — a rotation's opener through `wheel::rotate`, an arc's later prompts through the dash arc runner — is appended to `wheel_prompts` in `sessions.db`, filed against the **line** rather than the session id, because an arc rotates a card through several session ids and the prompts are all one line's work. Nothing deletes a row on acknowledgement: the `turns` journal beside it is pending-only, but this record answers a question a reload can ask at any time.
+
+The replay reads it back. tugcode loads the line's prompts through its cross-process `sessions.db` handle and hands them to the translator as a ledger; a submission whose sent text the ledger still holds is marked `origin: "wheel"`, and claiming it spends it. Matching is on the text *as it went out* — claude rewrites a slash command into a `<command-*>` envelope before writing the record, so the envelope is put back together, name then args, before the match.
+
+Authorship is therefore **stated by the sender**, never deduced by the reader. The rule this replaced read a prompt's position in the file — the first user turn of a stage session — which could only ever recognize one prompt per session, and could hand the wheel's name to somebody else's words when a recency window moved.
+
 ## The three faces
 
 | Face | Where | What it is for |

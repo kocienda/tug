@@ -719,6 +719,12 @@ async fn deliver_prompt(
             super::base_motion::user_message_payload(&session, &text),
         ))
         .await;
+    // Tug's own record of what the wheel said, so a reload attributes this
+    // prompt to the wheel rather than to the user. Claude's JSONL will record
+    // it as an ordinary user entry, because that file cannot say otherwise.
+    ctx.supervisor
+        .sessions_recorder
+        .record_wheel_prompt(&session, &text);
 
     if let PromptWhy::Compact {
         fraction,
@@ -1752,7 +1758,12 @@ Some context.
         // The registration receiver is handed back so each test can hold it:
         // dropping it would close the channel under a supervisor that is still
         // alive, which is not the state any of these tests is about.
-        let (supervisor, register_rx) = super::super::agent_supervisor::test_minimal_supervisor();
+        // The supervisor records into the very ledger this harness holds, so a
+        // test can read back what the arc wrote down.
+        let (supervisor, register_rx) =
+            super::super::agent_supervisor::test_minimal_supervisor_with_recorder(Arc::new(
+                super::super::agent_supervisor::LedgerSessionsRecorder::new(Arc::clone(&ledger)),
+            ));
         let id = TugSessionId::new("claude-1".to_string());
         let mut entry = LedgerEntry::new(
             id.clone(),
@@ -2714,6 +2725,49 @@ Some context.
                 }
             }
         }
+    }
+
+    /// The arc writes down every prompt it sends, not just the one that opened
+    /// the stage.
+    ///
+    /// Claude's JSONL records a prompt the wheel sent exactly as it records one
+    /// the user typed, so this record is the only thing that lets a reload put
+    /// the wheel's later prompts back under the wheel's name. Read by tugcode's
+    /// replay through the same `sessions.db`.
+    #[tokio::test]
+    async fn a_continued_stage_records_the_prompt_the_wheel_sent() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        implementing_project(root, "done", "pending");
+
+        let (ctx, entry, _register_rx) = harness(root).await;
+        set_window(&ctx, &entry, 200_000).await;
+        entry.lock().await.turns_ended = 2;
+        let state = Arc::new(Mutex::new(HashMap::new()));
+        state.lock().await.insert(
+            demo_key(root),
+            ArcState {
+                last_done_count: Some(1),
+                compacted_since_below: true,
+                pending: Some(PendingPrompt {
+                    kind: PromptKind::Compact,
+                    turns_ended_at: 1,
+                }),
+                ..Default::default()
+            },
+        );
+
+        sweep(&ctx, &state).await;
+
+        let sent = submitted(&entry).await;
+        assert_eq!(sent.len(), 1, "the arc continued the stage");
+        assert_eq!(
+            ctx.session_ledger
+                .list_wheel_prompts_for_line("claude-1")
+                .unwrap(),
+            sent,
+            "what the record holds is exactly what went on the wire",
+        );
     }
 
     /// A compaction that did not happen is never remembered as one. The

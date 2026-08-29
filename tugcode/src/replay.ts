@@ -1103,6 +1103,82 @@ function isBridgeIssuedCommandEnvelope(text: string): boolean {
   return name !== undefined && BRIDGE_ISSUED_COMMANDS.includes(name);
 }
 
+/** Reads the `<command-args>` out of a slash-command envelope. */
+const COMMAND_ENVELOPE_ARGS_RE = /<command-args>([\s\S]*?)<\/command-args>/;
+
+/**
+ * A submission's text as the sender put it on the wire — which is not always
+ * what the JSONL holds.
+ *
+ * Claude Code rewrites a slash command into its `<command-*>` envelope before
+ * it writes the record, so the literal `/tugplug:dash-implement foo Steps 4-13`
+ * that went out comes back as three tags. Put back together, name then args,
+ * it is the sent text again — and that is what {@link WheelPromptLedger}
+ * matches on, since Tug's record holds what Tug sent.
+ *
+ * Everything else is the concatenation of the entry's text blocks, which is
+ * the same rule the translator uses to build the submission itself.
+ */
+function submissionAsSent(content: readonly unknown[]): string {
+  const text = content
+    .map((block) => {
+      const b = block as { type?: unknown; text?: unknown };
+      return b.type === "text" && typeof b.text === "string" ? b.text : "";
+    })
+    .join("");
+  if (!isCommandEnvelope(text.trimStart())) return text;
+  const name = COMMAND_ENVELOPE_NAME_RE.exec(text)?.[1];
+  if (name === undefined) return text;
+  const args = COMMAND_ENVELOPE_ARGS_RE.exec(text)?.[1] ?? "";
+  return args.length > 0 ? `${name} ${args}` : name;
+}
+
+/**
+ * Tug's record of what the **wheel** put on the wire, spent one prompt at a
+ * time as a replay walks the JSONL.
+ *
+ * The wheel speaks in the transcript under its own name. Claude's JSONL cannot
+ * say so — that file is claude's, and it records a prompt the wheel sent
+ * exactly as it records one the user typed — so tugcast writes down every
+ * prompt the wheel sends (`wheel_prompts` in `sessions.db`) and the replay
+ * reads it back here. Authorship is therefore *stated*, from the sender's own
+ * record, rather than guessed from where a prompt happens to sit in the file.
+ *
+ * A **claim** is a match against the remaining record, not a position: the
+ * first submission whose sent text is still held is the wheel's, and holding
+ * it is then spent. That is what lets one ledger span a card's whole lineage —
+ * several JSONL files, replayed in order, with the user's own prompts
+ * interleaved — and stay right when a file in the middle is unreadable and
+ * skipped. Two identical prompts spend two records, in the order they are met.
+ */
+export interface WheelPromptLedger {
+  /**
+   * True when `text` is one of the wheel's unspent prompts, which also spends
+   * it. False for the user's own words, and for the wheel's Nth repeat of a
+   * prompt it only sent N-1 times.
+   */
+  claim(text: string): boolean;
+}
+
+/**
+ * Build a {@link WheelPromptLedger} over the texts tugcast recorded, oldest
+ * first. An empty list answers `false` to everything, which is what makes a
+ * card no arc ever drove cost nothing.
+ */
+export function wheelPromptLedger(texts: readonly string[]): WheelPromptLedger {
+  const unspent = new Map<string, number>();
+  for (const text of texts) unspent.set(text, (unspent.get(text) ?? 0) + 1);
+  return {
+    claim(text: string): boolean {
+      const left = unspent.get(text);
+      if (left === undefined || left === 0) return false;
+      if (left === 1) unspent.delete(text);
+      else unspent.set(text, left - 1);
+      return true;
+    },
+  };
+}
+
 /**
  * True when a `user` entry's bare-string `message.content` is NOT a
  * genuine transcript submission, so the translator skips it rather
@@ -1172,15 +1248,15 @@ export interface TranslateJsonlEntryOptions {
    */
   suppressTurnComplete?: boolean;
   /**
-   * When true, this entry is a dash-arc stage session's opening prompt, so the
-   * `add_user_message` it emits is the Wheel's words rather than the user's and
-   * carries `origin: "wheel"`.
+   * Tug's record of what the wheel put on the wire, for the line this file
+   * belongs to. A submission this entry emits that the record still holds is
+   * the wheel's words rather than the user's, and carries `origin: "wheel"`.
    *
-   * The session-level loop sets it on exactly the one entry index
-   * {@link TranslateSessionOptions.stageSession} identified over the whole
-   * file, so it holds whatever window is in play.
+   * Claimed at the emit site, so only a genuine submission spends a record —
+   * an entry the translator skips leaves the wheel's prompt for the entry
+   * that really carries it.
    */
-  wheelOrigin?: boolean;
+  wheelPrompts?: WheelPromptLedger;
 }
 
 /**
@@ -1641,10 +1717,12 @@ function handleUserEntry(
     ...(typeof entry.uuid === "string" && entry.uuid.length > 0
       ? { promptUuid: entry.uuid }
       : {}),
-    // Stated, never inferred: the session loop marks the one entry it
-    // identified as this stage's opening prompt, and every other frame simply
-    // omits the field for the reader to default.
-    ...(options?.wheelOrigin === true ? { origin: "wheel" as const } : {}),
+    // Stated, never inferred: the wheel's own record says which submissions it
+    // sent, and claiming one here is what spends it. Every other frame omits
+    // the field for the reader to default.
+    ...(options?.wheelPrompts?.claim(submissionAsSent(submittedContent)) === true
+      ? { origin: "wheel" as const }
+      : {}),
     ipc_version: IPC_VERSION,
   });
   ctx.openTurnMsgId = mintOpenerId(ctx, "u");
@@ -2108,17 +2186,13 @@ export interface TranslateSessionOptions {
    */
   window?: ReplayWindow;
   /**
-   * This JSONL is a dash-arc stage's own session, so its first user record is
-   * the Wheel's opening prompt.
-   *
-   * The translator marks that one frame with `origin: "wheel"`, over the whole
-   * file rather than over {@link TranslateSessionOptions.window} — a stage
-   * opener outside the window means the Wheel's prompt is simply off screen,
-   * which is correct; marking a *different* frame instead is the bug this
-   * exists to remove. Absent ⇒ no frame is marked, which is every non-arc
-   * replay.
+   * Tug's record of the prompts the wheel sent on this card's line — see
+   * {@link WheelPromptLedger}. Shared across every file of a lineage replay,
+   * so one ledger spans the whole restore and no prompt is claimed twice.
+   * Absent ⇒ nothing is attributed to the wheel, which is every replay of a
+   * card no arc ever drove.
    */
-  stageSession?: boolean;
+  wheelPrompts?: WheelPromptLedger;
 }
 
 /**
@@ -2967,25 +3041,10 @@ export async function* translateJsonlSession(
   }
 
   // Every turn's start entry, located by a dry run of the real translator
-  // (see {@link computeTurns}). Two consumers ask for it: the recency window,
-  // which resolves its entry range from the turn boundaries, and a stage
-  // session, which needs the index of its first USER turn. It is computed once
-  // and skipped when neither asked — the unbounded, non-stage path pays
-  // nothing extra, as it always did.
-  const turns =
-    window !== undefined || opts.stageSession === true
-      ? computeTurns(parsedEntries)
-      : null;
-
-  // The stage's opening prompt, as a JSONL entry index over the whole file.
-  // Deliberately window-independent: the index does not move when a window is
-  // applied, and a window starting after it simply emits no marked frame,
-  // which leaves the Wheel's prompt off screen rather than pinning its label
-  // to somebody else's words.
-  const stageOpenerIndex =
-    opts.stageSession === true
-      ? (turns?.find((t) => t.origin === "user")?.startIndex ?? -1)
-      : -1;
+  // (see {@link computeTurns}). One consumer asks for it: the recency window,
+  // which resolves its entry range from the turn boundaries. Skipped when it
+  // did not ask — the unbounded path pays nothing extra, as it always did.
+  const turns = window !== undefined ? computeTurns(parsedEntries) : null;
 
   // Recency window. When requested, resolve the turn boundaries above into the
   // `[windowStartIndex, windowEndIndex)` entry range to emit plus the metadata
@@ -3077,7 +3136,7 @@ export async function* translateJsonlSession(
 
     const messages = translateJsonlEntry(parsed, ctx, {
       suppressTurnComplete,
-      wheelOrigin: i === stageOpenerIndex,
+      wheelPrompts: opts.wheelPrompts,
     });
     for (const msg of messages) {
       // Drop the async-launch echo's own `tool_use_structured` for an agent

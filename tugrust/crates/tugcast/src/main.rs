@@ -2248,6 +2248,19 @@ struct SeedFileEvent {
     spans: Vec<session_ledger::FileEventSpan>,
 }
 
+/// One prompt the wheel is to be recorded as having sent. Written through the
+/// same `record_wheel_prompt` the wheel itself calls, so a seeded row is what
+/// a real arc leaves behind — which is how a test can stand up "the wheel
+/// spoke, then the app was relaunched" without a live arc and a live claude.
+#[derive(serde::Deserialize)]
+struct SeedWheelPrompt {
+    /// A session on the line the prompt belongs to. The line is resolved from
+    /// this row, exactly as it is on the real write.
+    session_id: String,
+    /// The prompt as it went on the wire — what the replay matches against.
+    text: String,
+}
+
 /// The seed spec's whole shape: live sessions and the file events that make
 /// them own something.
 #[derive(serde::Deserialize)]
@@ -2256,6 +2269,8 @@ struct SeedSpec {
     sessions: Vec<SeedSession>,
     #[serde(default)]
     file_events: Vec<SeedFileEvent>,
+    #[serde(default)]
+    wheel_prompts: Vec<SeedWheelPrompt>,
 }
 
 /// Seed this instance's ledger from a JSON spec and exit.
@@ -2400,11 +2415,33 @@ fn seed_ledger(spec_path: &std::path::Path) -> ! {
             std::process::exit(1);
         }
     }
+    for (i, prompt) in spec.wheel_prompts.iter().enumerate() {
+        match ledger.record_wheel_prompt(
+            &prompt.session_id,
+            &format!("seed-wheel-{i}"),
+            &prompt.text,
+            session_ledger::now_millis() + i as i64,
+        ) {
+            Ok(true) => {}
+            Ok(false) => {
+                eprintln!(
+                    "tugcast: error: record_wheel_prompt: no session {}",
+                    prompt.session_id
+                );
+                std::process::exit(1);
+            }
+            Err(e) => {
+                eprintln!("tugcast: error: record_wheel_prompt failed: {e}");
+                std::process::exit(1);
+            }
+        }
+    }
 
     println!(
-        "seeded {} session(s) and {} file event(s) into {}",
+        "seeded {} session(s), {} file event(s), and {} wheel prompt(s) into {}",
         spec.sessions.len(),
         spec.file_events.len(),
+        spec.wheel_prompts.len(),
         path.display()
     );
     std::process::exit(0);

@@ -1729,6 +1729,41 @@ impl SessionLedger {
                 DELETE FROM turns WHERE session_id = OLD.session_id;
             END;
 
+            -- Every prompt the WHEEL put on the wire.
+            --
+            -- The wheel speaks in the transcript under its own name, and on a
+            -- reload nothing in claude's JSONL says so: that file is claude's,
+            -- and it records a prompt the wheel sent exactly as it records one
+            -- the user typed. So Tug keeps its own record of what it sent, and
+            -- the replay translator states authorship from here instead of
+            -- guessing it from a prompt's position in the file.
+            --
+            -- Keyed by LINE, not by session id: an arc rotates a card through
+            -- several session ids and the wheel's prompts belong to the work,
+            -- not to whichever segment was live when one was sent. Rows are
+            -- durable for the life of the line — unlike `turns`, nothing
+            -- deletes them on acknowledgement, because acknowledgement is not
+            -- what they are for.
+            CREATE TABLE IF NOT EXISTS wheel_prompts (
+                prompt_id  TEXT PRIMARY KEY,
+                line_id    TEXT NOT NULL,
+                -- The segment that was live when the wheel spoke. Kept as
+                -- history; the line is what the read is keyed on.
+                session_id TEXT NOT NULL,
+                text       TEXT NOT NULL,
+                sent_at    INTEGER NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS wheel_prompts_line
+                ON wheel_prompts(line_id, sent_at);
+
+            CREATE TRIGGER IF NOT EXISTS wheel_prompts_cascade_delete_on_line
+            AFTER DELETE ON lines
+            FOR EACH ROW
+            BEGIN
+                DELETE FROM wheel_prompts WHERE line_id = OLD.line_id;
+            END;
+
             -- Per-turn telemetry — cost + multi-clock timing block,
             -- one row per committed turn. Written by the supervisor
             -- on receipt of a `record_turn_telemetry` inbound message
@@ -5464,6 +5499,59 @@ impl SessionLedger {
             .query_map(params![session_id], journal_row_from_query)?
             .collect::<Result<Vec<_>, _>>()?;
         rows.into_iter().collect()
+    }
+
+    // ── the wheel's own record ───────────────────────────────────────────────
+    //
+    // What the wheel put on the wire, kept because claude's JSONL cannot say
+    // it. On a reload the translator reads these rows and states which
+    // submissions the wheel authored, so a prompt the wheel sent comes back
+    // under the wheel's name rather than the user's.
+
+    /// Record one prompt the wheel sent on `session_id`. The row is filed
+    /// against that session's **line**, resolved here rather than by the
+    /// caller: a rotation moves the arc onto a fresh session id mid-run, and
+    /// the prompts before and after it are one line's.
+    ///
+    /// Answers `false` when no session row carries `session_id` — the caller
+    /// says so rather than letting the record quietly not exist.
+    pub fn record_wheel_prompt(
+        &self,
+        session_id: &str,
+        prompt_id: &str,
+        text: &str,
+        now: i64,
+    ) -> Result<bool, LedgerError> {
+        let conn = self.db.lock().expect("ledger mutex");
+        let n = conn.execute(
+            "INSERT INTO wheel_prompts (prompt_id, line_id, session_id, text, sent_at)
+             SELECT ?1, line_id, session_id, ?2, ?3 FROM sessions WHERE session_id = ?4",
+            params![prompt_id, text, now, session_id],
+        )?;
+        Ok(n > 0)
+    }
+
+    /// Every prompt the wheel sent on the line `session_id` is a segment of,
+    /// oldest first. This is the read surface tugcode's `runReplay` consumes
+    /// through the cross-process `bun:sqlite` handle — tugcast itself never
+    /// reads these rows, it only writes them. The query is mirrored here, and
+    /// kept in lockstep with `readWheelPromptsForLine` in tugcode's
+    /// `session.ts`, so the writer is tested against what the reader asks.
+    #[cfg(test)]
+    pub fn list_wheel_prompts_for_line(
+        &self,
+        session_id: &str,
+    ) -> Result<Vec<String>, LedgerError> {
+        let conn = self.db.lock().expect("ledger mutex");
+        let mut stmt = conn.prepare(
+            "SELECT text FROM wheel_prompts
+             WHERE line_id = (SELECT line_id FROM sessions WHERE session_id = ?1)
+             ORDER BY sent_at ASC, prompt_id ASC",
+        )?;
+        let rows = stmt
+            .query_map(params![session_id], |row| row.get::<_, String>(0))?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
     }
 
     /// Upsert one `turn_telemetry` row. Idempotent on
@@ -13626,6 +13714,101 @@ mod tests {
         assert_eq!(rows[0].session_id, "s1");
         assert_eq!(rows[0].user_text, "hello");
         assert!(rows[0].user_attachments.is_empty());
+    }
+
+    // ── wheel_prompts: what the wheel put on the wire ────────────────────────
+    //
+    // Claude's JSONL records a prompt the wheel sent exactly as it records one
+    // the user typed, so authorship has to be kept here or it is lost at the
+    // next reload. These pin the two things the record must get right: it
+    // survives, and it belongs to the LINE rather than to whichever session id
+    // happened to be live when the wheel spoke.
+
+    #[test]
+    fn record_wheel_prompt_round_trips_for_the_line() {
+        let l = fresh();
+        seed_live(&l, "s1", "ws", "card-1", millis(0));
+        assert!(
+            l.record_wheel_prompt("s1", "w1", "/compact", millis(1))
+                .unwrap()
+        );
+        assert_eq!(
+            l.list_wheel_prompts_for_line("s1").unwrap(),
+            vec!["/compact"]
+        );
+    }
+
+    #[test]
+    fn wheel_prompts_are_read_across_a_rotation() {
+        // An arc rotates its card onto a fresh session id mid-run. Both
+        // prompts are the same line's work, and asking from either segment
+        // answers with both, oldest first — which is what lets a replay of the
+        // whole lineage attribute every one of them.
+        let l = fresh();
+        l.record_spawn("s1", "ws", "/proj", "card-1", millis(0), "line-1", None)
+            .unwrap();
+        l.record_spawn("s2", "ws", "/proj", "card-1", millis(0), "line-1", None)
+            .unwrap();
+        // `millis` counts days ago, so the opener's stamp is the larger one.
+        l.record_wheel_prompt("s1", "w1", "the opener", millis(3))
+            .unwrap();
+        l.record_wheel_prompt("s2", "w2", "/compact", millis(1))
+            .unwrap();
+        for asked_from in ["s1", "s2"] {
+            assert_eq!(
+                l.list_wheel_prompts_for_line(asked_from).unwrap(),
+                vec!["the opener", "/compact"],
+                "asked from {asked_from}",
+            );
+        }
+    }
+
+    #[test]
+    fn another_lines_wheel_prompts_are_not_this_lines() {
+        let l = fresh();
+        l.record_spawn("s1", "ws", "/proj", "card-1", millis(0), "line-1", None)
+            .unwrap();
+        l.record_spawn("s2", "ws", "/proj", "card-2", millis(0), "line-2", None)
+            .unwrap();
+        l.record_wheel_prompt("s1", "w1", "mine", millis(1))
+            .unwrap();
+        l.record_wheel_prompt("s2", "w2", "theirs", millis(1))
+            .unwrap();
+        assert_eq!(l.list_wheel_prompts_for_line("s1").unwrap(), vec!["mine"]);
+        assert_eq!(l.list_wheel_prompts_for_line("s2").unwrap(), vec!["theirs"]);
+    }
+
+    #[test]
+    fn record_wheel_prompt_says_so_when_the_session_is_unknown() {
+        // No row, no line to file against. The writer answers `false` rather
+        // than reporting a record that does not exist — the caller logs it,
+        // because the cost is a name on a row after the next reload.
+        let l = fresh();
+        assert!(
+            !l.record_wheel_prompt("nobody", "w1", "hi", millis(0))
+                .unwrap()
+        );
+        assert!(l.list_wheel_prompts_for_line("nobody").unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_wheel_prompt_is_not_deleted_when_its_turn_is_acknowledged() {
+        // The `turns` journal is pending-only: the merger pops a row the
+        // moment claude acknowledges. The wheel's record is not that — it is
+        // durable for the life of the line, because a reload can happen at any
+        // point after the acknowledgement.
+        let l = fresh();
+        seed_live(&l, "s1", "ws", "card-1", millis(0));
+        l.insert_pending_turn("s1", "j1", "/compact", &[], millis(0))
+            .unwrap();
+        l.record_wheel_prompt("s1", "w1", "/compact", millis(0))
+            .unwrap();
+        l.delete_oldest_pending_for_session("s1").unwrap();
+        assert!(l.list_pending_turns_for_session("s1").unwrap().is_empty());
+        assert_eq!(
+            l.list_wheel_prompts_for_line("s1").unwrap(),
+            vec!["/compact"]
+        );
     }
 
     #[test]

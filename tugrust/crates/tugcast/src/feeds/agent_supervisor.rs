@@ -660,6 +660,22 @@ pub trait SessionsRecorder: Send + Sync {
         session_id: &str,
     ) -> Result<Option<crate::session_ledger::JournalRow>, crate::session_ledger::LedgerError>;
 
+    /// Record one prompt the **wheel** put on the wire, so a reload can say
+    /// who wrote it.
+    ///
+    /// Claude's JSONL records a prompt the wheel sent exactly as it records
+    /// one the user typed — that file is claude's, and Tug cannot stamp
+    /// authorship into it. This is Tug's own record, and it is what the
+    /// replay translator reads to state authorship instead of inferring it
+    /// from where a prompt sits in the file.
+    ///
+    /// Called by the wheel itself, after the submission is away, from both
+    /// doors it speaks through: a rotation's opening prompt and an arc's
+    /// later prompts. Failure is telemetry — the submission has already been
+    /// dispatched, and a missing record costs a name on one row of a resumed
+    /// transcript, never the turn.
+    fn record_wheel_prompt(&self, session_id: &str, text: &str);
+
     /// The ordered chain of claude session ids this session's line of work
     /// passed through — oldest ancestor first, `session_id` last ([P10]).
     ///
@@ -996,6 +1012,36 @@ impl SessionsRecorder for LedgerSessionsRecorder {
             );
         }
         Ok(popped)
+    }
+
+    fn record_wheel_prompt(&self, session_id: &str, text: &str) {
+        let prompt_id = uuid::Uuid::new_v4().to_string();
+        match self.ledger.record_wheel_prompt(
+            session_id,
+            &prompt_id,
+            text,
+            crate::session_ledger::now_millis(),
+        ) {
+            Ok(true) => tracing::info!(
+                target: "dev::session-lifecycle",
+                event = "ledger.record_wheel_prompt",
+                session_id,
+                prompt_id,
+            ),
+            Ok(false) => tracing::warn!(
+                target: "dev::session-lifecycle",
+                event = "ledger.record_wheel_prompt_unknown_session",
+                session_id,
+                "the wheel spoke on a session the ledger does not carry; a reload \
+                 will attribute this prompt to the user",
+            ),
+            Err(err) => tracing::warn!(
+                target: "dev::session-lifecycle",
+                event = "ledger.record_wheel_prompt_failed",
+                session_id,
+                error = %err,
+            ),
+        }
     }
 
     fn lineage_chain(&self, session_id: &str) -> Vec<String> {
@@ -9210,6 +9256,7 @@ impl SessionsRecorder for NoopSessionsRecorder {
     ) -> Result<Option<crate::session_ledger::JournalRow>, crate::session_ledger::LedgerError> {
         Ok(None)
     }
+    fn record_wheel_prompt(&self, _session_id: &str, _text: &str) {}
     fn lineage_chain(&self, session_id: &str) -> Vec<String> {
         vec![session_id.to_owned()]
     }
@@ -9231,6 +9278,33 @@ impl SessionsRecorder for NoopSessionsRecorder {
 #[cfg(test)]
 pub(crate) fn test_minimal_supervisor() -> (Arc<AgentSupervisor>, mpsc::Receiver<MergerRegistration>)
 {
+    test_minimal_supervisor_with_recorder(Arc::new(NoopSessionsRecorder))
+}
+
+/// [`test_minimal_supervisor`] with a real sessions ledger behind it, for the
+/// paths whose whole point is what they write down. Hands back the ledger so
+/// the test can read the rows the code under test wrote.
+#[cfg(test)]
+pub(crate) fn test_minimal_supervisor_with_ledger() -> (
+    Arc<AgentSupervisor>,
+    Arc<crate::session_ledger::SessionLedger>,
+    mpsc::Receiver<MergerRegistration>,
+) {
+    let ledger = Arc::new(
+        crate::session_ledger::SessionLedger::open_in_memory().expect("open in-memory ledger"),
+    );
+    let (sup, rx) = test_minimal_supervisor_with_recorder(Arc::new(LedgerSessionsRecorder::new(
+        Arc::clone(&ledger),
+    )));
+    (sup, ledger, rx)
+}
+
+/// [`test_minimal_supervisor`] over a recorder the caller chose — for a
+/// harness that already holds the ledger the supervisor should write to.
+#[cfg(test)]
+pub(crate) fn test_minimal_supervisor_with_recorder(
+    recorder: Arc<dyn SessionsRecorder>,
+) -> (Arc<AgentSupervisor>, mpsc::Receiver<MergerRegistration>) {
     let (state_tx, _) = broadcast::channel(16);
     let (meta_tx, _) = broadcast::channel(16);
     let (code_tx, _) = broadcast::channel(16);
@@ -9257,7 +9331,6 @@ pub(crate) fn test_minimal_supervisor() -> (Arc<AgentSupervisor>, mpsc::Receiver
     }
     let factory: SpawnerFactory =
         Arc::new(|| Arc::new(MinimalStallSpawner) as Arc<dyn ChildSpawner>);
-    let recorder: Arc<dyn SessionsRecorder> = Arc::new(NoopSessionsRecorder);
     let registry = Arc::new(WorkspaceRegistry::new_for_test());
     let cancel = CancellationToken::new();
     let (sup, register_rx) = AgentSupervisor::new(
