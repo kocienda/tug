@@ -236,19 +236,26 @@ pub(crate) fn resolve_changes(opts: &ChangesOptions) -> Result<ResolvedChanges, 
         .as_ref()
         .map(|c| ledger::session_exists(c, &session).unwrap_or(false))
         .unwrap_or(false);
-    let known = sessions_known || ledger::session_has_events(&conn, &session)?;
+    // The self set is the whole **line** of work ([P01]): `$TUG_SESSION_ID`
+    // is frozen in the agent's environment at spawn, so after an id rotation
+    // (relaunch-resume, rewind-fork) it names an older segment — the rows
+    // written under every segment of the same line are still this session's.
+    // With no sessions.db (or a pre-lines one), the set is the bare id.
+    let mut selves: Vec<String> = vec![session.clone()];
+    if let Some(sessions) = sessions_conn.as_ref() {
+        for id in ledger::line_segments(sessions, &session) {
+            if !selves.contains(&id) {
+                selves.push(id);
+            }
+        }
+    }
+    let known = sessions_known || ledger::session_has_events(&conn, &selves)?;
 
     let Buckets {
         mut attributed,
         mut unattributed,
         mut foreign,
-    } = compute_changes(
-        &conn,
-        sessions_conn.as_ref(),
-        &repo_root,
-        &session,
-        opts.all,
-    )?;
+    } = compute_changes(&conn, sessions_conn.as_ref(), &repo_root, &selves, opts.all)?;
 
     // Exit-2 session resolution is unchanged and fires before the buckets are
     // trusted: an unknown id (no rows anywhere, no `sessions` row) is a
@@ -326,7 +333,7 @@ fn paths_contend(
     sessions_conn: Option<&Connection>,
     repo_root: &Path,
     path: &str,
-    session: &str,
+    selves: &[String],
     foreign: &[String],
     min_live: i64,
 ) -> Result<bool, String> {
@@ -376,14 +383,27 @@ fn paths_contend(
         }
         None => HashMap::new(),
     };
-    let owners: Vec<contention::OwnerAnchors> = std::iter::once(session)
-        .chain(foreign.iter().map(String::as_str))
-        .map(|id| contention::OwnerAnchors {
-            session: id.to_owned(),
-            anchors: by_session.get(id).cloned().unwrap_or_default(),
-            live: id == session || states.get(id).copied().unwrap_or(true),
-        })
+    // The asking line is ONE owner: its segments' anchors pool under the
+    // incoming id, so evidence written before an id rotation still narrows
+    // the same conversation's claim ([P01]).
+    let self_id = selves.first().map(String::as_str).unwrap_or_default();
+    let self_anchors: Vec<contention::Anchor> = selves
+        .iter()
+        .filter_map(|id| by_session.get(id.as_str()))
+        .flatten()
+        .cloned()
         .collect();
+    let owners: Vec<contention::OwnerAnchors> = std::iter::once(contention::OwnerAnchors {
+        session: self_id.to_owned(),
+        anchors: self_anchors,
+        live: true,
+    })
+    .chain(foreign.iter().map(|id| contention::OwnerAnchors {
+        session: id.clone(),
+        anchors: by_session.get(id.as_str()).cloned().unwrap_or_default(),
+        live: states.get(id.as_str()).copied().unwrap_or(true),
+    }))
+    .collect();
     // The strong test a `WholeFile` anchor answers. Unreadable answers
     // nothing, which widens.
     let current_file_hash = std::fs::read_to_string(repo_root.join(path))
@@ -396,10 +416,10 @@ fn compute_changes(
     conn: &Connection,
     sessions_conn: Option<&Connection>,
     repo_root: &Path,
-    session: &str,
+    selves: &[String],
     all: bool,
 ) -> Result<Buckets, String> {
-    let events = ledger::query_events(conn, session)?;
+    let events = ledger::query_events(conn, selves)?;
     let status = git::parse_status_porcelain_v2(&status_output(repo_root));
     let status_map = status.v1_status_map();
     // A renamed path's former name, straight from git. Rows earned under the
@@ -441,9 +461,9 @@ fn compute_changes(
         // runs only when some row actually claims the path.
         let has_any_claim = !self_events.is_empty()
             || !orig_events.is_empty()
-            || !ledger::sessions_for_path(conn, path, session)?.is_empty()
+            || !ledger::sessions_for_path(conn, path, selves)?.is_empty()
             || match orig {
-                Some(o) => !ledger::sessions_for_path(conn, o, session)?.is_empty(),
+                Some(o) => !ledger::sessions_for_path(conn, o, selves)?.is_empty(),
                 None => false,
             };
         if !has_any_claim {
@@ -455,7 +475,7 @@ fn compute_changes(
         let mut live_self: Vec<&ledger::EventRow> =
             self_events.iter().filter(|ev| ev.at >= min_live).collect();
         let mut foreign_proof =
-            ledger::foreign_proof_sessions_for_path(conn, path, session, repo_root, min_live)?;
+            ledger::foreign_proof_sessions_for_path(conn, path, selves, repo_root, min_live)?;
         if let Some(o) = orig {
             // Each name carries its own liveness cut — the old name's history
             // ends where the file stopped being called that.
@@ -463,7 +483,7 @@ fn compute_changes(
             live_self.extend(orig_events.iter().filter(|ev| ev.at >= min_live_orig));
             live_self.sort_by_key(|ev| ev.at);
             for claimant in
-                ledger::foreign_proof_sessions_for_path(conn, o, session, repo_root, min_live_orig)?
+                ledger::foreign_proof_sessions_for_path(conn, o, selves, repo_root, min_live_orig)?
             {
                 if !foreign_proof.contains(&claimant) {
                     foreign_proof.push(claimant);
@@ -485,7 +505,7 @@ fn compute_changes(
                     sessions_conn,
                     repo_root,
                     path,
-                    session,
+                    selves,
                     &foreign_proof,
                     min_live,
                 )?;
@@ -723,14 +743,14 @@ mod tests {
         let db = seed_db("s1", &events);
         let conn = ledger::open_readonly(&db.path().join("sessions.db")).unwrap();
 
-        let buckets = compute_changes(&conn, None, root, "s1", false).unwrap();
+        let buckets = compute_changes(&conn, None, root, &["s1".to_owned()], false).unwrap();
         let files = buckets.attributed;
         assert_eq!(files.len(), 1);
         assert_eq!(files[0].path, "dirty.rs");
         assert_eq!(files[0].op, "write");
         assert_eq!(files[0].git_status, "??");
 
-        let all_files = compute_changes(&conn, None, root, "s1", true)
+        let all_files = compute_changes(&conn, None, root, &["s1".to_owned()], true)
             .unwrap()
             .attributed;
         let paths: Vec<&str> = all_files.iter().map(|f| f.path.as_str()).collect();
@@ -752,7 +772,7 @@ mod tests {
         )];
         let db = seed_db("s1", &events);
         let conn = ledger::open_readonly(&db.path().join("sessions.db")).unwrap();
-        let files = compute_changes(&conn, None, root, "s1", false)
+        let files = compute_changes(&conn, None, root, &["s1".to_owned()], false)
             .unwrap()
             .attributed;
         assert_eq!(files.len(), 1);
@@ -792,7 +812,7 @@ mod tests {
         )];
         let db = seed_db("s1", &events);
         let conn = ledger::open_readonly(&db.path().join("sessions.db")).unwrap();
-        let files = compute_changes(&conn, None, root, "s1", false)
+        let files = compute_changes(&conn, None, root, &["s1".to_owned()], false)
             .unwrap()
             .attributed;
         assert_eq!(files.len(), 1);
@@ -821,7 +841,7 @@ mod tests {
         )];
         let db = seed_db("s1", &events);
         let conn = ledger::open_readonly(&db.path().join("sessions.db")).unwrap();
-        let buckets = compute_changes(&conn, None, root, "s1", false).unwrap();
+        let buckets = compute_changes(&conn, None, root, &["s1".to_owned()], false).unwrap();
         assert!(
             buckets.attributed.is_empty(),
             "the spent row does not attribute"
@@ -842,13 +862,14 @@ mod tests {
         let conn = ledger::open_readonly(&db_path).unwrap();
 
         assert!(!ledger::session_exists(&conn, "ghost").unwrap());
-        assert!(!ledger::session_has_events(&conn, "ghost").unwrap());
-        let ghost = compute_changes(&conn, None, repo.path(), "ghost", false).unwrap();
+        assert!(!ledger::session_has_events(&conn, &["ghost".to_owned()]).unwrap());
+        let ghost =
+            compute_changes(&conn, None, repo.path(), &["ghost".to_owned()], false).unwrap();
         assert!(ghost.attributed.is_empty());
 
         // Valid session: known via its `sessions` row AND via its rows.
         assert!(ledger::session_exists(&conn, "s1").unwrap());
-        assert!(ledger::session_has_events(&conn, "s1").unwrap());
+        assert!(ledger::session_has_events(&conn, &["s1".to_owned()]).unwrap());
     }
 
     /// Contract test (R04): a hand-built `sessions.db` with today's schema
@@ -877,7 +898,7 @@ mod tests {
         ];
         let db = seed_db("s1", &events);
         let conn = ledger::open_readonly(&db.path().join("sessions.db")).unwrap();
-        let buckets = compute_changes(&conn, None, root, "s1", false).unwrap();
+        let buckets = compute_changes(&conn, None, root, &["s1".to_owned()], false).unwrap();
         assert_eq!(buckets.attributed.len(), 1);
         assert_eq!(buckets.attributed[0].path, "a.rs");
         let hinted = buckets
@@ -906,7 +927,7 @@ mod tests {
         ];
         let db = seed_db("s1", &events);
         let conn = ledger::open_readonly(&db.path().join("sessions.db")).unwrap();
-        let files = compute_changes(&conn, None, root, "s1", false)
+        let files = compute_changes(&conn, None, root, &["s1".to_owned()], false)
             .unwrap()
             .attributed;
         assert_eq!(files.len(), 1);
@@ -1033,7 +1054,7 @@ mod tests {
         // The session proof-edited the file before moving it: no row names
         // `moved.rs` at all.
         let db = seed_sessions_origin_at(&[("me", "tracked.rs", "exact", &rootstr, just_now_ms())]);
-        let buckets = compute_changes(&open(&db), None, root, "me", false).unwrap();
+        let buckets = compute_changes(&open(&db), None, root, &["me".to_owned()], false).unwrap();
 
         assert!(
             buckets.unattributed.is_empty(),
@@ -1052,7 +1073,7 @@ mod tests {
         let rootstr = root.to_string_lossy().into_owned();
         let db =
             seed_sessions_origin_at(&[("theirs", "tracked.rs", "exact", &rootstr, just_now_ms())]);
-        let buckets = compute_changes(&open(&db), None, root, "me", false).unwrap();
+        let buckets = compute_changes(&open(&db), None, root, &["me".to_owned()], false).unwrap();
 
         assert!(buckets.attributed.is_empty());
         assert_eq!(buckets.foreign.len(), 1);
@@ -1069,7 +1090,7 @@ mod tests {
         let root = repo.path();
         let rootstr = root.to_string_lossy().into_owned();
         let db = seed_sessions_origin_at(&[("me", "tracked.rs", "exact", &rootstr, 1)]);
-        let buckets = compute_changes(&open(&db), None, root, "me", false).unwrap();
+        let buckets = compute_changes(&open(&db), None, root, &["me".to_owned()], false).unwrap();
 
         assert!(
             buckets.attributed.is_empty(),
@@ -1123,7 +1144,7 @@ mod tests {
         // `mine` exists but only touched a non-dirty file, so it has no claim on
         // the dirty `orphan.rs`.
         let db = seed_sessions(&[("mine", "clean.rs", &rootstr)]);
-        let buckets = compute_changes(&open(&db), None, root, "mine", false).unwrap();
+        let buckets = compute_changes(&open(&db), None, root, &["mine".to_owned()], false).unwrap();
 
         assert!(buckets.attributed.is_empty());
         assert!(buckets.foreign.is_empty());
@@ -1144,7 +1165,7 @@ mod tests {
             ("mine", "clean.rs", &rootstr),
             ("theirs", "shared.rs", &rootstr),
         ]);
-        let buckets = compute_changes(&open(&db), None, root, "mine", false).unwrap();
+        let buckets = compute_changes(&open(&db), None, root, &["mine".to_owned()], false).unwrap();
 
         assert!(buckets.attributed.is_empty());
         assert!(buckets.unattributed.is_empty());
@@ -1167,7 +1188,7 @@ mod tests {
             ("mine", "mine.rs", &rootstr),
             ("theirs", "theirs.rs", &rootstr),
         ]);
-        let buckets = compute_changes(&open(&db), None, root, "mine", false).unwrap();
+        let buckets = compute_changes(&open(&db), None, root, &["mine".to_owned()], false).unwrap();
 
         let report = ChangesReport::from_resolved(ResolvedChanges {
             session: "mine".to_string(),
@@ -1212,7 +1233,7 @@ mod tests {
             ("mine", "shared.rs", &rootstr),
             ("theirs", "shared.rs", &rootstr),
         ]);
-        let buckets = compute_changes(&open(&db), None, root, "mine", false).unwrap();
+        let buckets = compute_changes(&open(&db), None, root, &["mine".to_owned()], false).unwrap();
 
         assert_eq!(buckets.attributed.len(), 1);
         let mine = &buckets.attributed[0];
@@ -1323,7 +1344,8 @@ mod tests {
             &[("mine", "TOP-EDIT"), ("theirs", "BOTTOM-EDIT")],
         );
 
-        let mine = compute_changes(&open(&db), None, repo.path(), "mine", false).unwrap();
+        let mine =
+            compute_changes(&open(&db), None, repo.path(), &["mine".to_owned()], false).unwrap();
         assert_eq!(mine.attributed.len(), 1);
         assert!(
             !mine.attributed[0].shared,
@@ -1336,7 +1358,8 @@ mod tests {
         );
 
         // The same read from the other side — the verdict is symmetric.
-        let theirs = compute_changes(&open(&db), None, repo.path(), "theirs", false).unwrap();
+        let theirs =
+            compute_changes(&open(&db), None, repo.path(), &["theirs".to_owned()], false).unwrap();
         assert_eq!(theirs.attributed.len(), 1);
         assert!(!theirs.attributed[0].shared);
     }
@@ -1382,7 +1405,8 @@ mod tests {
             )
             .unwrap();
         }
-        let mine = compute_changes(&open(&db), None, repo.path(), "mine", false).unwrap();
+        let mine =
+            compute_changes(&open(&db), None, repo.path(), &["mine".to_owned()], false).unwrap();
         assert_eq!(mine.attributed.len(), 1);
         assert!(
             !mine.attributed[0].shared,
@@ -1398,7 +1422,8 @@ mod tests {
             "both.rs",
             &[("mine", "TOP-EDIT"), ("theirs", "TOP-EDIT")],
         );
-        let mine = compute_changes(&open(&db), None, repo.path(), "mine", false).unwrap();
+        let mine =
+            compute_changes(&open(&db), None, repo.path(), &["mine".to_owned()], false).unwrap();
         assert_eq!(mine.attributed.len(), 1);
         assert!(mine.attributed[0].shared, "one region, two owners");
     }
@@ -1434,8 +1459,14 @@ mod tests {
     fn a_dead_co_owner_whose_evidence_places_nowhere_retires() {
         let (repo, rootstr) = init_two_region_repo();
         let db = seed_ghost_co_owner(&rootstr, "closed");
-        let mine =
-            compute_changes(&open(&db), Some(&open(&db)), repo.path(), "mine", false).unwrap();
+        let mine = compute_changes(
+            &open(&db),
+            Some(&open(&db)),
+            repo.path(),
+            &["mine".to_owned()],
+            false,
+        )
+        .unwrap();
         assert_eq!(mine.attributed.len(), 1);
         assert!(!mine.attributed[0].shared, "the ghost claim retired");
     }
@@ -1446,8 +1477,14 @@ mod tests {
     fn the_same_co_owner_still_running_keeps_the_file_shared() {
         let (repo, rootstr) = init_two_region_repo();
         let db = seed_ghost_co_owner(&rootstr, "live");
-        let mine =
-            compute_changes(&open(&db), Some(&open(&db)), repo.path(), "mine", false).unwrap();
+        let mine = compute_changes(
+            &open(&db),
+            Some(&open(&db)),
+            repo.path(),
+            &["mine".to_owned()],
+            false,
+        )
+        .unwrap();
         assert!(mine.attributed[0].shared, "a live session may be mid-work");
     }
 
@@ -1457,7 +1494,8 @@ mod tests {
     fn with_no_sessions_db_every_owner_stays_live() {
         let (repo, rootstr) = init_two_region_repo();
         let db = seed_ghost_co_owner(&rootstr, "closed");
-        let mine = compute_changes(&open(&db), None, repo.path(), "mine", false).unwrap();
+        let mine =
+            compute_changes(&open(&db), None, repo.path(), &["mine".to_owned()], false).unwrap();
         assert!(
             mine.attributed[0].shared,
             "unconsulted liveness must not retire anything"
@@ -1483,7 +1521,8 @@ mod tests {
             )
             .unwrap();
         }
-        let mine = compute_changes(&open(&db), None, repo.path(), "mine", false).unwrap();
+        let mine =
+            compute_changes(&open(&db), None, repo.path(), &["mine".to_owned()], false).unwrap();
         assert_eq!(mine.attributed.len(), 1);
         assert!(
             mine.attributed[0].shared,
@@ -1505,7 +1544,7 @@ mod tests {
             ("me", "mine.rs", "exact", &rootstr),
             ("bracketer", "mine.rs", "bash", &rootstr),
         ]);
-        let buckets = compute_changes(&open(&db), None, root, "me", false).unwrap();
+        let buckets = compute_changes(&open(&db), None, root, &["me".to_owned()], false).unwrap();
 
         assert_eq!(buckets.attributed.len(), 1);
         let mine = &buckets.attributed[0];
@@ -1529,7 +1568,7 @@ mod tests {
             ("owner", "theirs.rs", "exact", &rootstr),
             ("me", "theirs.rs", "turn", &rootstr),
         ]);
-        let buckets = compute_changes(&open(&db), None, root, "me", false).unwrap();
+        let buckets = compute_changes(&open(&db), None, root, &["me".to_owned()], false).unwrap();
 
         assert!(
             buckets.attributed.is_empty(),
@@ -1555,7 +1594,7 @@ mod tests {
         let root = repo.path();
         let rootstr = root.to_string_lossy().into_owned();
         let db = seed_sessions_origin(&[("me", "sed.rs", "bash", &rootstr)]);
-        let buckets = compute_changes(&open(&db), None, root, "me", false).unwrap();
+        let buckets = compute_changes(&open(&db), None, root, &["me".to_owned()], false).unwrap();
 
         assert!(
             buckets.attributed.is_empty(),
@@ -1582,7 +1621,7 @@ mod tests {
             ("me", "sed.rs", "bash", &rootstr),
             ("me", "sed.rs", "claim", &rootstr),
         ]);
-        let buckets = compute_changes(&open(&db), None, root, "me", false).unwrap();
+        let buckets = compute_changes(&open(&db), None, root, &["me".to_owned()], false).unwrap();
 
         assert!(buckets.unattributed.is_empty(), "the claim clears the hint");
         assert!(buckets.foreign.is_empty());
@@ -1601,7 +1640,7 @@ mod tests {
         let root = repo.path();
         let rootstr = root.to_string_lossy().into_owned();
         let db = seed_sessions_origin(&[("me", "resumed.rs", "replay", &rootstr)]);
-        let buckets = compute_changes(&open(&db), None, root, "me", false).unwrap();
+        let buckets = compute_changes(&open(&db), None, root, &["me".to_owned()], false).unwrap();
 
         assert_eq!(buckets.attributed.len(), 1);
         assert_eq!(buckets.attributed[0].path, "resumed.rs");
@@ -1617,12 +1656,12 @@ mod tests {
         let root = repo.path();
         let rootstr = root.to_string_lossy().into_owned();
         let db = seed_sessions_origin(&[("me", "named.rs", "cmd", &rootstr)]);
-        let buckets = compute_changes(&open(&db), None, root, "me", false).unwrap();
+        let buckets = compute_changes(&open(&db), None, root, &["me".to_owned()], false).unwrap();
         assert_eq!(buckets.attributed.len(), 1);
         assert_eq!(buckets.attributed[0].path, "named.rs");
         assert_eq!(buckets.attributed[0].origin, "cmd");
 
-        let theirs = compute_changes(&open(&db), None, root, "other", false).unwrap();
+        let theirs = compute_changes(&open(&db), None, root, &["other".to_owned()], false).unwrap();
         assert!(theirs.attributed.is_empty());
         assert_eq!(theirs.foreign.len(), 1, "a cmd row owns the path");
         assert_eq!(theirs.foreign[0].sessions, vec!["me".to_string()]);
@@ -1640,7 +1679,7 @@ mod tests {
             ("me", "unrelated.rs", "exact", &rootstr),
             ("bracketer", "churn.rs", "bash", &rootstr),
         ]);
-        let buckets = compute_changes(&open(&db), None, root, "me", false).unwrap();
+        let buckets = compute_changes(&open(&db), None, root, &["me".to_owned()], false).unwrap();
 
         assert!(buckets.foreign.is_empty(), "bracket-only is never foreign");
         assert_eq!(buckets.unattributed.len(), 1);
@@ -1659,7 +1698,7 @@ mod tests {
         // plain porcelain would collapse to `newdir/` and the row would match
         // nothing).
         let db = seed_sessions(&[("mine", "newdir/inner.rs", &rootstr)]);
-        let attributed = compute_changes(&open(&db), None, root, "mine", false)
+        let attributed = compute_changes(&open(&db), None, root, &["mine".to_owned()], false)
             .unwrap()
             .attributed;
         assert_eq!(attributed.len(), 1);
@@ -1668,7 +1707,7 @@ mod tests {
 
         // No row → unattributed listing the file path, never `newdir/`.
         let db2 = seed_sessions(&[("mine", "clean.rs", &rootstr)]);
-        let unattributed = compute_changes(&open(&db2), None, root, "mine", false)
+        let unattributed = compute_changes(&open(&db2), None, root, &["mine".to_owned()], false)
             .unwrap()
             .unattributed;
         let paths: Vec<&str> = unattributed.iter().map(|c| c.path.as_str()).collect();
@@ -1682,7 +1721,7 @@ mod tests {
         let root = repo.path();
         let rootstr = root.to_string_lossy().into_owned();
         let db = seed_sessions(&[("mine", "clean.rs", &rootstr)]);
-        let buckets = compute_changes(&open(&db), None, root, "mine", false).unwrap();
+        let buckets = compute_changes(&open(&db), None, root, &["mine".to_owned()], false).unwrap();
         assert_eq!(buckets.unattributed.len(), 1);
         let u = &buckets.unattributed[0];
         let diff = file_diff(root, &u.path, &u.git_status);

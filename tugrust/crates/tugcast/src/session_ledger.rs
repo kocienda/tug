@@ -167,13 +167,25 @@ pub const USER_PROMPT_MAX_CHARS: usize = 256;
 /// an individual instance must never reshape the machine-global schema on
 /// its own ([D112]). Builds seeing a *newer* on-disk version refuse to
 /// write the shared tables entirely.
-pub const CHANGES_SCHEMA_VERSION: i64 = 2;
+pub const CHANGES_SCHEMA_VERSION: i64 = 3;
 
 /// Registered, human-approved migrations for the shared changes schema:
 /// `(from_version, sql)` applied in order to reach `from_version + 1`.
 /// Version 1 was the first stamped shape; version 2 adds the additive
-/// `file_event_spans` child table ([P10]) and touches nothing existing.
-const CHANGES_MIGRATIONS: &[(i64, &str)] = &[(1, CREATE_FILE_EVENT_SPANS_SQL)];
+/// `file_event_spans` child table ([P10]) and touches nothing existing;
+/// version 3 adds the nullable `file_events.line_id` column ([P01]) —
+/// stamped at write time, so a row stays attributed to its line of work
+/// even after the `sessions` row it would have joined through is evicted
+/// or lives in another instance's ledger ([Q01]).
+const CHANGES_MIGRATIONS: &[(i64, &str)] = &[
+    (1, CREATE_FILE_EVENT_SPANS_SQL),
+    (2, ADD_FILE_EVENTS_LINE_ID_SQL),
+];
+
+/// The v2→v3 column add, in one place with the conditional bootstrap arm
+/// that covers pre-versioning databases.
+const ADD_FILE_EVENTS_LINE_ID_SQL: &str =
+    "ALTER TABLE changes.file_events ADD COLUMN line_id TEXT;";
 
 /// The `file_event_spans` DDL, in one place: the v1→v2 migration and the
 /// idempotent bootstrap block both run it, so a migrated database and a
@@ -719,6 +731,19 @@ pub struct LineRow {
     pub last_used_at: i64,
 }
 
+/// One line's ownership shape ([P01]) — the answer to "who is this body of
+/// work, across every id it has worn". `seat_id` is the segment that
+/// answers for the line now (the same segment [`SessionLedger::
+/// resume_segment_for_line`] would seat a card on); `segment_ids` is every
+/// segment, resume-ordered; `any_live` is whether any of them has a live
+/// relay.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LineOwnership {
+    pub seat_id: String,
+    pub segment_ids: Vec<String>,
+    pub any_live: bool,
+}
+
 /// The scan-derived pair a `session_updated` push carries — the on-disk size
 /// and the segmentation engine's turn count for one session. Read by
 /// [`SessionLedger::scan_metrics_for`]; see its doc for why a push needs both.
@@ -802,6 +827,11 @@ pub struct ProjectFileEvent {
     /// The owning session's callsign, or `None` for a legacy tagless row.
     pub owner_tag: Option<String>,
     pub owner_live: bool,
+    /// The line of work the owning session belongs to ([P01]): the row's
+    /// own write-time stamp first, the sessions join as the legacy
+    /// fallback. `None` for a row no line ever claimed — the compose keys
+    /// such an owner by its raw session id.
+    pub line_id: Option<String>,
 }
 
 /// One legacy-row rewrite for [`SessionLedger::backfill_file_events_repo_relative`]:
@@ -1240,12 +1270,24 @@ impl SessionLedger {
                 project_dir,
                 paths,
                 keep_session,
-            } => Self::sever_file_ownership_sql(conn, project_dir, paths, keep_session)?,
+                keep_sessions,
+            } => {
+                let mut keep = Vec::with_capacity(1 + keep_sessions.len());
+                keep.push(keep_session.clone());
+                keep.extend(keep_sessions.iter().cloned());
+                Self::sever_file_ownership_sql(conn, project_dir, paths, &keep)?
+            }
             Record::Disclaim {
                 project_dir,
                 paths,
                 session,
-            } => Self::disclaim_file_ownership_sql(conn, project_dir, paths, session)?,
+                sessions,
+            } => {
+                let mut renouncing = Vec::with_capacity(1 + sessions.len());
+                renouncing.push(session.clone());
+                renouncing.extend(sessions.iter().cloned());
+                Self::disclaim_file_ownership_sql(conn, project_dir, paths, &renouncing)?
+            }
             Record::PurgeOutOfRepo { keys, .. } => Self::purge_file_events_sql(conn, keys)?,
             Record::Rewrite {
                 canonical_project_dir,
@@ -2317,7 +2359,16 @@ impl SessionLedger {
         if on_disk > 0 && on_disk < CHANGES_SCHEMA_VERSION {
             for (from, sql) in CHANGES_MIGRATIONS {
                 if *from >= on_disk {
-                    conn.execute_batch(sql)?;
+                    // A crash between a migration's DDL and the version
+                    // stamp re-runs the migration on the next open; an
+                    // `ALTER TABLE … ADD COLUMN` is not idempotent the way
+                    // `CREATE TABLE IF NOT EXISTS` is, so the one error
+                    // that means "already applied" is absorbed.
+                    if let Err(err) = conn.execute_batch(sql) {
+                        if !err.to_string().contains("duplicate column name") {
+                            return Err(err.into());
+                        }
+                    }
                 }
             }
         }
@@ -2358,6 +2409,12 @@ impl SessionLedger {
                 parent_tool_use_id  TEXT,
                 project_dir         TEXT NOT NULL,
                 at                  INTEGER NOT NULL,
+                -- The line of work the writing session belonged to ([P01]),
+                -- stamped at write time from the writer's `sessions` row.
+                -- First-choice owner key at read time; the sessions join is
+                -- the fallback for rows written before v3 (or by a session
+                -- the writer's ledger had never seen, where it is NULL).
+                line_id             TEXT,
                 PRIMARY KEY (tug_session_id, tool_use_id, file_path)
             );
 
@@ -2382,6 +2439,20 @@ impl SessionLedger {
             ",
         )?;
         conn.execute_batch(CREATE_FILE_EVENT_SPANS_SQL)?;
+        // A pre-versioning database (version 0 with the table already on
+        // disk) takes no registered migration above, and `CREATE TABLE IF
+        // NOT EXISTS` leaves its shape alone — so the v3 column add runs
+        // conditionally here, the one shape it could still be missing.
+        let has_line_id = {
+            let mut stmt = conn.prepare("PRAGMA changes.table_info(file_events)")?;
+            let cols = stmt
+                .query_map([], |row| row.get::<_, String>(1))?
+                .collect::<Result<Vec<_>, _>>()?;
+            cols.iter().any(|name| name == "line_id")
+        };
+        if !has_line_id {
+            conn.execute_batch(ADD_FILE_EVENTS_LINE_ID_SQL)?;
+        }
         conn.pragma_update(
             Some(rusqlite::DatabaseName::Attached("changes")),
             "user_version",
@@ -3996,6 +4067,45 @@ impl SessionLedger {
             Some(r) => Ok(Some(r?)),
             None => Ok(None),
         }
+    }
+
+    /// A line's ownership shape ([P01]): every segment id it has worn, the
+    /// segment that answers for it now, and whether any segment is live.
+    ///
+    /// This is what lets attribution treat a rotated id as the same body of
+    /// work: the compose groups `file_events` owners by line through it, and
+    /// the claim/disclaim verbs expand one incoming segment id to the whole
+    /// set. `None` for a line no `sessions` row wears (every segment
+    /// evicted) — the caller falls back to the raw id it was asked about.
+    pub fn line_ownership(&self, line_id: &str) -> Result<Option<LineOwnership>, LedgerError> {
+        let conn = self.db.lock().expect("ledger mutex");
+        let mut stmt = conn.prepare(&format!(
+            "SELECT s.session_id, s.state FROM sessions s
+             WHERE s.line_id = ?1
+             {RESUME_SEGMENT_ORDER}"
+        ))?;
+        let segments: Vec<(String, String)> = stmt
+            .query_map(params![line_id], |row| Ok((row.get(0)?, row.get(1)?)))?
+            .collect::<Result<Vec<_>, _>>()?;
+        if segments.is_empty() {
+            return Ok(None);
+        }
+        // The seat is the first non-failed segment in resume order — the
+        // same answer `resume_segment_for_line` gives — with a failed-only
+        // line degrading to its ordered head rather than to nothing: the
+        // ownership expansion still needs an id to write and judge under.
+        let seat_id = segments
+            .iter()
+            .find(|(_, state)| state != "failed")
+            .unwrap_or(&segments[0])
+            .0
+            .clone();
+        let any_live = segments.iter().any(|(_, state)| state == "live");
+        Ok(Some(LineOwnership {
+            seat_id,
+            segment_ids: segments.into_iter().map(|(id, _)| id).collect(),
+            any_live,
+        }))
     }
 
     /// The turns the whole line has taken, summed across its segments.
@@ -5804,13 +5914,20 @@ impl SessionLedger {
     }
 
     /// The bare insert — shared by the live path and journal replay.
+    ///
+    /// `line_id` is stamped from the applying instance's own tables at
+    /// write time ([P01]) — the row's `FileEventRow` shape is untouched, so
+    /// every journal line ever written replays unchanged. NULL when the
+    /// writing session belongs to no line this ledger knows, which the read
+    /// side's sessions-join fallback absorbs.
     fn insert_file_event(conn: &Connection, row: &FileEventRow) -> Result<usize, LedgerError> {
+        let line_id = line_of_in(conn, &row.tug_session_id);
         Ok(conn.execute(
             "INSERT INTO changes.file_events (
                 tug_session_id, tool_use_id, file_path,
                 tool_name, op, origin, ambiguous,
-                parent_tool_use_id, project_dir, at
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+                parent_tool_use_id, project_dir, at, line_id
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
              ON CONFLICT (tug_session_id, tool_use_id, file_path) DO NOTHING",
             params![
                 row.tug_session_id,
@@ -5823,6 +5940,7 @@ impl SessionLedger {
                 row.parent_tool_use_id,
                 row.project_dir,
                 row.at,
+                line_id,
             ],
         )?)
     }
@@ -5959,26 +6077,30 @@ impl SessionLedger {
         Ok(conn.execute(&sql, params)?)
     }
 
-    /// Sever every other session's ownership of the given repo-relative paths
+    /// Sever every other owner's hold on the given repo-relative paths
     /// under `project_dir`: delete `file_events` rows for those paths whose
-    /// `tug_session_id` is not `keep_session_id`. The counterpart to a claim
-    /// ([D120]) — when a live session claims an orphan, the dead originator's
-    /// rows are removed so re-opening it can't silently re-own the file. The
-    /// claimant's own rows (the fresh `claim` proof row) are preserved. Returns
-    /// the number of rows deleted. A no-op for an empty `paths`.
+    /// `tug_session_id` is not in `keep_session_ids`. The counterpart to a
+    /// claim ([D120]) — when a live session claims an orphan, the dead
+    /// originator's rows are removed so re-opening it can't silently re-own
+    /// the file. `keep_session_ids` is the claimant's whole **line** of
+    /// segment ids ([P01]), seat first, so a claim never severs the
+    /// claimant's own rows written under an id it has since rotated away
+    /// from. Returns the number of rows deleted. A no-op for an empty
+    /// `paths` or an empty keep set.
     pub fn sever_file_ownership_except(
         &self,
         project_dir: &str,
         paths: &[String],
-        keep_session_id: &str,
+        keep_session_ids: &[String],
     ) -> Result<usize, LedgerError> {
-        if paths.is_empty() {
+        if paths.is_empty() || keep_session_ids.is_empty() {
             return Ok(0);
         }
         self.write_change(crate::changes_journal::Record::Sever {
             project_dir: project_dir.to_string(),
             paths: paths.to_vec(),
-            keep_session: keep_session_id.to_string(),
+            keep_session: keep_session_ids[0].clone(),
+            keep_sessions: keep_session_ids[1..].to_vec(),
         })
     }
 
@@ -6012,22 +6134,32 @@ impl SessionLedger {
         conn: &Connection,
         project_dir: &str,
         paths: &[String],
-        keep_session_id: &str,
+        keep_session_ids: &[String],
     ) -> Result<usize, LedgerError> {
         let spellings = Self::file_path_spellings(project_dir, paths);
-        // Numbered explicitly from ?3. Mixing anonymous `?` in after `?1`/`?2`
-        // is correct — SQLite numbers an anonymous parameter one past the
-        // highest assigned — but correct by a rule nobody reading it recalls.
-        let placeholders = (3..3 + spellings.len())
+        // Numbered explicitly: ?1 is the project, the keep set takes
+        // ?2.., the path spellings follow. Mixing anonymous `?` in after
+        // numbered parameters is correct — SQLite numbers an anonymous
+        // parameter one past the highest assigned — but correct by a rule
+        // nobody reading it recalls.
+        let keep_placeholders = (2..2 + keep_session_ids.len())
+            .map(|n| format!("?{n}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let first_path = 2 + keep_session_ids.len();
+        let path_placeholders = (first_path..first_path + spellings.len())
             .map(|n| format!("?{n}"))
             .collect::<Vec<_>>()
             .join(", ");
         let predicate = format!(
             "project_dir = ?1
-               AND tug_session_id != ?2
-               AND file_path IN ({placeholders})"
+               AND tug_session_id NOT IN ({keep_placeholders})
+               AND file_path IN ({path_placeholders})"
         );
-        let mut params: Vec<&dyn rusqlite::ToSql> = vec![&project_dir, &keep_session_id];
+        let mut params: Vec<&dyn rusqlite::ToSql> = vec![&project_dir];
+        for id in keep_session_ids {
+            params.push(id);
+        }
         for p in &spellings {
             params.push(p);
         }
@@ -6038,26 +6170,30 @@ impl SessionLedger {
         )?)
     }
 
-    /// Renounce one session's ownership of the given repo-relative paths under
-    /// `project_dir`: delete every `file_events` row of `session_id` for those
-    /// paths — proof and bracket alike, so the session's own hint rows can't go
-    /// on saying `likely` about a file it just gave up. The inverse of a claim:
-    /// another live owner becomes sole owner, and with no other owner the file
-    /// degrades to unattributed. Returns the number of rows deleted. A no-op
-    /// for an empty `paths`.
+    /// Renounce an owner's hold on the given repo-relative paths under
+    /// `project_dir`: delete every `file_events` row of `session_ids` for
+    /// those paths — proof and bracket alike, so the owner's own hint rows
+    /// can't go on saying `likely` about a file it just gave up.
+    /// `session_ids` is the renouncing **line's** whole segment set ([P01]),
+    /// so the file leaves the line of work entirely rather than just its
+    /// current id. The inverse of a claim: another live owner becomes sole
+    /// owner, and with no other owner the file degrades to unattributed.
+    /// Returns the number of rows deleted. A no-op for empty `paths` or an
+    /// empty owner set.
     pub fn disclaim_file_ownership(
         &self,
         project_dir: &str,
         paths: &[String],
-        session_id: &str,
+        session_ids: &[String],
     ) -> Result<usize, LedgerError> {
-        if paths.is_empty() {
+        if paths.is_empty() || session_ids.is_empty() {
             return Ok(0);
         }
         self.write_change(crate::changes_journal::Record::Disclaim {
             project_dir: project_dir.to_string(),
             paths: paths.to_vec(),
-            session: session_id.to_string(),
+            session: session_ids[0].clone(),
+            sessions: session_ids[1..].to_vec(),
         })
     }
 
@@ -6066,19 +6202,27 @@ impl SessionLedger {
         conn: &Connection,
         project_dir: &str,
         paths: &[String],
-        session_id: &str,
+        session_ids: &[String],
     ) -> Result<usize, LedgerError> {
         let spellings = Self::file_path_spellings(project_dir, paths);
-        let placeholders = (3..3 + spellings.len())
+        let id_placeholders = (2..2 + session_ids.len())
+            .map(|n| format!("?{n}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let first_path = 2 + session_ids.len();
+        let path_placeholders = (first_path..first_path + spellings.len())
             .map(|n| format!("?{n}"))
             .collect::<Vec<_>>()
             .join(", ");
         let predicate = format!(
             "project_dir = ?1
-               AND tug_session_id = ?2
-               AND file_path IN ({placeholders})"
+               AND tug_session_id IN ({id_placeholders})
+               AND file_path IN ({path_placeholders})"
         );
-        let mut params: Vec<&dyn rusqlite::ToSql> = vec![&project_dir, &session_id];
+        let mut params: Vec<&dyn rusqlite::ToSql> = vec![&project_dir];
+        for id in session_ids {
+            params.push(id);
+        }
         for p in &spellings {
             params.push(p);
         }
@@ -6680,19 +6824,42 @@ impl SessionLedger {
         project_dir: &str,
     ) -> Result<Vec<ProjectFileEvent>, LedgerError> {
         let conn = self.db.lock().expect("ledger mutex");
-        let mut stmt = conn.prepare(
-            "SELECT fe.tug_session_id, fe.tool_use_id, fe.file_path,
+        // The row's own stamp is the first-choice line ([P01]); the
+        // sessions join answers for rows written before v3. A shared
+        // database still owned by a pre-v3 build has no `fe.line_id`
+        // column at all, so that spelling falls back to the join-only
+        // query rather than failing the compose.
+        let sql_v3 = "SELECT fe.tug_session_id, fe.tool_use_id, fe.file_path,
                     fe.tool_name, fe.op, fe.origin, fe.ambiguous,
                     fe.parent_tool_use_id, fe.project_dir, fe.at,
-                    l.name, l.name_user_set, s.state, l.tag
+                    l.name, l.name_user_set, s.state, l.tag,
+                    COALESCE(NULLIF(fe.line_id, ''), s.line_id)
              FROM changes.file_events fe
              LEFT JOIN sessions s ON s.session_id = fe.tug_session_id
              -- The owner's display fields are the **line's** ([P02]); the
              -- segment answers only for liveness, which is its own fact.
              LEFT JOIN lines l ON l.line_id = s.line_id
              WHERE fe.project_dir = ?1
-             ORDER BY fe.at ASC, fe.tool_use_id ASC, fe.file_path ASC",
-        )?;
+             ORDER BY fe.at ASC, fe.tool_use_id ASC, fe.file_path ASC";
+        let sql_v2 = "SELECT fe.tug_session_id, fe.tool_use_id, fe.file_path,
+                    fe.tool_name, fe.op, fe.origin, fe.ambiguous,
+                    fe.parent_tool_use_id, fe.project_dir, fe.at,
+                    l.name, l.name_user_set, s.state, l.tag,
+                    s.line_id
+             FROM changes.file_events fe
+             LEFT JOIN sessions s ON s.session_id = fe.tug_session_id
+             LEFT JOIN lines l ON l.line_id = s.line_id
+             WHERE fe.project_dir = ?1
+             ORDER BY fe.at ASC, fe.tool_use_id ASC, fe.file_path ASC";
+        let mut stmt = match conn.prepare(sql_v3) {
+            Ok(stmt) => stmt,
+            Err(rusqlite::Error::SqliteFailure(_, Some(ref msg)))
+                if msg.contains("no such column") =>
+            {
+                conn.prepare(sql_v2)?
+            }
+            Err(err) => return Err(err.into()),
+        };
         let rows = stmt
             .query_map(params![project_dir], |row| {
                 Ok(ProjectFileEvent {
@@ -6713,6 +6880,9 @@ impl SessionLedger {
                     owner_name_user_set: row.get::<_, Option<i64>>(11)?.unwrap_or(0) != 0,
                     owner_live: row.get::<_, Option<String>>(12)?.as_deref() == Some("live"),
                     owner_tag: row.get(13)?,
+                    line_id: row
+                        .get::<_, Option<String>>(14)?
+                        .filter(|line| !line.is_empty()),
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;
@@ -14701,14 +14871,14 @@ mod tests {
             &[sample_span(0, "whole")],
         );
 
-        l.sever_file_ownership_except("/proj", &["a.rs".to_owned()], "live")
+        l.sever_file_ownership_except("/proj", &["a.rs".to_owned()], &["live".to_owned()])
             .unwrap();
         let dead = spans_of(&l, "dead");
         assert_eq!(dead.len(), 1, "severed row's span went: {dead:?}");
         assert_eq!(dead[0].1, "b.rs");
         assert_eq!(spans_of(&l, "live").len(), 1, "claimant keeps its span");
 
-        l.disclaim_file_ownership("/proj", &["a.rs".to_owned()], "live")
+        l.disclaim_file_ownership("/proj", &["a.rs".to_owned()], &["live".to_owned()])
             .unwrap();
         assert!(
             spans_of(&l, "live").is_empty(),
@@ -14934,7 +15104,7 @@ mod tests {
             .unwrap();
 
         let deleted = l
-            .sever_file_ownership_except("/proj", &["a.rs".to_owned()], "live")
+            .sever_file_ownership_except("/proj", &["a.rs".to_owned()], &["live".to_owned()])
             .unwrap();
         assert_eq!(deleted, 1, "only dead's a.rs row is removed");
 
@@ -14949,6 +15119,130 @@ mod tests {
             !owns.contains(&("dead", "a.rs")),
             "dead originator no longer owns the claimed path"
         );
+    }
+
+    #[test]
+    fn sever_keeps_every_segment_in_the_keep_set() {
+        // The keep set is a line's whole segment history ([P01]): a claim
+        // arriving under the current id must not sever rows the same
+        // conversation wrote under an id it rotated away from.
+        let l = fresh();
+        l.record_file_event(&sample_file_event("seg-old", "tu-1", "a.rs"))
+            .unwrap();
+        l.record_file_event(&sample_file_event("seg-new", "claim:1", "a.rs"))
+            .unwrap();
+        l.record_file_event(&sample_file_event("stranger", "tu-2", "a.rs"))
+            .unwrap();
+
+        let deleted = l
+            .sever_file_ownership_except(
+                "/proj",
+                &["a.rs".to_owned()],
+                &["seg-new".to_owned(), "seg-old".to_owned()],
+            )
+            .unwrap();
+        assert_eq!(deleted, 1, "only the stranger's row goes");
+
+        let owns: Vec<String> = l
+            .file_events_for_project("/proj")
+            .unwrap()
+            .iter()
+            .map(|r| r.event.tug_session_id.clone())
+            .collect();
+        assert!(
+            owns.contains(&"seg-old".to_owned()),
+            "the line's older segment survives"
+        );
+        assert!(owns.contains(&"seg-new".to_owned()));
+        assert!(!owns.contains(&"stranger".to_owned()));
+    }
+
+    #[test]
+    fn disclaim_empties_the_whole_segment_set() {
+        // A disclaim renounces the LINE's hold ([P01]): rows under every
+        // segment id go, or an older segment silently re-owns the file on
+        // the next recompose.
+        let l = fresh();
+        l.record_file_event(&sample_file_event("seg-old", "tu-1", "a.rs"))
+            .unwrap();
+        l.record_file_event(&sample_file_event("seg-new", "tu-2", "a.rs"))
+            .unwrap();
+        l.record_file_event(&sample_file_event("other", "tu-3", "a.rs"))
+            .unwrap();
+
+        let deleted = l
+            .disclaim_file_ownership(
+                "/proj",
+                &["a.rs".to_owned()],
+                &["seg-new".to_owned(), "seg-old".to_owned()],
+            )
+            .unwrap();
+        assert_eq!(deleted, 2, "both segments' rows are renounced");
+
+        let owns: Vec<String> = l
+            .file_events_for_project("/proj")
+            .unwrap()
+            .iter()
+            .map(|r| r.event.tug_session_id.clone())
+            .collect();
+        assert_eq!(
+            owns,
+            vec!["other".to_owned()],
+            "the other owner is untouched"
+        );
+    }
+
+    #[test]
+    fn line_ownership_reports_seat_segments_and_liveness() {
+        let l = fresh();
+        l.record_spawn("seg-old", "ws", "/proj", "card", 0, "line-1", Some("badge"))
+            .unwrap();
+        l.mark_closed("seg-old").unwrap();
+        l.record_spawn("seg-new", "ws", "/proj", "card", 1, "line-1", None)
+            .unwrap();
+
+        let own = l.line_ownership("line-1").unwrap().expect("line exists");
+        assert_eq!(own.seat_id, "seg-new", "the live segment seats the line");
+        assert!(own.any_live);
+        assert_eq!(own.segment_ids.len(), 2);
+        assert!(own.segment_ids.contains(&"seg-old".to_owned()));
+
+        // Both closed: the line reads dead, and the seat is still answered
+        // (the tip), because the ownership expansion needs an id either way.
+        l.mark_closed("seg-new").unwrap();
+        let own = l.line_ownership("line-1").unwrap().expect("line exists");
+        assert!(!own.any_live);
+        assert_eq!(own.seat_id, "seg-new");
+
+        assert!(
+            l.line_ownership("line-unknown").unwrap().is_none(),
+            "a line no sessions row wears answers None"
+        );
+    }
+
+    #[test]
+    fn insert_file_event_stamps_the_writers_line() {
+        // The v3 stamp ([P01]): a row written by a session the ledger has
+        // lined carries its line, so it stays attributed to the line even
+        // where the sessions join can no longer answer.
+        let l = fresh();
+        l.record_spawn("seg-1", "ws", "/proj", "card", 0, "line-9", Some("badge"))
+            .unwrap();
+        l.record_file_event(&sample_file_event("seg-1", "tu-1", "a.rs"))
+            .unwrap();
+        l.record_file_event(&sample_file_event("nobody", "tu-2", "b.rs"))
+            .unwrap();
+
+        let rows = l.file_events_for_project("/proj").unwrap();
+        let line_of = |id: &str| {
+            rows.iter()
+                .find(|r| r.event.tug_session_id == id)
+                .expect("row present")
+                .line_id
+                .clone()
+        };
+        assert_eq!(line_of("seg-1").as_deref(), Some("line-9"));
+        assert_eq!(line_of("nobody"), None, "an unlined writer stamps nothing");
     }
 
     #[test]
@@ -14967,7 +15261,7 @@ mod tests {
             .unwrap();
 
         let deleted = l
-            .disclaim_file_ownership("/proj", &["a.rs".to_owned()], "mine")
+            .disclaim_file_ownership("/proj", &["a.rs".to_owned()], &["mine".to_owned()])
             .unwrap();
         assert_eq!(deleted, 2, "both of mine's a.rs rows removed");
 
@@ -14992,7 +15286,7 @@ mod tests {
 
         // Idempotent: disclaiming again deletes nothing and does not error.
         assert_eq!(
-            l.disclaim_file_ownership("/proj", &["a.rs".to_owned()], "mine")
+            l.disclaim_file_ownership("/proj", &["a.rs".to_owned()], &["mine".to_owned()])
                 .unwrap(),
             0
         );
@@ -15016,7 +15310,7 @@ mod tests {
             .unwrap();
 
         let deleted = l
-            .disclaim_file_ownership("/proj", &["a.rs".to_owned()], "mine")
+            .disclaim_file_ownership("/proj", &["a.rs".to_owned()], &["mine".to_owned()])
             .unwrap();
 
         assert_eq!(deleted, 2, "both spellings of the same file are renounced");
@@ -15041,7 +15335,7 @@ mod tests {
             .unwrap();
 
         let deleted = l
-            .sever_file_ownership_except("/proj", &["a.rs".to_owned()], "mine")
+            .sever_file_ownership_except("/proj", &["a.rs".to_owned()], &["mine".to_owned()])
             .unwrap();
 
         assert_eq!(deleted, 2, "both of the other session's spellings go");
@@ -15066,7 +15360,7 @@ mod tests {
             .unwrap();
 
         let deleted = l
-            .disclaim_file_ownership("/proj", &["a.rs".to_owned()], "mine")
+            .disclaim_file_ownership("/proj", &["a.rs".to_owned()], &["mine".to_owned()])
             .unwrap();
 
         assert_eq!(deleted, 1, "only the named file, in either spelling");
@@ -15095,7 +15389,7 @@ mod tests {
         };
         l.record_file_event(&elsewhere).unwrap();
 
-        l.disclaim_file_ownership("/proj", &["a.rs".to_owned()], "mine")
+        l.disclaim_file_ownership("/proj", &["a.rs".to_owned()], &["mine".to_owned()])
             .unwrap();
         assert!(l.file_events_for_project("/proj").unwrap().is_empty());
         assert_eq!(l.file_events_for_project("/other").unwrap().len(), 1);
@@ -15112,7 +15406,7 @@ mod tests {
                 .unwrap();
             l.record_file_event(&sample_file_event("mine", "tu-2", "b.rs"))
                 .unwrap();
-            l.disclaim_file_ownership("/proj", &["a.rs".to_owned()], "mine")
+            l.disclaim_file_ownership("/proj", &["a.rs".to_owned()], &["mine".to_owned()])
                 .unwrap();
         }
         std::fs::write(dir.path().join("sessions.db.changes"), b"destroyed").unwrap();

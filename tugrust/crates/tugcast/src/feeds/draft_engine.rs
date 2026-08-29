@@ -841,6 +841,7 @@ mod tests {
     fn session_snapshot(project_dir: &str, status: &str) -> WorkspacesChangesetSnapshot {
         let entry = ChangesetEntry::Session {
             owner_id: "s1".to_string(),
+            line_id: None,
             display_name: "s1".to_string(),
             live: true,
             files: vec![ChangesetFile {
@@ -884,6 +885,7 @@ mod tests {
     fn fileless_session_snapshot(project_dir: &str) -> WorkspacesChangesetSnapshot {
         let entry = ChangesetEntry::Session {
             owner_id: "s1".to_string(),
+            line_id: None,
             display_name: "s1".to_string(),
             live: true,
             files: vec![],

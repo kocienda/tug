@@ -39,19 +39,58 @@ pub(crate) fn open_readonly(db_path: &Path) -> Result<Connection, String> {
     .map_err(|e| format!("cannot open session ledger {}: {e}", db_path.display()))
 }
 
-/// All `file_events` for `session`, oldest-first (matching the ledger's own
+/// The SQL placeholder tuple `(?1, ?2, …)` for `ids.len()` parameters,
+/// numbered from `start`.
+fn placeholder_tuple(start: usize, len: usize) -> String {
+    (start..start + len)
+        .map(|n| format!("?{n}"))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// Every segment id of the line `session` belongs to ([P01]), read from the
+/// per-instance `sessions.db`. A session id is one *segment* of a line of
+/// work — a card that has rotated its id (relaunch-resume, rewind-fork,
+/// crash respawn) has written `file_events` rows under several, and the
+/// "this session's files" question is the line's, not the current id's.
+/// Empty when the session wears no line, or against a pre-lines database
+/// (no `line_id` column) — the caller falls back to the bare id.
+pub(crate) fn line_segments(conn: &Connection, session: &str) -> Vec<String> {
+    let line_id: Option<String> = conn
+        .query_row(
+            "SELECT line_id FROM sessions WHERE session_id = ?1",
+            [session],
+            |r| r.get::<_, Option<String>>(0),
+        )
+        .ok()
+        .flatten()
+        .filter(|l| !l.is_empty());
+    let Some(line_id) = line_id else {
+        return Vec::new();
+    };
+    let Ok(mut stmt) = conn.prepare("SELECT session_id FROM sessions WHERE line_id = ?1") else {
+        return Vec::new();
+    };
+    stmt.query_map([&line_id], |r| r.get::<_, String>(0))
+        .map(|rows| rows.filter_map(Result::ok).collect())
+        .unwrap_or_default()
+}
+
+/// All `file_events` for the given self set — a line's segment ids, or the
+/// bare session id — oldest-first (matching the ledger's own
 /// `file_events_for_session` order).
-pub(crate) fn query_events(conn: &Connection, session: &str) -> Result<Vec<EventRow>, String> {
+pub(crate) fn query_events(conn: &Connection, selves: &[String]) -> Result<Vec<EventRow>, String> {
     let mut stmt = conn
-        .prepare(
+        .prepare(&format!(
             "SELECT file_path, op, origin, at
              FROM file_events
-             WHERE tug_session_id = ?1
+             WHERE tug_session_id IN ({})
              ORDER BY at ASC, tool_use_id ASC, file_path ASC",
-        )
+            placeholder_tuple(1, selves.len())
+        ))
         .map_err(|e| e.to_string())?;
     let rows = stmt
-        .query_map([session], |r| {
+        .query_map(rusqlite::params_from_iter(selves), |r| {
             Ok(EventRow {
                 file_path: r.get::<_, String>(0)?,
                 op: r.get::<_, String>(1)?,
@@ -79,26 +118,31 @@ pub(crate) struct PathClaim {
     pub max_proof_at: Option<i64>,
 }
 
-/// Every session other than `exclude` that has a `file_events` row for the
-/// repo-relative `file_path`, as [`PathClaim`]s (Spec S02). Grouped so a
-/// session touching the path many times counts once, carrying its newest
-/// proof row's `at` for the caller's liveness + authorship cuts.
+/// Every session outside the `exclude` set (the asking line's segment ids)
+/// that has a `file_events` row for the repo-relative `file_path`, as
+/// [`PathClaim`]s (Spec S02). Grouped so a session touching the path many
+/// times counts once, carrying its newest proof row's `at` for the caller's
+/// liveness + authorship cuts.
 pub(crate) fn sessions_for_path(
     conn: &Connection,
     file_path: &str,
-    exclude: &str,
+    exclude: &[String],
 ) -> Result<Vec<PathClaim>, String> {
     let mut stmt = conn
         .prepare(&format!(
             "SELECT tug_session_id, project_dir,
                     MAX(CASE WHEN origin IN {PROOF_ORIGINS_SQL} THEN at END)
              FROM file_events
-             WHERE file_path = ?1 AND tug_session_id != ?2
+             WHERE file_path = ?1 AND tug_session_id NOT IN ({})
              GROUP BY tug_session_id, project_dir",
+            placeholder_tuple(2, exclude.len())
         ))
         .map_err(|e| e.to_string())?;
+    let params: Vec<&dyn rusqlite::ToSql> = std::iter::once(&file_path as &dyn rusqlite::ToSql)
+        .chain(exclude.iter().map(|id| id as &dyn rusqlite::ToSql))
+        .collect();
     let rows = stmt
-        .query_map(rusqlite::params![file_path, exclude], |r| {
+        .query_map(params.as_slice(), |r| {
             Ok(PathClaim {
                 session: r.get::<_, String>(0)?,
                 project_dir: r.get::<_, String>(1)?,
@@ -125,7 +169,7 @@ pub(crate) fn sessions_for_path(
 pub(crate) fn foreign_proof_sessions_for_path(
     conn: &Connection,
     file_path: &str,
-    exclude: &str,
+    exclude: &[String],
     repo_root: &Path,
     min_live_at_ms: i64,
 ) -> Result<Vec<String>, String> {
@@ -309,14 +353,18 @@ pub(crate) fn resolve_changes_db_path() -> PathBuf {
     tugcore::instance::changes_db_path()
 }
 
-/// Whether `session` holds any `file_events` row at all — the shared-ledger
-/// half of the "known session" test (a session recorded by another instance
-/// has rows here but no `sessions` row in this instance's `sessions.db`).
-pub(crate) fn session_has_events(conn: &Connection, session: &str) -> Result<bool, String> {
+/// Whether any of the self set's ids holds a `file_events` row at all — the
+/// shared-ledger half of the "known session" test (a session recorded by
+/// another instance has rows here but no `sessions` row in this instance's
+/// `sessions.db`).
+pub(crate) fn session_has_events(conn: &Connection, selves: &[String]) -> Result<bool, String> {
     let count: i64 = conn
         .query_row(
-            "SELECT EXISTS(SELECT 1 FROM file_events WHERE tug_session_id = ?1)",
-            [session],
+            &format!(
+                "SELECT EXISTS(SELECT 1 FROM file_events WHERE tug_session_id IN ({}))",
+                placeholder_tuple(1, selves.len())
+            ),
+            rusqlite::params_from_iter(selves),
             |r| r.get(0),
         )
         .map_err(|e| e.to_string())?;
@@ -358,6 +406,47 @@ mod tests {
     /// sub-file evidence" rather than failing the whole `changes` call — this
     /// reader runs on machines whose tugcast has not restarted into the new
     /// schema yet.
+    #[test]
+    fn line_segments_expands_a_session_to_its_whole_line() {
+        // `$TUG_SESSION_ID` is frozen at spawn, so after an id rotation it
+        // names an older segment — the expansion is what keeps `tugutil
+        // changes` answering for the whole conversation ([P01]).
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("sessions.db");
+        {
+            let conn = Connection::open(&path).unwrap();
+            conn.execute_batch(
+                "CREATE TABLE sessions (session_id TEXT, line_id TEXT);
+                 INSERT INTO sessions VALUES ('seg-old', 'line-1');
+                 INSERT INTO sessions VALUES ('seg-new', 'line-1');
+                 INSERT INTO sessions VALUES ('stranger', 'line-2');
+                 INSERT INTO sessions VALUES ('lineless', NULL);",
+            )
+            .unwrap();
+        }
+        let conn = open_readonly(&path).unwrap();
+        let mut segments = line_segments(&conn, "seg-old");
+        segments.sort();
+        assert_eq!(segments, ["seg-new", "seg-old"]);
+        assert!(line_segments(&conn, "lineless").is_empty());
+        assert!(line_segments(&conn, "unknown").is_empty());
+    }
+
+    #[test]
+    fn query_events_reads_every_segment_of_the_self_set() {
+        let repo = tempfile::tempdir().unwrap();
+        let repo_dir = repo.path().to_string_lossy().into_owned();
+        let db = seed(&[
+            ("seg-old", "early.rs", "exact", &repo_dir, 1),
+            ("seg-new", "later.rs", "exact", &repo_dir, 2),
+            ("stranger", "other.rs", "exact", &repo_dir, 3),
+        ]);
+        let conn = open_readonly(&db.path().join("sessions.db")).unwrap();
+        let events = query_events(&conn, &["seg-new".to_owned(), "seg-old".to_owned()]).unwrap();
+        let paths: Vec<&str> = events.iter().map(|e| e.file_path.as_str()).collect();
+        assert_eq!(paths, ["early.rs", "later.rs"], "both segments, at-ordered");
+    }
+
     #[test]
     fn a_pre_v2_database_reads_as_span_less_rather_than_failing() {
         let dir = tempfile::tempdir().unwrap();
@@ -429,14 +518,15 @@ mod tests {
         let conn = open_readonly(&db.path().join("sessions.db")).unwrap();
 
         // Raw claims: everyone but `mine`.
-        let claims = sessions_for_path(&conn, "foo.rs", "mine").unwrap();
+        let claims = sessions_for_path(&conn, "foo.rs", &["mine".to_owned()]).unwrap();
         let ids: Vec<&str> = claims.iter().map(|c| c.session.as_str()).collect();
         assert_eq!(ids.len(), 2);
         assert!(ids.contains(&"theirs") && ids.contains(&"elsewhere"));
 
         // Repo-matched exact foreigns: only `theirs`; `elsewhere` resolves off-repo.
         let foreign =
-            foreign_proof_sessions_for_path(&conn, "foo.rs", "mine", repo.path(), 0).unwrap();
+            foreign_proof_sessions_for_path(&conn, "foo.rs", &["mine".to_owned()], repo.path(), 0)
+                .unwrap();
         assert_eq!(foreign, vec!["theirs".to_string()]);
     }
 
@@ -455,7 +545,7 @@ mod tests {
         let conn = open_readonly(&db.path().join("sessions.db")).unwrap();
 
         assert!(
-            foreign_proof_sessions_for_path(&conn, "foo.rs", "mine", repo.path(), 0)
+            foreign_proof_sessions_for_path(&conn, "foo.rs", &["mine".to_owned()], repo.path(), 0)
                 .unwrap()
                 .is_empty(),
             "bracket-only rows never establish foreign ownership"
@@ -472,7 +562,8 @@ mod tests {
         let conn = open_readonly(&db.path().join("sessions.db")).unwrap();
 
         assert_eq!(
-            foreign_proof_sessions_for_path(&conn, "foo.rs", "mine", repo.path(), 0).unwrap(),
+            foreign_proof_sessions_for_path(&conn, "foo.rs", &["mine".to_owned()], repo.path(), 0)
+                .unwrap(),
             vec!["resumed".to_string()]
         );
     }
@@ -486,11 +577,12 @@ mod tests {
 
         // Below the cut → live claimant; above → spent, no claim.
         assert_eq!(
-            foreign_proof_sessions_for_path(&conn, "foo.rs", "mine", repo.path(), 1).unwrap(),
+            foreign_proof_sessions_for_path(&conn, "foo.rs", &["mine".to_owned()], repo.path(), 1)
+                .unwrap(),
             vec!["theirs".to_string()]
         );
         assert!(
-            foreign_proof_sessions_for_path(&conn, "foo.rs", "mine", repo.path(), 2)
+            foreign_proof_sessions_for_path(&conn, "foo.rs", &["mine".to_owned()], repo.path(), 2)
                 .unwrap()
                 .is_empty(),
             "a spent exact row never contends"
@@ -522,7 +614,8 @@ mod tests {
         let conn = open_readonly(&db.path().join("sessions.db")).unwrap();
 
         assert_eq!(
-            foreign_proof_sessions_for_path(&conn, "foo.rs", "mine", repo.path(), 0).unwrap(),
+            foreign_proof_sessions_for_path(&conn, "foo.rs", &["mine".to_owned()], repo.path(), 0)
+                .unwrap(),
             vec!["shell".to_string()]
         );
     }

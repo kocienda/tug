@@ -84,6 +84,8 @@ fn status_is_structural(status: &str) -> bool {
 struct OwnerAgg {
     display_name: String,
     live: bool,
+    /// The line of work this owner is ([P01]), when the ledger knows one.
+    line_id: Option<String>,
     /// repo-relative path → file row; `BTreeMap` for deterministic output
     /// order (diff-suppression compares whole snapshots).
     files: BTreeMap<String, ChangesetFile>,
@@ -261,6 +263,51 @@ pub(crate) async fn compose_snapshot(
     // not orphan-lift ([D120]). Read once per compose; empty with no deck
     // connected, which is the truth in that case.
     let seated = super::deck_seatings::seated_session_ids();
+    // Line canonicalization ([P01]): a session id is one *segment* of a
+    // line of work, and a card that has rotated its id (relaunch-resume,
+    // rewind-fork, crash respawn) has written rows under several. Owners
+    // are therefore keyed by the line's current seat segment, so every
+    // segment's rows fold into one entry; the raw id stands in for a row
+    // whose line this ledger has never seen. `canon` maps every segment id
+    // the resolved lines have worn to their seat; `line_live` is the
+    // line-level answer — any segment live, or seated on an open card.
+    let mut canon: HashMap<String, String> = HashMap::new();
+    let mut line_seat: HashMap<String, String> = HashMap::new();
+    let mut line_live: HashMap<String, bool> = HashMap::new();
+    if let Some(ledger) = ledger {
+        for pfe in &events {
+            let Some(line_id) = &pfe.line_id else {
+                continue;
+            };
+            if line_seat.contains_key(line_id) {
+                continue;
+            }
+            match ledger.line_ownership(line_id).ok().flatten() {
+                Some(own) => {
+                    let live = own.any_live || own.segment_ids.iter().any(|id| seated.contains(id));
+                    for id in &own.segment_ids {
+                        canon.insert(id.clone(), own.seat_id.clone());
+                    }
+                    line_seat.insert(line_id.clone(), own.seat_id);
+                    line_live.insert(line_id.clone(), live);
+                }
+                None => {
+                    // Every segment evicted: the stamped line survives its
+                    // sessions rows, and the row's own id keys the owner.
+                    line_seat.insert(line_id.clone(), pfe.event.tug_session_id.clone());
+                    line_live.insert(line_id.clone(), false);
+                }
+            }
+        }
+    }
+    let owner_key = |pfe: &ProjectFileEvent| -> String {
+        pfe.line_id
+            .as_ref()
+            .and_then(|line| line_seat.get(line))
+            .or_else(|| canon.get(&pfe.event.tug_session_id))
+            .cloned()
+            .unwrap_or_else(|| pfe.event.tug_session_id.clone())
+    };
     // Per-path liveness cut, computed once per dirty path with events.
     let mut live_cuts: HashMap<String, i64> = HashMap::new();
     // Per repo-relative path, the owners with a live **proof** row
@@ -287,19 +334,34 @@ pub(crate) async fn compose_snapshot(
         if pfe.event.at < min_live {
             continue;
         }
+        let owner_id = owner_key(pfe);
         if super::attribution::origin_is_proof(&pfe.event.origin) {
             proof_owners
                 .entry(rel.clone())
                 .or_default()
-                .insert(pfe.event.tug_session_id.clone());
+                .insert(owner_id.clone());
         }
-        let owner = owners
-            .entry(pfe.event.tug_session_id.clone())
-            .or_insert_with(|| OwnerAgg {
-                display_name: session_display_name(pfe),
-                live: pfe.owner_live || seated.contains(&pfe.event.tug_session_id),
-                files: BTreeMap::new(),
-            });
+        // Liveness ORs across the line's segments and every event seen for
+        // the owner: the segment that wrote this row may be demoted while
+        // another segment of the same line is live or seated.
+        let event_live = pfe.owner_live
+            || seated.contains(&pfe.event.tug_session_id)
+            || pfe
+                .line_id
+                .as_ref()
+                .and_then(|line| line_live.get(line))
+                .copied()
+                .unwrap_or(false);
+        let owner = owners.entry(owner_id).or_insert_with(|| OwnerAgg {
+            display_name: session_display_name(pfe),
+            live: false,
+            line_id: pfe.line_id.clone(),
+            files: BTreeMap::new(),
+        });
+        owner.live |= event_live;
+        if owner.line_id.is_none() {
+            owner.line_id = pfe.line_id.clone();
+        }
         let file = owner
             .files
             .entry(rel.clone())
@@ -424,7 +486,9 @@ pub(crate) async fn compose_snapshot(
                     "a contended path's proof owners come from the owner aggregation itself; \
                      an id missing from it would silently take the live default"
                 );
-                contention_verdict(&repo_root, path, proof_ids, &dead_ids, min_live, ledger)
+                contention_verdict(
+                    &repo_root, path, proof_ids, &dead_ids, min_live, ledger, &canon,
+                )
             }))
             .await,
         );
@@ -579,6 +643,7 @@ pub(crate) async fn compose_snapshot(
         .into_iter()
         .map(|(owner_id, agg)| ChangesetEntry::Session {
             owner_id,
+            line_id: agg.line_id,
             display_name: agg.display_name,
             live: agg.live,
             files: agg.files.into_values().collect(),
@@ -722,30 +787,79 @@ pub(crate) fn apply_session_rows(snapshot: &mut ChangesetSnapshot, rows: &[Sessi
     // aggregation: a session seated on an open card reads live to the deck
     // even while its `sessions.state` waits out the startup-demote window.
     let seated = super::deck_seatings::seated_session_ids();
+    // Rows group by line ([P01]) the way owners did in the compose: the
+    // line's liveness is any segment live-or-seated, and a line already
+    // present as an entry must not inject a second entry under another of
+    // its segment ids. The line's *face* — the row an entry with no exact
+    // id match reads its title from — prefers a live segment.
+    let mut line_live: HashMap<&str, bool> = HashMap::new();
+    let mut row_of_line: HashMap<&str, &SessionRow> = HashMap::new();
+    for row in rows {
+        if row.line_id.is_empty() {
+            continue;
+        }
+        let live = row.state == SessionState::Live || seated.contains(&row.session_id);
+        *line_live.entry(row.line_id.as_str()).or_insert(false) |= live;
+        row_of_line
+            .entry(row.line_id.as_str())
+            .and_modify(|existing| {
+                if live && existing.state != SessionState::Live {
+                    *existing = row;
+                }
+            })
+            .or_insert(row);
+    }
     let mut present: HashSet<String> = HashSet::new();
+    let mut present_lines: HashSet<String> = HashSet::new();
     for entry in &mut snapshot.changesets {
         if let ChangesetEntry::Session {
             owner_id,
+            line_id,
             display_name,
             live,
             ..
         } = entry
         {
             present.insert(owner_id.clone());
-            if let Some(row) = by_id.get(owner_id.as_str()) {
+            if let Some(line) = line_id.as_deref().filter(|l| !l.is_empty()) {
+                present_lines.insert(line.to_owned());
+            }
+            let row = by_id.get(owner_id.as_str()).copied().or_else(|| {
+                line_id
+                    .as_deref()
+                    .and_then(|line| row_of_line.get(line).copied())
+            });
+            if let Some(row) = row {
+                let row_line_live = (!row.line_id.is_empty())
+                    .then(|| line_live.get(row.line_id.as_str()).copied())
+                    .flatten()
+                    .unwrap_or(false);
                 *display_name = session_row_title(row);
-                *live = row.state == SessionState::Live || seated.contains(owner_id.as_str());
+                *live = row.state == SessionState::Live
+                    || seated.contains(row.session_id.as_str())
+                    || row_line_live;
+                if line_id.is_none() && !row.line_id.is_empty() {
+                    *line_id = Some(row.line_id.clone());
+                    present_lines.insert(row.line_id.clone());
+                }
             }
         }
     }
 
     for row in rows {
         let live = row.state == SessionState::Live || seated.contains(&row.session_id);
-        if !live || present.contains(&row.session_id) {
+        if !live
+            || present.contains(&row.session_id)
+            || (!row.line_id.is_empty() && present_lines.contains(&row.line_id))
+        {
             continue;
+        }
+        if !row.line_id.is_empty() {
+            present_lines.insert(row.line_id.clone());
         }
         snapshot.changesets.push(ChangesetEntry::Session {
             owner_id: row.session_id.clone(),
+            line_id: (!row.line_id.is_empty()).then(|| row.line_id.clone()),
             display_name: session_row_title(row),
             live: true,
             files: Vec::new(),
@@ -810,6 +924,7 @@ async fn contention_verdict(
     dead_ids: &HashSet<String>,
     min_live: i64,
     ledger: Option<&SessionLedger>,
+    canon: &HashMap<String, String>,
 ) -> Option<(
     tugchanges_core::ContentionVerdict,
     Vec<tugchanges_core::Hunk>,
@@ -823,9 +938,14 @@ async fn contention_verdict(
             tracing::warn!(path, error = %err, "span read failed; contention stays file-level");
             Vec::new()
         });
-    let mut by_session: HashMap<&str, Vec<tugchanges_core::Anchor>> = HashMap::new();
+    let mut by_session: HashMap<String, Vec<tugchanges_core::Anchor>> = HashMap::new();
     for row in &spans {
-        if !proof_ids.contains(&row.tug_session_id) {
+        // A span written under an older segment of a line speaks for the
+        // line's seat, same as its parent row did in the owner fold ([P01]).
+        let owner_id = canon
+            .get(&row.tug_session_id)
+            .unwrap_or(&row.tug_session_id);
+        if !proof_ids.contains(owner_id) {
             continue;
         }
         // The same row-liveness cut the owner buckets applied: a spent span
@@ -834,7 +954,7 @@ async fn contention_verdict(
             continue;
         }
         by_session
-            .entry(row.tug_session_id.as_str())
+            .entry(owner_id.clone())
             .or_default()
             .push(tugchanges_core::Anchor::from_span(
                 &row.span.kind,
@@ -2216,6 +2336,7 @@ mod tests {
             &HashSet::new(),
             i64::MIN,
             Some(&ledger),
+            &HashMap::new(),
         )
         .await
         .expect("a verdict");
@@ -2228,6 +2349,7 @@ mod tests {
             &["sess-beta".to_owned()].into_iter().collect(),
             i64::MIN,
             Some(&ledger),
+            &HashMap::new(),
         )
         .await
         .expect("a verdict");
@@ -2543,6 +2665,79 @@ mod tests {
         let (live, files) = entry.expect("seated session owns its entry");
         assert!(live, "seated folds into liveness");
         assert_eq!(files[0].path, "mine.txt");
+    }
+
+    #[tokio::test]
+    async fn compose_folds_a_rotated_lines_segments_into_one_owner() {
+        // The rotation case ([P01]): one card, one line, two segment ids —
+        // the old id closed by a relaunch, the new one live. Rows written
+        // under both ids must fold into ONE entry keyed by the line's seat,
+        // reading live, with nothing lifted to `orphaned` — never two
+        // owners, one of them dead, offering the user their own files back.
+        let (_dir, root) = init_repo();
+        std::fs::write(root.join("early.txt"), "x").unwrap();
+        std::fs::write(root.join("later.txt"), "x").unwrap();
+
+        let ledger = SessionLedger::open_in_memory().unwrap();
+        ledger
+            .record_spawn(
+                "seg-old",
+                "ws",
+                &root.to_string_lossy(),
+                "card",
+                0,
+                "line-1",
+                Some("rotated-badge"),
+            )
+            .unwrap();
+        ledger
+            .record_file_event(&event("seg-old", "tu-1", &root.join("early.txt"), &root))
+            .unwrap();
+        // The id rotates: the old segment closes, a new one spawns on the
+        // same line and writes on.
+        ledger.mark_closed("seg-old").unwrap();
+        ledger
+            .record_spawn(
+                "seg-new",
+                "ws",
+                &root.to_string_lossy(),
+                "card",
+                1,
+                "line-1",
+                None,
+            )
+            .unwrap();
+        ledger
+            .record_file_event(&event("seg-new", "tu-2", &root.join("later.txt"), &root))
+            .unwrap();
+
+        let snapshot = compose_snapshot(&root, Some(&ledger)).await.expect("repo");
+
+        assert!(
+            snapshot.orphaned.is_empty(),
+            "a rotated segment's files never orphan while the line lives"
+        );
+        let sessions: Vec<_> = snapshot
+            .changesets
+            .iter()
+            .filter_map(|e| match e {
+                ChangesetEntry::Session {
+                    owner_id,
+                    line_id,
+                    live,
+                    files,
+                    ..
+                } => Some((owner_id, line_id, live, files)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(sessions.len(), 1, "one line is one owner: {sessions:?}");
+        let (owner_id, line_id, live, files) = &sessions[0];
+        assert_eq!(*owner_id, "seg-new", "the seat segment fronts the line");
+        assert_eq!(line_id.as_deref(), Some("line-1"));
+        assert!(**live);
+        let paths: Vec<&str> = files.iter().map(|f| f.path.as_str()).collect();
+        assert_eq!(paths, ["early.txt", "later.txt"], "both segments' rows");
     }
 
     #[tokio::test]
@@ -3537,6 +3732,7 @@ Some context.
                 },
                 ChangesetEntry::Session {
                     owner_id: "sess-writer".to_owned(),
+                    line_id: None,
                     display_name: "sess-wri".to_owned(),
                     live: false,
                     files: Vec::new(),
@@ -3641,6 +3837,49 @@ Some context.
         assert!(*live, "seated folds into liveness");
     }
 
+    #[test]
+    fn apply_session_rows_matches_and_dedups_by_line() {
+        // An entry keyed by one segment of a line, rows carrying a LIVE
+        // sibling segment of the same line: the entry takes the sibling's
+        // title and liveness through the line match, and the sibling must
+        // NOT inject a second entry — one line is one row on the card.
+        let mut snapshot = ChangesetSnapshot {
+            workspace_key: "ws".to_owned(),
+            branch: "main".to_owned(),
+            ahead: 0,
+            behind: 0,
+            head_sha: String::new(),
+            head_message: String::new(),
+            changesets: vec![ChangesetEntry::Session {
+                owner_id: "seg-old".to_owned(),
+                line_id: Some("line-1".to_owned()),
+                display_name: "stale".to_owned(),
+                live: false,
+                files: Vec::new(),
+                draft: None,
+            }],
+            unattributed: Vec::new(),
+            orphaned: Vec::new(),
+        };
+        let mut sibling = session_row("seg-new", Some("fresh title"), None, SessionState::Live);
+        sibling.line_id = "line-1".to_owned();
+        apply_session_rows(&mut snapshot, &[sibling]);
+
+        assert_eq!(
+            snapshot.changesets.len(),
+            1,
+            "the live sibling joins the line's entry rather than doubling it"
+        );
+        let ChangesetEntry::Session {
+            display_name, live, ..
+        } = &snapshot.changesets[0]
+        else {
+            panic!("expected session entry");
+        };
+        assert_eq!(display_name, "fresh title");
+        assert!(*live, "a live segment enlivens its whole line");
+    }
+
     /// The relaunch case: a live session with a persisted draft but zero
     /// attributed files (its changes ride a dash worktree, or it has gone
     /// clean) still reads its draft back on the aggregate.
@@ -3675,6 +3914,7 @@ Some context.
             changesets: vec![
                 ChangesetEntry::Session {
                     owner_id: "sess-live".to_owned(),
+                    line_id: None,
                     display_name: "live".to_owned(),
                     live: true,
                     files: Vec::new(),
@@ -3682,6 +3922,7 @@ Some context.
                 },
                 ChangesetEntry::Session {
                     owner_id: "sess-dead".to_owned(),
+                    line_id: None,
                     display_name: "dead".to_owned(),
                     live: false,
                     files: Vec::new(),
@@ -3793,6 +4034,7 @@ Some context.
             },
             owner_name: owner_name.map(str::to_owned),
             owner_name_user_set,
+            line_id: None,
             owner_tag: owner_tag.map(str::to_owned),
             owner_live: true,
         }

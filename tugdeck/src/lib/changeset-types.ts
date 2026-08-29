@@ -113,8 +113,18 @@ export interface ChangesetDraftSelection {
 /** Files attributed to one Claude session. */
 export interface SessionChangesetEntry {
   kind: "session";
-  /** The tug session id that owns these files. */
+  /**
+   * The tug session id that owns these files — the owning line's current
+   * seat segment when the server knows the line, else the raw id the rows
+   * were written under.
+   */
   owner_id: string;
+  /**
+   * The line of work this owner is ([P01]), when the server knows one. The
+   * stable key across id rotations: match an entry to a card by line first,
+   * `owner_id` as the fallback.
+   */
+  line_id?: string | null;
   /** Session display name (name when user-set, else the id hash). */
   display_name: string;
   /** True when the session has a live relay right now. */
@@ -739,7 +749,12 @@ export function isChangesetEntry(value: unknown): value is ChangesetEntry {
     return false;
   }
   if (value.kind === "session") {
-    return typeof value.live === "boolean";
+    return (
+      typeof value.live === "boolean" &&
+      (value.line_id === undefined ||
+        value.line_id === null ||
+        typeof value.line_id === "string")
+    );
   }
   if (value.kind === "dash") {
     // The added fields are all optional, so an entry from a sender that

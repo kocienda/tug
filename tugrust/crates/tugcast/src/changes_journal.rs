@@ -77,20 +77,36 @@ pub enum Record {
     #[serde(rename = "fe_del_session")]
     DeleteSession { session: String },
     /// Ownership severing ([D120]): drop other sessions' rows for paths.
+    ///
+    /// The kept owner is a **line** of work ([P01]): `keep_session` is its
+    /// seat segment and `keep_sessions` the rest of the line's segment ids,
+    /// so a claim never severs the claimant's own rows written under an id
+    /// it has since rotated away from. Split this way (head + defaulted
+    /// tail) so every `fe_sever` line written before lines existed still
+    /// parses, keeping exactly its one id.
     #[serde(rename = "fe_sever")]
     Sever {
         project_dir: String,
         paths: Vec<String>,
         keep_session: String,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        keep_sessions: Vec<String>,
     },
     /// Ownership renunciation: drop one session's own rows for the named
     /// paths. The inverse of a claim — the file leaves this session's
     /// changeset and degrades to another live owner or to unattributed.
+    ///
+    /// The renouncing owner is a line, on the same head-plus-tail shape as
+    /// `Sever`: `session` is the id the gesture arrived under, `sessions`
+    /// the rest of its line's segments — a disclaim empties the whole
+    /// line's ownership, not just the current id's slice of it.
     #[serde(rename = "fe_disclaim")]
     Disclaim {
         project_dir: String,
         paths: Vec<String>,
         session: String,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        sessions: Vec<String>,
     },
     /// Legacy-row canonicalization rewrite (collision-safe, idempotent).
     #[serde(rename = "fe_rewrite")]

@@ -5722,6 +5722,26 @@ impl AgentSupervisor {
                 "changeset_claim revive_on_activity failed"
             );
         }
+        // The claimant is a **line** of work ([P01]), not the one segment id
+        // the request arrived under: the fresh rows are written under the
+        // line's seat segment (the id everything else answers for the line
+        // with), and the sever below keeps every id the line has ever worn,
+        // so a claim never severs the claimant's own older rows. A session
+        // this ledger has never lined stays keyed by its raw id.
+        let line = ledger
+            .line_of(&request.session_id)
+            .and_then(|line_id| ledger.line_ownership(&line_id).ok().flatten());
+        let write_id = line
+            .as_ref()
+            .map(|l| l.seat_id.clone())
+            .unwrap_or_else(|| request.session_id.clone());
+        let mut keep_ids: Vec<String> = vec![write_id.clone()];
+        if let Some(l) = &line {
+            keep_ids.extend(l.segment_ids.iter().filter(|id| **id != l.seat_id).cloned());
+        }
+        if !keep_ids.contains(&request.session_id) {
+            keep_ids.push(request.session_id.clone());
+        }
         // One synthetic tool_use_id groups the batch, mirroring how a Bash
         // call's N rows share an id.
         let tool_use_id = format!("claim:{at}");
@@ -5738,7 +5758,7 @@ impl AgentSupervisor {
                 continue;
             };
             rows.push(crate::session_ledger::FileEventRow {
-                tug_session_id: request.session_id.clone(),
+                tug_session_id: write_id.clone(),
                 tool_use_id: tool_use_id.clone(),
                 file_path,
                 tool_name: "Claim".to_string(),
@@ -5772,14 +5792,13 @@ impl AgentSupervisor {
         // Sever any prior owner ([D120]): a claim asserts sole ownership, so
         // remove other sessions' rows for these paths — a dead originator can't
         // silently re-own the file on re-open, and it leaves the orphaned
-        // bucket. The claimant's own fresh rows (just recorded) are preserved.
+        // bucket. The kept set is the claimant's whole line — its fresh rows
+        // AND everything written under ids it has since rotated away from.
         // A batch that did not land claims nothing, so it severs nothing.
         if claimed > 0 {
-            if let Err(err) = ledger.sever_file_ownership_except(
-                canonical.as_str(),
-                &request.files,
-                &request.session_id,
-            ) {
+            if let Err(err) =
+                ledger.sever_file_ownership_except(canonical.as_str(), &request.files, &keep_ids)
+            {
                 warn!(error = %err, project_dir, "changeset_claim sever failed");
             }
         }
@@ -5791,15 +5810,20 @@ impl AgentSupervisor {
         // The rows are still written — `changes.db` is machine-global and
         // another instance may hold the session — but the reply must say so
         // rather than hand back a green count that undoes itself ([D120]).
+        // The judgment is the line's: any segment live, or any segment
+        // seated on an open card, and the claim will hold on the next
+        // recompose — even when the id the request arrived under is itself
+        // a demoted older segment.
         let claimant = ledger.get(&request.session_id).ok().flatten();
-        let claimant_live = claimant
-            .as_ref()
-            .is_some_and(|r| r.state == crate::session_ledger::SessionState::Live);
-        let claimant_seated =
-            super::deck_seatings::seated_session_ids().contains(&request.session_id);
+        let claimant_live = line.as_ref().map(|l| l.any_live).unwrap_or(false)
+            || claimant
+                .as_ref()
+                .is_some_and(|r| r.state == crate::session_ledger::SessionState::Live);
+        let seated = super::deck_seatings::seated_session_ids();
+        let claimant_seated = keep_ids.iter().any(|id| seated.contains(id));
         let warning = if claimed == 0 {
             None
-        } else if claimant.is_none() && !claimant_seated {
+        } else if claimant.is_none() && line.is_none() && !claimant_seated {
             Some(format!(
                 "session {} is unknown to this instance's ledger; \
                  the claimed files may surface as orphaned here",
@@ -5901,8 +5925,24 @@ impl AgentSupervisor {
             paths.push(file_path);
         }
 
+        // The renouncing owner is a line ([P01]): expand the incoming id to
+        // every segment the line has worn, so a disclaim empties the whole
+        // line's hold on the paths — not just the slice written under the
+        // current id, which would leave an older segment silently re-owning
+        // the file on the next recompose.
+        let mut renouncing_ids: Vec<String> = vec![request.session_id.clone()];
+        if let Some(l) = ledger
+            .line_of(&request.session_id)
+            .and_then(|line_id| ledger.line_ownership(&line_id).ok().flatten())
+        {
+            renouncing_ids.extend(
+                l.segment_ids
+                    .into_iter()
+                    .filter(|id| *id != request.session_id),
+            );
+        }
         let disclaimed =
-            match ledger.disclaim_file_ownership(canonical.as_str(), &paths, &request.session_id) {
+            match ledger.disclaim_file_ownership(canonical.as_str(), &paths, &renouncing_ids) {
                 Ok(deleted) => deleted,
                 Err(err) => {
                     warn!(error = %err, project_dir, "changeset_disclaim failed");
@@ -12137,6 +12177,7 @@ mod tests {
         };
         let entry = ChangesetEntry::Session {
             owner_id: "s1".to_string(),
+            line_id: None,
             display_name: "s1".to_string(),
             live: true,
             files: vec![ChangesetFile {

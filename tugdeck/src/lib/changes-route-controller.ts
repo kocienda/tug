@@ -37,6 +37,7 @@ import {
 } from "./changeset-all-store";
 import { getChangesetDraftStore } from "./changeset-draft-store";
 import { getChangesetVerbStore } from "./changeset-verb-store";
+import { sessionLineStore } from "./session-line-store";
 import type {
   ChangesetDraftSelection,
   DashChangesetEntry,
@@ -152,15 +153,29 @@ export function deriveChangesRouteSnapshot(
   const composed = composedProject !== undefined;
   const project = composedProject ?? placeholderProject(binding);
 
+  // Entry matching is line-first ([P01]): the card's session id is one
+  // segment of a line, and after an id rotation the server keys the entry by
+  // the line's current seat — which may not be the id this card was bound
+  // with. An exact id match still outranks the line match, and a card whose
+  // line the store has not learned yet falls back to the id alone.
+  const bindingLine = sessionLineStore.lineOf(binding.tugSessionId);
   let entry: SessionChangesetEntry | null = null;
+  let lineEntry: SessionChangesetEntry | null = null;
   const dashes: DashChangesetEntry[] = [];
   for (const changeset of project.changesets) {
     if (changeset.kind === "dash") {
       dashes.push(changeset);
     } else if (changeset.owner_id === binding.tugSessionId) {
       entry = changeset;
+    } else if (
+      bindingLine !== null &&
+      typeof changeset.line_id === "string" &&
+      changeset.line_id === bindingLine
+    ) {
+      lineEntry = changeset;
     }
   }
+  entry ??= lineEntry;
 
   const committedPaths = new Set<string>(
     entry?.files.map((file) => file.path) ?? [],

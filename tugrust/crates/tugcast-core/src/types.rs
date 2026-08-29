@@ -484,8 +484,16 @@ pub struct ChangesetDraft {
 pub enum ChangesetEntry {
     /// Files attributed to one Claude session's `file_events` rows.
     Session {
-        /// The tug session id that owns these files.
+        /// The tug session id that owns these files — the owning **line's**
+        /// current seat segment when the ledger knows the line, else the raw
+        /// id the rows were written under.
         owner_id: String,
+        /// The line of work this owner is ([P01]), when the ledger knows
+        /// one. The stable key across id rotations: a client matching an
+        /// entry to a card should match by line first and fall back to
+        /// `owner_id`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        line_id: Option<String>,
         /// Session display name (`name` when user-set, else the id hash).
         display_name: String,
         /// True when the session has a live relay right now.
@@ -1845,6 +1853,7 @@ mod tests {
     fn test_changeset_entry_kind_tags() {
         let session = ChangesetEntry::Session {
             owner_id: "sess-1".to_string(),
+            line_id: None,
             display_name: "s".to_string(),
             live: false,
             files: vec![],
