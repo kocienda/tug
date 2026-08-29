@@ -210,6 +210,17 @@ export interface DashChangesetEntry {
   arc?: DashArcState;
   /** Live sessions mated to this dash. Empty is how *unbound* reads. */
   bound_sessions?: string[];
+  /**
+   * Whether any session holding this dash is still working — mid-turn, or
+   * waiting on a background job it launched (a test sweep, an agent).
+   *
+   * Read beside `stage`, never folded into it. A dash whose last step is
+   * committed on a clean worktree genuinely reads `ready` by its own git
+   * facts; this says whether the session that built it has actually stopped.
+   * Every surface that offers a join holds it shut while this is true, so a
+   * join is never presented before the work behind it is finished.
+   */
+  holders_busy?: boolean;
   /** Declared step counters, from the latest step declaration. Plan-absolute:
    *  the step's number in the plan, and how many rows the plan holds. The ring
    *  draws its segments from this pair. */
@@ -769,6 +780,8 @@ export function isChangesetEntry(value: unknown): value is ChangesetEntry {
       (value.stage === undefined || typeof value.stage === "string") &&
       isOptionalDashArcState(value.arc) &&
       isOptionalStringArray(value.bound_sessions) &&
+      (value.holders_busy === undefined ||
+        typeof value.holders_busy === "boolean") &&
       (value.step_current === undefined ||
         typeof value.step_current === "number") &&
       (value.step_total === undefined ||

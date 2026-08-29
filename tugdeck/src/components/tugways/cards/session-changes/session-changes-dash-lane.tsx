@@ -460,6 +460,10 @@ function DashRow({
           base={entry.base ?? "main"}
           stage={entry.stage}
           join={entry.join ?? null}
+          // The join is an offer, and an offer waits for the work behind it:
+          // a dash whose session is still running its background tests is not
+          // finished, whatever its committed rounds say.
+          holdersBusy={entry.holders_busy === true}
           resolvePhase={joinFace?.resolve.phase}
           landBeat={landBeat}
           // The lane shows unfronted, unheld dashes too, and the pilot never

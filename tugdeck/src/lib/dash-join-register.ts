@@ -69,6 +69,18 @@ export interface DashJoinRegisterInput {
   /** Whether the deck's wire is up. */
   connected?: boolean;
   /**
+   * Whether a session holding this dash is still working — mid-turn, or
+   * waiting on a background job it launched. Straight off the feed's
+   * `holders_busy`.
+   *
+   * A join is an offer to land finished work, so it is not made until the work
+   * is finished. The turn ending is not that: the model stops speaking while
+   * the tests it backgrounded are still deciding whether the dash is any good,
+   * and a "Ready to join" shown in that window invites the user to land
+   * something nobody has finished checking.
+   */
+  holdersBusy?: boolean;
+  /**
    * Whether any live session holds this dash.
    *
    * The pilot works only for bound dashes ([D147]), so an unbound one is not
@@ -135,6 +147,10 @@ export const BEAT_WORDS: Record<string, string> = {
  * 6. **running** — the pilot's reconcile or check, from the feed's own `run`
  *    fact or the client's overlay.
  * 7. **verdict** — red, then green.
+ * 7a. **still working** — above the readiness arms only. A dash whose holder
+ *    has not stopped is not being offered, but a join already in flight, a
+ *    blocker, a question and a stated refusal all outrank it: each reports
+ *    something that has already happened, and none of them is an offer.
  * 8. **nothing** — a dash still being worked has no join yet, and `null`
  *    is how that is said. A register with nothing to report does not mount.
  */
@@ -232,6 +248,17 @@ export function dashJoinRegister(
       phase: ok ? "success" : "error",
       line: ok ? `Joined ${dash} into ${base}` : `Join failed — ${dash} is still here`,
       word: ok ? "joined" : "join-failed",
+    };
+  }
+
+  // Everything above reports something already in motion. Everything below
+  // *offers* the join — and an offer waits for the work to be finished, which
+  // the turn ending does not mean on its own.
+  if (input.holdersBusy === true) {
+    return {
+      phase: "in_flight",
+      line: `${dash} is still working — the join waits for it to finish`,
+      word: "working",
     };
   }
 

@@ -393,7 +393,11 @@ async fn session_snapshot(ctx: &ArcContext, id: &TugSessionId) -> Option<Session
         };
         (
             live,
-            !entry.turn_active,
+            // Idle means finished, not merely between frames: a stage that
+            // backgrounded a test sweep has not decided anything yet, and a
+            // rotation on that reading would advance the arc past work still
+            // running.
+            entry.is_quiet(),
             entry.turns_ended,
             entry.turn_api_error,
             entry.turn_cancelled,

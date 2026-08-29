@@ -77,6 +77,17 @@ export type JoinOutcome = "clean" | "conflicted" | "blocked" | "empty" | "stale"
 export interface JoinGateInput {
   /** A Claude turn is in flight (`canInterrupt`) — durable mutations wait. */
   turnInProgress: boolean;
+  /**
+   * A session holding the *dash* is still working — mid-turn, or waiting on a
+   * background job it launched. The feed's `holders_busy`.
+   *
+   * Distinct from `turnInProgress`, which is about the composer's own session.
+   * The dash is usually built by a different card, and its work is not
+   * finished when the model stops speaking: the tests it backgrounded are
+   * still deciding whether it works. A join pressed in that window lands work
+   * nobody has finished checking.
+   */
+  holderBusy: boolean;
   /** The current join round-trip phase for this entry. */
   joinPhase: JoinPhase;
   /** The derived join outcome. */
@@ -90,6 +101,7 @@ export interface JoinGateInput {
 /** Why a join press was refused. */
 export type JoinGateReason =
   | "turn"
+  | "holder"
   | "pending"
   | "outcome"
   | "empty-message";
@@ -110,6 +122,9 @@ export type JoinGate = { ok: true } | { ok: false; reason: JoinGateReason };
  */
 export function evaluateJoinGate(input: JoinGateInput): JoinGate {
   if (input.turnInProgress) return { ok: false, reason: "turn" };
+  // Above the round trip for the same reason `turn` is: nothing about the
+  // join's own state matters while the work behind it is still moving.
+  if (input.holderBusy) return { ok: false, reason: "holder" };
   if (input.joinPhase === "pending") return { ok: false, reason: "pending" };
   // The outcome already accounts for the candidate ({@link deriveJoinOutcome}),
   // so it is the whole answer. It deliberately no longer reads
@@ -139,6 +154,10 @@ export function joinDisabledReason(
   staleNote?: string | null,
 ): string {
   if (reason === "turn") return "Wait for the turn to finish";
+  // Named for the dash rather than "the turn", because the two are usually
+  // different cards — and because a background test sweep outlives the turn
+  // that started it, so "the turn is finished" would be true and useless.
+  if (reason === "holder") return "Wait for the dash to finish its work";
   // `pending` is the execute round trip and nothing else now that the card
   // never previews, so the sentence says the only thing it can mean.
   if (reason === "pending") return "Joining…";
@@ -198,6 +217,9 @@ export interface ReachabilityRow {
 export const REFUSAL_REACHABILITY = {
   // No control clears a running turn — the sentence names the wait.
   turn: { slot: null, where: "time" },
+  // Nor a dash still working. Time is the whole answer: the session finishes
+  // its turn and its background jobs report, and the refusal clears itself.
+  holder: { slot: null, where: "time" },
   // Nor a join already in flight. This reason is also why the joinable row
   // needs no control of its own: with nothing to press twice, a second press
   // cannot double-submit a join.
@@ -226,6 +248,7 @@ export const REFUSAL_REACHABILITY = {
 export function joinGateFacts(input: JoinGateInput): Record<string, unknown> {
   return {
     turnInProgress: input.turnInProgress,
+    holderBusy: input.holderBusy,
     joinPhase: input.joinPhase,
     outcome: input.outcome,
     candidateCommit: input.candidateCommit,
@@ -408,6 +431,7 @@ export class JoinModeController implements LandingMode {
 
     const gate = evaluateJoinGate({
       turnInProgress,
+      holderBusy: entry?.holders_busy === true,
       joinPhase,
       outcome,
       candidateCommit,
@@ -444,6 +468,7 @@ export class JoinModeController implements LandingMode {
               base: registerTarget.base,
               stage: entry?.stage ?? null,
               join,
+              holdersBusy: entry?.holders_busy === true,
               resolvePhase: getChangesetJoinStore()?.state(
                 changesController.workspaceKey,
                 registerTarget.name,
@@ -777,6 +802,7 @@ export class JoinModeController implements LandingMode {
     const candidate = join?.candidate;
     return {
       turnInProgress: codeSessionStore.getSnapshot().canInterrupt === true,
+      holderBusy: this.entryFor(target.ownerId)?.holders_busy === true,
       joinPhase: getChangesetVerbStore()?.joinState(changesController.entryKey).phase ?? "idle",
       outcome: deriveJoinOutcome(join),
       candidateCommit: typeof candidate === "string" && candidate !== "" ? candidate : null,

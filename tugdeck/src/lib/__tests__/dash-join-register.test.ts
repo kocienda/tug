@@ -54,6 +54,42 @@ describe("what the register says", () => {
     expect(ready?.word).toBe("ready");
   });
 
+  test("a dash whose session is still working is not offered", () => {
+    // The same dash, same standing candidate — the only difference is that
+    // whoever built it has not stopped. A turn ends when the model stops
+    // speaking; the tests it backgrounded are still deciding whether the work
+    // is any good, and "Ready to join" in that window invites the user to land
+    // something nobody has finished checking.
+    const working = reg(reconciled(), { holdersBusy: true });
+    expect(working?.phase).toBe("in_flight");
+    expect(working?.line).toBe("imposer2 is still working — the join waits for it to finish");
+    expect(working?.word).toBe("working");
+
+    // And it holds the pre-candidate arm shut too, which is the one a freshly
+    // finished dash actually passes through.
+    expect(reg(null, { holdersBusy: true })?.word).toBe("working");
+  });
+
+  test("a join already in motion outranks the holder still working", () => {
+    // Busyness gates an *offer*. A join in flight, a blocker, a question and a
+    // stated refusal each report something that has already happened, and none
+    // of them is an offer — so none of them is held.
+    expect(
+      reg(reconciled(), {
+        holdersBusy: true,
+        landBeat: { beat: "squash", status: "ok" },
+      })?.word,
+    ).toBe("joining");
+    expect(
+      reg({ phase: "blocked", blockers: [{ kind: "base-dirt", title: "Base work in the way", detail: "commit or stash main's changes first" }] }, {
+        holdersBusy: true,
+      })?.word,
+    ).toBe("blocked");
+    expect(
+      reg({ phase: "conflicted", run: "resolve" }, { holdersBusy: true })?.word,
+    ).toBe("reconciling");
+  });
+
   test("a question waits on a person, and says which prompt", () => {
     const asked = reg({
       phase: "conflicted",

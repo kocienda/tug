@@ -105,6 +105,29 @@ pub fn is_wake_started(payload: &[u8]) -> bool {
         .any(|w| w == WAKE_STARTED_NEEDLE)
 }
 
+/// Needle bytes for the two frames that open and close a background job.
+///
+/// `task_started` fires when a `Bash` or `Agent` is launched with
+/// `run_in_background: true` (and for foreground subagents, which are
+/// shape-identical on the wire); `task_updated` carries the status flip that
+/// ends one. The pair is what tells a session that has merely *stopped
+/// speaking* from one that is actually finished: a turn ends the moment the
+/// model stops, while the tests it backgrounded keep running, and their
+/// completion wakes a new turn seconds later.
+const TASK_STARTED_NEEDLE: &[u8] = b"\"type\":\"task_started\"";
+const TASK_UPDATED_NEEDLE: &[u8] = b"\"type\":\"task_updated\"";
+
+/// Check if a payload could open or close a background job — a cheap needle
+/// gate in front of the parse that reads its task id ([P08]).
+pub fn is_task_edge(payload: &[u8]) -> bool {
+    payload
+        .windows(TASK_STARTED_NEEDLE.len())
+        .any(|w| w == TASK_STARTED_NEEDLE)
+        || payload
+            .windows(TASK_UPDATED_NEEDLE.len())
+            .any(|w| w == TASK_UPDATED_NEEDLE)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -192,5 +215,18 @@ mod tests {
             br#"{"type":"wake_started","session_id":"x"}"#
         ));
         assert!(!is_wake_started(br#"{"type":"turn_complete"}"#));
+    }
+
+    #[test]
+    fn detects_both_ends_of_a_background_job() {
+        assert!(is_task_edge(
+            br#"{"type":"task_started","task_id":"t1","task_type":"local_bash"}"#
+        ));
+        assert!(is_task_edge(
+            br#"{"type":"task_updated","task_id":"t1","status":"completed"}"#
+        ));
+        // The progress tick is neither end — a job ticking is a job still open.
+        assert!(!is_task_edge(br#"{"type":"task_progress","task_id":"t1"}"#));
+        assert!(!is_task_edge(br#"{"type":"turn_complete"}"#));
     }
 }

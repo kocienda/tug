@@ -719,6 +719,7 @@ function DashJoinRow({ row }: { row: DashRow }): React.ReactElement | null {
         base={entry.base ?? "main"}
         stage={entry.stage}
         join={entry.join}
+        holdersBusy={entry.holders_busy === true}
         landBeat={landBeat}
         // The Lens is the one surface that renders dashes nobody is holding,
         // so it is the one that has to hand the register that fact ([D147]).

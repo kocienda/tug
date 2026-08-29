@@ -774,6 +774,9 @@ pub async fn run_session_bridge(
             entry.child_pid = None;
             entry.child_start_time = None;
             entry.turn_active = false;
+            // Whatever it had backgrounded died with it; a job that will never
+            // report must not leave the session permanently unfinished.
+            entry.open_jobs.clear();
         }
 
         match outcome {

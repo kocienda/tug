@@ -42,7 +42,7 @@ use super::agent_bridge::{
 use super::code::{parse_tug_session_id, splice_tug_session_id};
 use super::session_metadata::{
     is_activity_delta, is_rate_limit_event, is_session_capabilities, is_system_metadata,
-    is_turn_end, is_wake_started,
+    is_task_edge, is_turn_end, is_wake_started,
 };
 use super::session_scoped::SessionScopedFeed;
 use super::workspace_registry::{WorkspaceError, WorkspaceKey, WorkspaceRegistry};
@@ -409,6 +409,24 @@ pub struct LedgerEntry {
     /// names a different one and the flag would latch on a session that is
     /// still alive and still working. The cause rides the frame instead.
     pub turn_cancelled: bool,
+    /// Background jobs this session has launched and not yet seen end, by
+    /// claude's `task_id` — a `Bash` or an `Agent` running with
+    /// `run_in_background: true`, and the `Monitor` watchers that share their
+    /// lifecycle.
+    ///
+    /// `turn_active` alone cannot answer whether a session is finished. A turn
+    /// ends the moment the model stops speaking; work it backgrounded — a test
+    /// sweep, a subagent — keeps running, and its completion wakes a *new*
+    /// turn. So between the `turn_complete` and that wake there is a window
+    /// where the session looks idle and is not, and this set is exactly that
+    /// window. [`is_quiet`](LedgerEntry::is_quiet) is the two facts read
+    /// together.
+    ///
+    /// Opened by `task_started`, closed by `task_updated` carrying a terminal
+    /// status. Cleared wholesale when the relay tears the child down, because
+    /// a job whose claude is gone will never report and a set that leaked
+    /// would leave the session permanently un-quiet.
+    pub open_jobs: std::collections::BTreeSet<String>,
     /// The last `model_change` selector a **WebSocket client** sent for this
     /// session — the deck's own choice ([P15]).
     ///
@@ -513,11 +531,26 @@ impl LedgerEntry {
             turns_ended: 0,
             turn_api_error: false,
             turn_cancelled: false,
+            open_jobs: std::collections::BTreeSet::new(),
             input_tx: None,
             cancel: CancellationToken::new(),
             card_id: None,
             replay_brackets_open: 0,
         }
+    }
+}
+
+impl LedgerEntry {
+    /// Whether this session is **finished**, not merely between frames.
+    ///
+    /// One reading of a fact that is genuinely two: the model is not speaking
+    /// *and* nothing it started is still running. Every surface that waits for
+    /// a session to be done asks this rather than `turn_active` alone, because
+    /// the two disagree for exactly as long as a backgrounded test sweep takes
+    /// to finish — the window in which a dash would otherwise be offered for
+    /// joining while its own tests were still deciding whether it works.
+    pub fn is_quiet(&self) -> bool {
+        !self.turn_active && self.open_jobs.is_empty()
     }
 }
 
@@ -528,6 +561,46 @@ impl LedgerEntry {
 /// Shared ledger map. Outer mutex guards membership; per-session mutex guards
 /// the entry's mutable fields.
 pub type Ledger = Arc<Mutex<HashMap<TugSessionId, Arc<Mutex<LedgerEntry>>>>>;
+
+/// The process's one supervisor ledger, published for readers that are not on
+/// the supervisor's own call graph.
+///
+/// Whether a session is finished ([`LedgerEntry::is_quiet`]) lives only in
+/// memory — it is derived from frames as they cross the pipe and is deliberately
+/// not persisted, so a reader like the changeset recompute cannot go and look it
+/// up in `sessions.db`. Rather than mirror the fact into a second home and let
+/// the two drift, the ledger itself is published here and read directly. Set
+/// once, at supervisor construction; `None` in tests that never build one, where
+/// every session then reads as quiet — the honest answer when there is no
+/// supervisor to say otherwise.
+static LEDGER_HANDLE: std::sync::OnceLock<Ledger> = std::sync::OnceLock::new();
+
+/// Every session that is **not** finished right now — mid-turn, or holding a
+/// background job that has not reported.
+///
+/// One snapshot per caller, so a recompute asking about many dashes locks the
+/// ledger once. Empty when no supervisor is running.
+pub async fn busy_session_ids() -> HashSet<String> {
+    let Some(ledger) = LEDGER_HANDLE.get() else {
+        return HashSet::new();
+    };
+    // The membership lock is released before any entry lock is taken: an entry
+    // is held across `await` points elsewhere, and holding the outer map while
+    // waiting on one would serialize the whole supervisor behind it.
+    let entries: Vec<(String, Arc<Mutex<LedgerEntry>>)> = {
+        let map = ledger.lock().await;
+        map.iter()
+            .map(|(id, entry)| (id.to_string(), Arc::clone(entry)))
+            .collect()
+    };
+    let mut busy = HashSet::new();
+    for (id, entry) in entries {
+        if !entry.lock().await.is_quiet() {
+            busy.insert(id);
+        }
+    }
+    busy
+}
 
 /// A session with a live tugcode child and its captured `(pid, start_time)` —
 /// the activity sampler's per-session subtree root and reuse-guard baseline
@@ -2804,6 +2877,47 @@ pub(crate) fn turn_ended_in_user_cancel(payload: &[u8]) -> bool {
         && value.get("is_recovery").and_then(|v| v.as_bool()) != Some(true)
 }
 
+/// What a `task_started` / `task_updated` frame does to a session's set of
+/// open background jobs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum JobEdge {
+    /// A job began — its `task_id` joins the open set.
+    Opened(String),
+    /// A job reported a terminal status — its `task_id` leaves the open set.
+    Closed(String),
+}
+
+/// Read a job edge off a frame, if it carries one.
+///
+/// The statuses are claude's own: `completed`, `failed`, and the `killed` a
+/// stop or a `Monitor` timeout produces. Anything else on a `task_updated` is a
+/// mid-life status the wire has not shown us, and leaves the job open — the
+/// conservative direction, since the cost of holding a job open too long is a
+/// join offered a beat late, while closing it early is the bug this exists to
+/// prevent.
+///
+/// A background **agent**'s terminal `task_updated` can land after the wake its
+/// completion drives, which is harmless: the wake has already reopened the turn
+/// by then, so the session is un-quiet either way and the set closes when the
+/// frame arrives.
+pub(crate) fn parse_job_edge(payload: &[u8]) -> Option<JobEdge> {
+    let value: serde_json::Value = serde_json::from_slice(payload).ok()?;
+    let task_id = value.get("task_id")?.as_str()?;
+    if task_id.is_empty() {
+        // A task-id-less wake — the harness-owned scheduler's re-init shape.
+        // There is no job to track.
+        return None;
+    }
+    match value.get("type")?.as_str()? {
+        "task_started" => Some(JobEdge::Opened(task_id.to_owned())),
+        "task_updated" => match value.get("status")?.as_str()? {
+            "completed" | "failed" | "killed" => Some(JobEdge::Closed(task_id.to_owned())),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
 fn parse_context_window(payload: &[u8]) -> Option<i64> {
     let value: serde_json::Value = serde_json::from_slice(payload).ok()?;
     match value.get("type")?.as_str()? {
@@ -3359,6 +3473,11 @@ impl AgentSupervisor {
             arc_tick_tx: std::sync::OnceLock::new(),
             wheel_tick_tx: std::sync::OnceLock::new(),
         };
+        // Published for the readers that need to know whether a session is
+        // finished but have no path to the supervisor — the changeset
+        // recompute, which will not offer a dash for joining while the session
+        // that built it is still working.
+        let _ = LEDGER_HANDLE.set(Arc::clone(&sup.ledger));
         (sup, merger_register_rx)
     }
 
@@ -8759,6 +8878,48 @@ impl AgentSupervisor {
         }
     }
 
+    /// Fold one `task_started` / `task_updated` frame into the session's set of
+    /// open background jobs, and answer whether that left it **quiet**.
+    ///
+    /// Quiet is the whole reason this exists: a turn ends when the model stops
+    /// speaking, and the test sweep it backgrounded goes on running. Between
+    /// those two moments the session looks idle and is not, and a dash offered
+    /// for joining in that window is work nobody has finished checking.
+    ///
+    /// Guarded on the replay bracket for the same reason the turn edge is: a
+    /// `replay_batch` carries historical `task_started` frames whose jobs died
+    /// with the session that ran them, and folding those in would open jobs
+    /// that can never close.
+    ///
+    /// Returns `false` for every frame that is not a job edge, for a session
+    /// with no ledger entry, and for an edge that leaves work still running —
+    /// so the caller's release path fires on exactly the transition into quiet.
+    async fn apply_job_edge(&self, session_id: &TugSessionId, payload: &[u8]) -> bool {
+        let Some(edge) = parse_job_edge(payload) else {
+            return false;
+        };
+        let entry_arc = {
+            let ledger = self.ledger.lock().await;
+            ledger.get(session_id).cloned()
+        };
+        let Some(entry_arc) = entry_arc else {
+            return false;
+        };
+        let mut entry = entry_arc.lock().await;
+        if entry.replay_brackets_open != 0 {
+            return false;
+        }
+        match edge {
+            JobEdge::Opened(task) => {
+                entry.open_jobs.insert(task);
+            }
+            JobEdge::Closed(task) => {
+                entry.open_jobs.remove(&task);
+            }
+        }
+        entry.is_quiet()
+    }
+
     /// Apply the per-frame journal intercept the merger runs on every
     /// outbound CODE_OUTPUT frame, **after** the wire-side broadcast has
     /// fired. Narrowed in [Step 5.3](#step-5-3) to a session-scoped FIFO
@@ -8914,6 +9075,29 @@ impl AgentSupervisor {
                         };
                         if let Some(entry_arc) = entry_arc {
                             entry_arc.lock().await.context_window_tokens = Some(window);
+                        }
+                    }
+                    // A background job opening or closing. Tracked beside the
+                    // turn flag because the two together are what "finished"
+                    // means: a turn that ends with a test sweep still running
+                    // has not finished anything yet. Guarded on the replay
+                    // bracket for the same reason the turn edge is — a
+                    // `replay_batch` carries historical `task_started` frames
+                    // whose jobs died with the session that ran them.
+                    if is_task_edge(&frame.payload) {
+                        // The last job reporting with no wake behind it — a
+                        // `Monitor` timeout ends that way — is the moment the
+                        // session goes quiet, and nothing else will speak for
+                        // it. So the work parked behind it is released on the
+                        // same channels the turn edge uses.
+                        if self.apply_job_edge(&id, &frame.payload).await {
+                            if let Some(tx) = self.turn_complete_tx.get() {
+                                let _ = tx.try_send(id.to_string());
+                            }
+                            if let Some(tx) = self.arc_tick_tx.get() {
+                                let _ = tx.try_send(id.to_string());
+                            }
+                            self.registry.changeset_all_bump().notify_one();
                         }
                     }
                     if is_turn_end(&frame.payload) || is_wake_started(&frame.payload) {
@@ -9765,6 +9949,64 @@ mod tests {
     use super::super::agent_bridge::{RelayOutcome, SessionChild, SpawnFuture, relay_session_io};
 
     // ── session tag on the wire: inbound parse + outbound frame ───────────────
+
+    /// A job opens on `task_started` and closes only on a terminal status.
+    #[test]
+    fn parse_job_edge_reads_both_ends_and_nothing_between() {
+        assert_eq!(
+            parse_job_edge(br#"{"type":"task_started","task_id":"t1","task_type":"local_agent"}"#),
+            Some(JobEdge::Opened("t1".to_owned()))
+        );
+        for status in ["completed", "failed", "killed"] {
+            let frame = format!(r#"{{"type":"task_updated","task_id":"t1","status":"{status}"}}"#);
+            assert_eq!(
+                parse_job_edge(frame.as_bytes()),
+                Some(JobEdge::Closed("t1".to_owned())),
+                "{status} ends a job"
+            );
+        }
+        // A status the wire has not shown us leaves the job open, which is the
+        // safe direction: a join offered a beat late beats one offered early.
+        assert_eq!(
+            parse_job_edge(br#"{"type":"task_updated","task_id":"t1","status":"running"}"#),
+            None
+        );
+        // A progress tick is a job working, not a job ending.
+        assert_eq!(
+            parse_job_edge(br#"{"type":"task_progress","task_id":"t1"}"#),
+            None
+        );
+        // The scheduled wake's re-init carries no job to track.
+        assert_eq!(
+            parse_job_edge(br#"{"type":"wake_started","task_id":""}"#),
+            None
+        );
+    }
+
+    /// The whole point of the pair: a turn that ends with a test sweep still
+    /// running has finished nothing.
+    #[test]
+    fn quiet_is_the_turn_and_the_jobs_together() {
+        let mut entry = LedgerEntry::new(
+            TugSessionId::new("s1".to_owned()),
+            WorkspaceKey::from_test_str("/proj"),
+            std::path::PathBuf::from("/proj"),
+            SessionMode::New,
+            CrashBudget::new(3, Duration::from_secs(60)),
+        );
+        assert!(entry.is_quiet(), "a seated, idle session is quiet");
+
+        entry.turn_active = true;
+        assert!(!entry.is_quiet());
+
+        // The model stops speaking, but it backgrounded a test sweep first.
+        entry.open_jobs.insert("t1".to_owned());
+        entry.turn_active = false;
+        assert!(!entry.is_quiet(), "the turn ended; the work did not");
+
+        entry.open_jobs.remove("t1");
+        assert!(entry.is_quiet());
+    }
 
     /// Both frames that carry usage write the window, and they sum the same
     /// four fields — a `streaming_usage` keeps the reading current inside the
@@ -14544,6 +14786,75 @@ mod tests {
     }
 
     // ---- rebind tests ----
+
+    /// The window this whole mechanism exists for, driven with the frames the
+    /// wire actually carries (the `v2.1.173-jobs-spike` lifecycle): a `Bash`
+    /// backgrounded mid-turn, the turn ending, and the job reporting later.
+    #[tokio::test]
+    async fn a_background_job_outlives_its_turn_and_holds_the_session_unquiet() {
+        let (sup, _state_rx, _meta_rx, _control_rx) = make_supervisor_with_store();
+        sup.handle_control(
+            "spawn_session",
+            &spawn_payload("card-jobs", "sess-jobs"),
+            10,
+        )
+        .await
+        .expect_handled();
+        let id = TugSessionId::new("sess-jobs");
+        let entry = {
+            let ledger = sup.ledger.lock().await;
+            ledger.get(&id).unwrap().clone()
+        };
+
+        let started = br#"{"type":"task_started","session_id":"c","task_id":"t1","tool_use_id":"toolu_1","description":"just app-test","task_type":"local_bash","ipc_version":2}"#;
+        let completed =
+            br#"{"type":"task_updated","session_id":"c","task_id":"t1","status":"completed","ipc_version":2}"#;
+
+        // Launched mid-turn.
+        entry.lock().await.turn_active = true;
+        assert!(!sup.apply_job_edge(&id, started).await);
+
+        // The model stops speaking. The sweep does not.
+        entry.lock().await.turn_active = false;
+        assert!(
+            !entry.lock().await.is_quiet(),
+            "the turn ended, so a reader that asked only about the turn would \
+             offer this dash for joining right here"
+        );
+
+        // The job reports, and only now is the session finished. The `true`
+        // is what releases the work parked behind it.
+        assert!(sup.apply_job_edge(&id, completed).await);
+        assert!(entry.lock().await.is_quiet());
+    }
+
+    /// A replayed transcript's historical `task_started` frames describe jobs
+    /// that died with the session that ran them. Folding them in would open
+    /// jobs nothing can ever close, leaving the dash permanently unjoinable.
+    #[tokio::test]
+    async fn a_replayed_job_launch_opens_nothing() {
+        let (sup, _state_rx, _meta_rx, _control_rx) = make_supervisor_with_store();
+        sup.handle_control(
+            "spawn_session",
+            &spawn_payload("card-replay", "sess-replay"),
+            10,
+        )
+        .await
+        .expect_handled();
+        let id = TugSessionId::new("sess-replay");
+        let entry = {
+            let ledger = sup.ledger.lock().await;
+            ledger.get(&id).unwrap().clone()
+        };
+        entry.lock().await.replay_brackets_open = 1;
+
+        let started = br#"{"type":"task_started","session_id":"c","task_id":"old","tool_use_id":"toolu_9","description":"an old sweep","task_type":"local_bash","ipc_version":2}"#;
+        assert!(!sup.apply_job_edge(&id, started).await);
+        assert!(
+            entry.lock().await.open_jobs.is_empty(),
+            "a replayed launch is history, not work in flight"
+        );
+    }
 
     /// Defense-in-depth must NOT fire when the entry
     /// is past `Idle` (i.e., the bridge has already spawned tugcode).

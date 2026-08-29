@@ -1506,6 +1506,16 @@ pub(crate) async fn live_base_dirt_for(
         .collect()
 }
 
+/// Whether any session holding this dash is still working.
+///
+/// An unbound dash — nobody holding it — is never busy: there is no turn that
+/// could still be running, and a dash whose card was closed must stay
+/// joinable. That is why this takes the bound list rather than the dash's own
+/// facts; absence is the answer, not a missing input.
+fn holders_busy(busy: &std::collections::HashSet<String>, bound: Option<&Vec<String>>) -> bool {
+    bound.is_some_and(|sessions| sessions.iter().any(|id| busy.contains(id)))
+}
+
 async fn dash_entries(
     repo_root: &Path,
     ledger: Option<&crate::session_ledger::SessionLedger>,
@@ -1517,6 +1527,10 @@ async fn dash_entries(
     let bound_by_dash = ledger
         .and_then(|l| l.bound_sessions_by_dash().ok())
         .unwrap_or_default();
+    // Who is still working. Read once for the whole recompute, from the
+    // supervisor's in-memory ledger — the only place a session's turn and its
+    // open background jobs are known ([P08]).
+    let busy_sessions = crate::feeds::agent_supervisor::busy_session_ids().await;
 
     let root = repo_root.to_path_buf();
     let dirt = live_dirt.clone();
@@ -1584,6 +1598,15 @@ async fn dash_entries(
         let bound = bound_by_dash
             .get(&detail.owner_key)
             .is_some_and(|sessions| !sessions.is_empty());
+        // A dash whose holder is still working is not finished, whatever its
+        // git facts say, so the pilot does not start reconciling it. The
+        // reconcile rewrites the dash's branch, and doing that while the
+        // session's own backgrounded tests are running in that worktree is the
+        // hazard `base_motion` already refuses mid-turn; two engines moving the
+        // same branch must obey the same gate.
+        if holders_busy(&busy_sessions, bound_by_dash.get(&detail.owner_key)) {
+            continue;
+        }
         if let Some(action) = crate::feeds::join_pilot::pilot_action(detail.join_ready, bound, join)
         {
             crate::feeds::join_pilot::dispatch(repo_root, &detail.name, action);
@@ -1596,6 +1619,7 @@ async fn dash_entries(
             |(detail, review, steps, task_list, join)| ChangesetEntry::Dash {
                 join: Some(join),
                 task_list,
+                holders_busy: holders_busy(&busy_sessions, bound_by_dash.get(&detail.owner_key)),
                 bound_sessions: bound_by_dash
                     .get(&detail.owner_key)
                     .cloned()
@@ -3618,6 +3642,7 @@ Some context.
             stage: None,
             task_list: false,
             bound_sessions: Vec::new(),
+            holders_busy: false,
             step_current: None,
             step_total: None,
             run_position: None,
@@ -3706,6 +3731,7 @@ Some context.
                     stage: Some("working".to_owned()),
                     task_list: false,
                     bound_sessions: Vec::new(),
+                    holders_busy: false,
                     step_current: None,
                     step_total: None,
                     run_position: None,

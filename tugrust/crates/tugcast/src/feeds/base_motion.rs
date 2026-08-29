@@ -54,9 +54,15 @@ use crate::session_ledger::SessionLedger;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BoundSession {
     pub id: String,
-    /// Whether the session is mid-turn right now. The engine reads this from
-    /// the supervisor's in-memory ledger, which is the only place it is true.
-    pub turn_active: bool,
+    /// Whether the session is still working: mid-turn, or holding a background
+    /// job it launched that has not reported. The engine reads
+    /// `LedgerEntry::is_quiet` from the supervisor's in-memory ledger, which is
+    /// the only place either fact lives.
+    ///
+    /// Not the turn flag alone. A turn ends the moment the model stops
+    /// speaking, and a test sweep it backgrounded goes on reading the worktree
+    /// this engine is about to rewrite.
+    pub busy: bool,
 }
 
 /// Everything [`decide_for_dash`] needs about one dash, and nothing else.
@@ -139,8 +145,8 @@ pub fn decide_for_dash(inputs: &DashInputs) -> Decision {
     if inputs.worktree_dirty {
         return Decision::Skip("dirty-worktree");
     }
-    if inputs.sessions.iter().any(|s| s.turn_active) {
-        return Decision::Skip("turn-active");
+    if inputs.sessions.iter().any(|s| s.busy) {
+        return Decision::Skip("session-busy");
     }
 
     if inputs.conflicted {
@@ -380,7 +386,7 @@ enum Wake {
 /// Handles the engine needs from the rest of the process.
 pub struct BaseMotionContext {
     pub registry: Arc<WorkspaceRegistry>,
-    /// The supervisor's in-memory ledger — the only place `turn_active` lives.
+    /// The supervisor's in-memory ledger — the only place session busyness lives.
     pub supervisor_ledger: Ledger,
     /// The persisted ledger, for the dash→sessions binding query.
     pub session_ledger: Option<Arc<SessionLedger>>,
@@ -911,7 +917,7 @@ fn clear_dash(
 /// The live bound sessions of one dash, each carrying whether it is mid-turn.
 ///
 /// The binding comes from the persisted ledger (already ordered most-recently-
-/// used first); `turn_active` comes from the supervisor's in-memory ledger,
+/// used first); busyness comes from the supervisor's in-memory ledger,
 /// where a session the supervisor is not running simply has no entry and reads
 /// as idle.
 async fn bound_sessions(
@@ -928,13 +934,13 @@ async fn bound_sessions(
             let ledger = supervisor.lock().await;
             ledger.get(&TugSessionId::new(id.clone())).cloned()
         };
-        let turn_active = match entry {
-            Some(entry) => entry.lock().await.turn_active,
+        let busy = match entry {
+            Some(entry) => !entry.lock().await.is_quiet(),
             None => false,
         };
         out.push(BoundSession {
             id: id.clone(),
-            turn_active,
+            busy,
         });
     }
     out
@@ -981,14 +987,14 @@ mod tests {
     fn idle(id: &str) -> BoundSession {
         BoundSession {
             id: id.to_string(),
-            turn_active: false,
+            busy: false,
         }
     }
 
     fn busy(id: &str) -> BoundSession {
         BoundSession {
             id: id.to_string(),
-            turn_active: true,
+            busy: true,
         }
     }
 
@@ -1088,12 +1094,15 @@ mod tests {
     }
 
     #[test]
-    fn a_session_mid_turn_parks_the_whole_dash() {
+    fn a_session_still_working_parks_the_whole_dash() {
         let inputs = DashInputs {
             sessions: vec![idle("a"), busy("b")],
             ..behind()
         };
-        assert_eq!(decide_for_dash(&inputs), Decision::Skip("turn-active"));
+        // "Working" is mid-turn *or* holding a background job: a test sweep
+        // outlives the turn that launched it, and it reads the same worktree
+        // the replay would rewrite.
+        assert_eq!(decide_for_dash(&inputs), Decision::Skip("session-busy"));
     }
 
     #[test]

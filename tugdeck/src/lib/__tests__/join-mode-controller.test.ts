@@ -114,6 +114,7 @@ describe("joinDisabledReason", () => {
 describe("evaluateJoinGate", () => {
   const base = {
     turnInProgress: false,
+    holderBusy: false,
     joinPhase: "idle" as const,
     outcome: "clean" as const,
     candidateCommit: null,
@@ -122,6 +123,30 @@ describe("evaluateJoinGate", () => {
 
   it("passes over a clean merge with a message", () => {
     expect(evaluateJoinGate(base)).toEqual({ ok: true });
+  });
+
+  it("refuses while the dash's own session is still working", () => {
+    expect(evaluateJoinGate({ ...base, holderBusy: true })).toEqual({
+      ok: false,
+      reason: "holder",
+    });
+  });
+
+  it("names the dash, not the turn, when the holder is busy", () => {
+    expect(joinDisabledReason("holder", "clean")).toBe("Wait for the dash to finish its work");
+  });
+
+  it("puts the holder above the round trip and the outcome", () => {
+    // A blocked, mid-flight join on a busy dash still reports the holder: the
+    // work is not finished, so nothing downstream of it is worth saying yet.
+    expect(
+      evaluateJoinGate({
+        ...base,
+        holderBusy: true,
+        joinPhase: "pending",
+        outcome: "blocked",
+      }),
+    ).toEqual({ ok: false, reason: "holder" });
   });
 
   it("fails first on a running turn, before every other reason", () => {

@@ -531,6 +531,19 @@ pub enum ChangesetEntry {
         /// ([Q02]). Empty is how *unbound* reads.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         bound_sessions: Vec<String>,
+        /// Whether any session holding this dash is still working — mid-turn,
+        /// or waiting on a background job it launched (a test sweep, an agent).
+        ///
+        /// Beside `stage`, never folded into it. `stage` says what the dash's
+        /// own git and ledger facts make of it, and a dash whose last step is
+        /// committed on a clean worktree genuinely reads `ready` by those
+        /// facts. This says whether the person who built it has stopped: a turn
+        /// ends when the model stops speaking, and the tests it backgrounded
+        /// are still deciding whether the work is any good. Every surface that
+        /// offers a join holds it shut while this is true, so a dash is never
+        /// presented for landing before it is finished.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        holders_busy: bool,
         /// Declared step counters, from the latest step declaration ([P06]).
         /// Plan-absolute: the step's number in the plan, and how many rows the
         /// plan holds. The ring draws its segments from this pair.
@@ -1871,6 +1884,7 @@ mod tests {
             stage: Some("working".to_string()),
             task_list: false,
             bound_sessions: vec!["sess-1".to_string()],
+            holders_busy: false,
             step_current: None,
             step_total: None,
             run_position: None,
