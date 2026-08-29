@@ -46,6 +46,7 @@ import {
   type CommitReceiptFile,
 } from "./session-commit-receipt-block";
 import { ShellExchangeBlock } from "./shell-exchange-block";
+import { matchesJoinReceipt } from "@/lib/landing-mode";
 import "./session-join-receipt-block.css";
 
 /** The display facts parsed from an S01 join summary. */
@@ -360,11 +361,6 @@ export function SessionDiscardReceiptBlock(props: CommandBlockProps): React.Reac
       </BlockChrome>
     </ToolBlockHistoryCollapse>
   );
-}
-
-/** Claims `/dash-join`, with or without the argument form the verb accepts. */
-export function matchesJoinReceipt(command: string): boolean {
-  return command === "/dash-join" || command.startsWith("/dash-join ");
 }
 
 /**

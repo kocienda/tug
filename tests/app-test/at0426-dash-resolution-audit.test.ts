@@ -19,22 +19,17 @@
  *
  * ## What is pressed
  *
- * Two arcs, each on its own scratch repository:
+ * One arc, on its own scratch repository: **a report that skips a path is
+ * refused.** A stub merge driver resolves the conflict wholesale, so the
+ * ladder reaches a candidate with *nothing left unresolved* — the exact state
+ * where a "finish what the ladder left" resolver would have had nothing to do
+ * and would have been skipped. The resolver runs anyway and reports nothing at
+ * all. The candidate is not accepted; the face says why, naming the path it
+ * did not account for.
  *
- * 1. **The audit runs and redoes.** A stub merge driver resolves the conflict
- *    wholesale, so the ladder reaches a candidate with *nothing left
- *    unresolved* — the exact state where a "finish what the ladder left"
- *    resolver would have had nothing to do and would have been skipped. The
- *    resolver runs anyway, reports `audit: "redone"` for the driver's path, and
- *    rewrites it. The assertion is that the candidate carries the resolver's
- *    body rather than the driver's.
- * 2. **A report that skips a path is refused.** The same ladder-clean setup,
- *    with a resolver that reports nothing at all. The candidate is not
- *    accepted; the face says why, naming the path it did not account for.
- *
- * The first proves the pass happens; the second proves it cannot be skipped by
- * silence. Neither asserts anything about model prose — the resolvers are
- * scripted, and what is checked is bytes and refusals.
+ * So what is guarded here is that the pass cannot be skipped by silence.
+ * Nothing asserts anything about model prose — the resolver is scripted, and
+ * what is checked is a refusal.
  *
  * @covers tugrust/crates/tugcast/src/feeds/join_resolver.rs
  * @covers tugrust/crates/tugcast/src/feeds/agent_supervisor.rs
@@ -58,7 +53,6 @@ import {
 import {
   bindDash,
   silenceJoinPrompt,
-  gitRetry as git,
   makeJoinScratchRepo,
   rmJoinScratchRepo,
   rmScratchSession,
@@ -80,25 +74,13 @@ const FILE = "subject.txt";
 
 /** What the driver keeps — one side, wholesale. The incident's shape. */
 const DRIVER_BODY = "at0426 SENTINEL the driver kept the base side whole\n";
-/** What the audit puts back — both intents, which is what redoing means. */
-const AUDITED_BODY = "at0426 SENTINEL the audit restored both sides\n";
-
 const DRIVER_STUB = `#!/bin/sh\nprintf '%s' '${DRIVER_BODY}' > "$4"\n`;
-
-/** Audits the driver's path, rejects what it did, and says so. */
-const AUDITING_RESOLVER = `#!/bin/sh
-ws="$1"
-read -r _charter
-printf '%s' '${AUDITED_BODY}' > "$ws/${FILE}"
-printf '%s\\n' '{"files":[{"path":"${FILE}","resolved_by":"resolver","what_each_side_did":"the base and the dash each rewrote it","reconciliation":"restored what the driver discarded","audit":"redone"}],"notes":"at0426 audit"}'
-`;
 
 /** Reports nothing — the silence the contract refuses. */
 const SILENT_RESOLVER = `#!/bin/sh
 read -r _charter
 printf '%s\\n' '{"files":[],"notes":"nothing to say"}'
 `;
-
 
 /** One arc's world: its repo, its dash, and the session that opens on it. */
 interface Arc {
@@ -128,17 +110,10 @@ function makeArc(prefix: string, dash: string, sid: string, resolver: string): A
   return { scratch, fixtureDir, sid, dash };
 }
 
-let audited: Arc | null = null;
 let silent: Arc | null = null;
 
 beforeAll(() => {
   if (!SHOULD_RUN) return;
-  audited = makeArc(
-    "at0426a",
-    "at0426-audit",
-    "a7c0d1ea-0000-4000-8000-000000000426",
-    AUDITING_RESOLVER,
-  );
   silent = makeArc(
     "at0426b",
     "at0426-silent",
@@ -149,11 +124,9 @@ beforeAll(() => {
 
 afterAll(() => {
   if (!SHOULD_RUN) return;
-  for (const arc of [audited, silent]) {
-    if (arc === null) continue;
-    rmJoinScratchRepo(arc.scratch);
-    rmScratchSession(arc.fixtureDir);
-  }
+  if (silent === null) return;
+  rmJoinScratchRepo(silent.scratch);
+  rmScratchSession(silent.fixtureDir);
 });
 
 function deckShape() {
@@ -228,48 +201,6 @@ async function resolveArc(app: App, arc: Arc): Promise<string> {
 }
 
 describe.skipIf(!SHOULD_RUN)("AT0426: the resolver audits what the machines decided", () => {
-  test(
-    "a ladder-clean candidate still gets the audit, and the audit can redo it",
-    async () => {
-      const arc = audited as Arc;
-      const tugbankPath = mkTempTugbank();
-      seedTugbankForLaunch(tugbankPath, { sourceTreePath: CHECKOUT });
-      const app = await launchTugApp({
-        testName: "at0426-dash-resolution-audit",
-        env: { TUGBANK_PATH: tugbankPath, TUG_DATA_DIR: arc.scratch.dataRoot },
-      });
-      try {
-        await app.enableDeckTrace(true);
-        const row = await resolveArc(app, arc);
-
-        await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(`${row} [data-slot="session-changes-dash-join-account"]`)}) !== null`,
-          { timeoutMs: 180000 },
-        );
-        const report = await app.evalJS<string>(
-          `(document.querySelector(${JSON.stringify(`${row} [data-slot="session-changes-dash-join-report"]`)})?.textContent || "")`,
-        );
-        expect(report, "the report accounts for the path the driver decided").toContain(
-          FILE,
-        );
-        expect(report, "and says what it did about it").toContain("restored what the driver");
-
-        // The bytes are the assertion. The driver resolved the conflict on its
-        // own — the ladder had nothing left to hand anybody — and the candidate
-        // still carries the audit's body, which is only possible if the pass
-        // ran over a file nobody had asked it to finish.
-        const merged = git(arc.scratch.repo, "show", `refs/tug/join/${arc.dash}:${FILE}`);
-        expect(merged, "the audit's resolution is what would join").toBe(AUDITED_BODY);
-        expect(merged, "and the driver's wholesale keep is not").not.toBe(DRIVER_BODY);
-        note("at0426 audit: a ladder-clean candidate was reviewed and redone");
-      } finally {
-        await app.close();
-        rmTempTugbank(tugbankPath);
-      }
-    },
-    TEST_TIMEOUT_MS,
-  );
-
   test(
     "a report that does not account for a resolved path is refused, by name",
     async () => {

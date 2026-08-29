@@ -42,6 +42,7 @@ import {
 import { CHANGES_SERVICE_DISCONNECTED } from "@/lib/landing-mode";
 import type { ChangesRouteController } from "@/lib/changes-route-controller";
 import type { CodeSessionStore } from "@/lib/code-session-store";
+import type { Message } from "@/lib/code-session-store/types";
 import type { CommitModeController } from "@/lib/commit-mode-controller";
 import type { DashChangesetEntry, DashJoinStateWire } from "@/lib/changeset-types";
 
@@ -392,17 +393,48 @@ function fakeChangesController(
 
 function fakeCodeSessionStore(canInterrupt: boolean): CodeSessionStore & {
   _setTurn: (running: boolean) => void;
+  _landJoinReceipt: (exchangeId: string) => void;
 } {
   let running = canInterrupt;
+  // The controller reads the transcript to find the durable `/dash-join` row a
+  // landed join writes, so the fake carries a real one rather than a stub —
+  // the rows below are the shape the reducer builds from the wire.
+  const messages: Message[] = [];
+  const listeners = new Set<() => void>();
   const store = {
-    subscribe: () => () => {},
-    getSnapshot: () => ({ canInterrupt: running }),
+    subscribe: (listener: () => void) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    getSnapshot: () => ({
+      canInterrupt: running,
+      transcript: [{ messages }],
+      activeTurn: null,
+    }),
     /** Test hook: start or end a turn between two presses. */
     _setTurn: (next: boolean): void => {
       running = next;
     },
+    /** Test hook: append the settled `/dash-join` row a landed join writes. */
+    _landJoinReceipt: (exchangeId: string): void => {
+      messages.push({
+        kind: "shell_exchange",
+        exchangeId,
+        command: "/dash-join join-lane",
+        output: "joined abc1234 · join-lane → main · 2 round(s)\nsubject",
+        exitCode: 0,
+        cwd: RAW_DIR,
+        cwdAfter: RAW_DIR,
+        startedAtMs: 1,
+        settledAtMs: 2,
+      } as unknown as Message);
+      for (const listener of [...listeners]) listener();
+    },
   };
-  return store as unknown as CodeSessionStore & { _setTurn: (running: boolean) => void };
+  return store as unknown as CodeSessionStore & {
+    _setTurn: (running: boolean) => void;
+    _landJoinReceipt: (exchangeId: string) => void;
+  };
 }
 
 function fakeCommitMode(): CommitModeController & { exits: number } {
@@ -825,6 +857,63 @@ describe("JoinModeController", () => {
 
     expect(getChangesetJoinStore()?.landProgress(WORKSPACE_KEY, "join-lane")).toBeNull();
     expect(controller.getSnapshot().register?.word).not.toBe("joining");
+    controller.dispose();
+  });
+
+  it("the join's receipt takes the live sentence down with it", () => {
+    // The 2026-08-29 report: two identical "Joined tripwire-rename into main"
+    // rows at the moment a join went through. One is the durable receipt's own
+    // settled register, the other the live narration resting out its timer —
+    // and for that window the transcript said the same thing twice. The
+    // receipt is what the narration was narrating toward, so its arrival is
+    // what retires the live copy, not the clock.
+    const { controller, codeSessionStore } = build();
+    controller.enter(TARGET);
+    let staged: (() => void) | null = null;
+    controller.setLandHook((run) => {
+      staged = run;
+      controller.exit();
+    });
+    controller.land("land it");
+    (staged as unknown as () => void)();
+
+    _ingestJoinFrameForTest({
+      action: "changeset_join_ok",
+      project_dir: WORKSPACE_KEY,
+      dash: "join-lane",
+      summary: "joined abc1234 · join-lane → main · 2 round(s)",
+    });
+    // The settled sentence stands while it is the only one there is.
+    expect(controller.getSnapshot().register?.word).toBe("joined");
+
+    codeSessionStore._landJoinReceipt("exch-1");
+    expect(controller.getSnapshot().register).toBe(null);
+    controller.dispose();
+  });
+
+  it("a receipt already in the transcript is not this join's", () => {
+    // The mark is taken at the press, so an earlier join's row — a dash
+    // recreated under the same name, joined twice in one session — cannot
+    // retire the narration of the join now running.
+    const { controller, codeSessionStore } = build();
+    codeSessionStore._landJoinReceipt("exch-old");
+
+    controller.enter(TARGET);
+    let staged: (() => void) | null = null;
+    controller.setLandHook((run) => {
+      staged = run;
+      controller.exit();
+    });
+    controller.land("land it");
+    (staged as unknown as () => void)();
+
+    _ingestJoinFrameForTest({
+      action: "changeset_join_ok",
+      project_dir: WORKSPACE_KEY,
+      dash: "join-lane",
+      summary: "joined abc1234 · join-lane → main · 2 round(s)",
+    });
+    expect(controller.getSnapshot().register?.word).toBe("joined");
     controller.dispose();
   });
 

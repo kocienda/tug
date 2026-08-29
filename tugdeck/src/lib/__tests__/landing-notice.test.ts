@@ -98,7 +98,13 @@ function buildController(): JoinModeController {
     changesController,
     codeSessionStore: {
       subscribe: () => () => {},
-      getSnapshot: () => ({ canInterrupt: turnRunning }),
+      // An empty transcript with no turn in flight — this file is about the
+      // notice, and no join here lands a receipt.
+      getSnapshot: () => ({
+        canInterrupt: turnRunning,
+        transcript: [],
+        activeTurn: null,
+      }),
     } as unknown as CodeSessionStore,
     commitModeController: { exit: () => {} } as unknown as CommitModeController,
   });

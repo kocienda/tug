@@ -16,10 +16,10 @@ import { describe, expect, it } from "bun:test";
 
 import {
   matchesDiscardReceipt,
-  matchesJoinReceipt,
   parseDiscardReceipt,
   parseJoinReceipt,
 } from "@/components/tugways/cards/session-join-receipt-block";
+import { matchesJoinReceipt } from "@/lib/landing-mode";
 // Side-effect import: the commit receipt registers itself too, so the shipped
 // population below is the real one the transcript resolves against.
 import "@/components/tugways/cards/session-commit-receipt-block";

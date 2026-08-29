@@ -80,6 +80,19 @@ export interface LandingRefusal {
 export type LandingPhase = CommitPhase | JoinPhase;
 
 /**
+ * Claims a `/dash-join` transcript row, with or without the argument form the
+ * verb accepts.
+ *
+ * It lives here rather than beside the block that renders it because two
+ * things read it: the receipt block, which turns the row into a receipt, and
+ * `JoinModeController`, which watches for that row's arrival to know its live
+ * narration has been replaced by a durable one.
+ */
+export function matchesJoinReceipt(command: string): boolean {
+  return command === "/dash-join" || command.startsWith("/dash-join ");
+}
+
+/**
  * Refusal equality for the controllers' `snapshotsEqual` — `seq` carries the
  * identity, so a repeat of the same sentence is a different refusal.
  */

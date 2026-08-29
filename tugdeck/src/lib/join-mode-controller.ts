@@ -38,7 +38,11 @@ import type {
   LandingRefusal,
   LandingSnapshot,
 } from "@/lib/landing-mode";
-import { CHANGES_SERVICE_DISCONNECTED, sameRefusal } from "@/lib/landing-mode";
+import {
+  CHANGES_SERVICE_DISCONNECTED,
+  matchesJoinReceipt,
+  sameRefusal,
+} from "@/lib/landing-mode";
 import { getChangesetVerbStore } from "@/lib/changeset-verb-store";
 import { tugDevLogStore } from "@/lib/tug-dev-log-store/tug-dev-log-store";
 import { sendLandingReceipt } from "@/lib/landing-press-receipt";
@@ -314,6 +318,12 @@ export class JoinModeController implements LandingMode {
    * still rests — it is the outcome the user has something to do about.
    */
   private narration: JoinTarget | null = null;
+  /**
+   * The newest `/dash-join` receipt already in the transcript when the current
+   * narration began, or `null` when there was none — the mark that tells this
+   * join's receipt from a past one.
+   */
+  private narrationPriorReceipt: string | null = null;
   /** The pending retirement of a settled-success narration, if one is due. */
   private narrationRestTimer: ReturnType<typeof setTimeout> | null = null;
   private snapshot: JoinModeSnapshot;
@@ -506,7 +516,35 @@ export class JoinModeController implements LandingMode {
   }
 
   /**
-   * Retire a narration whose join has landed, after its rest ([P03]).
+   * The exchange id of the newest `/dash-join` receipt in the transcript, or
+   * `null` when there is none.
+   *
+   * Scanned backwards, from the live edge, because the row this looks for is
+   * the one that just landed: the hot path stops on the first receipt it
+   * reads, and only the once-per-press mark walks the whole record.
+   */
+  private newestJoinReceipt(): string | null {
+    const snapshot = this.deps.codeSessionStore.getSnapshot();
+    // Newest run first: the active turn, then the committed ones in reverse.
+    const runs = [
+      ...(snapshot.activeTurn === null ? [] : [snapshot.activeTurn.messages]),
+      ...[...snapshot.transcript].reverse().map((turn) => turn.messages),
+    ];
+    for (const messages of runs) {
+      for (let i = messages.length - 1; i >= 0; i -= 1) {
+        const message = messages[i];
+        if (message.kind !== "shell_exchange") continue;
+        if (message.settledAtMs === null) continue;
+        if (!matchesJoinReceipt(message.command)) continue;
+        return message.exchangeId;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Retire a narration whose join has landed — on its receipt, or failing
+   * that after its rest ([P03]).
    *
    * Only a *success* retires, and only while the mode is closed: an open mode
    * has a target of its own and nothing here applies. A failure keeps the
@@ -514,6 +552,16 @@ export class JoinModeController implements LandingMode {
    * outcome that still wants an act. Anything that replaces the narration
    * first — a new aim, a new press — cancels the pending retirement, so the
    * timer can never clear a sentence about a different join.
+   *
+   * **The receipt is what the narration was narrating toward.** A landed join
+   * writes a `/dash-join` row into the transcript, and that row carries the
+   * settled sentence itself — so from the moment it arrives, a live register
+   * still resting is a second copy of a sentence the ledger now holds, two
+   * rows apart and identical. The rest exists so a success cannot vanish on
+   * its own terminal frame; a durable receipt taking its place is not
+   * vanishing, so the receipt cuts the rest short. The timer stays for the
+   * join whose receipt lands somewhere else — the pilot's, on a dash another
+   * card holds — where nothing in this transcript will ever speak for it.
    */
   private scheduleNarrationRetirement(): void {
     const cancel = (): void => {
@@ -532,6 +580,11 @@ export class JoinModeController implements LandingMode {
     );
     if (progress?.terminal !== true || progress.status === "error") {
       cancel();
+      return;
+    }
+    if (this.newestJoinReceipt() !== this.narrationPriorReceipt) {
+      cancel();
+      this.narration = null;
       return;
     }
     if (this.narrationRestTimer !== null) return;
@@ -746,6 +799,7 @@ export class JoinModeController implements LandingMode {
     // re-check refuses.
     getChangesetJoinStore()?.beginLand(this.deps.changesController.workspaceKey, target.name);
     this.narration = target;
+    this.narrationPriorReceipt = this.newestJoinReceipt();
     const runJoin = () => this.performJoin(text, target);
     if (this.landHook !== null) {
       this.landHook(runJoin);
@@ -900,6 +954,7 @@ export class JoinModeController implements LandingMode {
     const { changesController } = this.deps;
     getChangesetJoinStore()?.clearLand(changesController.workspaceKey, target.name);
     this.narration = target;
+    this.narrationPriorReceipt = this.newestJoinReceipt();
     this.recompute();
   }
 
