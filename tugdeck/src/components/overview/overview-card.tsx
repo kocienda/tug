@@ -130,7 +130,7 @@ import {
 } from "@/lib/annotator/commit-resolution";
 import { commitTip, dashTip, fileTip } from "@/components/tugways/entity-tips";
 import { TugTooltip } from "@/components/tugways/tug-tooltip";
-import { dispatchAction } from "@/action-dispatch";
+import { dispatchCommand } from "@/command-dispatch";
 import { fileNameResolverFor } from "@/lib/annotator/file-name-resolution";
 import { annotationEntryFor } from "@/lib/annotator/registry";
 import { pathResolutionStore } from "@/lib/annotator/path-resolution";
@@ -360,7 +360,7 @@ function RefAtom({
           // The Lens is where a dash's join is already offered, so the click
           // reveals it rather than inventing a second landing surface.
           onClick={() => {
-            dispatchAction({ action: "reveal-lens" });
+            dispatchCommand("reveal-lens");
           }}
           // Same contract the file skin's own marks carry: revealing the Lens
           // activates the target pane, and this chip must not also activate

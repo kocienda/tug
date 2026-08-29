@@ -69,7 +69,7 @@ const FACT_TAIL_CAP: usize = 200;
 /// failure modes it has no defence against on its own are the one that blocks
 /// on a prompt and the one that never terminates. Neither announces itself:
 /// without a deadline the trip stays `running` forever, holding its slot, and
-/// the run it is inside never settles. Generous, because `just fix && just ci`
+/// the run it is inside never settles. Generous, because `just ci`
 /// is the motivating probe and a cold build is slow.
 const PROBE_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 

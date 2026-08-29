@@ -141,6 +141,8 @@ fn a_probe_resolves_the_auto_tier_to_work() {
             "commit:main",
             "--probe",
             "just ci",
+            "--scope",
+            "/repo",
             "--brief",
             "b",
         ],
@@ -264,7 +266,8 @@ fn an_edit_moves_only_what_it_names_and_clear_empties_a_column() {
     wire_json(
         &db,
         &[
-            "wire", "lay", "w", "--on", "commit", "--probe", "just ci", "--brief", "b",
+            "wire", "lay", "w", "--on", "commit", "--probe", "just ci", "--scope", "/repo",
+            "--brief", "b",
         ],
     );
     let edited = wire_json(&db, &["wire", "edit", "w", "--cooldown", "5"]);

@@ -1985,6 +1985,14 @@ function resolveLaunchOptions(opts: LaunchTugAppOptions): ResolvedLaunch {
       // on the developer's machine: a tripwire is a standing thing that fires
       // later, so an un-isolated one would outlive the run that made it.
       TUG_TRIPWIRES_DB: `${homedir()}/Library/Application Support/Tug/instances/${instanceId}/tripwires.db`,
+      // And the per-instance session ledger, which needs saying out loud for
+      // a different reason than the three above: this launch would resolve it
+      // correctly on its own, but `forwardableEnv` hands the app every `TUG*`
+      // variable the harness process holds, and a run started from a Session
+      // card inherits that card's `TUG_SESSIONS_DB` — an absolute path to the
+      // developer's live ledger, which resolves ahead of the data dir. Restating
+      // it as this instance's own file is what closes that door.
+      TUG_SESSIONS_DB: `${homedir()}/Library/Application Support/Tug/instances/${instanceId}/sessions.db`,
     },
     logPath,
     expectedSurfaceVersion: opts.expectedSurfaceVersion ?? EXPECTED_SURFACE_VERSION,

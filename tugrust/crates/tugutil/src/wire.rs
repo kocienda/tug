@@ -530,14 +530,7 @@ fn run_trip(name: &str, json: bool, quiet: bool) -> Result<(), String> {
 /// answered. A failure here is not the verb's failure: the row is written, and
 /// no instance running is the ordinary case for a machine with the app closed.
 fn kick_live_instance(wire: &str) -> bool {
-    crate::commands::run_tell(
-        "wire_trip".to_string(),
-        None,
-        None,
-        vec![format!("wire={wire}")],
-        false,
-    )
-    .is_ok_and(|code| code == 0)
+    crate::commands::tell::tell_quietly("wire_trip", &[format!("wire={wire}")]).is_ok()
 }
 
 // MARK: - Payloads

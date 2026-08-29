@@ -17,3 +17,12 @@ rustflags = ["-D", "warnings"]
 TUG_DATA_DIR = { value = "target/tug-test-data", relative = true, force = true }
 TUG_INSTANCE_ID = { value = "cargo-test", force = true }
 TUG_TEST_ISOLATION = { value = "1", force = true }
+
+# The ledger overrides resolve BEFORE the data dir, so forcing TUG_DATA_DIR is
+# not enough on its own: tugcast exports an absolute TUG_SESSIONS_DB into every
+# session subprocess (agent_bridge.rs), claude forwards it to Bash tool calls,
+# and `cargo nextest run` typed into a Session card inherits a path pointing at
+# the user's live per-instance ledger. Point it at the scratch instance's own
+# file — the same path TUG_DATA_DIR + TUG_INSTANCE_ID resolve to — so the
+# override and the data dir agree instead of racing.
+TUG_SESSIONS_DB = { value = "target/tug-test-data/Tug/instances/cargo-test/sessions.db", relative = true, force = true }

@@ -6,7 +6,7 @@
  * `cargo clippy --fix` applies only suggestions rustc marked
  * `MachineApplicable`. Everything else — `MaybeIncorrect`, `Unspecified`,
  * `HasPlaceholders` — survives every `--fix` pass forever, which is what makes
- * a lint like `ptr_arg` a permanent fixpoint of `just fix`. This pass reads the
+ * a lint like `ptr_arg` survive every repair pass forever. This pass reads the
  * same diagnostics out of `--message-format=json` and decides for itself.
  *
  * A lint earns a place in TRUSTED by two properties, both checked by hand

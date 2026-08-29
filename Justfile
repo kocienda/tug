@@ -82,9 +82,8 @@ test-ts:
 # stale by construction, which is a fact about the retune, not a test failure
 # to be diagnosed. Each entry below pairs a golden with the one command that
 # rebuilds it, so the knowledge lives here instead of in a test docstring
-# nobody reads until the gate is already red. `fix` runs this, so the ordinary
-# path regenerates goldens for you and shows the diff. Adding a new golden
-# means adding its line here — an unlisted golden is one `just fix` cannot fix.
+# nobody reads until the gate is already red. Adding a new golden means adding
+# its line here — an unlisted golden is one nothing here can rebuild.
 golden:
     cd tugdeck && IMPOSER_GOLDEN_UPDATE=1 bun test src/lib/__tests__/layout-imposer-solutions.test.ts
 
@@ -272,61 +271,7 @@ tugplug-lint:
 clippy-repair *ARGS:
     bun scripts/clippy-repair.ts {{ARGS}}
 
-# Repair everything repairable, then run the full gate.
-#
-# `lint` only reports; this is the recipe that EDITS. It repairs in four
-# passes, cheapest first — clippy's machine-applicable rewrites, the trusted
-# suggestions `--fix` skips (`just clippy-repair`), formatting, then the
-# derived goldens (`just golden`) — and only then runs `ci`. So a stale
-# golden, which is arithmetic rather than a bug, is fixed on the way through
-# instead of failing the gate with a 245-line diff to read.
-#
-# It rewrites files in place, so review the diff afterwards; when it changes
-# a golden it says so and shows you which.
-#
-# What is left when this recipe still fails is, by construction, the part no
-# tool can do: a lint whose repair is not self-contained or would compile into
-# a different meaning (`large_enum_variant`, `empty_line_after_doc_comments` —
-# these want a judgment call about the code's shape), or a genuinely failing
-# test. The recipe names which of the two before it stops, and for the lint
-# case it prints clippy's own proposal rather than only that it declined.
-fix:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    cd "{{justfile_directory()}}"
-
-    (cd tugrust && cargo clippy --fix --workspace --all-targets --allow-dirty --allow-staged)
-    just clippy-repair --quiet
-    (cd tugrust && cargo fmt --all)
-
-    just golden
-    if ! git diff --quiet -- '*/__tests__/golden/*'; then
-        echo
-        echo "REGENERATED GOLDENS — a producer's constants moved. Review this diff:"
-        git diff --stat -- '*/__tests__/golden/*'
-        echo
-    fi
-
-    if ! just lint; then
-        echo
-        echo "STOPPED: lint failures survived both repair passes." >&2
-        just clippy-repair --explain
-        echo
-        echo "Each one needs a decision about the code's shape — take clippy's" >&2
-        echo "proposal above, restructure the code, or #[allow(...)] it with the" >&2
-        echo "reason. A lint printing nothing above has no proposal at all." >&2
-        exit 1
-    fi
-
-    if ! just test; then
-        echo
-        echo "STOPPED: a test genuinely fails. Nothing above this line can repair" >&2
-        echo "that — the failure named above is about behavior, not shape." >&2
-        exit 1
-    fi
-
-# Full pre-merge gate (lint + test). `fix` runs these same two recipes rather
-# than calling `ci`, so that it can speak between them; keep the pair in step.
+# Full pre-merge gate (lint + test).
 ci: lint test
 
 # Build every WASM crate under tugdeck/crates/ via scripts/build-wasm.sh.

@@ -15856,6 +15856,13 @@ mod tests {
         static ENV_MUTEX: Mutex<()> = Mutex::new(());
         let _guard = ENV_MUTEX.lock().unwrap();
 
+        // The `TUG_SESSIONS_DB` override resolves ahead of everything this
+        // test is about, and the cargo test env forces one. Lift it for the
+        // duration so the layers beneath it are the ones being read.
+        let prior_db: Option<OsString> = std::env::var_os("TUG_SESSIONS_DB");
+        unsafe {
+            std::env::remove_var("TUG_SESSIONS_DB");
+        }
         let prior: Option<OsString> = std::env::var_os("TUG_INSTANCE_ID");
         unsafe {
             std::env::set_var("TUG_INSTANCE_ID", "ledger-test");
@@ -15881,6 +15888,9 @@ mod tests {
             match prior {
                 Some(v) => std::env::set_var("TUG_INSTANCE_ID", v),
                 None => std::env::remove_var("TUG_INSTANCE_ID"),
+            }
+            if let Some(v) = prior_db {
+                std::env::set_var("TUG_SESSIONS_DB", v);
             }
         }
     }

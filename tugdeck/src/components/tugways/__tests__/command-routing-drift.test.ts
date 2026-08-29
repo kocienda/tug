@@ -195,6 +195,7 @@ const SWIFT_WIRES: Readonly<Record<string, WireKind>> = {
   "toggle-lens": "command",
   "toggle-jots": "command",
   "toggle-overview": "command",
+  "toggle-wires": "command",
   "new-jot": "command",
   "focus-lens": "command",
   "zoom-actual": "command",
@@ -401,6 +402,7 @@ const ADDED_SINCE_THE_MAP: ReadonlyArray<readonly [chord: string, commandId: str
   ["⌘J", TUG_ACTIONS.NEW_JOT],
   ["⌃⌘J", TUG_ACTIONS.TOGGLE_JOTS],
   ["⌃⌘O", TUG_ACTIONS.TOGGLE_OVERVIEW],
+  ["⌃⌘W", TUG_ACTIONS.TOGGLE_WIRES],
   ["⌥⌘[", TUG_ACTIONS.PREVIOUS_STACK_CARD],
   ["⌥⌘]", TUG_ACTIONS.NEXT_STACK_CARD],
   // The slash bridges that earned a chord. The family is reachable by typing

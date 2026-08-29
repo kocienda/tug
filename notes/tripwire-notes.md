@@ -3,7 +3,7 @@
 A standing set of condition → response pairs that watch the same firehose the Overview watches. When a condition fires, an AI runs — scoped to that event — and reports what it found. The two motivating cases:
 
 - **tugedit failures.** When a `tugutil file edit` program fails to resolve, an AI looks at the failure *right when it occurs*, diagnoses it, and proposes the corrected program.
-- **Post-commit CI confidence.** After every commit on main, run `just fix && just ci` in a safe place and flag anything red, so a push to GitHub carries earned confidence.
+- **Post-commit CI confidence.** After every commit on main, run `just ci` in a safe place and flag anything red, so a push to GitHub carries earned confidence.
 
 ## Vocabulary
 
@@ -38,7 +38,7 @@ The design move that keeps this cheap: **the AI runs on the residue, not the eve
 
 A work-tier trip **lays a real dash**. The wire's agent is a real headless tugcode session — genuine session id, genuine transcript, spawned through the supervisor beside `spawn_session` via a new cardless entry point — running on the dash worktree, committing there via `tugutil dash commit` under the existing dash commit discipline. The trip's artifact is not a loose patch; it is a dash with commits, an oplog, and documents at `.tug/dashes/<name>/`. Review happens in the Join sheet, landing is the user's `/dash-join <name>`, conflicts arrive as data, and `--resolve` stays a user-gesture-only act. **The wire stages; the user joins.** Wires only ever commit on their own dash worktree — exactly the exception the git policy already carves out.
 
-- **Work runs in the dash worktree, never in your tree.** The CI wire's probe runs `just fix` — which writes. An autonomous process must never mutate the checkout you're working in, race your uncommitted files, or leave attribution debris in your session's ledger. The dash worktree is the disposable worktree.
+- **Work runs in the dash worktree, never in your tree.** A wire's agent writes — repairs, regenerated goldens, commits. An autonomous process must never mutate the checkout you're working in, race your uncommitted files, or leave attribution debris in your session's ledger. The dash worktree is the disposable worktree.
 - **Lazy dash, eager cleanup.** The dash is created at trip start (the probe needs somewhere safe to run) and **auto-removed if the trip ends with nothing committed**. A verdict-only outcome leaves no dash behind; only staged work persists.
 - **Namespace and provenance.** Wire dashes carry a `laid_by: wire/<name>` provenance field and generated names like `wire-ci-confidence-858a40e`, so dash lists and the Join sheet can badge them rather than presenting work of unknown origin.
 - **Adoptable, not invisible.** The session is a real session, so "see the workings" is free: the Overview post carries a ref to it, and opening that ref seats the session on a card — live if still running, transcript if settled. You can watch, interrupt, or take over.

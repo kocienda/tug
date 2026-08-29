@@ -938,6 +938,15 @@ export const COMMANDS: readonly CommandEntry[] = [
     internal: true,
   },
   {
+    // Its door is an Overview post's dash chip — a link, not a menu item or
+    // a chord. Distinct from Show Lens on purpose: a link reveals the rail,
+    // where the toggle would take it away from a reader who had it open.
+    id: "reveal-lens",
+    title: "Reveal Lens",
+    routing: "registry",
+    internal: true,
+  },
+  {
     id: TUG_ACTIONS.CLEAR_RECENT_DOCUMENTS,
     title: "Clear Menu",
     routing: "first-responder",
