@@ -217,7 +217,7 @@ A `STR` may be a body on either side, or both: `replace '…' with << … >>` gr
 
 The interpreter runs in four phases, and the phase boundary is the contract.
 
-1. **Parse.** The whole program is parsed before any file is opened. A syntax error names its line and column and aborts the run with nothing read.
+1. **Parse.** The whole program is parsed before any file is opened. A syntax error names its line and column, quotes that line with a caret under the column, and aborts the run with nothing read. The excerpt is not decoration: a program arrives on stdin as a heredoc, so a bare `7:1` addresses a document that exists only in the message that sent it, and in a program with two `patch` ops the position alone does not say which one refused.
 2. **Read.** Every file named by a block is read once. A missing file is an error (except under `create`, where an *existing* file is the error, and `write`, which accepts either). Non-UTF-8 content is an error; tugedit does not edit binaries.
 3. **Resolve.** Every address, literal, and regex in every op is resolved against the original bytes of its file. Every failure across the whole program is collected — not just the first — and reported together with the op's source line and the actual match count, so one run tells the model everything that was stale. Any failure aborts with nothing written — and the refusal's last line says so in words, counting the ops that did resolve, because a model reading a refusal otherwise carries on as though those had landed and its next program addresses text this one never wrote.
 4. **Apply and write.** Ops within a file are applied bottom-up by resolved position, so no op shifts another; a `move` is a delete at its source and an insert at its anchor, both positioned against the original. Each file is written atomically (write-temp-and-rename in the file's directory, preserving mode). A file whose result is byte-identical to its original is not written and not receipted.
@@ -308,6 +308,7 @@ The mining query, re-run against transcripts written after the language shipped:
 
 - A program either applies entirely or writes nothing. The only exception is an I/O failure mid-write, which is reported file-by-file.
 - A refusal ends by saying nothing was written and how many ops did resolve.
+- A parse refusal quotes the program line it names, with a caret under the column.
 - Every address resolves against original bytes; ops never observe each other.
 - `expect 1` is the default; a match count the program did not declare is an error. In a `files` block the guard holds per file.
 - Overlapping spans in one file are refused.

@@ -472,13 +472,7 @@ fn parse_hunks(
                 current.new.push(rest.to_string());
             }
             other => {
-                return Err(scanner.error_at(
-                    source_line,
-                    1,
-                    format!(
-                        "a hunk line starts with ` `, `-`, `+`, or `@@` — this one starts with `{other}`"
-                    ),
-                ));
+                return Err(scanner.error_at(source_line, 1, prefix_refusal(lines, other)));
             }
         }
     }
@@ -488,6 +482,31 @@ fn parse_hunks(
         return Err(scanner.error_at(op_line, 1, "`patch` needs at least one hunk"));
     }
     Ok(hunks)
+}
+
+/// Why a hunk line with no prefix byte refused, and what to write instead.
+///
+/// The two ways to lose the byte read differently. A body pasted whole out of
+/// the file carries no prefix on any line, and what the caller wanted was
+/// usually a verbatim block swap. A single bare line among prefixed ones is a
+/// context line whose space went missing. Each gets its own repair.
+fn prefix_refusal(lines: &[String], first: char) -> String {
+    let prefixed = lines
+        .iter()
+        .any(|l| l.starts_with('-') || l.starts_with('+') || l.starts_with("@@"));
+    if prefixed {
+        format!(
+            "a hunk line starts with ` `, `-`, `+`, or `@@` — this one starts with `{first}`. \
+             If the patch keeps this line it is context and needs one leading space; \
+             if it goes out or comes in, mark it `-` or `+`"
+        )
+    } else {
+        format!(
+            "a `patch` body is a diff hunk — one prefix byte per line (` ` keeps, `-` takes out, \
+             `+` puts in) — and no line in this body carries one; this one starts with `{first}`. \
+             To swap one verbatim block for another, use `replace << … >> with << … >>`"
+        )
+    }
 }
 
 fn parse_regex(scanner: &mut Scanner) -> Result<RegexLit, ParseError> {
@@ -724,6 +743,28 @@ mod tests {
         assert_eq!(err.line, 4);
         assert_eq!(err.col, 1);
         assert!(err.message.contains("starts with `t`"), "{}", err.message);
+        assert!(
+            err.message.contains("needs one leading space"),
+            "{}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn a_body_with_no_prefix_anywhere_is_steered_at_replace() {
+        let err = failure("file a.txt\n  patch <<\nexport const X = 1;\nexport const Y = 2;\n>>\n");
+        assert_eq!(err.line, 3);
+        assert_eq!(err.col, 1);
+        assert!(
+            err.message.contains("no line in this body carries one"),
+            "{}",
+            err.message
+        );
+        assert!(
+            err.message.contains("`replace << … >> with << … >>`"),
+            "{}",
+            err.message
+        );
     }
 
     #[test]

@@ -300,6 +300,30 @@ fn a_syntax_error_exits_two_with_nothing_read() {
 }
 
 #[test]
+fn a_syntax_error_quotes_the_program_line_it_names() {
+    let (_dir, root) = init_repo();
+    let out = edit(
+        &root,
+        &[],
+        "file a.txt\n  patch <<\nzero\n-two\n+deux\n>>\n",
+    );
+    assert_eq!(code(&out), 2);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("   | zero"),
+        "the refusal quotes the offending line so the caller never counts: {stderr}"
+    );
+    assert!(
+        stderr.contains("   | ^"),
+        "and carets the column it named: {stderr}"
+    );
+    assert!(
+        stderr.contains("needs one leading space"),
+        "and says what to write instead: {stderr}"
+    );
+}
+
+#[test]
 fn a_resolve_failure_exits_three_reporting_every_stale_address_and_writing_nothing() {
     let (_dir, root) = init_repo();
     let out = edit(
@@ -659,6 +683,38 @@ fn the_marker_follows_the_report_it_does_not_replace_it() {
     let report = stderr.find("nothing was written").expect("the report");
     let marker = stderr.find("TUG-EDIT-ERROR: ").expect("the marker");
     assert!(report < marker, "the report comes first: {stderr}");
+}
+
+/// The program came in on stdin, so a bare `7:1` points into a document the
+/// caller cannot open. The refusal carries the line itself.
+#[test]
+fn a_later_hunks_syntax_error_quotes_its_own_line() {
+    let (_dir, root) = init_repo();
+    let out = edit(
+        &root,
+        &[],
+        concat!(
+            "file a.txt\n",
+            "  patch <<\n",
+            "-one\n",
+            "+ONE\n",
+            ">>\n",
+            "  patch <<\n",
+            " three\n",
+            ">>\n",
+        ),
+    );
+    assert_eq!(code(&out), 2);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("7:1: this hunk has no `-` or `+` line"),
+        "{stderr}"
+    );
+    assert!(stderr.contains("   |  three\n   | ^\n"), "{stderr}");
+    assert_eq!(
+        std::fs::read_to_string(root.join("a.txt")).unwrap(),
+        "one\ntwo\nthree\n"
+    );
 }
 
 #[test]

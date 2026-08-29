@@ -116,7 +116,7 @@ pub fn read_program(source: Option<&str>) -> Result<String, EditError> {
 /// the ledger must not say otherwise.
 pub fn run(program: &str, preview: bool) -> Result<(), EditError> {
     let parsed = tugedit_core::parse(program)
-        .map_err(|e| EditError::Parse(format!("{e}\nnothing was written")))?;
+        .map_err(|e| EditError::Parse(format!("{}\nnothing was written", e.report(program))))?;
     let tree = Tree::new();
     let outcomes = resolve_and_apply(&parsed, &tree).map_err(|e| {
         let (message, ops) = nothing_written(&parsed, &e);
