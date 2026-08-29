@@ -11,6 +11,26 @@
   display: flex;
   flex-direction: column;
   min-width: 0;
+  /* Fills the section body, and the list inside is the scroller. Without the
+     flattened block min-content the section stands at the full intrinsic
+     height of its rows — a scroll container does NOT shrink an ancestor's
+     min-content — so the band could never give, and a Lens holding more
+     dashes than the rail can show ran them off the bottom with no way to
+     reach them. Flattened here, the band shrinks to its share and the list's
+     own `overflow-y: auto` carries the rest. This is the shape the Cards
+     section wears, and every list-bearing band wears it. */
+  flex: 1 1 auto;
+  min-block-size: 0;
+}
+
+/* The section's scroller. `height: auto` hands the sizing to flex — the
+   primitive's own `height: 100%` resolves against an auto-height parent and
+   would give the list its full content height back. Doubled selector so this
+   beats the base `.tug-list-view` rules regardless of bundle order. */
+.tug-list-view.lens-dashes-list {
+  flex: 1 1 auto;
+  min-block-size: 0;
+  height: auto;
 }
 
 /* The `[data-slot]` is carried for the specificity, not for the match: the
