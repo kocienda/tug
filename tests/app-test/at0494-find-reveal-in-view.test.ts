@@ -456,3 +456,366 @@ describe.skipIf(!SHOULD_RUN)("AT0494: every find gesture shows its match", () =>
     TEST_TIMEOUT_MS,
   );
 });
+
+// ---------------------------------------------------------------------------
+// The persistence half
+// ---------------------------------------------------------------------------
+
+/** Planted in the Bash command line, so the match lands in a tool HEADER. */
+const HEADER_PROBE = "gossamerprobe";
+const HEADER_SID = "c7c0d1ea-0000-4000-8000-000000000496";
+
+/** The active highlight's range, and whether its text is still in the DOM. */
+const ACTIVE_STATE_EXPR = `(function () {
+  var hl = CSS.highlights.get('transcript-find-active');
+  var match = CSS.highlights.get('transcript-find-match');
+  var actives = 0, text = "", connected = false;
+  if (hl) {
+    for (var r of hl) {
+      actives += 1;
+      if (actives === 1) {
+        text = r.toString();
+        connected = r.startContainer.isConnected === true;
+      }
+    }
+  }
+  var matches = 0;
+  if (match) { for (var _ of match) matches += 1; }
+  return { actives: actives, matches: matches, text: text, connected: connected };
+})()`;
+
+interface ActiveState {
+  actives: number;
+  matches: number;
+  text: string;
+  connected: boolean;
+}
+
+describe.skipIf(!SHOULD_RUN)("AT0494: the active match stays painted", () => {
+  test(
+    "a match in a tool header keeps its highlight after the landing flash",
+    async () => {
+      const app = await launchTugApp({ testName: "at0494-find-paint-persists" });
+      try {
+        await app.enableDeckTrace(true);
+        await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
+        await app.waitForCondition<boolean>(
+          `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
+          { timeoutMs: 15_000 },
+        );
+        await app.bindSession("A", { tugSessionId: HEADER_SID });
+        await app.awaitEngineReady("A", { timeoutMs: 20_000 });
+
+        const frame = (decoded: Record<string, unknown>): Promise<unknown> =>
+          app.driveSession("A", {
+            op: "ingestFrame",
+            feedId: FEED_CODE_OUTPUT,
+            decoded: { tug_session_id: HEADER_SID, ...decoded },
+          });
+
+        await app.driveSession("A", { op: "send", text: "run it" });
+        await frame({
+          type: "tool_use",
+          msg_id: "m-bash",
+          tool_use_id: "tc-bash",
+          tool_name: "Bash",
+          input: {
+            command: `grep -rl "${HEADER_PROBE}" /tmp/at0494`,
+            description: "search",
+          },
+        });
+        await frame({
+          type: "tool_result",
+          tool_use_id: "tc-bash",
+          output: "nothing found",
+          is_error: false,
+        });
+        await frame({
+          type: "assistant_text",
+          msg_id: "m-bash",
+          block_index: 0,
+          text: `The ${HEADER_PROBE} appears in the reply too.`,
+          is_partial: false,
+        });
+        await frame({ type: "turn_complete", msg_id: "m-bash", result: "success" });
+        await app.waitForCondition<boolean>(
+          `document.querySelector('${CARD} [data-slot="bash-tool-block"]') !== null`,
+          { timeoutMs: 10_000 },
+        );
+
+        await app.nativeClickAtElement(EDITOR);
+        await chord(app, "KeyF", "f", { meta: true });
+        await app.waitForCondition<boolean>(
+          `document.querySelector(${JSON.stringify(FIND_INPUT)}) !== null`,
+          { timeoutMs: 8000 },
+        );
+        await app.nativeType(HEADER_PROBE);
+        await app.waitForCondition<boolean>(
+          `(function(){ var hl = CSS.highlights.get('transcript-find-active');
+             if (!hl) return false; for (var _ of hl) return true; return false; })()`,
+          { timeoutMs: 10_000 },
+        );
+        const landed = await app.evalJS<ActiveState>(ACTIVE_STATE_EXPR);
+        note(`active at landing: ${JSON.stringify(landed)}`);
+
+        // Past the landing flash (640ms) and well past any settle.
+        await new Promise((r) => setTimeout(r, 2500));
+        const after = await app.evalJS<ActiveState>(ACTIVE_STATE_EXPR);
+        note(`active after the flash: ${JSON.stringify(after)}`);
+
+        expect(after.actives, "the active match is still painted").toBe(1);
+        expect(after.connected, "its range is still in the document").toBe(true);
+        expect(after.text.toLowerCase()).toBe(HEADER_PROBE);
+        expect(after.matches, "the other matches stay painted too").toBe(
+          landed.matches,
+        );
+      } finally {
+        await app.close();
+      }
+    },
+    TEST_TIMEOUT_MS,
+  );
+});
+
+// ---------------------------------------------------------------------------
+// …and after a reveal that had to travel
+// ---------------------------------------------------------------------------
+
+const TRAVEL_SID = "c7c0d1ea-0000-4000-8000-000000000497";
+
+describe.skipIf(!SHOULD_RUN)("AT0494: a revealed match stays painted", () => {
+  test(
+    "the active match keeps its highlight after a far reveal settles",
+    async () => {
+      const app = await launchTugApp({ testName: "at0494-find-paint-travel" });
+      try {
+        await app.enableDeckTrace(true);
+        await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
+        await app.waitForCondition<boolean>(
+          `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
+          { timeoutMs: 15_000 },
+        );
+        await app.bindSession("A", { tugSessionId: TRAVEL_SID });
+        await app.awaitEngineReady("A", { timeoutMs: 20_000 });
+
+        const frame = (decoded: Record<string, unknown>): Promise<unknown> =>
+          app.driveSession("A", {
+            op: "ingestFrame",
+            feedId: FEED_CODE_OUTPUT,
+            decoded: { tug_session_id: TRAVEL_SID, ...decoded },
+          });
+
+        // 40 turns, every third carrying a Bash block. Turn 4's command holds
+        // the probe — a match in a tool HEADER, far above the live edge.
+        for (let n = 0; n < 40; n += 1) {
+          const msgId = `${TRAVEL_SID}-m${n}`;
+          await app.driveSession("A", { op: "send", text: `prompt ${n}` });
+          await frame({ type: "prompt_anchor", promptUuid: `${TRAVEL_SID}-u${n}` });
+          await frame({
+            type: "content_block_start",
+            msg_id: msgId,
+            block_index: 0,
+            kind: "text",
+          });
+          await frame({
+            type: "assistant_text",
+            msg_id: msgId,
+            block_index: 0,
+            text: replyText(n),
+            is_partial: false,
+          });
+          if (n % 3 === 0) {
+            const tuId = `${TRAVEL_SID}-tu${n}`;
+            await frame({
+              type: "tool_use",
+              msg_id: msgId,
+              tool_use_id: tuId,
+              tool_name: "Bash",
+              input: {
+                command:
+                  n === 3
+                    ? `grep -rl "${HEADER_PROBE}" /Users/kocienda/Mounts/u/src/tugtool | head -20`
+                    : `echo step ${n}`,
+                description: `step ${n}`,
+              },
+            });
+            await frame({
+              type: "tool_result",
+              tool_use_id: tuId,
+              output: `step ${n} done`,
+              is_error: false,
+            });
+          }
+          await frame({ type: "turn_complete", msg_id: msgId, result: "success" });
+        }
+        await app.waitForCondition<boolean>(
+          `document.querySelector('${SCROLLER}[data-evict-active]') !== null`,
+          { timeoutMs: 30_000 },
+        );
+        await app.evalJS<number>(`(function () {
+  var el = document.querySelector('${SCROLLER}');
+  el.scrollTop = el.scrollHeight;
+  return el.scrollTop;
+})()`);
+        await new Promise((r) => setTimeout(r, 600));
+
+        await app.nativeClickAtElement(EDITOR);
+        await chord(app, "KeyF", "f", { meta: true });
+        await app.waitForCondition<boolean>(
+          `document.querySelector(${JSON.stringify(FIND_INPUT)}) !== null`,
+          { timeoutMs: 8000 },
+        );
+        await app.nativeType(HEADER_PROBE);
+        await app.waitForCondition<boolean>(
+          `(function(){ var hl = CSS.highlights.get('transcript-find-active');
+             if (!hl) return false; for (var _ of hl) return true; return false; })()`,
+          { timeoutMs: 15_000 },
+        );
+        const landed = await app.evalJS<ActiveState>(ACTIVE_STATE_EXPR);
+        note(`travelled active at landing: ${JSON.stringify(landed)}`);
+
+        await new Promise((r) => setTimeout(r, 2500));
+        const after = await app.evalJS<ActiveState>(ACTIVE_STATE_EXPR);
+        const reveal = await readReveal(app);
+        note(`travelled active after the flash: ${JSON.stringify(after)}`);
+        note(`travelled reveal: ${JSON.stringify(reveal)}`);
+
+        expect(after.actives, "the active match is still painted").toBe(1);
+        expect(after.connected, "its range is still in the document").toBe(true);
+        expect(reveal?.inView, "and still on screen").toBe(true);
+      } finally {
+        await app.close();
+      }
+    },
+    TEST_TIMEOUT_MS,
+  );
+});
+
+// ---------------------------------------------------------------------------
+// One turn, several tool calls — the shape a real working turn has
+// ---------------------------------------------------------------------------
+
+const MULTI_SID = "c7c0d1ea-0000-4000-8000-000000000498";
+
+/** Every painted range, in document order, with the highlight it belongs to. */
+const PAINT_CENSUS_EXPR = `(function () {
+  var out = [];
+  var kinds = [["transcript-find-match", "match"], ["transcript-find-active", "active"]];
+  for (var pair of kinds) {
+    var hl = CSS.highlights.get(pair[0]);
+    if (!hl) continue;
+    for (var r of hl) {
+      var el = r.startContainer.parentElement;
+      var cell = el ? el.closest("[data-tug-list-cell-index]") : null;
+      var rect = r.getBoundingClientRect();
+      out.push({
+        kind: pair[1],
+        row: cell ? Number(cell.getAttribute("data-tug-list-cell-index")) : -1,
+        top: Math.round(rect.top),
+        left: Math.round(rect.left),
+        text: r.toString(),
+      });
+    }
+  }
+  out.sort(function (a, b) { return a.top - b.top || a.left - b.left; });
+  return out;
+})()`;
+
+describe.skipIf(!SHOULD_RUN)("AT0494: every mounted match paints", () => {
+  test(
+    "a turn with several tool calls paints all its matches, and the active one is the first",
+    async () => {
+      const app = await launchTugApp({ testName: "at0494-find-paint-census" });
+      try {
+        await app.enableDeckTrace(true);
+        await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
+        await app.waitForCondition<boolean>(
+          `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
+          { timeoutMs: 15_000 },
+        );
+        await app.bindSession("A", { tugSessionId: MULTI_SID });
+        await app.awaitEngineReady("A", { timeoutMs: 20_000 });
+
+        const frame = (decoded: Record<string, unknown>): Promise<unknown> =>
+          app.driveSession("A", {
+            op: "ingestFrame",
+            feedId: FEED_CODE_OUTPUT,
+            decoded: { tug_session_id: MULTI_SID, ...decoded },
+          });
+
+        // One turn, three Bash calls and a closing reply — four occurrences
+        // of the probe, all mounted, all on screen.
+        await app.driveSession("A", { op: "send", text: "hunt it down" });
+        await frame({ type: "prompt_anchor", promptUuid: `${MULTI_SID}-u0` });
+        for (const [i, command] of [
+          `which ${HEADER_PROBE}; ${HEADER_PROBE} --help 2>&1 | head -30`,
+          `grep -rl "${HEADER_PROBE}" /tmp/at0494 2>/dev/null`,
+          `grep "${HEADER_PROBE}" /tmp/at0494/log 2>&1 | head -20`,
+        ].entries()) {
+          const tuId = `${MULTI_SID}-tu${i}`;
+          await frame({
+            type: "tool_use",
+            msg_id: `${MULTI_SID}-m0`,
+            tool_use_id: tuId,
+            tool_name: "Bash",
+            input: { command, description: `step ${i}` },
+          });
+          await frame({
+            type: "tool_result",
+            tool_use_id: tuId,
+            output: `step ${i} done`,
+            is_error: false,
+          });
+        }
+        await frame({
+          type: "assistant_text",
+          msg_id: `${MULTI_SID}-m0`,
+          block_index: 0,
+          text: `This session is named ${HEADER_PROBE}, per the log.`,
+          is_partial: false,
+        });
+        await frame({ type: "turn_complete", msg_id: `${MULTI_SID}-m0`, result: "success" });
+        await app.waitForCondition<boolean>(
+          `document.querySelectorAll('${CARD} [data-slot="bash-tool-block"]').length === 3`,
+          { timeoutMs: 10_000 },
+        );
+
+        await app.nativeClickAtElement(EDITOR);
+        await chord(app, "KeyF", "f", { meta: true });
+        await app.waitForCondition<boolean>(
+          `document.querySelector(${JSON.stringify(FIND_INPUT)}) !== null`,
+          { timeoutMs: 8000 },
+        );
+        await app.nativeType(HEADER_PROBE);
+        await app.waitForCondition<boolean>(
+          `(function(){ var hl = CSS.highlights.get('transcript-find-active');
+             if (!hl) return false; for (var _ of hl) return true; return false; })()`,
+          { timeoutMs: 10_000 },
+        );
+        await new Promise((r) => setTimeout(r, 2500));
+
+        const chip = await app.evalJS<string>(
+          `(document.querySelector('${CARD} [data-slot="find-count"] [data-slot="find-count-value"]')?.textContent || "")`,
+        );
+        const census = await app.evalJS<
+          Array<{ kind: string; row: number; top: number; left: number; text: string }>
+        >(PAINT_CENSUS_EXPR);
+        note(`multi-tool chip: ${JSON.stringify(chip)}`);
+        note(`multi-tool paint census: ${JSON.stringify(census)}`);
+
+        // Five occurrences are on screen: the probe appears twice in the
+        // first command and once in each of the others, plus once in the
+        // reply. Every one of them must carry paint.
+        expect(census.length, "every mounted match is painted").toBe(5);
+        expect(
+          census.filter((c) => c.kind === "active").length,
+          "exactly one is the active one",
+        ).toBe(1);
+        expect(census[0]?.kind, "and it is the topmost match").toBe("active");
+      } finally {
+        await app.close();
+      }
+    },
+    TEST_TIMEOUT_MS,
+  );
+});
