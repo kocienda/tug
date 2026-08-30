@@ -26,8 +26,8 @@
 # framework the app is built against.
 set -euo pipefail
 
-DOWNLOAD_URL_PREFIX="https://github.com/tugtool/tugtool/releases/download/updates/"
-PROJECT_LINK="https://github.com/tugtool/tugtool"
+DOWNLOAD_URL_PREFIX="https://github.com/kocienda/tug/releases/download/updates/"
+PROJECT_LINK="https://github.com/kocienda/tug"
 
 if [ "$#" -lt 1 ] || [ "$#" -gt 2 ]; then
     echo "usage: $(basename "$0") <archive.zip> [<output-appcast.xml>]" >&2

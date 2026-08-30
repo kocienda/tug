@@ -14,7 +14,7 @@ members = ["tugmark-wasm", "tugdiff-wasm"]
 
 [workspace.package]
 description = "Tug: An IDE for AI coding"
-repository = "https://github.com/tugtool/tugtool"
+repository = "https://github.com/kocienda/tug"
 license = "MIT"
 
 [profile.release]

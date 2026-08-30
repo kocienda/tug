@@ -1448,7 +1448,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     @objc func openGitHub(_ sender: Any?) {
-        if let url = URL(string: "https://github.com/tugtool/tugtool") {
+        if let url = URL(string: "https://github.com/kocienda/tug") {
             NSWorkspace.shared.open(url)
         }
     }
