@@ -11,11 +11,13 @@ import { describe, expect, test } from "bun:test";
 import golden from "@/__tests__/fixtures/workspaces-changeset-snapshot.golden.json";
 import type {
   DashChangesetEntry,
+  DashJoinBlockerWire,
   WorkspacesChangesetSnapshot,
 } from "@/lib/changeset-types";
 import {
   canDiscardFromHere,
   dashBranchRef,
+  dashRowOpensItself,
   orderDashLane,
   discardConfirmMessage,
 } from "../session-changes-dash-lane";
@@ -219,5 +221,36 @@ describe("dashBranchRef", () => {
   test("falls back to the tugdash/<name> spelling for an older sender", () => {
     const older: DashChangesetEntry = { ...DASHES[0]!, branch: undefined };
     expect(dashBranchRef(older)).toBe("tugdash/fix-join");
+  });
+});
+
+describe("dashRowOpensItself", () => {
+  const withBlockers = (
+    blockers: readonly DashJoinBlockerWire[],
+  ): DashChangesetEntry => ({
+    ...DASHES[0]!,
+    join: { phase: blockers.length > 0 ? "blocked" : "clean", blockers: [...blockers] },
+  });
+
+  test("a dash with no join answer stays shut", () => {
+    expect(dashRowOpensItself({ ...DASHES[0]!, join: undefined })).toBe(false);
+  });
+
+  test("a dash whose join is clean stays shut", () => {
+    expect(dashRowOpensItself(withBlockers([]))).toBe(false);
+  });
+
+  test("a blocked dash opens itself, so the report is not behind a fold", () => {
+    expect(
+      dashRowOpensItself(
+        withBlockers([
+          {
+            kind: "base-dirt",
+            title: "Another session's edit",
+            detail: "Cannot join: ^ink-anchor holds an uncommitted edit.",
+          },
+        ]),
+      ),
+    ).toBe(true);
   });
 });

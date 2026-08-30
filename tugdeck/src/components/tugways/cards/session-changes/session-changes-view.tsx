@@ -62,10 +62,7 @@ import {
 } from "./session-changes-dash-lane";
 import type { DashJoinActions } from "./session-changes-dash-join";
 import type { JoinOutcome } from "@/lib/join-mode-controller";
-import {
-  useChangesetJoinResolve,
-  useChangesetLandingDashes,
-} from "@/lib/changeset-join-store";
+import { useChangesetLandingDashes } from "@/lib/changeset-join-store";
 import type { DiffDescriptor } from "@/lib/git-diff-store";
 import { cardSessionBindingStore } from "@/lib/card-session-binding-store";
 import { getConnection } from "@/lib/connection-singleton";
@@ -194,17 +191,10 @@ export function SessionChangesView({
     snap.dashes.some((entry) => entry.owner_id === boundDashId)
       ? null
       : (snap.documentDashes.find((row) => row.owner_id === boundDashId) ?? null);
-  const frontedDash =
-    frontedDashId !== null
-      ? (snap.dashes.find((entry) => entry.owner_id === frontedDashId) ?? null)
-      : null;
-  // Keyed by the workspace's canonical spelling ([L29]) — the same key the
-  // card's resolve and review sends use, so the overlay a press starts is the
-  // overlay this row reads.
-  const resolveState = useChangesetJoinResolve(
-    project.workspace_key,
-    frontedDash?.display_name ?? "",
-  );
+  // The resolution ladder's overlay is read per ROW, in `DashRow`, keyed by
+  // that row's own dash — the store is keyed by dash, and every row now carries
+  // a face, so a single read here would paint the fronted dash's ladder under
+  // all of them.
 
   // A dash whose join is RUNNING is no longer offered here ([P05]).
   //
@@ -502,7 +492,6 @@ export function SessionChangesView({
     dashJoin !== undefined
       ? {
           join,
-          resolve: resolveState,
           actions: dashJoin.actions,
         }
       : undefined;

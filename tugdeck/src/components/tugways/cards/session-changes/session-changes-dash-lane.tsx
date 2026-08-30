@@ -22,13 +22,23 @@
  * Per-row expansion stays view-scope state: the shade is a glance surface,
  * dismiss and forget, so nothing here is persisted.
  *
- * The fronted row — and only it — carries a join face: the server's standing
- * answer for that dash, plus the act that clears it. This is a scope choice,
- * not a data limitation: every dash's join state rides its own feed entry now,
- * so every row *could* show a face. It does not because joining is a gesture on
- * the card's own dash and the route it names is this card's composer, so a face
- * on a row the composer will not act on would name a control that is not aimed
- * at it.
+ * **Every row carries a join face**: the server's standing answer for that
+ * dash, plus the acts that clear it. Every dash's join state rides its own feed
+ * entry and the resolve store is keyed by dash, so a row's face is that row's
+ * own facts throughout — none of it is borrowed from the fronted dash.
+ *
+ * It was the fronted row's alone, on the reasoning that joining is a gesture on
+ * the card's own dash. But the register speaks on every row: a blocked dash
+ * anywhere in the lane prints `blockers[0].detail` and the word `blocked`, and
+ * withholding the face left exactly those rows stating a refusal beside nothing
+ * that explains or clears it. Resolve is not joining — it commits base-side
+ * work so a join can be attempted at all, and the dash it acts on is the one
+ * named in the sentence, whatever this card happens to be bound to.
+ *
+ * Two things stay the fronted row's, because both really are the card's and not
+ * the dash's: `aim`, which points the composer's join at a dash the reader
+ * merely opened, and the join verb's own `error`, which is one round trip per
+ * card and would otherwise print another row's refusal under this one.
  *
  * The two **binding** gestures go the other way. Every row carries one: Unbind
  * on the fronted row, Bind on all the rest, complements that never appear
@@ -71,7 +81,7 @@ import { dashLifecycleNote } from "@/components/tugways/dash-lifecycle-line";
 import { dashTrackModelFromEntry } from "@/components/tugways/tug-dash-track";
 import { dashMetaFacts } from "@/lib/dash-meta-facts";
 import { DashJoinRegister } from "@/components/tugways/dash-join-register";
-import { useChangesetJoinLand } from "@/lib/changeset-join-store";
+import { useChangesetJoinLand, useChangesetJoinResolve } from "@/lib/changeset-join-store";
 import { dashFrontedLabel, dashRestLabel } from "./changes-section-labels";
 import {
   SessionChangesDashJoin,
@@ -88,12 +98,25 @@ import {
   documentDashTrackModel,
 } from "@/lib/document-dash-entry";
 import type { JoinState } from "@/lib/changeset-verb-store";
-import type { ResolveState } from "@/lib/changeset-join-store";
 import type { JoinOutcome } from "@/lib/join-mode-controller";
 
 // ---------------------------------------------------------------------------
 // Ordering
 // ---------------------------------------------------------------------------
+
+/**
+ * A row that opens itself, before anybody touches it.
+ *
+ * Fronting is the usual reason, and a refusal is the other. A blocked dash
+ * prints its first blocker's sentence and the word `blocked` in the register
+ * whether the row is open or shut — but the report that says what would clear
+ * it, and carries the control that does, is inside the fold. Left shut, the row
+ * states a problem and hides the answer one line under it, which is the exact
+ * shape of a control nobody can find. Still an override: closing it sticks.
+ */
+export function dashRowOpensItself(entry: DashChangesetEntry): boolean {
+  return (entry.join?.blockers ?? []).length > 0;
+}
 
 /** The lane's two groups: the card's own dash, then everything else. */
 export interface DashLaneOrder {
@@ -132,26 +155,24 @@ export function dashBranchRef(entry: DashChangesetEntry): string {
 
 
 /**
- * Everything the fronted row's join face needs, read once by the view and
- * handed down. Absent on every other row — see the module docblock for why the
- * face is the fronted row's alone.
+ * The half of a row's join face the card owns, read once by the view and handed
+ * to every row. What a join would do comes off each dash's own feed entry, and
+ * the resolution ladder's progress is read per row from a store keyed by dash.
  */
 export interface DashLaneJoinFace {
   /** The card's one join round trip ([L02], read by the view) — the face
-   *  shows its verb-level refusal, when one came back. */
+   *  shows its verb-level refusal, when one came back. Card-scoped, so only
+   *  the fronted row reads it; see the module docblock. */
   join: JoinState;
-  /** The resolution ladder's live progress for the fronted dash. */
-  resolve: ResolveState;
   actions: DashJoinActions;
 }
 
 /**
  * The lane's two binding gestures ([P05]).
  *
- * Unlike {@link DashLaneJoinFace}, this bundle goes to **every** row: Bind's
- * whole population is the rows the join face never reaches, and a row picks
- * Bind or Unbind from its own `fronted` flag — the two are complements, so they
- * never appear together and the cluster stays one affordance wide.
+ * This bundle goes to **every** row, and a row picks Bind or Unbind from its
+ * own `fronted` flag — the two are complements, so they never appear together
+ * and the cluster stays one affordance wide.
  *
  * Neither callback may move `cardSessionBindingStore`. The `bind_dash_ok` /
  * `unbind_dash_ok` broadcasts are the only movers, which is what leaves a card
@@ -160,10 +181,9 @@ export interface DashLaneJoinFace {
 /**
  * The lane's discard gesture, for every row the reach rule allows.
  *
- * Like {@link DashLaneBinding} and unlike {@link DashLaneJoinFace}, this reaches
- * past the fronted row: an unbound dash nobody is holding is exactly the kind a
- * shade should be able to clean up, and the `empty` join outcome's own
- * answer is discard rather than a fix.
+ * Like {@link DashLaneBinding}, this reaches past the fronted row: an unbound
+ * dash nobody is holding is exactly the kind a shade should be able to clean
+ * up, and the `empty` join outcome's own answer is discard rather than a fix.
  */
 export interface DashLaneDiscard {
   /** Whether this shade may discard this dash ({@link canDiscardFromHere}). */
@@ -319,11 +339,17 @@ function DashRow({
   // to a cell nothing ever writes ([L29]). That is not a hypothetical: it is
   // the exact shape of the bug at0441 was written for, one field over.
   const landBeat = useChangesetJoinLand(workspaceKey, entry.display_name);
+  // The resolution ladder's progress for THIS dash ([L02]), on the same terms
+  // and for the same reason as the beats above: the store is keyed by dash, so
+  // a row reading the fronted dash's key would paint another dash's ladder.
+  const resolve = useChangesetJoinResolve(workspaceKey, entry.display_name);
   // Opening a row points the join mode at its dash and asks the server nothing:
   // the answer is already on the entry. The effect fires on the closed → open
   // edge (and on mount, since the fronted row opens with the shade), so the
   // composer's ⌃⌘C lands on the dash the reader is looking at.
-  const aim = joinFace?.actions.aim ?? null;
+  // Fronted-only, and deliberately: aiming is what the composer's join acts
+  // on, so opening a row the card is not landing must not retarget it.
+  const aim = fronted ? (joinFace?.actions.aim ?? null) : null;
   const wasExpandedRef = useRef(false);
   useEffect(() => {
     const wasExpanded = wasExpandedRef.current;
@@ -464,7 +490,7 @@ function DashRow({
           // a dash whose session is still running its background tests is not
           // finished, whatever its committed rounds say.
           holdersBusy={entry.holders_busy === true}
-          resolvePhase={joinFace?.resolve.phase}
+          resolvePhase={resolve.phase}
           landBeat={landBeat}
           // The lane shows unfronted, unheld dashes too, and the pilot never
           // works one ([D147]) — so this is the difference between "the check
@@ -513,8 +539,10 @@ function DashRow({
             <SessionChangesDashJoin
               entry={entry}
               join={entry.join ?? null}
-              error={joinFace.join.error}
-              resolve={joinFace.resolve}
+              // The join verb is one round trip per card. Its refusal belongs
+              // under the row that made the request and nowhere else.
+              error={fronted ? joinFace.join.error : null}
+              resolve={resolve}
               actions={joinFace.actions}
             />
           ) : null}
@@ -690,7 +718,7 @@ export function SessionChangesDashLane({
     frontedDashId ?? boundDashId,
   );
   const isExpanded = (entry: DashChangesetEntry): boolean =>
-    overrides[entry.owner_id] ?? entry === fronted;
+    overrides[entry.owner_id] ?? (entry === fronted || dashRowOpensItself(entry));
   const toggle = (entry: DashChangesetEntry, next: boolean): void => {
     setOverrides((prev) => ({ ...prev, [entry.owner_id]: next }));
   };
@@ -753,9 +781,7 @@ export function SessionChangesDashLane({
               bound={entry.owner_id === boundDashId}
               expanded={isExpanded(entry)}
               onToggle={(next) => toggle(entry, next)}
-              joinFace={null}
-              // Unlike `joinFace`, this reaches every row — Bind's whole
-              // population is exactly the rows the join face skips.
+              joinFace={joinFace ?? null}
               binding={binding ?? null}
               discard={discard ?? null}
               replay={replay ?? null}
