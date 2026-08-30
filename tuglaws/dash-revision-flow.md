@@ -2,6 +2,24 @@
 
 *A picture of what git holds while a dash is created, worked, replayed onto a moving base, and joined back — every ref by name, every commit by the command that made it. The prose laws are [dash-lifecycle.md](dash-lifecycle.md) (what a dash is, the op log, the lease) and [tracking-changes.md](tracking-changes.md#the-landing-workflow) (the landing workflow); this file draws the shape first, then explains the machinery, the Jujutsu comparison, and the base-branch question in prose. The code is `tugdash-core/src/{ops,replay,resolve,workshop,oplog}.rs`.*
 
+## Executive summary
+
+A **dash** is a unit of work done off to the side: a git branch (`tugdash/<name>`) with its own worktree, cut from the tip of a **base** branch. The dash accumulates commits — called **rounds** — while other work keeps landing on the base underneath it. Eventually the dash **joins** back: by default all of its rounds are squashed into one commit on the base, and the branch and worktree are deleted. That is the whole trip: create, work, join.
+
+Three ideas make the flow what it is.
+
+**Nothing is stored that can be derived.** There is no dash database. A dash is just the branch, the worktree, and one git config key naming its base. How many rounds exist, whether the worktree is dirty, where the fork point is — all of it is re-computed from git on every read. This is why every surface (CLI, UI, join checks) agrees: they are all asking git the same questions rather than consulting copies that could drift.
+
+**The base moves, and the dash follows automatically.** When new commits land on the base, a background process **replays** the dash's rounds on top of the new tip. The replay is built entirely in memory using git plumbing — no checkout is touched until a single atomic swap at the end, which is refused if the worktree is dirty or anything moved meanwhile. So a dash stays continuously rebased onto the live base without ever wedging a working copy, and if a replay hits a conflict it simply stops and reports rather than leaving a mess.
+
+**Conflicts are data, never a wedged checkout.** When a join can't merge cleanly, a **ladder** of increasingly powerful resolvers runs — from git's own machinery (rerere, merge-file, merge drivers) up to an AI model. Whatever survives all rungs is *parked*: the conflict state is committed to a special ref (`refs/tug/conflict/<name>`), complete with a machine-readable record of what's unresolved, and a multi-turn AI **resolver agent** works on it in a separate scratch worktree, checkpointing progress as commits. Its finished result — the **candidate** — is then landed by the ordinary join. The user's checkout never holds conflict markers and there is never a `MERGE_HEAD` to untangle.
+
+Backing all of this is an **operation log**: before any verb mutates anything, it records every tip about to move in a keepalive commit plus a JSON payload, so every join, replay, and teardown can be undone with a compare-and-swap, and pre-replay history stays reachable until the log is pruned. A verb that fails leaves the base exactly as it found it and records nothing.
+
+The rest of this document draws those shapes precisely — every ref by name, every commit by the command that made it — then explains the machinery in prose, compares the design with Jujutsu (whose ideas were studied, not ported), and covers using a base other than the default branch.
+
+---
+
 The word **base** below means whatever `branch.tugdash/<name>.tugbase` names — `main` in this repository, but any branch that exists at `create --base <branch>` time. Nothing in the flow reads the word `main`.
 
 ## 1. Create — a branch and a worktree cut from the base tip
