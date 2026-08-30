@@ -103,7 +103,7 @@ An inline `<code>` span with no annotation matches nothing and looks exactly as 
 
 ## An atom labels itself; a mention is labelled by its sentence
 
-An atom's label is a **name**, never the raw value. A file atom shows its basename. A commit atom shows `commit:227a8eb9`.
+An atom's label is a **name**, never the raw value. A file atom shows its basename. A commit atom shows `commit:227a8eb9`, and a claude session — an arc stage's, in the `/dash-arc` receipt — shows `session:d0a7daa1` on the same terms and at the same length.
 
 The word is part of the label because an atom stands with no sentence around it. Eight bare hex characters name nothing a reader can act on, and a small glyph does not rescue them.
 

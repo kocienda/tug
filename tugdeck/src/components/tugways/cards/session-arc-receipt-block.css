@@ -1,0 +1,98 @@
+/* ============================================================================
+   Arc receipt block
+   ========================================================================= */
+
+/**
+ * The `/dash-arc` receipt: a dash atom and the lifecycle line on the header's
+ * identity row, then one row per stage the arc walked.
+ *
+ * @module components/tugways/cards/session-arc-receipt-block
+ */
+
+/**
+ * @tug-pairings
+ * | Element                                          | Surface                                          | Role         | Context                              |
+ * |--------------------------------------------------|--------------------------------------------------|--------------|--------------------------------------|
+ * | --tug7-element-global-text-normal-muted-rest (element-global-text-normal-muted-rest) | --tug7-surface-global-primary-normal-default-rest (surface-global-primary-normal-default-rest) | informational | .arc-receipt-doc (color)             |
+ * | --tug7-element-global-text-normal-default-rest (element-global-text-normal-default-rest) | --tug7-surface-global-primary-normal-default-rest (surface-global-primary-normal-default-rest) | informational | .arc-receipt-stage-word (color)      |
+ */
+
+.arc-receipt-identity {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tug-space-sm);
+  min-width: 0;
+}
+
+/**
+ * The header's detail column is the mono command slot — it sets the block's
+ * code font at `--tugx-toolheader-detail-size`, which is right for a shell
+ * command and wrong for a lifecycle line. The line is prose: the note is a
+ * sentence, not a token, and at the detail size in mono a stop reason
+ * dominates the row it is a footnote to.
+ *
+ * Scoped to this block and matched against the line's own `read` rule, which
+ * declares the size it is being overridden on.
+ */
+.arc-receipt-identity .tug-dash-lifecycle-line[data-size="read"] {
+  font-family: var(--tug-font-sans);
+  font-size: var(--tug-font-size-xs);
+  line-height: calc(var(--tug-font-size-xs) * 1.6);
+}
+
+.arc-receipt-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tug-space-xs);
+  padding: var(--tug-space-sm) var(--tug-space-md) var(--tug-space-md);
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
+.arc-receipt-doc,
+.arc-receipt-next {
+  margin: 0;
+  font-size: var(--tug-font-size-xs);
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+.arc-receipt-doc code {
+  font-family: var(--tug-font-mono);
+  font-size: inherit;
+  background: transparent;
+  padding: 0;
+  color: inherit;
+}
+
+/* One grid for every stage, so the models and the session atoms line up in
+   columns rather than each row packing on its own. `display: contents` on the
+   row is what puts the three cells on the parent's tracks. */
+.arc-receipt-stages {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  align-items: center;
+  gap: var(--tug-space-2xs) var(--tug-space-sm);
+}
+
+.arc-receipt-stage {
+  display: contents;
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
+.arc-receipt-stage-word {
+  font-size: var(--tug-font-size-xs);
+  font-weight: var(--tug-font-weight-medium);
+  color: var(--tug7-element-global-text-normal-default-rest);
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
+.arc-receipt-stage-model {
+  font-size: var(--tug-font-size-xs);
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+.arc-receipt-stage-session {
+  justify-self: end;
+}

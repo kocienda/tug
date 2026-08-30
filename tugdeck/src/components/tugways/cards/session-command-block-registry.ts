@@ -74,13 +74,20 @@ export type CommandBlockMatcher = (command: string) => boolean;
  * Attributing those to the shell that carried them names the transport instead
  * of the act.
  *
+ * `wheel` is for the one row nobody performed at all. A dash arc ends on a
+ * server tick: the wheel rotated its last stage, wrote the record, and left a
+ * receipt on whichever card happened to be bound. Nothing was shelled and
+ * nothing was committed on the base, so neither of the other two is true of
+ * it — and the row that says `Shell · exit 0 · 0ms` over a four-stage arc is
+ * announcing a process that never ran.
+ *
  * **It lives on the registration** because a bespoke receipt already knows what
  * it is, and the alternative is a second enumeration of the same commands
  * somewhere else — which is exactly how `/dash-join` came to render its own
  * commit block under a `Shell` header while `/commit` rendered the identical
  * kind of block under a git one.
  */
-export type CommandBlockAttribution = "shell" | "git";
+export type CommandBlockAttribution = "shell" | "git" | "wheel";
 
 /** Optional facts a registration may declare beyond matcher and renderer. */
 export interface CommandBlockOptions {
@@ -215,4 +222,29 @@ export function registeredCommandBlocks(): ReadonlyArray<string> {
  */
 export function _resetCommandBlockRegistryForTests(): void {
   COMMAND_BLOCK_REGISTRY.length = 0;
+}
+
+/**
+ * Test-only: clear the registry and hand back what was in it, for a file that
+ * needs an empty population and must put the shipped one back afterwards.
+ *
+ * The registry is module-static, and a test runner shares one module graph
+ * across files. A file that merely clears it therefore un-registers the
+ * shipped receipts for every file that runs after it in the same process —
+ * which reads as "the arc receipt is attributed to the shell", a failure in a
+ * file that touched nothing. Re-importing the receipt modules cannot undo it,
+ * because their registration is an import side effect and imports are cached.
+ *
+ * So the population is handed back rather than rebuilt: nothing here has to
+ * know which receipts ship, which is the same reason the attribution lives on
+ * the registration in the first place.
+ */
+export function _takeCommandBlockRegistryForTests(): unknown[] {
+  return COMMAND_BLOCK_REGISTRY.splice(0, COMMAND_BLOCK_REGISTRY.length);
+}
+
+/** Test-only: put back what {@link _takeCommandBlockRegistryForTests} took. */
+export function _putCommandBlockRegistryForTests(saved: unknown[]): void {
+  COMMAND_BLOCK_REGISTRY.length = 0;
+  COMMAND_BLOCK_REGISTRY.push(...(saved as CommandBlockRegistration[]));
 }

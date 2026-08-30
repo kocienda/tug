@@ -22,7 +22,9 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import {
+  _putCommandBlockRegistryForTests,
   _resetCommandBlockRegistryForTests,
+  _takeCommandBlockRegistryForTests,
   registerCommandBlock,
   registeredCommandBlocks,
   resolveCommandAttribution,
@@ -34,11 +36,18 @@ import { ShellExchangeBlock } from "../shell-exchange-block";
 const RendererA: CommandBlockRenderer = () => null;
 const RendererB: CommandBlockRenderer = () => null;
 
+// The registry is module-static and the runner shares one module graph across
+// files, so this file borrows the shipped population rather than destroying
+// it: cleared for the synthetic registrations below, handed back afterwards so
+// a file running later in the same process still sees the receipts that ship.
+let shipped: unknown[] = [];
+
 beforeEach(() => {
-  _resetCommandBlockRegistryForTests();
+  shipped = _takeCommandBlockRegistryForTests();
 });
 afterEach(() => {
   _resetCommandBlockRegistryForTests();
+  _putCommandBlockRegistryForTests(shipped);
 });
 
 describe("session-command-block-registry", () => {

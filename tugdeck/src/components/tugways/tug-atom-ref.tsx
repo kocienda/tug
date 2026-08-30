@@ -73,7 +73,7 @@
 import "./tug-atom-ref.css";
 
 import React from "react";
-import { FileText, GitBranch, GitCommit } from "lucide-react";
+import { FileText, GitBranch, GitCommit, MessageSquare } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { fileTip } from "@/components/tugways/entity-tips";
@@ -116,6 +116,15 @@ export type TugAtomRefEntity =
     }
   | { kind: "commit"; sha: string }
   /**
+   * A claude session, by the id that is its only durable name.
+   *
+   * Presentational like a commit, and short for the same reason: the whole
+   * UUID names nothing a reader can hold, and the leading run is enough to
+   * tell one stage of an arc from the next. The label carries the word
+   * because eight bare hex characters carry none.
+   */
+  | { kind: "session"; id: string }
+  /**
    * A dash, by the name that is its address everywhere else in the app.
    * Presentational like a commit: the host owns the gesture, because where a
    * dash click goes is the host's business rather than the skin's.
@@ -140,6 +149,11 @@ export interface TugAtomRefProps {
 /** The label a commit atom carries when nothing overrides it. */
 export function commitAtomLabel(sha: string): string {
   return `commit:${sha.slice(0, COMMIT_LABEL_LENGTH)}`;
+}
+
+/** The label a session atom carries when nothing overrides it. */
+export function sessionAtomLabel(id: string): string {
+  return `session:${id.slice(0, COMMIT_LABEL_LENGTH)}`;
 }
 
 /**
@@ -202,7 +216,9 @@ export function TugAtomRef({
       ? basename(entity.path)
       : entity.kind === "dash"
         ? entity.name
-        : commitAtomLabel(entity.sha);
+        : entity.kind === "session"
+          ? sessionAtomLabel(entity.id)
+          : commitAtomLabel(entity.sha);
 
   const skin = (
     <span
@@ -216,6 +232,8 @@ export function TugAtomRef({
             <FileText />
           ) : entity.kind === "dash" ? (
             <GitBranch />
+          ) : entity.kind === "session" ? (
+            <MessageSquare />
           ) : (
             <GitCommit />
           ))}

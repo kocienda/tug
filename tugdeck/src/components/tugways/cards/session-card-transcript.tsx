@@ -193,6 +193,7 @@ import {
 // disagree about what a command is.
 import "./session-commit-receipt-block";
 import "./session-join-receipt-block";
+import "./session-arc-receipt-block";
 import { composeShellShareText } from "./shell-exchange-view";
 import { RefsResultBlock } from "./refs-result-block";
 import { composeRefsShareText, refsShareLabel } from "./refs-result-view";
@@ -286,6 +287,9 @@ const REFS_IDENTIFIER = "Refs";
  *  the base. The operation is named here, in the attribution, which frees the
  *  block header's verb slot for the sha (the commit's real name). */
 const GIT_IDENTIFIER = "Git Commit";
+/** Identifier for a wheel-attributed row — a dash arc's terminal receipt. The
+ *  wheel is who ended it: no shell ran, and nothing landed on the base. */
+const ARC_IDENTIFIER = "Dash Arc";
 
 /**
  * Claude Code's canned replies to a `/compact` dispatch. Both are
@@ -763,7 +767,11 @@ const ShellTurnCell = React.memo(function ShellTurnCell({
   // participant + icon, and no `exit N · duration` end-state (a landing's
   // outcome is the receipt itself). Which commands those are is the registry's
   // to say, declared by each receipt beside its renderer.
-  const isGitRow = resolveCommandAttribution(message.command) === "git";
+  const attribution = resolveCommandAttribution(message.command);
+  const isGitRow = attribution === "git";
+  const isArcRow = attribution === "wheel";
+  // A row nobody typed: both receipts alike want the shell's chrome gone.
+  const isReceiptRow = isGitRow || isArcRow;
   return (
     <ResponderScope>
     <AnnotationScope value={annotation}>
@@ -772,11 +780,10 @@ const ShellTurnCell = React.memo(function ShellTurnCell({
       ref={cellRef}
       className="session-card-transcript-shell-row"
       data-slot="session-transcript-shell-row"
-      data-git-row={isGitRow ? "true" : undefined}
     >
       <TugTranscriptEntry
-        participant={isGitRow ? "git" : "shell"}
-        identifier={isGitRow ? GIT_IDENTIFIER : SHELL_IDENTIFIER}
+        participant={isArcRow ? "wheel" : isGitRow ? "git" : "shell"}
+        identifier={isArcRow ? ARC_IDENTIFIER : isGitRow ? GIT_IDENTIFIER : SHELL_IDENTIFIER}
         // Time • cwd — the exec time paired with the directory the
         // command ran in (`message.cwd`, the per-exchange cwd, not the
         // live session cwd), bulleted like the shell Z1B end-state row.
@@ -818,7 +825,7 @@ const ShellTurnCell = React.memo(function ShellTurnCell({
           // A git row is NOT wrapped here: the commit receipt provides its own
           // collapse handle (defaulting expanded) so the same fold rides along
           // wherever the receipt renders, transcript or gallery.
-          <ShellBlockFrame collapsible={!isGitRow} toolUseId={message.exchangeId}>
+          <ShellBlockFrame collapsible={!isReceiptRow} toolUseId={message.exchangeId}>
             <CommandBlock
               message={message}
               // Add-to-context ([P08]): stage / un-stage the fenced text on
@@ -849,7 +856,7 @@ const ShellTurnCell = React.memo(function ShellTurnCell({
         // beneath the block, exactly where a Claude turn shows its OK/Error
         // badge + timing. A git row shows none: `exit 0 · 0ms` says nothing
         // about a commit that the receipt above doesn't already say.
-        controls={isGitRow ? undefined : <SessionZ1B participant="shell" turn={turn} />}
+        controls={isReceiptRow ? undefined : <SessionZ1B participant="shell" turn={turn} />}
       />
     </div>
     {menu}
