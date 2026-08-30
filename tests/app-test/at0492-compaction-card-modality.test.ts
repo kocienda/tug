@@ -37,11 +37,20 @@
  * Stub mode: no backend answers the `/compact` turn, so the run stays in flight
  * for the length of the test — exactly the window the modality covers.
  *
+ * ## The wheel sends one too
+ *
+ * An arc compacting a seated stage prompts that session itself: a `tug_notice`
+ * carrying `origin: "wheel"`, dispatched by tugcast, which opens its turn
+ * inside the store without passing the composer or the local command handler.
+ * The run is the same run and earns the same cover, so the second test drives
+ * that frame and asserts the sheet and the hold arrive from it.
+ *
  * Gating: `describe.skipIf(!SHOULD_RUN)`.
  *
  * @covers tugdeck/src/lib/card-modal-hold-store.ts
  * @covers tugdeck/src/components/tugways/tug-sheet.tsx
  * @covers tugdeck/src/components/tugways/cards/compaction-progress-sheet.tsx
+ * @covers tugdeck/src/components/tugways/cards/session-compaction-run.tsx
  * @covers tugdeck/src/components/chrome/tug-pane.tsx
  */
 
@@ -61,6 +70,9 @@ const CANCEL = `${COMPACTION} [data-testid="compaction-cancel"]`;
 const TITLE_BAR = '[data-testid="tug-pane-title-bar"]';
 const CLOSE_BUTTON = '[data-testid="tug-pane-close-button"]';
 const ROLLUP_ROW = '[data-testid="tug-pane-title-bar-rollup-row"]';
+const WHEEL_ROW = '.tug-transcript-entry[data-participant="wheel"]';
+
+const CODE_OUTPUT_FEED = 0x40; // FeedId.CODE_OUTPUT
 
 function deckShape() {
   return {
@@ -189,6 +201,89 @@ describe.skipIf(!SHOULD_RUN)(
               `document.querySelector(${JSON.stringify(CLOSE_BUTTON)}).disabled`,
             ),
           ).toBe(false);
+
+          process.stdout.write("VERDICT: PASS\n");
+        } catch (err) {
+          process.stdout.write("VERDICT: FAIL\n");
+          const tail = app.tailLog(200);
+          if (tail !== "") process.stderr.write(`\n[at0492] log tail:\n${tail}\n`);
+          throw err;
+        } finally {
+          await app.close();
+        }
+      },
+      TEST_TIMEOUT_MS,
+    );
+
+    test(
+      "a `/compact` the wheel sent covers the card the same way",
+      async () => {
+        // The arc compacts a seated stage by prompting the session it already
+        // seated — a `tug_notice` carrying `origin: "wheel"`, which tugcast has
+        // already put on the wire. That prompt opens its turn inside the store
+        // and never touches the composer or the local command handler, so the
+        // run has to be recognized from the turn itself. Before it was, an arc
+        // compacting mid-stage left the card looking like an ordinary busy
+        // turn: no sheet, no hold, every door open, and nothing on screen
+        // saying the minutes ahead belonged to a compaction.
+        const app = await launchTugApp({
+          testName: "at0492-wheel-compaction-modality",
+        });
+        try {
+          await app.enableDeckTrace(true);
+          await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
+          await app.waitForCondition<boolean>(
+            `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
+            { timeoutMs: 30_000 },
+          );
+          await app.bindSession("A", { tugSessionId: SID });
+          await app.awaitEngineReady("A", { timeoutMs: 30_000 });
+
+          // Exactly the frame tugcast announces the wheel's prompt with.
+          await app.driveSession("A", {
+            op: "ingestFrame",
+            feedId: CODE_OUTPUT_FEED,
+            decoded: {
+              type: "tug_notice",
+              tug_session_id: SID,
+              origin: "wheel",
+              text: "/compact",
+            },
+          });
+
+          // The turn is the wheel's, and the run is the user's `/compact` run.
+          await app.waitForCondition<boolean>(
+            `document.querySelector(${JSON.stringify(WHEEL_ROW)}) !== null`,
+            { timeoutMs: 8000 },
+          );
+          await app.waitForCondition<boolean>(
+            `document.querySelector(${JSON.stringify(COMPACTION)}) !== null`,
+            { timeoutMs: 8000 },
+          );
+
+          // And the hold rides with it: same closed doors as the typed path.
+          expect(
+            await app.evalJS<boolean>(
+              `document.querySelector(${JSON.stringify(TITLE_BAR)}).hasAttribute("data-modal-hold")`,
+            ),
+          ).toBe(true);
+          expect(
+            await app.evalJS<boolean>(
+              `document.querySelector(${JSON.stringify(CLOSE_BUTTON)}).disabled`,
+            ),
+          ).toBe(true);
+          expect(await app.evalJS<number>(sheetCount)).toBe(1);
+
+          // Cancel still belongs to the user, whoever sent the compaction.
+          await app.nativeClickAtElement(CANCEL);
+          await app.waitForCondition<boolean>(
+            `document.querySelector(${JSON.stringify(COMPACTION)}) === null`,
+            { timeoutMs: 8000 },
+          );
+          await app.waitForCondition<boolean>(
+            `document.querySelector(${JSON.stringify(TITLE_BAR)}).hasAttribute("data-modal-hold") === false`,
+            { timeoutMs: 4000 },
+          );
 
           process.stdout.write("VERDICT: PASS\n");
         } catch (err) {

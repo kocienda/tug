@@ -290,10 +290,7 @@ import {
 } from "../tug-pane-bulletin";
 import { lastAssistantCopyText } from "./turn-entry-markdown";
 import { compactionProgressStore } from "@/lib/compaction-progress-store";
-import {
-  COMPACTION_REFUSAL_TEXT,
-  CompactionProgressSheet,
-} from "./compaction-progress-sheet";
+import { useCompactionRun } from "./session-compaction-run";
 import { useSessionsDataSource } from "@/lib/session-picker-data-source";
 import {
   PickerCellProvider,
@@ -321,20 +318,6 @@ import "./session-card.css";
  * binding update lands.
  */
 const SHEET_EXIT_ANIMATION_MS = 220;
-
-/**
- * True when the in-flight turn carries a compaction divider — a `system_note`
- * whose `source` is `"compact"`. The `/compact` run watcher uses it as the
- * belt-and-suspenders "compaction landed" signal for a summary-less (fail-
- * closed) compaction, alongside the primary `compactionSeed` reference check.
- */
-function activeTurnHasCompactNote(
-  activeTurn: NonNullable<CodeSessionSnapshot["activeTurn"]>,
-): boolean {
-  return activeTurn.messages.some(
-    (m) => m.kind === "system_note" && m.source === "compact",
-  );
-}
 
 /**
  * Placeholder copy for the prompt entry. Code is the only resting mode, so
@@ -3803,6 +3786,18 @@ export function SessionCardBody({
     compactionProgressStore.clear(cardId);
   }, [compactionProgress, cardId]);
 
+  // The card's `/compact` run, whoever sends the command: the pane-modal sheet
+  // and the hold it puts on the card, the watcher that settles it, and — for a
+  // `/compact` the wheel sent, which tugcast dispatches itself and no command
+  // handler here ever sees — the watch that opens the run off the turn.
+  // Dispatch stays with the caller; `compact` below sends its own submission.
+  const beginCompactionRun = useCompactionRun({
+    cardId,
+    codeSessionStore,
+    showSheet: cardPickerSheet.showSheet,
+    bulletinRef: paneBulletinRef,
+  });
+
   // A Mode / Model / Effort change must not race a running turn ([source→
   // delegate]): the setter seam declines it, and the surfaces that reach those
   // setters (the slash pickers, ⇧⇥ cycle, the Permission Mode menu) refuse up
@@ -4108,124 +4103,7 @@ export function SessionCardBody({
         return;
       }
       const focus = args.trim();
-
-      // Baseline for detecting compaction ink: a `compact_summary` mints a new
-      // `compactionSeed` object, so a reference change since dispatch proves a
-      // compaction landed. A boundary note on the in-flight turn is the belt-
-      // and-suspenders signal for a summary-less (fail-closed) compaction.
-      const seedAtDispatch = snap0.compactionSeed;
-      let sawActive = false;
-      let sawInk = false;
-      let interrupted = false;
-      let canceled = false;
-
-      const onCancel = (): void => {
-        if (canceled) return;
-        canceled = true;
-        // Interrupt the compaction turn — Claude Code's own supported abort
-        // path ([Q01]); the session stays intact. The watcher unsubscribes at
-        // the active → null transition; the store is already settled here.
-        codeSessionStore.interrupt();
-        compactionProgressStore.cancel(cardId);
-      };
-
-      const unsubscribe = codeSessionStore.subscribe(() => {
-        const snap = codeSessionStore.getSnapshot();
-        const active = snap.activeTurn;
-        // Compaction ink: the summary re-marked `compactionSeed`, or a compact
-        // divider attached to the in-flight turn.
-        if (snap.compactionSeed !== seedAtDispatch) sawInk = true;
-        if (active !== null && activeTurnHasCompactNote(active)) sawInk = true;
-        if (active !== null) {
-          // Latched during the interrupt round-trip (the turn is still
-          // in-flight); acted on at the active → null transition below.
-          if (snap.interruptInFlight) interrupted = true;
-          sawActive = true;
-          return;
-        }
-        if (!sawActive) return; // turn hasn't opened yet
-        unsubscribe();
-        if (canceled) {
-          // The Cancel button settles the store (and dismisses the sheet) at
-          // the gesture, but Claude Code does not reliably abort a compaction
-          // mid-run — it can finish anyway, and the interrupt no longer pulls
-          // the turn down locally to hide that. The "canceled" bulletin has
-          // already fired by now, so correct the record when the ink lands.
-          if (sawInk) {
-            paneBulletinRef.current?.caution(
-              "Compaction finished before it could be canceled",
-            );
-          }
-          return;
-        }
-        if (sawInk) {
-          compactionProgressStore.succeed(cardId);
-          return;
-        }
-        if (interrupted) {
-          // Interrupted by Escape / Stop (not the Cancel button): settle
-          // canceled, session intact.
-          compactionProgressStore.cancel(cardId);
-          return;
-        }
-        // Turn settled with no compaction — refused (too-short session) or
-        // errored. Surface the reason; the refusal text is already in the turn.
-        compactionProgressStore.fail(
-          cardId,
-          snap.lastError?.message ??
-            "Compaction didn't run — session left intact",
-        );
-      });
-
-      // Open the run, present the modal sheet, then send the visible `/compact`
-      // turn.
-      //
-      // The sheet's LIFETIME is not the run's lifetime. Cancel is the Cancel
-      // button and nothing else: `showSheet`'s promise resolves on every close
-      // path, including ones the user never performed — Escape / Cmd-., and the
-      // host's documented unmount-while-open (a cross-pane card move, a card
-      // remount on window restore). Inferring Cancel from that resolution
-      // canceled compactions nobody canceled, and the cancel is not benign: a
-      // compaction turn streams nothing, so `interrupt()` always takes the CASE A
-      // pull-down, which drops the in-flight turn's scratch — the `/compact` row
-      // vanishes from the transcript while Claude Code compacts on to completion
-      // and writes the boundary to the JSONL. The compaction is then real on disk
-      // and absent from the card until a reload replays it.
-      //
-      // So the run outlives the sheet. The watcher above is subscribed to the
-      // store, not to the sheet, and settles the run wherever it ends: the
-      // divider and summary land in place, and the closing bulletin fires,
-      // whether or not the sheet is still up. A dismissed sheet leaves the card
-      // showing an ordinary in-flight turn, which Stop / Escape can interrupt if
-      // that is what the user actually wants.
-      compactionProgressStore.begin(cardId);
-      // The sheet is EXCLUSIVE, so the card is held for the length of the run:
-      // this host is the one every sheet on the card shares, and without the
-      // hold a `/usage` would not open over this sheet — it would replace it,
-      // and dismissing the usage sheet would leave the card looking like the
-      // compaction had been dismissed too, while it compacted on. Escape, ⌘.,
-      // ⌘W, and the title bar's controls are refused on the same terms. Every
-      // one of those refusals flashes the sheet's own line, because the run is
-      // what is refusing and the sheet is where the user is looking ([L31]).
-      const nudgeRef: React.MutableRefObject<(() => void) | null> = {
-        current: null,
-      };
-      void cardPickerSheet.showSheet({
-        title: "Compacting",
-        icon: "Archive",
-        exclusive: {
-          reason: COMPACTION_REFUSAL_TEXT,
-          onRefused: () => nudgeRef.current?.(),
-        },
-        content: (close) => (
-          <CompactionProgressSheet
-            cardId={cardId}
-            close={close}
-            onCancel={onCancel}
-            nudgeRef={nudgeRef}
-          />
-        ),
-      });
+      beginCompactionRun();
       // Sent as a substrate, not a flat line: the command is a leading
       // `command` atom and the focus keeps whatever atoms the user typed, so
       // the transcript row reads `/compact` + its file chips — the same ink
