@@ -1440,31 +1440,6 @@ const DEFAULT_ESTIMATED_HEIGHT = 60;
 const OVERSCAN_COUNT = 3;
 
 /**
- * Cold-fill chunk size, in rows. A list that mounts with a full
- * transcript already in its data source (the cold-restore reveal) does
- * not mount it in one commit: every card in the app shares one main
- * thread, and a single commit rendering, laying out, and measuring a
- * hundred markdown-heavy rows is a multi-second task during which no
- * card — not this one, not its neighbours — can take a keystroke.
- * Instead the reveal mounts the LAST chunk first (the screenful the
- * user will actually see, pinned to the bottom) and extends the
- * mounted range upward one chunk per macrotask, yielding to the event
- * loop between chunks so input, paint, and the other restoring cards'
- * socket traffic interleave. The settle handshake fires only once the
- * fill reaches the top, so every consumer downstream of
- * `onFirstSettle` sees exactly the state a monolithic mount would
- * have produced: all rows measured, ledger covered, bottom placed.
- *
- * While the fill is in flight the top spacer stands on ESTIMATED
- * heights for the not-yet-mounted rows — the one deliberate exception
- * to the no-estimates invariant, bounded by the fill itself: the
- * scroll battery is frozen, the view is pinned to the bottom edge (so
- * spacer error above cannot displace visible content), and the last
- * chunk replaces the final estimate before the settle releases.
- */
-const COLD_FILL_CHUNK = 8;
-
-/**
  * Eviction margins, in viewport heights (see the `evictOffscreen`
  * prop). A row mounts once it is within one viewport of the scrollport
  * and is not released until it is two viewports away — the gap is the
@@ -2234,15 +2209,6 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
     const batchLoadingRef = React.useRef<boolean>(batchLoading);
     batchLoadingRef.current = batchLoading;
     const initialSettlePendingRef = React.useRef<boolean | null>(null);
-    // Cold-fill cursor (see COLD_FILL_CHUNK): the first index of the
-    // mounted tail while the initial reveal is filling upward, or
-    // `null` when no fill is in flight. Seeded with the settle freeze
-    // below; advanced one chunk per macrotask by the post-commit fill
-    // effect; `null` again once the mounted range reaches the top.
-    const coldFillFirstRef = React.useRef<number | null>(null);
-    const coldFillTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(
-      null,
-    );
     const isScrollBatteryFrozen = React.useCallback(
       () => batchLoadingRef.current || initialSettlePendingRef.current === true,
       [],
@@ -2362,14 +2328,6 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
     // pin effect sees the freeze's falling edge and places the bottom
     // once (the settle itself may schedule no flush of its own).
     const releaseSettleIfArmed = React.useCallback((): void => {
-      // A cold fill still placing rows is not settled: the deliveries
-      // arriving now are per-chunk measurements, and releasing on one
-      // would drop `batchLoading` with the ledger only partially
-      // covered — sending the next commit through the eviction
-      // coverage check straight into the full-range suspension, the
-      // very commit the fill exists to avoid. The fill's final chunk
-      // clears the cursor; the delivery that measures it releases here.
-      if (coldFillFirstRef.current !== null) return;
       if (!isScrollBatteryFrozen() || firstSettleFiredRef.current) return;
       firstSettleFiredRef.current = true;
       initialSettlePendingRef.current = false;
@@ -2468,13 +2426,6 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
     // live session that grows turn-by-turn) never freezes here.
     if (initialSettlePendingRef.current === null) {
       initialSettlePendingRef.current = itemCount > 0;
-      // Chunk the reveal (COLD_FILL_CHUNK) when the mounting batch is
-      // big enough to be felt as a stall. Gated to eviction mode: the
-      // fill borrows eviction's spacer geometry, and the mode's
-      // absence is the test seam that asks for the monolithic mount.
-      if (evictModeEnabled && itemCount > COLD_FILL_CHUNK) {
-        coldFillFirstRef.current = itemCount - COLD_FILL_CHUNK;
-      }
     }
 
     // Front-insert detection ([L23], inline transcript). The first row's
@@ -2646,27 +2597,7 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
     let windowResult = fullRangeResult;
     let evictingThisCommit = false;
     let evictSuspendedThisCommit = false;
-    if (inline === true && coldFillFirstRef.current !== null) {
-      // Cold fill in flight: render the tail `[first..itemCount)` and
-      // stand the estimate-summed spacer over the rows above. The
-      // mounted range only grows (chunks already placed stay mounted
-      // and measured), so by the commit after the cursor clears this
-      // is the full range with every height real — the same end state
-      // the monolithic mount produced, reached across yielding tasks.
-      const first = Math.min(coldFillFirstRef.current, itemCount);
-      let topSpacerHeight = 0;
-      for (let i = 0; i < first; i += 1) {
-        topSpacerHeight += Math.max(0, heightForIndex(i));
-      }
-      windowResult = {
-        firstIndex: first,
-        lastIndex: itemCount,
-        topSpacerHeight,
-        bottomSpacerHeight: 0,
-        totalHeight: 0,
-      };
-      evictingThisCommit = true;
-    } else if (inline !== true) {
+    if (inline !== true) {
       windowResult = computeWindow({
         itemCount,
         scrollTop,
@@ -4197,60 +4128,6 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
       );
       snapshot(scrollTop);
     });
-
-    // Cold-fill advance, post-commit. Two jobs while a fill is in
-    // flight, both bounded to one write and one timer per commit:
-    //
-    //   1. Pin the scrollport to the bottom edge so this chunk's paint
-    //      shows the transcript tail, held steady as chunks land above
-    //      it (content inserted above a bottom-pinned viewport moves
-    //      nothing the user can see). The battery's own pins are
-    //      frozen through the settle, deliberately — this direct write
-    //      is the fill's substitute, one per chunk, on geometry the
-    //      commit just laid out anyway. Skipped while the scroller has
-    //      no box (a hidden card lays nothing out; the zero-box settle
-    //      path owns that case).
-    //   2. Yield, then extend the range: a `setTimeout(0)` macrotask
-    //      lowers the cursor one chunk and ticks a re-window. The
-    //      yield is the entire point — between chunks the event loop
-    //      services input, paint, and every other card's traffic.
-    //
-    // Effect-without-deps: the guard makes the steady state (no fill)
-    // a single ref read per commit.
-    React.useLayoutEffect(() => {
-      if (coldFillFirstRef.current === null) return;
-      const el = scrollContainerRef.current;
-      if (el !== null && el.offsetWidth > 0) {
-        el.scrollTop = el.scrollHeight;
-        // Declare the direct write, as every bypassing write here
-        // does: without it the intent rules would read the pin's
-        // scroll event as the user scrolling and the displacement
-        // bracket would find the scroller somewhere its baseline
-        // does not explain.
-        smartScrollRef.current?.noteExternalWrite();
-      }
-      if (coldFillTimerRef.current !== null) return;
-      coldFillTimerRef.current = setTimeout(() => {
-        coldFillTimerRef.current = null;
-        const cur = coldFillFirstRef.current;
-        if (cur === null) return;
-        const next = cur - COLD_FILL_CHUNK;
-        coldFillFirstRef.current = next > 0 ? next : null;
-        scrollTick();
-      }, 0);
-    });
-
-    // Cold-fill teardown: a list unmounted mid-fill (card closed
-    // during its own reveal) must not fire a tick into a disposed
-    // component.
-    React.useLayoutEffect(() => {
-      return () => {
-        if (coldFillTimerRef.current !== null) {
-          clearTimeout(coldFillTimerRef.current);
-          coldFillTimerRef.current = null;
-        }
-      };
-    }, []);
 
     // Eviction bookkeeping, post-commit. Two jobs, both outside React
     // state ([L06] for the attributes, a ref for the retention memory):
