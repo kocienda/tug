@@ -1,6 +1,10 @@
 /* @tug-pairings: none — color-setting rules below self-pair (background-color
-   / border-color set in the same rule). Both resolve from
-   --tugx-progress-indicator-fill, paired by the parent indicator. */
+   / border-color set in the same rule). The mark resolves from
+   --tugx-progress-indicator-fill, paired by the parent indicator; the two
+   stroked figures resolve from --tugx-progress-pulsing-dot-pulse-ink, which
+   defaults to that same fill and is deliberately split from it by the diamond
+   (see its rule). Both ends of the split are tones the parent already pairs:
+   the fill it injects, and the currentColor an `inherit` role resolves to. */
 
 /**
  * Internal glyph for TugProgressIndicator's `pulsing-dot` variant.
@@ -147,7 +151,9 @@
  *  - [L13] every loop is continuous, so they are declarative CSS. What the
  *    component scripts is the CROSSING between states, not a frame.
  *  - [L16] the dot's `background-color` and the ring's `border-color` are
- *    self-paired (set in the same rule).
+ *    self-paired (set in the same rule). They resolve from two variables
+ *    rather than one — see the diamond, which splits them on purpose — and
+ *    both tones are the parent indicator's to pair.
  *  - [L19] file pair, `data-slot="tug-progress-pulsing-dot"`.
  *  - [L20] owns its `--tugx-progress-pulsing-dot-*` sub-family; reads
  *    `--tugx-progress-indicator-fill` from the parent indicator.
@@ -309,10 +315,25 @@
  * 41% past the circle it replaces, overflowing the box the caller reserved;
  * with it, the diamond's POINTS land exactly where the circle's edge did, and
  * mark and pulse shrink together, so the birth radius still finds the mark's
- * edge waiting for it. */
+ * edge waiting for it.
+ *
+ * **The two figures share a shape and not a tone, and the split is the
+ * message.** Every other glyph in this file paints its mark and its ring from
+ * one fill, so a reader who finds them separated here should read it as
+ * deliberate: the mark keeps the working cobalt because a core really is
+ * executing, and the pulse takes `currentColor` — the ink an `inherit` role
+ * resolves to, which is what an IDLE dot on this surface is painted in. So the
+ * glyph says the thing the label cannot say twice at once: a working core
+ * inside a shell at rest. It is the idle TONE and not a color, so it follows
+ * the host's text ink and stays right in the light themes, where idle is dark.
+ *
+ * That the shape law is untouched by this is the point of stating the two
+ * separately: same figure is geometry, and it is what keeps the pulse off the
+ * mark; same tone was never load-bearing for anything. */
 .tug-progress-pulsing-dot[data-shape="diamond"] {
   --tugx-progress-pulsing-dot-figure-scale: 0.70710678;
   --tugx-progress-pulsing-dot-figure-radius: 0;
+  --tugx-progress-pulsing-dot-pulse-ink: currentColor;
 
   transform: rotate(45deg);
 }
@@ -343,7 +364,10 @@
   );
   border-radius: var(--tugx-progress-pulsing-dot-figure-radius, 999px);
   border: var(--tugx-progress-pulsing-dot-ring-width) solid
-    var(--tugx-progress-indicator-fill, currentColor);
+    var(
+      --tugx-progress-pulsing-dot-pulse-ink,
+      var(--tugx-progress-indicator-fill, currentColor)
+    );
   box-sizing: border-box;
   transform: translate(-50%, -50%) scale(1);
   transition:
@@ -434,7 +458,10 @@
   );
   border-radius: var(--tugx-progress-pulsing-dot-figure-radius, 999px);
   border: var(--tugx-progress-pulsing-dot-pulse-end-width) solid
-    var(--tugx-progress-indicator-fill, currentColor);
+    var(
+      --tugx-progress-pulsing-dot-pulse-ink,
+      var(--tugx-progress-indicator-fill, currentColor)
+    );
   box-sizing: border-box;
   transform: translate(-50%, -50%) scale(1);
   opacity: 0;

@@ -298,7 +298,7 @@ describe("SESSION_PHASE_LABELS — human-readable labels", () => {
     ["offline", "Disconnected"],
     ["restoring", "Reconnecting"],
     ["interrupting", "Interrupting"],
-    ["background", "Active"],
+    ["background", "Running"],
   ] as const)("key %s resolves to %s", (key, expected) => {
     expect(SESSION_PHASE_LABELS[key]).toBe(expected);
   });

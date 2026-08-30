@@ -636,7 +636,7 @@ export const SessionTelemetryPhase: React.FC<SessionTelemetryProps> = ({
  * `sessionSessionPhaseVisual`) and give the cell the live motion a
  * static figure cannot. Running jobs are an input because a turn can
  * commit while the agents it launched keep working: that session reads
- * "Active", not "Idle".
+ * "Running", not "Idle".
  *
  * The two work cells divide along the checklist / everything-else
  * seam, each keeping its own source's semantics (`select-work.ts`).

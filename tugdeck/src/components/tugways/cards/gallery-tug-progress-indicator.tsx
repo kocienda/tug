@@ -443,16 +443,17 @@ export function GalleryTugProgressIndicator(): React.ReactElement {
             </div>
           </div>
           <TugLabel size="2xs" emphasis="calm">
-            The shape axis. Both marks are the same glyph on the same breath in
-            the same working tint — the diamond is the whole glyph TURNED, mark
-            and pulse together. That pairing is the rule, not a detail: the
+            The shape axis. Both marks are the same glyph on the same breath —
+            the diamond is the whole glyph TURNED, mark and pulse together.
+            Same FIGURE is the rule, and it is geometry rather than taste: the
             pulse is born on the mark's own radius, so a mark of some other
             shape gets sawn across by its own pulse for the whole travel
-            instead of shedding it. It exists for the pair of readings that
-            must share a tone: a session in a turn is the dot, a session whose
-            backgrounded agents are still running is the diamond. Idle keeps
-            the quiet tone to itself, so nothing that is working can be
-            mistaken for it.
+            instead of shedding it. Same TONE is not the rule, and the diamond
+            spends that freedom: its mark keeps the working cobalt while its
+            pulse takes the idle ink, so the glyph reads as a working core
+            inside a shell at rest — which is exactly what a session whose
+            turn has committed and whose agents have not is. A session IN a
+            turn is the dot, cobalt throughout.
           </TugLabel>
           <div className="gpi-grid">
             <GalleryCell caption="dot — a turn in flight">

@@ -137,16 +137,20 @@ export function sessionSessionPhaseKey(input: SessionPhaseInput): SessionPhaseKe
  * indistinguishable to the user from a normal stream; the distinction
  * is internal lifecycle bookkeeping.
  *
- * `background` reads "Active", deliberately neither "Idle" nor
+ * `background` reads "Running", deliberately neither "Idle" nor
  * "Working": no turn is in flight and the composer is open, but the
- * session still has work of its own outstanding.
+ * session still has work of its own outstanding. It claims execution,
+ * which is what a backgrounded agent is doing, and it sits beside
+ * "Working" — a turn in flight — as the between-turns counterpart of
+ * it. It replaced "Active", a word that made no claim a live turn does
+ * not also make.
  */
 export const SESSION_PHASE_LABELS: Record<SessionPhaseKey, string> = {
   offline: "Disconnected",
   restoring: "Reconnecting",
   interrupting: "Interrupting",
   idle: "Idle",
-  background: "Active",
+  background: "Running",
   submitting: "Sending",
   awaiting_first_token: "Waiting",
   streaming: "Streaming",
