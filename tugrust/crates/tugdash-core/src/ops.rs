@@ -11628,7 +11628,10 @@ Some context.
         let dirt = theirs.iter().find(|b| b.kind == "base-dirt").expect("dirt");
         assert!(dirt.detail.contains("^ink-anchor holds"), "{dirt:?}");
         assert_eq!(dirt.overlap[0].holder.as_deref(), Some("^ink-anchor"));
-        let remedy = dirt.remedy.as_ref().expect("a foreign hand still has an act");
+        let remedy = dirt
+            .remedy
+            .as_ref()
+            .expect("a foreign hand still has an act");
         assert!(
             remedy.explain.contains("^ink-anchor"),
             "the act says whose work it folds: {remedy:?}"

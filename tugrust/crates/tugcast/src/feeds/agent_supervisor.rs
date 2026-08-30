@@ -7192,11 +7192,7 @@ impl AgentSupervisor {
                     );
                     self.code_output.publish_tagged(Frame::new(
                         FeedId::CODE_OUTPUT,
-                        crate::feeds::base_motion::notice_payload(
-                            session,
-                            "dash-resolve",
-                            &text,
-                        ),
+                        crate::feeds::base_motion::notice_payload(session, "dash-resolve", &text),
                     ));
                 }
                 let mut body =

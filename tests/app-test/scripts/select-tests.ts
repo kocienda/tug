@@ -186,6 +186,19 @@ const ACCEPTED_FANOUT: Record<string, number> = {
     // its action cases) and at0371 stopped naming it in the same change, since
     // the width verb it drives no longer reaches the canvas through a chord.
     "tugdeck/src/components/chrome/deck-canvas.tsx": 21,
+
+    // The composer. It is the single field every route types into — the plain
+    // prompt, the `$` shell route, the `/` command route, commit mode and the
+    // landing draft — so a test that drives the app the way a user does has to
+    // reach through this file to say anything at all. The fan-out is the price
+    // of one entry point rather than five, and splitting it per route to quiet
+    // the lint would trade a real design for a smaller number.
+    //
+    // Recorded at 21 when at0497 (the landing stream's scroll: the wave stays
+    // in view while the scribe writes) and at0496 (a join press leaves the
+    // Changes shade) arrived. Both drive the shipping composer through real
+    // control frames, so neither could name a narrower module honestly.
+    "tugdeck/src/components/tugways/tug-prompt-entry.tsx": 21,
 };
 
 interface TestCoverage {
