@@ -13,8 +13,18 @@
  * this helper; tugcast forwards tugcode's stderr lines into its log,
  * so the three sources land in one stream.
  *
+ * The browser's console is a live-only surface: a line written during
+ * a cold restore is gone by the time anyone attaches an inspector, and
+ * the release host forwards no console output to `tugcast.log`. Every
+ * line is therefore also mirrored into the deck-trace ring, whose
+ * `session-lifecycle` kind always records, so `__deckTrace.dump()`
+ * answers for a running instance what the log answers for the other two
+ * legs.
+ *
  * No behavior change — pure observability.
  */
+
+import { deckTrace } from "../deck-trace";
 
 export function logSessionLifecycle(
   event: string,
@@ -26,6 +36,9 @@ export function logSessionLifecycle(
     parts.push(`${k}=${formatValue(v)}`);
   }
   console.log(`[dev::session-lifecycle] ${parts.join(" ")}`);
+  // Shallow copy: the ring outlives the call, and the trace's contract
+  // is that a record never retains something the caller can still move.
+  deckTrace.record({ kind: "session-lifecycle", event, fields: { ...fields } });
 }
 
 function formatValue(v: unknown): string {

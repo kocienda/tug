@@ -580,6 +580,30 @@ export type DeckTraceEvent = {
       paneId: string;
       mode: "snap" | "matched";
     }
+  | {
+      // One `[dev::session-lifecycle]` line, mirrored into the ring by
+      // `logSessionLifecycle`. The browser leg of that stream is the one
+      // leg with no durable sink: tugcode's copy reaches `tugcast.log`
+      // through its stderr, tugcast's own lines are `tracing::info!`, and
+      // the deck's go to a console nobody is attached to. A cold restore
+      // emits its whole perf story — `perf.replay_ingest`,
+      // `perf.replay_render`, `perf.row_parse` — during the seconds before
+      // anyone could open an inspector, so the ring is where it has to
+      // land to be readable afterwards.
+      kind: "session-lifecycle";
+      event: string;
+      fields: Record<string, unknown>;
+    }
+  | {
+      // A gap between main-thread stall-monitor ticks that exceeds the
+      // budget: the thread was busy for `ms` and serviced nothing —
+      // no keystroke, no click, no paint. This WebKit exposes no
+      // `longtask` entry type (`PerformanceObserver.supportedEntryTypes`
+      // is mark/measure/navigation/paint/resource), so timer lateness is
+      // the only reading available for the freeze a busy launch produces.
+      kind: "main-thread-stall";
+      ms: number;
+    }
 );
 
 /**
@@ -615,7 +639,9 @@ export type DeckTraceEventInput =
   | Omit<Extract<DeckTraceEvent, { kind: "extent-rebase" }>, StampedFields>
   | Omit<Extract<DeckTraceEvent, { kind: "store-notify" }>, StampedFields>
   | Omit<Extract<DeckTraceEvent, { kind: "settle-arm" }>, StampedFields>
-  | Omit<Extract<DeckTraceEvent, { kind: "settle-retarget" }>, StampedFields>;
+  | Omit<Extract<DeckTraceEvent, { kind: "settle-retarget" }>, StampedFields>
+  | Omit<Extract<DeckTraceEvent, { kind: "session-lifecycle" }>, StampedFields>
+  | Omit<Extract<DeckTraceEvent, { kind: "main-thread-stall" }>, StampedFields>;
 
 // ---------------------------------------------------------------------------
 // Utilities
@@ -818,6 +844,8 @@ const ALWAYS_RECORDED_KINDS: ReadonlySet<DeckTraceEvent["kind"]> = new Set([
   "scroll-displacement",
   "follow-bottom",
   "extent-rebase",
+  "session-lifecycle",
+  "main-thread-stall",
 ]);
 
 function appendEvent(
@@ -866,10 +894,11 @@ export interface DeckTrace {
    * the call stamps `timestamp` and `seq` and appends to the ring.
    *
    * The kinds in `ALWAYS_RECORDED_KINDS` — `scroll-displacement`,
-   * `follow-bottom`, and `extent-rebase` — ignore the gate and always
-   * record. They are defect and attribution records for events that
-   * arrive unannounced, so waiting for someone to switch recording on
-   * means having no evidence exactly when it is needed.
+   * `follow-bottom`, `extent-rebase`, `session-lifecycle`, and
+   * `main-thread-stall` — ignore the gate and always record. They are
+   * defect and attribution records for events that arrive unannounced,
+   * so waiting for someone to switch recording on means having no
+   * evidence exactly when it is needed.
    */
   record(event: DeckTraceEventInput): void;
   /** Return a fresh array of every event currently in the ring, oldest-first. */

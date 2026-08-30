@@ -504,6 +504,15 @@ const EVENT_FIXTURES: Record<
     paneId: "p1",
     mode: "snap",
   },
+  "session-lifecycle": {
+    kind: "session-lifecycle",
+    event: "perf.replay_ingest",
+    fields: { frames: 3396, dispatchMs: 11 },
+  },
+  "main-thread-stall": {
+    kind: "main-thread-stall",
+    ms: 5100,
+  },
 };
 
 describe("summarizeEvent — exhaustive per-kind coverage", () => {

@@ -230,6 +230,15 @@ export type DeckTraceEventShape = {
       paneId: string;
       mode: "snap" | "matched";
     }
+  | {
+      kind: "session-lifecycle";
+      event: string;
+      fields: Record<string, unknown>;
+    }
+  | {
+      kind: "main-thread-stall";
+      ms: number;
+    }
 );
 
 /**
@@ -267,6 +276,8 @@ export const HARNESS_KNOWN_TRACE_KINDS = [
   "store-notify",
   "settle-arm",
   "settle-retarget",
+  "session-lifecycle",
+  "main-thread-stall",
 ] as const;
 export type HarnessKnownTraceKind = (typeof HARNESS_KNOWN_TRACE_KINDS)[number];
 
@@ -517,6 +528,12 @@ export function summarizeEvent(e: DeckTraceEventShape): string {
       return `settle-arm ${e.armed ? "armed" : "unarmed"} panes=${e.panes} sig=${fmt(e.signature)}`;
     case "settle-retarget":
       return `settle-retarget ${e.mode} pane=${fmt(e.paneId)}`;
+    case "session-lifecycle":
+      return `session-lifecycle ${fmt(e.event)} ${Object.entries(e.fields)
+        .map(([k, v]) => `${k}=${fmt(v)}`)
+        .join(" ")}`;
+    case "main-thread-stall":
+      return `main-thread-stall ${e.ms}ms`;
     default: {
       // Exhaustiveness pin: if a new kind is added to DeckTraceEventShape,
       // the assignment below fails because `e` is no longer `never`.
