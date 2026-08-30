@@ -35,7 +35,7 @@
  * declares the size it is being overridden on.
  */
 .arc-receipt-identity .tug-dash-lifecycle-line[data-size="read"] {
-  font-family: var(--tug-font-sans);
+  font-family: var(--tug-font-family-sans);
   font-size: var(--tug-font-size-xs);
   line-height: calc(var(--tug-font-size-xs) * 1.6);
 }

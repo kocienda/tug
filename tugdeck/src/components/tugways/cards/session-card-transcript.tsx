@@ -181,6 +181,7 @@ import { TugMarkdownBlock } from "@/components/tugways/tug-markdown-block";
 import { useAnnotationPortals } from "@/components/tugways/annotation-portals";
 import { TugQuietLine } from "@/components/tugways/tug-quiet-line";
 import { SessionCompactionEntry } from "@/components/tugways/cards/session-compaction-entry";
+import { BlockChrome } from "@/components/tugways/blocks/block-chrome";
 import { TugTranscriptEntry } from "@/components/tugways/tug-transcript-entry";
 import {
   resolveCommandAttribution,
@@ -319,9 +320,17 @@ const EMPTY_ATOMS: ReadonlyArray<AtomSegment> = [];
  * A dash arc's stage boundary — the server rotated this card onto a fresh
  * claude session, and the row marks where one stage ended and the next began.
  * The transcript above it is the previous stage's and stays exactly where it
- * is, which is what makes an arc one scroll. A quiet line with a rule across
- * the row, saying "boundary" rather than "message"; appearance is CSS-only
- * ([L06]).
+ * is, which is what makes an arc one scroll. A rule across the row, then the
+ * boundary itself as a bar: appearance is CSS-only ([L06]).
+ *
+ * The bar is the compaction marker's shape, and deliberately so. Both are
+ * session-meta events — a boundary the session crossed, not a message anyone
+ * sent — and a card under an arc shows the two within a scroll of each other,
+ * so a stage wearing a bare quiet line beside a compaction wearing a bar read
+ * as two kinds of event when it is one kind. Same `BlockChrome`, same leading
+ * glyph slot, same bold event name over a muted detail; only the glyph and the
+ * words differ. A stage has nothing folded away behind it, so no collapse
+ * wrapper and no chevron — the header is the whole of it.
  *
  * Rendered from two places for the note's two positions — inside a turn's body
  * when the rotation caught a turn open, and below the turn's own footer when
@@ -334,12 +343,16 @@ function StageDivider({ text }: { text: string }): React.ReactElement {
       data-slot="stage-divider"
       data-source="stage"
     >
-      <TugQuietLine
-        icon={<Milestone size={16} aria-hidden="true" />}
-        label="stage"
-        subject={text}
-        tone="quiet"
-      />
+      <BlockChrome
+        rootSlot="session-stage"
+        className="session-stage-bar"
+        leading={<Milestone size={16} aria-hidden="true" />}
+        toolName="Stage"
+        identity={text}
+        copyText={text}
+      >
+        {null}
+      </BlockChrome>
     </div>
   );
 }

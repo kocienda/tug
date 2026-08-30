@@ -816,16 +816,35 @@
 /* Stage divider — a dash arc rotated the card onto a fresh claude session.
    Unlike the notice row (a turn Tug started, marked with an accent rule down
    its side) this marks a BOUNDARY between two stages, so the rule runs across
-   the row above the quiet line. Soft and unaccented: the arc's stages are the
-   ordinary course of a run, not an intrusion worth an accent. */
+   the row above the bar. Soft and unaccented: the arc's stages are the
+   ordinary course of a run, not an intrusion worth an accent.
+
+   The rule and the space around it are the compaction marker's, deliberately:
+   both are boundaries the session crossed, and a card under an arc shows the
+   two within a scroll of each other. */
 .session-card-transcript-stage {
-  margin-block: var(--tug-space-sm) var(--tug-space-xs);
-  padding-block-start: var(--tug-space-xs);
-  border-block-start: 1px solid var(--tug7-element-global-divider-normal-separator-rest);
-  user-select: none;
+  margin-block: var(--tug-space-2xl) var(--tug-space-xs);
+  padding-block-start: var(--tug-space-lg);
+  border-block-start: 1px solid var(--tugx-block-border);
 }
-.session-card-transcript-stage .tug-quiet-line-icon {
-  top: -1px;
+
+/* The bar itself — the same session-meta marker the compaction point wears:
+   a subtle tinted fill + a hairline border so it reads as a boundary the eye
+   can land on when scanning. The chrome owns its own `--tugx-block-*`; these
+   overrides only re-tone this one marker ([L20] stays intact). */
+.session-stage-bar {
+  --tugx-block-surface: var(--tug-surface-sunken, transparent);
+  border: 1px solid var(--tugx-block-border);
+  border-radius: var(--tug-radius-md);
+  background: var(--tug-surface-sunken, transparent);
+}
+
+/* The header's detail column is the mono command slot — right for a shell
+   command, wrong for a stage's `review · opus · path` line, which is prose
+   with a path in it and belongs in the transcript's own sans register. */
+.session-stage-bar .tool-call-header-detail {
+  font-family: var(--tug-font-family-sans);
+  font-size: var(--tug-font-size-xs);
 }
 
 /* Code-row body — `TugMarkdownBlock`. Width-100% so streaming text
