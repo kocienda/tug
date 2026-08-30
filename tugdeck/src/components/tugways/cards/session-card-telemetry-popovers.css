@@ -323,7 +323,7 @@
    so the box stays with the rows, which are the only things still lining a
    mark up. */
 [data-slot="session-dash-popover-body"] {
-  --tugx-dash-popover-lead-width: 16px;
+  --tugx-dash-popover-lead-width: 22px;
 }
 
 /* The DASH placard is set in the ambient SANS, not the frame's mono.
@@ -340,6 +340,24 @@
    list in the app is the tabular kind the frame's rule was written for. */
 .session-dash-popover > :not(.tug-popup-list-title) {
   font-family: var(--tug-font-family-sans);
+}
+
+/* The DASH placard is set one step larger than the other placards. Its rows
+   are a plan's step titles — the thing a reader opens this popup to read —
+   and at the frame's tabular 11px they were set smaller than the sentences
+   they are. The wider caps buy back the characters the larger type spends,
+   so a title still ellipsizes no earlier than it did. */
+.tug-popup-list.session-dash-popover {
+  --tugx-popup-list-row-h: 30px;
+  min-width: 420px;
+  max-width: 640px;
+}
+
+/* Step rows at the reading size. Set on the row rather than on its primary
+   line so the lead column's `calc(1lh)` box grows with the text and keeps the
+   dot centred on line one. */
+[data-slot="session-dash-popover-body"] .tug-popup-list-item {
+  font-size: var(--tug-font-size-sm);
 }
 
 .session-dash-popover-head {

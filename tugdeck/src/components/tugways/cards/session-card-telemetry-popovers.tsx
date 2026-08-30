@@ -1303,7 +1303,7 @@ export function DashStepItems({
           indicator={
             <TugProgressIndicator
               variant="pulsing-dot"
-              size={14}
+              size={17}
               state={ledgerRowState(step.status, idle)}
               aria-label={`step ${step.status}`}
             />
