@@ -7144,13 +7144,17 @@ impl AgentSupervisor {
         // The attribution the blockers were composed from, read again here
         // rather than trusted from the press: the card's copy is as old as its
         // last recompute, and a session that has since put its hand on the
-        // path must still be able to stop this.
-        let live_dirt = crate::feeds::changeset::live_base_dirt_for(
+        // path must still be named in the fold and told about it.
+        let live = crate::feeds::changeset::live_base_dirt_for(
             dir,
             &request.dash,
             self.session_ledger.as_deref(),
         )
         .await;
+        let live_dirt: std::collections::BTreeMap<String, String> = live
+            .iter()
+            .map(|(path, (_, name))| (path.clone(), name.clone()))
+            .collect();
 
         let dir_owned = dir.to_path_buf();
         let dash = request.dash.clone();
@@ -7168,6 +7172,33 @@ impl AgentSupervisor {
                     "dash-resolve-base: cleared"
                 );
                 self.registry.changeset_all_bump().notify_one();
+                // Tell each session whose work rode in the fold ([L31]'s
+                // other half): the act happened to *their* files, so the
+                // report goes to their transcript, not only to the presser's
+                // card. The frame is the same `tug_notice` base-motion's
+                // injections announce with — a quiet system row, no turn.
+                let mut by_session: std::collections::BTreeMap<&str, Vec<&str>> =
+                    std::collections::BTreeMap::new();
+                for path in outcome.folded_from.keys() {
+                    if let Some((owner_id, _)) = live.get(path) {
+                        by_session.entry(owner_id).or_default().push(path);
+                    }
+                }
+                for (session, paths) in by_session {
+                    let text = format!(
+                        "Your in-progress edit to {} was committed onto the base as its own commit, to clear the join of dash '{}'. The files are unchanged on disk; `tugutil dash undo` puts the edit back uncommitted.",
+                        paths.join(", "),
+                        outcome.name,
+                    );
+                    self.code_output.publish_tagged(Frame::new(
+                        FeedId::CODE_OUTPUT,
+                        crate::feeds::base_motion::notice_payload(
+                            session,
+                            "dash-resolve",
+                            &text,
+                        ),
+                    ));
+                }
                 let mut body =
                     serde_json::to_value(&outcome).unwrap_or_else(|_| serde_json::json!({}));
                 if let Some(map) = body.as_object_mut() {

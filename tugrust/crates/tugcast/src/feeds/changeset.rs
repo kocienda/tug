@@ -1511,19 +1511,20 @@ fn document_dash_entries_in(
 }
 
 /// Base paths a live session **other than this dash's own** is working, mapped
-/// to that session's display name.
+/// to that session's `(owner_id, display_name)` — the id is what a notice to
+/// the holder is addressed by, the name is what a sentence about them says.
 ///
 /// The same fact [`compose_snapshot`] hands the dash composition, read fresh
 /// for a verb that is about to move somebody's files. It recomposes rather
 /// than reusing the feed's last snapshot on purpose: the card's copy is as old
 /// as its last recompute, and a session that has since put its hand on the path
-/// must still be able to stop the fold. One composition on a user's press is a
-/// cost worth paying for that.
+/// must still be named in the fold's attribution and told about it. One
+/// composition on a user's press is a cost worth paying for that.
 pub(crate) async fn live_base_dirt_for(
     project_dir: &Path,
     dash: &str,
     ledger: Option<&SessionLedger>,
-) -> BTreeMap<String, String> {
+) -> BTreeMap<String, (String, String)> {
     let Some(mut snapshot) = compose_snapshot(project_dir, ledger).await else {
         return BTreeMap::new();
     };
@@ -1556,13 +1557,15 @@ pub(crate) async fn live_base_dirt_for(
                 live: true,
                 files,
                 ..
-            } if !bound.contains(owner_id) => Some((display_name.clone(), files.clone())),
+            } if !bound.contains(owner_id) => {
+                Some((owner_id.clone(), display_name.clone(), files.clone()))
+            }
             _ => None,
         })
-        .flat_map(|(name, files)| {
+        .flat_map(|(id, name, files)| {
             files
                 .into_iter()
-                .map(move |f| (f.path.clone(), name.clone()))
+                .map(move |f| (f.path.clone(), (id.clone(), name.clone())))
         })
         .collect()
 }

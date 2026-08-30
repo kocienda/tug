@@ -29,13 +29,13 @@
  * harness cannot drive it.
  *
  * The third case — an edit another *live* session holds, where the same frame
- * renders with a dead button wearing the holder's name — is not driven here.
- * Seeding a second live session that owns a base path is a fixture about
- * attribution rather than about this control, and the two halves it would
- * exercise are already pinned closer to where they are decided:
- * `a_foreign_hand_on_the_overlap_names_its_holder` in `tugdash-core` for the
- * sentence and the refusal, and `remedyRefusal` in the deck's unit tests for
- * the dead button.
+ * renders with the same live Resolve and a sentence naming whose work the
+ * fold takes — is not driven here. Seeding a second live session that owns a
+ * base path is a fixture about attribution rather than about this control,
+ * and both halves are already pinned in `tugdash-core`:
+ * `a_foreign_hand_on_the_overlap_names_its_holder` for the sentence and the
+ * remedy, and `resolve_base_folds_another_sessions_edit_and_names_it` for
+ * what the press does with it.
  *
  * ## Why the shade rather than the CLI
  *

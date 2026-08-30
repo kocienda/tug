@@ -103,16 +103,6 @@
   color: var(--tug7-element-tone-text-normal-caution-rest);
 }
 
-/* Why the button is dead — whose turn it is, rather than whose fault. Beside
-   the control it refuses, on the dialog's own action row ([L31]). */
-.session-changes-dash-join-refused {
-  display: flex;
-  align-items: center;
-  font-size: var(--tug-font-size-xs);
-  color: var(--tug7-element-global-text-normal-muted-rest);
-  white-space: nowrap;
-}
-
 /* The path, then its history under it — so the row is a column, and the
    truncation lives on the path itself rather than on the row that now has a
    nested list inside it. */

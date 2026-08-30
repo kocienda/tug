@@ -331,8 +331,6 @@ export interface DashJoinBlockerWire {
 export interface DashJoinRemedyWire {
   /** What Resolve will do, as one sentence the reader weighs before pressing. */
   explain: string;
-  /** Why it cannot be pressed, or absent when it can. */
-  refused?: string;
 }
 
 /** One base commit behind a conflicted path. */
@@ -636,10 +634,7 @@ function isOptionalDashJoinState(
           typeof b.detail === "string" &&
           isOptionalStringArray(b.paths) &&
           (b.remedy === undefined ||
-            (isRecord(b.remedy) &&
-              typeof b.remedy.explain === "string" &&
-              (b.remedy.refused === undefined ||
-                typeof b.remedy.refused === "string"))),
+            (isRecord(b.remedy) && typeof b.remedy.explain === "string")),
       )
     )
   ) {

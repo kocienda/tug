@@ -45,7 +45,7 @@
 import "./session-changes-dash-join.css";
 
 import React from "react";
-import { LoaderCircle, Lock, TriangleAlert } from "lucide-react";
+import { LoaderCircle, TriangleAlert } from "lucide-react";
 
 import { TugSectionLabel } from "@/components/tugways/tug-section-label";
 import { TugInlineDialog } from "@/components/tugways/tug-inline-dialog";
@@ -93,7 +93,7 @@ export interface DashJoinActions {
     answer: string,
   ) => void;
   /**
-   * Clear the base-side work refusing this dash's join ([#blocker-acts]).
+   * Clear the base-side work refusing this dash's join.
    *
    * One act for every resolvable blocker, because the server decides what the
    * act *is* and says so in the blocker's own remedy sentence. The control is
@@ -191,21 +191,6 @@ export interface SessionChangesDashJoinProps {
   actions: DashJoinActions;
 }
 
-/**
- * Whether this blocker's Resolve can be pressed ([#blocker-acts]).
- *
- * Pure, and it reads the server's own verdict rather than deciding one: a
- * remedy with `refused` set is a blocker somebody else has to clear, and a
- * blocker with no remedy at all is a kind nothing at this card can act on —
- * an off-base checkout, a teardown left by a crash. A refusal this deck has
- * never heard of is still shown rather than swallowed (Spec S03) — as its own
- * sentence here, or as the register's line when it is the first blocker.
- */
-export function remedyRefusal(blocker: DashJoinBlockerWire): string | null {
-  if (blocker.remedy === undefined) return null;
-  return blocker.remedy.refused ?? null;
-}
-
 /** One blocker this report has something to add about, and its place. */
 export interface ReportedBlocker {
   blocker: DashJoinBlockerWire;
@@ -287,9 +272,9 @@ export function joinQuestionAsParsed(
  * — its sentence is the row's own line, one line above, so the description
  * begins at the remedy instead of repeating it.
  *
- * The icon splits on whose turn it is, not on severity: a hold somebody else
- * has to release is a lock, and the caution glyph is kept for the one the
- * reader can act on.
+ * Every remedy the server sends is pressable ([L31]): a blocker either
+ * carries an act or carries no remedy at all, so the dialog never renders a
+ * control it refuses to honor.
  */
 function BlockerDialog({
   blocker,
@@ -305,12 +290,11 @@ function BlockerDialog({
   actions: DashJoinActions;
 }): React.ReactElement {
   const remedy = blocker.remedy;
-  const refused = remedyRefusal(blocker);
   return (
     <TugInlineDialog
       className="session-changes-dash-join-blocker"
-      icon={refused !== null ? <Lock /> : <TriangleAlert />}
-      iconRole={refused !== null ? "default" : "caution"}
+      icon={<TriangleAlert />}
+      iconRole="caution"
       title={blocker.title}
       description={
         <>
@@ -329,29 +313,20 @@ function BlockerDialog({
       {...(remedy !== undefined
         ? {
             actions: (
-              <>
-                {/* The remedy is never IN the button: the description carries
-                    it, so the act is weighed before it is pressed, and the
-                    control is always the same word. A blocker nobody here can
-                    clear keeps the whole shape and wears its reason beside a
-                    dead button ([L31]). */}
-                {refused !== null ? (
-                  <span className="session-changes-dash-join-refused">
-                    {refused}
-                  </span>
-                ) : null}
-                <TugPushButton
-                  size="xs"
-                  emphasis="primary"
-                  role="action"
-                  disabled={refused !== null || resolve.phase === "resolving"}
-                  loading={resolve.phase === "resolving"}
-                  onClick={() => actions.resolveBase(entry)}
-                  data-slot="session-changes-dash-join-resolve-base"
-                >
-                  Resolve
-                </TugPushButton>
-              </>
+              /* The remedy is never IN the button: the description carries
+                 it, so the act is weighed before it is pressed, and the
+                 control is always the same word — and always live ([L31]). */
+              <TugPushButton
+                size="xs"
+                emphasis="primary"
+                role="action"
+                disabled={resolve.phase === "resolving"}
+                loading={resolve.phase === "resolving"}
+                onClick={() => actions.resolveBase(entry)}
+                data-slot="session-changes-dash-join-resolve-base"
+              >
+                Resolve
+              </TugPushButton>
             ),
           }
         : {})}

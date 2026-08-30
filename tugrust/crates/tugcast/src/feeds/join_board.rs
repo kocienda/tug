@@ -170,7 +170,6 @@ pub fn join_state_for(
                 paths: b.paths,
                 remedy: b.remedy.map(|r| tugcast_core::types::DashJoinRemedy {
                     explain: r.explain,
-                    refused: r.refused,
                 }),
             })
             .collect();

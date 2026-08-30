@@ -290,8 +290,11 @@ pub struct JoinBlocker {
 ///
 /// **The remedy is not in the button.** The sentence carries it, so the reader
 /// weighs what will happen before pressing, and the control is always the same
-/// word. A blocker nobody at this card can clear still carries the sentence —
-/// it says whose turn it is — and `refused` is why its button is dead ([L31]).
+/// word. And a remedy is always pressable ([L31]): a problem stated beside a
+/// control that refuses to work is the worst shape a report can take, so a
+/// blocker either carries an act or carries no remedy at all — the kinds
+/// nothing at this card can clear, an off-base checkout, a teardown left by a
+/// crash, which still say what they are.
 ///
 /// It also does not restate `detail`. The two run one line apart under a
 /// register already fronting the detail, so a remedy that named the paths
@@ -300,9 +303,6 @@ pub struct JoinBlocker {
 pub struct JoinRemedy {
     /// What Resolve will do, as one sentence.
     pub explain: String,
-    /// Why it cannot be pressed, or absent when it can.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub refused: Option<String>,
 }
 
 /// Outcome of [`discard`].
@@ -3124,9 +3124,9 @@ fn base_dirt_detail(paths: &[String]) -> String {
 
 /// The same fact when the edit belongs to another live session.
 ///
-/// No remedy rides this one, and that is the honest answer rather than a gap:
-/// the edit is somebody's work in progress, and the join unblocks itself the
-/// moment they commit or set it aside.
+/// The remedy beside it is the same fold the user's own dirt earns, because
+/// committing work preserves it — the sentence names whose the edit is, and
+/// the remedy says what the fold does about that.
 fn foreign_dirt_detail(holder: &str, paths: &[String]) -> String {
     format!(
         "Cannot join: {} holds an uncommitted edit to {} that this dash also changed.",
@@ -3446,6 +3446,11 @@ pub struct ResolveBaseOutcome {
     /// Paths dropped as the dash's own bytes.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub dropped: Vec<String>,
+    /// Folded paths that were another live session's work in progress, mapped
+    /// to that session's display name — the fold preserved them, and this is
+    /// how the caller knows which sessions to tell.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub folded_from: BTreeMap<String, String>,
     pub warnings: Vec<String>,
 }
 
@@ -3468,10 +3473,15 @@ pub struct ResolveBaseOutcome {
 /// op-logged: `tugutil dash undo` resets the base back and leaves the same
 /// content uncommitted, exactly where the user had it.
 ///
-/// A path another live session holds is refused by name and nothing is
-/// touched — folding a half-written edit into a join would take it out from
-/// under whoever is writing it. `live_dirt` is the caller's, on the same terms
-/// as [`join_blockers_from_detail`]'s.
+/// A path another live session holds folds with the rest rather than
+/// refusing, because the fold *preserves* that work: the holder's files do
+/// not change on disk, their session keeps editing on top of the new commit,
+/// and undo returns the content uncommitted exactly as it does for the
+/// user's own. The commit's message and the outcome's `folded_from` name
+/// whose work rode along — `live_dirt`, the caller's attribution on the same
+/// terms as [`join_blockers_from_detail`]'s, is what names it — and the
+/// caller owes each named holder the news ([L31]'s other half): tugcast
+/// sends their session a notice.
 pub fn resolve_base_in(
     repo_root: &Path,
     name: &str,
@@ -3492,19 +3502,19 @@ pub fn resolve_base_in(
     let (blocking, droppable) =
         blocking_base_dirt(&repo_root, &worktree, &base_branch, &branch).split_on_relation();
 
-    // Every refusal first, so a resolve that cannot finish has moved nothing
-    // ([L28]).
-    let held = attach_holders(&blocking.tracked, live_dirt)
-        .into_iter()
-        .chain(attach_holders(&blocking.untracked, live_dirt))
-        .filter(|o| o.holder.is_some())
-        .collect::<Vec<_>>();
-    if let Some(first) = held.first() {
-        return Err(foreign_dirt_detail(
-            first.holder.as_deref().unwrap_or_default(),
-            &overlap_paths(&held),
-        ));
-    }
+    // Whose work rides in the fold, kept beside it so the commit can
+    // attribute each holder's paths and the caller can tell them what
+    // happened.
+    let folded_from: BTreeMap<String, String> = blocking
+        .tracked
+        .iter()
+        .chain(blocking.untracked.iter())
+        .filter_map(|o| {
+            live_dirt
+                .get(&o.path)
+                .map(|holder| (o.path.clone(), holder.clone()))
+        })
+        .collect();
     if blocking.is_empty() && droppable.is_empty() {
         return Err(format!(
             "Nothing to resolve: no uncommitted work on '{base_branch}' touches what dash '{name}' changed."
@@ -3538,7 +3548,7 @@ pub fn resolve_base_in(
     let committed = if folded.is_empty() {
         None
     } else {
-        let message = fold_commit_message(name, &folded);
+        let message = fold_commit_message(name, &folded, &folded_from);
         // Untracked paths are not in the index, and a pathspec commit refuses
         // a pathspec git does not know. Staging first covers the add/add case
         // — the base created a file the dash also creates — which is a real
@@ -3568,6 +3578,7 @@ pub fn resolve_base_in(
         committed,
         folded,
         dropped,
+        folded_from,
         warnings,
     })
 }
@@ -3577,14 +3588,22 @@ pub fn resolve_base_in(
 /// It says what the commit is and stops. A machine writing prose about work it
 /// did not do is the thing to avoid here, so it does not describe the change —
 /// it describes the *act*, which is the part the machine actually performed,
-/// and names the paths so the log reads without the op record beside it.
-fn fold_commit_message(dash: &str, paths: &[String]) -> String {
+/// and names the paths — each with whose work in progress it was, when it was
+/// another session's — so the log reads without the op record beside it.
+fn fold_commit_message(
+    dash: &str,
+    paths: &[String],
+    folded_from: &BTreeMap<String, String>,
+) -> String {
     format!(
         "Commit base work in progress to unblock the join of {}\n\n{}\n\nThis commit was made by `tugutil dash resolve-base` to clear a join blocked by uncommitted work on these paths. `tugutil dash undo` reverses it and leaves the same content uncommitted.\n",
         dash,
         paths
             .iter()
-            .map(|p| format!("- {p}"))
+            .map(|p| match folded_from.get(p) {
+                Some(holder) => format!("- {p} — work in progress from {holder}"),
+                None => format!("- {p}"),
+            })
             .collect::<Vec<_>>()
             .join("\n")
     )
@@ -3636,7 +3655,6 @@ fn base_dirt_blockers(blocking: Vec<BaseOverlapPath>, untracked: bool) -> Vec<Jo
             paths: overlap_paths(&mine),
             remedy: Some(JoinRemedy {
                 explain: "Resolve commits that work onto the base as its own commit, so the join can reconcile the two versions. Undo puts it back uncommitted.".to_string(),
-                refused: None,
             }),
             overlap: mine,
         });
@@ -3658,9 +3676,8 @@ fn base_dirt_blockers(blocking: Vec<BaseOverlapPath>, untracked: bool) -> Vec<Jo
             paths: overlap_paths(&entries),
             remedy: Some(JoinRemedy {
                 explain: format!(
-                    "When {holder} commits that edit or sets it aside, this join unblocks by itself."
+                    "Resolve commits {holder}'s in-progress edit onto the base as its own commit — the work is kept, their files do not change on disk, and their session is told. Undo puts it back uncommitted."
                 ),
-                refused: Some(format!("Held by {holder}")),
             }),
             overlap: entries,
         });
@@ -11584,9 +11601,9 @@ Some context.
         );
     }
 
-    /// A divergent overlap another live session holds is not the user's to
-    /// move, and the refusal says whose turn it is instead of offering an act
-    /// that would take a half-written edit out from under somebody.
+    /// A divergent overlap another live session holds still blocks, and the
+    /// blocker names whose hand is on it — with a remedy as pressable as the
+    /// user's own, because the fold preserves the work it commits.
     #[serial]
     #[test]
     fn a_foreign_hand_on_the_overlap_names_its_holder() {
@@ -11611,6 +11628,11 @@ Some context.
         let dirt = theirs.iter().find(|b| b.kind == "base-dirt").expect("dirt");
         assert!(dirt.detail.contains("^ink-anchor holds"), "{dirt:?}");
         assert_eq!(dirt.overlap[0].holder.as_deref(), Some("^ink-anchor"));
+        let remedy = dirt.remedy.as_ref().expect("a foreign hand still has an act");
+        assert!(
+            remedy.explain.contains("^ink-anchor"),
+            "the act says whose work it folds: {remedy:?}"
+        );
 
         // And an identical copy is still nobody's problem, held or not.
         fs::write(repo.join("shared.txt"), "base\ndash change\n").unwrap();
@@ -11682,11 +11704,12 @@ Some context.
         assert_eq!(dirty_tracked_paths(repo), vec!["shared.txt"]);
     }
 
-    /// A resolve never moves another session's work, and refuses having
-    /// touched nothing.
+    /// A resolve folds another session's work with the rest — committing it
+    /// preserves it — and both the commit's message and the outcome say whose
+    /// it was, so the holder can be told.
     #[serial]
     #[test]
-    fn resolve_base_refuses_another_sessions_edit() {
+    fn resolve_base_folds_another_sessions_edit_and_names_it() {
         let temp = TempDir::new().unwrap();
         seed_dash_with_a_round(&temp, "notmine");
         let repo = temp.path();
@@ -11694,13 +11717,29 @@ Some context.
         let held = BTreeMap::from([("shared.txt".to_string(), "^ink-anchor".to_string())]);
 
         let before_tip = git_stdout(repo, &["rev-parse", "HEAD"]).unwrap();
-        let err = resolve_base_in(repo, "notmine", &held).unwrap_err();
-        assert!(err.contains("^ink-anchor holds"), "{err}");
+        let outcome = resolve_base_in(repo, "notmine", &held).expect("folds");
+        assert_eq!(outcome.folded, vec!["shared.txt"]);
         assert_eq!(
-            git_stdout(repo, &["rev-parse", "HEAD"]).unwrap(),
-            before_tip
+            outcome.folded_from.get("shared.txt").map(String::as_str),
+            Some("^ink-anchor"),
+            "the outcome names the holder"
         );
-        assert_eq!(dirty_tracked_paths(repo), vec!["shared.txt"]);
+        assert_ne!(
+            git_stdout(repo, &["rev-parse", "HEAD"]).unwrap(),
+            before_tip,
+            "the fold made a commit"
+        );
+        let message = git_stdout(repo, &["log", "-1", "--format=%B"]).unwrap();
+        assert!(
+            message.contains("shared.txt — work in progress from ^ink-anchor"),
+            "the commit attributes the work: {message}"
+        );
+        // Preserved, not taken: same bytes on disk, now committed.
+        assert_eq!(
+            fs::read_to_string(repo.join("shared.txt")).unwrap(),
+            "base\nsomebody else\n"
+        );
+        assert!(dirty_tracked_paths(repo).is_empty());
     }
 
     /// An overlap that is all the dash's own bytes needs no commit — dropping

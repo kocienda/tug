@@ -1,6 +1,6 @@
 /**
- * The landing face's two pure decisions: which act clears a blocker, and what
- * the disabled Join affordance says instead of being silent.
+ * The landing face's two pure decisions: which blockers the report speaks
+ * about, and what the disabled Join affordance says instead of being silent.
  *
  * The outcome derivation itself is proved next door in
  * `join-mode-controller.test.ts` — the component reads it, it does not own it.
@@ -9,7 +9,6 @@
 import { describe, expect, it } from "bun:test";
 
 import {
-  remedyRefusal,
   reportedBlockers,
   discardPreflightLine,
 } from "@/components/tugways/cards/session-changes/session-changes-dash-join";
@@ -27,33 +26,6 @@ const blocker = (
   title: "Base work in the way",
   detail: `detail for ${kind}`,
   ...(remedy !== undefined ? { remedy } : {}),
-});
-
-describe("remedyRefusal", () => {
-  it("lets a remedy with no refusal be pressed", () => {
-    expect(
-      remedyRefusal(blocker("base-dirt", { explain: "Resolve commits it." })),
-    ).toBe(null);
-  });
-
-  it("passes the server's refusal through as the reason the button is dead", () => {
-    expect(
-      remedyRefusal(
-        blocker("base-dirt", {
-          explain: "That edit belongs to ^ink-anchor.",
-          refused: "Held by ^ink-anchor",
-        }),
-      ),
-    ).toBe("Held by ^ink-anchor");
-  });
-
-  it("has nothing to press for a kind that carries no remedy at all", () => {
-    // An off-base checkout, a teardown left by a crash, and any refusal this
-    // deck has never heard of. Its sentence still reaches the reader — see
-    // `reportedBlockers` for which surface carries it.
-    expect(remedyRefusal(blocker("off-base"))).toBe(null);
-    expect(remedyRefusal(blocker("some-future-refusal"))).toBe(null);
-  });
 });
 
 describe("reportedBlockers", () => {

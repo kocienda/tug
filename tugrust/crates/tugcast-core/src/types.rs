@@ -902,15 +902,13 @@ pub struct DashJoinBlocker {
 }
 
 /// The one way out of a blocker, and the sentence that explains it. The
-/// remedy is never in the button: the sentence carries it, the control is
-/// always `Resolve`, and `refused` is why it is dead when it is ([L31]).
+/// remedy is never in the button — the sentence carries it, the control is
+/// always `Resolve` — and it is always pressable ([L31]): a blocker either
+/// carries an act or carries no remedy at all.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct DashJoinRemedy {
     /// What Resolve will do, as one sentence.
     pub explain: String,
-    /// Why it cannot be pressed, or absent when it can.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub refused: Option<String>,
 }
 
 /// What the base did to one conflicted path since the two sides parted.

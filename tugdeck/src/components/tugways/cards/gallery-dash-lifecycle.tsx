@@ -439,7 +439,7 @@ const BLOCKED_CASES: readonly BlockedCase[] = [
     key: "divergent-foreign",
     title: "C · another live session's work",
     caption:
-      "The changeset feed's attribution — the same fold the Changes card renders, passed down rather than re-derived — says another live session holds this path. Folding a half-written edit into a join would take it out from under whoever is writing it, so the frame keeps its shape and the button is dead, wearing whose turn it is rather than whose fault",
+      "The changeset feed's attribution — the same fold the Changes card renders, passed down rather than re-derived — says another live session holds this path. The button is as live as case B's, because committing work preserves it: the fold takes the holder's edit onto the base as its own attributed commit, their files do not change on disk, and their session gets a quiet notice saying what happened and how to undo it",
     blocker: {
       kind: "base-dirt",
       title: "Another session's edit",
@@ -447,8 +447,7 @@ const BLOCKED_CASES: readonly BlockedCase[] = [
       paths: [BLOCKED_PATH],
       remedy: {
         explain:
-          "When ^ink-anchor commits that edit or sets it aside, this join unblocks by itself.",
-        refused: "Held by ^ink-anchor",
+          "Resolve commits ^ink-anchor's in-progress edit onto the base as its own commit — the work is kept, their files do not change on disk, and their session is told. Undo puts it back uncommitted.",
       },
     },
   },
@@ -1060,12 +1059,11 @@ export function GalleryDashLifecycle(): React.ReactElement {
         <p className="cg-dash-prose">
           <strong>The remedy is never in the button.</strong> The sentence
           carries it, so the reader weighs the act before pressing, and the
-          control is always the same word. A blocker nobody at this card can
-          clear keeps the same shape with its button dead, wearing the reason
-          ([L31]) — and a blocker kind that carries no remedy at all, an
-          off-base checkout or a teardown left by a crash, still renders its
-          sentence, so a refusal this deck has never heard of is shown rather
-          than swallowed.
+          control is always the same word — and it is always pressable ([L31]):
+          a blocker either carries an act or carries no remedy at all. The
+          kinds nothing at the card can clear, an off-base checkout or a
+          teardown left by a crash, still render their sentence, so a refusal
+          this deck has never heard of is shown rather than swallowed.
         </p>
         <p className="cg-dash-prose">
           Resolve is one server verb,{" "}
@@ -1074,7 +1072,9 @@ export function GalleryDashLifecycle(): React.ReactElement {
           composer's send, which is why the button does not read "Resolve and
           join". Behind it: identical copies dropped, the user's own divergent
           edits committed onto the base as one commit whose message says what it
-          is, a foreign path refused by name having touched nothing. It is
+          is, and a path another live session holds folded with the rest —
+          committing work preserves it — with the holder named in the commit's
+          message and told by a quiet notice in their own transcript. It is
           op-logged as its own verb, so <code>dash undo</code> resets the base
           and leaves the same content uncommitted. When the block clears, the
           card's quiet-moment reveal raises the shade on the now-ready dash —
