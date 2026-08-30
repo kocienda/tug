@@ -235,10 +235,6 @@ export type DeckTraceEventShape = {
       event: string;
       fields: Record<string, unknown>;
     }
-  | {
-      kind: "main-thread-stall";
-      ms: number;
-    }
 );
 
 /**
@@ -277,7 +273,6 @@ export const HARNESS_KNOWN_TRACE_KINDS = [
   "settle-arm",
   "settle-retarget",
   "session-lifecycle",
-  "main-thread-stall",
 ] as const;
 export type HarnessKnownTraceKind = (typeof HARNESS_KNOWN_TRACE_KINDS)[number];
 
@@ -532,8 +527,6 @@ export function summarizeEvent(e: DeckTraceEventShape): string {
       return `session-lifecycle ${fmt(e.event)} ${Object.entries(e.fields)
         .map(([k, v]) => `${k}=${fmt(v)}`)
         .join(" ")}`;
-    case "main-thread-stall":
-      return `main-thread-stall ${e.ms}ms`;
     default: {
       // Exhaustiveness pin: if a new kind is added to DeckTraceEventShape,
       // the assignment below fails because `e` is no longer `never`.

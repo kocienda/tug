@@ -509,10 +509,6 @@ const EVENT_FIXTURES: Record<
     event: "perf.replay_ingest",
     fields: { frames: 3396, dispatchMs: 11 },
   },
-  "main-thread-stall": {
-    kind: "main-thread-stall",
-    ms: 5100,
-  },
 };
 
 describe("summarizeEvent — exhaustive per-kind coverage", () => {
