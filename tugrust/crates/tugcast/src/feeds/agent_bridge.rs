@@ -777,6 +777,10 @@ pub async fn run_session_bridge(
             // Whatever it had backgrounded died with it; a job that will never
             // report must not leave the session permanently unfinished.
             entry.open_jobs.clear();
+            // And a launch the dead child made will never produce its
+            // `task_started` — a stale id must not arm the gate for a
+            // coincidentally-matching frame after respawn.
+            entry.background_launches.clear();
         }
 
         match outcome {

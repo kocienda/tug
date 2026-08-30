@@ -227,26 +227,45 @@ pub(crate) async fn compose_aggregate(
 ) -> WorkspacesChangesetSnapshot {
     let open = registry.project_dirs();
     let mut projects = Vec::with_capacity(open.len());
+    // What owner election needs about each open project, parallel to
+    // `projects`: its dir, whether it is a repo, and whether this cycle's
+    // `compose_snapshot` actually succeeded (a transient `git status`
+    // failure degrades to an empty repo element, which must not be elected
+    // to carry the repo's dash list — a sibling that composed should).
+    let mut compose_facts: Vec<(std::path::PathBuf, bool, bool)> =
+        Vec::with_capacity(projects.capacity());
+    // Entries whose directory is gone from disk: they compose nothing this
+    // cycle and are swept from the registry below — a deleted project's open
+    // card holds its refcount forever, so nothing else can ever reap them.
+    let mut gone: Vec<String> = Vec::new();
 
     for (project_dir, workspace_key) in open {
+        if !project_dir.is_dir() {
+            tracing::warn!(
+                project = %project_dir.display(),
+                "workspace directory no longer exists; sweeping its registry entry"
+            );
+            gone.push(workspace_key);
+            continue;
+        }
         let display_name = project_dir
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_else(|| project_dir.to_string_lossy().into_owned());
         let dir_str = project_dir.to_string_lossy().into_owned();
 
-        let (no_repo, mut snapshot) = if is_within_git_worktree(&project_dir).await {
+        let (no_repo, composed, mut snapshot) = if is_within_git_worktree(&project_dir).await {
             match compose_snapshot(&project_dir, ledger).await {
                 Some(mut snapshot) => {
                     snapshot.workspace_key = workspace_key;
-                    (false, snapshot)
+                    (false, true, snapshot)
                 }
                 // Within a worktree but `git status` failed this cycle —
                 // keep the project as a repo, empty until it recovers.
-                None => (false, empty_snapshot(workspace_key)),
+                None => (false, false, empty_snapshot(workspace_key)),
             }
         } else {
-            (true, empty_snapshot(workspace_key))
+            (true, false, empty_snapshot(workspace_key))
         };
 
         if let Some(ledger) = ledger {
@@ -291,22 +310,134 @@ pub(crate) async fn compose_aggregate(
             "changeset compose"
         );
 
-        let document_dashes = super::changeset::document_dash_entries(&project_dir, ledger).await;
-
+        compose_facts.push((project_dir, no_repo, composed));
         projects.push(ProjectChangeset {
             project_dir: dir_str,
             display_name,
             no_repo,
             snapshot,
             unattributed_draft,
-            document_dashes,
+            document_dashes: Vec::new(),
         });
+    }
+
+    attach_dashes_per_repo(&mut projects, &compose_facts, ledger).await;
+
+    if !gone.is_empty() {
+        registry.sweep_missing(&gone);
     }
 
     WorkspacesChangesetSnapshot {
         projects,
         ledger_degraded: crate::ledger_integrity::health::is_degraded(),
     }
+}
+
+/// Attach each repo's dash composition to exactly one of its open projects.
+///
+/// A dash list is a property of the repo — `git worktree list` answers
+/// repo-wide from any worktree — so composing it per project duplicated every
+/// dash row whenever two open projects shared one repo: a linked worktree
+/// beside its base, or one checkout open under two spellings. Projects group
+/// by the `(device, inode)` of `git rev-parse --git-common-dir`, which is
+/// what actually identifies one directory across spellings; a resolved path
+/// *string* does not, because `/Users` is a firmlink and no path-string
+/// resolution crosses it.
+///
+/// The owner is elected **after** file composition, from the group's
+/// successfully-composed projects — the base checkout (dir identity equal to
+/// the common dir's parent) when it is among them, else the first by
+/// `project_dir` order — so a transient `git status` failure on one project
+/// never takes the whole repo's dash list off the frame while a sibling could
+/// carry it. A project whose probe fails composes its own list, exactly as
+/// every project did before grouping existed. `join_board::sweep` and
+/// `sweep_workshops` ride inside `dash_entries`, so under this grouping they
+/// run once per repo, on the owner.
+async fn attach_dashes_per_repo(
+    projects: &mut [ProjectChangeset],
+    compose_facts: &[(std::path::PathBuf, bool, bool)],
+    ledger: Option<&SessionLedger>,
+) {
+    use std::collections::HashMap;
+
+    // (group key, is the base checkout) per project; `None` for a non-repo
+    // or a failed probe.
+    let mut identities: Vec<Option<((u64, u64), bool)>> = Vec::with_capacity(compose_facts.len());
+    for (project_dir, no_repo, _composed) in compose_facts {
+        identities.push(if *no_repo {
+            None
+        } else {
+            repo_group_identity(project_dir).await
+        });
+    }
+
+    let mut groups: HashMap<(u64, u64), Vec<usize>> = HashMap::new();
+    for (index, identity) in identities.iter().enumerate() {
+        if let Some((key, _)) = identity {
+            groups.entry(*key).or_default().push(index);
+        }
+    }
+
+    for (index, (project_dir, no_repo, composed)) in compose_facts.iter().enumerate() {
+        if *no_repo {
+            continue;
+        }
+        let owns_dashes = match &identities[index] {
+            // Probe failed — the project composes its own list, as it always
+            // did before grouping existed.
+            None => true,
+            Some((key, _)) => {
+                let members = &groups[key];
+                let owner = members
+                    .iter()
+                    .copied()
+                    .filter(|&i| compose_facts[i].2)
+                    .find(|&i| identities[i].is_some_and(|(_, is_base)| is_base))
+                    .or_else(|| members.iter().copied().find(|&i| compose_facts[i].2));
+                owner == Some(index)
+            }
+        };
+        if !owns_dashes {
+            continue;
+        }
+        if *composed {
+            super::changeset::attach_dash_composition(
+                project_dir,
+                ledger,
+                &mut projects[index].snapshot,
+            )
+            .await;
+        }
+        projects[index].document_dashes =
+            super::changeset::document_dash_entries(project_dir, ledger).await;
+    }
+}
+
+/// The `(device, inode)` of a project's git common dir, plus whether the
+/// project *is* the base checkout (its own directory identity equals the
+/// common dir's parent's). `None` when any probe step fails, which the
+/// caller treats as "compose alone" rather than "compose nothing".
+async fn repo_group_identity(project_dir: &std::path::Path) -> Option<((u64, u64), bool)> {
+    use std::os::unix::fs::MetadataExt;
+    let common = super::changeset::git_stdout(
+        project_dir,
+        &["rev-parse", "--path-format=absolute", "--git-common-dir"],
+    )
+    .await?;
+    if common.is_empty() {
+        return None;
+    }
+    let common_path = std::path::Path::new(&common);
+    let common_meta = std::fs::metadata(common_path).ok()?;
+    let key = (common_meta.dev(), common_meta.ino());
+    let is_base = match (
+        std::fs::metadata(common_path.parent()?),
+        std::fs::metadata(project_dir),
+    ) {
+        (Ok(parent), Ok(own)) => (parent.dev(), parent.ino()) == (own.dev(), own.ino()),
+        _ => false,
+    };
+    Some((key, is_base))
 }
 
 /// The empty per-project payload for a non-repo (or transiently-degraded)
@@ -355,6 +486,236 @@ mod tests {
         std::fs::write(dir.join("committed.txt"), "base\n").unwrap();
         git(dir, &["add", "."]);
         git(dir, &["commit", "-q", "-m", "base commit"]);
+    }
+
+    /// Mint a dash on the repo — a `tugdash/<name>` branch with its base
+    /// config, the shape `dash_detail_entries_in` composes from.
+    fn add_dash(dir: &Path, name: &str) {
+        let branch = format!("tugdash/{name}");
+        git(dir, &["branch", &branch]);
+        git(
+            dir,
+            &["config", &format!("branch.{branch}.tugbase"), "main"],
+        );
+    }
+
+    fn dash_count(project: &ProjectChangeset) -> usize {
+        project
+            .snapshot
+            .changesets
+            .iter()
+            .filter(|e| matches!(e, tugcast_core::types::ChangesetEntry::Dash { .. }))
+            .count()
+    }
+
+    fn bare_project(dir: &Path) -> ProjectChangeset {
+        ProjectChangeset {
+            project_dir: dir.to_string_lossy().into_owned(),
+            display_name: "p".to_owned(),
+            no_repo: false,
+            snapshot: empty_snapshot("wk".to_owned()),
+            unattributed_draft: None,
+            document_dashes: Vec::new(),
+        }
+    }
+
+    /// The aggregate carries a repo's dash list exactly once when the base
+    /// checkout and one of its linked worktrees are open together — on the
+    /// base's project, never duplicated onto the worktree's.
+    #[tokio::test]
+    async fn one_repo_open_twice_composes_its_dashes_once() {
+        let base_dir = tempfile::tempdir().unwrap();
+        let base = base_dir.path().canonicalize().unwrap();
+        init_repo(&base);
+        add_dash(&base, "demo");
+        let wt_parent = tempfile::tempdir().unwrap();
+        let wt = wt_parent.path().canonicalize().unwrap().join("wt");
+        git(
+            &base,
+            &[
+                "worktree",
+                "add",
+                "-q",
+                wt.to_str().unwrap(),
+                "tugdash/demo",
+            ],
+        );
+
+        let cancel = CancellationToken::new();
+        let registry = Arc::new(WorkspaceRegistry::new_for_test());
+        let _base_entry = registry.get_or_create(&base, cancel.clone()).unwrap();
+        let _wt_entry = registry.get_or_create(&wt, cancel.clone()).unwrap();
+
+        let snapshot = compose_aggregate(&registry, None).await;
+        assert_eq!(snapshot.projects.len(), 2);
+        let base_project = snapshot
+            .projects
+            .iter()
+            .find(|p| Path::new(&p.project_dir) == base)
+            .expect("base project");
+        let wt_project = snapshot
+            .projects
+            .iter()
+            .find(|p| Path::new(&p.project_dir) == wt)
+            .expect("worktree project");
+        assert_eq!(dash_count(base_project), 1, "the base carries the list");
+        assert_eq!(dash_count(wt_project), 0, "the worktree does not repeat it");
+        assert!(
+            wt_project.document_dashes.is_empty(),
+            "document dashes stay with the owner too"
+        );
+    }
+
+    /// A linked worktree open without its base still carries the repo's dash
+    /// list — the owner fallback when the base checkout is not among the open
+    /// projects.
+    #[tokio::test]
+    async fn a_worktree_open_alone_carries_the_repo_dashes() {
+        let base_dir = tempfile::tempdir().unwrap();
+        let base = base_dir.path().canonicalize().unwrap();
+        init_repo(&base);
+        add_dash(&base, "demo");
+        let wt_parent = tempfile::tempdir().unwrap();
+        let wt = wt_parent.path().canonicalize().unwrap().join("wt");
+        git(
+            &base,
+            &[
+                "worktree",
+                "add",
+                "-q",
+                wt.to_str().unwrap(),
+                "tugdash/demo",
+            ],
+        );
+
+        let cancel = CancellationToken::new();
+        let registry = Arc::new(WorkspaceRegistry::new_for_test());
+        let _wt_entry = registry.get_or_create(&wt, cancel.clone()).unwrap();
+
+        let snapshot = compose_aggregate(&registry, None).await;
+        assert_eq!(snapshot.projects.len(), 1);
+        assert_eq!(
+            dash_count(&snapshot.projects[0]),
+            1,
+            "with no base open, the worktree is the owner"
+        );
+    }
+
+    /// Two unrelated repos keep their own lists — grouping only collapses
+    /// projects that share a git common dir.
+    #[tokio::test]
+    async fn unrelated_repos_each_keep_their_dashes() {
+        let a_dir = tempfile::tempdir().unwrap();
+        let a = a_dir.path().canonicalize().unwrap();
+        init_repo(&a);
+        add_dash(&a, "one");
+        let b_dir = tempfile::tempdir().unwrap();
+        let b = b_dir.path().canonicalize().unwrap();
+        init_repo(&b);
+        add_dash(&b, "two");
+
+        let cancel = CancellationToken::new();
+        let registry = Arc::new(WorkspaceRegistry::new_for_test());
+        let _a_entry = registry.get_or_create(&a, cancel.clone()).unwrap();
+        let _b_entry = registry.get_or_create(&b, cancel.clone()).unwrap();
+
+        let snapshot = compose_aggregate(&registry, None).await;
+        assert_eq!(snapshot.projects.len(), 2);
+        for project in &snapshot.projects {
+            assert_eq!(
+                dash_count(project),
+                1,
+                "{} carries exactly its own dash",
+                project.project_dir
+            );
+        }
+    }
+
+    /// Two spellings of one checkout — same `(device, inode)`, different path
+    /// strings — group as one repo and compose one copy. A symlinked spelling
+    /// gives the shape under test without depending on the machine's firmlink
+    /// layout; the registry cannot hold this pair (its resolver collapses
+    /// symlinks), so the attachment is driven directly.
+    #[tokio::test]
+    async fn two_spellings_of_one_checkout_compose_one_copy() {
+        let base_dir = tempfile::tempdir().unwrap();
+        let base = base_dir.path().canonicalize().unwrap();
+        init_repo(&base);
+        add_dash(&base, "demo");
+        let link_parent = tempfile::tempdir().unwrap();
+        let link = link_parent.path().join("spelled-differently");
+        std::os::unix::fs::symlink(&base, &link).unwrap();
+
+        let mut projects = vec![bare_project(&base), bare_project(&link)];
+        let facts = vec![(base.clone(), false, true), (link.clone(), false, true)];
+        attach_dashes_per_repo(&mut projects, &facts, None).await;
+
+        assert_eq!(
+            dash_count(&projects[0]) + dash_count(&projects[1]),
+            1,
+            "one directory, however spelled, is one repo"
+        );
+    }
+
+    /// Owner election reads which projects actually composed: when the base
+    /// checkout's compose failed this cycle, a sibling carries the repo's
+    /// list rather than nobody.
+    #[tokio::test]
+    async fn a_failed_base_compose_hands_the_dashes_to_a_sibling() {
+        let base_dir = tempfile::tempdir().unwrap();
+        let base = base_dir.path().canonicalize().unwrap();
+        init_repo(&base);
+        add_dash(&base, "demo");
+        let wt_parent = tempfile::tempdir().unwrap();
+        let wt = wt_parent.path().canonicalize().unwrap().join("wt");
+        git(
+            &base,
+            &[
+                "worktree",
+                "add",
+                "-q",
+                wt.to_str().unwrap(),
+                "tugdash/demo",
+            ],
+        );
+
+        let mut projects = vec![bare_project(&base), bare_project(&wt)];
+        // The base is open but its `compose_snapshot` failed this cycle.
+        let facts = vec![(base.clone(), false, false), (wt.clone(), false, true)];
+        attach_dashes_per_repo(&mut projects, &facts, None).await;
+
+        assert_eq!(dash_count(&projects[0]), 0, "a failed compose cannot own");
+        assert_eq!(dash_count(&projects[1]), 1, "the sibling carries the list");
+    }
+
+    /// An entry whose directory has been deleted contributes nothing to the
+    /// aggregate and one compose sweeps it out of the registry — cancel token
+    /// fired, entry removed — while a live sibling is untouched. The refcount
+    /// is deliberately not consulted: a deleted project's open card holds its
+    /// count forever, so the refcounted path can never reap the ghost.
+    #[tokio::test]
+    async fn a_deleted_directory_is_swept_and_a_live_one_is_not() {
+        let doomed_parent = tempfile::tempdir().unwrap();
+        let doomed = doomed_parent.path().canonicalize().unwrap().join("doomed");
+        std::fs::create_dir(&doomed).unwrap();
+        let live_dir = tempfile::tempdir().unwrap();
+        let live = live_dir.path().canonicalize().unwrap();
+        init_repo(&live);
+
+        let cancel = CancellationToken::new();
+        let registry = Arc::new(WorkspaceRegistry::new_for_test());
+        let doomed_entry = registry.get_or_create(&doomed, cancel.clone()).unwrap();
+        let live_entry = registry.get_or_create(&live, cancel.clone()).unwrap();
+
+        std::fs::remove_dir_all(&doomed).unwrap();
+
+        let snapshot = compose_aggregate(&registry, None).await;
+        assert_eq!(snapshot.projects.len(), 1, "the ghost composes nothing");
+        assert_eq!(Path::new(&snapshot.projects[0].project_dir), live);
+
+        assert!(doomed_entry.cancel.is_cancelled(), "sweep fires the cancel");
+        assert!(!live_entry.cancel.is_cancelled(), "the live entry is untouched");
+        assert_eq!(registry.inner_for_test().len(), 1, "the ghost is removed");
     }
 
     fn event(session: &str, tool_use: &str, path: &Path, project: &Path) -> FileEventRow {

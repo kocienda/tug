@@ -42,7 +42,7 @@ use super::agent_bridge::{
 use super::code::{parse_tug_session_id, splice_tug_session_id};
 use super::session_metadata::{
     is_activity_delta, is_rate_limit_event, is_session_capabilities, is_system_metadata,
-    is_task_edge, is_turn_end, is_wake_started,
+    is_task_edge, is_task_progress, is_tool_use, is_turn_end, is_wake_started,
 };
 use super::session_scoped::SessionScopedFeed;
 use super::workspace_registry::{WorkspaceError, WorkspaceKey, WorkspaceRegistry};
@@ -409,10 +409,10 @@ pub struct LedgerEntry {
     /// names a different one and the flag would latch on a session that is
     /// still alive and still working. The cause rides the frame instead.
     pub turn_cancelled: bool,
-    /// Background jobs this session has launched and not yet seen end, by
-    /// claude's `task_id` — a `Bash` or an `Agent` running with
-    /// `run_in_background: true`, and the `Monitor` watchers that share their
-    /// lifecycle.
+    /// Background jobs this session has launched and not yet seen end, from
+    /// claude's `task_id` to the job's **liveness stamp** — a `Bash` or an
+    /// `Agent` running with `run_in_background: true`, and the `Monitor`
+    /// watchers that share their lifecycle.
     ///
     /// `turn_active` alone cannot answer whether a session is finished. A turn
     /// ends the moment the model stops speaking; work it backgrounded — a test
@@ -422,11 +422,34 @@ pub struct LedgerEntry {
     /// window. [`is_quiet`](LedgerEntry::is_quiet) is the two facts read
     /// together.
     ///
-    /// Opened by `task_started`, closed by `task_updated` carrying a terminal
-    /// status. Cleared wholesale when the relay tears the child down, because
+    /// Opened by `task_started`, closed by `task_updated` or `wake_started`
+    /// carrying a terminal status — the wake because a job whose only terminal
+    /// is claude's `task_notification` reaches this wire under no other name.
+    /// Cleared wholesale when the relay tears the child down, because
     /// a job whose claude is gone will never report and a set that leaked
     /// would leave the session permanently un-quiet.
-    pub open_jobs: std::collections::BTreeSet<String>,
+    ///
+    /// The stamp is the guarantee layer behind those two corrections: set at
+    /// the open, refreshed by `task_progress` heartbeats, and read by
+    /// [`LedgerEntry::reap_stuck_jobs`] so a wire shape nothing here foresaw
+    /// degrades `holders_busy` to *late*, never *forever*.
+    pub open_jobs: std::collections::BTreeMap<String, std::time::Instant>,
+    /// `tool_use_id`s of launching calls this session has made that the deck
+    /// would count as background work — `run_in_background: true` inputs and
+    /// `Monitor` calls, the deck's own `isJobLaunch` gate
+    /// (`tugdeck/src/lib/code-session-store/select-jobs.ts`).
+    ///
+    /// A `task_started` opens a job only when its `tool_use_id` is in this
+    /// set, because the frame itself carries no backgrounded discriminant: a
+    /// foreground subagent's `task_started` is byte-shape identical to a
+    /// background Agent's, and a foreground Agent's job gets no `task_updated`
+    /// ever — folding it in wedges the session busy forever.
+    ///
+    /// Consulted only between the launch and its `task_started` (the match
+    /// consumes the id), and cleared at the turn edge that ends the launching
+    /// turn — a launch whose task never started is not still pending next
+    /// turn.
+    pub background_launches: std::collections::BTreeSet<String>,
     /// The last `model_change` selector a **WebSocket client** sent for this
     /// session — the deck's own choice ([P15]).
     ///
@@ -531,7 +554,8 @@ impl LedgerEntry {
             turns_ended: 0,
             turn_api_error: false,
             turn_cancelled: false,
-            open_jobs: std::collections::BTreeSet::new(),
+            open_jobs: std::collections::BTreeMap::new(),
+            background_launches: std::collections::BTreeSet::new(),
             input_tx: None,
             cancel: CancellationToken::new(),
             card_id: None,
@@ -552,7 +576,42 @@ impl LedgerEntry {
     pub fn is_quiet(&self) -> bool {
         !self.turn_active && self.open_jobs.is_empty()
     }
+
+    /// Drop every open job whose stamp has gone stale with the turn ended —
+    /// the bound that turns an unforeseen wire shape from *wedged forever*
+    /// into *offered late*, the one direction the busy latch is allowed to
+    /// fail in. Reaping only after the turn has ended keeps a long turn's own
+    /// silence off the clock, and each reaped job `warn!`s with its ids so
+    /// the trace names what happened.
+    ///
+    /// `now` is the caller's clock, injected so tests need no real one.
+    pub fn reap_stuck_jobs(&mut self, now: std::time::Instant) {
+        if self.turn_active {
+            return;
+        }
+        self.open_jobs.retain(|task, stamp| {
+            let stale = now.saturating_duration_since(*stamp) > JOB_REAP_HORIZON;
+            if stale {
+                warn!(
+                    target: "dev::ledger",
+                    event = "job_reaped",
+                    session_id = %self.tug_session_id,
+                    task_id = %task,
+                    "background job silent past the reap horizon with its turn \
+                     ended — dropped so the session cannot read busy forever",
+                );
+            }
+            !stale
+        });
+    }
 }
+
+/// How long an open job may sit silent — no edge, no `task_progress` — after
+/// its turn has ended before the reap drops it. Generous on purpose: a
+/// backgrounded bash job emits no progress frames at all, so a tight horizon
+/// would reap real work and offer its join early (Risk R01's residual is a
+/// silent job longer than this, accepted as the cost of never wedging).
+const JOB_REAP_HORIZON: std::time::Duration = std::time::Duration::from_secs(30 * 60);
 
 // ---------------------------------------------------------------------------
 // Ledger alias
@@ -595,7 +654,11 @@ pub async fn busy_session_ids() -> HashSet<String> {
     };
     let mut busy = HashSet::new();
     for (id, entry) in entries {
-        if !entry.lock().await.is_quiet() {
+        let mut entry = entry.lock().await;
+        // The read point is the reap point: no timer task, just the recompute
+        // that consults busyness pruning what has gone stale on its way past.
+        entry.reap_stuck_jobs(std::time::Instant::now());
+        if !entry.is_quiet() {
             busy.insert(id);
         }
     }
@@ -2877,8 +2940,8 @@ pub(crate) fn turn_ended_in_user_cancel(payload: &[u8]) -> bool {
         && value.get("is_recovery").and_then(|v| v.as_bool()) != Some(true)
 }
 
-/// What a `task_started` / `task_updated` frame does to a session's set of
-/// open background jobs.
+/// What a `task_started` / `task_updated` / `wake_started` frame does to a
+/// session's set of open background jobs.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum JobEdge {
     /// A job began — its `task_id` joins the open set.
@@ -2896,25 +2959,100 @@ pub(crate) enum JobEdge {
 /// join offered a beat late, while closing it early is the bug this exists to
 /// prevent.
 ///
+/// A `wake_started` closes too. tugcode translates claude's
+/// `system/task_notification` into `wake_started{wake_trigger:{task_id,
+/// tool_use_id, status}}` (`buildWakeStartedMessage` in
+/// `tugcode/src/session.ts`), so `task_notification` never reaches this wire
+/// under that name and the id lives under `wake_trigger` rather than at the top
+/// level. Its status vocabulary is `completed` / `failed` / `stopped`, where a
+/// missing status defaults to `stopped` on tugcode's side. The deck reads its
+/// close off the same field (`terminalJobStatusFromWire`), which is what keeps
+/// the two readers of this wire in agreement.
+///
 /// A background **agent**'s terminal `task_updated` can land after the wake its
 /// completion drives, which is harmless: the wake has already reopened the turn
 /// by then, so the session is un-quiet either way and the set closes when the
 /// frame arrives.
 pub(crate) fn parse_job_edge(payload: &[u8]) -> Option<JobEdge> {
     let value: serde_json::Value = serde_json::from_slice(payload).ok()?;
+    // The task id is read per shape, not once up front: a `wake_started`
+    // carries none at the top level, so a single leading read would return
+    // `None` for every one of them before the match was ever consulted.
+    match value.get("type")?.as_str()? {
+        "task_started" => Some(JobEdge::Opened(nonempty_task_id(&value)?)),
+        "task_updated" => {
+            let task_id = nonempty_task_id(&value)?;
+            match value.get("status")?.as_str()? {
+                "completed" | "failed" | "killed" => Some(JobEdge::Closed(task_id)),
+                _ => None,
+            }
+        }
+        "wake_started" => {
+            let trigger = value.get("wake_trigger")?;
+            let task_id = nonempty_task_id(trigger)?;
+            match trigger.get("status")?.as_str()? {
+                "completed" | "failed" | "stopped" => Some(JobEdge::Closed(task_id)),
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
+
+/// The frame's `task_id`, or `None` when it is absent or empty.
+///
+/// An empty one is the harness-owned scheduler's re-init shape — a wake with no
+/// job behind it, and nothing to track.
+fn nonempty_task_id(value: &serde_json::Value) -> Option<String> {
     let task_id = value.get("task_id")?.as_str()?;
-    if task_id.is_empty() {
-        // A task-id-less wake — the harness-owned scheduler's re-init shape.
-        // There is no job to track.
+    (!task_id.is_empty()).then(|| task_id.to_owned())
+}
+
+/// The `tool_use_id` of a `tool_use` frame whose call launches background
+/// work — `run_in_background: true` in the input, or the `Monitor` tool,
+/// which is background activity by nature. This is the deck's `isJobLaunch`
+/// gate (`select-jobs.ts`), applied at tugcast's fold so the two readers of
+/// one wire count the same jobs. Everything else — including a foreground
+/// `Agent` call, whose later `task_started` must open nothing — answers
+/// `None`.
+fn parse_background_launch(payload: &[u8]) -> Option<String> {
+    let value: serde_json::Value = serde_json::from_slice(payload).ok()?;
+    if value.get("type")?.as_str()? != "tool_use" {
         return None;
     }
-    match value.get("type")?.as_str()? {
-        "task_started" => Some(JobEdge::Opened(task_id.to_owned())),
-        "task_updated" => match value.get("status")?.as_str()? {
-            "completed" | "failed" | "killed" => Some(JobEdge::Closed(task_id.to_owned())),
-            _ => None,
-        },
-        _ => None,
+    let tool_use_id = value.get("tool_use_id")?.as_str()?;
+    if tool_use_id.is_empty() {
+        return None;
+    }
+    let backgrounded = value
+        .get("input")
+        .and_then(|i| i.get("run_in_background"))
+        .and_then(|b| b.as_bool())
+        == Some(true);
+    let monitor = value.get("tool_name").and_then(|n| n.as_str()) == Some("Monitor");
+    (backgrounded || monitor).then(|| tool_use_id.to_owned())
+}
+
+/// The `tool_use_id` a `task_started` frame names as its launching call, for
+/// matching against [`LedgerEntry::background_launches`].
+fn parse_task_started_launch_id(payload: &[u8]) -> Option<String> {
+    let value: serde_json::Value = serde_json::from_slice(payload).ok()?;
+    let tool_use_id = value.get("tool_use_id")?.as_str()?;
+    (!tool_use_id.is_empty()).then(|| tool_use_id.to_owned())
+}
+
+/// The frame family a job edge came from, for the edge trace — so a trace
+/// reading `job_closed` says whether the close arrived on the status flip or on
+/// the wake behind it.
+fn frame_family(payload: &[u8]) -> &'static str {
+    let Ok(value) = serde_json::from_slice::<serde_json::Value>(payload) else {
+        return "unknown";
+    };
+    match value.get("type").and_then(|t| t.as_str()) {
+        Some("task_started") => "task_started",
+        Some("task_updated") => "task_updated",
+        Some("wake_started") => "wake_started",
+        _ => "unknown",
     }
 }
 
@@ -8878,8 +9016,65 @@ impl AgentSupervisor {
         }
     }
 
-    /// Fold one `task_started` / `task_updated` frame into the session's set of
-    /// open background jobs, and answer whether that left it **quiet**.
+    /// Record a launching `tool_use` the deck would count as background work,
+    /// so the `task_started` it produces can pass `apply_job_edge`'s gate.
+    /// Replay-guarded like the fold itself: a `replay_batch`'s historical
+    /// launches describe calls whose jobs died with the session that ran them.
+    async fn record_job_launch(&self, session_id: &TugSessionId, payload: &[u8]) {
+        let Some(tool_use_id) = parse_background_launch(payload) else {
+            return;
+        };
+        let entry_arc = {
+            let ledger = self.ledger.lock().await;
+            ledger.get(session_id).cloned()
+        };
+        let Some(entry_arc) = entry_arc else {
+            return;
+        };
+        let mut entry = entry_arc.lock().await;
+        if entry.replay_brackets_open != 0 {
+            return;
+        }
+        tracing::trace!(
+            target: "dev::ledger",
+            event = "job_launch_observed",
+            session_id = %session_id,
+            tool_use_id = %tool_use_id,
+        );
+        entry.background_launches.insert(tool_use_id);
+    }
+
+    /// Refresh an open job's liveness stamp from a `task_progress` heartbeat,
+    /// so the reaper can tell silent-but-running work from a job whose
+    /// terminal frame the wire never delivered. A tick for a job that is not
+    /// open — a foreground subagent's, or one already closed — changes
+    /// nothing.
+    async fn refresh_job_stamp(&self, session_id: &TugSessionId, payload: &[u8]) {
+        let Ok(value) = serde_json::from_slice::<serde_json::Value>(payload) else {
+            return;
+        };
+        if value.get("type").and_then(|t| t.as_str()) != Some("task_progress") {
+            return;
+        }
+        let Some(task_id) = nonempty_task_id(&value) else {
+            return;
+        };
+        let entry_arc = {
+            let ledger = self.ledger.lock().await;
+            ledger.get(session_id).cloned()
+        };
+        let Some(entry_arc) = entry_arc else {
+            return;
+        };
+        let mut entry = entry_arc.lock().await;
+        if let Some(stamp) = entry.open_jobs.get_mut(&task_id) {
+            *stamp = std::time::Instant::now();
+        }
+    }
+
+    /// Fold one `task_started` / `task_updated` / `wake_started` frame into the
+    /// session's set of open background jobs, and answer whether that left it
+    /// **quiet**.
     ///
     /// Quiet is the whole reason this exists: a turn ends when the model stops
     /// speaking, and the test sweep it backgrounded goes on running. Between
@@ -8911,10 +9106,51 @@ impl AgentSupervisor {
         }
         match edge {
             JobEdge::Opened(task) => {
-                entry.open_jobs.insert(task);
+                // Gated on the launching call ([Q01], resolved here): the
+                // frame carries no backgrounded discriminant, so membership in
+                // `background_launches` is the only honest evidence. An
+                // unmatched `task_started` opens nothing — the launch cannot
+                // have gone unobserved, because the merger consumes each
+                // session's whole stream from registration and a background
+                // job cannot outlive the claude process that launched it, so
+                // every live `task_started` follows its `tool_use` on the same
+                // stream; the replayed kind never reaches this point (the
+                // bracket guard above). What an unmatched frame actually is,
+                // is the foreground shape this gate exists to refuse.
+                let matched = parse_task_started_launch_id(payload)
+                    .is_some_and(|id| entry.background_launches.remove(&id));
+                if !matched {
+                    tracing::debug!(
+                        target: "dev::ledger",
+                        event = "job_open_rejected",
+                        session_id = %session_id,
+                        task_id = %task,
+                        "task_started with no observed background launch — \
+                         foreground work, not a job to track",
+                    );
+                    return false;
+                }
+                tracing::trace!(
+                    target: "dev::ledger",
+                    event = "job_opened",
+                    session_id = %session_id,
+                    task_id = %task,
+                    frame = frame_family(payload),
+                    open_jobs = entry.open_jobs.len() + 1,
+                );
+                entry.open_jobs.insert(task, std::time::Instant::now());
             }
             JobEdge::Closed(task) => {
-                entry.open_jobs.remove(&task);
+                let was_open = entry.open_jobs.remove(&task).is_some();
+                tracing::trace!(
+                    target: "dev::ledger",
+                    event = "job_closed",
+                    session_id = %session_id,
+                    task_id = %task,
+                    frame = frame_family(payload),
+                    was_open,
+                    open_jobs = entry.open_jobs.len(),
+                );
             }
         }
         entry.is_quiet()
@@ -9100,6 +9336,20 @@ impl AgentSupervisor {
                             self.registry.changeset_all_bump().notify_one();
                         }
                     }
+                    // A launching `tool_use` the deck would count as
+                    // background work — recorded so the `task_started` it
+                    // produces can pass the gate in `apply_job_edge`. Replay
+                    // is guarded inside: a historical launch must not arm the
+                    // gate for a live frame.
+                    if is_tool_use(&frame.payload) {
+                        self.record_job_launch(&id, &frame.payload).await;
+                    }
+                    // A background agent's heartbeat — not a job edge, but it
+                    // proves the job is alive, which is what keeps the reaper
+                    // off genuinely long-running work.
+                    if is_task_progress(&frame.payload) {
+                        self.refresh_job_stamp(&id, &frame.payload).await;
+                    }
                     if is_turn_end(&frame.payload) || is_wake_started(&frame.payload) {
                         let entry_arc = {
                             let ledger = self.ledger.lock().await;
@@ -9114,6 +9364,10 @@ impl AgentSupervisor {
                                 entry.turns_ended += 1;
                                 entry.turn_api_error = turn_ended_in_api_error(&frame.payload);
                                 entry.turn_cancelled = turn_ended_in_user_cancel(&frame.payload);
+                                // A launch whose task never started is not
+                                // still pending next turn — the set matters
+                                // only between a launch and its `task_started`.
+                                entry.background_launches.clear();
                                 drop(entry);
                                 // The session went idle: a dash parked behind it
                                 // because the gate refuses to move a branch
@@ -9983,6 +10237,41 @@ mod tests {
         );
     }
 
+    /// A wake closes the job its notification is about. The bytes are tugcode's
+    /// translated `WakeStarted` shape (`tugcode/src/types.ts`), not the raw
+    /// claude `system/task_notification` the fixture catalog pins — that
+    /// capture is the input *to* tugcode, and nothing wearing that shape ever
+    /// reaches this wire.
+    #[test]
+    fn parse_job_edge_closes_on_a_terminal_wake() {
+        for status in ["completed", "failed", "stopped"] {
+            let frame = format!(
+                r#"{{"type":"wake_started","session_id":"c","wake_trigger":{{"task_id":"t1","tool_use_id":"toolu_1","status":"{status}","summary":"done","output_file":""}},"ipc_version":2}}"#
+            );
+            assert_eq!(
+                parse_job_edge(frame.as_bytes()),
+                Some(JobEdge::Closed("t1".to_owned())),
+                "a wake reporting {status} ends its job"
+            );
+        }
+        // Vocabulary the wire has not shown us leaves the job open, the same
+        // conservative direction the `task_updated` arm takes.
+        assert_eq!(
+            parse_job_edge(
+                br#"{"type":"wake_started","wake_trigger":{"task_id":"t1","status":"running"}}"#
+            ),
+            None
+        );
+        // The scheduler's re-init wake carries no job under `wake_trigger`
+        // either.
+        assert_eq!(
+            parse_job_edge(
+                br#"{"type":"wake_started","wake_trigger":{"task_id":"","status":"completed"}}"#
+            ),
+            None
+        );
+    }
+
     /// The whole point of the pair: a turn that ends with a test sweep still
     /// running has finished nothing.
     #[test]
@@ -10000,12 +10289,58 @@ mod tests {
         assert!(!entry.is_quiet());
 
         // The model stops speaking, but it backgrounded a test sweep first.
-        entry.open_jobs.insert("t1".to_owned());
+        entry
+            .open_jobs
+            .insert("t1".to_owned(), std::time::Instant::now());
         entry.turn_active = false;
         assert!(!entry.is_quiet(), "the turn ended; the work did not");
 
         entry.open_jobs.remove("t1");
         assert!(entry.is_quiet());
+    }
+
+    /// The guarantee layer: whatever wire shape the fixtures have not
+    /// captured, a job that goes silent past the horizon with its turn ended
+    /// is dropped, so `holders_busy` degrades to *late*, never *forever*.
+    #[test]
+    fn a_stale_job_is_reaped_and_a_fresh_one_is_not() {
+        let mut entry = LedgerEntry::new(
+            TugSessionId::new("s1".to_owned()),
+            WorkspaceKey::from_test_str("/proj"),
+            std::path::PathBuf::from("/proj"),
+            SessionMode::New,
+            CrashBudget::new(3, Duration::from_secs(60)),
+        );
+        let now = std::time::Instant::now();
+        entry.open_jobs.insert("t1".to_owned(), now);
+        entry.turn_active = false;
+
+        // Within the horizon the job still holds the session busy.
+        entry.reap_stuck_jobs(now + Duration::from_secs(60));
+        assert!(!entry.is_quiet(), "a fresh job is work, not a wedge");
+
+        // Past it, the job is gone and the session reads quiet.
+        entry.reap_stuck_jobs(now + JOB_REAP_HORIZON + Duration::from_secs(1));
+        assert!(entry.open_jobs.is_empty());
+        assert!(entry.is_quiet(), "late, never forever");
+    }
+
+    /// A live turn keeps the reaper off entirely — a long turn's own silence
+    /// is not a stuck job.
+    #[test]
+    fn the_reap_waits_for_the_turn_to_end() {
+        let mut entry = LedgerEntry::new(
+            TugSessionId::new("s1".to_owned()),
+            WorkspaceKey::from_test_str("/proj"),
+            std::path::PathBuf::from("/proj"),
+            SessionMode::New,
+            CrashBudget::new(3, Duration::from_secs(60)),
+        );
+        let now = std::time::Instant::now();
+        entry.open_jobs.insert("t1".to_owned(), now);
+        entry.turn_active = true;
+        entry.reap_stuck_jobs(now + JOB_REAP_HORIZON + Duration::from_secs(1));
+        assert_eq!(entry.open_jobs.len(), 1, "mid-turn, nothing is reaped");
     }
 
     /// Both frames that carry usage write the window, and they sum the same
@@ -14812,6 +15147,8 @@ mod tests {
 
         // Launched mid-turn.
         entry.lock().await.turn_active = true;
+        let launch = br#"{"type":"tool_use","msg_id":"m1","seq":1,"tool_name":"Bash","tool_use_id":"toolu_1","input":{"command":"just app-test","run_in_background":true},"ipc_version":2}"#;
+        sup.record_job_launch(&id, launch).await;
         assert!(!sup.apply_job_edge(&id, started).await);
 
         // The model stops speaking. The sweep does not.
@@ -14826,6 +15163,150 @@ mod tests {
         // is what releases the work parked behind it.
         assert!(sup.apply_job_edge(&id, completed).await);
         assert!(entry.lock().await.is_quiet());
+    }
+
+    /// A replayed transcript's historical `task_started` frames describe jobs
+    /// that died with the session that ran them. Folding them in would open
+    /// jobs nothing can ever close, leaving the dash permanently unjoinable.
+    #[tokio::test]
+    async fn a_wake_closes_the_job_whose_notification_woke_the_turn() {
+        let (sup, _state_rx, _meta_rx, _control_rx) = make_supervisor_with_store();
+        sup.handle_control(
+            "spawn_session",
+            &spawn_payload("card-wake", "sess-wake"),
+            10,
+        )
+        .await
+        .expect_handled();
+        let id = TugSessionId::new("sess-wake");
+        let entry = {
+            let ledger = sup.ledger.lock().await;
+            ledger.get(&id).unwrap().clone()
+        };
+
+        let started = br#"{"type":"task_started","session_id":"c","task_id":"t1","tool_use_id":"toolu_1","description":"an Agent","task_type":"local_agent","ipc_version":2}"#;
+        let wake = br#"{"type":"wake_started","session_id":"c","wake_trigger":{"task_id":"t1","tool_use_id":"toolu_1","status":"completed","summary":"done","output_file":""},"ipc_version":2}"#;
+
+        entry.lock().await.turn_active = true;
+        let launch = br#"{"type":"tool_use","msg_id":"m1","seq":1,"tool_name":"Agent","tool_use_id":"toolu_1","input":{"prompt":"sweep","run_in_background":true},"ipc_version":2}"#;
+        sup.record_job_launch(&id, launch).await;
+        assert!(!sup.apply_job_edge(&id, started).await);
+
+        // Both halves of the path, because widening the parse alone leaves the
+        // new arm unreachable: the frame loop only reaches `apply_job_edge`
+        // through the needle gate.
+        assert!(
+            is_task_edge(wake),
+            "the needle gate is what lets a wake reach the fold at all"
+        );
+        sup.apply_job_edge(&id, wake).await;
+        assert!(
+            entry.lock().await.open_jobs.is_empty(),
+            "the job's only terminal was its notification, and the wake carries it"
+        );
+    }
+
+    /// A `task_progress` heartbeat proves the job alive: it moves the stamp,
+    /// and the moved stamp is what keeps the reaper off work that is
+    /// genuinely still running.
+    #[tokio::test]
+    async fn a_progress_tick_defers_the_reap() {
+        let (sup, _state_rx, _meta_rx, _control_rx) = make_supervisor_with_store();
+        sup.handle_control(
+            "spawn_session",
+            &spawn_payload("card-tick", "sess-tick"),
+            10,
+        )
+        .await
+        .expect_handled();
+        let id = TugSessionId::new("sess-tick");
+        let entry = {
+            let ledger = sup.ledger.lock().await;
+            ledger.get(&id).unwrap().clone()
+        };
+
+        // A job whose last sign of life was a second ago.
+        let old = std::time::Instant::now() - Duration::from_secs(1);
+        entry.lock().await.open_jobs.insert("t1".to_owned(), old);
+
+        let tick = br#"{"type":"task_progress","session_id":"c","task_id":"t1","tool_use_id":"toolu_1","description":"working","ipc_version":2}"#;
+        sup.refresh_job_stamp(&id, tick).await;
+        assert!(
+            *entry.lock().await.open_jobs.get("t1").unwrap() > old,
+            "the heartbeat moved the stamp"
+        );
+
+        // A reap that would have taken the un-ticked job leaves this one.
+        let mut guard = entry.lock().await;
+        guard.turn_active = false;
+        guard.reap_stuck_jobs(old + JOB_REAP_HORIZON + Duration::from_millis(500));
+        assert_eq!(guard.open_jobs.len(), 1, "a ticked job is alive, not stuck");
+    }
+
+    /// The incident's shape (the capture's foreground-Agent phase): the
+    /// launching call carries no `run_in_background`, its `task_started` is
+    /// byte-identical to a background one, and no `task_updated` ever
+    /// follows. Opening it wedges the session busy forever, so the gate must
+    /// refuse it.
+    #[tokio::test]
+    async fn a_foreground_launch_opens_no_job() {
+        let (sup, _state_rx, _meta_rx, _control_rx) = make_supervisor_with_store();
+        sup.handle_control("spawn_session", &spawn_payload("card-fg", "sess-fg"), 10)
+            .await
+            .expect_handled();
+        let id = TugSessionId::new("sess-fg");
+        let entry = {
+            let ledger = sup.ledger.lock().await;
+            ledger.get(&id).unwrap().clone()
+        };
+        entry.lock().await.turn_active = true;
+
+        // The foreground Agent call — observed, and rightly not recorded.
+        let launch = br#"{"type":"tool_use","msg_id":"m1","seq":1,"tool_name":"Agent","tool_use_id":"toolu_fg","input":{"prompt":"review this"},"ipc_version":2}"#;
+        sup.record_job_launch(&id, launch).await;
+
+        let started = br#"{"type":"task_started","session_id":"c","task_id":"t9","tool_use_id":"toolu_fg","description":"a subagent","task_type":"local_agent","ipc_version":2}"#;
+        assert!(!sup.apply_job_edge(&id, started).await);
+        assert!(
+            entry.lock().await.open_jobs.is_empty(),
+            "a foreground subagent's task is the turn's own work, not a background job"
+        );
+
+        // The turn ends with no job held open — the session is quiet, not
+        // wedged behind an entry nothing will ever close.
+        entry.lock().await.turn_active = false;
+        assert!(entry.lock().await.is_quiet());
+    }
+
+    /// The two launches the deck counts: an explicitly backgrounded call, and
+    /// a `Monitor`, which is background activity by nature (no flag involved).
+    #[tokio::test]
+    async fn backgrounded_and_monitor_launches_both_open() {
+        let (sup, _state_rx, _meta_rx, _control_rx) = make_supervisor_with_store();
+        sup.handle_control("spawn_session", &spawn_payload("card-bg", "sess-bg"), 10)
+            .await
+            .expect_handled();
+        let id = TugSessionId::new("sess-bg");
+        let entry = {
+            let ledger = sup.ledger.lock().await;
+            ledger.get(&id).unwrap().clone()
+        };
+        entry.lock().await.turn_active = true;
+
+        let bash_launch = br#"{"type":"tool_use","msg_id":"m1","seq":1,"tool_name":"Bash","tool_use_id":"toolu_b","input":{"command":"cargo nextest run","run_in_background":true},"ipc_version":2}"#;
+        let monitor_launch = br#"{"type":"tool_use","msg_id":"m1","seq":2,"tool_name":"Monitor","tool_use_id":"toolu_m","input":{"command":"tail -f build.log"},"ipc_version":2}"#;
+        sup.record_job_launch(&id, bash_launch).await;
+        sup.record_job_launch(&id, monitor_launch).await;
+
+        let bash_started = br#"{"type":"task_started","session_id":"c","task_id":"tb","tool_use_id":"toolu_b","description":"cargo nextest run","task_type":"local_bash","ipc_version":2}"#;
+        let monitor_started = br#"{"type":"task_started","session_id":"c","task_id":"tm","tool_use_id":"toolu_m","description":"tail -f build.log","task_type":"local_bash","ipc_version":2}"#;
+        assert!(!sup.apply_job_edge(&id, bash_started).await);
+        assert!(!sup.apply_job_edge(&id, monitor_started).await);
+        assert_eq!(
+            entry.lock().await.open_jobs.len(),
+            2,
+            "both launches the deck counts open here too"
+        );
     }
 
     /// A replayed transcript's historical `task_started` frames describe jobs

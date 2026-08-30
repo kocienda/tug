@@ -105,17 +105,50 @@ pub fn is_wake_started(payload: &[u8]) -> bool {
         .any(|w| w == WAKE_STARTED_NEEDLE)
 }
 
-/// Needle bytes for the two frames that open and close a background job.
+/// Needle bytes for the three frames that open and close a background job.
 ///
 /// `task_started` fires when a `Bash` or `Agent` is launched with
 /// `run_in_background: true` (and for foreground subagents, which are
 /// shape-identical on the wire); `task_updated` carries the status flip that
-/// ends one. The pair is what tells a session that has merely *stopped
+/// ends one. `wake_started` is the third: tugcode translates claude's
+/// `system/task_notification` into it, so a job whose only terminal is a
+/// notification — the foreground Agent's shape — closes there or nowhere.
+/// Together they tell a session that has merely *stopped
 /// speaking* from one that is actually finished: a turn ends the moment the
 /// model stops, while the tests it backgrounded keep running, and their
 /// completion wakes a new turn seconds later.
+///
+/// A `wake_started` reaching `apply_job_edge` is harmless when it carries no
+/// job: `parse_job_edge` reads its `wake_trigger.task_id` and answers `None`.
 const TASK_STARTED_NEEDLE: &[u8] = b"\"type\":\"task_started\"";
 const TASK_UPDATED_NEEDLE: &[u8] = b"\"type\":\"task_updated\"";
+
+/// Needle bytes for a `tool_use` frame — the launching call a `task_started`
+/// is later matched against. The needle can false-positive on a frame whose
+/// *text* quotes the bytes (an `assistant_text` discussing this very wire);
+/// that costs one parse, which then reads the real top-level `type` and
+/// answers honestly — the same posture every needle here takes.
+const TOOL_USE_NEEDLE: &[u8] = b"\"type\":\"tool_use\"";
+
+/// Check if a payload could be a `tool_use` frame — the cheap gate in front
+/// of the parse that reads a launch's name, id, and `run_in_background`.
+pub fn is_tool_use(payload: &[u8]) -> bool {
+    payload
+        .windows(TOOL_USE_NEEDLE.len())
+        .any(|w| w == TOOL_USE_NEEDLE)
+}
+
+/// Needle bytes for `task_progress` — a background agent's heartbeat. Not a
+/// job edge (a job ticking is a job still open), but it refreshes the job's
+/// liveness stamp so the reaper knows work is genuinely running.
+const TASK_PROGRESS_NEEDLE: &[u8] = b"\"type\":\"task_progress\"";
+
+/// Check if a payload could be a `task_progress` heartbeat.
+pub fn is_task_progress(payload: &[u8]) -> bool {
+    payload
+        .windows(TASK_PROGRESS_NEEDLE.len())
+        .any(|w| w == TASK_PROGRESS_NEEDLE)
+}
 
 /// Check if a payload could open or close a background job — a cheap needle
 /// gate in front of the parse that reads its task id ([P08]).
@@ -126,6 +159,7 @@ pub fn is_task_edge(payload: &[u8]) -> bool {
         || payload
             .windows(TASK_UPDATED_NEEDLE.len())
             .any(|w| w == TASK_UPDATED_NEEDLE)
+        || is_wake_started(payload)
 }
 
 #[cfg(test)]
@@ -218,6 +252,17 @@ mod tests {
     }
 
     #[test]
+    fn detects_a_tool_use_frame() {
+        assert!(is_tool_use(
+            br#"{"type":"tool_use","tool_name":"Bash","tool_use_id":"toolu_1","input":{}}"#
+        ));
+        // `tool_use_id` alone is a field on many frames, not the launch.
+        assert!(!is_tool_use(
+            br#"{"type":"tool_result","tool_use_id":"toolu_1","output":""}"#
+        ));
+    }
+
+    #[test]
     fn detects_both_ends_of_a_background_job() {
         assert!(is_task_edge(
             br#"{"type":"task_started","task_id":"t1","task_type":"local_bash"}"#
@@ -225,8 +270,19 @@ mod tests {
         assert!(is_task_edge(
             br#"{"type":"task_updated","task_id":"t1","status":"completed"}"#
         ));
+        // A wake carries the only terminal a foreground Agent's job ever gets.
+        assert!(is_task_edge(
+            br#"{"type":"wake_started","wake_trigger":{"task_id":"t1","status":"completed"}}"#
+        ));
         // The progress tick is neither end — a job ticking is a job still open.
         assert!(!is_task_edge(br#"{"type":"task_progress","task_id":"t1"}"#));
+        // It is the liveness heartbeat instead, read on its own needle.
+        assert!(is_task_progress(
+            br#"{"type":"task_progress","task_id":"t1"}"#
+        ));
+        assert!(!is_task_progress(
+            br#"{"type":"task_started","task_id":"t1"}"#
+        ));
         assert!(!is_task_edge(br#"{"type":"turn_complete"}"#));
     }
 }

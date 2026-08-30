@@ -685,6 +685,38 @@ impl WorkspaceRegistry {
         }
         Ok(())
     }
+
+    /// Remove the named entries outright, **regardless of refcount** — the
+    /// teardown half of [`Self::release`]'s zero path (cancel, remove, bump)
+    /// without the decrement.
+    ///
+    /// This is for entries whose `project_dir` no longer exists on disk: a
+    /// project deleted out from under an open card holds its refcount forever,
+    /// so the refcounted path can never reap it, and until something does the
+    /// ghost keeps contributing frames to the aggregate. Keys are the
+    /// canonical spellings [`Self::project_dirs`] reports. A key already gone
+    /// from the map is skipped silently — a concurrent `release` got there
+    /// first, which is the outcome this method wanted anyway.
+    pub fn sweep_missing(&self, keys: &[String]) {
+        let mut bump = false;
+        {
+            let mut map = self.inner.lock().expect("WorkspaceRegistry mutex poisoned");
+            for key in keys {
+                let key = WorkspaceKey::from_canonical(key);
+                if let Some(entry) = map.remove(&key) {
+                    entry.cancel.cancel();
+                    if !entry.browse_only.load(Ordering::Relaxed) {
+                        bump = true;
+                    }
+                }
+            }
+        }
+        // A project left the open set — same recompute `release`'s zero path
+        // asks for, once for the whole sweep.
+        if bump {
+            self.changeset_all_bump.notify_one();
+        }
+    }
 }
 
 #[cfg(test)]

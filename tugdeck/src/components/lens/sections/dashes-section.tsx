@@ -243,16 +243,29 @@ export function compareDashRows(a: DashRow, b: DashRow): number {
  * Project grouping is not an ordering key: grouping by project would bury a
  * dash that is one gesture from landing under one created a week ago in
  * another repo.
+ *
+ * One row per owner key: two projects opening one repository — a base checkout
+ * and its spelling through a firmlink — both carry the repo's dashes, and the
+ * owner key is the identity that says they are the same dash. First occurrence
+ * in snapshot order wins, before the sort, so which project's row survives is
+ * stable across renders.
  */
 export function dashRowsFromSnapshot(
   snapshot: WorkspacesChangesetSnapshot,
 ): DashRow[] {
-  const rows = snapshot.projects.flatMap((project) =>
-    project.changesets
-      .filter((entry): entry is DashChangesetEntry => entry.kind === "dash")
-      .map((entry) => rowFromEntry(entry, project)),
-  );
-  // `flatMap` already allocated this array; the snapshot it was projected from
+  const seen = new Set<string>();
+  const rows = snapshot.projects
+    .flatMap((project) =>
+      project.changesets
+        .filter((entry): entry is DashChangesetEntry => entry.kind === "dash")
+        .map((entry) => rowFromEntry(entry, project)),
+    )
+    .filter((row) => {
+      if (seen.has(row.ownerId)) return false;
+      seen.add(row.ownerId);
+      return true;
+    });
+  // `filter` already allocated this array; the snapshot it was projected from
   // is never touched.
   return rows.sort(compareDashRows);
 }
@@ -324,16 +337,28 @@ export function compareDocumentDashRows(
  * {@link dashRowsFromSnapshot} makes, for the same reason: a listing that
  * changed as the reader moved between cards would be the coming-and-going wart
  * this section already retired.
+ *
+ * One row per `owner_id`, exactly as {@link dashRowsFromSnapshot} dedupes —
+ * and never on `key`, which namespaces the name under its project and so
+ * differs between the very duplicates being removed. First occurrence in
+ * snapshot order wins.
  */
 export function documentDashRowsFromSnapshot(
   snapshot: WorkspacesChangesetSnapshot,
 ): DocumentDashRow[] {
-  const rows = snapshot.projects.flatMap((project) =>
-    (project.document_dashes ?? []).map((entry) => ({
-      key: `${project.project_dir}:${entry.display_name}`,
-      entry,
-    })),
-  );
+  const seen = new Set<string>();
+  const rows = snapshot.projects
+    .flatMap((project) =>
+      (project.document_dashes ?? []).map((entry) => ({
+        key: `${project.project_dir}:${entry.display_name}`,
+        entry,
+      })),
+    )
+    .filter((row) => {
+      if (seen.has(row.entry.owner_id)) return false;
+      seen.add(row.entry.owner_id);
+      return true;
+    });
   return rows.sort(compareDocumentDashRows);
 }
 

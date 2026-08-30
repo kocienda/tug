@@ -624,21 +624,6 @@ pub(crate) async fn compose_snapshot(
         })
         .collect();
 
-    // Base paths a live session is working, with whose they are. Read while
-    // `owners` still stands, and handed to the dash composition for the same
-    // reason the occupancy registry is: the join's blockers have to tell the
-    // user's own uncommitted edit — which a resolve may fold into a dash —
-    // from another session's, which nothing may touch.
-    let live_dirt: BTreeMap<String, (String, String)> = owners
-        .iter()
-        .filter(|(_, agg)| agg.live)
-        .flat_map(|(id, agg)| {
-            agg.files
-                .keys()
-                .map(move |path| (path.clone(), (id.clone(), agg.display_name.clone())))
-        })
-        .collect();
-
     let mut changesets: Vec<ChangesetEntry> = owners
         .into_iter()
         .map(|(owner_id, agg)| ChangesetEntry::Session {
@@ -650,13 +635,12 @@ pub(crate) async fn compose_snapshot(
             draft: None,
         })
         .collect();
-    changesets.extend(dash_entries(&repo_root, ledger, &live_dirt).await);
 
     // Attach maintained drafts (Spec S10) to eligible entries: a session
-    // entry with files, a dash with rounds or worktree dirt. The dash gate
-    // keeps a stale draft off an entry that has since gone clean; fileless
-    // live sessions are injected later by `apply_session_rows` and pick up
-    // their drafts in `attach_live_session_drafts`.
+    // entry with files. Fileless live sessions are injected later by
+    // `apply_session_rows` and pick up their drafts in
+    // `attach_live_session_drafts`; dash entries — attached per repo by
+    // `attach_dash_composition`, not here — take theirs there too.
     if let Some(ledger) = ledger {
         // Spec S05 spelling contract: writers store `project_dir` canonical;
         // query the canonical spelling and union the raw one when it differs
@@ -686,6 +670,104 @@ pub(crate) async fn compose_snapshot(
                 .entry((d.owner_kind.as_str(), d.owner_id.as_str()))
                 .or_insert(d);
         }
+        for entry in &mut changesets {
+            match entry {
+                ChangesetEntry::Session {
+                    owner_id,
+                    files,
+                    draft,
+                    ..
+                } if !files.is_empty() => {
+                    *draft = by_owner
+                        .get(&("session", owner_id.as_str()))
+                        .map(|row| draft_from_row(row));
+                }
+                _ => {}
+            }
+        }
+    }
+
+    Some(ChangesetSnapshot {
+        workspace_key: String::new(),
+        branch: header.branch,
+        ahead: header.ahead,
+        behind: header.behind,
+        head_sha: header.head_sha,
+        head_message,
+        changesets,
+        unattributed,
+        orphaned,
+    })
+}
+
+/// Attach a repo's dash composition — the live dash entries and their
+/// maintained drafts — to one already-composed snapshot.
+///
+/// Split out of [`compose_snapshot`] because a dash list is a property of the
+/// *repo*, not of an open project: `dash_detail_entries_in` derives from
+/// `git worktree list`, which answers identically from a linked worktree and
+/// from the base checkout, so composing it per project duplicated every dash
+/// row whenever two open projects shared one repo. The aggregate elects one
+/// owner project per repo and calls this for the owner alone.
+pub(crate) async fn attach_dash_composition(
+    project_dir: &Path,
+    ledger: Option<&SessionLedger>,
+    snapshot: &mut ChangesetSnapshot,
+) {
+    let Some(repo_root) = repo_root_for(project_dir).await else {
+        return;
+    };
+    // Base paths a live session is working, with whose they are — derived
+    // from the composed session entries, and handed to the dash composition
+    // for the same reason the occupancy registry is: the join's blockers have
+    // to tell the user's own uncommitted edit — which a resolve may fold into
+    // a dash — from another session's, which nothing may touch.
+    let live_dirt: BTreeMap<String, (String, String)> = snapshot
+        .changesets
+        .iter()
+        .filter_map(|entry| match entry {
+            ChangesetEntry::Session {
+                owner_id,
+                display_name,
+                live: true,
+                files,
+                ..
+            } => Some((owner_id, display_name, files)),
+            _ => None,
+        })
+        .flat_map(|(id, name, files)| {
+            files
+                .iter()
+                .map(move |file| (file.path.clone(), (id.clone(), name.clone())))
+        })
+        .collect();
+
+    let mut dashes = dash_entries(&repo_root, ledger, &live_dirt).await;
+
+    // Attach maintained drafts (Spec S10) to dashes with rounds or worktree
+    // dirt — the gate keeps a stale draft off an entry that has since gone
+    // clean. Same spelling contract as the session pass in
+    // [`compose_snapshot`]: canonical first, raw unioned when it differs.
+    if let Some(ledger) = ledger {
+        let drafts = {
+            let raw = project_dir.to_string_lossy();
+            let canonical = CanonicalPath::from_raw(project_dir);
+            let mut drafts = ledger
+                .changeset_drafts_for_project(canonical.as_str())
+                .unwrap_or_default();
+            if canonical.as_str() != raw {
+                drafts.extend(
+                    ledger
+                        .changeset_drafts_for_project(&raw)
+                        .unwrap_or_default(),
+                );
+            }
+            drafts
+        };
+        let mut by_owner: HashMap<&str, &crate::session_ledger::ChangesetDraftRow> = HashMap::new();
+        for d in drafts.iter().filter(|d| d.owner_kind == "dash") {
+            by_owner.entry(d.owner_id.as_str()).or_insert(d);
+        }
         // A dash's rows migrate onto a second axis too — from the bare branch
         // ref to `tugdash/<name>#<tugid>` ([P03]) — and writers reach the new
         // key before every reader does. So index dash rows by their legacy
@@ -708,59 +790,35 @@ pub(crate) async fn compose_snapshot(
                 }
             }
         }
-        for entry in &mut changesets {
-            match entry {
-                ChangesetEntry::Session {
-                    owner_id,
-                    files,
-                    draft,
-                    ..
-                } if !files.is_empty() => {
-                    *draft = by_owner
-                        .get(&("session", owner_id.as_str()))
-                        .map(|row| draft_from_row(row));
+        for entry in &mut dashes {
+            if let ChangesetEntry::Dash {
+                owner_id,
+                rounds,
+                worktree_dirty,
+                draft,
+                stage,
+                ..
+            } = entry
+                && (*rounds > 0 || *worktree_dirty)
+            {
+                *draft = by_owner
+                    .get(owner_id.as_str())
+                    .or_else(|| dash_by_legacy.get(tugdash_core::ops::legacy_owner_key(owner_id)))
+                    .map(|row| draft_from_row(row));
+                // `dash_detail_entries_in` derives its stage without draft
+                // visibility; this overlay is the caller that can see one,
+                // so it discharges the recompute `derive_stage`'s
+                // precedence assigns it — a draft outranks mere activity,
+                // and nothing else ([P03]).
+                if draft.is_some() && matches!(stage.as_deref(), Some("working") | Some("created"))
+                {
+                    *stage = Some("draft-ready".to_owned());
                 }
-                ChangesetEntry::Dash {
-                    owner_id,
-                    rounds,
-                    worktree_dirty,
-                    draft,
-                    stage,
-                    ..
-                } if *rounds > 0 || *worktree_dirty => {
-                    *draft = by_owner
-                        .get(&("dash", owner_id.as_str()))
-                        .or_else(|| {
-                            dash_by_legacy.get(tugdash_core::ops::legacy_owner_key(owner_id))
-                        })
-                        .map(|row| draft_from_row(row));
-                    // `dash_detail_entries_in` derives its stage without draft
-                    // visibility; this overlay is the caller that can see one,
-                    // so it discharges the recompute `derive_stage`'s
-                    // precedence assigns it — a draft outranks mere activity,
-                    // and nothing else ([P03]).
-                    if draft.is_some()
-                        && matches!(stage.as_deref(), Some("working") | Some("created"))
-                    {
-                        *stage = Some("draft-ready".to_owned());
-                    }
-                }
-                _ => {}
             }
         }
     }
 
-    Some(ChangesetSnapshot {
-        workspace_key: String::new(),
-        branch: header.branch,
-        ahead: header.ahead,
-        behind: header.behind,
-        head_sha: header.head_sha,
-        head_message,
-        changesets,
-        unattributed,
-        orphaned,
-    })
+    snapshot.changesets.extend(dashes);
 }
 
 /// Join a workspace's ledger session rows into a composed snapshot.
@@ -1466,9 +1524,12 @@ pub(crate) async fn live_base_dirt_for(
     dash: &str,
     ledger: Option<&SessionLedger>,
 ) -> BTreeMap<String, String> {
-    let Some(snapshot) = compose_snapshot(project_dir, ledger).await else {
+    let Some(mut snapshot) = compose_snapshot(project_dir, ledger).await else {
         return BTreeMap::new();
     };
+    // The dash rows this verb reads its owner key from ride the per-repo
+    // attachment now, not the base compose.
+    attach_dash_composition(project_dir, ledger, &mut snapshot).await;
     let owner_key = snapshot
         .changesets
         .iter()
@@ -1912,7 +1973,7 @@ pub(crate) fn format_discard_summary(
 
 /// Run a git command at `dir`, returning trimmed stdout on success, `None`
 /// on any failure.
-async fn git_stdout(dir: &Path, args: &[&str]) -> Option<String> {
+pub(crate) async fn git_stdout(dir: &Path, args: &[&str]) -> Option<String> {
     let output = tokio::process::Command::new("git")
         // Same scrub as the engine's `git_output` — a per-process context
         // override must never skew a diff this side reads ([P06]).
@@ -3527,7 +3588,9 @@ Some context.
             .set_dash_binding("sess-1", Some((&owner_key, "demo")))
             .unwrap();
 
-        let snapshot = compose_snapshot(&root, Some(&ledger)).await.expect("repo");
+        let mut snapshot = compose_snapshot(&root, Some(&ledger)).await.expect("repo");
+        // Dash rows ride the per-repo attachment, the aggregate's owner call.
+        attach_dash_composition(&root, Some(&ledger), &mut snapshot).await;
         let dash = snapshot
             .changesets
             .iter()
@@ -3602,7 +3665,9 @@ Some context.
             })
             .unwrap();
 
-        let snapshot = compose_snapshot(&root, Some(&ledger)).await.expect("repo");
+        let mut snapshot = compose_snapshot(&root, Some(&ledger)).await.expect("repo");
+        // Dash rows ride the per-repo attachment, the aggregate's owner call.
+        attach_dash_composition(&root, Some(&ledger), &mut snapshot).await;
         let ChangesetEntry::Dash {
             owner_id, draft, ..
         } = snapshot

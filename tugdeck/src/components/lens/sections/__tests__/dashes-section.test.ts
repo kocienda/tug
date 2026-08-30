@@ -124,6 +124,59 @@ describe("dashRowsFromSnapshot — the membership law", () => {
       DATA.projects[0]!.display_name,
     ]);
   });
+
+  test("one dash under two projects is one row — first in snapshot order wins", () => {
+    // Two projects opening one repository both carry the repo's dashes; the
+    // owner key is the identity that collapses them.
+    const twin: ProjectChangeset = {
+      ...projectWith([{ ...UNBOUND }]),
+      display_name: "twin-spelling",
+      project_dir: "/tmp/twin-spelling",
+    };
+    const rows = dashRowsFromSnapshot({
+      projects: [projectWith([UNBOUND]), twin],
+    });
+    expect(rows.length).toBe(1);
+    expect(rows[0]!.projectDir).toBe(DATA.projects[0]!.project_dir);
+  });
+
+  test("a shared name with distinct owner keys is two rows", () => {
+    // Two unrelated repos may both call a dash `fix-join`; the owner key is
+    // what tells them apart, and the name never dedupes.
+    const other: ProjectChangeset = {
+      ...projectWith([{ ...UNBOUND, owner_id: "tugdash/fix-join#other" }]),
+      display_name: "other-project",
+      project_dir: "/tmp/other-project",
+    };
+    const rows = dashRowsFromSnapshot({
+      projects: [projectWith([UNBOUND]), other],
+    });
+    expect(rows.length).toBe(2);
+  });
+
+  test("the survivors' order is still compareDashRows' order", () => {
+    const twin: ProjectChangeset = {
+      ...projectWith([
+        { ...UNBOUND },
+        {
+          ...UNBOUND,
+          owner_id: "tugdash/landing#2",
+          display_name: "landing-one",
+          stage: "joining",
+        },
+      ]),
+      display_name: "twin-spelling",
+      project_dir: "/tmp/twin-spelling",
+    };
+    const rows = dashRowsFromSnapshot({
+      projects: [projectWith([UNBOUND]), twin],
+    });
+    // `joining` outranks `draft-ready`, duplicate collapsed, order intact.
+    expect(rows.map((r) => r.entry.display_name)).toEqual([
+      "landing-one",
+      "fix-join",
+    ]);
+  });
 });
 
 describe("compareDashRows", () => {
@@ -392,6 +445,49 @@ describe("documentDashRowsFromSnapshot — the planning phase in flight", () => 
     expect(DATA.projects[1]!.document_dashes).toBeUndefined();
     const rows = documentDashRowsFromSnapshot({ projects: [DATA.projects[1]!] });
     expect(rows).toEqual([]);
+  });
+
+  test("one plan under two projects is one row — deduped on owner_id, never key", () => {
+    // The row key namespaces the name under its project, so the very
+    // duplicates being removed carry DIFFERENT keys; only `owner_id` can
+    // collapse them. First in snapshot order wins.
+    const twin: ProjectChangeset = {
+      ...DATA.projects[0]!,
+      display_name: "twin-spelling",
+      project_dir: "/tmp/twin-spelling",
+    };
+    const rows = documentDashRowsFromSnapshot({
+      projects: [DATA.projects[0]!, twin],
+    });
+    const names = rows.map((r) => r.entry.display_name);
+    expect(names).toEqual([...new Set(names)]);
+    expect(rows.map((r) => r.key)).toEqual(
+      documentDashRowsFromSnapshot({ projects: [DATA.projects[0]!] }).map(
+        (r) => r.key,
+      ),
+    );
+  });
+
+  test("a shared plan name with distinct owner ids is two rows", () => {
+    const first = DATA.projects[0]!;
+    const plan = (first.document_dashes ?? [])[0]!;
+    const other: ProjectChangeset = {
+      ...first,
+      display_name: "other-project",
+      project_dir: "/tmp/other-project",
+      document_dashes: [{ ...plan, owner_id: `${plan.owner_id}#other` }],
+    };
+    const rows = documentDashRowsFromSnapshot({
+      projects: [
+        { ...first, document_dashes: [plan] },
+        other,
+      ],
+    });
+    expect(rows.length).toBe(2);
+    expect(rows.map((r) => r.entry.display_name)).toEqual([
+      plan.display_name,
+      plan.display_name,
+    ]);
   });
 });
 
