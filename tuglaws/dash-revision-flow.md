@@ -1,6 +1,6 @@
 # The dash revision flow
 
-*A picture of what git holds while a dash is created, worked, replayed onto a moving base, and joined back — every ref by name, every commit by the command that made it. The prose laws are [dash-lifecycle.md](dash-lifecycle.md) (what a dash is, the op log, the lease) and [tracking-changes.md](tracking-changes.md#the-landing-workflow) (the landing workflow); this file draws the shape first, then explains the machinery, the Jujutsu comparison, and the base-branch question in prose. The code is `tugdash-core/src/{ops,replay,resolve,workshop,oplog}.rs`.*
+*A picture of what git holds while a dash is created, worked, replayed onto a moving base, and joined back — every ref by name, every commit by the command that made it. The prose laws are [dash-lifecycle.md](dash-lifecycle.md) (what a dash is, the op log, the lease) and [tracking-changes.md](tracking-changes.md#the-landing-workflow) (the landing workflow); this file draws the shape first, then explains the machinery, what we took from Jujutsu, and the base-branch question in prose. The code is `tugdash-core/src/{ops,replay,resolve,workshop,oplog}.rs`.*
 
 ## Executive summary
 
@@ -16,7 +16,7 @@ Three ideas make the flow what it is.
 
 Backing all of this is an **operation log**: before any verb mutates anything, it records every tip about to move in a keepalive commit plus a JSON payload, so every join, replay, and teardown can be undone with a compare-and-swap, and pre-replay history stays reachable until the log is pruned. A verb that fails leaves the base exactly as it found it and records nothing.
 
-The rest of this document draws those shapes precisely — every ref by name, every commit by the command that made it — then explains the machinery in prose, compares the design with Jujutsu (whose ideas were studied, not ported), and covers using a base other than the default branch.
+The rest of this document draws those shapes precisely — every ref by name, every commit by the command that made it — then explains the machinery in prose, sets the design beside Jujutsu's, and covers using a base other than the default branch.
 
 ---
 
@@ -199,9 +199,9 @@ The base moving underneath a dash is answered by **replay** (`replay.rs`), drive
 
 **Undo** (`oplog.rs`) rests on the record every mutating verb writes before it acts: a keepalive commit on `refs/tug/oplog/<seq>` whose parents are every tip about to move or die, and a JSON payload written twice. An undo is a compare-and-swap — base tip unmoved, branch not rebuilt, `reset --keep` rather than `--hard` — and refuses by name otherwise. See [dash-lifecycle.md](dash-lifecycle.md#the-operation-log-and-undoing) for the redo discipline.
 
-## How this compares with Jujutsu
+## What we took from Jujutsu, and where we go our own way
 
-Jujutsu (`jj`, Apache-2.0) was read, not ported. Four ideas are borrowed at the design level, and each is cited where it lands ([D157], [D160], [D161], and the comment on the abandon arms in `ops.rs`):
+Jujutsu (`jj`, Apache-2.0) is the best prior art for this problem, and we read it closely. Four of its ideas are borrowed at the design level, each cited where it lands ([D157], [D160], [D161], and the comment on the abandon arms in `ops.rs`):
 
 - **The transaction rule.** A transaction that is not committed writes no operation. Here: every exit of `integrate_join` that leaves the base as it found it calls `oplog::abandon`, so an incomplete record unambiguously *means* a teardown to resume.
 - **The op-heads lock carries no correctness.** jj's lock exists only to avoid duplicated work. Here: the resolver **lease** is a derived hint read off the conflict chain's tip, the in-process registry is the fast path, and a wrong lease costs one turn that the op log makes recoverable.
@@ -211,11 +211,11 @@ Jujutsu (`jj`, Apache-2.0) was read, not ported. Four ideas are borrowed at the 
 The differences are structural and deliberate:
 
 - jj's operation log is a **DAG of operation heads**, each holding a complete view of every ref, and undo restores a view. Ours is a **flat, sequential log capped at 50**, one keepalive commit plus one payload per op, and undo is a **compare-and-swap** on named tips. No concurrent-operation merge exists here and none is needed: git's create-only `update-ref` is the only lock.
-- jj stores a conflict **inside the commit** as an N-way `Merge<T>` algebra that survives rebases and round-trips through markers. We store git's **materialized** markers plus the three stage oids, and validity is **strict head equality** — any base motion invalidates the chain and the ladder restarts, with the salvage rung recovering checkpointed work wherever the stage oids are byte-identical. The algebra, marker round-tripping, and marker-length escalation were considered and not ported: git materializes our markers and resolvers rewrite whole files, so detection is the whole need.
+- jj stores a conflict **inside the commit** as an N-way `Merge<T>` algebra that survives rebases and round-trips through markers. We store git's **materialized** markers plus the three stage oids, and validity is **strict head equality** — any base motion invalidates the chain and the ladder restarts, with the salvage rung recovering checkpointed work wherever the stage oids are byte-identical. The algebra, marker round-tripping, and marker-length escalation buy us nothing: git materializes our markers and resolvers rewrite whole files, so detection is the whole need.
 - jj has no index and auto-snapshots the working copy. We are all-in on real git worktrees, `merge-tree --write-tree`, and rerere, and the user's checkout is something this engine never writes into.
-- jj has first-class **change ids** that survive rewrites. We have none; a join is a squash carrying a `Tug-Dash:` trailer, and provenance is ancestry on the conflict root (two parents) rather than an id.
+- jj has first-class **change ids** that survive rewrites. We carry provenance differently: a join is a squash carrying a `Tug-Dash:` trailer, and lineage is ancestry on the conflict root (two parents) rather than an id.
 
-Because no jj source was adapted, [L21] requires no `THIRD_PARTY_NOTICES.md` entry — studying code for ideas is attribution-free there; this section is the acknowledgement.
+What we took from jj is ideas, not code, so [L21] wants no `THIRD_PARTY_NOTICES.md` entry. This section is the credit.
 
 ## A base other than the default branch
 
