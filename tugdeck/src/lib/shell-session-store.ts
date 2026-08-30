@@ -30,6 +30,7 @@ import { tugDevLogStore } from "./tug-dev-log-store/tug-dev-log-store";
 import type { PendingContextStore } from "./pending-context-store";
 import { composeShellShareText } from "./shell-share";
 import { interactiveStagingSteer } from "./shell-interactive-staging";
+import { unendingProgram } from "./shell-line-classifier";
 
 /** A running exchange — drives the `stop` pose on the `$` route ([P13]). */
 export interface ShellInflight {
@@ -332,15 +333,31 @@ export class ShellSessionStore {
    *
    * An interactive-staging invocation (`git add -p` and friends) is answered
    * with a steering notice instead of being run ([P13]) — see
-   * {@link _steerInteractiveStaging}.
+   * {@link _steerRefusal}.
+   *
+   * A program on the never-ends list is answered the same way. The router keeps
+   * one off the `❯` route, but this route is typed rather than inferred, and a
+   * `yes` typed here wedges the app exactly as hard — so the refusal sits at
+   * the one door every caller comes through.
    */
   exec(command: string, opts?: { origin?: "auto" }): void {
     const trimmed = command.trim();
     if (trimmed.length === 0) return;
     if (this._snapshot.inflight !== null) return;
+    const unending = unendingProgram(trimmed);
+    if (unending !== null) {
+      this._steerRefusal(
+        trimmed,
+        `\`${unending}\` never ends on its own, and this route has no terminal ` +
+          "to stop it from — a command's stdin is /dev/null, so there is no ⌃C " +
+          "to send. It would fill the exchange until the 120-second reap.\n\n" +
+          "Run it in a form that finishes, or in a terminal outside Tug.",
+      );
+      return;
+    }
     const steer = interactiveStagingSteer(trimmed);
     if (steer !== null) {
-      this._steerInteractiveStaging(trimmed, steer);
+      this._steerRefusal(trimmed, steer);
       return;
     }
     this._seq += 1;
@@ -371,15 +388,15 @@ export class ShellSessionStore {
   }
 
   /**
-   * Answer an interactive-staging command with a notice rather than running it
-   * ([P13]).
+   * Answer a command with a notice rather than running it — an interactive
+   * staging invocation ([P13]), or a program that never ends.
    *
    * The row is minted locally — nothing is sent, nothing is spawned, and the
    * shell ledger records nothing, because nothing happened. It settles
    * immediately with a non-zero exit so the row reads as a refusal and not as
    * a command that ran and printed advice.
    */
-  private _steerInteractiveStaging(command: string, notice: string): void {
+  private _steerRefusal(command: string, notice: string): void {
     this._seq += 1;
     const exchangeId = `sh-steer-${this._seq}`;
     const at = Date.now();

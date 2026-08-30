@@ -48,6 +48,11 @@
  * of fact about the line's tokens rather than a judgement about its meaning, or
  * an explicit `shell` verdict from the model that survives the veto.
  *
+ * Outside all of it: {@link unendingProgram} is a short list of programs that
+ * never end. A `yes` or a `top` can satisfy every gate above and still be the
+ * wrong thing to start, because the cost is not a wrong answer but a session
+ * that stops answering. It refuses both roads to the shell.
+ *
  * Routing is decided once, at submit, over the **whole line**. There is no
  * opener-only judgement while the user types: the set of English words that are
  * also PATH executables is large (`write`, `say`, `who`, `last`, `join`,
@@ -301,6 +306,65 @@ export function vetoesShellVerdict(text: string): boolean {
   return hint && tokens.length > COMMAND_TOKEN_CEILING;
 }
 
+/**
+ * Programs that never end on their own.
+ *
+ * `yes` is the one this list was written for: typed alone it writes to the pipe
+ * as fast as the pipe will take it, and the exchange it opens cannot be closed
+ * from a route with no terminal in it — there is no ⌃C to send. The rest wedge
+ * the same exchange more quietly, a monitor repainting or an editor waiting on
+ * a keystroke that cannot arrive.
+ *
+ * A list, not a rule: every name here fails to end whatever arguments follow
+ * it, so nothing past the first word needs reading. That is also the bar for
+ * adding one. `node` and `tail` are absent because `node index.js` and `tail
+ * -30 log` finish perfectly well, and a list that refused those would cost more
+ * than it saved.
+ */
+const NEVER_ENDS = new Set([
+  "yes",
+  "top", "htop", "btop", "atop", "watch",
+  "vi", "vim", "nvim", "view", "nano", "pico", "emacs",
+  "telnet", "ftp", "tmux", "screen", "tcpdump",
+]);
+
+/** A wrapper that runs the real program, and so is stepped over to find it. */
+const WRAPPERS = new Set(["sudo", "doas", "command", "env", "nohup", "exec", "time"]);
+
+/**
+ * The program this line names if it is one that never ends, `null` otherwise.
+ *
+ * Every other gate in this module weighs whether a line *means* the shell. This
+ * one assumes it does and asks what happens next, because for these programs
+ * the answer is the same either way: an exchange that produces no result and
+ * cannot be taken back. It is read before anything routes and however
+ * confidently the line graded, and the shell store reads it again before
+ * anything runs — the `$` route is typed, not inferred, and locks the app just
+ * as hard.
+ *
+ * Naming the program rather than answering yes or no is what lets a refusal say
+ * which word in the line it read.
+ */
+export function unendingProgram(text: string): string | null {
+  const tokens = text.trim().split(/\s+/).filter((t) => t.length > 0);
+
+  let i = 0;
+  while (
+    i < tokens.length &&
+    (ENV_ASSIGN.test(tokens[i]!) || WRAPPERS.has(tokens[i]!))
+  ) {
+    i += 1;
+  }
+  const head = tokens[i];
+  if (head === undefined) return null;
+
+  // `/usr/bin/yes` is `yes`. A program name holds no slash, so the last path
+  // segment is always the name.
+  const name = head.split("/").pop() ?? head;
+  return NEVER_ENDS.has(name) ? name : null;
+}
+
+
 /** Where a submitted line ends up once every fact about it is in hand. */
 export type SubmitDestination = "shell" | "claude" | "withdrawn";
 
@@ -312,6 +376,8 @@ export type SubmitDestination = "shell" | "claude" | "withdrawn";
  * what makes the asymmetry checkable in one place: exactly two rows reach the
  * shell — a `run` band, and an explicit `shell` verdict that survives the veto
  * — and every other row, including every degraded one, resolves to Claude.
+ * Both rows are further conditioned on {@link unendingProgram}, which asks not
+ * what the line means but whether the exchange it opens would ever close.
  *
  * `withdrawn` outranks all of it. A submit parked on the model's answer has
  * executed nothing and sent nothing; it is a decision in flight and nothing
@@ -329,6 +395,10 @@ export function resolveSubmitDestination(params: {
   withdrawn: boolean;
 }): SubmitDestination {
   if (params.withdrawn) return "withdrawn";
+  // A program that never ends is refused before any of it: a `run` band states
+  // a fact about the line's tokens, not about whether the exchange it opens can
+  // ever close.
+  if (unendingProgram(params.line) !== null) return "claude";
   // Every token accounted for by the program's own grammar: no question left
   // to ask, and no English left in the line for the veto to find.
   if (params.modelCall === "run") return "shell";

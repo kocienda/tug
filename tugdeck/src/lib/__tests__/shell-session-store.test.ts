@@ -234,6 +234,28 @@ describe("ShellSessionStore — fold + mirror", () => {
     expect(store.getSnapshot().inflight?.command).toBe("first");
   });
 
+  // The `$` route is typed rather than inferred, so the router's refusal never
+  // sees it — and a `yes` typed here locks the app exactly as hard. Nothing is
+  // sent and nothing is spawned; the row is minted locally as a refusal.
+  test("exec refuses a program that never ends, on every route", () => {
+    const { store, code } = setup();
+    store.exec("yes");
+    expect(shellInput().length).toBe(0);
+    expect(store.getSnapshot().inflight).toBeNull();
+    const rows = shellTurns(code);
+    expect(rows.length).toBe(1);
+    const message = rows[0].messages[0] as ShellExchangeMessage;
+    expect(message.command).toBe("yes");
+    expect(message.exitCode).toBe(1);
+    expect(message.output).toContain("`yes` never ends on its own");
+  });
+
+  test("exec runs a line that merely mentions one", () => {
+    const { store } = setup();
+    store.exec('git commit -m "say yes to it"');
+    expect(shellInput().length).toBe(1);
+  });
+
   test("the constructor sends a list_shell_exchanges restore fetch on CONTROL", () => {
     setup();
     const control = sentFrames.filter((f) => f.feedId === FeedId.CONTROL);
