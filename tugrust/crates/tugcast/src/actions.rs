@@ -341,6 +341,26 @@ pub async fn dispatch_action(action: &str, raw_payload: &[u8], ctx: &ActionConte
                 None => info!("dispatch_action: tripwire_trip names no tripwire"),
             }
         }
+        // A tripwire's trip was settled by `tripwire resolve` or `tripwire
+        // dismiss` in some other process. The row is already written; this is
+        // the nudge that gets the settle republished now rather than on the
+        // engine's next tick (Spec S02).
+        "tripwire_tell" => {
+            let name = serde_json::from_slice::<serde_json::Value>(raw_payload)
+                .ok()
+                .and_then(|p| {
+                    p.get("tripwire")
+                        .and_then(|w| w.as_str())
+                        .map(str::to_owned)
+                });
+            match name {
+                Some(name) => {
+                    let heard = crate::feeds::tripwire::tell(&name);
+                    info!(tripwire = %name, heard, "dispatch_action: tripwire_tell");
+                }
+                None => info!("dispatch_action: tripwire_tell names no tripwire"),
+            }
+        }
         other => {
             info!("dispatch_action: broadcasting client action: {}", other);
             if let Some((tx, _)) = stream_outputs.get(&FeedId::CONTROL) {

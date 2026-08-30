@@ -308,6 +308,23 @@ pub fn tripwires_db_path() -> PathBuf {
     guard_isolated(base_data_dir().join("tripwires.db"))
 }
 
+/// The **machine-global** scratch root every tripwire inspection tree lives
+/// under: one directory per landing sha, each a detached `git worktree` at
+/// that commit ([P10]).
+///
+/// Machine-global for the same reason `tripwires.db` is — the trips that
+/// refcount a tree are claimed out of one ledger by whichever instance saw the
+/// landing, so partitioning the trees per instance would let two instances cut
+/// two checkouts of one commit and each sweep the other's.
+///
+/// The layout is load-bearing rather than tidy: naming a tree by its sha is
+/// what makes the orphan sweep a directory listing (Risk R04). Unlike a dash,
+/// nothing lists a detached worktree, so a crash would otherwise leave trees
+/// accumulating invisibly.
+pub fn tripwire_trees_dir() -> PathBuf {
+    guard_isolated(base_data_dir().join("tripwire-trees"))
+}
+
 /// Environment variable overriding the shared jots-file path.
 /// Set by test harnesses so isolated runs never touch the user's real
 /// jots file.

@@ -1893,22 +1893,22 @@ async fn main() {
         turn_complete_rx,
     ));
 
-    // TRIPWIRE — standing tripwires that watch this instance's facts and every
-    // workspace's commits, and decide whether either is worth acting on. A
-    // sibling of the Overview rather than a part of it: it reads the same
-    // facts and will post to the same feed, but it is its own task with its
-    // own machine-global ledger, so nothing here is reachable from an Observer
-    // wake. Its GIT_HEAD subscription is a second one off the same sender
-    // base-motion takes its from.
+    // TRIPWIRE — standing tripwires that watch the landings this instance
+    // makes, and decide whether one is worth acting on ([P01]). A sibling of
+    // the Overview rather than a part of it: it reads the same facts and will
+    // post to the same feed, but it is its own task with its own
+    // machine-global ledger, so nothing here is reachable from an Observer
+    // wake. Its one trigger arrives on the process-global landing channel the
+    // two landing gestures send on, so there is nothing to subscribe here.
     tokio::spawn(feeds::tripwire::run_tripwire_engine(
         feeds::tripwire::TripwireEngineConfig {
             ledger: Arc::clone(&ledger),
             db_path: tugcore::instance::tripwires_db_path(),
+            trees_root: tugcore::instance::tripwire_trees_dir(),
             instance: tugcore::instance::instance_id().unwrap_or_else(|| "default".to_string()),
             now_ms: Arc::new(crate::session_ledger::now_millis),
-            spawner: Arc::new(shared_agent::ClaudeAgentWorkerSpawner),
-            // The work tier borrows the supervisor to open its cardless
-            // sessions ([P11]) — the same supervisor the cards use, because a
+            // A firing borrows the supervisor to open its cardless sessions
+            // ([P04], [P11]) — the same supervisor the cards use, because a
             // tripwire's session is an ordinary one in every respect but who
             // asked for it.
             sessions: Some(Arc::new(
@@ -1917,7 +1917,6 @@ async fn main() {
             overview_tx: Some(overview_tx.clone()),
             cancel: cancel.clone(),
         },
-        gh_response_tx.subscribe(),
     ));
 
     // The arc runner: rotate a server-driven dash arc's next stage onto the

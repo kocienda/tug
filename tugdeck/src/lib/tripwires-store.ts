@@ -35,23 +35,26 @@ export interface TripwireRow {
   readonly probe: string | null;
   readonly brief: string;
   readonly model: string | null;
-  readonly tier: string;
+  /** The base branch a landing has to be onto for this wire to fire. */
+  readonly branch: string;
   readonly permission_mode: string;
-  readonly post: string;
   readonly paused: boolean;
-  readonly cooldown_secs: number;
   /** A trip is running for this tripwire right now. */
   readonly running: boolean;
-  /** The dash a settled trip staged and nobody has joined or discarded. */
-  readonly staged_dash: string | null;
+  /** The running trip's session, when it has one. A trip still inside its
+   *  probe is running with no session yet, and the two dots differ. */
+  readonly running_session: string | null;
+  /** A run finished with something the user should see and is holding until
+   *  they see it ([P07]) — the state the row's yellow dot reads. */
+  readonly awaiting: boolean;
+  /** The dash that awaiting trip is holding, when it authored one. */
+  readonly awaiting_dash: string | null;
   readonly last_trip: TripwireLastTrip | null;
 }
 
 export interface TripwireLastTrip {
   readonly at_ms: number;
   readonly status: string;
-  readonly interest: string | null;
-  readonly outcome: string | null;
   readonly headline: string | null;
 }
 
@@ -68,8 +71,6 @@ export interface TripRow {
   readonly probe_tail: string | null;
   readonly session_id: string | null;
   readonly dash: string | null;
-  readonly interest: string | null;
-  readonly outcome: string | null;
   readonly headline: string | null;
   readonly refs: string | null;
   readonly settled_at_ms: number | null;
@@ -183,7 +184,7 @@ export class TripwiresStore {
    */
   async setKnobs(
     name: string,
-    knobs: { paused?: boolean; model?: string | null; post?: string },
+    knobs: { paused?: boolean; model?: string | null },
   ): Promise<void> {
     try {
       const resp = await fetch(`/api/tripwires/${encodeURIComponent(name)}`, {

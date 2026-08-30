@@ -3,24 +3,24 @@
  *
  * What these pin is a single rule: nothing the ledger stores as an enum, a mode
  * string, or a JSON predicate reaches the surface in that form. A reader who has
- * not read the schema met `settled`, `swallowed: cooldown` and `{"commit":{}}`
- * and could not tell what any of them said — so every one of them is a sentence
- * here, and a test says which sentence.
+ * not read the schema met `settled`, `swallowed: busy` and
+ * `{"fact":{"kind":"edit_failed"}}` and could not tell what any of them said —
+ * so every one of them is a sentence here, and a test says which sentence.
  */
 
 import { describe, expect, test } from "bun:test";
 
 import {
   briefGist,
-  describeCooldown,
   describePermissions,
   describeProbe,
   describeScope,
   describeTrigger,
-  postPolicyCaption,
   tripSentence,
   tripState,
   tripStateLabel,
+  tripDot,
+  tripwireDot,
   tripwireDefinition,
 } from "../tripwire-presentation";
 import type { TripRow, TripwireRow } from "@/lib/tripwires-store";
@@ -38,8 +38,6 @@ function trip(over: Partial<TripRow> = {}): TripRow {
     probe_tail: null,
     session_id: null,
     dash: null,
-    interest: "routine",
-    outcome: "verdict",
     headline: null,
     refs: null,
     settled_at_ms: 1_700_000_001_000,
@@ -50,28 +48,29 @@ function trip(over: Partial<TripRow> = {}): TripRow {
 function tripwire(over: Partial<TripwireRow> = {}): TripwireRow {
   return {
     name: "ci-confidence",
-    trigger: '{"commit":{"branch":"main"}}',
+    trigger: '{"fact":{"kind":"edit_failed"}}',
     scope: "/Users/me/src/tugtool",
     probe: "just ci",
     brief: "Flag anything red.",
     model: null,
-    tier: "auto",
+    branch: "main",
     permission_mode: "acceptEdits",
-    post: "auto",
     paused: false,
-    cooldown_secs: 300,
     running: false,
-    staged_dash: null,
+    running_session: null,
+    awaiting: false,
+    awaiting_dash: null,
     last_trip: null,
     ...over,
   };
 }
 
 describe("a trip's state", () => {
-  test("the seven ledger statuses collapse to the five a reader tells apart", () => {
+  test("the eight ledger statuses collapse to the six a reader tells apart", () => {
     expect(tripState(trip({ status: "claimed" }))).toBe("waiting");
     expect(tripState(trip({ status: "queued" }))).toBe("waiting");
     expect(tripState(trip({ status: "running" }))).toBe("running");
+    expect(tripState(trip({ status: "awaiting" }))).toBe("awaiting");
     expect(tripState(trip({ status: "settled" }))).toBe("finished");
     expect(tripState(trip({ status: "failed" }))).toBe("failed");
     expect(tripState(trip({ status: "swallowed" }))).toBe("skipped");
@@ -87,11 +86,14 @@ describe("a trip's state", () => {
 });
 
 describe("the sentence a trip says when the agent left no headline", () => {
-  test("the cooldown swallow says what swallowed it, in English", () => {
-    // The regression: this row read `swallowed: cooldown`, which named a column
+  test("a busy swallow says what swallowed it, in English", () => {
+    // The regression: this row read `swallowed: busy`, which named a column
     // value and a database verb and told the reader nothing.
-    expect(tripSentence(trip({ status: "swallowed", swallow_reason: "cooldown" }))).toBe(
-      "Didn't run — this tripwire had just fired.",
+    expect(tripSentence(trip({ status: "swallowed", swallow_reason: "busy" }))).toBe(
+      "Didn't run — this tripwire was already working a trip.",
+    );
+    expect(tripSentence(trip({ status: "swallowed", swallow_reason: "own-dash" }))).toBe(
+      "Didn't run — the landing was this tripwire's own dash.",
     );
   });
 
@@ -120,6 +122,13 @@ describe("the sentence a trip says when the agent left no headline", () => {
   test("a settled trip with nothing to say still says something", () => {
     expect(tripSentence(trip())).toBe("Finished with nothing to report.");
   });
+
+  test("an awaiting trip says it is waiting on the reader", () => {
+    // The fallback, not the ordinary case: the resolution verb refuses
+    // `--awaiting` without a headline, so a real awaiting row shows the
+    // agent's line. This is what the row says if one ever arrives without.
+    expect(tripSentence(trip({ status: "awaiting" }))).toBe("Waiting for you to look.");
+  });
 });
 
 describe("the state word beside a trip's time", () => {
@@ -130,17 +139,65 @@ describe("the state word beside a trip's time", () => {
     expect(tripStateLabel(trip({ status: "queued" }))).toBeNull();
     expect(tripStateLabel(trip({ status: "settled" }))).toBe("finished");
     expect(tripStateLabel(trip({ status: "running" }))).toBe("running");
+    expect(tripStateLabel(trip({ status: "awaiting" }))).toBe("awaiting");
     expect(tripStateLabel(trip({ status: "failed" }))).toBe("stopped");
   });
 });
 
-describe("a trigger read back as the sentence that laid it", () => {
-  test("a bare commit trigger says it watches every branch", () => {
-    expect(describeTrigger('{"commit":{}}')).toBe("Any commit, on any branch");
+describe("the dot a row earns", () => {
+  test("a wire at rest has none", () => {
+    // The whole of [P08]: a reporter that only raises its hand when it has a
+    // question needs no mark for the times it has nothing to say.
+    expect(tripwireDot(tripwire())).toBeNull();
+    expect(tripDot(trip({ status: "settled" }))).toBeNull();
+    expect(tripDot(trip({ status: "swallowed", swallow_reason: "busy" }))).toBeNull();
+    expect(tripDot(trip({ status: "queued" }))).toBeNull();
   });
 
-  test("a branch-narrowed commit trigger names the branch", () => {
-    expect(describeTrigger('{"commit":{"branch":"main"}}')).toBe("Any commit on main");
+  test("a run with a session is the live pulse, keyed on that session", () => {
+    expect(tripwireDot(tripwire({ running: true, running_session: "sess-7" }))).toEqual({
+      kind: "session",
+      sessionId: "sess-7",
+    });
+    expect(tripDot(trip({ status: "running", session_id: "sess-7" }))).toEqual({
+      kind: "session",
+      sessionId: "sess-7",
+    });
+  });
+
+  test("a run inside its probe still moves, with no session to key on", () => {
+    // The failure this rules out: a session dot keyed on nothing answers
+    // `idle` and rests, so a wire running its probe would look asleep.
+    expect(tripwireDot(tripwire({ running: true }))).toEqual({ kind: "working" });
+    expect(tripDot(trip({ status: "running" }))).toEqual({ kind: "working" });
+  });
+
+  test("awaiting is its own dot, never the session's", () => {
+    // By the time a trip is awaiting its session has ended, and the phase hook
+    // answers `idle` for a session it cannot reach — so the held state cannot
+    // be read off a session and is driven by the trip status instead.
+    expect(tripwireDot(tripwire({ awaiting: true }))).toEqual({ kind: "awaiting" });
+    expect(tripDot(trip({ status: "awaiting", session_id: "sess-7" }))).toEqual({
+      kind: "awaiting",
+    });
+  });
+
+  test("a run in flight outranks a question already asked", () => {
+    // Both can be true of one wire — an awaiting trip holds the slot, and a
+    // later landing can still be working — and the row has one dot. The live
+    // one wins, because it is the one that is changing.
+    expect(
+      tripwireDot(tripwire({ running: true, running_session: "sess-9", awaiting: true })),
+    ).toEqual({ kind: "session", sessionId: "sess-9" });
+  });
+});
+
+describe("a trigger read back as the sentence that laid it", () => {
+  test("a trigger this build cannot read is passed through rather than swallowed", () => {
+    // A v1 `commit` trigger is a foreign grammar now: the branch a wire watches
+    // is a column on the wire. A row carrying one is still listable, and what a
+    // reader sees is the stored text rather than an invented sentence.
+    expect(describeTrigger('{"commit":{}}')).toBe('{"commit":{}}');
   });
 
   test("a fact trigger names its kind, and its where clauses read as conditions", () => {
@@ -185,14 +242,6 @@ describe("the rest of a tripwire's definition", () => {
     );
   });
 
-  test("a cooldown is the silence it buys, not a count of seconds", () => {
-    expect(describeCooldown(0)).toBe("None — every matching event trips it");
-    expect(describeCooldown(60)).toBe("Waits 1 minute between trips");
-    expect(describeCooldown(300)).toBe("Waits 5 minutes between trips");
-    expect(describeCooldown(3600)).toBe("At most one trip an hour");
-    expect(describeCooldown(90)).toBe("Waits 90 seconds between trips");
-  });
-
   test("a paragraph-long brief shows its first sentence, and keeps the rest", () => {
     const brief =
       "Diagnose the failure and say who was wrong. The evidence carries the " +
@@ -232,15 +281,15 @@ describe("the rest of a tripwire's definition", () => {
 
   test("the definition leads with what the tripwire watches for", () => {
     const rows = tripwireDefinition(tripwire());
-    expect(rows[0]).toEqual({ label: "Watches for", value: "Any commit on main" });
+    expect(rows[0]).toEqual({ label: "Watches for", value: "Any edit_failed fact" });
     expect(rows.map((r) => r.label)).toEqual([
       "Watches for",
+      "Lands on",
       "In",
       "Runs first",
       "Asks the AI to",
       "Model",
       "Permissions",
-      "Cooldown",
     ]);
   });
 
@@ -251,21 +300,5 @@ describe("the rest of a tripwire's definition", () => {
     );
     expect(withProbe?.mono).toBe(true);
     expect(without?.mono).toBe(false);
-  });
-});
-
-describe("the post policy's caption", () => {
-  test("each setting says what posts, in one line's worth of words", () => {
-    expect(postPolicyCaption("never")).toBe("Nothing posts. Trips are logged here only.");
-    expect(postPolicyCaption("always")).toBe("Every trip posts, routine ones included.");
-    expect(postPolicyCaption("auto")).toBe("Only trips worth your attention post.");
-    // The rail is narrow and the caption sits under the control on one line.
-    for (const value of ["never", "auto", "always"]) {
-      expect(postPolicyCaption(value).length).toBeLessThanOrEqual(48);
-    }
-  });
-
-  test("an unknown value reads as auto, which is the column's own default", () => {
-    expect(postPolicyCaption("wat")).toBe(postPolicyCaption("auto"));
   });
 });

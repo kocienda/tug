@@ -45,3 +45,7 @@ ureq = { version = "3", features = ["json"] }
 tempfile.workspace = true
 assert_cmd.workspace = true
 serial_test = "3"
+# The tripwires ledger and the dash ops, so a CLI test can stand up the row
+# and the worktree a verb acts on rather than a substitute for either.
+tugutil-core.workspace = true
+tugdash-core.workspace = true

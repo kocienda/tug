@@ -5899,6 +5899,24 @@ impl AgentSupervisor {
                         warn!(error = %e, "commit fact write failed");
                     }
                 }
+                // The landing, to the tripwire engine ([P01], Spec S01). A
+                // channel send and nothing more: the branch is the only thing
+                // read here that the commit did not already hand back, and
+                // the dossier every wire eventually reads is assembled on the
+                // engine's own task (Risk R01).
+                crate::feeds::tripwire::landed(crate::feeds::tripwire::LandingEvent {
+                    repo_root: project_dir.to_string(),
+                    branch: tugdash_core::ops::current_branch(dir).unwrap_or_default(),
+                    sha: receipt.sha.clone(),
+                    kind: crate::feeds::tripwire::LandingKind::Commit,
+                    dash: None,
+                    session_ids: request
+                        .session_id
+                        .iter()
+                        .filter(|s| !s.is_empty())
+                        .cloned()
+                        .collect(),
+                });
                 let body = serde_json::json!({
                     "action": "changeset_commit_ok",
                     "project_dir": project_dir,
@@ -6407,6 +6425,23 @@ impl AgentSupervisor {
                 let landed = !outcome.previewed && outcome.commit_hash.is_some();
                 if landed {
                     if let Some(ledger) = self.session_ledger.as_deref() {
+                        // Read the lineage BEFORE the bindings are released:
+                        // the sessions bound to this dash are the whole of
+                        // what a join landing knows about who did the work
+                        // (Spec S01), and the very next statement clears them.
+                        let lineage = ledger
+                            .bound_sessions_by_dash()
+                            .ok()
+                            .and_then(|by_dash| by_dash.get(&owner_key).cloned())
+                            .unwrap_or_default();
+                        crate::feeds::tripwire::landed(crate::feeds::tripwire::LandingEvent {
+                            repo_root: project_dir.to_string(),
+                            branch: outcome.base_branch.clone(),
+                            sha: outcome.commit_hash.clone().unwrap_or_default(),
+                            kind: crate::feeds::tripwire::LandingKind::Join,
+                            dash: Some(outcome.name.clone()),
+                            session_ids: lineage,
+                        });
                         Self::clear_dash_draft(ledger, project_dir, &owner_key);
                         // The dash the sessions were mated to no longer
                         // exists ([P05]) — release every binding to it.

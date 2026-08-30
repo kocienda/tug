@@ -593,7 +593,9 @@ mod tests {
         // the file exists — the whole point of verifying it in Rust was to
         // hand the model a fact rather than a hint.
         assert!(retrieve.contains(crate::feeds::operator::QUESTION_FILES_HEADER));
-        assert!(retrieve.contains("Never spend a verb finding a file that is already on that list"));
+        assert!(
+            retrieve.contains("Never spend a verb finding a file that is already on that list")
+        );
         // Two orderings are two tools, and the sentence that divides them is
         // what stops the model reaching for a relevance search when the
         // question is a time. Its aiming clause is pinned too: teaching WHEN

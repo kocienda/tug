@@ -15,13 +15,13 @@
  * how tripwires nobody thought to look at stay legible.
  *
  * The detail level leads with what the tripwire IS — trigger, scope, probe,
- * brief, model, permissions, cooldown, each stated in English rather than in
+ * brief, model, permissions, each stated in English rather than in
  * the JSON and the enums the ledger holds — and only then shows what it has
  * done. Those rows are read-only: authoring a tripwire stays on the CLI and the
  * `/tripwire` skill [B15], because those are the parts where a wrong value
- * makes a tripwire silently useless rather than visibly wrong. The two knobs
- * that are writable here, pause and the post policy, are the ones a reader of
- * the log reaches for without leaving it.
+ * makes a tripwire silently useless rather than visibly wrong. The one knob
+ * that is writable here, pause, is the one a reader of the log reaches for
+ * without leaving it.
  *
  * Laws: [L02] the store enters through `useSyncExternalStore`; the level and
  * the opened tripwire are local data in `useState`; [L06] row hover and press
@@ -34,7 +34,6 @@
 import React, {
   useCallback,
   useEffect,
-  useId,
   useMemo,
   useState,
   useSyncExternalStore,
@@ -55,34 +54,34 @@ import { registerLensSection } from "@/components/lens/lens-section-registry";
 import type { LensSectionHost } from "@/components/lens/lens-section-registry";
 import { setSectionContent } from "@/components/lens/lens-section-content";
 import { TugAtomRef } from "@/components/tugways/tug-atom-ref";
-import { TugBadge } from "@/components/tugways/tug-badge";
-import { TugChoiceGroup } from "@/components/tugways/tug-choice-group";
 import { TugIconButton } from "@/components/tugways/tug-icon-button";
 import { TugLabel } from "@/components/tugways/tug-label";
 import { TugListRow } from "@/components/tugways/tug-list-row";
 import { TugListView } from "@/components/tugways/tug-list-view";
 import { TugSectionLabel } from "@/components/tugways/tug-section-label";
 import { TugTooltip } from "@/components/tugways/tug-tooltip";
+import { SessionPhaseDot } from "@/components/tugways/session-phase-dot";
+import { TugProgressIndicator } from "@/components/tugways/tug-progress-indicator";
 import type {
   TugListViewCellProps,
   TugListViewDataSource,
   TugListViewDelegate,
 } from "@/components/tugways/tug-list-view";
 import { formatContextualStamp } from "@/lib/contextual-stamp";
-import { useResponderForm } from "@/components/tugways/use-responder-form";
 import {
   getTripwiresStore,
   type TripRow,
   type TripwireRow,
 } from "@/lib/tripwires-store";
 import {
-  POST_CHOICES,
   describeTrigger,
-  postPolicyCaption,
+  tripDot,
   tripSentence,
   tripState,
   tripStateLabel,
+  tripwireDot,
   tripwireDefinition,
+  type TripwireDot,
 } from "./tripwire-presentation";
 import {
   useTripsDataSource,
@@ -116,7 +115,7 @@ const OpenTripwireContext = React.createContext<(name: string) => void>(() => {}
  *
  * Every count is omitted when it is zero, so the line says only what is true —
  * and armed + paused covers every row, so a machine with tripwires on it always
- * says something. Staged is last and never elided when present, because it is
+ * says something. Awaiting is last and never elided when present, because it is
  * the one that is waiting on a person.
  */
 export function tripwiresCollapsedSummary(rows: readonly TripwireRow[]): string {
@@ -125,11 +124,11 @@ export function tripwiresCollapsedSummary(rows: readonly TripwireRow[]): string 
   const armed = rows.filter((t) => !t.paused).length;
   const paused = rows.length - armed;
   const running = rows.filter((t) => t.running).length;
-  const staged = rows.filter((t) => t.staged_dash !== null).length;
+  const awaiting = rows.filter((t) => t.awaiting).length;
   if (armed > 0) parts.push(`${armed} armed`);
   if (paused > 0) parts.push(`${paused} paused`);
   if (running > 0) parts.push(`${running} running`);
-  if (staged > 0) parts.push(`${staged} staged`);
+  if (awaiting > 0) parts.push(`${awaiting} awaiting`);
   return parts.join(" · ");
 }
 
@@ -174,6 +173,46 @@ function PauseToggle({ tripwire }: { tripwire: TripwireRow }): React.ReactElemen
   );
 }
 
+/** The dot's glyph box. The row's other accessories are drawn at 12–13px, and
+ *  a mark that is the row's loudest thing should not also be its largest. */
+const DOT_SIZE = 12;
+
+/**
+ * The interest dot — the one thing on a tripwire row that moves ([P08]).
+ *
+ * Three meanings, one wrapper, and nothing hand-drawn: `TugProgressIndicator`
+ * owns the glyph, its motion, and its tokens [L13] [L20], and
+ * `SessionPhaseDot` is that indicator already keyed on a session's liveness.
+ * The wrapper carries the meaning as an attribute so the surface can be read
+ * from outside without sampling a keyframe mid-pulse.
+ *
+ * `drift` is on for the session dot because these are separate sessions doing
+ * separate work: on one exact period a column of them reads as one mechanism
+ * with several heads.
+ */
+function TripwireStateDot({ dot }: { dot: TripwireDot }): React.ReactElement | null {
+  if (dot === null) return null;
+  return (
+    <span className="tripwires-dot" data-tripwire-dot={dot.kind}>
+      {dot.kind === "session" ? (
+        <SessionPhaseDot sessionId={dot.sessionId} size={DOT_SIZE} drift />
+      ) : (
+        <TugProgressIndicator
+          variant="pulsing-dot"
+          size={DOT_SIZE}
+          // Awaiting is held, not happening: a still dot in the caution tone
+          // the Overview already uses for the same idea. Working is the
+          // action tone, breathing, which is the pose every other in-flight
+          // indicator in the app takes.
+          state={dot.kind === "working" ? "running" : "stopped"}
+          role={dot.kind === "working" ? "action" : "caution"}
+          aria-hidden
+        />
+      )}
+    </span>
+  );
+}
+
 function TripwireCell({
   dataSource,
   index,
@@ -197,17 +236,16 @@ function TripwireCell({
       data-tripwire={tripwire.name}
       data-tripwire-paused={tripwire.paused ? "true" : "false"}
       data-tripwire-running={tripwire.running ? "true" : "false"}
-      data-tripwire-staged={tripwire.staged_dash === null ? "false" : "true"}
+      data-tripwire-awaiting={tripwire.awaiting ? "true" : "false"}
       trailing={
         <span className="tripwires-row-trailing">
-          {tripwire.running ? (
-            <Zap size={12} className="tripwires-glyph tripwires-glyph-running" />
-          ) : null}
-          {tripwire.staged_dash !== null ? (
-            <TugBadge size="2xs" role="accent">
-              staged
-            </TugBadge>
-          ) : null}
+          {/* The branch is the wire's other half: the same trigger onto two
+              branches is two different watches, and a roster that named only
+              the trigger could not tell them apart. */}
+          <TugLabel size="2xs" emphasis="calm" data-tripwire-branch={tripwire.branch}>
+            {tripwire.branch}
+          </TugLabel>
+          <TripwireStateDot dot={tripwireDot(tripwire)} />
           <TugIconButton
             icon={<ChevronRight size={13} />}
             aria-label={`Open ${tripwire.name}'s trip log`}
@@ -221,22 +259,26 @@ function TripwireCell({
 }
 
 /**
- * The glyph a trip's state earns, so the log reads at a glance before any of
- * it is read as prose.
+ * The mark a trip's state earns, so the log reads at a glance before any of it
+ * is read as prose.
+ *
+ * The two live states are dots and the terminal ones are glyphs, which is the
+ * same division the roster makes: a dot means something is still true about
+ * this trip, and a glyph is how it ended.
  */
-function TripGlyph({ trip }: { trip: TripRow }): React.ReactElement {
+function TripMark({ trip }: { trip: TripRow }): React.ReactElement | null {
+  const dot = tripDot(trip);
+  if (dot !== null) return <TripwireStateDot dot={dot} />;
   const state = tripState(trip);
   const className = `tripwires-glyph tripwires-glyph-${state === "finished" ? "routine" : state}`;
   switch (state) {
-    case "running":
-      return <Zap size={12} className={className} />;
     case "failed":
       return <CircleAlert size={12} className={className} />;
     case "skipped":
       return <CircleMinus size={12} className={className} />;
     case "waiting":
       return <Clock size={12} className={className} />;
-    case "finished":
+    default:
       return <CircleDot size={12} className={className} />;
   }
 }
@@ -266,7 +308,7 @@ function TripCell({
     >
       <span className="tripwires-trip">
         <span className="tripwires-trip-body">
-          <TripGlyph trip={trip} />
+          <TripMark trip={trip} />
           <TugLabel size="xs" maxLines={3}>
             {headline ?? tripSentence(trip)}
           </TugLabel>
@@ -309,25 +351,11 @@ function TripwireDetail({
   focusGroup: string;
   onBack: () => void;
 }): React.ReactElement {
-  const store = getTripwiresStore();
-  const postSender = useId();
-  const { ResponderScope, responderRef } = useResponderForm({
-    selectValue: {
-      // The write is fire-and-adopt: the store replaces the row with the one
-      // the server answers with, so the settled control shows the ledger
-      // rather than the click.
-      [postSender]: (value: string) => void store.setKnobs(tripwire.name, { post: value }),
-    },
-  });
   const dataSource = useTripsDataSource(trips);
 
   return (
-    <ResponderScope>
-      <div
-        className="tripwires-detail"
-        ref={responderRef}
-        data-tripwire-detail={tripwire.name}
-      >
+    <>
+      <div className="tripwires-detail" data-tripwire-detail={tripwire.name}>
         {/*
           The roster row again, not a head that resembles one: the same
           `TugListRow`, the same leading control, the same title size. A head
@@ -391,36 +419,11 @@ function TripwireDetail({
             </React.Fragment>
           ))}
         </dl>
-        <div className="tripwires-detail-knobs">
-          {/*
-            The control says its own name and what the chosen setting does.
-            Never / Auto / Always alone named neither the thing being decided
-            nor where the posting goes, which left three words a reader could
-            only pick between by trying them.
-
-            Name and control share a line; the caption takes the line beneath.
-            Stacked, the three took as much height as the trip log they sit
-            above, for a knob that is set once.
-          */}
-          <div className="tripwires-post-line">
-            <TugLabel size="2xs" emphasis="calm">
-              Post to Overview
-            </TugLabel>
-            <TugChoiceGroup
-              items={POST_CHOICES}
-              value={tripwire.post}
-              senderId={postSender}
-              size="2xs"
-              data-tripwires-post=""
-            />
+        {tripwire.awaiting_dash !== null ? (
+          <div className="tripwires-detail-knobs">
+            <TugAtomRef entity={{ kind: "dash", name: tripwire.awaiting_dash }} />
           </div>
-          <TugLabel size="2xs" emphasis="calm" data-tripwires-post-caption="">
-            {postPolicyCaption(tripwire.post)}
-          </TugLabel>
-          {tripwire.staged_dash !== null ? (
-            <TugAtomRef entity={{ kind: "dash", name: tripwire.staged_dash }} />
-          ) : null}
-        </div>
+        ) : null}
         <TugSectionLabel
           label={{ name: "Trip log", qualifier: "every firing, posted or not" }}
           slot="tripwires-trip-log"
@@ -434,7 +437,7 @@ function TripwireDetail({
           scrollKey={`tripwire-trips:${tripwire.name}`}
         />
       </div>
-    </ResponderScope>
+    </>
   );
 }
 
@@ -482,9 +485,9 @@ function TripwiresSectionBody({ host }: { host: LensSectionHost }): React.ReactE
   );
   const back = useCallback(() => setOpenTripwire(null), []);
 
-  // One strip, rendered at both levels. Both writable knobs — pause, and the
-  // post policy — are on the detail, so an error shown only on the list would
-  // reach a surface nobody looking at it could see [L31].
+  // One strip, rendered at both levels. The one writable knob is pause, which
+  // stands at both, so an error shown only on the list would reach a surface
+  // nobody looking at it could see [L31].
   const errorStrip =
     snapshot.error !== null ? (
       <div className="tripwires-error" data-tripwires-error="">

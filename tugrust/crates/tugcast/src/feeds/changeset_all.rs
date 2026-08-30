@@ -714,7 +714,10 @@ mod tests {
         assert_eq!(Path::new(&snapshot.projects[0].project_dir), live);
 
         assert!(doomed_entry.cancel.is_cancelled(), "sweep fires the cancel");
-        assert!(!live_entry.cancel.is_cancelled(), "the live entry is untouched");
+        assert!(
+            !live_entry.cancel.is_cancelled(),
+            "the live entry is untouched"
+        );
         assert_eq!(registry.inner_for_test().len(), 1, "the ghost is removed");
     }
 

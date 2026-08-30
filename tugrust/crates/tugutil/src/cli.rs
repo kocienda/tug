@@ -483,18 +483,23 @@ pub enum TripwireCommands {
     Lay {
         /// Tripwire name (its address; must be unique on this machine).
         name: String,
-        /// What trips it: `fact:<kind>`, `commit`, or `commit:<branch>`.
+        /// What trips it: `fact:<kind>`.
         #[arg(long)]
         on: String,
         /// Narrow a fact trigger by its payload, repeatable:
         /// `field=value` (exact), `field~=substr`, `field^=prefix`.
         #[arg(long = "where")]
         clauses: Vec<String>,
+        /// The base branch a landing has to be onto for this wire to fire.
+        /// Absent reads the default branch of --scope, or of the current
+        /// directory when the wire is machine-wide.
+        #[arg(long)]
+        branch: Option<String>,
         /// Only fire on events under this path. Unscoped fires machine-wide.
         #[arg(long)]
         scope: Option<String>,
         /// A command run before any model is summoned. Exit 0 settles the trip
-        /// for free; a probe implies the work tier, because a probe may write.
+        /// for free, with no session spawned at all.
         #[arg(long)]
         probe: Option<String>,
         /// What the tripwire asks for when it fires. `@path` reads a file.
@@ -503,18 +508,9 @@ pub enum TripwireCommands {
         /// Model to run the trip on. Absent uses the default.
         #[arg(long)]
         model: Option<String>,
-        /// Tier override. `auto` reads the probe.
-        #[arg(long)]
-        tier: Option<String>,
-        /// Permission mode for a work-tier session.
+        /// Permission mode for the session an authoring trip spawns.
         #[arg(long = "permission-mode")]
         permission_mode: Option<String>,
-        /// When to post the outcome to the Overview.
-        #[arg(long)]
-        post: Option<String>,
-        /// Seconds before this tripwire will fire again.
-        #[arg(long)]
-        cooldown: Option<i64>,
         /// Parse and echo the normalized tripwire, writing nothing.
         #[arg(long)]
         preview: bool,
@@ -532,19 +528,15 @@ pub enum TripwireCommands {
         #[arg(long)]
         scope: Option<String>,
         #[arg(long)]
+        branch: Option<String>,
+        #[arg(long)]
         probe: Option<String>,
         #[arg(long)]
         brief: Option<String>,
         #[arg(long)]
         model: Option<String>,
-        #[arg(long)]
-        tier: Option<String>,
         #[arg(long = "permission-mode")]
         permission_mode: Option<String>,
-        #[arg(long)]
-        post: Option<String>,
-        #[arg(long)]
-        cooldown: Option<i64>,
         /// Clear a column rather than set it, repeatable:
         /// `scope`, `probe`, or `model`.
         #[arg(long)]
@@ -578,6 +570,30 @@ pub enum TripwireCommands {
     },
     /// Fire a tripwire by hand, whatever it is watching for.
     Trip {
+        /// Tripwire name.
+        name: String,
+    },
+    /// Settle a tripwire's running trip — the only settle a live session has
+    /// (Spec S02).
+    Resolve {
+        /// Tripwire name.
+        name: String,
+        /// Nothing here is worth the user's attention.
+        #[arg(long)]
+        quiet: bool,
+        /// Something the user should see. Requires --headline.
+        #[arg(long)]
+        awaiting: bool,
+        /// The one line the Lens row shows for an awaiting trip.
+        #[arg(long)]
+        headline: Option<String>,
+        /// Ask for a change to be authored on a dash, saying in one line what
+        /// it would be. The engine spawns the authoring session.
+        #[arg(long)]
+        author: Option<String>,
+    },
+    /// Settle an awaiting tripwire by hand, discarding the dash it held.
+    Dismiss {
         /// Tripwire name.
         name: String,
     },

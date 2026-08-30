@@ -4520,6 +4520,47 @@ pub fn discard_in(
     origin: Option<&str>,
     break_lease: bool,
 ) -> Result<DiscardOutcome, String> {
+    discard_inner(repo_root, name, origin, break_lease, true)
+}
+
+/// Discard a dash an **agent** made, handing nothing back to the base checkout
+/// ([P09]).
+///
+/// The hand-back exists to protect a *user's* carried work: `create --carry`
+/// moves uncommitted bytes into the worktree, so the worktree holds the only
+/// copy and teardown would destroy it. Everything in an abandoned agent's
+/// worktree belongs to a process nobody watched, and restoring it onto the
+/// user's checkout is not a courtesy — it is an edit the user did not make.
+///
+/// The whole apparatus is skipped, not merely its copy step, and that is the
+/// load-bearing part. [`working_set_hand_back`] runs *before* anything is
+/// written and **refuses the entire discard** when the base holds its own
+/// uncommitted edit to a path the worktree also changed. For a `--carry` dash
+/// that refusal is the right protection; for an agent's dash it is a leak
+/// wearing a message, because the discard fails, the worktree survives, and
+/// the next firing meets a dash that already exists. And
+/// [`apply_hand_back`] **deletes** base files for every entry in
+/// `hand.deletions`, so an agent that removed a file is one hand-back away
+/// from removing it from the user's checkout. One skip closes both.
+///
+/// `break_lease` is always true: a settle-ceiling kill is precisely the case
+/// where a resolve lease may still be held by the process being killed, and a
+/// cleanup that refuses on a lease held by its own corpse never cleans up.
+pub fn discard_agent_dash_in(
+    repo_root: &Path,
+    name: &str,
+    origin: Option<&str>,
+) -> Result<DiscardOutcome, String> {
+    discard_inner(repo_root, name, origin, true, false)
+}
+
+fn discard_inner(
+    repo_root: &Path,
+    name: &str,
+    origin: Option<&str>,
+    break_lease: bool,
+    hand_back: bool,
+) -> Result<DiscardOutcome, String> {
     let repo_root = main_repo_root(repo_root);
     let mut warnings = Vec::new();
     migrate_worktrees(&repo_root, &mut warnings);
@@ -4560,8 +4601,13 @@ pub fn discard_in(
     // teardown would destroy it. Check for the one case that cannot be resolved
     // — the base has since acquired its own edit to the same path — before
     // anything at all has moved, so a refused discard changes nothing ([P08]).
-    let hand = working_set_hand_back(&repo_root, &worktree);
-    if !hand.conflicts.is_empty() {
+    //
+    // An agent's dash reaches none of this ([P09]): the read itself is what
+    // refuses, so the mode skips the read rather than the copy.
+    let hand = hand_back.then(|| working_set_hand_back(&repo_root, &worktree));
+    if let Some(hand) = &hand
+        && !hand.conflicts.is_empty()
+    {
         return Err(format!(
             "Cannot discard '{name}': the base checkout has its own uncommitted changes to \
              {}, which the dash also changed without committing. Handing the dash's work back \
@@ -4604,7 +4650,10 @@ pub fn discard_in(
         warnings.push(broke_lease_warning(name, lease, op_seq));
     }
 
-    let work_restored = apply_hand_back(&repo_root, &worktree, &hand, &mut warnings);
+    let work_restored = match &hand {
+        Some(hand) => apply_hand_back(&repo_root, &worktree, hand, &mut warnings),
+        None => Vec::new(),
+    };
 
     // Reap the dash's tmux/app and remove its worktree robustly (see
     // `remove_dash_worktree` for the "Directory not empty" race this avoids).
@@ -6737,6 +6786,143 @@ Some context.
         assert!(out.work_restored.is_empty());
         assert!(out.warnings.is_empty(), "{:?}", out.warnings);
         assert!(!worktree_path(&root, "spotless").exists());
+    }
+
+    /// The fingerprint helper the no-hand-back tests measure with: every
+    /// tracked and untracked file under the base checkout, by path and by
+    /// content.
+    ///
+    /// "Byte-identical" is the criterion [P09] is written against, so the
+    /// assertion has to read bytes rather than a git status — a hand-back that
+    /// copied a file in and a hand-back that deleted one are both invisible to
+    /// a status the discard itself could have reset.
+    fn base_fingerprint(root: &Path) -> Vec<(String, String)> {
+        fn walk(dir: &Path, root: &Path, out: &mut Vec<(String, String)>) {
+            let Ok(entries) = fs::read_dir(dir) else {
+                return;
+            };
+            for entry in entries.flatten() {
+                let path = entry.path();
+                let name = entry.file_name();
+                // `.git` holds the discard's own bookkeeping, and `.tug` holds
+                // the worktrees being torn down; neither is the user's content.
+                if name == ".git" || name == ".tug" {
+                    continue;
+                }
+                if path.is_dir() {
+                    walk(&path, root, out);
+                } else if let Ok(text) = fs::read_to_string(&path) {
+                    out.push((path.strip_prefix(root).unwrap().display().to_string(), text));
+                }
+            }
+        }
+        let mut out = Vec::new();
+        walk(root, root, &mut out);
+        out.sort();
+        out
+    }
+
+    /// The pinning test for [P09]: an agent's dash is torn down and the base
+    /// checkout does not move by a byte.
+    ///
+    /// Everything in an abandoned agent's worktree belongs to a process nobody
+    /// watched. Restoring it onto the user's checkout is not a courtesy — it is
+    /// an edit the user did not make, and it is the incident this mode exists
+    /// to close.
+    #[serial]
+    #[test]
+    fn an_agent_dash_is_discarded_without_handing_a_byte_back() {
+        let (_temp, root) = repo_for_create();
+        create("tripwire-ci-abc12345", None, false, None).unwrap();
+        let worktree = worktree_path(&root, "tripwire-ci-abc12345");
+        fs::write(worktree.join("agent.txt"), "the agent's leftovers\n").unwrap();
+        fs::write(worktree.join("README.md"), "# the agent's words\n").unwrap();
+
+        let before = base_fingerprint(&root);
+        let out = discard_agent_dash_in(&root, "tripwire-ci-abc12345", Some("tripwire")).unwrap();
+
+        assert!(out.work_restored.is_empty(), "{:?}", out.work_restored);
+        assert_eq!(base_fingerprint(&root), before, "the base did not move");
+        assert!(!root.join("agent.txt").exists());
+        assert!(!worktree.exists());
+        assert!(!branch_present(&root, "tugdash/tripwire-ci-abc12345"));
+    }
+
+    /// The case that a mode skipping only `apply_hand_back` would still fail,
+    /// and the reason the skip has to reach `working_set_hand_back` itself.
+    ///
+    /// The read runs before any write and **refuses the whole discard** on a
+    /// conflicting base edit. For a user's `--carry` dash that refusal is the
+    /// right protection. For an agent's dash it is a leak wearing a message:
+    /// the discard fails, the worktree survives, and the wire's next firing
+    /// meets a dash that already exists.
+    #[serial]
+    #[test]
+    fn an_agent_dash_is_discarded_even_when_the_base_holds_a_conflicting_edit() {
+        let (_temp, root) = repo_for_create();
+        create("tripwire-ci-clash", None, false, None).unwrap();
+        let worktree = worktree_path(&root, "tripwire-ci-clash");
+        fs::write(worktree.join("README.md"), "# the agent's words\n").unwrap();
+        fs::write(root.join("README.md"), "# the user's words\n").unwrap();
+
+        let before = base_fingerprint(&root);
+        discard_agent_dash_in(&root, "tripwire-ci-clash", Some("tripwire")).unwrap();
+
+        assert_eq!(
+            fs::read_to_string(root.join("README.md")).unwrap(),
+            "# the user's words\n",
+            "the user's own uncommitted edit survived untouched"
+        );
+        assert_eq!(base_fingerprint(&root), before);
+        assert!(!worktree.exists(), "and the dash did not survive the clash");
+    }
+
+    /// The same bug wearing its other face. `apply_hand_back` **deletes** base
+    /// files for every entry in `hand.deletions`, so an agent that removed a
+    /// file is one hand-back away from removing it from the user's checkout.
+    #[serial]
+    #[test]
+    fn an_agent_dash_that_deleted_a_file_does_not_delete_it_from_the_base() {
+        let (_temp, root) = repo_for_create();
+        create("tripwire-ci-deleter", None, false, None).unwrap();
+        let worktree = worktree_path(&root, "tripwire-ci-deleter");
+        assert!(worktree.join("README.md").exists());
+        fs::remove_file(worktree.join("README.md")).unwrap();
+
+        let before = base_fingerprint(&root);
+        discard_agent_dash_in(&root, "tripwire-ci-deleter", Some("tripwire")).unwrap();
+
+        assert!(
+            root.join("README.md").exists(),
+            "the base still holds the file the agent deleted in its own tree"
+        );
+        assert_eq!(base_fingerprint(&root), before);
+    }
+
+    /// An agent's dash with committed rounds is torn down the same way. The
+    /// caller decided the work was not worth keeping; the mode's promise is
+    /// only that nothing reaches the base checkout.
+    #[serial]
+    #[test]
+    fn an_agent_dash_with_rounds_is_discarded_and_the_base_does_not_move() {
+        let (_temp, root) = repo_for_create();
+        create("tripwire-ci-rounds", None, false, None).unwrap();
+        let worktree = worktree_path(&root, "tripwire-ci-rounds");
+        fs::write(worktree.join("fixed.rs"), "the agent's fix\n").unwrap();
+        for args in [
+            vec!["add", "-A"],
+            vec!["commit", "-m", "tugdash(tripwire-ci-rounds): the round"],
+        ] {
+            git_output(&worktree, &args).unwrap();
+        }
+        assert_eq!(round_count_in(&root, "tripwire-ci-rounds"), 1);
+
+        let before = base_fingerprint(&root);
+        discard_agent_dash_in(&root, "tripwire-ci-rounds", Some("tripwire")).unwrap();
+
+        assert!(!root.join("fixed.rs").exists());
+        assert_eq!(base_fingerprint(&root), before);
+        assert!(!branch_present(&root, "tugdash/tripwire-ci-rounds"));
     }
 
     /// The "I was editing the base and half-way through realised this should be

@@ -13,9 +13,9 @@
 //! statement, so a held connection would buy nothing and would outlive the
 //! request it was opened for.
 //!
-//! Authoring stays on the CLI [B15]. What this surface writes is the three
-//! things a reader of the card would reach for without leaving it — paused,
-//! model, post policy — and nothing that could make a tripwire unrunnable.
+//! Authoring stays on the CLI [B15]. What this surface writes is the two
+//! things a reader of the card would reach for without leaving it — paused and
+//! model — and nothing that could make a tripwire unrunnable.
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -29,7 +29,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use tracing::warn;
 use tugutil_core::tripwire_ledger::{
-    self as ledger, PostPolicy, Trip, TripStatus, Tripwire, TripwireEdit, TripwireLedgerError,
+    self as ledger, TripStatus, Tripwire, TripwireEdit, TripwireLedgerError,
 };
 
 /// Trips a tripwire's log returns when the caller names no limit.
@@ -54,7 +54,7 @@ pub(crate) struct TripsQuery {
     limit: Option<i64>,
 }
 
-/// The card's three knobs. Every field optional; a body naming none is a
+/// The card's two knobs. Every field optional; a body naming none is a
 /// no-op that still answers with the tripwire, so the control that sent it can
 /// settle on what the ledger holds rather than on what it hoped.
 #[derive(Debug, Deserialize)]
@@ -64,24 +64,26 @@ pub(crate) struct KnobsBody {
     /// leaves it alone. The two are different requests and JSON can say so.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     model: Option<Option<String>>,
-    post: Option<String>,
 }
 
-/// One tripwire as the card reads it: the row, plus the three facts about it that
-/// are not in the row at all.
+/// One tripwire as the card reads it: the row, plus the facts about it that are
+/// not in the row at all — the two live states the section's dot reads, and the
+/// newest trip.
 fn project(conn: &Connection, tripwire: &Tripwire) -> Value {
     let trips = ledger::trips_for_tripwire(conn, tripwire.id, PROJECTION_DEPTH).unwrap_or_default();
     let running = trips
         .iter()
-        .any(|t| t.status == TripStatus::Running.as_str());
-    // Staged work is what the card exists to surface: a dash sitting on the
-    // machine that somebody has to decide about. It counts only while the dash
-    // is still there, because a dash that was joined or discarded is not work
-    // waiting on anybody.
-    let staged = trips
+        .find(|t| t.status == TripStatus::Running.as_str());
+    // Awaiting is what the card exists to surface: a run that finished with
+    // something the user should see and is holding the wire's live-run slot
+    // until they see it ([P07]). The dash it is holding comes back with it,
+    // because that dash is the thing there is to decide about. Nothing checks
+    // the dash is still on disk: a dash that was joined or discarded resolves
+    // its own awaiting trip in the engine, so a row that still reads awaiting
+    // is a row whose dash is still there.
+    let awaiting = trips
         .iter()
-        .find(|t| t.outcome.as_deref() == Some("staged") && t.dash.is_some())
-        .filter(|t| dash_present(tripwire, t));
+        .find(|t| t.status == TripStatus::Awaiting.as_str());
     let last = trips.first();
     json!({
         "name": tripwire.name,
@@ -90,33 +92,22 @@ fn project(conn: &Connection, tripwire: &Tripwire) -> Value {
         "probe": tripwire.probe,
         "brief": tripwire.brief,
         "model": tripwire.model,
-        "tier": tripwire.resolved_tier().as_str(),
+        "branch": tripwire.branch,
         "permission_mode": tripwire.permission_mode,
-        "post": tripwire.post,
         "paused": tripwire.paused,
-        "cooldown_secs": tripwire.cooldown_secs,
-        "running": running,
-        "staged_dash": staged.and_then(|t| t.dash.clone()),
+        "running": running.is_some(),
+        // The session the live dot reads. A trip running its probe has none
+        // yet, and the section shows a plain running dot for that stretch
+        // rather than a session dot keyed on nothing.
+        "running_session": running.and_then(|t| t.session_id.clone()),
+        "awaiting": awaiting.is_some(),
+        "awaiting_dash": awaiting.and_then(|t| t.dash.clone()),
         "last_trip": last.map(|t| json!({
             "at_ms": t.at_ms,
             "status": t.status,
-            "interest": t.interest,
-            "outcome": t.outcome,
             "headline": t.headline,
         })),
     })
-}
-
-/// Whether the dash a settled trip staged is still on disk.
-///
-/// A tripwire with no scope never staged anything, so it never has one to look
-/// for; an unreadable checkout answers "no dash" rather than failing the whole
-/// list, because one missing repository must not blank the card.
-fn dash_present(tripwire: &Tripwire, trip: &Trip) -> bool {
-    let (Some(scope), Some(dash)) = (tripwire.scope.as_deref(), trip.dash.as_deref()) else {
-        return false;
-    };
-    tugdash_core::ops::dash_exists_in(std::path::Path::new(scope), dash)
 }
 
 fn list_tripwires(db_path: &std::path::Path) -> (StatusCode, Value) {
@@ -178,18 +169,9 @@ fn set_knobs(db_path: &std::path::Path, name: &str, body: KnobsBody) -> (StatusC
     {
         return ledger_error("knobs", e);
     }
-    let post = match body.post.as_deref().map(PostPolicy::parse) {
-        // A spelling this build does not know is a refusal rather than a
-        // silent fallback to `auto`: writing a policy the caller did not ask
-        // for is worse than telling them the word was wrong.
-        Some(None) => return (StatusCode::BAD_REQUEST, json!({ "error": "bad_post" })),
-        Some(Some(policy)) => Some(policy),
-        None => None,
-    };
-    if body.model.is_some() || post.is_some() {
+    if body.model.is_some() {
         let edit = TripwireEdit {
             model: body.model,
-            post,
             ..Default::default()
         };
         if let Err(e) = ledger::update(&conn, name, &edit) {
@@ -304,7 +286,12 @@ mod tests {
         let conn = ledger::open_ledger(path).unwrap();
         ledger::lay(
             &conn,
-            &NewTripwire::new(name, r#"{"commit":{}}"#, "report anything that looks wrong"),
+            &NewTripwire::new(
+                name,
+                r#"{"fact":{"kind":"edit_failed"}}"#,
+                "report anything that looks wrong",
+                "main",
+            ),
             1,
         )
         .unwrap();
@@ -318,10 +305,12 @@ mod tests {
         assert_eq!(status, StatusCode::OK);
         let tripwire = &body["tripwires"][0];
         assert_eq!(tripwire["name"], "ci");
-        assert_eq!(tripwire["tier"], "verdict");
+        assert_eq!(tripwire["branch"], "main");
         assert_eq!(tripwire["paused"], false);
         assert_eq!(tripwire["running"], false);
-        assert!(tripwire["staged_dash"].is_null());
+        assert_eq!(tripwire["awaiting"], false);
+        assert!(tripwire["running_session"].is_null());
+        assert!(tripwire["awaiting_dash"].is_null());
         assert!(
             tripwire["last_trip"].is_null(),
             "a tripwire that never fired has no last trip rather than an empty one"
@@ -343,13 +332,57 @@ mod tests {
         else {
             panic!("the claim is uncontested");
         };
-        ledger::record_run(&conn, trip_id, None, None).unwrap();
+        ledger::record_run(&conn, trip_id, Some("sess-1"), None).unwrap();
 
         let (_, body) = list_tripwires(&path);
         let tripwires = body["tripwires"].as_array().unwrap();
         assert_eq!(tripwires[0]["running"], true);
+        assert_eq!(
+            tripwires[0]["running_session"], "sess-1",
+            "the live dot is keyed on the session, so the projection has to carry it"
+        );
         assert_eq!(tripwires[0]["last_trip"]["status"], "running");
         assert_eq!(tripwires[1]["running"], false, "and only that tripwire");
+    }
+
+    /// The awaiting state and the dash it holds, which together are the whole
+    /// of what the section's yellow dot and its detail row read ([P07], [P08]).
+    #[test]
+    fn an_awaiting_trip_shows_with_the_dash_it_is_holding() {
+        let (_dir, path) = scratch();
+        lay(&path, "ci");
+        let conn = ledger::open_ledger(&path).unwrap();
+        let tripwire = ledger::get(&conn, "ci").unwrap().unwrap();
+        let ledger::Claim::Claimed { trip_id } =
+            ledger::claim_trip(&conn, tripwire.id, "abc", 10, "inst", None).unwrap()
+        else {
+            panic!("the claim is uncontested");
+        };
+        ledger::record_run(&conn, trip_id, Some("sess-1"), Some("tripwire-ci-abcd1234")).unwrap();
+        ledger::settle(
+            &conn,
+            trip_id,
+            TripStatus::Awaiting,
+            &ledger::Settlement {
+                headline: Some("the migration drops a column nothing backfills".to_string()),
+                ..ledger::Settlement::default()
+            },
+            20,
+        )
+        .unwrap();
+
+        let (_, body) = list_tripwires(&path);
+        let tripwire = &body["tripwires"][0];
+        assert_eq!(tripwire["awaiting"], true);
+        assert_eq!(tripwire["awaiting_dash"], "tripwire-ci-abcd1234");
+        assert_eq!(
+            tripwire["running"], false,
+            "an awaiting run has finished — it holds the wire's slot, it is not working"
+        );
+        assert_eq!(
+            tripwire["last_trip"]["headline"],
+            "the migration drops a column nothing backfills"
+        );
     }
 
     #[test]
@@ -386,13 +419,11 @@ mod tests {
             KnobsBody {
                 paused: Some(true),
                 model: Some(Some("claude-opus-5".to_string())),
-                post: Some("never".to_string()),
             },
         );
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body["tripwire"]["paused"], true);
         assert_eq!(body["tripwire"]["model"], "claude-opus-5");
-        assert_eq!(body["tripwire"]["post"], "never");
 
         // Absent fields move nothing — the same body twice must not be the
         // second one undoing the first.
@@ -402,7 +433,6 @@ mod tests {
             KnobsBody {
                 paused: None,
                 model: None,
-                post: None,
             },
         );
         assert_eq!(body["tripwire"]["paused"], true);
@@ -415,34 +445,9 @@ mod tests {
             KnobsBody {
                 paused: Some(false),
                 model: Some(None),
-                post: None,
             },
         );
         assert_eq!(body["tripwire"]["paused"], false);
         assert!(body["tripwire"]["model"].is_null());
-    }
-
-    #[test]
-    fn a_post_policy_this_build_cannot_read_is_refused_rather_than_guessed() {
-        let (_dir, path) = scratch();
-        lay(&path, "ci");
-        let (status, body) = set_knobs(
-            &path,
-            "ci",
-            KnobsBody {
-                paused: None,
-                model: None,
-                post: Some("sometimes".to_string()),
-            },
-        );
-        assert_eq!(status, StatusCode::BAD_REQUEST);
-        assert_eq!(body["error"], "bad_post");
-
-        let conn = ledger::open_ledger(&path).unwrap();
-        assert_eq!(
-            ledger::get(&conn, "ci").unwrap().unwrap().post,
-            "auto",
-            "a refused knob moves nothing"
-        );
     }
 }

@@ -16,18 +16,18 @@ import type { TripwireRow } from "@/lib/tripwires-store";
 function row(over: Partial<TripwireRow> = {}): TripwireRow {
   return {
     name: "ci",
-    trigger: '{"commit":{}}',
+    trigger: '{"fact":{"kind":"edit_failed"}}',
     scope: null,
     probe: null,
     brief: "watch it",
     model: null,
-    tier: "auto",
+    branch: "main",
     permission_mode: "default",
-    post: "auto",
     paused: false,
-    cooldown_secs: 0,
     running: false,
-    staged_dash: null,
+    running_session: null,
+    awaiting: false,
+    awaiting_dash: null,
     last_trip: null,
     ...over,
   };
@@ -45,10 +45,10 @@ describe("the Tripwires band's collapsed summary", () => {
   test("every count that is zero is absent, and the rest read in order", () => {
     const rows = [
       row({ name: "a", running: true }),
-      row({ name: "b", staged_dash: "tripwire-b-abc1234d" }),
+      row({ name: "b", awaiting: true, awaiting_dash: "tripwire-b-abc1234d" }),
       row({ name: "c", paused: true }),
     ];
-    expect(tripwiresCollapsedSummary(rows)).toBe("2 armed · 1 paused · 1 running · 1 staged");
+    expect(tripwiresCollapsedSummary(rows)).toBe("2 armed · 1 paused · 1 running · 1 awaiting");
   });
 
   test("a roster that is entirely paused still says something", () => {

@@ -48,28 +48,35 @@
   gap: 6px;
 }
 
-/* The glyphs. Running is the accent because it is the one that is happening
-   now; a failure is danger; an interesting settle is the caution tone the
-   Overview uses for the same idea; a routine one is quiet on purpose — the
-   whole point of `auto` posting is that routine is the ordinary case. */
-.tripwires-glyph {
+/* The dot's own box, so a dot and a glyph occupy the same width and the
+   chevron beside them does not shift when a run starts. Nothing here colors
+   or moves the mark — `TugProgressIndicator` owns both [L20]. */
+.tripwires-dot {
+  display: inline-flex;
+  align-items: center;
   flex: 0 0 auto;
 }
 
-.tripwires-glyph-running {
-  color: var(--tugx-accent);
+/* The trip log's dot rides the first line of the body, the way the glyph
+   beside it does. */
+.tripwires-trip-body > .tripwires-dot {
+  margin-block-start: 1px;
+}
+
+/* The glyphs — how a trip ended. A failure is danger; everything else is
+   quiet on purpose, because a firing with nothing to report is the ordinary
+   case and the log's ink belongs to the ones that found something. The two
+   live states are not here at all: they are dots, and the indicator owns
+   their color [L20]. */
+.tripwires-glyph {
+  flex: 0 0 auto;
 }
 
 .tripwires-glyph-failed {
   color: var(--tugx-danger);
 }
 
-.tripwires-glyph-interesting {
-  color: var(--tugx-caution);
-}
-
-.tripwires-glyph-routine,
-.tripwires-glyph-paused {
+.tripwires-glyph-routine {
   color: var(--tugx-text-muted);
 }
 
@@ -122,13 +129,6 @@
   align-items: flex-start;
   gap: 4px;
   padding-block: 6px 8px;
-}
-
-/* The knob's name and its control on one line, the caption beneath. */
-.tripwires-post-line {
-  display: flex;
-  align-items: center;
-  gap: 8px;
 }
 
 /* The tripwire's definition: a label column that sizes to its longest word and

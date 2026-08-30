@@ -17,11 +17,17 @@
  *      unless something says so.
  *   3. The chevron opens that tripwire's trip log — the second level — and the
  *      back control returns to the roster.
+ *   4. The row says which branch the wire lands on, and shows no dot: a wire
+ *      with no run in flight and no question outstanding is silent ([P08]).
+ *   5. The detail states the probe and none of the retired knobs — no tier, no
+ *      cooldown, no post policy anywhere in the section.
  *
  * The trip log is asserted as *empty and present*: a tripwire that has never
  * fired has a log, and the section must show the log rather than nothing.
- * Seeding a settled trip would mean running a tripwire, which is the engine's
- * own suite.
+ * Seeding a running or awaiting trip would mean running a tripwire, which is
+ * the engine's own suite — so the dot's three meanings are pinned as a
+ * decision in `tripwire-presentation`'s unit tests, and what the real app
+ * proves here is the state it can actually reach: at rest, no dot at all.
  *
  * @covers tugdeck/src/components/lens/sections/tripwires-section.tsx
  * @covers tugdeck/src/components/lens/sections/tripwire-presentation.ts
@@ -82,7 +88,9 @@ function layTripwire(
       "lay",
       name,
       "--on",
-      "commit",
+      "fact:edit_failed",
+      "--branch",
+      "main",
       "--brief",
       // A real brief, because `tripwire lay` refuses a placeholder — the guard
       // that retired the tripwire whose every firing reported it had been told
@@ -135,6 +143,9 @@ describe.skipIf(!SHOULD_RUN)(
             // Seeded before the Lens opens, so the section's first read already
             // has them and the assertion is not waiting out a poll interval.
             layTripwire(app, "alpha", [], LONG_BRIEF);
+            // A probe is the field that survived the knob cull ([P10]), and
+            // the detail is where it has to be readable.
+            layTripwire(app, "alpha-probed", ["--probe", "just ci"]);
             layTripwire(app, "beta");
             pauseTripwire(app, "beta");
 
@@ -147,11 +158,11 @@ describe.skipIf(!SHOULD_RUN)(
               { timeoutMs: 8_000 },
             );
             await app.waitForCondition<boolean>(
-              `document.querySelectorAll("[data-tripwire]").length === 2`,
+              `document.querySelectorAll("[data-tripwire]").length === 3`,
               { timeoutMs: 8_000 },
             );
 
-            expect(await tripwireNames(app)).toEqual(["alpha", "beta"]);
+            expect(await tripwireNames(app)).toEqual(["alpha", "alpha-probed", "beta"]);
             expect(
               await app.evalJS<string | null>(
                 `document.querySelector("[data-tripwire='beta']").getAttribute("data-tripwire-paused")`,
@@ -160,6 +171,26 @@ describe.skipIf(!SHOULD_RUN)(
             expect(
               await app.evalJS<string | null>(
                 `document.querySelector("[data-tripwire='alpha']").getAttribute("data-tripwire-paused")`,
+              ),
+            ).toBe("false");
+
+            // The wire's other half. The same trigger onto two branches is two
+            // different watches, and the roster has to tell them apart.
+            expect(
+              await app.evalJS<string>(
+                `document.querySelector("[data-tripwire='alpha'] [data-tripwire-branch]").textContent`,
+              ),
+            ).toBe("main");
+
+            // Nothing is running and nothing is awaiting, so nothing moves.
+            // The dot is the interest signal, and silence is what it says
+            // about a wire with nothing to report ([P08]).
+            expect(
+              await app.evalJS<number>(`document.querySelectorAll("[data-tripwire-dot]").length`),
+            ).toBe(0);
+            expect(
+              await app.evalJS<string | null>(
+                `document.querySelector("[data-tripwire='alpha']").getAttribute("data-tripwire-awaiting")`,
               ),
             ).toBe("false");
 
@@ -178,13 +209,21 @@ describe.skipIf(!SHOULD_RUN)(
             ).toBe(0);
 
             // What the tripwire IS, before what it has done, and in English:
-            // the stored trigger is `{"commit":{}}` and no reader should ever
-            // meet it in that form.
+            // the stored trigger is `{"fact":{"kind":"edit_failed"}}` and no
+            // reader should ever meet it in that form.
             expect(
               await app.evalJS<string>(
                 `document.querySelector("[data-tripwires-definition]").textContent`,
               ),
-            ).toContain("Any commit, on any branch");
+            ).toContain("Any edit_failed fact");
+
+            // And the branch it lands on, which is a column on the wire rather
+            // than a clause in its trigger.
+            expect(
+              await app.evalJS<string>(
+                `document.querySelector("[data-tripwires-definition]").textContent`,
+              ),
+            ).toContain("Lands on");
 
             // The name does not move when the level does. The head is the same
             // row the roster drew, so this is a structural equality rather
@@ -216,24 +255,33 @@ describe.skipIf(!SHOULD_RUN)(
                          <= document.querySelector(".lens-sections").getBoundingClientRect().height + 1; })()`,
               ),
             ).toBe(true);
-            // The post control names itself and says what the setting does.
-            expect(
-              await app.evalJS<string>(
-                `document.querySelector("[data-tripwires-post-caption]").closest(".tripwires-detail-knobs").textContent`,
-              ),
-            ).toContain("Overview");
-            expect(
-              await app.evalJS<string>(
-                `document.querySelector("[data-tripwires-post-caption]").textContent`,
-              ),
-            ).toContain("post");
 
             await app.click(`[data-tripwires-back]`);
             await app.waitForCondition<boolean>(
               `document.querySelector("[data-tripwires-level='list']") !== null`,
               { timeoutMs: 5_000 },
             );
-            expect(await tripwireNames(app)).toEqual(["alpha", "beta"]);
+            expect(await tripwireNames(app)).toEqual(["alpha", "alpha-probed", "beta"]);
+
+            // The probe survived the cull, and the knobs it outlived are gone
+            // from the whole section — not merely from the row that used to
+            // carry them.
+            await app.click(`[data-tripwires-open='alpha-probed']`);
+            await app.waitForCondition<boolean>(
+              `document.querySelector("[data-tripwire-detail='alpha-probed']") !== null`,
+              { timeoutMs: 5_000 },
+            );
+            const definition = await app.evalJS<string>(
+              `document.querySelector("[data-tripwires-definition]").textContent`,
+            );
+            expect(definition).toContain("Runs first");
+            expect(definition).toContain("just ci");
+            const section = await app.evalJS<string>(
+              `document.querySelector(${JSON.stringify(SECTION)}).textContent.toLowerCase()`,
+            );
+            for (const retired of ["tier", "cooldown", "post policy", "post when"]) {
+              expect(section).not.toContain(retired);
+            }
           } finally {
             await app.close();
           }

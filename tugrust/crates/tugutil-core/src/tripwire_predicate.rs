@@ -1,15 +1,17 @@
 //! What a tripwire watches for, and whether an event is it.
 //!
-//! A trigger is JSON with exactly one source — a fact kind, or a commit — and
-//! this module is its types, its serde shape, and the pure `matches` that
-//! decides. Nothing here touches IO, a clock, or a database: the engine reads
-//! a tripwire row, hands the trigger an event, and gets a bool.
+//! A trigger is JSON with one source — a fact kind — and this module is its
+//! types, its serde shape, and the pure `matches` that decides. Nothing here
+//! touches IO, a clock, or a database: the engine reads a tripwire row, hands
+//! the trigger an event, and gets a bool.
 //!
-//! **Two sources, because two things trip a tripwire.** Facts are the uniform,
-//! searchable record of everything a session does, so a new trigger source is
-//! normally a new fact kind rather than new machinery here. Commits are the
-//! exception that earns its own arm: `GIT_HEAD` catches the terminal and
-//! external commits that never write a `commit` fact at all.
+//! **One source, because the landing is no longer one of them.** A wire fires
+//! when a landing gesture commits onto its named base branch ([P01]), and the
+//! branch is a column on the wire rather than a clause in its trigger. What
+//! the predicate decides is the narrower question the landing then asks: does
+//! this lineage carry the facts the wire is watching for? Facts are the
+//! uniform, searchable record of everything a session does, so a new trigger
+//! source is a new fact kind rather than new machinery here.
 //!
 //! **A `where` clause reads the fact's payload and nothing else.** A missing
 //! field never matches — the same posture the shell-op grammar takes, because
@@ -24,16 +26,16 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-/// What a tripwire is armed to watch for. Exactly one source, and the untagged
-/// serde shape is what makes `{"fact": …}` and `{"commit": …}` the whole
-/// grammar rather than a `type` discriminator nobody would ever type.
+/// What a tripwire is armed to watch for. The serde shape is what makes
+/// `{"fact": …}` the whole grammar rather than a `type` discriminator nobody
+/// would ever type. A row storing a source this build does not know — a
+/// `{"commit": …}` trigger laid by an older one — stays unreadable but
+/// listable, the standing posture for a foreign trigger.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub enum Predicate {
     #[serde(rename = "fact")]
     Fact(FactTrigger),
-    #[serde(rename = "commit")]
-    Commit(CommitTrigger),
 }
 
 /// A fact of one kind, optionally narrowed by its payload.
@@ -48,15 +50,6 @@ pub struct FactTrigger {
     /// kind".
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub r#where: Option<BTreeMap<String, Matcher>>,
-}
-
-/// A commit on a watched workspace, optionally narrowed to one branch.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct CommitTrigger {
-    /// Absent means any branch.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub branch: Option<String>,
 }
 
 /// How one payload field is compared. A bare JSON string is the exact match,
@@ -92,85 +85,37 @@ impl Matcher {
     }
 }
 
-/// One thing that happened, as the engine hands it to a predicate.
+/// One fact, as the engine hands it to a predicate.
 ///
-/// The project path rides both arms because scope is checked against it, and
-/// scope is the engine's business rather than the predicate's — it is here so
-/// one struct describes an event whole rather than two halves the caller has
-/// to keep together.
+/// Only what the condition reads. Where the fact happened, which session wrote
+/// it, and which landing carried it are the engine's business — the scope is
+/// compared against the landing's repository and the claim is keyed by the
+/// landing's sha ([P01]), so none of it reaches here.
 #[derive(Debug, Clone, PartialEq)]
-pub enum TripwireEvent {
-    Fact {
-        kind: String,
-        payload: serde_json::Value,
-        project_dir: Option<String>,
-        session_card: Option<String>,
-        /// The rowid the fact was read at. Unique within an instance, which is
-        /// what the claim key needs — two instances never read one fact,
-        /// because a session ledger is per-instance. A fact with no stable
-        /// identity of its own would have to be keyed by its arrival time, and
-        /// two facts of one kind arriving in one millisecond would then be one
-        /// firing with the second silently lost.
-        seq: i64,
-    },
-    Commit {
-        branch: Option<String>,
-        sha: String,
-        workspace_path: String,
-    },
+pub struct FactEvent {
+    pub kind: String,
+    pub payload: serde_json::Value,
 }
 
-impl TripwireEvent {
-    /// The path a scope is compared against ([P12]): the fact's session's
-    /// project directory, or the committing workspace.
-    pub fn project_path(&self) -> Option<&str> {
-        match self {
-            TripwireEvent::Fact { project_dir, .. } => project_dir.as_deref(),
-            TripwireEvent::Commit { workspace_path, .. } => Some(workspace_path),
-        }
-    }
-
-    /// The key the `UNIQUE(wire_id, event_key)` claim arbitrates on. A
-    /// commit's is its sha, so re-checking out an already-tripped commit
-    /// never trips again.
-    pub fn key(&self) -> Option<String> {
-        match self {
-            TripwireEvent::Commit { sha, .. } => Some(sha.clone()),
-            TripwireEvent::Fact { .. } => None,
-        }
-    }
-}
-
-/// Whether an event is what a tripwire is watching for.
+/// Whether a fact is what a tripwire is watching for.
 ///
 /// Kind and source must agree exactly. A `where` clause then reads the fact's
 /// payload: every named field must be present *and* match, because a tripwire
 /// narrowed to `route=claude` that fires on a fact with no route at all is a
 /// tripwire that quietly ignores the narrowing it was given.
-pub fn matches(predicate: &Predicate, event: &TripwireEvent) -> bool {
-    match (predicate, event) {
-        (Predicate::Fact(trigger), TripwireEvent::Fact { kind, payload, .. }) => {
-            if trigger.kind != *kind {
-                return false;
-            }
-            let Some(clauses) = &trigger.r#where else {
-                return true;
-            };
-            clauses.iter().all(|(field, matcher)| {
-                payload
-                    .get(field)
-                    .is_some_and(|value| matcher.matches(value))
-            })
-        }
-        (Predicate::Commit(trigger), TripwireEvent::Commit { branch, .. }) => match &trigger.branch
-        {
-            // A branch the engine could not resolve is not "any branch": it is
-            // an unknown, and a tripwire narrowed to `main` must not fire on one.
-            Some(want) => branch.as_deref() == Some(want.as_str()),
-            None => true,
-        },
-        _ => false,
+pub fn matches(predicate: &Predicate, fact: &FactEvent) -> bool {
+    let Predicate::Fact(trigger) = predicate;
+    if trigger.kind != fact.kind {
+        return false;
     }
+    let Some(clauses) = &trigger.r#where else {
+        return true;
+    };
+    clauses.iter().all(|(field, matcher)| {
+        fact.payload
+            .get(field)
+            .is_some_and(|value| matcher.matches(value))
+    })
 }
 
 #[cfg(test)]
@@ -178,21 +123,10 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    fn fact(kind: &str, payload: serde_json::Value) -> TripwireEvent {
-        TripwireEvent::Fact {
+    fn fact(kind: &str, payload: serde_json::Value) -> FactEvent {
+        FactEvent {
             kind: kind.to_string(),
             payload,
-            project_dir: Some("/proj".to_string()),
-            session_card: None,
-            seq: 1,
-        }
-    }
-
-    fn commit(branch: Option<&str>) -> TripwireEvent {
-        TripwireEvent::Commit {
-            branch: branch.map(str::to_owned),
-            sha: "abc123".to_string(),
-            workspace_path: "/proj".to_string(),
         }
     }
 
@@ -205,7 +139,6 @@ mod tests {
         let p = parse(r#"{"fact":{"kind":"edit_failed"}}"#);
         assert!(matches(&p, &fact("edit_failed", json!({}))));
         assert!(!matches(&p, &fact("shell", json!({}))));
-        assert!(!matches(&p, &commit(Some("main"))));
     }
 
     #[test]
@@ -258,20 +191,13 @@ mod tests {
     }
 
     #[test]
-    fn a_commit_trigger_honors_its_branch_filter() {
-        let any = parse(r#"{"commit":{}}"#);
-        assert!(matches(&any, &commit(Some("main"))));
-        assert!(matches(&any, &commit(Some("tugdash/x"))));
-        assert!(matches(&any, &commit(None)));
-
-        let main = parse(r#"{"commit":{"branch":"main"}}"#);
-        assert!(matches(&main, &commit(Some("main"))));
-        assert!(!matches(&main, &commit(Some("tugdash/x"))));
-        assert!(
-            !matches(&main, &commit(None)),
-            "an unresolved branch is an unknown, not a wildcard"
-        );
-        assert!(!matches(&main, &fact("commit", json!({}))));
+    fn a_commit_trigger_is_no_longer_a_grammar_this_build_reads() {
+        // The branch a wire watches is a column on the wire now ([P02]), so a
+        // v1 trigger that spelled it here is a foreign trigger: unreadable, and
+        // therefore listable and removable but never firing.
+        for text in [r#"{"commit":{}}"#, r#"{"commit":{"branch":"main"}}"#] {
+            assert!(serde_json::from_str::<Predicate>(text).is_err(), "{text}");
+        }
     }
 
     /// A tripwire laid against a kind this build has never heard of must store
@@ -291,8 +217,6 @@ mod tests {
             r#"{"fact":{"kind":"shell","where":{"route":"claude"}}}"#,
             r#"{"fact":{"kind":"shell","where":{"command":{"contains":"file edit"}}}}"#,
             r#"{"fact":{"kind":"shell","where":{"command":{"prefix":"just "}}}}"#,
-            r#"{"commit":{}}"#,
-            r#"{"commit":{"branch":"main"}}"#,
         ] {
             let parsed: Predicate = serde_json::from_str(text).expect(text);
             let back = serde_json::to_string(&parsed).expect("serializes");
@@ -308,17 +232,5 @@ mod tests {
             serde_json::from_str::<Predicate>(r#"{"fact":{"knid":"edit_failed"}}"#).is_err(),
             "a misspelled field is a refusal, not a tripwire that watches nothing"
         );
-    }
-
-    #[test]
-    fn a_commit_events_key_is_its_sha() {
-        assert_eq!(commit(Some("main")).key().as_deref(), Some("abc123"));
-        assert!(fact("shell", json!({})).key().is_none());
-    }
-
-    #[test]
-    fn an_events_project_path_is_what_scope_compares_against() {
-        assert_eq!(fact("shell", json!({})).project_path(), Some("/proj"));
-        assert_eq!(commit(None).project_path(), Some("/proj"));
     }
 }

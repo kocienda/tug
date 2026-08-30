@@ -86,13 +86,10 @@ fn a_tripwire_lays_and_reads_back_as_the_spec_s01_json_it_compiled_to() {
         laid["data"]["trigger"],
         r#"{"fact":{"kind":"edit_failed"}}"#
     );
-    assert_eq!(laid["data"]["tier"], "auto");
     assert_eq!(
-        laid["data"]["resolved_tier"], "verdict",
-        "no probe, so auto is the fast path"
+        laid["data"]["branch"], "main",
+        "no --branch given, so the checkout's default branch is the sugar"
     );
-    assert_eq!(laid["data"]["post"], "auto");
-    assert_eq!(laid["data"]["cooldown_secs"], 60);
     assert_eq!(laid["data"]["paused"], false);
 
     let listed = tripwire_json(&db, &["tripwire", "list"]);
@@ -126,10 +123,9 @@ fn the_where_spellings_compile_into_the_stored_trigger() {
     );
 }
 
-/// A probe may write, so a tripwire that has one needs the dash worktree — and
-/// the resolution is reported rather than left for a reader to infer.
+/// The branch is a column the wire carries, and `--branch` is what sets it.
 #[test]
-fn a_probe_resolves_the_auto_tier_to_work() {
+fn a_named_branch_is_stored_on_the_wire_and_reported_back() {
     let (_dir, db) = db();
     let laid = tripwire_json(
         &db,
@@ -138,7 +134,9 @@ fn a_probe_resolves_the_auto_tier_to_work() {
             "lay",
             "ci",
             "--on",
-            "commit:main",
+            "fact:edit_failed",
+            "--branch",
+            "release",
             "--probe",
             "just ci",
             "--scope",
@@ -147,9 +145,42 @@ fn a_probe_resolves_the_auto_tier_to_work() {
             "diagnose the failure and propose a fix",
         ],
     );
-    assert_eq!(laid["data"]["tier"], "auto");
-    assert_eq!(laid["data"]["resolved_tier"], "work");
-    assert_eq!(laid["data"]["trigger"], r#"{"commit":{"branch":"main"}}"#);
+    assert_eq!(laid["data"]["branch"], "release");
+    assert_eq!(laid["data"]["probe"], "just ci");
+    assert_eq!(
+        laid["data"]["trigger"],
+        r#"{"fact":{"kind":"edit_failed"}}"#
+    );
+}
+
+/// The branch sugar reads the scope's repository, and a scope that is not one
+/// leaves nothing to read — so the lay refuses rather than writing a wire that
+/// nothing could ever trip ([P02]).
+#[test]
+fn a_lay_with_no_resolvable_branch_refuses_and_writes_nothing() {
+    let (_dir, db) = db();
+    let outside = tempfile::tempdir().unwrap();
+    let out = tripwire(
+        &db,
+        &[
+            "lay",
+            "w",
+            "--on",
+            "fact:edit_failed",
+            "--scope",
+            &outside.path().display().to_string(),
+            "--brief",
+            "diagnose the failure and propose a fix",
+        ],
+    );
+    assert_eq!(code(&out), 1);
+    assert!(stderr(&out).contains("--branch"), "{}", stderr(&out));
+
+    let listed = tripwire_json(&db, &["tripwire", "list"]);
+    assert!(
+        listed["data"].as_array().unwrap().is_empty(),
+        "a refused lay writes nothing: {listed}"
+    );
 }
 
 /// A preview is syntax and nothing else: it reports the same shape a lay
@@ -164,7 +195,7 @@ fn a_preview_reports_the_tripwire_and_writes_nothing() {
             "lay",
             "ghost",
             "--on",
-            "commit",
+            "fact:edit_failed",
             "--probe",
             "just ci",
             "--brief",
@@ -174,7 +205,7 @@ fn a_preview_reports_the_tripwire_and_writes_nothing() {
     );
     assert_envelope(&previewed, "tripwire lay --preview");
     assert_eq!(previewed["data"]["name"], "ghost");
-    assert_eq!(previewed["data"]["resolved_tier"], "work");
+    assert_eq!(previewed["data"]["probe"], "just ci");
 
     let listed = tripwire_json(&db, &["tripwire", "list"]);
     assert!(
@@ -238,7 +269,7 @@ fn a_second_tripwire_under_one_name_refuses_and_leaves_the_first() {
             "lay",
             "w",
             "--on",
-            "commit",
+            "fact:edit_failed",
             "--brief",
             "diagnose the failure and propose a fix",
         ],
@@ -249,7 +280,7 @@ fn a_second_tripwire_under_one_name_refuses_and_leaves_the_first() {
             "lay",
             "w",
             "--on",
-            "commit",
+            "fact:edit_failed",
             "--brief",
             "report anything that looks wrong",
         ],
@@ -269,7 +300,10 @@ fn a_second_tripwire_under_one_name_refuses_and_leaves_the_first() {
 #[test]
 fn a_placeholder_brief_is_refused_at_the_lay_and_at_the_preview() {
     let (_dir, db) = db();
-    let out = tripwire(&db, &["lay", "w", "--on", "commit", "--brief", "b"]);
+    let out = tripwire(
+        &db,
+        &["lay", "w", "--on", "fact:edit_failed", "--brief", "b"],
+    );
     assert_eq!(code(&out), 1);
     assert!(
         stderr(&out).contains("says nothing for the AI to do"),
@@ -293,7 +327,15 @@ fn a_placeholder_brief_is_refused_at_the_lay_and_at_the_preview() {
     // the lay would refuse would be a preview of something that cannot happen.
     let previewed = tripwire(
         &db,
-        &["lay", "w", "--on", "commit", "--brief", "b", "--preview"],
+        &[
+            "lay",
+            "w",
+            "--on",
+            "fact:edit_failed",
+            "--brief",
+            "b",
+            "--preview",
+        ],
     );
     assert_eq!(code(&previewed), 1);
     assert!(
@@ -313,7 +355,7 @@ fn the_lay_pause_resume_rm_lifecycle_walks() {
             "lay",
             "w",
             "--on",
-            "commit",
+            "fact:edit_failed",
             "--brief",
             "diagnose the failure and propose a fix",
         ],
@@ -355,18 +397,20 @@ fn an_edit_moves_only_what_it_names_and_clear_empties_a_column() {
             "lay",
             "w",
             "--on",
-            "commit",
+            "fact:edit_failed",
             "--probe",
             "just ci",
             "--scope",
             "/repo",
+            "--branch",
+            "main",
             "--brief",
             "diagnose the failure and propose a fix",
         ],
     );
-    let edited = tripwire_json(&db, &["tripwire", "edit", "w", "--cooldown", "5"]);
+    let edited = tripwire_json(&db, &["tripwire", "edit", "w", "--branch", "release"]);
     assert_envelope(&edited, "tripwire edit");
-    assert_eq!(edited["data"]["cooldown_secs"], 5);
+    assert_eq!(edited["data"]["branch"], "release");
     assert_eq!(
         edited["data"]["brief"], "diagnose the failure and propose a fix",
         "untouched"
@@ -375,10 +419,6 @@ fn an_edit_moves_only_what_it_names_and_clear_empties_a_column() {
 
     let cleared = tripwire_json(&db, &["tripwire", "edit", "w", "--clear", "probe"]);
     assert!(cleared["data"]["probe"].is_null());
-    assert_eq!(
-        cleared["data"]["resolved_tier"], "verdict",
-        "clearing the probe moves auto back to the fast path"
-    );
 
     let bad = tripwire(&db, &["edit", "w", "--clear", "brief"]);
     assert_eq!(code(&bad), 1);
@@ -423,7 +463,7 @@ fn a_brief_reads_from_the_file_an_at_names() {
             "lay",
             "w",
             "--on",
-            "commit",
+            "fact:edit_failed",
             "--brief",
             &format!("@{}", brief.display()),
         ],
@@ -444,7 +484,7 @@ fn trip_queues_a_manual_row_without_a_live_instance_and_says_so() {
             "lay",
             "w",
             "--on",
-            "commit",
+            "fact:edit_failed",
             "--brief",
             "diagnose the failure and propose a fix",
         ],
@@ -483,7 +523,7 @@ fn a_second_hand_fired_trip_supersedes_the_first() {
             "lay",
             "w",
             "--on",
-            "commit",
+            "fact:edit_failed",
             "--brief",
             "diagnose the failure and propose a fix",
         ],
@@ -527,7 +567,7 @@ fn a_tripwire_that_never_fired_has_an_empty_log_rather_than_a_refusal() {
             "lay",
             "w",
             "--on",
-            "commit",
+            "fact:edit_failed",
             "--brief",
             "diagnose the failure and propose a fix",
         ],
@@ -540,4 +580,132 @@ fn a_tripwire_that_never_fired_has_an_empty_log_rather_than_a_refusal() {
         "{}",
         String::from_utf8_lossy(&plain.stdout)
     );
+}
+
+/// A dismissal discards the dash the awaiting trip was holding, and it finds
+/// that dash in the **landing's** repository rather than in the wire's scope
+/// ([P07], [P09]).
+///
+/// The wire here is unscoped, which is the ordinary shape for a watch on the
+/// machine and the case a scope-addressed discard cannot serve at all: the
+/// engine cuts the dash where the commit landed, and a dismissal that looked
+/// somewhere else would settle the row and leave the worktree standing —
+/// exactly the leak the no-hand-back rebuild exists to close.
+#[test]
+fn a_dismissal_discards_the_dash_in_the_repository_the_landing_named() {
+    use tugutil_core::tripwire_ledger as ledger;
+
+    let (_dir, db) = db();
+    let repo = tempfile::tempdir().unwrap();
+    let data = tempfile::tempdir().unwrap();
+    let root = repo.path().canonicalize().unwrap();
+    for args in [
+        vec!["init", "-q", "-b", "main", "."],
+        vec!["config", "user.email", "t@example.com"],
+        vec!["config", "user.name", "T"],
+    ] {
+        assert!(
+            Command::new("git")
+                .args(&args)
+                .current_dir(&root)
+                .status()
+                .unwrap()
+                .success()
+        );
+    }
+    std::fs::write(root.join("a.txt"), "one\n").unwrap();
+    for args in [vec!["add", "-A"], vec!["commit", "-qm", "one"]] {
+        assert!(
+            Command::new("git")
+                .args(&args)
+                .current_dir(&root)
+                .status()
+                .unwrap()
+                .success()
+        );
+    }
+
+    let dash = "tripwire-w-abcd1234";
+    let created = Command::cargo_bin("tugutil")
+        .unwrap()
+        .args(["dash", "create", dash, "--json"])
+        .current_dir(&root)
+        .env("TUG_DATA_DIR", data.path())
+        .output()
+        .unwrap();
+    assert!(created.status.success(), "{}", stderr(&created));
+    let worktree = root.join(".tug/worktrees").join(dash);
+    assert!(worktree.exists(), "the dash's worktree is standing");
+
+    // An unscoped wire: nothing on the row says which checkout the dash is in.
+    let out = Command::cargo_bin("tugutil")
+        .unwrap()
+        .args([
+            "tripwire",
+            "lay",
+            "w",
+            "--on",
+            "fact:edit_failed",
+            "--branch",
+            "main",
+            "--brief",
+            "diagnose the failure and propose a fix",
+        ])
+        .env("TUG_TRIPWIRES_DB", &db)
+        .current_dir(&root)
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+
+    // The trip the engine would have written: claimed on a landing, holding
+    // the dash, awaiting the user.
+    {
+        let conn = ledger::open_ledger(&db).unwrap();
+        let wire = ledger::get(&conn, "w").unwrap().unwrap();
+        let ledger::Claim::Claimed { trip_id } =
+            ledger::claim_trip(&conn, wire.id, "landing:abc", 10, "inst", None).unwrap()
+        else {
+            panic!("the claim is uncontested");
+        };
+        let payload = serde_json::json!({
+            "landing": { "kind": "commit", "branch": "main", "sha": "abc",
+                         "repo_root": root.display().to_string(), "sessions": [] }
+        })
+        .to_string();
+        ledger::record_event_payload(&conn, trip_id, Some(&payload)).unwrap();
+        ledger::record_run(&conn, trip_id, Some("sess-a"), Some(dash)).unwrap();
+        ledger::settle(
+            &conn,
+            trip_id,
+            ledger::TripStatus::Awaiting,
+            &ledger::Settlement {
+                headline: Some("the migration drops a column nothing backfills".to_string()),
+                ..ledger::Settlement::default()
+            },
+            20,
+        )
+        .unwrap();
+    }
+
+    let out = Command::cargo_bin("tugutil")
+        .unwrap()
+        .args(["--json", "tripwire", "dismiss", "w"])
+        .env("TUG_TRIPWIRES_DB", &db)
+        .env("TUG_DATA_DIR", data.path())
+        .current_dir(&root)
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    let value: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_envelope(&value, "tripwire dismiss");
+    assert_eq!(value["data"]["dash"], dash);
+    assert_eq!(
+        value["data"]["discarded"], true,
+        "the dash was found and removed: {value}"
+    );
+    assert!(
+        value["data"]["discard_error"].is_null(),
+        "and nothing had to be reported: {value}"
+    );
+    assert!(!worktree.exists(), "the worktree is gone");
 }

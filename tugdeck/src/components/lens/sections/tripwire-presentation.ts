@@ -24,13 +24,26 @@ import type { TripRow, TripwireRow } from "@/lib/tripwires-store";
  * are both "it hasn't started", and `swallowed` and `superseded` are both "it
  * never ran". The differences between them matter to the engine and to the
  * `swallow_reason` sentence below — they do not deserve four glyphs.
+ *
+ * `awaiting` is the one status that does not collapse into anything. A run
+ * that resolved awaiting has finished and is holding the wire's live-run slot
+ * until somebody sees what it found ([P07]) — the only state on this list that
+ * is waiting on a person rather than on a machine.
  */
-export type TripState = "waiting" | "running" | "finished" | "failed" | "skipped";
+export type TripState =
+  | "waiting"
+  | "running"
+  | "awaiting"
+  | "finished"
+  | "failed"
+  | "skipped";
 
 export function tripState(trip: TripRow): TripState {
   switch (trip.status) {
     case "running":
       return "running";
+    case "awaiting":
+      return "awaiting";
     case "settled":
       return "finished";
     case "failed":
@@ -54,8 +67,10 @@ export function tripState(trip: TripRow): TripState {
  */
 function reasonClause(reason: string): string {
   switch (reason) {
-    case "cooldown":
-      return "this tripwire had just fired";
+    case "busy":
+      return "this tripwire was already working a trip";
+    case "own-dash":
+      return "the landing was this tripwire's own dash";
     case "no-scope":
       return "the event was outside this tripwire's scope";
     case "superseded":
@@ -82,6 +97,8 @@ export function tripSentence(trip: TripRow): string {
   switch (tripState(trip)) {
     case "running":
       return "Running now…";
+    case "awaiting":
+      return "Waiting for you to look.";
     case "waiting":
       return trip.status === "queued"
         ? "Waiting — this tripwire is already busy."
@@ -109,10 +126,61 @@ export function tripStateLabel(trip: TripRow): string | null {
   switch (tripState(trip)) {
     case "running":
       return "running";
+    case "awaiting":
+      return "awaiting";
     case "finished":
       return "finished";
     case "failed":
       return "stopped";
+    default:
+      return null;
+  }
+}
+
+/**
+ * The dot a row earns, as the three things a dot can mean here and nothing
+ * else ([P08]).
+ *
+ * A decision rather than a component because it is made twice — once for a
+ * roster row, reading the tripwire's projection, and once for a trip in the
+ * log, reading the trip — and the two must agree. Two components each deciding
+ * for themselves is how a roster comes to pulse for a run its own log calls
+ * finished.
+ *
+ * `session` is the live pulse, keyed on the session the run is in, which is
+ * what `SessionPhaseDot` reads. `working` is the same liveness with no session
+ * to key on: a trip inside its probe is running before any session exists, and
+ * a session dot keyed on nothing would answer `idle` and rest — a still dot on
+ * a wire that is working. `awaiting` is the held state, and it is deliberately
+ * not a session dot: by the time a trip is awaiting its session has ended, and
+ * `useSessionPhase` answers `idle` for a session it cannot reach.
+ */
+export type TripwireDot =
+  | { readonly kind: "session"; readonly sessionId: string }
+  | { readonly kind: "working" }
+  | { readonly kind: "awaiting" }
+  | null;
+
+/** The roster row's dot. Nothing at rest — a wire with no run in flight and no
+ *  question outstanding has nothing to say, and says it with silence. */
+export function tripwireDot(tripwire: TripwireRow): TripwireDot {
+  if (tripwire.running) {
+    return tripwire.running_session === null
+      ? { kind: "working" }
+      : { kind: "session", sessionId: tripwire.running_session };
+  }
+  return tripwire.awaiting ? { kind: "awaiting" } : null;
+}
+
+/** One trip's dot in the log — the same three meanings, read off the row. */
+export function tripDot(trip: TripRow): TripwireDot {
+  switch (tripState(trip)) {
+    case "running":
+      return trip.session_id === null
+        ? { kind: "working" }
+        : { kind: "session", sessionId: trip.session_id };
+    case "awaiting":
+      return { kind: "awaiting" };
     default:
       return null;
   }
@@ -137,12 +205,6 @@ export function describeTrigger(trigger: string): string {
   }
   if (typeof parsed !== "object" || parsed === null) return trigger;
   const value = parsed as Record<string, unknown>;
-
-  if ("commit" in value) {
-    const commit = (value.commit ?? {}) as Record<string, unknown>;
-    const branch = typeof commit.branch === "string" ? commit.branch : null;
-    return branch === null ? "Any commit, on any branch" : `Any commit on ${branch}`;
-  }
 
   if ("fact" in value) {
     const fact = (value.fact ?? {}) as Record<string, unknown>;
@@ -201,50 +263,6 @@ export function describePermissions(mode: string): string {
   }
 }
 
-/** The cooldown, as the silence it buys rather than as a number of seconds. */
-export function describeCooldown(seconds: number): string {
-  if (seconds <= 0) return "None — every matching event trips it";
-  if (seconds % 3600 === 0) {
-    const hours = seconds / 3600;
-    return `At most one trip an hour${hours === 1 ? "" : ` (${hours}h)`}`;
-  }
-  if (seconds % 60 === 0) {
-    const minutes = seconds / 60;
-    return `Waits ${minutes} minute${minutes === 1 ? "" : "s"} between trips`;
-  }
-  return `Waits ${seconds} seconds between trips`;
-}
-
-/** The post policies the section offers, quietest first. */
-export const POST_CHOICES = [
-  { value: "never", label: "Never" },
-  { value: "auto", label: "Auto" },
-  { value: "always", label: "Always" },
-];
-
-/**
- * What the chosen post policy means, in one line under the control.
- *
- * Three unlabelled words in a segmented control are a puzzle: they do not say
- * what is being posted, where, or which one a reader would want. The caption is
- * the control's meaning, and it changes with the selection so the reader is
- * always reading about the setting they are looking at.
- *
- * Short enough to sit on one line at the rail's width. A caption that wrapped
- * to three lines pushed the trip log off the bottom of the section, which is
- * a high price for prose the reader consults once.
- */
-export function postPolicyCaption(value: string): string {
-  switch (value) {
-    case "never":
-      return "Nothing posts. Trips are logged here only.";
-    case "always":
-      return "Every trip posts, routine ones included.";
-    default:
-      return "Only trips worth your attention post.";
-  }
-}
-
 /**
  * A brief's gist: its first sentence, and no more than a line's worth of it.
  *
@@ -289,6 +307,7 @@ export function tripwireDefinition(
 }[] {
   return [
     { label: "Watches for", value: describeTrigger(tripwire.trigger) },
+    { label: "Lands on", value: tripwire.branch, mono: true },
     { label: "In", value: describeScope(tripwire.scope) },
     { label: "Runs first", value: describeProbe(tripwire.probe), mono: tripwire.probe !== null },
     {
@@ -298,6 +317,5 @@ export function tripwireDefinition(
     },
     { label: "Model", value: tripwire.model ?? "The session default" },
     { label: "Permissions", value: describePermissions(tripwire.permission_mode) },
-    { label: "Cooldown", value: describeCooldown(tripwire.cooldown_secs) },
   ];
 }
