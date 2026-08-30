@@ -1,6 +1,6 @@
 # A claim that lands in ORPHANED
 
-**Observed 2026-08-28, release-main, project `tugtool`.** `tugutil claim` reported `claimed 7 file(s)`, `tugutil changes` listed all seven as `op: claimed / origin: claim`, and the Changes shade showed every one of them under **ORPHANED — CLAIM TO BRING INTO THIS SESSION**, each labelled `claimed from tugtool/peachy-ridge`. The claim wrote exactly what it said it wrote. The card still refused to call it its own.
+**Observed 2026-08-28, release-main, project `tugtool`.** `tugtool claim` reported `claimed 7 file(s)`, `tugtool changes` listed all seven as `op: claimed / origin: claim`, and the Changes shade showed every one of them under **ORPHANED — CLAIM TO BRING INTO THIS SESSION**, each labelled `claimed from tugtool/peachy-ridge`. The claim wrote exactly what it said it wrote. The card still refused to call it its own.
 
 The short version: **attribution is keyed to a raw claude session id, and nothing in the changes path knows about the line.** [96b1396b] put the *session ledger* on lines — a card that rotates its id keeps one callsign, one name, one transcript, one ink history. The *changes* ledger and the changeset feed never joined that model. So the moment a card's id rotates, every file its previous segment proved becomes the property of a session the aggregate reads as dead, and the shade offers to sell the user back their own work.
 
@@ -41,14 +41,14 @@ Three layers each key on the raw id, and the failure is their product.
 
 The premise is wrong because "this id is closed" is not "this work is orphaned" — the same card, the same line, and the same person are still editing those files.
 
-**2. The CLI defaults to an id frozen at spawn.** `tugutil claim|changes|disclaim|commit|draft` all default `--session` to `$TUG_SESSION_ID`, and that variable is baked into the agent's environment when its process starts. When the card rotates its claude id (a relaunch, a resume, a rewind-fork, a `--continue`, a crash respawn — every case [96b1396b] enumerates), nothing updates the environment of the already-running agent. The agent goes on writing proof rows and claims under the *pre-rotation* id for the rest of its life.
+**2. The CLI defaults to an id frozen at spawn.** `tugtool claim|changes|disclaim|commit|draft` all default `--session` to `$TUG_SESSION_ID`, and that variable is baked into the agent's environment when its process starts. When the card rotates its claude id (a relaunch, a resume, a rewind-fork, a `--continue`, a crash respawn — every case [96b1396b] enumerates), nothing updates the environment of the already-running agent. The agent goes on writing proof rows and claims under the *pre-rotation* id for the rest of its life.
 
 So the sequence that produced the screenshot is not exotic; it is the ordinary one:
 
 1. Card seats session `a1bef0fd`; the agent's env gets `TUG_SESSION_ID=a1bef0fd`.
 2. The agent edits files all session. `file_events` fills up under `a1bef0fd`.
 3. The user rebuilds and relaunches. The id rotates (or the row is quiesced to `closed` and never flipped back).
-4. The agent — same process, same conversation — runs `tugutil claim`. It writes seven rows under `a1bef0fd`, and reports success, truthfully.
+4. The agent — same process, same conversation — runs `tugtool claim`. It writes seven rows under `a1bef0fd`, and reports success, truthfully.
 5. The feed reads `a1bef0fd` as not-live, lifts all seven into `orphaned`, and labels them `claimed from tugtool/peachy-ridge`.
 
 **3. `CLAIM ALL` is a treadmill, not a fix.** The button writes fresh rows under the card's *current* id, which is right until the next rotation, at which point the same files orphan again. Nothing accumulates; the user re-claims after every relaunch. Two sessions on the same line each hold half the proof of one body of work, and neither can see the other's half.
@@ -57,7 +57,7 @@ So the sequence that produced the screenshot is not exotic; it is the ordinary o
 
 That commit's claims are about identity, restore, and ink: one callsign and one name across relaunch (at0480), rename read back from a later segment (at0481), `$` shell ink restored onto the segment the card rotated into (at0482). It fixed a real precedence bug in `record_spawn` and gave the ledger `lines`, `sessions.line_id`, `line_of()`, `lineage_chain()`, `resume_lineage_chain()`.
 
-What it did not touch: `changes.db`, `tugchanges-core`, `feeds/changeset.rs`, and the tugutil verbs. The line model stops at the session ledger's edge. Everything downstream still asks "which id?" where it means "which line?" — the same class of defect as the vanished `/commit` receipts, where restore had to become lineage-aware before ink stopped disappearing.
+What it did not touch: `changes.db`, `tugchanges-core`, `feeds/changeset.rs`, and the tugtool verbs. The line model stops at the session ledger's edge. Everything downstream still asks "which id?" where it means "which line?" — the same class of defect as the vanished `/commit` receipts, where restore had to become lineage-aware before ink stopped disappearing.
 
 ## What a fix has to cover
 
@@ -77,7 +77,7 @@ Sketch, not a plan — the shapes worth weighing:
 
 1. In a card, have the agent edit a few files (rows land under id A).
 2. Relaunch the app (or otherwise rotate the card's session id).
-3. From the same still-running agent: `tugutil claim <paths>` → reports success.
+3. From the same still-running agent: `tugtool claim <paths>` → reports success.
 4. Open the Changes shade: the files sit under ORPHANED, `claimed from <A's callsign>`.
 
-The tell that separates this from a plain claim failure: `tugutil changes --json` shows the files present, `op: "claimed"`, `origin: "claim"`, while `tugutil host changesets` shows them in `orphaned[]` with `prior_owner_id` equal to the id the CLI just wrote under.
+The tell that separates this from a plain claim failure: `tugtool changes --json` shows the files present, `op: "claimed"`, `origin: "claim"`, while `tugtool host changesets` shows them in `orphaned[]` with `prior_owner_id` equal to the id the CLI just wrote under.

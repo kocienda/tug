@@ -20,7 +20,7 @@
 //! wire that is true only right now.
 //!
 //! **This is the fast path, not the whole answer.** A second *process* — a
-//! `tugutil dash join`, `discard`, or `join --resolve` — has no registry to
+//! `tugtool dash join`, `discard`, or `join --resolve` — has no registry to
 //! ask, and reads liveness off the conflict chain instead:
 //! `tugdash_core::resolve::resolve_lease` ([D160]). The two compose rather than
 //! compete: a run this process holds suppresses the lease, because the exact

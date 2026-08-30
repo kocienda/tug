@@ -1,7 +1,7 @@
 //! Git commit-message trailers (Spec S02).
 //!
 //! `Tug-Session:` / `Tug-Session-Id:` / `Tug-Dash:` trailers ride every
-//! tugutil commit path so `git log --grep` and
+//! tugtool commit path so `git log --grep` and
 //! `--format=%(trailers:key=Tug-Session)` can answer session- and dash-scoped
 //! history questions. The session travels as a **pair** ([P10]): the human
 //! citation and the full uuid a reader joins against the ledger. This is the

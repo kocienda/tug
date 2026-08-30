@@ -446,7 +446,7 @@ export function SessionChangesView({
   // no new wire field — and the two gates are folded into one sentence so the
   // fronted row's Discard and an unbound row's can never disagree.
   //
-  // `discard_in` is deliberately left unguarded: `tugutil dash discard` is a
+  // `discard_in` is deliberately left unguarded: `tugtool dash discard` is a
   // power tool the app-test preamble's stranded-fixture sweep depends on, and
   // the one genuinely irreversible case — base dirt overlapping the dash's own
   // files — is already refused server-side before anything moves.

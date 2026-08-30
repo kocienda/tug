@@ -187,7 +187,7 @@ describe.skipIf(!SHOULD_RUN)("AT0408: the /dash-bind gesture", () => {
         const receipt = await app.evalJS<string>(
           `(document.querySelectorAll(${JSON.stringify(SHELL_ROWS)})[0]?.textContent ?? "").trim()`,
         );
-        expect(receipt).toContain(`tugutil dash create ${MADE_DASH}`);
+        expect(receipt).toContain(`tugtool dash create ${MADE_DASH}`);
         // `dash create`'s unconditional auto-bind is what ends the card bound —
         // this handler never sends a second bind of its own.
         await app.waitForCondition<boolean>(

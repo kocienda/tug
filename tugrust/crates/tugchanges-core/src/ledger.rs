@@ -5,7 +5,7 @@
 //! `tugchanges-core` reads both with read-only `rusqlite`
 //! (`SQLITE_OPEN_READ_ONLY | SQLITE_OPEN_NO_MUTEX`, WAL-safe against tugcast's
 //! concurrent writers) and never writes them — the ledger is tugcast's to own
-//! ([P03]). It couples to the schema by raw SQL, exactly as the ported `tugutil`
+//! ([P03]). It couples to the schema by raw SQL, exactly as the ported `tugtool`
 //! did.
 //!
 //! **Schema source of truth:** the `file_events`/`sessions` columns this module
@@ -267,7 +267,7 @@ fn spans_table_exists(conn: &Connection) -> bool {
 
 /// Whether a row's `origin` is **proof** of authorship — the tool input named
 /// the file (`exact` live, `replay` backfill of the same, `cmd` for a Bash
-/// command's literal operands or a `tugutil file` receipt), or a session
+/// command's literal operands or a `tugtool file` receipt), or a session
 /// **`claim`**ed it outright (the explicit promotion of a hinted-but-unproven
 /// file). `bash`/`turn` bracket rows are correlation (a whole-tree fingerprint
 /// delta), never proof. Mirrors `tugcast::feeds::attribution::origin_is_proof`
@@ -409,7 +409,7 @@ mod tests {
     #[test]
     fn line_segments_expands_a_session_to_its_whole_line() {
         // `$TUG_SESSION_ID` is frozen at spawn, so after an id rotation it
-        // names an older segment — the expansion is what keeps `tugutil
+        // names an older segment — the expansion is what keeps `tugtool
         // changes` answering for the whole conversation ([P01]).
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("sessions.db");

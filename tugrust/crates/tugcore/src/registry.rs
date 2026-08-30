@@ -3,8 +3,8 @@
 //! Each running tugcast writes a single JSON record into
 //! `$TMPDIR/tug-instances.json` describing its identity, claimed
 //! ports, and parent bundle. The registry is the authoritative
-//! "what's running right now" lookup for external tools — `tugutil host
-//! tell`, `tugutil host instance list`, and Swift's CLI-discovery path
+//! "what's running right now" lookup for external tools — `tugtool host
+//! tell`, `tugtool host instance list`, and Swift's CLI-discovery path
 //! all read it without re-hashing.
 //!
 //! # Concurrency
@@ -72,7 +72,7 @@ pub struct Instance {
     /// PID of the GUI host app (`Tug.app`) that spawned tugcast — its
     /// parent process. `0` when tugcast runs standalone (no GUI host)
     /// or when read from a registry entry written before this field
-    /// existed. Teardown (`tugutil host instance stop`) signals the host so
+    /// existed. Teardown (`tugtool host instance stop`) signals the host so
     /// the app runs its own shutdown and tugcast follows via its
     /// parent-watch; signalling tugcast alone leaves the host window
     /// alive and stuck reconnecting.
@@ -170,7 +170,7 @@ pub fn find_by_id(instance_id: &str) -> Result<Option<Instance>, Error> {
 
 /// Find the live instance whose `bundle_path` is an ancestor of `cwd`.
 ///
-/// Used by `tugutil host tell` / `host ask` when no `--instance` flag is passed
+/// Used by `tugtool host tell` / `host ask` when no `--instance` flag is passed
 /// and the shell is inside a worktree owned by a running dev instance. The
 /// match is purely path-prefix based; the more sophisticated CLI
 /// discovery resolution in [D09] layers on top of this primitive.
@@ -219,7 +219,7 @@ pub fn find_for_cwd(cwd: &Path) -> Result<Option<Instance>, Error> {
 ///
 /// Public because instance discovery is not its only consumer: `same_project`
 /// in `tugcast::dash_api` resolves both sides of a bind through it, so a
-/// session spawned in a checkout and a `tugutil dash` call made from inside
+/// session spawned in a checkout and a `tugtool dash` call made from inside
 /// that checkout's dash worktree read as one project rather than two. One
 /// translation, two callers — a second implementation would be a second
 /// quiet path resolver.
@@ -278,7 +278,7 @@ pub fn register_at(path: &Path, instance: Instance) -> Result<(), Error> {
 
 /// Remove the entry whose `instance_id` matches, if present.
 ///
-/// Used during graceful shutdown so a `tugutil host instance list`
+/// Used during graceful shutdown so a `tugtool host instance list`
 /// immediately after the crash window does not show a stale entry
 /// that would otherwise survive until the next register cycle.
 pub fn unregister(instance_id: &str) -> Result<(), Error> {

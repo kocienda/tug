@@ -6,7 +6,7 @@ This is doctrine, not skill prose. `/tugplug:dash-review` reads it before review
 
 ## What this rubric does not cover
 
-Everything mechanical belongs to `tugutil plan lint`, not to a reader. Section order and presence, anchor uniqueness and spelling, `[P##]` vs `[D##]` label discipline, per-step field presence (`**Commit:**`, `**References:**`, Tasks, Tests, Checkpoint), `**Depends on:**` resolution and direction, Step Status Ledger integrity, and banned test shapes named in a Tests block are all checked deterministically. Run the linter first and fix what it names.
+Everything mechanical belongs to `tugtool plan lint`, not to a reader. Section order and presence, anchor uniqueness and spelling, `[P##]` vs `[D##]` label discipline, per-step field presence (`**Commit:**`, `**References:**`, Tasks, Tests, Checkpoint), `**Depends on:**` resolution and direction, Step Status Ledger integrity, and banned test shapes named in a Tests block are all checked deterministically. Run the linter first and fix what it names.
 
 A reviewer who spends attention on anchor spelling is spending the expensive pass on the cheap problem. Read for the things only a reader can catch.
 

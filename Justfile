@@ -1,4 +1,4 @@
-# Tugtool development commands
+# Tug development commands
 
 default:
     @just --list
@@ -7,7 +7,7 @@ default:
 build:
     #!/usr/bin/env bash
     set -euo pipefail
-    cd tugrust && cargo build -p tugcast -p tugexec -p tugutil -p tugrelaunch -p tugbank
+    cd tugrust && cargo build -p tugcast -p tugexec -p tugtool -p tugrelaunch -p tugbank
     cd ..
     bun build --compile tugcode/src/main.ts --outfile tugrust/target/debug/tugcode
     bun build --compile tugcode/src/pulse/main-pulse.ts --outfile tugrust/target/debug/tugpulse
@@ -17,11 +17,12 @@ build:
     # down. A linked worktree's --git-dir differs from its --git-common-dir.
     if [ "$(git rev-parse --git-dir)" = "$(git rev-parse --git-common-dir)" ]; then
         mkdir -p ~/.local/bin
-        # The tug/tugdash/tugmark binaries are gone (tug is now tugutil;
-        # tugdash/tugmark were folded in); drop any stale symlinks so they
-        # don't dangle after this rebuild.
-        rm -f ~/.local/bin/tug ~/.local/bin/tugdash ~/.local/bin/tugmark
-        for bin in tugcast tugexec tugutil tugedit tugcode tugpulse tugrelaunch tugbank; do
+        # tugutil became tugtool on 2026-08-30; drop the old symlink so it
+        # does not dangle after this rebuild. Delete this line once every
+        # checkout has rebuilt — a stale-cleanup line that outlives its
+        # rename is how ~/.local/bin collects junk in the first place.
+        rm -f ~/.local/bin/tugutil
+        for bin in tugcast tugexec tugtool tugedit tugcode tugpulse tugrelaunch tugbank; do
             ln -sf "$(pwd)/tugrust/target/debug/$bin" ~/.local/bin/"$bin"
         done
     else
@@ -54,11 +55,11 @@ fetch-fonts *ARGS:
 test: test-rust test-ts test-standalone
 
 # Drive the shipped plugin the way a user's machine would: the real hook
-# script and the real `tugutil dash` verbs, from a scratch project with no
+# script and the real `tugtool dash` verbs, from a scratch project with no
 # tuglaws/, no CLAUDE.md, no .tugtool/, an empty PATH, and a fresh HOME —
-# only a bundle-shaped directory holding tugutil and the plugin.
+# only a bundle-shaped directory holding tugtool and the plugin.
 test-standalone:
-    cd tugrust && cargo build -p tugutil
+    cd tugrust && cargo build -p tugtool
     cd tugplug && bun test __tests__/
 
 # Run Rust tests. `--no-fail-fast`: one pass names every failure, so a red
@@ -359,8 +360,8 @@ app-debug: build wasm
     bash tugrust/scripts/sign-bundle.sh "$APP_DIR"
     # Non-blocking orphan-detection preamble so users get a nudge to
     # clean up bundle-less data dirs without ever failing the build.
-    if tugrust/target/debug/tugutil host instance prune --json 2>/dev/null | grep -q instance_id; then
-        echo "[warn] orphaned per-instance data dirs detected. Run 'tugutil host instance prune' to clean up." >&2
+    if tugrust/target/debug/tugtool host instance prune --json 2>/dev/null | grep -q instance_id; then
+        echo "[warn] orphaned per-instance data dirs detected. Run 'tugtool host instance prune' to clean up." >&2
     fi
     # Seed the per-instance source-tree-path so the first launch knows
     # where to find tugdeck/, tugcode, etc. AppDelegate also falls
@@ -490,7 +491,7 @@ stop:
         [ -n "$ID" ] || continue
         # Derive bundle ID from the bundle path's Info.plist when
         # available — that's the source of truth for a running app.
-        # Fall back to plain `tugutil host instance stop` if the plist
+        # Fall back to plain `tugtool host instance stop` if the plist
         # can't be read (registry entry without a live bundle).
         BUNDLE_ID=""
         if [ -n "$BUNDLE_PATH" ] && [ -f "$BUNDLE_PATH/Contents/Info.plist" ]; then
@@ -499,15 +500,15 @@ stop:
         if [ -n "$BUNDLE_ID" ]; then
             bash tugrust/scripts/quit-tug-bundle.sh "$BUNDLE_ID" "$ID"
         else
-            tugrust/target/debug/tugutil host instance stop "$ID" --timeout 5 || true
+            tugrust/target/debug/tugtool host instance stop "$ID" --timeout 5 || true
         fi
-    done < <(tugrust/target/debug/tugutil host instance list 2>/dev/null | tail -n +2)
+    done < <(tugrust/target/debug/tugtool host instance list 2>/dev/null | tail -n +2)
 
-# One-line wrapper around `tugutil host instance list`. Forwards any extra
+# One-line wrapper around `tugtool host instance list`. Forwards any extra
 # args (e.g. `--json`).
-# List running Tug instances (wraps `tugutil host instance list`).
+# List running Tug instances (wraps `tugtool host instance list`).
 instances *FLAGS:
-    tugrust/target/debug/tugutil host instance list {{FLAGS}}
+    tugrust/target/debug/tugtool host instance list {{FLAGS}}
 
 # Profile what the cwd-derived debug instance's renderer does per frame.
 #
@@ -570,7 +571,7 @@ worktree-remove WORKTREE *FLAGS:
     echo "==> worktree-remove: $WORKTREE"
     echo "    branch:      $BRANCH"
     echo "    instance ID: $INSTANCE_ID"
-    tugrust/target/debug/tugutil host instance remove "$INSTANCE_ID" $FLAGS
+    tugrust/target/debug/tugtool host instance remove "$INSTANCE_ID" $FLAGS
     git worktree remove --force "$WORKTREE"
     echo "==> Removed worktree $WORKTREE and its instance state ($INSTANCE_ID)."
 
@@ -594,9 +595,9 @@ tail-replay:
 
 # Remedial resource cleanup — release the runtime debris crashed runs and
 # out-of-band worktree deletion leave behind (`git worktree remove` /
-# `rm -rf` instead of `tugutil dash join|release` / `instance remove`).
+# `rm -rf` instead of `tugtool dash join|release` / `instance remove`).
 #
-# A thin front end over `tugutil host sweep`, which is the one janitor:
+# A thin front end over `tugtool host sweep`, which is the one janitor:
 # tugcast calls the same `tugcore::janitor` code at startup, so there is
 # no second implementation to drift.
 #
@@ -614,7 +615,7 @@ tail-replay:
 # tugcode / claude processes reparented to PID 1.
 #
 # Reports only (removal can delete a possibly-shared app bundle, so it
-# stays deliberate): data dirs whose bundle is gone → `tugutil host
+# stays deliberate): data dirs whose bundle is gone → `tugtool host
 # instance prune`.
 #
 # Usage:
@@ -625,16 +626,16 @@ reap *MODE:
     set -uo pipefail
     # The janitor is the source of truth for what is live, so it is a
     # hard dependency — build it rather than risk reaping blind.
-    TUGUTIL="tugrust/target/debug/tugutil"
-    if [ ! -x "$TUGUTIL" ]; then
-        echo "==> building tugutil (needed to identify live instances)…"
-        (cd tugrust && cargo build -p tugutil) || { echo "error: could not build tugutil" >&2; exit 1; }
+    TUGTOOL="tugrust/target/debug/tugtool"
+    if [ ! -x "$TUGTOOL" ]; then
+        echo "==> building tugtool (needed to identify live instances)…"
+        (cd tugrust && cargo build -p tugtool) || { echo "error: could not build tugtool" >&2; exit 1; }
     fi
     if [ "{{MODE}}" = "apply" ]; then
-        "$TUGUTIL" host sweep --yes
+        "$TUGTOOL" host sweep --yes
     else
         echo "== reap (diagnose — nothing will change; run 'just reap apply' to release) =="
-        "$TUGUTIL" host sweep --dry-run
+        "$TUGTOOL" host sweep --dry-run
     fi
 
 # Render the styled DMG background art (resources/dmg-preview.svg) into the
@@ -798,7 +799,7 @@ setup-dev-signing:
 # manually re-issuing the Developer ID cert in Xcode).
 #
 # The sentinel lives in the per-project runtime-state dir (out of the
-# repo), resolved via `tugutil host state-dir`.
+# repo), resolved via `tugtool host state-dir`.
 #
 # Does NOT touch the Developer ID cert in the login keychain — that's
 # the user's Apple-issued identity, not project-specific.
@@ -809,7 +810,7 @@ setup-dev-signing:
 teardown-dev-signing:
     #!/usr/bin/env bash
     set -euo pipefail
-    SENTINEL_FILE="$(tugutil host state-dir 2>/dev/null || tugrust/target/debug/tugutil host state-dir)/code-sign-fingerprint"
+    SENTINEL_FILE="$(tugtool host state-dir 2>/dev/null || tugrust/target/debug/tugtool host state-dir)/code-sign-fingerprint"
     if [ -f "$SENTINEL_FILE" ]; then
         rm -f "$SENTINEL_FILE"
         echo "✓ Sentinel $SENTINEL_FILE cleared."
@@ -863,7 +864,7 @@ build-app:
     )"
 
     echo "==> [1/5] Rust debug binaries"
-    (cd tugrust && cargo build -p tugcast -p tugexec -p tugutil -p tugrelaunch -p tugbank)
+    (cd tugrust && cargo build -p tugcast -p tugexec -p tugtool -p tugrelaunch -p tugbank)
     bun build --compile tugcode/src/main.ts --outfile tugrust/target/debug/tugcode
     bun build --compile tugcode/src/pulse/main-pulse.ts --outfile tugrust/target/debug/tugpulse
 
@@ -911,7 +912,7 @@ build-app:
     # tolerates both the `# designated => ...` form (ad-hoc) and the
     # `designated => identifier "..." and anchor apple generic ...`
     # form (Developer ID).
-    SENTINEL_DIR="$(tugutil host state-dir 2>/dev/null || tugrust/target/debug/tugutil host state-dir)"
+    SENTINEL_DIR="$(tugtool host state-dir 2>/dev/null || tugrust/target/debug/tugtool host state-dir)"
     SENTINEL_FILE="${SENTINEL_DIR}/code-sign-fingerprint"
     CURRENT_DR="$(codesign -d -r- "$APP_DIR" 2>&1 | sed -nE 's/^#?[[:space:]]*designated[[:space:]]+=>[[:space:]]+(.*)$/\1/p' | head -1)"
     if [ -z "$CURRENT_DR" ]; then
@@ -951,7 +952,7 @@ build-app:
 # sockets / private tmux server, and `apptest-<wtslug>-<uuid>`
 # per-launch runtime state whose destructive sweeps match only this
 # worktree's prefix. Whole invocations are serialized machine-wide by
-# a port gate (`tugutil host gate --name apptest`) — native input and app
+# a port gate (`tugtool host gate --name apptest`) — native input and app
 # activation are login-session singletons, so only one app-test run
 # ever drives them at a time; a second invocation queues with a
 # visible "held by <worktree>" message. AX is granted once via
@@ -1005,8 +1006,8 @@ app-test *FILES:
     # Repo universe. Names the checkout that owns this run's repo universe,
     # which is always the one the recipe was invoked from — worktree or main.
     #
-    # Every `tugutil dash` verb resolves a repo root before it does anything
-    # (tugdash-core::ops::main_repo_root, via tugutil-core's
+    # Every `tugtool dash` verb resolves a repo root before it does anything
+    # (tugdash-core::ops::main_repo_root, via tugtool-core's
     # find_repo_root_from), and that resolution hops from a linked worktree to
     # the checkout that owns its common dir. Unscoped, a fixture dash made from
     # a worktree is therefore created against the base checkout while the app
@@ -1018,7 +1019,7 @@ app-test *FILES:
     # fixtures are born, listed, joined and torn down inside the checkout under
     # test. The semantics — containment, canonicalization, and what an invalid
     # universe does — are specified beside find_repo_root_from in
-    # tugrust/crates/tugutil-core/src/worktree.rs. It reaches the app through
+    # tugrust/crates/tugtool-core/src/worktree.rs. It reaches the app through
     # forwardableEnv (every TUG* var), and tugcast inherits it from the app.
     export TUG_REPO_UNIVERSE="$(pwd -P)"
 
@@ -1046,15 +1047,15 @@ app-test *FILES:
     # input, app activation, and key-window status are login-session
     # singletons — two concurrent runs would interleave each other's
     # gestures no matter how well files and ports are namespaced. The
-    # gate is a localhost port bind (tugutil host gate; kernel-released on
+    # gate is a localhost port bind (tugtool host gate; kernel-released on
     # any death, no lock file): the whole invocation — clean slate,
     # build-if-missing, dist refresh, every file, exit cleanup — runs
     # under it, so one run completes before the next begins. A waiting
     # invocation prints who holds the gate and since when.
     if [ "${TUG_APPTEST_GATED:-}" != "1" ]; then
-        if [ ! -x tugrust/target/debug/tugutil ]; then
+        if [ ! -x tugrust/target/debug/tugtool ]; then
             echo "==> building tug (needed for the app-test gate)…"
-            (cd tugrust && cargo build -p tugutil >/dev/null)
+            (cd tugrust && cargo build -p tugtool >/dev/null)
         fi
 
         # Most tests now run in the background and are nobody's business but
@@ -1127,7 +1128,7 @@ app-test *FILES:
                 ASK_OUT="$(mktemp -t apptest-ask.XXXXXX)"
                 export TUG_APPTEST_ASK_OUT="$ASK_OUT"
                 (
-                    CHOICE="$(tugrust/target/debug/tugutil host ask \
+                    CHOICE="$(tugrust/target/debug/tugtool host ask \
                         ${TUG_INSTANCE:+--instance "$TUG_INSTANCE"} \
                         --title "$FG_COUNT app-test(s) want to take over the screen" \
                         --description "$FG_LIST" \
@@ -1157,7 +1158,7 @@ app-test *FILES:
         # once from the inner `just` under the gate and once from this one, the
         # recipe having re-exec'd itself. Quiet suppresses only that line; the
         # exit code, and everything the recipe body prints, are unchanged.
-        exec tugrust/target/debug/tugutil host gate run --name apptest --label "$WTSLUG" -- just --quiet app-test {{FILES}}
+        exec tugrust/target/debug/tugtool host gate run --name apptest --label "$WTSLUG" -- just --quiet app-test {{FILES}}
     fi
     echo "==> app-test instance prefix: $TUG_APPTEST_ID_PREFIX"
 
@@ -1217,9 +1218,9 @@ app-test *FILES:
     rm -rf "$HOME/Library/Application Support/Tug/instances/${TUG_APPTEST_ID_PREFIX}-"* 2>/dev/null || true
     while read -r ID; do
         case "$ID" in "${TUG_APPTEST_ID_PREFIX}-"*)
-            tugrust/target/debug/tugutil host instance stop "$ID" --timeout 2 >/dev/null 2>&1 || true ;;
+            tugrust/target/debug/tugtool host instance stop "$ID" --timeout 2 >/dev/null 2>&1 || true ;;
         esac
-    done < <(tugrust/target/debug/tugutil host instance list 2>/dev/null | tail -n +2 | awk '{print $1}')
+    done < <(tugrust/target/debug/tugtool host instance list 2>/dev/null | tail -n +2 | awk '{print $1}')
     # Registry-blind orphan backstop. An app that spawned but hung
     # BEFORE its test socket accepted (e.g. a mid-run dist rebuild
     # broke the splash load) is invisible to every layer above: the
@@ -1260,7 +1261,7 @@ app-test *FILES:
     # body already runs under it, so acquiring it here would deadlock
     # against ourselves. Safety comes from the probes and the age
     # floor, not from serialization.
-    tugrust/target/debug/tugutil host sweep --yes --quiet || true
+    tugrust/target/debug/tugtool host sweep --yes --quiet || true
 
     # Sweep the scratch-fixture namespace a previous run left behind.
     #
@@ -1285,16 +1286,16 @@ app-test *FILES:
         # is never signalled).
         while read -r ID; do
             case "$ID" in "${TUG_APPTEST_ID_PREFIX}-"*)
-                tugrust/target/debug/tugutil host instance stop "$ID" --timeout 2 >/dev/null 2>&1 || true ;;
+                tugrust/target/debug/tugtool host instance stop "$ID" --timeout 2 >/dev/null 2>&1 || true ;;
             esac
-        done < <(tugrust/target/debug/tugutil host instance list 2>/dev/null | tail -n +2 | awk '{print $1}')
+        done < <(tugrust/target/debug/tugtool host instance list 2>/dev/null | tail -n +2 | awk '{print $1}')
         # Registry-blind orphan backstop (same rationale as the
         # clean-slate copy above): reap any apptest app that hung
         # before registering, by its worktree-scoped binary path.
         pkill -f "$APP_BIN" 2>/dev/null || true
         # Reap any private tmux servers (and stale socket files) the
         # stopped apptest instances left behind, so a run leaves nothing.
-        tugrust/target/debug/tugutil host sweep --yes --quiet || true
+        tugrust/target/debug/tugtool host sweep --yes --quiet || true
         rm -f "$TMPOUT"
     }
     trap cleanup EXIT INT TERM
@@ -1565,9 +1566,9 @@ app-test *FILES:
     reap_stragglers() {
         while read -r ID; do
             case "$ID" in "${TUG_APPTEST_ID_PREFIX}-"*)
-                tugrust/target/debug/tugutil host instance stop "$ID" --timeout 2 >/dev/null 2>&1 || true ;;
+                tugrust/target/debug/tugtool host instance stop "$ID" --timeout 2 >/dev/null 2>&1 || true ;;
             esac
-        done < <(tugrust/target/debug/tugutil host instance list 2>/dev/null | tail -n +2 | awk '{print $1}')
+        done < <(tugrust/target/debug/tugtool host instance list 2>/dev/null | tail -n +2 | awk '{print $1}')
     }
 
     # Run one file and write its outcome to $RUNDIR, so a concurrent job can
@@ -1765,12 +1766,12 @@ app-test *FILES:
     # its own failure. One call for the whole set, and never on a green run —
     # the question only exists where there is a red file to ask it about.
     #
-    # `tugutil` here is the workspace's own build, not whatever a PATH symlink
-    # resolves to: run from a dash worktree, a PATH `tugutil` is the base
+    # `tugtool` here is the workspace's own build, not whatever a PATH symlink
+    # resolves to: run from a dash worktree, a PATH `tugtool` is the base
     # checkout's binary, which is exactly the wrong one to trust about a
     # feature under development.
-    TUGUTIL_BIN="{{justfile_directory()}}/tugrust/target/debug/tugutil"
-    [ -x "$TUGUTIL_BIN" ] || TUGUTIL_BIN="$(command -v tugutil 2>/dev/null || true)"
+    TUGTOOL_BIN="{{justfile_directory()}}/tugrust/target/debug/tugtool"
+    [ -x "$TUGTOOL_BIN" ] || TUGTOOL_BIN="$(command -v tugtool 2>/dev/null || true)"
     HISTORY_JSON=""
     HISTORY_ERR=""
     declare -a RED_FILES=()
@@ -1779,14 +1780,14 @@ app-test *FILES:
         case "$status" in FAIL|ERR) RED_FILES+=("$file") ;; esac
     done
     if [ "${#RED_FILES[@]}" -gt 0 ]; then
-        if [ -z "$TUGUTIL_BIN" ]; then
-            HISTORY_ERR="tugutil is not on PATH"
+        if [ -z "$TUGTOOL_BIN" ]; then
+            HISTORY_ERR="tugtool is not on PATH"
         elif ! command -v jq >/dev/null 2>&1; then
             HISTORY_ERR="jq is not on PATH"
-        elif ! HISTORY_RAW="$("$TUGUTIL_BIN" apptest history --root "{{justfile_directory()}}" --json "${RED_FILES[@]}" 2>&1)"; then
-            HISTORY_ERR="tugutil apptest history exited non-zero"
+        elif ! HISTORY_RAW="$("$TUGTOOL_BIN" apptest history --root "{{justfile_directory()}}" --json "${RED_FILES[@]}" 2>&1)"; then
+            HISTORY_ERR="tugtool apptest history exited non-zero"
         elif ! HISTORY_JSON="$(printf '%s' "$HISTORY_RAW" | jq -c '[.files[] | {key: .file, value: .}] | from_entries' 2>/dev/null)"; then
-            HISTORY_ERR="tugutil apptest history returned unreadable JSON"
+            HISTORY_ERR="tugtool apptest history returned unreadable JSON"
             HISTORY_JSON=""
         fi
     fi
@@ -1923,15 +1924,15 @@ app-test *FILES:
     fi
 
     # Leave the record behind. Assembled from the same arrays both renderings
-    # above came from, and written only through `tugutil` — the recipe never
+    # above came from, and written only through `tugtool` — the recipe never
     # opens SQLite, so no foreign build ever joins a live ledger's WAL.
     #
     # This is telemetry, and telemetry never gates a run: every failure here is
     # one stderr line naming the skip, and the verdict and exit code below do
     # not move. A test runner that failed because its diagnostics failed would
     # be a worse tool than the one we have.
-    if [ -z "$TUGUTIL_BIN" ]; then
-        echo "[app-test] results not recorded: tugutil is not on PATH" >&2
+    if [ -z "$TUGTOOL_BIN" ]; then
+        echo "[app-test] results not recorded: tugtool is not on PATH" >&2
     elif ! command -v jq >/dev/null 2>&1; then
         echo "[app-test] results not recorded: jq is not on PATH" >&2
     else
@@ -1968,8 +1969,8 @@ app-test *FILES:
         )"
         if [ -z "$record_payload" ]; then
             echo "[app-test] results not recorded: could not assemble the run payload" >&2
-        elif ! printf '%s' "$record_payload" | "$TUGUTIL_BIN" apptest record >/dev/null; then
-            echo "[app-test] results not recorded: tugutil apptest record exited non-zero" >&2
+        elif ! printf '%s' "$record_payload" | "$TUGTOOL_BIN" apptest record >/dev/null; then
+            echo "[app-test] results not recorded: tugtool apptest record exited non-zero" >&2
         fi
     fi
 

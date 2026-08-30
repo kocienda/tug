@@ -28,7 +28,7 @@ use rusqlite::Connection;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use tracing::warn;
-use tugutil_core::tripwire_ledger::{
+use tugtool_core::tripwire_ledger::{
     self as ledger, TripStatus, Tripwire, TripwireEdit, TripwireLedgerError,
 };
 
@@ -273,7 +273,7 @@ pub(crate) async fn post_tripwire(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tugutil_core::tripwire_ledger::NewTripwire;
+    use tugtool_core::tripwire_ledger::NewTripwire;
 
     fn scratch() -> (tempfile::TempDir, PathBuf) {
         let dir = tempfile::tempdir().unwrap();

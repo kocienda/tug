@@ -7,7 +7,7 @@ disallowed-tools: Task
 
 You are a precise commit-message author. Your job is to analyze this session's work, decide per-file dispositions, compose a clear commit message, and write it as the session's **landing draft** — the durable, editable document the user reviews in the Changes shade and lands with `/commit`. **You never commit.** Skills draft; humans land.
 
-**CRITICAL: DO NOT run `tugutil commit`, `git commit`, or any other committing command. The deliverable is a draft, written with `tugutil draft set`. The user lands it themselves with `/commit` (or edits it first in the Changes shade). A commit made by this skill is a bug.**
+**CRITICAL: DO NOT run `tugtool commit`, `git commit`, or any other committing command. The deliverable is a draft, written with `tugtool draft set`. The user lands it themselves with `/commit` (or edits it first in the Changes shade). A commit made by this skill is a bug.**
 
 Do not ask for confirmation either — a draft is not a confirmation prompt; it is a document awaiting the user's byline. Author it, write it, report it.
 
@@ -17,12 +17,12 @@ Do not ask for confirmation either — a draft is not a confirmation prompt; it 
 
 **Override — "everything":** if the arguments ask for all changes (e.g. "everything", "all changes", "whole working tree"), let the message reflect the full dirty tree and elect the unattributed files into the selection with `--include`. Still hold back anything that looks like a secret, credential, or stray temp file — name it and exclude it.
 
-## One command for the readout — `tugutil preflight`
+## One command for the readout — `tugtool preflight`
 
 Do not reconstruct "the files I changed this session" from conversation memory as the primary source — that memory is blind to `Bash`-mediated edits (`sed`, `perl`, `git mv`, redirection). And do not hand-run raw git — `tug` owns git changes & commits. Gather everything in **one command**:
 
 ```
-tugutil preflight
+tugtool preflight
 ```
 
 **Run it and read the output directly. Do NOT pipe it through `jq`, `python`, `grep`, `sed`, or any other reshaping** — the plain read-out already carries everything you need. `git status` is the universe: `preflight` lists **every dirty file** classified into buckets, each attributed file tagged with its `op·origin` and, when contended, a `shared with <session>` marker; foreign files name their owner; a non-empty `unattributed` bucket prints the disposition hint inline. Branch, head, session, and recent-commit subjects round it out.
@@ -43,18 +43,18 @@ recent commits:
 
 The buckets — **decide a disposition for every one of them:**
 
-- **`attributed`** — files this session **provably** edited (proof rows: `exact` for Write/Edit/NotebookEdit, `replay` for the same backfilled on resume, `cmd` for a Bash command that literally named the file or a `tugutil file` receipt, `claim` for an explicit claim). The default selection; non-shared attributed files are in the landing unless you exclude one.
-- **`unattributed`** — dirty with **no proof row anywhere**. The `likely this session's (bash bracket)` tag (or `turn bracket`) means this session's own Bash/turn window saw the path change — likely yours, not proven (a hand-save the user made mid-command lands here too). The hint plus the diff decides: an edit you recognize as your own Bash work → elect it into the draft's selection with `--include`; anything you don't recognize → the user's inflight work, leave it out and name it in your report. To see a file's contents, read the file or run `tugutil diff` — never raw git.
+- **`attributed`** — files this session **provably** edited (proof rows: `exact` for Write/Edit/NotebookEdit, `replay` for the same backfilled on resume, `cmd` for a Bash command that literally named the file or a `tugtool file` receipt, `claim` for an explicit claim). The default selection; non-shared attributed files are in the landing unless you exclude one.
+- **`unattributed`** — dirty with **no proof row anywhere**. The `likely this session's (bash bracket)` tag (or `turn bracket`) means this session's own Bash/turn window saw the path change — likely yours, not proven (a hand-save the user made mid-command lands here too). The hint plus the diff decides: an edit you recognize as your own Bash work → elect it into the draft's selection with `--include`; anything you don't recognize → the user's inflight work, leave it out and name it in your report. To see a file's contents, read the file or run `tugtool diff` — never raw git.
 - **`foreign`** — another session's work (its owner is named). Report it, never include it.
 - **`shared`** (marked on an attributed row) — another session **also** provably edited this file, so ownership is contended; excluded from the default selection. Call it out; elect it with `--include` only when it is clearly this session's work.
 
 **`recent commits`** is the message-style reference — follow the existing subject style.
 
-- **Fallback:** if `tugutil preflight` exits **2** (older tugcast, or `$TUG_SESSION_ID` unset — it prints a hint on stderr), reconstruct the file list from this conversation's Write/Edit/Bash calls and inspect with `tugutil diff`, then write the draft with an explicit `--include` selection. Do **not** fall back to raw `git`.
+- **Fallback:** if `tugtool preflight` exits **2** (older tugcast, or `$TUG_SESSION_ID` unset — it prints a hint on stderr), reconstruct the file list from this conversation's Write/Edit/Bash calls and inspect with `tugtool diff`, then write the draft with an explicit `--include` selection. Do **not** fall back to raw `git`.
 
 ## Your Process
 
-1. **Gather** — run `tugutil preflight` and read it. If a plan is referenced, examine that file for step/checkpoint context.
+1. **Gather** — run `tugtool preflight` and read it. If a plan is referenced, examine that file for step/checkpoint context.
 
 2. **Analyze** — identify what actually changed and why; connect changes to plan elements when applicable.
 
@@ -79,7 +79,7 @@ The buckets — **decide a disposition for every one of them:**
 
 4. **Write the Draft**
    ```
-   tugutil draft set --owner session:$TUG_SESSION_ID --message "<message>"
+   tugtool draft set --owner session:$TUG_SESSION_ID --message "<message>"
    ```
    - The message goes inline in `--message` (newlines are fine inside the quoted string).
    - **Selection dispositions** ride the same command: `--include <p…>` elects files beyond the default rule (an unattributed file you recognize as yours, a shared file that is clearly this session's); `--exclude <p…>` holds a default-selected file back. Omit both when the defaults stand.
@@ -121,7 +121,7 @@ A lookup for a user with no record dereferenced the missing row. The lookup guar
 
 ## If Uncertain
 
-- If `tugutil preflight` reports every bucket empty and there is no override, report this and write nothing
+- If `tugtool preflight` reports every bucket empty and there is no override, report this and write nothing
 - If changes seem unrelated to any plan, write the message without a plan reference
 - If you cannot determine what the changes accomplish, describe them literally from the diff
 - Never elect files that look like secrets, credentials, or unrelated temporary files

@@ -16,7 +16,7 @@
  * Usage:
  *
  *     just app-debug                      # or leave the debug instance running
- *     tugutil host tell show-card -p component=gallery-motion-bench …
+ *     tugtool host tell show-card -p component=gallery-motion-bench …
  *     just perf-resize-profile idle 6
  *
  * Read `applyKeyframeEffects` and `Style::TreeResolver::resolve` from the

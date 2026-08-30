@@ -12,7 +12,7 @@
 
 	 Per [D16], these entitlements are SCOPED TO TUGCODE ONLY. The
 	 outer Tug.app binary (Swift) and the Rust helper binaries
-	 (tugcast, tugutil, tugexec, tugrelaunch, tugbank) sign without
+	 (tugcast, tugtool, tugexec, tugrelaunch, tugbank) sign without
 	 these — they get the default hardened-runtime restrictions,
 	 which is what we want for native code with no JIT.
 	-->

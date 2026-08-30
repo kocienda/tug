@@ -53,7 +53,7 @@ describe("the arc on the dash metadata line", () => {
     expect(facts[0]?.tone).toBe("danger");
     expect(facts[0]?.label).toBe("arc stopped · review");
     expect(facts[0]?.tooltip).toContain("lint failed");
-    expect(facts[0]?.tooltip).toContain("tugutil dash run foo");
+    expect(facts[0]?.tooltip).toContain("tugtool dash run foo");
   });
 
   test("it outranks a replay conflict — nothing else here is unattended", () => {

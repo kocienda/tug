@@ -62,7 +62,7 @@ const LEADING_SLASH_COMMAND_RE = new RegExp(
  * as a shell command; there is no per-subcommand catalog — the leading
  * tool name is the whole gate.
  */
-const SHELL_COMMAND_TOOLS = ["just", "tugutil"] as const;
+const SHELL_COMMAND_TOOLS = ["just", "tugtool"] as const;
 
 /**
  * The shell-command grammar: a known tool name, then whitespace, then at
@@ -88,7 +88,7 @@ export function parseSlashCommandLine(text: string): ParsedSlashCommand | null {
 
 /**
  * Parse text as a project shell-command line. Returns the trimmed command
- * line (`just launch-debug`, `tugutil dash join --preview`) when it begins
+ * line (`just launch-debug`, `tugtool dash join --preview`) when it begins
  * with a known tool + subcommand, or `null` otherwise. The returned string
  * is what a click seeds into the Code route as `/shell <command>`.
  */

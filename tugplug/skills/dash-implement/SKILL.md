@@ -9,17 +9,17 @@ disallowed-tools: Task
 
 ## What this is
 
-`dash-implement` carries a plan document from start to a launchable, tested build, on its own git worktree, **driven by you — the main conversation — directly**. You read the plan, you do the work, you run the checkpoints, you commit each step. The worktree lifecycle rides the `tugutil dash` CLI; the plan is your checklist.
+`dash-implement` carries a plan document from start to a launchable, tested build, on its own git worktree, **driven by you — the main conversation — directly**. You read the plan, you do the work, you run the checkpoints, you commit each step. The worktree lifecycle rides the `tugtool dash` CLI; the plan is your checklist.
 
 **Read [`tuglaws/dash-work-doctrine.md`](../../../tuglaws/dash-work-doctrine.md) before you start.** It is the discipline every dash run works under — the one-and-only-working-root rule, the verification bar, test discipline and the banned test shapes, law discipline, round mechanics, the stop-before-join obligation, and no plan numbers in durable artifacts. This skill states the flow; the doctrine states the rules, and it is not repeated here.
 
-**When the project has no `tuglaws/`,** the doctrine document is absent and cannot be read. The rules that survive its absence are the ones this skill carries inline — one working root, verify before every commit, never commit red, rounds through `tugutil dash commit`, stop before the join — and they are the discipline for the run. Say so once, at the start, so the user knows which fidelity they are getting; do not invent the rest of the doctrine from memory.
+**When the project has no `tuglaws/`,** the doctrine document is absent and cannot be read. The rules that survive its absence are the ones this skill carries inline — one working root, verify before every commit, never commit red, rounds through `tugtool dash commit`, stop before the join — and they are the discipline for the run. Say so once, at the start, so the user knows which fidelity they are getting; do not invent the rest of the doctrine from memory.
 
 ## Input
 
 `/tugplug:dash-implement <name> [step-selector]`
 
-- `<name>` — the **dash** whose plan to walk. Its plan lives at `.tug/dashes/<name>/plan.md`, which `tugutil dash documents <name>` prints and every `plan` verb resolves from the name alone. A path is accepted for a plan outside any dash, but the name is the address.
+- `<name>` — the **dash** whose plan to walk. Its plan lives at `.tug/dashes/<name>/plan.md`, which `tugtool dash documents <name>` prints and every `plan` verb resolves from the name alone. A path is accepted for a plan outside any dash, but the name is the address.
 - `[step-selector]` (optional) — **which steps to walk this invocation**:
   - *(omitted)* — walk the **whole plan** from the first unfinished step to the end.
   - `Step N` — walk a **single** step (e.g. `Step 3`).
@@ -39,9 +39,9 @@ If no plan exists yet, start at `/dash`: it sizes the idea, writes the brief, an
 ### 1. Setup
 
 1. Read the **Step Status Ledger** and resolve the step selector into a concrete list of steps to walk this run.
-2. `tugutil dash create <name> --description "<one line>" --json`. **Capture the absolute `worktree` path** and `branch` from the response. If the dash already exists (resuming a later step range), `create` is idempotent and returns it.
+2. `tugtool dash create <name> --description "<one line>" --json`. **Capture the absolute `worktree` path** and `branch` from the response. If the dash already exists (resuming a later step range), `create` is idempotent and returns it.
 
-   The plan lives at `.tug/dashes/<name>/plan.md` and nothing copies it anywhere ([D139]). `tugutil dash documents <name>` prints that path; **never copy a plan file by hand**, and never write one into the worktree.
+   The plan lives at `.tug/dashes/<name>/plan.md` and nothing copies it anywhere ([D139]). `tugtool dash documents <name>` prints that path; **never copy a plan file by hand**, and never write one into the worktree.
 
    `create` also hydrates the fresh worktree itself, running whatever the project declared in `[tugtool.dash].post_create` (dependency installs, generated files) so it arrives ready. Never install dependencies by hand; a project that needs none declares none.
 
@@ -49,7 +49,7 @@ If no plan exists yet, start at `/dash`: it sizes the idea, writes the brief, an
 3. **Check that the plan's review covers the plan.**
 
    ```bash
-   tugutil plan status <name> --json
+   tugtool plan status <name> --json
    ```
 
    Read `data.review`. On `reviewed`, say nothing and carry on.
@@ -75,7 +75,7 @@ Walk the resolved steps in dependency order. For each step:
 
 - **Open the step.**
   ```bash
-  tugutil dash step <name> start <n> --through <m>
+  tugtool dash step <name> start <n> --through <m>
   ```
   This moves the ledger row to `in progress` and records the step in the dash-log, which is what makes the dash read as `implementing (i/N)` in the Lens and the Changes card while you work.
 
@@ -85,24 +85,24 @@ Walk the resolved steps in dependency order. For each step:
 - Run **that step's checkpoint** before committing. The bar is in the doctrine; the step names the specific commands.
 - Commit the round:
   ```bash
-  tugutil dash commit <name> --message "tugdash(<name>): <imperative summary, under 50 chars>" --json <<'EOF'
+  tugtool dash commit <name> --message "tugdash(<name>): <imperative summary, under 50 chars>" --json <<'EOF'
   {"instruction":"Step N: <title>","summary":"<what landed + how verified>"}
   EOF
   ```
 - **On the final declared step — and only there — write the join draft before closing it.** Closing step `m` is the arming event: the instant its `done` lands, the server may raise the join offer, and whatever draft exists at that moment is the squash message the user lands with. A draft written afterwards is a draft racing the user's finger. Compose it per phase 3's rules — a durable commit message describing the change, never a narration of the run — and write it now:
   ```bash
-  tugutil draft set --owner dash:<name> --message "<subject + durable body>"
+  tugtool draft set --owner dash:<name> --message "<subject + durable body>"
   ```
 - **Close the step** with the commit the round produced:
   ```bash
-  tugutil dash step <name> done <n> --commit <sha>
+  tugtool dash step <name> done <n> --commit <sha>
   ```
   This writes the ledger row's status *and* its commit cell and appends the paired log line. Omit `--commit` to record the dash branch's tip. Ledger and commit move together, and the verb is what keeps them together.
 
   **A step that was never opened cannot be closed.** `pending` to `done` is refused, so a round that turns out to carry two steps opens and closes each in its turn rather than closing both at the end — otherwise the second row reads finished for the whole time somebody is working it, and every surface that shows the fraction says so. The same sha in two commit cells is the correct record of one round that carried two steps.
 - **Withdraw a step the run decided not to walk.**
   ```bash
-  tugutil dash step <name> withdraw <n>
+  tugtool dash step <name> withdraw <n>
   ```
   The row goes `withdrawn` and the commit cell stays empty, because no round was made. It closes the step and counts toward the run's completion exactly as a `done` does — so withdrawing the run's final declared step arms the join, rather than leaving the dash permanently un-joinable. It is reversible: `start` re-opens a withdrawn row. Reach for it whenever a step turns out to be unnecessary, already absorbed, or wrong; the alternative — saying so in the plan's prose — is what stales the plan's review, since the review stamp reads the plan's content and elides the ledger's status cells.
 
@@ -125,10 +125,10 @@ Pragmatics:
 **First, verify the fit** ([D149]). Every step's checkpoint ran against the dash's own tree — the sandbox it forked from. The tree a join actually lands is the dash *replayed onto the live base*, and nothing has tested that yet:
 
 ```bash
-tugutil dash replay <name>
+tugtool dash replay <name>
 ```
 
-- **`Replayed`** / **`Recorded`** — the tree moved, so verify it: `tugutil dash verify <name>`, from the worktree. The verb resolves every path the replay moved to a surface the project declared in its own `.tugtool/config.toml` and runs what those surfaces declare, so there is nothing to substitute and nothing to assemble. Three answers are worth knowing before you see one. A **refusal** (exit 2) names paths no surface claims and runs no check at all — the project's table has fallen behind its tree, and the repair is to declare a surface for them, never to work around it. **Red** (exit 1) is ordinary work: fix it in the warm worktree, commit the fix as a round, re-run. And a project that declares **no surfaces** gets a report saying so and exit 0 — then verify with **the plan's own checkpoint commands** over what the replay moved, the commands the plan already names, never one you invent, and say so.
+- **`Replayed`** / **`Recorded`** — the tree moved, so verify it: `tugtool dash verify <name>`, from the worktree. The verb resolves every path the replay moved to a surface the project declared in its own `.tugtool/config.toml` and runs what those surfaces declare, so there is nothing to substitute and nothing to assemble. Three answers are worth knowing before you see one. A **refusal** (exit 2) names paths no surface claims and runs no check at all — the project's table has fallen behind its tree, and the repair is to declare a surface for them, never to work around it. **Red** (exit 1) is ordinary work: fix it in the warm worktree, commit the fix as a round, re-run. And a project that declares **no surfaces** gets a report saying so and exit 0 — then verify with **the plan's own checkpoint commands** over what the replay moved, the commands the plan already names, never one you invent, and say so.
 - **`Current`** — the base never moved. The last step's checkpoint already verified these exact bytes, so **run nothing** and say so. This is the common case and it costs seconds.
 - **`Conflicted`** — the replay names the round it stopped at. Resolve it in the worktree as ordinary work, commit the fix as a round, then verify as above.
 
@@ -137,7 +137,7 @@ Do not re-run the sweep. A checkpoint that passed is spent; the ending's job is 
 **Then check the dash's join draft still tells the truth.** You wrote it before closing the final step — that ordering is what made the words current at the instant the arc armed. Two cases reopen it: the ending added rounds the draft does not account for (a `Conflicted` replay resolved as new work), or the run stopped before its final declared step and no draft was ever written. In either case write it:
 
 ```bash
-tugutil draft set --owner dash:<name> --message "<subject + durable body>"
+tugtool draft set --owner dash:<name> --message "<subject + durable body>"
 ```
 
 **The draft is a commit message, held to the same standard as every other commit on the base.** A join squashes to one commit and this draft is its message, so it is the only durable prose the base will ever carry about this dash. Write an **imperative subject** in the repository's recent-commit style; then, as the **second paragraph, a summary** — one to three sentences of plain prose, no bullets, saying what the base is about to receive and why, that a reader can stop at; then the body — what the change does, and the argument the work rests on — for a reader who never saw the run. The Changes shade fronts the subject and the summary and folds the body, so the summary is the message most readers will read. Never a narration of the run: no round-by-round digest, no step numbers, no "the run did X and then Y", and no archaeology about defects the run found and fixed along the way. The round count is the receipt's fact rather than the message's — the join receipt shows it and the `Tug-Dash:` trailer names the branch and base. State the argument the work actually rests on and do not append an inferred benefit to make the change sound worthier. Every line runs unbroken to its end (**no hard wrapping**), and no AI or agent attribution, ever.
@@ -154,14 +154,14 @@ Write it even on a run that stops mid-plan: the draft is what the shade shows th
 
 The one thing worth knowing is what the arc does at the step boundaries your turns now end on. Above `implement_compact_tokens` it **compacts** the seated session in place, and only a context a compaction failed to bring back under that line costs a rotation — so a mid-plan rotation is the rarer of the two. A fresh session then resumes at the first row that is neither `done` nor `withdrawn`, which is the ordinary resume this skill already describes, and needs nothing from you beyond keeping the ledger truthful with `dash step start|done|withdraw`. You walk one step and end the turn; the arc prompts the next. The turn that closes the run's final declared step is still the one that writes the draft before closing it and still verifies the fit.
 
-**Offer a build when the work wants one.** A change the user will want to *see* — a surface with a face — is worth building and vetting before the join. What to run is the project's to say: the `build` command `tugutil dash config` reports. Run it from the worktree root, read what it says, and relay that to the user rather than describing a build you did not watch.
+**Offer a build when the work wants one.** A change the user will want to *see* — a surface with a face — is worth building and vetting before the join. What to run is the project's to say: the `build` command `tugtool dash config` reports. Run it from the worktree root, read what it says, and relay that to the user rather than describing a build you did not watch.
 
 When `build` is `null` the project declares none, so **no build is offered** — say so, and say the work is inspectable at the worktree path.
 
 A purely internal change — a refactor, a doctrine edit, a backend fix already covered by its checkpoint — does not need a build even where one is declared, and a debug instance nobody looks at is cost with no reader. Offer, do not assume.
 
 ```bash
-tugutil dash mark <name> built
+tugtool dash mark <name> built
 ```
 
 Optional telemetry, and nothing gates on it. It stamps the stage word `built` on the dash's faces in place of the derived `ready`, which is worth doing when you *did* build so the Lens says what happened. Skipping it changes nothing about whether the join is offered.

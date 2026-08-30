@@ -660,7 +660,7 @@ async fn spawn_shell_child(
         .env("CLICOLOR_FORCE", "1")
         .env("FORCE_COLOR", "1")
         // The card's session id, matching what the agent bridge exports for
-        // claude's own subprocesses. Load-bearing for `tugutil changes`, which
+        // claude's own subprocesses. Load-bearing for `tugtool changes`, which
         // reads `$TUG_SESSION_ID` to resolve the session against the ledger.
         .env("TUG_SESSION_ID", tug_session_id);
     if spawn_cwd.is_dir() {

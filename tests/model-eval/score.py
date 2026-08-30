@@ -57,7 +57,7 @@ PROPER = {
     "Lens", "Tug", "Rust", "Swift", "Claude", "Sparkle", "Bonsai", "MLX",
     "Maxwell", "Maxwell's", "Makefile", "README", "PATH", "CPU", "Xcode",
     # This project's own surfaces, which a description about it names constantly.
-    "Tugdeck", "Tugcast", "Tugcode", "Tugbank", "Tugways", "Tugutil",
+    "Tugdeck", "Tugcast", "Tugcode", "Tugbank", "Tugways", "Tugtool",
     "ConfigureTug", "TugSetup", "Session", "Jots", "Changeset", "DMG",
     "WAL", "JSONL",
 }

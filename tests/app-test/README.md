@@ -120,7 +120,7 @@ for the contract.
 ### Concurrency: one invocation at a time
 
 Whole `just app-test` invocations are serialized machine-wide by a
-port gate (`tugutil host gate run --name apptest`): native CGEvent input
+port gate (`tugtool host gate run --name apptest`): native CGEvent input
 and app activation are login-session singletons, so only one run may
 drive them at a time. Invoking `just app-test` while another worktree
 (or another terminal) holds the gate prints
@@ -135,7 +135,7 @@ holder exits, even on SIGKILL). For scripted callers that prefer
 fail-fast over queueing:
 
 ```bash
-tugrust/target/debug/tugutil gate run --name apptest --no-wait -- true
+tugrust/target/debug/tugtool gate run --name apptest --no-wait -- true
 # exit 2 + holder info when held (JSON shape with --json)
 ```
 
@@ -149,7 +149,7 @@ instance ids whose cleanup sweeps match only that worktree's prefix.
 The corpus runs from whatever checkout you invoke it in — a dash
 worktree included. Nothing to set: the recipe exports
 `TUG_REPO_UNIVERSE="$(pwd -P)"`, which is the boundary
-`tugutil_core::find_repo_root_from` resolves dash verbs inside, so a
+`tugtool_core::find_repo_root_from` resolves dash verbs inside, so a
 fixture dash is born, listed, joined and torn down in the checkout under
 test rather than in the one that owns the shared `.git`. The doctrine is
 in [tuglaws/app-test-harness.md](../../tuglaws/app-test-harness.md#the-repo-universe-fixtures-stay-in-the-checkout-under-test).
@@ -260,7 +260,7 @@ test passes `testName` to `launchTugApp`; the directory is gitignored.
 
 ### Results history
 
-Every run leaves a record: one row for the run — its bounds, the checkout it ran in, the `HEAD` it ran against and whether that tree was dirty, how it was selected, its wall time and verdict — and one row per file, with that file's status, counts, seconds, and whether it took the screen. It lands in `apptest_results.db`, machine-global beside `changes.db`, and it is written and read only through `tugutil apptest record|history`; the recipe never opens SQLite itself.
+Every run leaves a record: one row for the run — its bounds, the checkout it ran in, the `HEAD` it ran against and whether that tree was dirty, how it was selected, its wall time and verdict — and one row per file, with that file's status, counts, seconds, and whether it took the screen. It lands in `apptest_results.db`, machine-global beside `changes.db`, and it is written and read only through `tugtool apptest record|history`; the recipe never opens SQLite itself.
 
 The record is keyed by the **resolved base checkout**, not by the directory the run executed in. A dash worktree and the checkout it forked from are one project, so a run on a dash answers a question asked from `main` and the reverse — which is the whole point, since a red file on a dash is exactly when you want to know what `main` last saw.
 
@@ -285,7 +285,7 @@ Two words in those lines are load-bearing. **"recorded"** is literal: an interru
 
 The lookup happens *before* the run records itself, so a red file's history is what came before it rather than a reflection of the failure being asked about.
 
-**When it can't answer** it says so in place — `history: unavailable (<reason>)` — rather than printing nothing. Recording is telemetry and never gates a run: a missing `tugutil` or `jq`, or a verb that exits non-zero, produces one `[app-test] results not recorded: …` line on stderr and leaves the verdict and exit code exactly where they were.
+**When it can't answer** it says so in place — `history: unavailable (<reason>)` — rather than printing nothing. Recording is telemetry and never gates a run: a missing `tugtool` or `jq`, or a verb that exits non-zero, produces one `[app-test] results not recorded: …` line on stderr and leaves the verdict and exit code exactly where they were.
 
 Retention is the most recent 500 runs per checkout, pruned at record time, with result rows following by cascade. There is no janitor to run.
 

@@ -55,7 +55,7 @@ import {
   rmDashScratchRepo,
   rmScratchSession,
   seedScratchSession,
-  tugutil,
+  tugtool,
   type DashScratchRepo,
 } from "./dash-fixture";
 
@@ -112,7 +112,7 @@ beforeAll(() => {
   // narrowing this function body sits inside does not reach into a callback.
   const cli = scratch.cli;
   const step = (...args: string[]): void => {
-    tugutil(["dash", "step", SKIPPED_DASH, ...args], {
+    tugtool(["dash", "step", SKIPPED_DASH, ...args], {
       cwd: projectDir(),
       binaryRoot: cli.binaryRoot,
       env: cli.env,

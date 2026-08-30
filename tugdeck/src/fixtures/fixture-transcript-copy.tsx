@@ -93,17 +93,17 @@ const SOURCE_RICH = [
   "```",
 ].join("\n");
 // Command-bearing message: inline `<code>` spans the annotator marks as
-// clickable commands — two project shell commands (`just` / `tugutil`) and
+// clickable commands — two project shell commands (`just` / `tugtool`) and
 // one known slash command (`/diff`). Cell D passes an annotation context so
 // the command pass actually runs, giving at0237 real command spans to
 // right-click.
 const SOURCE_CMD =
-  "Run `just launch-debug` to start, `tugutil dash join --preview` to preview, and `/diff HEAD` to inspect.";
+  "Run `just launch-debug` to start, `tugtool dash join --preview` to preview, and `/diff HEAD` to inspect.";
 
 /**
  * Annotation context for cell D. Only `diff` is a known slash command (so
  * `/diff HEAD` marks and an arbitrary `/whatever` would not). Shell
- * commands (`just` / `tugutil`) need no catalog; the leading tool name is
+ * commands (`just` / `tugtool`) need no catalog; the leading tool name is
  * their whole gate.
  */
 const FIXTURE_ANNOTATION: AnnotationContext = {

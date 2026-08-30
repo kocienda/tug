@@ -17,7 +17,7 @@ It is the sibling of `dash-review`, at the other end of the run. Review reads a 
 
 **You are the auditor, in-thread.** Do not spawn sub-agents (`Task`).
 
-**Read [`tuglaws/dash-work-doctrine.md`](../../../tuglaws/dash-work-doctrine.md) before you start.** The discipline every dash run works under is stated there and is not repeated here: the one-and-only-working-root rule, the verification bar, test discipline and the banned test shapes, law discipline, round mechanics, and the stop-before-join obligation. **When the project has no `tuglaws/`,** that document is absent and cannot be read; the rules that survive its absence are the ones carried inline below — one working root, verify before every commit, never commit red, rounds through `tugutil dash commit`, stop before the join. Say so once, at the start, and do not invent the rest of the doctrine from memory.
+**Read [`tuglaws/dash-work-doctrine.md`](../../../tuglaws/dash-work-doctrine.md) before you start.** The discipline every dash run works under is stated there and is not repeated here: the one-and-only-working-root rule, the verification bar, test discipline and the banned test shapes, law discipline, round mechanics, and the stop-before-join obligation. **When the project has no `tuglaws/`,** that document is absent and cannot be read; the rules that survive its absence are the ones carried inline below — one working root, verify before every commit, never commit red, rounds through `tugtool dash commit`, stop before the join. Say so once, at the start, and do not invent the rest of the doctrine from memory.
 
 ## Input
 
@@ -28,14 +28,14 @@ It is the sibling of `dash-review`, at the other end of the run. Review reads a 
 ### 1. Take the worktree, and read what the run said it would do
 
 ```bash
-tugutil dash create <name> --json
+tugtool dash create <name> --json
 ```
 
 Idempotent — it returns the existing dash and records that this session is working it. **Capture the absolute `worktree` path**; from here it is the only working root, and every read, write, and check is addressed by absolute path into it.
 
 ```bash
-tugutil dash documents <name> --json
-tugutil plan status <name> --json
+tugtool dash documents <name> --json
+tugtool plan status <name> --json
 ```
 
 Read the plan in full. It is the audit's standard of comparison, and it is the only one: what the work was *supposed* to do is what the plan says, not what the diff looks like it was trying to do. A dash worked directly has a task list rather than a devised plan — shorter, no decisions, no checkpoints — and it is the standard all the same. Read the ledger's step titles as the promises they are.
@@ -43,7 +43,7 @@ Read the plan in full. It is the audit's standard of comparison, and it is the o
 ### 2. Read the whole diff, cold
 
 ```bash
-tugutil dash show <name>
+tugtool dash show <name>
 ```
 
 Then the diff itself, from the worktree — every commit the branch carries against its base, as one range, and then file by file for anything the range read past too quickly. The rounds' own commit messages say what each claimed to do; the dash-log holds the instruction git cannot see. Read both, and read them *after* the code, so the code is judged rather than the claim.
@@ -68,7 +68,7 @@ Fix it. That is the whole of what to do with a finding, and the reason this stag
 The fixes are **ordinary rounds** on the dash, under the doctrine's round mechanics and its verification bar. Verify before every commit — the checks the project declares for what you moved — and never commit red:
 
 ```bash
-tugutil dash commit <name> --message "tugdash(<name>): <imperative summary, under 50 chars>" --json <<'EOF'
+tugtool dash commit <name> --message "tugdash(<name>): <imperative summary, under 50 chars>" --json <<'EOF'
 {"instruction":"audit: <what the finding was>","summary":"<what you changed + how verified>"}
 EOF
 ```
@@ -84,17 +84,17 @@ The plan's ledger is already walked and stays walked: an audit opens no step and
 Whether or not you changed anything, the tree that lands is the run's work replayed onto the live base, and nothing has tested that:
 
 ```bash
-tugutil dash replay <name>
+tugtool dash replay <name>
 ```
 
-On **`Replayed`** / **`Recorded`** the tree moved — verify it with `tugutil dash verify <name>` from the worktree, which resolves every path the replay moved to a surface the project declared and runs what those surfaces declare. A refusal (exit 2) names paths no surface claims and runs nothing: declare a surface for them rather than working around it. Red (exit 1) is ordinary work — fix it as a round. A project that declares no surfaces says so and exits 0; check what the replay moved with the commands the run already used, never one you invent, and say so. On **`Current`** the base never moved and the checks that just passed covered these exact bytes, so run nothing and say so. On **`Conflicted`** the replay names the round it stopped at: resolve it in the worktree, commit the fix as a round, then verify.
+On **`Replayed`** / **`Recorded`** the tree moved — verify it with `tugtool dash verify <name>` from the worktree, which resolves every path the replay moved to a surface the project declared and runs what those surfaces declare. A refusal (exit 2) names paths no surface claims and runs nothing: declare a surface for them rather than working around it. Red (exit 1) is ordinary work — fix it as a round. A project that declares no surfaces says so and exits 0; check what the replay moved with the commands the run already used, never one you invent, and say so. On **`Current`** the base never moved and the checks that just passed covered these exact bytes, so run nothing and say so. On **`Conflicted`** the replay names the round it stopped at: resolve it in the worktree, commit the fix as a round, then verify.
 
 ### 6. Refresh the join draft
 
 The draft is the squash message the user's join will land, and it is the only durable prose the base will ever carry about this dash. The run left one; if the audit changed anything, it is now describing a tree that has moved:
 
 ```bash
-tugutil draft set --owner dash:<name> --message "<subject + durable body>"
+tugtool draft set --owner dash:<name> --message "<subject + durable body>"
 ```
 
 An **imperative subject** in the repository's recent-commit style, bare — no `tugdash(<name>): ` prefix, because the join adds the scope itself. Then a **summary paragraph**, one to three sentences of plain prose a reader can stop at, saying what the base is about to receive and why. Then the body: what the change does and the argument it rests on, for a reader who never saw the run.
@@ -106,7 +106,7 @@ Read a good one before writing yours: `tug log` on the base shows the project's 
 ### 7. Mark it, and stop
 
 ```bash
-tugutil dash mark <name> audited --note "<one line: what was checked, and what was fixed>"
+tugtool dash mark <name> audited --note "<one line: what was checked, and what was fixed>"
 ```
 
 **The mark is the stage's whole product**, exactly as the stamp is the review's. It is the one fact that says the audit ran, it is read from the dash's own record rather than from anything you say about yourself, and an audit that ends without it has answered nothing — the arc stops there and says the audit did not mark. So it is the last thing you do, after every round is committed and the fit is verified.

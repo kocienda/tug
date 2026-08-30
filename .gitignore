@@ -41,7 +41,7 @@ aside
 .tugtree/
 
 # Tug local runtime artifacts (per-user runtime state now lives out of the
-# repo under <data_dir>/Tug/projects/<slug>/ — see `tugutil state-dir`)
+# repo under <data_dir>/Tug/projects/<slug>/ — see `tugtool state-dir`)
 .tugtool/step-artifacts/
 .tugtool/deck-settings.json
 .tugtool/.session

@@ -28,7 +28,7 @@
   "Bash(just app-debug 2>&1 | grep -E \"^/Users.*(error|warning):|BUI)",
   "Bash(sleep 30; just instances 2>&1 | tail -3)",
   "Bash(just instances 2>&1 | tail -3)",
-  "Bash(tugutil draft set --owner dash:quit-hardening --message \"qui)",
+  "Bash(tugtool draft set --owner dash:quit-hardening --message \"qui)",
   "TaskUpdate(Two of four passes run with log evidence (tugcast-outage ret)",
   "Bash(ls && echo \"--- justfiles ---\" && ls -la justfile* 2>/dev/nu)",
   "Bash(echo \"=== scripts ===\" && ls scripts/ 2>/dev/null; echo \"===)",

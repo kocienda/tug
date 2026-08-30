@@ -130,7 +130,7 @@ pub(crate) async fn compose_snapshot(
 
     // Fold attribution events into per-owner buckets. Events are
     // oldest-first, so the latest event for a path wins op/origin (same rule
-    // as `tugutil changes`). Events whose file is no longer dirty
+    // as `tugtool changes`). Events whose file is no longer dirty
     // (committed / reverted) drop out, and so do **spent** events — rows at
     // or before the last commit that touched their path (the row-liveness
     // rule, [D112]): a commit spends the rows it absorbs, so a fossil row
@@ -1349,7 +1349,7 @@ fn dash_plan_reading(abs: &Path) -> (Option<String>, Vec<DashStep>, bool) {
     ) else {
         return (None, Vec::new(), false);
     };
-    let Ok(doc) = tugutil_core::plan::parse(&source) else {
+    let Ok(doc) = tugtool_core::plan::parse(&source) else {
         return (None, Vec::new(), false);
     };
     // The ledger, not the step headings: the ledger is what the step verbs
@@ -1363,16 +1363,16 @@ fn dash_plan_reading(abs: &Path) -> (Option<String>, Vec<DashStep>, bool) {
             status: row.status.clone(),
         })
         .collect();
-    let review = tugutil_core::plan::review_state(&doc, &source)
+    let review = tugtool_core::plan::review_state(&doc, &source)
         .as_str()
         .to_string();
-    (Some(review), steps, tugutil_core::plan::is_task_list(&doc))
+    (Some(review), steps, tugtool_core::plan::is_task_list(&doc))
 }
 
 /// Derive one dash entry per `refs/heads/tugdash/` branch.
 ///
 /// The composition lives in `tugdash_core::dash_detail_entries_in` — the same
-/// code `tugutil dash list|status` reads — so the CLI and the Changes card can
+/// code `tugtool dash list|status` reads — so the CLI and the Changes card can
 /// no longer disagree about a dash's base, worktree, or round count. This maps
 /// that shared detail onto the wire type and adds the one thing only tugcast
 /// knows: which live sessions are mated to each dash ([P08]).
@@ -1401,7 +1401,7 @@ fn dashes_hidden_for(repo_root: &Path) -> bool {
     }
     // The app-test recipe always pins the universe to the checkout it runs
     // from, so "is this the checkout?" has one spelling.
-    let Ok(universe) = std::env::var(tugutil_core::REPO_UNIVERSE_ENV) else {
+    let Ok(universe) = std::env::var(tugtool_core::REPO_UNIVERSE_ENV) else {
         return false;
     };
     if universe.trim().is_empty() {
@@ -3104,7 +3104,7 @@ Some context.
     /// Write `UNSTAMPED_PLAN` into `dir/plan.md`, stamped or not.
     fn write_plan(dir: &Path, stamped: bool) {
         let source = if stamped {
-            tugutil_core::plan::set_review_stamp(UNSTAMPED_PLAN).expect("stampable")
+            tugtool_core::plan::set_review_stamp(UNSTAMPED_PLAN).expect("stampable")
         } else {
             UNSTAMPED_PLAN.to_string()
         };
@@ -3141,7 +3141,7 @@ Some context.
                 &steps,
             );
         let source = if stamped {
-            tugutil_core::plan::set_review_stamp(&source).expect("stampable")
+            tugtool_core::plan::set_review_stamp(&source).expect("stampable")
         } else {
             source
         };
@@ -3540,7 +3540,7 @@ Some context.
         // `tugdash_core::ops`'s universe tests run under.
         unsafe {
             std::env::set_var("TUG_INSTANCE_ID", "apptest-0000");
-            std::env::set_var(tugutil_core::REPO_UNIVERSE_ENV, &root);
+            std::env::set_var(tugtool_core::REPO_UNIVERSE_ENV, &root);
         }
         assert!(
             dash_entries(&root, None, &BTreeMap::new()).await.is_empty(),

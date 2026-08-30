@@ -22,7 +22,7 @@
  * moved in the account-global aggregate, not because the click did anything
  * local.
  *
- * Everything is real. `tugutil dash bind` / `unbind` run through the card's
+ * Everything is real. `tugtool dash bind` / `unbind` run through the card's
  * own `$` shell route — the route that stamps `TUG_SESSION_ID`.
  *
  * The dash lives in a scratch repository this file owns — a dash is for
@@ -59,7 +59,7 @@ import {
   rmScratchSession,
   seedScratchSession,
   shellAndSettle,
-  tugutilPath,
+  tugtoolPath,
   type DashScratchRepo,
 } from "./dash-fixture";
 
@@ -233,7 +233,7 @@ describe.skipIf(!SHOULD_RUN)("AT0438: the always-on Dashes section", () => {
         note("at0438 lens, unbound register", (await app.screenshot()).path);
 
         // ── Bind: the row STAYS and the worker's atom takes the eyebrow ───
-        await shellAndSettle(app, `${tugutilPath(CHECKOUT)} dash bind ${DASH_NAME}`);
+        await shellAndSettle(app, `${tugtoolPath(CHECKOUT)} dash bind ${DASH_NAME}`);
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(WORKER)}) !== null`,
           { timeoutMs: 30000 },
@@ -300,7 +300,7 @@ describe.skipIf(!SHOULD_RUN)("AT0438: the always-on Dashes section", () => {
         note("at0438 lens, bound register", (await app.screenshot()).path);
 
         // ── Unbind: the worker's atom leaves the eyebrow ──────────────────
-        await shellAndSettle(app, `${tugutilPath(CHECKOUT)} dash unbind`, 1);
+        await shellAndSettle(app, `${tugtoolPath(CHECKOUT)} dash unbind`, 1);
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(WORKER)}) === null`,
           { timeoutMs: 30000 },

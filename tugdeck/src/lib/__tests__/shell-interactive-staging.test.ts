@@ -29,7 +29,7 @@ describe("interactiveStagingSteer", () => {
     ]) {
       const steer = interactiveStagingSteer(command);
       expect(steer, command).not.toBeNull();
-      expect(steer, command).toContain("tugutil file stage");
+      expect(steer, command).toContain("tugtool file stage");
     }
   });
 
@@ -86,7 +86,7 @@ describe("interactiveStagingSteer", () => {
       "git log -p",
       "git show -p HEAD",
       "grep -p pattern file",
-      "tugutil file stage --patch p.diff",
+      "tugtool file stage --patch p.diff",
       "",
       "git",
     ]) {

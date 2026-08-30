@@ -32,11 +32,11 @@ build-release:
 
 # Run the CLI
 run *ARGS:
-    cargo run -p tugutil -- {{ARGS}}
+    cargo run -p tugtool -- {{ARGS}}
 
 # Update golden files (for intentional schema changes)
 update-golden:
-    TUG_UPDATE_GOLDEN=1 cargo nextest run -p tugutil golden
+    TUG_UPDATE_GOLDEN=1 cargo nextest run -p tugtool golden
 
 # Generate documentation
 doc:
@@ -44,4 +44,4 @@ doc:
 
 # Install locally
 install:
-    cargo install --path crates/tugutil
+    cargo install --path crates/tugtool

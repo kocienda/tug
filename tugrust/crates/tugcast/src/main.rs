@@ -91,7 +91,7 @@ async fn main() {
 
     // Write the per-instance bundle-path marker. When Swift launched
     // us it passed TUG_INSTANCE_ID and TUG_BUNDLE_PATH; the marker
-    // anchors `tugutil host instance prune` orphan detection. When either
+    // anchors `tugtool host instance prune` orphan detection. When either
     // var is unset (standalone harness launches, dev iteration) the
     // helper no-ops.
     match tug_instance::write_bundle_path_marker() {
@@ -2004,7 +2004,7 @@ async fn main() {
     // so the auth state and auth_url could use the actually-bound port.
 
     // Register with the per-host instance registry. Best-effort: if the
-    // registry write fails we log and continue — `tugutil host tell` will
+    // registry write fails we log and continue — `tugtool host tell` will
     // not find us, but the runtime is otherwise unaffected.
     register_with_registry(actual_port, &cli.session);
 
@@ -2590,7 +2590,7 @@ fn register_with_registry(actual_port: u16, tmux_session: &str) {
         bundle_path,
         pid: std::process::id() as i32,
         // The parent process is the GUI host (`Tug.app`) that spawned
-        // tugcast. Recording it lets `tugutil host instance stop` tear down
+        // tugcast. Recording it lets `tugtool host instance stop` tear down
         // the host app — tugcast then follows via its parent-watch
         // (see the parent_watch loop in `run`). `0` if somehow already
         // reparented (no live GUI host to signal).

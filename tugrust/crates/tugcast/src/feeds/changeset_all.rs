@@ -17,7 +17,7 @@
 //! catches hand edits. Emission is diff-suppressed.
 //!
 //! One deliberate exception to "every recompute is driven by a real event"
-//! ([P12], Risk R01): out-of-process draft writes (`tugutil draft set`, a
+//! ([P12], Risk R01): out-of-process draft writes (`tugtool draft set`, a
 //! skill authoring a landing draft) are invisible to this process's bump. A
 //! 2 s drafts-version probe (`MAX(updated_at)` over
 //! `changes.changeset_drafts`) fires the existing bump only when the value
@@ -198,7 +198,7 @@ fn dash_log_stamps(registry: &WorkspaceRegistry) -> Vec<Option<std::time::System
         .project_dirs()
         .iter()
         .map(|(root, _key)| {
-            std::fs::metadata(tugutil_core::project_state_dir(root).join("dash-log.md"))
+            std::fs::metadata(tugtool_core::project_state_dir(root).join("dash-log.md"))
                 .and_then(|meta| meta.modified())
                 .ok()
         })

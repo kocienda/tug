@@ -13,7 +13,7 @@ A **tripwire** is a post-commit inspector. It sits on the machine doing nothing 
 
 **Only Tug's own landing gestures fire a tripwire.** A `git commit` typed in a terminal, or a commit made by any tool outside Tug, is invisible to the whole facility — not an oversight but the design: the landing gesture is the one place that knows the branch, the commit, and the sessions whose work went into it, so it is the one place a firing can be built from without guessing.
 
-Your job here is to turn a sentence into a tripwire that will still be right in a month, and then to prove it fires. Everything rides `tugutil tripwire`; you author nothing else.
+Your job here is to turn a sentence into a tripwire that will still be right in a month, and then to prove it fires. Everything rides `tugtool tripwire`; you author nothing else.
 
 **Two things a tripwire never does, and they are not preferences.**
 
@@ -23,7 +23,7 @@ Your job here is to turn a sentence into a tripwire that will still be right in 
 ## The shape of a tripwire
 
 ```
-tugutil tripwire lay <name> --on <trigger> --brief <text|@file> --branch <branch>
+tugtool tripwire lay <name> --on <trigger> --brief <text|@file> --branch <branch>
                  [--where <clause>]... [--scope <path>] [--probe <cmd>]
                  [--model <m>] [--permission-mode <mode>] [--preview]
 ```
@@ -57,9 +57,9 @@ Worth knowing, because a brief is written against it:
 The trip settles one of two ways, through a verb the session runs:
 
 ```
-tugutil tripwire resolve <name> --quiet
-tugutil tripwire resolve <name> --awaiting --headline "<one line>" [--author "<what to change>"]
-tugutil tripwire dismiss <name>
+tugtool tripwire resolve <name> --quiet
+tugtool tripwire resolve <name> --awaiting --headline "<one line>" [--author "<what to change>"]
+tugtool tripwire dismiss <name>
 ```
 
 `--quiet` is "nothing here anybody needs to see" and is the ordinary outcome — a tripwire fires on a pattern, and the pattern occurring is usually not news. `--awaiting` is the tripwire raising its hand: the headline is the one line the Lens row shows, and the trip **holds** — it keeps the tripwire's one-run slot and stays on the surface — until the user has seen it. `dismiss` settles an awaiting trip by hand and discards the dash it was holding.
@@ -83,7 +83,7 @@ The one thing worth asking about is the **probe**, and only when the user's sent
 **2. Validate before you write.**
 
 ```
-tugutil tripwire lay <name> … --preview
+tugtool tripwire lay <name> … --preview
 ```
 
 `--preview` parses everything and writes nothing: the normalized trigger, the branch it resolved, the scope as a canonical path, the probe, the permission mode. It is a **syntax** check, not a rehearsal — it cannot tell you whether any landing on this machine would ever match. Read what it echoes back and confirm the branch it resolved is the branch you meant: a tripwire laid from the wrong directory can pick up a default branch nobody intended.
@@ -91,7 +91,7 @@ tugutil tripwire lay <name> … --preview
 **3. Lay it, and report the receipt.**
 
 ```
-tugutil tripwire lay <name> … --json
+tugtool tripwire lay <name> … --json
 ```
 
 Report what came back — the name, the normalized trigger, the branch, the scope, the probe, the permission mode — not a paraphrase. The receipt is the tripwire.
@@ -99,13 +99,13 @@ Report what came back — the name, the normalized trigger, the branch, the scop
 **4. Shake it down. This is not optional.**
 
 ```
-tugutil tripwire trip <name>
+tugtool tripwire trip <name>
 ```
 
 `trip` fires the tripwire by hand, standing in a landing of the tripwire's own branch at whatever its scope's `HEAD` names. It goes past the guards by construction, because a bench test that could be swallowed as `busy` would test nothing. It is the only way to find out what the tripwire actually does, since `--preview` only ever read the syntax. Run it, then read the log:
 
 ```
-tugutil tripwire log <name>
+tugtool tripwire log <name>
 ```
 
 The log carries every firing, including the ones that said nothing — the swallowed, the quiet, the failed. That is the whole value of it: a tripwire that fires ten times and raises its hand once is working correctly, and this is the only place the other nine are visible. Read the headline the tripwire produced and judge it as the user will: does it name the thing, or does it describe the tripwire?
@@ -113,7 +113,7 @@ The log carries every firing, including the ones that said nothing — the swall
 **5. Revise in place.**
 
 ```
-tugutil tripwire edit <name> [same flags] [--clear scope|probe|model]
+tugtool tripwire edit <name> [same flags] [--clear scope|probe|model]
 ```
 
 Every flag is optional and what you do not name is left alone; `--clear` removes a field rather than setting it. A brief that earned a vague headline is the usual repair, and it is one `edit` and one `trip` away. The tripwire's log survives the edit, so the before and after sit next to each other.
@@ -121,11 +121,11 @@ Every flag is optional and what you do not name is left alone; `--clear` removes
 ## The rest of the verbs
 
 ```
-tugutil tripwire list [--json]        every tripwire on this machine
-tugutil tripwire log <name> [--json]  one tripwire's trip log, the full workings
-tugutil tripwire pause <name>         out of service, keeping the tripwire and its log
-tugutil tripwire resume <name>        back into service
-tugutil tripwire rm <name>            gone, with its log
+tugtool tripwire list [--json]        every tripwire on this machine
+tugtool tripwire log <name> [--json]  one tripwire's trip log, the full workings
+tugtool tripwire pause <name>         out of service, keeping the tripwire and its log
+tugtool tripwire resume <name>        back into service
+tugtool tripwire rm <name>            gone, with its log
 ```
 
 `pause` rather than `rm` for a tripwire that is misbehaving: the log is the evidence for the repair, and removing the tripwire throws it away.

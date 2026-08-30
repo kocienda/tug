@@ -1,8 +1,8 @@
-# Claude Code Guidelines for Tugtool
+# Claude Code Guidelines for Tug
 
 ## Project Overview
 
-Tugtool is a developer tool suite. Its centerpiece is the **Session card** — a graphical surface where shell commands and AI interactions coexist in one UI, replacing the terminal. The suite includes tugcast (WebSocket multiplexer), tugcode (Claude Code bridge), tug (the unified developer CLI — changes & commits, dashes, host plumbing), tugdeck (browser frontend), tugplug (agentless skills), and Tug.app (macOS host).
+Tug is a developer tool suite. Its centerpiece is the **Session card** — a graphical surface where shell commands and AI interactions coexist in one UI, replacing the terminal. The suite includes tugcast (WebSocket multiplexer), tugcode (Claude Code bridge), tugtool (the unified developer CLI — changes & commits, dashes, host plumbing), tugdeck (browser frontend), tugplug (agentless skills), and Tug.app (macOS host).
 
 ## Git Policy
 
@@ -10,9 +10,9 @@ Tugtool is a developer tool suite. Its centerpiece is the **Session card** — a
 
 **Exceptions:**
 - Autonomous implementation: when the user explicitly authorizes autonomous sub-step execution (e.g., "go on your own"), commit after each sub-step using the `/tugplug:draft` skill's message style. Report each commit hash and message.
-- The `dash` and `dash-implement` skills commit on their **dash worktree** (never on `main`) via `tugutil dash commit`, as part of running a recipe / dash. `main` is only updated by the user's landing gestures.
+- The `dash` and `dash-implement` skills commit on their **dash worktree** (never on `main`) via `tugtool dash commit`, as part of running a recipe / dash. `main` is only updated by the user's landing gestures.
 
-The `/tugplug:draft` skill **never commits** — it authors the session's landing draft via `tugutil draft set`. Landing is the user's act: `/commit` (main lane) and `/dash-join <name>` (dash lane) in the Session card are the landing gestures.
+The `/tugplug:draft` skill **never commits** — it authors the session's landing draft via `tugtool draft set`. Landing is the user's act: `/commit` (main lane) and `/dash-join <name>` (dash lane) in the Session card are the landing gestures.
 
 ## Writing prose the Session card renders
 
@@ -22,13 +22,13 @@ Clickability is not what backticks are for: the resolver confirms a path and rul
 
 ## The standalone contract
 
-Tug is distributed as `Tug.app` to people whose projects have nothing to do with this checkout: no `tuglaws/`, no `justfile`, no `CLAUDE.md` of ours, no `~/.local/bin` symlinks, possibly no `jq` or `bun`. Everything the AI needs to drive Tug on such a project must be inside the bundle — the binaries in `Contents/MacOS/` and the plugin at `Contents/Resources/tugplug/`. The contract and its guards are in [tugplug/CLAUDE.md](tugplug/CLAUDE.md#the-standalone-contract): `just tugplug-lint` (in `just lint`) refuses checkout-only shapes under `tugplug/`, and `just test-standalone` (in `just test`) drives the real hook script and dash verbs from a scratch project with an empty PATH. Anything Tugtool-specific a skill would like to say — which recipe builds, which tests are green — belongs in `.tugtool/config.toml` or in this file, never in the plugin.
+Tug is distributed as `Tug.app` to people whose projects have nothing to do with this checkout: no `tuglaws/`, no `justfile`, no `CLAUDE.md` of ours, no `~/.local/bin` symlinks, possibly no `jq` or `bun`. Everything the AI needs to drive Tug on such a project must be inside the bundle — the binaries in `Contents/MacOS/` and the plugin at `Contents/Resources/tugplug/`. The contract and its guards are in [tugplug/CLAUDE.md](tugplug/CLAUDE.md#the-standalone-contract): `just tugplug-lint` (in `just lint`) refuses checkout-only shapes under `tugplug/`, and `just test-standalone` (in `just test`) drives the real hook script and dash verbs from a scratch project with an empty PATH. Anything Tug-specific a skill would like to say — which recipe builds, which tests are green — belongs in `.tugtool/config.toml` or in this file, never in the plugin.
 
 ## Repository Structure
 
 | Directory | Description |
 |-----------|-------------|
-| `tugrust/` | Rust crates (tugcast, tug, tugexec, tugbank, tugcore, the `*-core` libraries — tugutil-core/tugdash-core/tugchanges-core — and supporting libraries) |
+| `tugrust/` | Rust crates (tugcast, tug, tugexec, tugbank, tugcore, the `*-core` libraries — tugtool-core/tugdash-core/tugchanges-core — and supporting libraries) |
 | `tugproto/` | Shared protocol / message types (TypeScript) |
 | `tugcode/` | Claude Code bridge (stream-json IPC); bun-compiled binary |
 | `tugdeck/` | Web frontend (the Session card lives here) |
@@ -63,7 +63,7 @@ just app-test-select         # print that selection without running it
 
 Selection is derived, not guessed: every `*.test.ts` declares the source it exercises with `@covers` lines in its header docblock, and `app-test-changed` resolves the changed files through those declarations. Any new test **must** carry `@covers` — `just app-test-covers-check` fails on a missing declaration or a path that no longer resolves.
 
-The changed files are **this session's**, not the whole tree's. The selector reads `tugutil changes --json` and selects from the attributed bucket plus any unattributed entry carrying a this-session hint; the **foreign** bucket — files another live session claims — is never selected, so a shared checkout no longer hands you tests for work that isn't yours. When the ledger can't answer (no `TUG_SESSION_ID`, unresolvable session, no built `tugutil`), selection falls back to the whole working tree and prints which fallback it took and why.
+The changed files are **this session's**, not the whole tree's. The selector reads `tugtool changes --json` and selects from the attributed bucket plus any unattributed entry carrying a this-session hint; the **foreign** bucket — files another live session claims — is never selected, so a shared checkout no longer hands you tests for work that isn't yours. When the ledger can't answer (no `TUG_SESSION_ID`, unresolvable session, no built `tugtool`), selection falls back to the whole working tree and prints which fallback it took and why.
 
 Do **not** run `just app-test-all` on your own initiative. Run the full corpus only when:
 
@@ -86,7 +86,7 @@ The doctrine is in [tuglaws/app-test-harness.md](tuglaws/app-test-harness.md#sel
 
 Never point the `sqlite3` CLI (or any non-Tug SQLite build) at the live databases under `~/Library/Application Support/Tug/` — a foreign SQLite participating in WAL recovery/checkpointing on a live ledger is a corruption vector (the 2026-07-27 incident). Use `just db-inspect <name|path> ["SQL"]`, which copies the db + WAL/shm to a temp dir and inspects the copy. In Rust, every writable ledger open goes through `tugcore::ledger_db` (enforced by the `no_ad_hoc_ledger_opens` test); shared `changes.db` schema changes require bumping `CHANGES_SCHEMA_VERSION` with a registered migration — never edit the DDL alone.
 
-`apptest_results.db` is the machine-global record of every app-test run — one row per run, one per file in it — keyed by the **resolved base checkout**, so a dash worktree and the checkout it forked from share one history. It exists to answer one question cheaply: every red file in a `Failures:` section arrives with a `history:` line saying whether it was green before you touched it, when it last was, or that it has been red for the last N recorded runs. The same object rides `TUG_APPTEST_JSON`. Write and read it only through `tugutil apptest record|history` (`just db-inspect apptest_results "SELECT …"` to look); recording is telemetry that never gates a run, and retention is the most recent 500 runs per checkout, pruned at record time. `TUG_APPTEST_RESULTS_DB` redirects it for test isolation.
+`apptest_results.db` is the machine-global record of every app-test run — one row per run, one per file in it — keyed by the **resolved base checkout**, so a dash worktree and the checkout it forked from share one history. It exists to answer one question cheaply: every red file in a `Failures:` section arrives with a `history:` line saying whether it was green before you touched it, when it last was, or that it has been red for the last N recorded runs. The same object rides `TUG_APPTEST_JSON`. Write and read it only through `tugtool apptest record|history` (`just db-inspect apptest_results "SELECT …"` to look); recording is telemetry that never gates a run, and retention is the most recent 500 runs per checkout, pruned at record time. `TUG_APPTEST_RESULTS_DB` redirects it for test isolation.
 
 `prompt_history.db` is the machine-global, append-only record of every prompt the user has submitted — shared top-level like `changes.db`, deliberately not per-instance, because the corpus belongs to the user rather than to an instance. Inspect it the same way (`just db-inspect prompt_history "SELECT …"`). It is the one ledger with no retention policy at all: nothing trims it, and any change that would drop, cap, or expire a row is a bug in the feature, not a tuning knob. Its schema is gated on `PRAGMA user_version` with a registered migration list in `prompt_ledger.rs` — the same regime as the other shared ledgers.
 
@@ -96,10 +96,10 @@ Never point the `sqlite3` CLI (or any non-Tug SQLite build) at the live database
 
 A shell command is only attributed when the grammar in `tugchanges-core::shell_ops` can read which files it names — and **a `python3` heredoc that writes a repo file cannot be read at all.** Heredoc bodies are stripped before parsing (a body is data, not commands), so nothing inside one is evidence of anything. Same for `python3 -c`, `perl -e`, `bun -e`. **The PreToolUse gate now denies those**: an interpreter handed its program inline whose text carries both a write-shaped call and a repo path is refused, and the refusal shows you the edit program to write instead. A heredoc that only reads, or that writes under `/tmp` or `target/`, passes untouched.
 
-So write the multi-line edit as an **edit program** — a small program `tugutil` executes itself, which prints the same `TUG-FILE-RECEIPT` an `Edit` would have earned:
+So write the multi-line edit as an **edit program** — a small program `tugtool` executes itself, which prints the same `TUG-FILE-RECEIPT` an `Edit` would have earned:
 
 ```bash
-tugutil file edit <<'EDIT'
+tugtool file edit <<'EDIT'
 file tugdeck/src/deck-manager.ts
   replace "  // The strip's own stop, one past the picture's." with "  // One stop for the whole strip."
   patch <<
@@ -120,14 +120,14 @@ Three rules carry nearly every refusal an edit program has ever earned. **A body
 
 A `<<` body is also an **address**, wherever an address goes — so `after << … >> insert << … >>` anchors past a whole block when no single line in it is worth naming, and beats a line number, which goes stale the moment anything above it moves. `before` takes the block's first line, `after` its last.
 
-Every address resolves against the file's **original** bytes before anything is written, so `delete 166 .. 178` means the lines you just read in `grep -n` however many lines another op inserts above them, ops go in any order, and a program that cannot resolve writes nothing and reports *every* stale address at once — its last line says so, counting the ops that did resolve, and every one of them is still to do. `replace` and `sub` default to `expect 1` — say `all` for a rename campaign. Preview with `tugutil file edit --preview`, which touches no bytes and no mtime and emits no receipt. `tugedit` is the same verb under its own name. The language is specified in [tuglaws/tugedit.md](tuglaws/tugedit.md).
+Every address resolves against the file's **original** bytes before anything is written, so `delete 166 .. 178` means the lines you just read in `grep -n` however many lines another op inserts above them, ops go in any order, and a program that cannot resolve writes nothing and reports *every* stale address at once — its last line says so, counting the ops that did resolve, and every one of them is still to do. `replace` and `sub` default to `expect 1` — say `all` for a rename campaign. Preview with `tugtool file edit --preview`, which touches no bytes and no mtime and emits no receipt. `tugedit` is the same verb under its own name. The language is specified in [tuglaws/tugedit.md](tuglaws/tugedit.md).
 
 The rest of the verbs:
 
 ```bash
-tugutil file edit --patch changes.diff          # a unified diff you already have; --patch - reads it from stdin
-tugutil file probe --patch p.diff -- just app-test at0287-….test.ts   # patch, run, restore
-tugutil file run -- cargo fmt -p tugedit-core   # run a rewriter, receipt what it moved
+tugtool file edit --patch changes.diff          # a unified diff you already have; --patch - reads it from stdin
+tugtool file probe --patch p.diff -- just app-test at0287-….test.ts   # patch, run, restore
+tugtool file run -- cargo fmt -p tugedit-core   # run a rewriter, receipt what it moved
 ```
 
 - **`edit`** is the whole of file editing from the shell: the program shape above for the shapes the interpreters were reached for — several literal pairs on one file, a count guard per pair, a block replaced by a block as a `patch` hunk, a region between two markers, the same rename across several files, a numeric line-range delete, a block appended, a span cut — and `--patch` for a diff you already hold. Either way it prints the same receipt, and a no-match exits non-zero rather than succeeding quietly.

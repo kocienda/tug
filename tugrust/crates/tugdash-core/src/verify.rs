@@ -19,7 +19,7 @@
 //! carrying one is cleaned rather than left holding a fact nothing reads.
 //!
 //! The ending's verification itself lives in [`crate::surfaces`], run by
-//! `tugutil dash verify` over the surfaces a project declares.
+//! `tugtool dash verify` over the surfaces a project declares.
 
 use std::path::Path;
 

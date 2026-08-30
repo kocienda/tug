@@ -6795,7 +6795,7 @@ impl SessionLedger {
 
     /// Every `file_events` row owned by `tug_session_id`, oldest-first by
     /// `at`. The authoritative "files this session changed" list that
-    /// `tugutil changes` filters against current `git status`.
+    /// `tugtool changes` filters against current `git status`.
     pub fn file_events_for_session(
         &self,
         tug_session_id: &str,
@@ -6949,7 +6949,7 @@ impl SessionLedger {
 
     /// The drafts version: `MAX(updated_at)` across every maintained draft,
     /// `None` when the table is empty. The aggregate feed's 2 s probe reads
-    /// this to observe out-of-process writes (`tugutil draft set`) — [P12].
+    /// this to observe out-of-process writes (`tugtool draft set`) — [P12].
     pub fn changeset_drafts_version(&self) -> Result<Option<i64>, LedgerError> {
         let conn = self.db.lock().expect("ledger mutex");
         let version = conn.query_row(

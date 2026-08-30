@@ -212,9 +212,9 @@ function rewrite(trusted: Candidate[]): Map<string, { before: Buffer; after: Buf
 }
 
 /**
- * Land the rewrites as a patch through `tugutil file edit`, so the files carry
+ * Land the rewrites as a patch through `tugtool file edit`, so the files carry
  * a receipt and stay attributed to this session. Falls back to a direct write —
- * saying so — when no tugutil can be found.
+ * saying so — when no tugtool can be found.
  */
 function land(rewritten: Map<string, { before: Buffer; after: Buffer }>): void {
   const scratch = mkdtempSync(join(tmpdir(), "clippy-repair."));
@@ -233,7 +233,7 @@ function land(rewritten: Map<string, { before: Buffer; after: Buffer }>): void {
   }
   if (chunks.length === 0) return;
 
-  const applied = spawnSync(tugutil(), ["file", "edit", "--patch", "-"], {
+  const applied = spawnSync(tugtool(), ["file", "edit", "--patch", "-"], {
     cwd: REPO_ROOT,
     input: chunks.join(""),
     encoding: "utf8",
@@ -241,20 +241,20 @@ function land(rewritten: Map<string, { before: Buffer; after: Buffer }>): void {
   });
   if (applied.status === 0) return;
 
-  console.error("clippy-repair: tugutil could not apply the patch; writing the files directly");
+  console.error("clippy-repair: tugtool could not apply the patch; writing the files directly");
   console.error("clippy-repair: the rewrites will land UNATTRIBUTED — claim them in the Changes card");
   for (const [file, { after }] of rewritten) writeFileSync(join(CARGO_DIR, file), after);
 }
 
 /**
- * The repo's own tugutil, not whatever `~/.local/bin` points at — that symlink
+ * The repo's own tugtool, not whatever `~/.local/bin` points at — that symlink
  * resolves to the main checkout, which is the wrong binary from a worktree.
  */
-function tugutil(): string {
-  const fromEnv = process.env.TUGUTIL;
+function tugtool(): string {
+  const fromEnv = process.env.TUGTOOL;
   if (fromEnv && existsSync(fromEnv)) return fromEnv;
-  const local = join(CARGO_DIR, "target", "debug", "tugutil");
-  return existsSync(local) ? local : "tugutil";
+  const local = join(CARGO_DIR, "target", "debug", "tugtool");
+  return existsSync(local) ? local : "tugtool";
 }
 
 /** One line of the file, for showing what a proposal would replace. */

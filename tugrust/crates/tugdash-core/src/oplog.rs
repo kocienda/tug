@@ -41,9 +41,9 @@
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
-use tugutil_core::paths::project_state_dir;
-use tugutil_core::sanitize_branch_name;
-use tugutil_core::session::now_iso8601;
+use tugtool_core::paths::project_state_dir;
+use tugtool_core::sanitize_branch_name;
+use tugtool_core::session::now_iso8601;
 
 use crate::dash::refuse_unredirected_temp_repo;
 use crate::ops::{

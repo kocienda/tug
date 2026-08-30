@@ -46,7 +46,7 @@ pub fn git_output(dir: &Path, args: &[&str]) -> Result<Output, String> {
 /// status map is empty and everything reads as non-dirty).
 ///
 /// This runs from the project dir, so it returns the worktree the session edits
-/// in — the correct root for the `changes` join. `tugutil_core`'s
+/// in — the correct root for the `changes` join. `tugtool_core`'s
 /// `find_repo_root` is deliberately NOT used: it starts from cwd (can't honor
 /// `--project`) and resolves a linked worktree back to the main repo ([P08]).
 pub fn repo_root_for(dir: &Path) -> std::path::PathBuf {

@@ -1354,7 +1354,7 @@ pub fn ground_synopsis(line: &str, digest: &str) -> GroundingVerdict {
         // word-rich target — a commit message, a long grep — contains a great
         // many subjects by accident, and letting it match refuses good lines:
         // `Investigate local model roadmap` is a fair description for a session
-        // whose activity includes `Bash(tugutil commit --message "plan(new):
+        // whose activity includes `Bash(tugtool commit --message "plan(new):
         // dash/local-model-inv)`, and nothing about it restates that command.
         if line_words.len() > subject.len() + RESTATEMENT_SLACK {
             continue;

@@ -168,7 +168,7 @@ function GalleryAlertInner() {
     if (!alertRef.current) return;
     const confirmed = await alertRef.current.alert({
       title: "Send Feedback?",
-      message: "This will share your last session log with the Tugtool team to help diagnose the issue you reported.",
+      message: "This will share your last session log with the Tug team to help diagnose the issue you reported.",
       confirmLabel: "Send",
     });
     setRefResult(confirmed ? "confirmed" : "cancelled");

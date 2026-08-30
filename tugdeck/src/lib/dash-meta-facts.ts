@@ -70,7 +70,7 @@ export function dashMetaFacts(entry: DashChangesetEntry): DashMetaFact[] {
     facts.push({
       key: "arc-stopped",
       label: stage !== undefined ? `arc stopped · ${stage}` : "arc stopped",
-      tooltip: `The arc stopped${stage !== undefined ? ` in its ${stage} stage` : ""}: ${arc.stopped}\nResume it with \`tugutil dash run ${entry.display_name}\`.`,
+      tooltip: `The arc stopped${stage !== undefined ? ` in its ${stage} stage` : ""}: ${arc.stopped}\nResume it with \`tugtool dash run ${entry.display_name}\`.`,
       tone: "danger",
     });
   }
@@ -94,7 +94,7 @@ export function dashMetaFacts(entry: DashChangesetEntry): DashMetaFact[] {
     facts.push({
       key: "fit",
       label: "fit unverified",
-      tooltip: `The fit was verified at ${short(fit.head)} onto ${short(fit.base)}; one of those has moved since.\nVerify it again with \`tugutil dash verify ${entry.display_name}\`.`,
+      tooltip: `The fit was verified at ${short(fit.head)} onto ${short(fit.base)}; one of those has moved since.\nVerify it again with \`tugtool dash verify ${entry.display_name}\`.`,
       tone: "caution",
     });
   }

@@ -105,7 +105,7 @@ async fn tell_handler(
 
     // Bridge: `changeset_*` CONTROL actions (e.g. `changeset_claim`) live in
     // the supervisor's `handle_control` — the single source of truth shared
-    // with the WebSocket ingress — so the CLI (`tugutil claim`) and the deck
+    // with the WebSocket ingress — so the CLI (`tugtool claim`) and the deck
     // hit the same handler. Gated to the `changeset_` prefix: those verbs act
     // on a project + ledger, never on per-client state, so a tell (which has
     // no client connection) can drive them with a synthetic client id;
@@ -185,7 +185,7 @@ const TELL_SYNTHETIC_CLIENT_ID: u64 = u64::MAX;
 /// aggregate. Composes fresh over the current registry + ledger (the same call
 /// the CHANGESET_ALL feed makes on a bump) and returns it as JSON. Loopback
 /// only; read-only. This is ground truth for "what does compose produce right
-/// now" — the CLI (`tugutil host changesets`) reads it to diagnose a stale or
+/// now" — the CLI (`tugtool host changesets`) reads it to diagnose a stale or
 /// empty Changes view against the actual working-tree scan.
 async fn changesets_handler(
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
@@ -260,7 +260,7 @@ async fn ink_census_handler(
 }
 
 /// Request payload for POST /api/draft — the CLI's landing-draft write
-/// path (`tugutil draft set|clear`). Routing these writes through the
+/// path (`tugtool draft set|clear`). Routing these writes through the
 /// server keeps short-lived CLI processes out of the shared changes
 /// ledger entirely: one writer surface, one journal, one pragma set.
 #[derive(serde::Deserialize)]
@@ -482,7 +482,7 @@ fn apply_draft_request(
 }
 
 /// Request payload for POST /api/dash — the CLI's session↔dash binding
-/// write path (`tugutil dash bind|unbind`, and the `dash_gone` broadcast a
+/// write path (`tugtool dash bind|unbind`, and the `dash_gone` broadcast a
 /// terminal join fires). Spec S04, [P04].
 #[derive(serde::Deserialize)]
 struct DashApiRequest {
@@ -504,7 +504,7 @@ struct DashApiRequest {
     dash_id: Option<String>,
     /// For `dash_gone`: which gesture ended the dash — `"discarded"` or
     /// `"joined"`. Absent reads as a discard, which is what every caller
-    /// before this field existed was, so an older `tugutil` still works.
+    /// before this field existed was, so an older `tugtool` still works.
     #[serde(default)]
     reason: Option<String>,
 }
@@ -718,7 +718,7 @@ fn apply_dash_request(
         //
         // It binds and returns; it never rotates. The request arrives from
         // inside the conversation session's own turn — the model typing
-        // `tugutil dash run` is mid-turn on the card the arc is about — so
+        // `tugtool dash run` is mid-turn on the card the arc is about — so
         // rotating on receipt would kill claude in the middle of the turn that
         // asked for the arc. The first rotation is that session's own idle
         // transition ([P05]).

@@ -18,7 +18,7 @@
  * feed entry as a `join` block the server computes on every changeset
  * recompute, so this controller reads it and never previews. And the draft is
  * the *dash's*: it keys on the dash's owner id, so the message the run's
- * `tugutil draft set` maintained is what the editor opens on.
+ * `tugtool draft set` maintained is what the editor opens on.
  *
  * @module lib/join-mode-controller
  */
@@ -58,7 +58,7 @@ import {
 export interface JoinTarget {
   /** The dash's owner key: its identity, and its draft row's `owner_id`. */
   ownerId: string;
-  /** The short display name (`tugutil dash join <name>`). */
+  /** The short display name (`tugtool dash join <name>`). */
   name: string;
   /** The base branch this dash joins onto. */
   base: string;

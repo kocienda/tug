@@ -40,7 +40,7 @@ sha2 = { workspace = true }
 tempfile = { workspace = true }
 tower-http = { workspace = true }
 tugcast-core = { path = "../tugcast-core" }
-tugutil-core = { workspace = true }
+tugtool-core = { workspace = true }
 tuggram = { workspace = true }
 tugdash-core = { workspace = true }
 tugchanges-core = { workspace = true }

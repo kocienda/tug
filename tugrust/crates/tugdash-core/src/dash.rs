@@ -11,9 +11,9 @@ use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::Path;
 use std::process::Command;
-use tugutil_core::error::TugError;
-use tugutil_core::paths::project_state_dir;
-use tugutil_core::session::now_iso8601;
+use tugtool_core::error::TugError;
+use tugtool_core::paths::project_state_dir;
+use tugtool_core::session::now_iso8601;
 
 /// Round metadata passed via stdin to `tugdash commit`.
 ///

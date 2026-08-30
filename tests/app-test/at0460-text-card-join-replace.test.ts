@@ -377,7 +377,7 @@ describe.skipIf(!SHOULD_RUN)("AT0460: a join replaces a card's file in place", (
       // What a join does to a dash's own worktree is remove it whole
       // (`remove_dash_worktree`), which leaves a card bound inside it holding a
       // path that is genuinely gone. This drives that teardown directly rather
-      // than through `tugutil dash join`: the join pipeline — resolver, tier
+      // than through `tugtool dash join`: the join pipeline — resolver, tier
       // checks, candidate — is a different subject, and none of it is what the
       // card reacts to. The directory removal is the real event either way.
       const fixture = mkFixture("at0460-dash");

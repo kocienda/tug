@@ -609,7 +609,7 @@ async fn git_log_subjects(repo_dir: &Path, n: usize) -> Vec<String> {
 /// carried it, which is why the birth record writes an empty note and so
 /// contributes nothing.
 fn read_dash_log(repo_dir: &Path, dash_name: &str) -> Vec<String> {
-    let path = tugutil_core::paths::project_state_dir(repo_dir).join("dash-log.md");
+    let path = tugtool_core::paths::project_state_dir(repo_dir).join("dash-log.md");
     let Ok(content) = std::fs::read_to_string(path) else {
         return Vec::new();
     };
@@ -1327,7 +1327,7 @@ mod tests {
             std::env::set_var("TUG_DATA_DIR", home.path());
         }
         let repo = tempfile::tempdir().expect("tempdir");
-        let state = tugutil_core::paths::project_state_dir(repo.path());
+        let state = tugtool_core::paths::project_state_dir(repo.path());
         std::fs::create_dir_all(&state).expect("state dir");
         std::fs::write(state.join("dash-log.md"), lines).expect("write log");
         (home, repo)

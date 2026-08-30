@@ -64,7 +64,7 @@ import {
   rmScratchSession,
   seedScratchSession,
   shellAndSettle,
-  tugutilPath,
+  tugtoolPath,
   type DashScratchRepo,
 } from "./dash-fixture";
 
@@ -266,7 +266,7 @@ describe.skipIf(!SHOULD_RUN)("AT0483: the compact dash register", () => {
         note("at0483 masthead at the implement reading", (await app.screenshot()).path);
 
         // ── A dash that is only a brief ───────────────────────────────────
-        await shellAndSettle(app, `${tugutilPath(CHECKOUT)} dash bind ${BRIEF_DASH}`);
+        await shellAndSettle(app, `${tugtoolPath(CHECKOUT)} dash bind ${BRIEF_DASH}`);
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(MASTHEAD_MARK)})
              ?.getAttribute("data-phase") === "brief"`,
@@ -315,7 +315,7 @@ describe.skipIf(!SHOULD_RUN)("AT0483: the compact dash register", () => {
         note("at0483 masthead at the stopped reading", (await app.screenshot()).path);
 
         // ── Unbind takes both marks away ──────────────────────────────────
-        await shellAndSettle(app, `${tugutilPath(CHECKOUT)} dash unbind`, 1);
+        await shellAndSettle(app, `${tugtoolPath(CHECKOUT)} dash unbind`, 1);
         await app.waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(MASTHEAD_MARK)}).length === 0 &&
            document.querySelectorAll(${JSON.stringify(LENS_MARK)}).length === 0`,

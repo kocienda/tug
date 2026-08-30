@@ -165,7 +165,7 @@ interface Moment {
   branched: boolean;
 }
 
-const IMPLEMENT_TITLE = "`tugutil file edit`, the `tugedit` bin, and the receipt";
+const IMPLEMENT_TITLE = "`tugtool file edit`, the `tugedit` bin, and the receipt";
 const DRAFT_SUBJECT = "Add tugedit-core and the edit-program language";
 const DASH = "tugedit-bringup";
 const SOLO_SUBJECT = "Lens Dashes empty state reads None, centered";
@@ -423,7 +423,7 @@ const BLOCKED_CASES: readonly BlockedCase[] = [
     key: "divergent-mine",
     title: "B · your own live work on main",
     caption:
-      "This session edited the file on main while the dash ran, and the two versions differ. Resolve commits that edit onto the base as one commit of its own — from there the two sides are ordinary git history, so the collision reaches the same resolution ladder every join conflict already reaches. No new merge machinery, and `tugutil dash undo` puts the work back uncommitted",
+      "This session edited the file on main while the dash ran, and the two versions differ. Resolve commits that edit onto the base as one commit of its own — from there the two sides are ordinary git history, so the collision reaches the same resolution ladder every join conflict already reaches. No new merge machinery, and `tugtool dash undo` puts the work back uncommitted",
     blocker: {
       kind: "base-dirt",
       title: "Base work in the way",
@@ -1067,7 +1067,7 @@ export function GalleryDashLifecycle(): React.ReactElement {
         </p>
         <p className="cg-dash-prose">
           Resolve is one server verb,{" "}
-          <code>tugutil dash resolve-base &lt;name&gt;</code>, and it{" "}
+          <code>tugtool dash resolve-base &lt;name&gt;</code>, and it{" "}
           <strong>clears the block and stops</strong> — landing stays the
           composer's send, which is why the button does not read "Resolve and
           join". Behind it: identical copies dropped, the user's own divergent

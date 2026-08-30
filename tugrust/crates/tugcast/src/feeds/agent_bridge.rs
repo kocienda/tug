@@ -403,7 +403,7 @@ impl ChildSpawner for TugcodeSpawner {
                 // forwards its environment to Bash tool calls — so a
                 // skill or CLI run inside this session can read
                 // `$TUG_SESSION_ID` to know which session it is. This is
-                // load-bearing for `tugutil changes`, which keys the
+                // load-bearing for `tugtool changes`, which keys the
                 // file-event query on it. The value is the tug session id
                 // (also passed as claude's `--session-id`, so the two
                 // coincide).
@@ -1302,8 +1302,8 @@ async fn mint_replayed_cmd_rows(
     recorded
 }
 
-/// Mint `cmd` rows from any `tugutil file` receipt a successful Bash result
-/// carries. Every Bash result is scanned rather than only parsed `tugutil file`
+/// Mint `cmd` rows from any `tugtool file` receipt a successful Bash result
+/// carries. Every Bash result is scanned rather than only parsed `tugtool file`
 /// invocations, so the receipt still counts when the verb runs through a
 /// wrapper the grammar can't read. Forgery is not a risk: rows are relay-local,
 /// so a session echoing the marker can only attribute files to itself.
@@ -1322,7 +1322,7 @@ async fn mint_receipt_rows(
     if scan.malformed {
         warn!(
             session = %tug_session_id,
-            "a tugutil file receipt failed to parse; its operations are unattributed"
+            "a tugtool file receipt failed to parse; its operations are unattributed"
         );
     }
     let mut recorded = Vec::new();
@@ -2720,7 +2720,7 @@ pub async fn relay_session_io(
                                         // attribute here: the bracket delta
                                         // (live), the declared operations
                                         // (replay, where no fingerprint
-                                        // exists), and any `tugutil file`
+                                        // exists), and any `tugtool file`
                                         // receipt the output carries.
                                         let mut recorded = false;
                                         // A verb receipt is proof (`cmd`), and
@@ -2730,7 +2730,7 @@ pub async fn relay_session_io(
                                         // ON CONFLICT (session, tool_use_id,
                                         // file_path) DO NOTHING, so whichever
                                         // origin lands first wins the row; proof
-                                        // must, or a `tugutil file`/`tugedit`
+                                        // must, or a `tugtool file`/`tugedit`
                                         // edit to an in-tree file loses its
                                         // receipt to the hint and reads as
                                         // UNATTRIBUTED. Read from any successful
@@ -4189,7 +4189,7 @@ mod tests {
     #[tokio::test]
     async fn a_failed_edit_program_records_an_edit_failed_fact() {
         let ledger = Arc::new(crate::session_ledger::SessionLedger::open_in_memory().unwrap());
-        let tool_use = r#"{"type":"tool_use","tool_name":"Bash","tool_use_id":"tu-1","input":{"command":"tugutil file edit"},"timestamp":1700000000000}"#;
+        let tool_use = r#"{"type":"tool_use","tool_name":"Bash","tool_use_id":"tu-1","input":{"command":"tugtool file edit"},"timestamp":1700000000000}"#;
         let tool_result = r#"{"type":"tool_result","tool_use_id":"tu-1","output":"error: nothing was written\nTUG-EDIT-ERROR: {\"class\":\"resolve\",\"exit\":3,\"message\":\"stale\",\"ops_resolved\":1,\"ops_total\":3,\"files\":[\"a.rs\"],\"program\":\"file a.rs\\n\"}","is_error":true}"#;
 
         drive_relay(ledger.clone(), "tug-1", "/proj", &[tool_use, tool_result]).await;
@@ -4525,7 +4525,7 @@ mod tests {
         // the evidence.
         let ledger = Arc::new(crate::session_ledger::SessionLedger::open_in_memory().unwrap());
         let receipt = r#"TUG-FILE-RECEIPT: {\"ops\":[{\"op\":\"deleted\",\"path\":\"/proj/gone.rs\"},{\"op\":\"renamed\",\"path\":\"/proj/new.rs\",\"orig_path\":\"/proj/old.rs\"}]}"#;
-        let tool_use = r#"{"type":"tool_use","tool_name":"Bash","tool_use_id":"tu-verb","input":{"command":"tugutil file rm 'x*'"}}"#;
+        let tool_use = r#"{"type":"tool_use","tool_name":"Bash","tool_use_id":"tu-verb","input":{"command":"tugtool file rm 'x*'"}}"#;
         let tool_result = format!(
             r#"{{"type":"tool_result","tool_use_id":"tu-verb","output":"{receipt}","is_error":false}}"#
         );
@@ -4558,7 +4558,7 @@ mod tests {
         let ledger = Arc::new(crate::session_ledger::SessionLedger::open_in_memory().unwrap());
         let receipt =
             r#"TUG-FILE-RECEIPT: {\"ops\":[{\"op\":\"deleted\",\"path\":\"/proj/gone.rs\"}]}"#;
-        let tool_use = r#"{"type":"tool_use","tool_name":"Bash","tool_use_id":"tu-fail","input":{"command":"tugutil file rm 'x*'"}}"#;
+        let tool_use = r#"{"type":"tool_use","tool_name":"Bash","tool_use_id":"tu-fail","input":{"command":"tugtool file rm 'x*'"}}"#;
         let tool_result = format!(
             r#"{{"type":"tool_result","tool_use_id":"tu-fail","output":"{receipt}","is_error":true}}"#
         );
@@ -4582,7 +4582,7 @@ mod tests {
     #[tokio::test]
     async fn a_malformed_receipt_mints_nothing() {
         let ledger = Arc::new(crate::session_ledger::SessionLedger::open_in_memory().unwrap());
-        let tool_use = r#"{"type":"tool_use","tool_name":"Bash","tool_use_id":"tu-bad","input":{"command":"tugutil file rm 'x*'"}}"#;
+        let tool_use = r#"{"type":"tool_use","tool_name":"Bash","tool_use_id":"tu-bad","input":{"command":"tugtool file rm 'x*'"}}"#;
         let tool_result = r#"{"type":"tool_result","tool_use_id":"tu-bad","output":"TUG-FILE-RECEIPT: {not json","is_error":false}"#;
 
         drive_relay(
@@ -5224,7 +5224,7 @@ mod tests {
         }
     }
 
-    /// The regression: a `tugutil file`/`tugedit` edit to a file in the
+    /// The regression: a `tugtool file`/`tugedit` edit to a file in the
     /// session's own live tree. The command is opaque to the grammar, so the
     /// bracket delta sees the file move and would attribute it a weak `bash`
     /// hint — but the result carries a receipt naming that same file. Both
@@ -5318,7 +5318,7 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(300)).await;
         std::fs::write(root.join("a.txt"), "one\ntwo\n").unwrap();
         // The result carries the receipt an edit program prints, naming the
-        // absolute path — exactly what `tugutil file edit` emits.
+        // absolute path — exactly what `tugtool file edit` emits.
         let receipt = format!(
             "TUG-FILE-RECEIPT: {{\\\"ops\\\":[{{\\\"op\\\":\\\"modified\\\",\\\"path\\\":\\\"{abs_a}\\\"}}]}}"
         );
@@ -6091,7 +6091,7 @@ mod tests {
     #[tokio::test]
     async fn tugcode_spawn_exports_tug_session_id_to_the_child_env() {
         // The env chain that lets a skill / CLI inside the session self-
-        // identify (and `tugutil changes` scope its query) starts here:
+        // identify (and `tugtool changes` scope its query) starts here:
         // tugcast must set TUG_SESSION_ID on the tugcode spawn. Drive the
         // real `TugcodeSpawner::spawn_child` against a stand-in "tugcode"
         // that ignores its argv and echoes the variable, then read it back

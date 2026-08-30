@@ -110,7 +110,7 @@ Authorship is therefore **stated by the sender**, never deduced by the reader. T
 | Face | Where | What it is for |
 |---|---|---|
 | The op | `POST /api/session`, `op: "rotate" \| "rotate_cancel"` | Loopback only, like every tugcast API. Parks the request; refuses a card already running a course; answers an unknown session as a 404 whose body the CLI's port loop reads as "not this instance". |
-| The verb | `tugutil session rotate` | What a model in a turn reaches for. `--prompt` is required; `--stage` defaults to `rotate`; `--cancel` withdraws. Prints a `TUG-ROTATION-RECEIPT:` line naming the stage, the model, when it will happen, and whether the card hands back; every refusal exits 1 with its reason on stderr. |
+| The verb | `tugtool session rotate` | What a model in a turn reaches for. `--prompt` is required; `--stage` defaults to `rotate`; `--cancel` withdraws. Prints a `TUG-ROTATION-RECEIPT:` line naming the stage, the model, when it will happen, and whether the card hands back; every refusal exits 1 with its reason on stderr. |
 | This document | `tuglaws/wheel.md` | The rules above. |
 
 The verb is spelled `session rotate` because it is the session that rotates, and the route follows the same reasoning rather than riding `/api/dash` — a rotation names no dash, and putting the wheel's parameter set inside a dash-shaped type would spell it in the wrong vocabulary.

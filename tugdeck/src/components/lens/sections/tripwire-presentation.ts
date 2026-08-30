@@ -274,7 +274,7 @@ export function describePermissions(mode: string): string {
  */
 export function briefGist(brief: string): string {
   const flat = brief.trim().replace(/\s+/g, " ");
-  // The sentence end, not a period: `tugutil file edit` and `v1.2` both carry
+  // The sentence end, not a period: `tugtool file edit` and `v1.2` both carry
   // one, and neither ends a sentence. A terminator followed by a space and a
   // capital is the shape a sentence actually ends on.
   const end = flat.search(/[.!?](?=\s+[A-Z(`"'“])/u);

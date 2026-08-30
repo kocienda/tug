@@ -331,7 +331,7 @@ class ProcessManager {
     /// The PATH every child of tugcast inherits: the bundle's own
     /// `Contents/MacOS/` first, then the user's shell PATH. tugcode, the
     /// claude it spawns, the plugin hooks, and the shell panes all resolve
-    /// `tugutil` and its siblings from the running bundle — never from a
+    /// `tugtool` and its siblings from the running bundle — never from a
     /// symlink into a source checkout, and never from nothing at all on a
     /// machine that has only Tug.app installed.
     static func childPATH(shellPATH: String) -> String {
@@ -1046,7 +1046,7 @@ class ProcessManager {
     }
 
     /// Stop the same-identity incumbent, then respawn tugcast onto the
-    /// port it releases. Delegates the kill to the bundled `tugutil host
+    /// port it releases. Delegates the kill to the bundled `tugtool host
     /// instance stop`, which already does the graceful host-app SIGTERM
     /// → SIGKILL escalation, the PID-reuse identity guards, and the
     /// tmux-session reap — and, crucially, polls until the processes
@@ -1056,7 +1056,7 @@ class ProcessManager {
     /// loop or kill the wrong process.
     private func takeOverFromIncumbent() {
         let id = InstanceConfig.instanceId
-        if let tug = resolveBundledTool("tugutil") {
+        if let tug = resolveBundledTool("tugtool") {
             let proc = Process()
             proc.executableURL = tug
             proc.arguments = ["host", "instance", "stop", id, "--timeout", "5"]

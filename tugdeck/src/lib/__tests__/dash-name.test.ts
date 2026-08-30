@@ -2,7 +2,7 @@
  * The `/dash-bind` create path's name check, and the registry entry it guards.
  *
  * The check exists because the name is concatenated onto a shell command line,
- * so what it must guarantee is not "this is a valid dash name" — `tugutil` is
+ * so what it must guarantee is not "this is a valid dash name" — `tugtool` is
  * the real validator — but "this is safe to pass through unquoted".
  */
 

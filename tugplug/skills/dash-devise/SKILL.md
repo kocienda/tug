@@ -28,7 +28,7 @@ A plan is a markdown file, and its address is the dash. **An explicit path in th
 Otherwise the target is a **dash name**, and one verb resolves it:
 
 ```bash
-tugutil dash documents <name> --ensure --json
+tugtool dash documents <name> --ensure --json
 ```
 
 `--ensure` creates `.tug/dashes/<name>/` (and keeps `.tug/` out of git) so the write needs no second call; the `plan` field it prints is where the plan goes. Nothing is declared, nothing is asked, and there is no directory name to choose — a dash's documents live at its own address or nowhere.
@@ -53,9 +53,9 @@ The boundary on what is worth asking is in the doctrine's [never-ask list](../..
 
 Author the plan at the output path you were given (or asked for) following the **devise skeleton**, [`tuglaws/devise-skeleton.md`](../../../tuglaws/devise-skeleton.md) — this is the mandatory format. Conform to it exactly:
 
-**When the project has no `tuglaws/devise-skeleton.md`,** the format contract is the summary carried below plus `tugutil plan lint`, which ships with the product and is project-agnostic — write against the summary, lint until it exits 0, and say so. Do not reconstruct the skeleton document from memory; the linter is what the format actually means.
+**When the project has no `tuglaws/devise-skeleton.md`,** the format contract is the summary carried below plus `tugtool plan lint`, which ships with the product and is project-agnostic — write against the summary, lint until it exits 0, and say so. Do not reconstruct the skeleton document from memory; the linter is what the format actually means.
 
-**Writing a brief rather than a plan?** A brief records what was found and what was decided *before* an implementable document exists — no steps, no ledger, no checkpoints. Its format is [`tuglaws/brief-skeleton.md`](../../../tuglaws/brief-skeleton.md): Purpose, Evidence (findings labelled `[F01]…`), Decisions (`[B01]…`, so the plan that follows can cite them), Open Questions, Non-goals, and Exit. It is deliberately unlinted, so nothing checks it and every section may be omitted when it has nothing to say. **When the project has no `tuglaws/brief-skeleton.md`,** there is no format to conform to and no linter standing in for one: write the brief in those six beats, say that the project declares no brief format, and move on. Note that `tugutil plan lint` exits 2 on a brief — that is correct, not a failure.
+**Writing a brief rather than a plan?** A brief records what was found and what was decided *before* an implementable document exists — no steps, no ledger, no checkpoints. Its format is [`tuglaws/brief-skeleton.md`](../../../tuglaws/brief-skeleton.md): Purpose, Evidence (findings labelled `[F01]…`), Decisions (`[B01]…`, so the plan that follows can cite them), Open Questions, Non-goals, and Exit. It is deliberately unlinted, so nothing checks it and every section may be omitted when it has nothing to say. **When the project has no `tuglaws/brief-skeleton.md`,** there is no format to conform to and no linter standing in for one: write the brief in those six beats, say that the project declares no brief format, and move on. Note that `tugtool plan lint` exits 2 on a brief — that is correct, not a failure.
 
 - The skeleton's section order: Purpose, Plan Metadata, Phase Overview (Context / Strategy / Success Criteria / Scope / Non-goals / Dependencies / Constraints / Assumptions), then Open Questions, Risks, Design Decisions, optional Deep Dives / Specification / Rollout / Symbol Inventory, Test Plan Concepts, **Execution Steps** (with a **Step Status Ledger**), Deliverables.
 - Explicit `{#anchor}` headings; kebab-case; no phase numbers in anchors.
@@ -73,7 +73,7 @@ Prefer a tight, real plan over an exhaustive one. Every step should be executabl
 Run the checker over what you wrote:
 
 ```bash
-tugutil plan lint <plan-path>
+tugtool plan lint <plan-path>
 ```
 
 It answers the mechanical half — required sections, unique anchors, `[P##]` vs `[D##]`, per-step field presence, `**Depends on:**` resolution and direction, ledger integrity, banned test shapes. Fix every diagnostic it names, warnings included, and re-run until it is clean. Exit 0 is the bar before you hand off.
@@ -86,7 +86,7 @@ Then run the **cold-reader test**: could a fresh session, given only this docume
 
 - Finish at the natural end — a written plan, lint-clean, at the path you were given — and stop there.
 - **Do not review it, on any model, including Opus.** The review is the arc's *next stage*: its own fresh session, on the model the project declared for it, reading the plan cold. That cold read is the point, and reviewing inline destroys it by handing the review the author's context.
-- **Print no chip and name no next command.** Nobody is going to click it. The runner is watching the documents — it reads `tugutil plan lint` and `tugutil plan status` on the plan you just wrote and rotates the stage itself.
+- **Print no chip and name no next command.** Nobody is going to click it. The runner is watching the documents — it reads `tugtool plan lint` and `tugtool plan status` on the plan you just wrote and rotates the stage itself.
 - **Ask for no rotation either.** The card is already running a score, and a second request on it is refused by name. Say what you wrote and where, and end the turn. Ending the turn *is* the hand-off.
 
 **With no `TUG_DASH_ARC` in the environment, stop and say so.** This skill is a stage of `/dash` rather than a standalone command, and the bare `/dash` is the door into it: it sizes the idea with the user and opens the arc that carries the plan to its review. There is no path from here that ends anywhere else, because the plan is not ready when you finish writing it — it is ready when a fresh session has read it cold, and only the arc opens that session.
@@ -100,12 +100,12 @@ Don't start implementing from the devise skill — authoring and implementing ar
 ## Guardrails
 
 - **No sub-agents.** Research and write in-thread.
-- **Explicit path wins; otherwise the name answers.** The plan goes exactly where the user says, or at the named dash's own address. Never hardcode a directory and never invent one — `tugutil dash documents <name> --ensure` is the resolver, and the only thing worth asking about is which dash.
+- **Explicit path wins; otherwise the name answers.** The plan goes exactly where the user says, or at the named dash's own address. Never hardcode a directory and never invent one — `tugtool dash documents <name> --ensure` is the resolver, and the only thing worth asking about is which dash.
 - **Conform to the skeleton.** `tuglaws/devise-skeleton.md` is the format contract, upheld by authorship and review.
 - **Ground the plan in the real code.** Read before you design.
 - **Standalone always.** The plan must be implementable from any session with zero conversation context — bake every investigation finding into the document.
 - **Don't over-ask.** Clarify only design-changing unknowns.
-- **Lint before handing off.** `tugutil plan lint` exit 0 is the bar.
+- **Lint before handing off.** `tugtool plan lint` exit 0 is the bar.
 - **Never review the plan yourself, on any model** — the review is a fresh session's cold read, and never declare a plan ready that nothing has reviewed.
 - **Never print a chip and never name a next command.** The review is the arc's next stage and the runner is reading the documents; the turn ends at the written plan.
 - **Don't auto-implement.** `dash-devise` produces the document; the review turn improves it; `dash-implement` runs it.

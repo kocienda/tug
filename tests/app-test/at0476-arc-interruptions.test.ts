@@ -9,7 +9,7 @@
  * and there is a gesture that resumes. The first and third are records, and
  * the Rust tests pin them. The **second** is a claim about a card, and a claim
  * about a card is only true if the card shows it — which is what this file is
- * for. Each test drives a real `tugutil` verb through the card's own `$` shell
+ * for. Each test drives a real `tugtool` verb through the card's own `$` shell
  * route (the route that stamps `TUG_SESSION_ID`, so the server can resolve
  * which card asked) and reads the answer off the real DOM and the real ledger.
  *
@@ -19,7 +19,7 @@
  * running, and both are here in full — receipt, `--json` state, and a working
  * resume:
  *
- *   - **`tugutil dash stop`** — the verb that means *stop the arc, keep the
+ *   - **`tugtool dash stop`** — the verb that means *stop the arc, keep the
  *     dash*, and the receipt that says so.
  *   - **A second `/dash` naming another dash** — refused by name, with the
  *     first arc's binding untouched and its record still live.
@@ -37,7 +37,7 @@
  * @covers tugrust/crates/tugcast/src/feeds/dash_arc.rs
  * @covers tugrust/crates/tugcast/src/feeds/dash_arc_runner.rs
  * @covers tugrust/crates/tugcast/src/dash_api.rs
- * @covers tugrust/crates/tugutil/src/dash.rs
+ * @covers tugrust/crates/tugtool/src/dash.rs
  * @covers tugcode/src/session.ts
  */
 
@@ -59,8 +59,8 @@ import {
   rmScratchSession,
   seedScratchSession,
   shellAndSettle,
-  tugutil,
-  tugutilPath,
+  tugtool,
+  tugtoolPath,
   type DashScratchRepo,
 } from "./dash-fixture";
 
@@ -155,14 +155,14 @@ async function shellRowText(app: App): Promise<string[]> {
   return JSON.parse(raw) as string[];
 }
 
-/** What `tugutil dash arc --json` says about a dash, read from the fixture. */
+/** What `tugtool dash arc --json` says about a dash, read from the fixture. */
 function arcReport(name: string): {
   stopped: [string, string] | null;
   resume: string | null;
   done: boolean;
 } {
   const out = JSON.parse(
-    tugutil(["dash", "arc", name, "--json"], {
+    tugtool(["dash", "arc", name, "--json"], {
       cwd: projectDir(),
       binaryRoot: CHECKOUT,
       env: scratch?.cli.env,
@@ -198,7 +198,7 @@ describe.skipIf(!SHOULD_RUN)("AT0476: an interrupted arc says so on the card", (
         testName: "at0476-arc-interruptions",
         env: { TUGBANK_PATH: tugbankPath, TUG_DATA_DIR: scratch?.dataRoot ?? "" },
       });
-      const cli = tugutilPath(CHECKOUT);
+      const cli = tugtoolPath(CHECKOUT);
       try {
         await openCard(app);
 
@@ -232,7 +232,7 @@ describe.skipIf(!SHOULD_RUN)("AT0476: an interrupted arc says so on the card", (
         expect(receipt).toContain(DASH_NAME);
         // The receipt says how to pick the work back up — that is the third
         // column of every row of the doctrine table.
-        expect(receipt).toContain(`tugutil dash run ${DASH_NAME}`);
+        expect(receipt).toContain(`tugtool dash run ${DASH_NAME}`);
         note("at0476 card with the stop receipt", (await app.screenshot()).path);
 
         // ── And the work is still there ───────────────────────────────────
@@ -241,7 +241,7 @@ describe.skipIf(!SHOULD_RUN)("AT0476: an interrupted arc says so on the card", (
         // once the arc is resumed the runner is free to rotate it again, so
         // the record is a moving target and the CLI's statement is not.
         const resumed = JSON.parse(
-          tugutil(["dash", "run", DASH_NAME, "--json"], {
+          tugtool(["dash", "run", DASH_NAME, "--json"], {
             cwd: projectDir(),
             binaryRoot: CHECKOUT,
             env: { ...scratch?.cli.env, TUG_SESSION_ID: SID },
@@ -267,7 +267,7 @@ describe.skipIf(!SHOULD_RUN)("AT0476: an interrupted arc says so on the card", (
         testName: "at0476-arc-interruptions-bind",
         env: { TUGBANK_PATH: tugbankPath, TUG_DATA_DIR: scratch?.dataRoot ?? "" },
       });
-      const cli = tugutilPath(CHECKOUT);
+      const cli = tugtoolPath(CHECKOUT);
       try {
         await openCard(app);
 

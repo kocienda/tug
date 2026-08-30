@@ -99,7 +99,7 @@ pub struct InspectedToolResult {
     /// carry `is_error: true` and must not be attributed ([P04]).
     #[serde(default)]
     pub is_error: bool,
-    /// The tool's output. Read for `tugutil file` receipts — a verb's own
+    /// The tool's output. Read for `tugtool file` receipts — a verb's own
     /// testimony of what it did, which is how a glob or variable operand
     /// becomes proof. Defaulted when absent and emptied when it arrives as
     /// something other than a string: an unexpected output shape must cost the
@@ -588,7 +588,7 @@ pub const CMD_ORIGIN: &str = "cmd";
 /// Reaching beneath a declared path is a **lifecycle** privilege: `rm -rf dir/`
 /// names the directory while `--untracked-files=all` reports the files inside
 /// it, so the removal's proof has to descend to meet them. An edit-class verb
-/// names files — `sed -i`, `perl -i`, `tugutil file edit`, a redirect target all
+/// names files — `sed -i`, `perl -i`, `tugtool file edit`, a redirect target all
 /// require a literal file operand — so an edit declaration promotes on path
 /// equality only. A directory operand reaching an edit-class declaration is the
 /// checkout-pathspec shape that minted proof over a whole subtree on
@@ -762,7 +762,7 @@ pub fn op_for_declared_kind(kind: &DeclaredKind) -> &'static str {
     }
 }
 
-/// The stdout marker a `tugutil file` verb prints to report what it did.
+/// The stdout marker a `tugtool file` verb prints to report what it did.
 pub const RECEIPT_MARKER: &str = "TUG-FILE-RECEIPT: ";
 
 /// One operation a verb receipt reports, with absolute paths.
@@ -794,7 +794,7 @@ pub struct ReceiptScan {
     pub malformed: bool,
 }
 
-/// Scan a Bash `tool_result`'s output for `tugutil file` receipts. The verb
+/// Scan a Bash `tool_result`'s output for `tugtool file` receipts. The verb
 /// performed the expansion a glob or variable hid from the grammar and reports
 /// exactly which files it touched — testimony from a tool we own, which is what
 /// makes those operations provable at all. Unknown JSON fields are ignored, so
@@ -825,8 +825,8 @@ pub fn op_for_receipt(op: &str) -> Option<&'static str> {
     }
 }
 
-/// The stderr marker `tugutil file edit` and `tugedit` print when a program
-/// failed — the receipt's counterpart, and the reason `tugutil` can testify to
+/// The stderr marker `tugtool file edit` and `tugedit` print when a program
+/// failed — the receipt's counterpart, and the reason `tugtool` can testify to
 /// a failure without ever opening a session ledger.
 pub const EDIT_ERROR_MARKER: &str = "TUG-EDIT-ERROR: ";
 

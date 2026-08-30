@@ -9,7 +9,7 @@
  *
  * The harness needs it because an instance's private tmux server is
  * `tug-<token>` — addressing that server by name is the only way to
- * reclaim it when the `tugutil` spawn is unavailable.
+ * reclaim it when the `tugtool` spawn is unavailable.
  */
 
 const FNV_OFFSET_BASIS = 2166136261;

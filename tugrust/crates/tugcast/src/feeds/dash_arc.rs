@@ -25,7 +25,7 @@
 //! moved the documents or it did not.
 
 use tugdash_core::arc::{ArcRecord, ArcStage, ArcStopReason};
-use tugutil_core::plan::ReviewState;
+use tugtool_core::plan::ReviewState;
 
 /// How many review rounds an arc runs before it proceeds anyway.
 ///
@@ -74,7 +74,7 @@ pub struct ArcFacts {
     /// copy after it. `None` when no plan file exists there, which is
     /// what a devise stage that produced nothing looks like.
     pub plan_path: Option<String>,
-    /// `tugutil plan lint` found no errors in the plan at `plan_path`.
+    /// `tugtool plan lint` found no errors in the plan at `plan_path`.
     pub lint_ok: bool,
     /// What the plan's Review Record says about the content on disk now.
     /// `None` when there is no plan to ask about.

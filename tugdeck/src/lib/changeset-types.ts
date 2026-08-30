@@ -247,7 +247,7 @@ export interface DashChangesetEntry {
   documents?: DashDocuments;
   /** What that plan's Review Record says about the document on disk now — one
    *  of `reviewed` | `stale` | `never-reviewed`, the same spellings
-   *  `tugutil plan status` reports. Absent when the dash records no plan, or
+   *  `tugtool plan status` reports. Absent when the dash records no plan, or
    *  when the file cannot be read or parsed: absence means *nothing to say*,
    *  and a surface paints nothing for it. */
   review?: string;

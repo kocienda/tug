@@ -20,7 +20,7 @@ mod source_scan;
 
 /// Resolve the per-instance data directory for `instance_id` without
 /// consulting the environment. Mirrors `instance::data_dir` but with
-/// an explicit ID — used by external CLIs (e.g. `tugutil host instance
+/// an explicit ID — used by external CLIs (e.g. `tugtool host instance
 /// remove`) operating on instances that are not the caller.
 pub fn instance_data_dir_for(instance_id: &str) -> std::path::PathBuf {
     instances_root().join(instance_id)

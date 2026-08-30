@@ -11,11 +11,11 @@ What the session set out to do at the start (context, not the subject):
 - OK. You see what `@tugrust/crates/tugcast/src/scribe.rs` does, eh? What would we need to do to bring this type of AI processing to a *local model* that runs on the *local computer* that we can ship with Tug? It feels to me that this is the …
 
 Where it stands right now (background, not the subject):
-- Bash(tugutil dash commit bonsai-eval --message "eval(bonsai): 8B )
+- Bash(tugtool dash commit bonsai-eval --message "eval(bonsai): 8B )
 - Edit(project_bonsai_local_scribe_eval.md)
 - Bash(cd /Users/kocienda/Mounts/u/src/tugtool
 - Bash(cd /Users/kocienda/Mounts/u/src/tugtool
 - Write(local-model-investigations.md)
 - Bash(cd /Users/kocienda/Mounts/u/src/tugtool
-- Bash(tugutil context)
-- Bash(tugutil commit --message "plan(new): roadmap/local-model-inv)
+- Bash(tugtool context)
+- Bash(tugtool commit --message "plan(new): roadmap/local-model-inv)

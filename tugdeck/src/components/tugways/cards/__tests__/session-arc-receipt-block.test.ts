@@ -29,7 +29,7 @@ const COMPLETE = [
 
 const STOPPED = [
   "arc stopped · foo · in review — the review ended without stamping the plan",
-  "resume with tugutil dash run foo",
+  "resume with tugtool dash run foo",
   "opened on dash/foo-brief.md",
   "devise · opus · claude-a",
   "review · opus · claude-b",
@@ -96,7 +96,7 @@ describe("parsing a stopped arc", () => {
     expect(parsed?.stop).toEqual({
       stage: "review",
       reason: "the review ended without stamping the plan",
-      next: "resume with tugutil dash run foo",
+      next: "resume with tugtool dash run foo",
     });
     // The stages it did walk are still the record, and still parsed.
     expect(parsed?.stages).toHaveLength(2);

@@ -19,13 +19,13 @@ What earns this door is a plan. Work with enough parts that their order is itsel
 
 What that buys is the review — the arc's first stage now, reading the plan **cold**. That was always the load-bearing half: an inline review is handed the author's own context, and the reader you actually want is one who has never seen it. Nothing about the cold read is given up by skipping the brief; what is given up is a devising pass on a plan this turn was better placed to write.
 
-**The arc is a hand-off, not a sequence you run.** A running model cannot drive its own arc — it cannot end its own turn to start the next stage, and each stage wants a session that has never seen the last one's context. So this skill writes the plan, hands the document to `tugutil dash run`, and ends the turn. The server rotates the stages from there, on this same card. Everything below is written for that, because there is no other way through: `dash-devise` is a stage of this arc and stops when it is run outside one.
+**The arc is a hand-off, not a sequence you run.** A running model cannot drive its own arc — it cannot end its own turn to start the next stage, and each stage wants a session that has never seen the last one's context. So this skill writes the plan, hands the document to `tugtool dash run`, and ends the turn. The server rotates the stages from there, on this same card. Everything below is written for that, because there is no other way through: `dash-devise` is a stage of this arc and stops when it is run outside one.
 
 **You are the orchestrator, in-thread.** Do not spawn sub-agents (`Task`). The plugin is agentless by charter.
 
-**`/dash-plan` itself never creates a worktree, never commits, and never joins.** The arc's implement stage *is* `dash-implement`, run by a session the server started, under that skill's own guardrails — including its sanctioned `tugutil dash create` and `tugutil dash commit`. The shared discipline is [`tuglaws/dash-work-doctrine.md`](../../../tuglaws/dash-work-doctrine.md), and the stop-before-join obligation is unchanged: landing is the user's act. Handing work to the arc does not hand over the join.
+**`/dash-plan` itself never creates a worktree, never commits, and never joins.** The arc's implement stage *is* `dash-implement`, run by a session the server started, under that skill's own guardrails — including its sanctioned `tugtool dash create` and `tugtool dash commit`. The shared discipline is [`tuglaws/dash-work-doctrine.md`](../../../tuglaws/dash-work-doctrine.md), and the stop-before-join obligation is unchanged: landing is the user's act. Handing work to the arc does not hand over the join.
 
-**When the project has no `tuglaws/`,** the doctrine and the skeletons are absent — including the devise skeleton this skill authors the plan against. What survives is `tugutil plan lint`, which ships with the product and is what the plan format actually means: write the plan to satisfy the linter, which is the mechanical half of the skeleton, and say plainly that the judgment half is missing. The delegated skills carry the rest inline — one working root, verify before every commit, never commit red, rounds through `tugutil dash commit`, stop before the join. Say so once, at the start, so the user knows which fidelity they are getting; do not reconstruct the missing documents from memory.
+**When the project has no `tuglaws/`,** the doctrine and the skeletons are absent — including the devise skeleton this skill authors the plan against. What survives is `tugtool plan lint`, which ships with the product and is what the plan format actually means: write the plan to satisfy the linter, which is the mechanical half of the skeleton, and say plainly that the judgment half is missing. The delegated skills carry the rest inline — one working root, verify before every commit, never commit red, rounds through `tugtool dash commit`, stop before the join. Say so once, at the start, so the user knows which fidelity they are getting; do not reconstruct the missing documents from memory.
 
 ## Input
 
@@ -40,31 +40,31 @@ Free text. A sentence, a paragraph, a pasted error, or nothing at all — each i
 Before asking the user anything, find out what is already in flight. Three cheap reads answer it:
 
 ```bash
-tugutil dash status              # what this card is bound to, if anything
-tugutil dash list --json         # what dashes exist
+tugtool dash status              # what this card is bound to, if anything
+tugtool dash list --json         # what dashes exist
 ```
 
-There is no paperwork home to resolve: a dash's documents live at `.tug/dashes/<name>/`, and `tugutil dash documents <name> --json` says which of them exist. A dash with no directory is a **state, not an error** — the verb exits 0 with both absent, which is where every new dash starts.
+There is no paperwork home to resolve: a dash's documents live at `.tug/dashes/<name>/`, and `tugtool dash documents <name> --json` says which of them exist. A dash with no directory is a **state, not an error** — the verb exits 0 with both absent, which is where every new dash starts.
 
-Then look for an arc mid-flight. For each name `dash list` reports, and each directory under `.tug/dashes/`, `tugutil plan status <name> --json` reads its plan; `data.review` is the answer. A plan that is `reviewed` and whose steps are all `pending` is a reviewed plan nobody has started — a hand-driven arc's most common resting place, because off Opus the review is a turn boundary ([the review stage](#5-the-review--a-stage-not-a-gate)). Name it and offer to carry it into `dash-implement`.
+Then look for an arc mid-flight. For each name `dash list` reports, and each directory under `.tug/dashes/`, `tugtool plan status <name> --json` reads its plan; `data.review` is the answer. A plan that is `reviewed` and whose steps are all `pending` is a reviewed plan nobody has started — a hand-driven arc's most common resting place, because off Opus the review is a turn boundary ([the review stage](#5-the-review--a-stage-not-a-gate)). Name it and offer to carry it into `dash-implement`.
 
 **A stopped arc is the one thing here that will never announce itself.** A server-driven arc rotates on a tick, so when one stops there is no gesture nobody made to explain the stillness — the card's faces say so, but only to somebody looking at them. So read it:
 
 ```bash
-tugutil dash arc <name> --json     # per dash from `dash list`; no arc exits 0 with `arc: null`
+tugtool dash arc <name> --json     # per dash from `dash list`; no arc exits 0 with `arc: null`
 ```
 
 `data.arc.stopped` names the stage and the reason. Say both, and offer the resume — which is the *same verb*, because the documents hold the progress:
 
 ```bash
-tugutil dash run <name>
+tugtool dash run <name>
 ```
 
 That re-rotates the stopped stage and nothing earlier ([P11]). A stage never re-runs work that already landed; the plan's own ledger is what it resumes against.
 
-**Find what is already written.** The arc opens on a *document*, so before asking the user for anything, find out whether one exists. Documents are not tracked and so never appear in `tugutil changes` — the filesystem is the record, and `tugutil dash documents <name>` reads it. Run it for each name `dash list` reports and each directory under `.tug/dashes/`; a dash whose plan exists is the arc's input, and naming it is usually the entire Orient stage: *"`foo` already has a plan — hand it to the arc?"* A dash carrying a **brief** and no plan is one from before this route wrote plans directly: it is still a valid arc input, and the arc devises from it exactly as it always did.
+**Find what is already written.** The arc opens on a *document*, so before asking the user for anything, find out whether one exists. Documents are not tracked and so never appear in `tugtool changes` — the filesystem is the record, and `tugtool dash documents <name>` reads it. Run it for each name `dash list` reports and each directory under `.tug/dashes/`; a dash whose plan exists is the arc's input, and naming it is usually the entire Orient stage: *"`foo` already has a plan — hand it to the arc?"* A dash carrying a **brief** and no plan is one from before this route wrote plans directly: it is still a valid arc input, and the arc devises from it exactly as it always did.
 
-**A lone argument that names an existing dash is a continuation, not a new idea.** What a user types there — a bare slug, no verb, no sentence — is exactly what an existing dash is called. So before reading a short argument as an idea, check it against `tugutil dash list`. On a hit, say which dash it is and offer to continue it: resume its plan through `dash-implement`, or bind this card to it with `/dash-bind` when the binding is all they wanted. Guessing "new idea" here starts a second dash beside the one they meant.
+**A lone argument that names an existing dash is a continuation, not a new idea.** What a user types there — a bare slug, no verb, no sentence — is exactly what an existing dash is called. So before reading a short argument as an idea, check it against `tugtool dash list`. On a hit, say which dash it is and offer to continue it: resume its plan through `dash-implement`, or bind this card to it with `/dash-bind` when the binding is all they wanted. Guessing "new idea" here starts a second dash beside the one they meant.
 
 Invoked bare with nothing in flight, ask what to work on. That is the whole of the empty case — no menu, no roster of commands.
 
@@ -78,7 +78,7 @@ Read enough code to ask a good question. An idea sharpened against the real file
 
 **Sharpening ends in a document, and for the arc route that is not optional.** An arc opens on a file, never on an idea string — the whole design rests on each stage being startable cold from what the last one wrote ([B14]), and a sentence in a conversation is not something a fresh session can read. So when this session has written nothing, **write the plan here, in this conversation, on the user's own model, as an ordinary interactive turn** — the shape of it is [Hand off](#4-hand-off). That turn is the one place in the whole arc where the user's judgment and the model they chose are both in the room, and spending it is the point rather than a delay.
 
-Then hand off. Never `tugutil dash run` a dash with no plan and no brief — the verb refuses, and inventing a document to satisfy it is inventing the decisions it was supposed to carry.
+Then hand off. Never `tugtool dash run` a dash with no plan and no brief — the verb refuses, and inventing a document to satisfy it is inventing the decisions it was supposed to carry.
 
 ### 3. Size it
 
@@ -98,7 +98,7 @@ This is the whole of the route, and its whole difficulty: **you do not run the a
 **The plan comes first.** When the decisions are the hard part it is the point of the turn; otherwise it is the input the arc needs and cannot invent. Either way it is written here. Settle the dash's name first, then:
 
 ```bash
-tugutil dash documents <name> --ensure --json
+tugtool dash documents <name> --ensure --json
 ```
 
 Write the plan to the `plan` path it prints, against [`tuglaws/devise-skeleton.md`](../../../tuglaws/devise-skeleton.md) — five mandatory sections, plan-local decisions as `[P##]`, one `{#execution-steps}` section over a `{#step-status-ledger}` whose every row is `pending` with no commit. Read the skeleton before writing; it is the format contract, and it says which of its sections are mandatory and which are guidance.
@@ -106,17 +106,17 @@ Write the plan to the `plan` path it prints, against [`tuglaws/devise-skeleton.m
 **Then lint it, and do not hand off until it is clean:**
 
 ```bash
-tugutil plan lint <name>
+tugtool plan lint <name>
 ```
 
-That is not bookkeeping — it is the switch the arc reads. `tugutil plan lint` detects a plan *positively* by its `{#execution-steps}` section, and the runner opens the arc at **review** for a document that lints as a plan and at **devise** for one that does not. A plan you hand over with errors in it is one the arc will send to a devise stage to be rewritten, which is the pass this route exists to skip. Fix every diagnostic, warnings included, and re-run until it is clean.
+That is not bookkeeping — it is the switch the arc reads. `tugtool plan lint` detects a plan *positively* by its `{#execution-steps}` section, and the runner opens the arc at **review** for a document that lints as a plan and at **devise** for one that does not. A plan you hand over with errors in it is one the arc will send to a devise stage to be rewritten, which is the pass this route exists to skip. Fix every diagnostic, warnings included, and re-run until it is clean.
 
 The plan is not stamped here, and you do not review it. The review is the arc's first stage, and it reads cold ([stage 5](#5-the-review--a-stage-not-a-gate)).
 
 **Then hand it over.** The dash name is whatever Orient and Sharpen already settled on — a short slug from the work, the same one `dash create` would have taken. It is the arc's key, it is the address its documents live at, and it is valid before any branch exists ([B16]), so nothing needs creating first:
 
 ```bash
-tugutil dash run <name>
+tugtool dash run <name>
 ```
 
 The verb takes no document: it opens on the dash's own plan, or on a brief when that is all a dash from the older route has, and refuses by name when there is neither.
@@ -140,7 +140,7 @@ A dash handed over with only a brief still opens at devise, and what that stage 
 This is the stage this skill owns outright, because nothing else in the arc will speak until it is over. Under an arc, tell the user what they are about to watch — in a few sentences, before the turn ends:
 
 - **One card, one scroll.** Every stage runs on *this* card, on a fresh claude session, and the transcript is not cleared between them. A labelled divider marks each boundary, naming the stage, its model, and the document it opened on.
-- **Three stages, then a stop.** Review reads the plan cold and stamps it, implement walks the ledger, audit reads the landed code against the plan and fixes what does not match. A stage that fails writes why and stops rather than retrying — the card's faces say which stage and the reason, and `tugutil dash run <name>` resumes exactly there.
+- **Three stages, then a stop.** Review reads the plan cold and stamps it, implement walks the ledger, audit reads the landed code against the plan and fixes what does not match. A stage that fails writes why and stops rather than retrying — the card's faces say which stage and the reason, and `tugtool dash run <name>` resumes exactly there.
 - **The ending is the join offer.** When the audit marks the dash, the Changes shade reveals itself on this card, carrying the message the join would land. Plus one receipt row saying which stages ran, on which sessions. Until then the dash's own strip says which cell it is in, so a run still checking its work does not read as one waiting to be joined.
 - **Nothing needs typing in between.** That is the claim the whole arc rests on, and it is worth stating plainly.
 
@@ -154,8 +154,8 @@ This is the stage this skill owns outright, because nothing else in the arc will
 - **Delegate by reading, never by restating.** A stage's mechanics live in the sibling's `SKILL.md`; reproducing them here creates a second copy to drift.
 - **Own the narration, not the machinery.** `/dash-plan` creates no worktree, commits nothing, and joins nothing. The arc's own stages run under their skills' guardrails.
 - **Ask about the design, never the process.** The route came in with the verb and is never asked about. Everything else is bounded by the doctrine's never-ask list — nothing with a conventional default, nothing the code can answer, and never "should I continue?".
-- **A dash's documents live at its own address.** `.tug/dashes/<name>/`, never in the working tree, and `tugutil dash documents <name>` is what reports them. Nothing is declared and nothing is asked.
-- **An arc opens on a document, never on an idea.** Write the plan in this conversation first, on the user's model, and lint it clean before handing over — a plan with errors is one the arc sends to a devise stage, which is the pass this route skips. `tugutil dash run <name>` needs a document to exist.
+- **A dash's documents live at its own address.** `.tug/dashes/<name>/`, never in the working tree, and `tugtool dash documents <name>` is what reports them. Nothing is declared and nothing is asked.
+- **An arc opens on a document, never on an idea.** Write the plan in this conversation first, on the user's model, and lint it clean before handing over — a plan with errors is one the arc sends to a devise stage, which is the pass this route skips. `tugtool dash run <name>` needs a document to exist.
 - **Hand off by ending the turn.** The first rotation happens at *this* turn's end, so issuing `dash run` is the last thing you do — never wait on it, never poll it, never print a command to start it.
 - **Under an arc there is no review gate.** The review is a stage on its own fresh session, reading the plan cold. Off the arc, the fork below still stands: print the chip and stop; do not review on a model that is not the review model.
 - **Never review the plan you just wrote.** Reviewing your own document in the turn that authored it is the inline review the arc's cold stage exists to replace, and it costs the one reading worth having.

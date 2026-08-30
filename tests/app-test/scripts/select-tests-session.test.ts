@@ -2,7 +2,7 @@
  * select-tests-session.test.ts — selection derives from this session's changes.
  *
  * These run the real `select-tests.ts` as a subprocess inside a copied corpus, against a
- * `tugutil` stub placed exactly where the script resolves it (`tugrust/target/debug/tugutil`
+ * `tugtool` stub placed exactly where the script resolves it (`tugrust/target/debug/tugtool`
  * relative to the copy's repo root). What is under test is the actual script doing actual
  * path resolution and actual `@covers` matching — not a re-implementation of either.
  *
@@ -72,7 +72,7 @@ function lines(s: string): string[] {
     return s.split("\n").filter((l) => l.length > 0);
 }
 
-/** A `tugutil changes --json` payload with the three buckets the selector reads. */
+/** A `tugtool changes --json` payload with the three buckets the selector reads. */
 function payload(buckets: {
     files?: string[];
     unattributed?: { path: string; origin: string }[];
@@ -122,7 +122,7 @@ beforeAll(() => {
     git("config", "user.name", "t");
 
     mkdirSync(join(root, "tugrust", "target", "debug"), { recursive: true });
-    const stub = join(root, "tugrust", "target", "debug", "tugutil");
+    const stub = join(root, "tugrust", "target", "debug", "tugtool");
     writeFileSync(
         stub,
         [
@@ -219,7 +219,7 @@ describe("every fallback says which one it took and why", () => {
     test("a non-zero non-2 exit falls back as unavailable", () => {
         armStub("", 1);
         const r = run(["--print"]);
-        expect(r.err).toContain("tugutil unavailable");
+        expect(r.err).toContain("tugtool unavailable");
         expect(r.err).toContain("selecting from the whole working tree");
         expect(lines(r.out).length).toBeGreaterThan(0);
     });
@@ -227,17 +227,17 @@ describe("every fallback says which one it took and why", () => {
     test("unreadable JSON falls back as unavailable", () => {
         armStub("not json at all", 0);
         const r = run(["--print"]);
-        expect(r.err).toContain("tugutil unavailable (unreadable JSON)");
+        expect(r.err).toContain("tugtool unavailable (unreadable JSON)");
         expect(lines(r.out).length).toBeGreaterThan(0);
     });
 
     test("no built binary falls back as unavailable", () => {
-        const stub = join(root, "tugrust", "target", "debug", "tugutil");
+        const stub = join(root, "tugrust", "target", "debug", "tugtool");
         cpSync(stub, `${stub}.saved`);
         rmSync(stub);
         try {
             const r = run(["--print"]);
-            expect(r.err).toContain("tugutil unavailable (no built binary under tugrust/target)");
+            expect(r.err).toContain("tugtool unavailable (no built binary under tugrust/target)");
             expect(lines(r.out).length).toBeGreaterThan(0);
         } finally {
             cpSync(`${stub}.saved`, stub);

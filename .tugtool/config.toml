@@ -29,13 +29,13 @@ audit_model = "opus"
 # it is 300000.
 # implement_compact_tokens = 300000
 
-# The surfaces this project is made of. `tugutil dash verify <dash>` resolves
+# The surfaces this project is made of. `tugtool dash verify <dash>` resolves
 # every path a dash would land to the surface declaring the longest matching
 # path, refuses — naming them — when one resolves to no surface, and runs what
 # the matched surfaces declare. A path claimed by nothing is the table telling
 # you it has fallen behind the tree; declare a surface for it.
 #
-# Schema and placeholder contract: Surface in tugutil-core/src/config.rs.
+# Schema and placeholder contract: Surface in tugtool-core/src/config.rs.
 
 [[tugtool.dash.surface]]
 name  = "rust"

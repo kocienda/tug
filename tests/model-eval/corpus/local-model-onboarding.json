@@ -32,7 +32,7 @@
   "Bash(ls -la ~/bonsai-eval/ 2>&1 | head -40; echo \"---MODELS---\"; )",
   "Bash(cat ~/bonsai-eval/classify_8b.py)",
   "Bash(cat ~/bonsai-eval/pulse_8b.py)",
-  "Bash(tugutil dash create local-model --description \"Local-model i)",
+  "Bash(tugtool dash create local-model --description \"Local-model i)",
   "ToolSearch(select:TaskCreate,TaskUpdate)",
   "Bash(which swift xcrun huggingface-cli hf python3 2>&1; echo \"---)",
   "TaskCreate(Build a scratch SwiftPM CLI harness in ~/bonsai-eval/ agains)",

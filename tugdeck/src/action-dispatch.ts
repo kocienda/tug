@@ -1191,7 +1191,7 @@ export function initActionDispatch(
   });
 
   // bind_dash_ok / unbind_dash_ok: a session's dash mating changed while the
-  // card is open — a skill running `tugutil dash bind`, or the `dash bind`
+  // card is open — a skill running `tugtool dash bind`, or the `dash bind`
   // that follows a `dash create`. The store's record already exists (the
   // spawn ack made it), so this merges the dash half in rather than replacing
   // it: a `setBinding` here would clobber the `workspaceKey` the pane's feed

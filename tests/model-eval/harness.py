@@ -2,7 +2,7 @@
 
 Register scoring (`run.py`), liveness (`liveness.py`), and turnaround analysis
 (`analyze.py`) are three different questions, but they all reach the model the
-same way: send a digest over the control socket with `tugutil host tell`, then
+same way: send a digest over the control socket with `tugtool host tell`, then
 read the answer back out of the instance's tugcast log. That plumbing lives here
 so the three entry points can differ in what they ask rather than in how.
 """
@@ -81,7 +81,7 @@ def ask(
     before = len(answers(path))
     started = time.monotonic()
     proc = subprocess.run(
-        ["tugutil", "host", "tell", "shared_agent_synopsis",
+        ["tugtool", "host", "tell", "shared_agent_synopsis",
          "--instance", instance, "-p", f"prompt={digest}"],
         capture_output=True, text=True,
     )
@@ -146,7 +146,7 @@ def ask_classify(
     if grammar:
         params += ["-p", f"grammar={grammar}"]
     proc = subprocess.run(
-        ["tugutil", "host", "tell", "shared_agent_classify",
+        ["tugtool", "host", "tell", "shared_agent_classify",
          "--instance", instance, *params],
         capture_output=True, text=True,
     )
@@ -165,7 +165,7 @@ def ask_classify(
 def instance_is_running(instance: str) -> bool:
     """Whether `instance` is live, asked through the registry's own library.
 
-    `tugutil host instance list` is the only correct probe. The raw registry
+    `tugtool host instance list` is the only correct probe. The raw registry
     file (`$TMPDIR/tug-instances.json`) is deliberately not parsed: dead entries
     are pruned at *read* time through the library — "live" means
     `kill(pid, 0) == 0`, see `tugcore/src/registry.rs` — so a crashed instance
@@ -174,7 +174,7 @@ def instance_is_running(instance: str) -> bool:
     and turn a should-skip into a spurious failure.
     """
     proc = subprocess.run(
-        ["tugutil", "host", "instance", "list"], capture_output=True, text=True
+        ["tugtool", "host", "instance", "list"], capture_output=True, text=True
     )
     if proc.returncode != 0:
         return False

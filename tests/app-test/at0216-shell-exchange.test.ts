@@ -13,7 +13,7 @@
  *      proves the shell session is stateful across exchanges. A final
  *      `echo "$TUG_SESSION_ID"` proves the shell child inherits the card's
  *      session id (parity with the agent bridge's env export) — the value
- *      `tugutil changes` reads.
+ *      `tugtool changes` reads.
  *      `/shell` is the deliberate override; a bare command line reaches the
  *      shell through the auto-router (`shell-line-classifier`), which is
  *      at0433's.
@@ -262,7 +262,7 @@ describe.skipIf(!SHOULD_RUN)(
           // --- Four real exchanges through the live shell backend. The last
           // reads $TUG_SESSION_ID,
           // which the shell child must inherit from the card (parity with the
-          // agent bridge) so `tugutil changes` run from here resolves the
+          // agent bridge) so `tugtool changes` run from here resolves the
           // session against the ledger. ---
           await execAndSettle(app, "/shell echo hello-from-shell", 0);
           await execAndSettle(app, "/shell cd sub", 1);

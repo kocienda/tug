@@ -20997,9 +20997,9 @@
       "positionals": "free"
     },
     {
-      "name": "tugutil",
+      "name": "tugtool",
       "source": "curated",
-      "synopsis": "tugutil — the unified Tug developer CLI.\n\nUsage: tugutil <command> [args]\n\nCommands: changes (git changes and commits), dash (worktree lifecycle: create, commit, list, join), draft (the session's landing draft: set, show, clear), host (host plumbing: instance list, state-dir), file (mv, rm, cp), tell (send an action to a running instance).\n\nCommon flags: --json machine-readable output; --instance <id> address a specific running instance.\n\n(tugutil, curated)",
+      "synopsis": "tugtool — the unified Tug developer CLI.\n\nUsage: tugtool <command> [args]\n\nCommands: changes (git changes and commits), dash (worktree lifecycle: create, commit, list, join), draft (the session's landing draft: set, show, clear), host (host plumbing: instance list, state-dir), file (mv, rm, cp), tell (send an action to a running instance).\n\nCommon flags: --json machine-readable output; --instance <id> address a specific running instance.\n\n(tugtool, curated)",
       "flags": [
         "--help",
         "--json",

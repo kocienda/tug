@@ -92,7 +92,7 @@ describe("deriveChangesRouteSnapshot", () => {
   it("dash files never enter the committed set", () => {
     const snap = deriveChangesRouteSnapshot(DATA, BINDING);
     expect(
-      snap.committedPaths.has("tugrust/crates/tugutil/src/commands/dash.rs"),
+      snap.committedPaths.has("tugrust/crates/tugtool/src/commands/dash.rs"),
     ).toBe(false);
   });
 

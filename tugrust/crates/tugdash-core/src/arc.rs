@@ -13,9 +13,9 @@
 
 use serde::{Deserialize, Serialize};
 use std::path::Path;
-use tugutil_core::config::DashConfig;
-use tugutil_core::error::TugError;
-use tugutil_core::paths::project_state_dir;
+use tugtool_core::config::DashConfig;
+use tugtool_core::error::TugError;
+use tugtool_core::paths::project_state_dir;
 
 use crate::dash::{append_dash_log, is_terminal, split_log_line};
 
@@ -195,7 +195,7 @@ impl ArcStopReason {
 
     /// Whether a stop for this reason leaves anything to resume. The two
     /// endings do not: the dash itself is gone, and `read_arc` resets at their
-    /// terminal line, so `tugutil dash run` would open a new arc rather than
+    /// terminal line, so `tugtool dash run` would open a new arc rather than
     /// pick this one up.
     pub fn is_resumable(&self) -> bool {
         !matches!(self, ArcStopReason::Discarded | ArcStopReason::Joined)
@@ -206,7 +206,7 @@ impl ArcStopReason {
 /// default — which sends no `model_change` frame at all.
 ///
 /// Shared rather than private to the runner because the stage label *is* the
-/// role: a `tugutil session rotate --stage review` resolves the model
+/// role: a `tugtool session rotate --stage review` resolves the model
 /// the same way an arc's review stage does, and a second table would be the
 /// same fact written twice.
 pub fn stage_model(config: &DashConfig, stage: ArcStage) -> Option<String> {
@@ -247,7 +247,7 @@ pub struct ArcRecord {
     /// rotation, because resuming a stopped arc *is* rotating it again.
     pub stopped: Option<(ArcStage, String)>,
     /// The stage a resume asked to rotate again. Written by
-    /// `tugutil dash run` on a stopped arc, and cleared by the next
+    /// `tugtool dash run` on a stopped arc, and cleared by the next
     /// `arc-stage` line — the rotation it asked for.
     pub resume: Option<ArcStage>,
     pub done: bool,

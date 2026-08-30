@@ -15,7 +15,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 echo "==> Building release Rust binaries"
-(cd "$REPO_ROOT/tugrust" && cargo build --release -p tugcast -p tugutil -p tugexec -p tugrelaunch)
+(cd "$REPO_ROOT/tugrust" && cargo build --release -p tugcast -p tugtool -p tugexec -p tugrelaunch)
 
 echo "==> Compiling tugcode + tugpulse (bun)"
 # tugcode carries its own package.json/bun.lock; its imports (the agent SDK,

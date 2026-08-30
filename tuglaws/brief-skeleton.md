@@ -12,10 +12,10 @@
   devise skeleton is the format you want.
 
   **This format is deliberately not linted, and the omission is a decision.** There is
-  no `tugutil brief lint`, no parser, and no rules engine. A format written down for
+  no `tugtool brief lint`, no parser, and no rules engine. A format written down for
   the first time has not earned a checker: premature linting calcifies exactly the
   thing that should stay soft while it is still being learned. The boundary holds
-  mechanically rather than by convention — `tugutil plan lint` detects a plan
+  mechanically rather than by convention — `tugtool plan lint` detects a plan
   *positively*, by the presence of an `{#execution-steps}` section, so pointing it at
   a brief exits 2 with "not a plan document" and no accidental linting is possible.
 

@@ -51,7 +51,7 @@
 <<< [20.4s] text_delta (92c) " Vite + React 19): renders tugcast feeds as intera"
 <<< [20.9s] text_delta (41c) "m, marked/shiki/katex/mermaid.⏎- **`./tug"
 <<< [21.4s] text_delta (72c) "rust/Cargo.toml`** — The Rust workspace root (v0.8"
-<<< [21.9s] text_delta (87c) "ines 10 member crates (tugutil, tugcast, tugexec, "
+<<< [21.9s] text_delta (87c) "ines 10 member crates (tugtool, tugcast, tugexec, "
 <<< [22.3s] text_delta (97c) "ependencies and serde dev-build optimizations.⏎⏎As"
 <<< [22.3s] assistant snapshot [text]
 <<< [22.3s] stream:message_stop

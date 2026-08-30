@@ -24,7 +24,7 @@
  * @module lib/dash-review
  */
 
-/** The two states that paint, in the spellings `tugutil plan status` reports. */
+/** The two states that paint, in the spellings `tugtool plan status` reports. */
 export const DASH_REVIEW_PAINTS = ["stale", "never-reviewed"] as const;
 
 /**

@@ -39,13 +39,13 @@
   "Write(report-pulse-8b.md)",
   "Bash(rm -f /Users/kocienda/Mounts/u/src/tugtool/.git/worktrees/bo)",
   "Bash(pgrep -fl git | grep -v pgrep || echo \"no git process\"",
-  "Bash(tugutil dash commit bonsai-eval --message \"eval(bonsai): 8B )",
+  "Bash(tugtool dash commit bonsai-eval --message \"eval(bonsai): 8B )",
   "Edit(project_bonsai_local_scribe_eval.md)",
   "Bash(cd /Users/kocienda/Mounts/u/src/tugtool",
   "Bash(cd /Users/kocienda/Mounts/u/src/tugtool",
   "Write(local-model-investigations.md)",
   "Bash(cd /Users/kocienda/Mounts/u/src/tugtool",
-  "Bash(tugutil context)",
-  "Bash(tugutil commit --message \"plan(new): roadmap/local-model-inv)"
+  "Bash(tugtool context)",
+  "Bash(tugtool commit --message \"plan(new): roadmap/local-model-inv)"
  ]
 }

@@ -161,11 +161,11 @@ prevent — classify on evidence, not on guesswork (see the probe discipline bel
    and update the mirror doc.
 
 **Name a command**: an operation is spelled the same on every user-visible
-surface, and that spelling is its `tugutil` verb path, hyphenated. `tugutil dash
-join` is `/dash-join`; `tugutil dash bind` is `/dash-bind`. The rule exists
+surface, and that spelling is its `tugtool` verb path, hyphenated. `tugtool dash
+join` is `/dash-join`; `tugtool dash bind` is `/dash-bind`. The rule exists
 because a card verb and a CLI verb that do the same thing under two names make
 the pair unlearnable, and because it decides collisions without argument:
-`/commit` is `tugutil commit` (the base branch's landing), so `tugutil dash
+`/commit` is `tugtool commit` (the base branch's landing), so `tugtool dash
 commit` can only ever be `/dash-commit` — reserved, and deliberately unshipped.
 
 **Retire a spelling**: delete the old name. Two deletions do it — the descriptor

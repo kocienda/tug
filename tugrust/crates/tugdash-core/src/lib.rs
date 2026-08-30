@@ -1,4 +1,4 @@
-//! `tugdash-core` — the dash engine, extracted from the `tugutil` grab bag.
+//! `tugdash-core` — the dash engine, extracted from the `tugtool` grab bag.
 //!
 //! A dash *is* a git branch (`tugdash/<name>`) plus a worktree; its lifecycle
 //! and status derive from git, not a database. This crate holds the shared
@@ -36,7 +36,7 @@ pub mod workshop;
 
 /// Surface resolution and the fit check — a project's declared surfaces, the
 /// touched paths each claims, the expanded commands that check them, and the
-/// runner behind `tugutil dash verify`.
+/// runner behind `tugtool dash verify`.
 pub mod surfaces;
 
 /// Join verification — the project's own declared build and test commands run

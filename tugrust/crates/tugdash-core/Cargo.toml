@@ -19,7 +19,7 @@ rusqlite.workspace = true
 tempfile.workspace = true
 tugcore.workspace = true
 tugchanges-core.workspace = true
-tugutil-core.workspace = true
+tugtool-core.workspace = true
 tuggram.workspace = true
 
 [dev-dependencies]

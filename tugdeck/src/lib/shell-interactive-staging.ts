@@ -9,7 +9,7 @@
  *
  * This is not a step toward a terminal emulator ([D111] stands). The graphical
  * surface *is* the answer to `git add -p`: the Changes shade picks hunks, and
- * `tugutil file stage --patch` is the non-interactive verb for a script or an
+ * `tugtool file stage --patch` is the non-interactive verb for a script or an
  * agent.
  *
  * Detection is a literal-token scan — no grammar, no execution, no shelling
@@ -168,7 +168,7 @@ export function interactiveStagingSteer(command: string): string | null {
       "stage nothing and exit as though it had worked.\n\n" +
       `Pick hunks in the ${shade}, or stage a patch without ` +
       "prompting:\n" +
-      "  tugutil file stage --patch <file|->"
+      "  tugtool file stage --patch <file|->"
     );
   }
   return (

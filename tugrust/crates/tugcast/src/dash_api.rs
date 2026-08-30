@@ -69,7 +69,7 @@ pub(crate) enum DashGoneReason {
 }
 
 impl DashGoneReason {
-    /// Read the op's optional field. An older `tugutil` sends none, and a
+    /// Read the op's optional field. An older `tugtool` sends none, and a
     /// discard is what every caller before the field existed was.
     pub(crate) fn parse(word: Option<&str>) -> DashGoneReason {
         match word {
@@ -180,13 +180,13 @@ pub(crate) fn unbind(ledger: &SessionLedger, tug_session_id: &str) -> DashApiOut
 ///
 /// **No receipt and no hand-back.** There is no card left to paint one on: the
 /// entry is going `Closed`, and `wheel::hand_back` refuses `Closed` by
-/// design. That is not a silent failure — the record says it, `tugutil dash
+/// design. That is not a silent failure — the record says it, `tugtool dash
 /// arc` says it, and the Lens says it. The only surface missing is one that
 /// does not exist.
 ///
 /// Unlike an ending, this path *does* write the record: nothing terminal has
 /// been appended to the dash-log, so the arc's generation is still open and
-/// the stop lands inside it. `tugutil dash run <name>` from a fresh card then
+/// the stop lands inside it. `tugtool dash run <name>` from a fresh card then
 /// resumes through the ordinary `arc-resume` path, which makes the previously
 /// accidental resume the designed one.
 ///
@@ -226,7 +226,7 @@ pub(crate) fn stop_an_on_course_cards_arc_as_closed(ledger: &SessionLedger, sess
     }
 }
 
-/// Resolve the arc `tugutil dash stop` asks to stop, or say why there is none.
+/// Resolve the arc `tugtool dash stop` asks to stop, or say why there is none.
 ///
 /// The blocking half only: it names the stage, and the handler's async half —
 /// which holds the supervisor — performs the stop through the one path every

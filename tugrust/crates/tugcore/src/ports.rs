@@ -45,7 +45,7 @@ pub const APPTEST_VITE_PORT_WINDOW: u16 = 100;
 pub const APPTEST_ID_PREFIX: &str = "apptest-";
 
 /// Well-known port for the `apptest` invocation gate
-/// (`tugutil host gate run --name apptest`). One fixed port OUTSIDE every
+/// (`tugtool host gate run --name apptest`). One fixed port OUTSIDE every
 /// hashed window: holding a listener on it is the machine-wide mutex
 /// that serializes whole `just app-test` invocations — native CGEvent
 /// input and app activation are login-session singletons, so only one

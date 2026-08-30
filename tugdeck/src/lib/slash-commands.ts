@@ -216,10 +216,10 @@ export const LOCAL_SLASH_COMMANDS = [
     takesArgs: true,
   },
   // An operation is spelled the same on every surface a user can see it, and
-  // that spelling is its `tugutil` verb path ([P08]): `tugutil dash bind` ⇒
-  // `/dash-bind`, `tugutil dash join` ⇒ `/dash-join`. `/commit` above keeps its
-  // bare name because it rides `tugutil commit` — and `/dash-commit` is
-  // reserved for `tugutil dash commit`, the round verb, which ships no card
+  // that spelling is its `tugtool` verb path ([P08]): `tugtool dash bind` ⇒
+  // `/dash-bind`, `tugtool dash join` ⇒ `/dash-join`. `/commit` above keeps its
+  // bare name because it rides `tugtool commit` — and `/dash-commit` is
+  // reserved for `tugtool dash commit`, the round verb, which ships no card
   // verb yet. The bare `/dash` is not a local command at all: it belongs to the
   // `tugplug:dash` orchestrator skill, and reaches it as a pass-through.
   {

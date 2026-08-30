@@ -122,11 +122,11 @@ impl OpenOp {
 }
 
 /// Like [`replay_onto`], but discovering the repo root from the process cwd —
-/// the `tugutil dash replay` entry point. `main_repo_root` normalization inside
+/// the `tugtool dash replay` entry point. `main_repo_root` normalization inside
 /// means it answers the same from the base checkout and from inside any dash
 /// worktree, the way `join` does.
 pub fn replay(name: &str) -> Result<ReplayOutcome, String> {
-    let repo = tugutil_core::find_repo_root().map_err(|e| e.to_string())?;
+    let repo = tugtool_core::find_repo_root().map_err(|e| e.to_string())?;
     replay_onto(&repo, name)
 }
 
@@ -407,7 +407,7 @@ pub(crate) fn reconcile_ledger_cells(
     let Ok(source) = std::fs::read_to_string(&plan) else {
         return Ok(out);
     };
-    let Ok(doc) = tugutil_core::plan::parse(&source) else {
+    let Ok(doc) = tugtool_core::plan::parse(&source) else {
         return Ok(out);
     };
 
@@ -430,7 +430,7 @@ pub(crate) fn reconcile_ledger_cells(
         match replacement {
             Some(new) => {
                 let short = abbreviate(repo, &new, cell.len());
-                match tugutil_core::plan::rewrite_ledger_commit_cell(&edited, &row.anchor, &short) {
+                match tugtool_core::plan::rewrite_ledger_commit_cell(&edited, &row.anchor, &short) {
                     Ok(next) => {
                         edited = next;
                         out.remapped.push(row.anchor.clone());
@@ -619,7 +619,7 @@ mod tests {
         /// different slug than the code wrote.
         fn dash_log(&self) -> String {
             let root = main_repo_root(self.path());
-            let path = tugutil_core::project_state_dir(&root).join("dash-log.md");
+            let path = tugtool_core::project_state_dir(&root).join("dash-log.md");
             std::fs::read_to_string(path).unwrap_or_default()
         }
     }
@@ -674,7 +674,7 @@ mod tests {
     /// Every commit cell in the dash's plan, in ledger order.
     fn cells(f: &Fixture) -> Vec<String> {
         let source = std::fs::read_to_string(plan_file(f.path(), "demo")).unwrap();
-        tugutil_core::plan::parse(&source)
+        tugtool_core::plan::parse(&source)
             .unwrap()
             .ledger_rows
             .iter()

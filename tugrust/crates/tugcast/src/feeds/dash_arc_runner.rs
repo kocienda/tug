@@ -47,8 +47,8 @@ use tugdash_core::arc::{
     append_arc_stop, read_arc, stage_model,
 };
 use tugdash_core::dash::append_dash_log;
-use tugutil_core::config::{Config, DashConfig};
-use tugutil_core::plan;
+use tugtool_core::config::{Config, DashConfig};
+use tugtool_core::plan;
 
 use super::agent_supervisor::{AgentSupervisor, SpawnState};
 use super::dash_arc::{
@@ -916,7 +916,7 @@ fn format_arc_receipt(record: &ArcRecord) -> String {
 /// A stop the receipt could not explain is a stop the arc must not write.
 fn format_arc_stop_receipt(record: &ArcRecord, stage: ArcStage, reason: ArcStopReason) -> String {
     let next = if reason.is_resumable() {
-        format!("resume with tugutil dash run {}", record.dash)
+        format!("resume with tugtool dash run {}", record.dash)
     } else {
         "there is nothing to resume".to_string()
     };
@@ -961,7 +961,7 @@ pub(crate) enum HandBack {
 /// Stop an arc: hand the card back, leave the receipt, record the stop.
 ///
 /// Every stopper comes through here — the predicate's `Stop`, a refused
-/// rotation, an ending, a card close, and `tugutil dash stop`. Four call sites
+/// rotation, an ending, a card close, and `tugtool dash stop`. Four call sites
 /// that each remembered three of the four acts is how a discard came to tear
 /// down a binding while leaving the card on the stage's model with nothing
 /// armed.
@@ -2163,7 +2163,7 @@ Some context.
 
     #[tokio::test]
     async fn a_user_stop_writes_the_record_the_receipt_and_the_hand_back() {
-        // What `tugutil dash stop` reaches: the same three acts every other
+        // What `tugtool dash stop` reaches: the same three acts every other
         // stop performs, so a stop the user asked for is not a lesser one.
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
@@ -2200,7 +2200,7 @@ Some context.
         assert_eq!(said.len(), 1, "got {said:?}");
         assert!(said[0].contains("you stopped it"), "{said:?}");
         assert!(
-            said[0].contains("resume with tugutil dash run demo"),
+            said[0].contains("resume with tugtool dash run demo"),
             "and the receipt says how to pick it back up: {said:?}",
         );
         assert_eq!(
@@ -2441,7 +2441,7 @@ Some context.
             assert!(receipt.contains(reason.sentence()), "got {receipt}");
             if reason.is_resumable() {
                 assert!(
-                    receipt.ends_with("\nresume with tugutil dash run foo"),
+                    receipt.ends_with("\nresume with tugtool dash run foo"),
                     "got {receipt}"
                 );
             } else {
@@ -2455,7 +2455,7 @@ Some context.
         assert_eq!(
             format_arc_stop_receipt(&record, ArcStage::Devise, ArcStopReason::Lint),
             "arc stopped · foo · in devise — the plan does not lint\n\
-             resume with tugutil dash run foo"
+             resume with tugtool dash run foo"
         );
         assert_eq!(
             format_arc_stop_receipt(&record, ArcStage::Review, ArcStopReason::Discarded),
@@ -2465,7 +2465,7 @@ Some context.
         assert_eq!(
             format_arc_stop_receipt(&record, ArcStage::Implement, ArcStopReason::CardTaken),
             "arc stopped · foo · in implement — you took the card back\n\
-             resume with tugutil dash run foo"
+             resume with tugtool dash run foo"
         );
     }
 
@@ -2631,7 +2631,7 @@ Some context.
         assert!(!declarations.run_complete);
 
         let log = std::fs::read_to_string(
-            tugutil_core::paths::project_state_dir(root).join("dash-log.md"),
+            tugtool_core::paths::project_state_dir(root).join("dash-log.md"),
         )
         .unwrap();
         let compact = log

@@ -54,7 +54,7 @@ import {
   makeDashScratchRepo,
   rmScratchSession,
   seedScratchSession,
-  tugutil,
+  tugtool,
 } from "./dash-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
@@ -187,7 +187,7 @@ describe.skipIf(!SHOULD_RUN)("AT0471: a deferred fronting re-arms", () => {
         note("at0471 composer holds a character — the quiet gate is shut");
 
         // ── The dash goes ready, and nothing happens ─────────────────────
-        tugutil(["dash", "bind", DASH], {
+        tugtool(["dash", "bind", DASH], {
           cwd: scratch,
           binaryRoot: cli.binaryRoot,
           env: { ...(cli.env ?? {}), TUG_SESSION_ID: SID },

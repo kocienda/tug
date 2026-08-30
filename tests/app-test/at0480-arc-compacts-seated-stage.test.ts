@@ -59,8 +59,8 @@ import {
   rmDashScratchRepo,
   rmScratchSession,
   seedScratchSession,
-  tugutil,
-  tugutilPath,
+  tugtool,
+  tugtoolPath,
   type DashScratchRepo,
 } from "./dash-fixture";
 
@@ -219,7 +219,7 @@ describe.skipIf(!SHOULD_RUN)("AT0480: the arc compacts a seated implement stage"
         testName: "at0480-arc-compacts-seated-stage",
         env: { TUGBANK_PATH: tugbankPath, TUG_DATA_DIR: scratch?.dataRoot ?? "" },
       });
-      const cli = tugutilPath(CHECKOUT);
+      const cli = tugtoolPath(CHECKOUT);
       try {
         await openCard(app);
 
@@ -257,7 +257,7 @@ describe.skipIf(!SHOULD_RUN)("AT0480: the arc compacts a seated implement stage"
 
         // The placard reads the same act off the arc record.
         const arc = JSON.parse(
-          tugutil(["dash", "arc", DASH_NAME, "--json"], {
+          tugtool(["dash", "arc", DASH_NAME, "--json"], {
             cwd: projectDir(),
             binaryRoot: CHECKOUT,
             env: scratch?.cli.env,

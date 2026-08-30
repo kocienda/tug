@@ -1514,7 +1514,7 @@ pub enum ControlOutcome {
     /// Action handled, with the reply body it broadcast on CONTROL. The
     /// WebSocket ingress treats this exactly like `Handled` (its clients
     /// already received the broadcast); the `/api/tell` bridge returns the
-    /// body to the HTTP caller — which is what lets `tugutil claim` report
+    /// body to the HTTP caller — which is what lets `tugtool claim` report
     /// what actually happened instead of inferring success from a bare 200.
     HandledWith(serde_json::Value),
     /// Action belongs to the supervisor but failed validation or
@@ -3495,7 +3495,7 @@ enum Decision {
 /// Announce a completed session↔dash mating to every connected deck.
 ///
 /// A bind has two doors — the `bind_dash` CONTROL verb a card sends, and
-/// `POST /api/dash` the CLI posts (which is what `tugutil dash create`'s
+/// `POST /api/dash` the CLI posts (which is what `tugtool dash create`'s
 /// auto-bind rides) — and it is the same fact through either one. Both call
 /// this, because a deck that learns about one door's binds but not the other's
 /// wears a chip that disagrees with the ledger until something else happens to
@@ -4782,7 +4782,7 @@ impl AgentSupervisor {
             // (Migration bootstrap and supervisor-side spawn-time
             // reconciliation both removed by mid-turn-replay
             // [Step 5.2](#step-5-2) / [Step 5.6](#step-5-6).
-            // Tugtool has no production users, so historical JSONL
+            // Tug has no production users, so historical JSONL
             // → ledger migration is unneeded; the journal only ever
             // holds *currently pending* submissions, never historical
             // ones. Per-session pending rows are surfaced directly
@@ -7186,7 +7186,7 @@ impl AgentSupervisor {
                 }
                 for (session, paths) in by_session {
                     let text = format!(
-                        "Your in-progress edit to {} was committed onto the base as its own commit, to clear the join of dash '{}'. The files are unchanged on disk; `tugutil dash undo` puts the edit back uncommitted.",
+                        "Your in-progress edit to {} was committed onto the base as its own commit, to clear the join of dash '{}'. The files are unchanged on disk; `tugtool dash undo` puts the edit back uncommitted.",
                         paths.join(", "),
                         outcome.name,
                     );
@@ -8979,7 +8979,7 @@ impl AgentSupervisor {
                     changed
                 };
                 // A switch mid-stage is real and belongs in the record, so it
-                // goes where a switch belongs: the dash-log, which `tugutil
+                // goes where a switch belongs: the dash-log, which `tugtool
                 // dash arc` prints and the Lens reads.
                 //
                 // The transcript's stage divider is deliberately **not**

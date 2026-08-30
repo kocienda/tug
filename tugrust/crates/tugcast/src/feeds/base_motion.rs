@@ -243,12 +243,12 @@ pub fn compose_conflict_message(m: &ConflictMessage<'_>) -> String {
         "\nResolve it on the dash's own worktree:\n  \
          git -C {} rebase {}\n\
          Fix each conflict with both sides in view, then `git rebase --continue`. When the\n\
-         rebase is done, run `tugutil dash replay {} --json` to record the moved rounds.\n",
+         rebase is done, run `tugtool dash replay {} --json` to record the moved rounds.\n",
         m.worktree_abs, m.base_branch, m.dash,
     ));
     out.push_str(&format!(
         "After the replay records, verify the fit:\n  \
-         tugutil dash verify {}\n\
+         tugtool dash verify {}\n\
          It resolves every path the dash would land to a declared surface and runs what\n\
          those surfaces declare. A refusal names paths no surface claims — declare one for\n\
          them in .tugtool/config.toml rather than working around it. Red is ordinary work:\n\
@@ -1202,7 +1202,7 @@ mod tests {
             "the rebase is worktree-absolute, not relative to wherever the agent stands",
         );
         assert!(
-            text.contains("tugutil dash replay demo"),
+            text.contains("tugtool dash replay demo"),
             "the bookkeeping verb finishes the contract",
         );
         assert!(
@@ -1214,7 +1214,7 @@ mod tests {
             "the intent rides along"
         );
         assert!(
-            text.contains("tugutil dash verify demo"),
+            text.contains("tugtool dash verify demo"),
             "the turn names the verb, which knows what this project is made of",
         );
         assert!(
@@ -1229,7 +1229,7 @@ mod tests {
             text.contains("Red is ordinary work"),
             "a red verify is ordinary work, and the turn says so",
         );
-        let replay_at = text.find("tugutil dash replay demo").expect("replay named");
+        let replay_at = text.find("tugtool dash replay demo").expect("replay named");
         let verify_at = text.find("verify the fit").expect("verify named");
         assert!(
             replay_at < verify_at,
@@ -1253,9 +1253,9 @@ mod tests {
             intent: "   ",
             worktree_abs: "/repo/wt",
         });
-        assert!(text.contains("tugutil dash verify demo"));
+        assert!(text.contains("tugtool dash verify demo"));
         assert!(
-            text.contains("tugutil dash replay demo"),
+            text.contains("tugtool dash replay demo"),
             "the bookkeeping verb stands with or without a declaration",
         );
         assert!(text.contains("git rebase --abort"));
@@ -1274,7 +1274,7 @@ mod tests {
             worktree_abs: "/repo/wt",
         });
         assert!(!text.contains("This dash's intent"));
-        assert!(text.contains("tugutil dash replay demo"));
+        assert!(text.contains("tugtool dash replay demo"));
     }
 
     #[test]
@@ -1567,9 +1567,9 @@ mod tests {
         // Quiet, never silent: the motion left a record.
         // Resolved through the same root normalization the library applies, so
         // the test cannot read a different project slug than the code wrote.
-        let root = tugutil_core::find_repo_root_from(repo.path()).unwrap();
+        let root = tugtool_core::find_repo_root_from(repo.path()).unwrap();
         let log =
-            std::fs::read_to_string(tugutil_core::project_state_dir(&root).join("dash-log.md"))
+            std::fs::read_to_string(tugtool_core::project_state_dir(&root).join("dash-log.md"))
                 .unwrap_or_default();
         assert!(log.contains("replayed"), "the dash-log names the replay");
 
@@ -1755,7 +1755,7 @@ mod tests {
             text.contains("f.txt"),
             "the turn names the conflicting path"
         );
-        assert!(text.contains("tugutil dash replay demo"));
+        assert!(text.contains("tugtool dash replay demo"));
 
         // The opener rode out with it — the turn is not invisible.
         let opener = out_rx.try_recv().expect("an opener");

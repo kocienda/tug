@@ -8,7 +8,7 @@ Two dashes wedged unjoinable in one afternoon, the Lens Dashes section showed ev
 
 It happened twice in one day, to two ordinary card sessions, both of which had backgrounded app-test runs and `until grep VERDICT` watchers going.
 
-**The duplication.** The aggregate CHANGESET_ALL feed composes the dash list once per open project (`compose_aggregate`, `tugrust/crates/tugcast/src/feeds/changeset_all.rs`), but a dash list is a property of the *repo*: `dash_detail_entries_in` derives from `git worktree list`, which answers identically from a linked worktree and from the checkout it forked from. Confirmed by hand — `tugutil dash list` run inside `.tug/worktrees/<dash>` prints the full repo-wide list. So any second open project on one repo doubles every dash row in the Lens, and hands `TugListView` duplicate ids while it does.
+**The duplication.** The aggregate CHANGESET_ALL feed composes the dash list once per open project (`compose_aggregate`, `tugrust/crates/tugcast/src/feeds/changeset_all.rs`), but a dash list is a property of the *repo*: `dash_detail_entries_in` derives from `git worktree list`, which answers identically from a linked worktree and from the checkout it forked from. Confirmed by hand — `tugtool dash list` run inside `.tug/worktrees/<dash>` prints the full repo-wide list. So any second open project on one repo doubles every dash row in the Lens, and hands `TugListView` duplicate ids while it does.
 
 Three projects on this one repo were live at peak: two of its linked worktrees, and `/u/src/tugtool` — the symlink spelling of the base checkout. That last one is worth its own sentence, because it is a duplicate producer with nothing exotic behind it: an extra working directory naming the same repo by another path is enough.
 

@@ -319,7 +319,7 @@ pub fn sweep_dead_sockets(tmp: &Path, min_age: Duration, mode: SweepMode) -> Vec
 
 /// Remove data dirs of app-test instances that are provably finished.
 ///
-/// Mirrors the data-only branch of `tugutil host instance prune`: the
+/// Mirrors the data-only branch of `tugtool host instance prune`: the
 /// dir name must be an app-test id, the registry must have no live
 /// entry, the bundle-path marker must resolve to a bundle that still
 /// exists, and the dir must have aged past `min_age`. Marker-missing and

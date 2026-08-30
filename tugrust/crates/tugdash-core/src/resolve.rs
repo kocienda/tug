@@ -38,7 +38,7 @@ use std::process::Command;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
-use tugutil_core::sanitize_branch_name;
+use tugtool_core::sanitize_branch_name;
 
 use crate::ops::{
     branch_exists, branch_name, commit_worktree_dirt, config_get, dash_base, git_output,
@@ -184,7 +184,7 @@ pub fn resolve_conflicts_cwd(
     name: &str,
     merger: Option<&dyn FileMerger>,
 ) -> Result<ResolveOutcome, String> {
-    let repo = tugutil_core::find_repo_root().map_err(|e| e.to_string())?;
+    let repo = tugtool_core::find_repo_root().map_err(|e| e.to_string())?;
     resolve_conflicts(&repo, name, merger)
 }
 

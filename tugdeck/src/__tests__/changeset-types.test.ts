@@ -285,7 +285,7 @@ describe("aggregate changeset wire contract", () => {
     expect(join.phase).toBe("resolved");
     expect(join.candidate).toBe("9f1c2d3e4b5a60718293a4b5c6d7e8f901234567");
     expect(join.reviewed).toBe(false);
-    expect(join.conflicts).toEqual(["tugrust/crates/tugutil/src/commands/dash.rs"]);
+    expect(join.conflicts).toEqual(["tugrust/crates/tugtool/src/commands/dash.rs"]);
     expect(join.archaeology?.[0]?.total).toBe(1);
     expect(join.archaeology?.[0]?.commits?.[0]?.sha).toBe("3722f24");
 

@@ -290,15 +290,15 @@ function matches(pattern: string, path: string): boolean {
 }
 
 /**
- * The `tugutil` this checkout built, resolved by absolute path from `REPO_ROOT`.
+ * The `tugtool` this checkout built, resolved by absolute path from `REPO_ROOT`.
  *
- * Never by bare name: `~/.local/bin/tugutil` symlinks into the main checkout, so a
+ * Never by bare name: `~/.local/bin/tugtool` symlinks into the main checkout, so a
  * `PATH` lookup from a worktree silently answers about a different tree — which is
  * exactly the mis-scoping this whole path exists to end.
  */
-function tugutilPath(): string | null {
+function tugtoolPath(): string | null {
     for (const profile of ["debug", "release"]) {
-        const p = join(REPO_ROOT, "tugrust", "target", profile, "tugutil");
+        const p = join(REPO_ROOT, "tugrust", "target", profile, "tugtool");
         if (existsSync(p)) return p;
     }
     return null;
@@ -329,16 +329,16 @@ function changedPaths(): string[] {
         return changedFromGit();
     }
 
-    const bin = tugutilPath();
+    const bin = tugtoolPath();
     if (bin === null) {
         process.stderr.write(
-            "[select-tests] tugutil unavailable (no built binary under tugrust/target) — " +
+            "[select-tests] tugtool unavailable (no built binary under tugrust/target) — " +
                 "selecting from the whole working tree.\n",
         );
         return changedFromGit();
     }
 
-    // The RAW root, never a realpath: canonicalization belongs to tugutil's [L29]
+    // The RAW root, never a realpath: canonicalization belongs to tugtool's [L29]
     // gateway, and a second spelling resolved here is how the two drift apart.
     const proc = Bun.spawnSync([bin, "changes", "--json", "--project", REPO_ROOT], {
         cwd: REPO_ROOT,
@@ -354,7 +354,7 @@ function changedPaths(): string[] {
         const stderr = new TextDecoder().decode(proc.stderr).trim().split("\n")[0];
         const reason = stderr.length > 0 ? stderr : `exit ${proc.exitCode}`;
         process.stderr.write(
-            `[select-tests] tugutil unavailable (${reason}) — selecting from the whole working tree.\n`,
+            `[select-tests] tugtool unavailable (${reason}) — selecting from the whole working tree.\n`,
         );
         return changedFromGit();
     }
@@ -368,7 +368,7 @@ function changedPaths(): string[] {
         data = JSON.parse(new TextDecoder().decode(proc.stdout)).data ?? {};
     } catch {
         process.stderr.write(
-            "[select-tests] tugutil unavailable (unreadable JSON) — selecting from the whole working tree.\n",
+            "[select-tests] tugtool unavailable (unreadable JSON) — selecting from the whole working tree.\n",
         );
         return changedFromGit();
     }

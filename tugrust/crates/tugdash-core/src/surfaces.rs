@@ -15,7 +15,7 @@
 use serde::Serialize;
 use std::path::Path;
 use std::process::Command;
-use tugutil_core::config::{Config, Surface};
+use tugtool_core::config::{Config, Surface};
 
 /// What a verify run should do, decided before anything runs.
 ///
@@ -867,7 +867,7 @@ mod fit_tests {
         "[[tugtool.dash.surface]]\nname = \"src\"\npaths = [\"src/\"]\ncheck = [\"false\"]\n";
 
     fn verified_lines(root: &Path) -> Vec<String> {
-        let log = tugutil_core::paths::project_state_dir(root).join("dash-log.md");
+        let log = tugtool_core::paths::project_state_dir(root).join("dash-log.md");
         std::fs::read_to_string(log)
             .unwrap_or_default()
             .lines()

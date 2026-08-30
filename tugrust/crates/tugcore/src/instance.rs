@@ -37,7 +37,7 @@ pub const ENV_TEST_ISOLATION: &str = "TUG_TEST_ISOLATION";
 pub const ENV_BUNDLE_PATH: &str = "TUG_BUNDLE_PATH";
 
 /// File name of the per-instance bundle-path marker. The marker
-/// anchors `tugutil host instance prune`'s orphan detection: a data dir
+/// anchors `tugtool host instance prune`'s orphan detection: a data dir
 /// is reachable iff `cat <data-dir>/<MARKER>` points at an extant
 /// bundle.
 pub const BUNDLE_PATH_MARKER: &str = "bundle-path";
@@ -117,7 +117,7 @@ pub fn tmux_bin() -> String {
 /// outlives it. tmux's "no server"/"no session" errors when the instance never
 /// launched an app are expected and ignored.
 ///
-/// Shared home for the reaper so both `tugutil host instance` and `tugutil dash`'s
+/// Shared home for the reaper so both `tugtool host instance` and `tugtool dash`'s
 /// worktree teardown drive the exact same identity math.
 pub fn reap_instance_tmux(instance_id: &str) {
     let label = tmux_socket_label_for(instance_id);
@@ -187,7 +187,7 @@ pub fn tugbank_db_path() -> Option<PathBuf> {
 }
 
 /// Environment variable overriding the per-instance session-ledger path.
-/// Set by test harnesses (the tugutil CLI suite) so isolated runs read a
+/// Set by test harnesses (the tugtool CLI suite) so isolated runs read a
 /// seeded `sessions.db` without depending on platform data-dir resolution
 /// (`dirs::data_dir()` keys off `XDG_DATA_HOME` on Linux, so a bare `HOME`
 /// override is not enough). Mirrors [`ENV_CHANGES_DB`].
@@ -232,7 +232,7 @@ fn legacy_data_dir() -> PathBuf {
 }
 
 /// Environment variable overriding the shared changes-ledger path.
-/// Set by test harnesses (the app-test driver, the tugutil CLI suite)
+/// Set by test harnesses (the app-test driver, the tugtool CLI suite)
 /// so isolated runs never touch the user's real ledger.
 pub const ENV_CHANGES_DB: &str = "TUG_CHANGES_DB";
 
@@ -251,7 +251,7 @@ pub fn changes_db_path() -> PathBuf {
 }
 
 /// Environment variable overriding the shared prompt-history ledger path.
-/// Set by test harnesses (the app-test driver, the tugutil CLI suite)
+/// Set by test harnesses (the app-test driver, the tugtool CLI suite)
 /// so isolated runs never touch the user's real prompt corpus.
 pub const ENV_PROMPT_HISTORY_DB: &str = "TUG_PROMPT_HISTORY_DB";
 
@@ -271,7 +271,7 @@ pub fn prompt_history_db_path() -> PathBuf {
 }
 
 /// Environment variable overriding the shared app-test results ledger path.
-/// Set by test harnesses (the tugutil CLI suite, the recipe's own
+/// Set by test harnesses (the tugtool CLI suite, the recipe's own
 /// integration checks) so isolated runs never touch the real record.
 pub const ENV_APPTEST_RESULTS_DB: &str = "TUG_APPTEST_RESULTS_DB";
 
@@ -368,7 +368,7 @@ pub fn notify_socket_path() -> PathBuf {
 ///
 /// Tugcast writes the absolute path of its containing app bundle to
 /// this file on first launch when `TUG_BUNDLE_PATH` is set in the
-/// environment. `tugutil host instance prune` later compares the marker
+/// environment. `tugtool host instance prune` later compares the marker
 /// against the live filesystem to identify orphaned data dirs whose
 /// bundles have been moved or removed.
 ///
@@ -405,7 +405,7 @@ pub enum MarkerWrite {
 /// `TUG_INSTANCE_ID` and `TUG_BUNDLE_PATH` are set.
 ///
 /// Tugcast calls this once at startup, after creating the per-instance
-/// data dir, so `tugutil host instance prune` (Step 14) has an anchor to
+/// data dir, so `tugtool host instance prune` (Step 14) has an anchor to
 /// detect orphaned data dirs whose owning bundle has been moved or
 /// removed.
 ///

@@ -2,7 +2,7 @@
  * `tripwiresStore` — the [L02] store behind the **Tripwires** Lens section.
  *
  * The tripwires ledger is machine-global and written by processes this deck does
- * not talk to: another instance's engine claims a trip, a `tugutil tripwire`
+ * not talk to: another instance's engine claims a trip, a `tugtool tripwire`
  * invocation lays one from a terminal. There is no feed that carries those, so
  * the section asks — `GET /api/tripwires` — and asks again while it is open.
  *

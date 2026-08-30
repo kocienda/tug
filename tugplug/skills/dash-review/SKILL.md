@@ -19,15 +19,15 @@ The card runs this automatically after `/tugplug:dash-devise`, on the review mod
 
 ## Input
 
-`/tugplug:dash-review <name-or-path>` — a **dash name** or an explicit path, and the argument's shape decides which: anything carrying a separator, starting with `.`, or ending in `.md` is a path; anything else is a dash, and resolves to its own `plan.md`. Every `tugutil plan` verb takes the argument verbatim, so pass it through rather than resolving it yourself. There is no default and no search: a name is an exact address, not a guess.
+`/tugplug:dash-review <name-or-path>` — a **dash name** or an explicit path, and the argument's shape decides which: anything carrying a separator, starting with `.`, or ending in `.md` is a path; anything else is a dash, and resolves to its own `plan.md`. Every `tugtool plan` verb takes the argument verbatim, so pass it through rather than resolving it yourself. There is no default and no search: a name is an exact address, not a guess.
 
 ## The pass
 
 ### 1. Read the plan's review state, then lint it
 
 ```bash
-tugutil plan status <name-or-path> --json
-tugutil plan lint <name-or-path>
+tugtool plan status <name-or-path> --json
+tugtool plan lint <name-or-path>
 ```
 
 `status` tells you what kind of round this is before you read a line. `rounds: 0` (or `review: "never-reviewed"` with no stamped round) is a first pass — review the whole document. Anything else is a **re-review**, and re-review has its own rules, held in [`tuglaws/dash-review-rubric.md`](../../../tuglaws/dash-review-rubric.md#re-review-what-a-second-round-may-touch): *edits are decisions* and *done rows are frozen*. Read that section before touching a plan that has been reviewed before; do not restate it here. When the rubric is absent, those two rules — *edits are decisions*, *`done` rows are frozen* — are the whole of re-review discipline; hold them as stated and say so.
@@ -91,10 +91,10 @@ Prose, not a table — a table invites one-word entries, and the value is the sp
 ### 6. Stamp it — the last edit of the review
 
 ```bash
-tugutil plan stamp <name-or-path>
+tugtool plan stamp <name-or-path>
 ```
 
-This computes the plan's content stamp and inserts `Reviewed \`plan:<hash>\`.` into the round you just wrote. From then on `tugutil plan status` can say whether the review still covers the document, which is what `dash-implement`'s setup gate reads.
+This computes the plan's content stamp and inserts `Reviewed \`plan:<hash>\`.` into the round you just wrote. From then on `tugtool plan status` can say whether the review still covers the document, which is what `dash-implement`'s setup gate reads.
 
 Two things follow, and both are absolute:
 
@@ -107,7 +107,7 @@ Progress does **not** invalidate a stamp: ledger status cells, commit cells, and
 
 ### 7. Hand off
 
-**First, check whether an arc is running you.** Run `printenv TUG_DASH_ARC` — when it names a dash, this turn is that arc's **review stage**. The review itself is unchanged, every step of it: lint, read the code, apply the fixups, append the Review Record, stamp last. Only the ending differs — report what changed and stop. **Print no chip.** The stamp you just wrote is the hand-off: the runner reads `tugutil plan status` and rotates to implement on the strength of it, so a command line here is a button nobody will press.
+**First, check whether an arc is running you.** Run `printenv TUG_DASH_ARC` — when it names a dash, this turn is that arc's **review stage**. The review itself is unchanged, every step of it: lint, read the code, apply the fixups, append the Review Record, stamp last. Only the ending differs — report what changed and stop. **Print no chip.** The stamp you just wrote is the hand-off: the runner reads `tugtool plan status` and rotates to implement on the strength of it, so a command line here is a button nobody will press.
 
 Off an arc, report what changed, in a few lines. This is the ordinary ending, and it is also where a wheel-seated review lands — a rotation with no arc behind it leaves `TUG_DASH_ARC` unset, and nothing downstream is watching the stamp, so the next move has to be said. Give it as a literal command on its own line, **inside backticks**, command and path together in one span:
 
@@ -124,5 +124,5 @@ The Session card only turns a command line into a clickable chip when it arrives
 - **Fix what you can; ask what you cannot.** A judgment call is a dialog, never a silent decision — and only a deferral becomes an Open Question.
 - **Respect what moved.** Edits are decisions; `done` rows are frozen. The rules are in the rubric's re-review section, and they outrank your sense of how the plan should have been shaped.
 - **Always append the Review Record**, even on a clean pass — a round that found nothing is a fact worth recording, and a vacuous round is supposed to be visible in the artifact.
-- **The stamp is the last thing you do, and you never type it.** `tugutil plan stamp` computes it; an edit after it makes it a lie.
+- **The stamp is the last thing you do, and you never type it.** `tugtool plan stamp` computes it; an edit after it makes it a lie.
 - **Under an arc, print no chip.** `TUG_DASH_ARC` in the environment means the runner reads the stamp and rotates to implement itself; the review is otherwise identical.

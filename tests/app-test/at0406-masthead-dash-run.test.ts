@@ -3,7 +3,7 @@
  * card's masthead title, bound and unbound by the real CLI through the card's
  * own shell route.
  *
- * The whole loop is real. `tugutil dash bind` resolves the calling session
+ * The whole loop is real. `tugtool dash bind` resolves the calling session
  * from `TUG_SESSION_ID` — which is exactly what the `$` shell route stamps on
  * the child — and POSTs `/api/dash` to the instance whose ledger owns that
  * session, so the session is seeded into this instance's ledger first
@@ -63,7 +63,7 @@ import {
   rmScratchSession,
   seedScratchSession,
   shellAndSettle,
-  tugutilPath,
+  tugtoolPath,
   type DashScratchRepo,
 } from "./dash-fixture";
 
@@ -164,7 +164,7 @@ describe.skipIf(!SHOULD_RUN)("AT0406: the masthead's dash run", () => {
         const bareHeight = await mastheadHeight(app);
 
         // ── Bind, for real ────────────────────────────────────────────────
-        await shellAndSettle(app, `${tugutilPath(CHECKOUT)} dash bind ${DASH_NAME}`, 0);
+        await shellAndSettle(app, `${tugtoolPath(CHECKOUT)} dash bind ${DASH_NAME}`, 0);
         note(
           "at0406 bind row",
           await app.evalJS<string>(
@@ -323,7 +323,7 @@ describe.skipIf(!SHOULD_RUN)("AT0406: the masthead's dash run", () => {
         expect(await mastheadHeight(app)).toBe(bareHeight);
 
         // ── Unbind, for real ──────────────────────────────────────────────
-        await shellAndSettle(app, `${tugutilPath(CHECKOUT)} dash unbind`, 1);
+        await shellAndSettle(app, `${tugtoolPath(CHECKOUT)} dash unbind`, 1);
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(RUN)}) === null`,
           { timeoutMs: 15000 },

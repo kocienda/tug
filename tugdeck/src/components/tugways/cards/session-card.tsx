@@ -4208,7 +4208,7 @@ export function SessionCardBody({
     // and falling through to create would fire a git mutation on the strength
     // of a snapshot that has not answered yet.
     //
-    // A mistyped name therefore creates a dash. That is `tugutil dash
+    // A mistyped name therefore creates a dash. That is `tugtool dash
     // create`'s semantics and this gesture inherits it on purpose:
     // `/dash-bind` means "work on this dash, making it if needed", so there is
     // no name it can refuse for being unfamiliar. The shell receipt is what
@@ -4286,7 +4286,7 @@ export function SessionCardBody({
         notify?.caution("A shell command is already running");
         return;
       }
-      shellSessionStore.exec(`tugutil dash create ${name}`);
+      shellSessionStore.exec(`tugtool dash create ${name}`);
     },
     // `/dash-review [path]` — review a plan, as an ordinary turn on whatever
     // model is selected right now. Nothing here changes the model, and nothing

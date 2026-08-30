@@ -90,7 +90,7 @@ import {
   rmDashScratchRepo,
   rmScratchSession,
   seedScratchSession,
-  tugutil,
+  tugtool,
   type DashScratchRepo,
 } from "./dash-fixture";
 
@@ -181,7 +181,7 @@ beforeAll(() => {
   // One of A's dashes gets a real review stamp, so the rows differ in exactly
   // the fact the next-gesture ladder reads. Stamped **by name**, which is the
   // address every plan verb now takes.
-  tugutil(["plan", "stamp", REVIEWED], {
+  tugtool(["plan", "stamp", REVIEWED], {
     cwd: dirA(),
     binaryRoot: CHECKOUT,
     env: projectA.cli.env,
@@ -372,7 +372,7 @@ describe.skipIf(!SHOULD_RUN)("AT0473: the dash cockpit lists waiting plans", () 
         // move — they are already at the dash's own address — so what changes
         // is only which list the name is on. Driven with the real verbs.
         const adopter = createDash(dirA(), ADOPTER, "at0473 adopter", projectA!.cli);
-        tugutil(["dash", "step", ADOPTER, "start", "1", "--through", "2"], {
+        tugtool(["dash", "step", ADOPTER, "start", "1", "--through", "2"], {
           cwd: dirA(),
           binaryRoot: CHECKOUT,
           env: projectA!.cli.env,

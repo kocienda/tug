@@ -3,7 +3,7 @@
  * against a real dash created by the real CLI.
  *
  * A dash is a different species from a claimed file, so it gets a different
- * row. This pins that grammar end to end: a real `tugutil dash create` in the
+ * row. This pins that grammar end to end: a real `tugtool dash create` in the
  * project under test composes into `snapshot.dashes`, the lane renders one
  * `DashLifecycleBlock` at reading scale — the atom and the workers over the
  * track, the note and the divergence facts, the same block the Lens's Dashes
@@ -91,7 +91,7 @@ import {
   rmDashScratchRepo,
   rmScratchSession,
   seedScratchSession,
-  tugutil,
+  tugtool,
   type DashScratchRepo,
 } from "./dash-fixture";
 import {
@@ -471,7 +471,7 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's dash lane", () => {
         // with the same CLI verb and the same env the app itself runs under.
         // Touching a tracked-project file is what wakes the aggregate for the
         // recompose that carries the draft onto the entry.
-        tugutil(
+        tugtool(
           ["draft", "set", "--owner", `dash:${DASH_NAME}`, "--message", DRAFT_MESSAGE, "--json"],
           {
             cwd: projectDir(),

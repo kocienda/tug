@@ -577,7 +577,7 @@ pub enum ChangesetEntry {
         #[serde(default, skip_serializing_if = "DashDocuments::is_empty")]
         documents: DashDocuments,
         /// What that plan's Review Record says about the document on disk now:
-        /// `reviewed` | `stale` | `never-reviewed`, `tugutil_core::plan::
+        /// `reviewed` | `stale` | `never-reviewed`, `tugtool_core::plan::
         /// ReviewState::as_str` verbatim. Absent when the dash records no plan,
         /// when the file cannot be read, or when it does not parse as a plan —
         /// absence is "nothing to say", never an accusation.

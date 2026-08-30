@@ -4,7 +4,7 @@
 //! ([`crate::ledger`]), joins them against the current `git status` so
 //! committed/reverted files drop out, dedups per repo-relative path (latest
 //! live event wins op/origin), and — with `--diff` — attaches each file's
-//! unified diff. Ported from `tugutil/src/commands/changes.rs`.
+//! unified diff. Ported from `tugtool/src/commands/changes.rs`.
 //!
 //! **Invariant ([P01]): a dirty file is never invisible.** `git status
 //! --untracked-files=all` is the universe of the shared resolution

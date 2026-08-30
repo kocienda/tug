@@ -8,13 +8,13 @@ This document covers **how the work is done**. The dash's state model — what `
 
 ## The one and only working root
 
-A dash *is* a git branch (`tugdash/<name>`) plus a worktree. `tugutil dash create <name> --json` returns that worktree's absolute path. **Capture it.** From that moment it is the only working root:
+A dash *is* a git branch (`tugdash/<name>`) plus a worktree. `tugtool dash create <name> --json` returns that worktree's absolute path. **Capture it.** From that moment it is the only working root:
 
 - Address **every** read, write, edit, and test by absolute path into the worktree. A shell's cwd silently reverts to the base checkout between tool calls; a relative path is a coin flip.
 - **Never write to the base checkout's working tree.** Not code, not a scratch file. The base branch is the user's; the only path back is their join gesture. The dash's own `.tug/dashes/<name>/` is not an exception to that rule but the reason there is nothing left to except: it is gitignored, invisible to `git status`, reached only through a verb, and so is not part of the tree the rule protects.
 - A stray write to the base root also *blocks* the join — the join preflight requires the base clean where it intersects the dash's files.
 
-A dash's documents live at `<main-repo>/.tug/dashes/<name>/` — `brief.md` and `plan.md` — and the **name** is their address on every verb ([D139]). They are never tracked and never in the worktree, so nothing transplants them, nothing detects divergence between copies, and nothing has to clean them up: `tugutil dash documents <name>` reports them, and `--ensure` creates the directory to write into. There is no directory to declare, assume, or ask about.
+A dash's documents live at `<main-repo>/.tug/dashes/<name>/` — `brief.md` and `plan.md` — and the **name** is their address on every verb ([D139]). They are never tracked and never in the worktree, so nothing transplants them, nothing detects divergence between copies, and nothing has to clean them up: `tugtool dash documents <name>` reports them, and `--ensure` creates the directory to write into. There is no directory to declare, assume, or ask about.
 
 ## Starting from a dirty base
 
@@ -45,13 +45,13 @@ The move itself is a compare-and-swap — the worktree re-verified clean, its HE
 
 **Quiet, never silent.** A clean replay interrupts nobody: no dialog, no toast, no turn. Its record is a `replayed` line in the dash-log, the plan ledger's commit cells rewritten to the rounds' new ids, and a settled mark on the dash's lane row. History moved under the dash; saying nothing at all about that would be its own hazard.
 
-**A conflicted replay becomes an ordinary turn, never a rung.** The engine never resolves file content — that is a question for whoever is working the dash. Instead it composes one message naming what moved, which round the replay stopped at, the conflicting paths, and what the dash is *for*, and injects it into the dash's most recently used idle bound session as an ordinary submission. The agent resolves by rebasing in the dash worktree, with the full working tree and the tests in hand, and finishes with `tugutil dash replay <name>`, which finds the branch already current and does the bookkeeping only. If the conflict turns out to be a real design collision rather than a mechanical one, the right answer is `git rebase --abort` and saying so — the dash simply stays behind, and the join-time resolution ladder is still there. That ladder remains the standing fallback for every case: a dash with no bound session gets a mark and nothing else.
+**A conflicted replay becomes an ordinary turn, never a rung.** The engine never resolves file content — that is a question for whoever is working the dash. Instead it composes one message naming what moved, which round the replay stopped at, the conflicting paths, and what the dash is *for*, and injects it into the dash's most recently used idle bound session as an ordinary submission. The agent resolves by rebasing in the dash worktree, with the full working tree and the tests in hand, and finishes with `tugtool dash replay <name>`, which finds the branch already current and does the bookkeeping only. If the conflict turns out to be a real design collision rather than a mechanical one, the right answer is `git rebase --abort` and saying so — the dash simply stays behind, and the join-time resolution ladder is still there. That ladder remains the standing fallback for every case: a dash with no bound session gets a mark and nothing else.
 
 **No server-initiated turn is ever unannounced.** This is the general rule, and it outranks convenience. Journaling an injection makes the turn real to the server and to a later reload, but it puts no row on screen — the transcript's live user row comes from the composer echoing its own submission, and an injection has no composer. So every injected turn carries a system-origin opener alongside it, rendered as a distinct row attributed to the subsystem that spoke. Attributing it to the user instead would be cheaper and would put words in their mouth in their own transcript. An agent that begins working with no visible cause is a worse ambush than the one this whole mechanism replaces.
 
 **A replay under a live plan run tells the agent its context moved.** The engine does not wait for a plan run to finish — that would leave a dash behind for hours, which is the ambush again. It replays between turns and follows a clean replay with a short notice naming the new base tip and the files the base brought in. The agent's context holds pre-replay file contents, so its next edit could silently revert base changes it never saw; the notice repairs that rather than avoiding it. It asks for nothing, and says so.
 
-The engine is on by default, because the doctrine *is* the default and an opt-in flag would make the designed behavior the exception. `git config tugdash.autoreplay false` disables automatic motion for a repository where any unattended ref motion is unwelcome; the `tugutil dash replay` verb and the marks keep working.
+The engine is on by default, because the doctrine *is* the default and an opt-in flag would make the designed behavior the exception. `git config tugdash.autoreplay false` disables automatic motion for a repository where any unattended ref motion is unwelcome; the `tugtool dash replay` verb and the marks keep working.
 
 ## Verify before every commit
 
@@ -66,7 +66,7 @@ The portable rule is two-sided: **a step's checkpoint runs the commands the plan
 
 **Never commit red.** If a check fails, fix it and re-run; a round that lands broken makes every later round's verdict meaningless.
 
-**A checkpoint that passed is spent.** It ran against these bytes, inside the step that changed them; running it again at the end proves nothing new and costs minutes. So: **the run ends when the fit is verified — replay, verify only what the replay moved, report, and stop; never re-run a checkpoint that already passed.** The fit is the one thing the per-step checkpoints genuinely cannot have covered, because until the replay the dash's tree is the sandbox it forked from rather than the tree a join would land. The procedure is the devise skeleton's Integration Checkpoint pattern: `tugutil dash replay <name>`, then the scoped verification **only** on `Replayed`/`Recorded`; `Current` re-runs nothing; `Conflicted` is resolved in the worktree and then verified. What that verification *is* comes from the project, and one verb reads it: `tugutil dash verify <name>` resolves every path the replay moved to a surface declared in the project's own `[[tugtool.dash.surface]]` table and runs what those surfaces declare. A path no surface claims is a **refusal** — it runs no check at all and names the paths, because a table that has fallen behind its tree is a gap to declare rather than to work around. A project that declares no surfaces says so and verifies with the plan's own checkpoint commands over what the replay moved — never an invented one — and says so.
+**A checkpoint that passed is spent.** It ran against these bytes, inside the step that changed them; running it again at the end proves nothing new and costs minutes. So: **the run ends when the fit is verified — replay, verify only what the replay moved, report, and stop; never re-run a checkpoint that already passed.** The fit is the one thing the per-step checkpoints genuinely cannot have covered, because until the replay the dash's tree is the sandbox it forked from rather than the tree a join would land. The procedure is the devise skeleton's Integration Checkpoint pattern: `tugtool dash replay <name>`, then the scoped verification **only** on `Replayed`/`Recorded`; `Current` re-runs nothing; `Conflicted` is resolved in the worktree and then verified. What that verification *is* comes from the project, and one verb reads it: `tugtool dash verify <name>` resolves every path the replay moved to a surface declared in the project's own `[[tugtool.dash.surface]]` table and runs what those surfaces declare. A path no surface claims is a **refusal** — it runs no check at all and names the paths, because a table that has fallen behind its tree is a gap to declare rather than to work around. A project that declares no surfaces says so and verifies with the plan's own checkpoint commands over what the replay moved — never an invented one — and says so.
 
 **Fix what you touch.** A pre-existing warning, type error, or dead branch in a file you are editing is yours to fix, not to report. Punting it as "pre-existing" leaves the next reader the same trap.
 
@@ -94,14 +94,14 @@ Not required for Rust, Swift, plugin, or pure documentation changes.
 A round is one commit plus one line in the per-project dash-log, made by one command:
 
 ```bash
-tugutil dash commit <name> --message "<conventional commit>" --json <<'EOF'
+tugtool dash commit <name> --message "<conventional commit>" --json <<'EOF'
 {"instruction":"<what was asked>","summary":"<what landed + how verified>"}
 EOF
 ```
 
 Git records the diff; the log records the instruction git cannot see. `tug log` on the dash branch reads the rounds back.
 
-**Never commit to the base branch.** Every commit goes through `tugutil dash commit` onto the dash worktree.
+**Never commit to the base branch.** Every commit goes through `tugtool dash commit` onto the dash worktree.
 
 ## Step work runs to completion
 
@@ -119,9 +119,9 @@ Do not merge, and do not run the join on the user's behalf. That is the whole of
 
 **The build is an offer.** A change with a face is worth bringing up from the worktree so the user can look at it before the join; a refactor, a doctrine edit, or a Rust fix its own checkpoint already covered is not, and a debug instance nobody opens is cost with no reader. Offer it, do not assume it.
 
-What to run is the project's to say: the `build` command declared in `[tugtool.dash]`, which `tugutil dash config` reports. In this repository that declaration is `just app-debug`. A project that declares none offers none — say so, and say the work is inspectable at the worktree.
+What to run is the project's to say: the `build` command declared in `[tugtool.dash]`, which `tugtool dash config` reports. In this repository that declaration is `just app-debug`. A project that declares none offers none — say so, and say the work is inspectable at the worktree.
 
-Before stopping, leave the **join draft** behind: write the squash message with `tugutil draft set --owner dash:<name> --message "…"`. The join gesture lands that message; it does not compose one. A dash that arrives at the join draftless stops there, which is a stall you caused one step earlier.
+Before stopping, leave the **join draft** behind: write the squash message with `tugtool draft set --owner dash:<name> --message "…"`. The join gesture lands that message; it does not compose one. A dash that arrives at the join draftless stops there, which is a stall you caused one step earlier.
 
 Write it knowing exactly what it becomes: **a join lands one commit on the base, and the draft is its message** ([D144]). Not one commit per round, not the rounds replayed — one, whatever the ladder did off to the side to make the bytes merge, and regardless of how many rounds the run took. The draft is therefore the *only* durable prose the base will carry about this dash, and the round commits it might have leaned on to fill in what it left out will not be there.
 
@@ -129,7 +129,7 @@ Write it knowing exactly what it becomes: **a join lands one commit on the base,
 
 The exemplar is in the tree: `a18557090`, a dash join whose message says what a project can now declare, what routes through it, which boundary was held, and how it was proven — with no round list and nothing that requires having watched the run. Read it before writing one.
 
-**The arc arms itself, and `tugutil dash mark <name> built` is telemetry** ([D147]). What arms it is the run reaching the step it declared it would run through — nothing has to remember to say so, which is the point: an endgame that depended on a chore was an endgame that went dark the first time a run ended early. The mark stamps the word `built` on the dash's faces in place of the derived `ready`, which is worth doing when you did build and changes nothing when you skip it.
+**The arc arms itself, and `tugtool dash mark <name> built` is telemetry** ([D147]). What arms it is the run reaching the step it declared it would run through — nothing has to remember to say so, which is the point: an endgame that depended on a chore was an endgame that went dark the first time a run ended early. The mark stamps the word `built` on the dash's faces in place of the derived `ready`, which is worth doing when you did build and changes nothing when you skip it.
 
 Once armed, the pilot reconciles the dash against its base, unprompted. It runs no build and no tests — the run's ending already verified the tree that lands ([D149]) — so a standing candidate is the whole of readiness, and the dash **offers** the moment it has one: the Changes shade reveals itself on the bound session in the first quiet moment, showing the dash's row, what the join would land, and where those words came from ([D152]). A run's report therefore does not end in a `/dash-join <name>` chip and should not read as though nothing will happen until the user types one. Say what was built and stop; the arc will speak for itself ([D142], [D147]).
 

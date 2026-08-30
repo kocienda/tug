@@ -264,7 +264,7 @@ describe("the rest of a tripwire's definition", () => {
   });
 
   test("a period inside a name does not end the sentence", () => {
-    // `tugutil file edit` and `v1.2` both carry a period, and neither closes a
+    // `tugtool file edit` and `v1.2` both carry a period, and neither closes a
     // sentence — a naive split on `.` would cut the gist mid-phrase.
     expect(briefGist("Watch v1.2 of the parser and report drift. Then stop.")).toBe(
       "Watch v1.2 of the parser and report drift.",

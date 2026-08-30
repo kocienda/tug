@@ -17,7 +17,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, SystemTime};
-use tugutil_core::{Config, find_repo_root, sanitize_branch_name};
+use tugtool_core::{Config, find_repo_root, sanitize_branch_name};
 
 use crate::dash::{
     DashDeclaration, DashDeclarations, DashRoundMeta, FitFact, MarkStage, StepPhase,
@@ -194,7 +194,7 @@ pub struct JoinOptions {
     /// the lease says somebody may still be working on.
     ///
     /// Consent, not capability: the teardown is unchanged, and the op log's
-    /// keepalive already holds the chain so `tugutil dash undo` puts it back.
+    /// keepalive already holds the chain so `tugtool dash undo` puts it back.
     /// What the flag adds is a recorded decision and a receipt naming it.
     pub break_lease: bool,
 }
@@ -2084,7 +2084,7 @@ fn step_in(
     let source = std::fs::read_to_string(&abs)
         .map_err(|e| format!("cannot read plan at {}: {e}", abs.display()))?;
     let doc =
-        tugutil_core::plan::parse(&source).map_err(|_| format!("{rel} is not a plan document"))?;
+        tugtool_core::plan::parse(&source).map_err(|_| format!("{rel} is not a plan document"))?;
 
     let anchor = format!("step-{step}");
     let total = doc.ledger_rows.len() as u32;
@@ -2129,7 +2129,7 @@ fn step_in(
         }),
     };
 
-    let edited = tugutil_core::plan::set_ledger_status(&source, &anchor, status, sha.as_deref())
+    let edited = tugtool_core::plan::set_ledger_status(&source, &anchor, status, sha.as_deref())
         .map_err(|e| format!("{rel}: {e}"))?;
     write_atomic(&abs, &edited)?;
 
@@ -2601,7 +2601,7 @@ fn sessions_db_file() -> Option<std::path::PathBuf> {
 /// citation and the machine id ([P10], Spec S03).
 ///
 /// **Who is asked first is the caller's, not the environment's.** A round
-/// commit is made by `tugutil dash commit` running *inside* the Claude session,
+/// commit is made by `tugtool dash commit` running *inside* the Claude session,
 /// where tugcast exports `TUG_SESSION_ID`, and the env is the whole answer. A
 /// **join** is not: the card's press is served by tugcast itself, a process
 /// that belongs to no session and exports no such variable — so every join
@@ -2753,7 +2753,7 @@ fn project_spellings(dir: &Path) -> Vec<String> {
 /// - the bare branch ref as owner, for rows predating the `tugid` key;
 /// - the raw spelling of a project directory, for rows a non-canonicalizing
 ///   writer stored;
-/// - the dash **worktree** as project, for rows written by a `tugutil draft
+/// - the dash **worktree** as project, for rows written by a `tugtool draft
 ///   set` that ran from inside the worktree and keyed by its cwd — the defect
 ///   this contract exists to close.
 ///
@@ -3043,7 +3043,7 @@ const INDEX_LOCK_BACKOFF: std::time::Duration = std::time::Duration::from_millis
 /// rather than failing on its merits.
 ///
 /// Two writers commit into the same dash worktree at the same moment: the join
-/// arc's preflight sweep, and a live `tugutil dash commit` closing the run's
+/// arc's preflight sweep, and a live `tugtool dash commit` closing the run's
 /// final step. They want the same dirt, and the loser used to die on
 /// `index.lock: File exists` — killing either a join the user had just
 /// accepted or the round that ends the run.
@@ -3057,7 +3057,7 @@ fn index_lock_blocked(stderr: &str) -> bool {
 
 fn stale_journal_detail(name: &str) -> String {
     format!(
-        "A previous join of dash '{}' is incomplete. Resume it with: tugutil dash join {} --continue",
+        "A previous join of dash '{}' is incomplete. Resume it with: tugtool dash join {} --continue",
         name, name
     )
 }
@@ -3065,7 +3065,7 @@ fn stale_journal_detail(name: &str) -> String {
 /// The receipt a broken lease leaves in the verb's warnings.
 fn broke_lease_warning(name: &str, lease: &crate::resolve::ResolveLease, seq: u64) -> String {
     format!(
-        "Broke the resolve lease on '{}' (chain tip {} old); the resolver's checkpoints are kept at op #{} — tugutil dash undo restores them.",
+        "Broke the resolve lease on '{}' (chain tip {} old); the resolver's checkpoints are kept at op #{} — tugtool dash undo restores them.",
         name,
         human_age(lease.age),
         seq
@@ -3094,7 +3094,7 @@ pub fn human_age(age: Duration) -> String {
 /// nothing for half the people who read it ([L31]).
 pub fn live_resolve_detail(name: &str, lease: &crate::resolve::ResolveLease, verb: &str) -> String {
     format!(
-        "A resolve may still be running for dash '{}': its conflict chain was last advanced {} ago, inside the {} lease. Wait for it to finish, resolve again to start a fresh one, or pass `--break-lease` to {} anyway — the resolver's checkpoints are kept by the op log and `tugutil dash undo` puts them back.",
+        "A resolve may still be running for dash '{}': its conflict chain was last advanced {} ago, inside the {} lease. Wait for it to finish, resolve again to start a fresh one, or pass `--break-lease` to {} anyway — the resolver's checkpoints are kept by the op log and `tugtool dash undo` puts them back.",
         name,
         human_age(lease.age),
         human_age(crate::resolve::RESOLVE_LEASE),
@@ -3393,10 +3393,10 @@ fn intersect_base_dirt(
 /// and must be answered about the same one. The CLI already resolves this way
 /// (`join` → `find_repo_root`); without this, tugcast serving a card whose
 /// project is itself a worktree would read every dash as `off-base` against
-/// that worktree's own branch while `tugutil dash join` beside it reports a
+/// that worktree's own branch while `tugtool dash join` beside it reports a
 /// clean bill. Idempotent: a main root resolves to itself.
 pub(crate) fn main_repo_root(start: &Path) -> PathBuf {
-    tugutil_core::find_repo_root_from(start).unwrap_or_else(|_| start.to_path_buf())
+    tugtool_core::find_repo_root_from(start).unwrap_or_else(|_| start.to_path_buf())
 }
 
 /// What would refuse a join of `name` right now ([P02]) — the preflight the
@@ -3470,7 +3470,7 @@ pub struct ResolveBaseOutcome {
 /// new merge machinery, and no third side for the ladder to learn.
 ///
 /// It is one commit, with its own message naming what it is, and it is
-/// op-logged: `tugutil dash undo` resets the base back and leaves the same
+/// op-logged: `tugtool dash undo` resets the base back and leaves the same
 /// content uncommitted, exactly where the user had it.
 ///
 /// A path another live session holds folds with the rest rather than
@@ -3596,7 +3596,7 @@ fn fold_commit_message(
     folded_from: &BTreeMap<String, String>,
 ) -> String {
     format!(
-        "Commit base work in progress to unblock the join of {}\n\n{}\n\nThis commit was made by `tugutil dash resolve-base` to clear a join blocked by uncommitted work on these paths. `tugutil dash undo` reverses it and leaves the same content uncommitted.\n",
+        "Commit base work in progress to unblock the join of {}\n\n{}\n\nThis commit was made by `tugtool dash resolve-base` to clear a join blocked by uncommitted work on these paths. `tugtool dash undo` reverses it and leaves the same content uncommitted.\n",
         dash,
         paths
             .iter()
@@ -3976,7 +3976,7 @@ pub fn join_in_with_progress(
     if opts.preview {
         if !git_supports_merge_tree(&repo_root) {
             return Err(
-                "tugutil dash join --preview requires git >= 2.38 (git merge-tree --write-tree)."
+                "tugtool dash join --preview requires git >= 2.38 (git merge-tree --write-tree)."
                     .to_string(),
             );
         }
@@ -5119,7 +5119,7 @@ mod tests {
             std::env::set_var("TUG_DATA_DIR", home);
         }
         let root = fs::canonicalize(repo).unwrap();
-        tugutil_core::project_state_dir(&root).join("dash-log.md")
+        tugtool_core::project_state_dir(&root).join("dash-log.md")
     }
 
     #[test]
@@ -5321,7 +5321,7 @@ Some context.
     // index.lock contention (Spec S02)
     //
     // The race is real and symmetric: the join's preflight sweep and a
-    // live `tugutil dash commit` both commit the same worktree's dirt at the
+    // live `tugtool dash commit` both commit the same worktree's dirt at the
     // same moment, and the loser used to die on `index.lock: File exists`.
     // These hold the lock deterministically and release it from a helper
     // thread — racing two real processes would be flake by construction.
@@ -5672,9 +5672,9 @@ Some context.
     }
 
     /// The ledger row for `anchor`, as the plan on disk now reads.
-    fn ledger_row(root: &Path, name: &str, anchor: &str) -> tugutil_core::plan::LedgerRow {
+    fn ledger_row(root: &Path, name: &str, anchor: &str) -> tugtool_core::plan::LedgerRow {
         let source = fs::read_to_string(plan_file(root, name)).unwrap();
-        tugutil_core::plan::parse(&source)
+        tugtool_core::plan::parse(&source)
             .unwrap()
             .ledger_rows
             .into_iter()
@@ -5850,7 +5850,7 @@ Some context.
         // Re-entering the same step re-declares nothing.
         step_start("through-dash", 1, 2).unwrap();
         let log =
-            fs::read_to_string(tugutil_core::project_state_dir(&root).join("dash-log.md")).unwrap();
+            fs::read_to_string(tugtool_core::project_state_dir(&root).join("dash-log.md")).unwrap();
         assert_eq!(
             log.lines()
                 .filter(|l| l.contains("  through-dash  run-through  "))
@@ -6223,7 +6223,7 @@ Some context.
 
         // The log carries the step's title, the grammar a start writes, since
         // there is no sha to name.
-        let log_path = tugutil_core::project_state_dir(&root).join("dash-log.md");
+        let log_path = tugtool_core::project_state_dir(&root).join("dash-log.md");
         let log = fs::read_to_string(&log_path).unwrap();
         assert!(
             log.lines()
@@ -6564,7 +6564,7 @@ Some context.
         let (_temp, root) = repo_for_create();
         create("newborn", None, false, None).unwrap();
 
-        let log_path = tugutil_core::paths::project_state_dir(&root).join("dash-log.md");
+        let log_path = tugtool_core::paths::project_state_dir(&root).join("dash-log.md");
         let count = |text: &str| {
             text.lines()
                 .filter(|l| l.contains("  newborn  created  "))
@@ -7162,7 +7162,7 @@ Some context.
     fn set_universe(path: &Path) {
         // SAFETY: serial test under nextest; see redirect_state_dir.
         unsafe {
-            std::env::set_var(tugutil_core::REPO_UNIVERSE_ENV, path);
+            std::env::set_var(tugtool_core::REPO_UNIVERSE_ENV, path);
         }
     }
 
@@ -10227,7 +10227,7 @@ Some context.
         assert_eq!(bare.legacy_owner_id, None);
     }
 
-    /// The pre-fix row shape: `tugutil draft set` ran from inside the worktree
+    /// The pre-fix row shape: `tugtool draft set` ran from inside the worktree
     /// and keyed by its cwd, so the join's base-root probes never matched it.
     /// The bridge finds it until the next authored write supersedes it.
     #[serial]

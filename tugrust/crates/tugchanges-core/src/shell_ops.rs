@@ -22,7 +22,7 @@
 //! `DeclaredKind::Restore` and consumers keep it out of proof class.
 //!
 //! Two consumers share it so the grammar cannot fork: tugcast's relay (live and
-//! replay minting) and `tugutil file gate` (the PreToolUse hook's decision).
+//! replay minting) and `tugtool file gate` (the PreToolUse hook's decision).
 
 use std::path::{Component, Path, PathBuf};
 
@@ -63,7 +63,7 @@ pub enum ParseOutcome {
     /// A file-mutating command is present with operands this grammar cannot
     /// resolve — the gate's deny signal. Refusal wins over any sibling
     /// command's ops on the same line: minting nothing is the safe direction,
-    /// and the gate steers the whole line to `tugutil file`.
+    /// and the gate steers the whole line to `tugtool file`.
     Unparseable {
         reason: String,
         /// Which verb covers what refused. The grammar knows, and the gate
@@ -73,7 +73,7 @@ pub enum ParseOutcome {
     },
 }
 
-/// The `tugutil file` verb that covers a refused command.
+/// The `tugtool file` verb that covers a refused command.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Suggestion {
     /// An `rm`/`mv`-class lifecycle operation — files removed, renamed, copied.
@@ -605,7 +605,7 @@ fn parse_segment(tokens: &[Tok], cwd: &mut Option<PathBuf>) -> SegmentOutcome {
         // The verbs report their own outcome in a receipt, which covers the glob
         // and variable operands this grammar refuses — so the gate must never
         // deny them, and there is nothing here worth guessing at.
-        "tugutil" | "tug" => finish(ops),
+        "tugtool" => finish(ops),
         _ => finish(ops),
     }
 }
@@ -803,7 +803,7 @@ fn is_formatter(verb: &str) -> bool {
 /// when the operands are literal — that is a `cmd` proof row like any other.
 ///
 /// A write-mode run whose targets the grammar cannot name is refused toward
-/// `tugutil file run`, which watches the command and receipts what moved. A
+/// `tugtool file run`, which watches the command and receipts what moved. A
 /// read-only run (`--check`, `--list-different`, `eslint` without `--fix`)
 /// declares nothing and is left alone.
 fn formatter_ops(
@@ -1526,7 +1526,7 @@ mod tests {
 
     #[test]
     fn a_quoted_mention_is_not_a_command() {
-        assert_no_file_ops("tugutil dash commit d --message \"git mv a b\"");
+        assert_no_file_ops("tugtool dash commit d --message \"git mv a b\"");
         assert_no_file_ops("git commit -m 'rm the old file'");
         assert_no_file_ops("grep rm foo.txt");
     }
@@ -1796,7 +1796,7 @@ mod tests {
         let dir = checkout();
         assert_not_steered(
             dir.path(),
-            "tugutil file edit <<'EDIT'\nfile tugdeck/src/main.tsx\n  delete 166\nEDIT",
+            "tugtool file edit <<'EDIT'\nfile tugdeck/src/main.tsx\n  delete 166\nEDIT",
         );
         assert_not_steered(
             dir.path(),
@@ -2057,8 +2057,8 @@ mod tests {
 
     #[test]
     fn the_file_verbs_leave_proof_to_their_receipt() {
-        assert_no_file_ops("tugutil file rm 'apptest-*'");
-        assert_no_file_ops("tugutil file mv a.ts b.ts");
+        assert_no_file_ops("tugtool file rm 'apptest-*'");
+        assert_no_file_ops("tugtool file mv a.ts b.ts");
     }
 
     #[test]

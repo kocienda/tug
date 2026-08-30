@@ -48,8 +48,8 @@ use tracing::{debug, info, warn};
 
 use tugcast_core::types::{OverviewAuthor, OverviewPost, OverviewRef, OverviewRefKind};
 use tugcast_core::{FeedId, Frame};
-use tugutil_core::tripwire_ledger::{self as ledger, Claim, TripStatus, Tripwire};
-use tugutil_core::tripwire_predicate::{self, FactEvent};
+use tugtool_core::tripwire_ledger::{self as ledger, Claim, TripStatus, Tripwire};
+use tugtool_core::tripwire_predicate::{self, FactEvent};
 
 use crate::feeds::tripwire_dossier as dossier;
 use crate::feeds::tripwire_session::{
@@ -109,7 +109,7 @@ const SETTLE_CEILING: Duration = Duration::from_secs(30 * 60);
 
 /// How often a phase re-reads its trip row looking for the resolution verb.
 ///
-/// Polling rather than a notification because the writer is a `tugutil` in
+/// Polling rather than a notification because the writer is a `tugtool` in
 /// another process addressing the machine's one ledger (Spec S02) — there is
 /// no channel between them, and the row is the whole of the contract. Two
 /// seconds is far below anything a person perceives and far above anything
@@ -1136,7 +1136,7 @@ struct Phase {
 /// row, the turn's end, or the ceiling ([P07]).
 ///
 /// The verb is watched for rather than awaited, because the writer is a
-/// `tugutil` in another process (Spec S02) and the trip row is the only thing
+/// `tugtool` in another process (Spec S02) and the trip row is the only thing
 /// the two share. A session that resolves and then wedges is therefore
 /// released at its settle rather than at the ceiling, which is the whole
 /// reason the poll runs beside the turn instead of after it.
@@ -1284,9 +1284,9 @@ fn diagnosis_contract(tripwire: &str) -> String {
          working copy, nothing you write in it is kept, and you cannot write anyway — this \
          session runs in plan mode. Diagnose, and do nothing else.\n\n\
          Close your turn by running exactly one of:\n\
-         `tugutil tripwire resolve {tripwire} --quiet` — nothing here is worth the user's \
+         `tugtool tripwire resolve {tripwire} --quiet` — nothing here is worth the user's \
          attention.\n\
-         `tugutil tripwire resolve {tripwire} --awaiting --headline \"<one line>\"` — there is \
+         `tugtool tripwire resolve {tripwire} --awaiting --headline \"<one line>\"` — there is \
          something the user should see. The headline is the one line they will read.\n\n\
          Add `--author \"<one line saying what to change>\"` to either when a change is worth \
          authoring; a session with hands will then be opened on a dash to make it. Say in your \
@@ -1316,15 +1316,15 @@ fn authoring_contract(tripwire: &str, dash: &str, worktree: &std::path::Path) ->
         "You are working on the dash `{dash}`, whose worktree is at `{path}`. Work only under \
          that path, and give every command an absolute path — a shell's working directory does \
          not survive between commands.\n\n\
-         First run `tugutil dash create {dash}` — the dash already exists, so this claims it for \
+         First run `tugtool dash create {dash}` — the dash already exists, so this claims it for \
          this session and nothing else.\n\n\
-         Commit with `tugutil dash commit {dash} --message \"<subject>\"`; that is the only path \
+         Commit with `tugtool dash commit {dash} --message \"<subject>\"`; that is the only path \
          that commits here, and joining the work back is the user's act, never yours. If there \
          is nothing worth changing, change nothing and say so.\n\n\
          Close your turn by running \
-         `tugutil tripwire resolve {tripwire} --awaiting --headline \"<one line>\"` when you left \
+         `tugtool tripwire resolve {tripwire} --awaiting --headline \"<one line>\"` when you left \
          something for the user to look at, or \
-         `tugutil tripwire resolve {tripwire} --quiet` when you did not.",
+         `tugtool tripwire resolve {tripwire} --quiet` when you did not.",
         path = worktree.display(),
     )
 }
@@ -1370,7 +1370,7 @@ struct ProbeResult {
 /// handled would attribute the probe's writes to a card that never ran it —
 /// and the pagers are pinned off, because a probe with no terminal that pages
 /// its output waits for a keypress nobody is there to give. `TUG_INSTANCE_ID`
-/// rides through untouched, so a `tugutil` inside the probe addresses this
+/// rides through untouched, so a `tugtool` inside the probe addresses this
 /// same instance.
 ///
 /// A probe that outlives [`PROBE_TIMEOUT`] is killed and reported red.
@@ -1610,7 +1610,7 @@ fn post_settled(config: &TripwireEngineConfig, run: &PendingRun, settled: &Settl
 /// process wrote the settle this engine never saw (Spec S02).
 ///
 /// The row is already right; what the tell buys is that anybody is told now
-/// rather than never — a settle written by a `tugutil` reaches no Overview on
+/// rather than never — a settle written by a `tugtool` reaches no Overview on
 /// its own. Nothing here writes to the ledger, so a tell that arrives twice
 /// costs a duplicate post at worst and can never disturb the settle itself.
 fn republish_settled(config: &Arc<TripwireEngineConfig>, db: &Arc<Db>, tripwire_name: &str) {
@@ -1768,7 +1768,7 @@ fn event_context(payload: &str) -> EventContext {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tugutil_core::tripwire_ledger::NewTripwire;
+    use tugtool_core::tripwire_ledger::NewTripwire;
 
     /// A fixed clock, so a trip's timestamps are the test's rather than the
     /// machine's.
@@ -2496,7 +2496,7 @@ mod tests {
         #[derive(Debug, Clone)]
         enum Reply {
             /// Run the resolution verb against the real ledger, exactly as
-            /// `tugutil tripwire resolve` would — same function, same
+            /// `tugtool tripwire resolve` would — same function, same
             /// compare-and-set. Optionally leaving a commit behind first,
             /// because the keep-or-remove decision reads git rather than the
             /// script.
@@ -2869,7 +2869,7 @@ mod tests {
             assert!(
                 run.prompt.contains("put the suite back to green")
                     && run.prompt.contains("exit 3")
-                    && run.prompt.contains("tugutil tripwire resolve ci"),
+                    && run.prompt.contains("tugtool tripwire resolve ci"),
                 "the prompt carries the brief, the probe's failure, and the verb: {}",
                 run.prompt
             );
@@ -2942,7 +2942,7 @@ mod tests {
             assert!(
                 seen[1]
                     .prompt
-                    .contains(&format!("tugutil dash create {dash}"))
+                    .contains(&format!("tugtool dash create {dash}"))
                     && seen[1]
                         .prompt
                         .contains("update the expected string in a_test.rs")
@@ -2951,7 +2951,7 @@ mod tests {
                         .contains("The expected string was never updated")
                     && seen[1]
                         .prompt
-                        .contains(&format!("tugutil dash commit {dash}"))
+                        .contains(&format!("tugtool dash commit {dash}"))
                     && seen[1]
                         .prompt
                         .contains(&seen[1].worktree.display().to_string()),

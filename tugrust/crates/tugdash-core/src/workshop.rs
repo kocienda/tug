@@ -40,7 +40,7 @@
 
 use std::path::{Path, PathBuf};
 
-use tugutil_core::worktree::sanitize_branch_name;
+use tugtool_core::worktree::sanitize_branch_name;
 
 use crate::ops::{
     branch_exists, branch_name, dash_base, git_output, git_stdout, main_repo_root, run_post_create,
@@ -567,7 +567,7 @@ pub fn remove(repo: &Path, name: &str, warnings: &mut Vec<String>) {
 /// Ensure `.tug/` is ignored, per clone, before a workshop is put there.
 ///
 /// The Changes card's untracked half is listed with `--exclude-standard`, so a
-/// project's own ignore rules are what keep `.tug/` out of it. Tugtool ignores
+/// project's own ignore rules are what keep `.tug/` out of it. Tug ignores
 /// `.tug/`; a user's project need not, and the workshop raises the stakes from
 /// one worktree to a second checkout plus its build outputs — enough untracked
 /// dirt to swamp the card and to trip a join preflight. `.git/info/exclude` is
@@ -976,7 +976,7 @@ mod tests {
         assert_eq!(branch, "tugworkshop/demo");
 
         // And the surface itself: `dash_detail_entries_in` is the one walk
-        // behind both `tugutil dash list` and the card's snapshot ([D138]), so
+        // behind both `tugtool dash list` and the card's snapshot ([D138]), so
         // asserting here covers every reader of either.
         let dashes = crate::ops::dash_detail_entries_in(repo);
         let names: Vec<&str> = dashes.iter().map(|d| d.name.as_str()).collect();

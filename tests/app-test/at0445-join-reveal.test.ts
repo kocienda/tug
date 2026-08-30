@@ -103,7 +103,7 @@ import {
   makeDashScratchRepo,
   rmScratchSession,
   seedScratchSession,
-  tugutil,
+  tugtool,
 } from "./dash-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
@@ -319,7 +319,7 @@ describe.skipIf(!SHOULD_RUN)("AT0445: a ready dash summons the shade", () => {
         // broadcast moves the deck's store without writing a row. Faking it
         // here would leave the server thinking nobody holds this dash, and
         // nothing downstream would ever run.
-        tugutil(["dash", "bind", DASH], {
+        tugtool(["dash", "bind", DASH], {
           cwd: scratch,
           binaryRoot: cli.binaryRoot,
           env: { ...(cli.env ?? {}), TUG_SESSION_ID: SID },
@@ -402,7 +402,7 @@ describe.skipIf(!SHOULD_RUN)("AT0445: a ready dash summons the shade", () => {
         // on a developer's machine, is their **live** Tug. Without this the
         // draft lands in the real machine-global `changes.db` under a scratch
         // dash's owner key, and this instance never sees it.
-        tugutil(
+        tugtool(
           [
             "draft",
             "set",

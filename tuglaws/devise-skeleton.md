@@ -2,7 +2,7 @@
 
 <!--
   This is the format contract for plans authored by `/tugplug:dash-devise` and walked
-  by `/tugplug:dash-implement`. Its mechanical half is checked by `tugutil plan lint`;
+  by `/tugplug:dash-implement`. Its mechanical half is checked by `tugtool plan lint`;
   its judgment half is `/tugplug:dash-review`'s, against
   `tuglaws/dash-review-rubric.md`.
   The devise skill's output is a plan written against this skeleton.
@@ -19,7 +19,7 @@
   often skip; skip any of them when there is nothing true to put there.
 
   **`{#execution-steps}` is also what makes this document a plan.** Detection is
-  positive: `tugutil plan lint` treats a file as a plan only if it declares that
+  positive: `tugtool plan lint` treats a file as a plan only if it declares that
   anchor, and exits 2 with "not a plan document" otherwise. A brief therefore lints
   as a non-plan by construction — its format is `tuglaws/brief-skeleton.md`.
 
@@ -28,7 +28,7 @@
   lives inside it), drops blank lines and horizontal rules, reduces every Step Status
   Ledger row to its anchor and title, and unticks every checkbox. So flipping a row to
   `done`, recording its commit, and ticking task boxes leave the stamp untouched, and
-  `tugutil plan status` still reads `reviewed` at the end of a run. Editing the plan's
+  `tugtool plan status` still reads `reviewed` at the end of a run. Editing the plan's
   *content* is what makes it `stale` — which is the signal actually worth having.
 -->
 
@@ -64,9 +64,9 @@
   Absent until the first review; `plan lint` warns (PL023) rather than failing.
 
   The `plan:<hash>` token is the round's **content stamp** — the identity of the
-  document the round actually read. `tugutil plan stamp` computes and inserts it
+  document the round actually read. `tugtool plan stamp` computes and inserts it
   as the review's last edit; it is never text a model types, because a hash a
-  model types is a fabricated one. `tugutil plan status` compares it against the
+  model types is a fabricated one. `tugtool plan status` compares it against the
   document on disk to report `reviewed` / `stale` / `never-reviewed`, and a round
   carrying none warns (PL025).
 -->
@@ -390,8 +390,8 @@ Table T05, (#op-rename, #fundamental-wall)
 >
 > **The Integration Checkpoint is a procedure, and it is not a second sweep.** A checkpoint that passed is spent: every command in the per-step checkpoints already ran, against these bytes, inside the step that changed them. Re-listing them at the end costs minutes and can only re-prove what is already proven — and it proves it about the **sandbox**, frozen at branch time, rather than about the deliverable. So the ending is:
 >
-> 1. `tugutil dash replay <name>` — replays the rounds onto the live base, moving the branch and the worktree together.
-> 2. On **`Replayed`** or **`Recorded`** the tree moved, so verify it: `tugutil dash verify <name>`, run in the warm worktree. It resolves every path the replay moved to a surface the project declared and runs what those surfaces declare — nothing is substituted by hand. A **refusal** names paths no surface claims and runs no check at all; declare a surface for them. **A project that declares no surfaces says so and exits 0 — then verify with the plan's own checkpoint commands over what the replay moved, the commands the plan already names, never an invented one, and say so.**
+> 1. `tugtool dash replay <name>` — replays the rounds onto the live base, moving the branch and the worktree together.
+> 2. On **`Replayed`** or **`Recorded`** the tree moved, so verify it: `tugtool dash verify <name>`, run in the warm worktree. It resolves every path the replay moved to a surface the project declared and runs what those surfaces declare — nothing is substituted by hand. A **refusal** names paths no surface claims and runs no check at all; declare a surface for them. **A project that declares no surfaces says so and exits 0 — then verify with the plan's own checkpoint commands over what the replay moved, the commands the plan already names, never an invented one, and say so.**
 > 3. On **`Current`** the base has not moved, so the tree the run's last checkpoint verified *is* the deliverable, byte for byte. **Nothing re-runs.** The ending costs one `dash replay` and seconds.
 > 4. On **`Conflicted`** the replay names the round it could not apply. That is work arriving at the right desk — the model is present, the worktree is warm, and the conflict is resolved there as normal work, then verified as in (2).
 >
@@ -530,8 +530,8 @@ Table T05, (#op-rename, #fundamental-wall)
 **References:** [P04] <decision>, [P05] <decision>, (#success-criteria)
 
 **Tasks:**
-- [ ] `tugutil dash replay <name>` — put the rounds on the live base, so what gets verified is what would land.
-- [ ] `Replayed` / `Recorded`: verify the replayed tree with `tugutil dash verify <name>`; a refusal names paths no surface claims and is fixed by declaring one, and a project that declares no surfaces falls back to the plan's own checkpoint commands over what the replay moved, said plainly.
+- [ ] `tugtool dash replay <name>` — put the rounds on the live base, so what gets verified is what would land.
+- [ ] `Replayed` / `Recorded`: verify the replayed tree with `tugtool dash verify <name>`; a refusal names paths no surface claims and is fixed by declaring one, and a project that declares no surfaces falls back to the plan's own checkpoint commands over what the replay moved, said plainly.
 - [ ] `Current`: the base never moved, so the last step's checkpoint already verified these exact bytes — re-run nothing and say so.
 - [ ] `Conflicted`: resolve the named round in the worktree, then verify as above.
 

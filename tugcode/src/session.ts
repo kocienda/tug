@@ -869,7 +869,7 @@ const SESSION_SYSTEM_PROMPT_NUDGE =
  * a permission prompt. One entry covers every `Tug/projects/<slug>/` subdir.
  *
  * Honors `TUG_DATA_DIR` as the base override (matching
- * `tugutil_core::project_state_dir`); otherwise the macOS app-support dir.
+ * `tugtool_core::project_state_dir`); otherwise the macOS app-support dir.
  */
 export function tugDataRoot(): string {
   const override = process.env.TUG_DATA_DIR;
@@ -3777,7 +3777,7 @@ export class SessionManager {
     // here — it rides through `scrubbedEnv` to claude, which forwards its
     // environment to Bash tool calls. This is the chain that lets a skill
     // or CLI run inside the session read `$TUG_SESSION_ID` and self-
-    // identify; `tugutil changes` keys its file-event query on it. If the
+    // identify; `tugtool changes` keys its file-event query on it. If the
     // auth-scrub destructure ever grows, keep this variable out of it.
 
     // Enable file checkpointing so the session-card's `/rewind` can restore the

@@ -67,8 +67,8 @@ import {
   rmScratchSession,
   seedScratchSession,
   shellAndSettle,
-  tugutil,
-  tugutilPath,
+  tugtool,
+  tugtoolPath,
   type DashScratchRepo,
 } from "./dash-fixture";
 
@@ -114,7 +114,7 @@ beforeAll(() => {
     ...scratch.cli,
     rows: 4,
   });
-  tugutil(["plan", "stamp", dashPlanPath(projectDir(), PLAN_DASH)], {
+  tugtool(["plan", "stamp", dashPlanPath(projectDir(), PLAN_DASH)], {
     cwd: projectDir(),
     binaryRoot: CHECKOUT,
     env: scratch.cli.env,
@@ -338,25 +338,25 @@ describe.skipIf(!SHOULD_RUN)("AT0484: the Z2 DASH instrument", () => {
         // ── A declared run wins over the plan's own pair ──────────────────
         await shellAndSettle(
           app,
-          `${tugutilPath(CHECKOUT)} dash step ${PLAN_DASH} start 1 --through 2`,
+          `${tugtoolPath(CHECKOUT)} dash step ${PLAN_DASH} start 1 --through 2`,
         );
         await awaitReading(app, "1/2");
         note("at0484 declared run", await readingText(app));
 
         // ── A dash with only a brief says the PHASE, not the git stage ────
-        await shellAndSettle(app, `${tugutilPath(CHECKOUT)} dash bind ${BRIEF_DASH}`, 1);
+        await shellAndSettle(app, `${tugtoolPath(CHECKOUT)} dash bind ${BRIEF_DASH}`, 1);
         await awaitReading(app, "Brief");
 
         // ── A dash with no documents at all says Working ──────────────────
         // The word is the last resort: a direct dash that wrote a task list
         // has a fraction to show, so only a dash with nothing to count — this
         // one, freshly created — ever reaches it.
-        await shellAndSettle(app, `${tugutilPath(CHECKOUT)} dash bind ${LISTLESS_DASH}`, 2);
+        await shellAndSettle(app, `${tugtoolPath(CHECKOUT)} dash bind ${LISTLESS_DASH}`, 2);
         await awaitReading(app, "Working");
         note("at0484 z2 at the listless reading", (await app.screenshot()).path);
 
         // ── Unbinding gives the width back ───────────────────────────────
-        await shellAndSettle(app, `${tugutilPath(CHECKOUT)} dash unbind`, 3);
+        await shellAndSettle(app, `${tugtoolPath(CHECKOUT)} dash unbind`, 3);
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(VALUE)}) === null`,
           { timeoutMs: 30000 },

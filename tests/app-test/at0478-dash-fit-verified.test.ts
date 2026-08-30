@@ -21,10 +21,10 @@
  * is this file's job.
  *
  * The exit-2 assertion is spawned directly rather than through the fixture's
- * `tugutil()` helper, which throws on a non-zero exit and so cannot express a
- * refusal. `tugutilPath` is the only correct way to name the binary:
- * `~/.local/bin/tugutil` is a symlink into the *main* checkout's build, which
- * would run a `tugutil` with no `verify` subcommand at all.
+ * `tugtool()` helper, which throws on a non-zero exit and so cannot express a
+ * refusal. `tugtoolPath` is the only correct way to name the binary:
+ * `~/.local/bin/tugtool` is a symlink into the *main* checkout's build, which
+ * would run a `tugtool` with no `verify` subcommand at all.
  *
  * @covers tugdeck/src/components/tugways/dash-lifecycle-line.tsx
  * @covers tugdeck/src/lib/dash-meta-facts.ts
@@ -51,8 +51,8 @@ import {
   rmDashScratchRepo,
   rmScratchSession,
   seedScratchSession,
-  tugutil,
-  tugutilPath,
+  tugtool,
+  tugtoolPath,
   type DashScratchRepo,
 } from "./dash-fixture";
 
@@ -111,7 +111,7 @@ const COMPLETE_TABLE = [
 
 /** Run `dash verify` for its exit code, which the throwing helper cannot give. */
 function verifyExit(): { code: number; out: string } {
-  const run = Bun.spawnSync([tugutilPath(CHECKOUT), "dash", "verify", DASH_NAME], {
+  const run = Bun.spawnSync([tugtoolPath(CHECKOUT), "dash", "verify", DASH_NAME], {
     cwd: projectDir(),
     env: { ...process.env, ...(scratch?.cli.env ?? {}) },
   });
@@ -209,7 +209,7 @@ describe.skipIf(!SHOULD_RUN)("AT0478: the fit a dash was verified at", () => {
 
       // The fact is recorded where the faces read it.
       const status = JSON.parse(
-        tugutil(["dash", "status", DASH_NAME, "--json"], {
+        tugtool(["dash", "status", DASH_NAME, "--json"], {
           cwd: projectDir(),
           ...(scratch?.cli ?? {}),
         }),

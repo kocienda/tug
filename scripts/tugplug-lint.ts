@@ -41,14 +41,14 @@ const RULES: Rule[] = [
   },
   {
     name: "this-repository",
-    pattern: /[Ii]n this (repository|repo)\b|[Ii]n Tugtool\b|\bexemplar\b/,
+    pattern: /[Ii]n this (repository|repo)\b|[Ii]n Tug(tool)?(?![\w.])|\bexemplar\b/,
     why: "a skill runs in the user's project; what is true here is not true there",
   },
   {
     name: "jq",
     pattern: /(^|[\s|(;&])jq(\s|$)/,
     only: [".sh"],
-    why: "jq is not in the bundle; hook decisions are computed by `tugutil hook`",
+    why: "jq is not in the bundle; hook decisions are computed by `tugtool hook`",
   },
 ];
 

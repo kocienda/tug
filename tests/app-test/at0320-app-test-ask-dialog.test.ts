@@ -4,7 +4,7 @@
  *
  * ## Why this exists
  *
- * `tugutil host ask` exists so a command-line tool can get the developer's
+ * `tugtool host ask` exists so a command-line tool can get the developer's
  * consent before doing something they will feel — an app-test run that seizes
  * the screen being the case it was built for. The whole value is in the round
  * trip: a real process blocks, a real dialog appears in the real app, a real
@@ -47,7 +47,7 @@
  * @covers tugdeck/src/lib/code-session-store/lifecycle-state.ts
  * @covers tugdeck/src/lib/code-session-store/session-phase-visual.ts
  * @covers tugrust/crates/tugcast/src/server.rs
- * @covers tugrust/crates/tugutil/src/commands/ask.rs
+ * @covers tugrust/crates/tugtool/src/commands/ask.rs
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
@@ -60,7 +60,7 @@ const TEST_TIMEOUT_MS = 120_000;
 
 const SID = "at0320-session";
 const REPO_ROOT = resolve(import.meta.dir, "..", "..");
-const TUGUTIL = resolve(REPO_ROOT, "tugrust/target/debug/tugutil");
+const TUGTOOL = resolve(REPO_ROOT, "tugrust/target/debug/tugtool");
 
 const DIALOG = '[data-slot="session-app-test-ask-dialog"]';
 const OPTION_GROUP = `${DIALOG} [data-slot="tug-radio-group"]`;
@@ -136,14 +136,14 @@ function deckShape() {
 }
 
 /**
- * Start `tugutil host ask` without waiting for it. The process blocks until the
+ * Start `tugtool host ask` without waiting for it. The process blocks until the
  * dialog is answered, which is the whole point — awaiting it here would
  * deadlock the test against itself.
  */
 function startAsk(instanceId: string) {
   return Bun.spawn(
     [
-      TUGUTIL,
+      TUGTOOL,
       "host",
       "ask",
       "--instance",
@@ -180,7 +180,7 @@ function startAsk(instanceId: string) {
 function startCountdownAsk(instanceId: string, secs: number) {
   return Bun.spawn(
     [
-      TUGUTIL,
+      TUGTOOL,
       "host",
       "ask",
       "--instance",
@@ -241,7 +241,7 @@ describe.skipIf(!SHOULD_RUN)("at0320 — ask dialog round trip", () => {
         // landed than "the selector never matched" does.
         proc.kill();
         const stderr = await new Response(proc.stderr).text();
-        throw new Error(`dialog never appeared; tugutil host ask said: ${stderr}`, {
+        throw new Error(`dialog never appeared; tugtool host ask said: ${stderr}`, {
           cause: error,
         });
       }
@@ -404,7 +404,7 @@ describe.skipIf(!SHOULD_RUN)("at0320 — ask dialog round trip", () => {
       } catch (error) {
         proc.kill();
         const stderr = await new Response(proc.stderr).text();
-        throw new Error(`countdown never appeared; tugutil host ask said: ${stderr}`, {
+        throw new Error(`countdown never appeared; tugtool host ask said: ${stderr}`, {
           cause: error,
         });
       }

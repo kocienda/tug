@@ -52,9 +52,9 @@ done
 # 3. Belt-and-suspenders: if a registry entry still exists for this
 #    instance ID, send a direct SIGTERM via tug. Either tugcast
 #    is the straggler (GUI died before reaching ProcessManager.stop),
-#    or `tugutil host instance stop` is a no-op (no registry entry).
+#    or `tugtool host instance stop` is a no-op (no registry entry).
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
-TUGUTIL="$REPO_ROOT/tugrust/target/debug/tugutil"
-if [ -x "$TUGUTIL" ]; then
-    "$TUGUTIL" host instance stop "$INSTANCE_ID" --timeout "$TIMEOUT" >/dev/null 2>&1 || true
+TUGTOOL="$REPO_ROOT/tugrust/target/debug/tugtool"
+if [ -x "$TUGTOOL" ]; then
+    "$TUGTOOL" host instance stop "$INSTANCE_ID" --timeout "$TIMEOUT" >/dev/null 2>&1 || true
 fi

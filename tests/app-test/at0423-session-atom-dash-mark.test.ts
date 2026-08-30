@@ -20,7 +20,7 @@
  *      the atom's own text and changes nothing else in it — the same run, the
  *      same sigil, the same ink as the line tier.
  *
- * The loop is real throughout: `tugutil dash bind` through the card's own `$`
+ * The loop is real throughout: `tugtool dash bind` through the card's own `$`
  * shell route, which is what stamps `TUG_SESSION_ID` on the child, against a
  * real session resumed on a scratch repository this file owns. The mark appears
  * because the dash's `bound_sessions` moved in the account-global changeset
@@ -42,7 +42,7 @@ import {
   rmScratchSession,
   seedScratchSession,
   shellAndSettle,
-  tugutilPath,
+  tugtoolPath,
   type DashScratchRepo,
 } from "./dash-fixture";
 
@@ -182,7 +182,7 @@ describe.skipIf(!SHOULD_RUN)("AT0423: the atom's dash mark", () => {
         expect(bare.citation.length).toBeGreaterThan(0);
 
         // ── Bind, for real ────────────────────────────────────────────────
-        await shellAndSettle(app, `${tugutilPath(CHECKOUT)} dash bind ${DASH_NAME}`, 0);
+        await shellAndSettle(app, `${tugtoolPath(CHECKOUT)} dash bind ${DASH_NAME}`, 0);
         await app.waitForCondition<boolean>(
           `document.querySelector('[data-slot="session-masthead"] [data-slot="session-identity-dash"]') !== null`,
           { timeoutMs: 15000 },
@@ -241,7 +241,7 @@ describe.skipIf(!SHOULD_RUN)("AT0423: the atom's dash mark", () => {
         expect(bound.citation).not.toContain(DASH_NAME);
 
         // ── Unbind, for real ──────────────────────────────────────────────
-        await shellAndSettle(app, `${tugutilPath(CHECKOUT)} dash unbind`, 1);
+        await shellAndSettle(app, `${tugtoolPath(CHECKOUT)} dash unbind`, 1);
         await app.waitForCondition<boolean>(
           `document.querySelector('[data-slot="session-masthead"] [data-slot="session-identity-dash"]') === null`,
           { timeoutMs: 15000 },

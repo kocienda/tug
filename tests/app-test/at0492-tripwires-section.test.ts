@@ -2,7 +2,7 @@
  * at0492-tripwires-section.test.ts — the **Tripwires** Lens section over the
  * real `/api/tripwires` surface.
  *
- * Nothing here is stubbed. A real `tugutil tripwire lay` writes rows into the
+ * Nothing here is stubbed. A real `tugtool tripwire lay` writes rows into the
  * launch's own `tripwires.db` — the harness points `TUG_TRIPWIRES_DB` into the
  * per-instance data dir, so a test can arm a tripwire without arming one on the
  * developer's machine — and the section reads them back through the HTTP
@@ -46,7 +46,7 @@ import {
   rmTempTugbank,
   seedTugbankForLaunch,
 } from "./_harness/tugbank-helpers";
-import { tugutil } from "./dash-fixture";
+import { tugtool } from "./dash-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 60_000;
@@ -82,7 +82,7 @@ function layTripwire(
   extra: string[] = [],
   brief = `say whether ${name} saw anything worth reporting`,
 ): void {
-  tugutil(
+  tugtool(
     [
       "tripwire",
       "lay",
@@ -108,7 +108,7 @@ function layTripwire(
 }
 
 function pauseTripwire(app: App, name: string): void {
-  tugutil(["tripwire", "pause", name, "--json"], {
+  tugtool(["tripwire", "pause", name, "--json"], {
     cwd: CHECKOUT,
     binaryRoot: CHECKOUT,
     env: { TUG_TRIPWIRES_DB: instanceTripwiresDb(app.instanceId) },

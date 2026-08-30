@@ -18,7 +18,7 @@ set -euo pipefail
 # Signing order is strictly inside-out, per Apple's guidance for any
 # bundle with heterogeneous nested binaries (macOS 13+):
 #
-#   1. Rust helpers (tugcast, tugutil, tugedit, tugexec, tugrelaunch, tugbank)
+#   1. Rust helpers (tugcast, tugtool, tugedit, tugexec, tugrelaunch, tugbank)
 #      — default hardened runtime, no custom entitlements file.
 #   2. Swift debug dylibs (`Tug.debug.dylib`, `__preview.dylib` —
 #      Debug builds only). Hardened runtime requires nested dylibs
@@ -120,7 +120,7 @@ note "    Identity: $IDENTITY"
 # tugrelaunch are present in some bundle configurations and not
 # others, and a missing entry is benign (the bundle just doesn't ship
 # that helper).
-RUST_BINS=(tugcast tugutil tugedit tugexec tugrelaunch tugbank)
+RUST_BINS=(tugcast tugtool tugedit tugexec tugrelaunch tugbank)
 for bin in "${RUST_BINS[@]}"; do
     bin_path="$APP_PATH/Contents/MacOS/$bin"
     if [ -x "$bin_path" ]; then

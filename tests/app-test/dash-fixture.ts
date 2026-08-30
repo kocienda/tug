@@ -28,7 +28,7 @@
  * git-touching verb retries through it rather than failing the file that lost.
  * A failure that is *not* transient fails immediately and carries the whole
  * corpse — exit code, signal, both streams. The alternative is what actually
- * happened: `tugutil dash create … failed:` with nothing after the colon,
+ * happened: `tugtool dash create … failed:` with nothing after the colon,
  * because the message quoted only stderr and the process died before writing
  * any.
  *
@@ -62,7 +62,7 @@ const LOCK_BACKOFF_MS = 250;
 /**
  * The built CLI, by absolute path.
  *
- * `~/.local/bin/tugutil` is a symlink whose target is somebody else's build
+ * `~/.local/bin/tugtool` is a symlink whose target is somebody else's build
  * decision, which is not a thing a test should inherit silently.
  *
  * `projectDir`'s **own** `tugrust/target` comes first, then the main
@@ -72,7 +72,7 @@ const LOCK_BACKOFF_MS = 250;
  * subcommand` — a stale build reported as a broken feature. A worktree that
  * has not been built falls back, which is what a test touching no Rust wants.
  */
-export function tugutilPath(projectDir: string): string {
+export function tugtoolPath(projectDir: string): string {
   const commonDir = Bun.spawnSync(
     ["git", "-C", projectDir, "rev-parse", "--path-format=absolute", "--git-common-dir"],
     {},
@@ -82,16 +82,16 @@ export function tugutilPath(projectDir: string): string {
   const roots = [projectDir, resolve(commonDir, "..")];
   for (const root of roots) {
     for (const profile of ["debug", "release"]) {
-      const candidate = join(root, "tugrust/target", profile, "tugutil");
+      const candidate = join(root, "tugrust/target", profile, "tugtool");
       if (existsSync(candidate)) return candidate;
     }
   }
-  throw new Error(`dash-fixture: no built tugutil under ${roots.join(" or ")}`);
+  throw new Error(`dash-fixture: no built tugtool under ${roots.join(" or ")}`);
 }
 
 /**
  * The checkout that owns `projectDir`'s dash state — the TypeScript mirror of
- * `tugutil_core::find_repo_root_from`.
+ * `tugtool_core::find_repo_root_from`.
  *
  * Tests need this because dash state lives beside the resolved root: the
  * `project_state_dir` slug (and so the join journal's home) is derived from it.
@@ -180,7 +180,7 @@ function describeFailure(f: SpawnFailure): string {
   return parts.join("\n  ");
 }
 
-export interface TugutilRun {
+export interface TugtoolRun {
   /** Where to run — the project the dash belongs to. */
   cwd: string;
   /**
@@ -197,9 +197,9 @@ export interface TugutilRun {
   required?: boolean;
 }
 
-/** Run one `tugutil` verb, retrying through a transient git lock. */
-export function tugutil(args: string[], opts: TugutilRun): string {
-  const bin = tugutilPath(opts.binaryRoot ?? opts.cwd);
+/** Run one `tugtool` verb, retrying through a transient git lock. */
+export function tugtool(args: string[], opts: TugtoolRun): string {
+  const bin = tugtoolPath(opts.binaryRoot ?? opts.cwd);
   let last = EMPTY_FAILURE;
   for (let attempt = 0; attempt <= LOCK_RETRIES; attempt += 1) {
     const out = Bun.spawnSync([bin, ...args], {
@@ -218,7 +218,7 @@ export function tugutil(args: string[], opts: TugutilRun): string {
     sleepSync(LOCK_BACKOFF_MS);
   }
   if (opts.required === false) return "";
-  throw new Error(`tugutil ${args.join(" ")} failed\n  ${describeFailure(last)}`);
+  throw new Error(`tugtool ${args.join(" ")} failed\n  ${describeFailure(last)}`);
 }
 
 /**
@@ -390,7 +390,7 @@ export interface CreatedDash {
  * cannot have the ground moving under it.
  */
 export interface DashFixtureOpts {
-  /** Checkout whose built `tugutil` runs, when `projectDir` has none. */
+  /** Checkout whose built `tugtool` runs, when `projectDir` has none. */
   binaryRoot?: string;
   /**
    * Extra environment for the verb. A fixture on a scratch repo redirects
@@ -463,7 +463,7 @@ export function createDash(
   const branch = currentBranch(projectDir);
   const base = branch === "" ? [] : ["--base", branch];
   const out = JSON.parse(
-    tugutil(["dash", "create", name, "--description", description, ...base, "--json"], {
+    tugtool(["dash", "create", name, "--description", description, ...base, "--json"], {
       cwd: projectDir,
       binaryRoot: opts.binaryRoot,
       env: opts.env,
@@ -481,7 +481,7 @@ export function commitRound(
   opts: DashFixtureOpts = {},
 ): void {
   refuseCheckout(projectDir, "commit a round");
-  tugutil(["dash", "commit", name, "--message", subject, "--json"], {
+  tugtool(["dash", "commit", name, "--message", subject, "--json"], {
     cwd: projectDir,
     binaryRoot: opts.binaryRoot,
     env: opts.env,
@@ -504,7 +504,7 @@ export function markDashBuilt(
   opts: DashFixtureOpts = {},
 ): void {
   refuseCheckout(projectDir, "mark a dash built");
-  tugutil(["dash", "mark", name, "built"], {
+  tugtool(["dash", "mark", name, "built"], {
     cwd: projectDir,
     binaryRoot: opts.binaryRoot,
     env: opts.env,
@@ -706,7 +706,7 @@ export function recordStampedPlan(
   // spans the whole plan — one row, `--through 1` — which is the shape where
   // the run's counters and the plan's agree. Pass `through` below `rows` for
   // the case they diverge: a partial selection out of a longer document.
-  tugutil(
+  tugtool(
     [
       "dash",
       "step",
@@ -722,7 +722,7 @@ export function recordStampedPlan(
       env: opts.env,
     },
   );
-  tugutil(["plan", "stamp", planPath], {
+  tugtool(["plan", "stamp", planPath], {
     cwd: projectDir,
     binaryRoot: opts.binaryRoot,
     env: opts.env,
@@ -759,7 +759,7 @@ export function bindDash(
   // on the first millisecond.
   const deadline = Date.now() + 20_000;
   for (;;) {
-    const out = Bun.spawnSync([tugutilPath(opts.binaryRoot ?? projectDir), "dash", "bind", name], {
+    const out = Bun.spawnSync([tugtoolPath(opts.binaryRoot ?? projectDir), "dash", "bind", name], {
       cwd: projectDir,
       env: { ...process.env, ...(opts.env ?? {}), TUG_SESSION_ID: tugSessionId },
     });
@@ -832,7 +832,7 @@ export function discardDash(
   // checkout could tear down a dash the developer actually made, on nothing
   // more than a name collision.
   refuseCheckout(projectDir, "discard a dash");
-  tugutil(["dash", "discard", name, "--json"], {
+  tugtool(["dash", "discard", name, "--json"], {
     cwd: projectDir,
     binaryRoot: opts.binaryRoot,
     env: opts.env,
@@ -863,14 +863,14 @@ export interface DashScratchRepo {
 export interface DashScratchOpts {
   /** Prefix for the temp directories, so a failed run is identifiable. */
   prefix: string;
-  /** The checkout whose built `tugutil` drives the fixture. */
+  /** The checkout whose built `tugtool` drives the fixture. */
   checkout: string;
   /**
    * Files at the root commit, path → body, merged over the defaults.
    *
    * `.tugtool/config.toml` is written whether or not it is named here:
    * `.tugtool/` is what marks a project root — `find_project_root` in
-   * `tugutil-core/src/config.rs` walks up looking for exactly that — and a
+   * `tugtool-core/src/config.rs` walks up looking for exactly that — and a
    * scratch repo without one resolves its root somewhere above the temp dir
    * instead, which is a fixture whose dashes exist and are never listed.
    */
@@ -935,7 +935,7 @@ export function makeDashScratchRepo(opts: DashScratchOpts): DashScratchRepo {
       binaryRoot: opts.checkout,
       env: {
         TUG_DATA_DIR: dataRoot,
-        // **A fixture is not a session.** `tugutil` spreads `process.env`, and
+        // **A fixture is not a session.** `tugtool` spreads `process.env`, and
         // an app-test inherits the developer's shell — including the
         // `TUG_SESSION_ID` of the session running the test. Left in place,
         // every dash verb that records a worker (`create`, `commit`,
@@ -1046,7 +1046,7 @@ export function rmScratchSession(dir: string): void {
  * Run `command` through the card's `$` shell route and wait for its exit.
  *
  * This is how a dash test binds and unbinds for real: the shell child is what
- * carries `TUG_SESSION_ID`, so `tugutil dash bind` run through it resolves the
+ * carries `TUG_SESSION_ID`, so `tugtool dash bind` run through it resolves the
  * session the card actually holds. One copy here because four files had grown
  * their own, differing only in a default parameter.
  */
@@ -1101,7 +1101,7 @@ export interface JoinScratchOpts {
   dash: string;
   /** The dash's one-line description. */
   description: string;
-  /** The checkout whose built `tugutil` drives the fixture. */
+  /** The checkout whose built `tugtool` drives the fixture. */
   checkout: string;
   /** The file both sides rewrite. */
   file: string;

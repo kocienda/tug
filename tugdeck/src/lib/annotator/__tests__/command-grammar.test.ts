@@ -101,10 +101,10 @@ describe("parseShellCommandLine — accepts known tool + subcommand", () => {
   const accepted = [
     ["just target", "just launch-debug"],
     ["just target (logs)", "just logs-debug"],
-    ["tugutil host subcommand", "tugutil host state-dir"],
-    ["tug subcommand", "tugutil changes"],
-    ["tugutil dash subcommand with flag", "tugutil dash join --preview"],
-    ["tugutil dash subcommand with arg", "tugutil dash join canonical-path-identity"],
+    ["tugtool host subcommand", "tugtool host state-dir"],
+    ["tug subcommand", "tugtool changes"],
+    ["tugtool dash subcommand with flag", "tugtool dash join --preview"],
+    ["tugtool dash subcommand with arg", "tugtool dash join canonical-path-identity"],
   ] as const;
 
   for (const [label, input] of accepted) {

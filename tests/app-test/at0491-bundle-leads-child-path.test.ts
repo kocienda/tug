@@ -4,8 +4,8 @@
  *
  * Everything a session runs descends from tugcast: tugcode, the claude it
  * spawns, the plugin hooks, the shell panes. On a machine with only Tug.app
- * installed there is no `~/.local/bin/tugutil` symlink and no checkout, so the
- * only way `tugutil` resolves for any of them is the app seeding the child PATH
+ * installed there is no `~/.local/bin/tugtool` symlink and no checkout, so the
+ * only way `tugtool` resolves for any of them is the app seeding the child PATH
  * with the bundle's binary directory — and seeding it *first*, so a session
  * inside an instance runs that instance's binaries rather than whatever a
  * stale symlink points at.
@@ -54,7 +54,7 @@ describe.skipIf(!SHOULD_RUN)("the bundle leads the child PATH", () => {
         const exe = sh(["ps", "-o", "comm=", "-p", String(pid)]);
         expect(exe.endsWith("/tugcast")).toBe(true);
         const binDir = dirname(exe);
-        expect(existsSync(join(binDir, "tugutil"))).toBe(true);
+        expect(existsSync(join(binDir, "tugtool"))).toBe(true);
 
         const command = sh(["ps", "-E", "-ww", "-o", "command=", "-p", String(pid)]);
         const pathVar = command.split(" ").find((word) => word.startsWith("PATH="));
