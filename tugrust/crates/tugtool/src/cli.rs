@@ -811,8 +811,10 @@ pub enum DashCommands {
     /// Report where a dash's documents live and which of them exist.
     ///
     /// A dash with no documents directory is a state, not an error: the verb
-    /// exits 0 and says both are absent. `--ensure` creates the directory (and
-    /// keeps `.tug/` out of git), so a skill can write into it after one call.
+    /// exits 0 and says every one is absent. `--ensure` creates the directory
+    /// (and keeps `.tug/` out of git), so a skill can write into it after one
+    /// call. The three addresses are the brief, the devised plan, and the
+    /// `/dash` door's task list.
     Documents {
         /// Dash name.
         name: String,

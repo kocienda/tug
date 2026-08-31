@@ -1017,9 +1017,14 @@ fn open_arc(root: &std::path::Path, dash: &str) -> Result<(bool, bool, ArcRecord
         "brief.md"
     } else if tugdash_core::plan_file(root, dash).is_file() {
         "plan.md"
+    } else if tugdash_core::tasks_file(root, dash).is_file() {
+        // A task list with no brief beside it: unusual, since the `/dash`
+        // door writes both, but it is a document the wheel can open on and
+        // refusing it would be a rule with no reason behind it.
+        "tasks.md"
     } else {
         return Err(format!(
-            "dash '{dash}' has no brief or plan at {} — write one first",
+            "dash '{dash}' has no brief, plan, or task list at {} — write one first",
             tugdash_core::documents_dir(root, dash).display()
         ));
     };
@@ -1051,13 +1056,16 @@ fn run_documents(name: &str, ensure: bool, json: bool, quiet: bool) -> Result<()
 
     let brief = tugdash_core::brief_file(&root, name);
     let plan = tugdash_core::plan_file(&root, name);
+    let tasks = tugdash_core::tasks_file(&root, name);
     let payload = DocumentsPayload {
         dash: name.to_string(),
         dir: dir.display().to_string(),
         brief: brief.display().to_string(),
         plan: plan.display().to_string(),
+        tasks: tasks.display().to_string(),
         brief_exists: brief.is_file(),
         plan_exists: plan.is_file(),
+        tasks_exists: tasks.is_file(),
     };
 
     if json {
@@ -1068,19 +1076,22 @@ fn run_documents(name: &str, ensure: bool, json: bool, quiet: bool) -> Result<()
         println!("dir:    {}", payload.dir);
         println!("brief:  {} ({})", payload.brief, mark(payload.brief_exists));
         println!("plan:   {} ({})", payload.plan, mark(payload.plan_exists));
+        println!("tasks:  {} ({})", payload.tasks, mark(payload.tasks_exists));
     }
     Ok(())
 }
 
-/// `dash documents` — the directory and both files, with existence.
+/// `dash documents` — the directory and every document, with existence.
 #[derive(Debug, Serialize)]
 struct DocumentsPayload {
     dash: String,
     dir: String,
     brief: String,
     plan: String,
+    tasks: String,
     brief_exists: bool,
     plan_exists: bool,
+    tasks_exists: bool,
 }
 
 /// Pick a stopped arc back up: write `arc-resume` naming the stage it stopped
@@ -1877,13 +1888,40 @@ mod tests {
         assert_eq!(arc.document.as_deref(), Some(".tug/dashes/both/brief.md"));
     }
 
+    /// The `/dash` door writes a brief and a task list, and the arc opens on
+    /// the brief — the task list is the ledger, not the document the stages
+    /// read for intent.
+    #[test]
+    #[serial_test::serial]
+    fn a_dash_course_opens_its_arc_on_the_brief() {
+        let fixture = arc_fixture();
+        fixture.write_document("course", "brief.md");
+        fixture.write_document("course", "tasks.md");
+        let (_, _, arc) = open_arc(fixture.root(), "course").unwrap();
+        assert_eq!(arc.document.as_deref(), Some(".tug/dashes/course/brief.md"));
+    }
+
+    /// A task list alone still opens an arc: the wheel has a document to read
+    /// and a ledger to walk, which is all opening requires.
+    #[test]
+    #[serial_test::serial]
+    fn a_task_list_alone_opens_an_arc() {
+        let fixture = arc_fixture();
+        fixture.write_document("tasks-only", "tasks.md");
+        let (_, _, arc) = open_arc(fixture.root(), "tasks-only").unwrap();
+        assert_eq!(
+            arc.document.as_deref(),
+            Some(".tug/dashes/tasks-only/tasks.md")
+        );
+    }
+
     #[test]
     #[serial_test::serial]
     fn a_dash_with_no_documents_says_to_write_one() {
         let fixture = arc_fixture();
         let err = open_arc(fixture.root(), "empty").unwrap_err();
         assert!(
-            err.contains("has no brief or plan") && err.contains(".tug/dashes/empty"),
+            err.contains("has no brief, plan, or task list") && err.contains(".tug/dashes/empty"),
             "the refusal must name the address to write to: {err}"
         );
     }

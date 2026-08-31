@@ -1369,6 +1369,16 @@ fn dash_plan_reading(abs: &Path) -> (Option<String>, Vec<DashStep>, bool) {
     (Some(review), steps, tugtool_core::plan::is_task_list(&doc))
 }
 
+/// The document whose ledger a dash's steps live in: its plan when it has one,
+/// the `/dash` door's task list otherwise.
+///
+/// The same precedence `tugdash_core::ledger_file` applies on disk, read here
+/// off the documents the walk already stat'd rather than by touching the
+/// filesystem a second time.
+fn ledger_document(documents: &tugdash_core::DashDocuments) -> Option<&str> {
+    documents.plan.as_deref().or(documents.tasks.as_deref())
+}
+
 /// Derive one dash entry per `refs/heads/tugdash/` branch.
 ///
 /// The composition lives in `tugdash_core::dash_detail_entries_in` — the same
@@ -1420,7 +1430,7 @@ fn dashes_hidden_for(repo_root: &Path) -> bool {
     root == universe
 }
 
-/// The engine's `DashDocuments` as the wire's — the same four fields, one
+/// The engine's `DashDocuments` as the wire's — the same six fields, one
 /// crate boundary apart.
 fn dash_documents(documents: tugdash_core::DashDocuments) -> tugcast_core::types::DashDocuments {
     tugcast_core::types::DashDocuments {
@@ -1428,6 +1438,8 @@ fn dash_documents(documents: tugdash_core::DashDocuments) -> tugcast_core::types
         brief_title: documents.brief_title,
         plan: documents.plan,
         plan_title: documents.plan_title,
+        tasks: documents.tasks,
+        tasks_title: documents.tasks_title,
     }
 }
 
@@ -1471,9 +1483,7 @@ fn document_dash_entries_in(
         .filter(|name| !tugdash_core::ops::branch_exists(root, &format!("tugdash/{name}")))
         .map(|name| {
             let documents = tugdash_core::DashDocuments::read(root, &name);
-            let (review, steps, task_list) = documents
-                .plan
-                .as_deref()
+            let (review, steps, task_list) = ledger_document(&documents)
                 .map(|plan| dash_plan_reading(Path::new(plan)))
                 .unwrap_or((None, Vec::new(), false));
             let owner_id = tugdash_core::ops::dash_owner_key(root, &name);
@@ -1618,10 +1628,7 @@ async fn dash_entries(
         details
             .into_iter()
             .map(|detail| {
-                let (review, steps, task_list) = detail
-                    .documents
-                    .plan
-                    .as_deref()
+                let (review, steps, task_list) = ledger_document(&detail.documents)
                     .map(|plan| dash_plan_reading(Path::new(plan)))
                     .unwrap_or((None, Vec::new(), false));
                 // Whose dirt a path is, scoped to *this* dash: a session mated
@@ -3158,6 +3165,71 @@ Some context.
 
     fn document_entries(root: &Path) -> Vec<DocumentDashEntry> {
         document_dash_entries_in(root, &std::collections::HashMap::new())
+    }
+
+    /// Write a `/dash` door's task list: the steps and the ledger and nothing
+    /// else — no metadata, no phase overview, no deliverables.
+    fn write_dash_task_list(root: &Path, name: &str, statuses: &[&str]) {
+        let dir = root.join(".tug").join("dashes").join(name);
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut ledger = String::new();
+        let mut steps = String::new();
+        for (i, status) in statuses.iter().enumerate() {
+            let n = i + 1;
+            ledger.push_str(&format!("| #step-{n} | Step {n} | {status} | — |\n"));
+            steps.push_str(&format!(
+                "#### Step {n}: Step {n} {{#step-{n}}}\n\nDo it.\n\n"
+            ));
+        }
+        std::fs::write(
+            dir.join("tasks.md"),
+            format!(
+                "# The task list {{#tasks}}\n\n\
+                 ### Execution Steps {{#execution-steps}}\n\n\
+                 #### Step Status Ledger {{#step-status-ledger}}\n\n\
+                 | Step | Title | Status | Commit |\n|---|---|---|---|\n{ledger}\n{steps}"
+            ),
+        )
+        .unwrap();
+    }
+
+    /// The `/dash` course's ledger lives in `tasks.md`, and the shade reads it
+    /// exactly as it reads a plan's — same rows, same counts, and the
+    /// `task_list` flag set so no surface asks it about a review it cannot have.
+    #[test]
+    fn a_dash_whose_ledger_is_a_task_list_reports_its_steps() {
+        let (_dir, root) = init_repo();
+        write_dash_brief(&root, "direct", "The direct brief");
+        write_dash_task_list(&root, "direct", &["done", "pending", "pending"]);
+
+        let entry = document_entries(&root)
+            .into_iter()
+            .find(|e| e.display_name == "direct")
+            .expect("the task-list dash is listed");
+        assert_eq!(entry.step_total, 3);
+        assert_eq!(entry.steps_done, 1);
+        assert!(entry.task_list, "a tasks.md is a task list");
+        assert_eq!(
+            entry.documents.tasks.as_deref(),
+            Some(&*root.join(".tug/dashes/direct/tasks.md").to_string_lossy())
+        );
+    }
+
+    /// A plan outranks a task list wherever the ledger is read — the shade
+    /// included, so a dash that grew a plan shows the plan's rows.
+    #[test]
+    fn a_plan_beside_a_task_list_is_what_the_shade_reads() {
+        let (_dir, root) = init_repo();
+        write_dash_brief(&root, "both-docs", "The brief");
+        write_dash_task_list(&root, "both-docs", &["pending", "pending", "pending"]);
+        write_dash_plan(&root, "both-docs", &["done", "pending"], true);
+
+        let entry = document_entries(&root)
+            .into_iter()
+            .find(|e| e.display_name == "both-docs")
+            .expect("the dash is listed");
+        assert_eq!(entry.step_total, 2, "the plan's rows, not the task list's");
+        assert!(!entry.task_list);
     }
 
     /// The planning phase in flight: a dash exists the moment it has a

@@ -34,7 +34,7 @@ import type { DashDocuments } from "@/lib/changeset-types";
 
 /** One document's row content, derived before render so the JSX stays flat. */
 interface DocumentRow {
-  role: "brief" | "plan";
+  role: "brief" | "plan" | "tasks";
   path: string;
   title: string;
   facts: string | null;
@@ -71,7 +71,16 @@ function documentRows(
       facts: null,
     });
   }
-  if (documents.plan !== undefined) {
+  // The ledger document, whichever course wrote it: a devised `plan.md`, or
+  // the `/dash` door's `tasks.md`. One row either way — it holds the same
+  // place in the reading and carries the same facts.
+  const ledger =
+    documents.plan !== undefined
+      ? ({ role: "plan", path: documents.plan, title: documents.plan_title } as const)
+      : documents.tasks !== undefined
+        ? ({ role: "tasks", path: documents.tasks, title: documents.tasks_title } as const)
+        : null;
+  if (ledger !== null) {
     // The plan states what a reader would otherwise open it to learn: whether
     // a review covers it, and how far the walk has got. The review word is
     // `dashReviewPaints`'s call, not this row's — a `reviewed` plan says
@@ -91,9 +100,9 @@ function documentRows(
       );
     }
     rows.push({
-      role: "plan",
-      path: documents.plan,
-      title: documents.plan_title ?? "plan",
+      role: ledger.role,
+      path: ledger.path,
+      title: ledger.title ?? ledger.role,
       facts: parts.length > 0 ? parts.join(" · ") : null,
     });
   }

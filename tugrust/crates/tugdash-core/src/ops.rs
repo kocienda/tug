@@ -428,12 +428,42 @@ pub fn plan_file(repo: &Path, name: &str) -> PathBuf {
     documents_dir(repo, name).join("plan.md")
 }
 
+/// The dash's task list: `<repo>/.tug/dashes/<name>/tasks.md`.
+///
+/// What a `/dash` door writes beside the brief: an `{#execution-steps}`
+/// section over a `{#step-status-ledger}` and nothing else. It is a ledger,
+/// not a plan — `plan lint` holds it to no skeleton — and its presence is what
+/// tells the wheel to open at implement rather than devise.
+pub fn tasks_file(repo: &Path, name: &str) -> PathBuf {
+    documents_dir(repo, name).join("tasks.md")
+}
+
+/// The document whose Step Status Ledger this dash's steps are walked from.
+///
+/// **`plan.md` outranks `tasks.md`.** A dash with both is a plan-course dash
+/// whose task list is vestigial, and the plan is what the devise and review
+/// stages settled. A dash with only a task list walks that. A dash with
+/// neither has no ledger and returns `None`, which every caller reports as the
+/// refusal it is rather than inventing a path.
+///
+/// This is the whole of the discrimination between the two courses: the
+/// documents on disk, at their own addresses, read the same way by the runner,
+/// the step verb, and the feed.
+pub fn ledger_file(repo: &Path, name: &str) -> Option<PathBuf> {
+    let plan = plan_file(repo, name);
+    if plan.is_file() {
+        return Some(plan);
+    }
+    let tasks = tasks_file(repo, name);
+    tasks.is_file().then_some(tasks)
+}
+
 /// Every name under `<repo>/.tug/dashes/` that is a dash with documents.
 ///
 /// Sorted, and filtered twice: the directory name must pass
 /// `validate_dash_name`, and the directory must actually hold a brief or a
-/// plan. An absent `.tug/dashes` is an empty list, not an error — a repository
-/// with no dashes is the ordinary case.
+/// plan or a task list. An absent `.tug/dashes` is an empty list, not an error — a
+/// repository with no dashes is the ordinary case.
 pub fn document_dashes(repo: &Path) -> Vec<String> {
     let root = main_repo_root(repo).join(".tug").join("dashes");
     let Ok(entries) = std::fs::read_dir(&root) else {
@@ -466,25 +496,32 @@ pub struct DashDocuments {
     pub plan: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub plan_title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tasks: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tasks_title: Option<String>,
 }
 
 impl DashDocuments {
-    /// Stat both documents of `name` under `repo`.
+    /// Stat every document of `name` under `repo`.
     pub fn read(repo: &Path, name: &str) -> Self {
         let dir = documents_dir(repo, name);
         let (brief, brief_title) = read_document(&dir.join("brief.md"));
         let (plan, plan_title) = read_document(&dir.join("plan.md"));
+        let (tasks, tasks_title) = read_document(&dir.join("tasks.md"));
         Self {
             brief,
             brief_title,
             plan,
             plan_title,
+            tasks,
+            tasks_title,
         }
     }
 
-    /// True when the dash has neither document.
+    /// True when the dash has no document at all.
     pub fn is_empty(&self) -> bool {
-        self.brief.is_none() && self.plan.is_none()
+        self.brief.is_none() && self.plan.is_none() && self.tasks.is_none()
     }
 }
 
@@ -2076,15 +2113,19 @@ fn step_in(
         return Err(format!("Dash not found or not active: {}", name));
     }
 
-    let abs = plan_file(repo_root, name);
+    // The ledger is the plan when there is one and the task list otherwise:
+    // one step verb, either course, no flag to get wrong.
+    let abs = ledger_file(repo_root, name).ok_or_else(|| {
+        format!(
+            "dash '{name}' has no plan or task list at {}",
+            documents_dir(repo_root, name).display()
+        )
+    })?;
     let rel = abs.display().to_string();
-    if !abs.is_file() {
-        return Err(format!("dash '{name}' has no plan at {rel}"));
-    }
     let source = std::fs::read_to_string(&abs)
-        .map_err(|e| format!("cannot read plan at {}: {e}", abs.display()))?;
+        .map_err(|e| format!("cannot read the ledger at {}: {e}", abs.display()))?;
     let doc =
-        tugtool_core::plan::parse(&source).map_err(|_| format!("{rel} is not a plan document"))?;
+        tugtool_core::plan::parse(&source).map_err(|_| format!("{rel} carries no step ledger"))?;
 
     let anchor = format!("step-{step}");
     let total = doc.ledger_rows.len() as u32;
@@ -4890,6 +4931,33 @@ mod tests {
         );
         assert!(brief_file(root, "foo-bar").ends_with(".tug/dashes/foo-bar/brief.md"));
         assert!(plan_file(root, "foo-bar").ends_with(".tug/dashes/foo-bar/plan.md"));
+        assert!(tasks_file(root, "foo-bar").ends_with(".tug/dashes/foo-bar/tasks.md"));
+    }
+
+    /// The whole of the discrimination between the two courses: which document
+    /// is on disk. A plan outranks a task list, so a dash that grew a plan
+    /// walks the plan and the vestigial task list is never consulted.
+    #[test]
+    fn the_ledger_is_the_plan_when_there_is_one_and_the_task_list_otherwise() {
+        let temp = TempDir::new().unwrap();
+        let root = temp.path();
+        let dir = documents_dir(root, "courses");
+        fs::create_dir_all(&dir).unwrap();
+
+        // Neither document: no ledger, and no invented path.
+        assert_eq!(ledger_file(root, "courses"), None);
+
+        // A task list alone is the dash course's ledger.
+        fs::write(dir.join("tasks.md"), "# tasks\n").unwrap();
+        assert_eq!(ledger_file(root, "courses"), Some(dir.join("tasks.md")));
+
+        // A plan beside it outranks it.
+        fs::write(dir.join("plan.md"), "# plan\n").unwrap();
+        assert_eq!(ledger_file(root, "courses"), Some(dir.join("plan.md")));
+
+        // A plan alone is the plan course's ledger, as it always was.
+        fs::remove_file(dir.join("tasks.md")).unwrap();
+        assert_eq!(ledger_file(root, "courses"), Some(dir.join("plan.md")));
     }
 
     /// The property [P01] and [P02] both rest on: a validated name is one safe
@@ -4943,6 +5011,7 @@ mod tests {
         );
         assert_eq!(docs.plan, None);
         assert_eq!(docs.plan_title, None);
+        assert_eq!(docs.tasks, None);
         assert!(!docs.is_empty());
 
         fs::write(dir.join("plan.md"), "## **A plan** {#plan}\n").unwrap();
@@ -4951,7 +5020,30 @@ mod tests {
             Some("A plan")
         );
 
+        fs::write(dir.join("tasks.md"), "# The task list {#tasks}\n").unwrap();
+        let docs = DashDocuments::read(root, "titles");
+        assert_eq!(docs.tasks_title.as_deref(), Some("The task list"));
+        assert_eq!(
+            docs.tasks.as_deref(),
+            Some(&*dir.join("tasks.md").to_string_lossy())
+        );
+
         assert!(DashDocuments::read(root, "nothing").is_empty());
+    }
+
+    /// A `/dash` door writes a brief and a task list and no plan. That dash is
+    /// a dash with documents like any other — the enumerator that feeds the
+    /// Changes shade must not skip it.
+    #[test]
+    fn a_dash_with_only_a_task_list_has_documents() {
+        let temp = TempDir::new().unwrap();
+        let root = temp.path();
+        let dir = documents_dir(root, "tasks-only");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("tasks.md"), "# tasks {#tasks}\n").unwrap();
+
+        assert!(!DashDocuments::read(root, "tasks-only").is_empty());
+        assert_eq!(document_dashes(root), vec!["tasks-only".to_string()]);
     }
 
     #[test]
@@ -5894,10 +5986,10 @@ Some context.
         let plan = plan_file(&root, "refuse-dash");
         let before = fs::read_to_string(&plan).unwrap();
 
-        // A dash with no plan at its own address.
+        // A dash with neither document at its own address.
         fs::remove_file(&plan).unwrap();
         let err = step_start("refuse-dash", 1, 2).unwrap_err();
-        assert!(err.contains("has no plan at"), "{err}");
+        assert!(err.contains("has no plan or task list at"), "{err}");
         fs::write(&plan, &before).unwrap();
 
         // An anchor the ledger does not carry.

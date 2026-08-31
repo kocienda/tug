@@ -41,11 +41,12 @@ pub fn dispatch(cmd: PlanCommands, json: bool) -> ExitCode {
 
 /// The document a `plan` verb's argument names.
 ///
-/// A `Name` resolves to that dash's `plan.md`. `plan_file` normalizes to the
-/// main repository root itself, so a cwd inside a dash worktree resolves to the
-/// same file the base checkout would — but `find_repo_root_from` does not walk
-/// up parent directories, so a cwd *below* the root is not a repository at all
-/// and the refusal says which of the two forms still works from there.
+/// A `Name` resolves to that dash's ledger document — `plan.md`, or `tasks.md`
+/// when there is no plan. The address normalizes to the main repository root
+/// itself, so a cwd inside a dash worktree resolves to the same file the base
+/// checkout would — but `find_repo_root_from` does not walk up parent
+/// directories, so a cwd *below* the root is not a repository at all and the
+/// refusal says which of the two forms still works from there.
 fn resolve_document_argument(arg: &str) -> Result<PathBuf, AppError> {
     match DocumentArgument::parse(arg) {
         DocumentArgument::Path(path) => Ok(path),
@@ -58,14 +59,16 @@ fn resolve_document_argument(arg: &str) -> Result<PathBuf, AppError> {
                         .to_string(),
                 )
             })?;
-            let plan = tugdash_core::plan_file(&root, &name);
-            if !plan.is_file() {
-                return Err(AppError::Exit2(format!(
+            // The dash's ledger document: its plan when it has one, the
+            // `/dash` door's task list otherwise. A task list is a document
+            // these verbs can read — `status` reports its ledger — and holding
+            // it to the skeleton is `lint`'s business, not this resolver's.
+            tugdash_core::ledger_file(&root, &name).ok_or_else(|| {
+                AppError::Exit2(format!(
                     "dash '{name}' has no plan at {}",
-                    plan.display()
-                )));
-            }
-            Ok(plan)
+                    tugdash_core::plan_file(&root, &name).display()
+                ))
+            })
         }
     }
 }
@@ -168,6 +171,10 @@ fn run_lint(path: &Path, json: bool) -> Result<(), AppError> {
 struct StatusData {
     /// The document that was read, as it was named on the command line.
     path: String,
+    /// The document is a **task list** — steps and a ledger, with none of the
+    /// devised plan's frame. A `/dash` door writes one, no review stage ever
+    /// reads it, and the skeleton's rules do not apply to it.
+    task_list: bool,
     /// `reviewed`, `stale`, or `never-reviewed`.
     review: String,
     /// The document's content stamp as of now — the value a round's stamp
@@ -177,8 +184,13 @@ struct StatusData {
     rounds: usize,
     /// The newest round, or `null` when there are none.
     last_round: Option<RoundData>,
-    /// Lint counts, for the reader's convenience. `status` never gates on them.
-    lint: LintCounts,
+    /// Lint counts, for the reader's convenience. `status` never gates on
+    /// them, and they are **absent for a task list** — the linter checks a
+    /// document against the devise skeleton, which a task list does not aim
+    /// to satisfy, so counting its diagnostics would report a dozen failures
+    /// against a contract it never entered.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    lint: Option<LintCounts>,
     /// Ledger progress.
     steps: StepCounts,
 }
@@ -244,14 +256,24 @@ fn run_status(path: &Path, json: bool) -> Result<(), AppError> {
     let doc =
         plan::parse(&source).map_err(|e| AppError::Exit2(format!("{}: {e}", path.display())))?;
 
-    let diagnostics = plan::lint(&doc);
-    let errors = diagnostics
-        .iter()
-        .filter(|d| d.severity == Severity::Error)
-        .count();
+    // A task list is held to no skeleton, so it is not linted here — see
+    // `StatusData::lint`.
+    let task_list = plan::is_task_list(&doc);
+    let lint = (!task_list).then(|| {
+        let diagnostics = plan::lint(&doc);
+        let errors = diagnostics
+            .iter()
+            .filter(|d| d.severity == Severity::Error)
+            .count();
+        LintCounts {
+            errors,
+            warnings: diagnostics.len() - errors,
+        }
+    });
 
     let data = StatusData {
         path: path.display().to_string(),
+        task_list,
         review: plan::review_state(&doc, &source).as_str().to_string(),
         content_hash: plan::content_stamp(&doc, &source),
         rounds: doc.review_rounds.len(),
@@ -261,10 +283,7 @@ fn run_status(path: &Path, json: bool) -> Result<(), AppError> {
             model: r.model.clone(),
             stamp: r.stamp.clone(),
         }),
-        lint: LintCounts {
-            errors,
-            warnings: diagnostics.len() - errors,
-        },
+        lint,
         steps: StepCounts::of(&doc),
     };
 
@@ -284,13 +303,16 @@ fn run_status(path: &Path, json: bool) -> Result<(), AppError> {
             ),
             None => println!("last round: none"),
         }
-        println!(
-            "lint: {} error{}, {} warning{}",
-            data.lint.errors,
-            if data.lint.errors == 1 { "" } else { "s" },
-            data.lint.warnings,
-            if data.lint.warnings == 1 { "" } else { "s" }
-        );
+        match &data.lint {
+            Some(lint) => println!(
+                "lint: {} error{}, {} warning{}",
+                lint.errors,
+                if lint.errors == 1 { "" } else { "s" },
+                lint.warnings,
+                if lint.warnings == 1 { "" } else { "s" }
+            ),
+            None => println!("lint: not linted — this is a task list, not a devised plan"),
+        }
         println!(
             "steps: {} total, {} done, {} in progress, {} pending, {} withdrawn",
             data.steps.total,

@@ -41,7 +41,7 @@ If no plan exists yet, start at `/dash`: it sizes the idea, writes the brief, an
 1. Read the **Step Status Ledger** and resolve the step selector into a concrete list of steps to walk this run.
 2. `tugtool dash create <name> --description "<one line>" --json`. **Capture the absolute `worktree` path** and `branch` from the response. If the dash already exists (resuming a later step range), `create` is idempotent and returns it.
 
-   The plan lives at `.tug/dashes/<name>/plan.md` and nothing copies it anywhere ([D139]). `tugtool dash documents <name>` prints that path; **never copy a plan file by hand**, and never write one into the worktree.
+   The plan lives at `.tug/dashes/<name>/plan.md` and nothing copies it anywhere ([D139]). `tugtool dash documents <name>` prints that path; **never copy a plan file by hand**, and never write one into the worktree. A dash whose course carries a **task list** instead has its ledger at `tasks.md`, which the same verb prints and every `plan` verb resolves from the name alone — everything below reads "the plan" as "whichever of the two this dash has".
 
    `create` also hydrates the fresh worktree itself, running whatever the project declared in `[tugtool.dash].post_create` (dependency installs, generated files) so it arrives ready. Never install dependencies by hand; a project that needs none declares none.
 
@@ -51,6 +51,8 @@ If no plan exists yet, start at `/dash`: it sizes the idea, writes the brief, an
    ```bash
    tugtool plan status <name> --json
    ```
+
+   **A task list has no review to check** — the `/dash` door settled its steps before the course opened, and that course has no devise stage and no review stage. When the dash's ledger is `tasks.md`, skip this whole step and say nothing about it: a review gate on a document no review stage was ever going to read is a question with no answer behind it.
 
    Read `data.review`. On `reviewed`, say nothing and carry on.
 

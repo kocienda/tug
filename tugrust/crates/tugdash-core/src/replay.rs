@@ -17,8 +17,8 @@ use serde::Serialize;
 
 use crate::dash::append_dash_log;
 use crate::ops::{
-    branch_exists, branch_name, dash_base, git_output, git_stdout, join_in_flight, main_repo_root,
-    plan_file, worktree_path, write_atomic,
+    branch_exists, branch_name, dash_base, git_output, git_stdout, join_in_flight, ledger_file,
+    main_repo_root, worktree_path, write_atomic,
 };
 use crate::resolve::{commit_tree, git_supports_merge_base_flag};
 
@@ -403,7 +403,11 @@ pub(crate) fn reconcile_ledger_cells(
     mapping: Option<&[(String, String)]>,
 ) -> Result<Reconciled, String> {
     let mut out = Reconciled::default();
-    let plan = plan_file(repo, name);
+    // Whichever document carries the ledger — a replayed task-list dash owns
+    // its commit cells exactly as a plan does.
+    let Some(plan) = ledger_file(repo, name) else {
+        return Ok(out);
+    };
     let Ok(source) = std::fs::read_to_string(&plan) else {
         return Ok(out);
     };
@@ -665,7 +669,7 @@ mod tests {
         for (anchor, title, sha) in cells {
             doc.push_str(&format!("| #{anchor} | {title} | done | `{sha}` |\n"));
         }
-        let plan = plan_file(f.path(), "demo");
+        let plan = crate::ops::plan_file(f.path(), "demo");
         std::fs::create_dir_all(plan.parent().unwrap()).unwrap();
         std::fs::write(&plan, &doc).unwrap();
         plan.display().to_string()
@@ -673,7 +677,7 @@ mod tests {
 
     /// Every commit cell in the dash's plan, in ledger order.
     fn cells(f: &Fixture) -> Vec<String> {
-        let source = std::fs::read_to_string(plan_file(f.path(), "demo")).unwrap();
+        let source = std::fs::read_to_string(crate::ops::plan_file(f.path(), "demo")).unwrap();
         tugtool_core::plan::parse(&source)
             .unwrap()
             .ledger_rows

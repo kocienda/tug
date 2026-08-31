@@ -70,6 +70,13 @@ pub struct ArcFacts {
     /// The input document already parses and lints as a plan, so the devise
     /// stage is skipped and the first rotation is `review`.
     pub input_is_plan: bool,
+    /// The dash's ledger is a **task list** — a `tasks.md` the `/dash` door
+    /// wrote — rather than a devised plan. There is nothing to devise and
+    /// nothing to review, so the first rotation is `implement`.
+    ///
+    /// False whenever a plan exists, which is what makes a plan outrank a task
+    /// list: a dash carrying both is a plan-course dash.
+    pub task_list: bool,
     /// The plan's current path — the base copy until adoption, the worktree
     /// copy after it. `None` when no plan file exists there, which is
     /// what a devise stage that produced nothing looks like.
@@ -389,9 +396,13 @@ fn start_action(facts: &ArcFacts) -> ArcAction {
         };
     }
     // A document that already lints as a plan takes the arc straight to review.
-    // A brief does not parse as a plan and takes the full arc.
+    // A brief beside a task list takes it straight to implement — the settling
+    // the plan course spends on devise and review is exactly what the `/dash`
+    // door decided to skip. A brief alone takes the full arc.
     let stage = if facts.input_is_plan {
         ArcStage::Review
+    } else if facts.task_list {
+        ArcStage::Implement
     } else {
         ArcStage::Devise
     };
@@ -579,6 +590,7 @@ mod tests {
         ArcFacts {
             document_exists: true,
             input_is_plan: false,
+            task_list: false,
             plan_path: Some("dash/demo.md".to_string()),
             lint_ok: true,
             review: Some(ReviewState::Reviewed),
@@ -625,6 +637,45 @@ mod tests {
         facts.input_is_plan = true;
         let action = arc_action(&record(&[]), &facts);
         assert_eq!(rotation(action).stage, ArcStage::Review);
+    }
+
+    /// The `/dash` course: the door wrote a brief and a task list, so both
+    /// settling stages are already answered and the arc opens at implement.
+    #[test]
+    fn an_opened_arc_on_a_task_list_skips_devise_and_review() {
+        let mut facts = facts();
+        facts.task_list = true;
+        let rotation = rotation(arc_action(&record(&[]), &facts));
+        assert_eq!(rotation.stage, ArcStage::Implement);
+        // No selector on the first implement stage: `dash-implement`'s own
+        // setup declares `--through`.
+        assert_eq!(rotation.steps, None);
+    }
+
+    /// A plan outranks a task list, and the runner never sets both — but the
+    /// predicate says so on its own, so a future caller cannot get it wrong.
+    #[test]
+    fn a_plan_outranks_a_task_list_at_the_opening_rotation() {
+        let mut facts = facts();
+        facts.input_is_plan = true;
+        facts.task_list = true;
+        assert_eq!(
+            rotation(arc_action(&record(&[]), &facts)).stage,
+            ArcStage::Review
+        );
+    }
+
+    /// A task list changes only where the arc *opens*. Everything downstream
+    /// — the walk, the audit — is the machinery the plan course already runs.
+    #[test]
+    fn a_task_list_course_walks_and_audits_like_any_other() {
+        let mut facts = facts();
+        facts.task_list = true;
+        facts.ledger.run_complete = true;
+        assert_eq!(
+            arc_action(&record(&[ArcStage::Implement]), &facts),
+            Some(ArcAction::Rotate(Rotation::plain(ArcStage::Audit)))
+        );
     }
 
     #[test]

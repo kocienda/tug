@@ -61,8 +61,8 @@ pub use ops::{
     JoinOptions, JoinOutcome, JoinStrategy, MarkOutcome, RoundItem, ShowOutcome, StepOutcome,
     brief_file, commit, create, dash_detail_entries_in, dash_draft_key, derive_stage, discard,
     discard_in, document_dashes, documents_dir, ensure_tug_excluded, join, join_in, join_in_flight,
-    join_in_with_progress, join_preflight_in, list, mark, plan_file, show, status, status_in,
-    step_done, step_start,
+    join_in_with_progress, join_preflight_in, ledger_file, list, mark, plan_file, show, status,
+    status_in, step_done, step_start, tasks_file,
 };
 pub use replay::{ReplayOutcome, ReplayedRounds, replay, replay_onto};
 pub use resolve::{

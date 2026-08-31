@@ -54,7 +54,9 @@ A caller who is genuinely not in a turn is asking about the next one, and the re
 
 ## Courses, and how a card is handed back
 
-A **course** is what drives a series of rotations. Today there is one: a dash arc, whose course name is the dash, which reaches tugcode as the stage object's `arc` field and the child process's `TUG_DASH_ARC`.
+A **course** is what drives a series of rotations. Today they are all dash courses, whose course name is the dash, which reaches tugcode as the stage object's `arc` field and the child process's `TUG_DASH_ARC`.
+
+**A dash course comes in two progressions, and the documents decide which.** Both open on a brief. A dash whose ledger is a devised `plan.md` runs devise → review → implement → audit; a dash whose ledger is a `tasks.md` — the task list the `/dash` door wrote — runs implement → audit, because the door already answered what those two stages ask. The runner reads this off the disk in `start_action`: a document that lints as a plan opens at review, a task list opens at implement, and a brief alone opens at devise. There is no recorded course kind and no flag: **`plan.md` outranks `tasks.md`**, and a dash that grows a plan is a plan-course dash from that moment, which is also the whole of the escape hatch when a task list turns out to want settling.
 
 **A client may name the model for the stage it asks for.** That is not switching the user's model, and the older guardrail saying never to is retired by this layer: a rotation names the model for *its* stage, and the card returns to the user's own when the stage is over. What the hand-back guarantees is what makes the naming safe.
 

@@ -504,20 +504,32 @@ fn read(
     // residence to discover and nothing to record.
     let plan_abs = tugdash_core::plan_file(project, dash);
     let plan_abs = plan_abs.is_file().then_some(plan_abs);
+    // The ledger the implement stage walks: the plan when there is one, the
+    // `/dash` door's task list otherwise. This is the whole of what tells the
+    // two courses apart — a dash whose only ledger is a task list has nothing
+    // to devise and nothing to review, so its arc opens at implement.
+    let ledger_abs = tugdash_core::ledger_file(project, dash);
+    let task_list = plan_abs.is_none() && ledger_abs.is_some();
     // Every stage after devise names the *dash*, not a path ([P10]): the
     // skills resolve a name, so a stage cannot be pointed at the wrong file.
-    let plan_for_prompt = plan_abs.as_ref().map(|_| dash.to_string());
+    let plan_for_prompt = ledger_abs.as_ref().map(|_| dash.to_string());
 
-    let plan_abs_display = plan_abs.as_ref().map(|p| p.to_string_lossy().into_owned());
-    let plan_source = plan_abs
+    let ledger_abs_display = ledger_abs
+        .as_ref()
+        .map(|p| p.to_string_lossy().into_owned());
+    let ledger_source = ledger_abs
         .as_ref()
         .and_then(|p| std::fs::read_to_string(p).ok());
-    let doc = plan_source.as_deref().and_then(|s| plan::parse(s).ok());
-    let lint_ok = doc
-        .as_ref()
-        .is_some_and(|d| !plan::has_errors(&plan::lint(d)));
-    let review = match (doc.as_ref(), plan_source.as_deref()) {
-        (Some(d), Some(source)) => Some(plan::review_state(d, source)),
+    let doc = ledger_source.as_deref().and_then(|s| plan::parse(s).ok());
+    // Lint and review state are the *plan's* facts, and only the devise and
+    // review stages read them. A task list is held to no skeleton, so it
+    // answers neither question rather than answering them badly.
+    let lint_ok = plan_abs.is_some()
+        && doc
+            .as_ref()
+            .is_some_and(|d| !plan::has_errors(&plan::lint(d)));
+    let review = match (plan_abs.is_some(), doc.as_ref(), ledger_source.as_deref()) {
+        (true, Some(d), Some(source)) => Some(plan::review_state(d, source)),
         _ => None,
     };
 
@@ -563,10 +575,11 @@ fn read(
     let facts = ArcFacts {
         document_exists,
         input_is_plan,
-        plan_path: plan_source
+        plan_path: ledger_source
             .is_some()
-            .then(|| plan_abs_display.clone())
+            .then(|| ledger_abs_display.clone())
             .flatten(),
+        task_list,
         lint_ok,
         review,
         ledger: StepLedgerFacts {

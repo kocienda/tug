@@ -864,6 +864,10 @@ export interface DashDocuments {
   plan?: string;
   /** Its first heading's text. */
   plan_title?: string;
+  /** Absolute path of `tasks.md` — the `/dash` door's task list — when it exists. */
+  tasks?: string;
+  /** Its first heading's text. */
+  tasks_title?: string;
 }
 
 export function isDashDocuments(value: unknown): value is DashDocuments {
@@ -873,7 +877,9 @@ export function isDashDocuments(value: unknown): value is DashDocuments {
     (value.brief_title === undefined ||
       typeof value.brief_title === "string") &&
     (value.plan === undefined || typeof value.plan === "string") &&
-    (value.plan_title === undefined || typeof value.plan_title === "string")
+    (value.plan_title === undefined || typeof value.plan_title === "string") &&
+    (value.tasks === undefined || typeof value.tasks === "string") &&
+    (value.tasks_title === undefined || typeof value.tasks_title === "string")
   );
 }
 

@@ -1009,13 +1009,17 @@ pub struct DashDocuments {
     pub plan: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub plan_title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tasks: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tasks_title: Option<String>,
 }
 
 impl DashDocuments {
-    /// True when the dash has neither document — the shape that is omitted
+    /// True when the dash has no document at all — the shape that is omitted
     /// from the wire rather than sent empty.
     pub fn is_empty(&self) -> bool {
-        self.brief.is_none() && self.plan.is_none()
+        self.brief.is_none() && self.plan.is_none() && self.tasks.is_none()
     }
 }
 
