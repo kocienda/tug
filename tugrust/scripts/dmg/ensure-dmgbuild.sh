@@ -32,8 +32,19 @@ fi
 VENV="$REPO_ROOT/.build-tools/dmgbuild-venv"
 VENV_DMGBUILD="$VENV/bin/dmgbuild"
 
-if [ ! -x "$VENV_DMGBUILD" ]; then
-    echo "==> Bootstrapping dmgbuild $DMGBUILD_VERSION venv at $VENV" >&2
+# A venv is not relocatable: pip writes the absolute path of the creating
+# interpreter into each console script's shebang. A venv restored from a CI
+# cache into a checkout at a different path — or one whose base python has
+# since moved — leaves an executable file whose shebang resolves to nothing,
+# and the failure lands as exec 126 at DMG time rather than here. So the gate
+# is "does it run", not "does it exist", and a venv that fails it is rebuilt.
+if ! "$VENV_DMGBUILD" --help >/dev/null 2>&1; then
+    if [ -e "$VENV" ]; then
+        echo "==> Rebuilding unusable dmgbuild venv at $VENV" >&2
+        rm -rf "$VENV"
+    else
+        echo "==> Bootstrapping dmgbuild $DMGBUILD_VERSION venv at $VENV" >&2
+    fi
     python3 -m venv "$VENV" >&2
     "$VENV/bin/pip" install --quiet --upgrade pip >&2
     "$VENV/bin/pip" install --quiet "dmgbuild==$DMGBUILD_VERSION" >&2
