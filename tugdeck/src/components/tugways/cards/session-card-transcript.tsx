@@ -137,6 +137,8 @@ import {
   classifyRunBody,
   EMPTY_RUN_PLACEHOLDER,
 } from "@/components/tugways/cards/session-transcript-run-body";
+import { groupTaskMarkerRuns } from "@/components/tugways/cards/session-transcript-task-runs";
+import { TaskInlineRunBlock } from "@/components/tugways/cards/blocks/task-inline-tool-block";
 import {
   ToolBlockExpansionContext,
   ToolBlockHistoryCollapse,
@@ -1227,6 +1229,16 @@ const CodeRowBody: React.FC<CodeRowBodyProps> = ({
     return map;
   }, [messages]);
 
+  // Fold each run of consecutive same-verb Task* markers into one row
+  // ([D100]'s second surface, at the volume long sessions actually
+  // produce). The task store is per-session while the checklist is
+  // per-turn and the wire has no clear event, so a tidy-up is one
+  // `TaskUpdate status:"deleted"` per task — a sweep of nineteen used
+  // to paint nineteen identical rows. The lead of a run renders the
+  // whole run; its members render nothing. Short runs are absent from
+  // the map and take the per-event path unchanged.
+  const taskRuns = useMemo(() => groupTaskMarkerRuns(messages), [messages]);
+
   const elements: React.ReactNode[] = [];
   const lastMessage = messages[messages.length - 1];
   // A compaction turn's assistant reply is Claude Code's canned
@@ -1392,6 +1404,26 @@ const CodeRowBody: React.FC<CodeRowBodyProps> = ({
     // tool_use — render top-level calls only; subagent children are
     // resolved inside their parent's wrapper.
     if (message.parentToolUseId !== undefined) continue;
+    const taskRun = taskRuns.get(message.messageKey);
+    if (taskRun !== undefined) {
+      // A folded run's row is the marker's own grammar, so it skips the
+      // tool-block chrome the per-call path wraps (collapse handle,
+      // meta provider) exactly as the single marker's chrome-less row
+      // has no use for it — and a run has N tool_use ids, so there is
+      // no one id for that chrome to key on anyway.
+      if (taskRun.role === "lead") {
+        elements.push(
+          <TaskInlineRunBlock
+            key={message.messageKey}
+            state={taskRun.state}
+            verb={taskRun.verb}
+            members={taskRun.members}
+            session={session}
+          />,
+        );
+      }
+      continue;
+    }
     const awaiting =
       awaitingToolUseId !== undefined &&
       message.toolUseId === awaitingToolUseId;

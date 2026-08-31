@@ -11,6 +11,18 @@
  * never duplicate work: the cell answers "what's on the list now?";
  * the marker answers "when did this happen?".
  *
+ * Folded runs. One marker per event is the right grain at the volume
+ * [D100] assumed and the wrong one at the volume long sessions reach:
+ * the task store is scoped to the session but the model writes a
+ * checklist per turn, so the list only grows, and there is no clear
+ * event on the wire — tidying it means one
+ * `TaskUpdate status:"deleted"` per task. A sweep of nineteen therefore
+ * painted nineteen rows saying the same thing. A run of same-verb
+ * markers now folds into one {@link TaskInlineRunBlock} row
+ * (`Deleted 19 tasks`, every subject in the detail and the tooltip);
+ * `groupTaskMarkerRuns` in `session-transcript-task-runs.ts` decides
+ * which runs qualify, and short runs still render per event.
+ *
  * Presentation. The wrapper composes `TugQuietLine` — the shared
  * Voice-3 event row — in the `primary` tone: a per-state icon, the
  * verb as the label, and the subject as the muted detail. It opts
@@ -119,7 +131,7 @@ import {
   type TaskWireStatus,
 } from "@/lib/code-session-store/select-task-list";
 import { useTaskListState } from "@/lib/code-session-store/hooks/use-task-list-state";
-import type { CodeSessionStore } from "@/lib/code-session-store";
+import type { CodeSessionStore, ToolUseMessage } from "@/lib/code-session-store";
 import { TugQuietLine } from "@/components/tugways/tug-quiet-line";
 import { TugTooltip } from "@/components/tugways/tug-tooltip";
 
@@ -448,6 +460,136 @@ const TaskInlineRow: React.FC<RowProps> = ({ baseProps, tasks }) => {
         icon={markerIcon(state)}
         label={verb}
         subject={subject.length > 0 ? subject : undefined}
+        tone="primary"
+      />
+    </div>
+  );
+};
+
+// ---------------------------------------------------------------------------
+// Folded run — one row for a run of same-verb markers.
+// ---------------------------------------------------------------------------
+
+/**
+ * A run of consecutive same-verb markers, folded into one row.
+ *
+ * The per-event marker is the right grain for the volume [D100]
+ * assumed. It is the wrong grain for a bulk sweep: there is no clear
+ * event on the wire, so tidying nineteen finished tasks means nineteen
+ * `TaskUpdate status:"deleted"` calls, and nineteen marker rows — a wall
+ * whose whole content is "the assistant emptied the list." The fold
+ * turns that into `Deleted 19 tasks`, subjects intact in the detail and
+ * the tooltip. Which runs qualify is decided upstream by
+ * `groupTaskMarkerRuns` (`session-transcript-task-runs.ts`); this
+ * component only draws one.
+ *
+ * The row is the marker's own grammar — same `TugQuietLine`, same
+ * state glyph, same `primary` tone — so a folded row and a single row
+ * read as the same kind of thing at different counts. The only
+ * addition is `data-run`, which the stylesheet uses to clip the
+ * subject list to one line; the tooltip carries what the ellipsis hid,
+ * exactly as the error row does.
+ */
+export interface TaskInlineRunBlockProps {
+  /** Shared marker state — every member resolved to this one. */
+  state: TaskMarkerState;
+  /** Shared verb — `"Deleted"`, `"Created"`, … */
+  verb: string;
+  /** The run's calls, in transcript order. */
+  members: readonly ToolUseMessage[];
+  /** Session store for the subject lookup; absent in the gallery. */
+  session?: CodeSessionStore;
+}
+
+/**
+ * The folded row's bold label — the shared verb over the count.
+ *
+ * Always plural: the fold's minimum length is 3, so the singular can
+ * never arise, and spelling a branch for it would be dead code that
+ * reads as though a one-member run were possible. Exported for tests.
+ */
+export function composeTaskRunLabel(verb: string, count: number): string {
+  return `${verb} ${count} tasks`;
+}
+
+/**
+ * Resolve each member's subject, in run order, exactly as the
+ * per-event row would have.
+ *
+ * A `deleted` run resolves to `Task #<id>` for every member and that is
+ * correct, not a degradation: the fold handed here is the settled one,
+ * and a deleted task is gone from it — the same fallback the single
+ * marker takes for the same reason ({@link resolveUpdateSubject}).
+ *
+ * Exported for tests.
+ */
+export function resolveTaskRunSubjects(
+  members: readonly ToolUseMessage[],
+  tasks: readonly TaskItem[],
+): string[] {
+  return members.map((m) => {
+    const { subject } = composeMarker({
+      kind: deriveTaskInlineKind(m.toolName),
+      input: m.input,
+      // Every member is a settled call — `groupTaskMarkerRuns` admits
+      // no other — so the block vocabulary's `ready` is exact.
+      status: "ready",
+      tasks,
+    });
+    return subject;
+  });
+}
+
+export const TaskInlineRunBlock: React.FC<TaskInlineRunBlockProps> = (props) => {
+  // Same outer / inner split as the single marker: the optional
+  // `session` picks the subtree, never a conditional hook call.
+  if (props.session !== undefined) {
+    return <TaskInlineRunWithSession baseProps={props} session={props.session} />;
+  }
+  return <TaskInlineRunRow baseProps={props} tasks={EMPTY_TASKS} />;
+};
+
+interface RunWithSessionProps {
+  baseProps: TaskInlineRunBlockProps;
+  session: CodeSessionStore;
+}
+
+const TaskInlineRunWithSession: React.FC<RunWithSessionProps> = ({
+  baseProps,
+  session,
+}) => {
+  const { tasks } = useTaskListState(session);
+  return <TaskInlineRunRow baseProps={baseProps} tasks={tasks} />;
+};
+
+interface RunRowProps {
+  baseProps: TaskInlineRunBlockProps;
+  tasks: readonly TaskItem[];
+}
+
+const TaskInlineRunRow: React.FC<RunRowProps> = ({ baseProps, tasks }) => {
+  const { state, verb, members } = baseProps;
+  const detail = resolveTaskRunSubjects(members, tasks)
+    .filter((s) => s.length > 0)
+    .join(" · ");
+  return (
+    <div
+      className="task-inline-tool-block"
+      data-slot="task-inline-tool-block"
+      data-kind={deriveTaskInlineKind(members[0].toolName) ?? undefined}
+      data-state={state}
+      data-run="true"
+    >
+      <TugQuietLine
+        icon={markerIcon(state)}
+        label={composeTaskRunLabel(verb, members.length)}
+        subject={
+          detail.length > 0 ? (
+            <TugTooltip content={detail} side="bottom">
+              <span data-slot="task-inline-tool-block-run-detail">{detail}</span>
+            </TugTooltip>
+          ) : undefined
+        }
         tone="primary"
       />
     </div>

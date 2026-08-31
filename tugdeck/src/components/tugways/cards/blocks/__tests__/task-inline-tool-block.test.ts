@@ -15,6 +15,10 @@
  * `composeMarkerText` is the pure surface that drives every
  * non-error row's visible string; tests pin every branch.
  *
+ * The folded-run helpers (`composeTaskRunLabel`,
+ * `resolveTaskRunSubjects`) are pinned here too; which runs qualify
+ * for the fold is `session-transcript-task-runs.test.ts`.
+ *
  * @module components/tugways/cards/blocks/__tests__/task-inline-tool-block
  */
 
@@ -26,12 +30,15 @@ import {
   composeMarker,
   composeMarkerText,
   composeTaskInlineErrorRow,
+  composeTaskRunLabel,
   composeUpdatedLabel,
   deriveTaskInlineKind,
+  resolveTaskRunSubjects,
   resolveUpdateSubject,
 } from "../task-inline-tool-block";
 import { BESPOKE_FACTORY_BY_NAME } from "../../session-assistant-renderer-registrations";
 import type { TaskItem } from "@/lib/code-session-store/select-task-list";
+import type { ToolUseMessage } from "@/lib/code-session-store";
 
 // ---------------------------------------------------------------------------
 // Test fixtures
@@ -463,5 +470,70 @@ describe("dispatch registration", () => {
     expect(BESPOKE_FACTORY_BY_NAME.get("taskcreate")).toBe(
       BESPOKE_FACTORY_BY_NAME.get("taskupdate"),
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Folded run — the row that stands in for a bulk sweep.
+// ---------------------------------------------------------------------------
+
+function member(toolName: string, input: unknown): ToolUseMessage {
+  return {
+    kind: "tool_use",
+    messageKey: `k-${String(Math.abs(JSON.stringify(input).length))}-${toolName}`,
+    createdAt: 0,
+    toolUseId: "id",
+    toolName,
+    input,
+    status: "done",
+    result: null,
+    structuredResult: null,
+    toolWallMs: null,
+  };
+}
+
+describe("composeTaskRunLabel", () => {
+  test("verb over count", () => {
+    expect(composeTaskRunLabel("Deleted", 19)).toBe("Deleted 19 tasks");
+    expect(composeTaskRunLabel("Created", 8)).toBe("Created 8 tasks");
+  });
+});
+
+describe("resolveTaskRunSubjects", () => {
+  test("a create run reads its subjects out of the inputs", () => {
+    const members = ["The clock tells the truth", "No NUL bytes in source"].map((s) =>
+      member("TaskCreate", { subject: s }),
+    );
+    expect(resolveTaskRunSubjects(members, TASKS)).toEqual([
+      "The clock tells the truth",
+      "No NUL bytes in source",
+    ]);
+  });
+
+  test("an update run resolves subjects through the fold", () => {
+    const members = [
+      member("TaskUpdate", { taskId: "1", status: "completed" }),
+      member("TaskUpdate", { taskId: "2", status: "completed" }),
+    ];
+    expect(resolveTaskRunSubjects(members, TASKS)).toEqual([
+      "Write the spec",
+      "Land the wrapper",
+    ]);
+  });
+
+  test("a delete run falls back to ids — the fold no longer holds them", () => {
+    const members = ["51", "52", "53"].map((taskId) =>
+      member("TaskUpdate", { taskId, status: "deleted" }),
+    );
+    expect(resolveTaskRunSubjects(members, TASKS)).toEqual([
+      "Task #51",
+      "Task #52",
+      "Task #53",
+    ]);
+  });
+
+  test("order is run order — the row's list reads as the wall did", () => {
+    const members = ["c", "a", "b"].map((s) => member("TaskCreate", { subject: s }));
+    expect(resolveTaskRunSubjects(members, TASKS)).toEqual(["c", "a", "b"]);
   });
 });

@@ -12,6 +12,10 @@
  * (`margin-block`, which collapses between adjacent rows) rather than an
  * adjacency scheme, so a streamed row never hops as siblings append.
  *
+ * A folded run (`[data-run="true"]`, see `session-transcript-task-runs.ts`)
+ * is one such row and takes the same margin; it owns one extra rule, the
+ * one-line clip on its subject list.
+ *
  * Laws:
  *  - [L06] no React state for appearance.
  *  - [L19] file pair, module docstring, `data-slot="task-inline-tool-block"`.
@@ -25,4 +29,15 @@ body {
 
 .task-inline-tool-block {
   margin-block: var(--tugx-task-inline-row-margin);
+}
+
+/* The folded run's detail is every member's subject on one line. It is a
+   list, not a sentence, so it clips rather than wraps — a fold that grew
+   to four wrapped lines would be trading one wall for a shorter one. The
+   row's tooltip carries the untruncated text (the error row's pattern). */
+[data-slot="task-inline-tool-block-run-detail"] {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
