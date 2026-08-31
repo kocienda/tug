@@ -21,6 +21,14 @@
  *  - **A cut says `Cut`**, not `Implement`: it has no plan and never will,
  *    so a phase word would name a stage of a lifecycle it does not have.
  *
+ * **The two dots are one reading, so they breathe as one.** The pair only
+ * phase-locks by mounting in the same commit — the loops take their start
+ * time from the style flush that gates them on. An unkeyed fragment let React
+ * reconcile the DASH branch positionally against the TASKS indicator that was
+ * in the same slot and carry its left glyph across, already breathing on an
+ * older clock, while the right one started fresh. So the bare glyphs are
+ * marked before the bind and neither may survive it.
+ *
  * **The widths are the row's promise, and they are read as the cells' own
  * `--tugx-session-status-cell-width`.** Binding takes the DASH cell from 14ch
  * to 18ch — STATE's width, for the word — and JOBS gives back exactly that,
@@ -246,6 +254,23 @@ describe.skipIf(!SHOULD_RUN)("AT0484: the Z2 DASH instrument", () => {
         expectWholeRow(bare);
 
         // ── A reviewed plan nobody has started: numbers, not a word ───────
+        // Mark the TASKS glyphs first: what makes the pair below a PAIR is
+        // that both of them are new (see the header). The cell reads `—`
+        // while the replay is inert, and that reading has no glyphs at all —
+        // so wait for the pair that the DASH branch will displace.
+        const TASKS_GLYPHS = `${cell("tasks")} [data-slot="tug-progress-pulsing-dot"]`;
+        await app.waitForCondition<boolean>(
+          `document.querySelectorAll(${JSON.stringify(TASKS_GLYPHS)}).length === 2`,
+          { timeoutMs: 30000 },
+        );
+        const markedBefore = await app.evalJS<number>(
+          `(() => {
+             const dots = Array.from(document.querySelectorAll(${JSON.stringify(TASKS_GLYPHS)}));
+             dots.forEach((el) => { el.dataset.at0484Before = "1"; });
+             return dots.length;
+           })()`,
+        );
+        expect(markedBefore).toBe(2);
         bindDash(projectDir(), PLAN_DASH, SID, {
           binaryRoot: CHECKOUT,
           env: scratch?.cli.env,
@@ -280,6 +305,46 @@ describe.skipIf(!SHOULD_RUN)("AT0484: the Z2 DASH instrument", () => {
         expect(shape.first).toBe("tug-progress-indicator");
         expect(shape.middle).toBe("session-telemetry-dash-value");
         expect(shape.last).toBe("tug-progress-indicator");
+
+        // ── …and the two dots are welded ─────────────────────────────────
+        // A glyph carried over from the TASKS indicator would be breathing on
+        // whatever clock it started under, against a partner that started at
+        // the bind — the pair reading as two mechanisms rather than one
+        // status. Identity is the assertion that does not depend on catching
+        // motion mid-cycle; the phases are compared too, whenever both dots
+        // are actually breathing when the read lands.
+        const pair = await app.evalJS<{
+          count: number;
+          inherited: number;
+          progress: ReadonlyArray<number | null>;
+        }>(
+          `(() => {
+             const dots = Array.from(document.querySelectorAll(${JSON.stringify(TASKS_GLYPHS)}));
+             const breath = (el) => {
+               const anim = el
+                 .getAnimations({ subtree: true })
+                 .find((a) => (a.animationName ?? "").includes("breathe"));
+               const p = anim?.effect?.getComputedTiming().progress;
+               return typeof p === "number" ? Math.round(p * 1000) / 1000 : null;
+             };
+             return {
+               count: dots.length,
+               inherited: dots.filter((el) => el.dataset.at0484Before === "1").length,
+               progress: dots.map(breath),
+             };
+           })()`,
+        );
+        note("at0484 dash pair", JSON.stringify(pair));
+        expect(pair.count).toBe(2);
+        expect(pair.inherited, "neither dot outlived the TASKS reading").toBe(0);
+        const [left, right] = pair.progress;
+        if (left !== null && right !== null) {
+          const gap = Math.abs(left - right);
+          expect(
+            Math.min(gap, 1 - gap),
+            "the two dots breathe as one",
+          ).toBeLessThan(0.05);
+        }
 
         const bound = await widths(app);
         note("at0484 bound row", JSON.stringify(bound));

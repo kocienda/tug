@@ -1313,7 +1313,19 @@ export const SessionTelemetryStatusRow = React.forwardRef<
           // markup, under rules that say so.
           //
           // A stopped arc turns both dots danger and holds them still.
-          <>
+          //
+          // **Keyed, and the TASKS branch below is keyed too.** An UNKEYED
+          // top-level fragment is unwrapped by React, so this branch's
+          // children reconcile positionally against the branch that was here
+          // before — and slot 0 of the TASKS branch is a `pulsing-dot` too.
+          // React kept it: the left dot arrived already breathing, on a clock
+          // it started whenever the card mounted, while the right dot mounted
+          // fresh and started its own. Two dots of one reading, permanently a
+          // fraction of a cycle apart. The loops phase-lock by SHARING A START
+          // TIME (`tug-progress-pulsing-dot.tsx`), and the only way this pair
+          // gets one is by mounting in the same commit — which distinct keys
+          // on the two branches are what guarantee.
+          <React.Fragment key="dash">
             <TugProgressIndicator
               variant="pulsing-dot"
               size={12}
@@ -1333,9 +1345,10 @@ export const SessionTelemetryStatusRow = React.forwardRef<
               state={dashIndicatorState}
               aria-hidden
             />
-          </>
+          </React.Fragment>
         ) : (
           <TugProgressIndicator
+            key="tasks"
             variant="pulsing-dot"
             glyphPosition="both"
             size={12}
