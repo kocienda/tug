@@ -304,9 +304,16 @@ export function markBoxForDot(diameterPx: number): number {
  * alone gets a ring crossing the wall around it a moment later, which is what
  * a session atom's pill did. So the envelope is published, and a bounded
  * caller sizes against this rather than against the diameter it wanted.
+ *
+ * `reach` is that caller's own cap — the multiple it publishes as
+ * `--tugx-progress-pulsing-dot-emit-reach` because its enclosure will not hold
+ * the automatic one. It only ever shortens the travel: a cap above what the
+ * size already asks for is not a longer pulse, it is a caller measuring
+ * against a ring the glyph will never paint.
  */
-export function markRingEnvelope(boxPx: number): number {
-  return boxPx * sizeGeometry(boxPx).reach;
+export function markRingEnvelope(boxPx: number, reach?: number): number {
+  const auto = sizeGeometry(boxPx).reach;
+  return boxPx * (reach === undefined ? auto : Math.min(reach, auto));
 }
 
 /**

@@ -12,6 +12,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   ATOM_DOT_CLEARANCE,
+  ATOM_DOT_REACH,
   ATOM_REGISTERS,
   atomEditorLineBoxFloorPx,
   atomRegisterMetrics,
@@ -62,15 +63,47 @@ describe("the phase mark stays inside the pill", () => {
   test("the ring's furthest reach clears the border at every register", () => {
     for (const register of REGISTERS) {
       const m = atomRegisterMetrics(register);
-      const envelope = markRingEnvelope(markBoxForDot(m.dotSize));
+      const envelope = markRingEnvelope(markBoxForDot(m.dotSize), ATOM_DOT_REACH);
       const opening = m.height - 2 * m.borderWidth;
       expect(envelope).toBeLessThanOrEqual(opening - 2 * ATOM_DOT_CLEARANCE);
     }
   });
 
+  // …and it clears it by the clearance and not by more. The rule is a floor on
+  // the air, not an instruction to keep the mark small: every pixel between the
+  // ring and that floor is a pixel the dot could have had. `prose` is the pill
+  // the dot is sized against, so `prose` is where the mark runs out of room —
+  // exactly, to the pixel.
+  test("the mark is as big as the clearance allows", () => {
+    const m = atomRegisterMetrics("prose");
+    const opening = m.height - 2 * m.borderWidth;
+    const envelope = markRingEnvelope(markBoxForDot(m.dotSize), ATOM_DOT_REACH);
+    expect(envelope).toBeCloseTo(opening - 2 * ATOM_DOT_CLEARANCE, 6);
+  });
+
+  // The cap is the pill's, not the glyph's: it may only ever shorten the throw
+  // the size already asks for. A cap above it would be a number that changes
+  // nothing on screen while the arithmetic above believed it.
+  test("the pill's cap only shortens the ring's travel", () => {
+    for (const register of REGISTERS) {
+      const box = markBoxForDot(atomRegisterMetrics(register).dotSize);
+      expect(markRingEnvelope(box, ATOM_DOT_REACH)).toBeLessThan(
+        markRingEnvelope(box),
+      );
+    }
+  });
+
+  // And the ring still LEAVES the box. Capping it at the box would keep the
+  // clearance and lose the pulse: the ring would be born on the dot's edge and
+  // die on a wall two pixels out, which reads as a halo rather than as travel.
+  test("the capped ring still travels outside its glyph box", () => {
+    const box = markBoxForDot(atomRegisterMetrics("prose").dotSize);
+    expect(markRingEnvelope(box, ATOM_DOT_REACH)).toBeGreaterThan(box);
+  });
+
   // And it is a mark, not a speck: a dot small enough to trivially satisfy the
   // check above would pass it and say nothing about liveness.
-  test("the dot is still a third of the pill's opening", () => {
+  test("the dot is still a fair share of the pill's opening", () => {
     for (const register of REGISTERS) {
       const m = atomRegisterMetrics(register);
       const opening = m.height - 2 * m.borderWidth;

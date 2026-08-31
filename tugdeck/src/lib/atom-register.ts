@@ -115,13 +115,19 @@ export interface AtomRegisterMetrics {
  * pill can hold: a mark that fit `reading` and crossed `prose`'s border would
  * be the same defect at one remove.
  *
- * 4px is an 8px glyph box, whose ring runs to 14px — three clear pixels inside
- * the `prose` opening — and every edge of it lands on a device pixel at 1x and
- * at 2x. See {@link AtomRegisterMetrics.dotSize} for why that is the point.
+ * 6px is a 12px glyph box, and it is the LARGEST the rule allows. The steps
+ * are 2px wide, not 1px — the raster rule below wants the dot and its box the
+ * same parity, and the box is twice the dot at this scale, so only an even dot
+ * survives it. 4px left two pixels of the opening unused and read as a speck
+ * in the pill; 8px would need a 16px box, which has no runway left to let a
+ * ring out of at all. What 6px does need is {@link ATOM_DOT_REACH} — at the
+ * automatic reach a 12px box throws its ring to 21px, straight through a 20px
+ * opening — and under that cap the mark paints to exactly the clearance the
+ * rule asks for and no further.
  */
 export const ATOM_REGISTERS: Readonly<Record<AtomRegister, AtomRegisterMetrics>> = {
-  prose: { fontSize: 13, height: 22, dotSize: 4, borderWidth: 1 },
-  reading: { fontSize: 13, height: 24, dotSize: 4, borderWidth: 1 },
+  prose: { fontSize: 13, height: 22, dotSize: 6, borderWidth: 1 },
+  reading: { fontSize: 13, height: 24, dotSize: 6, borderWidth: 1 },
 };
 
 /**
@@ -134,6 +140,28 @@ export const ATOM_REGISTERS: Readonly<Record<AtomRegister, AtomRegisterMetrics>>
  * pill rather than as liveness.
  */
 export const ATOM_DOT_CLEARANCE = 2;
+
+/**
+ * How far the phase mark's ring travels inside a pill, as a multiple of its
+ * glyph box — the pill's cap on the mark's own {@link markRingEnvelope}.
+ *
+ * **The enclosure caps the pulse; the glyph does not shrink to fit.** Left to
+ * itself the mark throws its ring to 1.75× its box at this scale, which is the
+ * reason it reads at all in a row of type — and which nothing bounds when the
+ * atom is drawn without a pill (the `line` tier publishes no cap and keeps the
+ * full throw). Inside the pill the wall is 10px from the centre, so the choice
+ * is a big dot with a shorter pulse or a small dot with a long one. The dot is
+ * the reading — it carries the phase colour and it is what a glance lands on —
+ * so the dot takes the pixels and the ring takes the cap.
+ *
+ * 4/3 is not a taste: it is `(prose opening − 2 × clearance) ÷ box`, the
+ * largest throw a 12px box can make and still leave
+ * {@link ATOM_DOT_CLEARANCE} inside a 22px pill. The ring still leaves the
+ * box — it ends 2px outside it, which is what keeps the pulse a pulse rather
+ * than a halo pinned to the dot's own edge. `atom-register.test` holds the
+ * arithmetic and `at0493-atom-mark-raster` holds the pixels.
+ */
+export const ATOM_DOT_REACH = 4 / 3;
 
 /** The default register — an atom with nothing said about it is in prose. */
 export const DEFAULT_ATOM_REGISTER: AtomRegister = "prose";
@@ -195,4 +223,19 @@ export function atomRegisterVars(
     "--tugx-atom-border-width": `${m.borderWidth}px`,
     "--tugx-atom-line-box-floor": `${atomLineBoxFloorPx(register)}px`,
   };
+}
+
+/**
+ * The cap the PILL publishes on the mark inside it — {@link ATOM_DOT_REACH} in
+ * the pulsing dot's own variable.
+ *
+ * Separate from {@link atomRegisterVars} on purpose, and mounted only by the
+ * chip tier. The register vars are published by whole hosts — a transcript
+ * body, an editor line — and this one is not a fact about a surface's density
+ * but about a single enclosure two pixels from the mark. Published up there it
+ * would inherit down onto every other pulsing dot on the surface and quietly
+ * shorten pulses that nothing was bounding.
+ */
+export function atomPillMarkVars(): Record<string, string> {
+  return { "--tugx-progress-pulsing-dot-emit-reach": `${ATOM_DOT_REACH}` };
 }

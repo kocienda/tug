@@ -97,6 +97,12 @@ const ROWS_JS = `(function () {
     // The mark carries its resolved reach as an inline custom property, and
     // which element in the indicator holds it is the indicator's business — so
     // find the one that answers rather than naming a node this file guessed.
+    // What it answers is the AUTO reach — what the glyph's own size asks for.
+    // The effective one is what the stylesheet resolves: the pill publishes a
+    // cap of its own (the emit-reach property, inherited onto the mark)
+    // because the automatic throw does not fit the box it drew around it — so
+    // the override wins wherever it is set and the auto value stands where it
+    // is not. No backticks in here: this comment is inside a template literal.
     var mark = null;
     var reach = NaN;
     if (pill !== null) {
@@ -104,11 +110,14 @@ const ROWS_JS = `(function () {
         pill.querySelectorAll(".tug-session-identity-dot, .tug-session-identity-dot *"),
       );
       for (var i = 0; i < candidates.length; i++) {
-        var v = parseFloat(
-          getComputedStyle(candidates[i]).getPropertyValue(
-            "--tugx-progress-pulsing-dot-emit-reach-auto",
-          ),
+        var style = getComputedStyle(candidates[i]);
+        var auto = parseFloat(
+          style.getPropertyValue("--tugx-progress-pulsing-dot-emit-reach-auto"),
         );
+        var capped = parseFloat(
+          style.getPropertyValue("--tugx-progress-pulsing-dot-emit-reach"),
+        );
+        var v = isNaN(capped) ? auto : Math.min(capped, auto);
         if (!isNaN(v)) { mark = candidates[i]; reach = v; break; }
       }
     }
@@ -165,6 +174,10 @@ describe.skipIf(!SHOULD_RUN)("atom registers — one table, two renderers", () =
 
         const rows = await app.evalJS<RegisterRow[]>(ROWS_JS);
         note(`at0490 registers: ${JSON.stringify(rows)}`);
+        // The one surface where the two renderers stand side by side, kept as
+        // a picture: the numbers below say the boxes agree, and this says what
+        // agreeing looks like.
+        note("at0490 registers gallery", (await app.screenshot()).path);
 
         expect(rows.length).toBeGreaterThanOrEqual(2);
 
@@ -187,6 +200,10 @@ describe.skipIf(!SHOULD_RUN)("atom registers — one table, two renderers", () =
         // it. Sized as a dot alone it did not: a 7px dot is a 14px glyph box,
         // and at this scale the ring runs to 1.75x that — a 24.5px halo through
         // a 20px opening, crossing the border on every beat.
+        //
+        // The mark is sized to the limit now rather than under it, so this is
+        // the assertion that catches a retune that overshoots: the dot grows
+        // in 2px steps and the pill's cap is what buys the last one.
         for (const row of rows) {
           const envelope = row.dotBox! * row.dotReach!;
           expect(row.dotReach).toBeGreaterThan(1);

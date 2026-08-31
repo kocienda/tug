@@ -111,6 +111,7 @@ import type { AtomSegment } from "@/lib/tug-atom-img";
 import {
   DEFAULT_ATOM_REGISTER,
   atomRegisterMetrics,
+  atomPillMarkVars,
   atomRegisterVars,
   type AtomRegister,
 } from "@/lib/atom-register";
@@ -415,7 +416,15 @@ export const TugSessionIdentity = React.forwardRef<
       data-slot="tug-session-identity"
       data-tier={tier}
       data-register={isChip ? register : undefined}
-      style={isChip ? { ...atomRegisterVars(register), ...restStyle } : restStyle}
+      // The pill is the mark's enclosure, so the pill is what caps its ring
+      // ([atomPillMarkVars]). The `line` tier draws no box around the dot and
+      // publishes no cap, which is why this rides the chip branch rather than
+      // the register vars.
+      style={
+        isChip
+          ? { ...atomRegisterVars(register), ...atomPillMarkVars(), ...restStyle }
+          : restStyle
+      }
       data-missing={isMissing ? "true" : undefined}
       data-interactive={interactive ? "true" : undefined}
       onClick={interactive ? handleClick : undefined}
