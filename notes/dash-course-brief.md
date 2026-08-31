@@ -55,7 +55,7 @@ The full survey of what the wrong axis produced is `notes/dash-wheel-retrenchmen
 
 **[B10] The ten-step guardrail survives only as a door-time advisory.** Under the wheel, step count is no longer a proxy for "too big for one turn." A `/dash` door whose brief reads plan-shaped — many interdependent parts, order itself a problem — says so in a sentence and offers `/dash-plan`, then does what the user says. Nothing asks mid-run; the doctrine's never-ask list stands.
 
-**[B11] `dash-implement` and `dash-review` take `dash-devise`'s shape: stages of a course that refuse to run outside one.** Their off-arc branches are dropped. (Whether the hand-typed spellings survive as doors is the open question below.)
+**[B11] All four stage skills take `dash-devise`'s shape: stages of a course that refuse to run outside one.** The off-arc branches in `dash-implement` and `dash-review` are dropped, and the hand-typed spellings stop being supported doors — user's call, 2026-08-31: they are internal machinery, parts of a larger workflow. A user can still dig in and invoke a skill manually; nothing prevents that, and nothing goes out of its way to support it. The refusal each stage prints when run outside a course — saying what it is a stage of and which door starts one — is the whole of the accommodation.
 
 **[B12] No new configuration.** `implement_compact_tokens` and the per-stage model declarations apply to both courses as-is: a dash course's implement stage runs on the implement model, its audit on the audit model.
 
@@ -63,11 +63,13 @@ The full survey of what the wrong axis produced is `notes/dash-wheel-retrenchmen
 
 ## Open Questions {#open-questions}
 
-- **What do hand-typed `/tugplug:dash-implement` and `/tugplug:dash-review` become — a course of one stage, or no longer doors?** The expert path is worth keeping and `tuglaws/wheel.md` already defines a one-stage course (a rotation with no course, with its own hand-back), so the leaning is: each becomes a request for a one-stage course rather than in-thread work. What settles it is reading whether the runner can seat a single stage without an arc record, or whether that wants a small record of its own — a code question for the devise round, not a judgment call for the user.
+None. The last one — what the hand-typed stage spellings become — was settled by the user as [B11]: they stop being supported doors.
 
 ---
 
 ## Non-goals {#non-goals}
+
+- **Supporting hand-typed `/tugplug:dash-implement` and `/tugplug:dash-review` as standalone tools.** Rejected by the user: they are internal machinery. No one-stage course is built for them, and their doctrine mentions as "the expert path" (`tuglaws/dash-work-doctrine.md:5`, `tugplug/CLAUDE.md`) come out with the rewrite ([B11]).
 
 - **A separate `steps` stage for the dash course.** Rejected: it buys a cold read of the brief at the cost of a rotation, and if the brief is subtle enough for that to matter, the work wanted `/dash-plan`. The task list is the implement stage's first act ([B04]).
 - **Renaming the `audit` stage to `review`.** Rejected: collides with the plan review and ripples through the enum, the stop reasons, and the dividers ([B05]).
