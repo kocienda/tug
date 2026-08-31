@@ -26,18 +26,18 @@ describe("queryActionState", () => {
     chain.register({
       id: "parent",
       parentId: null,
-      actions: { [TUG_ACTIONS.TOGGLE_LENS]: () => {} },
+      actions: { [TUG_ACTIONS.TOGGLE_JOTS]: () => {} },
       queryActionState: () => false,
     });
     chain.register({
       id: "child",
       parentId: "parent",
-      actions: { [TUG_ACTIONS.TOGGLE_LENS]: () => {} },
+      actions: { [TUG_ACTIONS.TOGGLE_JOTS]: () => {} },
       queryActionState: () => true,
     });
     chain.makeFirstResponder("child");
 
-    expect(chain.queryActionState(TUG_ACTIONS.TOGGLE_LENS)).toBe(true);
+    expect(chain.queryActionState(TUG_ACTIONS.TOGGLE_JOTS)).toBe(true);
   });
 
   test("the walk terminates at the handler, not at the first state hook", () => {
@@ -48,17 +48,17 @@ describe("queryActionState", () => {
     chain.register({
       id: "parent",
       parentId: null,
-      actions: { [TUG_ACTIONS.TOGGLE_LENS]: () => {} },
+      actions: { [TUG_ACTIONS.TOGGLE_JOTS]: () => {} },
       queryActionState: () => true,
     });
     chain.register({
       id: "child",
       parentId: "parent",
-      actions: { [TUG_ACTIONS.TOGGLE_LENS]: () => {} },
+      actions: { [TUG_ACTIONS.TOGGLE_JOTS]: () => {} },
     });
     chain.makeFirstResponder("child");
 
-    expect(chain.queryActionState(TUG_ACTIONS.TOGGLE_LENS)).toBeUndefined();
+    expect(chain.queryActionState(TUG_ACTIONS.TOGGLE_JOTS)).toBeUndefined();
   });
 
   test("an unhandled action answers undefined", () => {
@@ -66,7 +66,7 @@ describe("queryActionState", () => {
     chain.register({
       id: "node",
       parentId: null,
-      actions: { [TUG_ACTIONS.TOGGLE_LENS]: () => {} },
+      actions: { [TUG_ACTIONS.TOGGLE_JOTS]: () => {} },
       queryActionState: () => true,
     });
     chain.makeFirstResponder("node");
@@ -100,28 +100,28 @@ describe("queryActionState", () => {
     });
     chain.makeFirstResponder("last-resort");
 
-    expect(chain.queryActionState(TUG_ACTIONS.TOGGLE_LENS)).toBe(false);
+    expect(chain.queryActionState(TUG_ACTIONS.TOGGLE_JOTS)).toBe(false);
   });
 
   test("state is read live, so a re-query sees the new value", () => {
-    let lensVisible = false;
+    let jotsVisible = false;
     const chain = new ResponderChainManager();
     chain.register({
       id: "canvas",
       parentId: null,
-      actions: { [TUG_ACTIONS.TOGGLE_LENS]: () => {} },
-      queryActionState: () => lensVisible,
+      actions: { [TUG_ACTIONS.TOGGLE_JOTS]: () => {} },
+      queryActionState: () => jotsVisible,
     });
     chain.makeFirstResponder("canvas");
 
-    expect(chain.queryActionState(TUG_ACTIONS.TOGGLE_LENS)).toBe(false);
-    lensVisible = true;
-    expect(chain.queryActionState(TUG_ACTIONS.TOGGLE_LENS)).toBe(true);
+    expect(chain.queryActionState(TUG_ACTIONS.TOGGLE_JOTS)).toBe(false);
+    jotsVisible = true;
+    expect(chain.queryActionState(TUG_ACTIONS.TOGGLE_JOTS)).toBe(true);
   });
 
   test("no first responder answers undefined", () => {
     const chain = new ResponderChainManager();
-    expect(chain.queryActionState(TUG_ACTIONS.TOGGLE_LENS)).toBeUndefined();
+    expect(chain.queryActionState(TUG_ACTIONS.TOGGLE_JOTS)).toBeUndefined();
   });
 });
 

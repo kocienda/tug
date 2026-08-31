@@ -50,7 +50,7 @@ import { JOTS_CARD_ID } from "@/lib/jots-card-id";
 import { TRIPWIRES_CARD_ID } from "@/lib/tripwires-card-id";
 import { DASHES_CARD_ID } from "@/lib/dashes-card-id";
 import { CARDS_CARD_ID } from "@/lib/cards-card-id";
-import { LENS_CARD_ID } from "@/lib/lens-card-id";
+import { LAYOUT_CARD_ID } from "@/lib/layout-card-id";
 import { OVERVIEW_CARD_ID } from "@/lib/overview-card-id";
 import { PERMISSION_MODE_CYCLE } from "./lib/permission-mode";
 import {
@@ -517,15 +517,11 @@ export function initActionDispatch(
     }
   });
 
-  // toggle-lens / toggle-jots / toggle-overview: the three-state sidebar
+  // toggle-jots / toggle-cards / toggle-overview: the three-state sidebar
   // shortcut over one CARD — show-and-activate, activate, hide
-  // ({@link toggleSidebarCard}). Fired by the Swift menu's "Show Lens", "Show
-  // Jots" and "Show Overview" rows, which carry no default chord: the keyboard
+  // ({@link toggleSidebarCard}). Fired by the Swift menu's "Show Jots", "Show
+  // Cards" and "Show Overview" rows, which carry no default chord: the keyboard
   // addresses the rails instead (`toggle-rail` below).
-  registerAction("toggle-lens", () => {
-    toggleSidebarCard(deckManager, LENS_CARD_ID);
-  });
-
   registerAction("toggle-jots", () => {
     toggleSidebarCard(deckManager, JOTS_CARD_ID);
   });
@@ -540,6 +536,10 @@ export function initActionDispatch(
 
   registerAction("toggle-cards", () => {
     toggleSidebarCard(deckManager, CARDS_CARD_ID);
+  });
+
+  registerAction("toggle-layout", () => {
+    toggleSidebarCard(deckManager, LAYOUT_CARD_ID);
   });
 
   registerAction("toggle-overview", () => {
@@ -560,12 +560,13 @@ export function initActionDispatch(
     dispatchCommand(`${TUG_ACTIONS.TOGGLE_RAIL}:${side}`);
   });
 
-  // reveal-lens: show the Lens and bring the keyboard to it, never hide it.
+  // reveal-dashes: show the Dashes rail and bring the keyboard to it, never
+  // hide it.
   // What a link means, as distinct from what a shortcut means — a dash chip
   // on an Overview post promises to reveal the dash, and a toggle would take
   // the rail away from a reader who already had it open.
-  registerAction("reveal-lens", () => {
-    revealSidebarCard(deckManager, LENS_CARD_ID);
+  registerAction("reveal-dashes", () => {
+    revealSidebarCard(deckManager, DASHES_CARD_ID);
   });
 
   // next/previous-keyboard-focus: move the keyboard focus ring one stop, the

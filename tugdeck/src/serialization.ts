@@ -53,12 +53,22 @@ import {
   type SidebarEntry,
   type SidebarSide,
 } from "@/lib/layout-imposer";
-import { LENS_CARD_ID } from "@/lib/lens-card-id";
+import { CARDS_CARD_ID } from "@/lib/cards-card-id";
 
 // ---- Constants ----
 
 /** Floor for a restored pane's width and height. */
 const MIN_PANE_SIZE = 100;
+
+/**
+ * The componentId a pre-breakout blob spells its rail with. The Lens card is
+ * gone, but its id is still the address a persisted layout written before the
+ * breakout uses — for the pane that held it, for the `sidebars` entry that
+ * placed it, and for the legacy `{lens, lensPinned}` pair beneath that. A
+ * legacy address is read, never written: the writer emits only the current
+ * shape, so a blob converts on its first save.
+ */
+const LEGACY_LENS_CARD_ID = "lens";
 
 /**
  * Breathing room left between a pane and the canvas edges when the pane has
@@ -545,18 +555,18 @@ function parseV4(
       : DEFAULT_IMPOSITION_KIND;
 
   const lensCardIds = new Set(
-    cards.filter((c) => c.componentId === LENS_CARD_ID).map((c) => c.id),
+    cards.filter((c) => c.componentId === LEGACY_LENS_CARD_ID).map((c) => c.id),
   );
   const legacyLensAnchor = readLegacyLensAnchor(rawPanes, lensCardIds);
   const sidebars = parseSidebars(impositionRecord);
-  if (sidebars[LENS_CARD_ID] === undefined) {
+  if (sidebars[LEGACY_LENS_CARD_ID] === undefined) {
     // No current-shape entry: fold the legacy `{lens, lensPinned}` pair into
     // one. `lensPinned` was additive-optional too, so absent — every blob
     // written before the Lens could be dragged off its pin — reads as pinned.
     const side = isSidebarSide(impositionRecord?.["lens"])
       ? (impositionRecord["lens"] as SidebarSide)
       : (legacyLensAnchor ?? fallbackSidebarSide);
-    sidebars[LENS_CARD_ID] = {
+    sidebars[LEGACY_LENS_CARD_ID] = {
       side,
       ...(impositionRecord?.["lensPinned"] === false ? { pinned: false } : {}),
     };
@@ -622,7 +632,7 @@ function parseV4(
     // A Lens dragged off its pin is an ordinary free pane, so it takes the fit
     // clamp like any other; only a Lens standing at its pin derives its frame.
     const derived =
-      (isLensPane && isSidebarPinned(imposition, LENS_CARD_ID)) ||
+      (isLensPane && isSidebarPinned(imposition, LEGACY_LENS_CARD_ID)) ||
       slot !== undefined;
     const { x, y, width, height } = derived
       ? { x: pos.x, y: pos.y, width: sz.width, height: sz.height }
@@ -811,7 +821,7 @@ function migrateV1ToDeckState(
   return {
     cards,
     panes,
-    imposition: { sidebars: { [LENS_CARD_ID]: { side: fallbackSidebarSide } } },
+    imposition: { sidebars: { [CARDS_CARD_ID]: { side: fallbackSidebarSide } } },
     hasFocus: true,
   };
 }
@@ -838,7 +848,7 @@ export function buildDefaultLayout(
     imposition: {
       kind: DEFAULT_IMPOSITION_KIND,
       contentWidth: DEFAULT_CONTENT_WIDTH,
-      sidebars: { [LENS_CARD_ID]: { side: sidebarSide } },
+      sidebars: { [CARDS_CARD_ID]: { side: sidebarSide } },
     },
     hasFocus: true,
   };

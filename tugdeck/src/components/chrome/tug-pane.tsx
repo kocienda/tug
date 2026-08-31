@@ -1907,13 +1907,13 @@ export interface TugPaneProps {
    */
   columnMember?: ColumnMemberPlacement;
   /**
-   * Set on the pane hosting the Lens card, pinned or not. Separate from
-   * {@link sidebarStack}, which says only where a PINNED rail stands: a Lens
+   * Set on a pane hosting a sidebar card, pinned or not. Separate from
+   * {@link sidebarStack}, which says only where a PINNED rail stands: a rail
    * dragged off its pin is an ordinary free pane for geometry purposes but is
-   * still the Lens, and the one thing that stays true either way is that it
+   * still a rail, and the one thing that stays true either way is that it
    * hosts a singleton card and never accepts a merge.
    */
-  isLensPane?: boolean;
+  isSidebarPane?: boolean;
   /**
    * Called when a card drag ends over another card's tab bar ([D45]).
    *
@@ -2010,7 +2010,7 @@ export function TugPane({
   slotStack = EMPTY_SLOT_STACK,
   onRevealPane,
   sidebarStack,
-  isLensPane = false,
+  isSidebarPane = false,
   bullseye = false,
   bullseyeExit,
   columnMember,
@@ -2909,9 +2909,9 @@ export function TugPane({
       barEls.forEach((el) => {
         const paneId = el.getAttribute("data-pane-id");
         if (!paneId || paneId === id) return;
-        // The Lens never accepts a merge — skip its tab bar as a drop
+        // A rail never accepts a merge — skip its tab bar as a drop
         // target.
-        if (el.closest(".tug-pane[data-lens-pane]")) return;
+        if (el.closest(".tug-pane[data-sidebar-pane]")) return;
         dragTabBarCache.current.push({ paneId, rect: el.getBoundingClientRect(), el });
       });
 
@@ -4291,12 +4291,12 @@ export function TugPane({
       // 32px bar. CSS cannot read the bar's own attribute from up here —
       // `:has()` does not invalidate on a descendant attribute change.
       {...(isRail ? { "data-role": "sidebar" } : {})}
-      {...(isLensPane ? { "data-lens-pane": "" } : {})}
-      // `data-lens` is NOT the same bit: it carries which edge a rail is
+      {...(isSidebarPane ? { "data-sidebar-pane": "" } : {})}
+      // `data-rail-side` is NOT the same bit: it carries which edge a rail is
       // pinned to, and a released rail has rail chrome with no side.
-      {...(sidebarSide !== undefined ? { "data-lens": sidebarSide } : {})}
+      {...(sidebarSide !== undefined ? { "data-rail-side": sidebarSide } : {})}
       // A member of a rail that is currently divided rather than stacked — the
-      // sibling bit to `data-lens`, and what the seam elements and the reorder
+      // sibling bit to `data-rail-side`, and what the seam elements and the reorder
       // drag find their fellow members by.
       {...(railSplit ? { "data-rail-split": "" } : {})}
       // Which card of the rail this frame is, so a reorder can name its

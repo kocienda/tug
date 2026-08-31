@@ -38,8 +38,8 @@
  * @covers tugdeck/src/components/chrome/deck-canvas.tsx
  * @covers tugdeck/src/deck-store-selectors.ts
  * @covers tugdeck/src/deck-manager.ts
- * @covers tugdeck/src/components/lens/sections/layouts-section.tsx
- * @covers tugdeck/src/components/lens/layout-miniature.tsx
+ * @covers tugdeck/src/components/layout/layout-card.tsx
+ * @covers tugdeck/src/components/layout/layout-miniature.tsx
  */
 
 import { describe, expect, test } from "bun:test";
@@ -94,7 +94,7 @@ function deckShape() {
         title: `Card ${id}`,
         closable: true,
       })),
-      { id: "L", componentId: "lens", title: "Lens", closable: true },
+      { id: "L", componentId: "layout", title: "Layout", closable: true },
     ],
     panes: [
       ...ids.map((id, index) => pane(`p${index + 1}`, index, id)),
@@ -111,7 +111,7 @@ function deckShape() {
     activePaneId: "p1",
     imposition: {
       kind: "six-up",
-      sidebars: { lens: { side: "right" } },
+      sidebars: { layout: { side: "right" } },
     },
     hasFocus: true,
   };
@@ -624,7 +624,13 @@ describe.skipIf(!SHOULD_RUN)("at0454 — flow mode", () => {
         // run the cursor off the end of its segments, and the group below must
         // be this one. Down inside a choice group steps its run (at0118's
         // contract), so only the last press crosses rows.
-        await app.dispatchControlAction("focus-lens");
+        // The keyboard has to be IN the Layout card before Tab walks it, and
+        // the card already holds the first responder from the clicks above —
+        // so this addresses it by id rather than through `toggle-layout`,
+        // which on the focused card is the gesture that takes the rail away.
+        await app.evalJS<null>(
+          `(window.__tug.dispatchControlAction("focus-session-card", { cardId: "L" }), null)`,
+        );
         await tabUntilKbd(app, KIND_GROUP);
         // Tab-into parks the cursor on the SELECTED segment, and this deck is
         // six-up — the last one in the run. So a single Down is already off

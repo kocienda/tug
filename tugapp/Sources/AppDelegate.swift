@@ -1321,14 +1321,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         // the menu is hidden then, and a hidden menu's key equivalents fall
         // through to the web view.
         mMenu.addItem(NSMenuItem(title: "Show DevTools", action: #selector(showDevTools(_:)), keyEquivalent: "").identified("maker.devTools"))
-        // Focus Lens — chord-less, with the Show ⟨card⟩ rows below: ⌘L retired
-        // when the rails took the keyboard, and the rail ladder already ends
-        // with focus inside the side it opened. The key equivalent is empty
-        // because the row carries no chord — a spelling here and nowhere else
-        // is the shape the table exists to prevent.
-        mMenu.addItem(NSMenuItem(title: "Focus Lens", action: #selector(focusLens(_:)), keyEquivalent: "").identified("maker.focusLens"))
-        // Show Lens, Show Jots, Show Tripwires, Show Dashes, Show Cards, Show
-        // Overview — the per-card sidebar toggles.
+        // Show Jots, Show Tripwires, Show Dashes, Show Cards, Show
+        // Layout, Show Overview — the per-card sidebar toggles.
         // They carry no default chord: the keyboard addresses the RAILS
         // (Show Left/Right Rail below), and a per-card letter grammar cannot
         // scale past the letters it has already spent. Built without key
@@ -1336,11 +1330,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         // has been asked to bind, and each stays rebindable. Same Maker-menu
         // placement reasoning as Show DevTools above: hidden outside maker
         // mode, so any chord falls through to the web view there.
-        mMenu.addItem(NSMenuItem(title: "Show Lens", action: #selector(showLens(_:)), keyEquivalent: "").identified("maker.lens"))
         mMenu.addItem(NSMenuItem(title: "Show Jots", action: #selector(showJots(_:)), keyEquivalent: "").identified("maker.jots"))
         mMenu.addItem(NSMenuItem(title: "Show Tripwires", action: #selector(showTripwires(_:)), keyEquivalent: "").identified("maker.tripwires"))
         mMenu.addItem(NSMenuItem(title: "Show Dashes", action: #selector(showDashes(_:)), keyEquivalent: "").identified("maker.dashes"))
         mMenu.addItem(NSMenuItem(title: "Show Cards", action: #selector(showCards(_:)), keyEquivalent: "").identified("maker.cards"))
+        mMenu.addItem(NSMenuItem(title: "Show Layout", action: #selector(showLayout(_:)), keyEquivalent: "").identified("maker.layout"))
         mMenu.addItem(NSMenuItem(title: "Show Overview", action: #selector(showOverview(_:)), keyEquivalent: "").identified("maker.overview"))
         // Show Left Rail (⌃⌘←) and Show Right Rail (⌃⌘→) — the deck's two
         // sides as keyboard entities, three-state like the card rows above:
@@ -1482,14 +1476,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         sendControl("reload")
     }
 
-    /// Toggle the Lens — the persistent right-edge rail in tugdeck.
-    /// Routes through the standard `sendControl` channel so tugdeck's
-    /// action-dispatch picks it up the same way other menu-driven RPCs do.
-    @objc private func showLens(_ sender: Any) {
-        sendControl("toggle-lens")
-    }
-
-    /// Show or hide the Jots rail — the Lens toggle's sibling.
+    /// Show or hide the Jots rail. Routes through the standard `sendControl`
+    /// channel so tugdeck's action-dispatch picks it up the same way other
+    /// menu-driven RPCs do.
     @objc private func showJots(_ sender: Any) {
         sendControl("toggle-jots")
     }
@@ -1507,6 +1496,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// Show or hide the Cards rail — another of the sidebar toggles.
     @objc private func showCards(_ sender: Any) {
         sendControl("toggle-cards")
+    }
+
+    /// Show or hide the Layout rail — another of the sidebar toggles.
+    @objc private func showLayout(_ sender: Any) {
+        sendControl("toggle-layout")
     }
 
     /// Show or hide the Overview rail — the third of the sidebar toggles.
@@ -1529,20 +1523,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     @objc private func newJot(_ sender: Any) {
         window.focusWebView()
         sendControl("new-jot")
-    }
-
-    /// Move keyboard focus into the Lens (opening it if hidden), or back out
-    /// if it already holds focus. A menu row rather than a chord since the
-    /// rails were promoted; it still focuses the web view first, so a chord
-    /// rebound onto this row keeps working when the native title bar holds
-    /// focus.
-    @objc private func focusLens(_ sender: Any) {
-        // Land OS keyboard focus in the web view first — a menu key equivalent
-        // fires even when the native title bar holds focus, where a DOM focus
-        // change alone would be invisible (the keyboard would still be aimed at
-        // the title bar).
-        window.focusWebView()
-        sendControl("focus-lens")
     }
 
     // The zoom commands go to the frontmost document surface when there is

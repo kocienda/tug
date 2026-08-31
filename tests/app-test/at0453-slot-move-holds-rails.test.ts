@@ -69,7 +69,7 @@ function deckShape() {
       { id: "A", componentId: "hello", title: "Card A", closable: true },
       { id: "B", componentId: "hello", title: "Card B", closable: true },
       { id: "C", componentId: "hello", title: "Card C", closable: true },
-      { id: "L", componentId: "lens", title: "Lens", closable: true },
+      { id: "L", componentId: "layout", title: "Layout", closable: true },
       { id: "G", componentId: "overview", title: "Overview", closable: true },
     ],
     panes: [
@@ -98,7 +98,7 @@ function deckShape() {
     activePaneId: "p2",
     imposition: {
       kind: "three-up",
-      sidebars: { lens: { side: "right" }, overview: { side: "left" } },
+      sidebars: { layout: { side: "right" }, overview: { side: "left" } },
     },
     hasFocus: true,
   };

@@ -202,9 +202,9 @@ describe("the vocabulary is fully accounted for", () => {
   test("the newly named verbs are in the table", () => {
     for (const id of [
       TUG_ACTIONS.CENTER_PANE,
-      TUG_ACTIONS.PIN_LENS,
-      TUG_ACTIONS.SHOW_LENS_PANE,
-      TUG_ACTIONS.HIDE_LENS_PANE,
+      TUG_ACTIONS.PIN_SIDEBAR,
+      TUG_ACTIONS.SHOW_SIDEBAR_PANE,
+      TUG_ACTIONS.HIDE_SIDEBAR_PANE,
       TUG_ACTIONS.MOVE_PANE,
       TUG_ACTIONS.EXIT_COMMIT_MODE,
       TUG_ACTIONS.LAND_COMMIT,

@@ -1,7 +1,7 @@
 /**
- * layouts-section.tsx — the Lens **Layout** section: the deck's layout picker.
+ * layout-card.tsx — the **Layout** card: the deck's layout picker.
  *
- * Every layout decision the deck has is made here, and the section asks them in
+ * Every layout decision the deck has is made here, and the card asks them in
  * the two kinds they actually come in.
  *
  * **Deck-wide questions are rows.** **Cards** says how many the arrangement
@@ -13,7 +13,7 @@
  * on the deck at all, and where. It cannot live on the drawing because the
  * drawing draws what is on screen, and a hidden card is exactly what is not;
  * its row is the one door that shows it. These row counts are fixed at boot
- * (the axes are enumerable, the registry is a boot step), so the section's
+ * (the axes are enumerable, the registry is a boot step), so the card's
  * height never moves as cards do.
  *
  * **Arrangement questions are asked on the drawing.** Whether a slot or a rail
@@ -22,7 +22,7 @@
  * whole vocabulary is stack versus split. Placement is not the picture's
  * question: which side a card holds is asked once, in words, by its row above,
  * because the row can also say "not on the deck at all" and the picture cannot
- * press what it does not draw. This section used to re-describe every per-place
+ * press what it does not draw. This card used to re-describe every per-place
  * fact in a row of its own — one per side, one per shared slot, up to thirteen
  * rows under a picture that had just drawn every one of them — so the reader's
  * eye joined "Column 3" to the third block on every read, the count grew with
@@ -49,7 +49,7 @@
  * there — so the deck always stands under an imposition and every row's slot
  * picker is live from the first frame.
  *
- * The section draws the deck **once**: the plan at the top states the current
+ * The card draws the deck **once**: the plan at the top states the current
  * answers as a heading, and under that heading stands a scale picture of the
  * deck ({@link LayoutMiniature}). Every control below is a compact segmented group
  * (`TugChoiceGroup`) that writes the plan. The picture-per-option idiom this
@@ -59,7 +59,7 @@
  * swaps the plan for that option's arrangement, drawn tentative (hollow
  * blocks) rather than committed (filled). A pointer asks for nothing: it moves
  * across controls on its way to the one it means, and a drawing that answered
- * every control it passed over restated the section's largest element while
+ * every control it passed over restated the card's largest element while
  * the reader was only travelling. Pressing is how a hand changes the plan.
  *
  * The drawing itself is a readout and takes no pointer (`pointer-events: none`)
@@ -77,19 +77,19 @@
  * store's candidate arrangements — and re-render when the store moves.
  *
  * Laws: [L02] the imposition record enters React through `useSyncExternalStore`
- * on the deck store; [L03] the section's content declaration is a
+ * on the deck store; [L03] the card's content declaration is a
  * `useLayoutEffect`; [L06] preview visibility is DOM attributes toggled in
  * event handlers and a `MutationObserver`, never React state; [L11] every
- * control emits `selectValue` through the responder chain, which this section
+ * control emits `selectValue` through the responder chain, which this card
  * turns into `set-imposition` / `set-imposition-layout` / `set-content-width` /
  * `set-sidebar-side` / `set-rail-mode` dispatches; [L19] every control is a `TugChoiceGroup` and
- * every caption a `TugLabel`, composed rather than hand-rolled; [L30] the section never touches
+ * every caption a `TugLabel`, composed rather than hand-rolled; [L30] the card never touches
  * the deck store — it goes through the command funnel like any other door.
  *
- * @module components/lens/sections/layouts-section
+ * @module components/layout/layout-card
  */
 
-import "./layouts-section.css";
+import "./layout-card.css";
 
 import React, {
   useCallback,
@@ -99,24 +99,20 @@ import React, {
   useRef,
   useSyncExternalStore,
 } from "react";
-import { Columns3 } from "lucide-react";
 
-import { registerLensSection } from "@/components/lens/lens-section-registry";
-import type { LensSectionHost } from "@/components/lens/lens-section-registry";
-import { setSectionContent } from "@/components/lens/lens-section-content";
-import { LayoutMiniature } from "@/components/lens/layout-miniature";
+import { LayoutMiniature } from "@/components/layout/layout-miniature";
 import type {
   MiniatureFlowSlot,
   MiniatureRails,
-} from "@/components/lens/layout-miniature";
-import { LayoutPlaces } from "@/components/lens/layout-places";
-import { FlowStrip } from "@/components/lens/flow-strip";
-import type { FlowStripTravel } from "@/components/lens/flow-strip";
+} from "@/components/layout/layout-miniature";
+import { LayoutPlaces } from "@/components/layout/layout-places";
+import { FlowStrip } from "@/components/layout/flow-strip";
+import type { FlowStripTravel } from "@/components/layout/flow-strip";
 import { raiseCard } from "@/focus-transfer";
-import { miniatureGeometry } from "@/components/lens/layout-miniature";
+import { miniatureGeometry } from "@/components/layout/layout-miniature";
 import { flashSlot } from "@/lib/flash-pane-border";
 import type { TugSlotState } from "@/components/tugways/tug-slot";
-import type { LayoutPlace } from "@/components/lens/layout-places";
+import type { LayoutPlace } from "@/components/layout/layout-places";
 import { dispatchCommand } from "@/command-dispatch";
 import { getAllRegistrations } from "@/card-registry";
 import { getDeckStore } from "@/lib/deck-store-registry";
@@ -155,7 +151,7 @@ import {
   type DeckColumn,
 } from "@/deck-store-selectors";
 import type { DeckState } from "@/layout-tree";
-import { LENS_CARD_ID } from "@/lib/lens-card-id";
+import { CARDS_CARD_ID } from "@/lib/cards-card-id";
 import { TugLabel } from "@/components/tugways/tug-label";
 import { TugChoiceGroup } from "@/components/tugways/tug-choice-group";
 import type { TugChoiceItem } from "@/components/tugways/tug-choice-group";
@@ -163,10 +159,15 @@ import { useResponder } from "@/components/tugways/use-responder";
 import type { ActionEvent } from "@/components/tugways/responder-chain";
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 
-/** This section's kind — its key in the section registry and section order. */
-const SECTION_KIND = "layouts";
+/** The card's focus group — every stop it offers lives here.
+ *
+ *  A card owns one group and every control inside it declares an order in
+ *  that group, which is what makes the arrows step from row to row. The Lens
+ *  handed each band its own group; a card is the band now, so the group is a
+ *  constant rather than a prop. */
+const LAYOUT_FOCUS_GROUP = "layout-card";
 
-/** Stable `event.sender` per group, so the section's one `selectValue` handler
+/** Stable `event.sender` per group, so the card's one `selectValue` handler
  *  can tell the axes apart. A sidebar group's sender carries the componentId it
  *  moves, which is how one handler serves however many sidebar cards register. */
 const KIND_SENDER_ID = "lens-layouts-kind";
@@ -189,7 +190,7 @@ const WIDTH_CAPTION_ID = "lens-layouts-width-caption";
  *  separately ordered is also what makes them separate rows of the Lens's arrow
  *  plane, so a vertical arrow steps from one group to the next.
  *
- *  Three is the whole list, and fixed. The per-place rows this section used to
+ *  Three is the whole list, and fixed. The per-place rows this card used to
  *  grow — one per sidebar card, one per side, one per shared slot — needed
  *  their orders computed from a running count, and that arithmetic is gone with
  *  them: those questions are asked on the drawing now.
@@ -199,7 +200,7 @@ const WIDTH_CAPTION_ID = "lens-layouts-width-caption";
  *  states a DECK fact, and that one stated how the Lens draws a fact — and the
  *  window settled at five, which is where it stays. The preference and the
  *  `set-slot-window` action it dispatched are untouched, so the size is still
- *  switchable; what is gone is a row asking the reader to choose in a section
+ *  switchable; what is gone is a row asking the reader to choose in a card
  *  otherwise entirely about the deck. */
 const LAYOUTS_KIND_FOCUS_ORDER = 0;
 const LAYOUTS_LAYOUT_FOCUS_ORDER = 1;
@@ -215,7 +216,7 @@ const LAYOUTS_FIRST_SIDEBAR_ROW_FOCUS_ORDER = 3;
  *  mark: a stop per affordance would make Tab crawl the picture, and the marks
  *  are items within it exactly as a segmented group's segments are items within
  *  it. The order is a sort key rather than a count, so it is set past every row
- *  the section can grow — two stops sharing an order would share one focus key
+ *  the card can grow — two stops sharing an order would share one focus key
  *  ([Q12]) and the engine resolves a key to exactly one stop, leaving the other
  *  unreachable by any addressed placement. */
 const LAYOUTS_PLACES_FOCUS_ORDER = 20;
@@ -263,7 +264,7 @@ function columnCaption(slot: number): string {
   return `Column ${slot + 1}`;
 }
 
-/** A sidebar card the deck can place, as this section needs it. */
+/** A sidebar card the deck can place, as this card needs it. */
 interface SidebarEntry {
   componentId: string;
   /** The card's own name — the caption for its position control. */
@@ -273,9 +274,9 @@ interface SidebarEntry {
 /**
  * Every card registered as a sidebar, in registration order.
  *
- * The registry is fixed by the time any Lens section renders (registration is a
+ * The registry is fixed by the time this card renders (registration is a
  * boot step), so this is a plain read rather than store-observed state — there
- * is no moment at which a card registers behind a rendered Layouts section.
+ * is no moment at which a card registers behind a rendered Layout card.
  */
 function sidebarEntries(): SidebarEntry[] {
   const entries: SidebarEntry[] = [];
@@ -344,7 +345,7 @@ function useImposition(): DeckImposition {
   const deck = useDeck();
   return (
     deck?.imposition ?? {
-      sidebars: { [LENS_CARD_ID]: { side: DEFAULT_SIDEBAR_SIDE } },
+      sidebars: { [CARDS_CARD_ID]: { side: DEFAULT_SIDEBAR_SIDE } },
     }
   );
 }
@@ -352,7 +353,7 @@ function useImposition(): DeckImposition {
 /**
  * The deck's occupied slots and how each one is arranged.
  *
- * The one place this section reads PANES rather than the imposition alone, and
+ * The one place this card reads PANES rather than the imposition alone, and
  * it has to: how many cards share a slot is a fact about membership, and the
  * overlay's marks dim on it.
  *
@@ -535,13 +536,6 @@ function useStripInstrument(): {
   }, [deck, store]);
 }
 
-/** Live collapsed summary: the active kind's label. The side is not summarized
- *  — the band has room for one fact and the arrangement is it. */
-function LayoutsCollapsedSummary(): React.ReactElement {
-  const { kind } = useImposition();
-  return <>{KIND_LABELS[kind ?? DEFAULT_IMPOSITION_KIND]}</>;
-}
-
 /**
  * What an arrangement COMES TO, in plain words — the note under the caption.
  *
@@ -643,11 +637,17 @@ function previewIdOf(el: Element | null): string | null {
   )}`;
 }
 
-function LayoutsSectionBody({
-  host,
-}: {
-  host: LensSectionHost;
-}): React.ReactElement {
+/** The Layout card's props. The card id is the pane's, and the card has no
+ *  use for it: every fact it reads is the deck's own, and every act it takes
+ *  goes through the command funnel ([L30]). */
+export interface LayoutContentProps {
+  /** The Layout card's id. */
+  cardId: string;
+}
+
+export function LayoutContent(
+  _props: LayoutContentProps,
+): React.ReactElement {
   const imposition = useImposition();
   const kind = imposition.kind ?? DEFAULT_IMPOSITION_KIND;
   const contentWidth = imposition.contentWidth ?? DEFAULT_CONTENT_WIDTH;
@@ -719,7 +719,7 @@ function LayoutsSectionBody({
     return { basis, spans };
   }, [kind, rails, contentWidth, layout, committedFlow]);
 
-  // The strip's two writes, and the only place this section touches the deck
+  // The strip's two writes, and the only place this card touches the deck
   // store rather than the command funnel. That is deliberate and narrow: a
   // scrub is per-frame appearance, which has no command to be ([L06]), and
   // the commit that follows it has to land the exact number the previews were
@@ -800,7 +800,7 @@ function LayoutsSectionBody({
   }
 
   // Every control reports selection by dispatching `selectValue` up the
-  // responder chain ([L11]) — there are no change callbacks — so the section
+  // responder chain ([L11]) — there are no change callbacks — so the card
   // hosts one responder and routes by sender.
   const { ResponderScope, responderRef } = useResponder({
     id: "lens-layouts-section",
@@ -871,17 +871,6 @@ function LayoutsSectionBody({
     },
   });
 
-  // The picker is always present and always focusable, so the section is
-  // always a navigable stop for the Cmd-L seed and the Tab walk.
-  useLayoutEffect(() => {
-    setSectionContent(host.focusGroup, { navigable: true, populated: true });
-    return () =>
-      setSectionContent(host.focusGroup, {
-        navigable: false,
-        populated: false,
-      });
-  }, [host.focusGroup]);
-
   // ---- The plan's preview switch ([L06]) ----
   //
   // Which layer shows is DOM attributes on the plan, toggled here: the layer
@@ -912,7 +901,7 @@ function LayoutsSectionBody({
   // stop the strobe; it could not stop the thing underneath it, which is that
   // a pointer travelling to the control it means to press passes over three or
   // four others on the way, and the drawing answered every one of them. The
-  // section's biggest, most detailed element restated itself repeatedly while
+  // card's biggest, most detailed element restated itself repeatedly while
   // the reader was doing nothing but moving their hand toward a target.
   //
   // So the pointer states nothing. The drawing shows the deck as committed,
@@ -1073,7 +1062,7 @@ function LayoutsSectionBody({
   // mark is a two-state toggle whose effect is the glyph it wears, so hovering
   // one to see what it would do shows a picture the reader can already read
   // off the mark, and the marks stand close enough together that raising a
-  // layer per crossing made the section strobe as the hand moved. The rows
+  // layer per crossing made the card strobe as the hand moved. The rows
   // still audition, because `Comfy` and `Flow` are words whose effect on the
   // deck is genuinely hard to picture.
 
@@ -1139,7 +1128,7 @@ function LayoutsSectionBody({
             marks are buttons rather than auditions, so neither the hand nor the
             ring asks the plan for anything while it is on the picture. */}
       {/* The plate: the drawing and its legend, as one block. They are held
-          together here rather than left to the section's own rhythm because
+          together here rather than left to the card's own rhythm because
           the strip is the plan's legend and reads as one thing with it — the
           air between them has to be smaller than the air between the plate
           and the rows below. */}
@@ -1243,7 +1232,7 @@ function LayoutsSectionBody({
           }
           columns={columnPlaces}
           railPlaces={railPlaces}
-          focusGroup={host.focusGroup}
+          focusGroup={LAYOUT_FOCUS_GROUP}
           focusOrder={LAYOUTS_PLACES_FOCUS_ORDER}
         />
       </div>
@@ -1289,7 +1278,7 @@ function LayoutsSectionBody({
               size="xs"
               sidePadding="xs"
               reselect
-              focusGroup={host.focusGroup}
+              focusGroup={LAYOUT_FOCUS_GROUP}
               focusOrder={LAYOUTS_KIND_FOCUS_ORDER}
               aria-labelledby={KIND_CAPTION_ID}
               data-testid="lens-layouts-kind"
@@ -1312,7 +1301,7 @@ function LayoutsSectionBody({
               size="xs"
               sidePadding="xs"
               reselect
-              focusGroup={host.focusGroup}
+              focusGroup={LAYOUT_FOCUS_GROUP}
               focusOrder={LAYOUTS_LAYOUT_FOCUS_ORDER}
               aria-labelledby={LAYOUT_CAPTION_ID}
               data-testid="lens-layouts-layout"
@@ -1335,7 +1324,7 @@ function LayoutsSectionBody({
               size="xs"
               sidePadding="xs"
               reselect
-              focusGroup={host.focusGroup}
+              focusGroup={LAYOUT_FOCUS_GROUP}
               focusOrder={LAYOUTS_WIDTH_FOCUS_ORDER}
               aria-labelledby={WIDTH_CAPTION_ID}
               data-testid="lens-layouts-width"
@@ -1368,7 +1357,7 @@ function LayoutsSectionBody({
                   size="xs"
                   sidePadding="xs"
                   reselect
-                  focusGroup={host.focusGroup}
+                  focusGroup={LAYOUT_FOCUS_GROUP}
                   focusOrder={LAYOUTS_FIRST_SIDEBAR_ROW_FOCUS_ORDER + index}
                   aria-labelledby={captionId}
                   data-testid={`lens-layouts-sidebar-${entry.componentId}`}
@@ -1380,15 +1369,4 @@ function LayoutsSectionBody({
       </div>
     </ResponderScope>
   );
-}
-
-/** Register the Layouts section. Called once at boot from `main.tsx`. */
-export function registerLayoutsSection(): void {
-  registerLensSection({
-    kind: SECTION_KIND,
-    title: "Layout",
-    glyph: <Columns3 size={14} />,
-    collapsedSummary: () => <LayoutsCollapsedSummary />,
-    body: (host) => <LayoutsSectionBody host={host} />,
-  });
 }

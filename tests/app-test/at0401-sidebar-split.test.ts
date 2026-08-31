@@ -51,7 +51,7 @@
  * @covers tugdeck/src/components/chrome/deck-canvas.tsx
  * @covers tugdeck/src/components/chrome/tug-pane.tsx
  * @covers tugdeck/src/components/tugways/tug-column-badge.tsx
- * @covers tugdeck/src/components/lens/sections/layouts-section.tsx
+ * @covers tugdeck/src/components/layout/layout-card.tsx
  */
 
 import { describe, expect, test } from "bun:test";
@@ -101,7 +101,7 @@ const SEAM = '[data-rail-seam="right:0"]';
 function deckShape() {
   return {
     cards: [
-      { id: "L", componentId: "lens", title: "Lens", closable: true },
+      { id: "L", componentId: "layout", title: "Layout", closable: true },
       { id: "J", componentId: "jots", title: "Jots", closable: true },
     ],
     panes: [
@@ -127,7 +127,7 @@ function deckShape() {
     activePaneId: LENS_PANE,
     imposition: {
       kind: "three-up",
-      sidebars: { lens: { side: "right" }, jots: { side: "right" } },
+      sidebars: { layout: { side: "right" }, jots: { side: "right" } },
     },
     hasFocus: true,
   };
@@ -146,7 +146,7 @@ async function railRects(app: App): Promise<Record<string, Rect>> {
   return app.evalJS<Record<string, Rect>>(
     `(function () {
       var out = {};
-      document.querySelectorAll('.tug-pane[data-lens="right"]').forEach(function (el) {
+      document.querySelectorAll('.tug-pane[data-rail-side="right"]').forEach(function (el) {
         var r = el.getBoundingClientRect();
         out[el.getAttribute("data-pane-id")] = {
           top: r.top, bottom: r.bottom, left: r.left,
@@ -176,7 +176,7 @@ function railZIndexes(app: App): Promise<Record<string, number>> {
   return app.evalJS<Record<string, number>>(
     `(function () {
       var out = {};
-      document.querySelectorAll('.tug-pane[data-lens="right"]').forEach(function (el) {
+      document.querySelectorAll('.tug-pane[data-rail-side="right"]').forEach(function (el) {
         out[el.getAttribute("data-pane-id")] = parseInt(getComputedStyle(el).zIndex, 10);
       });
       return out;
@@ -208,7 +208,7 @@ async function settleRoles(app: App): Promise<Record<string, SettleRole>> {
     `document.getAnimations().reduce(function (out, a) {
       var t = a.effect && a.effect.target;
       if (!t || !t.classList || !t.classList.contains("tug-pane")) return out;
-      if (t.getAttribute("data-lens") !== "right") return out;
+      if (t.getAttribute("data-rail-side") !== "right") return out;
       var id = t.getAttribute("data-pane-id") || "";
       var entry = out[id] || { properties: [], effects: 0, transformHeld: null };
       entry.effects += 1;
@@ -366,7 +366,7 @@ describe.skipIf(!SHOULD_RUN)(
 
             // ── Both members stand on the right rail, stacked. ──
             await app.waitForCondition<boolean>(
-              `document.querySelectorAll('.tug-pane[data-lens="right"]').length === 2`,
+              `document.querySelectorAll('.tug-pane[data-rail-side="right"]').length === 2`,
               { timeoutMs: 8_000 },
             );
             const stacked = await railRects(app);
@@ -620,7 +620,7 @@ describe.skipIf(!SHOULD_RUN)(
                 `(window.__tug.closePane(${JSON.stringify(JOTS_PANE)}), null)`,
               );
               await app.waitForCondition<boolean>(
-                `document.querySelectorAll('.tug-pane[data-lens="right"]').length === 1`,
+                `document.querySelectorAll('.tug-pane[data-rail-side="right"]').length === 1`,
                 { timeoutMs: 8_000 },
               );
               await settled(app);
@@ -823,7 +823,7 @@ describe.skipIf(!SHOULD_RUN)(
               await settled(app);
               expect(
                 await app.evalJS<number>(
-                  `document.querySelectorAll('.tug-pane[data-lens="right"]').length`,
+                  `document.querySelectorAll('.tug-pane[data-rail-side="right"]').length`,
                 ),
                 "a plain drag keeps a pinned card on its rail, wherever the pointer goes",
               ).toBe(2);
@@ -880,7 +880,7 @@ describe.skipIf(!SHOULD_RUN)(
             await app.enableDeckTrace(true);
             await app.seedDeckState({ state: deckShape(), focusCardId: "L" });
             await app.waitForCondition<boolean>(
-              `document.querySelectorAll('.tug-pane[data-lens="right"]').length === 2`,
+              `document.querySelectorAll('.tug-pane[data-rail-side="right"]').length === 2`,
               { timeoutMs: 8_000 },
             );
 
@@ -983,7 +983,7 @@ describe.skipIf(!SHOULD_RUN)(
               railOrderPaneIds,
             );
 
-            // ── The Lens marks a side's arrangement on the deck's picture. ──
+            // ── Layout marks a side's arrangement on the deck's picture. ──
             //
             // The seed shares the right side and leaves the left empty, so this
             // is the asymmetric case: a side that carries a rail is marked, and
@@ -992,7 +992,13 @@ describe.skipIf(!SHOULD_RUN)(
             // disabled — a control standing there for a place that does not
             // exist. A mark on a drawing needs no such placeholder, because the
             // drawing is not there either.
-            await app.dispatchControlAction("focus-lens");
+            // The Layout card is already standing on the split rail, so this
+            // only fronts it. `toggle-layout` would be wrong here: the card
+            // holds the first responder by now, and the toggle's third state
+            // on the focused card is to take the rail away.
+            await app.evalJS<null>(
+              `(window.__tug.dispatchControlAction("focus-session-card", { cardId: "L" }), null)`,
+            );
             await app.waitForCondition<boolean>(
               `document.querySelector('[data-testid="lens-layouts-places"] .layout-places-mark[data-place^="rail-"]') !== null`,
               { timeoutMs: 5_000 },

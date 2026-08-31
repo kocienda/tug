@@ -27,7 +27,7 @@
  * The live rails are passed down by the section so every drawing flips
  * together when a side changes.
  *
- * @module components/lens/layout-miniature
+ * @module components/layout/layout-miniature
  */
 
 import "./layout-miniature.css";

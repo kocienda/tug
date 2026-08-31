@@ -96,7 +96,7 @@ function deckShape() {
       card("A", "Card A"),
       card("B", "Card B"),
       card("C", "Card C"),
-      { id: "L", componentId: "lens", title: "Lens", closable: true },
+      { id: "L", componentId: "layout", title: "Layout", closable: true },
     ],
     panes: [
       pane("p1", 0, "A"),

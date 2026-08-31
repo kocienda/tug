@@ -155,12 +155,12 @@ body {
    about interpolating between places.
    ========================================================================= */
 
-/* The pinned Lens's side, as a number: 0 on the left edge, 1 on the right. The
-   registration stays because the expression that reads it — `imposeLensStyle`
+/* A pinned rail's side, as a number: 0 on the left edge, 1 on the right. The
+   registration stays because the expression that reads it — `imposeSidebarStyle`
    in `lib/layout-imposer.ts` — needs it typed as a number to compute with. It
-   no longer transitions: the Lens crosses by the same FLIP tween as every other
+   no longer transitions: a rail crosses by the same FLIP tween as every other
    frame. */
-@property --tugx-lens-rail {
+@property --tugx-rail-side {
   syntax: "<number>";
   inherits: false;
   initial-value: 1;

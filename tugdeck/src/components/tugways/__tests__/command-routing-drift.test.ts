@@ -73,7 +73,6 @@ const PRE_MIGRATION_MECHANISM: Readonly<Record<string, CommandRouting>> = {
   [TUG_ACTIONS.CLOSE_ALL]: "first-responder",
   [TUG_ACTIONS.ADD_CARD_TO_ACTIVE_PANE]: "first-responder",
   [TUG_ACTIONS.SHOW_COMPONENT_GALLERY]: "first-responder",
-  [TUG_ACTIONS.FOCUS_LENS]: "first-responder",
   [TUG_ACTIONS.REVEAL_STACK]: "first-responder",
   // The depth pair replaced Cycle Stack in the Window-menu rework; both are
   // pane-answered like the rest of the stack family.
@@ -92,7 +91,6 @@ const PRE_MIGRATION_MECHANISM: Readonly<Record<string, CommandRouting>> = {
   "configure-tug": "registry",
   logout: "registry",
   reload: "registry",
-  "toggle-lens": "registry",
   // The coverage pass found this one is senderless: the wire has a registry
   // body, but Maker ▸ Source Tree… runs its panel in the host and never
   // sends it, so the entry claims no menu item.
@@ -192,14 +190,13 @@ const SWIFT_WIRES: Readonly<Record<string, WireKind>> = {
   logout: "command",
   "set-theme": "command",
   reload: "command",
-  "toggle-lens": "command",
   "toggle-jots": "command",
   "toggle-tripwires": "command",
   "toggle-dashes": "command",
   "toggle-cards": "command",
+  "toggle-layout": "command",
   "toggle-overview": "command",
   "new-jot": "command",
-  "focus-lens": "command",
   "zoom-actual": "command",
   "zoom-in": "command",
   "zoom-out": "command",
@@ -339,8 +336,8 @@ const SHIPPED_CHORDS: ReadonlyArray<readonly [chord: string, commandId: string]>
   ["⌘T", TUG_ACTIONS.ADD_CARD_TO_ACTIVE_PANE],
   ["⌘K", TUG_ACTIONS.FOCUS_PROMPT],
   ["⌘,", TUG_ACTIONS.SHOW_SETTINGS],
-  ["⌘L", TUG_ACTIONS.FOCUS_LENS],
-  ["⌥⌘L", TUG_ACTIONS.TOGGLE_LENS],
+  ["⌘L", "focus-lens"],
+  ["⌥⌘L", "toggle-lens"],
   ["⌘.", TUG_ACTIONS.CANCEL_DIALOG],
   ["⎋", TUG_ACTIONS.CANCEL_DIALOG],
   ["⌘F", TUG_ACTIONS.FIND],
@@ -391,7 +388,14 @@ const MOVED_SINCE_THE_MAP: ReadonlyMap<string, string> = new Map([
  * depth card-navigation quartet supersedes it, and its removal returned the
  * ⌃-backtick grandfathered exception to the closed set.
  */
-const RETIRED_SINCE_THE_MAP: ReadonlySet<string> = new Set(["cycle-card"]);
+const RETIRED_SINCE_THE_MAP: ReadonlySet<string> = new Set([
+  "cycle-card",
+  // The Lens card was dissolved into Cards, Dashes, Layout and Tripwires, and
+  // its two commands went with it. ⌘L and ⌥⌘L returned to their pools; nothing
+  // answers either wire, so a keymap entry naming one is dropped on load.
+  "focus-lens",
+  "toggle-lens",
+]);
 
 /**
  * Commands that still exist and still have menu rows, but no longer carry a
@@ -401,15 +405,13 @@ const RETIRED_SINCE_THE_MAP: ReadonlySet<string> = new Set(["cycle-card"]);
  * Distinct from `RETIRED_SINCE_THE_MAP` on purpose. A retired command is gone
  * and its chord reaches nothing; these are reachable from the Maker menu and
  * bindable from the keymap pane, and what changed is only that the table ships
- * no chord for them. ⌃⌘L, ⌃⌘J, ⌃⌘O and ⌘L returned to their pools with them.
+ * no chord for them. ⌃⌘J and ⌃⌘O returned to their pools with them.
  *
  * The letter grammar died of arithmetic rather than of taste: a sidebar growing
  * past three cards wants letters that are spent (⌃⌘C, ⌃⌘T) or forbidden (⌃⌘D),
  * and one chord per side does not grow at all. See chord-tiers.md.
  */
 const UNBOUND_SINCE_THE_MAP: ReadonlySet<string> = new Set([
-  TUG_ACTIONS.FOCUS_LENS,
-  TUG_ACTIONS.TOGGLE_LENS,
   TUG_ACTIONS.TOGGLE_JOTS,
   TUG_ACTIONS.TOGGLE_OVERVIEW,
 ]);

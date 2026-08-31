@@ -35,7 +35,7 @@
  *
  * @covers tugdeck/src/lib/layout-imposer.ts
  * @covers tugdeck/src/components/chrome/deck-canvas.tsx
- * @covers tugdeck/src/components/lens/layout-miniature.tsx
+ * @covers tugdeck/src/components/layout/layout-miniature.tsx
  * @covers tugdeck/src/serialization.ts
  */
 
@@ -46,7 +46,9 @@ import { launchTugApp, note, type App } from "./_harness";
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
 
-const LENS_PANE = '.tug-pane[data-lens-pane]';
+// The Layout card's own body: it renders only while its pane stands, and it
+// is the address that survives a hide/show cycle, which mints a new pane.
+const LENS_PANE = '.layouts-section';
 const JOTS_CARD = '[data-card-id] .jots-card';
 const STACK_BADGE = '[data-testid="tug-pane-title-bar-stack-badge"]';
 const STACK_MENU = '[data-testid="tug-pane-title-bar-stack-menu"]';
@@ -71,7 +73,7 @@ const STACK_MENU = '[data-testid="tug-pane-title-bar-stack-menu"]';
  */
 const FRONT_RAIL_PANE_ID_JS = `(function () {
   var rail = Array.from(document.querySelectorAll(".tug-pane")).filter(function (p) {
-    return p.querySelector(".jots-card") !== null || p.querySelector(".lens-content") !== null;
+    return p.querySelector(".jots-card") !== null || p.querySelector(".layouts-section") !== null;
   });
   if (rail.length === 0) return null;
   var zOf = function (el) {
@@ -84,7 +86,7 @@ const FRONT_RAIL_PANE_ID_JS = `(function () {
 
 const FRONT_IS_JOTS_JS = `(function () {
   var rail = Array.from(document.querySelectorAll(".tug-pane")).filter(function (p) {
-    return p.querySelector(".jots-card") !== null || p.querySelector(".lens-content") !== null;
+    return p.querySelector(".jots-card") !== null || p.querySelector(".layouts-section") !== null;
   });
   if (rail.length < 2) return false;
   var zOf = function (el) {
@@ -97,7 +99,7 @@ const FRONT_IS_JOTS_JS = `(function () {
 
 /** Each rail member's card and z-index, for a failure to be read from. */
 const RAIL_Z_JS = `Array.from(document.querySelectorAll(".tug-pane")).filter(function (p) {
-  return p.querySelector(".jots-card") !== null || p.querySelector(".lens-content") !== null;
+  return p.querySelector(".jots-card") !== null || p.querySelector(".layouts-section") !== null;
 }).map(function (p) {
   var kind = p.querySelector(".jots-card") !== null ? "jots" : "lens";
   return kind + "=" + window.getComputedStyle(p).zIndex;
@@ -141,12 +143,12 @@ describe.skipIf(!SHOULD_RUN)(
           // by its own toggle rather than left to the factory default, so this
           // test asserts the stack and not the stand-up (at0276 owns that).
           await app.dispatchControlAction("show-component-gallery");
-          await app.dispatchControlAction("toggle-lens");
+          await app.dispatchControlAction("toggle-layout");
           await app.waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(LENS_PANE)}) !== null`,
             { timeoutMs: 10_000 },
           );
-          const lensAlone = await paneRect(app, ".lens-content");
+          const lensAlone = await paneRect(app, ".layouts-section");
           expect(lensAlone).not.toBeNull();
 
           // ── Jots joins it. Both default to the right, so this is the stack. ──
@@ -156,7 +158,7 @@ describe.skipIf(!SHOULD_RUN)(
             { timeoutMs: 10_000 },
           );
 
-          const lens = await paneRect(app, ".lens-content");
+          const lens = await paneRect(app, ".layouts-section");
           const jots = await paneRect(app, JOTS_CARD);
           expect(lens).not.toBeNull();
           expect(jots).not.toBeNull();
@@ -188,7 +190,7 @@ describe.skipIf(!SHOULD_RUN)(
             `Array.from(document.querySelectorAll(".tug-pane"))
               .filter(function (p) {
                 return p.querySelector(".jots-card") !== null
-                  || p.querySelector(".lens-content") !== null;
+                  || p.querySelector(".layouts-section") !== null;
               })
               .map(function (p) { return p.querySelector(${JSON.stringify(STACK_BADGE)}); })
               .filter(function (el) { return el !== null; })
@@ -231,7 +233,7 @@ describe.skipIf(!SHOULD_RUN)(
           );
           note("picker rows", rows.join(" · "));
           expect(
-            rows.some((r) => r.includes("Lens")) &&
+            rows.some((r) => r.includes("Layout")) &&
               rows.some((r) => r.includes("Jots")),
             "the rows name the two cards",
           ).toBe(true);
@@ -246,7 +248,7 @@ describe.skipIf(!SHOULD_RUN)(
           );
 
           // Choose the one that is NOT in front, and it comes forward.
-          const wanted = frontIsJots ? "Lens" : "Jots";
+          const wanted = frontIsJots ? "Layout" : "Jots";
           await app.evalJS<null>(
             `(function () {
               var rows = Array.from(document.querySelectorAll(${JSON.stringify(STACK_MENU)} + ' [role="menuitem"], ' + ${JSON.stringify(STACK_MENU)} + ' [role="menuitemradio"]'));

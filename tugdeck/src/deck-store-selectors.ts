@@ -26,7 +26,6 @@
  */
 
 import type { DeckState, TugPaneState } from "./layout-tree";
-import { LENS_CARD_ID } from "./lib/lens-card-id";
 import { getStackSizePolicy, isSidebarCard } from "./card-registry";
 import {
   clampSlot,
@@ -122,13 +121,6 @@ export function findSidebarPanes(
     }
   }
   return out;
-}
-
-/** `findLensPane(state)` — the pane hosting the Lens, or `undefined` when the
- *  Lens is closed. The Lens-shaped reading of {@link findSidebarPane}, kept
- *  because most call sites want exactly this one. */
-export function findLensPane(state: DeckState): TugPaneState | undefined {
-  return findSidebarPane(state, LENS_CARD_ID);
 }
 
 /**
@@ -533,11 +525,11 @@ export function columnMoveOrder(
 
 /**
  * `countWorkCards(state)` — how many cards the user is working in, i.e. every
- * card but the Lens. The Lens is app furniture (it opens by factory default),
- * so anything asking "does this deck hold work yet" — the setup wizard's
- * "start a session" step, the copy that reads a deck as busy — counts through
- * here rather than off `state.cards.length`.
+ * card that is not a rail. The sidebar cards are app furniture (they open by
+ * factory default), so anything asking "does this deck hold work yet" — the
+ * setup wizard's "start a session" step, the copy that reads a deck as busy —
+ * counts through here rather than off `state.cards.length`.
  */
 export function countWorkCards(state: DeckState): number {
-  return state.cards.filter((c) => c.componentId !== LENS_CARD_ID).length;
+  return state.cards.filter((c) => !isSidebarCard(c.componentId)).length;
 }

@@ -356,12 +356,12 @@ function RefAtom({
         content={dashTip({ name: chipRef.target })}
       >
         <span
-          // The Lens is where a dash's join is already offered, so the click
+          // The Dashes rail is where a dash's join is already offered, so the click
           // reveals it rather than inventing a second landing surface.
           onClick={() => {
-            dispatchCommand("reveal-lens");
+            dispatchCommand("reveal-dashes");
           }}
-          // Same contract the file skin's own marks carry: revealing the Lens
+          // Same contract the file skin's own marks carry: revealing the rail
           // activates the target pane, and this chip must not also activate
           // the pane it sits in.
           data-no-activate=""

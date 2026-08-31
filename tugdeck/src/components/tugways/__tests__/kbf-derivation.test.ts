@@ -21,8 +21,8 @@ import { afterAll, beforeEach, describe, expect, test } from "bun:test";
 import { FocusManager } from "../focus-manager";
 import { ResponderChainManager } from "../responder-chain";
 import { getRegistration, registerCard } from "@/card-registry";
-import { registerLensCard } from "@/components/lens/lens-register-card";
-import { LENS_CARD_ID } from "@/lib/lens-card-id";
+import { registerLayoutCard } from "@/components/layout/layout-card-registration";
+import { LAYOUT_CARD_ID } from "@/lib/layout-card-id";
 import { registerJotsCard } from "@/components/jots/jots-card-registration";
 import { JOTS_CARD_ID } from "@/lib/jots-card-id";
 import { registerOverviewCard } from "@/components/overview/overview-card-registration";
@@ -273,14 +273,14 @@ describe("Class-B declarations on the real registrations ([P10])", () => {
   // The shipped registrations, not fixtures: the dispositions are the decision
   // this step made, so they are pinned against the cards themselves.
   test("the navigation and utility cards declare `kbfAtRest`", () => {
-    registerLensCard();
+    registerLayoutCard();
     registerJotsCard();
     registerSettingsCard();
     registerKeyboardCard();
     registerOverviewCard();
     registerDevtoolsCard();
     for (const componentId of [
-      LENS_CARD_ID,
+      LAYOUT_CARD_ID,
       JOTS_CARD_ID,
       "settings",
       "keyboard",

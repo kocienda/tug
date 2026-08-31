@@ -125,7 +125,7 @@ function deckShape() {
         title: `Card ${cardId}`,
         closable: true,
       })),
-      { id: "L", componentId: "lens", title: "Lens", closable: true },
+      { id: "L", componentId: "layout", title: "Layout", closable: true },
     ],
     panes: [
       ...members.map(([id, cardId, slot]) => pane(id, cardId, slot)),
@@ -142,7 +142,7 @@ function deckShape() {
     activePaneId: "p1",
     imposition: {
       kind: "three-up",
-      sidebars: { lens: { side: "right" } },
+      sidebars: { layout: { side: "right" } },
     },
     hasFocus: true,
   };

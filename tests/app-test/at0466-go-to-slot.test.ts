@@ -83,7 +83,7 @@ function deckShape(
         title: `Card ${id}`,
         closable: true,
       })),
-      { id: "L", componentId: "lens", title: "Lens", closable: true },
+      { id: "L", componentId: "layout", title: "Layout", closable: true },
     ],
     panes: [
       ...ids.map((id, index) => ({
@@ -109,7 +109,7 @@ function deckShape(
     activePaneId: "p1",
     imposition: {
       kind: ["one-up", "two-up", "three-up", "four-up", "five-up"][slots - 1],
-      sidebars: { lens: { side: "right" } },
+      sidebars: { layout: { side: "right" } },
       layout,
     },
     hasFocus: true,

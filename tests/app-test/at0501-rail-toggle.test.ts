@@ -58,11 +58,11 @@ import {
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 60_000;
 
-/** Every pane pinned to `side`. `data-lens` carries the edge a rail stands on
+/** Every pane pinned to `side`. `data-rail-side` carries the edge a rail stands on
  *  and is absent once a card is dragged loose, so this counts exactly the
  *  members the chord addresses. */
 const railSelector = (side: "left" | "right"): string =>
-  `.tug-pane[data-lens="${side}"]`;
+  `.tug-pane[data-rail-side="${side}"]`;
 
 async function railCount(app: App, side: "left" | "right"): Promise<number> {
   return app.evalJS<number>(
@@ -173,7 +173,7 @@ describe.skipIf(!SHOULD_RUN)("at0501 — the rail toggle chords", () => {
 
           // Two members on the right, opened one card at a time through the
           // per-card rows — the door that still exists for them.
-          await app.dispatchControlAction("toggle-lens");
+          await app.dispatchControlAction("toggle-layout");
           await app.dispatchControlAction("toggle-jots");
           await app.waitForCondition<boolean>(
             `document.querySelectorAll(${JSON.stringify(railSelector("right"))}).length === 2`,

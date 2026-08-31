@@ -25,10 +25,9 @@
  *      divider that stops short at one end, and nothing about the end state says
  *      which.
  *
- * @covers tugdeck/src/components/lens/lens-content.css
  * @covers tugdeck/src/components/cards/cards-card.css
  * @covers tugdeck/src/components/cards/cards-card.tsx
- * @covers tugdeck/src/components/lens/block-reorder.ts
+ * @covers tugdeck/src/components/tugways/block-reorder.ts
  * @covers tugdeck/src/lib/lens-store/
  * @covers tugdeck/src/components/tugways/tug-session-row.tsx
  */

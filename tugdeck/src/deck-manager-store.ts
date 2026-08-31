@@ -252,18 +252,9 @@ export interface IDeckManagerStore {
   sendPaneBehind: (paneId: string, belowPaneId: string) => void;
 
   /**
-   * Show the Lens: activate the existing Lens card if one exists, else
-   * create the anchored rail pane hosting a fresh Lens card at the
-   * persisted reopen width. Returns the Lens card id, or null when the
-   * Lens card type is unregistered.
-   */
-  showLensPane: () => string | null;
-
-  /**
-   * Show a sidebar card by componentId — the generalization `showLensPane`
-   * delegates to. Activates the card if its rail is already open, else creates
-   * the pinned pane at the width it reopens at. Returns the card id, or null
-   * when the card type is unregistered.
+   * Show a sidebar card by componentId. Activates the card if its rail is
+   * already open, else creates the pinned pane at the width it reopens at.
+   * Returns the card id, or null when the card type is unregistered.
    */
   showSidebarPane: (componentId: string) => string | null;
 

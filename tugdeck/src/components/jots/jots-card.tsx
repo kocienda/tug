@@ -92,8 +92,8 @@ import {
 // of one-line handles read by scanning — so they share one presentation. A
 // second copy here would be two lists disagreeing about what a row looks like.
 import { RAIL_LIST_PRESENTATION } from "@/components/tugways/rail-list-presentation";
-import { BlockDropCaret } from "@/components/lens/block-drop-caret";
-import { useBlockReorder } from "@/components/lens/block-reorder";
+import { BlockDropCaret } from "@/components/tugways/block-drop-caret";
+import { useBlockReorder } from "@/components/tugways/block-reorder";
 import {
   useFocusable,
   useFocusManager,

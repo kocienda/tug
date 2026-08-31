@@ -12,7 +12,7 @@
 
 import { describe, expect, test } from "bun:test";
 
-import { miniatureGeometry } from "@/components/lens/layout-miniature";
+import { miniatureGeometry } from "@/components/layout/layout-miniature";
 import { CONTENT_WIDTH_PX, IMPOSITION_GAP_PX } from "@/lib/layout-imposer";
 
 /** The right edge of the last block, in percent of the field. */

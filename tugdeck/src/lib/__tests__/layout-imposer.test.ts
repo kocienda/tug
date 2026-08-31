@@ -552,15 +552,15 @@ describe("imposeSidebarStyle", () => {
   const widthOf = (side: "left" | "right", px = 420): string =>
     `var(--tug-sidebar-width-${side}, ${px}px)`;
   const pinOf = (side: "left" | "right", px = 420): string =>
-    `calc(var(--tugx-lens-rail) * (100% - ${widthOf(side, px)} - 5px)` +
-    " + (1 - var(--tugx-lens-rail)) * 5px)";
+    `calc(var(--tugx-rail-side) * (100% - ${widthOf(side, px)} - 5px)` +
+    " + (1 - var(--tugx-rail-side)) * 5px)";
 
-  test("pins the Lens to its side, a gap in on three edges and deeper below", () => {
+  test("pins a rail to its side, a gap in on three edges and deeper below", () => {
     expect(imposeSidebarStyle("left", 420) as Record<string, unknown>).toEqual({
       width: widthOf("left"),
       height: "auto",
       top: "5px",
-      "--tugx-lens-rail": 0,
+      "--tugx-rail-side": 0,
       left: pinOf("left"),
       bottom: GAP_BOTTOM,
     });
@@ -568,7 +568,7 @@ describe("imposeSidebarStyle", () => {
       width: widthOf("right"),
       height: "auto",
       top: "5px",
-      "--tugx-lens-rail": 1,
+      "--tugx-rail-side": 1,
       left: pinOf("right"),
       bottom: GAP_BOTTOM,
     });
@@ -593,12 +593,12 @@ describe("imposeSidebarStyle", () => {
     expect(String(left.left).replace("-left,", "-right,")).toBe(
       String(right.left),
     );
-    expect(String(left.left)).toContain("var(--tugx-lens-rail)");
+    expect(String(left.left)).toContain("var(--tugx-rail-side)");
     expect(
-      (left as Record<string, unknown>)["--tugx-lens-rail"],
+      (left as Record<string, unknown>)["--tugx-rail-side"],
     ).toBe(0);
     expect(
-      (right as Record<string, unknown>)["--tugx-lens-rail"],
+      (right as Record<string, unknown>)["--tugx-rail-side"],
     ).toBe(1);
   });
 
@@ -710,7 +710,7 @@ describe("a split rail divides the run between its members", () => {
     expect(member.width).toBe(stacked.width);
     expect(member.left).toBe(stacked.left);
     expect(member.height).toBe("auto");
-    expect(member["--tugx-lens-rail"]).toBe(1);
+    expect(member["--tugx-rail-side"]).toBe(1);
   });
 
   test("each side reads its own seam properties", () => {
@@ -806,7 +806,7 @@ describe("a rail of three or more overflows instead of dividing", () => {
     expect(overflowing.width).toBe(stacked.width);
     expect(overflowing.left).toBe(stacked.left);
     expect(overflowing.height).toBe("auto");
-    expect(overflowing["--tugx-lens-rail"]).toBe(1);
+    expect(overflowing["--tugx-rail-side"]).toBe(1);
   });
 });
 

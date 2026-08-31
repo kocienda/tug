@@ -159,7 +159,7 @@ function deckShape() {
       card("A", "Card A", "gallery-chain-actions"),
       card("B", "Card B"),
       card("F", "Card F"),
-      { id: "L", componentId: "lens", title: "Lens", closable: true },
+      { id: "L", componentId: "layout", title: "Layout", closable: true },
     ],
     panes: [
       pane("p0", "Z", 520, 0),
@@ -462,7 +462,7 @@ describe.skipIf(!SHOULD_RUN)(
               cards: [
                 { id: "Z", componentId: "about", title: "Card Z", closable: true },
                 card("A", "Card A", "gallery-chain-actions"),
-                { id: "L", componentId: "lens", title: "Lens", closable: true },
+                { id: "L", componentId: "layout", title: "Layout", closable: true },
               ],
               panes: [
                 pane("p0", "Z", 520, 0),

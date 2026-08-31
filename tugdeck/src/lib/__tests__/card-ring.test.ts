@@ -24,13 +24,13 @@ import { beforeAll, describe, expect, test } from "bun:test";
 import { registerCard } from "../../card-registry";
 import type { CardState, DeckState, TugPaneState } from "../../layout-tree";
 import type { DeckImposition } from "../layout-imposer";
-import { LENS_CARD_ID } from "../lens-card-id";
+import { CARDS_CARD_ID } from "../cards-card-id";
 import { stepCardRing, visibleCardCount, visibleCardRing } from "../card-ring";
 
 beforeAll(() => {
   // The two shipped sidebars, plus an ordinary content card. Only
   // `layoutRole` and `componentId` are read by the ring.
-  for (const componentId of [LENS_CARD_ID, "jots"]) {
+  for (const componentId of [CARDS_CARD_ID, "jots"]) {
     registerCard({
       componentId,
       contentFactory: () => null,
@@ -89,8 +89,8 @@ describe("membership", () => {
     // and types in, standing in plain sight; skipping it left the deck's
     // most-always-visible card unreachable by ⇧⌘[ / ⇧⌘].
     const state = deck(
-      [card("a"), card("L", LENS_CARD_ID)],
-      [pane("p1", ["a"], { slot: 0 }), pane("pLens", ["L"])],
+      [card("a"), card("L", CARDS_CARD_ID)],
+      [pane("p1", ["a"], { slot: 0 }), pane("pCards", ["L"])],
     );
     expect(visibleCardRing(state)).toContain("L");
     expect(visibleCardCount(state)).toBe(2);
@@ -101,22 +101,22 @@ describe("membership", () => {
     // position exactly as a slot's front is — and the order is the deck's
     // own left-to-right reading.
     const state = deck(
-      [card("J", "jots"), card("a"), card("L", LENS_CARD_ID)],
+      [card("J", "jots"), card("a"), card("L", CARDS_CARD_ID)],
       [
         pane("pJots", ["J"]),
         pane("p1", ["a"], { slot: 0 }),
-        pane("pLens", ["L"]),
+        pane("pCards", ["L"]),
       ],
-      { sidebars: { jots: { side: "left" }, lens: { side: "right" } } },
+      { sidebars: { jots: { side: "left" }, cards: { side: "right" } } },
     );
     expect(visibleCardRing(state)).toEqual(["J", "a", "L"]);
   });
 
   test("a sidebar dragged off its pin is an ordinary free pane, still on the ring", () => {
     const unpinned = deck(
-      [card("a"), card("L", LENS_CARD_ID)],
-      [pane("p1", ["a"], { slot: 0 }), pane("pLens", ["L"], { position: { x: 900, y: 0 } })],
-      { sidebars: { lens: { side: "right", pinned: false } } },
+      [card("a"), card("L", CARDS_CARD_ID)],
+      [pane("p1", ["a"], { slot: 0 }), pane("pCards", ["L"], { position: { x: 900, y: 0 } })],
+      { sidebars: { cards: { side: "right", pinned: false } } },
     );
     expect(visibleCardRing(unpinned)).toContain("L");
   });
@@ -170,11 +170,11 @@ describe("order", () => {
 
 describe("stepping", () => {
   const state = deck(
-    [card("a"), card("b"), card("L", LENS_CARD_ID)],
+    [card("a"), card("b"), card("L", CARDS_CARD_ID)],
     [
       pane("p1", ["a"], { slot: 0 }),
       pane("p2", ["b"], { slot: 1 }),
-      pane("pLens", ["L"]),
+      pane("pCards", ["L"]),
     ],
   );
 

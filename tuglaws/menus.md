@@ -300,11 +300,10 @@ Every command has several doors: a chord, a menu item, the palette, a control fr
 | `maker.cards` | `toggle-cards` | registered handler | host tier |
 | `maker.dashes` | `toggle-dashes` | registered handler | host tier |
 | `maker.devTools` | `show-devtools` | first responder | registry gate |
-| `maker.focusLens` | `focus-lens` | first responder | host tier |
 | `maker.galleryCard` | `show-component-gallery` | first responder | host tier |
 | `maker.jots` | `toggle-jots` | registered handler | host tier |
+| `maker.layout` | `toggle-layout` | registered handler | host tier |
 | `maker.leftRail` | `toggle-rail:left` | first responder | registry gate |
-| `maker.lens` | `toggle-lens` | registered handler | host tier |
 | `maker.newCardInPane` | `add-card-to-active-pane` | first responder | registry gate |
 | `maker.overview` | `toggle-overview` | registered handler | host tier |
 | `maker.reload` | `reload` | registered handler | host tier |

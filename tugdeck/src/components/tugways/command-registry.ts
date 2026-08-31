@@ -986,10 +986,10 @@ export const COMMANDS: readonly CommandEntry[] = [
   },
   {
     // Its door is an Overview post's dash chip — a link, not a menu item or
-    // a chord. Distinct from Show Lens on purpose: a link reveals the rail,
+    // a chord. Distinct from Show Dashes on purpose: a link reveals the rail,
     // where the toggle would take it away from a reader who had it open.
-    id: "reveal-lens",
-    title: "Reveal Lens",
+    id: "reveal-dashes",
+    title: "Reveal Dashes",
     routing: "registry",
     internal: true,
   },
@@ -1652,40 +1652,15 @@ export const COMMANDS: readonly CommandEntry[] = [
     internal: true,
   },
 
-  // ---- Lens ----
   {
-    id: TUG_ACTIONS.FOCUS_LENS,
-    title: "Focus Lens",
-    routing: "first-responder",
-    menuItemId: "maker.focusLens",
-    // Chord-less by default. ⌘L was the plain-⌘ half of a per-card sidebar
-    // grammar that has retired: the keyboard addresses the RAIL now, and the
-    // rail's own ladder already ends with focus inside it, so a second gesture
-    // meaning "focus the Lens" is a claim on the ⌘ tier that R3 no longer
-    // supports. `bindings: []` is a command with no DEFAULT chord, not one
-    // that refuses a chord — the keymap pane can still bind it.
-    bindings: [],
-  },
-  {
-    // A menu row with no default chord. The per-card ⌃⌘⟨letter⟩ toggles gave
-    // their chords up when the rails were promoted: ⌃⌘L, ⌃⌘J and ⌃⌘O return to
-    // their pools, and the row stays rebindable through the keymap pane — the
-    // same demotion the card widths took when ⌃⌘1/2/3 became Go to Slot.
-    id: TUG_ACTIONS.TOGGLE_LENS,
-    title: "Show Lens",
-    routing: "registry",
-    menuItemId: "maker.lens",
-    bindings: [],
-  },
-  {
-    // Its door is the Lens Layouts section's kind picker.
+    // Its door is the Layout card's kind picker.
     id: "set-imposition",
     title: "Set Imposition",
     routing: "registry",
     internal: true,
   },
   {
-    // Its door is the Lens Layouts section's sidebar positions group — one
+    // Its door is the Layout card's sidebar positions group — one
     // control per registered sidebar card, so the payload set is runtime.
     id: TUG_ACTIONS.SET_SIDEBAR_SIDE,
     title: "Set Sidebar Side",
@@ -1854,6 +1829,16 @@ export const COMMANDS: readonly CommandEntry[] = [
     bindings: [],
   },
 
+  // ---- Layout ----
+  {
+    // Chord-less, with the other sidebar rows — see Show Lens above.
+    id: TUG_ACTIONS.TOGGLE_LAYOUT,
+    title: "Show Layout",
+    routing: "registry",
+    menuItemId: "maker.layout",
+    bindings: [],
+  },
+
   // ---- Overview ----
   {
     // Chord-less, with Show Lens and Show Jots — see Show Lens above.
@@ -2004,30 +1989,30 @@ export const COMMANDS: readonly CommandEntry[] = [
   // mechanical one, so it is made where menu real estate is decided — not
   // here, where the job is only to end the anonymity.
   {
-    // Its door is the Lens Cards rows' center affordance.
+    // Its door is the Cards card's rows' center affordance.
     id: TUG_ACTIONS.CENTER_PANE,
     title: "Center Pane",
     routing: "first-responder",
     internal: true,
   },
   {
-    // Its door is the Lens rail's pin affordance.
-    id: TUG_ACTIONS.PIN_LENS,
-    title: "Pin Lens",
+    // Its door is a rail's pin affordance.
+    id: TUG_ACTIONS.PIN_SIDEBAR,
+    title: "Pin Sidebar",
     routing: "first-responder",
     internal: true,
   },
   {
-    // The shipped door is the Show Lens item, which toggles; the explicit
+    // The shipped door is a Show ⟨card⟩ item, which toggles; the explicit
     // halves exist so a caller that means one of them can say so.
-    id: TUG_ACTIONS.SHOW_LENS_PANE,
-    title: "Show Lens Pane",
+    id: TUG_ACTIONS.SHOW_SIDEBAR_PANE,
+    title: "Show Sidebar Pane",
     routing: "first-responder",
     internal: true,
   },
   {
-    id: TUG_ACTIONS.HIDE_LENS_PANE,
-    title: "Hide Lens Pane",
+    id: TUG_ACTIONS.HIDE_SIDEBAR_PANE,
+    title: "Hide Sidebar Pane",
     routing: "first-responder",
     internal: true,
   },

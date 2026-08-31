@@ -49,21 +49,18 @@ import {
   isSidebarCard,
   takesContentWidth,
 } from "./card-registry";
-import { LENS_CARD_ID } from "./lib/lens-card-id";
+import { CARDS_CARD_ID } from "./lib/cards-card-id";
 import {
   bullseyePaneIdOf,
   columnMoveOrder,
   deckColumnsOf,
   deckFlowStrip,
-  findLensPane,
   findSidebarPanes,
   paneRenderWidthOf,
 } from "./deck-store-selectors";
 import { getTugbankClient } from "./lib/tugbank-singleton";
-import { lensStore } from "./lib/lens-store/lens-store";
 import { sidebarWidthStore } from "./lib/sidebar-width-store";
 import { publishFlowOffset } from "./lib/imposer-gauges";
-import { MIN_LENS_WIDTH_PX } from "./lib/lens-store/types";
 import { TugConnection } from "./connection";
 import React from "react";
 import { createRoot } from "react-dom/client";
@@ -819,21 +816,21 @@ export class DeckManager implements IDeckManagerStore {
 
   /**
    * True when the boot honored the persisted boot state and found no layout
-   * at all — a factory-fresh install. The factory deck stands with the Lens
-   * open at its pin on {@link DEFAULT_LENS_SIDE}, but not until it has a card
-   * to be a lens onto ({@link factoryLensPending}). Stays false under the
+   * at all — a factory-fresh install. The factory deck stands its rail open at
+   * its pin on {@link DEFAULT_SIDEBAR_SIDE}, but not until it has a card to
+   * stand beside ({@link factoryRailPending}). Stays false under the
    * ordinary test-mode boot, which discards the boot state and starts empty
    * for the harness to seed.
    */
   private factoryFresh = false;
 
   /**
-   * The factory deck's Lens, waiting for the deck's first card. A brand-new
+   * The factory deck's rail, waiting for the deck's first card. A brand-new
    * install opens onto the setup wizard over a bare canvas, and a rail of
-   * empty sections beside it is a promise about work that does not exist yet.
-   * The first card the user opens is the Lens's cue to stand up beside it.
+   * empty cards beside it is a promise about work that does not exist yet.
+   * The first card the user opens is the rail's cue to stand up beside it.
    */
-  private factoryLensPending = false;
+  private factoryRailPending = false;
 
   /**
    * Whether the constructor honored the tugbank-sourced boot arguments. False
@@ -935,11 +932,11 @@ export class DeckManager implements IDeckManagerStore {
       this.cardLifecycle.notifyCardDidFinishConstruction(card.id);
     }
 
-    // Factory default: a deck with no persisted layout opens with the Lens
+    // Factory default: a deck with no persisted layout opens with its rail
     // standing at its pin — but it holds until the deck has its first card,
     // so the setup wizard's first launch is not staged over an empty rail.
     if (this.factoryFresh) {
-      this.factoryLensPending = true;
+      this.factoryRailPending = true;
     }
 
     this.reactRoot.render(
@@ -1203,7 +1200,7 @@ export class DeckManager implements IDeckManagerStore {
       return null;
     }
 
-    this.claimFactoryLens(componentId);
+    this.claimFactoryRail(componentId);
 
     const paneId = crypto.randomUUID();
     const sizePolicy = getSizePolicy(componentId);
@@ -1384,7 +1381,9 @@ export class DeckManager implements IDeckManagerStore {
     const pane = this.deckState.panes.find((p) => p.cardIds.includes(cardId));
     if (pane === undefined) return;
     if (pane.slot !== undefined) return;
-    if (findLensPane(this.deckState)?.id === pane.id) return;
+    if (findSidebarPanes(this.deckState).some(({ pane: p }) => p.id === pane.id)) {
+      return;
+    }
     const canvasWidth = this.container.clientWidth || 800;
     const canvasHeight = this.container.clientHeight || 600;
     const x = Math.max(0, Math.floor((canvasWidth - pane.size.width) / 2));
@@ -1401,18 +1400,6 @@ export class DeckManager implements IDeckManagerStore {
   }
 
   /**
-   * Show the Lens: if the Lens card already exists, raise/activate it;
-   * otherwise create the pinned Lens pane hosting a fresh Lens card at
-   * the persisted reopen width. The pinned analogue of
-   * {@link showSingletonCard}/{@link addCard} (which only make free
-   * panes). Returns the Lens card id, or `null` if the card type is
-   * unregistered.
-   */
-  showLensPane(): string | null {
-    return this.showSidebarPane(LENS_CARD_ID);
-  }
-
-  /**
    * Show a sidebar card: if it already exists, raise/activate it; otherwise
    * create its pinned rail pane at the width it reopens at. The pinned
    * analogue of {@link showSingletonCard}/{@link addCard} (which only make
@@ -1420,8 +1407,8 @@ export class DeckManager implements IDeckManagerStore {
    * unregistered.
    */
   showSidebarPane(componentId: string): string | null {
-    // Asking for a sidebar settles the factory deck's held-back Lens.
-    this.factoryLensPending = false;
+    // Asking for a sidebar settles the factory deck's held-back rail.
+    this.factoryRailPending = false;
     const existing = this.deckState.cards.find(
       (c) => c.componentId === componentId,
     );
@@ -1434,9 +1421,9 @@ export class DeckManager implements IDeckManagerStore {
 
   /** Hide a sidebar card by closing its pane. No-op when it is not open. */
   hideSidebarPane(componentId: string): void {
-    // Dismissing a sidebar settles the factory Lens too — the factory default
+    // Dismissing a sidebar settles the factory rail too — the factory default
     // must not reinstate what the user just closed.
-    this.factoryLensPending = false;
+    this.factoryRailPending = false;
     const card = this.deckState.cards.find(
       (c) => c.componentId === componentId,
     );
@@ -1827,14 +1814,33 @@ export class DeckManager implements IDeckManagerStore {
   }
 
   /**
-   * Return the Lens to its pin without changing which side it holds. What the
-   * kind rows ask for: choosing an arrangement is choosing one the Lens is part
-   * of. No-op when it is already pinned.
+   * Return every rail to its pin without changing which side it holds. What
+   * the kind rows ask for: choosing an arrangement is choosing one the rails
+   * are part of. No-op when they all already stand pinned.
    */
-  pinLens(): void {
-    if (isSidebarPinned(this.deckState.imposition, LENS_CARD_ID)) return;
-    this._reimpose(
-      withSidebarPinned(this.deckState.imposition, LENS_CARD_ID, true),
+  pinSidebars(): void {
+    const pinned = this._withSidebarsPinned(this.deckState.imposition);
+    if (pinned === this.deckState.imposition) return;
+    this._reimpose(pinned);
+  }
+
+  /**
+   * `imposition` with every sidebar card that has been dragged off its pin put
+   * back on it, side unchanged — and the SAME object when none has been, so a
+   * caller can tell "nothing to do" by identity rather than by re-deriving it.
+   *
+   * It walks the `sidebars` map rather than the open panes because a card the
+   * user dragged loose and then closed still carries `pinned: false`, and the
+   * arrangement it reopens into is the one the map records.
+   */
+  private _withSidebarsPinned(imposition: DeckImposition): DeckImposition {
+    const loose = Object.keys(imposition.sidebars ?? {}).filter(
+      (componentId) => !isSidebarPinned(imposition, componentId),
+    );
+    if (loose.length === 0) return imposition;
+    return loose.reduce(
+      (acc, componentId) => withSidebarPinned(acc, componentId, true),
+      imposition,
     );
   }
 
@@ -1901,8 +1907,8 @@ export class DeckManager implements IDeckManagerStore {
   /**
    * The width the user last chose for a sidebar card — the width its rail
    * fills toward and drains away from, and the width it snaps to when there is
-   * no chain to fit. Read from the card's DURABLE store (the Lens's own
-   * `lensStore`, `sidebarWidthStore` for every other card), never from the live
+   * no chain to fit. Read from the card's DURABLE store
+   * ({@link sidebarWidthStore}), never from the live
    * pane: the live width is where the allocator writes its own answers, and an
    * allocator that reads its output back as the user's preference re-anchors on
    * every solve and keeps every past grant — the ratchet that let one rail
@@ -1910,7 +1916,6 @@ export class DeckManager implements IDeckManagerStore {
    * its registered preferred width.
    */
   private _sidebarPreferredWidth(componentId: string): number {
-    if (componentId === LENS_CARD_ID) return lensStore.getSnapshot().widthPx;
     return (
       sidebarWidthStore.widthFor(componentId) ??
       getSizePolicy(componentId).preferred.width
@@ -1998,9 +2003,9 @@ export class DeckManager implements IDeckManagerStore {
    * rather than on the ones being replaced, so a kind change is solved against
    * the arrangement it is turning into. Its answer is written into each sidebar
    * pane's `size.width` — the live width — and deliberately NOT through
-   * `movePane`, whose Lens mirror is what makes `lensStore.widthPx` mean "the
-   * width the user chose". An allocation routed through that mirror would
-   * quietly overwrite the preference it is supposed to flex around.
+   * `movePane`, whose reopen-width mirror is what makes a rail's stored width
+   * mean "the width the user chose". An allocation routed through that mirror
+   * would quietly overwrite the preference it is supposed to flex around.
    *
    * Every pane sharing a side takes that side's one width: a rail is one width
    * whoever stands in it. The two SIDES are solved separately, though — a wide
@@ -2226,16 +2231,16 @@ export class DeckManager implements IDeckManagerStore {
   }
 
   /**
-   * Stand the factory deck's Lens up beside the deck's first card. Called from
-   * {@link addCard} before the card commits, so the Lens is pinned first and
+   * Stand the factory deck's rail up beside the deck's first card. Called from
+   * {@link addCard} before the card commits, so the rail is pinned first and
    * the new card cascades into the canvas the rail leaves — the same picture a
-   * restored deck presents. The Lens opening itself is not the cue.
+   * restored deck presents. A rail card opening itself is not the cue.
    */
-  private claimFactoryLens(componentId: string): void {
-    if (!this.factoryLensPending) return;
-    if (componentId === LENS_CARD_ID) return;
-    this.factoryLensPending = false;
-    this._createSidebarPane(LENS_CARD_ID);
+  private claimFactoryRail(componentId: string): void {
+    if (!this.factoryRailPending) return;
+    if (isSidebarCard(componentId)) return;
+    this.factoryRailPending = false;
+    this._createSidebarPane(CARDS_CARD_ID);
   }
 
   /**
@@ -2311,14 +2316,10 @@ export class DeckManager implements IDeckManagerStore {
 
   /**
    * The width `componentId` reopens at, or `undefined` when the user has never
-   * sized it. The Lens keeps its own in `lensStore` (which predates the
-   * per-card store and writes the same domain and key); every other sidebar
-   * card reads {@link sidebarWidthStore}.
+   * sized it — {@link sidebarWidthStore} is where every sidebar card keeps it.
    */
   private _sidebarReopenWidth(componentId: string): number | undefined {
-    return componentId === LENS_CARD_ID
-      ? lensStore.getSnapshot().widthPx
-      : sidebarWidthStore.widthFor(componentId);
+    return sidebarWidthStore.widthFor(componentId);
   }
 
   /**
@@ -3187,8 +3188,7 @@ export class DeckManager implements IDeckManagerStore {
     // but a hide→show cycle removes the pane, so mirror the committed width to
     // the card's own store as the preferred *reopen* width ([P02]).
     if (sizeChanged && sidebarComponentId !== undefined) {
-      if (sidebarComponentId === LENS_CARD_ID) lensStore.setWidth(size.width);
-      else sidebarWidthStore.setWidth(sidebarComponentId, size.width);
+      sidebarWidthStore.setWidth(sidebarComponentId, size.width);
     }
 
     this.scheduleSave();
@@ -3299,19 +3299,21 @@ export class DeckManager implements IDeckManagerStore {
    * turning the structure off does not scatter panes back to stale
    * pre-imposition coordinates.
    *
-   * Either way the Lens returns to its pin: choosing an arrangement is choosing
-   * one the Lens stands at the end of. A Lens dragged loose and left there is
-   * put back by any choice in the Layouts section, which is why an unchanged
+   * Either way the rails return to their pins: choosing an arrangement is
+   * choosing one they stand at the ends of. A rail dragged loose and left there
+   * is put back by any choice in the Layout card, which is why an unchanged
    * kind is not simply a no-op.
    */
   setImposition(kind: ImpositionKind | null): void {
     const current = this.deckState.imposition.kind;
     if (current === (kind ?? undefined)) {
-      this.pinLens();
+      this.pinSidebars();
       this.retuneSidebarAllocation();
       return;
     }
-    const lensCardId = findLensPane(this.deckState)?.activeCardId;
+    const railCardIds = findSidebarPanes(this.deckState).map(
+      ({ pane }) => pane.activeCardId,
+    );
 
     if (kind === null) {
       const frozen = this.deckState.panes.map((pane) => {
@@ -3330,20 +3332,18 @@ export class DeckManager implements IDeckManagerStore {
         if (ch.positionChanged) this.cardLifecycle.notifyCardWillMove(ch.id);
         if (ch.sizeChanged) this.cardLifecycle.notifyCardWillResize(ch.id);
       }
-      const imposition: DeckImposition = withSidebarPinned(
-        this.deckState.imposition,
-        LENS_CARD_ID,
-        true,
-      );
+      const imposition: DeckImposition = {
+        ...this._withSidebarsPinned(this.deckState.imposition),
+      };
       delete imposition.kind;
-      if (lensCardId !== undefined) this.cardLifecycle.notifyCardWillMove(lensCardId);
+      for (const cardId of railCardIds) this.cardLifecycle.notifyCardWillMove(cardId);
       this.deckState = { ...this.deckState, panes: frozen, imposition };
       this.notify("setImposition");
       for (const ch of changes) {
         if (ch.positionChanged) this.cardLifecycle.notifyCardDidMove(ch.id);
         if (ch.sizeChanged) this.cardLifecycle.notifyCardDidResize(ch.id);
       }
-      if (lensCardId !== undefined) this.cardLifecycle.notifyCardDidMove(lensCardId);
+      for (const cardId of railCardIds) this.cardLifecycle.notifyCardDidMove(cardId);
       this.scheduleSave();
       return;
     }
@@ -3355,7 +3355,7 @@ export class DeckManager implements IDeckManagerStore {
     });
     this._commitImposition(
       {
-        ...withSidebarPinned(this.deckState.imposition, LENS_CARD_ID, true),
+        ...this._withSidebarsPinned(this.deckState.imposition),
         kind,
       },
       panes,
@@ -4556,7 +4556,7 @@ export class DeckManager implements IDeckManagerStore {
       ...args.state,
       imposition: args.state.imposition ?? {
         kind: DEFAULT_IMPOSITION_KIND,
-        sidebars: { [LENS_CARD_ID]: { side: DEFAULT_SIDEBAR_SIDE } },
+        sidebars: { [CARDS_CARD_ID]: { side: DEFAULT_SIDEBAR_SIDE } },
       },
     };
 
@@ -5385,14 +5385,14 @@ export class DeckManager implements IDeckManagerStore {
   private loadLayout(): DeckState {
     const canvasWidth = this.container.clientWidth || 800;
     const canvasHeight = this.container.clientHeight || 600;
-    const lensSide = this.readLegacyLensSide() ?? DEFAULT_SIDEBAR_SIDE;
+    const fallbackSidebarSide = this.readLegacyLensSide() ?? DEFAULT_SIDEBAR_SIDE;
 
     let state: DeckState | null = null;
 
     if (this.initialLayout !== null) {
       try {
         const json = JSON.stringify(this.initialLayout);
-        state = deserialize(json, canvasWidth, canvasHeight, lensSide);
+        state = deserialize(json, canvasWidth, canvasHeight, fallbackSidebarSide);
       } catch (e) {
         console.warn("DeckManager: failed to deserialize initialLayout from API, falling back", e);
       }
@@ -5400,7 +5400,7 @@ export class DeckManager implements IDeckManagerStore {
     }
 
     if (state === null) {
-      state = buildDefaultLayout(lensSide);
+      state = buildDefaultLayout(fallbackSidebarSide);
       this.factoryFresh = this.bootStateHonored;
     }
 

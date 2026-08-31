@@ -1,6 +1,6 @@
 /**
- * block-reorder.ts — `useBlockReorder`, the FLIP drag lifecycle for Lens
- * section reordering ([P08], Spec S01).
+ * block-reorder.ts — `useBlockReorder`, the FLIP drag lifecycle for reordering
+ * a list of blocks ([P08], Spec S01).
  *
  * The whole row is the handle. There is no grip: a pointerdown anywhere on a
  * row that is not a control ARMS a drag, and travel past
@@ -11,8 +11,8 @@
  *
  * What carries is a **block**: every element matching {@link
  * UseBlockReorderOptions.selector} whose {@link UseBlockReorderOptions.kindAttr}
- * holds the same key. Usually that is one element — a section, a row. Where a
- * key names a contiguous RUN (the Cards section's group header plus every row
+ * holds the same key. Usually that is one element — a row. Where a
+ * key names a contiguous RUN (the Cards card's group header plus every row
  * filed under it) the whole run lifts, shifts, and settles as one thing, which
  * is what makes a group draggable without the list needing a wrapper element to
  * hang the group off.
@@ -24,10 +24,10 @@
  *
  * The lifecycle, all DOM/CSS with a single store write on drop:
  *
- *  - **engage** ghosts the dragged `.lens-section`
+ *  - **engage** ghosts the dragged block
  *    (`data-dragging` → opacity/scale/raised-z/`pointer-events:none`, the CSS
- *    lives in `lens-section-band.css`) and snapshots the visible order + each
- *    section's rect.
+ *    lives with the host card) and snapshots the visible order + each
+ *    block's rect.
  *  - **pointermove** translates the dragged band to follow the pointer
  *    (inline `transform`, no transition — instant), computes the target index
  *    from the snapshotted midpoints, shifts the non-dragged siblings by the
@@ -62,7 +62,7 @@
  * FocusManager group-order re-sync remain drop-time only ([L22], driven off
  * the store by the caller's order effect, which `flushSync` runs at drop).
  *
- * @module components/lens/block-reorder
+ * @module components/tugways/block-reorder
  */
 
 import React from "react";
@@ -70,13 +70,25 @@ import { flushSync } from "react-dom";
 
 import { group } from "@/components/tugways/tug-animator";
 
-import { moveInArray } from "./lens-section-registry";
+/**
+ * Move the item at `from` to index `to` in a copy of `arr` (pure). It is the
+ * arithmetic every drag-reorder does once the drop index is known, and it
+ * lives here because this hook is the only thing that ever needed it — it sat
+ * in the Lens's section registry for as long as reordering the Lens's bands
+ * was the reorder the deck had. Out-of-range indices are clamped; the input is
+ * never mutated.
+ */
+export function moveInArray<T>(arr: readonly T[], from: number, to: number): T[] {
+  const out = [...arr];
+  if (from < 0 || from >= out.length) return out;
+  const clampedTo = Math.max(0, Math.min(to, out.length - 1));
+  const [item] = out.splice(from, 1);
+  out.splice(clampedTo, 0, item);
+  return out;
+}
 
 /** Close-up / settle duration (Spec S01: 120–160ms ease). */
 const SETTLE_MS = 140;
-
-const SECTION_SELECTOR = ".lens-section[data-lens-section]";
-const KIND_ATTR = "data-lens-section";
 
 /**
  * Stamped on the container while a carry is in flight — the declared state a
@@ -112,22 +124,22 @@ const CONTROL_SELECTOR = [
 ].join(", ");
 
 export interface UseBlockReorderOptions {
-  /** The `.lens-sections` container (the sections' offset parent + the caret's). */
+  /** The list container (the blocks' offset parent, and the caret's). */
   containerRef: React.RefObject<HTMLDivElement | null>;
   /** The persistently-mounted `BlockDropCaret` element to drive imperatively. */
   caretRef: React.RefObject<HTMLDivElement | null>;
-  /** The current visible section order (kinds), read fresh at drag start. */
+  /** The current visible block order (keys), read fresh at drag start. */
   getVisibleOrder: () => string[];
   /** Commit the new visible order — the ONLY store write, on drop ([L08]). */
   commit: (newVisibleOrder: readonly string[]) => void;
   /**
    * CSS selector matching each reorderable child within the container.
-   * Defaults to the Lens-section selector; other clients (e.g. the Jots
-   * section's rows) pass their own so the same FLIP reorder drives any list.
+   * Each client (the Cards card's group runs, the Jots card's rows) names its
+   * own, so the same FLIP reorder drives any list.
    */
-  selector?: string;
-  /** Attribute on each child holding its stable key. Defaults to the Lens one. */
-  kindAttr?: string;
+  selector: string;
+  /** Attribute on each child holding its stable key. */
+  kindAttr: string;
   /**
    * The row's content is ALSO a native HTML5 drag source (a jot's incipit,
    * dragged into a session prompt). Canceling a pointerdown suppresses the
@@ -183,8 +195,8 @@ export function useBlockReorder({
   caretRef,
   getVisibleOrder,
   commit,
-  selector = SECTION_SELECTOR,
-  kindAttr = KIND_ATTR,
+  selector,
+  kindAttr,
   nativeDragSource = false,
   landKeyboard,
 }: UseBlockReorderOptions): UseBlockReorder {

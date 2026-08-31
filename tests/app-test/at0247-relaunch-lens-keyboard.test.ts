@@ -3,7 +3,7 @@
  * Lens keyboard pin.
  *
  * Pins the relaunch-with-Lens-focus case (#57/#51): quit the app with
- * keyboard focus on the Lens jots list, relaunch, and the restored
+ * keyboard focus on the Jots list, relaunch, and the restored
  * ring must be a keyboard the user can actually drive — zero invariant
  * violations, and a NATIVE ArrowDown moves `data-key-cursor`.
  *
@@ -52,7 +52,7 @@
  * start: it guards the cold-boot restore channel through the
  * keyboard-as-engine-state rework rather than reproducing its trigger.
  *
- * @covers tugdeck/src/components/lens/
+ * @covers tugdeck/src/components/jots/
  * @covers tugdeck/src/lib/lens-store/
  * @covers tugdeck/src/serialization.ts
  * @covers tugdeck/src/components/tugways/focus-manager.ts

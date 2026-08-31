@@ -57,11 +57,10 @@ import { registerAboutCard } from "./components/tugways/cards/about-card";
 import { registerSettingsCard } from "./components/tugways/cards/settings-card";
 import { registerKeyboardCard } from "./components/tugways/cards/keyboard-card";
 import { registerDevtoolsCard } from "./components/devtools/devtools-card";
-import { registerLensCard } from "./components/lens/lens-register-card";
 import { registerJotsCard } from "./components/jots/jots-card-registration";
 import { registerOverviewCard } from "./components/overview/overview-card-registration";
 import { registerCardsCard } from "./components/cards/cards-card-registration";
-import { registerLayoutsSection } from "./components/lens/sections/layouts-section";
+import { registerLayoutCard } from "./components/layout/layout-card-registration";
 import { registerDashesCard } from "./components/dashes/dashes-card-registration";
 import { registerTripwiresCard } from "./components/tripwires/tripwires-card-registration";
 import { registerTextCard } from "./components/tugways/cards/text-card-registration";
@@ -336,24 +335,16 @@ if (!container) {
   registerSettingsCard();
   registerKeyboardCard();
   registerDevtoolsCard();
-  // The Lens card must register unconditionally and before the deck
-  // restores its layout, so the Lens survives reload
-  // (`filterRegisteredCards` drops panes whose only card is unregistered).
-  registerLensCard();
-  // Same unconditional-and-early rule as the Lens: Jots is a sidebar card, and
-  // a pane whose only card is unregistered at load is dropped.
+  // Every sidebar card must register unconditionally and before the deck
+  // restores its layout, so its rail survives reload — `filterRegisteredCards`
+  // drops panes whose only card's componentId is unregistered at load.
   registerJotsCard();
-  // Same unconditional-and-early rule again: the Overview is a sidebar card.
   registerOverviewCard();
-  // And again: Tripwires is a sidebar card of its own.
   registerTripwiresCard();
-  // And again: Dashes.
   registerDashesCard();
-  // And again: Cards.
   registerCardsCard();
-  // Registration order is the DEFAULT Lens section order — the fallback
-  // `resolveSectionRenderOrder` uses when nothing is persisted.
-  registerLayoutsSection();
+  // Registration order is the order the Layout card lists its rows in.
+  registerLayoutCard();
   registerTextCard();
   registerFileViewCard();
   registerDiffCard();

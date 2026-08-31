@@ -66,7 +66,6 @@
  * @covers tugdeck/src/components/cards/cards-card.tsx
  * @covers tugdeck/src/components/tugways/list-multi-select.ts
  * @covers tugdeck/src/components/tugways/tug-list-view.tsx
- * @covers tugdeck/src/components/lens/lens-content.tsx
  * @covers tugdeck/src/components/cards/cards-escape.ts
  * @covers tugdeck/src/components/tugways/responder-chain-provider.tsx
  * @covers tugdeck/src/components/chrome/deck-canvas.tsx

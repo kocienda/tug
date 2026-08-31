@@ -33,7 +33,7 @@
  *
  * @covers tugdeck/src/components/cards/slot-picker.tsx
  * @covers tugdeck/src/components/cards/cards-card.tsx
- * @covers tugdeck/src/components/lens/sections/layouts-section.tsx
+ * @covers tugdeck/src/components/layout/layout-card.tsx
  * @covers tugdeck/src/components/jots/jots-card.tsx
  * @covers tugdeck/src/components/tugways/tug-list-view.tsx
  * @covers tugdeck/src/components/tugways/spatial-order.ts
@@ -162,7 +162,7 @@ describe.skipIf(!SHOULD_RUN)("at0277 — Lens row accessories answer the keyboar
           // Layouts segments. Open both, and start on a jot row — opening a card
           // is not a keyboard entry, so the click is what puts the movement
           // cursor on the row (the Lens band click used to do that here).
-          await app.dispatchControlAction("toggle-lens");
+          await app.dispatchControlAction("toggle-layout");
           await app.dispatchControlAction("toggle-jots");
           await app.waitForCondition<boolean>(
             `document.querySelector(".jots-card .jots-list .jot-row-label") !== null`,
@@ -297,7 +297,7 @@ describe.skipIf(!SHOULD_RUN)("at0277 — Lens row accessories answer the keyboar
           // ---- C. The Layouts CARDS axis walks as the row it is drawn as.
           // The segments live in the LENS, a different card: Tab walks within
           // a card, so crossing takes a focus gesture, not more Tabs.
-          await app.dispatchControlAction("focus-lens");
+          await app.dispatchControlAction("toggle-layout");
           await tabUntilKbd(app, KIND_GROUP);
           const cursorValue = `(function(){
             var el = document.querySelector('${KIND_GROUP} [data-key-cursor]');

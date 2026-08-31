@@ -702,18 +702,16 @@ export const TUG_ACTIONS = {
   // SHOW_KEYBOARD_SHORTCUTS: payload — none. Open or focus the Keyboard
   //                         Shortcuts card.
   // SHOW_DEVTOOLS:          payload — none. Open or focus the DevTools card.
-  // FOCUS_LENS:             payload — none. Move focus into the Lens (opening it
-  //                         if hidden); a second dispatch focuses back out.
-  // TOGGLE_LENS:            payload — none. Show/hide the Lens rail.
-  //                         A menu row, chord-less by default: the keyboard
-  //                         addresses the RAIL (TOGGLE_RAIL), not the cards on
-  //                         it.
-  // TOGGLE_JOTS:            payload — none. Show/hide the Jots rail. As above.
+  // TOGGLE_JOTS:            payload — none. Show/hide the Jots rail. A menu
+  //                         row, chord-less by default: the keyboard addresses
+  //                         the RAIL (TOGGLE_RAIL), not the cards on it.
   // TOGGLE_TRIPWIRES:       payload — none. Show/hide the Tripwires rail. As
   //                         above.
   // TOGGLE_DASHES:          payload — none. Show/hide the Dashes rail. As
   //                         above.
   // TOGGLE_CARDS:           payload — none. Show/hide the Cards rail. As
+  //                         above.
+  // TOGGLE_LAYOUT:          payload — none. Show/hide the Layout rail. As
   //                         above.
   // TOGGLE_OVERVIEW:         payload — none. Show/hide the Overview rail. As
   //                         above.
@@ -818,17 +816,17 @@ export const TUG_ACTIONS = {
   //
   // CENTER_PANE:     payload — none. Put the addressed card's pane in the
   //                  middle of the canvas (`DeckManager.centerPane`).
-  // PIN_LENS:        payload — none. Re-attach the Lens rail to the canvas
-  //                  edge after a manual move or resize has floated it.
-  // SHOW_LENS_PANE / HIDE_LENS_PANE: payload — none. The two explicit
-  //                  halves of what TOGGLE_LENS flips, so a caller that
+  // PIN_SIDEBAR:     payload — none. Re-attach a rail to the canvas edge
+  //                  after a manual move or resize has floated it.
+  // SHOW_SIDEBAR_PANE / HIDE_SIDEBAR_PANE: payload — none. The two explicit
+  //                  halves of what a TOGGLE_* row flips, so a caller that
   //                  means "show" cannot accidentally hide.
   // MOVE_PANE:       payload — `{ paneId, position?, size? }`. Reposition or
   //                  resize a pane; the drag coordinator's verb.
   CENTER_PANE:            "center-pane",
-  PIN_LENS:               "pin-lens",
-  SHOW_LENS_PANE:         "show-lens-pane",
-  HIDE_LENS_PANE:         "hide-lens-pane",
+  PIN_SIDEBAR:            "pin-sidebar",
+  SHOW_SIDEBAR_PANE:      "show-sidebar-pane",
+  HIDE_SIDEBAR_PANE:      "hide-sidebar-pane",
   MOVE_PANE:              "move-pane",
 
   // ---- Deck verbs that were menu wires only ----
@@ -890,12 +888,11 @@ export const TUG_ACTIONS = {
   SHOW_SETTINGS:          "show-settings",
   SHOW_KEYBOARD_SHORTCUTS: "show-keyboard-shortcuts",
   SHOW_DEVTOOLS:          "show-devtools",
-  FOCUS_LENS:             "focus-lens",
-  TOGGLE_LENS:            "toggle-lens",
   TOGGLE_JOTS:            "toggle-jots",
   TOGGLE_TRIPWIRES:       "toggle-tripwires",
   TOGGLE_DASHES:          "toggle-dashes",
   TOGGLE_CARDS:           "toggle-cards",
+  TOGGLE_LAYOUT:          "toggle-layout",
   TOGGLE_OVERVIEW:         "toggle-overview",
   TOGGLE_RAIL:            "toggle-rail",
   NEW_JOT:                "new-jot",
@@ -934,9 +931,9 @@ export const TUG_ACTIONS = {
   SET_SIDEBAR_SIDE:       "set-sidebar-side",
   // SET_SIDEBAR_OPEN: payload — `{ componentId, open }`. Show or hide a
   //                   sidebar card outright, with no activation dance: the
-  //                   three-state View-menu toggles (TOGGLE_LENS et al.) are a
-  //                   summons, this is a placement fact. Its door is the Lens
-  //                   Layouts section's per-card row, whose Off segment is the
+  //                   three-state View-menu toggles (TOGGLE_CARDS et al.) are a
+  //                   summons, this is a placement fact. Its door is the Layout
+  //                   card's per-card row, whose Off segment is the
   //                   hide and whose side segments show a hidden card where
   //                   they say.
   SET_SIDEBAR_OPEN:       "set-sidebar-open",

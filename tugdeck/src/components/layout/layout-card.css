@@ -1,4 +1,4 @@
-/* @tug-pairings: none — the section shell sets a text color for inherited
+/* @tug-pairings: none — the card shell sets a text color for inherited
    content only; the controls' own color comes from `TugChoiceGroup` and the
    miniature the plan composes ([L20]). */
 
@@ -9,19 +9,25 @@
      the strip standing under it. Several literals would be one drift away from
      an overlay beside the picture and a strip out of register with it.
 
-     It is declared on the SECTION rather than on the figure because the strip
+     It is declared on the CARD rather than on the figure because the strip
      is the figure's sibling: it stands outside the figure so the places
      overlay, which is anchored to the figure's bottom edge, does not land its
      marks on the numbers.
 
      Sized so a six-up arrangement's blocks still read as separate cards — the
      drawing's densest case — and so a place's mark has a pressable target at
-     the foot of a block rather than a speck. 300 fits the Lens at its
-     `MIN_LENS_WIDTH_PX` floor (320) inside this section's own padding. */
+     the foot of a block rather than a speck. 300 fits the card at its
+     `MIN_LAYOUT_WIDTH_PX` floor (320) inside this card's own padding. */
   --tugx-layouts-plan-mini-width: 300px;
 
   font-family: var(--tug-font-family-sans);
   color: var(--tug7-element-global-text-normal-default-rest);
+  /* The card owns its pane's height, so it owns the overflow too: the whole
+     picker scrolls as one document. The Lens used to hand every band to a
+     scroller it owned; a card has no siblings to negotiate that with. */
+  block-size: 100%;
+  min-block-size: 0;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
   align-items: stretch;

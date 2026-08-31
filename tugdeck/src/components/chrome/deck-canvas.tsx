@@ -54,7 +54,6 @@ import {
   getStackSizePolicy,
   isSidebarCard,
 } from "@/card-registry";
-import { LENS_CARD_ID } from "@/lib/lens-card-id";
 import { JOTS_CARD_ID } from "@/lib/jots-card-id";
 import { TRIPWIRES_CARD_ID } from "@/lib/tripwires-card-id";
 import { DASHES_CARD_ID } from "@/lib/dashes-card-id";
@@ -68,7 +67,6 @@ import {
   deckFlowStrip,
   deckVacancyExtent,
   type DeckColumn,
-  findLensPane,
   findSidebarPanes,
   paneRenderWidthOf,
 } from "@/deck-store-selectors";
@@ -765,8 +763,6 @@ const DECK_CANVAS_VALIDATED_ACTIONS: ReadonlySet<string> = new Set([
   TUG_ACTIONS.SHOW_SETTINGS,
   TUG_ACTIONS.SHOW_KEYBOARD_SHORTCUTS,
   TUG_ACTIONS.SHOW_DEVTOOLS,
-  TUG_ACTIONS.FOCUS_LENS,
-  TUG_ACTIONS.TOGGLE_LENS,
   TUG_ACTIONS.TOGGLE_JOTS,
   TUG_ACTIONS.TOGGLE_OVERVIEW,
   TUG_ACTIONS.TOGGLE_RAIL,
@@ -824,14 +820,9 @@ export function DeckCanvas(_props: DeckCanvasProps) {
     cardsSelectionStore.subscribe,
     () => cardsSelectionStore.getSnapshot().ids.length > 0,
   );
-  // The Lens pane carries no marker of its own — it is the pane hosting the
-  // Lens card ([P04]). Resolved once here and reused by the z-order and the
-  // placements memo.
-  const lensPane = findLensPane(deckState);
-  const lensPaneId = lensPane?.id;
   // Every pane hosting a sidebar card, pinned or dragged loose. They share the
   // z-band above the free panes: a rail must never be occluded by a card, and
-  // that is a property of being a rail rather than of being the Lens.
+  // that is a property of being a rail rather than of any one card on it.
   const sidebarPaneIds = useMemo(
     () => new Set(findSidebarPanes(deckState).map(({ pane }) => pane.id)),
     [deckState],
@@ -1077,10 +1068,6 @@ export function DeckCanvas(_props: DeckCanvasProps) {
    * are rendered into. [D03]
    */
   const containerRef = useRef<HTMLDivElement | null>(null);
-
-  // The card that held focus before Cmd-L moved it into the Lens, so a
-  // second Cmd-L (or Escape inside the Lens) can restore it ([P05]).
-  const lensPriorFocusRef = useRef<string | null>(null);
 
   // Hook order: useDeckManager -> useSyncExternalStore -> useRef ->
   //             usePaneFocusController -> useRequiredResponderChain ->
@@ -1557,15 +1544,12 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           commitMutation: () => store.activateCard(incomingCardId),
         });
       },
-      // Show Lens / Show Jots / Show Overview — the three-state sidebar
+      // Show Jots / Show Cards / Show Overview — the three-state sidebar
       // shortcut over one CARD: show-and-activate a hidden rail, activate a
       // showing one, hide the rail that already holds the keyboard
       // ({@link toggleSidebarCard}). Menu rows with no default chord since the
       // rails took the keyboard; the `toggle-*` control actions run the same
       // performer, so the row and any rebinding cannot drift apart.
-      [TUG_ACTIONS.TOGGLE_LENS]: (_event: ActionEvent) => {
-        toggleSidebarCard(store, LENS_CARD_ID);
-      },
       [TUG_ACTIONS.TOGGLE_JOTS]: (_event: ActionEvent) => {
         toggleSidebarCard(store, JOTS_CARD_ID);
       },
@@ -1592,7 +1576,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       },
       // ⌘J — capture in one gesture: reveal the Jots rail if it is hidden,
       // then open a fresh jot's editor. The reveal takes the same
-      // show-then-activate transfer FOCUS_LENS uses, with keyboard modality so
+      // show-then-activate transfer an activation uses, with keyboard modality so
       // the landing is visibly ringed; `createJot` runs after the transfer so
       // the row it opens mounts into a card that already holds focus, and the
       // editor's own descend claim lands the caret ([L03] registration order).
@@ -1607,66 +1591,6 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           modality: "keyboard",
         });
         getJotsStore().createJot(null);
-      },
-      // ⌘L — move focus INTO the Lens through the normal activation path
-      // (opening it if hidden); a second ⌘L while the Lens is the key card
-      // focuses back out to the previously-focused card ([P05]). The
-      // open-then-focus ordering is handled by `applyBagFocus`'s late-mount
-      // the keyboard `place()` — no bespoke plumbing.
-      [TUG_ACTIONS.FOCUS_LENS]: (_event: ActionEvent) => {
-        const snapshot = store.getSnapshot();
-        const lensCard = snapshot.cards.find(
-          (c) => c.componentId === LENS_CARD_ID,
-        );
-        const currentFR = store.getFirstResponderCardId();
-
-        // Already inside the Lens → focus back out to the stashed card.
-        if (lensCard && currentFR === lensCard.id) {
-          const prior = lensPriorFocusRef.current;
-          lensPriorFocusRef.current = null;
-          if (
-            prior !== null &&
-            store.getSnapshot().cards.some((c) => c.id === prior)
-          ) {
-            // A restore is not the user moving on to `prior`, so it must not
-            // create a layout selection of it — otherwise Escape alternates
-            // forever, each focus-out making the set the next Escape clears.
-            cardsSelectionStore.suppressNextAutoSelect();
-            transferFocusForActivation({
-              outgoingCardId: currentFR,
-              incomingCardId: prior,
-              store,
-              commitMutation: () => store.activateCard(prior),
-            });
-          } else {
-            // No live prior to return to (never stashed, or that card has
-            // closed). ⌘L must never be a silent no-op: re-dispatch the
-            // Lens's own focus claim with keyboard modality, so the key
-            // view is re-asserted visibly — healing any stale descend the
-            // closed card left behind.
-            applyBagFocus(lensCard.id, store, {
-              site: "focus-lens",
-              modality: "keyboard",
-            });
-          }
-          return;
-        }
-
-        // Focus in: stash the current card, open/raise the Lens, activate it.
-        // ⌘L is a keyboard gesture, so the transfer asserts keyboard modality:
-        // the Lens's remembered key view comes back RINGED and revealed, not
-        // replayed with whatever modality a pointer interaction left it —
-        // Cmd-L must always visibly show where the keyboard landed.
-        lensPriorFocusRef.current = currentFR;
-        const incomingCardId = store.showLensPane();
-        if (incomingCardId === null) return;
-        transferFocusForActivation({
-          outgoingCardId: currentFR,
-          incomingCardId,
-          store,
-          commitMutation: () => store.activateCard(incomingCardId),
-          modality: "keyboard",
-        });
       },
       /**
        * show-component-gallery — find or create the gallery card ([D05], [D07]).
@@ -2978,7 +2902,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
     const railStanding = stackByPaneId.get(pane.id);
     if (railStanding !== undefined) {
       // Written out rather than taken from `imposeSidebarStyle`, whose `left`
-      // is a calc over `--tugx-lens-rail` — a property that rail's own frame
+      // is a calc over `--tugx-rail-side` — a property that rail's own frame
       // declares on itself. Read from any other pane it would resolve to
       // nothing. The width term is the live rail property with the
       // React-known width as its fallback, the same pairing every rail
@@ -3703,7 +3627,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
             columnMember={columnMemberByPaneId.get(stackState.id)}
             onRevealPane={handleRevealPane}
             sidebarStack={stackByPaneId.get(stackState.id)}
-            isLensPane={stackState.id === lensPaneId}
+            isSidebarPane={sidebarPaneIds.has(stackState.id)}
             onCardMoved={store.handlePaneMoved}
             onClose={handleClose}
             dropZones={dropZoneHost}

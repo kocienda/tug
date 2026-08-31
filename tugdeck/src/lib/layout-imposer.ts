@@ -1025,11 +1025,11 @@ export const PANE_ENTER_RISE_PX = 8;
 export const PANE_EXIT_GHOST_MS = 180;
 
 /**
- * Which side the pinned Lens holds, as a number: 0 is the left edge, 1 the
+ * Which side a pinned rail holds, as a number: 0 is the left edge, 1 the
  * right. Registered as a `<number>` custom property in `tug-pane.css` so the
  * expression that reads it can compute with it — see {@link imposeSidebarStyle}.
  */
-export const LENS_RAIL_PROPERTY = "--tugx-lens-rail";
+export const RAIL_SIDE_PROPERTY = "--tugx-rail-side";
 
 /**
  * A side's live rail width, as a CSS length on the frames' containing block
@@ -2838,7 +2838,7 @@ function pictureOfChain(
  * the cards share what is left of the band ({@link resolveSpan}).
  *
  * The side is emitted as a **number**, not as a pin, and the pin is one
- * expression that reads it: {@link LENS_RAIL_PROPERTY} is 0 on the left and 1
+ * expression that reads it: {@link RAIL_SIDE_PROPERTY} is 0 on the left and 1
  * on the right, and `left` mixes the two anchors by it. The rail is a static
  * side selector — it is written at re-imposition and holds until the next one.
  *
@@ -2901,10 +2901,10 @@ export function imposeSidebarStyle(
     width,
     height: "auto",
     ...railMemberPins(options.member),
-    [LENS_RAIL_PROPERTY]: rail,
+    [RAIL_SIDE_PROPERTY]: rail,
     left:
-      `calc(var(${LENS_RAIL_PROPERTY}) * (100% - ${width} - ${GAP})` +
-      ` + (1 - var(${LENS_RAIL_PROPERTY})) * ${GAP})`,
+      `calc(var(${RAIL_SIDE_PROPERTY}) * (100% - ${width} - ${GAP})` +
+      ` + (1 - var(${RAIL_SIDE_PROPERTY})) * ${GAP})`,
   };
   return style as React.CSSProperties;
 }

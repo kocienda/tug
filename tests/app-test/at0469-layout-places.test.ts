@@ -29,9 +29,9 @@
  * Read from live `getBoundingClientRect()` and `data-` attributes. Nothing here
  * reads back a declared style value.
  *
- * @covers tugdeck/src/components/lens/layout-places.tsx
- * @covers tugdeck/src/components/lens/layout-miniature.tsx
- * @covers tugdeck/src/components/lens/sections/layouts-section.tsx
+ * @covers tugdeck/src/components/layout/layout-places.tsx
+ * @covers tugdeck/src/components/layout/layout-miniature.tsx
+ * @covers tugdeck/src/components/layout/layout-card.tsx
  */
 
 import { describe, expect, test } from "bun:test";
@@ -100,7 +100,7 @@ function deckShape() {
         title: `Card ${cardId}`,
         closable: true,
       })),
-      { id: "L", componentId: "lens", title: "Lens", closable: true },
+      { id: "L", componentId: "layout", title: "Layout", closable: true },
     ],
     panes: [
       ...members.map(([id, slot, cardId]) => pane(id, slot, cardId)),
@@ -117,7 +117,7 @@ function deckShape() {
     activePaneId: "p1",
     imposition: {
       kind: "three-up",
-      sidebars: { lens: { side: "right" } },
+      sidebars: { layout: { side: "right" } },
       // Slot 1 is SET to split and holds one card. Slot 0 is shared and
       // stacked, which is what an untouched shared slot is.
       columns: { 1: { mode: "split" } },
@@ -176,7 +176,7 @@ async function cursorOnto(app: App, row: string, value: string): Promise<void> {
     app.evalJS<boolean>(
       `document.querySelector(${JSON.stringify(target)}) !== null`,
     );
-  await app.dispatchControlAction("focus-lens");
+  await app.dispatchControlAction("toggle-layout");
   await wait(300);
   await tabUntilKbd(app, `[data-testid="${row}"]`);
   for (let i = 0; i < 8; i += 1) {
@@ -364,7 +364,7 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
         for (const id of sidebarRows) {
           expect(id).toMatch(/^lens-layouts-sidebar-/);
         }
-        expect(sidebarRows).toContain("lens-layouts-sidebar-lens");
+        expect(sidebarRows).toContain("lens-layouts-sidebar-layout");
         const retired = await app.evalJS<number>(
           `document.querySelectorAll(
             '[data-testid^="lens-layouts-side-"], [data-testid^="lens-layouts-rail-"], [data-testid^="lens-layouts-column-"]'
@@ -561,7 +561,7 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
         );
         await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
         await app.waitForCondition<boolean>(
-          `document.querySelector('[data-testid="lens-layouts-sidebar-lens"]') !== null`,
+          `document.querySelector('[data-testid="lens-layouts-sidebar-layout"]') !== null`,
           { timeoutMs: 8_000 },
         );
         await wait(AFTER_LAND_MS);
@@ -586,11 +586,11 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
         );
         expect(
           lensBefore,
-          "the Lens starts to the right of the content cards",
+          "the Layout card starts to the right of the content cards",
         ).toBeGreaterThan(cardBefore);
 
         await app.click(
-          `[data-testid="lens-layouts-sidebar-lens"] [data-choice-value="left"]`,
+          `[data-testid="lens-layouts-sidebar-layout"] [data-choice-value="left"]`,
         );
         await wait(AFTER_LAND_MS);
 
@@ -604,7 +604,7 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
         // section's own `set-sidebar-side` route.
         expect(
           lensAfter,
-          "pressing Left on the Lens's row moved the real Lens card to the left edge",
+          "pressing Left on the Layout card's row moved the real Layout card to the left edge",
         ).toBeLessThan(cardAfter);
         note(
           `lens ${Math.round(lensBefore)} → ${Math.round(lensAfter)}, ` +
@@ -614,7 +614,7 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
         // And the row now reads the side it holds.
         const activeNow = await app.evalJS<string | null>(
           `(function () {
-            var el = document.querySelector('[data-testid="lens-layouts-sidebar-lens"] [data-choice-value][data-state="active"]');
+            var el = document.querySelector('[data-testid="lens-layouts-sidebar-layout"] [data-choice-value][data-state="active"]');
             return el === null ? null : el.getAttribute("data-choice-value");
           })()`,
         );
@@ -649,7 +649,7 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
         // Seed the ring into the Lens before walking it, exactly as at0454
         // does — Tab moves the ring within the key card, and without this the
         // walk starts wherever the deck happened to leave it.
-        await app.dispatchControlAction("focus-lens");
+        await app.dispatchControlAction("toggle-layout");
         await wait(300);
         await tabUntilKbd(app, '[data-testid="lens-layouts-kind"]');
         const walk: string[] = [];
@@ -787,10 +787,10 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
             })()`,
           );
 
-        // ── The rows read what stands: the Lens open on the right, Jots off. ──
+        // ── The rows read what stands: Layout open on the right, Jots off. ──
         expect(
-          await activeOf("lens-layouts-sidebar-lens"),
-          "the Lens's row reads the side it holds",
+          await activeOf("lens-layouts-sidebar-layout"),
+          "the Layout card's row reads the side it holds",
         ).toBe("right");
         expect(
           await activeOf("lens-layouts-sidebar-jots"),
@@ -819,7 +819,7 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
           "the row now reads the side it was shown on",
         ).toBe("left");
         const jotsLeft = await app.evalJS<number>(
-          `document.querySelectorAll('.tug-pane[data-lens="left"]').length`,
+          `document.querySelectorAll('.tug-pane[data-rail-side="left"]').length`,
         );
         expect(jotsLeft, "the real Jots card stands on the left edge").toBe(1);
         // The drawing follows: a left rail appears, wearing its own mark.
@@ -846,7 +846,7 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
         expect(await activeOf("lens-layouts-sidebar-jots")).toBe("off");
         expect(
           await app.evalJS<number>(
-            `document.querySelectorAll('.tug-pane[data-lens="left"]').length`,
+            `document.querySelectorAll('.tug-pane[data-rail-side="left"]').length`,
           ),
           "the real card left the deck",
         ).toBe(0);

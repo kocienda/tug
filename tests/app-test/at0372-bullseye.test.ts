@@ -148,7 +148,7 @@ function freeDeck(): Record<string, unknown> {
     cards: [
       { id: "A", componentId: "gallery-accordion", title: "Card A", closable: true },
       { id: "B", componentId: "gallery-accordion", title: "Card B", closable: true },
-      { id: "L", componentId: "lens", title: "Lens", closable: true },
+      { id: "L", componentId: "layout", title: "Layout", closable: true },
     ],
     panes: [
       pane("p1", 40, "A"),
@@ -164,7 +164,7 @@ function freeDeck(): Record<string, unknown> {
       },
     ],
     activePaneId: "p1",
-    imposition: { sidebars: { lens: { side: "right" } } },
+    imposition: { sidebars: { layout: { side: "right" } } },
     hasFocus: true,
   };
 }
@@ -197,7 +197,7 @@ function threeUpDeck(): Record<string, unknown> {
       { id: "A", componentId: "gallery-accordion", title: "Card A", closable: true },
       { id: "B", componentId: "gallery-accordion", title: "Card B", closable: true },
       { id: "C", componentId: "gallery-accordion", title: "Card C", closable: true },
-      { id: "L", componentId: "lens", title: "Lens", closable: true },
+      { id: "L", componentId: "layout", title: "Layout", closable: true },
     ],
     panes: [
       pane("pLeft", "A", 0),
@@ -214,7 +214,7 @@ function threeUpDeck(): Record<string, unknown> {
       },
     ],
     activePaneId: "pMid",
-    imposition: { kind: "three-up", sidebars: { lens: { side: "right" } } },
+    imposition: { kind: "three-up", sidebars: { layout: { side: "right" } } },
     hasFocus: true,
   };
 }
@@ -227,7 +227,7 @@ function imposedDeck(): Record<string, unknown> {
   };
   shape.panes[0].slot = 0;
   shape.panes[1].slot = 2;
-  shape.imposition = { kind: "three-up", sidebars: { lens: { side: "right" } } };
+  shape.imposition = { kind: "three-up", sidebars: { layout: { side: "right" } } };
   return shape as unknown as Record<string, unknown>;
 }
 

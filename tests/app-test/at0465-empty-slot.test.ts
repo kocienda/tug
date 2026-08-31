@@ -117,7 +117,7 @@ function cardsFor(ids: readonly string[]) {
       title: `Card ${id}`,
       closable: true,
     })),
-    { id: "L", componentId: "lens", title: "Lens", closable: true },
+    { id: "L", componentId: "layout", title: "Layout", closable: true },
   ];
 }
 
@@ -134,7 +134,7 @@ function oneCardDeck() {
     cards: cardsFor(["A"]),
     panes: [paneOf("p1", "A", 1), lensPane()],
     activePaneId: "p1",
-    imposition: { kind: "two-up", sidebars: { lens: { side: "right" } } },
+    imposition: { kind: "two-up", sidebars: { layout: { side: "right" } } },
     hasFocus: true,
   };
 }
@@ -148,7 +148,7 @@ function gappedFlowDeck() {
     imposition: {
       kind: "three-up",
       layout: "flow",
-      sidebars: { lens: { side: "right" } },
+      sidebars: { layout: { side: "right" } },
     },
     hasFocus: true,
   };

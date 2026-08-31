@@ -58,7 +58,7 @@ Running everything is almost never the right move: each file launches its own `T
 /**
  * at0240-lens-focus-grammar.test.ts — ...prose...
  *
- * @covers tugdeck/src/components/lens/
+ * @covers tugdeck/src/components/jots/
  * @covers tugdeck/src/lib/lens-store/
  */
 ```

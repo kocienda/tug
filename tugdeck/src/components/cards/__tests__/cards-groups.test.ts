@@ -1,13 +1,13 @@
 /**
- * Coverage for the Lens group taxonomy.
+ * Coverage for the Cards card's group taxonomy.
  *
- * The Cards section's promise is that *every* card on the deck has a Lens
- * representation. That promise is only as good as the resolution being total,
- * so this file registers the whole app's card set — the same entry points
- * `main.tsx` calls — and then asserts two things:
+ * The Cards card's promise is that *every* content card on the deck has a row
+ * in it. That promise is only as good as the resolution being total, so this
+ * file registers the whole app's card set — the same entry points `main.tsx`
+ * calls — and then asserts two things:
  *
  *   - **Totality.** Every registration resolves to a group or to the explicit
- *     `"none"` exclusion, and `lens` is the only exclusion.
+ *     `"none"` exclusion, and the rail cards are exactly the exclusions.
  *   - **The mapping.** Each known componentId lands in the group it should.
  *     Totality alone would be satisfied by resolving everything to `"tools"`;
  *     these pins are what catch a card drifting into the wrong bucket.
@@ -30,7 +30,12 @@ import { registerAboutCard } from "@/components/tugways/cards/about-card";
 import { registerSettingsCard } from "@/components/tugways/cards/settings-card";
 import { registerKeyboardCard } from "@/components/tugways/cards/keyboard-card";
 import { registerDevtoolsCard } from "@/components/devtools/devtools-card";
-import { registerLensCard } from "@/components/lens/lens-register-card";
+import { registerJotsCard } from "@/components/jots/jots-card-registration";
+import { registerOverviewCard } from "@/components/overview/overview-card-registration";
+import { registerTripwiresCard } from "@/components/tripwires/tripwires-card-registration";
+import { registerDashesCard } from "@/components/dashes/dashes-card-registration";
+import { registerCardsCard } from "@/components/cards/cards-card-registration";
+import { registerLayoutCard } from "@/components/layout/layout-card-registration";
 import { registerTextCard } from "@/components/tugways/cards/text-card-registration";
 import { registerFileViewCard } from "@/components/tugways/cards/file-view-card-registration";
 import { registerDiffCard } from "@/components/tugways/cards/diff-card";
@@ -54,7 +59,12 @@ beforeAll(() => {
   registerSettingsCard();
   registerKeyboardCard();
   registerDevtoolsCard();
-  registerLensCard();
+  registerJotsCard();
+  registerOverviewCard();
+  registerTripwiresCard();
+  registerDashesCard();
+  registerCardsCard();
+  registerLayoutCard();
   registerTextCard();
   registerFileViewCard();
   registerDiffCard();
@@ -78,7 +88,12 @@ const PINS: ReadonlyArray<{
   { componentId: "about", group: "tools", via: "fallback" },
   { componentId: "devtools", group: "tools", via: "fallback" },
   { componentId: "hello", group: "tools", via: "fallback" },
-  { componentId: "lens", group: "none", via: "explicit cardsGroup" },
+  { componentId: "jots", group: "none", via: "explicit cardsGroup" },
+  { componentId: "overview", group: "none", via: "explicit cardsGroup" },
+  { componentId: "tripwires", group: "none", via: "explicit cardsGroup" },
+  { componentId: "dashes", group: "none", via: "explicit cardsGroup" },
+  { componentId: "cards", group: "none", via: "explicit cardsGroup" },
+  { componentId: "layout", group: "none", via: "explicit cardsGroup" },
 ];
 
 describe("resolveCardsGroup — the mapping", () => {
@@ -123,11 +138,21 @@ describe("resolveCardsGroup — totality", () => {
     }
   });
 
-  test("the Lens is the only card excluded from its own mirror", () => {
+  // A rail card is not deck content — it holds no slot and answers no slot
+  // picker — so the list that offers to place a card must not offer it.
+  test("the rail cards are exactly the cards excluded from the list", () => {
     const excluded = [...getAllRegistrations().values()]
       .filter((reg) => resolveCardsGroup(reg) === "none")
-      .map((reg) => reg.componentId);
-    expect(excluded).toEqual(["lens"]);
+      .map((reg) => reg.componentId)
+      .sort();
+    expect(excluded).toEqual([
+      "cards",
+      "dashes",
+      "jots",
+      "layout",
+      "overview",
+      "tripwires",
+    ]);
   });
 });
 

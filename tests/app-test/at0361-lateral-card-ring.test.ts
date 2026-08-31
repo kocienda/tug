@@ -62,7 +62,7 @@ function deckShape() {
       card("A"),
       card("B"),
       card("C"),
-      { id: "L", componentId: "lens", title: "Lens", closable: true },
+      { id: "L", componentId: "layout", title: "Layout", closable: true },
     ],
     panes: [
       {
@@ -209,7 +209,7 @@ describe.skipIf(!SHOULD_RUN)("at0361 — the lateral ring walks the whole deck",
           state: {
             cards: [
               card("A"),
-              { id: "L", componentId: "lens", title: "Lens", closable: true },
+              { id: "L", componentId: "layout", title: "Layout", closable: true },
             ],
             panes: [
               {

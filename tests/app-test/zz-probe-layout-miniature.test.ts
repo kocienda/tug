@@ -24,9 +24,9 @@
  * The two screenshots are kept as diagnostics: a drawing is the one thing a
  * numeric assertion cannot show you.
  *
- * @covers tugdeck/src/components/lens/layout-miniature.tsx
- * @covers tugdeck/src/components/lens/layout-miniature.css
- * @covers tugdeck/src/components/lens/sections/layouts-section.tsx
+ * @covers tugdeck/src/components/layout/layout-miniature.tsx
+ * @covers tugdeck/src/components/layout/layout-miniature.css
+ * @covers tugdeck/src/components/layout/layout-card.tsx
  */
 
 import { describe, expect, test } from "bun:test";
@@ -60,7 +60,7 @@ function deckShape(): Record<string, unknown> {
         title: `Card ${id}`,
         closable: true,
       })),
-      { id: "L", componentId: "lens", title: "Lens", closable: true },
+      { id: "L", componentId: "layout", title: "Layout", closable: true },
     ],
     panes: [
       ...ids.map((id, index) => ({
@@ -87,7 +87,7 @@ function deckShape(): Record<string, unknown> {
     imposition: {
       kind: "six-up",
       layout: "flow",
-      sidebars: { lens: { side: "right" } },
+      sidebars: { layout: { side: "right" } },
     },
     hasFocus: true,
   };
@@ -285,7 +285,7 @@ describe.skipIf(!SHOULD_RUN)("zz probe — layout miniature", () => {
         // the KEYBOARD cursor standing on the segment. A pointer auditions
         // nothing — it travels across controls on its way to the one it means,
         // and the drawing does not answer travel.
-        await app.dispatchControlAction("focus-lens");
+        await app.dispatchControlAction("toggle-layout");
         await wait(300);
         for (let i = 0; i < 24; i += 1) {
           const on = await app.evalJS<boolean>(

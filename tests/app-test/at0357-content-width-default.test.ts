@@ -31,8 +31,8 @@
  * canvas the harness can launch at; wide is the same code path with a bigger
  * number, and asserting it would only be asserting the canvas.
  *
- * @covers tugdeck/src/components/lens/sections/layouts-section.tsx
- * @covers tugdeck/src/components/lens/layout-miniature.tsx
+ * @covers tugdeck/src/components/layout/layout-card.tsx
+ * @covers tugdeck/src/components/layout/layout-miniature.tsx
  * @covers tugdeck/src/deck-manager.ts
  * @covers tugdeck/src/action-dispatch.ts
  * @covers tugdeck/src/lib/layout-imposer.ts
@@ -87,7 +87,7 @@ function deckShape(): Record<string, unknown> {
       { id: "B", componentId: "gallery-accordion", title: "Card B", closable: true },
       { id: "C", componentId: "gallery-accordion", title: "Card C", closable: true },
       { id: "D", componentId: "gallery-accordion", title: "Card D", closable: true },
-      { id: "L", componentId: "lens", title: "Lens", closable: true },
+      { id: "L", componentId: "layout", title: "Layout", closable: true },
     ],
     panes: [
       pane("p1", 0, "A"),
@@ -105,7 +105,7 @@ function deckShape(): Record<string, unknown> {
       },
     ],
     activePaneId: "p1",
-    imposition: { kind: "four-up", sidebars: { lens: { side: "right" } } },
+    imposition: { kind: "four-up", sidebars: { layout: { side: "right" } } },
     hasFocus: true,
   };
 }

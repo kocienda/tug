@@ -60,7 +60,7 @@ import React, { useSyncExternalStore } from "react";
 import { dispatchCommand } from "@/command-dispatch";
 import { getDeckStore } from "@/lib/deck-store-registry";
 import { slotCount } from "@/lib/layout-imposer";
-import { findLensPane } from "@/deck-store-selectors";
+import { findSidebarPanes } from "@/deck-store-selectors";
 import { useSlotWindow } from "@/lib/slot-window-pref";
 import { TugSlotLayout } from "@/components/tugways/tug-slot-layout";
 import type { TugSlotLayoutHandle } from "@/components/tugways/tug-slot-layout";
@@ -123,10 +123,12 @@ export function SlotPicker({ cardId }: { cardId: string }): React.ReactElement |
   const count = slotCount(kind);
   const hostIndex = deck.panes.findIndex((pane) => pane.cardIds.includes(cardId));
   const host = hostIndex >= 0 ? deck.panes[hostIndex] : undefined;
-  // A card hosted in the Lens is not the chain's to place — the Lens is the
-  // imposition's fixed end. Lens rows never represent the Lens itself today;
+  // A card hosted in a rail is not the chain's to place — a rail is the
+  // imposition's fixed end. The Cards rows never represent a rail card today;
   // the guard keeps the picker honest if one ever does.
-  const disabled = host === undefined || host.id === findLensPane(deck)?.id;
+  const disabled =
+    host === undefined ||
+    findSidebarPanes(deck).some(({ pane }) => pane.id === host.id);
   const held = host?.slot;
 
   // Later in the panes array is higher in the stack, so the last pane holding

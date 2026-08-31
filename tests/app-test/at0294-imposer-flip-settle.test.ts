@@ -122,7 +122,7 @@ function deckShape() {
     cards: [
       card("A", "gallery-accordion", "Card A"),
       card("B", "gallery-accordion", "Card B"),
-      card("L", "lens", "Lens"),
+      card("L", "layout", "Layout"),
     ],
     panes: [
       pane("p1", 0, "A"),
@@ -138,7 +138,9 @@ function deckShape() {
       },
     ],
     activePaneId: "p1",
-    imposition: { kind: "two-up", lens: "right" },
+    // No `sidebars` entry: the rail is unplaced at seed and `setLensSide` is
+    // what puts it on a side, which is the transition this file measures.
+    imposition: { kind: "two-up" },
     hasFocus: true,
   };
 }
@@ -237,7 +239,7 @@ async function settling(app: App): Promise<boolean> {
 
 async function setLensSide(app: App, side: "left" | "right"): Promise<void> {
   await app.evalJS<null>(
-    `(window.__tug.dispatchControlAction("set-sidebar-side", { componentId: "lens", side: ${JSON.stringify(
+    `(window.__tug.dispatchControlAction("set-sidebar-side", { componentId: "layout", side: ${JSON.stringify(
       side,
     )} }), null)`,
   );

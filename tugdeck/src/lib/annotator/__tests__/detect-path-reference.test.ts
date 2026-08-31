@@ -90,14 +90,14 @@ describe("detectPathReference — a span that is entirely one path", () => {
 
 describe("scanPathReferences — paths found inside longer text", () => {
   test("a path inside a command line, which is how tool headers write them", () => {
-    const text = "bun test tugdeck/src/components/lens/block-reorder.ts --watch";
+    const text = "bun test tugdeck/src/components/tugways/block-reorder.ts --watch";
     const found = scanPathReferences(text);
     expect(found.map((m) => m.path)).toEqual([
-      "tugdeck/src/components/lens/block-reorder.ts",
+      "tugdeck/src/components/tugways/block-reorder.ts",
     ]);
     const [only] = found;
     expect(text.slice(only.start, only.end)).toBe(
-      "tugdeck/src/components/lens/block-reorder.ts",
+      "tugdeck/src/components/tugways/block-reorder.ts",
     );
   });
 

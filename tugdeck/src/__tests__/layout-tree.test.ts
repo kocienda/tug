@@ -1742,8 +1742,10 @@ describe("imposition lens side", () => {
   });
 
   test("an unparseable blob still carries the fallback side", () => {
+    // Nothing parsed, so there is no legacy `lens` entry to carry: the default
+    // layout records the fallback under the rail's frontmost card instead.
     expect(
-      sidebarSide(deserialize("{{{", 1920, 1080, "left").imposition, "lens"),
+      sidebarSide(deserialize("{{{", 1920, 1080, "left").imposition, "cards"),
     ).toBe("left");
   });
 

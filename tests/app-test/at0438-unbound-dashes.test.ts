@@ -176,7 +176,9 @@ describe.skipIf(!SHOULD_RUN)("AT0438: the always-on Dashes card", () => {
         await app.spawnSessionResume("A", { tugSessionId: SID, projectDir: projectDir() });
         await app.awaitEngineReady("A", { timeoutMs: 15000 });
 
-        await app.dispatchControlAction("toggle-lens");
+        // The Cards card, not a rail in general: the session row this file
+        // reads from the DOM is one of its rows.
+        await app.dispatchControlAction("toggle-cards");
         // Both rails, and Dashes on top: the Cards section is read from the
         // DOM behind it, while every press this file makes lands on a dash
         // row. Then A is raised, which is the gesture that gives the Dashes

@@ -92,7 +92,7 @@ function deckShape(): Record<string, unknown> {
     cards: [
       { id: "A", componentId: "gallery-accordion", title: "Card A", closable: true },
       { id: "B", componentId: "gallery-accordion", title: "Card B", closable: true },
-      { id: "L", componentId: "lens", title: "Lens", closable: true },
+      { id: "L", componentId: "layout", title: "Layout", closable: true },
     ],
     panes: [
       pane("p1", 0, "A"),
@@ -108,7 +108,7 @@ function deckShape(): Record<string, unknown> {
       },
     ],
     activePaneId: "p1",
-    imposition: { kind: "three-up", sidebars: { lens: { side: "right" } } },
+    imposition: { kind: "three-up", sidebars: { layout: { side: "right" } } },
     hasFocus: true,
   };
 }

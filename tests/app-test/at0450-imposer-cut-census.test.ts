@@ -154,7 +154,7 @@ function deckShape() {
       card("A", "gallery-accordion", "Card A"),
       card("B", "gallery-accordion", "Card B"),
       card("C", "gallery-accordion", "Card C"),
-      card("L", "lens", "Lens"),
+      card("L", "layout", "Layout"),
     ],
     panes: [
       pane("p1", 0, "A"),
@@ -305,7 +305,7 @@ describe.skipIf(!SHOULD_RUN)(
 
           found["lens-side"] = await census(app, async () => {
             await app.evalJS<null>(
-              `(window.__tug.dispatchControlAction("set-sidebar-side", { componentId: "lens", side: "left" }), null)`,
+              `(window.__tug.dispatchControlAction("set-sidebar-side", { componentId: "layout", side: "left" }), null)`,
             );
           });
 

@@ -65,7 +65,7 @@
  * Presentational: props in, CSS out, no store reads and no state ([L06]). The
  * section resolves every fact from its own subscription and hands them down.
  *
- * @module components/lens/layout-places
+ * @module components/layout/layout-places
  */
 
 import "./layout-places.css";
@@ -81,7 +81,7 @@ import {
   miniatureGeometry,
   type MiniatureFlowStrip,
   type MiniatureRails,
-} from "@/components/lens/layout-miniature";
+} from "@/components/layout/layout-miniature";
 import { SplitGlyph, StackGlyph } from "@/components/tugways/tug-column-badge";
 import { TugIconButton } from "@/components/tugways/tug-icon-button";
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";

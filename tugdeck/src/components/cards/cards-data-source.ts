@@ -42,7 +42,7 @@ import type {
   TugListViewDataSource,
 } from "@/components/tugways/tug-list-view";
 import type { CardState, DeckState, TugPaneState } from "@/layout-tree";
-import { findLensPane } from "@/deck-store-selectors";
+import { findSidebarPanes } from "@/deck-store-selectors";
 import type { CardSessionBinding } from "@/lib/card-session-binding-store";
 import type { WorkspacesChangesetSnapshot } from "@/lib/changeset-types";
 import {
@@ -550,12 +550,12 @@ export function buildCardsRows(
 
   const cardsById = new Map(deck.cards.map((c) => [c.id, c]));
   const cardSeq = new Map(deck.cards.map((c, i) => [c.id, i]));
-  const lensPaneId = findLensPane(deck)?.id;
+  const railPaneIds = new Set(findSidebarPanes(deck).map(({ pane }) => pane.id));
 
   // 1. One entry per pane, filed by its active card's group.
   const entries: PaneEntry[] = [];
   for (const pane of deck.panes) {
-    if (pane.id === lensPaneId) continue;
+    if (railPaneIds.has(pane.id)) continue;
     const activeCard = cardsById.get(pane.activeCardId);
     if (activeCard === undefined) continue;
     const group = r.group(activeCard.componentId);

@@ -16,7 +16,7 @@
  * Laws: [L06] appearance via inline style + `data-visible`, never React
  * state; [L19] file pair, docstring, `data-slot`.
  *
- * @module components/lens/block-drop-caret
+ * @module components/tugways/block-drop-caret
  */
 
 import React from "react";

@@ -64,9 +64,9 @@ import {
 } from "lucide-react";
 
 import { dispatchCommand } from "@/command-dispatch";
-import { BlockDropCaret } from "@/components/lens/block-drop-caret";
+import { BlockDropCaret } from "@/components/tugways/block-drop-caret";
 import { BlockFoldCue } from "@/components/tugways/body-kinds/affordances/block-fold-cue";
-import { useBlockReorder } from "@/components/lens/block-reorder";
+import { useBlockReorder } from "@/components/tugways/block-reorder";
 import { RAIL_LIST_PRESENTATION } from "@/components/tugways/rail-list-presentation";
 import {
   cardsSelectionStore,

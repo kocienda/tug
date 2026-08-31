@@ -33,8 +33,8 @@
  * picture cannot distinguish a live drawing from a lucky one.
  *
  * @covers tugdeck/src/lib/imposer-gauges.ts
- * @covers tugdeck/src/components/lens/layout-miniature.tsx
- * @covers tugdeck/src/components/lens/layout-miniature.css
+ * @covers tugdeck/src/components/layout/layout-miniature.tsx
+ * @covers tugdeck/src/components/layout/layout-miniature.css
  */
 
 import { describe, expect, test } from "bun:test";
@@ -67,7 +67,7 @@ function deckShape(): Record<string, unknown> {
         title: `Card ${id}`,
         closable: true,
       })),
-      { id: "L", componentId: "lens", title: "Lens", closable: true },
+      { id: "L", componentId: "layout", title: "Layout", closable: true },
     ],
     panes: [
       ...ids.map((id, index) => ({
@@ -93,7 +93,7 @@ function deckShape(): Record<string, unknown> {
     activePaneId: "p1",
     imposition: {
       kind: "six-up",
-      sidebars: { lens: { side: "right" } },
+      sidebars: { layout: { side: "right" } },
     },
     hasFocus: true,
   };

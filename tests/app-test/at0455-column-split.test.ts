@@ -126,7 +126,7 @@ function deckShape() {
         title: `Card ${cardId}`,
         closable: true,
       })),
-      { id: "L", componentId: "lens", title: "Lens", closable: true },
+      { id: "L", componentId: "layout", title: "Layout", closable: true },
     ],
     panes: [
       ...members.map(([id, slot, cardId]) => pane(id, slot, cardId)),
@@ -143,7 +143,7 @@ function deckShape() {
     activePaneId: "p1",
     imposition: {
       kind: "three-up",
-      sidebars: { lens: { side: "right" } },
+      sidebars: { layout: { side: "right" } },
     },
     hasFocus: true,
   };
@@ -438,7 +438,7 @@ describe.skipIf(!SHOULD_RUN)("at0455 — column split", () => {
           `(window.__tug.setTugbankValue("dev.tugtool.lens", "widthPx", { kind: "i64", value: ${LENS_WIDTH} }), null)`,
         );
         await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
-        await app.dispatchControlAction("focus-lens");
+        await app.dispatchControlAction("toggle-layout");
         await app.waitForCondition<boolean>(
           `document.querySelector('[data-testid="lens-layouts-kind"]') !== null`,
           { timeoutMs: 8_000 },

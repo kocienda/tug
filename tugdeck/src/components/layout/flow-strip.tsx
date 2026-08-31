@@ -105,7 +105,7 @@
  *       property, never React state; [L07] the scrub's live state is refs;
  *       [L20] the composed slots keep their own tokens.
  *
- * @module components/lens/flow-strip
+ * @module components/layout/flow-strip
  */
 
 import React, { useCallback, useLayoutEffect, useRef } from "react";

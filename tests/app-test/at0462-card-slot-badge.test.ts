@@ -309,15 +309,15 @@ describe.skipIf(!SHOULD_RUN)("at0462 — the card's slot badge", () => {
     async () => {
       const app = await launchTugApp({ testName: "at0462-card-slot-badge" });
       try {
-        // The Lens's pane, stacked with a Session card so it wears a masthead,
+        // A rail card's pane, stacked with a Session card so it wears a masthead,
         // and handed a slot outright. Both of the cheaper guards — no host, no
         // slot — are therefore satisfied, which leaves the sidebar guard as the
         // only thing that can keep the chip off it.
         const state = deckShape(2);
         (state.cards as Record<string, unknown>[]).push({
           id: "L",
-          componentId: "lens",
-          title: "Lens",
+          componentId: "layout",
+          title: "Layout",
           closable: true,
         });
         (state.panes as Record<string, unknown>[])[1] = {
@@ -326,12 +326,12 @@ describe.skipIf(!SHOULD_RUN)("at0462 — the card's slot badge", () => {
           size: { width: 420, height: 900 },
           cardIds: ["L", "B"],
           activeCardId: "B",
-          title: "Lens",
+          title: "Layout",
           acceptsFamilies: [],
           slot: 1,
         };
         (state.imposition as Record<string, unknown>).sidebars = {
-          lens: { side: "right" },
+          layout: { side: "right" },
         };
         await openDeck(app, state, "A");
 

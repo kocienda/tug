@@ -107,6 +107,9 @@ const TOL = 1.5;
 const THREE_UP_TILE = '[data-testid="lens-layouts-kind"] [data-choice-value="three-up"]';
 const KIND_TILES = '[data-testid="lens-layouts-kind"] [data-choice-value]';
 const LENS_FRAME = `.tug-pane[data-pane-id="pLens"]`;
+/** The Layout card's body, wherever its pane stands — the address that
+ *  survives a hide/show cycle, which mints a new pane id. */
+const LAYOUT_FRAME = `[data-testid="lens-layouts-section"]`;
 /** The three chain panes, in slot order. */
 const CHAIN = ["p1", "p2", "p3"];
 
@@ -131,7 +134,7 @@ function deckShape(paneWidth: number, lensWidth: number) {
       { id: "A", componentId: "hello", title: "Card A", closable: true },
       { id: "B", componentId: "hello", title: "Card B", closable: true },
       { id: "C", componentId: "hello", title: "Card C", closable: true },
-      { id: "L", componentId: "lens", title: "Lens", closable: true },
+      { id: "L", componentId: "layout", title: "Layout", closable: true },
     ],
     panes: [
       pane("p1", 0, "A"),
@@ -253,7 +256,7 @@ async function seedTwoRails(
       ...shape,
       imposition: {
         kind,
-        sidebars: { lens: { side: "right" }, overview: { side: "left" } },
+        sidebars: { layout: { side: "right" }, overview: { side: "left" } },
       },
     },
     focusCardId: "A",
@@ -331,26 +334,29 @@ describe.skipIf(!SHOULD_RUN)(
           }
 
           // ── The preference is untouched. Read through the path that owns
-          // it: the Lens reopens at the width the user chose, never at the
-          // width the allocator handed it. ─────────────────────────────────
+          // it: the rail reopens at the width the card declares, never at the
+          // width the allocator handed it. The reopened pane is a NEW pane,
+          // so it is resolved from the card standing in it rather than by the
+          // id the seeded one carried. ─────────────────────────────────────
           await app.evalJS<null>(
-            `(window.__tug.dispatchControlAction("toggle-lens"), null)`,
+            `(window.__tug.dispatchControlAction("toggle-layout"), null)`,
           );
           await app.waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(LENS_FRAME)}) === null`,
             { timeoutMs: 5_000 },
           );
           await app.evalJS<null>(
-            `(window.__tug.dispatchControlAction("toggle-lens"), null)`,
+            `(window.__tug.dispatchControlAction("toggle-layout"), null)`,
           );
           await app.waitForCondition<boolean>(
-            `document.querySelector('.tug-pane[data-lens-pane]') !== null`,
+            `document.querySelector(${JSON.stringify(LAYOUT_FRAME)}) !== null`,
             { timeoutMs: 5_000 },
           );
           await wait(AFTER_LAND_MS);
           expect(
             await app.evalJS<number>(
-              `document.querySelector('.tug-pane[data-lens-pane]').getBoundingClientRect().width`,
+              `document.querySelector(${JSON.stringify(LAYOUT_FRAME)})
+                 .closest(".tug-pane").getBoundingClientRect().width`,
             ),
           ).toBeCloseTo(PREFERRED, 0);
         } finally {
