@@ -545,12 +545,8 @@ async fn dash_handler(
         Ok(r) => r,
         Err(e) => return err(StatusCode::BAD_REQUEST, &format!("invalid JSON: {e}")),
     };
-    // Kept out of the moved request: the broadcast below names the session the
-    // mating is about, and every deck holding a card for it repaints from that
-    // name alone.
-    let session_id = req.tug_session_id.clone().unwrap_or_default();
-    // Kept out of the moved request for the same reason: the ending's receipt
-    // is worded from it after the blocking half returns.
+    // Kept out of the moved request: the ending's receipt is worded from it
+    // after the blocking half returns.
     let reason = req.reason.clone();
     let outcome = match tokio::task::spawn_blocking(move || apply_dash_request(&ledger, &req)).await
     {
@@ -563,11 +559,20 @@ async fn dash_handler(
         }
     };
     match outcome {
-        crate::dash_api::DashApiOutcome::Bound { dash_id, dash_name } => {
+        crate::dash_api::DashApiOutcome::Bound {
+            session_id,
+            dash_id,
+            dash_name,
+        } => {
             registry.changeset_all_bump().notify_one();
             // The same announcement the `bind_dash` CONTROL verb makes: a bind
             // is one fact, and the card wearing the dash must not depend on
             // which door it came through.
+            //
+            // Named from the outcome, never from the request: the door
+            // expands a frozen `$TUG_SESSION_ID` to its line's live segment,
+            // and a broadcast still naming the id that was posted would
+            // announce the mating to a card that closed two rotations ago.
             crate::feeds::agent_supervisor::broadcast_bind_dash_ok(
                 &control_tx,
                 &session_id,
@@ -582,7 +587,7 @@ async fn dash_handler(
             )
                 .into_response()
         }
-        crate::dash_api::DashApiOutcome::Unbound => {
+        crate::dash_api::DashApiOutcome::Unbound { session_id } => {
             registry.changeset_all_bump().notify_one();
             crate::feeds::agent_supervisor::broadcast_unbind_dash_ok(&control_tx, &session_id);
             (
@@ -858,12 +863,21 @@ async fn session_handler(
                 let session_id = session_id.clone();
                 tokio::task::spawn_blocking(move || {
                     let known = matches!(ledger.get(&session_id), Ok(Some(_)));
-                    let on_course = known && crate::wheel::course_is_running(&ledger, &session_id);
-                    (known, on_course)
+                    // The posted id is frozen at spawn, and the Wheel rotates
+                    // a card's session on purpose — so a rotation asked for
+                    // from inside a stage names the segment that stage began
+                    // on, not the one seated now. Park against the live
+                    // segment or the promise is made to a corpse and never
+                    // fires (`notes/wheel-rotation-strands-the-arc.md`).
+                    let seated = ledger.live_segment_of(&session_id).ok().flatten();
+                    let on_course = seated
+                        .as_deref()
+                        .is_some_and(|id| crate::wheel::course_is_running(&ledger, id));
+                    (known, seated, on_course)
                 })
                 .await
             };
-            let (known, on_course) = match probe {
+            let (known, seated, on_course) = match probe {
                 Ok(probe) => probe,
                 Err(e) => {
                     return err(
@@ -875,6 +889,15 @@ async fn session_handler(
             if !known {
                 return err(StatusCode::NOT_FOUND, "unknown_session");
             }
+            // Known here but with no live segment: this *is* the instance
+            // that owns the line, so a 404 would send the CLI walking on to
+            // report the wrong thing. The line has closed; say that.
+            let Some(seated) = seated else {
+                return err(
+                    StatusCode::CONFLICT,
+                    "no segment of that session's line is live — the card has closed",
+                );
+            };
             if on_course {
                 return err(
                     StatusCode::CONFLICT,
@@ -888,7 +911,7 @@ async fn session_handler(
                 let _ = crate::path_resolver::resolve_to_claude_form(std::path::Path::new(dir));
             }
             let request = crate::wheel::RotationRequest::new(
-                tugcast_core::protocol::TugSessionId::new(session_id),
+                tugcast_core::protocol::TugSessionId::new(seated),
                 prompt,
                 stage,
             )
@@ -904,7 +927,28 @@ async fn session_handler(
                 .into_response()
         }
         "rotate_cancel" => {
-            let cancelled = wheel.withdraw(&session_id);
+            // Expanded the same way the rotate arm expands, so a rotated card
+            // withdraws the promise it actually parked. A cancel writes
+            // nothing, so an id this instance cannot place falls back to
+            // itself: withdrawing a promise nobody made is already a no-op.
+            let seated = {
+                let ledger = Arc::clone(&ledger);
+                let posted = session_id.clone();
+                match tokio::task::spawn_blocking(move || {
+                    ledger.live_segment_of(&posted).ok().flatten()
+                })
+                .await
+                {
+                    Ok(seated) => seated.unwrap_or(session_id),
+                    Err(e) => {
+                        return err(
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            &format!("session task failed: {e}"),
+                        );
+                    }
+                }
+            };
+            let cancelled = wheel.withdraw(&seated);
             (
                 StatusCode::OK,
                 axum::Json(serde_json::json!({ "status": "ok", "cancelled": cancelled })),

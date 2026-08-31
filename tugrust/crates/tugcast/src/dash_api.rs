@@ -19,10 +19,17 @@ use crate::session_ledger::SessionLedger;
 /// "mine, and it failed".
 pub(crate) enum DashApiOutcome {
     Bound {
+        /// The segment the binding was written onto — the live one, which is
+        /// not always the id the caller posted. Every announcement names
+        /// this: a broadcast naming the stale id reaches no card.
+        session_id: String,
         dash_id: String,
         dash_name: String,
     },
-    Unbound,
+    Unbound {
+        /// As [`Self::Bound`]'s.
+        session_id: String,
+    },
     /// What a `dash_gone` swept: how many binding rows, and which of them were
     /// carrying a live arc's stage.
     Cleared {
@@ -95,6 +102,42 @@ impl DashGoneReason {
     }
 }
 
+/// The live segment of the calling card's line ([P01]) — the session a verb
+/// addressed to `posted` is really about.
+///
+/// Every session-addressed op on this endpoint goes through here first.
+/// `$TUG_SESSION_ID` is frozen at spawn and the Wheel rotates a card's session
+/// on purpose — above `implement_compact_tokens`, on a threshold any long
+/// implement stage crosses — so the id a `tugtool dash` verb posts from inside
+/// a stage routinely names a segment closed and demoted two rotations earlier.
+/// Read raw, a bind then moves a column on that corpse and returns
+/// `affected > 0`: a truthful success about the wrong session, while the live
+/// card shows no dash and the documented repair gesture reports success too
+/// (`notes/wheel-rotation-strands-the-arc.md`).
+///
+/// The two neighbours that had already met this — `tugchanges_core`'s
+/// `line_segments` and `tugdash_core`'s `session_citation_for` — each solved
+/// it for themselves. Resolving at the door is the same answer made once, for
+/// every op that arrives through it.
+///
+/// `Err(UnknownSession)` keeps the CLI's try-each-instance loop walking. A
+/// line with no live segment is an error rather than a fall back to the
+/// posted id: there is no card left to bind, stop, or unbind, and saying so
+/// is the refusal that turns this from a silent haunting into a sentence.
+fn calling_segment(ledger: &SessionLedger, posted: &str) -> Result<String, DashApiOutcome> {
+    if ledger.get(posted).ok().flatten().is_none() {
+        return Err(DashApiOutcome::UnknownSession);
+    }
+    match ledger.live_segment_of(posted) {
+        Ok(Some(live)) => Ok(live),
+        Ok(None) => Err(DashApiOutcome::Error(format!(
+            "session {posted} names a closed segment and no segment of its line is live — \
+             the card it worked has gone"
+        ))),
+        Err(e) => Err(DashApiOutcome::Error(e.to_string())),
+    }
+}
+
 /// Bind a session to a dash.
 ///
 /// `project_dir` must already be resolved through the [L29] gateway. Minting
@@ -107,6 +150,11 @@ pub(crate) fn bind(
     tug_session_id: &str,
     dash: &str,
 ) -> DashApiOutcome {
+    let tug_session_id = match calling_segment(ledger, tug_session_id) {
+        Ok(live) => live,
+        Err(outcome) => return outcome,
+    };
+    let tug_session_id = tug_session_id.as_str();
     let Some(row) = ledger.get(tug_session_id).ok().flatten() else {
         return DashApiOutcome::UnknownSession;
     };
@@ -148,16 +196,31 @@ pub(crate) fn bind(
         Err(e) => return DashApiOutcome::Error(e),
     };
     match ledger.set_dash_binding(tug_session_id, Some((&dash_id, dash))) {
-        Ok(_) => DashApiOutcome::Bound {
+        Ok(true) => DashApiOutcome::Bound {
+            session_id: tug_session_id.to_string(),
             dash_id,
             dash_name: dash.to_string(),
         },
+        // Unreachable through the resolution above, and kept because the day
+        // it is reachable is the day something bound a corpse again — better
+        // a refusal that names the session than a success that doesn't.
+        Ok(false) => DashApiOutcome::Error(format!(
+            "session {tug_session_id} is not live, so it cannot be bound to {dash}"
+        )),
         Err(e) => DashApiOutcome::Error(e.to_string()),
     }
 }
 
 /// Clear one session's binding.
 pub(crate) fn unbind(ledger: &SessionLedger, tug_session_id: &str) -> DashApiOutcome {
+    // The line's live segment, not the posted id — a rotated card unbinding
+    // itself would otherwise clear a corpse's column and leave its own
+    // binding standing.
+    let tug_session_id = match calling_segment(ledger, tug_session_id) {
+        Ok(live) => live,
+        Err(outcome) => return outcome,
+    };
+    let tug_session_id = tug_session_id.as_str();
     // The row, not `owns_session`: the ownership question is answered by
     // throwing away the `dash_name` and `project_dir` the stop below needs.
     // `UnknownSession` is kept for a missing row so the CLI's
@@ -170,7 +233,9 @@ pub(crate) fn unbind(ledger: &SessionLedger, tug_session_id: &str) -> DashApiOut
     // no record says `review` forever while nothing is running.
     stop_an_on_course_cards_arc_as_closed(ledger, tug_session_id);
     match ledger.set_dash_binding(tug_session_id, None) {
-        Ok(_) => DashApiOutcome::Unbound,
+        Ok(_) => DashApiOutcome::Unbound {
+            session_id: tug_session_id.to_string(),
+        },
         Err(e) => DashApiOutcome::Error(e.to_string()),
     }
 }
@@ -240,6 +305,11 @@ pub(crate) fn arc_stop(
     tug_session_id: &str,
     dash: &str,
 ) -> DashApiOutcome {
+    let tug_session_id = match calling_segment(ledger, tug_session_id) {
+        Ok(live) => live,
+        Err(outcome) => return outcome,
+    };
+    let tug_session_id = tug_session_id.as_str();
     let Some(row) = ledger.get(tug_session_id).ok().flatten() else {
         return DashApiOutcome::UnknownSession;
     };
@@ -445,6 +515,94 @@ mod tests {
             .and_then(|r| r.dash_name)
     }
 
+    /// Rotate `on_course_card`'s card the way the Wheel does: a fresh segment
+    /// on the same line, seated with the binding, and the old id closed and
+    /// demoted. `claude-1` is what `$TUG_SESSION_ID` still says inside it.
+    fn rotate_the_card(ledger: &SessionLedger, root: &std::path::Path) {
+        ledger.demote_live_to_closed().unwrap();
+        ledger
+            .record_spawn(
+                "claude-2",
+                "ws-test",
+                &root.to_string_lossy(),
+                "card-1",
+                2_000,
+                "claude-1",
+                None,
+            )
+            .unwrap();
+        ledger.seat_line_bindings().unwrap();
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn a_bind_from_a_rotated_card_lands_on_the_seated_segment() {
+        // The `lens-breakout` failure: the stage posts the id it was spawned
+        // under, which two rotations later names a closed, demoted row. Bound
+        // raw, the write moved a column on that corpse and reported success
+        // while the live card showed no dash at all.
+        let home = tempdir().unwrap();
+        // SAFETY: `#[serial]`; no other thread reads the environment here.
+        unsafe {
+            std::env::set_var("TUG_DATA_DIR", home.path());
+        }
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+        let ledger = on_course_card(root);
+        rotate_the_card(&ledger, root);
+
+        // A re-bind naming the dash already running is the resume path, which
+        // is exactly the gesture the note reached for as a repair.
+        assert!(matches!(
+            bind(&ledger, root, "claude-1", "alpha"),
+            DashApiOutcome::Bound { .. }
+        ));
+        assert_eq!(
+            ledger
+                .get("claude-2")
+                .unwrap()
+                .unwrap()
+                .dash_name
+                .as_deref(),
+            Some("alpha"),
+            "the binding is on the segment that is actually seated",
+        );
+        assert!(
+            bound_dash(&ledger).is_none(),
+            "and nothing was written onto the segment the stale id named",
+        );
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn a_verb_from_a_card_whose_line_has_closed_is_refused() {
+        let home = tempdir().unwrap();
+        // SAFETY: `#[serial]`; no other thread reads the environment here.
+        unsafe {
+            std::env::set_var("TUG_DATA_DIR", home.path());
+        }
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+        let ledger = on_course_card(root);
+        ledger.demote_live_to_closed().unwrap();
+
+        match bind(&ledger, root, "claude-1", "alpha") {
+            DashApiOutcome::Error(message) => {
+                assert!(
+                    message.contains("no segment of its line is live"),
+                    "{message}"
+                );
+            }
+            _ => panic!("a bind with no card left to bind must say so, not succeed"),
+        }
+        match unbind(&ledger, "claude-1") {
+            DashApiOutcome::Error(message) => {
+                assert!(message.contains("has gone"), "{message}");
+            }
+            _ => panic!("and so must an unbind"),
+        }
+    }
+
     #[test]
     #[serial_test::serial]
     fn a_card_running_a_score_refuses_a_bind_to_another_dash() {
@@ -497,7 +655,7 @@ mod tests {
 
         assert!(matches!(
             unbind(&ledger, "claude-1"),
-            DashApiOutcome::Unbound
+            DashApiOutcome::Unbound { .. }
         ));
         assert_eq!(
             tugdash_core::arc::read_arc(root, "alpha").unwrap().stopped,
@@ -538,7 +696,7 @@ mod tests {
 
         assert!(matches!(
             unbind(&ledger, "claude-1"),
-            DashApiOutcome::Unbound
+            DashApiOutcome::Unbound { .. }
         ));
         assert_eq!(tugdash_core::arc::read_arc(root, "plain"), None);
     }
@@ -559,7 +717,7 @@ mod tests {
 
         assert!(matches!(
             unbind(&ledger, "claude-1"),
-            DashApiOutcome::Unbound
+            DashApiOutcome::Unbound { .. }
         ));
         assert_eq!(
             tugdash_core::arc::read_arc(root, "alpha").unwrap().stopped,

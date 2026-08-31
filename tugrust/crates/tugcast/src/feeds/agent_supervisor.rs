@@ -1025,6 +1025,24 @@ impl SessionsRecorder for LedgerSessionsRecorder {
             project_dir = record.project_dir,
             card_id = record.card_id,
         );
+        // A rotation mints this segment on a card that may be mid-arc, and
+        // the binding is on the segment it just replaced. Carry it forward
+        // *before* the row is pushed, so the push already says which dash,
+        // and announce the mating so the card wears it — the deck's binding
+        // store has no other mover, and the surface a rotation blanked could
+        // not be repaired by any gesture from inside the seated session
+        // (`notes/wheel-rotation-strands-the-arc.md`).
+        match self.ledger.seat_line_binding(record.session_id) {
+            Ok(Some((dash_id, dash_name))) => {
+                if let Some(tx) = self.control_tx.as_ref() {
+                    broadcast_bind_dash_ok(tx, record.session_id, &dash_id, &dash_name);
+                }
+            }
+            Ok(None) => {}
+            Err(err) => {
+                warn!(error = %err, session_id = record.session_id, "seat_line_binding failed")
+            }
+        }
         self.broadcast_row(record.session_id);
     }
 
@@ -5639,14 +5657,15 @@ impl AgentSupervisor {
         .await;
 
         match outcome {
-            Ok(crate::dash_api::DashApiOutcome::Bound { dash_id, dash_name }) => {
+            Ok(crate::dash_api::DashApiOutcome::Bound {
+                session_id,
+                dash_id,
+                dash_name,
+            }) => {
                 self.registry.changeset_all_bump().notify_one();
-                broadcast_bind_dash_ok(
-                    &self.control_tx,
-                    &request.tug_session_id,
-                    &dash_id,
-                    &dash_name,
-                );
+                // The segment the write landed on, not the one the request
+                // named — see the door's own note on the expansion.
+                broadcast_bind_dash_ok(&self.control_tx, &session_id, &dash_id, &dash_name);
             }
             Ok(crate::dash_api::DashApiOutcome::UnknownSession) => {
                 Self::send_bind_dash_err(
@@ -5681,9 +5700,9 @@ impl AgentSupervisor {
             tokio::task::spawn_blocking(move || crate::dash_api::unbind(&ledger, &session)).await;
 
         match outcome {
-            Ok(crate::dash_api::DashApiOutcome::Unbound) => {
+            Ok(crate::dash_api::DashApiOutcome::Unbound { session_id }) => {
                 self.registry.changeset_all_bump().notify_one();
-                broadcast_unbind_dash_ok(&self.control_tx, tug_session_id);
+                broadcast_unbind_dash_ok(&self.control_tx, &session_id);
             }
             Ok(crate::dash_api::DashApiOutcome::UnknownSession) => {
                 Self::send_bind_dash_err(&self.control_tx, tug_session_id, "unknown_session");

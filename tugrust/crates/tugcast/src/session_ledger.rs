@@ -4151,6 +4151,45 @@ impl SessionLedger {
         line_of_in(&conn, session_id)
     }
 
+    /// The **live** segment of the line `session_id` is a segment of ([P01])
+    /// — the session a verb addressed to that id is really about.
+    ///
+    /// `$TUG_SESSION_ID` is frozen at spawn, and the Wheel rotates a card's
+    /// session id *on purpose* whenever a stage crosses the compaction line.
+    /// So the id a short-lived CLI process posts can name a segment that was
+    /// closed and demoted two rotations ago, and every write keyed on it
+    /// lands on a corpse and reports success. This expansion is what keeps a
+    /// session-addressed verb answering for the conversation rather than for
+    /// the segment that happened to be seated when the process was spawned —
+    /// the same move `tugchanges_core::line_segments` makes for `tugtool
+    /// changes` and `session_citation_for` makes for a commit trailer.
+    ///
+    /// The caller's own id wins when it is itself live, so the ordinary case
+    /// resolves to itself. `None` when this ledger has never seen the id, and
+    /// when no segment of its line is live — a line whose every segment has
+    /// closed has no session to address, and that is an answer rather than a
+    /// reason to fall back on the id that was posted.
+    pub fn live_segment_of(&self, session_id: &str) -> Result<Option<String>, LedgerError> {
+        let conn = self.db.lock().expect("ledger mutex");
+        // `sessions.line_id` is NOT NULL and keyed into `lines`, so the join
+        // finds the caller's own row whenever that row is itself live — there
+        // is no lineless case left to fall back for.
+        Ok(conn
+            .query_row(
+                "SELECT tip.session_id FROM sessions caller
+                 JOIN sessions tip ON tip.line_id = caller.line_id
+                 WHERE caller.session_id = ?1
+                   AND COALESCE(caller.line_id, '') != ''
+                   AND tip.state = 'live' AND tip.demoted = 0
+                 ORDER BY (tip.session_id = ?1) DESC,
+                          tip.last_used_at DESC, tip.rowid DESC
+                 LIMIT 1",
+                params![session_id],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?)
+    }
+
     /// Birth a line ([P03]) — the one place a line of work comes into
     /// existence, and the only place a callsign is claimed for one.
     ///
@@ -5020,6 +5059,17 @@ impl SessionLedger {
     /// Bind a session to a dash, or clear its binding with `None` ([P08],
     /// Spec S03). `dash_id` is the owner key ([P01]); `dash_name` rides along
     /// so a display never needs a git read. Returns whether a row moved.
+    ///
+    /// **A binding may only be written onto a live segment.** A closed or
+    /// demoted row is a corpse: the card it belonged to is gone, nothing
+    /// reads its `dash_id`, and a write that landed there once reported a
+    /// truthful success about the wrong session while the live card showed no
+    /// dash at all. The `WHERE` refuses it, so a caller that failed to expand
+    /// a frozen `$TUG_SESSION_ID` to its line's live segment
+    /// ([`Self::live_segment_of`]) gets `Ok(false)` and has to say so, rather
+    /// than a silent no-op wearing the face of a repair. Clearing (`None`) is
+    /// exempt: dropping a stale binding off a dead row is housekeeping, and
+    /// the only thing it can do is make the ledger tidier.
     pub fn set_dash_binding(
         &self,
         session_id: &str,
@@ -5031,7 +5081,9 @@ impl SessionLedger {
         };
         let conn = self.db.lock().expect("ledger mutex");
         let affected = conn.execute(
-            "UPDATE sessions SET dash_id = ?2, dash_name = ?3 WHERE session_id = ?1",
+            "UPDATE sessions SET dash_id = ?2, dash_name = ?3
+             WHERE session_id = ?1
+               AND (?2 IS NULL OR (state = 'live' AND demoted = 0))",
             params![session_id, dash_id, dash_name],
         )?;
         drop(conn);
@@ -5146,6 +5198,76 @@ impl SessionLedger {
             self.notify_sessions_changed();
         }
         Ok(moved)
+    }
+
+    /// Seat the line's dash binding on one fresh segment ([P06], [P08]) — the
+    /// single-row form of [`Self::seat_line_bindings`], for the moment a
+    /// rotation mints a segment rather than the moment a relaunch resumes one.
+    ///
+    /// The Wheel rotates a card's session on purpose, and the binding is
+    /// written against the id that was the card's when it was written. The
+    /// fresh segment carries none, and every reader of bound-ness is
+    /// live-only ([`Self::bound_sessions_by_dash`]) — so the instant the old
+    /// segment closes, a card mid-arc reads *unbound* while its arc record
+    /// still names it mid-stage. Moving the binding forward is what keeps the
+    /// rotation invisible to the work, which is the Wheel's whole promise.
+    ///
+    /// Moved, never copied, exactly as the plural does: the seated segment is
+    /// the one row that reports bound. Returns the dash it seated — the
+    /// caller's cue to announce the mating to the card — or `None` when there
+    /// was nothing to move: the row already holds a binding, wears no line, or
+    /// its line holds none.
+    pub fn seat_line_binding(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<(String, String)>, LedgerError> {
+        let seated;
+        {
+            let mut conn = self.db.lock().expect("ledger mutex");
+            let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+            let row: Option<(Option<String>, Option<String>)> = tx
+                .query_row(
+                    "SELECT line_id, dash_id FROM sessions WHERE session_id = ?1",
+                    params![session_id],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .optional()?;
+            // No row, no line, or already bound — the last of which is the
+            // ordinary case for every spawn that is not a rotation.
+            let Some((Some(line_id), None)) =
+                row.filter(|(line, _)| line.as_deref().is_some_and(|l| !l.is_empty()))
+            else {
+                return Ok(None);
+            };
+            let holder: Option<(String, String, Option<String>)> = tx
+                .query_row(
+                    "SELECT session_id, dash_id, dash_name FROM sessions
+                     WHERE line_id = ?1 AND dash_id IS NOT NULL AND session_id != ?2
+                     ORDER BY last_used_at DESC, rowid DESC
+                     LIMIT 1",
+                    params![line_id, session_id],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                )
+                .optional()?;
+            let Some((from, dash_id, dash_name)) = holder else {
+                return Ok(None);
+            };
+            // The display name is denormalized and may be absent on an older
+            // row; the owner key is the authority and reads well enough.
+            let dash_name = dash_name.unwrap_or_else(|| dash_id.clone());
+            tx.execute(
+                "UPDATE sessions SET dash_id = ?2, dash_name = ?3 WHERE session_id = ?1",
+                params![session_id, dash_id, dash_name],
+            )?;
+            tx.execute(
+                "UPDATE sessions SET dash_id = NULL, dash_name = NULL WHERE session_id = ?1",
+                params![from],
+            )?;
+            tx.commit()?;
+            seated = Some((dash_id, dash_name));
+        }
+        self.notify_sessions_changed();
+        Ok(seated)
     }
 
     /// Transition a row to `failed`. Replaces the previous "remove on
@@ -13122,6 +13244,230 @@ mod tests {
             Some("tugdash/demo#1")
         );
         assert!(l.get("b").unwrap().unwrap().dash_id.is_none());
+    }
+
+    // ── live_segment_of ──────────────────────────────────────────────────────
+
+    /// The shape the Wheel leaves behind: a line whose stages have each
+    /// rotated a fresh id, with only the newest segment live. `$TUG_SESSION_ID`
+    /// inside that card still names the first one.
+    fn rotated_line(l: &SessionLedger) {
+        l.record_spawn(
+            "seg-old",
+            WS_A,
+            "/proj",
+            "card-1",
+            millis(3),
+            "line-1",
+            None,
+        )
+        .unwrap();
+        l.demote_live_to_closed().unwrap();
+        l.record_spawn(
+            "seg-mid",
+            WS_A,
+            "/proj",
+            "card-1",
+            millis(2),
+            "line-1",
+            None,
+        )
+        .unwrap();
+        l.demote_live_to_closed().unwrap();
+        l.record_spawn(
+            "seg-new",
+            WS_A,
+            "/proj",
+            "card-1",
+            millis(1),
+            "line-1",
+            None,
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn live_segment_of_expands_a_stale_id_to_the_seated_segment() {
+        let l = fresh();
+        rotated_line(&l);
+        // The id the stage was spawned under, two rotations back.
+        assert_eq!(
+            l.live_segment_of("seg-old").unwrap().as_deref(),
+            Some("seg-new"),
+        );
+        assert_eq!(
+            l.live_segment_of("seg-new").unwrap().as_deref(),
+            Some("seg-new"),
+            "and the ordinary case resolves to itself"
+        );
+        assert_eq!(
+            l.live_segment_of("never-seen").unwrap(),
+            None,
+            "an id this ledger has never seen is nobody's segment"
+        );
+    }
+
+    #[test]
+    fn a_line_whose_every_segment_closed_has_no_live_segment() {
+        let l = fresh();
+        rotated_line(&l);
+        l.demote_live_to_closed().unwrap();
+        assert_eq!(
+            l.live_segment_of("seg-old").unwrap(),
+            None,
+            "the answer is that the card has gone, not the id that was asked"
+        );
+    }
+
+    #[test]
+    fn a_line_of_one_answers_for_itself_and_only_while_live() {
+        let l = fresh();
+        seed_live(&l, "solo", WS_A, "card-1", millis(1));
+        assert_eq!(l.live_segment_of("solo").unwrap().as_deref(), Some("solo"));
+        l.mark_closed("solo").unwrap();
+        assert_eq!(l.live_segment_of("solo").unwrap(), None);
+    }
+
+    // ── seat_line_binding ────────────────────────────────────────────────────
+
+    #[test]
+    fn a_rotation_carries_the_dash_onto_the_segment_it_seats() {
+        let l = fresh();
+        l.record_spawn(
+            "stage-1",
+            WS_A,
+            "/proj",
+            "card-1",
+            millis(2),
+            "line-1",
+            None,
+        )
+        .unwrap();
+        l.set_dash_binding("stage-1", Some(("tugdash/demo#1", "demo")))
+            .unwrap();
+        assert_eq!(
+            l.bound_sessions_by_dash().unwrap().get("tugdash/demo#1"),
+            Some(&vec!["stage-1".to_string()]),
+        );
+
+        // The Wheel seats the next stage: a fresh segment on the same line.
+        l.demote_live_to_closed().unwrap();
+        l.record_spawn(
+            "stage-2",
+            WS_A,
+            "/proj",
+            "card-1",
+            millis(1),
+            "line-1",
+            None,
+        )
+        .unwrap();
+        assert_eq!(
+            l.bound_sessions_by_dash().unwrap().get("tugdash/demo#1"),
+            None,
+            "before the carry, a card mid-arc reads unbound the moment it rotates",
+        );
+
+        assert_eq!(
+            l.seat_line_binding("stage-2").unwrap(),
+            Some(("tugdash/demo#1".to_string(), "demo".to_string())),
+            "and the carry is what the caller announces to the card",
+        );
+        assert_eq!(
+            l.bound_sessions_by_dash().unwrap().get("tugdash/demo#1"),
+            Some(&vec!["stage-2".to_string()]),
+        );
+        assert!(
+            l.get("stage-1").unwrap().unwrap().dash_id.is_none(),
+            "moved, never copied",
+        );
+        assert_eq!(
+            l.seat_line_binding("stage-2").unwrap(),
+            None,
+            "seated once, nothing to move"
+        );
+    }
+
+    #[test]
+    fn seat_line_binding_leaves_an_unbound_or_already_bound_segment_alone() {
+        let l = fresh();
+        // A line with no dash anywhere on it — the ordinary spawn.
+        l.record_spawn(
+            "plain-1",
+            WS_A,
+            "/proj",
+            "card-1",
+            millis(2),
+            "line-1",
+            None,
+        )
+        .unwrap();
+        l.record_spawn(
+            "plain-2",
+            WS_A,
+            "/proj",
+            "card-1",
+            millis(1),
+            "line-1",
+            None,
+        )
+        .unwrap();
+        assert_eq!(l.seat_line_binding("plain-2").unwrap(), None);
+
+        // A segment that already carries its own binding keeps it, rather than
+        // taking a sibling's.
+        l.record_spawn("own-1", WS_A, "/proj", "card-2", millis(2), "line-2", None)
+            .unwrap();
+        l.set_dash_binding("own-1", Some(("tugdash/one#1", "one")))
+            .unwrap();
+        l.record_spawn("own-2", WS_A, "/proj", "card-2", millis(1), "line-2", None)
+            .unwrap();
+        l.set_dash_binding("own-2", Some(("tugdash/two#1", "two")))
+            .unwrap();
+        assert_eq!(l.seat_line_binding("own-2").unwrap(), None);
+        assert_eq!(
+            l.get("own-2").unwrap().unwrap().dash_name.as_deref(),
+            Some("two"),
+        );
+
+        assert_eq!(
+            l.seat_line_binding("never-seen").unwrap(),
+            None,
+            "and an id this ledger does not hold moves nothing"
+        );
+    }
+
+    // ── set_dash_binding's live-only guard ───────────────────────────────────
+
+    #[test]
+    fn a_binding_cannot_be_written_onto_a_demoted_segment() {
+        let l = fresh();
+        rotated_line(&l);
+        assert!(
+            !l.set_dash_binding("seg-old", Some(("tugdash/demo#1", "demo")))
+                .unwrap(),
+            "the corpse refuses the write instead of reporting a success about it",
+        );
+        assert!(l.get("seg-old").unwrap().unwrap().dash_id.is_none());
+        assert!(
+            l.set_dash_binding("seg-new", Some(("tugdash/demo#1", "demo")))
+                .unwrap(),
+            "and the seated segment takes it",
+        );
+    }
+
+    #[test]
+    fn clearing_a_stale_binding_off_a_dead_row_is_allowed() {
+        let l = fresh();
+        seed_live(&l, "solo", WS_A, "c1", millis(1));
+        l.set_dash_binding("solo", Some(("tugdash/demo#1", "demo")))
+            .unwrap();
+        l.demote_live_to_closed().unwrap();
+        assert!(
+            l.set_dash_binding("solo", None).unwrap(),
+            "housekeeping is not the hazard the guard is for",
+        );
+        assert!(l.get("solo").unwrap().unwrap().dash_id.is_none());
     }
 
     // ── demote_live_to_closed ────────────────────────────────────────────────
