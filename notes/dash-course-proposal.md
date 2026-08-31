@@ -1,81 +1,67 @@
-# Two courses on one wheel: the `/dash` and `/dash-plan` retrofit
+# One wheel, two doors: the document is the course
 
-**Status:** proposal, the "next conversation" that `notes/dash-wheel-retrenchment.md` promised. It answers that note's five questions and lays out the change. Not yet a brief or a plan — the shape wants agreement first.
+**Status:** proposal, second round. The first round of this note proposed a recorded course kind — a `CourseKind` enum on the arc record, a `--course` flag on `tugtool dash run`, a per-kind branch in the progression predicate, a changed implement ask, a new stop reason, and an environment-variable rename. That design was rejected 2026-08-31, and the `dash-courses` plan built on it is discarded with it. This round replaces it. Not yet a brief or a plan — the shape wants agreement first.
+
+---
+
+## What is wanted {#want}
+
+`/dash-plan` already does everything wanted: sharpen, hand to the Wheel, devise → review → implement → audit, one step per turn, compaction between steps, a cold audit at the end, the join offered through the Changes shade. `/dash` needs to use that same machinery in simplified form — the same wheel, minus the settling stages. Nothing else.
 
 ---
 
 ## The corrected model {#model}
 
-Both doors run under the Wheel. Both open on a **brief**. They differ only in how much settling happens between the brief and the first line of implementation:
+The first round's mistake was one sentence: *"the runner distinguishes the courses by the recorded kind, never by sniffing the document."* Telling the machinery which course it is running is what cost five layers — every layer needed a slot to carry the telling. But the wheel **already** derives its progression from documents: `start_action` in `tugrust/crates/tugcast/src/feeds/dash_arc.rs` rotates to review when the input lints as a plan and to devise when it is a brief. The corrected model extends that derivation by one arm instead of adding a parallel channel of state:
 
-- **`/dash`** — brief → steps → implement → review-after-work → fixups → write-up, join offered.
-- **`/dash-plan`** — brief → devise a plan (`tuglaws/devise-skeleton.md`) → plan review, cold, fixups applied → steps from the plan's ledger → implement → review-after-work → fixups → write-up, join offered.
+**The documents the door writes are the course.** Both doors sharpen in the invoking conversation, write documents to the dash's own address, run `tugtool dash run <name>`, and end the turn. They differ only in what they write:
 
-`/dash-plan` is `/dash` plus extra time up front: the devise stage and the cold plan review. Everything downstream of the ledger — one step per turn, compaction between steps, the post-work review of the code against the steps, the brief, and the user's stated intent — is identical in the two courses.
+- **`/dash-plan`** writes `brief.md`. The wheel sees a brief → **devise → review → implement → audit**. This is today's brief-only arc, verbatim — the plan course changes *zero machinery*.
+- **`/dash`** writes `brief.md` **and `tasks.md`** — the task list, in the minimal ledger shape. The wheel sees a task list → **implement → audit**, walking `tasks.md` exactly as the plan course walks a plan's ledger.
 
-**The brief is the shared entry artifact.** The invoking conversation's job, at either door, is to produce or accept one:
+No recorded kind, no `--course` flag, no wire change, no new stop reason, no environment rename. Two distinct filenames make the discrimination *addressing*, not sniffing — the same mechanism `start_action` already uses, with one more case.
 
-- A document conforming to `tuglaws/brief-skeleton.md` handed in with the invocation is used as-is.
-- Otherwise the door session generates one — from the prompt, from the session conversation, or from other documents including source files — and this is where the sharpening conversation's richness lands: the settled calls become `[B##]` decisions, the observations become `[F##]` findings, so nothing the conversation decided is lost to the fresh session that reads the brief cold.
-
-Either way the brief is written (or copied) to the dash's own address, `.tug/dashes/<name>/brief.md`, because the name is the address on every verb. Then the door hands over — `tugtool dash run <name> --course …` — and ends the turn, which is the hand-off. The door session never creates a worktree, never writes a plan, never implements.
-
-This reverses one decision now standing in `tugplug/skills/dash-plan/SKILL.md` ("The plan is written here, and there is no brief"). That design had the invoking conversation author the plan inline so the arc could open at review. Under this proposal the plan course is exactly today's *brief-only* arc — devise → review → implement → audit — which the current skill calls "the older route". The older route was the right one; the brief carries the conversation's settling forward, and the devise stage reads it cold, which the inline-authored plan never got.
+**Why the door writes the task list.** The first round had the implement stage's first cold turn author it, which is what required the `TaskListMissing` stop reason, a `ledger_parsed` fact, and a special first ask — a whole gate apparatus policing a document's existence. All of it evaporates when the document exists before the arc opens. And the door conversation is the *better* author anyway: it holds the sharpening context, and the task list is (round one's own words) bookkeeping rather than a design artifact wanting a cold read. `/dash`'s cold read is the audit at the end.
 
 ---
 
-## The retrenchment questions, answered {#answers}
+## The two documents {#documents}
 
-**1. What is `/dash`'s progression?** Steps → implement → review-after-work. The task list is the **first act of the implement stage's first turn**, not a stage of its own: `/dash`'s economy is its point, the task list is bookkeeping rather than a design artifact wanting a cold read, and `/dash`'s cold read is the review-after-work at the end. (The alternative — a separate `steps` stage on its own rotation — buys a cold read of the brief at the cost of one more session; if the brief is subtle enough for that to matter, the work wanted `/dash-plan`.)
+**`brief.md`** — the six beats of `tuglaws/brief-skeleton.md`, carrying the sharpening conversation's settled calls as `[B##]` decisions and `[F##]` findings, so the fresh sessions downstream lose nothing. Shared entry artifact of both courses; a conforming brief handed in with the invocation is used as-is.
 
-**2. Does a `/dash` course get a cold review at all?** Yes — the review-after-work, on a fresh session, for both courses. What distinguishes `/dash-plan` is the cold review of the *plan*, before any code exists. `/dash` skips settling-time review, never landed-code review.
+**`tasks.md`** — an `{#execution-steps}` section over a `{#step-status-ledger}`, the same rows `tugtool dash step` drives today. It is never linted as a plan: `plan lint` on it errors, and that is correct — it has no metadata, no specs, no review record, because it is not a plan. The ledger *parser* is indifferent to what surrounds the rows, which is why the implement machinery can walk it unchanged.
 
-**3. What does the environment variable become?** `TUG_DASH_COURSE`, value the dash name — the rename `tuglaws/wheel.md:120` deferred. The stage skills read it as "the wheel is driving this dash"; none needs the course *kind* in the environment, because the one behavioral fork (does implement author the task list first?) is answered more robustly by the documents themselves: a dash with a plan walks it, a dash with only a brief and a `--course dash` record writes the task list. The kind lives in the course's durable record, where the runner reads it.
-
-**4. The lens-breakout dash mid-run** — the user's call; see [below](#lens-breakout).
-
-**5. Does the ten-step guardrail survive?** Not as a veto. Under the wheel, step count stops being a proxy for "too big for one turn" — no run is one turn. It survives as a door-time advisory only: a `/dash` door session whose generated brief reads plan-shaped (many interdependent parts, order itself a problem) says so in a sentence and offers `/dash-plan`, then does what the user says. Nothing asks mid-run; the never-ask list stands.
-
----
-
-## The stage roster after the change {#stages}
-
-| Stage | Course | What it does | Skill |
-|---|---|---|---|
-| devise | plan only | Author the plan from the brief, against the devise skeleton, lint clean | `dash-devise` (already correct — the model for the others) |
-| review | plan only | Read the plan cold, judge against rubric and real code, apply fixups, stamp | `dash-review`, off-arc branch dropped |
-| implement | both | Walk the ledger, one step per turn, compaction between steps; **first turn of a dash course authors the task list from the brief** | `dash-implement`, off-arc branch dropped |
-| audit | both | Read the branch's whole diff cold against the steps, the plan (when one exists), the brief, and the stated intent; fix as rounds; refresh the draft; mark | `dash-audit` |
-
-The names `review` (of the plan) and `audit` (of the code) stay distinct even though the user-facing description of audit is "a review after the work" — renaming the stage would collide with the plan review and ripple through `ArcStage`, the stop reasons, and every divider. The write-up is the audit's existing ending: refresh the join draft, `tugtool dash mark <name> audited`, and the arc's arming offers the join through the Changes shade as it does today.
-
-The **task list** a dash course authors keeps its current minimal shape — an `{#execution-steps}` section over a `{#step-status-ledger}`, parsing for `tugtool dash step`, never linted as a plan. The runner distinguishes the courses by the recorded kind, never by sniffing the document, so a task list that happens to lint proves nothing and a plan with a diagnostic sends nobody to the wrong stage.
+**Precedence: `plan.md` outranks `tasks.md`.** A dash with both is a plan-course dash. The escape hatch when a `/dash` turns out to need real settling is therefore not a mode switch: discard `tasks.md`, rerun, and the derivation routes through devise as if the task list had never existed. No machinery knows about "upgrading" because there is nothing to upgrade — only documents present or absent.
 
 ---
 
 ## What the change touches {#work-list}
 
-The retrenchment note's survey, now with decisions attached:
+1. **`tugrust/crates/tugdash-core/src/ops.rs`** — `tasks_file()` beside `brief_file()` / `plan_file()`; the `dash documents` verb learns the address.
+2. **`tugrust/crates/tugcast/src/feeds/dash_arc_runner.rs`** — `read()` resolves one *ledger source*: `plan.md` when present, else `tasks.md`, through the same base-until-adoption path resolution the plan already gets. `start_action` gains the arm: no plan, task list present → rotate to implement. `implement_action` and `audit_action` are untouched — they read `StepLedgerFacts` and never knew where the rows came from.
+3. **`tugtool dash step`** — resolves the same ledger source, so marking rows works identically on either document.
+4. **`tugplug/skills/dash/SKILL.md`** — rewritten whole as a door: orient, accept or generate the brief, author the task list from it, write both, `tugtool dash run <name>`, say what happens next, end the turn. The frontmatter description ("no brief, no plan review, no arc") is user-visible and is the most wrong sentence in the file. No worktree, no implementation, no in-thread audit.
+5. **`tugplug/skills/dash-plan/SKILL.md`** — the inline plan authoring comes out; sharpening ends in a **brief**; the hand-off writes it and runs `tugtool dash run <name>`. This reverses "The plan is written here, and there is no brief": the brief carries the conversation's settling forward, and the devise stage reads it cold, which the inline-authored plan never got.
+6. **Doctrine** — the lane preamble of `tuglaws/dash-work-doctrine.md` (two doors, both handing to the wheel, differing in settling) and the dash-family roster paragraph of `tugplug/CLAUDE.md`. `tuglaws/wheel.md`'s course section gets the one-arm derivation described, nothing more.
+7. **The implement ask** — verify the wording in `tugrust/crates/tugcast/src/wheel/prompt.rs` reads correctly when the ledger is a task list; expected nil or a word.
 
-- **`tugrust/crates/tugdash-core/src/arc.rs`** and **`tugrust/crates/tugcast/src/feeds/dash_arc_runner.rs`.** The arc record gains a course kind (`dash` | `plan`); the runner's progression is per-kind. The plan course is today's brief path unchanged. The dash course is new and small: open implement directly (its first prompt says the task list is its first act), then audit. `tugtool dash run <name>` grows `--course`, defaulting to `plan` — today's derivation (plan → review, brief → devise) is the plan course, so existing dashes resume unchanged.
-- **`tugrust/crates/tugcast/src/wheel/mod.rs`** and the stage-object wire. `TUG_DASH_ARC` → `TUG_DASH_COURSE`; the `arc` field on the stage object follows. Mechanical, but it is the widening `tuglaws/wheel.md:120` reserved, so that paragraph is rewritten in the same round.
-- **`tuglaws/dash-work-doctrine.md`.** The lane preamble at `:5` rewritten — two doors, both handing to the wheel, differing in settling. `:112`–`:114`: keep the turn-end reasoning, delete the off-arc second discipline; the rule becomes simply *a step boundary is a turn boundary, and `--through` names the run's declared end throughout*. `:229` *No sub-agents* rewritten: the intent (one thread holding context, tight user loop) survives; under the wheel it is served by rotation onto sessions that read the documents cold, not by refusing to rotate.
-- **`tugplug/skills/dash/SKILL.md`.** Rewritten whole: from "you do the work yourself, in this thread" to a door — orient, accept or generate the brief, write it to the dash address, `tugtool dash run <name> --course dash`, say what happens next, end the turn. The frontmatter description ("no arc") is user-visible and goes first.
-- **`tugplug/skills/dash-plan/SKILL.md`.** The inline plan authoring comes out; sharpening ends in a **brief**, not a plan. Orient and Sharpen survive nearly as written; Size-it's advisory inverts (one clear change → offer `/dash`); Hand off writes the brief and runs `--course plan`.
-- **`tugplug/skills/dash-implement/SKILL.md`, `dash-review/SKILL.md`.** Off-arc branches dropped; each takes `dash-devise`'s shape — a stage of a course, refusing to run outside one. Whether `/tugplug:dash-implement` typed by hand becomes a course of one stage or stops being a door is the one open sub-question; recommend the former, since the expert path is cheap to keep once a one-stage course exists (`wheel.md` already defines one).
-- **`tugplug/CLAUDE.md`.** The dash-family roster paragraph re-stated in the corrected model.
-- **`.tugtool/config.toml`.** No new knobs required: `implement_compact_tokens` and the per-stage models apply to both courses as-is. A dash course's implement stage runs on `implement_model`, its audit on the audit model, same as the plan course.
+**Explicitly not in this change:** the `TUG_DASH_ARC` → `TUG_DASH_COURSE` rename (a follow-up, purely mechanical, wanted by nothing above), stage skills refusing to run outside a course (hardening, later), and every other step of the discarded nine-step plan.
 
 ---
 
-## The lens-breakout dash {#lens-breakout}
+## Answers that survive from round one {#kept}
 
-Steps 1–3 are landed and green; step 4 is open and empty, blocked on the retrenchment. Two honest options:
+- **Cold review.** Both courses get one — the audit, on a fresh session, of the landed code. `/dash` skips settling-time review only, never landed-code review.
+- **The stage roster** — devise and review are plan-course-only; implement and audit serve both; `review` (of the plan) and `audit` (of the code) keep their distinct names.
+- **The ten-step guardrail** becomes a door-time advisory: a `/dash` brief that reads plan-shaped earns one sentence offering `/dash-plan`, and the door then does what the user says. One clear change at the `/dash-plan` door earns the inverse sentence. Never an `AskUserQuestion`; nothing asks mid-run.
+- **`.tugtool/config.toml`** — no new knobs; the per-stage models and `implement_compact_tokens` apply to both courses as-is.
+- **Lens-breakout** — the midpoint is joined (`14e9b6b48`); the remainder waits and runs as an early passenger of the corrected machinery.
 
-- **Land the midpoint now** (three cards out, the Lens reduced to one section — the join draft already describes exactly this) and run steps 4–7 as a fresh dash under the new machinery once it exists. Cleanest, and nothing about the midpoint is incoherent.
-- **Resume 4–7 by hand first** — `/tugplug:dash-review` then `/tugplug:dash-implement` under today's rules — if waiting on the retrofit is worse than one more old-rules run.
+---
 
-Recommend the first: the retrofit is itself dash-sized work, and lens-breakout's remainder is a natural first passenger for the new `/dash-plan` course.
+## How this lands {#landing}
+
+Dashes are broken mid-retrofit, so this work does not ride a dash. The sequence is: the discarded `dash-courses` dash and its plan are torn down; the user commits this proposal; on the user's go-ahead the work is implemented **directly on `main`**, in review-sized commits, the user landing each. Only after it lands do the doors reopen.
 
 ---
 
