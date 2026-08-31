@@ -257,14 +257,8 @@
   position: absolute;
   top: 50%;
   left: 50%;
-  width: calc(
-    var(--tugx-progress-pulsing-dot-dot-size) *
-      var(--tugx-progress-pulsing-dot-figure-scale, 1)
-  );
-  height: calc(
-    var(--tugx-progress-pulsing-dot-dot-size) *
-      var(--tugx-progress-pulsing-dot-figure-scale, 1)
-  );
+  width: var(--tugx-progress-pulsing-dot-dot-size);
+  height: var(--tugx-progress-pulsing-dot-dot-size);
   border-radius: var(--tugx-progress-pulsing-dot-figure-radius, 999px);
   background-color: var(--tugx-progress-indicator-fill, currentColor);
   transform-origin: center center;
@@ -310,12 +304,32 @@
  * sessions with agents still running, while the hundreds of settled glyphs
  * down a restored transcript are all circles.
  *
- * `--…-figure-scale` is 1/√2 because a square's corners stand further from
- * its center than its edges do — √2 further. Without it a diamond would reach
- * 41% past the circle it replaces, overflowing the box the caller reserved;
- * with it, the diamond's POINTS land exactly where the circle's edge did, and
- * mark and pulse shrink together, so the birth radius still finds the mark's
- * edge waiting for it.
+ * The 1/√2 is there because a square's corners stand further from its center
+ * than its edges do — √2 further. Without it a diamond would reach 41% past
+ * the circle it replaces, overflowing the box the caller reserved; with it,
+ * the diamond's POINTS land exactly where the circle's edge did, and mark and
+ * pulse shrink together, so the birth radius still finds the mark's edge
+ * waiting for it.
+ *
+ * **It is one scale on the ROOT, and not `--…-figure-scale` on the three
+ * figures.** Those are the same drawing and they are not the same pixels.
+ * Sending an irrational through the figures' own width/height puts it in each
+ * LAYOUT box — at a 12px glyph the mark becomes 4.2426px inside an 8.4853px
+ * pulse — and the browser snaps every box onto the device grid on its own.
+ * The two land a half device pixel apart, which on a mark eight device pixels
+ * across reads as a dot sitting off toward one corner of its own pulse. That
+ * is the regression at0493 pins for the circle, arriving by the other door,
+ * and the cure is the same one: whole, same-parity geometry. Scaling the root
+ * keeps it. The figures stay the circle's own whole boxes — 6px centered in
+ * 12px, offsets whole at 1x and at 2x — so they snap together or not at all,
+ * and the root's single matrix then carries all three down rigidly,
+ * concentric by construction.
+ *
+ * The stroke is the one thing a root scale takes that a figure scale left
+ * alone: a border shrinks with everything else under it. So the ring width is
+ * multiplied back by √2 here, which makes the APPARENT stroke — and its 1px
+ * floor — the width it was authored as. That is the same conversion
+ * `--…-pulse-end-width` already does for the reach.
  *
  * **The two figures share a shape and not a tone, and the split is the
  * message.** Every other glyph in this file paints its mark and its ring from
@@ -331,11 +345,13 @@
  * separately: same figure is geometry, and it is what keeps the pulse off the
  * mark; same tone was never load-bearing for anything. */
 .tug-progress-pulsing-dot[data-shape="diamond"] {
-  --tugx-progress-pulsing-dot-figure-scale: 0.70710678;
   --tugx-progress-pulsing-dot-figure-radius: 0;
   --tugx-progress-pulsing-dot-pulse-ink: currentColor;
+  --tugx-progress-pulsing-dot-ring-width: calc(
+    max(1px, calc(var(--tugx-progress-pulsing-dot-size) / 16)) * 1.41421356
+  );
 
-  transform: rotate(45deg);
+  transform: rotate(45deg) scale(0.70710678);
 }
 
 /* The stroked circle, doing both of its jobs.
@@ -354,13 +370,11 @@
   left: 50%;
   width: calc(
     var(--tugx-progress-pulsing-dot-size) *
-      var(--tugx-progress-pulsing-dot-presence, 1) *
-      var(--tugx-progress-pulsing-dot-figure-scale, 1)
+      var(--tugx-progress-pulsing-dot-presence, 1)
   );
   height: calc(
     var(--tugx-progress-pulsing-dot-size) *
-      var(--tugx-progress-pulsing-dot-presence, 1) *
-      var(--tugx-progress-pulsing-dot-figure-scale, 1)
+      var(--tugx-progress-pulsing-dot-presence, 1)
   );
   border-radius: var(--tugx-progress-pulsing-dot-figure-radius, 999px);
   border: var(--tugx-progress-pulsing-dot-ring-width) solid
@@ -419,13 +433,11 @@
 .tug-progress-pulsing-dot[data-static] .tug-progress-pulsing-dot-dot {
   width: calc(
     var(--tugx-progress-pulsing-dot-dot-size) *
-      var(--tugx-progress-pulsing-dot-static-scale, 1) *
-      var(--tugx-progress-pulsing-dot-figure-scale, 1)
+      var(--tugx-progress-pulsing-dot-static-scale, 1)
   );
   height: calc(
     var(--tugx-progress-pulsing-dot-dot-size) *
-      var(--tugx-progress-pulsing-dot-static-scale, 1) *
-      var(--tugx-progress-pulsing-dot-figure-scale, 1)
+      var(--tugx-progress-pulsing-dot-static-scale, 1)
   );
   inset: 0;
   margin: auto;
@@ -448,14 +460,8 @@
   position: absolute;
   top: 50%;
   left: 50%;
-  width: calc(
-    var(--tugx-progress-pulsing-dot-size) *
-      var(--tugx-progress-pulsing-dot-figure-scale, 1)
-  );
-  height: calc(
-    var(--tugx-progress-pulsing-dot-size) *
-      var(--tugx-progress-pulsing-dot-figure-scale, 1)
-  );
+  width: var(--tugx-progress-pulsing-dot-size);
+  height: var(--tugx-progress-pulsing-dot-size);
   border-radius: var(--tugx-progress-pulsing-dot-figure-radius, 999px);
   border: var(--tugx-progress-pulsing-dot-pulse-end-width) solid
     var(

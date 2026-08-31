@@ -32,6 +32,19 @@
  * the pill's own border. The assertion is the general one: the run's clipping
  * box must hold the ink inside it.
  *
+ * **3. The diamond painted its mark off-centre inside its own pulse.** The
+ * same defect as (1), arriving by the other door. The diamond shape drew its
+ * three figures at 1/√2 of the circle's boxes, which put an irrational in
+ * every LAYOUT box — a 12px glyph's mark became 4.2426px inside an 8.4853px
+ * pulse — and the two snapped apart by half a device pixel at some sub-pixel
+ * offsets while the pulse's own width flickered between 20 and 22 device px.
+ * The cure is the cure from (1): the figures keep the circle's whole boxes and
+ * the ROOT carries the 1/√2, so all three go down under one matrix. The two
+ * marks are separated here by TONE — the diamond's mark is the working cobalt
+ * and its pulse is the idle ink — so this probe splits them by colour rather
+ * than by radius, and clones the glyphs onto a surface of their own so no
+ * neighbouring caption lands in the crop.
+ *
  * Gating: `describe.skipIf(!SHOULD_RUN)`.
  *
  * @covers tugdeck/src/lib/atom-register.ts
@@ -52,6 +65,9 @@ const SHIFTS = [0, 0.2, 0.25, 0.3, 0.5, 0.75];
 
 /** How far apart the two ink centroids may sit, in device px. */
 const CONCENTRIC_TOLERANCE = 0.25;
+
+/** The same, for the big treatment's fractional mark box — see the loop. */
+const BIG_TOLERANCE = 0.5;
 
 interface MarkProbe {
   innerWidth: number;
@@ -226,6 +242,141 @@ async function rasterAt(app: App, shift: number): Promise<MarkRaster[]> {
   return out;
 }
 
+/**
+ * The diamond probe's own surface.
+ *
+ * The diamond ships on the STATE cell at 12px and on the Lens row at 28px, and
+ * the gallery card shows the second of those. Each indicator that holds one is
+ * cloned onto a plain fixed-position panel — clone rather than measure in
+ * place, because a gallery cell's caption sits a few pixels from the glyph and
+ * would land in the crop — and the first clone is forced down to the STATE
+ * cell's 12px, which is the size the defect was reported at. The loops are
+ * paused at a fixed phase so the pulse is mid-travel and lit in every
+ * screenshot; `shift` moves the whole panel onto a sub-pixel offset the way
+ * an odd row height moves a pill.
+ */
+const diamondSetupJs = (shift: number): string => `(function () {
+  var old = document.getElementById('diamond-probe');
+  if (old !== null) old.remove();
+  if (document.getElementById('diamond-probe-style') === null) {
+    var s = document.createElement('style');
+    s.id = 'diamond-probe-style';
+    s.textContent = '.tug-progress-pulsing-dot-dot, .tug-progress-pulsing-dot-ring { animation-play-state: paused !important; animation-delay: -1150ms !important; }';
+    document.head.appendChild(s);
+  }
+  var panel = document.createElement('div');
+  panel.id = 'diamond-probe';
+  panel.style.cssText = 'position:fixed; left:' + (60 + ${shift}) + 'px; top:' + (60 + ${shift}) + 'px; z-index:99999; background:#16181d; color:#8b93a1; padding:30px; display:flex; gap:60px;';
+  Array.from(document.querySelectorAll('.tug-progress-indicator')).filter(function (n) {
+    return n.querySelector('.tug-progress-pulsing-dot[data-shape="diamond"]') !== null;
+  }).forEach(function (n, i) {
+    var clone = n.cloneNode(true);
+    if (i === 0) {
+      var g = clone.querySelector('.tug-progress-pulsing-dot');
+      g.style.setProperty('--tugx-progress-pulsing-dot-size', '12px');
+      g.style.setProperty('--tugx-progress-pulsing-dot-dot-size', '6px');
+    }
+    panel.appendChild(clone);
+  });
+  document.body.appendChild(panel);
+  var out = [];
+  Array.from(panel.querySelectorAll('.tug-progress-pulsing-dot')).forEach(function (g) {
+    var r = g.getBoundingClientRect();
+    out.push({
+      size: getComputedStyle(g).getPropertyValue('--tugx-progress-pulsing-dot-size').trim(),
+      glyph: [r.left, r.top, r.width, r.height],
+    });
+  });
+  return { innerWidth: window.innerWidth, dpr: window.devicePixelRatio, marks: out };
+})()`;
+
+interface DiamondProbe {
+  innerWidth: number;
+  dpr: number;
+  marks: { size: string; glyph: [number, number, number, number] }[];
+}
+
+interface DiamondRaster {
+  size: string;
+  dx: number;
+  dy: number;
+  markWidth: number;
+  pulseWidth: number;
+}
+
+/** Weighted centroid and extent of a set of ink samples, in crop coordinates. */
+function centroidOf(
+  samples: { x: number; y: number; w: number }[],
+): Blob | null {
+  let sx = 0;
+  let sy = 0;
+  let sw = 0;
+  let x0 = Infinity;
+  let x1 = -Infinity;
+  for (const s of samples) {
+    sx += s.x * s.w;
+    sy += s.y * s.w;
+    sw += s.w;
+    if (s.x < x0) x0 = s.x;
+    if (s.x > x1) x1 = s.x;
+  }
+  if (sw === 0) return null;
+  return { cx: sx / sw, cy: sy / sw, w: x1 - x0 + 1, h: 0 };
+}
+
+/**
+ * Screenshot the probe panel and measure each diamond's mark against its pulse.
+ *
+ * The split is by TONE, not by radius: the mark is the working cobalt and the
+ * pulse is the idle ink, so a blue-minus-red test separates them cleanly and
+ * neither figure's extent has to be guessed at.
+ */
+async function diamondRasterAt(
+  app: App,
+  shift: number,
+): Promise<DiamondRaster[]> {
+  const probe = await app.evalJS<DiamondProbe>(diamondSetupJs(shift));
+  // One frame for the panel to land before the snapshot is taken.
+  await new Promise((resolve) => setTimeout(resolve, 400));
+  const shot = await app.screenshot();
+  const png = decodePngFile(shot.path);
+  const scale = png.width / probe.innerWidth;
+  const out: DiamondRaster[] = [];
+
+  for (const mark of probe.marks) {
+    const [gl, gt, gw, gh] = mark.glyph;
+    const pad = 12;
+    const x0 = Math.round((gl - pad) * scale);
+    const y0 = Math.round((gt - pad) * scale);
+    const w = Math.round((gw + pad * 2) * scale);
+    const h = Math.round((gh + pad * 2) * scale);
+    const cobalt: { x: number; y: number; w: number }[] = [];
+    const idle: { x: number; y: number; w: number }[] = [];
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const i = ((y0 + y) * png.width + (x0 + x)) * 4;
+        const r = png.rgba[i]!;
+        const g = png.rgba[i + 1]!;
+        const b = png.rgba[i + 2]!;
+        const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+        if (b - r > 30) cobalt.push({ x, y, w: b - r });
+        else if (lum > 45) idle.push({ x, y, w: lum - 30 });
+      }
+    }
+    const dot = centroidOf(cobalt);
+    const pulse = centroidOf(idle);
+    if (dot === null || pulse === null) continue;
+    out.push({
+      size: mark.size,
+      dx: dot.cx - pulse.cx,
+      dy: dot.cy - pulse.cy,
+      markWidth: dot.w,
+      pulseWidth: pulse.w,
+    });
+  }
+  return out;
+}
+
 describe.skipIf(!SHOULD_RUN)("the session atom's mark and label", () => {
   test(
     "the dot paints concentric with its ring at every sub-pixel offset",
@@ -266,6 +417,48 @@ describe.skipIf(!SHOULD_RUN)("the session atom's mark and label", () => {
           expect(clip.inkTop).toBeGreaterThanOrEqual(0);
           expect(clip.inkBottom).toBeGreaterThanOrEqual(0);
         }
+      } finally {
+        await app.close();
+      }
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  test(
+    "the diamond's mark paints concentric with its pulse at every offset",
+    async () => {
+      const app = await launchTugApp({ testName: "at0493-diamond-raster" });
+      try {
+        await app.dispatchControlAction("show-card", {
+          component: "gallery-tug-progress-indicator",
+        });
+        await app.waitForCondition<boolean>(
+          `document.querySelectorAll('.tug-progress-pulsing-dot[data-shape="diamond"]').length > 0`,
+          { timeoutMs: 15_000 },
+        );
+
+        const widths = new Set<number>();
+        for (const shift of SHIFTS) {
+          const marks = await diamondRasterAt(app, shift);
+          note(`at0493 diamond shift=${shift}: ${JSON.stringify(marks)}`);
+          expect(marks.length).toBeGreaterThan(0);
+          for (const mark of marks) {
+            // 12px is the STATE cell, where the geometry is whole and the two
+            // figures are coincident. The 28px cell is the big treatment,
+            // whose dot ratio (0.6) makes a 16.8px mark box for the diamond
+            // and the circle alike — a fractional box that snaps up to half a
+            // device pixel on its own, which is a separate defect from this
+            // one and not the diamond's.
+            const tolerance =
+              mark.size === "12px" ? CONCENTRIC_TOLERANCE : BIG_TOLERANCE;
+            expect(Math.abs(mark.dx)).toBeLessThanOrEqual(tolerance);
+            expect(Math.abs(mark.dy)).toBeLessThanOrEqual(tolerance);
+            if (mark.size === "12px") widths.add(mark.pulseWidth);
+          }
+        }
+        // The pulse is the same figure at every offset — the width that
+        // flickered by a device pixel is what the snap was doing to it.
+        expect(widths.size).toBe(1);
       } finally {
         await app.close();
       }
