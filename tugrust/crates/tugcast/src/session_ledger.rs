@@ -290,15 +290,6 @@ pub enum LedgerError {
     #[error("migration failed: {0}")]
     MigrationFailed(String),
 
-    /// A `/rename` asked for a spelling another line already wears as its
-    /// user-set name ([P11]). The gesture is refused rather than taking the
-    /// name, and the holder rides along so the refusal can say who has it.
-    #[error("name already worn by line {holder_line_id} ({holder_tag})")]
-    NameTaken {
-        holder_line_id: String,
-        holder_tag: String,
-    },
-
     #[error("serde error: {0}")]
     Serde(#[from] serde_json::Error),
 
@@ -729,6 +720,17 @@ pub struct LineRow {
     pub project_dir: String,
     pub created_at: i64,
     pub last_used_at: i64,
+}
+
+/// A line a `/rename` took a user-set name away from ([P11]). The newest
+/// naming gesture wins, so the previous holder falls back to its callsign and
+/// the rename's ack reports who was displaced — the loss is announced, never
+/// silent.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DisplacedName {
+    pub line_id: String,
+    /// The displaced line's callsign, which is what its chip falls back to.
+    pub tag: String,
 }
 
 /// One line's ownership shape ([P01]) — the answer to "who is this body of
@@ -1672,8 +1674,9 @@ impl SessionLedger {
             );
 
             -- A user-set name is unique across lines, enforced at the write
-            -- ([P11]): a rename onto a taken name is refused, visibly, rather
-            -- than displacing whoever wears it. Auto titles are exempt —
+            -- ([P11]): a rename onto a taken name TAKES it, clearing the
+            -- previous holder's name in the same transaction, so the newest
+            -- gesture wins and the index still holds. Auto titles are exempt —
             -- two lines may perfectly well be auto-titled the same thing.
             CREATE UNIQUE INDEX IF NOT EXISTS lines_user_name
                 ON lines(name) WHERE name_user_set = 1;
@@ -4478,54 +4481,79 @@ impl SessionLedger {
     /// Set (or clear) the **line's** user-assigned name ([P11], `/rename`).
     /// `None` clears it. `NotFound` if the line id is unknown.
     ///
-    /// **A user-set name is unique across lines, and a taken one is refused.**
-    /// The refusal names the holder so the gesture can say who has it, and
-    /// nothing is written — which is the whole of the change from the rule
-    /// [D141] used to state. Taking the name displaced another line's title
-    /// silently, at a distance, to satisfy an invariant a `UNIQUE` index
-    /// enforces at the write for free.
+    /// **A user-set name is unique across lines, and the newest `/rename`
+    /// wins.** A name another line already wears is taken from it: the holder's
+    /// name and its user-set bit are cleared in this same transaction, so the
+    /// partial `UNIQUE` index is satisfied at the write and the displaced line
+    /// falls back to its callsign. The displaced lines are returned so the
+    /// caller can push their rows and say whose name was taken — a rename is
+    /// never refused for a spelling, and the loss is never silent.
     ///
     /// The comparison is exact-match on the spelling asked for. Clearing a
-    /// name can never be refused.
-    pub fn rename(&self, line_id: &str, name: Option<&str>) -> Result<(), LedgerError> {
+    /// name displaces nothing.
+    pub fn rename(
+        &self,
+        line_id: &str,
+        name: Option<&str>,
+    ) -> Result<Vec<DisplacedName>, LedgerError> {
         let mut conn = self.db.lock().expect("ledger mutex");
         // Immediate, because the read of who wears the name and the write that
         // takes it must not interleave with another rename.
         let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        // The target is proved to exist BEFORE anything is displaced: a rename
+        // addressed at an unknown line must not strip the name off the line
+        // that legitimately wears it.
+        let known: Option<i64> = tx
+            .query_row(
+                "SELECT 1 FROM lines WHERE line_id = ?1",
+                params![line_id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        if known.is_none() {
+            return Err(LedgerError::NotFound(line_id.to_owned()));
+        }
+        let mut displaced: Vec<DisplacedName> = Vec::new();
         if let Some(wanted) = name {
-            let holder: Option<(String, String)> = tx
-                .query_row(
+            {
+                let mut stmt = tx.prepare(
                     "SELECT line_id, tag FROM lines
-                     WHERE name = ?1 AND name_user_set = 1 AND line_id != ?2
-                     LIMIT 1",
-                    params![wanted, line_id],
-                    |row| Ok((row.get(0)?, row.get(1)?)),
-                )
-                .optional()?;
-            if let Some((holder_line_id, holder_tag)) = holder {
-                return Err(LedgerError::NameTaken {
-                    holder_line_id,
-                    holder_tag,
-                });
+                     WHERE name = ?1 AND name_user_set = 1 AND line_id != ?2",
+                )?;
+                let rows = stmt.query_map(params![wanted, line_id], |row| {
+                    Ok(DisplacedName {
+                        line_id: row.get(0)?,
+                        tag: row.get(1)?,
+                    })
+                })?;
+                for row in rows {
+                    displaced.push(row?);
+                }
+            }
+            // Cleared, not rewritten: the holder loses the name outright and
+            // its chip falls back to the callsign, the same resting state a
+            // line that was never named wears.
+            for holder in &displaced {
+                tx.execute(
+                    "UPDATE lines SET name = NULL, name_user_set = 0 WHERE line_id = ?1",
+                    params![holder.line_id],
+                )?;
             }
         }
         // Setting a name marks it user-set (the chip then shows it); clearing it
         // drops the bit so the chip falls back to the callsign.
         let user_set = i64::from(name.is_some());
-        let affected = tx.execute(
+        tx.execute(
             "UPDATE lines SET name = ?2, name_user_set = ?3 WHERE line_id = ?1",
             params![line_id, name, user_set],
         )?;
-        if affected == 0 {
-            return Err(LedgerError::NotFound(line_id.to_owned()));
-        }
         tx.commit()?;
         // Dropped before the broadcast, as every neighbouring writer that grew
         // a transaction does — a transaction makes the held-lock window that
         // much wider.
         drop(conn);
         self.notify_sessions_changed();
-        Ok(())
+        Ok(displaced)
     }
 
     /// Mark a session in or out of the Overview ([P05]).
@@ -12305,11 +12333,11 @@ mod tests {
         assert!(matches!(err, LedgerError::NotFound(ref id) if id == "nope"));
     }
 
-    /// A user-set name is unique across lines, and a taken one is refused —
-    /// visibly, naming the holder ([P11]). Nothing is written, which is the
-    /// whole of the change from the displacement rule this replaced.
+    /// A user-set name is unique across lines, and the newest `/rename` takes
+    /// it ([P11]): the previous holder loses the name and falls back to its
+    /// callsign, and the write reports whom it took the name from.
     #[test]
-    fn a_rename_to_a_taken_name_is_refused() {
+    fn a_rename_to_a_taken_name_takes_it() {
         let l = fresh();
         let now = millis(0);
         seed_live(&l, "s1", WS_A, "card-1", now);
@@ -12317,26 +12345,24 @@ mod tests {
         let holder_tag = l.get("s1").unwrap().unwrap().tag.expect("a callsign");
 
         l.rename("s1", Some("the parser work")).unwrap();
-        let err = l.rename("s2", Some("the parser work")).unwrap_err();
-        match err {
-            LedgerError::NameTaken {
-                ref holder_line_id,
-                holder_tag: ref reported,
-            } => {
-                assert_eq!(holder_line_id, "s1");
-                assert_eq!(reported, &holder_tag, "the refusal says who has it");
-            }
-            other => panic!("expected NameTaken, got {other:?}"),
-        }
+        let displaced = l.rename("s2", Some("the parser work")).unwrap();
+        assert_eq!(
+            displaced,
+            vec![DisplacedName {
+                line_id: "s1".to_owned(),
+                tag: holder_tag,
+            }],
+            "the write says whose name it took"
+        );
 
-        // Both sides are where they were: the holder keeps the name, and the
-        // refused line is untouched rather than half-written.
+        // The name moved: the previous holder is back to its callsign and the
+        // line that asked for the name wears it.
         let a = l.get("s1").unwrap().unwrap();
-        assert_eq!(a.name.as_deref(), Some("the parser work"));
-        assert!(a.name_user_set);
+        assert_eq!(a.name, None);
+        assert!(!a.name_user_set);
         let b = l.get("s2").unwrap().unwrap();
-        assert_eq!(b.name, None);
-        assert!(!b.name_user_set);
+        assert_eq!(b.name.as_deref(), Some("the parser work"));
+        assert!(b.name_user_set);
     }
 
     #[test]
@@ -12345,9 +12371,9 @@ mod tests {
         seed_live(&l, "s1", WS_A, "card-1", millis(0));
         l.rename("s1", Some("steady")).unwrap();
 
-        // The `line_id != ?2` guard: without it a line would be refused its
-        // own name.
-        l.rename("s1", Some("steady")).unwrap();
+        // The `line_id != ?2` guard: without it a line would displace itself,
+        // clearing the name in the same transaction that writes it.
+        assert!(l.rename("s1", Some("steady")).unwrap().is_empty());
         let r = l.get("s1").unwrap().unwrap();
         assert_eq!(r.name.as_deref(), Some("steady"));
         assert!(r.name_user_set);
@@ -12356,14 +12382,18 @@ mod tests {
     #[test]
     fn a_rename_ignores_an_auto_title_wearing_the_same_words() {
         // `name_user_set = 0` is a title the machine wrote, not a name the user
-        // spent. Only a name somebody chose can block another line's rename.
+        // spent. Only a name somebody chose is taken by another line's rename.
         let l = fresh();
         let now = millis(0);
         seed_live(&l, "s1", WS_A, "card-1", now);
         seed_live(&l, "s2", WS_A, "card-2", now);
         l.record_auto_title("s1", "a shared spelling").unwrap();
 
-        l.rename("s2", Some("a shared spelling")).unwrap();
+        assert!(
+            l.rename("s2", Some("a shared spelling"))
+                .unwrap()
+                .is_empty()
+        );
         assert_eq!(
             l.get("s1").unwrap().unwrap().name.as_deref(),
             Some("a shared spelling"),
@@ -12376,14 +12406,14 @@ mod tests {
     }
 
     #[test]
-    fn clearing_a_name_is_never_refused() {
+    fn clearing_a_name_displaces_nothing() {
         let l = fresh();
         let now = millis(0);
         seed_live(&l, "s1", WS_A, "card-1", now);
         seed_live(&l, "s2", WS_A, "card-2", now);
         l.rename("s1", Some("kept")).unwrap();
 
-        l.rename("s2", None).unwrap();
+        assert!(l.rename("s2", None).unwrap().is_empty());
         assert_eq!(l.get("s1").unwrap().unwrap().name.as_deref(), Some("kept"));
     }
 
@@ -12394,12 +12424,10 @@ mod tests {
         l.rename("s1", Some("held")).unwrap();
 
         let err = l.rename("nope", Some("held")).unwrap_err();
-        // The holder is found first, so an unknown line asking for a name
-        // somebody wears is refused as taken rather than as missing. Either
-        // way nothing is written.
-        assert!(matches!(err, LedgerError::NameTaken { .. }));
-        // The transaction rolled back, so the name it would have taken is
-        // still where it was.
+        // The target's existence is proved BEFORE anything is displaced, so a
+        // rename addressed at nothing cannot strip the name off the line that
+        // wears it.
+        assert!(matches!(err, LedgerError::NotFound(ref id) if id == "nope"));
         let r = l.get("s1").unwrap().unwrap();
         assert_eq!(r.name.as_deref(), Some("held"));
         assert!(r.name_user_set);

@@ -83,10 +83,22 @@ export function useRenameSessionSheet({
         previous,
         (settle) => {
           if (settle.ok) {
+            // A name another line wore is taken by the newest gesture ([P11]),
+            // and the bulletin says whom it was taken from — a name that
+            // vanished off another card unannounced would be a change at a
+            // distance.
+            const takenFrom = (settle.displaced ?? [])
+              .map((holder) => holder.tag)
+              .filter((tag) => tag.length > 0);
             bulletin?.success(
               trimmed.length === 0
                 ? "Session name cleared"
                 : `Session renamed to “${trimmed}”`,
+              takenFrom.length === 0
+                ? undefined
+                : {
+                    description: `The name was taken from ${takenFrom.join(", ")}.`,
+                  },
             );
             return;
           }
@@ -95,13 +107,7 @@ export function useRenameSessionSheet({
               ? "The session was not renamed"
               : `The session is still named “${previous}”`,
             {
-              // A name another line already wears is refused, and the refusal
-              // names the holder ([P11]) — the user learns who has it rather
-              // than watching a gesture do nothing.
-              description:
-                settle.holderTag === undefined
-                  ? renameRefusalDetail(settle.reason)
-                  : `“${trimmed}” belongs to ${settle.holderTag}.`,
+              description: renameRefusalDetail(settle.reason),
               sticky: true,
             },
           );

@@ -25,6 +25,12 @@
  * so an unreconciled optimistic name is permanent. A line is seated on exactly
  * one card, so the line id addresses the waiter as precisely as a card id would.
  *
+ * A name another line already wears is NOT a refusal: the newest `/rename`
+ * takes it ([P11]), and the ack lists the lines it was taken from so the
+ * bulletin can say so. The displaced lines' own entries are cleared from the
+ * ack, and tugcast's `session_updated` push for each of them says the same
+ * thing authoritatively a moment later.
+ *
  * @module lib/session-name-store
  */
 
@@ -35,12 +41,20 @@ export interface NameSettle {
   /** Wire reason from `rename_session_err` — absent when `ok`. */
   reason?: string;
   /**
-   * The callsign of the line already wearing the requested name, present only
-   * on a `name_taken` refusal ([P11]). A user-set name is unique at the write,
-   * so a rename onto a taken one takes nothing — it is refused, and the
-   * bulletin says who holds it.
+   * The lines this rename took the name away from, present only when it took
+   * one ([P11]). A user-set name is unique at the write and the newest
+   * gesture wins, so a rename onto a name somebody wears succeeds and reports
+   * whom it took it from — the bulletin says so rather than letting a name
+   * vanish off another card unannounced.
    */
-  holderTag?: string;
+  displaced?: DisplacedLine[];
+}
+
+/** A line that lost its user-set name to somebody else's `/rename`. */
+export interface DisplacedLine {
+  lineId: string;
+  /** The callsign its chip falls back to. */
+  tag: string;
 }
 
 class SessionNameStore {
@@ -162,8 +176,6 @@ export function renameRefusalDetail(reason: string | undefined): string {
   switch (reason) {
     case "not_found":
       return "This session has no line to name.";
-    case "name_taken":
-      return "Another session already has that name.";
     case "no_ledger":
       return "The session ledger is unavailable.";
     case "ledger_write_failed":

@@ -744,8 +744,10 @@ export function encodeTrashSession(sessionId: string, projectDir?: string): Fram
  * The address is the line's id, not a session's: the name is the
  * conversation's title, and a rename that landed on a segment would be lost
  * the next time the card's claude id changed. A name another line already
- * wears is refused with `name_taken` — a visible reason, never a silent
- * displacement.
+ * wears is TAKEN from it — the newest `/rename` wins, the previous holder
+ * falls back to its callsign, and `rename_session_ok` carries a `displaced`
+ * list naming the lines it was taken from, so the loss is announced rather
+ * than silent.
  */
 export function encodeRenameSession(lineId: string, name: string): Frame {
   return controlFrame(CONTROL_ACTION_RENAME_SESSION, {

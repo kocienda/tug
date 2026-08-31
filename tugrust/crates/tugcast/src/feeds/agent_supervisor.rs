@@ -8550,6 +8550,13 @@ impl AgentSupervisor {
     /// the client renames optimistically, so the name is what lets it tell this
     /// ack from the one for a rename it has already superseded — and a refusal
     /// no client can place is a refusal it cannot undo.
+    ///
+    /// **The newest naming gesture wins**: a spelling another line already
+    /// wears is taken from it rather than refused ([P11]). Each displaced line
+    /// gets the same treatment the renamed one does — a `session_renamed` fact
+    /// recording the loss, and a `session_updated` push so its chip falls back
+    /// to its callsign without a re-fetch — and the ack's `displaced` list
+    /// names them so the gesture can say whose name it took.
     async fn do_rename_session(&self, line_id: &str, name: Option<&str>) {
         let refuse = |reason: &str| {
             let body = serde_json::json!({
@@ -8575,7 +8582,7 @@ impl AgentSupervisor {
         };
         let old_name = line.name;
         match ledger.rename(line_id, name) {
-            Ok(()) => {
+            Ok(displaced) => {
                 // The fact files under the segment a resume would seat. The
                 // fact base is keyed by session id, and that segment is the id
                 // every other fact about this conversation is landing under.
@@ -8607,10 +8614,53 @@ impl AgentSupervisor {
                             .send(build_session_updated_frame(&row, metrics));
                     }
                 }
+                // Every line the name was taken from is un-taught the same way
+                // the renamed one is taught: the loss is a fact on its own
+                // conversation, and the push is what makes its chip fall back
+                // to the callsign live. The name it lost is the spelling that
+                // was asked for — there is nothing else it could have been.
+                for holder in &displaced {
+                    let Some(segment) = ledger
+                        .resume_segment_for_line(&holder.line_id)
+                        .ok()
+                        .flatten()
+                    else {
+                        continue;
+                    };
+                    if let Err(err) =
+                        ledger.record_fact(&crate::feeds::facts_library::session_renamed_fact(
+                            crate::session_ledger::now_millis(),
+                            &segment.session_id,
+                            name,
+                            None,
+                        ))
+                    {
+                        warn!(
+                            error = %err,
+                            line_id = holder.line_id.as_str(),
+                            "displaced-rename fact write failed"
+                        );
+                    }
+                    if let Ok(Some(row)) = ledger.get(&segment.session_id) {
+                        let metrics = ledger.scan_metrics_for(&segment.session_id).unwrap_or(None);
+                        let _ = self
+                            .control_tx
+                            .send(build_session_updated_frame(&row, metrics));
+                    }
+                }
                 let body = serde_json::json!({
                     "action": "rename_session_ok",
                     "line_id": line_id,
                     "name": name,
+                    // The lines that lost this name to the gesture, so the
+                    // bulletin can say who it was taken from ([P11]).
+                    "displaced": displaced
+                        .iter()
+                        .map(|holder| serde_json::json!({
+                            "line_id": holder.line_id,
+                            "tag": holder.tag,
+                        }))
+                        .collect::<Vec<_>>(),
                 });
                 let _ = self.control_tx.send(Frame::new(
                     FeedId::CONTROL,
@@ -8618,22 +8668,6 @@ impl AgentSupervisor {
                 ));
             }
             Err(crate::session_ledger::LedgerError::NotFound(_)) => refuse("not_found"),
-            // A name another line already wears ([P11]). The refusal names the
-            // holder, so the sheet can say who has it rather than reporting a
-            // write that quietly did nothing.
-            Err(crate::session_ledger::LedgerError::NameTaken { holder_tag, .. }) => {
-                let body = serde_json::json!({
-                    "action": "rename_session_err",
-                    "line_id": line_id,
-                    "name": name,
-                    "reason": "name_taken",
-                    "holder_tag": holder_tag,
-                });
-                let _ = self.control_tx.send(Frame::new(
-                    FeedId::CONTROL,
-                    serde_json::to_vec(&body).expect("rename_session_err serializes"),
-                ));
-            }
             Err(err) => {
                 warn!(error = %err, line_id, "rename_session ledger error");
                 refuse("ledger_write_failed");
@@ -17211,13 +17245,11 @@ mod tests {
         assert_eq!(err["name"], "harbor light");
     }
 
-    /// A rename onto a name another line wears is refused, and the refusal
-    /// names the holder ([P11]). Nothing is written and nothing is pushed —
-    /// which is the whole of the change from the displacement rule this
-    /// replaced: there is no second row to un-teach, because no second row was
-    /// touched.
+    /// A rename onto a name another line wears TAKES it ([P11]): the newest
+    /// gesture wins, the previous holder falls back to its callsign, and the
+    /// ack names whom the name was taken from so the gesture can say so.
     #[tokio::test]
-    async fn rename_by_line_refuses_a_taken_name() {
+    async fn rename_by_line_takes_a_taken_name() {
         let (sup, ledger, mut rx) = make_supervisor_with_ledger();
         ledger
             .record_spawn("first", "ws-1", "/proj", "card-A", 1_000, "line-A", None)
@@ -17237,27 +17269,29 @@ mod tests {
             .await
             .expect_handled();
 
-        let err = drain_until_action(&mut rx, "rename_session_err");
-        assert_eq!(err["reason"], "name_taken");
-        assert_eq!(err["line_id"], "line-B");
+        let ack = drain_until_action(&mut rx, "rename_session_ok");
+        assert_eq!(ack["line_id"], "line-B");
+        assert_eq!(ack["displaced"][0]["line_id"], serde_json::json!("line-A"));
         assert_eq!(
-            err["holder_tag"],
+            ack["displaced"][0]["tag"],
             serde_json::json!(
                 ledger
                     .get("first")
                     .unwrap()
                     .unwrap()
                     .tag
-                    .expect("the holder wears a callsign")
+                    .expect("the displaced line wears a callsign")
             )
         );
 
-        // The holder keeps the name, and the refused line took nothing.
+        // The name moved: the previous holder lost it, the renamed line wears
+        // it.
+        assert_eq!(ledger.get("first").unwrap().unwrap().name, None);
+        assert!(!ledger.get("first").unwrap().unwrap().name_user_set);
         assert_eq!(
-            ledger.get("first").unwrap().unwrap().name.as_deref(),
+            ledger.get("second").unwrap().unwrap().name.as_deref(),
             Some("harbor light")
         );
-        assert_eq!(ledger.get("second").unwrap().unwrap().name, None);
     }
 
     /// The name lands on the **line**, so every segment of it reads the new

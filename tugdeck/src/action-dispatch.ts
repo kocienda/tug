@@ -1321,7 +1321,27 @@ export function initActionDispatch(
     const lineId = payload.line_id;
     if (typeof lineId !== "string" || lineId.length === 0) return;
     const name = typeof payload.name === "string" ? payload.name : null;
-    sessionNameStore.settle(lineId, name, { ok: true });
+    // The lines this rename took the name from ([P11]): the newest gesture
+    // wins, so their chips fall back to their callsigns here rather than
+    // waiting on the `session_updated` push that says the same thing
+    // authoritatively a moment later.
+    const displaced = Array.isArray(payload.displaced)
+      ? payload.displaced.flatMap((entry) => {
+          if (entry === null || typeof entry !== "object") return [];
+          const holder = entry as Record<string, unknown>;
+          const holderLineId = holder.line_id;
+          const tag = holder.tag;
+          if (typeof holderLineId !== "string" || holderLineId.length === 0) {
+            return [];
+          }
+          return [{ lineId: holderLineId, tag: typeof tag === "string" ? tag : "" }];
+        })
+      : [];
+    for (const holder of displaced) sessionNameStore.setName(holder.lineId, null);
+    sessionNameStore.settle(lineId, name, {
+      ok: true,
+      displaced: displaced.length > 0 ? displaced : undefined,
+    });
   });
   registerAction("rename_session_err", (payload) => {
     console.warn("rename_session failed", payload);
@@ -1331,10 +1351,6 @@ export function initActionDispatch(
     sessionNameStore.settle(lineId, name, {
       ok: false,
       reason: typeof payload.reason === "string" ? payload.reason : undefined,
-      // The line already wearing the name, so the bulletin can say who holds
-      // it rather than reporting a write that quietly did nothing ([P11]).
-      holderTag:
-        typeof payload.holder_tag === "string" ? payload.holder_tag : undefined,
     });
   });
 

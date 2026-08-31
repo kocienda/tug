@@ -1203,23 +1203,28 @@ describe("rename_session acks", () => {
     expect(settles).toEqual([{ ok: true }]);
   });
 
-  it("names the line already wearing a taken name ([P11])", () => {
-    // A user-set name is unique at the write, so a rename onto a taken one
-    // takes nothing. The refusal names the holder, which is what lets the
-    // bulletin say who has it instead of reporting a silent no-op.
+  it("takes a name off the line that wore it ([P11])", () => {
+    // A user-set name is unique at the write and the newest gesture wins, so
+    // a rename onto a taken one TAKES it: the ack names the displaced line,
+    // whose cached name is dropped here so its chip falls back to its
+    // callsign without waiting on the push.
     const settles: NameSettle[] = [];
     sessionNameStore.setName("sess", "old");
+    sessionNameStore.setName("line-holder", "harbor light");
     renameTo("harbor light", settles);
     dispatchAction({
-      action: "rename_session_err",
+      action: "rename_session_ok",
       line_id: "sess",
       name: "harbor light",
-      reason: "name_taken",
-      holder_tag: "stocky-pixie",
+      displaced: [{ line_id: "line-holder", tag: "stocky-pixie" }],
     });
-    expect(sessionNameStore.getName("sess")).toBe("old");
+    expect(sessionNameStore.getName("sess")).toBe("harbor light");
+    expect(sessionNameStore.getName("line-holder")).toBe(null);
     expect(settles).toEqual([
-      { ok: false, reason: "name_taken", holderTag: "stocky-pixie" },
+      {
+        ok: true,
+        displaced: [{ lineId: "line-holder", tag: "stocky-pixie" }],
+      },
     ]);
   });
 

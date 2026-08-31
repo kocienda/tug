@@ -44,7 +44,7 @@ describe("sessionNameStore", () => {
     unsubscribe();
   });
 
-  test("a refused rename restores the name and names the holder", () => {
+  test("a refused rename restores the name", () => {
     const settles: NameSettle[] = [];
     sessionNameStore.setName("n-took", "old");
     sessionNameStore.awaitSettle("n-took", "harbor light", "old", (s) =>
@@ -52,21 +52,35 @@ describe("sessionNameStore", () => {
     );
     sessionNameStore.settle("n-took", "harbor light", {
       ok: false,
-      reason: "name_taken",
-      holderTag: "stocky-pixie",
+      reason: "ledger_write_failed",
     });
-    // A taken name is refused, so the old name goes back and the refusal names
-    // who holds the one that was asked for ([P11]).
     expect(sessionNameStore.getName("n-took")).toBe("old");
-    expect(settles[0]?.holderTag).toBe("stocky-pixie");
+    expect(settles[0]?.reason).toBe("ledger_write_failed");
   });
 
-  test("a settled rename hands the waiter no holder", () => {
+  test("a rename that took nobody's name hands the waiter no displacement", () => {
     const settles: NameSettle[] = [];
     sessionNameStore.awaitSettle("n-alone", "unspoken for", null, (s) =>
       settles.push(s),
     );
     sessionNameStore.settle("n-alone", "unspoken for", { ok: true });
-    expect(settles[0]?.holderTag).toBeUndefined();
+    expect(settles[0]?.displaced).toBeUndefined();
+  });
+
+  test("a rename that took a name hands the waiter who lost it", () => {
+    const settles: NameSettle[] = [];
+    sessionNameStore.awaitSettle("n-taker", "harbor light", null, (s) =>
+      settles.push(s),
+    );
+    // The newest gesture wins ([P11]), so the settle carries the lines the
+    // name was taken from — the bulletin says so rather than letting a name
+    // vanish off another card unannounced.
+    sessionNameStore.settle("n-taker", "harbor light", {
+      ok: true,
+      displaced: [{ lineId: "n-held", tag: "stocky-pixie" }],
+    });
+    expect(settles[0]?.displaced).toEqual([
+      { lineId: "n-held", tag: "stocky-pixie" },
+    ]);
   });
 });

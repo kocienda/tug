@@ -399,9 +399,10 @@ export function useSessionIdentity(
  *
  * There is no collision exception, because a collision can no longer occur:
  * a user-set name is unique across lines at the write, and a name another line
- * already wears is refused with the holder named ([D167]). Uniqueness at the
- * write is what retired the exception; the callsign the reader would have
- * needed to disambiguate with is a callsign there is nothing to disambiguate.
+ * already wears is TAKEN from it by the newer `/rename` — the previous holder
+ * falls back to its callsign ([D167]). Uniqueness at the write is what retired
+ * the exception; the callsign the reader would have needed to disambiguate
+ * with is a callsign there is nothing to disambiguate.
  *
  * With no name at all, the callsign IS the title and there is no second run.
  * The `callsign` run therefore appears only for an unnamed session, which is
