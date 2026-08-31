@@ -31,7 +31,8 @@
  * key view has descended into a row, Right / Left walk the row's accessories
  * and Left off the first one ascends — the arrow that entered walks.
  *
- * @covers tugdeck/src/components/lens/slot-picker.tsx
+ * @covers tugdeck/src/components/cards/slot-picker.tsx
+ * @covers tugdeck/src/components/cards/cards-card.tsx
  * @covers tugdeck/src/components/lens/sections/layouts-section.tsx
  * @covers tugdeck/src/components/jots/jots-card.tsx
  * @covers tugdeck/src/components/tugways/tug-list-view.tsx
@@ -96,7 +97,7 @@ function priorCardDeck() {
 async function kbdLabel(app: App): Promise<string | null> {
   return app.evalJS<string | null>(
     `(function(){
-      var el = document.querySelector('.jots-card [data-key-view-kbd], .lens-content [data-key-view-kbd]');
+      var el = document.querySelector('.jots-card [data-key-view-kbd], .cards-card [data-key-view-kbd], .lens-content [data-key-view-kbd]');
       return el === null ? null : el.getAttribute('aria-label');
     })()`,
   );
@@ -197,7 +198,7 @@ describe.skipIf(!SHOULD_RUN)("at0277 — Lens row accessories answer the keyboar
           await app.nativeKey("ArrowRight");
           await app.waitForCondition<boolean>(
             `(function(){
-              var el = document.querySelector('.jots-card [data-key-view-kbd], .lens-content [data-key-view-kbd]');
+              var el = document.querySelector('.jots-card [data-key-view-kbd], .cards-card [data-key-view-kbd], .lens-content [data-key-view-kbd]');
               return el !== null && el.getAttribute('aria-label') === 'Copy jot';
             })()`,
             { timeoutMs: 3_000 },
@@ -207,7 +208,7 @@ describe.skipIf(!SHOULD_RUN)("at0277 — Lens row accessories answer the keyboar
           // zero-width slot — the descend has to land somewhere the eye can see.
           expect(
             await app.evalJS<number>(
-              `Math.round(document.querySelector('.jots-card [data-key-view-kbd], .lens-content [data-key-view-kbd]').getBoundingClientRect().width)`,
+              `Math.round(document.querySelector('.jots-card [data-key-view-kbd], .cards-card [data-key-view-kbd], .lens-content [data-key-view-kbd]').getBoundingClientRect().width)`,
             ),
           ).toBeGreaterThan(0);
 
@@ -248,7 +249,7 @@ describe.skipIf(!SHOULD_RUN)("at0277 — Lens row accessories answer the keyboar
           await app.nativeKey("ArrowRight");
           await app.waitForCondition<boolean>(
             `(function(){
-              var el = document.querySelector('.jots-card [data-key-view-kbd], .lens-content [data-key-view-kbd]');
+              var el = document.querySelector('.jots-card [data-key-view-kbd], .cards-card [data-key-view-kbd], .lens-content [data-key-view-kbd]');
               return el !== null && el.getAttribute('aria-label') === 'Delete jot';
             })()`,
             { timeoutMs: 3_000 },
@@ -256,7 +257,7 @@ describe.skipIf(!SHOULD_RUN)("at0277 — Lens row accessories answer the keyboar
           await app.nativeKey("ArrowLeft");
           await app.waitForCondition<boolean>(
             `(function(){
-              var el = document.querySelector('.jots-card [data-key-view-kbd], .lens-content [data-key-view-kbd]');
+              var el = document.querySelector('.jots-card [data-key-view-kbd], .cards-card [data-key-view-kbd], .lens-content [data-key-view-kbd]');
               return el !== null && el.getAttribute('aria-label') === 'Copy jot';
             })()`,
             { timeoutMs: 3_000 },
@@ -272,7 +273,7 @@ describe.skipIf(!SHOULD_RUN)("at0277 — Lens row accessories answer the keyboar
           await app.nativeKey("ArrowRight");
           await app.waitForCondition<boolean>(
             `(function(){
-              var el = document.querySelector('.jots-card [data-key-view-kbd], .lens-content [data-key-view-kbd]');
+              var el = document.querySelector('.jots-card [data-key-view-kbd], .cards-card [data-key-view-kbd], .lens-content [data-key-view-kbd]');
               return el !== null && el.getAttribute('aria-label') === 'Copy jot';
             })()`,
             { timeoutMs: 3_000 },
@@ -350,19 +351,22 @@ describe.skipIf(!SHOULD_RUN)("at0277 — Lens row accessories answer the keyboar
             { timeoutMs: 3_000 },
           );
           await app.nativeKey(" ");
+          // The picker the commit lights up lives in the Cards card, so bring
+          // that rail up before looking for it.
+          await app.dispatchControlAction("toggle-cards");
           await app.waitForCondition<boolean>(
-            `document.querySelector('.lens-content [data-testid="lens-slot-picker"]') !== null`,
+            `document.querySelector('.cards-card [data-testid="cards-slot-picker"]') !== null`,
             { timeoutMs: 4_000 },
           );
 
           // ---- E. Descend into a Cards file row. Its accessories run leading
           // to trailing — the close box first, then the slots — so the first
           // Right lands on the close box and the second reaches slot 1.
-          await tabUntilKbd(app, ".lens-content .lens-cards-list");
+          await tabUntilKbd(app, ".cards-card .cards-list");
           await app.nativeKey("ArrowRight");
           await app.waitForCondition<boolean>(
             `(function(){
-              var el = document.querySelector('.jots-card [data-key-view-kbd], .lens-content [data-key-view-kbd]');
+              var el = document.querySelector('.jots-card [data-key-view-kbd], .cards-card [data-key-view-kbd], .lens-content [data-key-view-kbd]');
               return el !== null && (el.getAttribute('aria-label') || '').indexOf('Close ') === 0;
             })()`,
             { timeoutMs: 3_000 },
@@ -375,7 +379,7 @@ describe.skipIf(!SHOULD_RUN)("at0277 — Lens row accessories answer the keyboar
           // stands anywhere yet, and the claim here is about the WALK.
           const slotAt = (n: number): string =>
             `(function(){
-               var el = document.querySelector('.jots-card [data-key-view-kbd], .lens-content [data-key-view-kbd]');
+               var el = document.querySelector('.jots-card [data-key-view-kbd], .cards-card [data-key-view-kbd], .lens-content [data-key-view-kbd]');
                return el !== null
                  && el.getAttribute('data-slot') === 'tug-slot'
                  && el.textContent.trim() === '${n}';

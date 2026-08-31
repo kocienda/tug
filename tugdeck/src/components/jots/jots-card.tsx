@@ -88,11 +88,10 @@ import {
   useAttachedFilter,
   type AttachedFilterBinding,
 } from "@/components/tugways/attached-filter";
-// The Lens's one-line lists and this one are the same kind of surface — a dense
-// index of one-line handles read by scanning — so they keep sharing one
-// presentation. The constant is the Lens's to tune; a second copy here would be
-// two lists disagreeing about what a row looks like.
-import { LENS_LIST_PRESENTATION } from "@/components/lens/lens-list-presentation";
+// Every rail card's one-line list is the same kind of surface — a dense index
+// of one-line handles read by scanning — so they share one presentation. A
+// second copy here would be two lists disagreeing about what a row looks like.
+import { RAIL_LIST_PRESENTATION } from "@/components/tugways/rail-list-presentation";
 import { BlockDropCaret } from "@/components/lens/block-drop-caret";
 import { useBlockReorder } from "@/components/lens/block-reorder";
 import {
@@ -1254,7 +1253,7 @@ export function JotsContent({ cardId }: { cardId: string }): React.ReactElement 
                 attachedFilter={filter}
                 onSelectionChange={onSelectionChange}
                 initialSelectedIndex={initialSelectedIndex}
-                {...LENS_LIST_PRESENTATION}
+                {...RAIL_LIST_PRESENTATION}
                 className="jots-list"
               />
             </JotsCellContext>

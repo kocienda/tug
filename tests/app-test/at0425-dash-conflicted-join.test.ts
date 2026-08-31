@@ -93,7 +93,7 @@ const REGISTER = `${ROW} [data-slot="dash-join-register"]`;
 const CONFLICTS = `${ROW} [data-slot="session-changes-dash-join-conflicts"]`;
 const ARCHAEOLOGY = `${ROW} [data-slot="session-changes-dash-join-archaeology"]`;
 
-const LENS_SECTION = '.lens-section[data-lens-section="dashes"]';
+const DASHES_CARD = '.dashes-section';
 
 /** This checkout — the build under test, and never the tree a dash is cut in. */
 const CHECKOUT = realpathSync(resolve(import.meta.dir, "..", ".."));
@@ -211,15 +211,15 @@ describe.skipIf(!SHOULD_RUN)("AT0425: the conflicted landing face answers its co
         await app.spawnSessionResume("A", { tugSessionId: SID, projectDir: projectDir() });
         await app.awaitEngineReady("A", { timeoutMs: 15000 });
 
-        // The aggregate has composed the dash once the Lens roster lists it.
-        await app.dispatchControlAction("toggle-lens");
+        // The aggregate has composed the dash once the Dashes card lists it.
+        await app.dispatchControlAction("toggle-dashes");
         await app.waitForCondition<boolean>(
-          `document.querySelector('${LENS_SECTION} [data-slot="lens-dashes-row"][data-dash="${DASH}"]') !== null`,
+          `document.querySelector('${DASHES_CARD} [data-slot="dashes-row"][data-dash="${DASH}"]') !== null`,
           { timeoutMs: 30000 },
         );
-        await app.dispatchControlAction("toggle-lens");
+        await app.dispatchControlAction("toggle-dashes");
         await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(LENS_SECTION)}) === null`,
+          `document.querySelector(${JSON.stringify(DASHES_CARD)}) === null`,
           { timeoutMs: 8000 },
         );
 

@@ -2724,13 +2724,13 @@ export const ELEMENT_SURFACE_PAIRING_MAP: ElementSurfacePairing[] = [
   // has — and it went the same way the slot chip's accent did.
   { element: "--tug7-element-control-text-tinted-action-rest", surface: "--tug7-surface-global-primary-normal-default-rest", role: "control" },
 
-  // ---- lens-column-badge.css ----
-  // The badge's Lens mount paints each element of its glyph as the slot chip
+  // ---- cards-column-badge.css ----
+  // The badge's Cards-card mount paints each element of its glyph as the slot chip
   // beside it is painted, token for token — so the chip's own pairings (its
   // number and border against its fill, in tug-slot.css) carry over unchanged
   // and are not restated here. What IS new is the glyph's fill standing on the
   // row rather than inside a chip: a chip's fill is a surface everywhere else
-  // in the app, and here it is a shape on the Lens's ground.
+  // in the app, and here it is a shape on the card's ground.
   { element: "--tug7-surface-control-primary-tinted-action-rest", surface: "--tug7-surface-global-primary-normal-default-rest", role: "informational" },
   // The occupied element, wearing the selected chip's fill. Decorative, and
   // it is the argument the badge has always made: its job is to be told apart

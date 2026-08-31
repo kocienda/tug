@@ -56,6 +56,9 @@ import {
 } from "@/card-registry";
 import { LENS_CARD_ID } from "@/lib/lens-card-id";
 import { JOTS_CARD_ID } from "@/lib/jots-card-id";
+import { TRIPWIRES_CARD_ID } from "@/lib/tripwires-card-id";
+import { DASHES_CARD_ID } from "@/lib/dashes-card-id";
+import { CARDS_CARD_ID } from "@/lib/cards-card-id";
 import { OVERVIEW_CARD_ID } from "@/lib/overview-card-id";
 import { getJotsStore } from "@/lib/jots-store";
 import {
@@ -101,9 +104,9 @@ import {
 import { dispatchCommand } from "@/command-dispatch";
 import {
   attachLensSelectionToDeck,
-  lensSelectionStore,
-} from "@/components/lens/lens-selection-store";
-import { shrinkLensState } from "@/components/lens/lens-escape";
+  cardsSelectionStore,
+} from "@/components/cards/cards-selection-store";
+import { shrinkCardsState } from "@/components/cards/cards-escape";
 import { contentCardsInLayoutSelection } from "@/lib/layout-selection";
 import { flashCardPane, flashSlot } from "@/lib/flash-pane-border";
 import {
@@ -818,8 +821,8 @@ export function DeckCanvas(_props: DeckCanvasProps) {
   // within it. The root responder's `CANCEL_DIALOG` entry is registered off
   // this bit and nothing else reads it ([L02]).
   const hasLayoutSelection = useSyncExternalStore(
-    lensSelectionStore.subscribe,
-    () => lensSelectionStore.getSnapshot().ids.length > 0,
+    cardsSelectionStore.subscribe,
+    () => cardsSelectionStore.getSnapshot().ids.length > 0,
   );
   // The Lens pane carries no marker of its own — it is the pane hosting the
   // Lens card ([P04]). Resolved once here and reused by the z-order and the
@@ -1448,11 +1451,11 @@ export function DeckCanvas(_props: DeckCanvasProps) {
             [TUG_ACTIONS.CANCEL_DIALOG]: (_event: ActionEvent) => {
               // The same table the Lens's own responder runs, so the answer to
               // Escape does not change with where the keyboard happens to be
-              // standing — which was the whole complaint. `shrinkLensState`
+              // standing — which was the whole complaint. `shrinkCardsState`
               // takes the filter rung first if there is one; the focus-out rung
               // cannot be reached from here, since this entry is registered
               // only while a selection stands.
-              shrinkLensState();
+              shrinkCardsState();
             },
           }
         : {}),
@@ -1566,6 +1569,15 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       [TUG_ACTIONS.TOGGLE_JOTS]: (_event: ActionEvent) => {
         toggleSidebarCard(store, JOTS_CARD_ID);
       },
+      [TUG_ACTIONS.TOGGLE_TRIPWIRES]: (_event: ActionEvent) => {
+        toggleSidebarCard(store, TRIPWIRES_CARD_ID);
+      },
+      [TUG_ACTIONS.TOGGLE_DASHES]: (_event: ActionEvent) => {
+        toggleSidebarCard(store, DASHES_CARD_ID);
+      },
+      [TUG_ACTIONS.TOGGLE_CARDS]: (_event: ActionEvent) => {
+        toggleSidebarCard(store, CARDS_CARD_ID);
+      },
       [TUG_ACTIONS.TOGGLE_OVERVIEW]: (_event: ActionEvent) => {
         toggleSidebarCard(store, OVERVIEW_CARD_ID);
       },
@@ -1619,7 +1631,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
             // A restore is not the user moving on to `prior`, so it must not
             // create a layout selection of it — otherwise Escape alternates
             // forever, each focus-out making the set the next Escape clears.
-            lensSelectionStore.suppressNextAutoSelect();
+            cardsSelectionStore.suppressNextAutoSelect();
             transferFocusForActivation({
               outgoingCardId: currentFR,
               incomingCardId: prior,

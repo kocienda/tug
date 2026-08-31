@@ -55,7 +55,7 @@
  * @covers tugdeck/src/lib/shell-classify-store.ts
  * @covers tugdeck/src/lib/shell-line-classifier.ts
  * @covers tugdeck/src/components/tugways/session-masthead.tsx
- * @covers tugdeck/src/components/lens/sections/cards-section.tsx
+ * @covers tugdeck/src/components/cards/cards-card.tsx
  * @covers tugdeck/src/components/tugways/tug-prompt-entry.tsx
  */
 
@@ -84,7 +84,7 @@ const HEADLINE = `${PANE} [data-slot="tug-pulse-headline"]`;
 
 // The Lens's own row for the same session. Addressed the way
 // `at0257-lens-session-reorder.test.ts` addresses Sessions rows.
-const LENS_ROW = `.lens-cards-list .session-row-content[data-session-id="${SID}"]`;
+const LENS_ROW = `.cards-list .session-row-content[data-session-id="${SID}"]`;
 const LENS_INTENT = `${LENS_ROW} [data-slot="tug-pulse-headline"]`;
 
 let projectDir = "";
@@ -218,7 +218,7 @@ describe.skipIf(!SHOULD_RUN)(
           //    two separate readers of the same PULSE state, so a regression can
           //    land in one and not the other — the claim is only pinned where
           //    it is asserted.
-          await app.dispatchControlAction("toggle-lens");
+          await app.dispatchControlAction("toggle-cards");
           await app.waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(LENS_ROW)}) !== null`,
             { timeoutMs: 10_000 },

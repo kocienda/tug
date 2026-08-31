@@ -78,7 +78,7 @@ const RUN_DASH = "at0483-run";
 /** A dash that is only a brief: no plan, and no branch behind it. */
 const BRIEF_DASH = "at0483-brief";
 
-const CARDS = '.lens-section[data-lens-section="cards"]';
+const CARDS = '.cards-card';
 const SESSION_ROW = `${CARDS} [data-session-id="${SID}"]`;
 
 /** The mark on each of its two hosts, reached the way each host composes it. */
@@ -226,7 +226,7 @@ describe.skipIf(!SHOULD_RUN)("AT0483: the compact dash register", () => {
         await app.spawnSessionResume("A", { tugSessionId: SID, projectDir: projectDir() });
         await app.awaitEngineReady("A", { timeoutMs: 15000 });
 
-        await app.dispatchControlAction("toggle-lens");
+        await app.dispatchControlAction("toggle-cards");
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(SESSION_ROW)}) !== null`,
           { timeoutMs: 20000 },

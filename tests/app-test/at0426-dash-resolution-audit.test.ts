@@ -67,7 +67,7 @@ const CARD = '[data-card-id="A"]';
 const EDITOR = `${CARD} [data-slot="tug-text-editor"] .cm-content`;
 const SHEET = '[data-slot="session-changes-view"]';
 const LANE = `${SHEET} [data-slot="session-changes-dash-lane"]`;
-const LENS_SECTION = '.lens-section[data-lens-section="dashes"]';
+const DASHES_CARD = '.dashes-section';
 
 const CHECKOUT = realpathSync(resolve(import.meta.dir, "..", ".."));
 const FILE = "subject.txt";
@@ -182,12 +182,12 @@ async function resolveArc(app: App, arc: Arc): Promise<string> {
   bindDash(arc.scratch.repo, arc.dash, arc.sid, arc.scratch.cli);
   silenceJoinPrompt(arc.scratch.repo, arc.dash);
 
-  await app.dispatchControlAction("toggle-lens");
+  await app.dispatchControlAction("toggle-dashes");
   await app.waitForCondition<boolean>(
-    `document.querySelector('${LENS_SECTION} [data-slot="lens-dashes-row"][data-dash="${arc.dash}"]') !== null`,
+    `document.querySelector('${DASHES_CARD} [data-slot="dashes-row"][data-dash="${arc.dash}"]') !== null`,
     { timeoutMs: 30000 },
   );
-  await app.dispatchControlAction("toggle-lens");
+  await app.dispatchControlAction("toggle-dashes");
 
   // The dash is `built`, so the pilot reconciles it with nothing pressed.
   // `/dash-join` fronts the row so the audit's own surfaces render; it does

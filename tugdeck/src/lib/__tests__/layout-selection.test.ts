@@ -3,8 +3,8 @@
  *
  * The fact exists so a Window-menu item is live exactly when its chord would
  * act, which makes the interesting cases the ones where the two could part: a
- * Lens selection standing somewhere other than the fronted card, a cursor in
- * the Cards list with the Lens itself holding the keyboard, and the ends of a
+ * layout selection standing somewhere other than the fronted card, a cursor in
+ * the Cards list with the Cards card itself holding the keyboard, and the ends of a
  * column where the verb refuses.
  *
  * The deck is a `DeckState` fixture read through the same two queries
@@ -17,10 +17,10 @@
 import { afterEach, describe, expect, test } from "bun:test";
 
 import {
-  lensSelectionStore,
+  cardsSelectionStore,
   setLayoutCursorCard,
-} from "../../components/lens/lens-selection-store";
-import { LENS_CARD_ID } from "../lens-card-id";
+} from "../../components/cards/cards-selection-store";
+import { CARDS_CARD_ID } from "../cards-card-id";
 import { resolveColumnMenuFact } from "../layout-selection";
 import type { IDeckManagerStore } from "../../deck-manager-store";
 import type { CardState, DeckState, TugPaneState } from "../../layout-tree";
@@ -48,7 +48,7 @@ function makePane(
 
 /**
  * A three-up deck: two panes stacked in slot 0, one alone in slot 1, and the
- * Lens on its rail. `columns` overrides the arrangement of slot 0.
+ * Cards card on its rail. `columns` overrides the arrangement of slot 0.
  */
 function threeUp(overrides: Partial<DeckState> = {}): DeckState {
   return {
@@ -56,15 +56,15 @@ function threeUp(overrides: Partial<DeckState> = {}): DeckState {
       makeCard("card-a"),
       makeCard("card-b"),
       makeCard("card-c"),
-      makeCard(LENS_CARD_ID, "lens"),
+      makeCard(CARDS_CARD_ID, CARDS_CARD_ID),
     ],
     panes: [
       makePane("pane-a", "card-a", 0),
       makePane("pane-b", "card-b", 0),
       makePane("pane-c", "card-c", 1),
-      makePane("pane-lens", LENS_CARD_ID, undefined),
+      makePane("pane-cards", CARDS_CARD_ID, undefined),
     ],
-    imposition: { kind: "three-up", sidebars: { lens: { side: "right" } } },
+    imposition: { kind: "three-up", sidebars: { cards: { side: "right" } } },
     hasFocus: true,
     ...overrides,
   };
@@ -83,26 +83,26 @@ function storeOver(state: DeckState): IDeckManagerStore {
 }
 
 afterEach(() => {
-  lensSelectionStore.clear();
+  cardsSelectionStore.clear();
   setLayoutCursorCard(null);
 });
 
 describe("resolveColumnMenuFact", () => {
-  test("a Lens selection outranks the fronted card", () => {
+  test("a layout selection outranks the fronted card", () => {
     // The fronted card stands alone in slot 1 and has nothing to divide; the
     // selection stands in the stacked slot and does. The menu has to follow
     // the selection, because the chord does.
     const deck = storeOver(threeUp({ activePaneId: "pane-c" }));
     expect(resolveColumnMenuFact(deck)?.canSplit).toBe(false);
-    lensSelectionStore.pickOnly("card-a");
+    cardsSelectionStore.pickOnly("card-a");
     expect(resolveColumnMenuFact(deck)?.canSplit).toBe(true);
   });
 
-  test("the Cards list's cursor answers when the Lens holds the keyboard", () => {
-    // The first responder here is the Lens — a rail, which drops out — so
+  test("the Cards list's cursor answers when the Cards card holds the keyboard", () => {
+    // The first responder here is the Cards card — a rail, which drops out — so
     // without the cursor rung the fact would be null and the five items dark
     // while the user arrows through the very list they mean to act on.
-    const deck = storeOver(threeUp({ activePaneId: "pane-lens" }));
+    const deck = storeOver(threeUp({ activePaneId: "pane-cards" }));
     expect(resolveColumnMenuFact(deck)).toBeNull();
     setLayoutCursorCard("card-a");
     expect(resolveColumnMenuFact(deck)?.canSplit).toBe(true);
@@ -134,7 +134,7 @@ describe("resolveColumnMenuFact", () => {
       activePaneId: "pane-a",
       imposition: {
         kind: "three-up",
-        sidebars: { lens: { side: "right" } },
+        sidebars: { cards: { side: "right" } },
         columns: { 0: { mode: "split", order: ["pane-b", "pane-a"] } },
       },
     });
@@ -144,7 +144,7 @@ describe("resolveColumnMenuFact", () => {
       canMoveUp: true,
       canMoveDown: false,
     });
-    lensSelectionStore.pickOnly("card-b");
+    cardsSelectionStore.pickOnly("card-b");
     expect(resolveColumnMenuFact(storeOver(state))).toEqual({
       canSplit: true,
       canMoveUp: false,

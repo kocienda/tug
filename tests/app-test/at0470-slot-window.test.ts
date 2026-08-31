@@ -35,7 +35,7 @@
  * Read from live geometry and `data-` attributes. Nothing here reads back a
  * declared style value.
  *
- * @covers tugdeck/src/components/lens/slot-picker.tsx
+ * @covers tugdeck/src/components/cards/slot-picker.tsx
  * @covers tugdeck/src/components/tugways/tug-slot-layout.tsx
  * @covers tugdeck/src/components/tugways/tug-slot-layout.css
  * @covers tugdeck/src/lib/slot-window-pref.ts
@@ -56,8 +56,8 @@ const AFTER_LAND_MS = 900;
 const wait = (ms: number): Promise<void> =>
   new Promise<void>((r) => setTimeout(r, ms));
 
-const PICKER = '[data-testid="lens-slot-picker"]';
-const JUMP = '[data-testid="lens-slot-picker-jump"]';
+const PICKER = '[data-testid="cards-slot-picker"]';
+const JUMP = '[data-testid="cards-slot-picker-jump"]';
 
 /** What one row's window is drawing, left to right. */
 interface WindowFacts {
@@ -88,7 +88,7 @@ function deckShape() {
         title: `Card ${cardId}`,
         closable: true,
       })),
-      { id: "L", componentId: "lens", title: "Lens", closable: true },
+      { id: "L", componentId: "cards", title: "Cards", closable: true },
     ],
     panes: [
       ...members.map(([id, slot, cardId]) => ({
@@ -112,14 +112,14 @@ function deckShape() {
       },
     ],
     activePaneId: "p1",
-    imposition: { kind: "six-up", sidebars: { lens: { side: "right" } } },
+    imposition: { kind: "six-up", sidebars: { cards: { side: "right" } } },
     hasFocus: true,
   };
 }
 
 async function openDeck(app: App): Promise<void> {
   await app.evalJS<null>(
-    `(window.__tug.setTugbankValue("dev.tugtool.lens", "widthPx", { kind: "i64", value: ${LENS_WIDTH} }), null)`,
+    `(window.__tug.setTugbankValue("dev.tugtool.cards", "widthPx", { kind: "i64", value: ${LENS_WIDTH} }), null)`,
   );
   // The window width is a PERSISTED preference, deck-wide and machine-global,
   // which is exactly what it is meant to be — and exactly why it has to be

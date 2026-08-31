@@ -59,7 +59,6 @@ import {
   useSeedKeyView,
 } from "@/components/tugways/use-focusable";
 import { BASE_FOCUS_MODE } from "@/components/tugways/focus-manager";
-import { lensSelectionStore } from "./lens-selection-store";
 import { lensSpatialOrder } from "./lens-spatial-order";
 import {
   getRegisteredLensSections,
@@ -74,7 +73,6 @@ import {
   sectionHasContent,
   subscribeSectionContent,
 } from "./lens-section-content";
-import { shrinkLensState } from "./lens-escape";
 import {
   getSectionPresenceVersion,
   sectionIsPresent,
@@ -83,10 +81,6 @@ import {
 import { LensSectionPresenceProbe } from "./lens-section-presence-probe";
 import { useBlockReorder } from "./block-reorder";
 import { BlockDropCaret } from "./block-drop-caret";
-import {
-  LensFollowedCardContext,
-  useTrackLastNonLensKeyCard,
-} from "./lens-followed-card";
 import "./lens-content.css";
 
 export interface LensContentProps {
@@ -132,11 +126,6 @@ export function LensContent({ cardId }: LensContentProps): React.ReactElement {
   useSeedKeyView(
     seedKind !== null ? `${sectionFocusGroup(seedKind)}:0` : null,
   );
-
-  // The card the Lens is contextually about — tracked once here (mounted
-  // the whole time the pane is open) and shared with sections via context
-  // so a section's body and collapsed-summary always agree ([P11]).
-  const followedCardId = useTrackLastNonLensKeyCard(cardId);
 
   // Keep the FocusManager group-walk order in lock-step with the rendered
   // order ([P08]/[L22]) — group order is structure owned by the
@@ -259,21 +248,16 @@ export function LensContent({ cardId }: LensContentProps): React.ReactElement {
     id: responderId,
     actions: {
       [TUG_ACTIONS.CANCEL_DIALOG]: () => {
-        // The precedence, in full: filter text, then the selection, then focus
-        // out (`tuglaws/focus-language.md`, `lens-escape.ts`). The Cards list
-        // runs the same rungs itself while it holds the keyboard; this
-        // responder is the same table reached from anywhere else inside the
-        // Lens, where the filter field is not on the chain to answer for its
-        // own query.
-        if (shrinkLensState() !== "focus-out") return;
+        // Nothing to shrink here any more: the filter text and the layout
+        // selection both belong to the Cards card, which answers for them on
+        // its own chain. What is left is the focus-out half.
         dispatchCommand(TUG_ACTIONS.FOCUS_LENS);
       },
     },
   });
 
   return (
-    <LensFollowedCardContext value={followedCardId}>
-      <ResponderScope>
+    <ResponderScope>
       <div
         ref={responderRef as (el: HTMLDivElement | null) => void}
         className="lens-content"
@@ -322,7 +306,6 @@ export function LensContent({ cardId }: LensContentProps): React.ReactElement {
           })}
         </div>
       </div>
-      </ResponderScope>
-    </LensFollowedCardContext>
+    </ResponderScope>
   );
 }

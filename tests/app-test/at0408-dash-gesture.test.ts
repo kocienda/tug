@@ -64,7 +64,7 @@ const CHIP =
 const chipText = (dash: string): string => `^${dash}`;
 const BULLETIN = ".tug-pane-bulletin";
 
-const LENS_SECTION = '.lens-section[data-lens-section="dashes"]';
+const DASHES_CARD = '.dashes-section';
 
 /** This checkout — the build under test, and never the tree a dash is cut in. */
 const CHECKOUT = realpathSync(resolve(import.meta.dir, "..", ".."));
@@ -153,14 +153,14 @@ describe.skipIf(!SHOULD_RUN)("AT0408: the /dash-bind gesture", () => {
         // card's controller does, so a row for the fixture dash there is proof
         // the snapshot has composed this project's dashes. Typing before that
         // would send `/dash-bind <known>` down the CREATE path.
-        await app.dispatchControlAction("toggle-lens");
+        await app.dispatchControlAction("toggle-dashes");
         await app.waitForCondition<boolean>(
-          `document.querySelector('${LENS_SECTION} [data-slot="lens-dashes-row"][data-dash="${KNOWN_DASH}"]') !== null`,
+          `document.querySelector('${DASHES_CARD} [data-slot="dashes-row"][data-dash="${KNOWN_DASH}"]') !== null`,
           { timeoutMs: 30000 },
         );
-        await app.dispatchControlAction("toggle-lens");
+        await app.dispatchControlAction("toggle-dashes");
         await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(LENS_SECTION)}) === null`,
+          `document.querySelector(${JSON.stringify(DASHES_CARD)}) === null`,
           { timeoutMs: 8000 },
         );
 

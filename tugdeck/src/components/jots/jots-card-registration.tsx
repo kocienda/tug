@@ -56,7 +56,7 @@ export function registerJotsCard(): void {
     // Out of the Lens's Cards list, as the Lens itself is: those rows are the
     // deck's content cards, and each carries a slot picker for an arrangement
     // a rail can never stand in.
-    lensGroup: "none",
+    cardsGroup: "none",
     sizePolicy: {
       min: { width: MIN_JOTS_WIDTH_PX, height: 240 },
       preferred: { width: DEFAULT_JOTS_WIDTH_PX, height: 900 },

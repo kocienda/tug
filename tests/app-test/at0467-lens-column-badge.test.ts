@@ -1,5 +1,5 @@
 /**
- * at0467-lens-column-badge.test.ts — a Lens row says where its card stands
+ * at0467-cards-column-badge.test.ts — a Lens row says where its card stands
  * INSIDE its slot.
  *
  * The slot run on a Lens Sessions row says which numbered place the card holds.
@@ -30,12 +30,12 @@
  * member picker's door is the badge on the pane's cluster (at0455). So there is
  * no gesture here to drive; the claims are about what the row says.
  *
- * @covers tugdeck/src/components/lens/lens-column-badge.tsx
- * @covers tugdeck/src/components/lens/sections/cards-session-cell.tsx
- * @covers tugdeck/src/components/lens/sections/cards-section.tsx
+ * @covers tugdeck/src/components/cards/cards-column-badge.tsx
+ * @covers tugdeck/src/components/cards/cards-session-cell.tsx
+ * @covers tugdeck/src/components/cards/cards-card.tsx
  * @covers tugdeck/src/deck-store-selectors.ts
  * @covers tugdeck/src/components/tugways/tug-column-badge.tsx
- * @covers tugdeck/src/components/lens/slot-picker.tsx
+ * @covers tugdeck/src/components/cards/slot-picker.tsx
  */
 
 import { describe, expect, test } from "bun:test";
@@ -73,7 +73,7 @@ function deckShape(): Record<string, unknown> {
         closable: true,
       })),
       { id: "T", componentId: "text", title: TEXT_CARD_TITLE, closable: true },
-      { id: "L", componentId: "lens", title: "Lens", closable: true },
+      { id: "L", componentId: "cards", title: "Cards", closable: true },
     ],
     panes: [
       ...SESSION_CARDS.map((id, index) => ({
@@ -109,7 +109,7 @@ function deckShape(): Record<string, unknown> {
     activePaneId: "p1",
     imposition: {
       kind: "three-up",
-      sidebars: { lens: { side: "right" } },
+      sidebars: { cards: { side: "right" } },
     },
     hasFocus: true,
   };
@@ -134,9 +134,9 @@ interface RowBadge {
 async function rowBadges(app: App): Promise<RowBadge[]> {
   return app.evalJS<RowBadge[]>(
     `Array.prototype.slice.call(
-      document.querySelectorAll('.lens-cards-list .lens-cards-row[data-session-id]')
+      document.querySelectorAll('.cards-list .cards-row[data-session-id]')
     ).map(function (row) {
-      var badge = row.querySelector('[data-testid="lens-column-badge"]');
+      var badge = row.querySelector('[data-testid="cards-column-badge"]');
       return {
         sessionId: row.getAttribute("data-session-id"),
         kind: badge === null ? null : badge.getAttribute("data-kind"),
@@ -151,7 +151,7 @@ async function rowBadges(app: App): Promise<RowBadge[]> {
               getAttribute: function () { return "none"; },
             }).getAttribute("data-region"),
         front: row.querySelector(
-          '[data-testid="lens-slot-picker"] [data-slot="tug-slot"][data-state="filled"]',
+          '[data-testid="cards-slot-picker"] [data-slot="tug-slot"][data-state="filled"]',
         ) !== null,
       };
     }).sort(function (a, b) {
@@ -169,12 +169,12 @@ async function contentRowBadge(app: App): Promise<string> {
   return app.evalJS<string>(
     `(function () {
        var row = Array.prototype.slice
-         .call(document.querySelectorAll('.lens-cards-list .lens-cards-oneline'))
+         .call(document.querySelectorAll('.cards-list .cards-oneline'))
          .filter(function (el) {
            return el.textContent.indexOf(${JSON.stringify(TEXT_CARD_TITLE)}) >= 0;
          })[0];
        if (row === undefined) throw new Error("no content row for the text card");
-       var badge = row.querySelector('[data-testid="lens-column-badge"]');
+       var badge = row.querySelector('[data-testid="cards-column-badge"]');
        return badge === null
          ? "none"
          : badge.getAttribute("data-kind") + ":" + badge.textContent.trim();
@@ -186,7 +186,7 @@ describe.skipIf(!SHOULD_RUN)("at0467 — the Lens row's column badge", () => {
   test(
     "every row says where its card stands, one card deep or shared",
     async () => {
-      const app = await launchTugApp({ testName: "at0467-lens-column-badge" });
+      const app = await launchTugApp({ testName: "at0467-cards-column-badge" });
       try {
         await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
         // An unbound session card renders the project picker instead of a
@@ -198,7 +198,7 @@ describe.skipIf(!SHOULD_RUN)("at0467 — the Lens row's column badge", () => {
           });
         }
         await app.waitForCondition<boolean>(
-          `document.querySelectorAll('.lens-cards-list .lens-cards-row[data-session-id]').length === ${SESSION_CARDS.length}`,
+          `document.querySelectorAll('.cards-list .cards-row[data-session-id]').length === ${SESSION_CARDS.length}`,
           { timeoutMs: 20_000 },
         );
         await wait(AFTER_LAND_MS);
@@ -266,10 +266,10 @@ describe.skipIf(!SHOULD_RUN)("at0467 — the Lens row's column badge", () => {
                // the badge stands next to. The claim is about the run and the
                // badge being one coordinate, and the run is this box.
                var last = row
-                 .querySelector('[data-testid="lens-slot-picker"]')
+                 .querySelector('[data-testid="cards-slot-picker"]')
                  .getBoundingClientRect();
                var badge = row
-                 .querySelector('[data-testid="lens-column-badge"]')
+                 .querySelector('[data-testid="cards-column-badge"]')
                  .getBoundingClientRect();
                // How much room is left after the badge, out to the row's own
                // content edge — the run is pushed to the trailing edge, so
@@ -281,10 +281,10 @@ describe.skipIf(!SHOULD_RUN)("at0467 — the Lens row's column badge", () => {
                };
              }
              var session = document.querySelector(
-               '.lens-cards-list .lens-cards-row[data-session-id]',
+               '.cards-list .cards-row[data-session-id]',
              );
              var content = Array.prototype.slice
-               .call(document.querySelectorAll('.lens-cards-list .lens-cards-oneline'))
+               .call(document.querySelectorAll('.cards-list .cards-oneline'))
                .filter(function (el) {
                  return el.textContent.indexOf(${JSON.stringify(TEXT_CARD_TITLE)}) >= 0;
                })[0];

@@ -60,10 +60,10 @@ import { registerDevtoolsCard } from "./components/devtools/devtools-card";
 import { registerLensCard } from "./components/lens/lens-register-card";
 import { registerJotsCard } from "./components/jots/jots-card-registration";
 import { registerOverviewCard } from "./components/overview/overview-card-registration";
-import { registerCardsSection } from "./components/lens/sections/cards-section";
+import { registerCardsCard } from "./components/cards/cards-card-registration";
 import { registerLayoutsSection } from "./components/lens/sections/layouts-section";
-import { registerDashesSection } from "./components/lens/sections/dashes-section";
-import { registerTripwiresSection } from "./components/lens/sections/tripwires-section";
+import { registerDashesCard } from "./components/dashes/dashes-card-registration";
+import { registerTripwiresCard } from "./components/tripwires/tripwires-card-registration";
 import { registerTextCard } from "./components/tugways/cards/text-card-registration";
 import { registerFileViewCard } from "./components/tugways/cards/file-view-card-registration";
 import { registerDiffCard } from "./components/tugways/cards/diff-card";
@@ -345,12 +345,15 @@ if (!container) {
   registerJotsCard();
   // Same unconditional-and-early rule again: the Overview is a sidebar card.
   registerOverviewCard();
+  // And again: Tripwires is a sidebar card of its own.
+  registerTripwiresCard();
+  // And again: Dashes.
+  registerDashesCard();
+  // And again: Cards.
+  registerCardsCard();
   // Registration order is the DEFAULT Lens section order — the fallback
   // `resolveSectionRenderOrder` uses when nothing is persisted.
-  registerCardsSection();
   registerLayoutsSection();
-  registerDashesSection();
-  registerTripwiresSection();
   registerTextCard();
   registerFileViewCard();
   registerDiffCard();

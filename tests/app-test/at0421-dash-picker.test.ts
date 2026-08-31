@@ -66,7 +66,7 @@ const CHIP =
   '[data-slot="session-masthead"] [data-slot="session-identity-dash"]';
 /** What that run reads: the identity's dash grammar, sigil included. */
 const chipText = (dash: string): string => `^${dash}`;
-const LENS_SECTION = '.lens-section[data-lens-section="dashes"]';
+const DASHES_CARD = '.dashes-section';
 
 /** This checkout — the build under test, and never the tree a dash is cut in. */
 const CHECKOUT = realpathSync(resolve(import.meta.dir, "..", ".."));
@@ -144,14 +144,14 @@ async function openCard(app: App): Promise<void> {
   // The Lens's Dashes section reads the same `ChangesetAllStore` the card's
   // controller does, so a row there is the proof, and it is observable from
   // outside the card.
-  await app.dispatchControlAction("toggle-lens");
+  await app.dispatchControlAction("toggle-dashes");
   await app.waitForCondition<boolean>(
-    `document.querySelector('${LENS_SECTION} [data-slot="lens-dashes-row"][data-dash="${DASHES[2]}"]') !== null`,
+    `document.querySelector('${DASHES_CARD} [data-slot="dashes-row"][data-dash="${DASHES[2]}"]') !== null`,
     { timeoutMs: 30000 },
   );
-  await app.dispatchControlAction("toggle-lens");
+  await app.dispatchControlAction("toggle-dashes");
   await app.waitForCondition<boolean>(
-    `document.querySelector(${JSON.stringify(LENS_SECTION)}) === null`,
+    `document.querySelector(${JSON.stringify(DASHES_CARD)}) === null`,
     { timeoutMs: 8000 },
   );
 }

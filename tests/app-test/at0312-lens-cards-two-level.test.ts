@@ -1,5 +1,5 @@
 /**
- * at0312-lens-cards-two-level.test.ts — the Lens Cards section is a pane-first
+ * at0312-cards-two-level.test.ts — the Lens Cards section is a pane-first
  * mirror of the deck, and its second level is never a folder.
  *
  * ## What this gates
@@ -37,11 +37,11 @@
  *      be absent from that order. A drag that quietly does nothing is the
  *      failure this guards, and nothing in the console would say so.
  *
- * @covers tugdeck/src/components/lens/sections/cards-section.tsx
- * @covers tugdeck/src/components/lens/sections/cards-section.css
- * @covers tugdeck/src/components/lens/sections/cards-data-source.ts
- * @covers tugdeck/src/components/lens/sections/cards-groups.ts
- * @covers tugdeck/src/components/lens/sections/cards-session-cell.tsx
+ * @covers tugdeck/src/components/cards/cards-card.tsx
+ * @covers tugdeck/src/components/cards/cards-card.css
+ * @covers tugdeck/src/components/cards/cards-data-source.ts
+ * @covers tugdeck/src/components/cards/cards-groups.ts
+ * @covers tugdeck/src/components/cards/cards-session-cell.tsx
  * @covers tugdeck/src/lib/file-type-names.ts
  */
 
@@ -55,10 +55,10 @@ import { launchTugApp } from "./_harness";
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
 
-const LIST = ".lens-cards-list";
-const HEADER = `${LIST} .lens-cards-header`;
-const PANE_ROW = `${LIST} .lens-cards-row[data-lens-row-id]`;
-const SUBROW = `${LIST} .lens-cards-subrow[data-lens-card-id]`;
+const LIST = ".cards-list";
+const HEADER = `${LIST} .cards-header`;
+const PANE_ROW = `${LIST} .cards-row[data-cards-row-id]`;
+const SUBROW = `${LIST} .cards-subrow[data-cards-subrow-card-id]`;
 const EDITOR_CONTENT =
   '[data-card-id="A"] [data-slot="tug-text-card-editor"] .cm-content';
 
@@ -93,7 +93,7 @@ describe.skipIf(!SHOULD_RUN)("at0312 — Cards is two-level, never a folder", ()
       const dir = fs.mkdtempSync(path.join(os.tmpdir(), "at0312-"));
       const file = path.join(dir, "alpha.txt");
       fs.writeFileSync(file, "alpha\nbeta\n", "utf8");
-      const app = await launchTugApp({ testName: "at0312-lens-cards-two-level" });
+      const app = await launchTugApp({ testName: "at0312-cards-two-level" });
       try {
         await app.seedDeckState({
           state: deckShape(),
@@ -111,7 +111,7 @@ describe.skipIf(!SHOULD_RUN)("at0312 — Cards is two-level, never a folder", ()
           })()`,
           { timeoutMs: 15_000 },
         );
-        await app.dispatchControlAction("toggle-lens");
+        await app.dispatchControlAction("toggle-cards");
         await app.waitForCondition<boolean>(`${count(PANE_ROW)} === 1`, {
           timeoutMs: 15_000,
         });
@@ -131,11 +131,11 @@ describe.skipIf(!SHOULD_RUN)("at0312 — Cards is two-level, never a folder", ()
         }>(`(function(){
           var row = document.querySelector(${JSON.stringify(PANE_ROW)});
           if (row === null) throw new Error("no pane row");
-          var title = row.querySelector(".lens-cards-row-headline .tug-list-row-title");
+          var title = row.querySelector(".cards-row-headline .tug-list-row-title");
           return {
             title: title === null ? "" : title.innerText,
-            hasClose: row.querySelector(".lens-cards-row-close") !== null,
-            hasSlots: row.querySelector('[data-testid="lens-slot-picker"]') !== null,
+            hasClose: row.querySelector(".cards-row-close") !== null,
+            hasSlots: row.querySelector('[data-testid="cards-slot-picker"]') !== null,
             // Any disclosure affordance at all — the section renders exactly
             // one fold cue kind, and it belongs to group headers.
             foldControls: row.querySelectorAll(
@@ -158,13 +158,12 @@ describe.skipIf(!SHOULD_RUN)("at0312 — Cards is two-level, never a folder", ()
         // The file row sits under a Files header — one group, one header.
         expect(await app.evalJS<number>(count(HEADER))).toBe(1);
 
-        // ---- D. ⌘L seeds the cursor onto a CARD row, not onto a header. ----
+        // ---- D. The card seeds its cursor onto a CARD row, not a header. ---
         //
         // Headers are cursorable cells, so the list's own gain-seed would land
-        // on index 0 — the Files header — if the section did not seed past it.
-        // `focus-lens` IS ⌘L: the keystroke's registered control action, and the
-        // same entry point the menu item and the accelerator both call.
-        await app.dispatchControlAction("focus-lens");
+        // on index 0 — the Files header — if the card did not seed past it.
+        // The rail ladder is the door: `toggle-cards` shows the card and brings
+        // the keyboard to it, which is the same entry the menu row calls.
         await app.waitForCondition<boolean>(
           `document.querySelector('${LIST}[data-key-view-kbd] [data-key-cursor]') !== null`,
           { timeoutMs: 8_000 },
@@ -173,10 +172,10 @@ describe.skipIf(!SHOULD_RUN)("at0312 — Cards is two-level, never a folder", ()
           `(function(){
             var cur = document.querySelector('${LIST} [data-key-cursor]');
             return {
-              isHeader: cur.querySelector(".lens-cards-header") !== null
-                || cur.matches(".lens-cards-header"),
-              isPane: cur.querySelector(".lens-cards-row[data-lens-row-id]") !== null
-                || cur.matches(".lens-cards-row[data-lens-row-id]"),
+              isHeader: cur.querySelector(".cards-header") !== null
+                || cur.matches(".cards-header"),
+              isPane: cur.querySelector(".cards-row[data-cards-row-id]") !== null
+                || cur.matches(".cards-row[data-cards-row-id]"),
             };
           })()`,
         );
@@ -203,17 +202,17 @@ describe.skipIf(!SHOULD_RUN)("at0312 — Cards is two-level, never a folder", ()
           var sub = document.querySelector(${JSON.stringify(SUBROW)});
           var paneId = sub.closest(".tug-list-view-cell")
             .previousElementSibling
-            .querySelector(".lens-cards-row[data-lens-row-id]");
-          var badge = document.querySelector('[data-testid="lens-cards-tab-count"]');
+            .querySelector(".cards-row[data-cards-row-id]");
+          var badge = document.querySelector('[data-testid="cards-tab-count"]');
           var contentOf = function (el) {
             var c = el.querySelector(".tug-list-row-content");
             return c === null ? 0 : parseFloat(getComputedStyle(c).paddingInlineStart) || 0;
           };
           return {
             tabCount: badge === null ? "" : badge.innerText,
-            hasClose: paneId.querySelector(".lens-cards-row-close") !== null,
+            hasClose: paneId.querySelector(".cards-row-close") !== null,
             closeLabel: (function () {
-              var x = paneId.querySelector(".lens-cards-row-close");
+              var x = paneId.querySelector(".cards-row-close");
               return x === null ? "" : x.getAttribute("aria-label") || "";
             })(),
             foldControls: paneId.querySelectorAll(
@@ -237,7 +236,7 @@ describe.skipIf(!SHOULD_RUN)("at0312 — Cards is two-level, never a folder", ()
         const before = await app.evalJS<{ paneId: string; activeCardId: string }>(
           `(function(){
             var sub = document.querySelector(${JSON.stringify(SUBROW)});
-            var cardId = sub.getAttribute("data-lens-card-id");
+            var cardId = sub.getAttribute("data-cards-subrow-card-id");
             var deck = window.tugdeck.diag.getDeckState();
             var pane = deck.panes.find(function (p) { return p.cardIds.indexOf(cardId) >= 0; });
             return { paneId: pane.id, activeCardId: pane.activeCardId };
@@ -250,12 +249,12 @@ describe.skipIf(!SHOULD_RUN)("at0312 — Cards is two-level, never a folder", ()
               document.querySelectorAll(${JSON.stringify(SUBROW)}),
             );
             var pick = subs.find(function (s) {
-              return s.getAttribute("data-lens-card-id")
+              return s.getAttribute("data-cards-subrow-card-id")
                 !== ${JSON.stringify(before.activeCardId)};
             });
             if (pick === undefined) throw new Error("no background tab to front");
             pick.click();
-            return pick.getAttribute("data-lens-card-id");
+            return pick.getAttribute("data-cards-subrow-card-id");
           })()`,
         );
         await app.waitForCondition<boolean>(
@@ -268,12 +267,12 @@ describe.skipIf(!SHOULD_RUN)("at0312 — Cards is two-level, never a folder", ()
         );
 
         // ---- E. The fold cue folds the group; the header body does not. -----
-        const filesHeader = `${LIST} .lens-cards-header[data-lens-group="files"]`;
+        const filesHeader = `${LIST} .cards-header[data-cards-group="files"]`;
         // Open, the rows ARE the count. Measured as paint, not as text: an
         // unrendered element's `innerText` falls back to `textContent`, so the
         // number reads "1" either way and only the box tells the truth.
         const countBox = `(function(){
-          var el = document.querySelector('${filesHeader} .lens-cards-header-count');
+          var el = document.querySelector('${filesHeader} .cards-header-count');
           if (el === null) throw new Error("no count element");
           return {
             display: getComputedStyle(el).display,
@@ -311,10 +310,10 @@ describe.skipIf(!SHOULD_RUN)("at0312 — Cards is two-level, never a folder", ()
             var rows = Array.prototype.slice.call(
               document.querySelectorAll(${JSON.stringify(PANE_ROW)}),
             );
-            var el = document.querySelector('${filesHeader} .lens-cards-header-count');
+            var el = document.querySelector('${filesHeader} .cards-header-count');
             return {
               fileRows: rows.filter(function (r) {
-                return r.querySelector(".lens-cards-row-headline .tug-list-row-title") !== null
+                return r.querySelector(".cards-row-headline .tug-list-row-title") !== null
                   && r.textContent.indexOf("alpha.txt") !== -1;
               }).length,
               count: el.innerText,
@@ -377,7 +376,7 @@ describe.skipIf(!SHOULD_RUN)("at0312 — Cards is two-level, never a folder", ()
         // return without a word and the row would never pick up.
         const engaged = await app.evalJS<boolean>(`(function(){
           var row = document.querySelector(
-            '${LIST} .lens-cards-row[data-lens-row-id]'
+            '${LIST} .cards-row[data-cards-row-id]'
           );
           if (row === null) throw new Error("no pane row to drag");
           var r = row.getBoundingClientRect();

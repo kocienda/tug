@@ -35,9 +35,9 @@ import { columnMoveOrder, deckColumnsOf } from "@/deck-store-selectors";
 import { clampSlot } from "@/lib/layout-imposer";
 import {
   getLayoutCursorCard,
-  lensSelectionStore,
-  type LensSelectionStore,
-} from "@/components/lens/lens-selection-store";
+  cardsSelectionStore,
+  type CardsSelectionStore,
+} from "@/components/cards/cards-selection-store";
 import { tugDevLogStore } from "@/lib/tug-dev-log-store/tug-dev-log-store";
 import type { IDeckManagerStore } from "@/deck-manager-store";
 
@@ -49,7 +49,7 @@ import type { IDeckManagerStore } from "@/deck-manager-store";
  */
 export function resolveLayoutSelection(
   deck: IDeckManagerStore,
-  selection: LensSelectionStore = lensSelectionStore,
+  selection: CardsSelectionStore = cardsSelectionStore,
 ): readonly string[] {
   const live = new Set(deck.getSnapshot().cards.map((c) => c.id));
   const selected = selection.getSnapshot().ids.filter((id) => live.has(id));
@@ -91,7 +91,7 @@ function contentCardsAmong(
  */
 export function resolveColumnMenuFact(
   deck: IDeckManagerStore,
-  selection: LensSelectionStore = lensSelectionStore,
+  selection: CardsSelectionStore = cardsSelectionStore,
 ): { canSplit: boolean; canMoveUp: boolean; canMoveDown: boolean } | null {
   const cardIds = contentCardsAmong(deck, resolveLayoutSelection(deck, selection));
   if (cardIds.length === 0) return null;
@@ -124,7 +124,7 @@ export function resolveColumnMenuFact(
  */
 export function contentCardsInLayoutSelection(
   deck: IDeckManagerStore,
-  selection: LensSelectionStore = lensSelectionStore,
+  selection: CardsSelectionStore = cardsSelectionStore,
 ): readonly string[] {
   const resolved = resolveLayoutSelection(deck, selection);
   const content = contentCardsAmong(deck, resolved);

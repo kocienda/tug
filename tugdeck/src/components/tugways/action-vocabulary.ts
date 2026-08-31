@@ -709,6 +709,12 @@ export const TUG_ACTIONS = {
   //                         addresses the RAIL (TOGGLE_RAIL), not the cards on
   //                         it.
   // TOGGLE_JOTS:            payload — none. Show/hide the Jots rail. As above.
+  // TOGGLE_TRIPWIRES:       payload — none. Show/hide the Tripwires rail. As
+  //                         above.
+  // TOGGLE_DASHES:          payload — none. Show/hide the Dashes rail. As
+  //                         above.
+  // TOGGLE_CARDS:           payload — none. Show/hide the Cards rail. As
+  //                         above.
   // TOGGLE_OVERVIEW:         payload — none. Show/hide the Overview rail. As
   //                         above.
   // TOGGLE_RAIL:            payload — `value: "left" | "right"`. ⌃⌘← / ⌃⌘→.
@@ -887,6 +893,9 @@ export const TUG_ACTIONS = {
   FOCUS_LENS:             "focus-lens",
   TOGGLE_LENS:            "toggle-lens",
   TOGGLE_JOTS:            "toggle-jots",
+  TOGGLE_TRIPWIRES:       "toggle-tripwires",
+  TOGGLE_DASHES:          "toggle-dashes",
+  TOGGLE_CARDS:           "toggle-cards",
   TOGGLE_OVERVIEW:         "toggle-overview",
   TOGGLE_RAIL:            "toggle-rail",
   NEW_JOT:                "new-jot",

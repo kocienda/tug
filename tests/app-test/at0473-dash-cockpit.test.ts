@@ -1,5 +1,5 @@
 /**
- * at0473-dash-cockpit.test.ts — the Lens Dashes section is the dash cockpit:
+ * at0473-dash-cockpit.test.ts — the Dashes card is the dash cockpit:
  * it lists the *waiting paperwork* beside the live dashes, in the same
  * two-line block a live dash wears.
  *
@@ -51,8 +51,8 @@
  * repository carries several real plans, so any assertion here would otherwise
  * be an assertion about whatever was devised that week.
  *
- * @covers tugdeck/src/components/lens/sections/dashes-section.tsx
- * @covers tugdeck/src/components/lens/sections/dashes-section.css
+ * @covers tugdeck/src/components/dashes/dashes-card.tsx
+ * @covers tugdeck/src/components/dashes/dashes-card.css
  * @covers tugdeck/src/lib/document-dash-entry.ts
  * @covers tugdeck/src/components/tugways/dash-lifecycle-block.tsx
  * @covers tugdeck/src/components/tugways/tug-dash-track.tsx
@@ -102,9 +102,9 @@ const SID_A = "a7c0d1ea-0000-4000-8000-000000000473";
 /** A session on project B, open but not followed — the cross-project row. */
 const SID_B = "a7c0d1ea-0000-4000-8000-000000000474";
 
-const SECTION = '.lens-section[data-lens-section="dashes"]';
+const SECTION = '.dashes-section';
 const PLAN_ROWS = `${SECTION} [data-slot="lens-document-dash-row"]`;
-const EMPTY = `${SECTION} [data-slot="lens-dashes-empty"]`;
+const EMPTY = `${SECTION} [data-slot="dashes-empty"]`;
 const planRow = (name: string): string => `${PLAN_ROWS}[data-dash="${name}"]`;
 
 /** The Z2 work cell — TASKS or DASH, one `data-priority` either way. */
@@ -285,13 +285,13 @@ describe.skipIf(!SHOULD_RUN)("AT0473: the dash cockpit lists waiting plans", () 
         await app.spawnSessionResume("A", { tugSessionId: SID_A, projectDir: dirA() });
         await app.awaitEngineReady("A", { timeoutMs: 15000 });
 
-        await app.dispatchControlAction("toggle-lens");
-        // Opening the Lens makes the *Lens* the key card, and the followed
-        // card is the last key card that is not it — tracked from the moment
-        // `LensContent` mounts, so a focus that happened before the Lens
-        // existed is not history it has. Raising A is the real gesture that
-        // gives the Lens something to be about, and without it every
-        // affordance here correctly refuses with "Focus a session card".
+        await app.dispatchControlAction("toggle-dashes");
+        // Opening the rail makes the *Dashes card* the key card, and the
+        // followed card is the last key card that is not it — tracked from the
+        // moment the card mounts, so a focus that happened before it existed is
+        // not history it has. Raising A is the real gesture that gives the card
+        // something to be about, and without it every affordance here correctly
+        // refuses with "Focus a session card".
         await app.evalJS<null>(`(window.__tug.activateCard("A"), null)`);
         // Five rows: A's four dashes — three with plans, one with only a
         // brief — plus B's one. Every one of them is a dash that exists
@@ -392,7 +392,7 @@ describe.skipIf(!SHOULD_RUN)("AT0473: the dash cockpit lists waiting plans", () 
         // And the work is not gone from the section — it moved to the row that
         // tells the truth about it, which carries the live step counter.
         await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(`${SECTION} [data-slot="lens-dashes-row"][data-dash="${ADOPTER}"]`)}) !== null`,
+          `document.querySelector(${JSON.stringify(`${SECTION} [data-slot="dashes-row"][data-dash="${ADOPTER}"]`)}) !== null`,
           { timeoutMs: 40000 },
         );
 
@@ -562,7 +562,7 @@ describe.skipIf(!SHOULD_RUN)("AT0473: the dash cockpit lists waiting plans", () 
            })()`,
         );
         note("at0473 dash placard", JSON.stringify(placard));
-        // The cockpit detail heads with the same block the Lens row and the
+        // The cockpit detail heads with the same block the rail row and the
         // Changes shade wear: the atom, the track, the run fraction, the step
         // it is on — every mark composed from the same components, so the
         // three readings of one dash cannot disagree.

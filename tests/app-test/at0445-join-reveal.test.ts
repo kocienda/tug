@@ -136,11 +136,11 @@ const SUBMIT = `${CARD} [data-slot="tug-prompt-entry"] [data-mode]`;
 /** The Z5 the join wears: the control that actually lands, per at0436. */
 const JOIN_BUTTON = `${CARD} .tug-prompt-entry-commit-button[aria-label="Join"]`;
 
-const LENS_SECTION = '.lens-section[data-lens-section="dashes"]';
-const lensRow = (dash: string): string =>
-  `${LENS_SECTION} [data-slot="lens-dashes-row"][data-dash="${dash}"]`;
-const lensRegister = (dash: string): string =>
-  `${lensRow(dash)} [data-slot="dash-join-register"]`;
+const DASHES_CARD = '.dashes-section';
+const dashRow = (dash: string): string =>
+  `${DASHES_CARD} [data-slot="dashes-row"][data-dash="${dash}"]`;
+const dashRegister = (dash: string): string =>
+  `${dashRow(dash)} [data-slot="dash-join-register"]`;
 
 /** The checkout whose built binaries the fixture drives. */
 const CHECKOUT = realpathSync(resolve(import.meta.dir, "..", ".."));
@@ -232,7 +232,7 @@ async function shadeAppearsWithin(app: App, ms: number): Promise<boolean> {
 /** A dash's Lens register word right now, or null if it has none. */
 function registerWord(app: App, dash: string): Promise<string | null> {
   return app.evalJS<string | null>(
-    `document.querySelector(${JSON.stringify(lensRegister(dash))})?.getAttribute("data-word") ?? null`,
+    `document.querySelector(${JSON.stringify(dashRegister(dash))})?.getAttribute("data-word") ?? null`,
   );
 }
 
@@ -263,7 +263,7 @@ async function registerReaches(
   timeoutMs: number,
 ): Promise<void> {
   await app.waitForCondition<boolean>(
-    `document.querySelector(${JSON.stringify(lensRegister(dash))})?.getAttribute("data-word") === ${JSON.stringify(word)}`,
+    `document.querySelector(${JSON.stringify(dashRegister(dash))})?.getAttribute("data-word") === ${JSON.stringify(word)}`,
     { timeoutMs },
   );
 }
@@ -298,9 +298,9 @@ describe.skipIf(!SHOULD_RUN)("AT0445: a ready dash summons the shade", () => {
         // The Lens stays up for the whole run: it is where the arc is read
         // from without touching either dash. The shade is a view swap inside
         // the card, so the two do not contend.
-        await app.dispatchControlAction("toggle-lens");
+        await app.dispatchControlAction("toggle-dashes");
         await app.waitForCondition<boolean>(
-          `document.querySelector('${LENS_SECTION} [data-slot="lens-dashes-row"][data-dash="${DASH}"]') !== null`,
+          `document.querySelector('${DASHES_CARD} [data-slot="dashes-row"][data-dash="${DASH}"]') !== null`,
           { timeoutMs: 40000 },
         );
 
@@ -329,7 +329,7 @@ describe.skipIf(!SHOULD_RUN)("AT0445: a ready dash summons the shade", () => {
         // row the pilot will read. The atom is the positive signal — an absent
         // Bind would also be true of a row that never rendered.
         await app.waitForCondition<boolean>(
-          `document.querySelector('${lensRow(DASH)} [data-slot="tug-dash-lifecycle-worker"]') !== null`,
+          `document.querySelector('${dashRow(DASH)} [data-slot="tug-dash-lifecycle-worker"]') !== null`,
           { timeoutMs: 30000 },
         );
         note("at0445 bound: the ledger row landed and the Lens row saw it");

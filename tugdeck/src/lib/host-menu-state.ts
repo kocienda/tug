@@ -53,9 +53,9 @@ import { chordCaptureState } from "../components/tugways/chord-capture-state";
 import { getSettings, lastKnownMakerMode } from "./maker-mode-bridge";
 import { resolveColumnMenuFact } from "./layout-selection";
 import {
-  lensSelectionStore,
+  cardsSelectionStore,
   subscribeLayoutCursorCard,
-} from "../components/lens/lens-selection-store";
+} from "../components/cards/cards-selection-store";
 import type { IDeckManagerStore } from "../deck-manager-store";
 import type {
   CommandEntry,
@@ -1089,7 +1089,7 @@ export function initHostMenuState(deck: IDeckManagerStore): void {
   // ([P05]). Its two non-deck inputs push a flush themselves: the selection
   // store, and the Cards list's cursor.
   publisher.setColumnFactSource(() => resolveColumnMenuFact(deck));
-  lensSelectionStore.subscribe(() => {
+  cardsSelectionStore.subscribe(() => {
     publisher.refresh();
   });
   subscribeLayoutCursorCard(() => {

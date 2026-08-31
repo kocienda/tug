@@ -5,7 +5,7 @@
  * Two gestures, both of which were missing while every fact about a dash was
  * already on screen.
  *
- * **Activating a Lens dash row opens the dash's room.** It fronts the card
+ * **Activating a dash row opens the dash's room.** It fronts the card
  * working the dash and reveals that card's Changes shade — the one surface
  * where a decision about a dash is made ([D152]). The dispatch is the part
  * worth pinning rather than inspecting: `sendToTarget` walks the responder
@@ -30,8 +30,8 @@
  * base commit moving underneath one of them, and the real `changeset_replay`
  * round trip. No dash is ever cut in the developer's checkout.
  *
- * @covers tugdeck/src/components/lens/sections/dashes-section.tsx
- * @covers tugdeck/src/components/lens/sections/dashes-section.css
+ * @covers tugdeck/src/components/dashes/dashes-card.tsx
+ * @covers tugdeck/src/components/dashes/dashes-card.css
  * @covers tugdeck/src/components/tugways/cards/session-changes/dash-row-menu.tsx
  * @covers tugdeck/src/components/tugways/cards/dash-replay-notice-controller.tsx
  * @covers tugdeck/src/lib/dash-replay-outcome-store.ts
@@ -85,9 +85,9 @@ const BEHIND = "at0469-behind";
 /** A dash whose round collides with that base move — the replay that refuses. */
 const CLASH = "at0469-clash";
 
-const SECTION = '.lens-section[data-lens-section="dashes"]';
-const lensRow = (dash: string): string =>
-  `${SECTION} [data-slot="lens-dashes-row"][data-dash="${dash}"]`;
+const SECTION = '.dashes-section';
+const dashRow = (dash: string): string =>
+  `${SECTION} [data-slot="dashes-row"][data-dash="${dash}"]`;
 
 const BULLETIN = ".tug-pane-bulletin";
 const BULLETIN_TITLE = `${BULLETIN} [data-title]`;
@@ -172,8 +172,8 @@ function deckShape() {
 
 const settle = (ms = 200): Promise<unknown> => new Promise((r) => setTimeout(r, ms));
 
-/** Bring the card up, spawn its session, and open the Lens on the dashes. */
-async function openLensOnDashes(app: App): Promise<void> {
+/** Bring the card up, spawn its session, and open the Dashes rail. */
+async function openDashesRail(app: App): Promise<void> {
   await app.enableDeckTrace(true);
   await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
   await app.waitForCondition<boolean>(
@@ -183,7 +183,7 @@ async function openLensOnDashes(app: App): Promise<void> {
   // as a workspace, so its dashes reach the aggregate.
   await app.spawnSessionResume("A", { tugSessionId: SID, projectDir: projectDir() });
   await app.awaitEngineReady("A", { timeoutMs: 15000 });
-  await app.dispatchControlAction("toggle-lens");
+  await app.dispatchControlAction("toggle-dashes");
   await app.waitForCondition<boolean>(
     `document.querySelector(${JSON.stringify(SECTION)}) !== null`,
     { timeoutMs: 20000 },
@@ -205,26 +205,26 @@ async function clickRow(app: App, row: string): Promise<void> {
 
 describe.skipIf(!SHOULD_RUN)("AT0469: acting on a dash from a surface that shows one", () => {
   test(
-    "a Lens row opens its worker's Changes shade; a row with no worker is inert",
+    "a dash row opens its worker's Changes shade; a row with no worker is inert",
     async () => {
       const tugbankPath = mkTempTugbank();
       seedTugbankForLaunch(tugbankPath, { sourceTreePath: CHECKOUT });
       const app = await launchTugApp({
-        testName: "at0469-lens-row-opens-the-room",
+        testName: "at0469-dash-row-opens-the-room",
         env: { TUGBANK_PATH: tugbankPath, TUG_DATA_DIR: scratch?.dataRoot ?? "" },
       });
       try {
-        await openLensOnDashes(app);
+        await openDashesRail(app);
         bindDash(projectDir(), HELD, SID, scratch?.cli ?? {});
 
         // The held row waits for the binding to reach the aggregate — the atom
         // is the positive signal, and it is also what makes the row a door.
         await app.waitForCondition<boolean>(
-          `document.querySelector('${lensRow(HELD)} [data-slot="tug-dash-lifecycle-worker"]') !== null`,
+          `document.querySelector('${dashRow(HELD)} [data-slot="tug-dash-lifecycle-worker"]') !== null`,
           { timeoutMs: 30000 },
         );
         await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(lensRow(IDLE))}) !== null`,
+          `document.querySelector(${JSON.stringify(dashRow(IDLE))}) !== null`,
           { timeoutMs: 30000 },
         );
 
@@ -234,8 +234,8 @@ describe.skipIf(!SHOULD_RUN)("AT0469: acting on a dash from a surface that shows
              const read = (sel) =>
                document.querySelector(sel)?.getAttribute("data-activatable") ?? null;
              return {
-               held: read(${JSON.stringify(lensRow(HELD))}),
-               idle: read(${JSON.stringify(lensRow(IDLE))}),
+               held: read(${JSON.stringify(dashRow(HELD))}),
+               idle: read(${JSON.stringify(dashRow(IDLE))}),
              };
            })()`,
         );
@@ -254,7 +254,7 @@ describe.skipIf(!SHOULD_RUN)("AT0469: acting on a dash from a surface that shows
         ).toBe(true);
 
         // ── The inert row does nothing ─────────────────────────────────────
-        await clickRow(app, lensRow(IDLE));
+        await clickRow(app, dashRow(IDLE));
         await settle(600);
         expect(
           await app.evalJS<boolean>(
@@ -267,12 +267,12 @@ describe.skipIf(!SHOULD_RUN)("AT0469: acting on a dash from a surface that shows
         // This is the assertion the silent-dispatch defect would fail: an
         // action sent to the wrong responder scope produces no error, just a
         // shade that never comes up.
-        await clickRow(app, lensRow(HELD));
+        await clickRow(app, dashRow(HELD));
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(SHEET)}) !== null`,
           { timeoutMs: 15000 },
         );
-        note("at0469 lens row opened the shade", (await app.screenshot()).path);
+        note("at0469 dash row opened the shade", (await app.screenshot()).path);
       } finally {
         await app.close();
         rmTempTugbank(tugbankPath);
@@ -291,21 +291,21 @@ describe.skipIf(!SHOULD_RUN)("AT0469: acting on a dash from a surface that shows
         env: { TUGBANK_PATH: tugbankPath, TUG_DATA_DIR: scratch?.dataRoot ?? "" },
       });
       try {
-        await openLensOnDashes(app);
+        await openDashesRail(app);
         // Bound, deliberately: the outcome notice reports on the card, and
         // binding is also what makes this the case [P03] was wrong about —
         // a *bound* diverged dash the engine will never touch, because this
         // repository's dashes have autoreplay off.
         bindDash(projectDir(), BEHIND, SID, scratch?.cli ?? {});
         await app.waitForCondition<boolean>(
-          `document.querySelector('${lensRow(BEHIND)} [data-slot="tug-dash-lifecycle-worker"]') !== null`,
+          `document.querySelector('${dashRow(BEHIND)} [data-slot="tug-dash-lifecycle-worker"]') !== null`,
           { timeoutMs: 30000 },
         );
 
         // ── The verb is offered, on a bound row, naming its destination ────
         // A live Replay item IS the row's knowledge that it is behind: the
         // predicate reads the same divergence the line no longer prints.
-        const menu = await readDashRowMenu(app, lensRow(BEHIND));
+        const menu = await readDashRowMenu(app, dashRow(BEHIND));
         note("at0469 behind-row menu", JSON.stringify(menu));
         expect(menu.replay.present).toBe(true);
         expect(menu.replay.disabled).toBe(false);
@@ -321,7 +321,7 @@ describe.skipIf(!SHOULD_RUN)("AT0469: acting on a dash from a surface that shows
         // nothing any dash row prints — the line carries the dash's standing,
         // not the checkout's git bookkeeping — so success speaks here or it
         // does not speak at all.
-        await pressDashRowMenuItem(app, lensRow(BEHIND), "request-replay-dash");
+        await pressDashRowMenuItem(app, dashRow(BEHIND), "request-replay-dash");
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(BULLETIN)}) !== null`,
           { timeoutMs: 30000 },
@@ -342,7 +342,7 @@ describe.skipIf(!SHOULD_RUN)("AT0469: acting on a dash from a surface that shows
         let afterwards = { disabled: false, label: "" };
         const deadline = Date.now() + 30000;
         while (Date.now() < deadline) {
-          await openDashRowMenu(app, lensRow(BEHIND));
+          await openDashRowMenu(app, dashRow(BEHIND));
           afterwards = await app.evalJS<{ disabled: boolean; label: string }>(
             `(() => {
                const el = document.querySelector('[data-slot="tug-editor-context-menu"] [data-item-action="request-replay-dash"]');
@@ -388,10 +388,10 @@ describe.skipIf(!SHOULD_RUN)("AT0469: acting on a dash from a surface that shows
         // the session this card holds.
         bindDash(projectDir(), CLASH, SID, scratch?.cli ?? {});
 
-        // Driven from the SHADE rather than the Lens, deliberately. The shade's
+        // Driven from the SHADE rather than the rail, deliberately. The shade's
         // press carries its own card's session id with no dependence on which
-        // card the Lens happens to be following, so what is under test here is
-        // the outcome's voice rather than the Lens's focus bookkeeping.
+        // card the rail happens to be following, so what is under test here is
+        // the outcome's voice rather than the rail's focus bookkeeping.
         await app.nativeClickAtElement(PROMPT_INPUT);
         await app.nativeType("/commit");
         await settle();

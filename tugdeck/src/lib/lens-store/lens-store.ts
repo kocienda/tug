@@ -36,8 +36,8 @@ import {
   type LensEvent,
   type LensState,
 } from "./reducer";
-import type { LensCardsGroup } from "@/components/lens/sections/cards-groups";
-import { GROUP_ORDER } from "@/components/lens/sections/cards-groups";
+import type { CardsGroup } from "@/components/cards/cards-groups";
+import { GROUP_ORDER } from "@/components/cards/cards-groups";
 import {
   LENS_DOMAIN,
   LENS_KEYS,
@@ -206,7 +206,7 @@ class LensStore {
    * groups keep their lists and their references. Persists.
    */
   setCardsRowOrder = (
-    group: LensCardsGroup,
+    group: CardsGroup,
     order: readonly string[],
   ): void => {
     this._ensureInitialized();
@@ -224,7 +224,7 @@ class LensStore {
 
   /** Expand/collapse one Cards-section group. Persists. */
   setCardGroupCollapsed = (
-    group: LensCardsGroup,
+    group: CardsGroup,
     collapsed: boolean,
   ): void => {
     this._ensureInitialized();

@@ -89,7 +89,7 @@ const WIZARD = `${QUESTION} [data-slot="session-question-dialog"]`;
 const ACCOUNT = `${ROW} [data-slot="session-changes-dash-join-account"]`;
 const REGISTER = `${ROW} [data-slot="dash-join-register"]`;
 
-const LENS_SECTION = '.lens-section[data-lens-section="dashes"]';
+const DASHES_CARD = '.dashes-section';
 
 /** The checkout whose built binaries the fixture drives. */
 const CHECKOUT = realpathSync(resolve(import.meta.dir, "..", ".."));
@@ -219,13 +219,13 @@ describe.skipIf(!SHOULD_RUN)("AT0442: the resolver's escalation", () => {
         bindDash(repo, DASH, SID, scratch?.cli ?? {});
         silenceJoinPrompt(repo, DASH);
 
-        // The aggregate has composed the dash once the Lens roster lists it.
-        await app.dispatchControlAction("toggle-lens");
+        // The aggregate has composed the dash once the Dashes card lists it.
+        await app.dispatchControlAction("toggle-dashes");
         await app.waitForCondition<boolean>(
-          `document.querySelector('${LENS_SECTION} [data-slot="lens-dashes-row"][data-dash="${DASH}"]') !== null`,
+          `document.querySelector('${DASHES_CARD} [data-slot="dashes-row"][data-dash="${DASH}"]') !== null`,
           { timeoutMs: 30000 },
         );
-        await app.dispatchControlAction("toggle-lens");
+        await app.dispatchControlAction("toggle-dashes");
 
         // `/dash-join` fronts the row so the escalation renders in its face.
         // It does not start the run — the pilot already did, because the dash

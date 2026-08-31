@@ -103,8 +103,8 @@ const ANY_CONTROL =
   `${ROW} [data-slot="session-changes-dash-join-override"], ` +
   `${ROW} [data-slot="session-changes-dash-resume"]`;
 
-const LENS_SECTION = '.lens-section[data-lens-section="dashes"]';
-const LENS_REGISTER = `${LENS_SECTION} [data-slot="lens-dashes-row"][data-dash="${DASH}"] [data-slot="dash-join-register"]`;
+const DASHES_CARD = '.dashes-section';
+const DASH_REGISTER = `${DASHES_CARD} [data-slot="dashes-row"][data-dash="${DASH}"] [data-slot="dash-join-register"]`;
 
 /** The checkout whose built binaries the fixture drives. */
 const CHECKOUT = realpathSync(resolve(import.meta.dir, "..", ".."));
@@ -251,10 +251,10 @@ describe.skipIf(!SHOULD_RUN)("AT0444: a slow resolver is not a dead one", () => 
         bindDash(repo, DASH, SID, scratch?.cli ?? {});
         silenceJoinPrompt(repo, DASH);
 
-        // The aggregate has composed the dash once the Lens roster lists it.
-        await app.dispatchControlAction("toggle-lens");
+        // The aggregate has composed the dash once the Dashes card lists it.
+        await app.dispatchControlAction("toggle-dashes");
         await app.waitForCondition<boolean>(
-          `document.querySelector('${LENS_SECTION} [data-slot="lens-dashes-row"][data-dash="${DASH}"]') !== null`,
+          `document.querySelector('${DASHES_CARD} [data-slot="dashes-row"][data-dash="${DASH}"]') !== null`,
           { timeoutMs: 30000 },
         );
 
@@ -262,14 +262,14 @@ describe.skipIf(!SHOULD_RUN)("AT0444: a slow resolver is not a dead one", () => 
         // Read from the Lens first, because the shade is not up yet: the run
         // is the pilot's, and this file must not be the thing that began it.
         await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(LENS_REGISTER)})?.getAttribute("data-word") === "reconciling"`,
+          `document.querySelector(${JSON.stringify(DASH_REGISTER)})?.getAttribute("data-word") === "reconciling"`,
           { timeoutMs: 120000 },
         );
         const startedAt = Date.now();
         note("at0444: the pilot started the run with nothing pressed");
-        await app.dispatchControlAction("toggle-lens");
+        await app.dispatchControlAction("toggle-dashes");
         await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(LENS_SECTION)}) === null`,
+          `document.querySelector(${JSON.stringify(DASHES_CARD)}) === null`,
           { timeoutMs: 8000 },
         );
 

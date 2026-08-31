@@ -157,7 +157,7 @@ async function paneIsFlashing(app: App, cardId: string): Promise<boolean> {
 }
 
 /** The Cards row the movement cursor is standing on. */
-const CURSOR_ROW = ".lens-cards-list .tug-list-view-cell[data-key-cursor]";
+const CURSOR_ROW = ".cards-list .tug-list-view-cell[data-key-cursor]";
 
 async function cursorTitle(app: App): Promise<string> {
   return app.evalJS<string>(
@@ -193,7 +193,7 @@ async function walkCursorTo(app: App, title: string): Promise<void> {
 
 /** Put the keyboard in the Cards list and wait until its cursor is painted. */
 async function focusCardsList(app: App): Promise<void> {
-  await app.dispatchControlAction("focus-lens");
+  await app.dispatchControlAction("toggle-cards");
   await app.waitForCondition<boolean>(
     `document.querySelector(${JSON.stringify(CURSOR_ROW)}) !== null`,
     { timeoutMs: 8_000 },

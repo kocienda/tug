@@ -157,17 +157,17 @@ export interface CardRegistration {
    */
   category?: { label: string; icon?: string };
   /**
-   * Which group this card's pane rows file under in the Lens's Cards section.
-   * `"none"` keeps the card out of the Lens entirely.
+   * Which group this card's pane rows file under in the Cards card.
+   * `"none"` keeps the card out of that list entirely.
    *
-   * Read only by `resolveLensGroup` (in
-   * `components/lens/sections/cards-groups.ts`), which falls back to the
+   * Read only by `resolveCardsGroup` (in
+   * `components/cards/cards-groups.ts`), which falls back to the
    * `category` label and then to `"tools"` — so omitting this is a valid
    * declaration, not an oversight. A unit test walks every registration and
    * pins the resolved group, so a new card type cannot be born without a
-   * Lens home.
+   * home in the list.
    */
-  lensGroup?: "sessions" | "files" | "tools" | "none";
+  cardsGroup?: "sessions" | "files" | "tools" | "none";
   /**
    * Hide this registration from the type-picker [+] menu while keeping it
    * fully registered (seedable by `componentId`, resolvable by

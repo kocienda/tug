@@ -9,7 +9,7 @@
  * type picker).
  *
  * The Telemetry tab follows the last non-DevTools key card — "the session I'm
- * working in" — via `useTrackLastNonLensKeyCard(<this card's id>)`, the same
+ * working in" — via `useTrackFollowedCard(<this card's id>)`, the same
  * follow the Lens used, excluding this card from the follow.
  *
  * Laws: tab selection is card-local data (`useState`, [L02]); the tab bar
@@ -27,7 +27,7 @@ import { TugTabBar } from "@/components/tugways/tug-tab-bar";
 import { useResponderForm } from "@/components/tugways/use-responder-form";
 import { CardIdContext } from "@/lib/card-id-context";
 import type { CardState } from "@/layout-tree";
-import { useTrackLastNonLensKeyCard } from "@/components/lens/lens-followed-card";
+import { useTrackFollowedCard } from "@/components/tugways/followed-card";
 import { LogInspector } from "./log-inspector";
 import { TelemetryInspector } from "./telemetry-inspector";
 import "./devtools-card.css";
@@ -56,7 +56,7 @@ const TAB_CARDS: readonly CardState[] = TABS.map((spec) => ({
 /** The Telemetry tab — follows the last non-DevTools key card. */
 function DevToolsTelemetryPane(): React.ReactElement {
   const cardId = useContext(CardIdContext) ?? "";
-  const followedId = useTrackLastNonLensKeyCard(cardId);
+  const followedId = useTrackFollowedCard(cardId);
   return <TelemetryInspector selectedCardId={followedId} />;
 }
 

@@ -297,6 +297,8 @@ Every command has several doors: a chord, a menu item, the palette, a control fr
 | `file.saveACopy` | `save-a-copy` | first responder | registry gate |
 | `file.saveAs` | `save-as` | first responder | registry gate |
 | `help.shortcuts` | `run-slash-command:help` | key card | registry gate |
+| `maker.cards` | `toggle-cards` | registered handler | host tier |
+| `maker.dashes` | `toggle-dashes` | registered handler | host tier |
 | `maker.devTools` | `show-devtools` | first responder | registry gate |
 | `maker.focusLens` | `focus-lens` | first responder | host tier |
 | `maker.galleryCard` | `show-component-gallery` | first responder | host tier |
@@ -307,6 +309,7 @@ Every command has several doors: a chord, a menu item, the palette, a control fr
 | `maker.overview` | `toggle-overview` | registered handler | host tier |
 | `maker.reload` | `reload` | registered handler | host tier |
 | `maker.rightRail` | `toggle-rail:right` | first responder | registry gate |
+| `maker.tripwires` | `toggle-tripwires` | registered handler | host tier |
 | `session.addDir` | `run-slash-command:add-dir` | key card | registry gate |
 | `session.agents` | `run-slash-command:agents` | key card | registry gate |
 | `session.ai` | `run-slash-command:ai` | key card | registry gate |

@@ -66,7 +66,7 @@ export function registerOverviewCard(): void {
     // Out of the Lens's Cards list, as Jots and the Lens itself are: those rows
     // are the deck's content cards, each carrying a slot picker for an
     // arrangement a rail can never stand in.
-    lensGroup: "none",
+    cardsGroup: "none",
     sizePolicy: {
       min: { width: MIN_OVERVIEW_WIDTH_PX, height: 240 },
       preferred: { width: DEFAULT_OVERVIEW_WIDTH_PX, height: 900 },

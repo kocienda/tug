@@ -29,7 +29,7 @@ export function registerTextCard(): void {
     defaultMeta: { title: "File", icon: "FileText", closable: true },
     engineKind: "em",
     category: { label: "Files", icon: "FileText" },
-    lensGroup: "files",
+    cardsGroup: "files",
     sizePolicy: {
       // Sized like the Session card so a Text card opens at the same stature
       // next to one: the same slim floor, and the same deck-content width at

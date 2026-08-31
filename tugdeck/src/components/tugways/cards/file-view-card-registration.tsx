@@ -26,7 +26,7 @@ export function registerFileViewCard(): void {
     contentFactory: (cardId) => <FileViewCardContent cardId={cardId} />,
     defaultMeta: { title: "File", icon: "FileText", closable: true },
     category: { label: "Files", icon: "FileText" },
-    lensGroup: "files",
+    cardsGroup: "files",
     sizePolicy: {
       // Sized like the Text card so a viewer opens at the same stature next
       // to one — see `text-card-registration.tsx` for the shared rationale.

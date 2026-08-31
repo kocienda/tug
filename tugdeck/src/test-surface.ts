@@ -88,7 +88,7 @@ import { parseClipboardSidecar } from "./components/tugways/tug-text-editor/clip
 import type { ListOverviewPostsOk, RateLimitInfo } from "./protocol";
 import { getTugbankClient } from "./lib/tugbank-singleton";
 import { cutDetector } from "./lib/cut-detector";
-import { lensSelectionStore } from "./components/lens/lens-selection-store";
+import { cardsSelectionStore } from "./components/cards/cards-selection-store";
 import type { TaggedValue } from "./lib/tugbank-client";
 import type {
   LiveTurnPerf,
@@ -2883,15 +2883,15 @@ export function createTugTestSurface(deck: DeckManager): TugTestSurface {
 
     setLayoutSelection(cardIds: readonly string[]): void {
       if (cardIds.length === 0) {
-        lensSelectionStore.clear();
+        cardsSelectionStore.clear();
         return;
       }
-      lensSelectionStore.pickOnly(cardIds[0]);
-      for (const cardId of cardIds.slice(1)) lensSelectionStore.toggle(cardId);
+      cardsSelectionStore.pickOnly(cardIds[0]);
+      for (const cardId of cardIds.slice(1)) cardsSelectionStore.toggle(cardId);
     },
 
     getLayoutSelection(): readonly string[] {
-      return lensSelectionStore.getSnapshot().ids;
+      return cardsSelectionStore.getSnapshot().ids;
     },
   };
 }

@@ -61,13 +61,13 @@
  * both assert is the same one: each press shrinks exactly one rung, and the
  * rung above it is untouched.
  *
- * @covers tugdeck/src/components/lens/lens-selection-store.ts
+ * @covers tugdeck/src/components/cards/cards-selection-store.ts
  * @covers tugdeck/src/lib/layout-selection.ts
- * @covers tugdeck/src/components/lens/sections/cards-section.tsx
+ * @covers tugdeck/src/components/cards/cards-card.tsx
  * @covers tugdeck/src/components/tugways/list-multi-select.ts
  * @covers tugdeck/src/components/tugways/tug-list-view.tsx
  * @covers tugdeck/src/components/lens/lens-content.tsx
- * @covers tugdeck/src/components/lens/lens-escape.ts
+ * @covers tugdeck/src/components/cards/cards-escape.ts
  * @covers tugdeck/src/components/tugways/responder-chain-provider.tsx
  * @covers tugdeck/src/components/chrome/deck-canvas.tsx
  */
@@ -115,7 +115,7 @@ function deckShape() {
       card("A", "Card A"),
       card("B", "Card B"),
       card("C", "Card C"),
-      { id: "L", componentId: "lens", title: "Lens", closable: true },
+      { id: "L", componentId: "cards", title: "Cards", closable: true },
     ],
     panes: [
       pane("p1", 0, "A"),
@@ -132,7 +132,7 @@ function deckShape() {
       },
     ],
     activePaneId: "p1",
-    imposition: { kind: "three-up", lens: "right" },
+    imposition: { kind: "three-up", sidebars: { cards: { side: "right" } } },
     hasFocus: true,
   };
 }
@@ -176,16 +176,16 @@ async function getSelection(app: App): Promise<string[]> {
 }
 
 /** The Cards row the movement cursor is standing on. */
-const CURSOR_ROW = ".lens-cards-list .tug-list-view-cell[data-key-cursor]";
+const CURSOR_ROW = ".cards-list .tug-list-view-cell[data-key-cursor]";
 
 /** The Cards section's attached filter field. */
 const FILTER_INPUT =
-  '.lens-section[data-lens-section="cards"] .tug-filter-field-input';
+  '.cards-card .tug-filter-field-input';
 
 /** How many rows the Cards list is showing — headers included. */
 async function rowCount(app: App): Promise<number> {
   return app.evalJS<number>(
-    `document.querySelectorAll(".lens-cards-list .tug-list-view-cell").length`,
+    `document.querySelectorAll(".cards-list .tug-list-view-cell").length`,
   );
 }
 
@@ -254,7 +254,7 @@ async function walkCursorTo(app: App, title: string): Promise<void> {
  * than fights.
  */
 async function focusCardsList(app: App): Promise<void> {
-  await app.dispatchControlAction("focus-lens");
+  await app.dispatchControlAction("toggle-cards");
   await app.waitForCondition<boolean>(
     `document.querySelector(${JSON.stringify(CURSOR_ROW)}) !== null`,
     { timeoutMs: 8_000 },
@@ -266,7 +266,7 @@ async function focusCardsList(app: App): Promise<void> {
 async function clickRowTitled(app: App, title: string): Promise<boolean> {
   const box = await app.evalJS<{ x: number; y: number } | null>(
     `(function () {
-      var rows = document.querySelectorAll(".lens-cards-list .tug-list-view-cell");
+      var rows = document.querySelectorAll(".cards-list .tug-list-view-cell");
       for (var i = 0; i < rows.length; i += 1) {
         if ((rows[i].textContent || "").indexOf(${JSON.stringify(title)}) === -1) continue;
         var label = rows[i].querySelector(".tug-list-row-content") || rows[i];
@@ -283,7 +283,7 @@ async function clickRowTitled(app: App, title: string): Promise<boolean> {
 
 async function seedLensPreferred(app: App): Promise<void> {
   await app.evalJS<null>(
-    `(window.__tug.setTugbankValue("dev.tugtool.lens", "widthPx", { kind: "i64", value: ${LENS_WIDTH} }), null)`,
+    `(window.__tug.setTugbankValue("dev.tugtool.cards", "widthPx", { kind: "i64", value: ${LENS_WIDTH} }), null)`,
   );
 }
 

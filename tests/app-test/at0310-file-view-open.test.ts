@@ -37,8 +37,8 @@
  * @covers tugdeck/src/components/tugways/tug-path.tsx
  * @covers tugdeck/src/components/tugways/tug-path.css
  * @covers tugdeck/src/lib/pdf-runtime.ts
- * @covers tugdeck/src/components/lens/sections/cards-section.tsx
- * @covers tugdeck/src/components/lens/sections/cards-data-source.ts
+ * @covers tugdeck/src/components/cards/cards-card.tsx
+ * @covers tugdeck/src/components/cards/cards-data-source.ts
  */
 
 import { describe, expect, test } from "bun:test";
@@ -57,10 +57,10 @@ const CARD_IMG = '[data-slot="file-view-card"] img.tugx-image-img';
 const CARD_PDF = '[data-slot="file-view-pdf"]';
 const CARD_PAGE = '[data-slot="file-view-pdf"] [data-slot="pdf-page"]';
 const CARD_CANVAS = `${CARD_PAGE} canvas`;
-const ROW_TITLE = ".lens-cards-list .lens-cards-row-headline .tug-list-row-title";
-const ROW_CLOSE = ".lens-cards-list .lens-cards-row-close";
-const ROW_GLYPH = ".lens-cards-list .lens-cards-row-glyph";
-const UNSAVED_DOT = '[data-testid="lens-card-unsaved"]';
+const ROW_TITLE = ".cards-list .cards-row-headline .tug-list-row-title";
+const ROW_CLOSE = ".cards-list .cards-row-close";
+const ROW_GLYPH = ".cards-list .cards-row-glyph";
+const UNSAVED_DOT = '[data-testid="cards-card-unsaved"]';
 
 const IMAGE_WIDTH = 48;
 const IMAGE_HEIGHT = 32;
@@ -348,7 +348,7 @@ describe.skipIf(!SHOULD_RUN)("at0310 — image opens in a viewer card", () => {
 
         // ---- The Lens Files section lists it, read-only.
         await app.evalJS<null>(
-          `(window.__tug.dispatchControlAction("toggle-lens"), null)`,
+          `(window.__tug.dispatchControlAction("toggle-cards"), null)`,
         );
         await app.waitForCondition<boolean>(
           `(function(){

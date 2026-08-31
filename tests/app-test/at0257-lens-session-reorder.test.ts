@@ -26,8 +26,8 @@
  *      which.
  *
  * @covers tugdeck/src/components/lens/lens-content.css
- * @covers tugdeck/src/components/lens/sections/cards-section.css
- * @covers tugdeck/src/components/lens/sections/cards-section.tsx
+ * @covers tugdeck/src/components/cards/cards-card.css
+ * @covers tugdeck/src/components/cards/cards-card.tsx
  * @covers tugdeck/src/components/lens/block-reorder.ts
  * @covers tugdeck/src/lib/lens-store/
  * @covers tugdeck/src/components/tugways/tug-session-row.tsx
@@ -35,7 +35,7 @@
 
 import { describe, expect, test } from "bun:test";
 
-import { launchTugApp, type App } from "./_harness";
+import { launchTugApp, note, type App } from "./_harness";
 import {
   mkTempTugbank,
   rmTempTugbank,
@@ -46,8 +46,8 @@ import {
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 60_000;
 
-const WRAP = ".lens-cards-list-wrap";
-const LIST = ".lens-cards-list";
+const WRAP = ".cards-list-wrap";
+const LIST = ".cards-list";
 const ROWS = `${LIST} .session-row-content[data-session-id]`;
 const DRAGGING = `${WRAP} .session-row-content[data-dragging="true"]`;
 const rowSel = (sessionId: string): string =>
@@ -118,7 +118,7 @@ describe.skipIf(!SHOULD_RUN)("at0257 — Lens Sessions reorder + bottom-append",
           await app.bindSession("B");
           await app.bindSession("C");
 
-          await app.dispatchControlAction("toggle-lens");
+          await app.dispatchControlAction("toggle-cards");
           await app.waitForCondition<boolean>(
             `document.querySelectorAll(${JSON.stringify(ROWS)}).length === 3`,
             { timeoutMs: 5_000 },
@@ -221,17 +221,20 @@ describe.skipIf(!SHOULD_RUN)("at0257 — Lens Sessions reorder + bottom-append",
           await app.bindSession("A");
           await app.bindSession("B");
 
-          await app.dispatchControlAction("toggle-lens");
+          await app.dispatchControlAction("toggle-cards");
           await app.waitForCondition<boolean>(
             `document.querySelectorAll(${JSON.stringify(ROWS)}).length === 2`,
             { timeoutMs: 5_000 },
           );
 
-          // Aim FAR below the list — past the bottom of the whole rail.
+          // Aim at the wrap's own foot — the furthest down the pointer can go
+          // now that the card fills the rail. The row is grabbed at its middle,
+          // so an unclamped translate puts its BOTTOM half a row past the
+          // container; the clamp is what keeps it inside.
           const wrap = await app.getElementBounds(WRAP);
           await app.nativeDragElementWithoutRelease(rowSel("test-session-A"), {
             x: Math.round(wrap.x + wrap.width / 2),
-            y: Math.round(wrap.y + wrap.height + 400),
+            y: Math.round(wrap.y + wrap.height - 2),
           });
 
           await app.waitForCondition<boolean>(
@@ -241,7 +244,7 @@ describe.skipIf(!SHOULD_RUN)("at0257 — Lens Sessions reorder + bottom-append",
 
           // The dragged row's bottom must not escape the list container's
           // bottom (a couple px of slack for the drag's scale transform / sub-
-          // pixel rounding). Before the clamp it followed the pointer 400px out.
+          // pixel rounding). Before the clamp it followed the pointer out.
           const escaped = await app.evalJS<number>(
             `(function(){
               var d = document.querySelector(${JSON.stringify(DRAGGING)});
@@ -254,7 +257,7 @@ describe.skipIf(!SHOULD_RUN)("at0257 — Lens Sessions reorder + bottom-append",
 
           await app.nativeMouseUp({
             x: Math.round(wrap.x + wrap.width / 2),
-            y: Math.round(wrap.y + wrap.height + 400),
+            y: Math.round(wrap.y + wrap.height - 2),
           });
         } finally {
           await app.close();
@@ -286,7 +289,7 @@ describe.skipIf(!SHOULD_RUN)("at0257 — Lens Sessions reorder + bottom-append",
           await app.bindSession("A");
           await app.bindSession("B");
 
-          await app.dispatchControlAction("toggle-lens");
+          await app.dispatchControlAction("toggle-cards");
           await app.waitForCondition<boolean>(
             `document.querySelectorAll(${JSON.stringify(ROWS)}).length === 2`,
             { timeoutMs: 5_000 },
@@ -327,6 +330,7 @@ describe.skipIf(!SHOULD_RUN)("at0257 — Lens Sessions reorder + bottom-append",
               };
             })()`,
           );
+          note("at0257 row edges", JSON.stringify(edges));
           expect(edges.leading).toBeCloseTo(0, 0);
           expect(edges.trailing).toBeCloseTo(0, 0);
           // The row's trailing content stands at the trailing frame, a hair in

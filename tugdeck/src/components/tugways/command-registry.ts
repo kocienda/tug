@@ -1824,6 +1824,36 @@ export const COMMANDS: readonly CommandEntry[] = [
     bindings: [],
   },
 
+  // ---- Tripwires ----
+  {
+    // Chord-less, with the other sidebar rows — see Show Lens above.
+    id: TUG_ACTIONS.TOGGLE_TRIPWIRES,
+    title: "Show Tripwires",
+    routing: "registry",
+    menuItemId: "maker.tripwires",
+    bindings: [],
+  },
+
+  // ---- Dashes ----
+  {
+    // Chord-less, with the other sidebar rows — see Show Lens above.
+    id: TUG_ACTIONS.TOGGLE_DASHES,
+    title: "Show Dashes",
+    routing: "registry",
+    menuItemId: "maker.dashes",
+    bindings: [],
+  },
+
+  // ---- Cards ----
+  {
+    // Chord-less, with the other sidebar rows — see Show Lens above.
+    id: TUG_ACTIONS.TOGGLE_CARDS,
+    title: "Show Cards",
+    routing: "registry",
+    menuItemId: "maker.cards",
+    bindings: [],
+  },
+
   // ---- Overview ----
   {
     // Chord-less, with Show Lens and Show Jots — see Show Lens above.

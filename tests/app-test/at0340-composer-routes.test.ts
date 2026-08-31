@@ -85,7 +85,7 @@ const LAND_BUTTON = `${CARD} .tug-prompt-entry-commit-button`;
 /** This checkout — the build under test, and never the tree a dash is cut in. */
 const CHECKOUT = realpathSync(resolve(import.meta.dir, "..", ".."));
 const DASH = "at0340-changes-door";
-const LENS_SECTION = '.lens-section[data-lens-section="dashes"]';
+const DASHES_CARD = '.dashes-section';
 const BOUND_SID = "a7c0d1ea-0000-4000-8000-000000000340";
 
 /** The scratch repository the dash case owns, and the only tree it touches. */
@@ -411,14 +411,14 @@ describe.skipIf(!SHOULD_RUN)("AT0340: the composer's two routes", () => {
         // Wait for the dash to reach the aggregate before binding: before the
         // first compose `/dash-bind <name>` misses every snapshot match and
         // falls through to the create path.
-        await app.dispatchControlAction("toggle-lens");
+        await app.dispatchControlAction("toggle-dashes");
         await app.waitForCondition<boolean>(
-          `document.querySelector('${LENS_SECTION} [data-slot="lens-dashes-row"][data-dash="${DASH}"]') !== null`,
+          `document.querySelector('${DASHES_CARD} [data-slot="dashes-row"][data-dash="${DASH}"]') !== null`,
           { timeoutMs: 30000 },
         );
-        await app.dispatchControlAction("toggle-lens");
+        await app.dispatchControlAction("toggle-dashes");
         await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(LENS_SECTION)}) === null`,
+          `document.querySelector(${JSON.stringify(DASHES_CARD)}) === null`,
           { timeoutMs: 8000 },
         );
         await runCommand(app, `/dash-bind ${DASH}`);

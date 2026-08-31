@@ -34,9 +34,9 @@
  * because `bound_sessions` moved in the account-global aggregate the row's
  * own subscription reads. `dash unbind` takes them away the same way.
  *
- * @covers tugdeck/src/components/lens/sections/cards-data-source.ts
- * @covers tugdeck/src/components/lens/sections/cards-section.tsx
- * @covers tugdeck/src/components/lens/sections/cards-session-cell.tsx
+ * @covers tugdeck/src/components/cards/cards-data-source.ts
+ * @covers tugdeck/src/components/cards/cards-card.tsx
+ * @covers tugdeck/src/components/cards/cards-session-cell.tsx
  * @covers tugdeck/src/components/tugways/session-identity-row.tsx
  * @covers tugdeck/src/components/tugways/session-identity-row.css
  * @covers tugdeck/src/components/tugways/tug-step-fraction.tsx
@@ -82,7 +82,7 @@ const CARD = '[data-card-id="A"]';
 const PROMPT = `${CARD} [data-slot="tug-text-editor"] .cm-content`;
 const SHELL_ROWS = `${CARD} [data-slot="session-transcript-shell-row"]`;
 
-const CARDS = '.lens-section[data-lens-section="cards"]';
+const CARDS = '.cards-card';
 const SESSION_ROW = `${CARDS} [data-session-id="${SID}"]`;
 const SESSION_ROW_DASH = `${SESSION_ROW} [data-slot="session-identity-dash"]`;
 const DASH_NAME = "at0424-line";
@@ -189,7 +189,7 @@ describe.skipIf(!SHOULD_RUN)("AT0424: dash progress on the session's row", () =>
         await app.spawnSessionResume("A", { tugSessionId: SID, projectDir: projectDir() });
         await app.awaitEngineReady("A", { timeoutMs: 15000 });
 
-        await app.dispatchControlAction("toggle-lens");
+        await app.dispatchControlAction("toggle-cards");
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(SESSION_ROW)}) !== null`,
           { timeoutMs: 20000 },
@@ -336,7 +336,7 @@ describe.skipIf(!SHOULD_RUN)("AT0424: dash progress on the session's row", () =>
         await app.spawnSessionResume("A", { tugSessionId: SID, projectDir: projectDir() });
         await app.awaitEngineReady("A", { timeoutMs: 15000 });
 
-        await app.dispatchControlAction("toggle-lens");
+        await app.dispatchControlAction("toggle-cards");
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(SESSION_ROW)}) !== null`,
           { timeoutMs: 20000 },

@@ -70,9 +70,9 @@ const EDITOR = `${CARD} [data-slot="tug-text-editor"] .cm-content`;
 const SHEET = `${CARD} .session-view-pane[data-view="changes"] [data-slot="tug-sheet"]`;
 const ROUTE_GROUP = `${CARD} .tug-prompt-entry-route-group`;
 
-const LENS_SECTION = '.lens-section[data-lens-section="dashes"]';
-const lensRegister = (dash: string): string =>
-  `${LENS_SECTION} [data-slot="lens-dashes-row"][data-dash="${dash}"] [data-slot="dash-join-register"]`;
+const DASHES_CARD = '.dashes-section';
+const dashRegister = (dash: string): string =>
+  `${DASHES_CARD} [data-slot="dashes-row"][data-dash="${dash}"] [data-slot="dash-join-register"]`;
 
 /** The checkout whose built binaries the fixture drives. */
 const CHECKOUT = realpathSync(resolve(import.meta.dir, "..", ".."));
@@ -168,9 +168,9 @@ describe.skipIf(!SHOULD_RUN)("AT0471: a deferred fronting re-arms", () => {
         // The Lens is how the arc is read without touching the dash — the
         // register reaching `ready` is the offer standing, independent of
         // whether the card did anything about it.
-        await app.dispatchControlAction("toggle-lens");
+        await app.dispatchControlAction("toggle-dashes");
         await app.waitForCondition<boolean>(
-          `document.querySelector('${LENS_SECTION} [data-slot="lens-dashes-row"][data-dash="${DASH}"]') !== null`,
+          `document.querySelector('${DASHES_CARD} [data-slot="dashes-row"][data-dash="${DASH}"]') !== null`,
           { timeoutMs: 40000 },
         );
 
@@ -193,7 +193,7 @@ describe.skipIf(!SHOULD_RUN)("AT0471: a deferred fronting re-arms", () => {
           env: { ...(cli.env ?? {}), TUG_SESSION_ID: SID },
         });
         await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(lensRegister(DASH))})?.getAttribute("data-word") === "ready"`,
+          `document.querySelector(${JSON.stringify(dashRegister(DASH))})?.getAttribute("data-word") === "ready"`,
           { timeoutMs: 240000 },
         );
         note("at0471 ready: the offer stands");

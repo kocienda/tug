@@ -47,6 +47,9 @@ import {
   isSidebarSide,
 } from "@/lib/layout-imposer";
 import { JOTS_CARD_ID } from "@/lib/jots-card-id";
+import { TRIPWIRES_CARD_ID } from "@/lib/tripwires-card-id";
+import { DASHES_CARD_ID } from "@/lib/dashes-card-id";
+import { CARDS_CARD_ID } from "@/lib/cards-card-id";
 import { LENS_CARD_ID } from "@/lib/lens-card-id";
 import { OVERVIEW_CARD_ID } from "@/lib/overview-card-id";
 import { PERMISSION_MODE_CYCLE } from "./lib/permission-mode";
@@ -525,6 +528,18 @@ export function initActionDispatch(
 
   registerAction("toggle-jots", () => {
     toggleSidebarCard(deckManager, JOTS_CARD_ID);
+  });
+
+  registerAction("toggle-tripwires", () => {
+    toggleSidebarCard(deckManager, TRIPWIRES_CARD_ID);
+  });
+
+  registerAction("toggle-dashes", () => {
+    toggleSidebarCard(deckManager, DASHES_CARD_ID);
+  });
+
+  registerAction("toggle-cards", () => {
+    toggleSidebarCard(deckManager, CARDS_CARD_ID);
   });
 
   registerAction("toggle-overview", () => {

@@ -44,8 +44,8 @@
  *
  * @covers tugdeck/src/lib/session-identity.ts
  * @covers tugdeck/src/lib/session-synopsis-store.ts
- * @covers tugdeck/src/components/lens/sections/cards-session-cell.tsx
- * @covers tugdeck/src/components/lens/sections/cards-data-source.ts
+ * @covers tugdeck/src/components/cards/cards-session-cell.tsx
+ * @covers tugdeck/src/components/cards/cards-data-source.ts
  * @covers tugdeck/src/components/tugways/tug-session-identity.tsx
  * @covers tugdeck/src/components/tugways/session-identity-row.tsx
  */
@@ -64,7 +64,7 @@ const TAG = "stocky-pixie";
 const REROLLED_TAG = "syrupy-beam";
 /** The user's own name for the session, from `/rename`. */
 const RENAME = "Refactor the Lens";
-const LENS_ROW = ".lens-cards-list .lens-cards-row[data-session-id]";
+const LENS_ROW = ".cards-list .cards-row[data-session-id]";
 // Scoped to the session pane by id: the Lens is a pane too, and once it is
 // open an unscoped query would read ITS title bar.
 const TITLE_BAR = '.tug-pane[data-pane-id="p1"] [data-slot="tug-pane-title-bar"]';
@@ -149,7 +149,7 @@ describe.skipIf(!SHOULD_RUN)("at0373 — session identity is one resolver, subsc
         //
         // The Lens is open and its session row is mounted, so this is a live
         // subscription being exercised, not a remount.
-        await app.dispatchControlAction("toggle-lens");
+        await app.dispatchControlAction("toggle-cards");
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(LENS_ROW)}) !== null`,
           { timeoutMs: 15_000 },

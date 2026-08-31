@@ -11,7 +11,7 @@
  * @module lib/lens-store/reducer
  */
 
-import type { LensCardsGroup } from "@/components/lens/sections/cards-groups";
+import type { CardsGroup } from "@/components/cards/cards-groups";
 import {
   DEFAULT_LENS_WIDTH_PX,
   MIN_LENS_WIDTH_PX,
@@ -38,13 +38,13 @@ export type LensEvent =
   | { type: "set_section_order"; order: readonly string[] }
   | {
       type: "set_cards_row_order";
-      group: LensCardsGroup;
+      group: CardsGroup;
       order: readonly string[];
     }
   | { type: "set_cards_group_order"; order: readonly string[] }
   | {
       type: "set_cards_group_collapsed";
-      group: LensCardsGroup;
+      group: CardsGroup;
       collapsed: boolean;
     }
   | { type: "set_collapsed"; kind: string; collapsed: boolean }
@@ -90,7 +90,7 @@ export const EMPTY_CARDS_ROW_ORDER: LensCardsRowOrder = {
  */
 function withGroupOrder(
   record: LensCardsRowOrder,
-  group: LensCardsGroup,
+  group: CardsGroup,
   order: readonly string[],
 ): LensCardsRowOrder {
   if (listsEqual(record[group], order)) return record;

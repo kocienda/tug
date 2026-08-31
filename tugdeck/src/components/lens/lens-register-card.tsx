@@ -56,7 +56,7 @@ export function registerLensCard(): void {
     // declared rather than matched on `componentId`.
     layoutRole: "sidebar",
     // The mirror does not reflect itself.
-    lensGroup: "none",
+    cardsGroup: "none",
     sizePolicy: {
       min: { width: MIN_LENS_WIDTH_PX, height: 240 },
       preferred: { width: DEFAULT_LENS_WIDTH_PX, height: 900 },

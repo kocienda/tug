@@ -16,7 +16,7 @@
  * @module lib/lens-store/types
  */
 
-import type { LensCardsGroup } from "@/components/lens/sections/cards-groups";
+import type { CardsGroup } from "@/components/cards/cards-groups";
 
 /**
  * Per-group row order for the Cards section. The group union is defined
@@ -25,7 +25,7 @@ import type { LensCardsGroup } from "@/components/lens/sections/cards-groups";
  * actually render.
  */
 export type LensCardsRowOrder = Readonly<
-  Record<LensCardsGroup, readonly string[]>
+  Record<CardsGroup, readonly string[]>
 >;
 
 /** Tugbank domain owning the Lens's persisted arrangement state. */

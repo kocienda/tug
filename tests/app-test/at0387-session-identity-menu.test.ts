@@ -430,8 +430,8 @@ describe.skipIf(!SHOULD_RUN)("at0387 — the session row's own menu", () => {
   test(
     "a press elsewhere in the Lens closes the menu",
     async () => {
-      const LIST = ".lens-cards-list";
-      const LENS_DESCRIPTION = `${LIST} .lens-cards-row .tug-session-row-description`;
+      const LIST = ".cards-list";
+      const LENS_DESCRIPTION = `${LIST} .cards-row .tug-session-row-description`;
       const app = await launchTugApp({
         testName: "at0387-session-identity-menu-dismiss",
       });
@@ -442,7 +442,7 @@ describe.skipIf(!SHOULD_RUN)("at0387 — the session row's own menu", () => {
           projectDir: PROJECT_DIR,
         });
         expect(await app.evalJS<boolean>(publishSession())).toBe(true);
-        await app.dispatchControlAction("toggle-lens");
+        await app.dispatchControlAction("toggle-cards");
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(LENS_DESCRIPTION)}) !== null`,
           { timeoutMs: 15_000 },

@@ -1327,7 +1327,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         // because the row carries no chord — a spelling here and nowhere else
         // is the shape the table exists to prevent.
         mMenu.addItem(NSMenuItem(title: "Focus Lens", action: #selector(focusLens(_:)), keyEquivalent: "").identified("maker.focusLens"))
-        // Show Lens, Show Jots, Show Overview — the per-card sidebar toggles.
+        // Show Lens, Show Jots, Show Tripwires, Show Dashes, Show Cards, Show
+        // Overview — the per-card sidebar toggles.
         // They carry no default chord: the keyboard addresses the RAILS
         // (Show Left/Right Rail below), and a per-card letter grammar cannot
         // scale past the letters it has already spent. Built without key
@@ -1337,6 +1338,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         // mode, so any chord falls through to the web view there.
         mMenu.addItem(NSMenuItem(title: "Show Lens", action: #selector(showLens(_:)), keyEquivalent: "").identified("maker.lens"))
         mMenu.addItem(NSMenuItem(title: "Show Jots", action: #selector(showJots(_:)), keyEquivalent: "").identified("maker.jots"))
+        mMenu.addItem(NSMenuItem(title: "Show Tripwires", action: #selector(showTripwires(_:)), keyEquivalent: "").identified("maker.tripwires"))
+        mMenu.addItem(NSMenuItem(title: "Show Dashes", action: #selector(showDashes(_:)), keyEquivalent: "").identified("maker.dashes"))
+        mMenu.addItem(NSMenuItem(title: "Show Cards", action: #selector(showCards(_:)), keyEquivalent: "").identified("maker.cards"))
         mMenu.addItem(NSMenuItem(title: "Show Overview", action: #selector(showOverview(_:)), keyEquivalent: "").identified("maker.overview"))
         // Show Left Rail (⌃⌘←) and Show Right Rail (⌃⌘→) — the deck's two
         // sides as keyboard entities, three-state like the card rows above:
@@ -1488,6 +1492,21 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// Show or hide the Jots rail — the Lens toggle's sibling.
     @objc private func showJots(_ sender: Any) {
         sendControl("toggle-jots")
+    }
+
+    /// Show or hide the Tripwires rail — another of the sidebar toggles.
+    @objc private func showTripwires(_ sender: Any) {
+        sendControl("toggle-tripwires")
+    }
+
+    /// Show or hide the Dashes rail — another of the sidebar toggles.
+    @objc private func showDashes(_ sender: Any) {
+        sendControl("toggle-dashes")
+    }
+
+    /// Show or hide the Cards rail — another of the sidebar toggles.
+    @objc private func showCards(_ sender: Any) {
+        sendControl("toggle-cards")
     }
 
     /// Show or hide the Overview rail — the third of the sidebar toggles.
