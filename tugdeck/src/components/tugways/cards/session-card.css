@@ -906,6 +906,30 @@
   --tugx-ambient-surface: var(--tug7-surface-global-primary-normal-default-rest);
 }
 
+/* Standing spawn-rejection notice. The picker's sheet presents only when the
+   card becomes first responder, so a card whose spawn was refused while it
+   sat inactive had nothing on it at all. This centers the same inline alert
+   the sheet would carry, directly on the backdrop, and unmounts once the
+   sheet has presented — the two never share the card. */
+.session-card-picker-standing-notice {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--tug-space-lg, 16px);
+  box-sizing: border-box;
+}
+
+/* Match the restoring panel's measure so the two placeholders read as one
+   family rather than two widths. */
+.session-card-picker-standing-notice > * {
+  width: 100%;
+  max-width: 420px;
+}
+
 /* ─── Restoring placeholder (session-restore in-flight) ─── */
 
 /* Card-body-filling container that holds the restoring panel

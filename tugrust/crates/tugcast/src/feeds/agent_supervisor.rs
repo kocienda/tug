@@ -1432,6 +1432,14 @@ pub fn build_session_removed_frame(session_id: &str) -> Frame {
 /// caps so a buggy client or a user with many open cards cannot run the host
 /// out of subprocess slots. See [`AgentSupervisor::do_spawn_session`] for the
 /// enforcement path.
+///
+/// The two move together. A fresh insert spends both budgets, and after a
+/// host restart the in-memory ledger is empty, so every session restored
+/// from disk is a fresh insert rather than a reconnect. A per-minute bucket
+/// below the concurrent cap would therefore make the cap unreachable from a
+/// cold start: the restore pass would fill the bucket and the remaining
+/// cards would be refused. Keep `max_spawns_per_minute` above
+/// `max_concurrent_sessions`.
 #[derive(Debug, Clone)]
 pub struct AgentSupervisorConfig {
     /// Absolute path to the tugcode binary (or `.ts` entry for bun fallback).
@@ -1444,12 +1452,23 @@ pub struct AgentSupervisorConfig {
     /// and a `SESSION_STATE = errored` broadcast. Idle and Errored entries
     /// do NOT consume slots — only sessions with a running or starting
     /// subprocess count.
+    ///
+    /// The bound is a memory budget. A live session is a `tugcode` process
+    /// plus the `claude` it supervises, which together cost roughly 240 MB
+    /// of private memory — measured as `phys_footprint`, which excludes the
+    /// file-backed pages every `claude` maps from the same binary and shares.
+    /// Resident-set figures count those shared pages once per process and so
+    /// read about three times higher; sizing against RSS undercounts what the
+    /// host can carry.
     pub max_concurrent_sessions: usize,
     /// Leaky-bucket rate limit on fresh spawn-session intents. Trailing 60s
     /// window; the N+1th spawn within the window is rejected with
     /// `ControlError::CapExceeded { reason: "spawn_rate_limited" }`.
     /// Reconnects (spawns for an existing ledger entry) do not consume
     /// budget.
+    ///
+    /// Held above `max_concurrent_sessions` so a cold-start restore of a
+    /// full deck cannot exhaust the bucket before it reaches the cap.
     pub max_spawns_per_minute: usize,
     /// Override for the Claude Code terminal-liveness registry root
     /// (`~/.claude/sessions/` in production). `None` resolves the
@@ -1462,8 +1481,8 @@ impl Default for AgentSupervisorConfig {
     fn default() -> Self {
         Self {
             tugcode_path: PathBuf::new(),
-            max_concurrent_sessions: 8,
-            max_spawns_per_minute: 20,
+            max_concurrent_sessions: 64,
+            max_spawns_per_minute: 96,
             terminal_registry_root: None,
         }
     }

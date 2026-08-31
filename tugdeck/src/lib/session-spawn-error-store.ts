@@ -31,6 +31,22 @@ export interface SpawnError {
   reason: string;
 }
 
+/**
+ * Whether `reason` is the supervisor refusing on its own budget rather than
+ * on anything wrong with the request.
+ *
+ * These two are the only reasons where the project directory is known-good
+ * and re-picking it is not the recovery — the deck is full, or spawns are
+ * arriving faster than the bucket drains. Everything else in
+ * {@link spawnErrorMessage} describes a directory the user must change.
+ */
+export function isSpawnBudgetReason(reason: string): boolean {
+  return (
+    reason === "concurrent_session_cap_exceeded" ||
+    reason === "spawn_rate_limited"
+  );
+}
+
 class SessionSpawnErrorStore {
   private errors = new Map<string, SpawnError>();
   private listeners = new Map<string, Set<() => void>>();
@@ -96,7 +112,14 @@ export function spawnErrorMessage(reason: string): string {
       return "No project directory was provided.";
     case "metadata_error":
       return "The project directory could not be read.";
+    // The two budget reasons refuse for opposite durations and must not
+    // share copy. The rate limit is a trailing-window bucket that drains on
+    // its own, so waiting is the remedy. The concurrent cap holds until a
+    // live session ends — nothing is "starting at once" and no amount of
+    // waiting clears it, so telling the user to try again in a moment would
+    // be false.
     case "concurrent_session_cap_exceeded":
+      return "Every session slot is in use. Close a session, then try again.";
     case "spawn_rate_limited":
       return "Too many sessions are starting at once. Try again in a moment.";
     case "session_live_in_terminal":

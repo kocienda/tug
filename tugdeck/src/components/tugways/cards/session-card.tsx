@@ -241,11 +241,13 @@ import {
 import { logSessionLifecycle } from "@/lib/session-lifecycle-log";
 import {
   pickerNoticeStore,
+  shouldShowStandingNotice,
   type PickerNotice,
 } from "@/lib/picker-notice-store";
 import {
   useSpawnError,
   spawnErrorMessage,
+  isSpawnBudgetReason,
   sessionSpawnErrorStore,
 } from "@/lib/session-spawn-error-store";
 import {
@@ -902,6 +904,36 @@ interface SessionProjectPickerProps {
 }
 
 /**
+ * The picker's notice rendered directly on the card, for the window before
+ * the sheet has ever presented. Same `noticeContent` mapping and the same
+ * `TugInlineAlert` the sheet uses, so a rejection reads identically whether
+ * the card was active when it arrived or not.
+ *
+ * No Retry action here: the retry paths (`fireRestore`, the sheet's own
+ * re-open) need the connection and the sheet's dismissal choreography, and
+ * this surface exists to be seen rather than to act. Activating the card
+ * presents the sheet, which carries the same notice with its actions.
+ */
+function StandingPickerNotice({ notice }: { notice: PickerNotice }) {
+  const content = noticeContent(notice);
+  return (
+    <div
+      className="session-card-picker-standing-notice"
+      data-testid="session-card-picker-standing-notice"
+      data-notice-category={notice.category}
+    >
+      <TugInlineAlert
+        title={content.title}
+        message={content.message}
+        tone={content.tone}
+        icon={content.icon}
+        live="alert"
+      />
+    </div>
+  );
+}
+
+/**
  * Picker shown while the card is unbound. The project-path form lives
  * inside a `TugSheet` that drops from the title bar on mount and
  * disappears when the user picks a path or cancels.
@@ -946,10 +978,23 @@ function SessionProjectPicker({ cardId }: SessionProjectPickerProps) {
   // sheet was dismissed on Open, and the effect below re-presents the picker
   // to show it.
   const spawnError = useSpawnError(cardId);
+  // A budget refusal is a different failure from a bad directory and gets a
+  // different category: the request was valid, so re-picking the directory is
+  // not the recovery and the copy must not say it is.
+  //
+  // Neither category carries retry context, and `spawn_budget` must not grow
+  // any: the picker's Retry button routes through `fireRestore`, which spawns
+  // with `sessionMode: "resume"`. A refused *fresh* spawn has a client-minted
+  // session id that no session was ever created for, so retrying it as a
+  // resume would ask the host to restore something that never existed. The
+  // sheet's own Open button is the correct retry for a fresh spawn, and the
+  // restore path has its own retry ladder for a resume.
   const spawnNotice: PickerNotice | null =
     spawnError !== null
       ? {
-          category: "spawn_failed",
+          category: isSpawnBudgetReason(spawnError.reason)
+            ? "spawn_budget"
+            : "spawn_failed",
           message: spawnErrorMessage(spawnError.reason),
         }
       : null;
@@ -967,6 +1012,13 @@ function SessionProjectPicker({ cardId }: SessionProjectPickerProps) {
   // (the startup-restore path) doesn't double-present.
   const sheetOpenRef = useRef(false);
 
+  // Whether the sheet has ever been presented for this picker. State, not a
+  // ref, because the standing notice below is rendered from it — and unlike
+  // `shownRef` it is never reset, so once the sheet has appeared the notice
+  // stays retired and the re-present path owns every later rejection. That
+  // is what keeps the two surfaces from both being up at once.
+  const [sheetEverShown, setSheetEverShown] = useState(false);
+
   // Present the sheet only when this card becomes first responder.
   // An unbound session card that lives in an inactive tab must wait —
   // otherwise its sheet drops on top of the sibling card the user is
@@ -982,6 +1034,7 @@ function SessionProjectPicker({ cardId }: SessionProjectPickerProps) {
     if (shownRef.current) return;
     shownRef.current = true;
     sheetOpenRef.current = true;
+    setSheetEverShown(true);
     // The notice carries retry context (`stale{TugSessionId,ProjectDir}`)
     // only for the three retryable categories. When present, the
     // picker renders a Retry button that re-fires the restore and
@@ -1187,13 +1240,34 @@ function SessionProjectPicker({ cardId }: SessionProjectPickerProps) {
     presentSheet();
   }, [spawnError, presentSheet]);
 
+  // The rejection's standing surface, and the reason a refused card is never
+  // blank. The sheet is the picker's only other way to speak, and it presents
+  // on activation ([D02] first-responder gating above) so that an inactive
+  // tab cannot drop a sheet over the sibling in view — which left a card
+  // refused while inactive, having never presented, rendering an empty
+  // backdrop and no reason at all. This notice does not wait for activation.
+  //
+  // It retires the moment the sheet has ever been shown: from then on the
+  // sheet carries the same notice through `activeNoticeRef`, and the
+  // re-present effect above handles rejections that land after a dismissal.
+  // So exactly one of the two is ever up.
+  const standingNotice = shouldShowStandingNotice(activeNotice, sheetEverShown)
+    ? activeNotice
+    : null;
+
   return (
     <div
       className="session-card-picker-backdrop"
       data-slot="session-card-picker"
       data-testid="session-card-picker"
-      aria-hidden="true"
+      // The backdrop is decorative while the sheet owns the card, but a
+      // standing notice is the only thing the card is saying — it must not
+      // be hidden from assistive tech.
+      aria-hidden={standingNotice === null ? true : undefined}
     >
+      {standingNotice !== null ? (
+        <StandingPickerNotice notice={standingNotice} />
+      ) : null}
       {renderSheet()}
     </div>
   );
@@ -1351,6 +1425,17 @@ function noticeContent(notice: PickerNotice): NoticeContent {
         message: `${notice.message} Choose a directory that exists below, then Open.`,
         tone: "danger",
         icon: "FolderX",
+      };
+    case "spawn_budget":
+      // Deliberately does NOT steer at the picker. The host refused on its
+      // own budget, so the project directory is fine and "choose a directory
+      // that exists" — what `spawn_failed` says — would be false advice.
+      // `message` carries which budget it was and what clears it.
+      return {
+        title: "Can’t start another session",
+        message: notice.message,
+        tone: "caution",
+        icon: "TriangleAlert",
       };
     default:
       return { title: notice.message, tone: "muted", icon: "Info" };

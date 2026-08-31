@@ -38,7 +38,13 @@ export type PickerNoticeCategory =
   | "restore_canceled"
   | "restore_timed_out"
   | "signed_out"
-  | "spawn_failed";
+  | "spawn_failed"
+  // A spawn refused by the supervisor's own budget rather than by anything
+  // wrong with the request. Split from `spawn_failed` because the remedy is
+  // the opposite: `spawn_failed` means the project directory cannot be
+  // opened and the picker is the recovery, whereas a budget refusal means
+  // the directory was never in question and re-picking it changes nothing.
+  | "spawn_budget";
 
 export interface PickerNotice {
   category: PickerNoticeCategory;
@@ -74,3 +80,28 @@ class PickerNoticeStore {
 }
 
 export const pickerNoticeStore = new PickerNoticeStore();
+
+/**
+ * Whether the picker should render its notice directly on the card rather
+ * than waiting for the sheet to carry it.
+ *
+ * The picker has two ways to show a notice and must never use both at once.
+ * The sheet is the richer one — it carries the path form and the notice's
+ * actions — but it presents only when the card becomes first responder, so
+ * that an inactive tab cannot drop a sheet over the sibling in view. That
+ * left a real gap: a card whose spawn was refused while it sat inactive, and
+ * which had therefore never presented, rendered an empty backdrop and gave
+ * no reason at all.
+ *
+ * So the standing surface fills exactly the window before the sheet's first
+ * presentation, and retires permanently once it has presented — from then on
+ * the sheet owns the notice, including re-presenting for a rejection that
+ * lands after a dismissal. `sheetEverShown` must therefore never be reset by
+ * the caller; a flag that flipped back would let both surfaces mount.
+ */
+export function shouldShowStandingNotice(
+  notice: PickerNotice | null,
+  sheetEverShown: boolean,
+): boolean {
+  return notice !== null && !sheetEverShown;
+}
