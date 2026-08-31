@@ -100,12 +100,14 @@ import {
   slotCount,
   isSidebarPinned,
   sidebarSide,
+  railHiddenMembers,
+  withRailHidden,
   isSidebarSide,
   clampFlowOffset,
   clampStripOffset,
   columnModeOf,
-  columnStanding,
-  COLUMN_OVERFLOW_VISIBLE_MEMBERS,
+  placeStanding,
+  PLACE_OVERFLOW_VISIBLE_MEMBERS,
   effectiveRailOrder,
   firstVisibleFlowSlot,
   flowRevealOffset,
@@ -1444,6 +1446,92 @@ export class DeckManager implements IDeckManagerStore {
   }
 
   /**
+   * Show `side`'s rail: reopen the members it held when it was last hidden
+   * whole, or — with no such memory — the one card that belongs there.
+   * Returns the card id of the member left z-frontmost, or `null` when the
+   * side has nothing to show.
+   *
+   * The memory is z-ordered, back to front ({@link RailArrangement.hidden}),
+   * and the panes are reopened in that order, so the member that was in front
+   * when the rail went away is in front when it comes back. Vertical order is
+   * not this method's business at all: it lives in the side's `order` and
+   * survives the round trip untouched.
+   *
+   * Consuming the memory is part of showing. A record left standing would be
+   * re-read by the next show, and by then it describes a rail the user has
+   * since rearranged.
+   */
+  showSidebarRail(side: SidebarSide): string | null {
+    const remembered = railHiddenMembers(
+      this.deckState.imposition,
+      side,
+    ).filter((componentId) => isSidebarCard(componentId));
+    const opening =
+      remembered.length > 0 ? remembered : this._defaultRailMembers(side);
+    let frontmost: string | null = null;
+    for (const componentId of opening) {
+      const cardId = this.showSidebarPane(componentId);
+      if (cardId !== null) frontmost = cardId;
+    }
+    if (remembered.length > 0) {
+      this._reimpose(withRailHidden(this.deckState.imposition, side, []));
+    }
+    return frontmost;
+  }
+
+  /**
+   * Hide `side`'s rail: record which members were standing on it and close
+   * every one of them.
+   *
+   * The record is written BEFORE the closes, in its own commit, because each
+   * close rewrites the imposition — writing it after would be writing it onto
+   * a deck the closes had already moved on from.
+   */
+  hideSidebarRail(side: SidebarSide): void {
+    const members = this._railMembersInZOrder(side);
+    if (members.length === 0) return;
+    this._reimpose(withRailHidden(this.deckState.imposition, side, members));
+    for (const componentId of members) this.hideSidebarPane(componentId);
+  }
+
+  /** The sidebar componentIds standing pinned on `side`, back to front — the
+   *  panes array's own order, which is the deck's z-order. */
+  private _railMembersInZOrder(side: SidebarSide): readonly string[] {
+    const imposition = this.deckState.imposition;
+    return findSidebarPanes(this.deckState)
+      .filter(
+        ({ componentId }) =>
+          isSidebarPinned(imposition, componentId) &&
+          sidebarSide(imposition, componentId) === side,
+      )
+      .map(({ componentId }) => componentId);
+  }
+
+  /**
+   * What showing a rail opens when nothing remembers what it held: the one
+   * sidebar card that belongs on `side`, named by the side's stored order if
+   * it names one and by registration order otherwise.
+   *
+   * One card rather than every card assigned to the side. A rail nobody has
+   * hidden whole is a rail whose members the user closed one at a time, and
+   * reopening the pile they dismissed card by card would be answering a
+   * gesture they did not make.
+   */
+  private _defaultRailMembers(side: SidebarSide): readonly string[] {
+    const imposition = this.deckState.imposition;
+    const belongs = [...getAllRegistrations().keys()].filter(
+      (componentId) =>
+        isSidebarCard(componentId) &&
+        sidebarSide(imposition, componentId) === side,
+    );
+    if (belongs.length === 0) return [];
+    const named = (imposition.rails?.[side]?.order ?? []).find((componentId) =>
+      belongs.includes(componentId),
+    );
+    return [named ?? belongs[0]];
+  }
+
+  /**
    * Set the side of the deck a sidebar card holds.
    *
    * A sidebar's side is one axis of the deck's imposition, so this writes its
@@ -1479,9 +1567,12 @@ export class DeckManager implements IDeckManagerStore {
   private _railOrder(
     imposition: DeckImposition,
     side: SidebarSide,
+    panes?: readonly TugPaneState[],
   ): readonly string[] {
+    const state =
+      panes === undefined ? this.deckState : { ...this.deckState, panes };
     const standing = new Set(
-      findSidebarPanes(this.deckState)
+      findSidebarPanes(state)
         .filter(({ componentId }) => isSidebarPinned(imposition, componentId))
         .map(({ componentId }) => componentId),
     );
@@ -2014,6 +2105,13 @@ export class DeckManager implements IDeckManagerStore {
       activePaneId === undefined
         ? undefined
         : this._columnRevealOffsetFor(activePaneId, nextPanes, imposition);
+    // And the rail's half of it, for the same reason over the other kind of
+    // place: the two rules answer about disjoint panes, so exactly one of them
+    // can be anything but `undefined` on any given commit.
+    const railReveal =
+      activePaneId === undefined
+        ? undefined
+        : this._railRevealOffsetFor(activePaneId, nextPanes, imposition);
 
     for (const cardId of moved) this.cardLifecycle.notifyCardWillMove(cardId);
     for (const cardId of resized) this.cardLifecycle.notifyCardWillResize(cardId);
@@ -2023,6 +2121,7 @@ export class DeckManager implements IDeckManagerStore {
       imposition,
       ...(flowOffset !== undefined ? { flowOffset } : {}),
       ...this._withColumnReveal(columnReveal),
+      ...this._withRailReveal(railReveal),
     };
     this.notify("_commitImposition");
     for (const cardId of resized) this.cardLifecycle.notifyCardDidResize(cardId);
@@ -2056,6 +2155,7 @@ export class DeckManager implements IDeckManagerStore {
     const panes = this.deckState.panes;
     this._retuneFlowOffset(panes, imposition);
     this._retuneColumnOffsets(panes, imposition);
+    this._retuneRailOffsets(panes, imposition);
     const { panesBySide } = this._sidebarRails(panes, imposition);
     if (panesBySide.size === 0) return;
     const allocated = this._allocatedRailWidths(panes, imposition);
@@ -2445,6 +2545,9 @@ export class DeckManager implements IDeckManagerStore {
     // overflowing column slides that column's strip by the least that shows
     // it, in this commit, so the settle sees one arrangement change ([P12]).
     const columnReveal = this._columnRevealOffsetFor(updatedHost.id, newStacks);
+    // And the rail's half of it: raising a member of an overflowing rail slides
+    // that side's strip by the least that shows it, in this commit.
+    const railReveal = this._railRevealOffsetFor(updatedHost.id, newStacks);
 
     this.deckState = {
       ...this.deckState,
@@ -2452,6 +2555,7 @@ export class DeckManager implements IDeckManagerStore {
       activePaneId: updatedHost.id,
       ...(flowOffset !== undefined ? { flowOffset } : {}),
       ...this._withColumnReveal(columnReveal),
+      ...this._withRailReveal(railReveal),
     };
     this.putFocusedCardIdGuarded(newFR);
     this.notify("_commitStandardFirstResponderFlip");
@@ -2596,14 +2700,19 @@ export class DeckManager implements IDeckManagerStore {
   }
 
   /**
-   * The vertical run a column's members stand in, in px: the canvas less the
+   * The vertical run a place's members stand in, in px: the canvas less the
    * gap it keeps at the top and the deeper one it keeps at the bottom.
+   *
+   * One run for both kinds of place. A column and a rail divide the same
+   * vertical extent — `RAIL_RUN` in the imposer is the single expression both
+   * sets of pins are written over — so a second measurement here would be a
+   * second chance to disagree with the CSS.
    *
    * The vertical twin of {@link _flowBandWidth}, and simpler for the reason
    * the overflow pins are simpler than the share pins: nothing insets the run.
    * A rail takes width from the band; nothing takes height from the run.
    */
-  private _columnRunHeight(): number {
+  private _placeRunHeight(): number {
     return (
       this.container.clientHeight - IMPOSITION_GAP_PX - impositionGapBottomPx()
     );
@@ -2619,8 +2728,14 @@ export class DeckManager implements IDeckManagerStore {
    * keeps the deck's one measurement in one place.
    */
   getColumnRunHeight(): number | null {
-    const run = this._columnRunHeight();
+    const run = this._placeRunHeight();
     return run > 0 ? run : null;
+  }
+
+  /** The run a rail's members stand in — {@link getColumnRunHeight}'s value
+   *  under the other place's name, because the two runs are one. */
+  getRailRunHeight(): number | null {
+    return this.getColumnRunHeight();
   }
 
   /**
@@ -2657,10 +2772,10 @@ export class DeckManager implements IDeckManagerStore {
       c.members.includes(paneId),
     );
     if (column === undefined || column.mode !== "split") return undefined;
-    if (columnStanding(column.members.length) !== "overflow") return undefined;
-    const run = this._columnRunHeight();
+    if (placeStanding(column.members.length) !== "overflow") return undefined;
+    const run = this._placeRunHeight();
     if (!(run > 0)) return undefined;
-    const memberHeight = run / COLUMN_OVERFLOW_VISIBLE_MEMBERS;
+    const memberHeight = run / PLACE_OVERFLOW_VISIBLE_MEMBERS;
     const index = column.members.indexOf(paneId);
     const standing = state.columnOffsets?.[column.slot] ?? 0;
     const next = stripRevealOffset({
@@ -2710,8 +2825,8 @@ export class DeckManager implements IDeckManagerStore {
     const standing = this.deckState.columnOffsets;
     if (standing === undefined) return;
     const state = { ...this.deckState, panes, imposition };
-    const run = this._columnRunHeight();
-    const memberHeight = run / COLUMN_OVERFLOW_VISIBLE_MEMBERS;
+    const run = this._placeRunHeight();
+    const memberHeight = run / PLACE_OVERFLOW_VISIBLE_MEMBERS;
     const columns = deckColumnsOf(state);
     const next: Record<number, number> = {};
     let changed = false;
@@ -2721,7 +2836,7 @@ export class DeckManager implements IDeckManagerStore {
       const overflowing =
         column !== undefined &&
         column.mode === "split" &&
-        columnStanding(column.members.length) === "overflow" &&
+        placeStanding(column.members.length) === "overflow" &&
         run > 0;
       if (!overflowing) {
         changed = true;
@@ -2761,12 +2876,12 @@ export class DeckManager implements IDeckManagerStore {
    * the card goes home, the view does not.
    */
   setColumnOffset(slot: number, offset: number): void {
-    const run = this._columnRunHeight();
+    const run = this._placeRunHeight();
     if (!(run > 0)) return;
     const column = deckColumnsOf(this.deckState).find((c) => c.slot === slot);
     if (column === undefined || column.mode !== "split") return;
-    if (columnStanding(column.members.length) !== "overflow") return;
-    const memberHeight = run / COLUMN_OVERFLOW_VISIBLE_MEMBERS;
+    if (placeStanding(column.members.length) !== "overflow") return;
+    const memberHeight = run / PLACE_OVERFLOW_VISIBLE_MEMBERS;
     const clamped = clampStripOffset(
       offset,
       column.members.length * memberHeight +
@@ -2780,6 +2895,149 @@ export class DeckManager implements IDeckManagerStore {
       columnOffsets: { ...this.deckState.columnOffsets, [slot]: clamped },
     };
     this.notify("setColumnOffset");
+  }
+
+  /**
+   * The rail offset that reveals `paneId` inside its own side, or `undefined`
+   * when there is nothing to reveal — the pane is not a pinned sidebar, its
+   * rail is stacked, its rail does not overflow, or the member is already
+   * fully in the run.
+   *
+   * The side-keyed twin of {@link _columnRevealOffsetFor}, over the same
+   * arithmetic ({@link stripRevealOffset}) and the same run. It is a separate
+   * method rather than a branch in that one because the two answer about
+   * disjoint sets of panes: the column rule returns early for every sidebar
+   * pane, and this one returns early for everything else.
+   *
+   * `panes` rather than `this.deckState.panes` for the reason the column rule
+   * takes them: a commit computes its reveal from the panes it is about to
+   * write, not from the ones it is replacing.
+   */
+  private _railRevealOffsetFor(
+    paneId: string,
+    panes: readonly TugPaneState[],
+    imposition?: DeckImposition,
+  ): { side: SidebarSide; offset: number } | undefined {
+    if (this.deckState.bullseyePaneId === paneId) return undefined;
+    const componentId = this._sidebarComponentIdOfPane(paneId);
+    if (componentId === undefined) return undefined;
+    const arrangement = imposition ?? this.deckState.imposition;
+    if (!isSidebarPinned(arrangement, componentId)) return undefined;
+    const side = sidebarSide(arrangement, componentId);
+    if (railModeOf(arrangement, side) !== "split") return undefined;
+    const order = this._railOrder(arrangement, side, panes);
+    if (placeStanding(order.length) !== "overflow") return undefined;
+    const index = order.indexOf(componentId);
+    if (index < 0) return undefined;
+    const run = this._placeRunHeight();
+    if (!(run > 0)) return undefined;
+    const memberHeight = run / PLACE_OVERFLOW_VISIBLE_MEMBERS;
+    const standing = this.deckState.railOffsets?.[side] ?? 0;
+    const next = stripRevealOffset({
+      stripStart: index * (memberHeight + IMPOSITION_GAP_PX),
+      extent: memberHeight,
+      stripLength:
+        order.length * memberHeight + (order.length - 1) * IMPOSITION_GAP_PX,
+      band: run,
+      offset: standing,
+    });
+    return next === standing ? undefined : { side, offset: next };
+  }
+
+  /**
+   * The offsets record a rail reveal produces — the one standing, with the
+   * revealed side written over it. `undefined` in gives `undefined` out, so a
+   * commit that reveals nothing spreads nothing and stays byte-identical.
+   */
+  private _withRailReveal(
+    reveal: { side: SidebarSide; offset: number } | undefined,
+  ):
+    | { railOffsets: Readonly<Partial<Record<SidebarSide, number>>> }
+    | Record<string, never> {
+    if (reveal === undefined) return {};
+    return {
+      railOffsets: {
+        ...(this.deckState.railOffsets ?? {}),
+        [reveal.side]: reveal.offset,
+      },
+    };
+  }
+
+  /**
+   * Write every stored rail offset back inside the bounds a resized canvas
+   * leaves it, and drop the ones whose rail has stopped overflowing.
+   *
+   * Bookkeeping, exactly as {@link _retuneColumnOffsets} is bookkeeping: the
+   * PICTURE is already right, because `railMemberPins` expresses the clamp in
+   * CSS over the strip and the live run. What this fixes is the NUMBER, so the
+   * next reveal computes its minimal move from an offset the deck is actually
+   * showing — and it forgets a rail that dropped back to two members, whose
+   * stored slide would otherwise return with the third card.
+   */
+  private _retuneRailOffsets(
+    panes: readonly TugPaneState[],
+    imposition: DeckImposition,
+  ): void {
+    const standing = this.deckState.railOffsets;
+    if (standing === undefined) return;
+    const run = this._placeRunHeight();
+    const memberHeight = run / PLACE_OVERFLOW_VISIBLE_MEMBERS;
+    const next: Partial<Record<SidebarSide, number>> = {};
+    let changed = false;
+    for (const [key, offset] of Object.entries(standing)) {
+      const side = key as SidebarSide;
+      const count = this._railOrder(imposition, side, panes).length;
+      const overflowing =
+        railModeOf(imposition, side) === "split" &&
+        placeStanding(count) === "overflow" &&
+        run > 0;
+      if (!overflowing) {
+        changed = true;
+        continue;
+      }
+      const clamped = clampStripOffset(
+        offset,
+        count * memberHeight + (count - 1) * IMPOSITION_GAP_PX,
+        run,
+      );
+      if (clamped !== offset) changed = true;
+      next[side] = clamped;
+    }
+    if (!changed) return;
+    this.deckState = {
+      ...this.deckState,
+      ...(Object.keys(next).length === 0
+        ? { railOffsets: undefined }
+        : { railOffsets: next }),
+    };
+    this.notify("_retuneRailOffsets");
+  }
+
+  /**
+   * Commit where a drag left an overflowing rail's strip — the side-keyed twin
+   * of {@link setColumnOffset}, and real state for the same reason: the card
+   * goes home when a drag is cancelled, the view does not.
+   */
+  setRailOffset(side: SidebarSide, offset: number): void {
+    const run = this._placeRunHeight();
+    if (!(run > 0)) return;
+    const imposition = this.deckState.imposition;
+    if (railModeOf(imposition, side) !== "split") return;
+    const count = this._railOrder(imposition, side).length;
+    if (placeStanding(count) !== "overflow") return;
+    const memberHeight = run / PLACE_OVERFLOW_VISIBLE_MEMBERS;
+    const clamped = clampStripOffset(
+      offset,
+      count * memberHeight + (count - 1) * IMPOSITION_GAP_PX,
+      run,
+    );
+    const standing = this.deckState.railOffsets?.[side] ?? 0;
+    if (clamped === standing) return;
+    this.deckState = {
+      ...this.deckState,
+      railOffsets: { ...this.deckState.railOffsets, [side]: clamped },
+    };
+    this.notify("setRailOffset");
   }
 
   /**

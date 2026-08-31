@@ -903,6 +903,53 @@ const GO_TO_SLOT_COMMANDS: readonly CommandEntry[] = Array.from(
   },
 );
 
+/**
+ * ⌃⌘← / ⌃⌘→ — show or hide a whole SIDE of the deck.
+ *
+ * **The rail is the entity, not the card standing on it.** Every sidebar card
+ * used to carry its own ⌃⌘⟨letter⟩ toggle, and that grammar could not survive
+ * the sidebar growing: the letters the next cards want are spent (⌃⌘C is the
+ * Changes shade, ⌃⌘T is Next Theme) or forbidden (⌃⌘D is the system
+ * dictionary). A pair of chords addressing the two sides is a set that does not
+ * grow at all — six sidebar cards need the same two keys three do.
+ *
+ * **The tier, derived** (tuglaws/chord-tiers.md): a rail is layout vocabulary,
+ * which is what ⌃⌘ carries, alongside ⌃⌘↑/↓ `move-in-column` — whose vertical
+ * axis these complete horizontally. Arrows are R1-exempt under R2 and the
+ * mnemonic is the geometry itself: the chord points at the edge it opens. The
+ * macOS never-bind list reserves PLAIN ⌃-arrows for Spaces and Mission Control,
+ * not the ⌘ composition, which is the argument the split family already made
+ * for ⌃⌘↑/↓.
+ *
+ * `menuEligible` with empty Swift key equivalents, the discipline every sidebar
+ * toggle already follows: `applyCommandChords` writes them from this table, so
+ * both stay rebindable end to end.
+ *
+ * Ungated. A rail always has something to say — hide it if it is showing, show
+ * it if it is not — and the side's membership is the deck's business rather
+ * than the row's.
+ */
+const RAIL_TOGGLE_COMMANDS: readonly CommandEntry[] = (
+  [
+    { side: "left", title: "Show Left Rail", key: "ArrowLeft", label: "←" },
+    { side: "right", title: "Show Right Rail", key: "ArrowRight", label: "→" },
+  ] as const
+).map(({ side, title, key, label }) => ({
+  id: `${TUG_ACTIONS.TOGGLE_RAIL}:${side}`,
+  title,
+  routing: "first-responder" as const,
+  action: TUG_ACTIONS.TOGGLE_RAIL,
+  payload: side,
+  menuItemId: `maker.${side}Rail`,
+  mirrored: true,
+  bindings: [
+    chord({ key, meta: true, ctrl: true, label }, {
+      preventDefault: true,
+      menuEligible: true,
+    }),
+  ],
+}));
+
 export const COMMANDS: readonly CommandEntry[] = [
   // ---- File ----
   {
@@ -1557,6 +1604,7 @@ export const COMMANDS: readonly CommandEntry[] = [
     disabledChord: "detach",
   },
   ...GO_TO_SLOT_COMMANDS,
+  ...RAIL_TOGGLE_COMMANDS,
   ...CARD_WIDTH_COMMANDS,
   // ⌃⌘B — bullseye: put the focused card in a centered, comfy-width reading
   // posture with every other surface receded, and take it back out.
@@ -1610,25 +1658,24 @@ export const COMMANDS: readonly CommandEntry[] = [
     title: "Focus Lens",
     routing: "first-responder",
     menuItemId: "maker.focusLens",
-    bindings: [
-      chord({ key: "KeyL", meta: true, label: "l" }, { preventDefault: true }),
-    ],
+    // Chord-less by default. ⌘L was the plain-⌘ half of a per-card sidebar
+    // grammar that has retired: the keyboard addresses the RAIL now, and the
+    // rail's own ladder already ends with focus inside it, so a second gesture
+    // meaning "focus the Lens" is a claim on the ⌘ tier that R3 no longer
+    // supports. `bindings: []` is a command with no DEFAULT chord, not one
+    // that refuses a chord — the keymap pane can still bind it.
+    bindings: [],
   },
   {
-    // ⌃⌘L — a sidebar toggle, so it takes the ⌃⌘⟨letter⟩ grammar the Jots
-    // toggle below shares. Menu-eligible: the item's key equivalent is left
-    // empty in Swift and supplied by `applyCommandChords`, which is what
-    // keeps the chord rebindable.
+    // A menu row with no default chord. The per-card ⌃⌘⟨letter⟩ toggles gave
+    // their chords up when the rails were promoted: ⌃⌘L, ⌃⌘J and ⌃⌘O return to
+    // their pools, and the row stays rebindable through the keymap pane — the
+    // same demotion the card widths took when ⌃⌘1/2/3 became Go to Slot.
     id: TUG_ACTIONS.TOGGLE_LENS,
     title: "Show Lens",
     routing: "registry",
     menuItemId: "maker.lens",
-    bindings: [
-      chord(
-        { key: "KeyL", ctrl: true, meta: true, label: "l" },
-        { preventDefault: true, menuEligible: true },
-      ),
-    ],
+    bindings: [],
   },
   {
     // Its door is the Lens Layouts section's kind picker.
@@ -1769,33 +1816,22 @@ export const COMMANDS: readonly CommandEntry[] = [
     ],
   },
   {
-    // ⌃⌘J — the sidebar-toggle grammar's other half (⌃⌘L shows the Lens).
+    // Chord-less, with Show Lens and Show Overview — see Show Lens above.
     id: TUG_ACTIONS.TOGGLE_JOTS,
     title: "Show Jots",
     routing: "registry",
     menuItemId: "maker.jots",
-    bindings: [
-      chord(
-        { key: "KeyJ", ctrl: true, meta: true, label: "j" },
-        { preventDefault: true, menuEligible: true },
-      ),
-    ],
+    bindings: [],
   },
 
   // ---- Overview ----
   {
-    // ⌃⌘O — the third rail in the sidebar-toggle grammar (⌃⌘L Lens,
-    // ⌃⌘J Jots), so the set keeps teaching itself.
+    // Chord-less, with Show Lens and Show Jots — see Show Lens above.
     id: TUG_ACTIONS.TOGGLE_OVERVIEW,
     title: "Show Overview",
     routing: "registry",
     menuItemId: "maker.overview",
-    bindings: [
-      chord(
-        { key: "KeyO", ctrl: true, meta: true, label: "o" },
-        { preventDefault: true, menuEligible: true },
-      ),
-    ],
+    bindings: [],
   },
 
   // ---- App level ----

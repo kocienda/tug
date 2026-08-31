@@ -24,6 +24,7 @@ import {
   imposeRect,
   imposeStyle,
   imposeSidebarStyle,
+  railOffsetProperty,
   isImpositionKind,
   resolveContentWidthPx,
   resolvePlacement,
@@ -686,31 +687,19 @@ describe("a split rail divides the run between its members", () => {
     expect(bottom.bottom).toBe(GAP_BOTTOM);
   });
 
-  test("a middle member is pinned to the seams either side of it", () => {
-    const middle = split("left", 1, 3);
-    expect(middle.top).toBe(
-      `calc(5px + ${seam("left", 0, 1 / 3)} * ${RUN} + 2.5px)`,
-    );
-    expect(middle.bottom).toBe(
-      `calc(${GAP_BOTTOM} + (1 - ${seam("left", 1, 2 / 3)}) * ${RUN} + 2.5px)`,
-    );
-  });
-
   test("the rail's own endpoints are the pins an unsplit rail has", () => {
     // A split reads as a division of the card the user already knew, so the
     // first member's top and the last member's bottom land on the pixel.
-    for (const count of [2, 3, 4]) {
-      expect(split("right", 0, count).top).toBe("5px");
-      expect(split("right", count - 1, count).bottom).toBe(GAP_BOTTOM);
-    }
+    expect(split("right", 0, 2).top).toBe("5px");
+    expect(split("right", 1, 2).bottom).toBe(GAP_BOTTOM);
   });
 
   test("the var fallbacks are the equal division, so a frame rendering before the properties land still tiles", () => {
-    expect(String(split("right", 1, 4).top)).toContain(
-      "var(--tug-rail-right-seam-0, 0.25)",
+    expect(String(split("right", 1, 2).top)).toContain(
+      "var(--tug-rail-right-seam-0, 0.5)",
     );
-    expect(String(split("right", 1, 4).bottom)).toContain(
-      "var(--tug-rail-right-seam-1, 0.5)",
+    expect(String(split("right", 0, 2).bottom)).toContain(
+      "var(--tug-rail-right-seam-0, 0.5)",
     );
   });
 
@@ -729,6 +718,95 @@ describe("a split rail divides the run between its members", () => {
     expect(String(split("right", 1, 2).top)).toContain(
       "--tug-rail-right-seam-0",
     );
+  });
+});
+
+describe("a rail of three or more overflows instead of dividing", () => {
+  const RUN = `(100% - 5px - ${GAP_BOTTOM})`;
+  const MEMBER = `(${RUN} / 2.5)`;
+  const strip = (count: number): string =>
+    `(${count} * ${MEMBER} + ${(count - 1) * 5}px)`;
+  const offset = (side: "left" | "right", count: number): string =>
+    `min(var(--tug-rail-${side}-offset, 0px), ` +
+    `max(0px, ${strip(count)} - ${RUN}))`;
+  const member = (side: "left" | "right", index: number, count: number) =>
+    imposeSidebarStyle(side, 420, { member: { side, index, count } });
+
+  test("two members are byte-identical to what a rail has always drawn", () => {
+    // The whole promise of the boundary: nothing a user has ever seen changes
+    // shape. Shares, seams and drags at N <= 2 are the code they always were.
+    for (const index of [0, 1]) {
+      const pins = member("left", index, 2);
+      expect(String(pins.top) + String(pins.bottom)).toContain(
+        "--tug-rail-left-seam-0",
+      );
+    }
+  });
+
+  test("an overflowing member reads no seam at all", () => {
+    // Division has stopped meaning anything, so the seam properties are not
+    // read — and the canvas stops writing them and stops drawing their handles.
+    for (const index of [0, 1, 2]) {
+      const pins = member("right", index, 3);
+      expect(String(pins.top) + String(pins.bottom)).not.toContain("seam");
+    }
+  });
+
+  test("every member takes the same height: the run over 2.5", () => {
+    // Two whole members and the half that says there is more below — the
+    // column's rule, over the other kind of place.
+    for (const count of [3, 4, 6]) {
+      const first = member("left", 0, count);
+      expect(first.top).toBe(`calc(5px + 0px - ${offset("left", count)})`);
+      expect(first.bottom).toBe(
+        `calc(100% - 5px - 0px - ${MEMBER} + ${offset("left", count)})`,
+      );
+    }
+  });
+
+  test("members stack down the strip a member plus a gap apart", () => {
+    expect(member("right", 1, 4).top).toBe(
+      `calc(5px + 1 * (${MEMBER} + 5px) - ${offset("right", 4)})`,
+    );
+    expect(member("right", 2, 4).top).toBe(
+      `calc(5px + 2 * (${MEMBER} + 5px) - ${offset("right", 4)})`,
+    );
+  });
+
+  test("the strip a member's clamp is measured against grows with the count", () => {
+    // Stated in CSS, so widening the window re-resolves the ceiling in reflow
+    // with no JS ([L06]) — the reason the clamp is written here at all.
+    expect(String(member("left", 0, 3).top)).toContain(`3 * ${MEMBER} + 10px`);
+    expect(String(member("left", 0, 6).top)).toContain(`6 * ${MEMBER} + 25px`);
+  });
+
+  test("each side's strip slides on its own property", () => {
+    expect(String(member("left", 1, 3).top)).toContain(
+      "var(--tug-rail-left-offset, 0px)",
+    );
+    expect(String(member("right", 1, 3).top)).toContain(
+      "var(--tug-rail-right-offset, 0px)",
+    );
+    expect(railOffsetProperty("left")).toBe("--tug-rail-left-offset");
+    expect(railOffsetProperty("right")).toBe("--tug-rail-right-offset");
+  });
+
+  test("the offset falls back to zero, so a frame before the write stands at the top", () => {
+    // The same contract the seam fallbacks hold: the property is unregistered
+    // and an effect writes it, so a frame can render first. It must render at
+    // the strip's top rather than collapse.
+    expect(String(member("left", 0, 3).top)).toContain(", 0px)");
+  });
+
+  test("width, left and the rail number survive the overflow untouched", () => {
+    // A place's standing divides the RUN and nothing else — the same claim the
+    // shared split makes, restated where the pins change shape entirely.
+    const stacked = imposeSidebarStyle("right", 420) as Record<string, unknown>;
+    const overflowing = member("right", 1, 4) as Record<string, unknown>;
+    expect(overflowing.width).toBe(stacked.width);
+    expect(overflowing.left).toBe(stacked.left);
+    expect(overflowing.height).toBe("auto");
+    expect(overflowing["--tugx-lens-rail"]).toBe(1);
   });
 });
 

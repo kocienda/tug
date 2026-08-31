@@ -42,8 +42,8 @@ import {
 } from "@/lib/imposer-gauges";
 
 import {
-  columnStanding,
-  COLUMN_OVERFLOW_VISIBLE_MEMBERS,
+  placeStanding,
+  PLACE_OVERFLOW_VISIBLE_MEMBERS,
   CONTENT_WIDTH_PX,
   CONTENT_WIDTH_WIDE_PX,
   CONTENT_WIDTH_COMFY_PX,
@@ -315,19 +315,34 @@ function Rail({
   committed?: boolean;
 }): React.ReactElement {
   const depth = mode !== "split" && committed ? Math.min(count - 1, 2) : 0;
+  const overflow = mode === "split" && placeStanding(count) === "overflow";
   const members = mode === "split" ? Math.min(count, 3) : depth + 1;
   return (
     <span
       className="layout-mini-rail"
       data-rail-mode={mode}
+      data-rail-overflow={overflow ? "true" : undefined}
       style={{ flexBasis: `${widthPct}%` }}
     >
       {Array.from({ length: members }, (_, i) => {
         if (mode === "split") {
-          // Equal segments, seams between them: the first is flush with the
-          // top of the strip and the last with its bottom, exactly as the real
-          // rail's endpoints are the pins an unsplit rail has.
-          const span = (100 - RAIL_SEAM_PCT * (members - 1)) / members;
+          // Two members divide: equal segments with a seam between them, the
+          // first flush with the top of the strip and the last with its bottom,
+          // exactly as the real rail's endpoints are the pins an unsplit rail
+          // has. Past two the side overflows and the drawing follows: every
+          // member the same run/2.5 span, stacked a seam apart, the third one
+          // cut in half by the strip's bottom edge — the same picture the
+          // column blocks below draw, and the same affordance.
+          //
+          // Drawn AT REST, unlike a column's, which slides by its live offset:
+          // no rail offset rides the gauge channel, and a rail's question here
+          // is how the side is arranged rather than where its viewport stands.
+          // Members past the third are not drawn at all, for the reason the
+          // split cap has always been three — a fourth would be entirely below
+          // the cut.
+          const span = overflow
+            ? (100 - RAIL_SEAM_PCT * 2) / PLACE_OVERFLOW_VISIBLE_MEMBERS
+            : (100 - RAIL_SEAM_PCT * (members - 1)) / members;
           const top = i * (span + RAIL_SEAM_PCT);
           return (
             <span
@@ -640,7 +655,7 @@ export function LayoutMiniature({
     : blocks
         .filter(
           (block) =>
-            columnStanding(columnSplits?.[block.slot] ?? 1) === "overflow",
+            placeStanding(columnSplits?.[block.slot] ?? 1) === "overflow",
         )
         .map((block) => block.slot);
   const root = useRef<HTMLSpanElement | null>(null);
@@ -720,9 +735,9 @@ export function LayoutMiniature({
             // whole members and half of a third inside the run for any gap — which
             // is the geometry the deck itself resolves, and the half-visible card
             // IS the affordance saying there is more below.
-            const overflow = columnStanding(members) === "overflow";
+            const overflow = placeStanding(members) === "overflow";
             const span = overflow
-              ? (100 - RAIL_SEAM_PCT * 2) / COLUMN_OVERFLOW_VISIBLE_MEMBERS
+              ? (100 - RAIL_SEAM_PCT * 2) / PLACE_OVERFLOW_VISIBLE_MEMBERS
               : (100 - RAIL_SEAM_PCT * (members - 1)) / members;
             const fraction = overflow ? (columnOffsets?.[block.slot] ?? 0) : 0;
             const slide = fraction * 100;

@@ -174,16 +174,15 @@ An untabled code throws in dev and publishes `null` in production, so a bad bind
 | ⌃⌘F | `toggle-full-screen` | Enter Full Screen | menu bar (AppKit's own) |
 | ⌃⌘H | `toggle-history-view` | Show Commit History | JS, global |
 | ⌃⌘I | `run-slash-command:ai` | AI… | menu bar (swept) |
-| ⌃⌘J | `toggle-jots` | Show Jots | menu bar (swept) |
 | ⌃⌘K | `show-keyboard-shortcuts` | Keyboard Shortcuts… | menu bar (swept) |
-| ⌃⌘L | `toggle-lens` | Show Lens | menu bar (swept) |
 | ⌃⌘M | `commit-auto-message` | Generate a Commit Message | JS, responder |
-| ⌃⌘O | `toggle-overview` | Show Overview | menu bar (swept) |
 | ⌃⌘P | `select-composer-route:prompt` | Prompt Route | JS, global |
 | ⌃⌘S | `toggle-column-split` | Split or Stack Column | menu bar (swept) |
 | ⌃⌘T | `next-theme` | Next Theme | menu bar (swept) |
 | ⌃⌘U | `run-slash-command:usage` | Show Usage | menu bar (swept) |
+| ⌃⌘← | `toggle-rail:left` | Show Left Rail | menu bar (swept) |
 | ⌃⌘↑ | `move-in-column:up` | Move Card Up in Column | menu bar (swept) |
+| ⌃⌘→ | `toggle-rail:right` | Show Right Rail | menu bar (swept) |
 | ⌃⌘↓ | `move-in-column:down` | Move Card Down in Column | menu bar (swept) |
 | ⌃⌥⌘P | `cycle-permission-mode` | Cycle Permission Mode | JS, global |
 | ⌘+ | `zoom-in` | Zoom In | menu bar (swept) |
@@ -210,7 +209,6 @@ An untabled code throws in dev and publishes `null` in production, so a bad bind
 | ⌘H | `hide-application` | Hide Tug | menu bar (AppKit's own) |
 | ⌘J | `new-jot` | New Jot | menu bar (swept) |
 | ⌘K | `focus-prompt` | Focus Prompt | JS, global |
-| ⌘L | `focus-lens` | Focus Lens | JS, global |
 | ⌘M | `minimize` | Minimize | menu bar (AppKit's own) |
 | ⌘Q | `quit-application` | Quit Tug | menu bar (AppKit's own) |
 | ⌘R | `reveal-stack` | Reveal Stack | menu bar (swept) |
@@ -303,10 +301,12 @@ Every command has several doors: a chord, a menu item, the palette, a control fr
 | `maker.focusLens` | `focus-lens` | first responder | host tier |
 | `maker.galleryCard` | `show-component-gallery` | first responder | host tier |
 | `maker.jots` | `toggle-jots` | registered handler | host tier |
+| `maker.leftRail` | `toggle-rail:left` | first responder | registry gate |
 | `maker.lens` | `toggle-lens` | registered handler | host tier |
 | `maker.newCardInPane` | `add-card-to-active-pane` | first responder | registry gate |
 | `maker.overview` | `toggle-overview` | registered handler | host tier |
 | `maker.reload` | `reload` | registered handler | host tier |
+| `maker.rightRail` | `toggle-rail:right` | first responder | registry gate |
 | `session.addDir` | `run-slash-command:add-dir` | key card | registry gate |
 | `session.agents` | `run-slash-command:agents` | key card | registry gate |
 | `session.ai` | `run-slash-command:ai` | key card | registry gate |

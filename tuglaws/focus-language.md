@@ -124,8 +124,8 @@ These tables are **derived from the writers, not from memory**, and they carry t
 
 | gesture | what the mode does |
 |---|---|
-| ⌃⌘L / ⌃⌘J / ⌃⌘O — the three-state sidebar shortcut (`sidebar-toggle.ts`) | *show-and-activate* and *activate* both transfer the key card to a Class B card → **engages**, no gesture, ring on the rail's remembered key view. The third state, *hide*, transfers away → **disengages**, unless the manual bit is independently set |
-| ⌘L (`FOCUS_LENS`) | the same engagement going in; its second press — focus back out to the stashed card — is the disengaging leg, by the same key-card rule |
+| ⌃⌘← / ⌃⌘→ — the three-state rail shortcut (`sidebar-toggle.ts`) | *show-and-activate* and *activate* both transfer the key card to a Class B card — the side's z-frontmost member — → **engages**, no gesture, ring on the rail's remembered key view. The third state, *hide*, closes every member of the side and transfers away → **disengages**, unless the manual bit is independently set |
+| Show Lens / Show Jots / Show Overview, and Focus Lens (`FOCUS_LENS`) | the same engagement, over one card rather than a side. Chord-less menu rows since the rails were promoted, so the gesture is a menu pick or whatever the keymap pane has been asked to bind; Focus Lens's second dispatch — focus back out to the stashed card — is the disengaging leg, by the same key-card rule |
 | ⌘J (`NEW_JOT`) | activates Jots **and** opens a jot's editor, so Class B engages and the editor's own descend claim then grants a caret. This is a *seed*, not a movement, so the stop does not park ([P12]) — the card holds the mode and the caret holds the keys |
 
 **Disengages:** {#kbf-disengages}

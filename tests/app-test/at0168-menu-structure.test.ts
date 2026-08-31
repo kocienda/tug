@@ -50,6 +50,8 @@ const TEST_TIMEOUT_MS = 120_000;
 // `codeToKeyEquivalent` writes for "ArrowUp" / "ArrowDown".
 const ARROW_UP = "\u{F700}";
 const ARROW_DOWN = "\u{F701}";
+const ARROW_LEFT = "\u{F702}";
+const ARROW_RIGHT = "\u{F703}";
 
 const MOD = {
   shift: 1 << 17,
@@ -163,10 +165,16 @@ const STATIC_ITEMS: ReadonlyArray<{ id: string; key?: string; mods?: number }> =
   // the app-test bundle's profile is "apptest", so they are absent here
   // and not asserted.
   { id: "maker.reload", key: "r", mods: MOD.command | MOD.shift },
-  // The three sidebar toggles, all swept: ⌃⌘L, ⌃⌘J, ⌃⌘O.
-  { id: "maker.lens", key: "l", mods: MOD.command | MOD.control },
-  { id: "maker.jots", key: "j", mods: MOD.command | MOD.control },
-  { id: "maker.overview", key: "o", mods: MOD.command | MOD.control },
+  // The three per-card sidebar toggles, chord-less: the keyboard addresses the
+  // rails now, and these rows kept their place in the menu and nothing else.
+  // An empty key here is the assertion — a sweep that wrote one would mean the
+  // table still ships a default chord for them.
+  { id: "maker.lens", key: "" },
+  { id: "maker.jots", key: "" },
+  { id: "maker.overview", key: "" },
+  // And the rail pair that replaced them, both swept: ⌃⌘← and ⌃⌘→.
+  { id: "maker.leftRail", key: ARROW_LEFT, mods: MOD.command | MOD.control },
+  { id: "maker.rightRail", key: ARROW_RIGHT, mods: MOD.command | MOD.control },
   { id: "maker.sourceTree" },
   // Help
   { id: "help.shortcuts", key: "" },

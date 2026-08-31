@@ -214,6 +214,21 @@ export interface RailArrangement {
    * would hand a departing card's height to whoever inherits its index.
    */
   shares?: Record<string, number>;
+  /**
+   * The members standing on the side when the rail as a whole was last hidden,
+   * by componentId — what showing the rail again brings back.
+   *
+   * A rail toggle addresses the SIDE, so hiding one closes every member at once
+   * and showing it has to know which ones to reopen. `order` cannot answer
+   * that: it outlives the members it names deliberately ([L23]), so it still
+   * holds the card the user closed by hand a week ago, and reading it would
+   * resurrect that card the first time the rail was shown. This field records
+   * the membership at the moment of the hide and is cleared by the show that
+   * consumes it, which is what makes it a memory rather than an arrangement —
+   * `order` and `shares` are untouched throughout, so every member's position
+   * and height survives the round trip whether it was standing or not.
+   */
+  hidden?: string[];
 }
 
 /**
@@ -457,6 +472,29 @@ export function withRailOrder(
   return withRailField(imposition, side, { order: [...order] });
 }
 
+/** The members `side` held when its rail was last hidden whole, or an empty
+ *  list when there is no such memory — the rail has never been hidden that way,
+ *  or the show that consumed the memory has already run. */
+export function railHiddenMembers(
+  imposition: DeckImposition,
+  side: SidebarSide,
+): readonly string[] {
+  return imposition.rails?.[side]?.hidden ?? [];
+}
+
+/** The imposition remembering that `side` held `hidden` when its rail went
+ *  away — or, given an empty list, remembering nothing, which is what a show
+ *  writes once it has reopened what the memory named. */
+export function withRailHidden(
+  imposition: DeckImposition,
+  side: SidebarSide,
+  hidden: readonly string[],
+): DeckImposition {
+  return withRailField(imposition, side, {
+    hidden: hidden.length === 0 ? undefined : [...hidden],
+  });
+}
+
 /** The imposition with `side`'s height weights replaced. */
 export function withRailShares(
   imposition: DeckImposition,
@@ -579,6 +617,20 @@ export function railSharesFromFractions(
  */
 export function railSeamProperty(side: SidebarSide, index: number): string {
   return `--tug-rail-${side}-seam-${index}`;
+}
+
+/**
+ * The custom property carrying `side`'s rail offset — how far its strip of
+ * members has been slid up behind the run, in px.
+ *
+ * The side-keyed twin of {@link columnOffsetProperty}, per side because each
+ * overflowing rail scrolls on its own, and unregistered for the reason the
+ * seams are: every expression reading one supplies `0px` as its `var()`
+ * fallback, so a frame rendered before the property lands stands at the strip's
+ * top.
+ */
+export function railOffsetProperty(side: SidebarSide): string {
+  return `--tug-rail-${side}-offset`;
 }
 
 /** One split member's place in its rail: which side, which position, and how
@@ -2874,11 +2926,21 @@ const RAIL_SEAM_HALF_GAP = `${IMPOSITION_GAP_PX / 2}px`;
  * run so the ends of a split rail land on exactly the pins an unsplit one has:
  * a top member and a stacked card share a top edge to the pixel, and the eye
  * reads a split as a division of the card it already knew.
+ *
+ * At three members or more the rail overflows ({@link placeStanding}) and
+ * {@link overflowPins} takes over, against the side's own offset property — the
+ * same rule a column stands under, because a rail and a column are the same
+ * kind of place. Without it a four-member rail would divide its run into four
+ * slivers; with it the members take a fixed height and the strip scrolls, and
+ * the half-visible member at the bottom edge says there is more below.
  */
 function railMemberPins(
   member: RailMemberPlacement | undefined,
 ): { top: string; bottom: string } {
   if (member === undefined) return { top: GAP, bottom: GAP_BOTTOM };
+  if (placeStanding(member.count) === "overflow") {
+    return overflowPins(member, railOffsetProperty(member.side));
+  }
   return memberPins(member, (j) => railSeamProperty(member.side, j));
 }
 
@@ -2945,29 +3007,35 @@ export function columnOffsetProperty(slot: number): string {
 }
 
 /**
- * How a column of `count` members divides its run.
+ * How a place of `count` members divides its run — the rule a rail and a
+ * column both stand under, because they are the same kind of place.
  *
  * `"shared"` — two members or fewer: the run is divided between them at a
- * draggable seam, which is what a column has always done.
+ * draggable seam, which is what both have always done.
  *
  * `"overflow"` — three or more: division stops being useful past about two and
  * a half visible members, so the members stop dividing and start stacking down
  * a strip of fixed-height cards that scrolls behind the run. The half-visible
  * member at the bottom edge IS the affordance, the way flow's clipped card at
  * the band edge is.
+ *
+ * The rule was written for columns and is stated over the count alone, so
+ * lifting it to rails cost nothing but the name: a four-member rail dividing
+ * its run would draw four slivers, which is the same picture a four-member
+ * column drew before this existed.
  */
-export type ColumnStanding = "shared" | "overflow";
+export type PlaceStanding = "shared" | "overflow";
 
-/** The member count at which a column stops dividing and starts stacking. */
-export const COLUMN_OVERFLOW_MIN_MEMBERS = 3;
+/** The member count at which a place stops dividing and starts stacking. */
+export const PLACE_OVERFLOW_MIN_MEMBERS = 3;
 
-/** How many members an overflowing column shows at once — two whole ones and
+/** How many members an overflowing place shows at once — two whole ones and
  *  the half that says there is more below. */
-export const COLUMN_OVERFLOW_VISIBLE_MEMBERS = 2.5;
+export const PLACE_OVERFLOW_VISIBLE_MEMBERS = 2.5;
 
-/** @see {@link ColumnStanding} */
-export function columnStanding(count: number): ColumnStanding {
-  return count >= COLUMN_OVERFLOW_MIN_MEMBERS ? "overflow" : "shared";
+/** @see {@link PlaceStanding} */
+export function placeStanding(count: number): PlaceStanding {
+  return count >= PLACE_OVERFLOW_MIN_MEMBERS ? "overflow" : "shared";
 }
 
 /** One split member's place in its column: which slot, which position, and how
@@ -2981,12 +3049,49 @@ export interface ColumnMemberPlacement {
 /** An overflowing member's height: the run over the number of members meant to
  *  be visible in it. A pure function of the run, so no pane is measured and the
  *  browser re-resolves it on reflow. */
-const COLUMN_MEMBER_HEIGHT = `(${RAIL_RUN} / ${COLUMN_OVERFLOW_VISIBLE_MEMBERS})`;
+const OVERFLOW_MEMBER_HEIGHT = `(${RAIL_RUN} / ${PLACE_OVERFLOW_VISIBLE_MEMBERS})`;
 
 /** The strip `count` overflowing members make: their heights plus the gap
  *  standing between each neighbouring pair. */
-function columnStripHeight(count: number): string {
-  return `(${count} * ${COLUMN_MEMBER_HEIGHT} + ${(count - 1) * IMPOSITION_GAP_PX}px)`;
+function overflowStripHeight(count: number): string {
+  return `(${count} * ${OVERFLOW_MEMBER_HEIGHT} + ${(count - 1) * IMPOSITION_GAP_PX}px)`;
+}
+
+/**
+ * An overflowing member's `top` and `bottom`: the same fixed height for every
+ * member, stacked a gap apart down a strip, with the whole strip slid up by the
+ * place's own offset.
+ *
+ * The offset is CLAMPED HERE, in CSS, for the reason flow's is clamped inside
+ * its `left`: make the window taller and the run grows while the stored number
+ * stands still, and without the clamp the place would hold a stale slide until
+ * the settled-resize retune fired. Both terms are expressible over `100%`, so a
+ * resize costs no JavaScript ([L06]).
+ *
+ * `bottom` is not a pin the eye reads — it is `100%` less the top and the
+ * height, which is how a fixed-height member is stated in a `top`/`bottom`
+ * frame. The last members of a long strip resolve it negative, and that is the
+ * point: they hang below the run and the canvas clips them.
+ *
+ * The place enters only as `offsetProperty`, which is the whole of what a rail
+ * and a column differ by here — the rest of the arithmetic is the run, and both
+ * stand in the same one.
+ */
+function overflowPins(
+  member: { index: number; count: number },
+  offsetProperty: string,
+): { top: string; bottom: string } {
+  const offset =
+    `min(var(${offsetProperty}, 0px), ` +
+    `max(0px, ${overflowStripHeight(member.count)} - ${RAIL_RUN}))`;
+  const advance =
+    member.index === 0
+      ? "0px"
+      : `${member.index} * (${OVERFLOW_MEMBER_HEIGHT} + ${GAP})`;
+  return {
+    top: `calc(${GAP} + ${advance} - ${offset})`,
+    bottom: `calc(100% - ${GAP} - ${advance} - ${OVERFLOW_MEMBER_HEIGHT} + ${offset})`,
+  };
 }
 
 /**
@@ -2997,38 +3102,16 @@ function columnStripHeight(count: number): string {
  * holds one member, which is what lets {@link imposeStyle} take the option
  * unconditionally.
  *
- * At three members or more the column overflows ({@link columnStanding}) and
- * the pins change shape entirely: every member takes the same
- * {@link COLUMN_MEMBER_HEIGHT}, they stack down a strip with the imposition gap
- * between them, and the whole strip is slid up by the slot's offset. The offset
- * is CLAMPED HERE, in CSS, for the reason flow's is clamped inside its `left`:
- * make the window taller and the run grows while the stored number stands
- * still, and without the clamp the column would hold a stale slide until the
- * settled-resize retune fired. Both terms are expressible over `100%`, so a
- * resize costs no JavaScript ([L06]).
- *
- * `bottom` is not a pin the eye reads — it is `100%` less the top and the
- * height, which is how a fixed-height member is stated in a `top`/`bottom`
- * frame. The last members of a long strip resolve it negative, and that is the
- * point: they hang below the run and the canvas clips them.
+ * At three members or more the column overflows ({@link placeStanding}) and
+ * {@link overflowPins} takes over, against the slot's own offset property.
  */
 export function columnMemberPins(
   member: ColumnMemberPlacement | undefined,
 ): { top: string; bottom: string } {
   if (member === undefined) return { top: GAP, bottom: GAP_BOTTOM };
-  if (columnStanding(member.count) === "shared") {
+  if (placeStanding(member.count) === "shared") {
     return memberPins(member, (j) => columnSeamProperty(member.slot, j));
   }
-  const offset =
-    `min(var(${columnOffsetProperty(member.slot)}, 0px), ` +
-    `max(0px, ${columnStripHeight(member.count)} - ${RAIL_RUN}))`;
-  const advance =
-    member.index === 0
-      ? "0px"
-      : `${member.index} * (${COLUMN_MEMBER_HEIGHT} + ${GAP})`;
-  return {
-    top: `calc(${GAP} + ${advance} - ${offset})`,
-    bottom: `calc(100% - ${GAP} - ${advance} - ${COLUMN_MEMBER_HEIGHT} + ${offset})`,
-  };
+  return overflowPins(member, columnOffsetProperty(member.slot));
 }
 

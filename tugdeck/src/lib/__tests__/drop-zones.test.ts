@@ -11,7 +11,7 @@ import { describe, expect, it } from "bun:test";
 import type { DeckState } from "../../layout-tree";
 import type { Rect } from "../../snap";
 import {
-  COLUMN_OVERFLOW_VISIBLE_MEMBERS,
+  PLACE_OVERFLOW_VISIBLE_MEMBERS,
   IMPOSITION_GAP_PX,
 } from "../layout-imposer";
 import {
@@ -320,7 +320,7 @@ describe("a split column advertises one position per place a member can stand", 
 
   it("an overflowing column's positions are the run/2.5 strip", () => {
     const state = deck([pane("p1", 0), pane("p2", 0), pane("p3", 0)], split);
-    const memberH = RUN_HEIGHT / COLUMN_OVERFLOW_VISIBLE_MEMBERS;
+    const memberH = RUN_HEIGHT / PLACE_OVERFLOW_VISIBLE_MEMBERS;
     const rects = splitRects(0, [memberH, memberH, memberH]);
     const { zones } = enumerateDropZones(
       state,
@@ -389,7 +389,7 @@ describe("a split column advertises one position per place a member can stand", 
       }),
     );
     const run = 300 + IMPOSITION_GAP_PX + 295;
-    const memberH = run / COLUMN_OVERFLOW_VISIBLE_MEMBERS;
+    const memberH = run / PLACE_OVERFLOW_VISIBLE_MEMBERS;
     const columnZones = zones.filter((zone) => zone.kind === "column-index");
     expect(columnZones).toHaveLength(3);
     for (const zone of columnZones) {
@@ -446,7 +446,7 @@ describe("a position is asked for at the tile the preview draws", () => {
   // the run/2.5 strip — and the run divides at each tile's top edge, so the
   // region that asks for a position is the region the indicator draws for it.
   const RUN = 300 + IMPOSITION_GAP_PX + 295;
-  const MEMBER_H = RUN / COLUMN_OVERFLOW_VISIBLE_MEMBERS;
+  const MEMBER_H = RUN / PLACE_OVERFLOW_VISIBLE_MEMBERS;
   const STRIDE = MEMBER_H + IMPOSITION_GAP_PX;
 
   function arriving() {
@@ -508,14 +508,47 @@ describe("a position is asked for at the tile the preview draws", () => {
   });
 
   it("a rail's positions are asked for the same way", () => {
-    // No shares, so every candidate order divides the measured run into equal
-    // thirds — a rail divides at any count, division-true like a column.
+    // No shares, so every candidate order divides the measured run in half —
+    // a two-member rail is division-true like a two-member column.
+    const state = deck([pane("s1"), pane("s2")], {
+      kind: "three-up",
+    });
+    const rects = splitRects(0, [200, 180]);
+    const run = 200 + 180 + IMPOSITION_GAP_PX;
+    const half = IMPOSITION_GAP_PX / 2;
+    const { zones } = enumerateDropZones(
+      state,
+      "s1",
+      measured({
+        panes: new Map([
+          ["s1", rects[0]],
+          ["s2", rects[1]],
+        ]),
+        rails: [{ side: "left", members: ["s1", "s2"] }],
+      }),
+    );
+    const bands = zones.map(hitRectOf);
+    expect(bands).toHaveLength(2);
+    // The bands divide at the drawn tiles' top edges: half the run plus the
+    // seam's half gap.
+    expect(bands[0].y + bands[0].height).toBeCloseTo(
+      RUN_TOP + run / 2 + half,
+      6,
+    );
+    // And the last band's end is the run's own bottom edge — nothing hangs.
+    expect(bands[1].y + bands[1].height).toBeCloseTo(RUN_TOP + run, 6);
+  });
+
+  it("an overflowing rail's positions are the run/2.5 strip", () => {
+    // Three members, so the side stands under the overflow rule a column has
+    // always stood under: every tile the same height, stacked a gap apart down
+    // a strip that runs past the run's bottom edge.
     const state = deck([pane("s1"), pane("s2"), pane("s3")], {
       kind: "three-up",
     });
-    const rects = splitRects(0, [200, 150, 180]);
     const run = 200 + 150 + 180 + 2 * IMPOSITION_GAP_PX;
-    const half = IMPOSITION_GAP_PX / 2;
+    const memberH = run / PLACE_OVERFLOW_VISIBLE_MEMBERS;
+    const rects = splitRects(0, [memberH, memberH, memberH]);
     const { zones } = enumerateDropZones(
       state,
       "s1",
@@ -528,28 +561,28 @@ describe("a position is asked for at the tile the preview draws", () => {
         rails: [{ side: "left", members: ["s1", "s2", "s3"] }],
       }),
     );
-    const bands = zones.map(hitRectOf);
-    expect(bands).toHaveLength(3);
-    // The bands divide at the drawn tiles' top edges: a third of the run plus
-    // the seam's half gap, then two thirds plus the same.
-    expect(bands[0].y + bands[0].height).toBeCloseTo(
-      RUN_TOP + run / 3 + half,
-      6,
-    );
-    expect(bands[2].y).toBeCloseTo(RUN_TOP + (2 * run) / 3 + half, 6);
-    // And the last band's end is the run's own bottom edge — nothing hangs.
-    expect(bands[2].y + bands[2].height).toBeCloseTo(RUN_TOP + run, 6);
+    expect(zones).toHaveLength(3);
+    zones.forEach((zone, index) => {
+      expect(zone.rect.height).toBeCloseTo(memberH, 6);
+      expect(zone.rect.y).toBeCloseTo(
+        RUN_TOP + index * (memberH + IMPOSITION_GAP_PX),
+        6,
+      );
+    });
+    // The last tile hangs below the run, which is the affordance.
+    const last = zones[2].rect;
+    expect(last.y + last.height).toBeGreaterThan(RUN_TOP + run);
   });
 
   it("a rail member's share travels with it to every previewed position", () => {
-    // s3 carries a double weight. Dragging s1 (weight 1), the last position's
-    // tile begins where s2's quarter and s3's half leave off — three quarters
-    // of the run — and the tile is s1's own quarter share.
-    const state = deck([pane("s1"), pane("s2"), pane("s3")], {
+    // s2 carries a double weight. Dragging s1 (weight 1), the last position's
+    // tile begins where s2's two thirds leave off, and the tile is s1's own
+    // third.
+    const state = deck([pane("s1"), pane("s2")], {
       kind: "three-up",
     });
-    const rects = splitRects(0, [200, 150, 180]);
-    const run = 200 + 150 + 180 + 2 * IMPOSITION_GAP_PX;
+    const rects = splitRects(0, [200, 180]);
+    const run = 200 + 180 + IMPOSITION_GAP_PX;
     const half = IMPOSITION_GAP_PX / 2;
     const { zones } = enumerateDropZones(
       state,
@@ -558,19 +591,18 @@ describe("a position is asked for at the tile the preview draws", () => {
         panes: new Map([
           ["s1", rects[0]],
           ["s2", rects[1]],
-          ["s3", rects[2]],
         ]),
         rails: [
           {
             side: "left",
-            members: ["s1", "s2", "s3"],
-            shares: { s1: 1, s2: 1, s3: 2 },
+            members: ["s1", "s2"],
+            shares: { s1: 1, s2: 2 },
           },
         ],
       }),
     );
-    const last = zones[2].rect;
-    expect(last.y).toBeCloseTo(RUN_TOP + (run * 3) / 4 + half, 6);
+    const last = zones[1].rect;
+    expect(last.y).toBeCloseTo(RUN_TOP + (run * 2) / 3 + half, 6);
     expect(last.y + last.height).toBeCloseTo(RUN_TOP + run, 6);
   });
 });

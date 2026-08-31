@@ -1,34 +1,95 @@
 /**
- * sidebar-toggle.ts — what a sidebar card's shortcut means (⌃⌘L Lens,
- * ⌃⌘J Jots, ⌃⌘O Overview).
+ * sidebar-toggle.ts — what a rail's shortcut means (⌃⌘← left, ⌃⌘→ right), and
+ * what a sidebar card's own menu row means.
  *
  * One key, three states, read off the deck:
  *
- *   - the rail is not showing        → show it and activate it
- *   - showing but not the active card → activate it
- *   - showing and active              → hide it
+ *   - the rail is not showing         → show it and activate it
+ *   - showing but not holding the key → activate it
+ *   - showing and holding the key     → hide it
  *
  * Presence is still the open state ([P02]); the middle state is what a plain
  * show/hide toggle could not say — a visible rail that does not hold the
  * keyboard is not what the shortcut asked for, so the first press brings the
  * keyboard to it and only the second press takes the rail away.
  *
- * Both doors run this one performer: the Swift View-menu items dispatching
- * `toggle-lens` / `toggle-jots` / `toggle-overview` through `action-dispatch`,
- * and the deck-canvas key handlers. A tier sited at one door is a gesture that
- * means something different from the other one.
+ * The ladder is written twice over two objects, not once over one: a rail and
+ * a card are addressed differently at every rung — which members show, which
+ * one takes the keyboard, what "already holding it" means — and the shared part
+ * is the shape of the decision rather than any of its steps.
+ *
+ * Both doors run these performers: the Swift Maker-menu items dispatching
+ * through `action-dispatch`, and the deck-canvas key handlers. A tier sited at
+ * one door is a gesture that means something different from the other one.
  *
  * Activation goes through `transferFocusForActivation` with keyboard modality,
- * the contract ⌘L (FOCUS_LENS) and ⌘J (NEW_JOT) already hold: a keyboard
- * gesture lands visibly ringed on the rail's remembered key view.
+ * the contract ⌘J (NEW_JOT) already holds: a keyboard gesture lands visibly
+ * ringed on the rail's remembered key view.
  */
 
 import type { IDeckManagerStore } from "./deck-manager-store";
+import {
+  isSidebarPinned,
+  sidebarSide,
+  type SidebarSide,
+} from "./lib/layout-imposer";
+import { findSidebarPanes } from "./deck-store-selectors";
 import { transferFocusForActivation } from "./focus-transfer";
 
 /**
- * Run the three-state sidebar shortcut for `componentId`. No-op when the card
- * type is unregistered (`showSidebarPane` returns null and warns).
+ * Run the three-state rail shortcut for `side` — the ⌃⌘ arrow pair.
+ *
+ * The member the keyboard lands on is the rail's **z-frontmost**, which is the
+ * one answer well defined in both arrangements: stacked, it is the member you
+ * can actually see; split, it is the one the stack badge's picker checkmarks.
+ * `railFrontmostPaneId` in `deck-canvas.tsx` reads z off the same array for the
+ * same reason, and `findSidebarPanes` returns it — the panes array's order IS
+ * the deck's z-order, back to front.
+ *
+ * A rail with nothing to show is inert rather than half-acting:
+ * `showSidebarRail` returns null and no focus moves.
+ */
+export function toggleSidebarRail(
+  store: IDeckManagerStore,
+  side: SidebarSide,
+): void {
+  const state = store.getSnapshot();
+  const imposition = state.imposition;
+  const members = findSidebarPanes(state).filter(
+    ({ componentId }) =>
+      isSidebarPinned(imposition, componentId) &&
+      sidebarSide(imposition, componentId) === side,
+  );
+  const outgoingCardId = store.getFirstResponderCardId();
+
+  const holdsKey =
+    outgoingCardId !== null &&
+    members.some(({ pane }) => pane.cardIds.includes(outgoingCardId));
+  if (holdsKey) {
+    store.hideSidebarRail(side);
+    return;
+  }
+
+  const frontmost = members[members.length - 1];
+  const incomingCardId =
+    frontmost === undefined
+      ? store.showSidebarRail(side)
+      : frontmost.pane.activeCardId;
+  if (incomingCardId === null) return;
+  transferFocusForActivation({
+    outgoingCardId,
+    incomingCardId,
+    store,
+    commitMutation: () => store.activateCard(incomingCardId),
+    modality: "keyboard",
+  });
+}
+
+/**
+ * Run the three-state sidebar shortcut for one CARD — the Show ⟨card⟩ menu
+ * rows, and whatever the keymap pane has since been asked to bind them to.
+ * No-op when the card type is unregistered (`showSidebarPane` returns null and
+ * warns).
  */
 export function toggleSidebarCard(
   store: IDeckManagerStore,

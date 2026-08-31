@@ -34,7 +34,7 @@ import {
   columnModeOf,
   columnOffsetProperty,
   columnSeamProperty,
-  columnStanding,
+  placeStanding,
   effectiveColumnOrder,
   flowRevealOffset,
   IMPOSITION_GAP_BOTTOM_MAKER_PX,
@@ -351,11 +351,11 @@ describe("a column of three or more overflows instead of dividing", () => {
     `max(0px, ${strip(count)} - ${RUN}))`;
 
   test("the standing turns over at three", () => {
-    expect(columnStanding(0)).toBe("shared");
-    expect(columnStanding(1)).toBe("shared");
-    expect(columnStanding(2)).toBe("shared");
-    expect(columnStanding(3)).toBe("overflow");
-    expect(columnStanding(6)).toBe("overflow");
+    expect(placeStanding(0)).toBe("shared");
+    expect(placeStanding(1)).toBe("shared");
+    expect(placeStanding(2)).toBe("shared");
+    expect(placeStanding(3)).toBe("overflow");
+    expect(placeStanding(6)).toBe("overflow");
   });
 
   test("two members are byte-identical to what a column has always drawn", () => {

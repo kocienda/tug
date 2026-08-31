@@ -23,7 +23,11 @@
  *: Canvas Data Model Types
  */
 
-import type { ContentWidth, DeckImposition } from "@/lib/layout-imposer";
+import type {
+  ContentWidth,
+  DeckImposition,
+  SidebarSide,
+} from "@/lib/layout-imposer";
 import { isSidebarCard } from "@/card-registry";
 
 // ---- Types () ----
@@ -383,6 +387,19 @@ export interface DeckState {
    * column that may have changed while the deck was closed.
    */
   columnOffsets?: Readonly<Record<number, number>>;
+  /**
+   * How far each overflowing rail's strip of members has slid up behind its
+   * run, in pixels, keyed by side. An absent side reads as 0 — the strip at
+   * rest, its first member against the run's top.
+   *
+   * The side-keyed twin of {@link DeckState.columnOffsets}, and per side for
+   * the reason that one is per slot: each overflowing place scrolls on its own.
+   * Written only by the reveal rule, on activation ([P12]), and not serialized
+   * for the same reason and with the same force: the number is derivable, and a
+   * restored one would be a viewport nobody asked for onto a rail that may have
+   * gained or lost members while the deck was closed.
+   */
+  railOffsets?: Readonly<Partial<Record<SidebarSide, number>>>;
 }
 
 // ---- Invariant validation ----

@@ -705,13 +705,18 @@ export const TUG_ACTIONS = {
   // FOCUS_LENS:             payload — none. Move focus into the Lens (opening it
   //                         if hidden); a second dispatch focuses back out.
   // TOGGLE_LENS:            payload — none. Show/hide the Lens rail.
-  // TOGGLE_JOTS:            payload — none. Show/hide the Jots rail. The
-  //                         sibling of TOGGLE_LENS: ⌃⌘⟨letter⟩ is the
-  //                         sidebar-toggle grammar, so the pair is
-  //                         self-teaching.
-  // TOGGLE_OVERVIEW:         payload — none. Show/hide the Overview rail. Third
-  //                         in the ⌃⌘⟨letter⟩ sidebar-toggle grammar, beside
-  //                         TOGGLE_LENS and TOGGLE_JOTS.
+  //                         A menu row, chord-less by default: the keyboard
+  //                         addresses the RAIL (TOGGLE_RAIL), not the cards on
+  //                         it.
+  // TOGGLE_JOTS:            payload — none. Show/hide the Jots rail. As above.
+  // TOGGLE_OVERVIEW:         payload — none. Show/hide the Overview rail. As
+  //                         above.
+  // TOGGLE_RAIL:            payload — `value: "left" | "right"`. ⌃⌘← / ⌃⌘→.
+  //                         Show/hide a whole SIDE of the deck, three-state:
+  //                         hidden → show it and focus its frontmost member;
+  //                         showing → focus that member; focused → hide the
+  //                         rail. Showing brings back the members standing
+  //                         when it was hidden.
   // NEW_JOT:                payload — none. Capture a jot in one gesture:
   //                         reveal the Jots card if it is hidden, create an
   //                         empty jot, and land the caret in its editor.
@@ -883,6 +888,7 @@ export const TUG_ACTIONS = {
   TOGGLE_LENS:            "toggle-lens",
   TOGGLE_JOTS:            "toggle-jots",
   TOGGLE_OVERVIEW:         "toggle-overview",
+  TOGGLE_RAIL:            "toggle-rail",
   NEW_JOT:                "new-jot",
   // SET_CARD_WIDTH: payload — `{ paneId, preset }`. Set one content pane's
   //                 width to a named preset (slim / comfy / wide), clamped up

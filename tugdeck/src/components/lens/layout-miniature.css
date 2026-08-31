@@ -139,6 +139,15 @@
   flex: 0 0 auto;
 }
 
+/* An overflowing side: its members run past the strip's bottom edge, and the
+   cut is the affordance — the third member is drawn half-height because half
+   of it is below the run, exactly as the deck draws it. Clipped here rather
+   than shortened in the component so the geometry stays the one rule, and the
+   picture stays a statement about the run rather than about the tile. */
+.layout-mini-rail[data-rail-overflow="true"] {
+  overflow: hidden;
+}
+
 /* A sidebar card, quieter than a content card — a rail is the frame around the
    subject, not the subject. Hollow and solid the same way the cards are, so the
    whole drawing states its tense with one voice. */

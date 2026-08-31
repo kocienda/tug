@@ -91,14 +91,18 @@ export interface IDeckManagerStore {
    */
   getBandWidth: () => number | null;
   getColumnRunHeight: () => number | null;
+  /** The same run under the other place's name — a rail and a column divide
+   *  one vertical extent. */
+  getRailRunHeight: () => number | null;
 
   /**
    * Commit where a drag left a scrolled strip — an overflowing column's
-   * ([P12]) and the flow strip's. One write at the end of the gesture, never
-   * per frame: the offset is an `arrangementSignature` term, so a per-frame
-   * commit would arm a settle on every frame of the drag.
+   * ([P12]), an overflowing rail's, and the flow strip's. One write at the end
+   * of the gesture, never per frame: the offset is an `arrangementSignature`
+   * term, so a per-frame commit would arm a settle on every frame of the drag.
    */
   setColumnOffset: (slot: number, offset: number) => void;
+  setRailOffset: (side: SidebarSide, offset: number) => void;
   setFlowOffset: (offset: number) => void;
 
   /**
@@ -268,6 +272,19 @@ export interface IDeckManagerStore {
    * [P02]). No-op when it is not open.
    */
   hideSidebarPane: (componentId: string) => void;
+
+  /**
+   * Show a side's rail: reopen the members it held when it was last hidden
+   * whole, else the one card that belongs there. Returns the card id left
+   * z-frontmost, or null when the side has nothing to show.
+   */
+  showSidebarRail: (side: SidebarSide) => string | null;
+
+  /**
+   * Hide a side's rail by closing every member standing on it, recording which
+   * ones they were so the matching show can bring back the same rail.
+   */
+  hideSidebarRail: (side: SidebarSide) => void;
 
   /**
    * Re-solve every pinned sidebar rail's width so the imposed chain tiles

@@ -252,6 +252,7 @@ const SWIFT_WIRES: Readonly<Record<string, WireKind>> = {
   "toggle-bullseye": "command",
   "toggle-column-split": "command",
   "move-in-column": { bridgeFor: TUG_ACTIONS.MOVE_IN_COLUMN },
+  "toggle-rail": { bridgeFor: TUG_ACTIONS.TOGGLE_RAIL },
 };
 
 describe("SWIFT_WIRES is derived, not remembered", () => {
@@ -373,15 +374,11 @@ const SHIPPED_CHORDS: ReadonlyArray<readonly [chord: string, commandId: string]>
  * historical column is only worth having while it stays historical, and a move
  * nobody declared should still fail.
  *
- * Show Lens moved off ⌥⌘L so the two sidebar toggles could share one grammar —
- * ⌃⌘⟨letter⟩ — which is what makes ⌃⌘L and ⌃⌘J teach each other.
- *
  * Insert File gave the ⌃ seat on I to AI Model and kept the letter, moving to
  * ⇧⌘I. Sharing a letter is deliberate: both are composer gestures reached from
  * the same seat, and neither has a better initial than I.
  */
 const MOVED_SINCE_THE_MAP: ReadonlyMap<string, string> = new Map([
-  [TUG_ACTIONS.TOGGLE_LENS, "⌃⌘L"],
   [TUG_ACTIONS.INSERT_FILE, "⇧⌘I"],
 ]);
 
@@ -394,13 +391,32 @@ const MOVED_SINCE_THE_MAP: ReadonlyMap<string, string> = new Map([
 const RETIRED_SINCE_THE_MAP: ReadonlySet<string> = new Set(["cycle-card"]);
 
 /**
+ * Commands that still exist and still have menu rows, but no longer carry a
+ * DEFAULT chord — the sidebar-toggle family, demoted when the rails were
+ * promoted to keyboard entities.
+ *
+ * Distinct from `RETIRED_SINCE_THE_MAP` on purpose. A retired command is gone
+ * and its chord reaches nothing; these are reachable from the Maker menu and
+ * bindable from the keymap pane, and what changed is only that the table ships
+ * no chord for them. ⌃⌘L, ⌃⌘J, ⌃⌘O and ⌘L returned to their pools with them.
+ *
+ * The letter grammar died of arithmetic rather than of taste: a sidebar growing
+ * past three cards wants letters that are spent (⌃⌘C, ⌃⌘T) or forbidden (⌃⌘D),
+ * and one chord per side does not grow at all. See chord-tiers.md.
+ */
+const UNBOUND_SINCE_THE_MAP: ReadonlySet<string> = new Set([
+  TUG_ACTIONS.FOCUS_LENS,
+  TUG_ACTIONS.TOGGLE_LENS,
+  TUG_ACTIONS.TOGGLE_JOTS,
+  TUG_ACTIONS.TOGGLE_OVERVIEW,
+]);
+
+/**
  * Chords added after the map, which by construction it cannot record: their
  * commands did not exist when it was written.
  */
 const ADDED_SINCE_THE_MAP: ReadonlyArray<readonly [chord: string, commandId: string]> = [
   ["⌘J", TUG_ACTIONS.NEW_JOT],
-  ["⌃⌘J", TUG_ACTIONS.TOGGLE_JOTS],
-  ["⌃⌘O", TUG_ACTIONS.TOGGLE_OVERVIEW],
   ["⌥⌘[", TUG_ACTIONS.PREVIOUS_STACK_CARD],
   ["⌥⌘]", TUG_ACTIONS.NEXT_STACK_CARD],
   // The slash bridges that earned a chord. The family is reachable by typing
@@ -451,11 +467,21 @@ const ADDED_SINCE_THE_MAP: ReadonlyArray<readonly [chord: string, commandId: str
   ["⌃⌘↓", `${TUG_ACTIONS.MOVE_IN_COLUMN}:down`],
   ["⌃⇧⌘↑", `${TUG_ACTIONS.MOVE_IN_COLUMN}:top`],
   ["⌃⇧⌘↓", `${TUG_ACTIONS.MOVE_IN_COLUMN}:bottom`],
+  // The rail pair, completing the same axis horizontally: ⌃⌘↑/↓ moves a card
+  // within a place, ⌃⌘←/→ shows or hides a whole side. The never-bind list
+  // reserves plain ⌃-arrows, not the ⌘ composition — the argument the split
+  // family above already made.
+  ["⌃⌘←", `${TUG_ACTIONS.TOGGLE_RAIL}:left`],
+  ["⌃⌘→", `${TUG_ACTIONS.TOGGLE_RAIL}:right`],
 ];
 
 /** The map as it reads today: transcription, minus retirements, plus moves and additions. */
 const EXPECTED_CHORDS: ReadonlyArray<readonly [chord: string, commandId: string]> = [
-  ...SHIPPED_CHORDS.filter(([, commandId]) => !RETIRED_SINCE_THE_MAP.has(commandId)).map(
+  ...SHIPPED_CHORDS.filter(
+    ([, commandId]) =>
+      !RETIRED_SINCE_THE_MAP.has(commandId) &&
+      !UNBOUND_SINCE_THE_MAP.has(commandId),
+  ).map(
     ([rendering, commandId]) =>
       [MOVED_SINCE_THE_MAP.get(commandId) ?? rendering, commandId] as const,
   ),

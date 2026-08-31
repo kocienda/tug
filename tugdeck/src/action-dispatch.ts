@@ -515,10 +515,10 @@ export function initActionDispatch(
   });
 
   // toggle-lens / toggle-jots / toggle-overview: the three-state sidebar
-  // shortcut — show-and-activate, activate, hide ({@link toggleSidebarCard}).
-  // Fired by the Swift menu's "Show Lens" (⌃⌘L), "Show Jots" (⌃⌘J), "Show
-  // Overview" (⌃⌘O) items and the browser-dev keybindings; the deck-canvas
-  // key handlers run the same performer.
+  // shortcut over one CARD — show-and-activate, activate, hide
+  // ({@link toggleSidebarCard}). Fired by the Swift menu's "Show Lens", "Show
+  // Jots" and "Show Overview" rows, which carry no default chord: the keyboard
+  // addresses the rails instead (`toggle-rail` below).
   registerAction("toggle-lens", () => {
     toggleSidebarCard(deckManager, LENS_CARD_ID);
   });
@@ -529,6 +529,20 @@ export function initActionDispatch(
 
   registerAction("toggle-overview", () => {
     toggleSidebarCard(deckManager, OVERVIEW_CARD_ID);
+  });
+
+  // toggle-rail: the Maker ▸ Show Left/Right Rail round-trip, the same
+  // bare-name / parameterized-id shape the Go to Slot row uses. The host's one
+  // wire name hands off to `toggle-rail:left` / `toggle-rail:right`, so the
+  // menu item and the ⌃⌘ arrow end at ONE handler on the canvas — which is
+  // where the ladder can see the deck's sides.
+  registerAction(TUG_ACTIONS.TOGGLE_RAIL, (payload) => {
+    const side = payload.value;
+    if (!isSidebarSide(side)) {
+      console.warn(`${TUG_ACTIONS.TOGGLE_RAIL}: invalid side`, payload);
+      return;
+    }
+    dispatchCommand(`${TUG_ACTIONS.TOGGLE_RAIL}:${side}`);
   });
 
   // reveal-lens: show the Lens and bring the keyboard to it, never hide it.

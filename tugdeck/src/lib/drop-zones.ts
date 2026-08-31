@@ -21,18 +21,18 @@
  * honest: what it shows is what the release does. Tiles are derived with the
  * commit's own arithmetic — the post-drop order's weights through
  * `railSeamFractions`, cut into the run with half-gap seams ([P06]) — and a
- * column that would end up with three or more members lands under the
- * overflow rule rather than dividing ([P08]).
+ * place that would end up with three or more members — a column or a rail —
+ * lands under the overflow rule rather than dividing ([P08]).
  */
 
 import type { DeckState } from "../layout-tree";
 import type { Rect } from "../snap";
 import { deckColumnsOf } from "../deck-store-selectors";
 import {
-  COLUMN_OVERFLOW_VISIBLE_MEMBERS,
+  PLACE_OVERFLOW_VISIBLE_MEMBERS,
   IMPOSITION_GAP_PX,
   clampSlot,
-  columnStanding,
+  placeStanding,
   railSeamFractions,
   slotCount,
   type SidebarSide,
@@ -179,17 +179,20 @@ export interface DropZoneSet {
 
 /**
  * A strip a drag can scroll by holding the pointer near its edge: an
- * overflowing column's run, or the flow strip's band.
+ * overflowing column's or rail's run, or the flow strip's band.
  *
  * Resolved fresh each frame from the pointer, because which strip is under the
  * hand is a question about right now — a drag that crosses from one column to
  * another is scrolling the one it is over, not the one it started on.
  */
 export interface AutoscrollTarget {
-  kind: "column" | "flow";
+  kind: "column" | "rail" | "flow";
   /** The slot whose column scrolls. Absent for the flow strip, which is the
    *  deck's one horizontal strip and has no slot to name. */
   slot?: number;
+  /** The side whose rail scrolls. Absent for every other kind, which names its
+   *  place the other way or has no place to name. */
+  side?: SidebarSide;
   /** The axis the strip travels on — down the run, or across the band. */
   axis: "x" | "y";
   /** The band's near and far edges along that axis, in canvas layout px. */
@@ -204,7 +207,14 @@ export interface AutoscrollTarget {
 /** A strip's identity, for keeping one running offset per strip across a drag
  *  that visits several. */
 export function autoscrollKey(target: AutoscrollTarget): string {
-  return target.kind === "column" ? `column:${target.slot}` : "flow";
+  switch (target.kind) {
+    case "column":
+      return `column:${target.slot}`;
+    case "rail":
+      return `rail:${target.side}`;
+    case "flow":
+      return "flow";
+  }
 }
 
 /**
@@ -297,18 +307,18 @@ export function dropZoneKey(zone: DropZone): string {
 // ---- Tiles ----
 
 /**
- * The run a column's measured members are standing in: where their strip
+ * The run a place's measured members are standing in: where their strip
  * begins, and how tall the place they divide is.
  *
- * An overflowing column's members do not fill their run — the last one hangs
+ * An overflowing place's members do not fill their run — the last one hangs
  * off its bottom edge, which is the affordance ([P08]) — so the run is read
  * back through the rule that set the member height rather than summed from the
- * tiles. A shared column does fill it, so there the sum is the run.
+ * tiles. A shared place does fill it, so there the sum is the run.
  */
 function runOf(members: readonly Rect[]): { top: number; height: number } {
   const top = Math.min(...members.map((rect) => rect.y));
-  if (columnStanding(members.length) === "overflow") {
-    return { top, height: members[0].height * COLUMN_OVERFLOW_VISIBLE_MEMBERS };
+  if (placeStanding(members.length) === "overflow") {
+    return { top, height: members[0].height * PLACE_OVERFLOW_VISIBLE_MEMBERS };
   }
   const height =
     members.reduce((sum, rect) => sum + rect.height, 0) +
@@ -317,7 +327,7 @@ function runOf(members: readonly Rect[]): { top: number; height: number } {
 }
 
 /**
- * Tiles for a column of `count` members standing under the overflow rule: every
+ * Tiles for a place of `count` members standing under the overflow rule: every
  * member `run / 2.5` tall, stacked a gap apart down a strip that runs past the
  * run's bottom edge ([P08]).
  */
@@ -327,7 +337,7 @@ function overflowTiles(
   x: number,
   width: number,
 ): Rect[] {
-  const height = run.height / COLUMN_OVERFLOW_VISIBLE_MEMBERS;
+  const height = run.height / PLACE_OVERFLOW_VISIBLE_MEMBERS;
   return Array.from({ length: count }, (_, i) => ({
     x,
     width,
@@ -449,7 +459,7 @@ function columnPlaces(
   const others = order.filter((id) => id !== draggedPaneId);
   const count = others.length + 1;
   const tiles =
-    columnStanding(count) === "overflow"
+    placeStanding(count) === "overflow"
       ? overflowTiles(count, run, x, width)
       : divisionTiles(others, shares, draggedPaneId, run, x, width);
   const hits = tileHitBands(
@@ -477,22 +487,29 @@ function railZonesOf(
   if (members.length === 0) return { zones: [], origin: null };
   const draggedIndex = rail.members.indexOf(draggedPaneId);
   const { x, width } = members[0];
-  const runTop = Math.min(...members.map((rect) => rect.y));
-  const runBottom = Math.max(...members.map((rect) => rect.y + rect.height));
   const others = rail.members.filter((id) => id !== draggedPaneId);
-  // A rail divides at any count — overflow is a column rule — so its tiles
-  // are the fraction path alone, division-true the way a column's are ([P06]).
-  const tiles = divisionTiles(
-    others,
-    rail.shares,
-    draggedPaneId,
-    { top: runTop, height: runBottom - runTop },
-    x,
-    width,
-  );
+  // A rail stands under the same overflow rule a column does ({@link
+  // placeStanding}), so its tiles take the same fork: at three members or more
+  // the post-drop rail is the run/2.5 strip, and below that it is the fraction
+  // path, division-true the way a column's is ([P06]). The run is read back
+  // through `runOf` rather than summed off the measured members, because an
+  // overflowing rail's members do not fill it — the last one hangs off the
+  // bottom edge, which is the affordance.
+  const run = runOf(members);
+  const tiles =
+    placeStanding(rail.members.length) === "overflow"
+      ? overflowTiles(rail.members.length, run, x, width)
+      : divisionTiles(
+          others,
+          rail.shares,
+          draggedPaneId,
+          run,
+          x,
+          width,
+        );
   const hits = tileHitBands(
     tiles,
-    { top: runTop, bottom: runBottom },
+    { top: run.top, bottom: run.top + run.height },
     x,
     width,
   );

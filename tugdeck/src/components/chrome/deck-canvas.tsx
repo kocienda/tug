@@ -34,7 +34,7 @@ import type { ActionEvent } from "@/components/tugways/responder-chain";
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 import { applyBagFocus, transferFocusForActivation } from "@/focus-transfer";
 import { deckTrace } from "@/deck-trace";
-import { toggleSidebarCard } from "@/sidebar-toggle";
+import { toggleSidebarCard, toggleSidebarRail } from "@/sidebar-toggle";
 import { CANVAS_BACKGROUND_ATTRIBUTE } from "@/gesture-interpreter";
 import {
   DRAG_MOVE_THRESHOLD_PX,
@@ -129,11 +129,13 @@ import {
   resolveContentWidthPx,
   clampSlot,
   columnOffsetProperty,
-  COLUMN_OVERFLOW_VISIBLE_MEMBERS,
+  PLACE_OVERFLOW_VISIBLE_MEMBERS,
   columnSeamProperty,
-  columnStanding,
+  placeStanding,
+  railOffsetProperty,
   imposeStyle,
   isColumnMoveTarget,
+  isSidebarSide,
   type ColumnMemberPlacement,
   type ColumnMode,
   slotCount,
@@ -240,6 +242,11 @@ const COLUMN_SEAM_MAX_SLOT = slotCount("six-up") - 1;
  *  than a fresh `{}` per render, so the memos reading it are not re-run by an
  *  identity that changes for no reason. */
 const EMPTY_COLUMN_OFFSETS: Readonly<Record<number, number>> = Object.freeze({});
+
+/** The rail-offsets record's twin of {@link EMPTY_COLUMN_OFFSETS}, and a
+ *  frozen singleton for the same reason. */
+const EMPTY_RAIL_OFFSETS: Readonly<Partial<Record<SidebarSide, number>>> =
+  Object.freeze({});
 
 /** How long the strip waits after the last wheel event before it commits where
  *  it came to rest ([P11]). A wheel has no release to commit on, so quiet is
@@ -376,6 +383,10 @@ function sidebarRailsOf(state: DeckState): readonly SidebarRail[] {
  * first and last rects are the same one — which is the coexistence the rail
  * width terms already have.
  *
+ * A side's OFFSET is a term for the reason a column's is: past two members a
+ * rail stops dividing and starts scrolling, and a reveal that slides its strip
+ * moves every member's `top` while side, width, mode and order all hold still.
+ *
  * The bullseye term is the DERIVED id, not the raw field, because that is
  * what the render path places from. Entering and leaving bullseye re-places
  * and re-widths a frame — a one-up placement at comfy on the way in, the
@@ -397,7 +408,9 @@ function arrangementSignature(state: DeckState): string {
       (rail) =>
         `${rail.side}:${rail.width}:${rail.mode}:${rail.members
           .map((m) => m.componentId)
-          .join("+")}:${rail.seams.map((f) => f.toFixed(3)).join("+")}`,
+          .join("+")}:${rail.seams
+          .map((f) => f.toFixed(3))
+          .join("+")}:${Math.round(state.railOffsets?.[rail.side] ?? 0)}`,
     )
     .join(";");
   // The layout MODE is a term of its own, and the offset does not cover it.
@@ -753,6 +766,7 @@ const DECK_CANVAS_VALIDATED_ACTIONS: ReadonlySet<string> = new Set([
   TUG_ACTIONS.TOGGLE_LENS,
   TUG_ACTIONS.TOGGLE_JOTS,
   TUG_ACTIONS.TOGGLE_OVERVIEW,
+  TUG_ACTIONS.TOGGLE_RAIL,
   TUG_ACTIONS.NEW_JOT,
   TUG_ACTIONS.SHOW_COMPONENT_GALLERY,
   TUG_ACTIONS.ADD_CARD_TO_ACTIVE_PANE,
@@ -839,6 +853,8 @@ export function DeckCanvas(_props: DeckCanvasProps) {
   // ([P12]) — the vertical twin of `flowOffset`, and per-slot because each
   // column scrolls on its own. Published by the inset effect below.
   const columnOffsets = deckState.columnOffsets ?? EMPTY_COLUMN_OFFSETS;
+  // And the same number per SIDE, for the rails that overflow ([P12]).
+  const railOffsets = deckState.railOffsets ?? EMPTY_RAIL_OFFSETS;
   // Each member's standing in its column, for the panes that have one. Only a
   // SPLIT column of two or more contributes: a stacked column and a column of
   // one take the undivided run, which is the frame they had before a slot could
@@ -1538,11 +1554,12 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           commitMutation: () => store.activateCard(incomingCardId),
         });
       },
-      // ⌃⌘L / ⌃⌘J / ⌃⌘G — the three-state sidebar shortcut: show-and-activate
-      // a hidden rail, activate a showing one, hide the rail that already holds
-      // the keyboard ({@link toggleSidebarCard}). The `toggle-*` control
-      // actions run the same performer, so the menu item and the chord cannot
-      // drift apart.
+      // Show Lens / Show Jots / Show Overview — the three-state sidebar
+      // shortcut over one CARD: show-and-activate a hidden rail, activate a
+      // showing one, hide the rail that already holds the keyboard
+      // ({@link toggleSidebarCard}). Menu rows with no default chord since the
+      // rails took the keyboard; the `toggle-*` control actions run the same
+      // performer, so the row and any rebinding cannot drift apart.
       [TUG_ACTIONS.TOGGLE_LENS]: (_event: ActionEvent) => {
         toggleSidebarCard(store, LENS_CARD_ID);
       },
@@ -1551,6 +1568,15 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       },
       [TUG_ACTIONS.TOGGLE_OVERVIEW]: (_event: ActionEvent) => {
         toggleSidebarCard(store, OVERVIEW_CARD_ID);
+      },
+      // ⌃⌘← / ⌃⌘→ — the same ladder over the RAIL rather than over a card:
+      // show the side and focus its frontmost member, focus that member, hide
+      // the side ({@link toggleSidebarRail}). The canvas owns it for the reason
+      // it owns the column verbs — a side is a property of the deck, and no
+      // card can name one.
+      [TUG_ACTIONS.TOGGLE_RAIL]: (event: ActionEvent) => {
+        if (!isSidebarSide(event.value)) return;
+        toggleSidebarRail(store, event.value);
       },
       // ⌘J — capture in one gesture: reveal the Jots rail if it is hidden,
       // then open a fresh jot's editor. The reveal takes the same
@@ -1854,7 +1880,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       (rail) =>
         `${rail.side}:${rail.width}:${rail.mode}:${rail.seams
           .map((f) => f.toFixed(4))
-          .join("+")}`,
+          .join("+")}:${Math.round(railOffsets[rail.side] ?? 0)}`,
     )
     .join(";")}|${flowStrip === null ? "" : `${flowStrip.width}:${Math.round(flowOffset)}`}|${deckColumns
     .map(
@@ -1880,8 +1906,18 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       // gap count is removed rather than left standing. A rail going three
       // members to two would otherwise leave seam 1 behind, and a frame reading
       // it would be pinned to a seam that is no longer anywhere.
-      const seams =
-        sidebarRails.find((rail) => rail.side === side)?.seams ?? [];
+      //
+      // An overflowing rail reads no seams and a shared one reads no offset, so
+      // the two writes are exclusive by construction — the same discipline the
+      // columns below keep, and for the same reason: a side crossing the
+      // boundary in either direction must not leave a stale number a frame
+      // could still pin itself against.
+      const rail = sidebarRails.find((r) => r.side === side);
+      const railOverflows =
+        rail !== undefined &&
+        rail.mode === "split" &&
+        placeStanding(rail.members.length) === "overflow";
+      const seams = railOverflows ? [] : (rail?.seams ?? []);
       seams.forEach((fraction, index) => {
         el.style.setProperty(railSeamProperty(side, index), String(fraction));
       });
@@ -1891,6 +1927,16 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         index += 1
       ) {
         el.style.removeProperty(railSeamProperty(side, index));
+      }
+      // The other half of that exclusivity: the offset stands only while the
+      // side overflows, and is swept the moment it stops.
+      if (railOverflows) {
+        el.style.setProperty(
+          railOffsetProperty(side),
+          `${Math.round(railOffsets[side] ?? 0)}px`,
+        );
+      } else {
+        el.style.removeProperty(railOffsetProperty(side));
       }
     }
     // The column seams, written per slot and swept the same way the rails' are:
@@ -1906,7 +1952,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
     // holding a stale number a frame could still pin itself against.
     const overflowing = (column: DeckColumn): boolean =>
       column.mode === "split" &&
-      columnStanding(column.members.length) === "overflow";
+      placeStanding(column.members.length) === "overflow";
     const seamsBySlot = new Map(
       deckColumns.map((column) => [
         column.slot,
@@ -3250,6 +3296,43 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         if (canvas === null) return null;
         const state = store.getSnapshot();
 
+        // A rail first, and for the reason a column comes before the band: a
+        // pointer inside an overflowing rail's run is asking about that rail.
+        // Rails are asked about before columns because a rail's band is the
+        // deck's edge, which no column occupies — the two cannot both claim a
+        // pointer, and asking in a fixed order keeps that a fact rather than a
+        // coincidence.
+        const railRun = store.getRailRunHeight();
+        if (railRun !== null) {
+          for (const rail of sidebarRailsOf(state)) {
+            if (rail.mode !== "split") continue;
+            if (placeStanding(rail.members.length) !== "overflow") continue;
+            const first = canvas.querySelector<HTMLElement>(
+              `.tug-pane[data-pane-id="${rail.members[0].paneId}"]`,
+            );
+            if (first === null) continue;
+            const zoom = getTugZoom() || 1;
+            const canvasRect = canvas.getBoundingClientRect();
+            const rect = first.getBoundingClientRect();
+            const left = (rect.left - canvasRect.left) / zoom;
+            const width = rect.width / zoom;
+            if (pointer.x < left || pointer.x > left + width) continue;
+            const memberHeight = railRun / PLACE_OVERFLOW_VISIBLE_MEMBERS;
+            const strip =
+              rail.members.length * memberHeight +
+              (rail.members.length - 1) * IMPOSITION_GAP_PX;
+            return {
+              kind: "rail",
+              side: rail.side,
+              axis: "y",
+              bandStart: IMPOSITION_GAP_PX,
+              bandEnd: IMPOSITION_GAP_PX + railRun,
+              offset: state.railOffsets?.[rail.side] ?? 0,
+              maxOffset: Math.max(0, strip - railRun),
+            };
+          }
+        }
+
         // A column first: it is the narrower question, and a pointer inside an
         // overflowing column's run is asking about that column rather than
         // about the band it happens to sit in.
@@ -3257,7 +3340,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         if (run !== null) {
           for (const column of deckColumnsOf(state)) {
             if (column.mode !== "split") continue;
-            if (columnStanding(column.members.length) !== "overflow") continue;
+            if (placeStanding(column.members.length) !== "overflow") continue;
             const first = canvas.querySelector<HTMLElement>(
               `.tug-pane[data-pane-id="${column.members[0]}"]`,
             );
@@ -3268,7 +3351,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
             const left = (rect.left - canvasRect.left) / zoom;
             const width = rect.width / zoom;
             if (pointer.x < left || pointer.x > left + width) continue;
-            const memberHeight = run / COLUMN_OVERFLOW_VISIBLE_MEMBERS;
+            const memberHeight = run / PLACE_OVERFLOW_VISIBLE_MEMBERS;
             const strip =
               column.members.length * memberHeight +
               (column.members.length - 1) * IMPOSITION_GAP_PX;
@@ -3303,7 +3386,9 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         const property =
           target.kind === "column"
             ? columnOffsetProperty(target.slot ?? 0)
-            : FLOW_OFFSET_PROPERTY;
+            : target.kind === "rail"
+              ? railOffsetProperty(target.side ?? "left")
+              : FLOW_OFFSET_PROPERTY;
         el.style.setProperty(property, `${Math.round(offset)}px`);
         // The same number, in the same frame, to every instrument listening
         // ([P08]). The band the strip slides under is the target's own, so the
@@ -3312,13 +3397,15 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         if (band <= 0) return;
         if (target.kind === "column") {
           publishColumnOffset(target.slot ?? 0, offset / band);
-        } else {
+        } else if (target.kind === "flow") {
           publishFlowOffset(offset / band);
         }
       },
 
       commitScroll(target, offset) {
         if (target.kind === "column") store.setColumnOffset(target.slot ?? 0, offset);
+        else if (target.kind === "rail")
+          store.setRailOffset(target.side ?? "left", offset);
         else store.setFlowOffset(offset);
       },
     };
@@ -3643,9 +3730,20 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           members, and the handle that moves it. Rendered here rather than by
           either neighbour because a seam belongs to the rail, not to a card —
           and because the two frames it divides must not disagree about where
-          it is. */}
+          it is.
+
+          An overflowing rail has no seams to drag, exactly as an overflowing
+          column has none: past two and a half visible members the run stops
+          being divided and starts being scrolled, so a handle would offer a
+          division that no longer decides anything ([P08]). The stored `shares`
+          are left untouched and resume meaning the moment the side drops back
+          to two. */}
       {sidebarRails.flatMap((rail) =>
-        rail.seams.map((_fraction, index) => (
+        (rail.mode === "split" &&
+        placeStanding(rail.members.length) === "overflow"
+          ? []
+          : rail.seams
+        ).map((_fraction, index) => (
           <PlaceSeam
             key={`rail:${rail.side}:${index}`}
             place={{ kind: "rail", side: rail.side }}
@@ -3671,7 +3769,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         // resume meaning the moment the column drops back to two.
         if (
           column.mode === "split" &&
-          columnStanding(column.members.length) === "overflow"
+          placeStanding(column.members.length) === "overflow"
         ) {
           return [];
         }
