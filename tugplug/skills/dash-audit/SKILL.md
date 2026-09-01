@@ -25,6 +25,27 @@ It is the sibling of `dash-review`, at the other end of the run. Review reads a 
 
 ## The pass
 
+### 0. Confirm the course that runs you
+
+```bash
+printenv TUG_DASH_COURSE
+```
+
+It names the dash whose course you are the audit stage of. (A bundle older than the rename set `TUG_DASH_ARC` instead, and both are written today, so read either.)
+
+**With neither in the environment, stop and say so.** This skill is a stage of a course rather than a standalone command, and it is the last stage of **both** courses: `/dash` opens one at implement and `/dash-plan` opens one at devise, and each reaches here when its run's final declared step closes. There is no path from here that ends anywhere else — the mark this stage writes is read by a runner, and with no runner reading it the mark declares a course finished that nothing was running.
+
+**Then confirm the course can still find you.**
+
+```bash
+tugtool dash bind <name> --dry-run
+tugtool dash status <name> --json
+```
+
+The dry run writes nothing; it resolves which session this shell actually belongs to and says `(this shell holds …, which has rotated)` when the shell's own id has gone stale. **You are always a rotated-in session** — the audit's whole design is a reader that never saw the run — so that line is expected here rather than merely tolerated. What is a problem is a resolved session missing from `dash status --json`'s `bound_sessions`: the binding did not ride the rotation, and the join offer this stage arms will reach nobody.
+
+**The repair is `tugtool dash doctor <name>`**, which compares all four of a dash's records — the ledger table, the dash-log, the sqlite binding, and the arc record — and names each disagreement in a sentence. Not `/dash-bind`, which writes one of the four and answers nothing about the other three. Run it here anyway when the status output carries findings: a table and log that disagree about the run's frontier is exactly the kind of thing an audit should say out loud, and it changes what "the ledger's step titles are the promises" is worth.
+
 ### 1. Take the worktree, and read what the run said it would do
 
 ```bash
@@ -38,7 +59,14 @@ tugtool dash documents <name> --json
 tugtool plan status <name> --json
 ```
 
-Read the plan in full. It is the audit's standard of comparison, and it is the only one: what the work was *supposed* to do is what the plan says, not what the diff looks like it was trying to do. A dash worked directly has a task list rather than a devised plan — shorter, no decisions, no checkpoints — and it is the standard all the same. Read the ledger's step titles as the promises they are.
+**Read the ledger and the brief, both, in full.** They are the audit's standard of comparison and they answer different halves of it ([B06]):
+
+- **The ledger** — a devised `plan.md`, or a `/dash` door's `tasks.md`, whichever the dash has — says what the work was *supposed to do*, step by step. Read its step titles as the promises they are. A task list is shorter, has no decisions and no checkpoints, and is the standard all the same.
+- **The brief** at the same address says *why*, and it is the only document that does. It carries the settling the door did before any course opened — the decisions as `[B##]`, the findings as `[F##]` — which is the user's stated intent in the one form a cold session can read. A plan can implement its own steps faithfully and still miss what the brief asked for, and that gap is invisible to a reader who only has the plan.
+
+`dash documents --json` names all three paths and says which exist. Read the brief even when a plan exists — especially then, since the plan is one session's reading of the brief and this stage's job is not to trust a reading.
+
+**Read the dash's `baseline.md` too if the run left one.** It records what was already red before the first step, which is the difference between a defect this run introduced and one it inherited.
 
 ### 2. Read the whole diff, cold
 
@@ -52,10 +80,11 @@ Then the diff itself, from the worktree — every commit the branch carries agai
 
 ### 3. Judge it
 
-Four questions, in this order. The first two are the audit's own; the last two are the bar every dash round was already held to, asked once more by somebody with no stake in the answer.
+Five questions, in this order. The first three are the audit's own; the last two are the bar every dash round was already held to, asked once more by somebody with no stake in the answer.
 
-- **Does the code do what the plan said?** Step by step, promise by promise. A step marked `done` whose behaviour is not in the tree is the finding this whole stage exists to catch — including the honest version of it, where the step did something adjacent and nobody noticed the difference.
-- **Does it do anything the plan did not say?** Scope that arrived without a decision behind it. Not every unplanned line is wrong — work discovers things — but an unplanned line that changes a contract, a default, or a surface is a decision somebody made silently.
+- **Does the code do what the ledger said?** Step by step, promise by promise. A step marked `done` whose behaviour is not in the tree is the finding this whole stage exists to catch — including the honest version of it, where the step did something adjacent and nobody noticed the difference.
+- **Does it answer what the brief asked for?** The ledger is one session's reading of the brief, and a run can walk every step of it faithfully and still leave the brief's `[B##]` decisions unhonoured or its `[F##]` findings unaddressed. This is the question only the brief can ask, and it is why the brief is in the reading list ([B06]).
+- **Does it do anything neither document said?** Scope that arrived without a decision behind it. Not every unplanned line is wrong — work discovers things — but an unplanned line that changes a contract, a default, or a surface is a decision somebody made silently.
 - **Is it right?** Real defects, in the ordinary sense: the unhandled case, the wrong boundary, the state that can be reached and is not handled, the check that passes for the wrong reason.
 - **Does it fit?** The laws the change touches, the conventions of the files it sits in, the tests at the layer that can actually see the behaviour. For work under a project's law documents, name the specific laws — mimicry of neighbouring code proves nothing about which invariant that code was upholding.
 
@@ -101,7 +130,7 @@ An **imperative subject** in the repository's recent-commit style, bare — no `
 
 **Never a narration of the run, and that includes yours.** No round-by-round digest, no step numbers, no "the audit found and fixed" archaeology. What the audit repaired is part of what the change *is* — describe the change, not its history. Every line unbroken to its end (**no hard wrapping**), and no AI or agent attribution, ever.
 
-Read a good one before writing yours: `tug log` on the base shows the project's recent joins.
+Read a good one before writing yours: `git log` on the base shows the project's recent joins.
 
 ### 7. Mark it, and stop
 
@@ -123,6 +152,8 @@ Everything in [`tuglaws/dash-work-doctrine.md`](../../../tuglaws/dash-work-doctr
 - **Read the code before the claims.** The commit messages and the dash-log are read after the diff, so the code is judged rather than the account of it.
 - **Fix, never report-and-defer.** The run that would have acted on a report is over. What you cannot settle is written into the report and the draft, not asked.
 - **No dialogs.** This stage runs cold and often unattended; a question here stops the arc in front of nobody.
+- **Judge against both documents.** The ledger says what, the brief says why, and a run can satisfy one without the other.
+- **Run only under a course.** With no course in the environment, say what this is the last stage of and which doors start one, and stop.
 - **Never open or close a step.** The ledger is walked; an audit's work is rounds.
 - **Leave alone what is merely not yours.** A run is not wrong for not being your run.
 - **Verify before every commit, and never commit red.**

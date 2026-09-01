@@ -1,6 +1,6 @@
 ---
 name: dash-review
-description: Review a plan and fix what it finds — run the linter, apply the review rubric against the real code, edit the plan in place, and append a Review Record. Replaces the read-only vet pass.
+description: The plan course's review stage — read a devised plan cold against the real code, fix what it finds, append a Review Record, and stamp it
 argument-hint: "[plan-path]"
 disable-model-invocation: true
 allowed-tools: Bash, Read, Edit, Glob, Grep, WebFetch, WebSearch, AskUserQuestion
@@ -9,9 +9,9 @@ disallowed-tools: Task, Write
 
 ## What this is
 
-`dash-review` is the **pre-implementation** pass: read a plan, judge it against the real code, and **fix what you find**. It is not a report. The old `vet` skill was read-only by construction, so the only thing it could do with a finding was hand it back — and the answer was invariably "do the fixups". This does the fixups.
+`dash-review` is the **review stage** of the plan course, and the pre-implementation pass: read the plan the devise stage wrote, judge it against the real code, and **fix what you find**. It is not a report — the old `vet` skill was read-only by construction, so the only thing it could do with a finding was hand it back, and the answer was invariably "do the fixups". This does the fixups.
 
-The card runs this automatically after `/tugplug:dash-devise`, on the review model, as a visible turn — under an arc and off one alike, because `dash-devise` ends by asking the wheel to seat this stage rather than by handing the user a chip. You can also invoke it by hand on any plan: one devised before this existed, one edited since, one written by hand.
+**It is a stage of a course, not a standalone command.** The wheel seats it on a fresh session, on the model the project declared for the review, reading the plan cold — and that coldness is the whole of what the stage buys. The devise stage before it ends by asking the wheel to seat this one rather than by handing the user a chip, and the stamp this stage writes is what rotates the course onward. So [the course check](#0-confirm-the-course-that-runs-you) is the first thing this skill does.
 
 **You are the reviewer, in-thread.** Do not spawn sub-agents (`Task`).
 
@@ -22,6 +22,27 @@ The card runs this automatically after `/tugplug:dash-devise`, on the review mod
 `/tugplug:dash-review <name-or-path>` — a **dash name** or an explicit path, and the argument's shape decides which: anything carrying a separator, starting with `.`, or ending in `.md` is a path; anything else is a dash, and resolves to its own `plan.md`. Every `tugtool plan` verb takes the argument verbatim, so pass it through rather than resolving it yourself. There is no default and no search: a name is an exact address, not a guess.
 
 ## The pass
+
+### 0. Confirm the course that runs you
+
+```bash
+printenv TUG_DASH_COURSE
+```
+
+It names the dash whose course you are the review stage of. (A bundle older than the rename set `TUG_DASH_ARC` instead, and both are written today, so read either.)
+
+**With neither in the environment, stop and say so.** This skill is a stage of the plan course rather than a standalone command, and `/dash-plan` is the door into it: it sharpens the idea with the user, writes the brief, and opens the course that devises the plan and hands it here. (The other door, `/dash`, settles its steps as a task list and opens a course with no devise stage and no review stage at all.) There is no path from here that ends anywhere else — the stamp this stage writes is read by a runner, and with no runner watching it there is nothing behind the gesture.
+
+**Then confirm the course can still find you.**
+
+```bash
+tugtool dash bind <name> --dry-run
+tugtool dash status <name> --json
+```
+
+The dry run writes nothing; it resolves which session this shell actually belongs to and says `(this shell holds …, which has rotated)` when the shell's own id has gone stale — which is ordinary under a course and is not a problem. What is a problem is a resolved session missing from `dash status --json`'s `bound_sessions`: the binding did not ride the rotation, and nothing downstream will find this run.
+
+**The repair is `tugtool dash doctor <name>`**, which compares all four of a dash's records and names each disagreement in a sentence. Not `/dash-bind`, which writes one of the four and answers nothing about the other three.
 
 ### 1. Read the plan's review state, then lint it
 
@@ -50,7 +71,7 @@ This is the step that makes the review worth its cost. A finding you could have 
 
 ### 3. Apply the rubric
 
-Read [`tuglaws/dash-review-rubric.md`](../../../tuglaws/dash-review-rubric.md) and work down it: plan quality and coherence, technical choices, strategy and sequencing, holes and pitfalls, test-plan sanity, the tuglaws cross-check (name the specific laws; for tugdeck work verify the State Zone Mapping), the does-this-leave-the-architecture-better test, and the cold-reader test.
+Read [`tuglaws/dash-review-rubric.md`](../../../tuglaws/dash-review-rubric.md) and work down it: plan quality and coherence, technical choices, strategy and sequencing, holes and pitfalls, test-plan sanity, the tuglaws cross-check (name the specific laws; for frontend work in a project whose laws define state zones, verify the State Zone Mapping), the does-this-leave-the-architecture-better test, and the cold-reader test.
 
 If the rubric is absent — a project without `tuglaws/` — proceed on the criteria above and **say so** in the Review Record. A missing rubric degrades the review; it does not cancel it.
 
@@ -107,13 +128,13 @@ Progress does **not** invalidate a stamp: ledger status cells, commit cells, and
 
 ### 7. Hand off
 
-**First, check whether an arc is running you.** Run `printenv TUG_DASH_ARC` — when it names a dash, this turn is that arc's **review stage**. The review itself is unchanged, every step of it: lint, read the code, apply the fixups, append the Review Record, stamp last. Only the ending differs — report what changed and stop. **Print no chip.** The stamp you just wrote is the hand-off: the runner reads `tugtool plan status` and rotates to implement on the strength of it, so a command line here is a button nobody will press.
+**The stamp is the hand-off.** You wrote it in stage 6, and nothing else here does anything: the runner reads `tugtool plan status` and rotates the course to implement on the strength of it. So report what changed, in a few lines, and end the turn. **Ending the turn is the hand-off.**
 
-Off an arc, report what changed, in a few lines. This is the ordinary ending, and it is also where a wheel-seated review lands — a rotation with no arc behind it leaves `TUG_DASH_ARC` unset, and nothing downstream is watching the stamp, so the next move has to be said. Give it as a literal command on its own line, **inside backticks**, command and path together in one span:
+**Print no chip and name no next command.** Nobody is going to press it — the course is already running and the next stage opens by itself at this turn's end. A `/tugplug:dash-implement` chip beside a stage that is about to be seated teaches the user that nothing happens until they type, which is the belief the wheel exists to retire.
 
-`` `/tugplug:dash-implement my-dash` ``
+**Ask for no rotation either.** The card is already running a course, and a second request on it is refused by name. Say what you changed and where, and stop.
 
-The Session card only turns a command line into a clickable chip when it arrives as its own inline code span; written as bare prose it is dead text.
+A review that ends **without a stamp** has answered nothing, exactly as an audit that ends without a mark has. The course sees that and stops, saying the review did not stamp; `tugtool dash run <name>` resumes it. So if you cannot stamp — an edit landed after one, the document will not lint — say why in the turn rather than ending quietly, and let the course's stop carry it.
 
 ## Guardrails
 
@@ -125,4 +146,5 @@ The Session card only turns a command line into a clickable chip when it arrives
 - **Respect what moved.** Edits are decisions; `done` rows are frozen. The rules are in the rubric's re-review section, and they outrank your sense of how the plan should have been shaped.
 - **Always append the Review Record**, even on a clean pass — a round that found nothing is a fact worth recording, and a vacuous round is supposed to be visible in the artifact.
 - **The stamp is the last thing you do, and you never type it.** `tugtool plan stamp` computes it; an edit after it makes it a lie.
-- **Under an arc, print no chip.** `TUG_DASH_ARC` in the environment means the runner reads the stamp and rotates to implement itself; the review is otherwise identical.
+- **Print no chip and name no next command.** The runner reads the stamp and rotates to implement itself; a command line here is a button nobody will press.
+- **Run only under a course.** With no course in the environment, say what this is a stage of and which door starts one, and stop.

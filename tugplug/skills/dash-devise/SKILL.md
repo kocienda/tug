@@ -82,14 +82,23 @@ Then run the **cold-reader test**: could a fresh session, given only this docume
 
 ### 5. Hand the review to the wheel
 
-**This stage runs under an arc.** `printenv TUG_DASH_ARC` names the dash whose arc you are the **devise stage** of, and the arc handles the hand-off itself:
+**This stage runs under a course.** `printenv TUG_DASH_COURSE` names the dash whose course you are the **devise stage** of — a bundle older than the rename set `TUG_DASH_ARC` instead and both are written today, so read either — and the course handles the hand-off itself:
 
 - Finish at the natural end — a written plan, lint-clean, at the path you were given — and stop there.
-- **Do not review it, on any model, including Opus.** The review is the arc's *next stage*: its own fresh session, on the model the project declared for it, reading the plan cold. That cold read is the point, and reviewing inline destroys it by handing the review the author's context.
+- **Do not review it, on any model, including Opus.** The review is the course's *next stage*: its own fresh session, on the model the project declared for it, reading the plan cold. That cold read is the point, and reviewing inline destroys it by handing the review the author's context.
 - **Print no chip and name no next command.** Nobody is going to click it. The runner is watching the documents — it reads `tugtool plan lint` and `tugtool plan status` on the plan you just wrote and rotates the stage itself.
-- **Ask for no rotation either.** The card is already running a score, and a second request on it is refused by name. Say what you wrote and where, and end the turn. Ending the turn *is* the hand-off.
+- **Ask for no rotation either.** The card is already running a course, and a second request on it is refused by name. Say what you wrote and where, and end the turn. Ending the turn *is* the hand-off.
 
-**With no `TUG_DASH_ARC` in the environment, stop and say so.** This skill is a stage of a course rather than a standalone command, and `/dash-plan` is the door into it: it sharpens the idea with the user, writes the brief you would be devising from, and opens the course that carries the plan to its review. (The other door, `/dash`, settles its steps as a task list and opens a course with no devise stage at all.) There is no path from here that ends anywhere else, because the plan is not ready when you finish writing it — it is ready when a fresh session has read it cold, and only the arc opens that session.
+**With neither in the environment, stop and say so.** This skill is a stage of a course rather than a standalone command, and `/dash-plan` is the door into it: it sharpens the idea with the user, writes the brief you would be devising from, and opens the course that carries the plan to its review. (The other door, `/dash`, settles its steps as a task list and opens a course with no devise stage at all.) There is no path from here that ends anywhere else, because the plan is not ready when you finish writing it — it is ready when a fresh session has read it cold, and only the course opens that session.
+
+**Confirm the course can still find you**, once, before you write:
+
+```bash
+tugtool dash bind <name> --dry-run
+tugtool dash status <name> --json
+```
+
+The dry run writes nothing; it resolves which session this shell actually belongs to and says `(this shell holds …, which has rotated)` when the shell's own id has gone stale — ordinary under a course, and not a problem. What is a problem is a resolved session missing from `dash status --json`'s `bound_sessions`: the binding did not ride the rotation, and nothing downstream will find this run. **The repair is `tugtool dash doctor <name>`**, which reads all four of a dash's records and names which disagrees — not `/dash-bind`, which writes one of them and answers nothing about the rest.
 
 ### 6. Hand off
 
