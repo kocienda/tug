@@ -267,9 +267,9 @@ The record is keyed by the **resolved base checkout**, not by the directory the 
 **Where you meet it:** every red file in a `Failures:` section arrives with one line under its name, in one of four shapes:
 
 ```
-    history: last green 0519182 (2026-08-18, 7 recorded runs ago)
-    history: last green 0519182 (2026-08-18, 7 recorded runs ago, dirty tree)
-    history: red in the last 4 recorded runs, back to dac7cfc (2026-08-19); last green 0519182 (2026-08-18)
+    history: last green 0519182 (2026-08-18, 7 recorded runs ago, alone)
+    history: last green 0519182 (2026-08-18, 7 recorded runs ago, in a batch of 16, dirty tree)
+    history: red in the last 4 recorded runs in batches of 7-16, back to dac7cfc (2026-08-19); last green 0519182 (2026-08-18, alone)
     history: no recorded runs for this file
 ```
 
@@ -282,6 +282,8 @@ What each one licenses you to conclude:
 - **no recorded runs** — the ledger has never seen this file on this checkout. Says nothing either way; a new test, or a first run since the ledger arrived.
 
 Two words in those lines are load-bearing. **"recorded"** is literal: an interrupted run leaves no row at all, so the count is of runs that finished, not runs you attempted. And **"dirty tree"** appears when the green it names was recorded against uncommitted changes — the sha names bytes that are not quite what ran, which is materially weaker evidence than a clean green.
+
+**Every outcome also names the batch it ran in**, because a run's size is what tells a defect from contention. App-tests are serialized behind a machine-wide gate and each launches its own `Tug.app`, so a file can pass alone in six seconds and time out at eighty in a sixteen-file batch — and a `history:` line that recorded the run without recording the run's size made those two read identically. A file **green alone and red only in batches** is contention: re-run it by itself before concluding anything. One **red alone too** is a defect. `alone` is a run of one; a streak whose reds ran at different sizes shows the range. The count is of files that actually ran — a skipped file never contended — and it is derived from the run's own result rows rather than stored beside them, so the number and the rows it counts cannot disagree.
 
 The lookup happens *before* the run records itself, so a red file's history is what came before it rather than a reflection of the failure being asked about.
 

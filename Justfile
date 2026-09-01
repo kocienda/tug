@@ -1795,6 +1795,16 @@ app-test *FILES:
     # Render one file's recorded history as the line that sits under it in the
     # Failures section. Formatted from the verb's JSON, never re-derived — the
     # same rule that keeps the summary and the document from drifting.
+    #
+    # Every outcome names its run's batch size, because that is what tells a
+    # defect from contention: some files pass alone in six seconds and time
+    # out at eighty in a sixteen-file batch, and without the size the two
+    # shapes read identically.
+    #
+    # Skew: an older `tugtool` on PATH answers without the size fields, so
+    # every size clause degrades to nothing rather than printing "of null".
+    # The direction is the harness's usual one — the recipe ships with the
+    # binary, but nothing makes the two versions agree.
     history_line() {
         if [ -n "$HISTORY_ERR" ]; then
             echo "    history: unavailable ($HISTORY_ERR)"
@@ -1806,18 +1816,30 @@ app-test *FILES:
                 if $n == 0 then "the last recorded run"
                 elif $n == 1 then "1 recorded run ago"
                 else "\($n) recorded runs ago" end;
+            def size($n):
+                if $n == null then null
+                elif $n == 1 then "alone"
+                else "in a batch of \($n)" end;
+            def sizes($lo; $hi):
+                if $lo == null or $hi == null then null
+                elif $lo == $hi then size($lo)
+                else "in batches of \($lo)-\($hi)" end;
+            def clause($sep; $phrase): if $phrase == null then "" else $sep + $phrase end;
             (.[$f] // empty) as $h
             | if $h == null then empty
               elif $h.answer == "no-history" then
                 "    history: no recorded runs for this file"
               elif $h.answer == "last-green" then
                 "    history: last green \($h.sha) (\($h.date), \(ago($h.runsAgo))"
+                + clause(", "; size($h.filesInRun))
                 + (if $h.dirty then ", dirty tree" else "" end) + ")"
               else
                 "    history: red in the last "
                 + (if $h.count == 1 then "recorded run" else "\($h.count) recorded runs" end)
+                + clause(" "; sizes($h.minFilesInRun; $h.maxFilesInRun))
                 + ", back to \($h.backToSha) (\($h.backToDate))"
-                + (if $h.lastGreen then "; last green \($h.lastGreen.sha) (\($h.lastGreen.date))" else "" end)
+                + (if $h.lastGreen then "; last green \($h.lastGreen.sha) (\($h.lastGreen.date)"
+                     + clause(", "; size($h.lastGreen.filesInRun)) + ")" else "" end)
               end'
     }
 

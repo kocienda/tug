@@ -141,6 +141,19 @@ pub struct LastGreen {
     /// evidence than a clean one, so it rides the answer rather than being
     /// flattened away.
     pub dirty: bool,
+    /// How many files actually ran in that run — the run's **batch size**.
+    ///
+    /// The fact that tells a defect from contention. Some files pass alone in
+    /// six seconds and time out at eighty in a sixteen-file batch, and until
+    /// this rode the answer the `history:` line recorded *the run* without
+    /// recording *the run's size*, so the two shapes read identically. A file
+    /// red only in large batches and green alone is contention; one red alone
+    /// too is a defect.
+    ///
+    /// Derived — `COUNT(*)` over the run's non-`SKIP` result rows — rather
+    /// than stored as a column, so it cannot disagree with the rows it counts.
+    /// A skipped file never ran and so never contended.
+    pub files_in_run: i64,
 }
 
 /// One of the three answers ([P06]).
@@ -160,6 +173,11 @@ pub enum History {
         count: i64,
         back_to_sha: String,
         back_to_date: String,
+        /// The smallest and largest batch size across the streak. Equal when
+        /// every red ran at the same size, which is the common case and reads
+        /// as one number.
+        min_files_in_run: i64,
+        max_files_in_run: i64,
         /// The green before the streak, when there is one.
         #[serde(skip_serializing_if = "Option::is_none")]
         last_green: Option<LastGreen>,
@@ -300,6 +318,8 @@ struct Outcome {
     dirty: bool,
     /// How many recorded runs of this file separate it from the newest.
     runs_ago: i64,
+    /// How many files actually ran in that run.
+    files_in_run: i64,
 }
 
 /// The three answers, per file, for the given base root.
@@ -312,7 +332,9 @@ pub fn file_history(
     files: &[String],
 ) -> Result<Vec<FileHistory>, ApptestLedgerError> {
     let mut stmt = conn.prepare(
-        "SELECT r.status, u.head_sha, DATE(u.ended_at, 'unixepoch'), u.dirty
+        "SELECT r.status, u.head_sha, DATE(u.ended_at, 'unixepoch'), u.dirty,
+                (SELECT COUNT(*) FROM results b
+                  WHERE b.run_id = u.id AND b.status <> 'SKIP')
            FROM results r JOIN runs u ON u.id = r.run_id
           WHERE u.base_root = ?1 AND r.file = ?2 AND r.status <> 'SKIP'
           ORDER BY u.id DESC",
@@ -327,6 +349,7 @@ pub fn file_history(
                     date: row.get(2)?,
                     dirty: row.get::<_, i64>(3)? != 0,
                     runs_ago: 0,
+                    files_in_run: row.get(4)?,
                 })
             })?
             .collect::<rusqlite::Result<Vec<_>>>()?
@@ -354,6 +377,7 @@ fn answer_from(outcomes: &[Outcome]) -> History {
         date: o.date.clone(),
         runs_ago: o.runs_ago,
         dirty: o.dirty,
+        files_in_run: o.files_in_run,
     };
     if newest.status == "PASS" {
         return History::LastGreen {
@@ -366,6 +390,8 @@ fn answer_from(outcomes: &[Outcome]) -> History {
         count: streak.len() as i64,
         back_to_sha: oldest.head_sha.clone(),
         back_to_date: oldest.date.clone(),
+        min_files_in_run: streak.iter().map(|o| o.files_in_run).min().unwrap_or(0),
+        max_files_in_run: streak.iter().map(|o| o.files_in_run).max().unwrap_or(0),
         last_green: outcomes.iter().find(|o| o.status == "PASS").map(green),
     }
 }
@@ -431,6 +457,79 @@ mod tests {
             .unwrap()
             .remove(0)
             .history
+    }
+
+    /// **The batch-pressure fact.** Three files pass in isolation and fail in
+    /// a sixteen-file batch, and until the run's size rode the answer the
+    /// `history:` line recorded *the run* without recording *the run's size* —
+    /// so a defect and a contention read identically. A file green alone and
+    /// red only in batches is contention; one red alone too is a defect.
+    ///
+    /// Derived from the run's own result rows rather than stored beside them,
+    /// so the count and the rows it counts cannot disagree. A `SKIP` never
+    /// ran, so it never contended and is not counted.
+    #[test]
+    fn every_outcome_names_the_batch_it_ran_in() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().to_string_lossy().into_owned();
+        let mut conn = ledger(dir.path());
+
+        // Green alone.
+        record_run(
+            &mut conn,
+            &run(
+                &root,
+                "aaa1111",
+                1_700_000_000,
+                vec![file("at0478.test.ts", "PASS")],
+            ),
+        )
+        .unwrap();
+        match history_of(&conn, &root, "at0478.test.ts") {
+            History::LastGreen { green } => assert_eq!(green.files_in_run, 1),
+            other => panic!("expected last-green, got {other:?}"),
+        }
+
+        // Red in a batch of four — one of which was skipped, so the batch it
+        // actually contended with is three.
+        let mut batch: Vec<FileResult> = (0..2)
+            .map(|i| file(&format!("neighbour{i}.test.ts"), "PASS"))
+            .collect();
+        batch.push(file("skipped.test.ts", "SKIP"));
+        batch.push(file("at0478.test.ts", "FAIL"));
+        record_run(&mut conn, &run(&root, "bbb2222", 1_700_086_400, batch)).unwrap();
+
+        // Red again, alone this time — which is what turns the reading from
+        // contention into a defect, and the range is what shows it.
+        record_run(
+            &mut conn,
+            &run(
+                &root,
+                "ccc3333",
+                1_700_172_800,
+                vec![file("at0478.test.ts", "FAIL")],
+            ),
+        )
+        .unwrap();
+
+        match history_of(&conn, &root, "at0478.test.ts") {
+            History::RedStreak {
+                count,
+                min_files_in_run,
+                max_files_in_run,
+                last_green,
+                ..
+            } => {
+                assert_eq!(count, 2);
+                assert_eq!(min_files_in_run, 1, "the newer red ran alone");
+                assert_eq!(
+                    max_files_in_run, 3,
+                    "the older red ran with two neighbours; the skip never ran"
+                );
+                assert_eq!(last_green.expect("a green before the streak").files_in_run, 1);
+            }
+            other => panic!("expected red-streak, got {other:?}"),
+        }
     }
 
     #[test]
