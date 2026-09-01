@@ -6223,6 +6223,116 @@ Some context.
         assert!(detail.join_ready);
     }
 
+    /// **Reopening a step in the *middle* of a finished run re-arms the join
+    /// when that step re-closes.**
+    ///
+    /// The wedge this pins: `run_complete` used to be one number against the
+    /// run-through, and re-closing a reopened middle step wrote that number
+    /// back to the step's own — so a five-step run whose step 2 was reopened
+    /// and re-closed ended on `step-done 2`, read as "the run reached step 2",
+    /// and could never be joined again. No gesture recovered it; the only exit
+    /// was hand-editing the log the machine is supposed to own.
+    ///
+    /// The fold now keeps the run's **frontier** apart from the last line's
+    /// number, so the sentence the log tells is "this run got to 2, and
+    /// nothing it passed is open" — which the re-close makes true again. The
+    /// companion above covers the *final* step, where the two readings agree
+    /// and the wedge never showed.
+    #[serial]
+    #[test]
+    fn reopening_a_middle_step_re_arms_the_join_when_that_step_recloses() {
+        let (_temp, root) = stepped_dash("reopen-middle-dash");
+        let worktree = worktree_path(&root, "reopen-middle-dash");
+
+        // A two-step run, walked to the end. Step 1 is the middle step here:
+        // the run's frontier passes it and settles on 2.
+        step_start("reopen-middle-dash", 1, 2).unwrap();
+        fs::write(worktree.join("one.txt"), "first\n").unwrap();
+        commit("reopen-middle-dash", "r1", None).unwrap();
+        step_done("reopen-middle-dash", 1, None).unwrap();
+
+        step_start("reopen-middle-dash", 2, 2).unwrap();
+        fs::write(worktree.join("two.txt"), "second\n").unwrap();
+        commit("reopen-middle-dash", "r2", None).unwrap();
+        step_done("reopen-middle-dash", 2, None).unwrap();
+
+        let detail = dash_detail_entry_in(&root, "reopen-middle-dash").unwrap();
+        assert!(detail.run_complete, "the selection finished");
+        assert!(detail.join_ready);
+
+        // The audit rejects step 1's round. The run is not finished any more,
+        // even though the frontier already reached 2.
+        step_reopen("reopen-middle-dash", 1, "the audit rejected the approach").unwrap();
+        let detail = dash_detail_entry_in(&root, "reopen-middle-dash").unwrap();
+        assert!(
+            !detail.run_complete,
+            "a reopened step behind the frontier still un-arms the run"
+        );
+        assert!(!detail.join_ready);
+
+        // Re-closing settles it. The last step line names step 1 — which is
+        // exactly the reading the old arithmetic mistook for the frontier.
+        fs::write(worktree.join("one.txt"), "second try\n").unwrap();
+        commit("reopen-middle-dash", "r3", None).unwrap();
+        step_done("reopen-middle-dash", 1, None).unwrap();
+
+        let detail = dash_detail_entry_in(&root, "reopen-middle-dash").unwrap();
+        assert_eq!(
+            (detail.step_current, detail.step_total),
+            (Some(1), Some(2)),
+            "the log's last step line is about step 1, not step 2"
+        );
+        assert!(
+            detail.run_complete,
+            "and the run is finished all the same — the frontier is not the last line"
+        );
+        assert!(detail.join_ready, "so the join is armed again");
+    }
+
+    /// A *parked* middle step holds the run open the same way, and unparking
+    /// it releases the run rather than dragging the frontier back.
+    ///
+    /// `step reset` and `step reopen` differ in what they say about the row —
+    /// one un-finishes it, the other un-starts it — and not at all in what
+    /// they say about the run. Both are debts against the frontier.
+    #[serial]
+    #[test]
+    fn parking_a_middle_step_holds_the_run_open_until_it_closes_again() {
+        let (_temp, root) = stepped_dash("reset-middle-dash");
+        let worktree = worktree_path(&root, "reset-middle-dash");
+
+        step_start("reset-middle-dash", 1, 2).unwrap();
+        fs::write(worktree.join("one.txt"), "first\n").unwrap();
+        commit("reset-middle-dash", "r1", None).unwrap();
+        step_done("reset-middle-dash", 1, None).unwrap();
+        step_start("reset-middle-dash", 2, 2).unwrap();
+        fs::write(worktree.join("two.txt"), "second\n").unwrap();
+        commit("reset-middle-dash", "r2", None).unwrap();
+        step_done("reset-middle-dash", 2, None).unwrap();
+        assert!(
+            dash_detail_entry_in(&root, "reset-middle-dash")
+                .unwrap()
+                .join_ready
+        );
+
+        step_reopen("reset-middle-dash", 1, "wrong shape").unwrap();
+        step_reset("reset-middle-dash", 1, Some("parked for now")).unwrap();
+        let detail = dash_detail_entry_in(&root, "reset-middle-dash").unwrap();
+        assert!(!detail.run_complete, "a parked step is an open debt");
+        assert!(
+            !crate::dash::read_declarations(&root, "reset-middle-dash").step_in_flight,
+            "and it is not in flight either"
+        );
+
+        step_start("reset-middle-dash", 1, 2).unwrap();
+        fs::write(worktree.join("one.txt"), "third try\n").unwrap();
+        commit("reset-middle-dash", "r3", None).unwrap();
+        step_done("reset-middle-dash", 1, None).unwrap();
+        let detail = dash_detail_entry_in(&root, "reset-middle-dash").unwrap();
+        assert!(detail.run_complete, "the debt is settled and the run stands");
+        assert!(detail.join_ready);
+    }
+
     /// Reopen refuses every row that is not `done` — a step nobody finished is
     /// not a step anybody can un-finish.
     #[serial]

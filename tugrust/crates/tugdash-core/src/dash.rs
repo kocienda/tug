@@ -7,6 +7,7 @@
 //! append-only visibility log.
 
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeSet;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::Path;
@@ -519,10 +520,23 @@ pub fn read_declarations(repo_root: &Path, dash: &str) -> DashDeclarations {
     };
 
     let mut found = DashDeclarations::default();
-    // The step number the latest step declaration reached, and whether that
-    // declaration was a `done`. Kept beside `found` rather than on it because
-    // the completion arithmetic is answered once, after the fold.
-    let mut last_step_done: Option<u32> = None;
+    // The run's **frontier** — the highest step number a close has reached —
+    // and the steps still open or parked. Two facts rather than one, because
+    // "the run got this far" and "the last step line was about step n" stop
+    // being the same sentence the moment a *finished* step is reopened: a
+    // completed five-step run whose step 2 is reopened and re-closed ends on
+    // `step-done 2`, and a fold that read only the last line would take the
+    // run back to step 2 and never arm the join again.
+    //
+    // Both are kept beside `found` rather than on it because the completion
+    // arithmetic is answered once, after the fold.
+    //
+    // Skew: no new marker — this is arithmetic over lines that already exist,
+    // so a reader older than it degrades to the single-number fold. That fold
+    // agrees everywhere except a middle step's reopen, where it leaves the
+    // join un-armed rather than arming one it should not. The safe direction.
+    let mut frontier: Option<u32> = None;
+    let mut outstanding: BTreeSet<u32> = BTreeSet::new();
     for line in text.lines() {
         let Some((timestamp, name, marker, note)) = split_log_line(line) else {
             continue;
@@ -532,7 +546,8 @@ pub fn read_declarations(repo_root: &Path, dash: &str) -> DashDeclarations {
         }
         if is_terminal(marker, note) {
             found = DashDeclarations::default();
-            last_step_done = None;
+            frontier = None;
+            outstanding.clear();
             continue;
         }
         // Every surviving line dates the dash, whatever it declares — including
@@ -555,34 +570,39 @@ pub fn read_declarations(repo_root: &Path, dash: &str) -> DashDeclarations {
                     }
                     match marker {
                         // The two markers that leave a step *open*. Both carry
-                        // a title in the note's tail, and both clear
-                        // `last_step_done`, which is what un-arms the join: a
-                        // reopened final step means the run is no longer
-                        // finished, and nothing but this line says so.
+                        // a title in the note's tail, and both put the step
+                        // back among the outstanding, which is what un-arms
+                        // the join: a reopened step means the run is no longer
+                        // finished, and nothing but this line says so. The
+                        // frontier is left alone — how far the run once got is
+                        // not unlearned by reopening something behind it.
                         "step-start" | "step-reopen" => {
                             found.step_title = read_step_title(note, current);
                             found.step_in_flight = true;
-                            last_step_done = None;
+                            outstanding.insert(current);
                         }
                         // A park neither opens nor closes. The step is not in
                         // flight and the run has not advanced past it, so the
-                        // completion arithmetic loses its last close exactly
-                        // as a reopen does — a selection with a parked step in
-                        // it is not finished.
+                        // step stays outstanding exactly as a reopen leaves it
+                        // — a selection with a parked step in it is not
+                        // finished, whichever step it is.
                         "step-reset" => {
                             found.step_title = read_step_title(note, current);
                             found.step_in_flight = false;
-                            last_step_done = None;
+                            outstanding.insert(current);
                         }
                         // The closes. A done note's tail is the round's sha,
                         // not a title — the start's title stays current until
                         // the next one. A withdrawal ends a step and advances
                         // the run exactly as a completion does, which is what
                         // keeps a dash whose final selected step was withdrawn
-                        // joinable rather than wedged.
+                        // joinable rather than wedged. The frontier only ever
+                        // rises, so re-closing a reopened middle step settles
+                        // its debt without dragging the run back to it.
                         _ => {
                             found.step_in_flight = false;
-                            last_step_done = Some(current);
+                            outstanding.remove(&current);
+                            frontier = Some(frontier.map_or(current, |far| far.max(current)));
                         }
                     }
                 }
@@ -600,8 +620,10 @@ pub fn read_declarations(repo_root: &Path, dash: &str) -> DashDeclarations {
             _ => {}
         }
     }
-    found.run_complete = match (last_step_done, found.run_through) {
-        (Some(done), Some(through)) => done >= through,
+    found.run_complete = match (frontier, found.run_through) {
+        // Both halves are load-bearing: the run reached the end of its
+        // selection, *and* nothing it passed on the way is open again.
+        (Some(reached), Some(through)) => reached >= through && outstanding.is_empty(),
         _ => false,
     };
     found
