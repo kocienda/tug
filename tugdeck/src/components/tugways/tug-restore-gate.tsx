@@ -28,7 +28,7 @@
  */
 
 import * as AlertDialog from "@radix-ui/react-alert-dialog";
-import { type ReactElement } from "react";
+import { useRef, type ReactElement } from "react";
 
 import { useCanvasOverlay } from "@/lib/use-canvas-overlay";
 import { useRestoreGate } from "@/lib/restore-gate-store";
@@ -51,8 +51,18 @@ export function TugRestoreGate(): ReactElement {
   const determinate = gate.turnsTarget > 0;
   const value = Math.min(gate.turnsLoaded, gate.turnsTarget);
 
+  // Radix keeps Content mounted through its close animation, and by then the
+  // store has already fallen to zero cards — so the last frame a user sees
+  // read "Restoring 0 sessions", which is a sentence about nothing. Hold the
+  // last count the gate was actually open for and render that on the way out.
+  // A ref, not state: this must not schedule a render of its own, and the
+  // value is only ever read during one the store already caused.
+  const lastCards = useRef(0);
+  if (gate.cards > 0) lastCards.current = gate.cards;
+  const subjectCards = gate.cards > 0 ? gate.cards : lastCards.current;
+
   const subject =
-    gate.cards === 1 ? "1 session" : `${gate.cards} sessions`;
+    subjectCards === 1 ? "1 session" : `${subjectCards} sessions`;
 
   return (
     <AlertDialog.Root open={open}>

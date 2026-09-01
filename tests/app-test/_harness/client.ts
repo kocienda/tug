@@ -1546,16 +1546,84 @@ export async function holdModifier(
  * Resolve `selector` → an element-center point in CSS viewport coords.
  * Used by every `*AtElement` wrapper. Throws the page-side
  * "[tug] getElementBounds selector matched no element" error on miss.
+ *
+ * **It also waits, briefly, for the point to actually reach the element.**
+ * An app-modal gate — the restore gate above all, which is up for exactly as
+ * long as a cold restore holds the one main thread — covers the whole
+ * viewport while it is open, so a click posted into that window is spent on
+ * the scrim and the gesture that follows it falls on the floor: the composer
+ * never focuses, the typing goes nowhere, and the test times out much later
+ * waiting for a surface the click was supposed to raise. That is the
+ * `tug-sheet` mount red — three dash files whose only fault was clicking a
+ * beat too early, and it is a race, which is why one of them was flaky and
+ * the others were not.
+ *
+ * The wait is **advisory**: it polls for the target to become hit-testable
+ * and posts the click regardless once the budget runs out. It can therefore
+ * only turn a fail into a pass, never the reverse — a target legitimately
+ * covered by something that is not its own descendant (a portalled tooltip)
+ * costs one bounded wait and then behaves exactly as it did before.
+ *
+ * The bounds are read *after* the wait, because a gate coming down is a
+ * layout change and a point measured under it can be stale by the time it is
+ * posted.
  */
 async function centerOfElement(
   caller: HarnessCaller,
   selector: string,
 ): Promise<ViewportPoint> {
+  await settleUntilHitTestable(caller, selector);
   const rect = await getElementBounds(caller, selector);
   return {
     x: rect.x + rect.width / 2,
     y: rect.y + rect.height / 2,
   };
+}
+
+/**
+ * How long [`settleUntilHitTestable`] waits before posting the click anyway.
+ *
+ * Scaled by the harness like any other explicit budget, so on a loaded
+ * machine — which is when the restore gate is up longest, and exactly when
+ * the race bites — it is longer in wall-clock terms. Small enough that a
+ * target genuinely covered forever costs one of these per click and no
+ * test's own budget.
+ */
+const HIT_TESTABLE_BUDGET_MS = 5000;
+
+/**
+ * Wait, up to that budget, for `selector`'s own center to hit-test to
+ * `selector` — that is, for nothing to be sitting on top of it.
+ *
+ * `elementFromPoint` already honours `pointer-events: none`, so an overlay
+ * that is merely animating out does not count as covering anything. A hit
+ * that *is* the element, contains it, or is contained by it all count as
+ * reaching it: the first is the ordinary case, the second a wrapper whose
+ * child fills it, the third the element's own descendant under the point.
+ *
+ * Swallows its own timeout on purpose — see [`centerOfElement`].
+ */
+async function settleUntilHitTestable(
+  caller: HarnessCaller,
+  selector: string,
+): Promise<void> {
+  const script = `(function () {
+  var el = document.querySelector(${lit(selector)});
+  if (!el) return true; // let getElementBounds give the real error
+  var r = el.getBoundingClientRect();
+  if (r.width === 0 || r.height === 0) return true;
+  var hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+  if (!hit) return true;
+  return hit === el || el.contains(hit) || hit.contains(el);
+})()`;
+  try {
+    await caller.waitForCondition<boolean>(script, {
+      timeoutMs: HIT_TESTABLE_BUDGET_MS,
+    });
+  } catch {
+    // Advisory. The click goes out anyway, and whatever the test was going
+    // to assert still gets to say what it found.
+  }
 }
 
 function buildNativeClickParams(
