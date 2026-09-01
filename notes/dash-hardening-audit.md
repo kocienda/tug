@@ -560,3 +560,139 @@ one W5 leaves.**
   silent, and the doctrine now says so in the same breath as the horizon rather
   than leaving the limit in this note alone.
 - **The devise/review dialog question** above.
+
+---
+
+## Part IX — W6 as landed, and ten corrections to Parts I, VI, VII and VIII
+
+**W6 landed 2026-09-01** from a main-lane session. Its job was to turn the
+Wheel's promise into an asserted property, add the one piece of machinery W4
+named and deferred, and close the test-suite debts. Ten facts did not survive
+contact, and three of them are corrections to conclusions earlier parts drew
+about the same red twice.
+
+**1. The `tug-sheet` red is neither of the two things Part VIII offers, and
+the probe is worth writing down.** Parts VI, VII and VIII spend three rounds
+regrouping `at0427`, `at0479` and `at0486` and never look at what the DOM
+holds at the moment they fail. It holds this: `document.elementFromPoint` at
+the composer's own centre answers `DIV.tug-alert-overlay`. **The restore gate
+is up when the test clicks.** The gate is correct and blocking by design — a
+cold restore holds the one main thread every card shares — and what is wrong
+is that `nativeClickAtElement` posts into it anyway. The click is spent on the
+scrim, the composer never focuses, the `/commit` typed after it goes nowhere,
+and the test fails thirty seconds later pointing at a sheet, five steps
+downstream of the event. Being a race is why one of the three was flaky and
+two were not, and why a batch made it worse: a loaded machine restores slower.
+Fixed in `centerOfElement`, which every `*AtElement` verb goes through: it
+waits, briefly and advisorily, for the target's own centre to hit-test to the
+target, and reads the bounds after that wait. All three are green.
+
+**The general fact:** a failure whose symptom is a *later* wait timing out
+should be diagnosed by asking what the DOM held at the *earlier* gesture. Three
+rounds of re-running classified nothing that one `elementFromPoint` settled.
+
+**2. "Red since `4cd1c9a45`" over-reads the `history:` line, and the line was
+right.** Parts VI and VIII both treat that sha as when the red began.
+`4cd1c9a45` changes one file, `notes/dash-course-proposal.md`. The `back to`
+sha is the `HEAD` of the *oldest recorded red run*, not the commit that broke
+anything — and for `at0427` and `at0479` there is no recorded green on this
+checkout at all, so the streak reaches back only as far as the ledger does.
+A `back to` sha is a place to start looking, never an accusation.
+
+**3. The batch-size fact needed no schema change, and the brief's ask for one
+was the wrong shape.** Part III's W6 asks for the run's batch size recorded in
+`apptest_results.db` under the registered-migration regime. It is already
+there: one `results` row per file that ran, so the size is `COUNT(*)` over the
+run's non-`SKIP` result rows. Deriving it is strictly better than storing it —
+a stored column can disagree with the rows it counts, and this cannot. Every
+outcome now carries it (`filesInRun` on a green, `minFilesInRun`/
+`maxFilesInRun` across a streak) and the `history:` line renders `alone` or
+`in a batch of N`, which is the reading that tells a defect from contention.
+
+**4. `at0486` fails alone, and the ledger says so without a re-run.** Part VII
+moved it out of the `tug-sheet` group on one isolated pass; Part VIII moved it
+back on one isolated failure; each drew the lesson that a single run classifies
+nothing. With the sizes recorded, the answer was one query: red in batches of
+**1** as well as of 12. Part VIII's regrouping was right, and nobody needs to
+run anything to know it next time.
+
+**5. A stage kill does not reach `SessionGone`, so W6's stage-kill test does
+not exist.** Driven end to end — a seated stage, its claude killed, ninety
+seconds of sweeps — the arc decided nothing. That is by design and the design
+is right: `session_snapshot` returns `None` for `SpawnState::Idle`, because a
+card parked `Idle` is indistinguishable from one whose tugcast just restarted
+and judging it would stop every in-flight arc on every relaunch. A killed child
+parks there rather than in `Errored`/`Closed`. `SessionGone` is reachable from
+those two, which a kill is not the gesture for. Recorded in `at0503`'s docblock
+so the next reader does not go looking for the bug.
+
+**6. The clock needed a second signal, and the obvious one is already in the
+snapshot.** With a turn *ending* as the only motion, the deadline has to
+outlast the longest legitimate turn — a stage running a full test sweep — and
+a deadline that long leaves the wedge sitting most of a working day. The
+seated session's **context size** is the within-turn signal: a turn doing real
+work reports usage as it goes and the number climbs; a hung turn reports
+nothing and it stands still. A number that does not move is not proof of a
+hang and does not have to be — it only has to stop the clock being *reset* by
+a turn producing nothing. That is what makes `arc_stall_secs`' half-hour
+default defensible rather than a compromise.
+
+**7. The clock is skew-free, and the reason generalizes Part VIII's rule.**
+`ArcRecord::stopped` has always carried a free-text `String`, and the deck
+renders it as one, so `ArcStopReason::Stalled` costs an older reader nothing:
+no new marker, no new field, no new op. **A new *member* of a vocabulary that
+already travels as free text is the cheapest skew there is** — cheaper than
+`arc-course`'s new marker, which is what Part VIII's rule is about. The
+expensive case is a vocabulary a reader *matches on*, and this one is not.
+
+**8. `implement idle` never reached the doctrine's closed vocabulary.** W4
+added the reason and its receipt and did not add its row to
+`dash-lifecycle.md`'s Interruptions table or its word to the closed list two
+sections below — which is the list that says what the receipt formatter is
+allowed to explain. Both are in, along with `stalled`'s.
+
+**9. Part I.H's red list is short by two more, and both are two lines.**
+`tugcode`'s `plugin-commands.test.ts` pinned `/dash`'s frontmatter description
+to a phrase W5 rewrote — the same mistake as `at0476`, one repository over, and
+it now asserts the description occurs verbatim in the shipped `SKILL.md`
+instead. And `replay-dead-invariants.test.ts` is the TypeScript half of the
+very failure Task 4c named only in Rust: 746 sessions, zero dead branches,
+every invariant vacuous. **A corpus-dependent test skips with a note when the
+corpus lacks its case** — both halves now do, and both point at the committed
+`rewind-and-compact.jsonl` fixture as the guard that does not depend on what a
+machine happens to hold.
+
+**10. Two app-tests on one dash share one dash-log generation.** `at0503`'s
+first draft ran both its cases against one dash and read back two `arc-stage`
+lines where one rotation had happened. The dash-log is one shared, append-only
+file per project, so a fixture that wants its own record needs its own dash.
+Cheap to get wrong, and it reads as a machine doing something extra rather
+than as a fixture answering about the wrong run.
+
+**11. `just app-test` builds the bundle *if missing*, never if stale — and
+every app-test W6 ran before noticing was driving a tugcast from before W4.**
+Part IV records this hazard and its consequence once already ("caught only
+because the app-test bundle was stale"), as a thing that happened to W1. It is
+not a thing that happened; it is the standing behaviour of the recipe, and it
+catches whoever does not check. The bundle under `Tug-apptest.app` held a
+`tugcast` with no `arc-course`, no `arc-dispatch` and no `implement idle` in
+it — W5's marker and two of W4's — which is diagnosable in one line:
+
+    strings -a <bundle>/Contents/MacOS/tugcast | grep -c arc-course
+
+**The false red it produced is worth keeping**, because it is exactly the
+shape a real defect would have taken. A `--course plan` arc over a
+brief-and-task-list dash opened at **implement**, which is the document sniff's
+answer and not the recorded kind's — precisely [B04]'s deviation, which W5
+landed the fix for. The predicate was right (`start_action` reads
+`record.course` first, and `a_recorded_plan_course_devises_over_a_task_list`
+pins it); the binary was old. An hour went into reading a correct machine
+looking for the bug in it.
+
+Two rules follow. **`just app-test-build`, not `just app-test`, after any Rust
+change you intend an app-test to exercise** — and the tugcast in the bundle is
+the one that runs, while `tugtool` comes from `target/debug`, so a run can
+easily be half fresh. And **an app-test that asserts on new server behaviour
+should be able to say which build answered it**: every "the app did not do the
+new thing" red is this until ruled out, and ruling it out costs one `strings`.
+

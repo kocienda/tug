@@ -117,7 +117,7 @@ const CORE_TIER = [
     "at0201-session-card-activation-click-focus.test.ts", // session card activation focus
     "at0209-text-card-live-autosave.test.ts", // Text card core loop on real files
     "at0216-shell-exchange.test.ts", // $ shell route end-to-end
-    "at0231-lens-toggle-focus.test.ts", // Lens rail toggle + focus + reload
+    "at0231-sidebar-toggle.test.ts", // sidebar rail toggle + focus + reload
     "at0253-commit-dialog.test.ts", // commit mode open/dismiss
 ];
 
@@ -463,6 +463,25 @@ const foregroundCheck = args.includes("--foreground-check");
 const explicit = args.filter((a) => !a.startsWith("--"));
 
 if (coreOnly) {
+    // **A core-tier entry that names nothing is a stale list, not a red test.**
+    // A missing file reaches the runner as `[ERR] (the file failed before any
+    // test reported)` wrapped around bun's "filters did not match any test
+    // files" — which reads as the app being broken and is instead this list
+    // having outlived a rename. `at0231-lens-toggle-focus.test.ts` became
+    // `at0231-sidebar-toggle.test.ts` when the Lens broke out, and the core
+    // tier was red for everyone until somebody read the message closely.
+    // `@covers` paths are already checked this way; the tier itself was not.
+    const missing = CORE_TIER.filter(
+        (f) => !existsSync(join(APP_TEST_DIR, f)),
+    );
+    if (missing.length > 0) {
+        process.stderr.write(
+            `[select-tests] the core tier names ${missing.length} file(s) that do not exist:\n` +
+                missing.map((f) => `  ${f}\n`).join("") +
+                "Renamed or deleted — fix CORE_TIER in tests/app-test/scripts/select-tests.ts.\n",
+        );
+        process.exit(1);
+    }
     for (const f of CORE_TIER) process.stdout.write(`${f}\n`);
     process.exit(0);
 }
