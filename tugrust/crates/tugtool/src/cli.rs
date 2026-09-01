@@ -421,9 +421,10 @@ pub enum DraftCommands {
     /// instance serves the write identically; `--instance`/`--port` are an
     /// override, never a requirement.
     Set {
-        /// Owner: `session:<id>`, `dash:<name>`, or `unattributed`.
-        /// Default: the dash whose worktree holds the project, else
-        /// `session:$TUG_SESSION_ID`.
+        /// Owner: `session` (the calling session, resolved to its
+        /// live segment), `session:<id>`, `dash:<name>`, or `unattributed`.
+        /// Default: the dash whose worktree holds the project, else the
+        /// calling session.
         #[arg(long)]
         owner: Option<String>,
         /// Project dir (default: cwd); canonicalized on write.
@@ -448,9 +449,10 @@ pub enum DraftCommands {
     },
     /// Print the maintained draft for an owner.
     Show {
-        /// Owner: `session:<id>`, `dash:<name>`, or `unattributed`.
-        /// Default: the dash whose worktree holds the project, else
-        /// `session:$TUG_SESSION_ID`.
+        /// Owner: `session` (the calling session, resolved to its
+        /// live segment), `session:<id>`, `dash:<name>`, or `unattributed`.
+        /// Default: the dash whose worktree holds the project, else the
+        /// calling session.
         #[arg(long)]
         owner: Option<String>,
         /// Project dir (default: cwd).
@@ -459,9 +461,10 @@ pub enum DraftCommands {
     },
     /// Delete the maintained draft for an owner.
     Clear {
-        /// Owner: `session:<id>`, `dash:<name>`, or `unattributed`.
-        /// Default: the dash whose worktree holds the project, else
-        /// `session:$TUG_SESSION_ID`.
+        /// Owner: `session` (the calling session, resolved to its
+        /// live segment), `session:<id>`, `dash:<name>`, or `unattributed`.
+        /// Default: the dash whose worktree holds the project, else the
+        /// calling session.
         #[arg(long)]
         owner: Option<String>,
         /// Project dir (default: cwd).

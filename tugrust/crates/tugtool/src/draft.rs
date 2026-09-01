@@ -172,6 +172,25 @@ fn parse_owner(owner: &str, project_dir: &str) -> Result<Owner, AppError> {
     if owner == "unattributed" {
         return build("unattributed", String::new(), None, None);
     }
+    // `--owner session` with no id: **the calling session, resolved** — the
+    // spelling a skill should write. Naming the id explicitly asks the
+    // skill's author to interpolate `$TUG_SESSION_ID`, which is frozen at
+    // spawn and names a dead segment after any rotation ([P01]); the bare
+    // form says the same thing and cannot go stale.
+    if owner == "session" {
+        let resolved = crate::session_identity::resolve_soft(None).ok_or_else(|| {
+            AppError::Exit1(
+                "--owner session names the calling session, so run this from a Session card, \
+                 spell the id as session:<id>, or set TUG_SESSION_ID"
+                    .to_string(),
+            )
+        })?;
+        let mut keys = resolved.keys();
+        let live = keys.remove(0);
+        let mut owner = build("session", live, None, None)?;
+        owner.line_ids = keys;
+        return Ok(owner);
+    }
     if let Some(id) = owner.strip_prefix("session:") {
         if id.is_empty() {
             return Err(AppError::Exit1("empty session id in --owner".to_string()));
@@ -196,7 +215,7 @@ fn parse_owner(owner: &str, project_dir: &str) -> Result<Owner, AppError> {
         return build("dash", id, Some(name.to_string()), legacy);
     }
     Err(AppError::Exit1(format!(
-        "invalid --owner '{owner}': expected session:<id>, dash:<name>, or unattributed"
+        "invalid --owner '{owner}': expected session, session:<id>, dash:<name>, or unattributed"
     )))
 }
 

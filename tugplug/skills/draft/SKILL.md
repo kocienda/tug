@@ -79,12 +79,13 @@ The buckets — **decide a disposition for every one of them:**
 
 4. **Write the Draft**
    ```
-   tugtool draft set --owner session:$TUG_SESSION_ID --message "<message>"
+   tugtool draft set --owner session --message "<message>"
    ```
    - The message goes inline in `--message` (newlines are fine inside the quoted string).
    - **Selection dispositions** ride the same command: `--include <p…>` elects files beyond the default rule (an unattributed file you recognize as yours, a shared file that is clearly this session's); `--exclude <p…>` holds a default-selected file back. Omit both when the defaults stand.
    - A skill-authored draft is an authored draft — the row is written `edited`, so the draft engine never clobbers it; only the user's explicit Regenerate replaces it.
-   - Do NOT use temp files, shell expansion (`$(...)`), or heredocs — they trigger manual approval prompts. (`$TUG_SESSION_ID` as an argument is fine.)
+   - `--owner session` means *the calling session*, resolved by tugtool to the live segment of its line. Do **not** spell the id yourself: `$TUG_SESSION_ID` is frozen when the shell was spawned, and a card whose session has rotated would have you write the draft onto a segment nothing reads.
+   - Do NOT use temp files, shell expansion (`$(...)`), or heredocs — they trigger manual approval prompts.
    - If you need a different project directory, pass `--project <path>` — never `cd`.
 
 5. **Report**
