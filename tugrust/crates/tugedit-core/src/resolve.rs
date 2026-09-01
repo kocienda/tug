@@ -302,7 +302,7 @@ fn resolve_op(doc: &Doc, op: &Op) -> Result<Vec<Edit>, String> {
                     return Err(message);
                 }
                 let want: Vec<String> = needle.split(doc.eol).map(str::to_string).collect();
-                let hint = miss_hint(doc, from, to, &want, &needle);
+                let hint = miss_hint(doc, from, to, &want, &needle, Origin::Body);
                 return Err(match hint {
                     Some(hint) => format!("{message} — {hint}"),
                     None => message,
@@ -350,7 +350,15 @@ fn resolve_op(doc: &Doc, op: &Op) -> Result<Vec<Edit>, String> {
                     let mut message = format!("patch hunk {}: {message}", index + 1);
                     if hits.is_empty() {
                         let needle = hunk.old.join(doc.eol);
-                        if let Some(hint) = miss_hint(doc, 0, doc.text.len(), &hunk.old, &needle) {
+                        let hint = miss_hint(
+                            doc,
+                            0,
+                            doc.text.len(),
+                            &hunk.old,
+                            &needle,
+                            Origin::PatchHunk,
+                        );
+                        if let Some(hint) = hint {
                             message.push_str(" — ");
                             message.push_str(&hint);
                         }
@@ -530,13 +538,38 @@ fn resolve_op(doc: &Doc, op: &Op) -> Result<Vec<Edit>, String> {
     }
 }
 
+/// Where a body came from, which decides what a line short by one leading
+/// space means. A `patch` hunk's lines have had a prefix byte stripped, so a
+/// line one space shy of the file's is a prefix the caller never wrote. Every
+/// other body means its indentation literally.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Origin {
+    Body,
+    PatchHunk,
+}
+
+/// The best alignment between a body and the file: body line `body` sitting on
+/// file line `file`, agreeing for `run` lines from there.
+struct Align {
+    run: usize,
+    file: usize,
+    body: usize,
+}
+
 /// The hint pair a whole-line miss earns: the indentation the file would have
 /// matched at, else how far the block got before it diverged. `from` and `to`
 /// are byte offsets; `near_miss` reads lines, and the bridge is here so that
 /// no caller has to remember which unit it is in.
-fn miss_hint(doc: &Doc, from: usize, to: usize, want: &[String], needle: &str) -> Option<String> {
+fn miss_hint(
+    doc: &Doc,
+    from: usize,
+    to: usize,
+    want: &[String],
+    needle: &str,
+    origin: Origin,
+) -> Option<String> {
     indent_hint(doc, from, to, needle)
-        .or_else(|| doc.near_miss(want, doc.line_at(from), doc.line_at(to)))
+        .or_else(|| doc.near_miss(want, doc.line_at(from), doc.line_at(to), origin))
 }
 
 /// When a `replace` finds nothing, look once more for the same text at every
@@ -819,7 +852,7 @@ impl<'a> Doc<'a> {
         if hits.is_empty() {
             let refusal = no_block_match(body);
             let last = self.lines.len().saturating_sub(1);
-            return Err(match self.near_miss(body, 0, last) {
+            return Err(match self.near_miss(body, 0, last, Origin::Body) {
                 Some(hint) => format!("{refusal} — {hint}"),
                 None => refusal,
             });
@@ -845,38 +878,88 @@ impl<'a> Doc<'a> {
             .saturating_sub(1)
     }
 
-    /// How far a multi-line block got before it stopped matching, and how the
-    /// line that broke it differs. A body that misses is far more often wrong
-    /// in one line than in all of them — most often in that line's
-    /// indentation — so naming the first divergence turns a blind retry into a
+    /// Where the body and the file agree best, and how the nearest line the
+    /// agreement does not cover differs. A body that misses is far more often
+    /// wrong in one line than in all of them — most often in that line's
+    /// indentation — so naming the one divergence turns a blind retry into a
     /// targeted one.
-    fn near_miss(&self, want: &[String], from: usize, to: usize) -> Option<String> {
+    ///
+    /// The alignment is scored anywhere in the body rather than only from its
+    /// first line, because the line most likely to be wrong is the first one:
+    /// anchoring there finds a run of zero and the caller is told nothing at
+    /// all, exactly when there is most to say.
+    fn near_miss(&self, want: &[String], from: usize, to: usize, origin: Origin) -> Option<String> {
         if want.len() < 2 {
             return None;
         }
-        let mut best = (0usize, 0usize);
-        for start in from..=to.min(self.lines.len().saturating_sub(1)) {
-            let run = (0..want.len())
-                .take_while(|k| {
-                    start + k < self.lines.len() && self.line_text(start + k) == want[*k]
-                })
-                .count();
-            if run > best.0 {
-                best = (run, start);
+        let last = to.min(self.lines.len().saturating_sub(1));
+        let mut best = Align {
+            run: 0,
+            file: 0,
+            body: 0,
+        };
+        for file in from..=last {
+            for body in 0..want.len() {
+                if want.len() - body <= best.run {
+                    break;
+                }
+                let run = (0..want.len() - body)
+                    .take_while(|k| {
+                        file + k < self.lines.len() && self.line_text(file + k) == want[body + k]
+                    })
+                    .count();
+                if run > best.run {
+                    best = Align { run, file, body };
+                }
             }
         }
-        let (run, start) = best;
-        if run == 0 || start + run >= self.lines.len() {
+        let Align { run, file, body } = best;
+        if run == 0 || run == want.len() {
             return None;
         }
-        let theirs = &want[run];
-        let ours = self.line_text(start + run);
-        let lead = format!(
-            "the body's first {run} line{} at line {}, then body line {}",
-            if run == 1 { " matches" } else { "s match" },
-            start + 1,
-            run + 1
-        );
+        // The nearest line the run does not cover, in body order: the one just
+        // before it when the run starts past the body's first line, else the
+        // one just after.
+        let (theirs, ours) = if body > 0 && file > 0 {
+            (body - 1, file - 1)
+        } else if body + run < want.len() && file + run < self.lines.len() {
+            (body + run, file + run)
+        } else {
+            return None;
+        };
+        let lead = if body == 0 {
+            format!(
+                "the body's first {run} line{} at line {}, then body line {}",
+                if run == 1 { " matches" } else { "s match" },
+                file + 1,
+                theirs + 1
+            )
+        } else if run == 1 {
+            format!(
+                "body line {} matches at line {}, but body line {}",
+                body + 1,
+                file + 1,
+                theirs + 1
+            )
+        } else {
+            format!(
+                "body lines {}–{} match at line {}, but body line {}",
+                body + 1,
+                body + run,
+                file + 1,
+                theirs + 1
+            )
+        };
+        let theirs = &want[theirs];
+        let ours = self.line_text(ours);
+        if origin == Origin::PatchHunk && ours.strip_prefix(' ') == Some(theirs.as_str()) {
+            return Some(format!(
+                "{lead} is missing its prefix byte: it is the file's `{}` less one leading space, \
+                 and the space a hunk's context line opens with is the prefix byte, not \
+                 indentation — write it back",
+                clip(ours)
+            ));
+        }
         if theirs.trim() == ours.trim() {
             Some(format!(
                 "{lead} differs only in indentation: the file indents it {}, the body {}",
