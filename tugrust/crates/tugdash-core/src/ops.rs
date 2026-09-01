@@ -809,6 +809,25 @@ pub fn branch_exists(repo: &Path, branch: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// Whether the repo holds a **record** of this dash — which is the `tugid`,
+/// not the branch ref ([P01]).
+///
+/// The distinction is not pedantry. An arc binds a dash *before* its branch
+/// exists (`ensure_dash_id` needs no branch), and a teardown removes the ref
+/// and the config entry together, so "either one is present" is exactly the
+/// set of dashes that exist. tugcast's `live_dash_records` reached this shape
+/// first, when a branch-only gate was found nulling valid bindings; this is
+/// the same question asked on the tugtool side, so the two agree about which
+/// dashes are real.
+///
+/// Verbs that need the dash's *worktree* — `commit`, the step verbs — still
+/// check for it separately, because a pre-branch dash has no tree to work in.
+/// This predicate is for the verbs that only need the dash to be a thing:
+/// `mark` declares into the log, which a pre-branch arc has every right to do.
+pub fn dash_record_exists(repo: &Path, name: &str) -> bool {
+    branch_exists(repo, &branch_name(name)) || config_get(repo, &tugid_config_key(name)).is_some()
+}
+
 /// Canonical bundle-id branch slug — mirrors `scripts/branch-slug.sh`
 /// (lowercase; every run of non-`[a-z0-9]` collapses to a single `-`;
 /// trim leading/trailing `-`). This is the slug `assign-bundle-id.sh`
@@ -2597,7 +2616,7 @@ fn open_ledger_steps(repo_root: &Path, name: &str) -> (Vec<u32>, u32) {
 /// skill that is otherwise forbidden to write.
 pub fn mark(name: &str, stage: MarkStage, note: Option<&str>) -> Result<MarkOutcome, String> {
     let repo_root = find_repo_root().map_err(|e| e.to_string())?;
-    if !branch_exists(&repo_root, &branch_name(name)) {
+    if !dash_record_exists(&repo_root, name) {
         return Err(format!("Dash not found: {}", name));
     }
     append_mark_declaration(&repo_root, name, stage, note.unwrap_or_default())
@@ -6814,6 +6833,43 @@ Some context.
         let (_temp, _root) = stepped_dash("known-dash");
         let err = mark("no-such-dash", MarkStage::Built, None).unwrap_err();
         assert!(err.contains("Dash not found"), "{err}");
+    }
+
+    /// A dash whose branch does not exist yet is still a dash: the durable
+    /// record is the `tugid`, and an arc binds — and can be marked — before
+    /// any `tugdash/<name>` ref is cut. tugcast's binding gate learned this in
+    /// W2; `mark` had been left behind refusing "Dash not found" at exactly
+    /// the moment an arc most needs to declare something.
+    #[serial]
+    #[test]
+    fn mark_accepts_a_dash_whose_record_is_only_its_tugid() {
+        let (_temp, root) = stepped_dash("pre-branch-dash");
+
+        // Cut the branch away, leaving the config entry a teardown would have
+        // removed with it — `update-ref -d` rather than `branch -D`, because
+        // the latter takes the whole `branch.<name>.*` config section, `tugid`
+        // and all. This is the pre-branch arc's shape: an id, and no ref yet.
+        run_git(
+            &root,
+            &[
+                "update-ref",
+                "-d",
+                &format!("refs/heads/{}", branch_name("pre-branch-dash")),
+            ],
+        );
+        assert!(!branch_exists(&root, &branch_name("pre-branch-dash")));
+        assert!(dash_record_exists(&root, "pre-branch-dash"));
+
+        let marked = mark("pre-branch-dash", MarkStage::Built, None)
+            .expect("a pre-branch arc may declare that it built");
+        assert_eq!(marked.stage, "built");
+        assert_eq!(
+            crate::dash::read_declarations(&root, "pre-branch-dash").latest,
+            Some(crate::dash::DashDeclaration::Built)
+        );
+
+        // And a name the repo has no record of at all still refuses.
+        assert!(!dash_record_exists(&root, "never-existed"));
     }
 
     #[serial]

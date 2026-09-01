@@ -5,15 +5,16 @@
 //! record. What is proven here is the wire: what the recipe writes on stdin
 //! becomes rows, and what the recipe reads back is the shape S03 promised.
 
-use std::path::Path;
-use std::process::{Command, Stdio};
+mod common;
+use common::tugtool;
 
-use assert_cmd::cargo::CommandCargoExt;
+use std::path::Path;
+use std::process::Stdio;
+
 use std::io::Write;
 
 fn record(db: &Path, payload: &str) -> (i32, String) {
-    let mut child = Command::cargo_bin("tugtool")
-        .unwrap()
+    let mut child = tugtool()
         .args(["apptest", "record"])
         .env("TUG_APPTEST_RESULTS_DB", db)
         .stdin(Stdio::piped())
@@ -35,8 +36,7 @@ fn record(db: &Path, payload: &str) -> (i32, String) {
 }
 
 fn history(db: &Path, root: &Path, files: &[&str]) -> serde_json::Value {
-    let out = Command::cargo_bin("tugtool")
-        .unwrap()
+    let out = tugtool()
         .args(["apptest", "history", "--json", "--root"])
         .arg(root)
         .args(files)

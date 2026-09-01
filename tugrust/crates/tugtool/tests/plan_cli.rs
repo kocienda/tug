@@ -5,10 +5,10 @@
 //! `status: "error"`), and a document that is not a plan at all is neither
 //! clean nor dirty (exit 2).
 
-use std::path::Path;
-use std::process::Command;
+mod common;
+use common::tugtool;
 
-use assert_cmd::cargo::CommandCargoExt;
+use std::path::Path;
 
 /// A plan carrying every required section and one clean step.
 const CONFORMING: &str = r#"## A Conforming Plan {#conforming-plan}
@@ -56,7 +56,7 @@ Some context.
 "#;
 
 fn lint(path: &Path, json: bool) -> (i32, String) {
-    let mut cmd = Command::cargo_bin("tugtool").unwrap();
+    let mut cmd = tugtool();
     if json {
         cmd.arg("--json");
     }
@@ -116,7 +116,7 @@ fn a_brief_exits_two() {
         "brief.md",
         "## How we got here\n\nSome prose.\n\n## What is open\n\nMore prose.\n",
     );
-    let mut cmd = Command::cargo_bin("tugtool").unwrap();
+    let mut cmd = tugtool();
     let out = cmd.args(["plan", "lint"]).arg(&path).output().unwrap();
     assert_eq!(out.status.code(), Some(2));
     let stderr = String::from_utf8_lossy(&out.stderr);
@@ -156,7 +156,7 @@ fn json_carries_the_envelope_and_the_diagnostics() {
 
 /// Run a `plan <verb> <path>` subcommand, returning its exit code and stdout.
 fn plan_verb(verb: &str, path: &Path, json: bool) -> (i32, String) {
-    let mut cmd = Command::cargo_bin("tugtool").unwrap();
+    let mut cmd = tugtool();
     if json {
         cmd.arg("--json");
     }
@@ -267,8 +267,7 @@ fn status_exits_two_on_a_document_that_is_not_a_plan() {
         "program.md",
         "## The Program {#program}\n\n### Plan Metadata {#plan-metadata}\n\n### Phases {#phases}\n\n#### Phase 1 {#phase-1}\n",
     );
-    let out = Command::cargo_bin("tugtool")
-        .unwrap()
+    let out = tugtool()
         .args(["plan", "status"])
         .arg(&path)
         .output()
@@ -290,8 +289,7 @@ fn stamping_twice_refuses_and_leaves_the_file_byte_identical() {
     assert_eq!(code, 0);
     let stamped = std::fs::read_to_string(&path).unwrap();
 
-    let out = Command::cargo_bin("tugtool")
-        .unwrap()
+    let out = tugtool()
         .args(["plan", "stamp"])
         .arg(&path)
         .output()

@@ -5,10 +5,11 @@
 //! real build would be testing the build tool rather than the runner. What is
 //! under test is the resolution, the refusal, the exit codes, and the receipt.
 
+mod common;
+use common::tugtool;
+
 use std::path::Path;
 use std::process::{Command, Output};
-
-use assert_cmd::cargo::CommandCargoExt;
 
 fn git(dir: &Path, args: &[&str]) {
     let ok = Command::new("git")
@@ -30,7 +31,7 @@ fn git_stdout(dir: &Path, args: &[&str]) -> String {
 }
 
 fn tug(tmp: &Path) -> Command {
-    let mut cmd = Command::cargo_bin("tugtool").unwrap();
+    let mut cmd = tugtool();
     cmd.env_remove("TUG_INSTANCE_ID");
     cmd.env_remove("TUG_SESSION_ID");
     cmd.env("TMPDIR", tmp);

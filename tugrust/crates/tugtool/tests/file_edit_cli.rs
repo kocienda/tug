@@ -8,6 +8,9 @@
 //! relay side of the receipt is already covered by `attribution.rs`, so nothing
 //! here stands up a substitute for either.
 
+mod common;
+use common::{tugedit as tugedit_bin, tugtool};
+
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
@@ -56,13 +59,13 @@ fn run(binary: Command, root: &Path, program: &str) -> Output {
 }
 
 fn edit(root: &Path, args: &[&str], program: &str) -> Output {
-    let mut cmd = Command::new(env!("CARGO_BIN_EXE_tugtool"));
+    let mut cmd = tugtool();
     cmd.args(["file", "edit"]).args(args);
     run(cmd, root, program)
 }
 
 fn tugedit(root: &Path, args: &[&str], program: &str) -> Output {
-    let mut cmd = Command::new(env!("CARGO_BIN_EXE_tugedit"));
+    let mut cmd = tugedit_bin();
     cmd.args(args);
     run(cmd, root, program)
 }
@@ -425,7 +428,7 @@ fn a_program_reads_from_a_named_file_as_well_as_from_stdin() {
         "file a.txt\n  replace 'two' with 'deux'\n",
     )
     .unwrap();
-    let out = Command::new(env!("CARGO_BIN_EXE_tugedit"))
+    let out = tugedit_bin()
         .current_dir(&root)
         .arg("prog.edit")
         .output()

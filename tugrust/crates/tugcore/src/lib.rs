@@ -8,6 +8,8 @@
 //!
 //! Nothing in this crate may depend on any other Tug crate.
 
+#[cfg(test)]
+mod cli_test_env_scan;
 pub mod instance;
 pub mod janitor;
 pub mod ledger_db;

@@ -51,6 +51,48 @@ pub(crate) fn crates_root() -> PathBuf {
         .to_path_buf()
 }
 
+/// Every integration-test `.rs` file under a crate's `tests/` directory,
+/// paired with its whole text.
+///
+/// The complement of [`production_sources`], which excludes `tests/` because
+/// an integration test may do as it likes with the *workspace's* internals.
+/// It may not do as it likes with the *developer's machine*: a CLI test
+/// spawns a real binary, and a binary spawned with the ambient environment
+/// intact reaches the real instance registry. That is what
+/// `cli_test_env_scan` guards, and this is how it sees the files.
+///
+/// `corpus/` and `fixtures/` are skipped — they hold sample trees a test
+/// reads, not tests.
+pub(crate) fn integration_test_sources() -> Vec<(PathBuf, String)> {
+    let mut out = Vec::new();
+    let mut stack: Vec<PathBuf> = Vec::new();
+    for entry in std::fs::read_dir(crates_root()).expect("read_dir") {
+        let tests = entry.expect("dir entry").path().join("tests");
+        if tests.is_dir() {
+            stack.push(tests);
+        }
+    }
+    while let Some(dir) = stack.pop() {
+        for entry in std::fs::read_dir(&dir).expect("read_dir") {
+            let entry = entry.expect("dir entry");
+            let path = entry.path();
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if path.is_dir() {
+                if name != "corpus" && name != "fixtures" && name != "target" {
+                    stack.push(path);
+                }
+                continue;
+            }
+            if path.extension().and_then(|e| e.to_str()) != Some("rs") {
+                continue;
+            }
+            let text = std::fs::read_to_string(&path).expect("read source");
+            out.push((path, text));
+        }
+    }
+    out
+}
+
 /// Byte offset where a file's `#[cfg(test)] … mod …` block starts, or
 /// `None` when the file has no test module.
 ///

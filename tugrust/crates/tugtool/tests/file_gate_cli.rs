@@ -7,6 +7,9 @@
 //! command in, one line of JSON out, exit 0 whatever happens — which is what
 //! the hook depends on and what a broken gate would take down silently.
 
+mod common;
+use common::{tugtool, tugtool_bin};
+
 use std::path::Path;
 use std::process::{Command, Output};
 
@@ -25,7 +28,7 @@ fn checkout() -> tempfile::TempDir {
 }
 
 fn gate(root: &Path, command: &str) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_tugtool"))
+    tugtool()
         .args(["file", "gate", "--command", command, "--base-dir"])
         .arg(root)
         .output()
@@ -123,7 +126,7 @@ fn the_hook_renders_the_steer_with_its_example_intact() {
         .join("../../../tugplug/hooks/pre-tool-use.sh")
         .canonicalize()
         .expect("the hook is in the tree");
-    let tools = Path::new(env!("CARGO_BIN_EXE_tugtool"))
+    let tools = Path::new(tugtool_bin())
         .parent()
         .expect("a bin dir")
         .to_path_buf();

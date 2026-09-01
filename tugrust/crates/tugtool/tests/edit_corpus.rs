@@ -16,6 +16,9 @@
 //! depended on BSD-only syntax would be rewritten to a portable equivalent or
 //! dropped, never made to pass by weakening the assertion.
 
+mod common;
+use common::tugedit;
+
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -98,7 +101,7 @@ fn run_program(name: &str, program: &str) {
 
     let program_file = edit_dir.path().join("program.edit");
     std::fs::write(&program_file, program).expect("write program");
-    let edit = Command::new(env!("CARGO_BIN_EXE_tugedit"))
+    let edit = tugedit()
         .arg(&program_file)
         .current_dir(edit_dir.path())
         .output()

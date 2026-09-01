@@ -9,10 +9,12 @@
 //! resolves differently on Linux (`XDG_DATA_HOME`) than macOS, so seeding via
 //! `HOME` alone would not survive CI (ubuntu).
 
+mod common;
+use common::tugtool;
+
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use assert_cmd::cargo::CommandCargoExt;
 use rusqlite::Connection;
 
 /// Run a git command in `dir`, asserting success.
@@ -92,7 +94,7 @@ fn seed_ledger(repo_root: &Path) -> tempfile::TempDir {
 /// A `tug` command with both ledgers pointed at the seeded `db_dir` via the
 /// `TUG_SESSIONS_DB` / `TUG_CHANGES_DB` overrides, and no instance id.
 fn tug(db_dir: &Path) -> Command {
-    let mut cmd = Command::cargo_bin("tugtool").unwrap();
+    let mut cmd = tugtool();
     cmd.env_remove("TUG_INSTANCE_ID");
     cmd.env_remove("TUG_SESSION_ID");
     cmd.env("TUG_SESSIONS_DB", db_dir.join("sessions.db"));

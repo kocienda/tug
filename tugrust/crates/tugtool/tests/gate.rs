@@ -9,7 +9,8 @@ use std::net::{Ipv4Addr, SocketAddrV4, TcpListener, TcpStream};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
-const BIN: &str = env!("CARGO_BIN_EXE_tugtool");
+mod common;
+use common::tugtool;
 
 /// Find a free port by binding an ephemeral listener and dropping it.
 /// Racy in principle; fine for a test that uses it immediately.
@@ -21,7 +22,7 @@ fn scratch_port() -> u16 {
 }
 
 fn gate_cmd(port: u16, extra: &[&str], command: &[&str]) -> Command {
-    let mut cmd = Command::new(BIN);
+    let mut cmd = tugtool();
     cmd.env("TUG_GATE_PORT", port.to_string())
         .args(["host", "gate", "run", "--name", "apptest"])
         .args(extra)

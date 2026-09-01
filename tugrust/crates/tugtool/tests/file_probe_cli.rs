@@ -5,11 +5,12 @@
 //! on the tree after the fact: the bytes, the mtime, the presence or absence of
 //! files the patch created, and the absence of a receipt line.
 
+mod common;
+use common::tugtool;
+
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::SystemTime;
-
-use assert_cmd::cargo::CommandCargoExt;
 
 fn git(dir: &Path, args: &[&str]) {
     let out = Command::new("git")
@@ -55,8 +56,7 @@ const EDIT_PATCH: &str = "\
 ";
 
 fn probe(root: &Path, args: &[&str]) -> std::process::Output {
-    Command::cargo_bin("tugtool")
-        .unwrap()
+    tugtool()
         .current_dir(root)
         .args(["file", "probe"])
         .args(args)

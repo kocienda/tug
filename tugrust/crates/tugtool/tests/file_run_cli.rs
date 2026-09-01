@@ -6,10 +6,11 @@
 //! line, on the tree the command left behind, and on the exit status it carries
 //! through.
 
+mod common;
+use common::tugtool;
+
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
-
-use assert_cmd::cargo::CommandCargoExt;
 
 fn git(dir: &Path, args: &[&str]) {
     let out = Command::new("git")
@@ -47,7 +48,7 @@ fn init_repo() -> (tempfile::TempDir, PathBuf) {
 
 /// Run `file run` in `root`, wrapping `script` under `sh -c`.
 fn run(root: &Path, extra: &[&str], script: &str) -> Output {
-    let mut cmd = Command::cargo_bin("tugtool").unwrap();
+    let mut cmd = tugtool();
     cmd.current_dir(root).args(["file", "run"]);
     cmd.args(extra);
     cmd.args(["--", "sh", "-c", script]);
@@ -172,8 +173,7 @@ fn a_scope_outside_the_repository_is_refused() {
 #[test]
 fn no_command_is_refused_rather_than_treated_as_a_no_op() {
     let (_dir, root) = init_repo();
-    let out = Command::cargo_bin("tugtool")
-        .unwrap()
+    let out = tugtool()
         .current_dir(&root)
         .args(["file", "run"])
         .output()

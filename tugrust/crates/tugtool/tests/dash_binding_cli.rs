@@ -7,13 +7,14 @@
 //! the key in the request body the CLI actually sent, after the branch it came
 //! from is gone — which no amount of resolving afterwards could produce.
 
+mod common;
+use common::tugtool;
+
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpListener;
 use std::path::Path;
 use std::process::Command;
 use std::sync::mpsc;
-
-use assert_cmd::cargo::CommandCargoExt;
 
 fn git(dir: &Path, args: &[&str]) {
     let ok = Command::new("git")
@@ -208,7 +209,7 @@ fn register_fake_instance(tmp: &Path, port: u16) {
 }
 
 fn tug(tmp: &Path) -> Command {
-    let mut cmd = Command::cargo_bin("tugtool").unwrap();
+    let mut cmd = tugtool();
     cmd.env_remove("TUG_INSTANCE_ID");
     cmd.env_remove("TUG_SESSION_ID");
     cmd.env("TMPDIR", tmp);

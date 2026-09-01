@@ -10,14 +10,14 @@
 //! values, and the ledger's arbitration is proved there against a real file,
 //! so nothing here stands up a substitute for either.
 
+mod common;
+use common::tugtool;
+
 use std::path::Path;
 use std::process::{Command, Output};
 
-use assert_cmd::cargo::CommandCargoExt;
-
 fn tripwire(db: &Path, args: &[&str]) -> Output {
-    Command::cargo_bin("tugtool")
-        .unwrap()
+    tugtool()
         .arg("tripwire")
         .args(args)
         .env("TUG_TRIPWIRES_DB", db)
@@ -28,8 +28,7 @@ fn tripwire(db: &Path, args: &[&str]) -> Output {
 fn tripwire_json(db: &Path, args: &[&str]) -> serde_json::Value {
     let mut with_json = vec!["--json"];
     with_json.extend_from_slice(args);
-    let out = Command::cargo_bin("tugtool")
-        .unwrap()
+    let out = tugtool()
         .args(with_json)
         .env("TUG_TRIPWIRES_DB", db)
         .output()
@@ -632,8 +631,7 @@ fn a_dismissal_discards_the_dash_in_the_repository_the_landing_named() {
     // developer's own live instance and posts a bind naming a scratch dash in
     // a temp repo. That is the hazard `dash_api::bind`'s same-project guard
     // was added for, met here from the other side.
-    let created = Command::cargo_bin("tugtool")
-        .unwrap()
+    let created = tugtool()
         .args(["dash", "create", dash, "--json"])
         .current_dir(&root)
         .env("TUG_DATA_DIR", data.path())
@@ -647,8 +645,7 @@ fn a_dismissal_discards_the_dash_in_the_repository_the_landing_named() {
     assert!(worktree.exists(), "the dash's worktree is standing");
 
     // An unscoped wire: nothing on the row says which checkout the dash is in.
-    let out = Command::cargo_bin("tugtool")
-        .unwrap()
+    let out = tugtool()
         .args([
             "tripwire",
             "lay",
@@ -696,8 +693,7 @@ fn a_dismissal_discards_the_dash_in_the_repository_the_landing_named() {
         .unwrap();
     }
 
-    let out = Command::cargo_bin("tugtool")
-        .unwrap()
+    let out = tugtool()
         .args(["--json", "tripwire", "dismiss", "w"])
         .env("TUG_TRIPWIRES_DB", &db)
         .env("TUG_DATA_DIR", data.path())
