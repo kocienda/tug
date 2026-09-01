@@ -696,3 +696,91 @@ easily be half fresh. And **an app-test that asserts on new server behaviour
 should be able to say which build answered it**: every "the app did not do the
 new thing" red is this until ruled out, and ruling it out costs one `strings`.
 
+**12. The postmortem's symptom is still standing, and the gate found it.**
+This is W6's finding and the reason the workstream was worth running. On a
+real wheel rotation, driven end to end in `at0504`:
+
+- the server is **entirely correct**. The wheel mints a fresh segment on the
+  card's line, `seat_line_binding` moves the dash onto it, and `dash bind
+  --dry-run --json` run with the card's *spawn-time* id answers `rotated:
+  true`, `state: live`, and the id of the segment just seated. W1's chokepoint
+  and W2's `seat_line_binding` both do exactly what Parts IV and V claim.
+- the **deck never learns**. Sixty seconds after the rotation,
+  `window.__tug.cardLineFacts("A")` still answers with the pre-rotation
+  session id — and with `lineId` *equal to* that id, so the deck does not know
+  the card is on a line at all. The masthead's `^<dash>` sigil is looked up by
+  the card's session id and so never resolves; the Z2 DASH cell and the stage
+  divider are blank for the same reason.
+
+That is Part I.B's hazard — "fixed for explicit binds, racy for the rotation
+itself" — and it is **not** the race Part I.B describes. W2 fixed the ordering
+and put `line_id`/`card_id` on the announcement, and Part V records both. What
+is missing is upstream of the binding entirely: nothing moves the card's own
+session identity onto the fresh segment, so there is no card for a correctly
+addressed `bind_dash_ok` to land on. A binding announcement that resolves
+through `cardIdForSession` cannot help a deck that still thinks the card is the
+session it was born as.
+
+**It is pinned, not left red.** `at0504` carries
+`DECK_SEAT_FOLLOWS_A_ROTATION = false`, asserts what is true today, prints
+`KNOWN DEFECT` in its diagnostics, and goes red — asking for the constant to be
+flipped — the moment somebody fixes it. A corpus with a permanently failing
+file teaches everyone to read past failures, and this note has now spent three
+parts on two reds that survived exactly that way.
+
+**Why five workstreams did not find it.** Every W1-W5 test asserts on the side
+of the wire it was written for: the ledger's units over the ledger, the
+predicate's table over synthesized facts, the CLI's fixtures over a real
+instance, and `at0485` over a *relaunch*, where the card is **resumed** onto
+the stage's segment and so is seated correctly by construction. A rotation
+under a live card is the one path where the seat has to *move*, and nothing
+drove it. Part I.H says exactly this in one line — "nothing joins them" — and
+it turns out to have been the whole finding.
+
+---
+
+## Part X — The plan as landed, W1–W6
+
+**The six workstreams are landed.** The class Part II names is closed at every
+point it was open: identity resolves at one chokepoint with a source-scan
+guard behind it (W1), the binding path has no silent success left on it (W2),
+the step machine spans the states a real run passes through and a doctor
+reconciles its three records (W3), the arc cannot wedge or mis-stop without
+saying so (W4), the course kind is recorded rather than sniffed and the skills
+teach recovery (W5), and the promise is asserted end to end against a real app
+(W6).
+
+**What W6 added.** The clock — an idle deadline on the arc's watch, restarted
+by every turn that ends, every step that closes, every act the wheel takes and
+every reading where the seated context grew, stopping through the same
+receipt-bearing path as every other stop. Three app-tests that drive the real
+thing: `at0503` (a real tugcast restart mid-stage waits, and a card that came
+back on a fresh segment is a taking) and `at0504` (the postmortem). The
+`tug-sheet` red closed at its true cause, three test-suite debts closed, and
+the `history:` line taught to say which batch each outcome ran in.
+
+**What remains open, in the order somebody should take it:**
+
+1. **The deck's seat does not follow a rotation** (Part IX item 12). The one
+   real defect left of the original incident, reproducible in `at0504`, pinned
+   there, W2-shaped.
+2. **`at0387-session-identity-menu`** — the Overview card never mounts. The
+   restore-gate class W6 closed on the *click* path is a plausible cause on the
+   *key* path (`Cmd+Ctrl+O` posted into a focus-trapped gate goes to its key
+   sink), but that is a hypothesis, and a corpus-wide change to `nativeKey`'s
+   timing on a hypothesis is not worth it. Test it, then decide.
+3. **`at0168`'s `maker.lens` menu row** — Lens-breakout residue, back to
+   `a7f5ec7ff` with `at0231`. Whether that row should still exist is the Lens
+   arc's call, not the harness's.
+4. **The devise/review `AskUserQuestion` boundary** — W5's one open question,
+   untouched here because W6's Task 5 was optional and the firing message did
+   not confirm it.
+5. **A CLI test that shells `tugtool` must scrub the session env** — W2's item
+   5, still not landed as a source-scan guard.
+6. **The other `let _ =` appends** — `arc-plan`, `arc-note`, and the `compact`
+   line, as W4 left them.
+
+**And two habits this note has now paid for twice each**, worth more than any
+one item above: **check the build before diagnosing the machine** (Part IX item
+11), and **look at what the DOM held at the earlier gesture** rather than
+re-running the later wait (Part IX item 1).
