@@ -148,3 +148,24 @@ One app-test that *is* the postmortem: open an arc, force an implement rotation 
 ### Open questions
 
 None. The three that were open — reopen un-arming `join_ready`, the `file_events.line_id` column, and the `ImplementIdle` horizon of 2 — were settled by the user 2026-08-31 and folded into W1, W3, and W4 above.
+
+---
+
+## Part IV — W1 as landed, and four corrections to Part I
+
+**W1 landed 2026-08-31** from main-lane sessions, in seven commits. The shape is as proposed — one resolver, structurally enforced — but four of Part I's facts did not survive contact, and W2+ should be read against these rather than against the sections above.
+
+**1. `file_events.line_id` already exists.** Part I.A.1 and W1.2 record the column as a settled decision still to be made. It is `CHANGES_SCHEMA_VERSION` **3**, already on disk with a registered migration (`ADD_FILE_EVENTS_LINE_ID_SQL`), stamped at write time by `insert_file_event` from the *writer's* line. Further, `do_changeset_claim` (`agent_supervisor.rs:6004`) already expands an incoming segment id to its line's seat and writes under that, keeping every id the line has worn. So `changes claim|disclaim` was never misattributed at rest, and no schema work was needed. What W1 changed there is the CLI side only: the verb resolves before it posts, so the receipt names the live segment and `revive_on_activity` is not handed a corpse.
+
+**2. A rotation does *not* respawn tugcode.** Part I.A.5 calls the pass-through "safe iff a rotation always means a fresh tugcode spawn; unverified." It is not safe: `wheel::rotate` sends a `session_command "new"` frame down the *existing* card's `input_tx`, and `SessionManager.newSession` (`tugcode/src/session.ts`) mints a fresh session id and respawns only **claude**, inside the same tugcode process. `process.env.TUG_SESSION_ID` therefore named the segment the card was born on for the card's entire life — the widest instance of the class, and the one nobody had counted. The spawn env is now built by `buildClaudeSpawnEnv`, which stamps the manager's current id (tested in `tugcode/spawn-env.test.ts`). This narrows the window; a shell already running when the rotation lands still holds the old value, which is why the resolver remains the guarantee.
+
+**3. The stale id was not the only silent thing on the binding path.** `post_instance_api`'s try-each-instance loop kept the **last** error, and `unknown_session` — one instance's "not mine, keep walking" — is an error like any other. On any machine with a second instance live, a bystander's shrug overwrote the sentence the owning instance had already given: `at0476`'s bind-refusal assertion had been red for eleven recorded runs reporting `unknown_session` where the server had said `card runs <name>`. Fixed, and green. Part II's second sentence is right about the pattern and understated about its reach.
+
+**4. Version skew is a real refusal surface.** The resolver asks an instance for an op the instance may not have. Refusing there broke every session-addressed verb between installing a build and restarting the app — caught only because the app-test bundle was stale. `unknown op` now degrades to the posted id (`/api/dash` resolves at its own door regardless), with a CLI test driving a tugcast that answers exactly that. Any later workstream adding an op to an existing endpoint owes the same fallback.
+
+### What W1 deliberately left
+
+- **The deck's `bind_dash_ok` handling and the rotation broadcast race** (Part I.B) — W2 by assignment. W1 touched the deck once, to make `pendingAskStore`'s `sessionFor` route by line as well as by id; that path has no deck test, for the same reason W2 owns the missing `bind_dash_ok` one.
+- **`reported_binding`'s branch gate** (Part I.C) — W2.
+- **`at0476`'s stop-receipt assertion** expects `arc stopped` where the card now says `you stopped it`. Pre-existing wording drift, red since `4cd1c9a45`, untouched here: it belongs with W4's receipt work, not with identity.
+- **`at0387`** times out waiting for the Overview card to mount. Pre-existing and unrelated to identity; it covers `action-dispatch.ts`, which is why it kept appearing in the selection.

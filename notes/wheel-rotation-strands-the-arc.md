@@ -65,7 +65,7 @@ A rotated session cannot repair itself, and cannot tell that it failed.
 
 So the failure mode is silent in both directions — the verb that breaks it and the verb that would fix it both report success.
 
-## What did NOT break, which matters for the diagnosis
+## The second defect: the spawn ack is the only writer
 
 The ledger's live row is **correct**:
 
@@ -73,7 +73,15 @@ The ledger's live row is **correct**:
 37c0ee00… | tugdash/lens-breakout#1788211945834-6a9a27 | lens-breakout | implement | live | 0
 ```
 
-Right `dash_id`, right `dash_name`, live, not demoted. And `tugtool dash arc` reports `stopped: null`, `done: false`. So the blank card and the empty Z2 placard are **not** explained by a wrong binding in the data — something downstream is not reading what the ledger holds, or is reading it keyed on the id the arc was opened under. That is a second defect and it is not yet located. Do not treat the rotation fix as covering it.
+Right `dash_id`, right `dash_name`, live, not demoted. And `tugtool dash arc` reports `stopped: null`, `done: false`. So the blank card and the empty Z2 placard are **not** explained by a wrong binding in the data. `tugcast/src/feeds/agent_supervisor.rs:4873` says where they come from instead:
+
+> The dash binding rides the ack the same way `workspace_key` does — **the spawn ack is the binding store's only writer ([P07])**
+
+The card's binding is written **once, at spawn**. So a rotation whose spawn ack does not carry the dash forward leaves a card that can never be given one: `tugtool dash bind` moves the ledger row, `notify_sessions_changed()` fires, and the seated card still shows nothing, because the surface's copy was settled at spawn and nothing re-broadcasts it. Confirmed by doing it — binding the *correct* live segment made `dash status` read `['37c0ee00…']` and changed the card not at all.
+
+**A seated session therefore cannot repair its own binding.** Both recovery gestures a stranded agent would reach for report success and do nothing: `dash bind` with the frozen env id (writes to a corpse), and `dash bind` with the right id (writes the right row, which nothing reads). The only ways back are a re-spawn or a code change.
+
+This is the defect that actually blanked the card. The frozen `TUG_SESSION_ID` above is a second, independent bug on the same path — it is what made the first repair attempt land on a demoted segment — and fixing either one alone leaves the arc broken.
 
 The dash's work was never at risk: `d5bcaa64d` is on `tugdash/lens-breakout` and the task ledger's rows moved correctly, because commits and document writes do not go through the session id.
 
@@ -94,7 +102,8 @@ Whichever is chosen, **a bind that lands on a demoted segment should be an error
 
 ## Open questions
 
-- **Why is the card blank when the live row is right?** Unlocated. Candidates: the surface reads the binding keyed on the id the arc recorded at `dash run` time rather than the live segment; or the `sessions_changed` notification fired against the wrong id and the card never re-read. Settle this before designing, because if it is the first, the arc's own stage record carries a stale id too and the rotation fix has to reach that as well.
+- **Why did the rotation's spawn ack drop the dash?** The ack reads the row it is spawning from and passes `dash_id`/`dash_name` through `reported_binding`, which nulls the pair unless the dash's branch is in `live_dash_branches(project)`. `tugdash/lens-breakout` *is* in that set and the project spelling matches across every segment of the line, so the gate should have passed. Either the ack read a row that had no binding yet (a rotation that writes the new row before copying the binding forward would do it), or the branch scan ran against a repo path that did not resolve. This is the one to instrument first.
+- **Should the binding store have a second writer at all, or should the ack be re-sendable?** A surface whose only writer is a spawn is a surface that cannot be corrected. Either `set_dash_binding` broadcasts a binding change the card applies, or there is an explicit re-ack. The first is smaller; the second keeps one writer, which is the invariant [P07] was protecting.
 - **Do `dash create` and `dash step start` record their claims through this path?** The skill states both record the claim themselves, but neither appears among `calling_session_id`'s callers, so their write path is unverified. If they resolve the session some other way, that is a third spelling of the same question.
 - **How does the arc's stage list address its stages?** `tugtool dash arc` lists each stage with a `session_id`. If a stage is addressed by segment rather than by line, the arc's own resume path has the same hazard as the binding.
 
