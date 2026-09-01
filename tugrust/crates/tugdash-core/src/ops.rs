@@ -6329,7 +6329,10 @@ Some context.
         commit("reset-middle-dash", "r3", None).unwrap();
         step_done("reset-middle-dash", 1, None).unwrap();
         let detail = dash_detail_entry_in(&root, "reset-middle-dash").unwrap();
-        assert!(detail.run_complete, "the debt is settled and the run stands");
+        assert!(
+            detail.run_complete,
+            "the debt is settled and the run stands"
+        );
         assert!(detail.join_ready);
     }
 

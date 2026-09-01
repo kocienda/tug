@@ -1093,9 +1093,12 @@ pub(crate) async fn stop_arc_for_session(
     if how.record {
         let project = project.to_path_buf();
         let dash = dash.to_owned();
-        let _ =
-            tokio::task::spawn_blocking(move || append_arc_stop(&project, &dash, stage, reason))
-                .await;
+        let outcome = tokio::task::spawn_blocking({
+            let (project, dash) = (project.clone(), dash.clone());
+            move || append_arc_stop(&project, &dash, stage, reason)
+        })
+        .await;
+        report_append(&project, &dash, "arc-stop", outcome);
     }
 }
 
@@ -1141,7 +1144,12 @@ async fn finish(
     }
     let project = arc.project.clone();
     let dash = arc.dash.clone();
-    let _ = tokio::task::spawn_blocking(move || append_arc_done(&project, &dash)).await;
+    let outcome = tokio::task::spawn_blocking({
+        let (project, dash) = (project.clone(), dash.clone());
+        move || append_arc_done(&project, &dash)
+    })
+    .await;
+    report_append(&project, &dash, "arc-done", outcome);
 }
 
 /// Record a stop and hand the card back, for a refusal discovered mid-rotation.
@@ -1163,6 +1171,41 @@ async fn stop(ctx: &ArcContext, arc: &BoundArc, stage: ArcStage, reason: ArcStop
         },
     )
     .await;
+}
+
+/// Say out loud when an arc's terminal line did not land.
+///
+/// `arc-stop` and `arc-done` are the two appends that *are* the record: every
+/// later reader — the card's placard, the Z2 cell, `dash doctor`, a resume —
+/// learns the arc ended from the line and from nothing else. A discarded
+/// failure here leaves an arc that has stopped in the world and is still
+/// running on disk, and leaves nobody anything to search for. The path is
+/// named because the fix is nearly always about the file: a read-only state
+/// dir, a full disk, a project moved out from under a bound session.
+///
+/// Warn rather than error, and never a refusal: the card already carries the
+/// receipt, the hand-back has already gone, and there is nothing left for this
+/// to fail.
+fn report_append(
+    project: &Path,
+    dash: &str,
+    marker: &str,
+    outcome: Result<Result<(), tugtool_core::error::TugError>, tokio::task::JoinError>,
+) {
+    let reason = match outcome {
+        Ok(Ok(())) => return,
+        Ok(Err(error)) => error.to_string(),
+        Err(join) => format!("the append task did not finish: {join}"),
+    };
+    warn!(
+        dash = %dash,
+        marker = %marker,
+        path = %tugtool_core::paths::project_state_dir(project)
+            .join("dash-log.md")
+            .display(),
+        reason = %reason,
+        "arc could not record its terminal line",
+    );
 }
 
 #[cfg(test)]
