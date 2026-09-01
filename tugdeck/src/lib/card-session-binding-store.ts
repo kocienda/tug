@@ -45,6 +45,26 @@ export interface CardSessionBinding {
    */
   readonly lineId: string;
   readonly workspaceKey: string;
+  /**
+   * The segment the card is seated on **right now**, when the server has said
+   * it moved. Absent until it does, which is every card before its first
+   * rotation.
+   *
+   * Beside {@link CardSessionBinding.tugSessionId} rather than replacing it,
+   * and the distinction is load-bearing. `tugSessionId` is the card's
+   * **address**: every frame the card sends is stamped with it, and
+   * `CardServicesStore` keys its whole services bag on it — moving it would
+   * tear that bag down mid-stage and rebuild it around an id the supervisor
+   * does not answer to. The seat is what *identity* resolves through: the dash
+   * a live card is on is recorded against whichever segment holds the binding
+   * now, which a rotation moves.
+   *
+   * Written only by `session_line_seated`, which the bridge sends when the
+   * card's claude id changes on a line it already had. Never derived: a
+   * rotation leaves the retired segment's row `live` as well, so "the newest
+   * live row on this line" is a race rather than an answer ([P01]).
+   */
+  readonly seatedSessionId?: string;
   readonly projectDir: string;
   readonly sessionMode: CardSessionMode;
   /** The dash this card's session is mated to, or absent when unbound. */
@@ -115,6 +135,31 @@ export class CardSessionBindingStore {
     if (existing.tugSessionId === tugSessionId && existing.lineId === lineId) return;
     const next = new Map(this._bindings);
     next.set(cardId, { ...existing, tugSessionId, lineId });
+    this._bindings = next;
+    for (const listener of this._listeners) listener();
+  };
+
+  /**
+   * Move a card's **seat** onto a fresh segment of the line it already has —
+   * the rotation case, and a merge for the same reason the two above are.
+   *
+   * The card's address is untouched, deliberately: `CardServicesStore` keys the
+   * whole services bag on `tugSessionId`, so writing it here would tear that
+   * bag down and rebuild it mid-stage around an id the supervisor does not
+   * answer to. What moves is the identity every live read resolves through.
+   *
+   * The line comes with it because the server knows it and the ack may not
+   * have: a resume of a row the ledger had not yet birthed a line for is acked
+   * with none, and the binding has been carrying a line of one ever since.
+   *
+   * A no-op for a card with no binding, and for a seat that has not moved.
+   */
+  setSeatedSegment = (cardId: string, tugSessionId: string, lineId: string): void => {
+    const existing = this._bindings.get(cardId);
+    if (!existing) return;
+    if (existing.seatedSessionId === tugSessionId && existing.lineId === lineId) return;
+    const next = new Map(this._bindings);
+    next.set(cardId, { ...existing, seatedSessionId: tugSessionId, lineId });
     this._bindings = next;
     for (const listener of this._listeners) listener();
   };
@@ -229,42 +274,38 @@ export function cardLine(cardId: string): string | null {
  * The segment `cardId` is seated on **right now**, or `null` when no card of
  * that name holds a binding.
  *
- * `tugSessionId` on the binding is the card's *address* — the id every frame
- * the card sends is stamped with, and the id its `CardServices` bag was built
- * around, so it must not move while the card lives. The **seat** is a different
- * fact: the Wheel mints a fresh segment on the card's line and the ledger seats
- * the line on it, which is what `session_updated`'s live row tells the deck
- * ([P01]). Before the first rotation the two are the same string; after one,
- * only this answer follows the work.
+ * The announced seat when the server has moved it, the card's address
+ * otherwise — the two being the same string for every card before its first
+ * rotation, which is why five workstreams of tests could not tell them apart.
  *
- * Derived, never stored ([D138]): the card owns its line and the line store
- * owns the line's seat, so composing them cannot disagree with either. The
- * fallback to the address is what keeps a card whose line no frame has seated
- * this run — a cold restore, an older server — answering with the segment it
- * was bound at rather than with nothing.
+ * **Read, not derived**, and the first version of this was derived. It composed
+ * card → line → the line store's seat, which is "whichever frame seated that
+ * line last" — and a rotation leaves *two* live rows on the line, since the
+ * retired segment's row stays `live` until the card closes, so a later push
+ * about the older one moved the answer backwards. `at0503` is where that
+ * showed: a card bound directly to its stage read back as the root. A card's
+ * seat is now announced (`session_line_seated`) and a line's is left inferred,
+ * because only the server holds all three of card, segment, and line at once.
  */
 export function cardSeatedSegment(cardId: string): string | null {
-  const line = cardLine(cardId);
-  if (line === null) return null;
-  return (
-    sessionLineStore.seatOf(line) ??
-    cardSessionBindingStore.getBinding(cardId)?.tugSessionId ??
-    null
-  );
+  const binding = cardSessionBindingStore.getBinding(cardId);
+  if (binding === undefined) return null;
+  return binding.seatedSessionId ?? binding.tugSessionId;
 }
 
 /**
- * The segment `sessionId`'s line is seated on right now — `sessionId` itself
- * when no frame has said otherwise.
+ * The segment `sessionId`'s conversation is seated on right now — `sessionId`
+ * itself when no card holds it, or when no seat has moved.
  *
- * The same walk as {@link cardSeatedSegment} for a caller holding a session id
- * rather than a card: a citation chip, an Overview ref, a telemetry row. A
- * reference names the segment it was minted against, and every live fact about
- * that conversation — which dash it is on above all — is recorded against
- * whichever segment is seated now.
+ * The same answer as {@link cardSeatedSegment} for a caller holding a session
+ * id rather than a card: a citation chip, an Overview ref, a telemetry row
+ * reading `CodeSessionSnapshot.tugSessionId` — which is the card's address, and
+ * so is exactly the id a rotation leaves behind. Routed through
+ * {@link cardIdForSession} rather than through the line store's seat, for the
+ * reason given above: a card's own seat is announced, a line's is inferred.
  */
 export function seatedSegmentForSession(sessionId: string): string {
-  const lineId = sessionLineStore.lineOf(sessionId);
-  if (lineId === null) return sessionId;
-  return sessionLineStore.seatOf(lineId) ?? sessionId;
+  const cardId = cardIdForSession(sessionId);
+  if (cardId === null) return sessionId;
+  return cardSeatedSegment(cardId) ?? sessionId;
 }

@@ -1609,6 +1609,38 @@ export function initActionDispatch(
     );
   });
 
+  // session_line_seated: the card's line moved onto a fresh segment — a
+  // rotation above all — and the card's *seat* moves with it while its
+  // **address** does not. `session_line_rebound`'s twin, for the case that is
+  // not a new line, and the frame the postmortem's card never got: the row push
+  // says a segment exists and which line it is on, and nothing says the card is
+  // now sitting on it. Derived instead, the answer was "whichever live row on
+  // this line was pushed last" — and a rotation leaves two, because the retired
+  // segment's row stays live until the card closes.
+  //
+  // The line rides along because the server knows it and the spawn ack may not:
+  // a resume of a row the ledger had not yet birthed a line for is acked with
+  // none, so the binding has been carrying a line of one ever since.
+  registerAction("session_line_seated", (payload) => {
+    const cardId = payload.card_id;
+    const sessionId = payload.session_id;
+    const lineId = payload.line_id;
+    if (
+      typeof cardId !== "string" ||
+      typeof sessionId !== "string" ||
+      typeof lineId !== "string" ||
+      sessionId.length === 0 ||
+      lineId.length === 0
+    ) {
+      console.warn("session_line_seated: missing or invalid fields", payload);
+      return;
+    }
+    // Recorded whether or not a card holds it, exactly as `bind_dash_ok` does:
+    // every later frame naming this segment resolves for free afterwards.
+    sessionLineStore.seat(sessionId, lineId);
+    cardSessionBindingStore.setSeatedSegment(cardId, sessionId, lineId);
+  });
+
   registerAction("list_card_bindings_err", (payload) => {
     const reason = payload.reason;
     if (typeof reason !== "string") {

@@ -23,14 +23,16 @@
 import { useMemo, useSyncExternalStore } from "react";
 
 import { useChangesetAll } from "./changeset-all-store";
-import { seatedSegmentForSession } from "./card-session-binding-store";
+import {
+  cardSessionBindingStore,
+  seatedSegmentForSession,
+} from "./card-session-binding-store";
 import type {
   DashArcState,
   DashChangesetEntry,
   WorkspacesChangesetSnapshot,
 } from "./changeset-types";
 import { documentDashAsEntry } from "./document-dash-entry";
-import { sessionLineStore } from "./session-line-store";
 
 /** What one session's dash binding looks like to an identity surface. */
 export interface DashSessionFact {
@@ -172,8 +174,8 @@ export function dashSessionIndex(
  * was minted with: a card's spawn address, a citation's cited id, a telemetry
  * row's own. A direct lookup answers those two ids only while they happen to
  * be the same string, which is to say until the first rotation. So a miss
- * walks segment → line → the line's seat and asks again, which is the same
- * walk `cardIdForSession` makes in the other direction.
+ * walks segment → card → the card's announced seat and asks again, which is
+ * `cardIdForSession`'s walk followed by the seat that walk's card wears.
  *
  * That the incident blanked the masthead sigil and the Z2 DASH cell together
  * is this one lookup failing twice: both are `useDashForSession` over an id the
@@ -202,20 +204,21 @@ export function useDashForSession(
   sessionId: string | null,
 ): DashSessionFact | null {
   const data = useChangesetAll();
-  // The seat walk above reads the line store, so this subscribes to it as well
-  // as to the aggregate ([L02]). The two usually move in one beat — a seat
-  // bumps `CHANGESET_ALL` and pushes the row the line store learns from — but
+  // The seat walk above reads the binding store, so this subscribes to it as
+  // well as to the aggregate ([L02]). The two usually move in one beat — a seat
+  // bumps `CHANGESET_ALL` and announces itself in the same breath — but
   // "usually" is not an ordering, and a surface that repainted only on the
   // aggregate would hold the pre-rotation answer until something unrelated
   // moved it.
-  const lines = useSyncExternalStore(
-    sessionLineStore.subscribe,
-    sessionLineStore.getVersion,
+  const seats = useSyncExternalStore(
+    cardSessionBindingStore.subscribe,
+    cardSessionBindingStore.getSnapshot,
   );
   return useMemo(
     () => dashForSession(data, sessionId),
-    // `lines` is a version token, not a value this derivation reads — it is in
-    // the dependency list precisely so a line-store move re-runs the walk.
-    [data, sessionId, lines],
+    // `seats` is a change token, not a value this derivation reads — it is in
+    // the dependency list precisely so a seat move re-runs the walk. The store
+    // hands back a fresh Map on every write, so identity is the signal.
+    [data, sessionId, seats],
   );
 }

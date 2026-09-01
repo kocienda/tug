@@ -328,6 +328,22 @@ pub struct LedgerEntry {
     pub pending_segments: std::collections::VecDeque<PendingSegment>,
     /// Lifecycle state.
     pub spawn_state: SpawnState,
+    /// Whether a tugcode subprocess for this entry has ever reached `Live`
+    /// **in this tugcast process**.
+    ///
+    /// The one fact that tells the two `Idle`s apart, and they mean opposite
+    /// things to anything judging a card. An entry rebound from tugbank at
+    /// startup sits `Idle` because nothing has spawned it yet — a wait, and
+    /// reading it as a death would stop every in-flight arc on every relaunch
+    /// ([`crate::feeds::dash_arc_runner`]). An entry that ran here and is
+    /// `Idle` again lost the child it was running: a killed claude, a reset.
+    /// That is not a wait, and the ninety seconds an arc spent sitting over
+    /// one is what this field exists to end.
+    ///
+    /// In memory on purpose, like [`Self::context_window_tokens`]: it is a
+    /// claim about *this* process's own observations, so a restart clearing it
+    /// is the correct reading rather than lost state.
+    pub ever_live_here: bool,
     /// Whether this entry currently owns a `WorkspaceRegistry` refcount for its
     /// `workspace_key`. Exactly one refcount belongs to a live entry for its
     /// lifetime; this flag is the single authority for who releases it.
@@ -377,6 +393,28 @@ pub struct LedgerEntry {
     /// sampler's subtree root ([P08]). `None` between spawns (before the
     /// bridge spawns, and after the relay tears the child down).
     pub child_pid: Option<u32>,
+    /// When this entry last lost its child with nothing having replaced it —
+    /// `None` while a child is running, and while none has ever run.
+    ///
+    /// **The fact that makes a dead stage sayable.** `spawn_state` says what
+    /// the *bridge* believes, and a bridge whose child crashed is retrying, so
+    /// it goes on saying `Live` — correctly, for the second it takes to spawn
+    /// again. What it cannot say is that the retry never came back. Driven in
+    /// `at0505`: the stage's tugcode is killed, nothing replaces it, tugcast
+    /// holds no child for the card at all, and the entry reads `Live`
+    /// indefinitely — so `session_live` was true over a session with no
+    /// process, and the arc had no reason to stop and no reason to move.
+    ///
+    /// A stamp rather than a flag, because the honest reading is a *duration*:
+    /// a child gone for a second is a respawn in flight, and a child gone for
+    /// [`CHILD_GONE_GRACE`] is a session that is not coming back. The reader
+    /// is [`crate::feeds::dash_arc_runner`]'s `session_snapshot`, which is the
+    /// one place that turns this into `SessionGone`.
+    ///
+    /// In memory, like [`Self::context_window_tokens`]: it is a claim about
+    /// this process's own observations, and a restart clearing it is the right
+    /// reading rather than lost state.
+    pub child_gone_at: Option<std::time::Instant>,
     /// The child's process start time (seconds since epoch), captured
     /// alongside `child_pid` as the PID-reuse guard baseline ([P20]). The
     /// sampler attributes the subtree only while the live pid's start time
@@ -542,6 +580,7 @@ impl LedgerEntry {
             deck_model: None,
             context_window_tokens: None,
             spawn_state: SpawnState::Idle,
+            ever_live_here: false,
             holds_workspace_refcount: false,
             crash_budget,
             queue: BoundedQueue::new(),
@@ -549,6 +588,7 @@ impl LedgerEntry {
             latest_capabilities: None,
             latest_rate_limit: None,
             child_pid: None,
+            child_gone_at: None,
             child_start_time: None,
             turn_active: false,
             turns_ended: 0,
@@ -1468,6 +1508,44 @@ pub fn build_session_line_rebound_frame(
     Frame::new(
         FeedId::CONTROL,
         serde_json::to_vec(&body).expect("session_line_rebound serializes"),
+    )
+}
+
+/// Build the `session_line_seated` push — the card's line moved to a new
+/// segment, and the card's seat must move with it.
+///
+/// **`session_line_rebound`'s twin, for the case that is not a new line.** A
+/// plain `/new` births a line and has its own frame; every other id change — a
+/// rotation above all — is another segment of the line the card already has,
+/// and the comment on that frame used to say such a change "needs no push
+/// because nothing moved". Something did move: which segment the card is
+/// seated on, which is what every identity read of a live card resolves
+/// through. Without this frame the deck's answer was derived from whichever
+/// row push landed last, and two live rows on one line — which is exactly what
+/// a rotation leaves, since the retired segment's row stays `live` until the
+/// card closes — made that answer a coin toss (`at0503` caught it as one).
+///
+/// So the seat is announced rather than inferred: the card by name, the
+/// segment, and the line, from the one place that knows all three at once.
+/// Skew is free in both directions — an older deck ignores an action it has no
+/// handler for, and a newer deck against an older server simply never learns
+/// the seat moved, which is where it was before this frame existed.
+pub fn build_session_line_seated_frame(
+    card_id: &str,
+    tug_session_id: &str,
+    session_id: &str,
+    line_id: &str,
+) -> Frame {
+    let body = serde_json::json!({
+        "action": "session_line_seated",
+        "card_id": card_id,
+        "tug_session_id": tug_session_id,
+        "session_id": session_id,
+        "line_id": line_id,
+    });
+    Frame::new(
+        FeedId::CONTROL,
+        serde_json::to_vec(&body).expect("session_line_seated serializes"),
     )
 }
 
@@ -4568,6 +4646,13 @@ impl AgentSupervisor {
                     had_claude_id = entry.claude_session_id.is_some(),
                 );
                 entry.spawn_state = SpawnState::Idle;
+                // The retry is a spawn about to happen, and the `Idle` it
+                // parks in is a step on the way to `Spawning` — not a death.
+                // Cleared so a sweep landing in that window reads the wait it
+                // is rather than stopping the arc; the promote below sets it
+                // again, and a retry that fails lands back in `Errored`, which
+                // already reads gone.
+                entry.ever_live_here = false;
             }
             if !inserted
                 && entry.spawn_state == SpawnState::Idle
@@ -9062,6 +9147,12 @@ impl AgentSupervisor {
                 entry.cancel.cancel();
                 entry.cancel = CancellationToken::new();
                 entry.spawn_state = SpawnState::Idle;
+                // Reset makes the entry fresh, and that includes forgetting
+                // that a child ever ran on it: a `/clear` is the user taking
+                // the card, which the arc's taken-card arm has a better
+                // receipt for than "its session ended". Without this the
+                // gesture would read as a death at the very next sweep.
+                entry.ever_live_here = false;
                 entry.input_tx = None;
                 true
             }

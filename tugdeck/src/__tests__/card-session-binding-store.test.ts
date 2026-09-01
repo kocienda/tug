@@ -257,11 +257,12 @@ describe("cardSeatedSegment – the card follows the rotation, its address does 
     expect(seatedSegmentForSession(ROOT)).toBe(ROOT);
   });
 
-  test("the live row push for a fresh segment moves the seat, not the address", () => {
+  test("the announcement moves the seat, not the address", () => {
     seatFixture();
-    // What the `session_updated` handler does with a `state: "live"` row — the
-    // push `record_spawn` broadcasts for the segment the wheel just minted.
+    // What the `session_line_seated` handler does with the frame the bridge
+    // sends when the card's claude id changes on a line it already had.
     sessionLineStore.seat(STAGE, LINE);
+    cardSessionBindingStore.setSeatedSegment(CARD, STAGE, LINE);
 
     expect(cardSeatedSegment(CARD)).toBe(STAGE);
     // Asked with the id a process born before the rotation still holds.
@@ -273,13 +274,25 @@ describe("cardSeatedSegment – the card follows the rotation, its address does 
     expect(cardSessionBindingStore.getBinding(CARD)?.lineId).toBe(LINE);
   });
 
+  test("a later push about the retired segment does not move the seat back", () => {
+    seatFixture();
+    cardSessionBindingStore.setSeatedSegment(CARD, STAGE, LINE);
+    // A rotation leaves the retired segment's row `live` too, so its own
+    // `session_updated` keeps arriving and re-seats the *line* on it. The
+    // card's seat is announced rather than read off that, which is the whole
+    // reason this is a stored field: derived, `at0503`'s card read back as its
+    // root a moment after being seated on its stage.
+    sessionLineStore.seat(ROOT, LINE);
+    expect(cardSeatedSegment(CARD)).toBe(STAGE);
+  });
+
   test("a card with no binding has no seat, and an unknown segment is its own", () => {
     seatFixture();
     expect(cardSeatedSegment("card-nobody")).toBeNull();
     expect(seatedSegmentForSession("seat-sess-stranger")).toBe("seat-sess-stranger");
   });
 
-  test("a line no frame has seated this run falls back to the address", () => {
+  test("a card the server has said nothing about is seated at its address", () => {
     cardSessionBindingStore.clearBinding(CARD);
     cardSessionBindingStore.setBinding(CARD, makeBinding({
       tugSessionId: "seat-cold-sess",
@@ -302,6 +315,9 @@ describe("cardSeatedSegment – the card follows the rotation, its address does 
  * system uses; read through the line store, it is on the line the server means.
  * Driven end to end in `at0504`, where the binding said `a7c0d1ea-…-504` and
  * `dash bind --dry-run` said `fa395c92-…`.
+ *
+ * The **seat** is a different question and has a different answer — announced,
+ * not derived — which is why only the line is walked here.
  */
 describe("cardLine – the ack's seed, corrected by the server", () => {
   const CARD = "card-seed";
@@ -328,8 +344,11 @@ describe("cardLine – the ack's seed, corrected by the server", () => {
     expect(cardLine(CARD)).toBe(REAL);
     expect(cardSeatedSegment(CARD)).toBe(ROOT);
 
-    // The rotation: a fresh segment on that same line, seated.
+    // The rotation: a fresh segment on that same line, and the announcement
+    // that the card is now sitting on it — which carries the real line too, so
+    // a card whose ack had none is corrected either way.
     sessionLineStore.seat(STAGE, REAL);
+    cardSessionBindingStore.setSeatedSegment(CARD, STAGE, REAL);
     expect(cardLine(CARD)).toBe(REAL);
     expect(cardSeatedSegment(CARD)).toBe(STAGE);
     // And the address is still the address.

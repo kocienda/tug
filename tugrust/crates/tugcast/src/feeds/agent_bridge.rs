@@ -735,6 +735,9 @@ pub async fn run_session_bridge(
             let mut entry = ledger_entry.lock().await;
             entry.child_pid = Some(pid);
             entry.child_start_time = start_time;
+            // A child again, so nothing is missing — the stamp the tear-down
+            // below leaves is what says one is.
+            entry.child_gone_at = None;
         }
 
         // Run one relay iteration.
@@ -773,6 +776,12 @@ pub async fn run_session_bridge(
             let mut entry = ledger_entry.lock().await;
             entry.child_pid = None;
             entry.child_start_time = None;
+            // Stamped here and cleared at the next spawn above, so the gap is
+            // measurable rather than merely possible. An ordinary crash-retry
+            // closes it in about a second; a retry that never returns leaves
+            // it standing, which is the whole of what tells a session that is
+            // coming back from one that is not.
+            entry.child_gone_at = Some(std::time::Instant::now());
             entry.turn_active = false;
             // Whatever it had backgrounded died with it; a job that will never
             // report must not leave the session permanently unfinished.
@@ -1658,6 +1667,7 @@ pub async fn relay_session_io(
                                 segment,
                                 entry_line_id,
                                 rebound,
+                                previous_claude_id,
                             ) = {
                                 let mut entry = ledger_entry.lock().await;
                                 let previous_claude_id = entry.claude_session_id.clone();
@@ -1693,6 +1703,11 @@ pub async fn relay_session_io(
                                 });
                                 if entry.spawn_state == SpawnState::Spawning {
                                     entry.spawn_state.try_transition(SpawnState::Live).ok();
+                                    // This process has now watched a child run
+                                    // for this entry, which is what makes a
+                                    // later `Idle` a death rather than a card
+                                    // that has not spawned yet ([P05]).
+                                    entry.ever_live_here = true;
                                     if let Some(tx) = entry.input_tx.clone() {
                                         while let Some(queued) = entry.queue.pop() {
                                             if tx.try_send(queued).is_err() {
@@ -1783,6 +1798,7 @@ pub async fn relay_session_io(
                                     segment,
                                     entry.line_id.clone(),
                                     rebound,
+                                    previous_claude_id,
                                 )
                             };
                             // The card's line moved, so the binding must follow
@@ -1841,6 +1857,40 @@ pub async fn relay_session_io(
                                 tag: tag.as_deref(),
                                 line_id: entry_line_id.as_deref(),
                             });
+                            // **The card's seat moved.** The row push above
+                            // told the deck the segment exists and which line
+                            // it is on; it did not say the card is now sitting
+                            // on it, and the deck has no way to work that out —
+                            // a rotation leaves the retired segment's row
+                            // `live` too, so "the newest live row on this line"
+                            // is not an answer, it is a race (`at0503`).
+                            //
+                            // Sent after `record`, so the ordering W2 settled
+                            // is untouched: the row push, then `bind_dash_ok`,
+                            // then this. Only for an id that *changed* — the
+                            // first `session_init` of a card seats nothing the
+                            // spawn ack did not already say — and never for a
+                            // `/new`, which births a line and has
+                            // `session_line_rebound` for exactly this job.
+                            if let (Some(tx), Some(card), Some(line), Some(current)) = (
+                                control_tx,
+                                card_id.as_deref(),
+                                entry_line_id.as_deref(),
+                                claude_id.as_deref(),
+                            ) && rebound.is_none()
+                                && previous_claude_id
+                                    .as_deref()
+                                    .is_some_and(|previous| previous != current)
+                            {
+                                let _ = tx.send(
+                                    crate::feeds::agent_supervisor::build_session_line_seated_frame(
+                                        card,
+                                        tug_session_id.as_str(),
+                                        current,
+                                        line,
+                                    ),
+                                );
+                            }
                             // The segment now exists on its line; write its
                             // provenance beside it.
                             if let (Some(ledger), Some(fork)) = (session_ledger, &segment) {

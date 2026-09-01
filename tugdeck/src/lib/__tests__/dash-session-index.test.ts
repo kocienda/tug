@@ -22,6 +22,7 @@ import {
   dashForSession,
   dashSessionIndex,
 } from "../dash-session-index";
+import { cardSessionBindingStore } from "../card-session-binding-store";
 import { sessionLineStore } from "../session-line-store";
 
 const DATA = golden as WorkspacesChangesetSnapshot;
@@ -327,12 +328,15 @@ describe("the documents-only half of a dash's life", () => {
  * incident is what a blank masthead sigil and a blank Z2 DASH cell look like
  * when they are not (`notes/wheel-rotation-strands-the-arc.md`).
  *
- * Over the line-store singleton, which is where the pair actually lives.
+ * Over the binding-store singleton, because the walk is segment → card → the
+ * card's announced seat: a line's seat is inferred from whichever frame moved
+ * it last, and a card's is stated.
  */
 describe("dashForSession – over a rotation", () => {
   const ROOT = "dsi-root";
   const STAGE = "dsi-stage";
   const LINE = "dsi-line";
+  const CARD = "dsi-card";
 
   function snapshotBinding(bound: string[]): WorkspacesChangesetSnapshot {
     return {
@@ -348,17 +352,27 @@ describe("dashForSession – over a rotation", () => {
     sessionLineStore.forgetSession(ROOT);
     sessionLineStore.forgetSession(STAGE);
     sessionLineStore.seat(ROOT, LINE);
+    cardSessionBindingStore.setBinding(CARD, {
+      tugSessionId: ROOT,
+      lineId: LINE,
+      workspaceKey: "/work/alpha",
+      projectDir: "/work/alpha",
+      sessionMode: "resume",
+    });
     // The rotation: the ledger seated the line on a segment the aggregate now
-    // names, and the pre-rotation id is bound to nothing at all.
+    // names, the card was told, and the pre-rotation id is bound to nothing.
     sessionLineStore.seat(STAGE, LINE);
+    cardSessionBindingStore.setSeatedSegment(CARD, STAGE, LINE);
 
     const snapshot = snapshotBinding([STAGE]);
     expect(dashForSession(snapshot, STAGE)!.name).toBe("rotating");
     expect(dashForSession(snapshot, ROOT)!.name).toBe("rotating");
     expect(dashForSession(snapshot, ROOT)).toBe(dashForSession(snapshot, STAGE)!);
+
+    cardSessionBindingStore.clearBinding(CARD);
   });
 
-  test("a segment on no line, and a line on no dash, both answer null", () => {
+  test("a segment no card holds, and a card on no dash, both answer null", () => {
     sessionLineStore.forgetSession(ROOT);
     sessionLineStore.forgetSession(STAGE);
     const snapshot = snapshotBinding([STAGE]);
