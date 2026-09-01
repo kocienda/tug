@@ -82,6 +82,20 @@ pub struct DashConfig {
     /// [`DashConfig::compact_tokens`] applies.
     #[serde(default)]
     pub implement_compact_tokens: Option<u64>,
+
+    /// How long an arc may go without motion of any kind before it stops and
+    /// hands the card back — the arc's clock, in seconds. Absent means
+    /// [`ARC_STALL_SECS_DEFAULT`], which [`DashConfig::stall_timeout`]
+    /// applies; `0` turns the clock off.
+    ///
+    /// Every other thing the arc decides is decided on an edge: a turn
+    /// ending, a document changing. A stage that hangs mid-turn produces no
+    /// edge at all, and one that ends a single turn and then goes silent
+    /// leaves the quiet-turn horizon at 1 forever, because the horizon also
+    /// counts turns that end. This is the only fact in the machine measured
+    /// against a wall clock rather than against an edge.
+    #[serde(default)]
+    pub arc_stall_secs: Option<u64>,
 }
 
 /// One surface of a project: the paths it claims, and what checking it means.
@@ -120,6 +134,17 @@ pub struct Surface {
 /// same judgement, and on a very large window it is not even close to it.
 pub const IMPLEMENT_COMPACT_TOKENS_DEFAULT: u64 = 300_000;
 
+/// How long an arc may go without motion before the clock stops it, when a
+/// project declares nothing ([P07]).
+///
+/// Half an hour, because the thing being waited out is a *turn*, and a turn
+/// that is genuinely working — a stage running a full test sweep, a long
+/// build, a wide read — can take a long time and must not be killed for it.
+/// The clock is the last resort under every other arm, not a pacing device:
+/// it exists so an arc that has genuinely gone silent says so, and it is
+/// deliberately far too slow to catch a stage that is merely slow.
+pub const ARC_STALL_SECS_DEFAULT: u64 = 1_800;
+
 impl DashConfig {
     /// The compaction threshold to actually use: the declaration, or the
     /// default. The default lives at the consumer rather than in the parse so
@@ -127,6 +152,14 @@ impl DashConfig {
     pub fn compact_tokens(&self) -> u64 {
         self.implement_compact_tokens
             .unwrap_or(IMPLEMENT_COMPACT_TOKENS_DEFAULT)
+    }
+
+    /// The clock's deadline to actually use: the declaration, or the default.
+    /// `None` is the clock turned off — a declared `0`, which is the one way
+    /// a project can ask for the old behaviour of waiting forever.
+    pub fn stall_timeout(&self) -> Option<std::time::Duration> {
+        let secs = self.arc_stall_secs.unwrap_or(ARC_STALL_SECS_DEFAULT);
+        (secs > 0).then(|| std::time::Duration::from_secs(secs))
     }
 }
 

@@ -113,6 +113,8 @@ The reason is the wheel's: every act it takes on the seated session — a compac
 
 **A turn that ends closing no step is counted.** The course watches for it: two such turns and it stops with a receipt reading `implement idle`, naming the resume. That stop is a hand-back with a sentence rather than a re-prompt, so it does not rescue a stage that is wandering — it ends one. If a step genuinely cannot be closed this turn, say why in the turn rather than ending quietly, and if the work is done but the step is not, run `dash step done` before the turn ends.
 
+**A course that goes silent is stopped by the clock.** Ending no turn at all is not a way to avoid the horizon: the course carries an idle deadline, and a stage that stops working — or a turn that never finishes — stops with a receipt reading `stalled` once it runs out. The deadline is generous enough that a turn doing real work will never meet it, so meeting it means the work stopped. The answer is the same as for `implement idle`: close the step, or say in the turn what is in the way.
+
 Walk the resolved steps in dependency order. For each step:
 
 - **Open the step.**

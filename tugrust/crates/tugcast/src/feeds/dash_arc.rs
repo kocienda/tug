@@ -186,6 +186,16 @@ pub struct ArcFacts {
     /// indistinguishable from a first walk here, and needs to be: what resets
     /// the count is a step closing, whichever walk closed it.
     pub quiet_turns: u32,
+    /// The arc's clock has run out: nothing has moved — no turn ended, no
+    /// step closed, no act by the runner — for the whole of
+    /// `[tugtool.dash].arc_stall_secs`.
+    ///
+    /// The runner computes it, because it is the only party that holds a
+    /// previous reading *and* a wall clock; the predicate reads it like any
+    /// other fact and spends it on a stop. It is the one fact here that is not
+    /// derived from an edge, and it exists because the two wedges it catches
+    /// produce no edge to derive anything from.
+    pub stalled: bool,
 }
 
 /// How many turns an implement stage may end without closing a step before
@@ -285,6 +295,18 @@ pub fn arc_action(record: &ArcRecord, facts: &ArcFacts) -> Option<ArcAction> {
         return Some(ArcAction::Stop {
             stage: stage.unwrap_or(ArcStage::Devise),
             reason: ArcStopReason::SessionGone,
+        });
+    }
+
+    // The clock, above the idle gate on purpose. A hung turn never goes idle,
+    // so every arm below this one is unreachable for exactly the shape the
+    // clock is here to catch. Below `session_live` on purpose too: a session
+    // that is *gone* has a more specific sentence than one that went quiet,
+    // and the more specific stop should win when both are true.
+    if facts.stalled {
+        return Some(ArcAction::Stop {
+            stage: stage.unwrap_or(ArcStage::Devise),
+            reason: ArcStopReason::Stalled,
         });
     }
 
@@ -682,6 +704,7 @@ mod tests {
             compact_turn_just_ended: false,
             audit_declared: false,
             quiet_turns: 0,
+            stalled: false,
         }
     }
 
@@ -1517,6 +1540,92 @@ mod tests {
                 reason: ArcStopReason::SessionGone,
             })
         );
+    }
+
+    /// **The clock, on the hang.** The shape the whole clock exists for: a
+    /// turn that started and never ended. `session_idle` is false, so every
+    /// arm the machine has ever had returns `None` here — tick after tick,
+    /// forever, because nothing downstream is even consulted. With the clock
+    /// run out it is a stop with a receipt.
+    #[test]
+    fn a_hung_turn_stops_when_the_clock_runs_out() {
+        let mut facts = implementing(Some(120_000), false);
+        facts.session_idle = false;
+
+        assert_eq!(
+            arc_action(&record(&[ArcStage::Implement]), &facts),
+            None,
+            "mid-turn and inside the deadline is a stage working, not a stage stuck"
+        );
+
+        facts.stalled = true;
+        assert_eq!(
+            arc_action(&record(&[ArcStage::Implement]), &facts),
+            Some(ArcAction::Stop {
+                stage: ArcStage::Implement,
+                reason: ArcStopReason::Stalled,
+            }),
+            "a turn that never ends is answered by the clock or by nothing at all"
+        );
+    }
+
+    /// The other half of the absence: a stage that ends *one* turn without
+    /// closing a step and then goes silent. The quiet-turn horizon cannot
+    /// reach it — the horizon counts turns that end, and no more end — so it
+    /// sits at 1 forever. The clock is what answers it.
+    #[test]
+    fn one_quiet_turn_and_then_silence_is_the_clocks_to_answer() {
+        let mut facts = implementing(Some(120_000), false);
+        facts.quiet_turns = 1;
+        assert_eq!(
+            arc_action(&record(&[ArcStage::Implement]), &facts),
+            None,
+            "the horizon is not reached and never will be"
+        );
+
+        facts.stalled = true;
+        assert_eq!(
+            arc_action(&record(&[ArcStage::Implement]), &facts),
+            Some(ArcAction::Stop {
+                stage: ArcStage::Implement,
+                reason: ArcStopReason::Stalled,
+            }),
+        );
+    }
+
+    /// A gone session outranks a run-out clock. Both are true of a card whose
+    /// claude was killed and then left alone, and `session gone` is the
+    /// sentence that tells the reader what happened; `stalled` would tell them
+    /// only that time passed.
+    #[test]
+    fn a_gone_session_outranks_the_clock() {
+        let mut facts = implementing(Some(120_000), false);
+        facts.session_live = false;
+        facts.stalled = true;
+        assert_eq!(
+            arc_action(&record(&[ArcStage::Implement]), &facts),
+            Some(ArcAction::Stop {
+                stage: ArcStage::Implement,
+                reason: ArcStopReason::SessionGone,
+            })
+        );
+    }
+
+    /// A stopped or finished arc is not stopped again by its clock. Nothing is
+    /// running to have gone silent, and a second `arc-stop` line would open a
+    /// generation the record does not have.
+    #[test]
+    fn the_clock_does_not_re_stop_an_arc_that_already_ended() {
+        let mut facts = implementing(Some(120_000), false);
+        facts.stalled = true;
+
+        let mut stopped = record(&[ArcStage::Implement]);
+        stopped.stopped = Some((ArcStage::Implement, "you stopped it".to_string()));
+        assert_eq!(arc_action(&stopped, &facts), None);
+
+        let mut done = record(&[ArcStage::Implement]);
+        done.done = true;
+        assert_eq!(arc_action(&done, &facts), None);
     }
 
     #[test]

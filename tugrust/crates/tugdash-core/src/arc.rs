@@ -157,6 +157,20 @@ pub enum ArcStopReason {
     /// that has twice declined to close a step is asking the same question
     /// louder; handing the card back is what puts a person in front of it.
     ImplementIdle,
+    /// The arc's clock ran out: no turn ended, no step closed, and the runner
+    /// did nothing, for the whole of the stall deadline.
+    ///
+    /// The one stop measured against a wall clock. Every other arm is decided
+    /// on an edge, and the two shapes this catches produce no edge at all: a
+    /// stage hung mid-turn (`session_idle` never becomes true, so nothing
+    /// downstream is ever consulted) and a stage that ends one turn without
+    /// closing a step and then goes silent (the quiet-turn horizon sits at 1
+    /// forever, because it too counts turns that end).
+    ///
+    /// Resumable, and spoken like every other stop. Skew: an older reader
+    /// takes the note as the free-text string it already was, so this word
+    /// costs it nothing — `ArcRecord::stopped` has always carried a `String`.
+    Stalled,
 }
 
 impl ArcStopReason {
@@ -186,6 +200,7 @@ impl ArcStopReason {
         ArcStopReason::ArcRunning,
         ArcStopReason::CompactFailed,
         ArcStopReason::ImplementIdle,
+        ArcStopReason::Stalled,
     ];
 
     /// The word written into `arc-stop`'s note.
@@ -213,6 +228,7 @@ impl ArcStopReason {
             ArcStopReason::ArcRunning => "arc running",
             ArcStopReason::CompactFailed => "compact failed",
             ArcStopReason::ImplementIdle => "implement idle",
+            ArcStopReason::Stalled => "stalled",
         }
     }
 
@@ -245,6 +261,9 @@ impl ArcStopReason {
             }
             ArcStopReason::ImplementIdle => {
                 "the implement stage ended two turns without closing a step"
+            }
+            ArcStopReason::Stalled => {
+                "it went silent — no turn ended and no step closed before the arc's clock ran out"
             }
         }
     }

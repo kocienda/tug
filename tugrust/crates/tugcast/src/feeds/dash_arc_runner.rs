@@ -37,6 +37,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use tokio::sync::{Mutex, mpsc, watch};
 use tokio_util::sync::CancellationToken;
@@ -109,6 +110,16 @@ struct ArcState {
     /// inherited across a restart has ended turns nobody here watched, and
     /// they are not this horizon's to hold against it.
     turns_seen: Option<u32>,
+    /// When this arc last moved: a turn of the seated stage ending, a step
+    /// closing, or the runner itself acting. `None` until the first tick,
+    /// which seeds it — the clock measures silence it has actually watched,
+    /// never silence it merely inherited.
+    ///
+    /// The one wall-clock fact in the machine. Everything else the arc
+    /// decides is decided on an edge, and the two wedges the clock closes
+    /// produce no edge: a turn that hangs, and a stage that ends one turn and
+    /// then stops working.
+    last_motion_at: Option<Instant>,
 }
 
 /// A prompt already delivered, remembered until the turn it opened ends.
@@ -142,12 +153,23 @@ pub async fn run_arc_engine(
     // restarted has no turn left to end, and would otherwise wait forever.
     sweep(&ctx, &state).await;
 
+    // The clock's own wake. Every other thing that wakes this loop is an edge
+    // the work produced — a turn ending, a changeset recomputing — and the
+    // whole point of the clock is to be consulted when the work has produced
+    // nothing at all. `MissedTickBehavior::Delay` because a sweep that ran
+    // long should push the next wake out rather than fire a burst of catch-up
+    // sweeps that would each re-read every arc's documents.
+    let mut clock = tokio::time::interval(CLOCK_POLL);
+    clock.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    clock.tick().await; // the first tick of an interval is immediate
+
     loop {
         tokio::select! {
             _ = ctx.cancel.cancelled() => {
                 debug!("arc engine shutting down");
                 return;
             }
+            _ = clock.tick() => {}
             tick = tick_rx.recv() => {
                 if tick.is_none() {
                     return;
@@ -204,6 +226,30 @@ fn arc_key(arc: &BoundArc) -> String {
     format!("{}\u{0}{}", arc.project.display(), arc.dash)
 }
 
+/// How often the engine wakes with nothing having happened, so the clock can
+/// be consulted.
+///
+/// A minute, and the granularity of the stall deadline is therefore also a
+/// minute — which is the right coarseness for a deadline whose default is
+/// half an hour. A shorter poll would re-read every bound arc's documents and
+/// run its scoped git read for no gain; a longer one would make a lowered
+/// `arc_stall_secs` untestable.
+const CLOCK_POLL: Duration = Duration::from_secs(60);
+
+/// Whether the arc's clock has run out.
+///
+/// Pure, and taking its `now`, so the hang it exists to catch can be
+/// synthesized in a test rather than waited out. `None` for `last_motion_at`
+/// is *not* stalled: it means this arc has not been observed yet, and the tick
+/// that observes it seeds the stamp. `None` for `timeout` is the clock turned
+/// off — `[tugtool.dash].arc_stall_secs = 0`.
+fn clock_ran_out(last_motion_at: Option<Instant>, now: Instant, timeout: Option<Duration>) -> bool {
+    let (Some(last), Some(timeout)) = (last_motion_at, timeout) else {
+        return false;
+    };
+    now.saturating_duration_since(last) >= timeout
+}
+
 async fn evaluate(ctx: &ArcContext, state: &Arc<Mutex<HashMap<String, ArcState>>>, arc: &BoundArc) {
     let key = arc_key(arc);
     let Some(session) = session_snapshot(ctx, &arc.session).await else {
@@ -248,6 +294,7 @@ async fn evaluate(ctx: &ArcContext, state: &Arc<Mutex<HashMap<String, ArcState>>
     let mut reading = reading;
 
     let quiet_turns;
+    let stalled;
     {
         let mut map = state.lock().await;
         let entry = map.entry(key.clone()).or_default();
@@ -264,6 +311,19 @@ async fn evaluate(ctx: &ArcContext, state: &Arc<Mutex<HashMap<String, ArcState>>
             entry.quiet_turns = entry.quiet_turns.saturating_add(1);
         }
         quiet_turns = entry.quiet_turns;
+        // Motion, and the clock read against it. A turn ending or a step
+        // closing is the arc moving under its own power; the runner acting is
+        // stamped where the act happens, below. The seed on the first tick is
+        // what keeps the clock honest across a restart: silence tugcast did
+        // not watch is not silence it may hold against the stage.
+        if a_turn_ended || reading.facts.ledger.step_just_done || entry.last_motion_at.is_none() {
+            entry.last_motion_at = Some(Instant::now());
+        }
+        stalled = clock_ran_out(
+            entry.last_motion_at,
+            Instant::now(),
+            reading.config.stall_timeout(),
+        );
         // A dispatched rotation whose `arc-stage` line has not landed yet: the
         // newest line still names the session that just ended, which is
         // indistinguishable from a stage that died. Wait for the line.
@@ -275,8 +335,14 @@ async fn evaluate(ctx: &ArcContext, state: &Arc<Mutex<HashMap<String, ArcState>>
             // retires it: the card is ending turns and the line the latch is
             // waiting for is not coming, so let the tick through and let the
             // predicate say what the record actually shows.
+            //
+            // The clock retires it too, and on the shape the horizon cannot
+            // reach: a dispatch whose card then goes entirely silent ends no
+            // turns, so the count never advances and the latch would hold
+            // forever.
             if reading.record.stages.len() <= dispatched_at
                 && entry.quiet_turns < QUIET_TURN_HORIZON
+                && !stalled
             {
                 return;
             }
@@ -307,6 +373,7 @@ async fn evaluate(ctx: &ArcContext, state: &Arc<Mutex<HashMap<String, ArcState>>
         }
     }
     reading.facts.quiet_turns = quiet_turns;
+    reading.facts.stalled = stalled;
 
     let action = arc_action(&reading.record, &reading.facts);
 
@@ -332,6 +399,7 @@ async fn evaluate(ctx: &ArcContext, state: &Arc<Mutex<HashMap<String, ArcState>>
         idle = reading.facts.session_idle,
         step_just_done = reading.facts.ledger.step_just_done,
         quiet_turns = reading.facts.quiet_turns,
+        stalled = reading.facts.stalled,
         compacted_since_below = reading.facts.compacted_since_below,
         compact_turn_just_ended = reading.facts.compact_turn_just_ended,
         action = %describe_action(action.as_ref()),
@@ -669,6 +737,9 @@ fn read(
         // is over turns the *previous* tick already saw, so `evaluate` stamps
         // it after this read returns.
         quiet_turns: 0,
+        // Runner memory too, and for the same reason: the clock is read
+        // against a stamp only the caller holds. `evaluate` stamps it.
+        stalled: false,
     };
 
     // Where devise writes: the dash's own `plan.md`, repo-relative, which is
@@ -806,6 +877,15 @@ async fn deliver_prompt(
     ctx.supervisor
         .sessions_recorder
         .record_wheel_prompt(&session, &text);
+
+    // A prompt delivered is motion, whichever kind it was — the arc did
+    // something, and the clock measures the silence *after* the last thing it
+    // did. Stamped unconditionally and before the compact-only block below,
+    // which is the only other writer here.
+    {
+        let mut map = state.lock().await;
+        map.entry(key.to_string()).or_default().last_motion_at = Some(Instant::now());
+    }
 
     if let PromptWhy::Compact {
         tokens,
@@ -946,6 +1026,11 @@ async fn rotate(
         // — the seated session is new, and its turn count starts over.
         entry.quiet_turns = 0;
         entry.turns_seen = None;
+        // The runner acting is motion. A rotation restarts the clock even
+        // when the seated session never announces — what the clock then
+        // measures is the silence after the dispatch, which is the wedge, and
+        // not the silence before it, which the dispatch just answered.
+        entry.last_motion_at = Some(Instant::now());
     }
 
     match outcome {
@@ -2531,6 +2616,91 @@ Some context.
         assert_eq!(retain_done_count(Some(3), 4, false), Some(3));
         assert_eq!(retain_done_count(Some(3), 4, true), Some(4));
         assert_eq!(retain_done_count(None, 4, false), None);
+    }
+
+    /// **The clock's deadline, hang-shaped.** The wedge is a stage whose turn
+    /// started and never ended: no turn ends, no step closes, the runner acts
+    /// on nothing, so `last_motion_at` never moves again while the wall clock
+    /// does. The predicate takes its `now`, so the hang is synthesized here
+    /// rather than waited out — which is the only way a half-hour deadline is
+    /// testable at all.
+    #[test]
+    fn the_clock_runs_out_on_a_stamp_that_stops_moving() {
+        let timeout = Some(Duration::from_secs(1_800));
+        let start = Instant::now();
+
+        // Motion, then a hang: the stamp stands still and `now` walks past it.
+        assert!(
+            !clock_ran_out(Some(start), start + Duration::from_secs(1_799), timeout),
+            "a second inside the deadline is a stage still working"
+        );
+        assert!(
+            clock_ran_out(Some(start), start + Duration::from_secs(1_800), timeout),
+            "the deadline is inclusive — reaching it is running out"
+        );
+        assert!(clock_ran_out(
+            Some(start),
+            start + Duration::from_secs(7_200),
+            timeout
+        ));
+
+        // Motion restarts it. A turn ending, a step closing, or the runner
+        // acting re-stamps, and the hour that went before is not held against
+        // the stage.
+        let moved = start + Duration::from_secs(7_200);
+        assert!(!clock_ran_out(
+            Some(moved),
+            moved + Duration::from_secs(60),
+            timeout
+        ));
+    }
+
+    /// The two ways the clock declines to fire, both deliberate.
+    ///
+    /// An unstamped arc has not been *observed* yet — a restart's first sweep
+    /// seeds the stamp — and silence tugcast did not watch is not silence it
+    /// may stop a stage over. A `None` timeout is `arc_stall_secs = 0`: the
+    /// one way a project can ask for the old behaviour of waiting forever.
+    #[test]
+    fn an_unstamped_arc_and_a_disabled_clock_never_run_out() {
+        let start = Instant::now();
+        let long_after = start + Duration::from_secs(86_400);
+        assert!(!clock_ran_out(
+            None,
+            long_after,
+            Some(Duration::from_secs(1))
+        ));
+        assert!(!clock_ran_out(Some(start), long_after, None));
+    }
+
+    /// The default is far too slow to catch a stage that is merely slow, and
+    /// that is the point: the clock is the last resort under every other arm,
+    /// never a pacing device. A declared `0` turns it off; anything else is
+    /// taken at its word.
+    #[test]
+    fn the_declared_deadline_is_what_the_clock_uses() {
+        use tugtool_core::config::{ARC_STALL_SECS_DEFAULT, DashConfig};
+        assert_eq!(
+            DashConfig::default().stall_timeout(),
+            Some(Duration::from_secs(ARC_STALL_SECS_DEFAULT))
+        );
+        assert_eq!(
+            DashConfig {
+                arc_stall_secs: Some(90),
+                ..DashConfig::default()
+            }
+            .stall_timeout(),
+            Some(Duration::from_secs(90))
+        );
+        assert_eq!(
+            DashConfig {
+                arc_stall_secs: Some(0),
+                ..DashConfig::default()
+            }
+            .stall_timeout(),
+            None,
+            "zero is the clock turned off, not a deadline of no time at all"
+        );
     }
 
     #[test]
