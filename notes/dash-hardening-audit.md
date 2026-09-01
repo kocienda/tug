@@ -784,3 +784,145 @@ the `history:` line taught to say which batch each outcome ran in.
 one item above: **check the build before diagnosing the machine** (Part IX item
 11), and **look at what the DOM held at the earlier gesture** rather than
 re-running the later wait (Part IX item 1).
+
+---
+
+## Part XI — W7 as landed, and eight corrections to Parts IX and X
+
+**W7 landed 2026-09-01** from a main-lane session, as the fixup workstream:
+close the deck's seat (Part X item 1), make a killed stage reach a decision
+(Part IX item 5), and — confirmed mid-workstream — retire the mid-course
+dialog (Part X item 4). All three are landed. Eight facts did not survive
+contact, and the largest of them is the reason the original incident was still
+partly standing after six workstreams.
+
+**1. The arc has been factless since its first rotation, and that — not the
+kill — is what Part IX item 5 watched.** `bound_arcs` asked the ledger which
+session is on the dash and handed the runner that id. The ledger's answer is a
+**segment**: after a rotation, the fresh one `seat_line_binding` moved the
+binding onto. The supervisor's map is keyed by the **tug session id**, the
+card's address, which never moves. So from the moment a course seated its
+opening stage, `session_snapshot` looked up an id no entry wears, answered
+`None`, and `evaluate` returned early — every tick, forever. No predicate, no
+decision, and no clock either, because W6's clock is fed by facts. Part IX read
+ninety seconds of that as the consequence of killing the stage's claude; the
+kill had nothing to do with it. `bound_arcs` now walks segment → card by
+`claude_session_id`, and `a_rotated_binding_still_finds_the_card_the_arc_runs_on`
+pins it.
+
+**Why every test missed it.** Before the first rotation the two ids are one
+string, so the unit harness — which seats `claude-1` as both the entry key and
+the row — could not tell them apart, and neither could any test built on it.
+This is Part IX item 12's lesson repeating one layer down: **an identity that
+is two facts wearing one string until some event separates them is untested
+until a test drives that event.**
+
+**2. A killed child does not park `Idle`, and does not come back.** Part IX
+item 5 records the entry parking in `SpawnState::Idle`. Driven by pid in
+`at0505`: it stays `Live`. The bridge is *written* to retry — `Crashed` records
+against the crash budget and respawns a second later — but no respawn arrives,
+`ps` under the app's own tugcast shows no tugcode for the card twenty-four
+seconds and five kill rounds later, and the ledger row still reads `live`. So
+the wedge was a live session with no process: `spawn_state` is the bridge's own
+account of itself and cannot say the retry never returned. `child_gone_at` is
+the absence itself, stamped where the relay tears the child down, and
+`CHILD_GONE_GRACE` (thirty seconds, against a one-second backoff) is what keeps
+an ordinary retry from reading as a death.
+
+**Two drafts of `at0505` were spent arguing with the machine** — one broke out
+of the kill loop believing a quiet four seconds meant a dead tree, the next
+spent a crash budget that was never being spent. Both were reasoning from the
+code's intent rather than from what the process table said. The habit that
+ended it is Part IX item 1's, in another key: **when the machine disagrees with
+the code you just read, measure the machine.** One `ps` settled what two runs
+of inference had not.
+
+**3. `ever_live_here` is correct and was not the fix.** It tells the two
+`Idle`s apart — an entry this process watched reach `Live` and found back at
+`Idle` has lost its child; one rebound from tugbank has not — and it is kept,
+with its own test. But no path observed here parks a dead child there, so it
+closes a hole rather than the hole. Recorded plainly because Part IX item 5 is
+cited elsewhere as behaviour, and it is not.
+
+**4. The deck's seat was two frozen reads, and neither was a missing
+announcement.** Part IX item 12 says nothing moves the card's session identity
+onto the fresh segment. Both halves were more specific than that. `binding.lineId`
+is the *spawn ack's* value, and a resume of a session the ledger has no row for
+yet is acked with none — so it falls back to the session's own id, a line of
+one. In `at0504` the binding said `a7c0d1ea-…-504` while `dash bind --dry-run`
+said `fa395c92-…`: the card held a line nothing else in the system used. And
+the seat itself was never asked for at all. Part IX's "the deck does not know
+the card is on a line" was the right observation with the wrong cause — the
+line existed, the deck was holding a different one.
+
+**5. A derived seat is a race, and `at0503` is what proved it.** The first fix
+composed card → line → the line store's seat, which is "whichever frame seated
+that line last". A rotation leaves **two** live rows on the line — the retired
+segment's row stays `live` until the card closes — so a later `session_updated`
+about the older one moved the answer backwards, and a card bound directly to
+its stage read back as its root. The seat is now announced:
+`session_line_seated`, the bridge's frame at the `session_init` where the card's
+claude id changes on a line it already had, carrying card, segment, and line
+together, because only the server holds all three at once. **A fact three
+parties each know part of is announced, never composed.**
+
+**6. `session_line_rebound`'s own comment was the doctrine that hid this.** It
+says a `/new` is the one id change that needs a push and that "everything else
+is another segment of the line the card already has, and needs no push because
+nothing moved". Something did move — which segment the card is seated on — and
+that sentence is why nobody looked for a frame that was not there.
+
+**7. There is no receipt on the card for a stage that died, and there cannot
+be.** The brief asked `at0505` to assert one. By the time the arc decides, the
+card has unbound and fallen back to its picker — the DOM under
+`[data-card-id="A"]` holds `session-card-picker` and no transcript at all — so
+there is nowhere for the receipt to paint. That is the same trade
+`dash-lifecycle.md`'s **card closed** row already records: no card left to paint
+one on, and the only surface missing is one that does not exist. `at0505`
+asserts the picker outright, so the absence is a claim the file makes rather
+than a check it quietly dropped.
+
+**8. `at0504`'s stage divider is still empty, and it is still only observed.**
+Every run of the file notes `stage dividers on the card: []`, green ones
+included. The file says why it is observed rather than waited on, and the
+finding stands unchanged: whether a rotation should draw a divider on the card
+it rotated is a question about presentation that nobody has answered. It is not
+the seat — the seat is asserted three ways above it now.
+
+**What W7 added.** `at0504` green with `DECK_SEAT_FOLLOWS_A_ROTATION = true`
+and its full deck assertions running on a real rotation. `at0505`, the
+stage-kill test W6 could not write. `session_line_seated` and the binding's
+`seatedSessionId`. The sweep's segment → card walk, `child_gone_at`, the two
+`Idle`s told apart, and the clock's coverage of an arc whose session yields no
+snapshot — so that class degrades to *late*, never to *forever*. And
+`tugtool dash ask`, with `ArcStopReason::NeedsDecision`, which retires the
+mid-course dialog from the last two stages that had one.
+
+---
+
+## Part X's closing state, as W7 leaves it
+
+Of the six items Part X left open, in its own order:
+
+1. **The deck's seat does not follow a rotation** — **closed**. Landed as
+   `2206520c6` and corrected by `3db1960e7`; asserted in `at0504` with the pin
+   flipped, and in two deck units.
+2. **`at0387-session-identity-menu`** — untouched, exactly as scoped. The
+   restore-gate-on-key-path hypothesis is still a hypothesis.
+3. **`at0168`'s `maker.lens` menu row** — untouched, still Lens-breakout
+   residue. It went red in this workstream's core-tier runs, as expected.
+4. **The devise/review `AskUserQuestion` boundary** — **closed**, confirmed
+   mid-workstream. `5115cf233`.
+5. **A CLI test that shells `tugtool` must scrub the session env** — still not
+   landed as a source-scan guard.
+6. **The other `let _ =` appends** — `arc-plan`, `arc-note`, and the `compact`
+   line, as W4 left them. `dash ask`'s own note is the same shape, deliberately:
+   a note that does not land costs the receipt its question, never the stop.
+
+**And the habit this part paid for.** Part IX left two: check the build before
+diagnosing the machine, and look at what the DOM held at the earlier gesture.
+W7 adds the third, which is both of theirs generalized — **when the machine
+disagrees with the code you just read, measure the machine.** One
+`elementFromPoint` settled the `tug-sheet` red; one `strings` would have
+settled W6's false red; one `ps` settled the stage kill after two runs of
+inference had not.
