@@ -111,15 +111,31 @@ struct ArcState {
     /// they are not this horizon's to hold against it.
     turns_seen: Option<u32>,
     /// When this arc last moved: a turn of the seated stage ending, a step
-    /// closing, or the runner itself acting. `None` until the first tick,
-    /// which seeds it — the clock measures silence it has actually watched,
-    /// never silence it merely inherited.
+    /// closing, the seated session's context growing, or the runner itself
+    /// acting. `None` until the first tick, which seeds it — the clock
+    /// measures silence it has actually watched, never silence it merely
+    /// inherited.
     ///
     /// The one wall-clock fact in the machine. Everything else the arc
     /// decides is decided on an edge, and the two wedges the clock closes
     /// produce no edge: a turn that hangs, and a stage that ends one turn and
     /// then stops working.
     last_motion_at: Option<Instant>,
+    /// The seated session's context size as the previous tick read it.
+    ///
+    /// **The clock's within-turn signal, and the reason its deadline can be
+    /// short enough to be useful.** A turn that is genuinely working reports
+    /// usage as it goes, so the number climbs; a turn that is hung reports
+    /// nothing and it stands still. Without this the only motion the clock
+    /// could see is a turn *ending*, and the deadline would have to outlast
+    /// the longest legitimate turn — a stage running a full test sweep — which
+    /// is long enough that the wedge would sit for most of a working day
+    /// before anyone was told.
+    ///
+    /// A number that does not move is not proof of a hang, and it does not
+    /// have to be: it only has to stop the clock being *reset* by a turn that
+    /// is producing nothing.
+    tokens_seen: Option<u64>,
 }
 
 /// A prompt already delivered, remembered until the turn it opened ends.
@@ -311,12 +327,26 @@ async fn evaluate(ctx: &ArcContext, state: &Arc<Mutex<HashMap<String, ArcState>>
             entry.quiet_turns = entry.quiet_turns.saturating_add(1);
         }
         quiet_turns = entry.quiet_turns;
-        // Motion, and the clock read against it. A turn ending or a step
-        // closing is the arc moving under its own power; the runner acting is
-        // stamped where the act happens, below. The seed on the first tick is
-        // what keeps the clock honest across a restart: silence tugcast did
-        // not watch is not silence it may hold against the stage.
-        if a_turn_ended || reading.facts.ledger.step_just_done || entry.last_motion_at.is_none() {
+        // Motion, and the clock read against it. A turn ending, a step
+        // closing, or the seated context growing is the arc moving under its
+        // own power; the runner acting is stamped where the act happens,
+        // below. The seed on the first tick is what keeps the clock honest
+        // across a restart: silence tugcast did not watch is not silence it
+        // may hold against the stage.
+        let context_grew = {
+            let previous = entry.tokens_seen;
+            entry.tokens_seen = reading.facts.context_tokens.or(previous);
+            match (previous, reading.facts.context_tokens) {
+                (Some(before), Some(now)) => now != before,
+                // Nothing to compare against yet — the seed below covers it.
+                _ => false,
+            }
+        };
+        if a_turn_ended
+            || reading.facts.ledger.step_just_done
+            || context_grew
+            || entry.last_motion_at.is_none()
+        {
             entry.last_motion_at = Some(Instant::now());
         }
         stalled = clock_ran_out(
@@ -1026,6 +1056,9 @@ async fn rotate(
         // — the seated session is new, and its turn count starts over.
         entry.quiet_turns = 0;
         entry.turns_seen = None;
+        // The fresh session's context starts over, so a comparison against
+        // the retiring one's would read as motion once and then as silence.
+        entry.tokens_seen = None;
         // The runner acting is motion. A rotation restarts the clock even
         // when the seated session never announces — what the clock then
         // measures is the silence after the dispatch, which is the wedge, and

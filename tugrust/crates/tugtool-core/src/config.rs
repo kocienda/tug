@@ -137,12 +137,17 @@ pub const IMPLEMENT_COMPACT_TOKENS_DEFAULT: u64 = 300_000;
 /// How long an arc may go without motion before the clock stops it, when a
 /// project declares nothing ([P07]).
 ///
-/// Half an hour, because the thing being waited out is a *turn*, and a turn
-/// that is genuinely working — a stage running a full test sweep, a long
-/// build, a wide read — can take a long time and must not be killed for it.
-/// The clock is the last resort under every other arm, not a pacing device:
-/// it exists so an arc that has genuinely gone silent says so, and it is
-/// deliberately far too slow to catch a stage that is merely slow.
+/// Half an hour, and it can be that short because motion is not only a turn
+/// *ending*: the seated session's context growing counts, and a turn that is
+/// genuinely working — a stage running a full test sweep, a long build, a
+/// wide read — reports usage as it goes. So a slow turn keeps the clock
+/// reset and a hung one does not, which is the distinction the deadline
+/// alone could never draw. Were the count the only signal, this would have to
+/// outlast the longest legitimate turn, and the wedge would sit most of a
+/// working day before anyone was told.
+///
+/// The clock is still the last resort under every other arm rather than a
+/// pacing device: it exists so an arc that has genuinely gone silent says so.
 pub const ARC_STALL_SECS_DEFAULT: u64 = 1_800;
 
 impl DashConfig {
