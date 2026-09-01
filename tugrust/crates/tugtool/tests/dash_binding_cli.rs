@@ -1184,12 +1184,16 @@ fn a_session_in_another_checkout_skips_the_claim_and_succeeds() {
         .recv_timeout(std::time::Duration::from_secs(10))
         .expect("it resolves to find out");
     assert_eq!(body["op"], "resolve");
-    assert!(
-        requests
-            .recv_timeout(std::time::Duration::from_millis(500))
-            .is_err(),
-        "and posts no bind it already knows would be refused",
-    );
+    // Everything else the verb posts is a read or an announcement — what it
+    // must never post is the bind it already knows would be refused. Drained
+    // rather than counted, because `dash create` also announces itself on the
+    // card (W8) and a count would pin an unrelated fact.
+    while let Ok(body) = requests.recv_timeout(std::time::Duration::from_millis(500)) {
+        assert_ne!(
+            body["op"], "bind",
+            "it posts no bind it already knows would be refused",
+        );
+    }
 }
 
 /// An instance older than the resolve's `project_dir` cannot be asked, so a

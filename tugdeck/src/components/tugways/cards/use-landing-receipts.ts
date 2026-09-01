@@ -86,6 +86,12 @@ export function useLandingReceipts(
     // ended does not re-append a row its restore has already replayed.
     let prevArcReceipt: number | null =
       verbStore.arcReceipt(tugSessionId)?.receiptId ?? null;
+    // The run's quiet lines ride the same mechanism and are unsolicited on the
+    // same terms, but arrive as a sequence rather than a single value. Seeded
+    // with whatever the store already holds so a card mounting mid-run appends
+    // only what arrives from here — the earlier rows are its restore's.
+    const seeded = verbStore.dashNotes(tugSessionId);
+    let prevNoteSeq: number = seeded.length === 0 ? 0 : seeded[seeded.length - 1].seq;
 
     /**
      * Append one landing's summary as a shell-exchange row ([D111]), under the
@@ -139,6 +145,15 @@ export function useLandingReceipts(
         append("/dash-arc", arc.summary, arc.receiptId);
       }
       prevArcReceipt = arc?.receiptId ?? prevArcReceipt;
+
+      // Every manipulation of a dash's step list, announced by the verb that
+      // made it (W8). The user watches a run from the card, and before these
+      // the only sign of progression was a stuck indicator.
+      for (const dashNote of verbStore.dashNotes(tugSessionId)) {
+        if (dashNote.seq <= prevNoteSeq) continue;
+        append(dashNote.command, dashNote.note, dashNote.receiptId);
+        prevNoteSeq = dashNote.seq;
+      }
     };
 
     return verbStore.subscribe(onChange);

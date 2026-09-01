@@ -5,6 +5,7 @@ mod changes;
 mod cli;
 mod commands;
 mod dash;
+mod dash_course;
 mod draft;
 mod host;
 mod output;

@@ -14,6 +14,7 @@ use tugdash_core::{
 };
 
 use crate::cli::{DashCommands, StepAction};
+use crate::dash_course::{self, StepMove};
 use crate::output::print_ok;
 
 /// Dispatch a `dash` subcommand, mapping a `Result<(), String>` to an exit code
@@ -137,6 +138,15 @@ fn run_create(
 ) -> Result<(), String> {
     let data = ops::create(name, description, carry, base)?;
     let claim = claim_dash(name);
+    // The first of the run's quiet lines (W8 Task 3). A dash that already
+    // existed is not a creation, and says so rather than claiming one.
+    dash_course::announce(
+        &format!("dash create {name}"),
+        &match data.created {
+            true => format!("{}: dash created on {}", data.name, data.branch),
+            false => format!("{}: dash already exists on {}", data.name, data.branch),
+        },
+    );
     if json {
         print_ok("dash create", merge_claim(&data, &claim)?);
     } else if !quiet {
@@ -230,6 +240,20 @@ fn run_commit(name: &str, message: &str, json: bool, quiet: bool) -> Result<(), 
     };
 
     let data = ops::commit(name, message, round_meta)?;
+    // A round is a manipulation of the run's record like any other, and the
+    // one the user most wants to see arrive (W8 Task 3).
+    if data.committed {
+        dash_course::announce(
+            &format!("dash commit {name}"),
+            &format!(
+                "{name}: committed{}",
+                match &data.commit_hash {
+                    Some(hash) => format!(" ({hash})"),
+                    None => String::new(),
+                }
+            ),
+        );
+    }
     // Deliberately no `claim_dash` here. A round is the plainest statement
     // that this session is working this dash, but the claim costs an HTTP walk
     // over every live instance, and `commit` is the one dash verb that runs on
@@ -584,6 +608,13 @@ fn run_doctor(name: &str, repair: bool, json: bool, quiet: bool) -> Result<(), S
 /// the row named, and leaves the plan file untouched.
 fn run_step(name: &str, action: StepAction, json: bool, quiet: bool) -> Result<(), String> {
     let mut claim = None;
+    let mv = match &action {
+        StepAction::Start { .. } => StepMove::Opened,
+        StepAction::Done { .. } => StepMove::Done,
+        StepAction::Withdraw { .. } => StepMove::Withdrawn,
+        StepAction::Reset { .. } => StepMove::Reset,
+        StepAction::Reopen { .. } => StepMove::Reopened,
+    };
     let data = match action {
         StepAction::Start { step, through } => {
             let through = through.ok_or_else(|| {
@@ -619,6 +650,37 @@ fn run_step(name: &str, action: StepAction, json: bool, quiet: bool) -> Result<(
             outcome
         }
     };
+    // Every manipulation of the step list is announced on the card, from the
+    // verb rather than from a stage's prose, so it cannot be forgotten (W8
+    // Task 3). Advisory: an announcement that does not land costs the run its
+    // quiet line, never the ledger move that just succeeded.
+    if let Some(through) = data.declared_run {
+        // The run is declared exactly once, inside the `step start` that opens
+        // it, so its announcement rides that call and precedes the step's own.
+        dash_course::announce(
+            &format!("dash step start {} --through {through}", data.step),
+            &format!(
+                "{}: run declared through step {through} of {}",
+                data.dash, data.total
+            ),
+        );
+    }
+    dash_course::announce(
+        &format!("dash step {} {}", mv.spelling(), data.step),
+        &dash_course::step_announcement(
+            &data.dash,
+            data.step,
+            data.total,
+            mv,
+            data.commit.as_deref(),
+        ),
+    );
+    // The boundary fact the PreToolUse gate asks about, told to the server at
+    // the moment it becomes true (W8 Task 2). Same advisory terms.
+    if mv.closed_a_step() {
+        dash_course::report_step_closed(data.step);
+    }
+
     if json {
         match &claim {
             Some(claim) => print_ok("dash step", merge_claim(&data, claim)?),
@@ -635,6 +697,13 @@ fn run_step(name: &str, action: StepAction, json: bool, quiet: bool) -> Result<(
         );
         if let Some(commit) = &data.commit {
             println!("Commit: {}", commit);
+        }
+        // **The directive.** Tool output is the freshest instruction a model
+        // reads before choosing its next act, and under a course this slot is
+        // where the turn boundary is enforced in words. Off a course the lines
+        // stay plain: a person at a terminal needs no marching orders.
+        if dash_course::under_a_course(name) {
+            println!("{}", dash_course::step_directive(data.step, mv, data.through));
         }
     }
     // The row moved either way; what may not have happened is the claim.
@@ -653,6 +722,10 @@ fn run_mark(
     quiet: bool,
 ) -> Result<(), String> {
     let data = ops::mark(name, stage, note.as_deref())?;
+    dash_course::announce(
+        &format!("dash mark {}", data.stage),
+        &format!("{}: marked {}", data.dash, data.stage),
+    );
     if json {
         print_ok("dash mark", &data);
     } else if !quiet {

@@ -238,6 +238,27 @@ export interface ArcReceipt {
 }
 
 /**
+ * One announced dash ledger gesture — a step opened, closed, withdrawn, reset
+ * or reopened, a run declared, a dash created, a round committed, a mark made.
+ *
+ * Unlike {@link ArcReceipt} these are a **sequence**: a run makes dozens, and
+ * every one is meant to be read. `seq` is this store's own monotonic counter,
+ * which is what lets a card append only the notes that arrived after it
+ * started watching — a receipt id cannot serve, because the server writes
+ * `null` for it whenever no shell ledger is configured.
+ */
+export interface DashNote {
+  /** The verb as it was typed, rendered after the row's `$` sigil. */
+  command: string;
+  /** The one sentence announcing what the gesture did. */
+  note: string;
+  /** The persisted ledger row's id — see {@link CommitState.receiptId}. */
+  receiptId: number | null;
+  /** This store's arrival order. Strictly increasing, never reused. */
+  seq: number;
+}
+
+/**
  * One dash-replay round trip's state, keyed by the initiating card entry.
  *
  * `outcome` is the server's own word — `current`, `replayed`, `recorded`,
@@ -282,6 +303,18 @@ function verbKey(workspaceKey: string, dash: string): string {
 function receiptIdOf(body: Record<string, unknown>): number | null {
   return typeof body.receipt_id === "number" ? body.receipt_id : null;
 }
+
+/**
+ * How many announced dash gestures this store keeps per session.
+ *
+ * The transcript is where they live; this is only the hand-off between the
+ * frame arriving and each card's next `onChange`, so a bound well above any
+ * one run's burst is generous.
+ */
+const DASH_NOTE_CAP = 500;
+
+/** The shared empty answer, so a session with no notes allocates nothing. */
+const EMPTY_DASH_NOTES: readonly DashNote[] = Object.freeze([]);
 
 export interface JoinArgs {
   preview: boolean;
@@ -345,6 +378,10 @@ export class ChangesetVerbStore {
   private _replayInflight = new Map<string, string>();
   /** tug session id → the newest arc receipt the server announced for it. */
   private _arcReceipts = new Map<string, ArcReceipt>();
+  /** tug session id → the dash gestures announced for it, in arrival order. */
+  private _dashNotes = new Map<string, DashNote[]>();
+  /** The monotonic arrival counter behind {@link DashNote.seq}. */
+  private _dashNoteSeq = 0;
   private readonly _decoder = new TextDecoder();
 
   constructor(connection: TugConnection) {
@@ -472,6 +509,30 @@ export class ChangesetVerbStore {
         summary,
         receiptId: receiptIdOf(body),
       });
+      for (const listener of [...this._listeners]) listener();
+    } else if (body.action === "dash_note") {
+      // The run's quiet lines. Unsolicited like `arc_receipt` and for the same
+      // reason — a `tugtool dash` verb is a short-lived process with no client
+      // waiting — but a sequence rather than a single value, because every one
+      // of a run's gestures is meant to be read. The server has already
+      // persisted each row, so this is the live copy; a card that mounts later
+      // gets them from its restore.
+      const session = typeof body.tug_session_id === "string" ? body.tug_session_id : "";
+      const note = typeof body.note === "string" ? body.note : "";
+      if (session.length === 0 || note.length === 0) return;
+      const notes = this._dashNotes.get(session) ?? [];
+      this._dashNoteSeq += 1;
+      notes.push({
+        command: typeof body.command === "string" ? body.command : "dash",
+        note,
+        receiptId: receiptIdOf(body),
+        seq: this._dashNoteSeq,
+      });
+      // A long run makes hundreds; the transcript keeps them, this does not
+      // need to. Trimming the head cannot lose a row a card still owed,
+      // because a card consumes on every frame.
+      if (notes.length > DASH_NOTE_CAP) notes.splice(0, notes.length - DASH_NOTE_CAP);
+      this._dashNotes.set(session, notes);
       for (const listener of [...this._listeners]) listener();
     } else if (body.action === "changeset_join_ok") {
       const dash = typeof body.dash === "string" ? body.dash : null;
@@ -918,6 +979,11 @@ export class ChangesetVerbStore {
   /** The newest arc receipt announced for `tugSessionId`, or null. */
   arcReceipt(tugSessionId: string): ArcReceipt | null {
     return this._arcReceipts.get(tugSessionId) ?? null;
+  }
+
+  /** Every dash gesture announced for `tugSessionId`, oldest first. */
+  dashNotes(tugSessionId: string): readonly DashNote[] {
+    return this._dashNotes.get(tugSessionId) ?? EMPTY_DASH_NOTES;
   }
 
   dispose(): void {

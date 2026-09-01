@@ -447,6 +447,22 @@ pub struct LedgerEntry {
     /// names a different one and the flag would latch on a session that is
     /// still alive and still working. The cause rides the frame instead.
     pub turn_cancelled: bool,
+    /// The step this session closed (`dash step done` / `withdraw`) **in the
+    /// turn now in flight**, or `None` when the turn has closed none.
+    ///
+    /// The turn boundary is the single most load-bearing discipline in a
+    /// course: the Wheel acts only between turns, so a stage that closes a
+    /// step and keeps working locks it out of pacing, `/compact`, rotation and
+    /// the idle clock alike (`notes/dash-hardening-audit.md`, W8). Enforcing
+    /// that needs one fact the PreToolUse hook cannot have — the hook is a
+    /// fresh process with no notion of a turn, and turns are tugcast's. So the
+    /// verb reports the close here, the gate asks, and this clears at the same
+    /// edge that increments `turns_ended`.
+    ///
+    /// In memory, like `deck_model` and `context_window_tokens`: a restart
+    /// drops it, and dropping it degrades the gate **open**, which is the only
+    /// direction a gate over ordinary editing may fail in.
+    pub step_closed_this_turn: Option<u32>,
     /// Background jobs this session has launched and not yet seen end, from
     /// claude's `task_id` to the job's **liveness stamp** — a `Bash` or an
     /// `Agent` running with `run_in_background: true`, and the `Monitor`
@@ -594,6 +610,7 @@ impl LedgerEntry {
             turns_ended: 0,
             turn_api_error: false,
             turn_cancelled: false,
+            step_closed_this_turn: None,
             open_jobs: std::collections::BTreeMap::new(),
             background_launches: std::collections::BTreeSet::new(),
             input_tx: None,
@@ -6999,6 +7016,108 @@ impl AgentSupervisor {
         ));
     }
 
+    /// The card's own session id and supervisor entry for a **segment** id,
+    /// walked the way [P01]'s identity model requires.
+    ///
+    /// The map is keyed by the card's own tug session id, which never moves; a
+    /// rotation mints a segment and the ledger's answers are in *that*
+    /// vocabulary. The direct key first — before any rotation the two are one
+    /// string — then `claude_session_id`, which is the entry's own record of
+    /// which segment it is currently running. The same walk
+    /// `dash_arc_runner::card_session_for_segment` makes, for the same reason.
+    ///
+    /// `try_lock` on the entries: this holds the map lock, so an entry another
+    /// task is mid-write on is skipped rather than inverted on.
+    pub async fn card_entry_for_segment(
+        &self,
+        segment: &str,
+    ) -> Option<(TugSessionId, Arc<Mutex<LedgerEntry>>)> {
+        let map = self.ledger.lock().await;
+        let direct = TugSessionId::new(segment.to_string());
+        if let Some(entry) = map.get(&direct) {
+            return Some((direct, Arc::clone(entry)));
+        }
+        for (key, entry) in map.iter() {
+            let Ok(guard) = entry.try_lock() else {
+                continue;
+            };
+            if guard.claude_session_id.as_deref() == Some(segment) {
+                drop(guard);
+                return Some((key.clone(), Arc::clone(entry)));
+            }
+        }
+        None
+    }
+
+    /// Record that the turn now in flight on `segment`'s card has closed a
+    /// step. Answers whether an entry was found to record it against.
+    pub async fn mark_step_closed_this_turn(&self, segment: &str, step: u32) -> bool {
+        let Some((_, entry)) = self.card_entry_for_segment(segment).await else {
+            return false;
+        };
+        entry.lock().await.step_closed_this_turn = Some(step);
+        true
+    }
+
+    /// The step this turn has already closed on `segment`'s card, if any — the
+    /// PreToolUse gate's one question.
+    pub async fn step_closed_this_turn(&self, segment: &str) -> Option<u32> {
+        let (_, entry) = self.card_entry_for_segment(segment).await?;
+        let closed = entry.lock().await.step_closed_this_turn;
+        closed
+    }
+
+    /// Announce one dash ledger gesture on `session`'s card as durable ink.
+    ///
+    /// The same two halves `record_arc_receipt` does, for the same reason: a
+    /// gesture made by a short-lived CLI process has no initiating client, so
+    /// the durable row (which a relaunch replays like any other ink, keyed to
+    /// the **line** so a rotation carries it) and the live `dash_note` frame
+    /// are both explicit. `command` is the verb as it was typed and `note` the
+    /// one sentence, which is what makes the row read as the `$` ink of
+    /// somebody having run it — because that is what happened.
+    ///
+    /// The user watches a run from the card, and before this the only sign of
+    /// progression was a stuck indicator (W8 Task 3).
+    ///
+    /// `segment` is what the verb resolved and what the ledger answers in; the
+    /// frame goes out under the **card's** id, because the card's address never
+    /// moves and the deck is bound to it. A rotation would otherwise announce
+    /// to an id no card in the deck wears — Part IX item 12's shape, one layer
+    /// over.
+    pub async fn record_dash_note(
+        &self,
+        segment: &str,
+        project_dir: &str,
+        command: &str,
+        note: &str,
+    ) {
+        let session = match self.card_entry_for_segment(segment).await {
+            Some((card, _)) => card.as_str().to_string(),
+            None => segment.to_string(),
+        };
+        let receipt_id = Self::record_landing_receipt(
+            self.shell_ledger.as_ref(),
+            self.session_ledger.as_ref(),
+            Some(&session),
+            command,
+            note,
+            project_dir,
+        );
+        let body = serde_json::json!({
+            "action": "dash_note",
+            "project_dir": project_dir,
+            "tug_session_id": session,
+            "command": command,
+            "note": note,
+            "receipt_id": receipt_id,
+        });
+        let _ = self.control_tx.send(Frame::new(
+            FeedId::CONTROL,
+            serde_json::to_vec(&body).expect("dash_note serializes"),
+        ));
+    }
+
     fn send_changeset_join_err(
         control_tx: &broadcast::Sender<Frame>,
         project_dir: &str,
@@ -9761,6 +9880,11 @@ impl AgentSupervisor {
                                 entry.turns_ended += 1;
                                 entry.turn_api_error = turn_ended_in_api_error(&frame.payload);
                                 entry.turn_cancelled = turn_ended_in_user_cancel(&frame.payload);
+                                // The turn boundary the course demands has
+                                // been reached: whatever this turn closed is
+                                // no longer *this* turn's business, and the
+                                // gate opens again (W8).
+                                entry.step_closed_this_turn = None;
                                 // A launch whose task never started is not
                                 // still pending next turn — the set matters
                                 // only between a launch and its `task_started`.
