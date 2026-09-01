@@ -149,7 +149,20 @@ fn ask_instance(posted: &str) -> Result<Resolved, String> {
         "/api/session",
         "resolving the calling session",
         serde_json::json!({ "op": "resolve", "tug_session_id": posted }),
-    )?;
+    );
+    let response = match response {
+        Ok(response) => response,
+        // An instance older than the chokepoint answers `unknown op
+        // 'resolve'`. Refusing there would break every session-addressed verb
+        // the moment a new `tugtool` met a tugcast that had not restarted —
+        // and it is not necessary: `/api/dash` resolves at its own door, so a
+        // bind still lands on the live segment. What is lost is this side's
+        // ability to *name* the resolution, which is a receipt, not a write.
+        Err(message) if message.contains("unknown op") => {
+            return Ok(Resolved::unresolved(posted.to_string()));
+        }
+        Err(message) => return Err(message),
+    };
     let str_field = |key: &str| {
         response
             .get(key)

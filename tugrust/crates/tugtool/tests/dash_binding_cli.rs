@@ -37,6 +37,18 @@ fn git_stdout(dir: &Path, args: &[&str]) -> String {
 /// A one-shot stand-in for a running tugcast: accepts POSTs, hands each JSON
 /// body back over a channel, and answers `{"status":"ok"}`.
 fn fake_tugcast() -> (u16, mpsc::Receiver<serde_json::Value>) {
+    fake_tugcast_with(false)
+}
+
+/// The same, but answering `unknown op` to the identity chokepoint's
+/// `resolve` — a tugcast older than the chokepoint, which is what every
+/// machine has for the minutes between installing a build and restarting the
+/// app.
+fn fake_tugcast_predating_resolve() -> (u16, mpsc::Receiver<serde_json::Value>) {
+    fake_tugcast_with(true)
+}
+
+fn fake_tugcast_with(refuse_resolve: bool) -> (u16, mpsc::Receiver<serde_json::Value>) {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let port = listener.local_addr().unwrap().port();
     let (tx, rx) = mpsc::channel();
@@ -64,7 +76,19 @@ fn fake_tugcast() -> (u16, mpsc::Receiver<serde_json::Value>) {
             let mut body = vec![0u8; length];
             let _ = reader.read_exact(&mut body);
             if let Ok(value) = serde_json::from_slice::<serde_json::Value>(&body) {
+                let is_resolve = value.get("op").and_then(|o| o.as_str()) == Some("resolve");
                 let _ = tx.send(value);
+                if refuse_resolve && is_resolve {
+                    let payload = br#"{"status":"error","message":"unknown op 'resolve'"}"#;
+                    let _ = write!(
+                        stream,
+                        "HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                        payload.len()
+                    );
+                    let _ = stream.write_all(payload);
+                    let _ = stream.flush();
+                    continue;
+                }
             }
             let payload = br#"{"status":"ok","cleared":1}"#;
             let _ = write!(
@@ -423,6 +447,51 @@ fn dash_bind_and_unbind_post_to_the_instance_and_emit_envelopes() {
         .expect("an unbind request");
     assert_eq!(body["op"], "unbind");
     assert_eq!(body["tug_session_id"], "sess-1");
+}
+
+/// **A tugcast that predates the chokepoint still binds.**
+///
+/// The resolver asks an instance to expand the calling session, and an
+/// instance that has not restarted since the build was installed does not
+/// know the op. Refusing there would break every session-addressed verb on
+/// every machine for the minutes between install and restart — and it is not
+/// needed: `/api/dash` resolves at its own door, so the bind still lands on
+/// the live segment. Only this side's ability to *name* the resolution is
+/// lost, and a receipt is not a write.
+#[test]
+fn dash_bind_survives_an_instance_that_does_not_know_the_resolve_op() {
+    let tmp = tempfile::tempdir().unwrap();
+    let tmp_path = tmp.path().canonicalize().unwrap();
+    let repo_dir = tempfile::tempdir().unwrap();
+    let root = repo_dir.path().canonicalize().unwrap();
+    repo_with_dash(&root, "demo");
+
+    let (port, requests) = fake_tugcast_predating_resolve();
+    register_fake_instance(&tmp_path, port);
+
+    let mut bind = tug(&tmp_path);
+    bind.current_dir(&root);
+    bind.env("TUG_SESSION_ID", "sess-1");
+    bind.args(["dash", "bind", "demo"]);
+    let out = bind.output().unwrap();
+    assert!(
+        out.status.success(),
+        "bind must not fail on an older instance: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    let body = requests
+        .recv_timeout(std::time::Duration::from_secs(10))
+        .expect("a resolve request");
+    assert_eq!(body["op"], "resolve", "it still asks");
+    let body = requests
+        .recv_timeout(std::time::Duration::from_secs(10))
+        .expect("a bind request");
+    assert_eq!(body["op"], "bind");
+    assert_eq!(
+        body["tug_session_id"], "sess-1",
+        "and falls back to the posted id, which the server's own door expands",
+    );
 }
 
 /// The undo/redo pair driven end to end through the CLI: a redo re-applies the
