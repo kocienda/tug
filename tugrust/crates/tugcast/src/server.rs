@@ -593,6 +593,8 @@ async fn dash_handler(
                 &session_id,
                 &dash_id,
                 &dash_name,
+                None,
+                None,
             );
             (
                 StatusCode::OK,

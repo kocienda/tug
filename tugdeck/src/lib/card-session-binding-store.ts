@@ -86,7 +86,9 @@ export class CardSessionBindingStore {
    * filter from.
    *
    * A no-op for a card with no binding: there is nothing to merge into, and
-   * the spawn ack is the only thing allowed to create a record.
+   * the spawn ack stays the only thing allowed to *create* a record. It is no
+   * longer the only thing allowed to write one — `bind_dash_ok` moves the dash
+   * half, which is what carries a rotation's binding onto the fresh segment.
    */
   setDashBinding = (cardId: string, dash: CardDashBinding | null): void => {
     const existing = this._bindings.get(cardId);
@@ -168,6 +170,22 @@ export function cardIdForSession(sessionId: string): string | null {
   for (const [cardId, binding] of cardSessionBindingStore.getSnapshot()) {
     if (binding.tugSessionId === sessionId) return cardId;
     if (lineId !== null && binding.lineId === lineId) return cardId;
+  }
+  return null;
+}
+
+/**
+ * The card seated on `lineId`, or `null` when no open card wears it.
+ *
+ * The direct half of {@link cardIdForSession}, for a frame that already names
+ * the line rather than leaving it to be derived. The rotation seat's
+ * `bind_dash_ok` does: it announces a segment minted in the same breath, which
+ * the segment → line walk cannot resolve because no frame has yet said whose
+ * line that segment is.
+ */
+export function cardIdForLine(lineId: string): string | null {
+  for (const [cardId, binding] of cardSessionBindingStore.getSnapshot()) {
+    if (binding.lineId === lineId) return cardId;
   }
   return null;
 }

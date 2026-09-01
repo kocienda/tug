@@ -54,6 +54,7 @@ import { LAYOUT_CARD_ID } from "@/lib/layout-card-id";
 import { OVERVIEW_CARD_ID } from "@/lib/overview-card-id";
 import { PERMISSION_MODE_CYCLE } from "./lib/permission-mode";
 import {
+  cardIdForLine,
   cardIdForSession,
   cardSessionBindingStore,
 } from "./lib/card-session-binding-store";
@@ -1221,12 +1222,25 @@ export function initActionDispatch(
   });
 
   // bind_dash_ok / unbind_dash_ok: a session's dash mating changed while the
-  // card is open — a skill running `tugtool dash bind`, or the `dash bind`
-  // that follows a `dash create`. The store's record already exists (the
+  // card is open — a skill running `tugtool dash bind`, the `dash bind` that
+  // follows a `dash create`, or the rotation seat carrying a mid-arc binding
+  // onto a freshly minted segment. The store's record already exists (the
   // spawn ack made it), so this merges the dash half in rather than replacing
   // it: a `setBinding` here would clobber the `workspaceKey` the pane's feed
-  // filter is built from. `cardIdForSession` is the reverse walk from the
-  // session the broadcast names to the card holding it.
+  // filter is built from.
+  //
+  // Routing has three doors, most-specific first. The server names `card_id`
+  // when it knows it, which is the rotation seat — the one caller whose
+  // segment this deck may never have heard of, since it was minted in the same
+  // breath as the announcement. `line_id` is the same knowledge one step less
+  // direct. Only then the reverse walk from the session id, which is all the
+  // older doors send and all they need to send, because they bind a segment
+  // the card is already seated on.
+  //
+  // An unroutable announcement **warns**. The card it was meant for reads
+  // "unbound" for the rest of its arc and no gesture from inside that session
+  // can repair it, so a silent `return` here spends a real failure on nothing
+  // (`notes/wheel-rotation-strands-the-arc.md`).
   registerAction("bind_dash_ok", (payload) => {
     const sessionId = payload.tug_session_id;
     const dashId = payload.dash_id;
@@ -1239,16 +1253,38 @@ export function initActionDispatch(
       console.warn("bind_dash_ok: missing or invalid field", payload);
       return;
     }
+    // Pre-routing servers send neither field; absent is not a shape error.
+    const sentCardId =
+      typeof payload.card_id === "string" && payload.card_id.length > 0
+        ? payload.card_id
+        : null;
+    const sentLineId =
+      typeof payload.line_id === "string" && payload.line_id.length > 0
+        ? payload.line_id
+        : null;
+    // The pair the server just told us, recorded whether or not it routes —
+    // every later frame naming this segment resolves for free afterwards.
+    if (sentLineId !== null) sessionLineStore.seat(sessionId, sentLineId);
     // A binding that landed is not still a failure — clear any parked refusal
     // before the notice's next read.
     dashBindErrorStore.clear(sessionId);
-    const cardId = cardIdForSession(sessionId);
-    if (cardId) {
-      cardSessionBindingStore.setDashBinding(cardId, {
-        id: dashId,
-        name: dashName,
-      });
+    const cardId =
+      (sentCardId !== null && cardSessionBindingStore.getBinding(sentCardId)
+        ? sentCardId
+        : null) ??
+      (sentLineId !== null ? cardIdForLine(sentLineId) : null) ??
+      cardIdForSession(sessionId);
+    if (cardId === null) {
+      console.warn(
+        "bind_dash_ok: no card holds this session; the dash chip will not paint",
+        payload,
+      );
+      return;
     }
+    cardSessionBindingStore.setDashBinding(cardId, {
+      id: dashId,
+      name: dashName,
+    });
   });
 
   // bind_dash_err: the mating did not happen. Nothing optimistic was raised —
@@ -1269,7 +1305,14 @@ export function initActionDispatch(
     const sessionId = payload.tug_session_id;
     if (typeof sessionId !== "string") return;
     const cardId = cardIdForSession(sessionId);
-    if (cardId) cardSessionBindingStore.setDashBinding(cardId, null);
+    if (cardId === null) {
+      console.warn(
+        "unbind_dash_ok: no card holds this session; the dash chip will not clear",
+        payload,
+      );
+      return;
+    }
+    cardSessionBindingStore.setDashBinding(cardId, null);
   });
 
   // session_updated: tugcast supervisor broadcasts these on every

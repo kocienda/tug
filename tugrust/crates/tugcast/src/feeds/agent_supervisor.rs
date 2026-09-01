@@ -853,6 +853,9 @@ pub trait SessionsRecorder: Send + Sync {
 pub struct LedgerSessionsRecorder {
     ledger: Arc<crate::session_ledger::SessionLedger>,
     control_tx: Option<broadcast::Sender<Frame>>,
+    /// The aggregate-changeset recomposition signal, when the recorder was
+    /// given one. Only the rotation seat rings it — see [`SessionsRecorder::record`].
+    changeset_all_bump: Option<Arc<tokio::sync::Notify>>,
 }
 
 impl LedgerSessionsRecorder {
@@ -861,6 +864,7 @@ impl LedgerSessionsRecorder {
         Self {
             ledger,
             control_tx: None,
+            changeset_all_bump: None,
         }
     }
 
@@ -871,7 +875,18 @@ impl LedgerSessionsRecorder {
         Self {
             ledger,
             control_tx: Some(control_tx),
+            changeset_all_bump: None,
         }
+    }
+
+    /// Give the recorder the registry's aggregate-changeset bump, so a seated
+    /// binding refreshes the masthead's dash index the way every other binding
+    /// writer does. A builder rather than a constructor argument because the
+    /// registry outranks the recorder in main's construction order and every
+    /// test that wants a recorder wants it without one.
+    pub fn with_changeset_bump(mut self, bump: Arc<tokio::sync::Notify>) -> Self {
+        self.changeset_all_bump = Some(bump);
+        self
     }
 
     /// Broadcast the current state of `session_id`'s ledger row, if a
@@ -1027,23 +1042,56 @@ impl SessionsRecorder for LedgerSessionsRecorder {
         );
         // A rotation mints this segment on a card that may be mid-arc, and
         // the binding is on the segment it just replaced. Carry it forward
-        // *before* the row is pushed, so the push already says which dash,
         // and announce the mating so the card wears it — the deck's binding
         // store has no other mover, and the surface a rotation blanked could
         // not be repaired by any gesture from inside the seated session
         // (`notes/wheel-rotation-strands-the-arc.md`).
-        match self.ledger.seat_line_binding(record.session_id) {
-            Ok(Some((dash_id, dash_name))) => {
-                if let Some(tx) = self.control_tx.as_ref() {
-                    broadcast_bind_dash_ok(tx, record.session_id, &dash_id, &dash_name);
-                }
-            }
-            Ok(None) => {}
+        //
+        // The row push goes **before** the `bind_dash_ok`, because the deck
+        // routes that announcement by walking segment → line → card and this
+        // segment is seconds old: the push carrying `(session_id, line_id)`
+        // is how the deck learns the pair at all. Announced first, the walk
+        // resolves nothing and the deck drops the frame — the card wears
+        // "unbound" for the rest of its arc with no gesture able to repair it.
+        // Two frames on one ordered channel, and the order is the whole fix.
+        // The announcement carries the line and the card itself as well, so a
+        // deck that missed the push still routes: belt and braces, on the one
+        // surface nobody inside the card can put right.
+        let seated = match self.ledger.seat_line_binding(record.session_id) {
+            Ok(seated) => seated,
             Err(err) => {
-                warn!(error = %err, session_id = record.session_id, "seat_line_binding failed")
+                warn!(error = %err, session_id = record.session_id, "seat_line_binding failed");
+                None
             }
-        }
+        };
         self.broadcast_row(record.session_id);
+        if let Some((dash_id, dash_name)) = seated {
+            if let Some(tx) = self.control_tx.as_ref() {
+                broadcast_bind_dash_ok(
+                    tx,
+                    record.session_id,
+                    &dash_id,
+                    &dash_name,
+                    record.line_id,
+                    Some(record.card_id),
+                );
+            }
+            // The masthead's dash index derives from `CHANGESET_ALL`, and a
+            // seat moves which session a dash reports as bound — the same
+            // fact every other binding writer bumps for. Without it the index
+            // keeps naming the retired segment until something unrelated
+            // happens to recompose it.
+            if let Some(bump) = self.changeset_all_bump.as_ref() {
+                bump.notify_one();
+            }
+            tracing::info!(
+                target: "dev::ledger",
+                event = "ledger.seat_line_binding",
+                session_id = record.session_id,
+                card_id = record.card_id,
+                dash_id = dash_id.as_str(),
+            );
+        }
     }
 
     fn record_turn(&self, session_id: &str) {
@@ -3537,18 +3585,36 @@ enum Decision {
 /// this, because a deck that learns about one door's binds but not the other's
 /// wears a chip that disagrees with the ledger until something else happens to
 /// repaint it.
+///
+/// `line_id` and `card_id` are the deck's **routing** halves, and they are the
+/// difference between an announcement that lands and one that is dropped. The
+/// deck walks segment → line → card to find the card wearing a session; on the
+/// rotation seat the segment named here is seconds old and the deck has never
+/// heard of it, so that walk resolves nothing. A caller that knows where the
+/// segment sits says so and the routing needs no walk at all. `None` is for
+/// the doors where the row is old news and the walk cannot fail.
 pub(crate) fn broadcast_bind_dash_ok(
     control_tx: &broadcast::Sender<Frame>,
     tug_session_id: &str,
     dash_id: &str,
     dash_name: &str,
+    line_id: Option<&str>,
+    card_id: Option<&str>,
 ) {
-    let body = serde_json::json!({
+    let mut body = serde_json::json!({
         "action": "bind_dash_ok",
         "tug_session_id": tug_session_id,
         "dash_id": dash_id,
         "dash_name": dash_name,
     });
+    if let Some(map) = body.as_object_mut() {
+        if let Some(line_id) = line_id {
+            map.insert("line_id".into(), serde_json::Value::from(line_id));
+        }
+        if let Some(card_id) = card_id {
+            map.insert("card_id".into(), serde_json::Value::from(card_id));
+        }
+    }
     let _ = control_tx.send(Frame::new(
         FeedId::CONTROL,
         serde_json::to_vec(&body).expect("bind_dash_ok serializes"),
@@ -4889,8 +4955,10 @@ impl AgentSupervisor {
             }
         };
         // The dash binding rides the ack the same way `workspace_key` does —
-        // the spawn ack is the binding store's only writer ([P07]) — and reads
-        // as unbound when the dash's branch is gone ([P05]).
+        // it is what a card wears the moment it opens — and reads as unbound
+        // when the dash's record is gone ([P05]). The ack is no longer the
+        // binding store's only writer: `bind_dash_ok` moves it too, which is
+        // what carries a rotation's seated binding onto the fresh segment.
         let (row_dash_id, row_dash_name) = match row.filter(|r| r.dash_id.is_some()) {
             Some(row) => {
                 let project = row.project_dir.clone();
@@ -5665,7 +5733,18 @@ impl AgentSupervisor {
                 self.registry.changeset_all_bump().notify_one();
                 // The segment the write landed on, not the one the request
                 // named — see the door's own note on the expansion.
-                broadcast_bind_dash_ok(&self.control_tx, &session_id, &dash_id, &dash_name);
+                //
+                // No routing halves: this door binds a segment the card is
+                // already seated on, so the deck's own walk resolves it. The
+                // seat is the one caller whose segment the deck has never met.
+                broadcast_bind_dash_ok(
+                    &self.control_tx,
+                    &session_id,
+                    &dash_id,
+                    &dash_name,
+                    None,
+                    None,
+                );
             }
             Ok(crate::dash_api::DashApiOutcome::UnknownSession) => {
                 Self::send_bind_dash_err(
@@ -16811,6 +16890,116 @@ mod tests {
         assert_eq!(row.card_id.as_deref(), Some("card-1"));
         assert_eq!(row.state, LedgerState::Live);
         assert_eq!(row.turn_count, 0);
+    }
+
+    /// The rotation seat's two frames, in the order the deck needs them.
+    ///
+    /// `bind_dash_ok` names a segment minted moments ago, and the deck routes
+    /// it by walking segment → line → card. Sent first, that walk resolves
+    /// nothing and the announcement is dropped on the floor — the card keeps
+    /// wearing "unbound" for the rest of its arc. So the row push, which is
+    /// how the deck learns the pair at all, goes first; and the push must
+    /// still come *after* the seat's write, or it would report a null dash
+    /// about a row that is bound.
+    #[tokio::test]
+    async fn the_rotation_seat_pushes_the_row_before_it_announces_the_mating() {
+        let ledger = Arc::new(SessionLedger::open_in_memory().expect("ledger open"));
+        let (control_tx, mut rx) = broadcast::channel(64);
+        let bump = Arc::new(Notify::new());
+        let recorder = LedgerSessionsRecorder::with_broadcast(Arc::clone(&ledger), control_tx)
+            .with_changeset_bump(Arc::clone(&bump));
+
+        // The shape a rotation leaves: the line's old segment holds the
+        // binding, and the Wheel has just minted a fresh one on the same card.
+        ledger
+            .record_spawn("seg-old", "ws-1", "/proj/x", "card-1", 1, "line-1", None)
+            .unwrap();
+        ledger
+            .set_dash_binding("seg-old", Some(("tugdash/demo#1", "demo")))
+            .unwrap();
+        while rx.try_recv().is_ok() {}
+
+        recorder.record(SessionRecord {
+            session_id: "seg-new",
+            workspace_key: "ws-1",
+            project_dir: "/proj/x",
+            card_id: "card-1",
+            tag: None,
+            line_id: Some("line-1"),
+        });
+
+        let actions: Vec<serde_json::Value> = std::iter::from_fn(|| rx.try_recv().ok())
+            .filter_map(|frame| serde_json::from_slice::<serde_json::Value>(&frame.payload).ok())
+            .collect();
+        let position = |action: &str| {
+            actions
+                .iter()
+                .position(|v| v.get("action").and_then(|a| a.as_str()) == Some(action))
+                .unwrap_or_else(|| panic!("no `{action}` frame among {actions:?}"))
+        };
+        assert!(
+            position("session_updated") < position("bind_dash_ok"),
+            "the deck cannot resolve an announcement about a segment it has not met",
+        );
+
+        let push = &actions[position("session_updated")];
+        assert_eq!(push["session_id"], "seg-new");
+        assert_eq!(
+            push["fields"]["line_id"], "line-1",
+            "the pair the deck's segment → line → card walk is made of",
+        );
+
+        let announce = &actions[position("bind_dash_ok")];
+        assert_eq!(announce["tug_session_id"], "seg-new");
+        assert_eq!(announce["dash_id"], "tugdash/demo#1");
+        assert_eq!(announce["dash_name"], "demo");
+        assert_eq!(
+            announce["line_id"], "line-1",
+            "and it carries its own routing, for a deck that missed the push",
+        );
+        assert_eq!(announce["card_id"], "card-1");
+
+        // The masthead's dash index derives from CHANGESET_ALL, and a seat
+        // moves which segment the dash reports as bound.
+        tokio::time::timeout(std::time::Duration::from_millis(200), bump.notified())
+            .await
+            .expect("the seat rings the aggregate bump every other binding writer rings");
+
+        // And the binding moved rather than being copied.
+        assert!(ledger.get("seg-old").unwrap().unwrap().dash_id.is_none());
+    }
+
+    /// An ordinary spawn — no binding anywhere on the line — announces
+    /// nothing and rings nothing. The seat is for the rotation alone.
+    #[tokio::test]
+    async fn an_unbound_spawn_announces_no_mating() {
+        let ledger = Arc::new(SessionLedger::open_in_memory().expect("ledger open"));
+        let (control_tx, mut rx) = broadcast::channel(64);
+        let bump = Arc::new(Notify::new());
+        let recorder = LedgerSessionsRecorder::with_broadcast(Arc::clone(&ledger), control_tx)
+            .with_changeset_bump(Arc::clone(&bump));
+
+        recorder.record(SessionRecord {
+            session_id: "seg-solo",
+            workspace_key: "ws-1",
+            project_dir: "/proj/x",
+            card_id: "card-1",
+            tag: None,
+            line_id: Some("line-1"),
+        });
+
+        let actions: Vec<String> = std::iter::from_fn(|| rx.try_recv().ok())
+            .filter_map(|frame| serde_json::from_slice::<serde_json::Value>(&frame.payload).ok())
+            .filter_map(|v| v.get("action").and_then(|a| a.as_str()).map(String::from))
+            .collect();
+        assert!(actions.iter().any(|a| a == "session_updated"));
+        assert!(!actions.iter().any(|a| a == "bind_dash_ok"), "{actions:?}");
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(50), bump.notified())
+                .await
+                .is_err(),
+            "nothing moved, so there is nothing to recompose",
+        );
     }
 
     /// The ledger (the source of truth for sessions) publishes a "sessions

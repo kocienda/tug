@@ -1255,7 +1255,8 @@ async fn main() {
     let ledger_recorder = Arc::new(LedgerSessionsRecorder::with_broadcast(
         Arc::clone(&ledger),
         client_action_tx.clone(),
-    ));
+    )
+    .with_changeset_bump(registry.changeset_all_bump()));
 
     // Age sweep: drop every non-live row whose `last_used_at` is older
     // than the configured cap. Runs after `demote_live_to_closed` so the
