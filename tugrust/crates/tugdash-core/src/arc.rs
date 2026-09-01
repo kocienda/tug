@@ -269,6 +269,21 @@ pub struct ArcRecord {
     /// `tugtool dash run` on a stopped arc, and cleared by the next
     /// `arc-stage` line — the rotation it asked for.
     pub resume: Option<ArcStage>,
+    /// A rotation the runner dispatched whose `arc-stage` line has not landed.
+    ///
+    /// The wheel's dispatch and the bridge's announcement are two acts with a
+    /// gap between them, and only the bridge can write the `arc-stage` line —
+    /// it names a claude session id nobody knows until claude announces it.
+    /// Within one tugcast the runner's own in-flight guard covers that gap;
+    /// across a restart it does not exist, and the restarted seat used to read
+    /// as a *taken card*: a session the record does not name, carrying no
+    /// stage label, which is exactly what a user's `/new` looks like. A wrong
+    /// stop, and a spoken one.
+    ///
+    /// So the intent is written down before the wheel fires, and cleared by
+    /// the `arc-stage` line it was the intent to produce. A record still
+    /// carrying one says "re-rotate this stage", not "the card was taken".
+    pub dispatched: Option<ArcStage>,
     pub done: bool,
     /// The newest surviving arc line's timestamp.
     pub last_activity: Option<String>,
@@ -322,6 +337,7 @@ pub fn read_arc(repo_root: &Path, dash: &str) -> Option<ArcRecord> {
             notes: Vec::new(),
             stopped: None,
             resume: None,
+            dispatched: None,
             done: false,
             last_activity: None,
         });
@@ -334,6 +350,10 @@ pub fn read_arc(repo_root: &Path, dash: &str) -> Option<ArcRecord> {
                 if let Some(stage) = read_stage_line(note, timestamp) {
                     record.stopped = None;
                     record.resume = None;
+                    // The announcement this dispatch was the intent to
+                    // produce. Cleared here and only here, so the gap the
+                    // marker exists to describe is exactly the gap it covers.
+                    record.dispatched = None;
                     record.stages.push(stage);
                 }
             }
@@ -348,6 +368,14 @@ pub fn read_arc(repo_root: &Path, dash: &str) -> Option<ArcRecord> {
                     record.resume = Some(stage);
                 }
             }
+            // **Skew.** A reader older than this marker falls through the `_`
+            // arm below: it dates the dash from the line and declares nothing
+            // from it, which is what every older reader has always done with a
+            // marker it did not know. `read_declarations` degrades the same
+            // way. So the direction is safe — an old reader keeps the false
+            // `CardTaken` it already had, and never invents a stop it did not
+            // have before.
+            "arc-dispatch" => record.dispatched = ArcStage::parse(note.trim()),
             "arc-done" => record.done = true,
             _ => {}
         }
@@ -407,6 +435,16 @@ pub fn append_arc_stage(
     append_dash_log(repo_root, dash, "arc-stage", &note)
 }
 
+/// Append `arc-dispatch` — a rotation to `stage` is about to be sent.
+///
+/// Written *before* the wheel fires, because the whole of its worth is in the
+/// gap after it: a crash between the dispatch and the bridge's `arc-stage`
+/// line leaves a seat the record cannot explain, and this is the line that
+/// explains it. The `arc-stage` it anticipates clears it.
+pub fn append_arc_dispatch(repo_root: &Path, dash: &str, stage: ArcStage) -> Result<(), TugError> {
+    append_dash_log(repo_root, dash, "arc-dispatch", stage.as_str())
+}
+
 /// Append `arc-plan` — the plan path the runner named.
 pub fn append_arc_plan(repo_root: &Path, dash: &str, plan: &str) -> Result<(), TugError> {
     append_dash_log(repo_root, dash, "arc-plan", plan)
@@ -457,6 +495,84 @@ mod tests {
             Some("opus".to_string())
         );
         assert_eq!(stage_model(&config, ArcStage::Devise), None);
+    }
+
+    /// **`arc-dispatch` marks the gap and the `arc-stage` closes it.**
+    ///
+    /// The line exists for exactly one window: after the wheel fires and
+    /// before the bridge writes the announcement, which is the only writer
+    /// that can — the announcement names a claude session id nobody knows
+    /// until claude announces it. A record still carrying a dispatch says a
+    /// rotation was tried and never landed.
+    #[serial]
+    #[test]
+    fn a_dispatch_stands_until_the_stage_it_anticipates_announces() {
+        let fixture = log_repo("");
+        let root = fixture.root();
+
+        append_arc_start(root, "d", "dash/idea.md").unwrap();
+        append_arc_dispatch(root, "d", ArcStage::Implement).unwrap();
+
+        let record = read_arc(root, "d").unwrap();
+        assert_eq!(
+            record.dispatched,
+            Some(ArcStage::Implement),
+            "the intent stands while the gap is open"
+        );
+        assert!(record.stages.is_empty());
+
+        append_arc_stage(root, "d", ArcStage::Implement, "sess-9", None).unwrap();
+        let record = read_arc(root, "d").unwrap();
+        assert_eq!(
+            record.dispatched, None,
+            "and the announcement it anticipated closes it"
+        );
+        assert_eq!(record.stages.len(), 1);
+    }
+
+    /// **The skew direction.** The marker is new, so every reader older than
+    /// it must fall through untroubled. `read_declarations` shares the log and
+    /// knows nothing of `arc-*` markers at all: it dates the dash from the
+    /// line, exactly as it does for `arc-stage`, and declares nothing from it.
+    ///
+    /// An old `read_arc` does the same through its own `_` arm — which this
+    /// cannot drive from here, so what it pins is the half that shares a file
+    /// with everything else.
+    #[serial]
+    #[test]
+    fn a_dispatch_line_moves_no_declaration() {
+        let steps = [
+            log_line_at("2026-08-24T10:00:00Z", "d", "run-through", "2"),
+            log_line_at("2026-08-24T10:01:00Z", "d", "step-start", "1/2 Step 1: One"),
+            log_line_at("2026-08-24T10:02:00Z", "d", "step-done", "1/2 abc1234"),
+        ]
+        .concat();
+        let fixture = log_repo(&steps);
+        let root = fixture.root();
+        let before = read_declarations(root, "d");
+        assert_eq!(
+            before.last_activity.as_deref(),
+            Some("2026-08-24T10:02:00Z")
+        );
+
+        let with_dispatch = [
+            steps,
+            log_line_at("2026-08-24T10:03:00Z", "d", "arc-dispatch", "implement"),
+        ]
+        .concat();
+        let fixture = log_repo(&with_dispatch);
+        let root = fixture.root();
+        let after = read_declarations(root, "d");
+
+        assert_eq!(after.step, before.step);
+        assert_eq!(after.run_through, before.run_through);
+        assert_eq!(after.run_complete, before.run_complete);
+        assert_eq!(after.step_in_flight, before.step_in_flight);
+        assert_eq!(
+            after.last_activity.as_deref(),
+            Some("2026-08-24T10:03:00Z"),
+            "it dates the dash, as every line does, and declares nothing"
+        );
     }
 
     /// A scratch data dir plus the repo root whose dash-log it holds — the same

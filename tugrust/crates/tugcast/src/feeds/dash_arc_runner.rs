@@ -43,8 +43,8 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 use tugcast_core::protocol::{FeedId, Frame, TugSessionId};
 use tugdash_core::arc::{
-    ArcRecord, ArcStage, ArcStopReason, append_arc_done, append_arc_note, append_arc_plan,
-    append_arc_stop, read_arc, stage_model,
+    ArcRecord, ArcStage, ArcStopReason, append_arc_dispatch, append_arc_done, append_arc_note,
+    append_arc_plan, append_arc_stop, read_arc, stage_model,
 };
 use tugdash_core::dash::append_dash_log;
 use tugtool_core::config::{Config, DashConfig};
@@ -890,6 +890,19 @@ async fn rotate(
         );
 
     let dispatched_at = reading.record.stages.len();
+    // **Intent before the act.** A crash between the wheel firing and the
+    // bridge's `arc-stage` line leaves a seat the record cannot explain, and
+    // the restarted runner read it as a taken card — a wrong stop, and one
+    // the user is told about. The line goes down first so the gap reads as
+    // "re-rotate this stage" instead. It reports the way every other append
+    // here reports, and does not stop the rotation: a rotation that happened
+    // is better than one refused over its own footnote.
+    let outcome = tokio::task::spawn_blocking({
+        let (project, dash, stage) = (project.clone(), dash.clone(), rotation.stage);
+        move || append_arc_dispatch(&project, &dash, stage)
+    })
+    .await;
+    report_append(&project, &dash, "arc-dispatch", outcome);
     let outcome = wheel::rotate(&ctx.supervisor, &request).await;
     {
         let mut map = state.lock().await;
@@ -1068,6 +1081,7 @@ pub(crate) async fn stop_arc_for_session(
                 notes: Vec::new(),
                 stopped: None,
                 resume: None,
+                dispatched: None,
                 done: false,
                 last_activity: None,
             });
@@ -2480,6 +2494,7 @@ Some context.
             notes: Vec::new(),
             stopped: None,
             resume: None,
+            dispatched: None,
             done: true,
             last_activity: Some("2026-08-25T00:00:00Z".to_owned()),
         }

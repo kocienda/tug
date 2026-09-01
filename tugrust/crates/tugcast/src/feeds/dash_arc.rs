@@ -321,6 +321,21 @@ pub fn arc_action(record: &ArcRecord, facts: &ArcFacts) -> Option<ArcAction> {
     // true and this arm is not consulted at all.
     if let Some(stage) = stage {
         if !facts.stage_session_current && !facts.stage_seated {
+            // Unless the record says a rotation was dispatched and never
+            // announced. That is the crash gap, not a taking: the runner's
+            // in-flight guard covers it within one tugcast, and this line is
+            // what covers it across a restart, where the guard's memory is
+            // gone. Re-rotate the stage the dispatch was for — which is the
+            // stage the wheel already tried to seat, never an earlier one.
+            if let Some(dispatched) = record.dispatched {
+                return Some(ArcAction::Rotate(Rotation {
+                    stage: dispatched,
+                    steps: (dispatched == ArcStage::Implement)
+                        .then(|| facts.ledger.first_pending.zip(facts.ledger.run_through))
+                        .flatten(),
+                    note: None,
+                }));
+            }
             return Some(ArcAction::Stop {
                 stage,
                 reason: ArcStopReason::CardTaken,
@@ -611,6 +626,7 @@ mod tests {
             notes: Vec::new(),
             stopped: None,
             resume: None,
+            dispatched: None,
             done: false,
             last_activity: Some("2026-08-24T00:00:00Z".to_string()),
         }
@@ -1187,6 +1203,59 @@ mod tests {
         assert_eq!(
             arc_action(&record(&[ArcStage::Implement]), &facts),
             Some(ArcAction::Rotate(Rotation::plain(ArcStage::Audit))),
+        );
+    }
+
+    /// **The crash gap is not a taking.** A session the record does not name,
+    /// carrying no stage label, is what a user's `/new` looks like — and it is
+    /// also what a crash between the wheel's dispatch and the bridge's
+    /// `arc-stage` line leaves behind. The runner's in-flight guard tells them
+    /// apart within one tugcast and has no memory across a restart, which is
+    /// what made the restarted seat report `CardTaken`: a wrong stop, spoken
+    /// out loud on the card.
+    ///
+    /// The `arc-dispatch` line is what the restarted predicate reads instead.
+    #[test]
+    fn a_dispatch_that_never_announced_re_rotates_instead_of_reporting_a_taking() {
+        let mut taken = record(&[ArcStage::Implement]);
+        let mut facts = implementing(Some(120_000), false);
+        facts.stage_session_current = false;
+        facts.stage_seated = false;
+
+        assert_eq!(
+            arc_action(&taken, &facts),
+            Some(ArcAction::Stop {
+                stage: ArcStage::Implement,
+                reason: ArcStopReason::CardTaken,
+            }),
+            "with nothing on the record, an unseated session is still a taking"
+        );
+
+        taken.dispatched = Some(ArcStage::Implement);
+        assert_eq!(
+            arc_action(&taken, &facts),
+            Some(ArcAction::Rotate(Rotation {
+                stage: ArcStage::Implement,
+                steps: Some((4, 9)),
+                note: None,
+            })),
+            "a dispatch on the record makes the same seat a rotation to redo"
+        );
+    }
+
+    /// The re-rotation is the *dispatched* stage, not the last one announced.
+    /// A crash in the gap after a devise stage's `arc-stage` line and before
+    /// review's would otherwise re-run devise over a plan it already wrote.
+    #[test]
+    fn the_re_rotation_names_the_stage_the_dispatch_was_for() {
+        let mut record = record(&[ArcStage::Devise]);
+        record.dispatched = Some(ArcStage::Review);
+        let mut facts = facts();
+        facts.stage_session_current = false;
+        facts.stage_seated = false;
+        assert_eq!(
+            arc_action(&record, &facts),
+            Some(ArcAction::Rotate(Rotation::plain(ArcStage::Review))),
         );
     }
 
