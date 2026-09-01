@@ -13470,6 +13470,97 @@ mod tests {
         assert!(l.get("solo").unwrap().unwrap().dash_id.is_none());
     }
 
+    // ── the binding-write chokepoint ─────────────────────────────────────────
+
+    /// Every session-keyed write of a dash binding goes through
+    /// [`SessionLedger::set_dash_binding`] or one of the two seat verbs —
+    /// **structurally**, not by convention.
+    ///
+    /// The live-only guard that refuses a binding onto a demoted segment is
+    /// worth exactly as much as the number of writers that pass through it.
+    /// `seat_line_binding` was a second writer that did not, and the fourth
+    /// incident in this class came of a fifth writer nobody had noticed. This
+    /// is the sibling of `tugcore`'s `no_ad_hoc_ledger_opens`: a new
+    /// `UPDATE sessions SET dash_id …` anywhere in tugcast fails the build
+    /// until it either goes through a sanctioned verb or is named here.
+    ///
+    /// `clear_dash_bindings_for_dash` is sanctioned on different grounds: it
+    /// is keyed by **dash**, not by session, and removing a binding is
+    /// shape-safe in the way writing one is not (the same asymmetry
+    /// `set_dash_binding`'s own `?2 IS NULL` arm states).
+    #[test]
+    fn no_ad_hoc_binding_writes() {
+        const SANCTIONED: &[&str] = &[
+            "set_dash_binding",
+            "seat_line_binding",
+            "seat_line_bindings",
+            "clear_dash_bindings_for_dash",
+        ];
+        let src_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut offenders = Vec::new();
+        // A scan that matches nothing passes vacuously, which is the one way
+        // a guard like this rots without anyone noticing.
+        let mut seen = 0usize;
+        let mut stack = vec![src_root.clone()];
+        while let Some(dir) = stack.pop() {
+            for entry in std::fs::read_dir(&dir).expect("read_dir") {
+                let path = entry.expect("dir entry").path();
+                if path.is_dir() {
+                    stack.push(path);
+                    continue;
+                }
+                if path.extension().and_then(|e| e.to_str()) != Some("rs") {
+                    continue;
+                }
+                let text = std::fs::read_to_string(&path).expect("read source");
+                // Production text only: a test may quote the pattern, and
+                // this one does.
+                let text = match text.find("\n#[cfg(test)]\nmod tests") {
+                    Some(cut) => text[..cut].to_string(),
+                    None => text,
+                };
+                for (idx, _) in text.match_indices("UPDATE sessions SET") {
+                    let window = &text[idx..text.len().min(idx + 200)];
+                    if !window.contains("dash_id") {
+                        continue;
+                    }
+                    // The enclosing item, found the way a reader finds it:
+                    // the nearest `fn` above the statement.
+                    let name = text[..idx]
+                        .rmatch_indices("fn ")
+                        .next()
+                        .map(|(at, _)| {
+                            text[at + 3..]
+                                .split(|c: char| !(c.is_alphanumeric() || c == '_'))
+                                .next()
+                                .unwrap_or("")
+                                .to_string()
+                        })
+                        .unwrap_or_default();
+                    if !SANCTIONED.contains(&name.as_str()) {
+                        offenders.push(format!(
+                            "{}: binding UPDATE inside `{name}`",
+                            path.strip_prefix(&src_root).unwrap_or(&path).display()
+                        ));
+                    } else {
+                        seen += 1;
+                    }
+                }
+            }
+        }
+        assert!(
+            offenders.is_empty(),
+            "session-keyed dash-binding writes outside the sanctioned verbs — a writer that \
+             skips them also skips the live-only guard, and writes a binding onto a segment \
+             that has already closed: {offenders:#?}"
+        );
+        assert!(
+            seen >= 4,
+            "the scan found only {seen} sanctioned binding writes — it has stopped seeing the \
+             code it guards"
+        );
+    }
+
     // ── demote_live_to_closed ────────────────────────────────────────────────
 
     #[test]

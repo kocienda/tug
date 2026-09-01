@@ -387,6 +387,15 @@ fn dash_bind_and_unbind_post_to_the_instance_and_emit_envelopes() {
     let body = requests
         .recv_timeout(std::time::Duration::from_secs(10))
         .expect("a bind request");
+    // **Resolution comes first, always.** Every session-addressed verb asks
+    // the instance for the live segment of its line before it uses the id it
+    // was spawned with ([P01]) — that ordering is the workstream, so the test
+    // asserts it rather than skipping past it.
+    assert_eq!(body["op"], "resolve");
+    assert_eq!(body["tug_session_id"], "sess-1");
+    let body = requests
+        .recv_timeout(std::time::Duration::from_secs(10))
+        .expect("a bind request");
     assert_eq!(body["op"], "bind");
     assert_eq!(body["tug_session_id"], "sess-1");
     assert_eq!(body["dash"], "demo");
@@ -405,6 +414,10 @@ fn dash_bind_and_unbind_post_to_the_instance_and_emit_envelopes() {
         "unbind failed: {}",
         String::from_utf8_lossy(&out.stderr)
     );
+    let body = requests
+        .recv_timeout(std::time::Duration::from_secs(10))
+        .expect("an unbind request");
+    assert_eq!(body["op"], "resolve");
     let body = requests
         .recv_timeout(std::time::Duration::from_secs(10))
         .expect("an unbind request");

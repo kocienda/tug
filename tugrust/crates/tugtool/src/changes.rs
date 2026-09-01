@@ -183,9 +183,13 @@ fn tell_ownership_verb(
     if paths.is_empty() {
         return Err(AppError::Exit1(format!("no paths to {verb}")));
     }
-    let session_id = session
-        .or_else(|| std::env::var("TUG_SESSION_ID").ok())
-        .filter(|s| !s.is_empty())
+    // Claiming is a **write** about who owns a file, so it is addressed to
+    // the line's live segment rather than to whatever id this process was
+    // spawned under ([P01]). The server expands to the line's seat on its own
+    // side too, but a stale id still reaches it as a corpse to revive and as
+    // the wrong session for the receipt to name.
+    let session_id = crate::session_identity::resolve_soft(session.as_deref())
+        .map(|r| r.session_id)
         .ok_or_else(|| {
             AppError::Exit1("no session — pass --session or set TUG_SESSION_ID".to_string())
         })?;

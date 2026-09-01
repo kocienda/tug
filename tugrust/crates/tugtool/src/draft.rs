@@ -49,6 +49,12 @@ struct Owner {
     /// supersedes it, the same way `raw_project_dir` carries the spelling
     /// axis.
     legacy_id: Option<String>,
+    /// The other keys this owner's rows may sit under — for a **session**
+    /// owner, the earlier segments of its line ([P01]). A draft authored
+    /// before a rotation is keyed on the id the card wore then; `id` is the
+    /// live segment, and these are what keep the earlier row readable and
+    /// sweepable rather than orphaned. Empty for every other owner kind.
+    line_ids: Vec<String>,
     /// `--owner`'s own grammar, so messages read the way the user typed
     /// it (or would have typed it, when it was derived).
     display: String,
@@ -61,6 +67,11 @@ impl Owner {
         let mut keys = vec![self.id.as_str()];
         if let Some(legacy) = self.legacy_id.as_deref() {
             keys.push(legacy);
+        }
+        for id in &self.line_ids {
+            if !keys.contains(&id.as_str()) {
+                keys.push(id.as_str());
+            }
         }
         keys
     }
@@ -96,23 +107,31 @@ fn resolve_owner(owner: Option<String>, project_dir: &str) -> Result<Owner, AppE
             id,
             dash_name: Some(name.clone()),
             legacy_id,
+            line_ids: Vec::new(),
             display: format!("dash:{name}"),
         });
     }
-    let session = std::env::var("TUG_SESSION_ID")
-        .ok()
-        .filter(|s| !s.is_empty())
-        .ok_or_else(|| {
-            AppError::Exit1(
-                "no owner — pass --owner, run inside a dash worktree, or set TUG_SESSION_ID"
-                    .to_string(),
-            )
-        })?;
+    // A session owner is a **line** of work, not the segment this process was
+    // spawned under ([P01]). The draft is keyed on the line's live segment —
+    // which is what tugcast attaches drafts by, exactly and live-only — and
+    // the line's earlier segments ride along so a draft authored before a
+    // rotation is still read, superseded, and swept rather than orphaned on a
+    // corpse. `resolve_soft`: with no instance to ask (a fixture, an isolated
+    // `TUG_CHANGES_DB` run) the posted id is the whole answer, as before.
+    let resolved = crate::session_identity::resolve_soft(None).ok_or_else(|| {
+        AppError::Exit1(
+            "no owner — pass --owner, run inside a dash worktree, or set TUG_SESSION_ID"
+                .to_string(),
+        )
+    })?;
+    let mut line_ids = resolved.keys();
+    let session = line_ids.remove(0);
     Ok(Owner {
         kind: "session".to_string(),
         id: session.clone(),
         dash_name: None,
         legacy_id: None,
+        line_ids,
         display: format!("session:{session}"),
     })
 }
@@ -146,6 +165,7 @@ fn parse_owner(owner: &str, project_dir: &str) -> Result<Owner, AppError> {
             id,
             dash_name,
             legacy_id,
+            line_ids: Vec::new(),
             display: owner.to_string(),
         })
     };
@@ -156,7 +176,16 @@ fn parse_owner(owner: &str, project_dir: &str) -> Result<Owner, AppError> {
         if id.is_empty() {
             return Err(AppError::Exit1("empty session id in --owner".to_string()));
         }
-        return build("session", id.to_string(), None, None);
+        // A hand-typed session id goes stale exactly the way an inherited one
+        // does, so it is resolved on the same terms.
+        let resolved = crate::session_identity::resolve_soft(Some(id));
+        let mut keys = resolved
+            .map(|r| r.keys())
+            .unwrap_or_else(|| vec![id.to_string()]);
+        let live = keys.remove(0);
+        let mut owner = build("session", live, None, None)?;
+        owner.line_ids = keys;
+        return Ok(owner);
     }
     if let Some(name) = owner.strip_prefix("dash:") {
         let name = name.strip_prefix("tugdash/").unwrap_or(name);
@@ -491,6 +520,7 @@ pub fn run_set(
         kind: owner_kind,
         id: owner_id,
         legacy_id,
+        line_ids,
         display: owner,
         ..
     } = &owner_resolved;
@@ -504,6 +534,7 @@ pub fn run_set(
             "owner_kind": owner_kind,
             "owner_id": owner_id,
             "legacy_owner_id": legacy_id,
+            "legacy_owner_ids": line_ids,
             "project_dir": project_dir,
             "raw_project_dir": project.fallback,
             "superseded_project_dirs": project.superseded,
@@ -665,6 +696,7 @@ pub fn run_clear(
         kind: owner_kind,
         id: owner_id,
         legacy_id,
+        line_ids,
         display: owner,
         ..
     } = &owner_resolved;
@@ -677,6 +709,7 @@ pub fn run_clear(
                 "owner_kind": owner_kind,
                 "owner_id": owner_id,
                 "legacy_owner_id": legacy_id,
+                "legacy_owner_ids": line_ids,
                 "project_dir": project_dir,
                 "raw_project_dir": project.fallback,
                 "superseded_project_dirs": project.superseded,

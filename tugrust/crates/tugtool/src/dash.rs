@@ -81,12 +81,26 @@ pub fn dispatch(cmd: DashCommands, json: bool, quiet: bool) -> ExitCode {
         DashCommands::Mark { name, stage, note } => {
             run_mark(&name, stage.into(), note, json, quiet)
         }
-        DashCommands::Run { name, project } => run_arc_run(&name, project, json, quiet),
+        DashCommands::Run {
+            name,
+            project,
+            session,
+        } => run_arc_run(&name, project, session, json, quiet),
         DashCommands::Documents { name, ensure } => run_documents(&name, ensure, json, quiet),
         DashCommands::Arc { name, project } => run_arc_report(&name, project, json, quiet),
-        DashCommands::Bind { name, project } => run_bind(&name, project, json, quiet),
-        DashCommands::Stop { name, project } => run_arc_stop(&name, project, json, quiet),
-        DashCommands::Unbind { project } => run_unbind(project, json, quiet),
+        DashCommands::Bind {
+            name,
+            project,
+            session,
+        } => run_bind(&name, project, session.as_deref(), json, quiet),
+        DashCommands::Stop {
+            name,
+            project,
+            session,
+        } => run_arc_stop(&name, project, session.as_deref(), json, quiet),
+        DashCommands::Unbind { project, session } => {
+            run_unbind(project, session.as_deref(), json, quiet)
+        }
     };
 
     match result {
@@ -978,6 +992,9 @@ struct ArcRunPayload {
     /// A stopped arc was picked back up ([P11]).
     resumed: bool,
     arc: ArcRecord,
+    /// The session the arc was actually seated against — the server's
+    /// answer, not the id this process was born with ([P01]).
+    tug_session_id: String,
 }
 
 #[derive(Serialize)]
@@ -1121,27 +1138,30 @@ fn resume_arc(
 fn run_arc_run(
     name: &str,
     project: Option<std::path::PathBuf>,
+    session: Option<String>,
     json: bool,
     quiet: bool,
 ) -> Result<(), String> {
     // The arc runs on a card: every stage is a rotation of the calling
     // session's own tugcode ([B05]). Without a session there is nowhere for a
     // stage to go, so this refuses rather than recording an arc nobody can run.
-    let session = calling_session_id("an arc").map_err(|_| {
-        "no session — an arc runs on a Session card, so run this from one or set TUG_SESSION_ID"
-            .to_string()
-    })?;
+    let session = calling_session_id("an arc", session.as_deref())?;
     let root = arc_project_root(project.clone())?;
     let (started, resumed, arc) = open_arc(&root, name)?;
 
     // The record is written before the kick, so a tugcast that never hears
     // about the arc still has one to find on its next pass.
-    post_dash_api(serde_json::json!({
+    let response = post_dash_api(serde_json::json!({
         "op": "arc_run",
-        "tug_session_id": session,
+        "tug_session_id": session.session_id,
         "project_dir": binding_project(project)?.to_string_lossy(),
         "dash": name,
-    }))?;
+    }))
+    .map_err(|e| refuse(&session, e))?;
+    // The server resolves once more at its own door, so its answer is the
+    // last word on which session the arc was seated against — never the id
+    // that was posted ([P01]).
+    let seated = answered_session(&response, &session);
 
     if json {
         print_ok(
@@ -1151,6 +1171,7 @@ fn run_arc_run(
                 started,
                 resumed,
                 arc,
+                tug_session_id: seated.clone(),
             },
         );
     } else if !quiet {
@@ -1169,7 +1190,8 @@ fn run_arc_run(
             ),
             (false, false) => println!("Arc on '{}' is already open", name),
         }
-        println!("This session is bound to it; the first stage rotates when this turn ends.");
+        println!("Session {seated} is bound to it; the first stage rotates when this turn ends.");
+        print_rotation_note(&session, &seated);
     }
     Ok(())
 }
@@ -1328,46 +1350,106 @@ pub(crate) fn post_instance_api(
     Err(last_error.unwrap_or_else(|| "no instance accepted the request".to_string()))
 }
 
-/// The calling session's id, or the actionable error naming what to do.
+/// The calling session, **resolved** to its line's live segment, or the
+/// actionable error naming what to do.
 ///
-/// `subject` names what wanted the session, so the refusal says why it is
-/// asking rather than reporting whatever the first caller happened to be.
-pub(crate) fn calling_session_id(subject: &str) -> Result<String, String> {
-    std::env::var("TUG_SESSION_ID")
-        .ok()
+/// Every session-addressed dash verb starts here. The raw `$TUG_SESSION_ID`
+/// is not an answer: it is frozen at spawn, and a card mid-arc rotates its
+/// session on purpose, so the id a stage's shell holds names a segment that
+/// closed rotations ago. Resolution happens once, here, before any use — see
+/// [`crate::session_identity`] for why this is a chokepoint rather than a
+/// per-caller courtesy.
+pub(crate) fn calling_session_id(
+    subject: &str,
+    session: Option<&str>,
+) -> Result<crate::session_identity::Resolved, String> {
+    crate::session_identity::resolve(subject, session)
+}
+
+/// The session the server says it acted on, preferring its answer over
+/// anything this process resolved or posted.
+///
+/// `/api/dash` re-resolves at its own door and names the segment it wrote
+/// onto. Echoing the posted id instead is how a bind came to report success
+/// about a session the server had deliberately not written.
+fn answered_session(
+    response: &serde_json::Value,
+    resolved: &crate::session_identity::Resolved,
+) -> String {
+    response
+        .get("session_id")
+        .and_then(|v| v.as_str())
         .filter(|s| !s.is_empty())
-        .ok_or_else(|| {
-            format!(
-                "no session — {subject} names the calling session, so run this from a Session card or set TUG_SESSION_ID"
-            )
-        })
+        .map(str::to_string)
+        .unwrap_or_else(|| resolved.session_id.clone())
+}
+
+/// Say so when the verb landed somewhere other than where it was aimed.
+///
+/// A rotation is meant to be invisible to the work, but a receipt that hides
+/// it leaves the reader with no way to tell a stale id from a live one — the
+/// silence the whole workstream is about.
+fn print_rotation_note(resolved: &crate::session_identity::Resolved, landed: &str) {
+    if resolved.resolved && landed != resolved.posted {
+        println!(
+            "  (this shell holds {}, which has rotated — the verb landed on {landed})",
+            resolved.posted
+        );
+    }
+}
+
+/// A refusal that names the session it is about.
+///
+/// The old text said only what the caller had asked for, so a reader could
+/// not tell whether the verb had been aimed at a live card, at a segment two
+/// rotations dead, or at nothing at all — which is the whole of why the
+/// documented repair gesture read as a success. Every session-addressed dash
+/// refusal now carries the **resolved** id and the ledger's word for it.
+fn refuse(resolved: &crate::session_identity::Resolved, message: String) -> String {
+    let state = resolved
+        .state
+        .as_deref()
+        .unwrap_or("unknown to any instance");
+    let mut out = format!("{message} (session {}, {state}", resolved.session_id);
+    if resolved.rotated {
+        out.push_str(&format!("; this shell holds {}", resolved.posted));
+    }
+    if let Some(line) = resolved.line_id.as_deref() {
+        out.push_str(&format!("; line {line}"));
+    }
+    out.push(')');
+    out
 }
 
 fn run_bind(
     name: &str,
     project: Option<std::path::PathBuf>,
+    session: Option<&str>,
     json: bool,
     quiet: bool,
 ) -> Result<(), String> {
-    let session = calling_session_id("dash binding")?;
+    let session = calling_session_id("dash binding", session)?;
     let project = binding_project(project)?;
     let response = post_dash_api(serde_json::json!({
         "op": "bind",
-        "tug_session_id": session,
+        "tug_session_id": session.session_id,
         "project_dir": project.to_string_lossy(),
         "dash": name,
-    }))?;
+    }))
+    .map_err(|e| refuse(&session, e))?;
+    let bound = answered_session(&response, &session);
     if json {
         print_ok(
             "dash bind",
             serde_json::json!({
                 "dash": name,
                 "dash_id": response.get("dash_id"),
-                "tug_session_id": session,
+                "tug_session_id": bound,
             }),
         );
     } else if !quiet {
-        println!("Bound this session to dash '{}'", name);
+        println!("Bound session {bound} to dash '{name}'");
+        print_rotation_note(&session, &bound);
     }
     Ok(())
 }
@@ -1381,25 +1463,29 @@ fn run_bind(
 fn run_arc_stop(
     name: &str,
     project: Option<std::path::PathBuf>,
+    session: Option<&str>,
     json: bool,
     quiet: bool,
 ) -> Result<(), String> {
-    let session = calling_session_id("dash stop")?;
+    let session = calling_session_id("dash stop", session)?;
     let project = binding_project(project)?;
     let response = post_dash_api(serde_json::json!({
         "op": "arc_stop",
-        "tug_session_id": session,
+        "tug_session_id": session.session_id,
         "project_dir": project.to_string_lossy(),
         "dash": name,
-    }))?;
+    }))
+    .map_err(|e| refuse(&session, e))?;
     let stage = response
         .get("stage")
         .and_then(|s| s.as_str())
         .unwrap_or("its stage");
+    let stopped = answered_session(&response, &session);
     if json {
         print_ok("dash stop", response);
     } else if !quiet {
-        println!("Stopped the arc on '{name}' in {stage}");
+        println!("Stopped the arc on '{name}' in {stage} (session {stopped})");
+        print_rotation_note(&session, &stopped);
         println!("Resume with tugtool dash run {name}");
     }
     Ok(())
@@ -1422,28 +1508,33 @@ fn run_arc_stop(
 /// the ledger holds rather than something the worktree needs. A failure warns
 /// on stderr and never fails the verb the user actually asked for.
 fn claim_dash(name: &str) {
-    if !std::env::var("TUG_SESSION_ID").is_ok_and(|s| !s.is_empty()) {
-        return;
-    }
-    if let Err(e) = run_bind(name, None, false, true) {
+    if let Err(e) = run_bind(name, None, None, false, true) {
         eprintln!("warning: could not bind this session to dash '{name}': {e}");
     }
 }
 
-fn run_unbind(project: Option<std::path::PathBuf>, json: bool, quiet: bool) -> Result<(), String> {
-    let session = calling_session_id("dash binding")?;
+fn run_unbind(
+    project: Option<std::path::PathBuf>,
+    session: Option<&str>,
+    json: bool,
+    quiet: bool,
+) -> Result<(), String> {
+    let session = calling_session_id("dash binding", session)?;
     let _project = binding_project(project)?;
-    post_dash_api(serde_json::json!({
+    let response = post_dash_api(serde_json::json!({
         "op": "unbind",
-        "tug_session_id": session,
-    }))?;
+        "tug_session_id": session.session_id,
+    }))
+    .map_err(|e| refuse(&session, e))?;
+    let unbound = answered_session(&response, &session);
     if json {
         print_ok(
             "dash unbind",
-            serde_json::json!({ "tug_session_id": session }),
+            serde_json::json!({ "tug_session_id": unbound }),
         );
     } else if !quiet {
-        println!("Unbound this session from its dash");
+        println!("Unbound session {unbound} from its dash");
+        print_rotation_note(&session, &unbound);
     }
     Ok(())
 }

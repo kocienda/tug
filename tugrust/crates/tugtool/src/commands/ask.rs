@@ -144,8 +144,13 @@ pub fn run_ask(
         return Ok(EXIT_NO_ROUTE);
     };
 
+    // The dialog is routed to a card by session id, and the deck matches
+    // exactly: a `$TUG_SESSION_ID` frozen before a rotation names no card, and
+    // an unrouted ask is answered by the declining fallback without anyone
+    // being asked. Resolve to the line's live segment first ([P01]).
+    let session_id = crate::session_identity::resolve_soft(None).map(|r| r.session_id);
     let body = serde_json::json!({
-        "sessionId": std::env::var("TUG_SESSION_ID").ok(),
+        "sessionId": session_id,
         "title": title,
         "description": description,
         "timeoutSecs": timeout_secs,

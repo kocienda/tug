@@ -133,7 +133,7 @@ fn run_rotate(
     if cancel && (prompt.is_some() || model.is_some() || effort.is_some() || stage.is_some()) {
         return Err("--cancel withdraws a pending rotation and takes no other flags".to_string());
     }
-    let session = calling_session_id("a rotation")?;
+    let session = calling_session_id("a rotation", None)?;
 
     if cancel {
         // Withdrawing is the whole of the ceremony a pending rotation deserves:
@@ -142,7 +142,7 @@ fn run_rotate(
         let response = post_instance_api(
             "/api/session",
             "a rotation",
-            serde_json::json!({ "op": "rotate_cancel", "tug_session_id": session }),
+            serde_json::json!({ "op": "rotate_cancel", "tug_session_id": session.session_id }),
         )?;
         let cancelled = response
             .get("cancelled")
@@ -170,7 +170,7 @@ fn run_rotate(
 
     let mut body = serde_json::json!({
         "op": "rotate",
-        "tug_session_id": session,
+        "tug_session_id": session.session_id,
         "stage": stage,
         "prompt": prompt,
     });

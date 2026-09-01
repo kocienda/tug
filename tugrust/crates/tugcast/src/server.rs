@@ -276,6 +276,15 @@ struct DraftApiRequest {
     /// CLI's test-isolated direct path and never in production.
     #[serde(default)]
     legacy_owner_id: Option<String>,
+    /// Further keys the same owner's rows may sit under — for a **session**
+    /// owner, the other segments of its line ([P01]). `$TUG_SESSION_ID` is
+    /// frozen at spawn and the Wheel rotates a card's session on purpose, so
+    /// a draft authored before a rotation sits under an id the card no longer
+    /// wears; without this the write would key forward and orphan it. Read as
+    /// fallbacks, superseded on set, swept on clear — exactly as the singular
+    /// `legacy_owner_id` is.
+    #[serde(default)]
+    legacy_owner_ids: Vec<String>,
     /// Project path as the caller spelled it. The server is the
     /// canonicalization gateway ([L29]): this is resolved through
     /// `resolve_to_claude_form` and the *resolved* spelling is the row
@@ -396,6 +405,12 @@ fn apply_draft_request(
             req.legacy_owner_id
                 .as_deref()
                 .filter(|legacy| *legacy != req.owner_id),
+        )
+        .chain(
+            req.legacy_owner_ids
+                .iter()
+                .map(String::as_str)
+                .filter(|id| *id != req.owner_id),
         )
         .flat_map(|id| {
             std::iter::once((id, canonical.as_str()))
@@ -781,7 +796,7 @@ fn apply_dash_request(
 /// vocabulary ([P03]).
 #[derive(serde::Deserialize)]
 struct SessionApiRequest {
-    /// `rotate` | `rotate_cancel`.
+    /// `rotate` | `rotate_cancel` | `resolve`.
     op: String,
     #[serde(default)]
     tug_session_id: Option<String>,
@@ -801,6 +816,73 @@ struct SessionApiRequest {
     /// The reasoning effort to seat it at. Absent leaves the level as it is.
     #[serde(default)]
     effort: Option<String>,
+}
+
+/// Why a `resolve` could not answer, in the vocabulary the CLI's
+/// try-each-instance loop reads.
+#[derive(Debug)]
+enum IdentityRefusal {
+    /// Not this instance's line — keep walking.
+    Unknown,
+    /// This instance owns the line and every segment of it has closed.
+    LineClosed(String),
+}
+
+/// The identity chokepoint ([P01]): expand a posted `$TUG_SESSION_ID` to the
+/// live segment of its line, and say what became of the id that was posted.
+///
+/// Every short-lived CLI process holds an id frozen at spawn, and the Wheel
+/// rotates a card's session on purpose — so the id a verb was born with
+/// routinely names a segment closed two rotations ago. `calling_segment` makes
+/// this move for `/api/dash`'s own ops; this op is the same move offered to
+/// any caller *before* it acts, so no verb has to solve staleness for itself
+/// and no reader has to be trusted to re-expand what a writer left stale.
+///
+/// The answer carries the posted id's own `state` alongside the resolved one,
+/// because a refusal that cannot say what became of the id it was handed sends
+/// its reader looking in the wrong place.
+fn resolve_session_identity(
+    ledger: &crate::session_ledger::SessionLedger,
+    posted: &str,
+) -> Result<serde_json::Value, IdentityRefusal> {
+    let Some(row) = ledger.get(posted).ok().flatten() else {
+        return Err(IdentityRefusal::Unknown);
+    };
+    let live = match ledger.live_segment_of(posted) {
+        Ok(Some(live)) => live,
+        _ => {
+            return Err(IdentityRefusal::LineClosed(format!(
+                "session {posted} is {} and no segment of its line is live — \
+                 the card it worked has gone",
+                row.state.as_str()
+            )));
+        }
+    };
+    let line_id = ledger.line_of(posted);
+    // Every segment the line has ever worn, newest-answering first — what a
+    // reader keyed on session id (a draft owner, a pending ask) expands over
+    // so a row written under an earlier segment still surfaces.
+    let segments = line_id
+        .as_deref()
+        .and_then(|line| ledger.line_ownership(line).ok().flatten())
+        .map(|own| own.segment_ids)
+        .unwrap_or_else(|| vec![posted.to_string()]);
+    let live_state = ledger
+        .get(&live)
+        .ok()
+        .flatten()
+        .map(|r| r.state.as_str())
+        .unwrap_or("live");
+    Ok(serde_json::json!({
+        "status": "ok",
+        "session_id": live,
+        "posted": posted,
+        "posted_state": row.state.as_str(),
+        "state": live_state,
+        "line_id": line_id,
+        "segments": segments,
+        "rotated": live != posted,
+    }))
 }
 
 /// Handle POST /api/session. Loopback only, like every tugcast API.
@@ -831,9 +913,6 @@ async fn session_handler(
     let Some(ledger) = supervisor.session_ledger.clone() else {
         return err(StatusCode::SERVICE_UNAVAILABLE, "no session ledger");
     };
-    let Some(wheel) = router.wheel.clone() else {
-        return err(StatusCode::SERVICE_UNAVAILABLE, "no wheel");
-    };
     let req: SessionApiRequest = match serde_json::from_slice(&body) {
         Ok(r) => r,
         Err(e) => return err(StatusCode::BAD_REQUEST, &format!("invalid JSON: {e}")),
@@ -843,6 +922,29 @@ async fn session_handler(
             StatusCode::BAD_REQUEST,
             "a rotation names the session it rotates",
         );
+    };
+
+    // `resolve` is the identity chokepoint's server half, and the one op here
+    // that needs no wheel: it reads the ledger and answers. Handled before the
+    // wheel guard so an instance without one still resolves.
+    if req.op == "resolve" {
+        let resolved = {
+            let ledger = Arc::clone(&ledger);
+            let posted = session_id.clone();
+            tokio::task::spawn_blocking(move || resolve_session_identity(&ledger, &posted)).await
+        };
+        return match resolved {
+            Ok(Ok(value)) => (StatusCode::OK, axum::Json(value)).into_response(),
+            Ok(Err(IdentityRefusal::Unknown)) => err(StatusCode::NOT_FOUND, "unknown_session"),
+            Ok(Err(IdentityRefusal::LineClosed(message))) => err(StatusCode::CONFLICT, &message),
+            Err(e) => err(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &format!("session task failed: {e}"),
+            ),
+        };
+    }
+    let Some(wheel) = router.wheel.clone() else {
+        return err(StatusCode::SERVICE_UNAVAILABLE, "no wheel");
     };
 
     match req.op.as_str() {
@@ -1661,6 +1763,62 @@ pub async fn run_server(
 mod tests {
     use super::*;
 
+    // ── /api/session `resolve` — the identity chokepoint ──────────────────
+
+    /// The Wheel's shape: a line whose stages have each rotated a fresh id,
+    /// only the newest live. `$TUG_SESSION_ID` inside that card still names
+    /// the first.
+    fn rotated_ledger() -> crate::session_ledger::SessionLedger {
+        let l = crate::session_ledger::SessionLedger::open_in_memory().expect("ledger");
+        l.record_spawn("seg-old", "ws", "/proj", "card-1", 1_000, "line-1", None)
+            .unwrap();
+        l.demote_live_to_closed().unwrap();
+        l.record_spawn("seg-new", "ws", "/proj", "card-1", 2_000, "line-1", None)
+            .unwrap();
+        l
+    }
+
+    #[test]
+    fn resolve_expands_a_stale_id_to_the_seated_segment() {
+        let l = rotated_ledger();
+        let answer = resolve_session_identity(&l, "seg-old").expect("resolves");
+        assert_eq!(answer["session_id"], "seg-new");
+        assert_eq!(answer["posted"], "seg-old");
+        assert_eq!(answer["posted_state"], "closed");
+        assert_eq!(answer["state"], "live");
+        assert_eq!(answer["rotated"], true);
+        let segments: Vec<String> = serde_json::from_value(answer["segments"].clone()).unwrap();
+        assert!(segments.contains(&"seg-old".to_string()));
+        assert!(segments.contains(&"seg-new".to_string()));
+    }
+
+    #[test]
+    fn resolve_answers_for_itself_when_nothing_has_rotated() {
+        let l = rotated_ledger();
+        let answer = resolve_session_identity(&l, "seg-new").expect("resolves");
+        assert_eq!(answer["session_id"], "seg-new");
+        assert_eq!(answer["rotated"], false);
+    }
+
+    /// The two refusals are different sentences on purpose: one sends the
+    /// CLI walking to the next instance, the other says the card has gone.
+    #[test]
+    fn resolve_refuses_an_unknown_id_and_a_closed_line_differently() {
+        let l = rotated_ledger();
+        assert!(matches!(
+            resolve_session_identity(&l, "never-seen"),
+            Err(IdentityRefusal::Unknown)
+        ));
+        l.demote_live_to_closed().unwrap();
+        match resolve_session_identity(&l, "seg-old") {
+            Err(IdentityRefusal::LineClosed(message)) => {
+                assert!(message.contains("seg-old"), "names the id it was handed");
+                assert!(message.contains("closed"), "and its state: {message}");
+            }
+            other => panic!("expected a closed-line refusal, got {other:?}"),
+        }
+    }
+
     #[test]
     fn test_tell_request_deserialization() {
         let json = r#"{"action":"test-ping"}"#;
@@ -1704,6 +1862,7 @@ mod tests {
             owner_kind: "dash".to_string(),
             owner_id: ID_KEY.to_string(),
             legacy_owner_id: Some(LEGACY_KEY.to_string()),
+            legacy_owner_ids: Vec::new(),
             project_dir: "/proj".to_string(),
             raw_project_dir: None,
             superseded_project_dirs: Vec::new(),

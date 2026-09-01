@@ -16,6 +16,8 @@ pub mod ports;
 pub mod quiesce;
 pub mod registry;
 #[cfg(test)]
+mod session_identity_scan;
+#[cfg(test)]
 mod source_scan;
 
 /// Resolve the per-instance data directory for `instance_id` without

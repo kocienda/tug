@@ -10,6 +10,7 @@ mod host;
 mod output;
 mod plan;
 mod session;
+mod session_identity;
 mod splash;
 mod tripwire;
 

@@ -807,6 +807,11 @@ pub enum DashCommands {
         /// the server canonicalizes it ([L29]).
         #[arg(long)]
         project: Option<std::path::PathBuf>,
+        /// Calling session (default: $TUG_SESSION_ID). Resolved to its
+        /// line's live segment either way — a typed id goes stale the same
+        /// way an inherited one does.
+        #[arg(long)]
+        session: Option<String>,
     },
     /// Report where a dash's documents live and which of them exist.
     ///
@@ -842,6 +847,10 @@ pub enum DashCommands {
         /// the server canonicalizes it ([L29]).
         #[arg(long)]
         project: Option<std::path::PathBuf>,
+        /// Calling session (default: $TUG_SESSION_ID), resolved to its
+        /// line's live segment.
+        #[arg(long)]
+        session: Option<String>,
     },
     /// Stop the arc, keep the dash.
     ///
@@ -856,12 +865,20 @@ pub enum DashCommands {
         /// the server canonicalizes it ([L29]).
         #[arg(long)]
         project: Option<std::path::PathBuf>,
+        /// Calling session (default: $TUG_SESSION_ID), resolved to its
+        /// line's live segment.
+        #[arg(long)]
+        session: Option<String>,
     },
     /// Drop the calling session's dash binding.
     Unbind {
         /// Project directory (default: cwd).
         #[arg(long)]
         project: Option<std::path::PathBuf>,
+        /// Calling session (default: $TUG_SESSION_ID), resolved to its
+        /// line's live segment.
+        #[arg(long)]
+        session: Option<String>,
     },
 }
 
@@ -1102,9 +1119,14 @@ mod tests {
             "/tmp/p",
         ]);
         match cli.command {
-            Some(Commands::Dash(DashCommands::Stop { name, project })) => {
+            Some(Commands::Dash(DashCommands::Stop {
+                name,
+                project,
+                session,
+            })) => {
                 assert_eq!(name, "interruption");
                 assert_eq!(project.as_deref(), Some(std::path::Path::new("/tmp/p")));
+                assert!(session.is_none(), "--session defaults to the environment");
             }
             _ => panic!("dash stop did not parse"),
         }
