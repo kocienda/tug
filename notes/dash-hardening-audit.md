@@ -169,3 +169,76 @@ None. The three that were open — reopen un-arming `join_ready`, the `file_even
 - **`reported_binding`'s branch gate** (Part I.C) — W2.
 - **`at0476`'s stop-receipt assertion** expects `arc stopped` where the card now says `you stopped it`. Pre-existing wording drift, red since `4cd1c9a45`, untouched here: it belongs with W4's receipt work, not with identity.
 - **`at0387`** times out waiting for the Overview card to mount. Pre-existing and unrelated to identity; it covers `action-dispatch.ts`, which is why it kept appearing in the selection.
+
+---
+
+## Part V — W2 as landed, and five corrections to Part I
+
+**W2 landed 2026-08-31** from main-lane sessions, in four commits. The shape is
+as proposed — nothing on the binding path succeeds without its effect being
+real and visible — but five of Part I's facts did not survive contact, and W3+
+should be read against these as well as against Part IV.
+
+**1. `session_updated` carries no dash at all.** Part I.B's fix reads as "send
+`session_updated` before `bind_dash_ok`, so the push already says which dash."
+`build_session_updated_frame` has no dash field and never had one — the ack
+does, the push does not. Ordering the push first works for a different reason:
+the push is the only frame that carries the `(session_id, line_id)` pair, and
+that pair is what the deck's segment → line → card walk is made of. So the
+order matters because of *identity*, not because of the binding. The
+announcement now also carries `line_id` and `card_id` itself, which is the
+belt to the ordering's braces.
+
+**2. `reported_binding`'s branch gate has a third door, not two.** Part I.C
+names the pre-branch arc binding and the empty-set-on-git-failure. There is
+also `list_card_bindings`'s per-project map (`agent_supervisor.rs`), whose
+`unwrap_or(&no_dashes)` gave a project *missing from the map* the same empty
+set — so a row whose `project_dir` spelling drifted out of the collected set
+was nulled having never been asked about. Fixed with the other two; the gate is
+now `DashRecords::{Known, Unreadable}` and only `Known` may null.
+
+**3. The dash's record is the `tugid`, not the branch — and `ops::mark` still
+gates on the branch.** The fix for the pre-branch nulling is that
+`live_dash_records` accepts either a `tugdash/<name>` ref or a
+`branch.tugdash/<name>.tugid` config entry, because a teardown takes both
+together. `tugdash_core::ops::mark` was not brought along: it still refuses
+with "Dash not found" when the branch is absent, so a pre-branch arc cannot be
+marked at all. Left for W3, which owns the step machine and is where the
+ledger verbs' entry conditions belong together.
+
+**4. "`claim_dash` failure fails the verb" has a third case Part III does not
+anticipate.** Taken literally it fails every CLI fixture that creates a scratch
+dash in a temp repo from inside a Session card — because `dash_api::bind`
+refuses a session binding a dash outside its own checkout, and that refusal
+says nothing about whether a claim was lost. The landed shape distinguishes
+**refused** (fatal) from **never entitled** (skipped), which needed a fact this
+side did not have: `POST /api/session {op:"resolve"}` now answers with the
+session's `project_dir`. Additive, and skew-safe by Part IV's rule — an
+instance that omits it cannot be asked, so the refusal warns exactly as it used
+to. W5's skill rewrites should teach `claimed` in the JSON rather than the exit
+code alone, since three of the four outcomes exit 0.
+
+**5. The CLI test corpus leaks the ambient session.** `tripwire_cli.rs` ran
+`tugtool dash create` in a temp repo with neither `TUG_SESSION_ID` nor `TMPDIR`
+scrubbed, so on a developer's machine it reached the real instance registry and
+posted a bind naming a scratch dash — the exact hazard `dash_api::bind`'s
+same-project guard was added for, met from the other side. Scrubbed here.
+`dash_binding_cli.rs` and `dash_verify_cli.rs` were already careful; the other
+five CLI test files drive no binding verb today, and nothing stops the next one
+from doing so. A source-scan guard in the `no_ad_hoc_*` mold — a CLI test that
+shells `tugtool` must scrub the session env — is the class-closure, and is not
+landed.
+
+### What W2 deliberately left
+
+- **The step machine** (Part I.D) — W3 by assignment. `step done --commit` now
+  verifies its sha and `mark` reports open rows, but there is still no `step
+  reset`, `done` is still terminal, and the table/log pair still moves in two
+  writes.
+- **`ops::mark`'s branch gate** — finding 3 above, W3.
+- **The arc runner's silent wedges** (Part I.E) — W4.
+- **Teaching the new verbs.** `dash bind --dry-run` exists and no skill mentions
+  it; `dash-plan/SKILL.md:67` still recommends `/dash-bind` as the repair. W5.
+- **`at0476`'s stop-receipt subtest, `at0387`'s Overview-mount timeout, and
+  `tugcode`'s `plugin-commands.test.ts`** — pre-existing reds, unrelated, as
+  Part IV records.

@@ -626,11 +626,20 @@ fn a_dismissal_discards_the_dash_in_the_repository_the_landing_named() {
     }
 
     let dash = "tripwire-w-abcd1234";
+    // No ambient session, and no ambient instance registry. A `dash create`
+    // claims the dash for its calling session, and this fixture runs from
+    // inside a Session card as often as not — an unscrubbed run reaches the
+    // developer's own live instance and posts a bind naming a scratch dash in
+    // a temp repo. That is the hazard `dash_api::bind`'s same-project guard
+    // was added for, met here from the other side.
     let created = Command::cargo_bin("tugtool")
         .unwrap()
         .args(["dash", "create", dash, "--json"])
         .current_dir(&root)
         .env("TUG_DATA_DIR", data.path())
+        .env("TMPDIR", data.path())
+        .env_remove("TUG_SESSION_ID")
+        .env_remove("TUG_INSTANCE_ID")
         .output()
         .unwrap();
     assert!(created.status.success(), "{}", stderr(&created));
