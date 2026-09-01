@@ -12,8 +12,13 @@
 import { describe, test, expect } from "bun:test";
 import {
   CardSessionBindingStore,
+  cardLine,
+  cardSeatedSegment,
+  cardSessionBindingStore,
+  seatedSegmentForSession,
   type CardSessionBinding,
 } from "../lib/card-session-binding-store";
+import { sessionLineStore } from "../lib/session-line-store";
 
 function makeBinding(overrides: Partial<CardSessionBinding> = {}): CardSessionBinding {
   return {
@@ -208,5 +213,134 @@ describe("CardSessionBindingStore – setLineBinding", () => {
     });
     store.setLineBinding("card-1", "sess-1", "line-1");
     expect(notifications).toBe(0);
+  });
+});
+
+/**
+ * **The seat a rotation moves** — the postmortem's own symptom, as a unit.
+ *
+ * The Wheel mints a fresh segment on the card's line and the ledger seats the
+ * line on it; the row push that follows is what teaches the deck the new
+ * `(session_id, line_id)` pair. The card's *address* must not move — its
+ * `CardServices` bag is built around it and every frame it sends is stamped
+ * with it — so the seat is read rather than written: card → line → the line's
+ * current segment. Before a rotation the two answers are one string, which is
+ * why five workstreams of tests could not tell them apart.
+ *
+ * Against the singletons, because that composition is what the app reads:
+ * `cardSeatedSegment` is exactly `cardSessionBindingStore` and
+ * `sessionLineStore` asked in turn, and a test over private instances would
+ * pin a walk nothing performs.
+ */
+describe("cardSeatedSegment – the card follows the rotation, its address does not", () => {
+  const CARD = "card-seat";
+  const ROOT = "seat-sess-root";
+  const LINE = "seat-line";
+  const STAGE = "seat-sess-stage";
+
+  function seatFixture(): void {
+    cardSessionBindingStore.clearBinding(CARD);
+    sessionLineStore.forgetSession(ROOT);
+    sessionLineStore.forgetSession(STAGE);
+    cardSessionBindingStore.setBinding(CARD, makeBinding({
+      tugSessionId: ROOT,
+      lineId: LINE,
+      sessionMode: "resume",
+    }));
+    // What `spawn_session_ok` does with the ack's `(session_id, line_id)`.
+    sessionLineStore.seat(ROOT, LINE);
+  }
+
+  test("before any rotation the seat is the address", () => {
+    seatFixture();
+    expect(cardSeatedSegment(CARD)).toBe(ROOT);
+    expect(seatedSegmentForSession(ROOT)).toBe(ROOT);
+  });
+
+  test("the live row push for a fresh segment moves the seat, not the address", () => {
+    seatFixture();
+    // What the `session_updated` handler does with a `state: "live"` row — the
+    // push `record_spawn` broadcasts for the segment the wheel just minted.
+    sessionLineStore.seat(STAGE, LINE);
+
+    expect(cardSeatedSegment(CARD)).toBe(STAGE);
+    // Asked with the id a process born before the rotation still holds.
+    expect(seatedSegmentForSession(ROOT)).toBe(STAGE);
+    // The address is untouched: a card whose `tugSessionId` moved would have
+    // its services bag torn down and rebuilt mid-stage, against a session id
+    // the supervisor does not answer to.
+    expect(cardSessionBindingStore.getBinding(CARD)?.tugSessionId).toBe(ROOT);
+    expect(cardSessionBindingStore.getBinding(CARD)?.lineId).toBe(LINE);
+  });
+
+  test("a card with no binding has no seat, and an unknown segment is its own", () => {
+    seatFixture();
+    expect(cardSeatedSegment("card-nobody")).toBeNull();
+    expect(seatedSegmentForSession("seat-sess-stranger")).toBe("seat-sess-stranger");
+  });
+
+  test("a line no frame has seated this run falls back to the address", () => {
+    cardSessionBindingStore.clearBinding(CARD);
+    cardSessionBindingStore.setBinding(CARD, makeBinding({
+      tugSessionId: "seat-cold-sess",
+      lineId: "seat-cold-line",
+    }));
+    expect(cardSeatedSegment(CARD)).toBe("seat-cold-sess");
+    cardSessionBindingStore.clearBinding(CARD);
+  });
+});
+
+/**
+ * **The ack that carried no line**, which is the shape the postmortem's card
+ * was actually in and the reason the seat could not move.
+ *
+ * A resume of a session the ledger has no row for yet gets an ack with an empty
+ * `line_id`, so `spawn_session_ok` seeds the binding with
+ * `identityKeyForSession` — the session's own id, a line of one. The ledger
+ * then births the real line at `record_spawn` and every `session_updated` push
+ * names it. Read from the binding, the card is on a line nothing else in the
+ * system uses; read through the line store, it is on the line the server means.
+ * Driven end to end in `at0504`, where the binding said `a7c0d1ea-…-504` and
+ * `dash bind --dry-run` said `fa395c92-…`.
+ */
+describe("cardLine – the ack's seed, corrected by the server", () => {
+  const CARD = "card-seed";
+  const ROOT = "seed-sess-root";
+  const REAL = "seed-line-real";
+  const STAGE = "seed-sess-stage";
+
+  test("a line-of-one seed is superseded, and the seat moves with it", () => {
+    cardSessionBindingStore.clearBinding(CARD);
+    sessionLineStore.forgetSession(ROOT);
+    sessionLineStore.forgetSession(STAGE);
+    // The ack carried no line, so the seed is the session's own id.
+    cardSessionBindingStore.setBinding(CARD, makeBinding({
+      tugSessionId: ROOT,
+      lineId: ROOT,
+      sessionMode: "resume",
+    }));
+    sessionLineStore.seat(ROOT, ROOT);
+    expect(cardLine(CARD)).toBe(ROOT);
+    expect(cardSeatedSegment(CARD)).toBe(ROOT);
+
+    // The row push: the ledger birthed a real line and the row names it.
+    sessionLineStore.seat(ROOT, REAL);
+    expect(cardLine(CARD)).toBe(REAL);
+    expect(cardSeatedSegment(CARD)).toBe(ROOT);
+
+    // The rotation: a fresh segment on that same line, seated.
+    sessionLineStore.seat(STAGE, REAL);
+    expect(cardLine(CARD)).toBe(REAL);
+    expect(cardSeatedSegment(CARD)).toBe(STAGE);
+    // And the address is still the address.
+    expect(cardSessionBindingStore.getBinding(CARD)?.tugSessionId).toBe(ROOT);
+
+    cardSessionBindingStore.clearBinding(CARD);
+    sessionLineStore.forgetSession(ROOT);
+    sessionLineStore.forgetSession(STAGE);
+  });
+
+  test("a card with no binding has no line", () => {
+    expect(cardLine("card-seed-nobody")).toBeNull();
   });
 });

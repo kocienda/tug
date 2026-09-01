@@ -72,6 +72,7 @@
  * @covers tugrust/crates/tugtool/src/dash.rs
  * @covers tugrust/crates/tugdash-core/src/arc.rs
  * @covers tugdeck/src/lib/card-session-binding-store.ts
+ * @covers tugdeck/src/lib/dash-session-index.ts
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
@@ -116,33 +117,30 @@ const Z2_DASH_VALUE = `${CARD} [data-slot="tug-status-cell"][data-priority="task
 
 /**
  * **Whether the deck moves the card's seat onto the segment a rotation
- * created — which today it does not.**
+ * created — which since W7 it does.**
  *
  * This is the postmortem's own symptom, still standing after W1-W5, and this
  * file is what found it. The server side is entirely correct and is asserted
  * unconditionally above: the wheel mints the segment, `seat_line_binding`
  * moves the dash onto it, and `dash bind --dry-run` run with the card's
  * spawn-time id reports `rotated: true` and resolves to it. What does not
- * happen is the *deck* learning any of it. Sixty seconds after the rotation,
- * `window.__tug.cardLineFacts("A")` still answers with the pre-rotation
- * session id — and with `lineId` equal to it, so the deck does not know the
- * card is on a line at all. The masthead's `^<dash>` sigil is looked up by the
- * card's session id, so it never resolves; the Z2 DASH cell and the stage
- * divider are blank for the same reason.
+ * happen was the *deck* reading any of it. The row push that announces the
+ * fresh segment carries its `(session_id, line_id)` pair and the deck has
+ * always seated its line store on it — but the card's *seat* was never asked
+ * for: `cardLineFacts` answered the card's binding `tugSessionId`, which is
+ * the card's **address** and must not move (its `CardServices` bag is built
+ * around it, and every frame it sends is stamped with it). So the seat is
+ * derived — card → line → the line's current segment — and the dash lookup
+ * every identity surface makes walks the same way on a miss. The masthead's
+ * `^<dash>` sigil and the Z2 DASH cell were one lookup failing twice.
  *
- * It is pinned as a constant rather than left as a red test on purpose. A
- * corpus with a permanently failing file teaches everyone to read past
- * failures, which is the habit `at0231` and the `tug-sheet` red both cost
- * days to. So the assertion states **what is true now**, the run says
- * KNOWN DEFECT in its diagnostics, and the moment somebody fixes the deck
- * this test goes red and asks to have the constant flipped — at which point
- * the assertions below it start running too.
- *
- * The fix is W2's territory: the rotation announcement reaches the deck
- * (`bind_dash_ok` carries `line_id` and `card_id` since W2), but nothing moves
- * the card's own session identity onto the fresh segment.
+ * The constant stays rather than being deleted with the defect: it is what
+ * says the assertions below it are the postmortem's own screen, and flipping
+ * it back is the one-line way to re-pin this file if the seat is ever lost
+ * again. It was `false` for exactly one workstream — W6 found the defect here
+ * and W7 closed it — and a run still says which reading it took.
  */
-const DECK_SEAT_FOLLOWS_A_ROTATION = false;
+const DECK_SEAT_FOLLOWS_A_ROTATION = true;
 
 /** Said either way, so a green run states the claim as loudly as a red one. */
 const DECK_SEAT_NOTE =

@@ -68,6 +68,8 @@ import type { SparklineTapeDebugState } from "./lib/sparkline-tape";
 import { nodeToPath, selectionGuard } from "./components/tugways/selection-guard";
 import {
   cardSessionBindingStore,
+  cardLine,
+  cardSeatedSegment,
   type CardSessionMode,
 } from "./lib/card-session-binding-store";
 import { cardServicesStore } from "./lib/card-services-store";
@@ -2643,6 +2645,11 @@ export function createTugTestSurface(deck: DeckManager): TugTestSurface {
      * whichever segment is seated right now — the one a resume opened — so the
      * pair is what says "one conversation, this transcript".
      *
+     * "Seated right now" is a live reading, not the address the card was bound
+     * at: a rotation mints a fresh segment on the same line and the ledger
+     * seats the line on it, so after one the two ids differ and only the seat
+     * follows the work ([P01]).
+     *
      * Throws when the card has no binding, which is a real failure rather than
      * an empty answer: a test asking this has already waited for the bind.
      */
@@ -2658,12 +2665,17 @@ export function createTugTestSurface(deck: DeckManager): TugTestSurface {
       if (binding === undefined) {
         throw new Error(`cardLineFacts: card "${cardId}" has no bound session`);
       }
-      const identity = resolveSessionIdentity(binding.tugSessionId);
+      const seated = cardSeatedSegment(cardId) ?? binding.tugSessionId;
+      const identity = resolveSessionIdentity(seated);
+      // The server's line rather than the ack's seed: a resume of a row the
+      // ledger had not yet birthed a line for acks none, so the binding holds
+      // a line of one, and every push since has named the real one.
+      const lineId = cardLine(cardId) ?? binding.lineId;
       return {
-        tugSessionId: binding.tugSessionId,
-        lineId: binding.lineId,
+        tugSessionId: seated,
+        lineId,
         tag: identity.tag,
-        name: sessionNameStore.getName(binding.lineId),
+        name: sessionNameStore.getName(lineId),
         title: sessionDisplayTitle(identity),
         citation: sessionCitation(identity),
       };

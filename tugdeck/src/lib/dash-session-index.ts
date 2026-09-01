@@ -20,15 +20,17 @@
  * have no dash to show for the half it spent planning.
  */
 
-import { useMemo } from "react";
+import { useMemo, useSyncExternalStore } from "react";
 
 import { useChangesetAll } from "./changeset-all-store";
+import { seatedSegmentForSession } from "./card-session-binding-store";
 import type {
   DashArcState,
   DashChangesetEntry,
   WorkspacesChangesetSnapshot,
 } from "./changeset-types";
 import { documentDashAsEntry } from "./document-dash-entry";
+import { sessionLineStore } from "./session-line-store";
 
 /** What one session's dash binding looks like to an identity surface. */
 export interface DashSessionFact {
@@ -160,13 +162,34 @@ export function dashSessionIndex(
   return built;
 }
 
-/** The dash a session is working on, or null. Pure lookup over a snapshot. */
+/**
+ * The dash a session is working on, or null.
+ *
+ * **Asked of the segment, answered for the line** ([P01]/[P02]). The
+ * aggregate's `bound_sessions` names whichever segment holds the binding right
+ * now, and the Wheel moves that forward every time it rotates a stage
+ * (`seat_line_binding`) — while the caller is holding whatever segment id it
+ * was minted with: a card's spawn address, a citation's cited id, a telemetry
+ * row's own. A direct lookup answers those two ids only while they happen to
+ * be the same string, which is to say until the first rotation. So a miss
+ * walks segment → line → the line's seat and asks again, which is the same
+ * walk `cardIdForSession` makes in the other direction.
+ *
+ * That the incident blanked the masthead sigil and the Z2 DASH cell together
+ * is this one lookup failing twice: both are `useDashForSession` over an id the
+ * rotation had left behind (`notes/wheel-rotation-strands-the-arc.md`).
+ */
 export function dashForSession(
   snapshot: WorkspacesChangesetSnapshot,
   sessionId: string | null,
 ): DashSessionFact | null {
   if (sessionId === null || sessionId.length === 0) return null;
-  return dashSessionIndex(snapshot).get(sessionId) ?? null;
+  const index = dashSessionIndex(snapshot);
+  const direct = index.get(sessionId);
+  if (direct !== undefined) return direct;
+  const seated = seatedSegmentForSession(sessionId);
+  if (seated === sessionId) return null;
+  return index.get(seated) ?? null;
 }
 
 /**
@@ -179,5 +202,20 @@ export function useDashForSession(
   sessionId: string | null,
 ): DashSessionFact | null {
   const data = useChangesetAll();
-  return useMemo(() => dashForSession(data, sessionId), [data, sessionId]);
+  // The seat walk above reads the line store, so this subscribes to it as well
+  // as to the aggregate ([L02]). The two usually move in one beat — a seat
+  // bumps `CHANGESET_ALL` and pushes the row the line store learns from — but
+  // "usually" is not an ordering, and a surface that repainted only on the
+  // aggregate would hold the pre-rotation answer until something unrelated
+  // moved it.
+  const lines = useSyncExternalStore(
+    sessionLineStore.subscribe,
+    sessionLineStore.getVersion,
+  );
+  return useMemo(
+    () => dashForSession(data, sessionId),
+    // `lines` is a version token, not a value this derivation reads — it is in
+    // the dependency list precisely so a line-store move re-runs the walk.
+    [data, sessionId, lines],
+  );
 }

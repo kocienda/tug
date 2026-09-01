@@ -22,6 +22,7 @@ import {
   dashForSession,
   dashSessionIndex,
 } from "../dash-session-index";
+import { sessionLineStore } from "../session-line-store";
 
 const DATA = golden as WorkspacesChangesetSnapshot;
 
@@ -312,5 +313,59 @@ describe("the documents-only half of a dash's life", () => {
       ],
     });
     expect(index.get("sess-d")!.name).toBe("live-one");
+  });
+});
+
+/**
+ * **The seat walk** — asked of a segment, answered for the line.
+ *
+ * A rotation moves the binding onto the segment the wheel just minted
+ * (`seat_line_binding`), so the aggregate names *that* one — while every
+ * surface asking is still holding the id it was minted with: a card's spawn
+ * address, a citation's cited id. The direct lookup answers those two only
+ * while they are the same string, which is until the first rotation, and the
+ * incident is what a blank masthead sigil and a blank Z2 DASH cell look like
+ * when they are not (`notes/wheel-rotation-strands-the-arc.md`).
+ *
+ * Over the line-store singleton, which is where the pair actually lives.
+ */
+describe("dashForSession – over a rotation", () => {
+  const ROOT = "dsi-root";
+  const STAGE = "dsi-stage";
+  const LINE = "dsi-line";
+
+  function snapshotBinding(bound: string[]): WorkspacesChangesetSnapshot {
+    return {
+      projects: [
+        projectWith([
+          { ...GOLDEN_DASH, display_name: "rotating", bound_sessions: bound },
+        ]),
+      ],
+    };
+  }
+
+  test("the pre-rotation id still finds the dash the fresh segment holds", () => {
+    sessionLineStore.forgetSession(ROOT);
+    sessionLineStore.forgetSession(STAGE);
+    sessionLineStore.seat(ROOT, LINE);
+    // The rotation: the ledger seated the line on a segment the aggregate now
+    // names, and the pre-rotation id is bound to nothing at all.
+    sessionLineStore.seat(STAGE, LINE);
+
+    const snapshot = snapshotBinding([STAGE]);
+    expect(dashForSession(snapshot, STAGE)!.name).toBe("rotating");
+    expect(dashForSession(snapshot, ROOT)!.name).toBe("rotating");
+    expect(dashForSession(snapshot, ROOT)).toBe(dashForSession(snapshot, STAGE)!);
+  });
+
+  test("a segment on no line, and a line on no dash, both answer null", () => {
+    sessionLineStore.forgetSession(ROOT);
+    sessionLineStore.forgetSession(STAGE);
+    const snapshot = snapshotBinding([STAGE]);
+    expect(dashForSession(snapshot, "dsi-stranger")).toBeNull();
+
+    sessionLineStore.seat("dsi-other", "dsi-other-line");
+    expect(dashForSession(snapshot, "dsi-other")).toBeNull();
+    sessionLineStore.forgetSession("dsi-other");
   });
 });
