@@ -445,3 +445,118 @@ wording drift.
   reader learns whether an arc ended from them — so they were left where the
   brief left them, but they are the same shape and the helper to report them
   now exists.
+
+---
+
+## Part VIII — W5 as landed, and seven corrections to Parts I, VI and VII
+
+**W5 landed 2026-09-01** from a main-lane session, in six commits: the course
+kind, the environment rename, `at0476`'s wording, then the documents in three
+passes. The shape is as proposed — machinery first, then the prose that
+describes it — but seven facts did not survive contact, and two of them change
+what W6 should expect.
+
+**1. The course kind could not ride `arc-start`, and the reason generalizes.**
+Part III W5 says "recorded course kind in the arc record" without saying where.
+The obvious place is a second field on `arc-start`, and it is wrong: that
+marker's note is a path read *whole*, so an older `read_arc` would take
+`dash/idea.md plan` for the document's name — a reader that misreads is
+strictly worse than one that skips. The kind is `arc-course`, a marker of its
+own, which every older reader drops through its `_` arm exactly as it drops
+`arc-dispatch`. **The general rule: a new fact appended to an existing marker's
+note is only skew-safe when that note is already positional.** `arc-stage`
+could take one; `arc-start` and `arc-plan` cannot.
+
+**2. `--course` defaulting to `plan` is load-bearing in a way the brief does
+not say.** [B08] frames the default as backward compatibility — "every existing
+dash resumes unchanged." True, and there is a second reason that outlives the
+migration: a pre-kind dash falls back to the document sniff, and the sniff's
+error is asymmetric. Opening a dash-course dash at devise costs two rotations
+it did not need; opening a plan-course dash at implement skips a cold read it
+did. The default and the fallback both lean the same way on purpose, and the
+comment in `start_action` says so. A later change that flips the default to
+`dash` for economy would be flipping the direction of that error.
+
+**3. The rename needed three wires, not two.** Part III W5 names
+`RotationRequest`, the stage frame's `"arc"`, and tugcode. There is a fourth
+hop nobody counted: tugcode's *outbound* `session_segment` announcement also
+carries `arc`, and tugcast turns it into the `arc-stage` line. Renaming it
+would have pulled in tugcast's parser and the deck's divider for no gain, so
+that field keeps its spelling and is instead **sourced from the resolved
+course** (`course ?? arc`) rather than from whichever field arrived. The skew
+correctness lives in the resolution, not in the name — which is the cheaper
+half of the same guarantee, and worth reaching for first the next time a rename
+crosses a process boundary.
+
+**4. `at0476` was a test bug, not a receipt bug, and Parts IV and VII both
+guessed the other way.** Both record it as "wording drift" to be fixed "along
+with the rest of the wording drift" — implying the card should be made to say
+`arc stopped` again. It should not. That prefix is `parseArcReceipt`'s key, and
+spending it is the arc-receipt block's entire purpose: the block renders the
+dash as an atom, the reason as the lifecycle strip's note, and the resume
+sentence on its own line. The assertion pinned the row to *not* having been
+recognized. Fixed on the test side, and green. **Nothing in the receipt wording
+changed in W1–W5**, so any later red asserting a raw receipt prefix is the same
+mistake rather than a regression.
+
+**5. `tug` does not ship in the bundle, so `tug log` is gone.** Part I.G leaves
+this as a thing to verify. The answer is definite: the Xcode copy phase carries
+`tugcast tugcode tugtool tugedit tugexec tugrelaunch tugpulse` into
+`Contents/MacOS/`, and `tug` is not among them. Every `tug log` in the plugin
+and the doctrine is replaced — by `tugtool dash show <name>` where the rounds'
+instructions were wanted, and by `git log` where recent joins were.
+
+**6. `tugplug/CLAUDE.md` stays lint-exempt, and the exemption is now written
+down.** Part III W5 asks whether to bring it under the lint. No: the file is
+*about* the standalone contract rather than a party to it, so it must be able
+to name the guard, the repository's own build declaration, and the paths a
+reader needs — every one a string the lint refuses. Nothing loads it in a
+user's project (Claude Code reads a `CLAUDE.md` from the working tree, and the
+plugin's own is not one), so its drift costs a user nothing. The file now says
+this, which converts an exemption into a decision.
+
+**7. `at0486` is not batch pressure, and Part VII's regrouping was one file
+too generous.** Part VII moves `at0486` out of the `tug-sheet` group on the
+strength of one isolated pass in 6s. It fails in isolation now — 83s to the
+same `[data-slot="tug-sheet"]` mount timeout — and it fails identically from a
+worktree at `74d793cfc`, W5's parent, so it is not W5's. **The `tug-sheet` red
+is three files, not two**: `at0427`, `at0479`, `at0486`. Whoever chases it
+should chase all three. The lesson is the one Part VII drew and then
+under-applied: a single isolated run classifies nothing when the failure is a
+32s/80s timeout, because a timeout's outcome is a race with the machine's load
+either way. Two isolated runs, or a run from a parent commit, is the cheapest
+thing that actually decides it.
+
+`at0478` did re-run green alone and is batch pressure as Part VII says.
+
+### One thing the audit does not list, found while rewriting
+
+**The never-ask boundary is inconsistent across the four stages, and always
+was.** `dash-implement` and `dash-audit` now raise no dialog at all, and say so
+in their frontmatter rather than only in prose. But `dash-devise` and
+`dash-review` still raise `AskUserQuestion` for a design call — devise for a
+`[Q##]` it would otherwise defer, review for a judgment the rubric hands it —
+and under the wheel those stages are rotated sessions like any other, so a
+dialog there stops a course in front of whoever happens to be watching. This
+is not one of the ten enumerated contradictions and the brief does not settle
+it: [B11] made all four stages *refuse to run outside a course* and said
+nothing about what they may do inside one. The doctrine now states the split as
+it actually is, and names devise and review as the one place the boundary is a
+judgment rather than a rule. **It is a real open question and it is the only
+one W5 leaves.**
+
+### What W5 deliberately left
+
+- **The end-to-end gate** (Part I.H, W6) — untouched by assignment. What W5
+  adds to its brief: the course kind is now an assertable fact end-to-end
+  (`dash run --json` carries `arc.course`, and `at0476`'s resume diagnostic
+  already shows it riding through the real app), and the `--course dash`
+  progression has no app-test at all — it is covered only by the predicate's
+  unit tests.
+- **The `tug-sheet` mount red** — three files, pre-existing, and the gate for
+  most of the dash-lane surfaces W6 would want to drive.
+- **A timeout anywhere in the machine** (Part I.E.3, Part VII's item 3). The
+  quiet-turn horizon still cannot catch a stage that ends one turn and goes
+  silent, and the doctrine now says so in the same breath as the horizon rather
+  than leaving the limit in this note alone.
+- **The devise/review dialog question** above.
