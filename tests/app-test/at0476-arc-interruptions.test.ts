@@ -228,7 +228,16 @@ describe.skipIf(!SHOULD_RUN)("AT0476: an interrupted arc says so on the card", (
         const rows = await shellRowText(app);
         const receipt = rows.find((t) => t.indexOf("you stopped it") !== -1) ?? "";
         note("at0476 stop receipt", receipt);
-        expect(receipt).toContain("arc stopped");
+        // **The header is a parse key, not display text.** The receipt's
+        // first line — `arc stopped · <dash> · in <stage> — <reason>` — is
+        // what `parseArcReceipt` matches on, and the block's whole purpose is
+        // to spend it: it renders the dash as an atom, the reason as the
+        // lifecycle strip's note, and the resume sentence as its own line.
+        // Asserting the raw prefix would pin the row to *not* having been
+        // recognized, which is the opposite of the claim. So the claim is
+        // that it was recognized — the wheel-attributed identifier is the one
+        // word only the arc-receipt block puts on a row.
+        expect(receipt).toContain("Dash Arc");
         expect(receipt).toContain(DASH_NAME);
         // The receipt says how to pick the work back up — that is the third
         // column of every row of the doctrine table.
