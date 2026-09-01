@@ -330,3 +330,118 @@ all pre-existing:
   a real dash whose table was moved by hand). Nothing drives it through the
   card, because the gate for the surfaces it would need is among the five reds
   above.
+
+---
+
+## Part VII — W4 as landed, and six corrections to Parts I and VI
+
+**W4 landed 2026-09-01** from a main-lane session, in six commits: two paying
+W1–W3's debts, then the arc's three. The shape is as proposed — the arc cannot
+wedge or mis-stop without saying so — but six facts did not survive contact,
+and one of them is a limit on W4's own fix that W5 and W6 should read before
+trusting Part III's wording.
+
+**1. `at0475`'s regression was a stderr contract, not the instance walk.** Part
+VI names three suspects in the instance-walk code (`e1991caf2`, `a7f5ec7ff`,
+`206e96adb`) and calls the failure "a real regression in the identity
+chokepoint". The commit is right — `e1991caf2` — and the location is not. The
+walk is correct and W1's two behaviors are intact. What broke is that `resolve`
+turned the walk's raw `unknown_session` into an actionable sentence, and
+`unknown_session` was the only thing a caller could branch on to tell the
+refusal's *one legitimately transient cause* — the ledger row a card's spawn
+writes lands a moment after the card does — from a permanent one.
+`tests/app-test/dash-fixture.ts`'s `bindDash` polls through exactly that window
+on the token; the prose swallowed it and the poll became a hard throw at 3s.
+The sentence now keeps the token, and a CLI test pins both halves. **The
+general fact for later workstreams: a refusal's wording is a wire contract when
+anything branches on it, and prose alone is not a superset of a token.**
+
+**2. The middle-step wedge needed a second number, not a restored one.** Part
+VI's item 3 records that reopen un-arms the join "through arithmetic, not a
+flag" and that "nothing else needed touching". True for the *final* step, which
+is all the test covered; false for every other. Re-closing a reopened middle
+step wrote the run's frontier back to that step's own number, so a five-step run
+whose step 2 was reopened and re-closed read as "reached step 2" and could never
+be joined again. `read_declarations` now carries the frontier — the highest step
+a close reached, which only rises — separately from the set of steps still open
+or parked, and a run is complete when the frontier covers the selection and
+nothing it passed is outstanding. `step reset` inherits the fix, since a park is
+the same kind of debt as a reopen. Still no new marker, so the skew direction is
+unchanged: an older reader keeps the single-number fold, which errs by leaving a
+join un-armed and never by arming one it should not.
+
+**3. The quiet-turn horizon closes the multi-turn wedge and not the
+single-turn one.** This is the limit W5/W6 must know. The settled decision is
+"2 quiet turns, a stop with a receipt, not a re-prompt" — and *because* it is
+not a re-prompt, nothing the arc does manufactures the second turn. A stage
+that ends one turn without closing a step and then simply stops working leaves
+`quiet_turns == 1` and the arc waiting, exactly as before, forever. The horizon
+fires when turns keep ending: a stage that asks a question and is answered, a
+user typing on the card, a stage wandering across several turns. Those are the
+common shapes and the horizon handles them. The uncommon one — a stage that
+finishes the work and never runs `dash step done`, then goes silent — is still
+a silent sit. Closing it needs either a re-prompt (rejected) or a clock (there
+is still no timeout anywhere in the machine, Part I.E.3, which W4 did not take
+on). Worth naming as its own item rather than assuming W4 covered it.
+
+**4. The horizon retires `in_flight_at` on the same terms, with the same
+limit.** Part III W4.1 says "the same horizon retires a latched `in_flight_at`",
+and it does — the guard now lets a tick through once the count reaches the
+horizon. But the count only advances when turns end on the card, so a latch
+whose card has gone entirely quiet stays latched. In practice the common case
+is the good one: the dispatch frame reached stdin, claude never respawned, and
+the *old* session goes on ending turns, which is precisely when the latch needs
+retiring. The restart case is covered by `arc-dispatch` instead, which does not
+depend on any count.
+
+**5. `turns_ended` does survive a restart, so the boundary fix is
+observable.** Worth recording because the opposite is the obvious guess:
+`stage_turn_ended` is `turns_ended > 0`, `turns_ended` lives on the in-memory
+`LedgerEntry`, and a restart rebuilds it — but the rebind seeds it from the
+persisted `turn_count`. So a stage tugcast inherited across a restart is not
+made to end one more turn before the arc will look at it, and re-deriving the
+unanswered step boundary from the table actually reaches a prompt. Anyone
+writing W6's restart test should not go looking for a `stage_turn_ended` bug;
+there isn't one.
+
+**6. Part VI's "one shared cause, three files" is two things, and the app-test
+corpus has a batch-pressure failure mode nobody has named.** Running the
+sixteen app-tests that `@covers` W4's touched sources put seven red. Re-running
+the unclassified ones **alone** turned four of them green: `at0334`, `at0335`,
+`at0478`, and — the interesting one — `at0486`, which Part VI groups with
+`at0427` and `at0479` as one `tug-sheet` mount timeout. `at0427` and `at0479`
+fail in isolation too and are the genuine shared deck-side red; `at0486` passes
+in 6s alone and times out at 80s in a batch. So a slice of what reads as
+"pre-existing red" in a multi-file run is contention between files rather than
+a defect in any of them, and the per-file `history:` line cannot distinguish
+them — it records the run, not the run's size. **W6 should not build its
+end-to-end gate on a batch's verdict without checking the isolated one**, and
+whoever chases the `tug-sheet` red should chase two files, not five.
+
+`at0476`'s stop-receipt subtest is untouched and still red for the reason Part
+IV gives: the card renders the receipt's structured parts and drops the
+`arc stopped ·` prefix the assertion looks for. W4 added a stop *reason* and
+changed no receipt wording, so it stayed W5's to fix along with the rest of the
+wording drift.
+
+### What W4 deliberately left
+
+- **The course retrofit and the skills** (Part I.F, I.G) — W5 by assignment,
+  untouched. `ImplementIdle` and `arc-dispatch` are two more things no skill
+  mentions, and `dash-implement` still has no sentence about what to do when
+  the arc hands the card back mid-run.
+- **The end-to-end gate** (Part I.H, W6) — including the restart-mid-arc test
+  and the crash-before-`arc-stage` gap that W4.2 has now made testable. W4's
+  coverage of all three restart losses is unit-level: two wheels over one
+  ledger for the hand-back, an empty state map for the boundary, and a
+  synthesized record for the dispatch gap. Nothing drives a real tugcast
+  through a real restart.
+- **A timeout anywhere in the machine** (Part I.E.3). The mid-turn hang still
+  decides `None`, and correction 3 above is the other half of the same absence.
+  It belongs with W6's stage-kill test, which is where a clock could be
+  asserted rather than merely added.
+- **The other `let _ =` appends.** `arc-plan`, `arc-note`, and the `compact`
+  line are still discarded. They are footnotes rather than the record — no
+  reader learns whether an arc ended from them — so they were left where the
+  brief left them, but they are the same shape and the helper to report them
+  now exists.
