@@ -135,9 +135,20 @@ pub(crate) fn resolve(subject: &str, session: Option<&str>) -> Result<Resolved, 
         // `unknown_session` is the walk's "not mine" answer; when *every*
         // instance says it, the id belongs to no machine that is running.
         if message == "unknown_session" {
+            // The trailing token is a **contract**, not leakage. This refusal
+            // has one legitimately transient cause — the ledger row a card's
+            // spawn writes has not landed yet — and a caller that must sit
+            // through that window needs to tell it from a permanent refusal.
+            // Before this module the walk's raw `unknown_session` reached
+            // stderr and callers branched on it; replacing it with prose alone
+            // broke the app-test fixture's retry loop
+            // (`tests/app-test/dash-fixture.ts`'s `bindDash`) silently, and the
+            // breakage surfaced three workstreams downstream. So the token
+            // stays, and the CLI test below fails in `cargo nextest` the next
+            // time somebody rewrites the sentence.
             format!(
                 "no running Tug instance knows session {posted} — {subject} needs the card that \
-                 session works, and nothing here is holding it"
+                 session works, and nothing here is holding it (unknown_session)"
             )
         } else {
             format!("{subject} could not resolve session {posted}: {message}")

@@ -95,6 +95,12 @@ enum ResolveAnswer {
     /// Resolve answers with `resolve`; anything else is refused with
     /// `refusal`.
     RefusingBind { resolve: String, refusal: String },
+    /// Every instance says "not mine" — the walk's shrug, answered to
+    /// everything. Legitimately transient: the ledger row a card's spawn
+    /// writes lands a moment after the card does, so a caller that binds into
+    /// that window must be able to tell this refusal from a permanent one and
+    /// wait it out.
+    UnknownSession,
 }
 
 fn fake_tugcast_with(resolve: ResolveAnswer) -> (u16, mpsc::Receiver<serde_json::Value>) {
@@ -161,6 +167,17 @@ fn fake_tugcast_with(resolve: ResolveAnswer) -> (u16, mpsc::Receiver<serde_json:
                             body.len()
                         );
                         let _ = stream.write_all(body.as_bytes());
+                        let _ = stream.flush();
+                        continue;
+                    }
+                    ResolveAnswer::UnknownSession => {
+                        let payload = br#"{"status":"error","message":"unknown_session"}"#;
+                        let _ = write!(
+                            stream,
+                            "HTTP/1.1 404 Not Found\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                            payload.len()
+                        );
+                        let _ = stream.write_all(payload);
                         let _ = stream.flush();
                         continue;
                     }
@@ -1220,4 +1237,45 @@ fn a_refusal_from_an_instance_that_cannot_place_the_session_only_warns() {
 
     let document: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
     assert_eq!(document["data"]["claimed"], false);
+}
+
+/// **The walk's shrug stays branchable.** When every instance answers
+/// `unknown_session`, the refusal is prose — but it still carries the token,
+/// because that refusal has one legitimately transient cause and a caller
+/// sitting out that window has nothing else to branch on.
+///
+/// A card's ledger row lands a moment after the card itself, so a bind issued
+/// in between is refused by a machine that will know the session in half a
+/// second. `tests/app-test/dash-fixture.ts`'s `bindDash` polls through exactly
+/// that window on the token. Turning the walk's raw message into prose without
+/// it broke that loop silently, and the breakage surfaced three workstreams
+/// later as `at0475` failing at `dash bind`. This test is what makes the next
+/// rewrite of the sentence a red `cargo nextest` instead.
+#[test]
+fn the_unknown_session_refusal_keeps_its_branchable_token() {
+    let tmp = tempfile::tempdir().unwrap();
+    let tmp_path = tmp.path().canonicalize().unwrap();
+    let repo_dir = tempfile::tempdir().unwrap();
+    let root = repo_dir.path().canonicalize().unwrap();
+    repo_with_dash(&root, "demo");
+
+    let (port, _requests) = fake_tugcast_with(ResolveAnswer::UnknownSession);
+    register_fake_instance(&tmp_path, port);
+
+    let mut bind = tug(&tmp_path);
+    bind.current_dir(&root);
+    bind.env("TUG_SESSION_ID", "sess-not-yet-recorded");
+    bind.args(["dash", "bind", "demo"]);
+    let out = bind.output().unwrap();
+    assert_eq!(out.status.code(), Some(1), "the bind is refused");
+
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("no running Tug instance knows session sess-not-yet-recorded"),
+        "a person reads a sentence: {stderr}"
+    );
+    assert!(
+        stderr.contains("unknown_session"),
+        "and a caller waiting out the spawn window reads the token: {stderr}"
+    );
 }
