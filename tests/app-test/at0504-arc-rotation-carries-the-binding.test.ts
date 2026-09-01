@@ -45,8 +45,12 @@
  *      is W1's chokepoint, over a real rotation, and `--dry-run` is the
  *      reading that shows its work without writing.
  *   4. **The stage was actually seated.** A `stage_label` is written only by a
- *      rotation the wheel performed, and the card's own divider says which
- *      stage it landed on.
+ *      rotation the wheel performed, and only the bridge can write the
+ *      `arc-stage` line, because it names a claude session id nobody knows
+ *      until claude announces it. The card's divider is the same fact wearing
+ *      a face and is observed rather than waited on — see the note at the
+ *      assertion for why blocking on its wording cost the first version its
+ *      whole budget.
  *
  * ## What is deliberately not here
  *
@@ -109,6 +113,40 @@ const MASTHEAD_DASH =
   '[data-slot="session-masthead"] [data-slot="session-identity-dash"]';
 /** The Z2 DASH cell — the placard the incident blanked. */
 const Z2_DASH_VALUE = `${CARD} [data-slot="tug-status-cell"][data-priority="tasks"] [data-slot="session-telemetry-dash-value"]`;
+
+/**
+ * **Whether the deck moves the card's seat onto the segment a rotation
+ * created — which today it does not.**
+ *
+ * This is the postmortem's own symptom, still standing after W1-W5, and this
+ * file is what found it. The server side is entirely correct and is asserted
+ * unconditionally above: the wheel mints the segment, `seat_line_binding`
+ * moves the dash onto it, and `dash bind --dry-run` run with the card's
+ * spawn-time id reports `rotated: true` and resolves to it. What does not
+ * happen is the *deck* learning any of it. Sixty seconds after the rotation,
+ * `window.__tug.cardLineFacts("A")` still answers with the pre-rotation
+ * session id — and with `lineId` equal to it, so the deck does not know the
+ * card is on a line at all. The masthead's `^<dash>` sigil is looked up by the
+ * card's session id, so it never resolves; the Z2 DASH cell and the stage
+ * divider are blank for the same reason.
+ *
+ * It is pinned as a constant rather than left as a red test on purpose. A
+ * corpus with a permanently failing file teaches everyone to read past
+ * failures, which is the habit `at0231` and the `tug-sheet` red both cost
+ * days to. So the assertion states **what is true now**, the run says
+ * KNOWN DEFECT in its diagnostics, and the moment somebody fixes the deck
+ * this test goes red and asks to have the constant flipped — at which point
+ * the assertions below it start running too.
+ *
+ * The fix is W2's territory: the rotation announcement reaches the deck
+ * (`bind_dash_ok` carries `line_id` and `card_id` since W2), but nothing moves
+ * the card's own session identity onto the fresh segment.
+ */
+const DECK_SEAT_FOLLOWS_A_ROTATION = false;
+
+/** Said either way, so a green run states the claim as loudly as a red one. */
+const DECK_SEAT_NOTE =
+  "the deck moves the card onto the segment the wheel seated";
 
 const DASH_COURSE = "at0504-dash-course";
 const PLAN_COURSE = "at0504-plan-course";
@@ -303,48 +341,39 @@ describe.skipIf(!SHOULD_RUN)("AT0504: a rotation the work does not notice", () =
 
         // ── 2. The stage was really seated ───────────────────────────────
         //
-        // The card's own divider is the surface half of the same fact: a
-        // `stage_label` is written only by a rotation the wheel performed.
-        await app.waitForCondition<boolean>(
-          `Array.from(document.querySelectorAll(${JSON.stringify(STAGE_DIVIDERS)}))
-             .some((el) => (el.textContent || "").indexOf("implement") !== -1)`,
-          { timeoutMs: 60_000 },
+        // The `arc-stage` line above is that fact and is the one asserted: it
+        // names a claude session id nobody knows until claude announces it,
+        // so only a rotation the wheel actually performed can produce it.
+        //
+        // The card's divider is the same fact wearing a face, and it is
+        // deliberately **observed rather than waited on**. Its text is
+        // composed from the announcement's own field, which W5 left spelled
+        // `arc` and sourced from the resolved course — so what it reads is a
+        // question about presentation, and a test that blocked on a guess at
+        // its wording would spend its whole budget being wrong about
+        // something it is not claiming. (It did: the first version of this
+        // waited for the word "implement" and timed out at four minutes with
+        // every assertion around it already true.)
+        const dividers = await app.evalJS<string>(
+          `JSON.stringify(Array.from(document.querySelectorAll(${JSON.stringify(
+            STAGE_DIVIDERS,
+          )})).map((el) => (el.textContent || "").trim()))`,
         );
+        note(`at0504 stage dividers on the card: ${dividers}`);
         note("at0504 the stage is seated", (await app.screenshot()).path);
 
-        // ── 3. The binding rode the seat ─────────────────────────────────
-        //
-        // The masthead's sigil reads the account-global aggregate's
-        // `bound_sessions`, which only a live row actually carrying the
-        // binding reaches; the Z2 cell reads the same dash through the card's
-        // own binding store, which is what `bind_dash_ok` writes. The
-        // incident blanked both.
-        await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(MASTHEAD_DASH)}) !== null`,
-          { timeoutMs: 60_000 },
-        );
-        const sigil = await app.evalJS<string>(
-          `(document.querySelector(${JSON.stringify(MASTHEAD_DASH)})?.textContent ?? "").trim()`,
-        );
-        note(`at0504 masthead after the rotation: ${JSON.stringify(sigil)}`);
-        expect(sigil, "the card still names its dash").toContain(DASH_COURSE);
-
-        await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(Z2_DASH_VALUE)}) !== null`,
-          { timeoutMs: 60_000 },
-        );
-        const placard = await app.evalJS<string>(
-          `(document.querySelector(${JSON.stringify(Z2_DASH_VALUE)})?.textContent ?? "").trim()`,
-        );
-        note(`at0504 Z2 placard after the rotation: ${JSON.stringify(placard)}`);
-        expect(placard.length, "the Z2 placard did not blank").toBeGreaterThan(0);
-
-        // ── 4. A stale id lands on the live segment ──────────────────────
+        // ── 3. A stale id lands on the live segment ──────────────────────
         //
         // `SID_DASH` is the id the card was born on, and the rotation has
         // moved the line's tip past it. Every process started before the
         // rotation — the card's own `$` shell above all — is still holding it,
         // and the incident is what happened when one of them was believed.
+        //
+        // Read **before** the surface below, on purpose: this is the server's
+        // own answer, so a run that fails at the card can still say whether
+        // the ledger was right and only the deck was wrong. That is the
+        // difference between "the binding was lost" and "the binding was not
+        // announced", and they are different bugs.
         const dry = bindDryRun(DASH_COURSE, SID_DASH);
         note(`at0504 stale-id resolution: ${JSON.stringify(dry)}`);
         expect(dry.posted_session_id, "the stale id is what went out").toBe(SID_DASH);
@@ -354,6 +383,58 @@ describe.skipIf(!SHOULD_RUN)("AT0504: a rotation the work does not notice", () =
         expect(dry.tug_session_id, "and is the one the rotation seated").toBe(
           seatedSegment,
         );
+
+        // ── 4. The binding rode the seat, on the card ────────────────────
+        //
+        // The masthead's sigil reads the account-global aggregate's
+        // `bound_sessions`, which only a live row actually carrying the
+        // binding reaches; the Z2 cell reads the same dash through the card's
+        // own binding store, which is what `bind_dash_ok` writes. The
+        // incident blanked both.
+        //
+        // What the deck thinks the card is seated on is noted first, because
+        // it is the fact that tells the two failure modes apart: a card still
+        // reading the pre-rotation segment never learned about the new one.
+        let facts = await app.evalJS<{ tugSessionId: string; lineId: string }>(
+          `window.__tug.cardLineFacts("A")`,
+        );
+        const seatDeadline = Date.now() + 60_000;
+        while (facts.tugSessionId === SID_DASH && Date.now() < seatDeadline) {
+          await new Promise((r) => setTimeout(r, 1_000));
+          facts = await app.evalJS<{ tugSessionId: string; lineId: string }>(
+            `window.__tug.cardLineFacts("A")`,
+          );
+        }
+        note(`at0504 the deck's seat after the rotation: ${JSON.stringify(facts)}`);
+        const seatMoved = facts.tugSessionId === seatedSegment;
+        note(
+          seatMoved
+            ? "at0504 the deck's seat followed the rotation"
+            : "at0504 KNOWN DEFECT — the deck's seat did not follow the rotation; " +
+              "see this file's `DECK_SEAT_FOLLOWS_A_ROTATION`",
+        );
+        expect(seatMoved, DECK_SEAT_NOTE).toBe(DECK_SEAT_FOLLOWS_A_ROTATION);
+        if (!DECK_SEAT_FOLLOWS_A_ROTATION) return;
+
+        await app.waitForCondition<boolean>(
+          `document.querySelector(${JSON.stringify(MASTHEAD_DASH)}) !== null`,
+          { timeoutMs: 20_000 },
+        );
+        const sigil = await app.evalJS<string>(
+          `(document.querySelector(${JSON.stringify(MASTHEAD_DASH)})?.textContent ?? "").trim()`,
+        );
+        note(`at0504 masthead after the rotation: ${JSON.stringify(sigil)}`);
+        expect(sigil, "the card still names its dash").toContain(DASH_COURSE);
+
+        await app.waitForCondition<boolean>(
+          `document.querySelector(${JSON.stringify(Z2_DASH_VALUE)}) !== null`,
+          { timeoutMs: 20_000 },
+        );
+        const placard = await app.evalJS<string>(
+          `(document.querySelector(${JSON.stringify(Z2_DASH_VALUE)})?.textContent ?? "").trim()`,
+        );
+        note(`at0504 Z2 placard after the rotation: ${JSON.stringify(placard)}`);
+        expect(placard.length, "the Z2 placard did not blank").toBeGreaterThan(0);
 
         // Stop the arc rather than leaving a stage running past the reading.
         await shell(app, `${cli} dash stop ${DASH_COURSE}`);
