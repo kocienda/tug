@@ -1869,7 +1869,21 @@ export function initActionDispatch(
         return cardServicesStore.getServices(cardId)?.tugSessionId ?? null;
       },
       sessionFor: (tugSessionId) => {
-        const services = cardServicesStore.getByTugSessionId(tugSessionId);
+        // Exact id first, then by **line**. A question asked from inside a
+        // stage names the segment the asking shell was spawned under, and the
+        // Wheel rotates a card's session on purpose — so an exact match can
+        // find no card while the conversation is right there. An ask that
+        // finds no card is answered by the declining fallback with nobody
+        // asked, which is the silent failure this closes.
+        // `cardIdForSession` is the deck's existing segment → line → card
+        // walk; the direct match stays for a segment whose line no frame has
+        // named this run.
+        const services =
+          cardServicesStore.getByTugSessionId(tugSessionId) ??
+          (() => {
+            const cardId = cardIdForSession(tugSessionId);
+            return cardId === null ? null : cardServicesStore.getServices(cardId);
+          })();
         if (services === null) return null;
         return {
           tugSessionId: services.tugSessionId,
