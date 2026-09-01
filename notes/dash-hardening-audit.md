@@ -882,7 +882,22 @@ one on, and the only surface missing is one that does not exist. `at0505`
 asserts the picker outright, so the absence is a claim the file makes rather
 than a check it quietly dropped.
 
-**8. `at0504`'s stage divider is still empty, and it is still only observed.**
+**8. `at0367` is `at0387`'s twin, and Part X item 2 is short by one.** Part X
+names one Overview red. Running W7's derived selection turned up a second:
+`at0367-overview-scrollback` fails on `[data-testid="overview-card"]` never
+appearing, which is `at0387`'s symptom exactly. It is **not** W7's — reverting
+every source file this workstream touched and rebuilding leaves it failing
+identically, which `tugtool file probe --patch` established in one run without
+disturbing the tree. Two files on one cause is worth more than one: whatever is
+keeping the Overview card from mounting is reproducible without a menu, a key
+path, or a restore gate in the way, so `at0367` is the cheaper place to test
+item 2's hypothesis than `at0387` is.
+
+**And `at0371` was contention, not a red.** It failed in a batch of eleven and
+passed alone, which is the reading the `history:` line's batch sizes exist to
+make free.
+
+**9. `at0504`'s stage divider is still empty, and it is still only observed.**
 Every run of the file notes `stage dividers on the card: []`, green ones
 included. The file says why it is observed rather than waited on, and the
 finding stands unchanged: whether a rotation should draw a divider on the card
@@ -907,8 +922,12 @@ Of the six items Part X left open, in its own order:
 1. **The deck's seat does not follow a rotation** — **closed**. Landed as
    `2206520c6` and corrected by `3db1960e7`; asserted in `at0504` with the pin
    flipped, and in two deck units.
-2. **`at0387-session-identity-menu`** — untouched, exactly as scoped. The
-   restore-gate-on-key-path hypothesis is still a hypothesis.
+2. **`at0387-session-identity-menu`** — untouched, exactly as scoped, and now
+   **joined by `at0367-overview-scrollback`**: both fail because the Overview
+   card never mounts, and `at0367` reaches that without a menu or a key path in
+   the way. Proven pre-existing by probing W7's whole diff away. The
+   restore-gate hypothesis is still a hypothesis, and `at0367` is where to test
+   it.
 3. **`at0168`'s `maker.lens` menu row** — untouched, still Lens-breakout
    residue. It went red in this workstream's core-tier runs, as expected.
 4. **The devise/review `AskUserQuestion` boundary** — **closed**, confirmed
