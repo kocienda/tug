@@ -8,8 +8,8 @@
  * `session_init` — the placement the rewind-fork announcement already occupies,
  * because the bridge must stage the identity transfer before the `session_init`
  * that consumes it — and every spawn the session makes from then on carries
- * `TUG_DASH_ARC`, which is what lets the stage's skills read which arc they are
- * running under.
+ * `TUG_DASH_COURSE`, which is what lets the stage's skills read which course
+ * they are running under.
  *
  * The no-stage path is the one that must not move: a plain `/new` from the deck
  * emits exactly what it emitted before, and it *clears* the arc, because the
@@ -128,6 +128,13 @@ async function rotate(
 const STAGE: SessionStageSpec = {
   name: "devise",
   document: "dash/some-brief.md",
+  course: "some-dash",
+};
+
+// The same stage as a tugcast older than the rename sends it: `arc` alone.
+const STAGE_OLD_WIRE: SessionStageSpec = {
+  name: "devise",
+  document: "dash/some-brief.md",
   arc: "some-dash",
 };
 
@@ -187,7 +194,24 @@ describe("a stage rotation announces lineage", () => {
   test("the stage's spawn carries the arc name", async () => {
     const m = manager();
     await rotate(m, "new", STAGE);
+    expect(spawnEnvs.at(-1)?.TUG_DASH_COURSE).toBe("some-dash");
+  });
+
+  // **Skew, both halves.** A tugcast older than the rename sends `arc` with
+  // no `course`, and this tugcode must still learn the course from it — the
+  // read is `course ?? arc`. And every spawn exports the old variable name
+  // beside the new one, so a skill from an older bundle reads that something
+  // is driving it rather than concluding nothing is.
+  test("an older tugcast's `arc` still names the course, and both variables ship", async () => {
+    const m = manager();
+    await rotate(m, "new", STAGE_OLD_WIRE);
+    expect(m.currentCourse).toBe("some-dash");
+    expect(spawnEnvs.at(-1)?.TUG_DASH_COURSE).toBe("some-dash");
     expect(spawnEnvs.at(-1)?.TUG_DASH_ARC).toBe("some-dash");
+    // And the outbound announcement — which tugcast turns into the
+    // `arc-stage` line — names the course either way, because it is sourced
+    // from the resolution rather than from the field that happened to arrive.
+    expect(emitted.find((e) => e?.type === "session_segment").arc).toBe("some-dash");
   });
 
   test("the arc survives a later respawn tugcode makes for its own reasons", async () => {
@@ -199,7 +223,7 @@ describe("a stage rotation announces lineage", () => {
     const before = spawnEnvs.length;
     m.spawnClaude(m.sessionId, "resume");
     expect(spawnEnvs.length).toBe(before + 1);
-    expect(spawnEnvs.at(-1)?.TUG_DASH_ARC).toBe("some-dash");
+    expect(spawnEnvs.at(-1)?.TUG_DASH_COURSE).toBe("some-dash");
   });
 });
 
@@ -221,18 +245,18 @@ describe("a rotation with no course behind it", () => {
     expect(types.indexOf("session_segment")).toBeLessThan(types.indexOf("session_init"));
   });
 
-  test("its spawn carries no TUG_DASH_ARC, and one on a course does", async () => {
-    // Absence is what clears it: the stage skills read `TUG_DASH_ARC` as "a
+  test("its spawn carries no TUG_DASH_COURSE, and one on a course does", async () => {
+    // Absence is what clears it: the stage skills read `TUG_DASH_COURSE` as "a
     // course is driving you", and a rotation nobody is scoring must not make
     // them believe one is.
     const courseless = manager();
     await rotate(courseless, "new", { name: "review" });
-    expect(spawnEnvs.at(-1)).not.toHaveProperty("TUG_DASH_ARC");
-    expect(courseless.currentArc).toBeNull();
+    expect(spawnEnvs.at(-1)).not.toHaveProperty("TUG_DASH_COURSE");
+    expect(courseless.currentCourse).toBeNull();
 
     const onCourse = manager();
     await rotate(onCourse, "new", STAGE);
-    expect(spawnEnvs.at(-1)?.TUG_DASH_ARC).toBe("some-dash");
+    expect(spawnEnvs.at(-1)?.TUG_DASH_COURSE).toBe("some-dash");
   });
 
   test("a stage naming an effort spawns once, with the level applied", async () => {
@@ -317,20 +341,20 @@ describe("a session with no stage announces itself as a new line", () => {
     expect(emitted.some((e) => e?.type === "session_init")).toBe(true);
   });
 
-  test("its spawn carries no TUG_DASH_ARC", async () => {
+  test("its spawn carries no TUG_DASH_COURSE", async () => {
     const m = manager();
     await rotate(m, "new");
-    expect(spawnEnvs.at(-1)).not.toHaveProperty("TUG_DASH_ARC");
+    expect(spawnEnvs.at(-1)).not.toHaveProperty("TUG_DASH_COURSE");
   });
 
   test("a plain new after an arc clears it — the variable is per-arc, not per-card", async () => {
     const m = manager();
     await rotate(m, "new", STAGE);
-    expect(spawnEnvs.at(-1)?.TUG_DASH_ARC).toBe("some-dash");
+    expect(spawnEnvs.at(-1)?.TUG_DASH_COURSE).toBe("some-dash");
 
     await rotate(m, "new");
-    expect(spawnEnvs.at(-1)).not.toHaveProperty("TUG_DASH_ARC");
-    expect(m.currentArc).toBeNull();
+    expect(spawnEnvs.at(-1)).not.toHaveProperty("TUG_DASH_COURSE");
+    expect(m.currentCourse).toBeNull();
   });
 
   test("fork and continue never carry a stage", async () => {

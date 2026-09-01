@@ -175,10 +175,20 @@ export interface SessionStageSpec {
   /** The plan the stage drives, once one exists. */
   plan?: string;
   /**
-   * The dash name the score is keyed by — what the stage's claude reads as
-   * `TUG_DASH_ARC`. **Absent is what clears it**: a rotation carrying no `arc`
-   * spawns claude with no `TUG_DASH_ARC` at all, which is how a scoreless
-   * rotation tells the stage skills that nothing is driving them.
+   * The dash name the course is keyed by — what the stage's claude reads as
+   * `TUG_DASH_COURSE`. **Absent is what clears it**: a rotation carrying
+   * neither `course` nor `arc` spawns claude with no course variable at all,
+   * which is how a courseless rotation tells the stage skills that nothing is
+   * driving them.
+   */
+  course?: string;
+  /**
+   * The old spelling of {@link course}, sent alongside it for one release.
+   *
+   * A tugcast older than the rename sends only this; a tugcode older than it
+   * reads only this. Either way the pair degrades to keeping the course
+   * rather than dropping it, which is the direction every skew rule in the
+   * tree takes. Read `course ?? arc`, never `arc` alone.
    */
   arc?: string;
   /**

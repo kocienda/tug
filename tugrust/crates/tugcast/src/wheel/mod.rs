@@ -74,7 +74,13 @@ pub struct RotationRequest {
     /// rather than respawning behind one.
     effort: Option<String>,
     /// The course driving this rotation — today a dash name, reaching tugcode
-    /// as `arc` and the child as `TUG_DASH_ARC`.
+    /// as `course` and the child as `TUG_DASH_COURSE`.
+    ///
+    /// **Skew.** Both the wire field and the environment variable ship under
+    /// their old spellings (`arc`, `TUG_DASH_ARC`) alongside the new ones for
+    /// one release. A tugcode older than the rename reads `arc` and a skill
+    /// older than it reads `TUG_DASH_ARC`, so a mixed pair keeps the course
+    /// rather than dropping it; the direction is never a refusal.
     course: Option<String>,
     /// The document the course opened on, repo-relative.
     document: Option<String>,
@@ -445,6 +451,10 @@ pub fn frames_for(request: &RotationRequest) -> (Vec<Frame>, Frame) {
     }
     if let Some(course) = request.course.as_deref() {
         stage["arc"] = serde_json::Value::String(course.to_owned());
+        // Both spellings for one release — see `RotationRequest::course`. A
+        // tugcode that knows only `arc` still learns the course; one that
+        // knows `course` prefers it and ignores the older twin.
+        stage["course"] = serde_json::Value::String(course.to_owned());
     }
     if let Some(plan) = request.plan.as_deref() {
         stage["plan"] = serde_json::Value::String(plan.to_owned());
@@ -528,6 +538,10 @@ pub async fn rotate(
                     event = "wheel.stage_queued",
                     tug_session_id = %tug_session_id,
                     stage = %request.stage,
+                    course = request.course.as_deref().unwrap_or(""),
+                    // The old field name for one release, so a log reader
+                    // keying on `arc` keeps working. Same skew rule as the
+                    // wire field.
                     arc = request.course.as_deref().unwrap_or(""),
                 );
                 return Ok(Delivery::Queued);
@@ -559,6 +573,9 @@ pub async fn rotate(
         event = "wheel.stage_sent",
         tug_session_id = %tug_session_id,
         stage = %request.stage,
+        course = request.course.as_deref().unwrap_or(""),
+        // The old field name for one release, so a log reader keying on `arc`
+        // keeps working. Same skew rule as the wire field.
         arc = request.course.as_deref().unwrap_or(""),
     );
     Ok(Delivery::Sent)
@@ -727,6 +744,9 @@ mod tests {
             serde_json::json!({
                 "name": "implement",
                 "document": "dash/some-brief.md",
+                "course": "some-dash",
+                // The old spelling for one release — a tugcode that knows
+                // only `arc` still learns the course from the same frame.
                 "arc": "some-dash",
                 "plan": "dash/some.md",
                 "steps": "4-9",
@@ -822,6 +842,7 @@ mod tests {
         assert_eq!(command["command"], "new");
         assert_eq!(command["stage"]["name"], "devise");
         assert_eq!(command["stage"]["document"], "dash/some-brief.md");
+        assert_eq!(command["stage"]["course"], "some-dash");
         assert_eq!(command["stage"]["arc"], "some-dash");
         assert!(
             command["stage"].get("plan").is_none(),
