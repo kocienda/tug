@@ -1638,6 +1638,7 @@ impl SessionLedger {
         Self::migrate_sessions_add_private(conn)?;
         Self::migrate_sessions_add_dash_binding(conn)?;
         Self::migrate_sessions_add_demoted(conn)?;
+        Self::migrate_sessions_add_hand_back_owed(conn)?;
         Self::migrate_scan_cache_add_resume_columns(conn)?;
         Self::migrate_pulse_lines_add_intent(conn)?;
         // First of the post-table migrations: everything below it names
@@ -1733,7 +1734,18 @@ impl SessionLedger {
                 -- correct on live-borne evidence. A deliberate close
                 -- (`mark_closed`) and a spawn both clear it: closed-by-hand
                 -- stays closed, and a spawned row is live on its own terms.
-                demoted           INTEGER NOT NULL DEFAULT 0
+                demoted           INTEGER NOT NULL DEFAULT 0,
+                -- The card owes a hand-back: a courseless rotation put it on
+                -- a named model, and nothing but the restore will take it
+                -- off. `1` while owed, cleared when the restore goes out.
+                --
+                -- On disk rather than in the wheel's memory alone, because
+                -- the debt outlives the process that took it on: a tugcast
+                -- restart between the rotation and the next turn's end used
+                -- to drop the arming, and tugcode reuses its manager's
+                -- selector for every later spawn — so the card stayed pinned
+                -- on a stage model through the user's own `/new`, forever.
+                hand_back_owed    INTEGER NOT NULL DEFAULT 0
             );
 
             CREATE INDEX IF NOT EXISTS sessions_workspace_recent
@@ -2659,6 +2671,28 @@ impl SessionLedger {
             }
         }
         Ok(())
+    }
+
+    /// Self-healing add of `sessions.hand_back_owed` — the card is owed its
+    /// deck model back.
+    ///
+    /// A no-op when the table is absent (the CREATE batch then declares it)
+    /// and when the column is already there. Rows written before it read `0`,
+    /// which is the right answer for every one of them: an arming that
+    /// predates the column was already lost with the process that held it.
+    fn migrate_sessions_add_hand_back_owed(conn: &Connection) -> Result<(), LedgerError> {
+        let cols = Self::table_columns(conn, "sessions")?;
+        if cols.is_empty() || cols.iter().any(|(n, _)| n == "hand_back_owed") {
+            return Ok(());
+        }
+        match conn.execute(
+            "ALTER TABLE sessions ADD COLUMN hand_back_owed INTEGER NOT NULL DEFAULT 0",
+            [],
+        ) {
+            Ok(_) => Ok(()),
+            Err(err) if is_duplicate_column(&err) => Ok(()),
+            Err(err) => Err(err.into()),
+        }
     }
     /// Self-healing add of `minted_tags.line_id` — the line that owns a
     /// spelling ([P08]). A no-op when the table is absent (the CREATE-batch
@@ -4737,6 +4771,44 @@ impl SessionLedger {
         )
         .ok()
         .and_then(|(label, model)| label.map(|label| (label, model)))
+    }
+
+    /// Write down whether `session_id`'s card is owed its deck model back.
+    ///
+    /// The wheel keeps the armed set in memory because that is where it is
+    /// read from, on a hot path, once per turn end. This is the copy that
+    /// survives the process: a courseless rotation onto a named model pins the
+    /// card until the restore goes out, tugcode reuses its manager's selector
+    /// for every later spawn, and a tugcast restart in between used to drop
+    /// the arming and leave the card on a stage model through the user's own
+    /// `/new`.
+    ///
+    /// No `NotFound`: a session with no row is a session with no card, and a
+    /// debt against it is nobody's to settle. Silent by design, and paired
+    /// with [`Self::sessions_owed_hand_back`], which is what reads it back.
+    pub fn set_hand_back_owed(&self, session_id: &str, owed: bool) -> Result<(), LedgerError> {
+        let conn = self.db.lock().expect("ledger mutex");
+        conn.execute(
+            "UPDATE sessions SET hand_back_owed = ?2 WHERE session_id = ?1",
+            params![session_id, i64::from(owed)],
+        )?;
+        Ok(())
+    }
+
+    /// Every **live** session whose card is owed its deck model back.
+    ///
+    /// Live only, because a hand-back is a frame sent to a running card: a
+    /// closed row has nothing to send to, and carrying its debt forward would
+    /// only re-arm something no turn will ever end. Read once, at startup, to
+    /// refill the wheel's in-memory set.
+    pub fn sessions_owed_hand_back(&self) -> Result<Vec<String>, LedgerError> {
+        let conn = self.db.lock().expect("ledger mutex");
+        let mut stmt = conn.prepare(
+            "SELECT session_id FROM sessions
+             WHERE hand_back_owed = 1 AND state = 'live'",
+        )?;
+        let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
+        Ok(rows.filter_map(Result::ok).collect())
     }
 
     /// Follow the fork edges parent-ward from `session_id` and return the

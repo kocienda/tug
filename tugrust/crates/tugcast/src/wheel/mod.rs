@@ -214,11 +214,20 @@ impl Refusal {
 /// The wheel's own state: what a card has been promised, and what it is
 /// owed back.
 ///
-/// Both maps are in memory and both are dropped by a tugcast restart, on
-/// purpose. A parked rotation is a promise about the end of a turn that is in
-/// flight *right now*; a restart ends that turn by killing the claude running
-/// it, so a request that survived would fire into a session that never finished
-/// the work it was scheduled behind.
+/// The parked rotations are in memory and are dropped by a tugcast restart, on
+/// purpose: a parked rotation is a promise about the end of a turn that is in
+/// flight *right now*, and a restart ends that turn by killing the claude
+/// running it, so a request that survived would fire into a session that never
+/// finished the work it was scheduled behind.
+///
+/// The **hand-backs are not like that**, and used to be treated as though they
+/// were. A hand-back is a debt about the card's *model*, and the model outlives
+/// every turn: tugcode records the selector on its manager and reuses it for
+/// every later spawn, so a card whose courseless rotation named a model stays
+/// on that model — through the user's own `/new`, and forever — unless the
+/// restore goes out. Dropping the arming on restart left the card pinned with
+/// nothing left to un-pin it. So the armed set is mirrored into the session
+/// ledger, and [`WheelState::attach_ledger`] reads it back at startup.
 #[derive(Default)]
 pub struct WheelState {
     /// At most one rotation per tug session id. A second request replaces the
@@ -227,7 +236,17 @@ pub struct WheelState {
     /// Tug session ids owed a hand-back: a courseless rotation onto a named
     /// model pins the card there permanently unless somebody restores the
     /// deck's own selector, and no course's ending will.
+    ///
+    /// The fast copy. `sessions.hand_back_owed` is the durable one; the two
+    /// move together in [`Self::arm_hand_back`] and [`Self::take_hand_back`].
     hand_backs: StdMutex<HashSet<String>>,
+    /// Where the armed set is written down so a restart cannot lose it.
+    ///
+    /// Optional because a `WheelState::default()` is a perfectly good wheel
+    /// for a test that never restarts, and refusing to build one without a
+    /// ledger would put a database behind every rotation unit test. Attached
+    /// once, at startup, by [`Self::attach_ledger`].
+    ledger: StdMutex<Option<Arc<crate::session_ledger::SessionLedger>>>,
 }
 
 impl WheelState {
@@ -255,11 +274,52 @@ impl WheelState {
             .lock()
             .unwrap()
             .insert(session_id.to_owned());
+        self.write_hand_back(session_id, true);
     }
 
     /// Take the hand-back a session is owed. `true` means one was owed.
     pub fn take_hand_back(&self, session_id: &str) -> bool {
-        self.hand_backs.lock().unwrap().remove(session_id)
+        let owed = self.hand_backs.lock().unwrap().remove(session_id);
+        if owed {
+            self.write_hand_back(session_id, false);
+        }
+        owed
+    }
+
+    /// Attach the ledger the armed set is mirrored into, and refill the set
+    /// from what a previous process left there.
+    ///
+    /// Called once at startup, before the first turn can end. A debt read back
+    /// here is settled the ordinary way — at the session's next turn end — so
+    /// nothing about the restore is a special case downstream.
+    pub fn attach_ledger(&self, ledger: Arc<crate::session_ledger::SessionLedger>) {
+        let owed = ledger.sessions_owed_hand_back().unwrap_or_default();
+        *self.ledger.lock().unwrap() = Some(ledger);
+        if owed.is_empty() {
+            return;
+        }
+        info!(
+            sessions = owed.len(),
+            "wheel restored armed hand-backs across a restart",
+        );
+        let mut hand_backs = self.hand_backs.lock().unwrap();
+        hand_backs.extend(owed);
+    }
+
+    /// Mirror one arming into the ledger. Best-effort and loud: the in-memory
+    /// set is what this process reads, so a failed write costs the *next*
+    /// process the debt and costs this one nothing.
+    fn write_hand_back(&self, session_id: &str, owed: bool) {
+        let ledger = self.ledger.lock().unwrap().clone();
+        let Some(ledger) = ledger else { return };
+        if let Err(error) = ledger.set_hand_back_owed(session_id, owed) {
+            warn!(
+                session = session_id,
+                owed,
+                %error,
+                "wheel could not write down a hand-back; a restart would lose it",
+            );
+        }
     }
 }
 
@@ -1140,6 +1200,99 @@ mod tests {
         assert!(
             !ctx.state.take_hand_back("sess-armed"),
             "and the arming is spent, so a later tick restores nothing twice",
+        );
+    }
+
+    /// **An armed hand-back survives the process that armed it.**
+    ///
+    /// A parked rotation is rightly dropped by a restart — the turn it was
+    /// scheduled behind is over. A hand-back is not that: it is a debt about
+    /// the card's *model*, tugcode reuses its manager's selector for every
+    /// later spawn, and nothing but the restore takes the card off a stage
+    /// model. Dropping the arming left it pinned there through the user's own
+    /// `/new`, permanently, with no gesture that would have fixed it.
+    ///
+    /// Two wheels over one ledger are the restart: the first arms, the second
+    /// reads the debt back at attach and settles it on the next turn end.
+    #[tokio::test]
+    async fn an_armed_hand_back_is_read_back_after_a_restart() {
+        let ledger = Arc::new(crate::session_ledger::SessionLedger::open_in_memory().unwrap());
+        ledger
+            .record_spawn(
+                "sess-restart",
+                "ws",
+                "/tmp/p",
+                "card-1",
+                1_000,
+                "line-1",
+                None,
+            )
+            .unwrap();
+
+        let before = WheelState::default();
+        before.attach_ledger(Arc::clone(&ledger));
+        before.arm_hand_back("sess-restart");
+
+        // tugcast goes away. Everything the first wheel held goes with it.
+        drop(before);
+
+        let (sup, _register_rx) = test_minimal_supervisor();
+        let tug_id = TugSessionId::new("sess-restart");
+        let entry_arc = insert_ledger_entry_for_tests(&sup, &tug_id).await;
+        {
+            let mut entry = entry_arc.lock().await;
+            entry.spawn_state = SpawnState::Spawning;
+            entry.deck_model = Some("sonnet".to_string());
+        }
+        let after = Arc::new(WheelState::default());
+        after.attach_ledger(Arc::clone(&ledger));
+        let ctx = WheelContext {
+            supervisor: Arc::clone(&sup),
+            state: Arc::clone(&after),
+            cancel: CancellationToken::new(),
+        };
+
+        on_tick(&ctx, "sess-restart").await;
+
+        let frames = {
+            let mut entry = entry_arc.lock().await;
+            let mut out = Vec::new();
+            while let Some(frame) = entry.queue.pop() {
+                out.push(frame);
+            }
+            out
+        };
+        assert_eq!(frames.len(), 1, "the card still gets its model back");
+        let parsed: serde_json::Value = serde_json::from_slice(&frames[0].payload).unwrap();
+        assert_eq!(parsed["model"], "sonnet");
+
+        // And the debt is settled on disk too, so a *second* restart does not
+        // re-owe a hand-back that has already gone out.
+        assert!(
+            ledger.sessions_owed_hand_back().unwrap().is_empty(),
+            "taking the arming clears the durable copy as well as the fast one"
+        );
+    }
+
+    /// A closed session's debt is not carried forward. A hand-back is a frame
+    /// sent to a running card, and a row with no card left has no turn that
+    /// could ever end to settle it.
+    #[test]
+    fn a_closed_sessions_hand_back_is_not_restored() {
+        let ledger = Arc::new(crate::session_ledger::SessionLedger::open_in_memory().unwrap());
+        ledger
+            .record_spawn("sess-gone", "ws", "/tmp/p", "card-1", 1_000, "line-1", None)
+            .unwrap();
+        let state = WheelState::default();
+        state.attach_ledger(Arc::clone(&ledger));
+        state.arm_hand_back("sess-gone");
+        ledger.mark_closed("sess-gone").unwrap();
+
+        let after = WheelState::default();
+        after.attach_ledger(ledger);
+        assert!(
+            !after.take_hand_back("sess-gone"),
+            "there is no card to hand back to"
         );
     }
 

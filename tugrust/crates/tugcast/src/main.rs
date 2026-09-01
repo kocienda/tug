@@ -1933,6 +1933,11 @@ async fn main() {
     // goes through one path, and an ending arms a hand-back on these
     // registries rather than sending one.
     let wheel_state = Arc::new(wheel::WheelState::default());
+    // The armed hand-backs a previous process left owed. A card pinned on a
+    // stage model has nothing but the restore to un-pin it, and the debt
+    // outlives the turn it was taken on — so it is read back here, before the
+    // first turn of this process can end, and settled the ordinary way.
+    wheel_state.attach_ledger(Arc::clone(&ledger));
     feed_router.wheel = Some(Arc::clone(&wheel_state));
 
     let (arc_tick_tx, arc_tick_rx) = mpsc::channel::<String>(64);

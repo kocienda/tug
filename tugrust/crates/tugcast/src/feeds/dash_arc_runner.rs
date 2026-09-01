@@ -587,6 +587,13 @@ fn read(
             .position(|row| row.status != "done" && row.status != "withdrawn")
             .map(|index| index + 1)
     });
+    // Whether the table holds a row somebody opened and did not close.
+    // `in progress` is the step machine's one status for "being walked right
+    // now", so its absence over a run with closes behind it and steps ahead
+    // of it means the last thing that happened to this ledger was a *close*.
+    let step_open = doc
+        .as_ref()
+        .is_some_and(|d| d.ledger_rows.iter().any(|row| row.status == "in progress"));
 
     let declarations = tugdash_core::dash::read_declarations(project, dash);
 
@@ -623,9 +630,24 @@ fn read(
             first_pending,
             run_through,
             run_complete: declarations.run_complete,
-            step_just_done: memory
-                .last_done_count
-                .is_some_and(|previous| done_count > previous),
+            step_just_done: match memory.last_done_count {
+                Some(previous) => done_count > previous,
+                // **Nothing remembered — so read the boundary off the table.**
+                //
+                // No memory means this arc has not been evaluated since
+                // tugcast started. Seeding the comparison at the *current*
+                // count, which is what happened before, spends the edge
+                // without anyone acting on it: a step that closed in the
+                // seconds before a crash was a boundary the arc owed a prompt,
+                // and the restart swallowed it. The stage then sat waiting for
+                // a boundary that had already gone past.
+                //
+                // The table can answer instead, and answers with the same rows
+                // `done_count` is counted from, so the two cannot disagree: no
+                // row open, closes behind, steps ahead — the last thing that
+                // happened here was a close, and nothing has answered it.
+                None => !step_open && done_count > 0 && first_pending.is_some(),
+            },
         },
         session_live: session.live,
         session_idle: session.idle,
@@ -2686,6 +2708,61 @@ Some context.
             ],
             "the boundary is seen and the stage is told to walk on"
         );
+    }
+
+    /// **A boundary that closed just before a crash is still a boundary.**
+    ///
+    /// After a restart the runner remembers nothing, and it used to seed the
+    /// comparison at the count it found — spending the edge without anyone
+    /// acting on it. A step closed in the seconds before the crash was a
+    /// boundary the arc owed a prompt, and the stage then sat waiting for one
+    /// that had already gone past.
+    ///
+    /// The table answers instead: no row open, closes behind, steps ahead.
+    /// The state map is empty here on purpose — that emptiness *is* the
+    /// restart.
+    #[tokio::test]
+    async fn a_restart_reads_the_unanswered_boundary_off_the_table() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        implementing_project(root, "done", "pending");
+
+        let (ctx, entry, _register_rx) = harness(root).await;
+        set_context(&entry, 100_000).await;
+        let state = Arc::new(Mutex::new(HashMap::new()));
+
+        sweep(&ctx, &state).await;
+
+        assert_eq!(
+            submitted(&entry).await,
+            vec![
+                "/tugplug:dash-implement demo Steps 2-2 — under this arc, close one step and end your turn; the arc prompts you with the next"
+                    .to_string()
+            ],
+            "the close the crash interrupted is answered on the first tick back"
+        );
+    }
+
+    /// The other side of the same read: a stage caught **mid-step** by the
+    /// crash is not owed a prompt, and must not be handed one — it would land
+    /// on top of a step already being walked.
+    #[tokio::test]
+    async fn a_restart_mid_step_is_not_a_boundary() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        implementing_project(root, "done", "in progress");
+
+        let (ctx, entry, _register_rx) = harness(root).await;
+        set_context(&entry, 100_000).await;
+        let state = Arc::new(Mutex::new(HashMap::new()));
+
+        sweep(&ctx, &state).await;
+
+        assert!(
+            submitted(&entry).await.is_empty(),
+            "an open row is a step being walked, not a boundary to answer"
+        );
+        assert!(read_arc(root, "demo").unwrap().stopped.is_none());
     }
 
     /// **The quiet-turn horizon, counted over turns rather than ticks.**
