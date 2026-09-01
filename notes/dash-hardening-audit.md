@@ -242,3 +242,91 @@ landed.
 - **`at0476`'s stop-receipt subtest, `at0387`'s Overview-mount timeout, and
   `tugcode`'s `plugin-commands.test.ts`** — pre-existing reds, unrelated, as
   Part IV records.
+
+---
+
+## Part VI — W3 as landed, and what W4+ should read Part I against
+
+**W3 landed 2026-09-01** from a main-lane session, in three commits. The step
+machine now spans the states a real run passes through, the two records a step
+move produces are committed as one act, and a doctor compares all four. Four
+things did not survive contact, and one of them changes what a later
+workstream should expect to find.
+
+**1. "One atomic write" is not available, and the brief's own three options
+say so.** Part III W3.2 offers "write both to temp, rename both, or derive one
+from the other". The first is unavailable: the dash-log is shared by every dash
+in the project and appended to concurrently, so a read-modify-rename would drop
+a neighbouring dash's line between the read and the rename. The third is
+unavailable in the direction it is needed: the log cannot be derived from the
+table (the table has no timestamps and no run-through), and the table cannot be
+derived from the log without becoming a generated file a person may not edit —
+which is the opposite of what the plan wants. What landed is the fourth option:
+**order the fallible parts before the committing parts.** `write_step_pair`
+opens the dash-log — where a log append actually fails — *before* the table's
+rename, writes the line through the handle it already holds, and rolls the
+table back if the write still fails. Every ordinary error path now leaves both
+records agreeing. What remains is a hard crash between a rename and a write:
+two adjacent syscalls rather than a file-write plus an open-and-append, and the
+doctor's `undeclared-open-row` finding is exactly its shape. A later workstream
+should not go looking for the transaction; there isn't one to find.
+
+**2. `done` stopped being terminal, but only through one door.** Adding
+`done → in progress` to `transition_allowed` would have made an ordinary
+`dash step start` reopen a finished row silently, which is a *worse* silent
+success than the one W3 came to close. So `reopen_ledger_row` carries its own
+gate and `set_ledger_status` is unchanged; `dash step start` on a `done` row
+still refuses. Anything reading the transition table alone will conclude `done`
+is terminal, and for every verb but `reopen` it is.
+
+**3. The reopen un-arms the join through arithmetic, not a flag.** The settled
+decision reads as though `read_declarations` needs a new field. It does not:
+`step-reopen` and `step-reset` clear `last_step_done` exactly as `step-start`
+does, and `run_complete` falls out false. So the un-arming is one line in an
+existing fold, it survives a `step-reset` of any step in the selection for free,
+and there is no new state for a consumer to have missed. Nothing else needed
+touching — `derive_stage`, `run_fraction`, `join_ready`, and the changeset
+feed's closed count all agree without changes, because the feed's count already
+derives from the table's statuses and `pending`/`in progress` were already in
+its vocabulary.
+
+**4. Part I.H's "known pre-existing reds" list is short by two, and one of them
+is a W1/W2 regression.** Parts IV and V name three: `at0476`'s stop-receipt
+wording, `at0387`'s Overview mount, `tugcode`'s `plugin-commands.test.ts`.
+Running the seven app-tests that `@covers` W3's touched sources found five red,
+all pre-existing:
+
+- `at0427`, `at0479`, `at0486` share one failure — a 32s/80s timeout waiting
+  for `[data-slot="tug-sheet"]` to mount in the Changes pane. Red for the last
+  3 recorded runs, back to `4cd1c9a45` (2026-08-31). One deck-side cause, three
+  files; worth chasing as one thing.
+- `at0475` fails at `dash bind` with *"no running Tug instance knows session
+  …"*. Its last green was `abf230c42` — **before W1** — and it fails
+  identically at `346af9df7`, W3's parent, verified by running it from a
+  worktree at that commit. So it went red somewhere in W1/W2, and the failure
+  names the instance walk those workstreams rewrote (`206e96adb`,
+  `a7f5ec7ff`). **This is a real regression in the identity chokepoint that
+  W1's own app-test selection did not surface**, and it is the one item here a
+  later workstream should treat as work rather than as context.
+
+### What W3 deliberately left
+
+- **`step reopen`'s effect on the arc runner.** A reopened step reads `in
+  progress` in the table, so `first_pending` points at it and a resumed
+  implement stage walks it again — which is what the audit-rejected case wants.
+  But the runner has no idea it is a *re*-walk, so a quiet-turn horizon (W4.1)
+  will count it like any other. Fine as it stands; worth a thought when W4
+  writes the horizon.
+- **The doctor is not taught anywhere.** No skill mentions `dash doctor`,
+  `dash step reset`, or `dash step reopen`; `dash-implement/SKILL.md:105` still
+  advertises withdraw with no warning that it is not a park, and `:117` still
+  offers the hand-edit these verbs replace. W5 by assignment, and the verbs
+  now exist for it to point at.
+- **The arc's silent wedges** (Part I.E) — W4, untouched. The doctor's
+  `arc-unbound` finding *reports* a stranded arc but does nothing about it;
+  detection was in scope and the horizon is not.
+- **A `dash doctor` app-test.** The doctor is covered by unit tests at both
+  altitudes (the checks against synthesized tables, and the whole verb against
+  a real dash whose table was moved by hand). Nothing drives it through the
+  card, because the gate for the surfaces it would need is among the five reds
+  above.
