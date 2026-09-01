@@ -4169,6 +4169,16 @@ impl SessionLedger {
     /// when no segment of its line is live — a line whose every segment has
     /// closed has no session to address, and that is an answer rather than a
     /// reason to fall back on the id that was posted.
+    ///
+    /// **Newest-first, not caller-first.** A rotation records the fresh
+    /// segment before it demotes the old one, so for a window both are live
+    /// — and a caller-first tiebreak resolves, during exactly that window, to
+    /// the segment about to retire. A bind then passes the live-guard, writes
+    /// onto the retiring row, and strands when it closes: `seat_line_binding`
+    /// has already run for the fresh segment and will not run again until a
+    /// relaunch. Preferring the newest live segment costs the ordinary case
+    /// nothing (a line with one live segment resolves to it either way) and
+    /// closes the window.
     pub fn live_segment_of(&self, session_id: &str) -> Result<Option<String>, LedgerError> {
         let conn = self.db.lock().expect("ledger mutex");
         // `sessions.line_id` is NOT NULL and keyed into `lines`, so the join
@@ -4181,8 +4191,8 @@ impl SessionLedger {
                  WHERE caller.session_id = ?1
                    AND COALESCE(caller.line_id, '') != ''
                    AND tip.state = 'live' AND tip.demoted = 0
-                 ORDER BY (tip.session_id = ?1) DESC,
-                          tip.last_used_at DESC, tip.rowid DESC
+                 ORDER BY tip.created_at DESC, tip.last_used_at DESC,
+                          (tip.session_id = ?1) DESC, tip.rowid DESC
                  LIMIT 1",
                 params![session_id],
                 |row| row.get::<_, String>(0),
@@ -5255,10 +5265,20 @@ impl SessionLedger {
             // The display name is denormalized and may be absent on an older
             // row; the owner key is the authority and reads well enough.
             let dash_name = dash_name.unwrap_or_else(|| dash_id.clone());
-            tx.execute(
-                "UPDATE sessions SET dash_id = ?2, dash_name = ?3 WHERE session_id = ?1",
+            // Live-only, exactly as `set_dash_binding` is. The seat is a
+            // second binding writer, and a writer that skips the guard is a
+            // writer that can put a binding on a corpse — which is the shape
+            // this whole seat exists to repair, not to reproduce. Nothing
+            // moves if the target is not live: the holder keeps its binding
+            // rather than being cleared into nobody's hands.
+            let seated_rows = tx.execute(
+                "UPDATE sessions SET dash_id = ?2, dash_name = ?3
+                 WHERE session_id = ?1 AND state = 'live' AND demoted = 0",
                 params![session_id, dash_id, dash_name],
             )?;
+            if seated_rows == 0 {
+                return Ok(None);
+            }
             tx.execute(
                 "UPDATE sessions SET dash_id = NULL, dash_name = NULL WHERE session_id = ?1",
                 params![from],
@@ -13328,6 +13348,56 @@ mod tests {
         assert_eq!(l.live_segment_of("solo").unwrap(), None);
     }
 
+    /// **The rotation-overlap window.** A rotation records the fresh segment
+    /// and demotes the old one as two steps; between them both are live, and
+    /// that is the window every `tugtool dash` verb issued from inside the
+    /// retiring stage lands in.
+    ///
+    /// The caller-first tiebreak resolved to the *retiring* segment here — a
+    /// bind that passes the live-guard, writes onto a row about to close, and
+    /// strands: the seat has already run for the fresh segment and will not
+    /// run again until a relaunch. The answer is the newest live segment,
+    /// which is where the work now is.
+    #[test]
+    fn live_segment_of_prefers_the_fresh_segment_during_a_rotation_overlap() {
+        let l = fresh();
+        l.record_spawn(
+            "retiring",
+            WS_A,
+            "/proj",
+            "card-1",
+            millis(2),
+            "line-1",
+            None,
+        )
+        .unwrap();
+        // The overlap: recorded, not yet demoted.
+        l.record_spawn("fresh", WS_A, "/proj", "card-1", millis(1), "line-1", None)
+            .unwrap();
+        assert_eq!(
+            l.get("retiring").unwrap().unwrap().state,
+            SessionState::Live,
+            "the window is real: the old segment is still live",
+        );
+
+        assert_eq!(
+            l.live_segment_of("retiring").unwrap().as_deref(),
+            Some("fresh"),
+            "a verb posted from the retiring stage lands on the segment the work moved to",
+        );
+        assert_eq!(
+            l.live_segment_of("fresh").unwrap().as_deref(),
+            Some("fresh"),
+        );
+
+        // And once the demote lands, the answer has not changed.
+        l.mark_closed("retiring").unwrap();
+        assert_eq!(
+            l.live_segment_of("retiring").unwrap().as_deref(),
+            Some("fresh"),
+        );
+    }
+
     // ── seat_line_binding ────────────────────────────────────────────────────
 
     #[test]
@@ -13434,6 +13504,36 @@ mod tests {
             l.seat_line_binding("never-seen").unwrap(),
             None,
             "and an id this ledger does not hold moves nothing"
+        );
+    }
+
+    /// The seat carries the live-only guard its sibling has.
+    ///
+    /// Nothing moves onto a segment that has closed — and, crucially, the
+    /// holder is not cleared either. A seat that moved the binding off a live
+    /// holder and onto a corpse would leave the line reading *unbound* with
+    /// no writer left to fix it.
+    #[test]
+    fn seat_line_binding_refuses_a_segment_that_is_not_live() {
+        let l = fresh();
+        l.record_spawn("holder", WS_A, "/proj", "card-1", millis(2), "line-1", None)
+            .unwrap();
+        l.set_dash_binding("holder", Some(("tugdash/demo#1", "demo")))
+            .unwrap();
+        l.record_spawn("corpse", WS_A, "/proj", "card-1", millis(1), "line-1", None)
+            .unwrap();
+        l.mark_closed("corpse").unwrap();
+
+        assert_eq!(
+            l.seat_line_binding("corpse").unwrap(),
+            None,
+            "the corpse refuses the seat instead of reporting a carry",
+        );
+        assert!(l.get("corpse").unwrap().unwrap().dash_id.is_none());
+        assert_eq!(
+            l.get("holder").unwrap().unwrap().dash_id.as_deref(),
+            Some("tugdash/demo#1"),
+            "and the live holder keeps what it had",
         );
     }
 

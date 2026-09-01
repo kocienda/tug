@@ -173,6 +173,62 @@ const MAX_IMAGE_SIZE_BYTES = 5 * 1024 * 1024; // ~5MB decoded
 const CANONICAL_PERMISSION_DENY_MESSAGE =
   "The user doesn't want to proceed with this tool use. The tool use was rejected (eg. if it was a file edit, the new_string was NOT written to the file). STOP what you are doing and wait for the user to tell you how to proceed.";
 
+/**
+ * The environment a claude spawn runs under: the process environment, minus
+ * the auth keys, plus the three variables tugcode sets per spawn.
+ *
+ * Pure and exported so the one fact that used to be silent — which session id
+ * a rotated card's Bash calls see — is a test rather than a hope.
+ *
+ * **`TUG_SESSION_ID` is re-stamped, not inherited.** tugcast sets it once, on
+ * the tugcode spawn. A Wheel rotation does not respawn tugcode: `newSession`
+ * mints a fresh session id and respawns only claude, inside this same
+ * process. Inherited, the variable would name the segment the card was born
+ * on for the whole life of the card — the stranding
+ * `notes/wheel-rotation-strands-the-arc.md` describes. Stamping it from the
+ * manager's own id keeps it current, though a shell already running when the
+ * rotation lands still holds the old value; `tugtool`'s resolver, not this
+ * function, is what makes a stale id harmless.
+ *
+ * Keep the auth list in sync with `AUTH_ENV_VARS` in
+ * `tugrust/crates/tugcast/tests/common/catalog.rs` and the `env_remove` calls
+ * in `tugrust/crates/tugcast/src/feeds/agent_bridge.rs`.
+ */
+export function buildClaudeSpawnEnv(
+  processEnv: Record<string, string | undefined>,
+  sessionId: string,
+  arc: string | null,
+): Record<string, string | undefined> {
+  const {
+    ANTHROPIC_API_KEY,
+    ANTHROPIC_AUTH_TOKEN,
+    CLAUDE_CODE_OAUTH_TOKEN,
+    ...scrubbedEnv
+  } = processEnv;
+  void ANTHROPIC_API_KEY;
+  void ANTHROPIC_AUTH_TOKEN;
+  void CLAUDE_CODE_OAUTH_TOKEN;
+
+  // claude forwards its environment to Bash tool calls, so this is the chain
+  // that lets a skill or CLI run inside the session self-identify.
+  scrubbedEnv.TUG_SESSION_ID = sessionId;
+
+  // File checkpointing, so the card's `/rewind` can restore the *code*
+  // dimension. The terminal has this on by default; in stream-json/SDK mode
+  // it is opt-in via this variable.
+  scrubbedEnv.CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING = "true";
+
+  // Under a course, the stage's claude carries the dash name so the stage
+  // skills can read it from a Bash step. Absent is what *clears* it: the
+  // variable belongs to a course, not to a card.
+  if (arc !== null) {
+    scrubbedEnv.TUG_DASH_ARC = arc;
+  } else {
+    delete scrubbedEnv.TUG_DASH_ARC;
+  }
+  return scrubbedEnv;
+}
+
 // ---------------------------------------------------------------------------
 // Replay constants and helpers
 // ---------------------------------------------------------------------------
@@ -3753,54 +3809,16 @@ export class SessionManager {
       args: args.join(" "),
     });
 
-    // Scrub Anthropic auth env vars so the claude CLI authenticates via
-    // `~/.claude.json` (the user's Max/Pro subscription) rather than
-    // per-token API billing. Bun.spawn inherits the parent process
-    // environment by default when `env` is omitted, so we must pass an
-    // explicit env with these keys removed.
-    //
-    // Keep this list in sync with `AUTH_ENV_VARS` in
-    // `tugrust/crates/tugcast/tests/common/catalog.rs` and the
-    // `env_remove` calls in `tugrust/crates/tugcast/src/feeds/agent_bridge.rs`.
-    const {
-      ANTHROPIC_API_KEY,
-      ANTHROPIC_AUTH_TOKEN,
-      CLAUDE_CODE_OAUTH_TOKEN,
-      ...scrubbedEnv
-    } = process.env as Record<string, string | undefined>;
-    void ANTHROPIC_API_KEY;
-    void ANTHROPIC_AUTH_TOKEN;
-    void CLAUDE_CODE_OAUTH_TOKEN;
-
-    // `TUG_SESSION_ID` (set by tugcast on the tugcode spawn, next to the
-    // `env_remove` auth-scrub above) is deliberately NOT destructured out
-    // here — it rides through `scrubbedEnv` to claude, which forwards its
-    // environment to Bash tool calls. This is the chain that lets a skill
-    // or CLI run inside the session read `$TUG_SESSION_ID` and self-
-    // identify; `tugtool changes` keys its file-event query on it. If the
-    // auth-scrub destructure ever grows, keep this variable out of it.
-
-    // Enable file checkpointing so the session-card's `/rewind` can restore the
-    // *code* dimension (not just the conversation). The terminal has this on
-    // by default; in stream-json/SDK mode it is opt-in via this env var.
-    // Once enabled, claude snapshots files it edits via Edit/Write (not bash
-    // or manual edits) into its per-session `fileHistory`, and the
-    // `rewind_files` control request becomes answerable — `{canRewind}` plus
-    // `{filesChanged, insertions, deletions}` for the picker's per-turn diff
-    // stats (empirically captured against claude 2.1.158; see
-    // dash/transport-exploration.md#rewind-files-control-request).
-    scrubbedEnv.CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING = "true";
-
-    // Under an arc, the stage's claude carries the dash name so the three
-    // stage skills can read it from a Bash step and stop at their natural end
-    // instead of printing a chip or reviewing inline. Set per spawn from
-    // {@link currentArc}, so it survives every respawn the session makes; a
-    // session started with no stage clears the record and spawns without it.
-    if (this.currentArc !== null) {
-      scrubbedEnv.TUG_DASH_ARC = this.currentArc;
-    } else {
-      delete scrubbedEnv.TUG_DASH_ARC;
-    }
+    // The spawn environment: auth keys scrubbed, and the three variables
+    // tugcode sets per spawn — chief among them `TUG_SESSION_ID`, re-stamped
+    // from this manager's own id rather than inherited, because a rotation
+    // respawns claude without respawning tugcode. See
+    // {@link buildClaudeSpawnEnv}, where the reasoning and its test live.
+    const scrubbedEnv = buildClaudeSpawnEnv(
+      process.env as Record<string, string | undefined>,
+      this.sessionId,
+      this.currentArc,
+    );
 
     return Bun.spawn([claudePath, ...args], {
       stdin: "pipe",
