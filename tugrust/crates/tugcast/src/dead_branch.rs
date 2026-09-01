@@ -525,8 +525,19 @@ mod tests {
             divergences.len(),
             divergences.join("\n")
         );
-        // Dead-branch detection must not go silent on either side.
-        assert!(non_empty > 0, "no corpus session has a dead branch");
+        // A corpus-dependent test skips when the corpus lacks its case rather
+        // than failing over it. A machine whose sessions happen to contain no
+        // `/rewind` and no compaction has nothing for the parity comparison to
+        // prove — every dead set is empty on both sides, which is agreement,
+        // not silence. The guard against detection actually going silent is
+        // `adversarial_fixture_dead_set_matches_the_ts_walk`, which walks a
+        // committed session with a real dead branch and does not depend on
+        // what this machine happens to hold.
+        if non_empty == 0 {
+            eprintln!(
+                "note: {compared} corpus session(s) walked and none has a dead branch, so parity here is vacuous — the non-vacuous check is `adversarial_fixture_dead_set_matches_the_ts_walk`"
+            );
+        }
     }
 
     /// The generated adversarial session (a real `/rewind` branch alongside
