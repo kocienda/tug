@@ -832,6 +832,16 @@ pub enum DashCommands {
     Run {
         /// Dash name — the arc's key, valid before any branch exists.
         name: String,
+        /// Which progression the course runs — `plan` (devise → review →
+        /// implement → audit) or `dash` (implement → audit, with the task
+        /// list as implement's first act).
+        ///
+        /// Defaults to `plan`, which reproduces the derivation every dash
+        /// had before the kind was recorded: a plan document opens at
+        /// review, a brief alone opens at devise. Recorded when the arc
+        /// opens and ignored on a resume — the record is the arc's identity.
+        #[arg(long, value_parser = ["dash", "plan"], default_value = "plan")]
+        course: String,
         /// Project directory (default: cwd). Travels as your own spelling —
         /// the server canonicalizes it ([L29]).
         #[arg(long)]

@@ -24,7 +24,7 @@
 //! `done`, a recorded context reading is above a declared fraction. A stage announces nothing and is believed about nothing; it either
 //! moved the documents or it did not.
 
-use tugdash_core::arc::{ArcRecord, ArcStage, ArcStopReason};
+use tugdash_core::arc::{ArcCourse, ArcRecord, ArcStage, ArcStopReason};
 use tugtool_core::plan::ReviewState;
 
 /// How many review rounds an arc runs before it proceeds anyway.
@@ -76,6 +76,11 @@ pub struct ArcFacts {
     ///
     /// False whenever a plan exists, which is what makes a plan outrank a task
     /// list: a dash carrying both is a plan-course dash.
+    ///
+    /// **A fallback only.** The progression comes from the record's
+    /// [`ArcCourse`] now ([B04] forbids sniffing the documents for it); this
+    /// answers for a **pre-kind dash**, whose arc opened before `arc-course`
+    /// was written.
     pub task_list: bool,
     /// The plan's current path — the base copy until adoption, the worktree
     /// copy after it. `None` when no plan file exists there, which is
@@ -414,7 +419,7 @@ pub fn arc_action(record: &ArcRecord, facts: &ArcFacts) -> Option<ArcAction> {
     }
 
     match stage {
-        None => Some(start_action(facts)),
+        None => Some(start_action(record, facts)),
         Some(ArcStage::Devise) => Some(devise_action(facts)),
         Some(ArcStage::Review) => Some(review_action(record, facts)),
         Some(ArcStage::Implement) => implement_action(facts),
@@ -422,23 +427,44 @@ pub fn arc_action(record: &ArcRecord, facts: &ArcFacts) -> Option<ArcAction> {
     }
 }
 
-fn start_action(facts: &ArcFacts) -> ArcAction {
+fn start_action(record: &ArcRecord, facts: &ArcFacts) -> ArcAction {
     if !facts.document_exists {
         return ArcAction::Stop {
             stage: ArcStage::Devise,
             reason: ArcStopReason::DocumentMissing,
         };
     }
-    // A document that already lints as a plan takes the arc straight to review.
-    // A brief beside a task list takes it straight to implement — the settling
-    // the plan course spends on devise and review is exactly what the `/dash`
-    // door decided to skip. A brief alone takes the full arc.
-    let stage = if facts.input_is_plan {
-        ArcStage::Review
-    } else if facts.task_list {
-        ArcStage::Implement
-    } else {
-        ArcStage::Devise
+    // The **recorded course kind** decides the progression ([B04]): a dash
+    // course is implement → audit and opens at implement whatever is on disk,
+    // because its task list is the implement stage's own first act; a plan
+    // course is devise → review → implement → audit and opens at review only
+    // when the devising is already done.
+    let stage = match record.course {
+        Some(ArcCourse::Dash) => ArcStage::Implement,
+        Some(ArcCourse::Plan) => {
+            if facts.input_is_plan {
+                ArcStage::Review
+            } else {
+                ArcStage::Devise
+            }
+        }
+        // **Fallback for a pre-kind dash.** An arc opened before `arc-course`
+        // existed has no kind to read, so the documents answer as they always
+        // did: a plan opens at review, a task list at implement, a brief alone
+        // at devise. The skew direction is toward *more* settling — a
+        // pre-kind dash whose door meant `dash` but wrote only a brief opens
+        // at devise rather than implement, which spends two rotations it did
+        // not need and never skips a cold read it did. `--course` defaults to
+        // `plan` for the same reason.
+        None => {
+            if facts.input_is_plan {
+                ArcStage::Review
+            } else if facts.task_list {
+                ArcStage::Implement
+            } else {
+                ArcStage::Devise
+            }
+        }
     };
     ArcAction::Rotate(Rotation::plain(stage))
 }
@@ -613,6 +639,7 @@ mod tests {
         ArcRecord {
             dash: "demo".to_string(),
             document: Some("dash/demo-brief.md".to_string()),
+            course: None,
             plan: Some("dash/demo.md".to_string()),
             stages: stages
                 .iter()
@@ -686,8 +713,56 @@ mod tests {
         assert_eq!(rotation(action).stage, ArcStage::Review);
     }
 
-    /// The `/dash` course: the door wrote a brief and a task list, so both
-    /// settling stages are already answered and the arc opens at implement.
+    /// **The recorded kind decides, not the documents.** A dash course opens
+    /// at implement over a brief alone — the task list it will walk is the
+    /// implement stage's own first act ([B04]), so there is nothing on disk
+    /// for a sniff to find and nothing it should wait for.
+    #[test]
+    fn a_recorded_dash_course_opens_at_implement_with_no_task_list_on_disk() {
+        let mut record = record(&[]);
+        record.course = Some(ArcCourse::Dash);
+        let facts = facts();
+        assert!(!facts.task_list, "nothing on disk says implement");
+        assert_eq!(
+            rotation(arc_action(&record, &facts)).stage,
+            ArcStage::Implement
+        );
+    }
+
+    /// And the kind outranks a task list in the other direction: a recorded
+    /// plan course over a `tasks.md` still devises. Sniffing would have sent
+    /// it to implement and skipped the settling the door asked for.
+    #[test]
+    fn a_recorded_plan_course_devises_over_a_task_list() {
+        let mut record = record(&[]);
+        record.course = Some(ArcCourse::Plan);
+        let mut facts = facts();
+        facts.task_list = true;
+        assert_eq!(
+            rotation(arc_action(&record, &facts)).stage,
+            ArcStage::Devise
+        );
+    }
+
+    /// A recorded plan course whose document already lints still opens at
+    /// review — the kind names the progression, and the documents say how far
+    /// along it the arc already is.
+    #[test]
+    fn a_recorded_plan_course_on_a_devised_plan_opens_at_review() {
+        let mut record = record(&[]);
+        record.course = Some(ArcCourse::Plan);
+        let mut facts = facts();
+        facts.input_is_plan = true;
+        assert_eq!(
+            rotation(arc_action(&record, &facts)).stage,
+            ArcStage::Review
+        );
+    }
+
+    /// **The pre-kind fallback.** An arc opened before `arc-course` existed
+    /// carries no kind, so the documents answer as they always did: a brief
+    /// beside a task list means the `/dash` door already settled both
+    /// settling stages, and the arc opens at implement.
     #[test]
     fn an_opened_arc_on_a_task_list_skips_devise_and_review() {
         let mut facts = facts();

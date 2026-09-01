@@ -19,6 +19,43 @@ use tugtool_core::paths::project_state_dir;
 
 use crate::dash::{append_dash_log, is_terminal, split_log_line};
 
+/// Which progression a course runs — the *recorded* course kind, written when
+/// the arc opens and never derived from what documents happen to be on disk.
+///
+/// The two kinds differ only in settling time ([B01]): a plan course spends
+/// devise and review before any step is walked, a dash course goes straight to
+/// implement and gets its cold read from the audit at the end.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ArcCourse {
+    /// implement → audit. The task list is the implement stage's first act.
+    Dash,
+    /// devise → review → implement → audit.
+    Plan,
+}
+
+impl ArcCourse {
+    /// How the kind is spelled in the log note and on the `--course` flag.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ArcCourse::Dash => "dash",
+            ArcCourse::Plan => "plan",
+        }
+    }
+
+    /// Read a kind back from its spelling. An unknown word is `None` rather
+    /// than a guess, exactly as [`ArcStage::parse`] is — a record whose kind
+    /// cannot be read falls back to the document sniff, which is what every
+    /// pre-kind dash already does.
+    pub fn parse(word: &str) -> Option<ArcCourse> {
+        match word {
+            "dash" => Some(ArcCourse::Dash),
+            "plan" => Some(ArcCourse::Plan),
+            _ => None,
+        }
+    }
+}
+
 /// The stages an arc rotates through.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -256,6 +293,12 @@ pub struct ArcRecord {
     pub dash: String,
     /// The document the arc opened on.
     pub document: Option<String>,
+    /// The progression this course runs, recorded when the arc opened.
+    ///
+    /// `None` is a **pre-kind dash** — an arc opened by a build that had no
+    /// `arc-course` marker to write. Its reader falls back to sniffing the
+    /// documents, which is what every arc did before this marker existed.
+    pub course: Option<ArcCourse>,
     /// The plan path the runner named in the devise prompt —
     /// base-relative, and superseded by the worktree copy from adoption on.
     pub plan: Option<String>,
@@ -332,6 +375,7 @@ pub fn read_arc(repo_root: &Path, dash: &str) -> Option<ArcRecord> {
         let record = found.get_or_insert_with(|| ArcRecord {
             dash: dash.to_owned(),
             document: None,
+            course: None,
             plan: None,
             stages: Vec::new(),
             notes: Vec::new(),
@@ -344,6 +388,13 @@ pub fn read_arc(repo_root: &Path, dash: &str) -> Option<ArcRecord> {
         record.last_activity = Some(timestamp.to_owned());
         match marker {
             "arc-start" => record.document = Some(note.to_owned()),
+            // **Skew.** An older reader falls through the `_` arm below and
+            // keeps sniffing the documents for the progression — which is the
+            // behavior this marker replaces, so the degradation is exactly
+            // today's. A newer reader over a pre-kind log finds no marker and
+            // takes the same fallback. Neither direction can invent a course
+            // the other did not intend.
+            "arc-course" => record.course = ArcCourse::parse(note.trim()),
             "arc-plan" => record.plan = Some(note.to_owned()),
             "arc-note" => record.notes.push(note.to_owned()),
             "arc-stage" => {
@@ -413,6 +464,16 @@ fn read_stop_line(note: &str) -> Option<(ArcStage, String)> {
 /// Append `arc-start` — the arc opened on this document.
 pub fn append_arc_start(repo_root: &Path, dash: &str, document: &str) -> Result<(), TugError> {
     append_dash_log(repo_root, dash, "arc-start", document)
+}
+
+/// Append `arc-course` — the progression this arc runs.
+///
+/// A line of its own rather than a second field on `arc-start`, because
+/// `arc-start`'s note is a path read whole: appending to it would make an
+/// older reader take `dash/idea.md plan` for the document's name. A marker an
+/// old reader does not know is skipped; a note it misreads is not.
+pub fn append_arc_course(repo_root: &Path, dash: &str, course: ArcCourse) -> Result<(), TugError> {
+    append_dash_log(repo_root, dash, "arc-course", course.as_str())
 }
 
 /// Append `arc-stage` — a stage was rotated onto `session_id`.
@@ -528,6 +589,49 @@ mod tests {
             "and the announcement it anticipated closes it"
         );
         assert_eq!(record.stages.len(), 1);
+    }
+
+    /// **The course kind is recorded, and a log without one reads `None`.**
+    /// That `None` is the whole of the pre-kind story: the runner falls back
+    /// to sniffing the documents for it, which is what it did before.
+    #[serial]
+    #[test]
+    fn a_recorded_course_kind_reads_back_and_its_absence_is_the_pre_kind_dash() {
+        let fixture = log_repo("");
+        let root = fixture.root();
+
+        append_arc_start(root, "d", "dash/idea.md").unwrap();
+        assert_eq!(
+            read_arc(root, "d").unwrap().course,
+            None,
+            "an arc-start alone is a pre-kind dash"
+        );
+
+        append_arc_course(root, "d", ArcCourse::Dash).unwrap();
+        let record = read_arc(root, "d").unwrap();
+        assert_eq!(record.course, Some(ArcCourse::Dash));
+        assert_eq!(
+            record.document.as_deref(),
+            Some("dash/idea.md"),
+            "and the kind is a line of its own, so the document is unharmed"
+        );
+    }
+
+    /// **An unreadable kind degrades to the fallback, never to a guess.** A
+    /// record written by a build that spells a third kind reads `None` here,
+    /// which is exactly a pre-kind dash — the one behavior every reader in
+    /// the tree already knows how to take.
+    #[serial]
+    #[test]
+    fn a_course_kind_this_build_cannot_read_is_a_pre_kind_dash() {
+        let fixture = log_repo(
+            &[
+                log_line("d", "arc-start", "dash/idea.md"),
+                log_line("d", "arc-course", "expedition"),
+            ]
+            .concat(),
+        );
+        assert_eq!(read_arc(fixture.root(), "d").unwrap().course, None);
     }
 
     /// **The skew direction.** The marker is new, so every reader older than

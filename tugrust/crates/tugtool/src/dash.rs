@@ -9,8 +9,8 @@ use std::process::ExitCode;
 use serde::Serialize;
 
 use tugdash_core::{
-    ArcRecord, DashRoundMeta, JoinOptions, JoinStrategy, MarkStage, ReplayOutcome, ops, replay,
-    resolve,
+    ArcCourse, ArcRecord, DashRoundMeta, JoinOptions, JoinStrategy, MarkStage, ReplayOutcome, ops,
+    replay, resolve,
 };
 
 use crate::cli::{DashCommands, StepAction};
@@ -84,9 +84,10 @@ pub fn dispatch(cmd: DashCommands, json: bool, quiet: bool) -> ExitCode {
         }
         DashCommands::Run {
             name,
+            course,
             project,
             session,
-        } => run_arc_run(&name, project, session, json, quiet),
+        } => run_arc_run(&name, &course, project, session, json, quiet),
         DashCommands::Documents { name, ensure } => run_documents(&name, ensure, json, quiet),
         DashCommands::Arc { name, project } => run_arc_report(&name, project, json, quiet),
         DashCommands::Bind {
@@ -1176,9 +1177,18 @@ fn arc_project_root(project: Option<std::path::PathBuf>) -> Result<std::path::Pa
 /// the record is the arc's identity and a second `arc-start` would make one arc
 /// read as two.
 ///
+/// `course` is the progression to record ([B08]) and is written only on the
+/// opening. A resume ignores it for the same reason a second `arc-start` is
+/// refused: the arc's kind is part of what the record *is*, and a resume that
+/// could change it would let one arc run two progressions.
+///
 /// Separated from the verb so the decision is testable over a synthesized log
 /// with no session and no instance.
-fn open_arc(root: &std::path::Path, dash: &str) -> Result<(bool, bool, ArcRecord), String> {
+fn open_arc(
+    root: &std::path::Path,
+    dash: &str,
+    course: ArcCourse,
+) -> Result<(bool, bool, ArcRecord), String> {
     tugdash_core::validate_dash_name(dash).map_err(|e| e.to_string())?;
     if let Some(arc) = tugdash_core::read_arc(root, dash) {
         return resume_arc(root, dash, arc);
@@ -1204,6 +1214,9 @@ fn open_arc(root: &std::path::Path, dash: &str) -> Result<(bool, bool, ArcRecord
     let relative = format!(".tug/dashes/{dash}/{file}");
 
     tugdash_core::append_arc_start(root, dash, &relative).map_err(|e| e.to_string())?;
+    // Written after `arc-start`, so a reader that stops at the first marker
+    // still finds the document. Both lines are this opening's.
+    tugdash_core::append_arc_course(root, dash, course).map_err(|e| e.to_string())?;
     let arc = tugdash_core::read_arc(root, dash)
         .ok_or_else(|| format!("wrote the arc for '{dash}' but could not read it back"))?;
     Ok((true, false, arc))
@@ -1291,6 +1304,7 @@ fn resume_arc(
 /// stage rotates on that session's own turn end ([P05]), never on arrival.
 fn run_arc_run(
     name: &str,
+    course: &str,
     project: Option<std::path::PathBuf>,
     session: Option<String>,
     json: bool,
@@ -1301,7 +1315,9 @@ fn run_arc_run(
     // stage to go, so this refuses rather than recording an arc nobody can run.
     let session = calling_session_id("an arc", session.as_deref())?;
     let root = arc_project_root(project.clone())?;
-    let (started, resumed, arc) = open_arc(&root, name)?;
+    let course = ArcCourse::parse(course)
+        .ok_or_else(|| format!("unknown course '{course}' — expected 'dash' or 'plan'"))?;
+    let (started, resumed, arc) = open_arc(&root, name, course)?;
 
     // The record is written before the kick, so a tugcast that never hears
     // about the arc still has one to find on its next pass.
@@ -2322,7 +2338,8 @@ mod tests {
     fn opening_an_arc_writes_one_start_line() {
         let fixture = arc_fixture();
         fixture.write_brief("demo");
-        let (started, resumed, arc) = open_arc(fixture.root(), "demo").expect("opened");
+        let (started, resumed, arc) =
+            open_arc(fixture.root(), "demo", ArcCourse::Plan).expect("opened");
         assert!(started);
         assert!(!resumed);
         assert_eq!(arc.document.as_deref(), Some(".tug/dashes/demo/brief.md"));
@@ -2339,8 +2356,8 @@ mod tests {
     fn opening_the_same_dash_twice_is_one_arc() {
         let fixture = arc_fixture();
         fixture.write_brief("demo");
-        open_arc(fixture.root(), "demo").expect("opened");
-        let (started, _, _) = open_arc(fixture.root(), "demo").expect("reopened");
+        open_arc(fixture.root(), "demo", ArcCourse::Plan).expect("opened");
+        let (started, _, _) = open_arc(fixture.root(), "demo", ArcCourse::Plan).expect("reopened");
         assert!(!started, "a second run on the same dash opens nothing");
         let starts = fixture
             .log_lines()
@@ -2357,7 +2374,7 @@ mod tests {
     fn open_arc_opens_on_the_brief_then_the_plan() {
         let fixture = arc_fixture();
         fixture.write_plan("plan-only");
-        let (_, _, arc) = open_arc(fixture.root(), "plan-only").expect("opened");
+        let (_, _, arc) = open_arc(fixture.root(), "plan-only", ArcCourse::Plan).expect("opened");
         assert_eq!(
             arc.document.as_deref(),
             Some(".tug/dashes/plan-only/plan.md")
@@ -2366,7 +2383,7 @@ mod tests {
         let fixture = arc_fixture();
         fixture.write_brief("both");
         fixture.write_plan("both");
-        let (_, _, arc) = open_arc(fixture.root(), "both").expect("opened");
+        let (_, _, arc) = open_arc(fixture.root(), "both", ArcCourse::Plan).expect("opened");
         assert_eq!(arc.document.as_deref(), Some(".tug/dashes/both/brief.md"));
     }
 
@@ -2379,8 +2396,40 @@ mod tests {
         let fixture = arc_fixture();
         fixture.write_document("course", "brief.md");
         fixture.write_document("course", "tasks.md");
-        let (_, _, arc) = open_arc(fixture.root(), "course").unwrap();
+        let (_, _, arc) = open_arc(fixture.root(), "course", ArcCourse::Plan).unwrap();
         assert_eq!(arc.document.as_deref(), Some(".tug/dashes/course/brief.md"));
+    }
+
+    /// **The opening records the course kind ([B08]).** `--course` defaults
+    /// to `plan`, so an ordinary `dash run` writes the progression every dash
+    /// already had; asking for `dash` writes the shorter one.
+    #[test]
+    #[serial_test::serial]
+    fn opening_an_arc_records_the_course_kind_it_was_asked_for() {
+        let fixture = arc_fixture();
+        fixture.write_document("shortcut", "brief.md");
+        let (_, _, arc) = open_arc(fixture.root(), "shortcut", ArcCourse::Dash).unwrap();
+        assert_eq!(arc.course, Some(ArcCourse::Dash));
+
+        let fixture = arc_fixture();
+        fixture.write_document("settled", "brief.md");
+        let (_, _, arc) = open_arc(fixture.root(), "settled", ArcCourse::Plan).unwrap();
+        assert_eq!(arc.course, Some(ArcCourse::Plan));
+    }
+
+    /// **A resume cannot change the kind.** The record is the arc's identity,
+    /// and a `dash run --course dash` over an arc opened as a plan course is
+    /// a resume of that arc, not a second one wearing a different
+    /// progression.
+    #[test]
+    #[serial_test::serial]
+    fn a_resume_keeps_the_kind_the_opening_recorded() {
+        let fixture = arc_fixture();
+        fixture.write_document("settled", "brief.md");
+        open_arc(fixture.root(), "settled", ArcCourse::Plan).unwrap();
+        let (started, _, arc) = open_arc(fixture.root(), "settled", ArcCourse::Dash).unwrap();
+        assert!(!started);
+        assert_eq!(arc.course, Some(ArcCourse::Plan));
     }
 
     /// A task list alone still opens an arc: the wheel has a document to read
@@ -2390,7 +2439,7 @@ mod tests {
     fn a_task_list_alone_opens_an_arc() {
         let fixture = arc_fixture();
         fixture.write_document("tasks-only", "tasks.md");
-        let (_, _, arc) = open_arc(fixture.root(), "tasks-only").unwrap();
+        let (_, _, arc) = open_arc(fixture.root(), "tasks-only", ArcCourse::Plan).unwrap();
         assert_eq!(
             arc.document.as_deref(),
             Some(".tug/dashes/tasks-only/tasks.md")
@@ -2401,7 +2450,7 @@ mod tests {
     #[serial_test::serial]
     fn a_dash_with_no_documents_says_to_write_one() {
         let fixture = arc_fixture();
-        let err = open_arc(fixture.root(), "empty").unwrap_err();
+        let err = open_arc(fixture.root(), "empty", ArcCourse::Plan).unwrap_err();
         assert!(
             err.contains("has no brief, plan, or task list") && err.contains(".tug/dashes/empty"),
             "the refusal must name the address to write to: {err}"
@@ -2418,7 +2467,8 @@ mod tests {
             "2026-08-24T10:05:00Z  demo  arc-stop  review lint failed\n"
         ));
         let before = fixture.log_lines().len();
-        let (started, resumed, arc) = open_arc(fixture.root(), "demo").expect("resumed");
+        let (started, resumed, arc) =
+            open_arc(fixture.root(), "demo", ArcCourse::Plan).expect("resumed");
         assert!(!started);
         assert!(resumed);
         assert_eq!(arc.stopped, None, "the stop is cleared");
@@ -2436,7 +2486,8 @@ mod tests {
         // An arc that is not stopped has nothing to resume, and a second run
         // on it writes nothing.
         let after = fixture.log_lines().len();
-        let (_, resumed, _) = open_arc(fixture.root(), "demo").expect("still open");
+        let (_, resumed, _) =
+            open_arc(fixture.root(), "demo", ArcCourse::Plan).expect("still open");
         assert!(!resumed);
         assert_eq!(fixture.log_lines().len(), after);
     }
@@ -2531,7 +2582,7 @@ mod tests {
         )
         .unwrap();
 
-        let (opened, resumed, arc) = open_arc(root, "demo").expect("resume");
+        let (opened, resumed, arc) = open_arc(root, "demo", ArcCourse::Plan).expect("resume");
         assert!(!opened, "the arc is the same one, not a second");
         assert!(
             resumed,

@@ -1098,6 +1098,7 @@ pub(crate) async fn stop_arc_for_session(
             let record = read_arc(project, dash).unwrap_or_else(|| ArcRecord {
                 dash: dash.to_owned(),
                 document: None,
+                course: None,
                 plan: None,
                 stages: Vec::new(),
                 notes: Vec::new(),
@@ -2511,6 +2512,7 @@ Some context.
         ArcRecord {
             dash: "foo".to_owned(),
             document: Some("dash/foo-brief.md".to_owned()),
+            course: None,
             plan: Some("dash/foo.md".to_owned()),
             stages,
             notes: Vec::new(),

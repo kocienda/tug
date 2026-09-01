@@ -49,8 +49,9 @@ pub mod surfaces;
 pub mod verify;
 
 pub use arc::{
-    ArcRecord, ArcStage, ArcStageLine, append_arc_done, append_arc_note, append_arc_plan,
-    append_arc_resume, append_arc_stage, append_arc_start, append_arc_stop, read_arc,
+    ArcCourse, ArcRecord, ArcStage, ArcStageLine, append_arc_course, append_arc_done,
+    append_arc_note, append_arc_plan, append_arc_resume, append_arc_stage, append_arc_start,
+    append_arc_stop, read_arc,
 };
 pub use dash::{
     DashDeclaration, DashDeclarations, DashRoundMeta, MarkStage, StepPhase, append_dash_log,
