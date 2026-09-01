@@ -277,7 +277,9 @@ async fn card_session_for_segment(ctx: &ArcContext, segment: &str) -> TugSession
         return direct;
     }
     for (key, entry) in map.iter() {
-        let Ok(entry) = entry.try_lock() else { continue };
+        let Ok(entry) = entry.try_lock() else {
+            continue;
+        };
         if entry.claude_session_id.as_deref() == Some(segment) {
             return key.clone();
         }
@@ -706,9 +708,9 @@ async fn session_snapshot(ctx: &ArcContext, id: &TugSessionId) -> Option<Session
             //
             // `child_gone_at` is the absence, and the grace is what keeps an
             // ordinary retry from being read as a death.
-            SpawnState::Spawning | SpawnState::Live => !entry
+            SpawnState::Spawning | SpawnState::Live => entry
                 .child_gone_at
-                .is_some_and(|gone| gone.elapsed() >= CHILD_GONE_GRACE),
+                .is_none_or(|gone| gone.elapsed() < CHILD_GONE_GRACE),
             SpawnState::Errored | SpawnState::Closed => false,
         };
         (
@@ -1317,11 +1319,21 @@ fn format_arc_stop_receipt(record: &ArcRecord, stage: ArcStage, reason: ArcStopR
     } else {
         "there is nothing to resume".to_string()
     };
+    // The one reason whose sentence is not the whole story. `NeedsDecision` is
+    // a stage saying it met a question it had no authority to answer, and a
+    // receipt that said only *that* would be a stop nobody could act on — so
+    // the question itself, which `dash ask` wrote as the record's last note
+    // immediately before this stop, is read back beneath it. Absent when the
+    // note did not land, which the append warns about; the stop still speaks.
+    let asked = match (reason, record.notes.last()) {
+        (ArcStopReason::NeedsDecision, Some(question)) => format!("\n{question}"),
+        _ => String::new(),
+    };
     format!(
         "arc stopped · {} · in {} — {}\n{next}",
         record.dash,
         stage.as_str(),
-        reason.sentence(),
+        format_args!("{}{asked}", reason.sentence()),
     )
 }
 
@@ -2363,7 +2375,10 @@ Some context.
         sweep(&ctx, &state).await;
         let record = read_arc(root, "demo").unwrap();
         assert_eq!(
-            record.stopped.as_ref().map(|(stage, reason)| (*stage, reason.as_str())),
+            record
+                .stopped
+                .as_ref()
+                .map(|(stage, reason)| (*stage, reason.as_str())),
             Some((ArcStage::Devise, ArcStopReason::SessionGone.as_str())),
             "a card with no child is not live, whatever the bridge believes",
         );
@@ -2474,7 +2489,10 @@ Some context.
         // The first tick seeds the stamp and decides nothing: silence tugcast
         // did not watch is not silence it may hold against a stage.
         sweep(&ctx, &state).await;
-        assert!(read_arc(root, "demo").unwrap().stopped.is_none(), "the seed decides nothing");
+        assert!(
+            read_arc(root, "demo").unwrap().stopped.is_none(),
+            "the seed decides nothing"
+        );
 
         // Age the stamp past the deadline rather than sleeping through it.
         {
@@ -2486,7 +2504,10 @@ Some context.
         sweep(&ctx, &state).await;
         let record = read_arc(root, "demo").unwrap();
         assert_eq!(
-            record.stopped.as_ref().map(|(stage, reason)| (*stage, reason.as_str())),
+            record
+                .stopped
+                .as_ref()
+                .map(|(stage, reason)| (*stage, reason.as_str())),
             Some((ArcStage::Devise, ArcStopReason::Stalled.as_str())),
             "a factless arc degrades to late, never to forever",
         );

@@ -171,6 +171,23 @@ pub enum ArcStopReason {
     /// takes the note as the free-text string it already was, so this word
     /// costs it nothing — `ArcRecord::stopped` has always carried a `String`.
     Stalled,
+    /// The stage met a decision that is the user's to make and stopped rather
+    /// than asking.
+    ///
+    /// **The one reason a stage writes about itself.** Every other arm here is
+    /// something the runner observed; this one is the stage saying it has run
+    /// out of authority. A mid-course `AskUserQuestion` was the alternative,
+    /// and it is the wrong shape for an arc: the wheel's whole promise is that
+    /// a run walks unattended, and a stage parked on a dialog is a run that has
+    /// stopped without saying so — no record, no receipt, no resume, and the
+    /// question itself lost the moment the card rotates. Stopping puts the
+    /// question in the log, on the card, and in front of a person, and
+    /// `tugtool dash run` picks the work back up once they have answered.
+    ///
+    /// The question rides as an `arc-note` written immediately before the stop
+    /// — the vocabulary is closed and a reason cannot carry a payload — and the
+    /// receipt reads it back beneath the sentence.
+    NeedsDecision,
 }
 
 impl ArcStopReason {
@@ -201,6 +218,7 @@ impl ArcStopReason {
         ArcStopReason::CompactFailed,
         ArcStopReason::ImplementIdle,
         ArcStopReason::Stalled,
+        ArcStopReason::NeedsDecision,
     ];
 
     /// The word written into `arc-stop`'s note.
@@ -229,6 +247,7 @@ impl ArcStopReason {
             ArcStopReason::CompactFailed => "compact failed",
             ArcStopReason::ImplementIdle => "implement idle",
             ArcStopReason::Stalled => "stalled",
+            ArcStopReason::NeedsDecision => "needs a decision",
         }
     }
 
@@ -264,6 +283,9 @@ impl ArcStopReason {
             }
             ArcStopReason::Stalled => {
                 "it went silent — no turn ended and no step closed before the arc's clock ran out"
+            }
+            ArcStopReason::NeedsDecision => {
+                "it met a decision that is yours to make, so it stopped rather than asking"
             }
         }
     }

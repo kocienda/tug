@@ -918,6 +918,34 @@ pub enum DashCommands {
         #[arg(long)]
         session: Option<String>,
     },
+    /// Stop the arc because the stage met a decision that is the user's.
+    ///
+    /// The gesture that replaced a mid-course `AskUserQuestion`. A stage
+    /// running under the wheel has no user in front of it — the run is meant
+    /// to walk unattended, and a stage parked on a dialog is a run that has
+    /// stopped without saying so: no record, no receipt, no resume, and the
+    /// question lost the moment the card rotates. So the stage stops instead,
+    /// and the question it stopped over becomes the arc's last note and the
+    /// tail of the receipt on the card.
+    ///
+    /// `tugtool dash run <name>` picks the work back up once it is answered,
+    /// exactly as it does after any other stop.
+    Ask {
+        /// Dash name.
+        name: String,
+        /// The decision, in one sentence, in the stage's own words. It is the
+        /// whole of what the user has to go on, so it names the choice rather
+        /// than the fact that a choice exists.
+        question: String,
+        /// Project directory (default: cwd). Travels as your own spelling —
+        /// the server canonicalizes it ([L29]).
+        #[arg(long)]
+        project: Option<std::path::PathBuf>,
+        /// Calling session (default: $TUG_SESSION_ID), resolved to its
+        /// line's live segment.
+        #[arg(long)]
+        session: Option<String>,
+    },
     /// Drop the calling session's dash binding.
     Unbind {
         /// Project directory (default: cwd).

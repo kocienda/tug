@@ -3,8 +3,8 @@ name: dash-devise
 description: Devise an implementation plan in-thread — clarify the idea, write it against the devise skeleton, validate it, and hand it to the review turn — ready for /tugplug:dash-implement
 argument-hint: "[idea] [→ output-path]"
 disable-model-invocation: true
-allowed-tools: Bash, Read, Write, Edit, Glob, Grep, WebFetch, WebSearch, AskUserQuestion
-disallowed-tools: Task
+allowed-tools: Bash, Read, Write, Edit, Glob, Grep, WebFetch, WebSearch
+disallowed-tools: Task, AskUserQuestion
 ---
 
 ## What this is
@@ -45,9 +45,17 @@ Read the relevant code before designing. Use Glob/Grep/Read to map the territory
 
 ### 2. Clarify (only what matters)
 
-Ask clarifying questions **only when the answer changes the design** and you can't resolve it from the code or a sensible default. Use `AskUserQuestion` (≤4 options each). Don't interrogate — a couple of sharp questions beat a checklist. If the idea is already specific, skip straight to writing.
+Settle what you can from the code, the laws, and the conventional default — which is nearly everything. A question is worth raising **only when the answer changes the design** and nothing you can read decides it.
 
-The boundary on what is worth asking is in the doctrine's [never-ask list](../../../tuglaws/dash-work-doctrine.md#what-never-gets-asked): design questions, never process ones, and nothing with a conventional default. On a project with no `tuglaws/`, that one sentence *is* the boundary — apply it as stated here and say so.
+**Raising one is not a dialog**, and `AskUserQuestion` is refused in this skill's tools rather than only in its prose. Under a course there is no user in front of the stage, and a stage parked on a dialog is a course that has stopped without saying so: nothing in the dash-log, no receipt on the card, `tugtool dash arc` still reading mid-stage, and the question itself lost the moment the wheel rotates the card — which it may do, because a dialog is not a turn. So the stage **stops and says what it wanted**:
+
+```bash
+tugtool dash ask <name> "Should the retry back off per-host or per-request?"
+```
+
+That is `dash stop`'s twin: the same hand-back and the same receipt path, under the reason `needs a decision`, with the question written as the arc's last `arc-note` so the record carries it and the receipt reads it back. The user answers in their own conversation and `tugtool dash run <name>` picks the work back up. Outside a course — the user typed `/dash-devise` and is sitting here — there is no arc to stop: say the question in prose, in one sentence, and wait for the answer like any other turn.
+
+Either way the bar is the doctrine's [never-ask list](../../../tuglaws/dash-work-doctrine.md#what-never-gets-asked): design questions, never process ones, and nothing with a conventional default. On a project with no `tuglaws/`, that one sentence *is* the boundary — apply it as stated here and say so. Stopping a course over a question the code could have answered costs a person a round trip they never agreed to.
 
 ### 3. Write against the skeleton
 
@@ -62,7 +70,7 @@ Author the plan at the output path you were given (or asked for) following the *
 - Stable labels: plan-local Design Decisions `[P01]` (use `P`, **never** `D` — `[D##]` is reserved for the global `tuglaws/design-decisions.md`, which a plan may cite by reference), Open Questions `[Q01]`, Specs `S01`, Tables `T01`, Lists `L01`, Risks `R01`, Milestones `M01` — always two digits, never reused.
 - **Execution Steps** each carry a `**Commit:**` message, `**References:**` (cite decisions/specs/anchors — never line numbers), `**Depends on:**` where applicable (anchor refs like `#step-1`), Tasks, Tests, and a falsifiable Checkpoint. This is the part `/tugplug:dash-implement` walks. Seed the **Step Status Ledger** with every step marked `pending`.
 - For frontend work in a project whose laws define state zones, fill the **State Zone Mapping** table — map each new piece of state to its zone before writing steps.
-- Resolve open questions where you can (spike them in-thread — read the code, check a fixture). **Ask the rest before you declare the plan ready** — a design question you cannot settle is an `AskUserQuestion` with the candidate answers as its options, raised while the user is still here, and the answer lands in the plan as a decided item. Only a question the user *declines to settle* stays `[Q##]`, with its rationale and its plan to resolve. That is what makes the notation mean something: **a `[Q##]` in a finished plan was asked and deferred, never never-asked.**
+- Resolve open questions where you can (spike them in-thread — read the code, check a fixture). **Raise the rest before you declare the plan ready** — a design question you cannot settle stops the course with `tugtool dash ask` (or, outside a course, is said in prose and waited on), and the answer lands in the plan as a decided item. Only a question the user *declines to settle* stays `[Q##]`, with its rationale and its plan to resolve. That is what makes the notation mean something: **a `[Q##]` in a finished plan was raised and deferred, never never-raised.**
 
 Prefer a tight, real plan over an exhaustive one. Every step should be executable with a clear commit boundary and a falsifiable checkpoint.
 

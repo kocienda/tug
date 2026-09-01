@@ -501,7 +501,7 @@ fn apply_draft_request(
 /// terminal join fires). Spec S04, [P04].
 #[derive(serde::Deserialize)]
 struct DashApiRequest {
-    /// `bind` | `arc_run` | `unbind` | `arc_stop` | `dash_gone`.
+    /// `bind` | `arc_run` | `unbind` | `arc_stop` | `arc_ask` | `dash_gone`.
     op: String,
     #[serde(default)]
     tug_session_id: Option<String>,
@@ -522,6 +522,11 @@ struct DashApiRequest {
     /// before this field existed was, so an older `tugtool` still works.
     #[serde(default)]
     reason: Option<String>,
+    /// For `arc_ask`: the decision the stage stopped over, in the stage's own
+    /// words. It becomes the arc's last `arc-note` and the tail of the
+    /// receipt, so it is the whole of what the user has to go on.
+    #[serde(default)]
+    question: Option<String>,
 }
 
 // (POST /api/dash-review is gone: a review is an ordinary turn the user starts,
@@ -664,10 +669,32 @@ async fn dash_handler(
             stage,
             session_id,
             project_dir,
+            reason,
+            question,
         } => {
             let Some(wheel) = router.wheel.as_ref() else {
                 return err(StatusCode::SERVICE_UNAVAILABLE, "no wheel");
             };
+            // The question first, and as its own `arc-note`: the stop
+            // vocabulary is closed and cannot carry a payload, and the receipt
+            // is composed from the record the stop path re-reads — so a note
+            // written after the stop would arrive too late to be spoken, and a
+            // reason carrying prose would be a reason the formatter could not
+            // match on. Best-effort like every other append: a note that does
+            // not land costs the receipt its question, never the stop.
+            if let Some(question) = question.as_deref() {
+                if let Err(e) = tugdash_core::arc::append_arc_note(
+                    std::path::Path::new(&project_dir),
+                    &dash,
+                    question,
+                ) {
+                    tracing::warn!(
+                        dash = %dash,
+                        error = %e,
+                        "could not record the question a stage stopped over",
+                    );
+                }
+            }
             crate::feeds::dash_arc_runner::stop_arc_for_session(
                 supervisor,
                 wheel,
@@ -675,7 +702,7 @@ async fn dash_handler(
                 std::path::Path::new(&project_dir),
                 &dash,
                 stage,
-                tugdash_core::arc::ArcStopReason::StoppedByUser,
+                reason,
                 crate::feeds::dash_arc_runner::StopDelivery {
                     hand_back: crate::feeds::dash_arc_runner::HandBack::Send,
                     record: true,
@@ -689,6 +716,8 @@ async fn dash_handler(
                     "status": "ok",
                     "dash": dash,
                     "stage": stage.as_str(),
+                    "reason": reason.as_str(),
+                    "question": question,
                 })),
             )
                 .into_response()
@@ -776,6 +805,23 @@ fn apply_dash_request(
                 );
             };
             crate::dash_api::arc_stop(ledger, &project, session, dash)
+        }
+        // A stage saying it has met a decision that is not its to make. The
+        // same act `arc_stop` performs, under the stage's own reason and
+        // carrying the question — see `ArcStopReason::NeedsDecision` for why an
+        // arc's stage stops rather than raising an `AskUserQuestion`.
+        "arc_ask" => {
+            let (Some(session), Some(project), Some(dash), Some(question)) = (
+                req.tug_session_id.as_deref(),
+                resolved_project(),
+                req.dash.as_deref(),
+                req.question.as_deref(),
+            ) else {
+                return DashApiOutcome::Error(
+                    "arc_ask needs tug_session_id, project_dir, dash, and question".to_string(),
+                );
+            };
+            crate::dash_api::arc_ask(ledger, &project, session, dash, question)
         }
         "dash_gone" => {
             let (Some(project), Some(dash_id)) = (resolved_project(), req.dash_id.as_deref())

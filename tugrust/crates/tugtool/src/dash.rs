@@ -107,6 +107,12 @@ pub fn dispatch(cmd: DashCommands, json: bool, quiet: bool) -> ExitCode {
             project,
             session,
         } => run_arc_stop(&name, project, session.as_deref(), json, quiet),
+        DashCommands::Ask {
+            name,
+            question,
+            project,
+            session,
+        } => run_arc_ask(&name, &question, project, session.as_deref(), json, quiet),
         DashCommands::Unbind { project, session } => {
             run_unbind(project, session.as_deref(), json, quiet)
         }
@@ -1669,6 +1675,48 @@ fn run_arc_stop(
         println!("Stopped the arc on '{name}' in {stage} (session {stopped})");
         print_rotation_note(&session, &stopped);
         println!("Resume with tugtool dash run {name}");
+    }
+    Ok(())
+}
+
+/// Stop the arc because the stage met a decision that is not its to make.
+///
+/// The verb that replaced a mid-course `AskUserQuestion`, and it is `dash
+/// stop`'s twin on purpose: the same resolution, the same hand-back, the same
+/// receipt path. What differs is the reason — `needs a decision` — and the
+/// question, which becomes the arc's last note so the record and the card both
+/// carry it. A stage that simply stopped would leave a person the whole of the
+/// transcript to work out what it wanted.
+fn run_arc_ask(
+    name: &str,
+    question: &str,
+    project: Option<std::path::PathBuf>,
+    session: Option<&str>,
+    json: bool,
+    quiet: bool,
+) -> Result<(), String> {
+    let session = calling_session_id("dash ask", session)?;
+    let project = binding_project(project)?;
+    let response = post_dash_api(serde_json::json!({
+        "op": "arc_ask",
+        "tug_session_id": session.session_id,
+        "project_dir": project.to_string_lossy(),
+        "dash": name,
+        "question": question,
+    }))
+    .map_err(|e| refuse(&session, e))?;
+    let stage = response
+        .get("stage")
+        .and_then(|s| s.as_str())
+        .unwrap_or("its stage");
+    let stopped = answered_session(&response, &session);
+    if json {
+        print_ok("dash ask", response);
+    } else if !quiet {
+        println!("Stopped the arc on '{name}' in {stage} to ask (session {stopped})");
+        println!("  {question}");
+        print_rotation_note(&session, &stopped);
+        println!("Resume with tugtool dash run {name} once it is answered");
     }
     Ok(())
 }

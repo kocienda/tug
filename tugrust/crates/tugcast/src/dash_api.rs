@@ -43,6 +43,14 @@ pub(crate) enum DashApiOutcome {
         stage: tugdash_core::arc::ArcStage,
         session_id: String,
         project_dir: String,
+        /// Why. `StoppedByUser` for `dash stop`; `NeedsDecision` for the
+        /// `dash ask` a stage raises about itself.
+        reason: tugdash_core::arc::ArcStopReason,
+        /// The question a `dash ask` stopped over, written as an `arc-note`
+        /// before the stop so the record and the receipt both carry it. The
+        /// stop vocabulary is closed and cannot carry a payload, which is why
+        /// the question travels beside the reason rather than inside it.
+        question: Option<String>,
     },
     /// This instance's ledger has no such session — the CLI should try the
     /// next live instance rather than report a failure.
@@ -350,6 +358,52 @@ pub(crate) fn arc_stop(
         stage,
         session_id: tug_session_id.to_string(),
         project_dir: project_dir.to_string_lossy().into_owned(),
+        reason: tugdash_core::arc::ArcStopReason::StoppedByUser,
+        question: None,
+    }
+}
+
+/// Resolve the arc a stage's `tugtool dash ask` stops, and carry its question.
+///
+/// The same resolution [`arc_stop`] performs, and deliberately the same one: a
+/// stage raising a question is stopping its own arc, and a second path to the
+/// same act could refuse where the first succeeded. What differs is the reason
+/// and the payload — `NeedsDecision`, and the question the async half writes as
+/// an `arc-note` before the stop so the record carries it and the receipt can
+/// read it back.
+///
+/// A blank question is refused rather than accepted as an empty note. "The
+/// stage stopped and would not say what it was asking" is the one outcome this
+/// verb exists to make impossible.
+pub(crate) fn arc_ask(
+    ledger: &SessionLedger,
+    project_dir: &std::path::Path,
+    tug_session_id: &str,
+    dash: &str,
+    question: &str,
+) -> DashApiOutcome {
+    let question = question.trim();
+    if question.is_empty() {
+        return DashApiOutcome::Error(
+            "dash ask needs the question — a stop nobody can read is not a receipt".to_string(),
+        );
+    }
+    match arc_stop(ledger, project_dir, tug_session_id, dash) {
+        DashApiOutcome::ArcStopped {
+            dash,
+            stage,
+            session_id,
+            project_dir,
+            ..
+        } => DashApiOutcome::ArcStopped {
+            dash,
+            stage,
+            session_id,
+            project_dir,
+            reason: tugdash_core::arc::ArcStopReason::NeedsDecision,
+            question: Some(question.to_owned()),
+        },
+        other => other,
     }
 }
 
@@ -894,6 +948,79 @@ mod tests {
             }
             DashApiOutcome::Error(m) => panic!("refused: {m}"),
             _ => panic!("unexpected"),
+        }
+    }
+
+    /// `dash ask` is `dash stop` under its own reason, carrying the question.
+    ///
+    /// The same resolution on purpose — a stage raising a question is stopping
+    /// its own arc, and a second path to the same act could refuse where the
+    /// first succeeded. What differs is the reason and the payload.
+    #[test]
+    #[serial_test::serial]
+    fn arc_ask_stops_the_same_arc_under_its_own_reason() {
+        let home = tempdir().unwrap();
+        // SAFETY: `#[serial]`; no other thread reads the environment here.
+        unsafe {
+            std::env::set_var("TUG_DATA_DIR", home.path());
+        }
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+        let ledger = on_course_card(root);
+        tugdash_core::arc::append_arc_stage(
+            root,
+            "alpha",
+            tugdash_core::arc::ArcStage::Review,
+            "claude-1",
+            None,
+        )
+        .unwrap();
+
+        match arc_ask(
+            &ledger,
+            root,
+            "claude-1",
+            "alpha",
+            "  per-host or per-request?  ",
+        ) {
+            DashApiOutcome::ArcStopped {
+                dash,
+                stage,
+                reason,
+                question,
+                ..
+            } => {
+                assert_eq!(dash, "alpha");
+                assert_eq!(stage, tugdash_core::arc::ArcStage::Review);
+                assert_eq!(reason, tugdash_core::arc::ArcStopReason::NeedsDecision);
+                assert_eq!(question.as_deref(), Some("per-host or per-request?"));
+            }
+            DashApiOutcome::Error(m) => panic!("refused: {m}"),
+            _ => panic!("unexpected"),
+        }
+    }
+
+    /// A blank question is refused rather than accepted as an empty note.
+    ///
+    /// "The stage stopped and would not say what it was asking" is the one
+    /// outcome this verb exists to make impossible.
+    #[test]
+    #[serial_test::serial]
+    fn arc_ask_refuses_a_question_that_says_nothing() {
+        let home = tempdir().unwrap();
+        // SAFETY: `#[serial]`; no other thread reads the environment here.
+        unsafe {
+            std::env::set_var("TUG_DATA_DIR", home.path());
+        }
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+        let ledger = on_course_card(root);
+
+        match arc_ask(&ledger, root, "claude-1", "alpha", "   ") {
+            DashApiOutcome::Error(message) => {
+                assert!(message.contains("needs the question"), "{message}");
+            }
+            _ => panic!("a blank question must not stop an arc"),
         }
     }
 

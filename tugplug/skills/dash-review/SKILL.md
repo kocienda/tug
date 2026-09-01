@@ -3,8 +3,8 @@ name: dash-review
 description: The plan course's review stage — read a devised plan cold against the real code, fix what it finds, append a Review Record, and stamp it
 argument-hint: "[plan-path]"
 disable-model-invocation: true
-allowed-tools: Bash, Read, Edit, Glob, Grep, WebFetch, WebSearch, AskUserQuestion
-disallowed-tools: Task, Write
+allowed-tools: Bash, Read, Edit, Glob, Grep, WebFetch, WebSearch
+disallowed-tools: Task, Write, AskUserQuestion
 ---
 
 ## What this is
@@ -82,12 +82,14 @@ Edit the plan directly. Rewrite the step that was out of order, replace the bann
 What to fix versus what to raise:
 
 - **Fix** anything you can settle from the code, the laws, or the plan's own decisions.
-- **Ask** anything that needs the user's judgment — a scope call, a product decision, a trade-off with no technically correct answer. Raise it as an `AskUserQuestion` with the candidate answers as its options, **then and there**, and write the answer into the plan as a decided item.
+- **Stop** on anything that needs the user's judgment — a scope call, a product decision, a trade-off with no technically correct answer. `tugtool dash ask <name> "<the question>"` stops the course under the reason `needs a decision`, writes the question as the arc's last `arc-note`, and hands the card back with a receipt that reads the question out. The user answers in their own conversation and `tugtool dash run <name>` rotates review again. Outside a course — the user typed `/dash-review` and is sitting here — say it in prose and wait, then write the answer into the plan as a decided item.
 - **Leave alone** anything you merely would have done differently. A plan is not wrong for not being yours.
 
-**A judgment call is a dialog first, an Open Question second.** You have the user; a question you could have asked and instead deferred costs them a round trip they never agreed to. Only a call the user *declines to settle* becomes `[Q##]` — with its rationale and its plan to resolve. That makes the notation mean something precise: **a `[Q##]` in a finished plan was asked and deferred, never never-asked.**
+**A judgment call is raised first and an Open Question second.** A call you could have put in front of somebody and instead deferred costs them a round trip they never agreed to. Only a call the user *declines to settle* becomes `[Q##]` — with its rationale and its plan to resolve. That makes the notation mean something precise: **a `[Q##]` in a finished plan was raised and deferred, never never-raised.**
 
-Ask about the design, not the process. Never ask whether to apply a fixup, whether to keep going, or anything else with a conventional default — the never-ask boundary is in [`tuglaws/dash-work-doctrine.md`](../../../tuglaws/dash-work-doctrine.md#what-never-gets-asked). Where that document is absent, the preceding sentence is the boundary, and say so.
+**No dialog, and the tools say so rather than only the prose.** `AskUserQuestion` is refused in this skill: under a course there is nobody in front of the stage, and a stage parked on a dialog is a course that has stopped without saying so — nothing in the dash-log, no receipt on the card, and the question lost the moment the wheel rotates the card, which it may do because a dialog is not a turn.
+
+Raise the design, never the process. Never raise whether to apply a fixup, whether to keep going, or anything else with a conventional default — the never-ask boundary is in [`tuglaws/dash-work-doctrine.md`](../../../tuglaws/dash-work-doctrine.md#what-never-gets-asked). Where that document is absent, the preceding sentence is the boundary, and say so. Stopping a course over something the code could have settled is the same cost, spent by the machine instead of the user.
 
 Keep the plan lint-clean as you go — re-run the linter after substantive edits.
 
