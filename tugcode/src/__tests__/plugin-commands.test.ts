@@ -11,6 +11,7 @@ import {
   writeFileSync,
   rmSync,
   existsSync,
+  readFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -102,10 +103,16 @@ describe("enumeratePluginCommands", () => {
     const cmds = enumeratePluginCommands(pluginDir);
     const dash = cmds.find((c) => c.name === "tugplug:dash");
     expect(dash).toBeDefined();
-    // The frontmatter's own words, so a fabricated entry could not pass;
-    // the leading phrase names the door (the direct dash) rather than any
-    // one wording of what it does.
-    expect(dash!.description).toContain("Dash directly");
+    // The frontmatter's own words, so a fabricated entry could not pass —
+    // but *which* words is not this test's business. Pinning a phrase made
+    // this red the moment the skill's own sentence was rewritten, which is a
+    // sentence the skill is entitled to rewrite. So the claim is that the
+    // description was read out of the file: a non-empty string that occurs in
+    // the shipped `SKILL.md` verbatim. A fabricated entry still cannot pass,
+    // and a reworded one no longer has to.
+    expect(dash!.description.length).toBeGreaterThan(0);
+    const source = readFileSync(join(pluginDir, "skills", "dash", "SKILL.md"), "utf8");
+    expect(source).toContain(dash!.description);
     expect(dash!.argumentHint).toBe("[name] [instruction…]");
 
     const dashLeaves = cmds.filter((c) => c.name.split(":").pop() === "dash");

@@ -526,7 +526,10 @@ mod tests {
                     max_files_in_run, 3,
                     "the older red ran with two neighbours; the skip never ran"
                 );
-                assert_eq!(last_green.expect("a green before the streak").files_in_run, 1);
+                assert_eq!(
+                    last_green.expect("a green before the streak").files_in_run,
+                    1
+                );
             }
             other => panic!("expected red-streak, got {other:?}"),
         }

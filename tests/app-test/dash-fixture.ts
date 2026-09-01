@@ -576,6 +576,17 @@ export function dashBriefPath(projectDir: string, name: string): string {
 }
 
 /**
+ * The dash's `tasks.md`, with its directory in place.
+ *
+ * The task list is the dash course's ledger — the document `/dash` leaves and
+ * the one implement walks when there is no plan. `plan.md` outranks it, so a
+ * fixture that writes both has written a plan-course dash whatever it meant.
+ */
+export function dashTasksPath(projectDir: string, name: string): string {
+  return join(dashDocumentsDir(projectDir, name), "tasks.md");
+}
+
+/**
  * The dash-log a scratch repository's state lives in, found rather than
  * composed.
  *

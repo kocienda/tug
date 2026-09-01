@@ -1623,6 +1623,12 @@ async function settleUntilHitTestable(
   } catch {
     // Advisory. The click goes out anyway, and whatever the test was going
     // to assert still gets to say what it found.
+    //
+    // This also swallows `holdModifier`'s buffered caller, which refuses
+    // `waitForCondition` outright — deliberately, so the diagnostic a
+    // `*AtElement` verb earns inside a modifier scope stays the one
+    // `getElementBounds` gives a line later, which is the message that says
+    // what to do about it.
   }
 }
 
