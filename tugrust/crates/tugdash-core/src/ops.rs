@@ -2165,7 +2165,22 @@ fn step_in(
     let sha = match phase {
         StepPhase::Start | StepPhase::Withdrawn => None,
         StepPhase::Done => Some(match commit {
-            Some(sha) => sha.trim().to_string(),
+            // A sha the caller supplies is checked against the worktree the
+            // dash actually runs in. Recorded unverified, any string at all
+            // read as a round: a typo, a sha from the base checkout, the word
+            // `HEAD~1` after a rebase moved it. The ledger's commit cell is
+            // what a later reader follows back to the work, and a cell that
+            // resolves to nothing is worse than an empty one, because it
+            // claims there is something to find.
+            Some(sha) => {
+                let sha = sha.trim();
+                verify_commit(&worktree, sha).map_err(|detail| {
+                    format!(
+                        "step {step} of '{name}' cannot record commit '{sha}': {detail}. \
+                         The row was not moved."
+                    )
+                })?
+            }
             None => git_stdout(repo_root, &["rev-parse", "--short", &branch])?,
         }),
     };
@@ -2229,6 +2244,36 @@ pub fn step_withdraw(name: &str, step: u32) -> Result<StepOutcome, String> {
     let repo_root = find_repo_root().map_err(|e| e.to_string())?;
     migrate_worktrees(&repo_root, &mut Vec::new());
     step_in(&repo_root, name, step, StepPhase::Withdrawn, None, None)
+}
+
+/// Resolve `rev` to a commit in `worktree`, or say why it does not.
+///
+/// `--verify` with a `^{commit}` peel is the whole check: it refuses a name
+/// that resolves to nothing, and it refuses one that resolves to a tree or a
+/// tag pointing at something that is not a commit. The **short** form comes
+/// back, because that is what the auto path records and a ledger whose commit
+/// cells are written two ways for one reason reads as two facts.
+fn verify_commit(worktree: &Path, rev: &str) -> Result<String, String> {
+    if rev.is_empty() {
+        return Err("it is empty".to_string());
+    }
+    let out = git_output(
+        worktree,
+        &[
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            &format!("{rev}^{{commit}}"),
+        ],
+    )?;
+    if !out.status.success() {
+        return Err(format!(
+            "it resolves to no commit in the dash worktree at {}",
+            worktree.display()
+        ));
+    }
+    let full = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    Ok(git_stdout(worktree, &["rev-parse", "--short", &full]).unwrap_or(full))
 }
 
 /// Move the base checkout's uncommitted working set into the fresh dash
@@ -2340,6 +2385,52 @@ pub struct MarkOutcome {
     pub dash: String,
     /// The stage now declared — also the log marker that recorded it.
     pub stage: String,
+    /// Ledger rows that are still open — neither `done` nor `withdrawn` —
+    /// named by step number.
+    ///
+    /// A mark is a claim about the whole dash: `built` says the work is
+    /// there, `audited` says it has been judged, and `audited` is what arms
+    /// the join. Made over a ledger still full of `pending`, it is a claim
+    /// about work nobody did — and the verb used to make it in silence, so
+    /// the disagreement between the mark and the rows surfaced only when
+    /// somebody read the plan.
+    ///
+    /// Reported, never enforced. Marking ahead of the rows is a real gesture
+    /// (a withdrawn tail, a run that closed its steps out of band), and the
+    /// verb's job is to say so, not to refuse.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub open_steps: Vec<u32>,
+    /// Ledger rows in total, so `open_steps` reads as a fraction.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub total_steps: u32,
+}
+
+fn is_zero(n: &u32) -> bool {
+    *n == 0
+}
+
+/// Which ledger rows a dash still has open, and how many rows there are.
+///
+/// `(open, total)`. A dash with no ledger at all answers `(vec![], 0)`: there
+/// is nothing to disagree with, which is different from agreeing.
+fn open_ledger_steps(repo_root: &Path, name: &str) -> (Vec<u32>, u32) {
+    let Some(path) = ledger_file(repo_root, name) else {
+        return (Vec::new(), 0);
+    };
+    let Ok(source) = std::fs::read_to_string(&path) else {
+        return (Vec::new(), 0);
+    };
+    let Ok(doc) = tugtool_core::plan::parse(&source) else {
+        return (Vec::new(), 0);
+    };
+    let total = doc.ledger_rows.len() as u32;
+    let open = doc
+        .ledger_rows
+        .iter()
+        .filter(|row| !matches!(row.status.as_str(), "done" | "withdrawn"))
+        .filter_map(|row| row.anchor.strip_prefix("step-")?.parse::<u32>().ok())
+        .collect();
+    (open, total)
 }
 
 /// Declare a lifecycle stage git cannot see ([P09]).
@@ -2354,9 +2445,12 @@ pub fn mark(name: &str, stage: MarkStage, note: Option<&str>) -> Result<MarkOutc
     }
     append_mark_declaration(&repo_root, name, stage, note.unwrap_or_default())
         .map_err(|e| e.to_string())?;
+    let (open_steps, total_steps) = open_ledger_steps(&repo_root, name);
     Ok(MarkOutcome {
         dash: name.to_string(),
         stage: stage.marker().to_string(),
+        open_steps,
+        total_steps,
     })
 }
 
@@ -5763,6 +5857,16 @@ Some context.
         (temp, root)
     }
 
+    /// The dash worktree's current commit, short — a sha `step done --commit`
+    /// will accept, because it is one that exists.
+    fn worktree_head(root: &Path, name: &str) -> String {
+        git_stdout(
+            &worktree_path(root, name),
+            &["rev-parse", "--short", "HEAD"],
+        )
+        .unwrap()
+    }
+
     /// The ledger row for `anchor`, as the plan on disk now reads.
     fn ledger_row(root: &Path, name: &str, anchor: &str) -> tugtool_core::plan::LedgerRow {
         let source = fs::read_to_string(plan_file(root, name)).unwrap();
@@ -5798,11 +5902,12 @@ Some context.
             })
         );
 
-        let done = step_done("step-dash", 1, Some("abc1234")).unwrap();
-        assert_eq!(done.commit.as_deref(), Some("abc1234"));
+        let head = worktree_head(&root, "step-dash");
+        let done = step_done("step-dash", 1, Some(&head)).unwrap();
+        assert_eq!(done.commit.as_deref(), Some(head.as_str()));
         let row = ledger_row(&root, "step-dash", "step-1");
         assert_eq!(row.status, "done");
-        assert_eq!(row.commit.as_deref(), Some("abc1234"));
+        assert_eq!(row.commit.as_deref(), Some(head.as_str()));
 
         // Nothing records where the plan is; the next step finds it at the same
         // address the first one did.
@@ -5952,7 +6057,8 @@ Some context.
         );
 
         // A done carries the standing declaration without re-writing it.
-        let done = step_done("through-dash", 1, Some("abc1234")).unwrap();
+        let head = worktree_head(&root, "through-dash");
+        let done = step_done("through-dash", 1, Some(&head)).unwrap();
         assert_eq!(done.through, Some(2));
 
         // A selection ending before the step it starts is not a selection.
@@ -5979,6 +6085,83 @@ Some context.
         );
     }
 
+    /// A `--commit` that resolves to nothing is refused, and the row does not
+    /// move.
+    ///
+    /// The cell is what a later reader follows back to the work. Any string at
+    /// all used to be recorded — a typo, a sha from the base checkout, a
+    /// `HEAD~1` that a rebase had moved — so a row could claim there was
+    /// something to find where there was not.
+    #[serial]
+    #[test]
+    fn step_done_refuses_a_commit_the_dash_worktree_cannot_resolve() {
+        let (_temp, root) = stepped_dash("bogus-sha-dash");
+        step_start("bogus-sha-dash", 1, 2).unwrap();
+
+        let err = step_done("bogus-sha-dash", 1, Some("abc1234")).unwrap_err();
+        assert!(err.contains("cannot record commit 'abc1234'"), "{err}");
+        assert!(err.contains("The row was not moved."), "{err}");
+        assert_eq!(
+            ledger_row(&root, "bogus-sha-dash", "step-1").status,
+            "in progress",
+            "a refused done leaves the row open rather than half-closing it",
+        );
+
+        // And the same row closes on a sha the worktree does hold.
+        let head = worktree_head(&root, "bogus-sha-dash");
+        step_done("bogus-sha-dash", 1, Some(&head)).unwrap();
+        assert_eq!(ledger_row(&root, "bogus-sha-dash", "step-1").status, "done");
+    }
+
+    /// A sha is recorded in the short form the automatic path writes, so the
+    /// ledger's commit cells are one shape rather than two.
+    #[serial]
+    #[test]
+    fn step_done_records_a_named_commit_in_its_short_form() {
+        let (_temp, root) = stepped_dash("long-sha-dash");
+        step_start("long-sha-dash", 1, 2).unwrap();
+        let worktree = worktree_path(&root, "long-sha-dash");
+        let full = git_stdout(&worktree, &["rev-parse", "HEAD"]).unwrap();
+        let short = git_stdout(&worktree, &["rev-parse", "--short", "HEAD"]).unwrap();
+
+        let done = step_done("long-sha-dash", 1, Some(&full)).unwrap();
+        assert_eq!(done.commit.as_deref(), Some(short.as_str()));
+    }
+
+    /// `mark` says when it is claiming more than the ledger does.
+    ///
+    /// `audited` arms the join, so making it over a table of `pending` rows is
+    /// a claim about work nobody recorded doing. Reported, never refused —
+    /// marking ahead of the rows is a real gesture.
+    #[serial]
+    #[test]
+    fn mark_reports_the_ledger_rows_still_open() {
+        let (_temp, root) = stepped_dash("open-rows-dash");
+
+        let marked = mark("open-rows-dash", MarkStage::Audited, None).unwrap();
+        assert_eq!(marked.total_steps, 2);
+        assert_eq!(
+            marked.open_steps,
+            vec![1, 2],
+            "a plan nobody has walked is two open rows, and the mark says so",
+        );
+
+        // Closing them empties the report; the mark and the ledger now agree.
+        step_start("open-rows-dash", 1, 2).unwrap();
+        step_done("open-rows-dash", 1, None).unwrap();
+        step_start("open-rows-dash", 2, 2).unwrap();
+        step_withdraw("open-rows-dash", 2).unwrap();
+
+        let marked = mark("open-rows-dash", MarkStage::Audited, None).unwrap();
+        assert!(
+            marked.open_steps.is_empty(),
+            "a withdrawn row is closed too: {:?}",
+            marked.open_steps,
+        );
+        assert_eq!(marked.total_steps, 2);
+        let _ = &root;
+    }
+
     #[serial]
     #[test]
     fn step_verbs_refuse_and_leave_the_plan_untouched() {
@@ -5998,7 +6181,7 @@ Some context.
 
         // A finished row refuses to be started again, naming its status.
         step_start("refuse-dash", 1, 2).unwrap();
-        step_done("refuse-dash", 1, Some("abc1234")).unwrap();
+        step_done("refuse-dash", 1, None).unwrap();
         let err = step_start("refuse-dash", 1, 2).unwrap_err();
         assert!(err.contains("is 'done'"), "{err}");
 
@@ -6336,7 +6519,7 @@ Some context.
     fn step_withdraw_refuses_a_done_row() {
         let (_temp, root) = stepped_dash("withdraw-done-dash");
         step_start("withdraw-done-dash", 1, 2).unwrap();
-        step_done("withdraw-done-dash", 1, Some("abc1234")).unwrap();
+        step_done("withdraw-done-dash", 1, None).unwrap();
         let before = fs::read_to_string(plan_file(&root, "withdraw-done-dash")).unwrap();
 
         let err = step_withdraw("withdraw-done-dash", 1).unwrap_err();
@@ -6367,7 +6550,7 @@ Some context.
     fn withdrawing_the_final_selected_step_completes_the_run() {
         let (_temp, root) = stepped_dash("armed-dash");
         step_start("armed-dash", 1, 2).unwrap();
-        step_done("armed-dash", 1, Some("abc1234")).unwrap();
+        step_done("armed-dash", 1, None).unwrap();
         step_withdraw("armed-dash", 2).unwrap();
 
         let found = crate::dash::read_declarations(&root, "armed-dash");

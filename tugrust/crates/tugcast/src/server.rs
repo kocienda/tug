@@ -884,6 +884,14 @@ fn resolve_session_identity(
         "line_id": line_id,
         "segments": segments,
         "rotated": live != posted,
+        // **Which checkout this session works.** A session may only bind a
+        // dash in its own project (`dash_api::bind`), so a caller can tell
+        // "the bind was refused" from "this session had no standing to make
+        // it" — and skip the attempt rather than reporting a failure about a
+        // claim that was never its to make. An instance that predates the
+        // field simply omits it, and the caller falls back to what it did
+        // before: attempt, and warn.
+        "project_dir": row.project_dir,
     }))
 }
 

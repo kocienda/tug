@@ -92,7 +92,14 @@ pub fn dispatch(cmd: DashCommands, json: bool, quiet: bool) -> ExitCode {
             name,
             project,
             session,
-        } => run_bind(&name, project, session.as_deref(), json, quiet),
+            dry_run,
+        } => {
+            if dry_run {
+                run_bind_dry_run(&name, session.as_deref(), json, quiet)
+            } else {
+                run_bind(&name, project, session.as_deref(), json, quiet)
+            }
+        }
         DashCommands::Stop {
             name,
             project,
@@ -121,9 +128,9 @@ fn run_create(
     quiet: bool,
 ) -> Result<(), String> {
     let data = ops::create(name, description, carry, base)?;
-    claim_dash(name);
+    let claim = claim_dash(name);
     if json {
-        print_ok("dash create", &data);
+        print_ok("dash create", merge_claim(&data, &claim)?);
     } else if !quiet {
         if data.created {
             println!("Created dash '{}'", data.name);
@@ -135,7 +142,31 @@ fn run_create(
         println!("  Base: {}", data.base_branch);
         print_base_census(&data);
     }
-    Ok(())
+    // The worktree exists either way, and the receipt above says so. What did
+    // not happen is the record of who is working it — and that is the half a
+    // stderr warning on an exit-0 run used to swallow.
+    match claim.refusal(name) {
+        Some(refusal) => Err(refusal),
+        None => Ok(()),
+    }
+}
+
+/// Fold a claim's verdict into a verb's own outcome document.
+///
+/// The claim is a second thing the verb did, so it belongs in the one object
+/// the verb prints rather than in a sentence on another stream. A script that
+/// reads `claimed` never has to infer it from an exit code, and the exit code
+/// is not the only place a refusal shows.
+fn merge_claim<T: serde::Serialize>(data: &T, claim: &Claim) -> Result<serde_json::Value, String> {
+    let mut value = serde_json::to_value(data).map_err(|e| format!("cannot serialize: {e}"))?;
+    let (Some(object), Some(extra)) = (value.as_object_mut(), claim.as_json().as_object().cloned())
+    else {
+        return Ok(value);
+    };
+    for (key, entry) in extra {
+        object.insert(key, entry);
+    }
+    Ok(value)
 }
 
 /// What create leaves behind on the base checkout ([P05]). Reported, never
@@ -478,6 +509,7 @@ fn run_status(name: &str, json: bool, quiet: bool) -> Result<(), String> {
 /// not parse, a row that cannot make the transition — exits 1 with the plan and
 /// the row named, and leaves the plan file untouched.
 fn run_step(name: &str, action: StepAction, json: bool, quiet: bool) -> Result<(), String> {
+    let mut claim = None;
     let data = match action {
         StepAction::Start { step, through } => {
             let through = through.ok_or_else(|| {
@@ -489,7 +521,7 @@ fn run_step(name: &str, action: StepAction, json: bool, quiet: bool) -> Result<(
             // A run that picks a plan up mid-way never calls `create`, so this
             // is the only place the claim can be made for it.
             let outcome = ops::step_start(name, step, through)?;
-            claim_dash(name);
+            claim = Some(claim_dash(name));
             outcome
         }
         StepAction::Done { step, commit } => ops::step_done(name, step, commit.as_deref())?,
@@ -498,12 +530,15 @@ fn run_step(name: &str, action: StepAction, json: bool, quiet: bool) -> Result<(
             // the same claim: a run that picks a plan up mid-way to withdraw
             // one step has still taken the dash.
             let outcome = ops::step_withdraw(name, step)?;
-            claim_dash(name);
+            claim = Some(claim_dash(name));
             outcome
         }
     };
     if json {
-        print_ok("dash step", &data);
+        match &claim {
+            Some(claim) => print_ok("dash step", merge_claim(&data, claim)?),
+            None => print_ok("dash step", &data),
+        }
     } else if !quiet {
         let through = match data.through {
             Some(through) => format!(" (run through {through})"),
@@ -517,7 +552,11 @@ fn run_step(name: &str, action: StepAction, json: bool, quiet: bool) -> Result<(
             println!("Commit: {}", commit);
         }
     }
-    Ok(())
+    // The row moved either way; what may not have happened is the claim.
+    match claim.as_ref().and_then(|claim| claim.refusal(name)) {
+        Some(refusal) => Err(refusal),
+        None => Ok(()),
+    }
 }
 
 /// Declare a stage git cannot see ([P09]) — one dash-log line, nothing else.
@@ -533,8 +572,45 @@ fn run_mark(
         print_ok("dash mark", &data);
     } else if !quiet {
         println!("{} is {}", data.dash, data.stage);
+        print_open_steps(&data);
+    } else if !data.open_steps.is_empty() {
+        // Quiet suppresses the receipt, not the disagreement.
+        eprintln!(
+            "warning: {} of {} ledger rows are still open ({})",
+            data.open_steps.len(),
+            data.total_steps,
+            step_list(&data.open_steps),
+        );
     }
     Ok(())
+}
+
+/// Say when a mark claims more than the ledger does.
+///
+/// `built` says the work is there and `audited` arms the join, so either one
+/// over a table of `pending` rows is a claim about work nobody recorded doing.
+/// A statement, not a refusal: marking ahead of the rows is a real gesture,
+/// and the verb's job is to make the disagreement visible at the moment it is
+/// made rather than at whatever reads the plan next.
+fn print_open_steps(data: &ops::MarkOutcome) {
+    if data.open_steps.is_empty() {
+        return;
+    }
+    println!(
+        "  warning: {} of {} ledger rows are still open — {}",
+        data.open_steps.len(),
+        data.total_steps,
+        step_list(&data.open_steps),
+    );
+    println!("  The mark stands; the ledger does not say the work is finished.");
+}
+
+fn step_list(steps: &[u32]) -> String {
+    steps
+        .iter()
+        .map(|step| format!("step {step}"))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 // --- replay ----------------------------------------------------------------
@@ -1503,6 +1579,148 @@ fn run_arc_stop(
     Ok(())
 }
 
+/// Answer "which session would this bind land on, and what does the ledger
+/// call it" — and write nothing.
+///
+/// The dry run is a **read**, which is why it exists. A session that wants to
+/// know whether its frozen `$TUG_SESSION_ID` still names anything had, until
+/// now, exactly one way to find out: bind, and read the receipt. That is a
+/// write standing in for a question, and it is the gesture the postmortem
+/// found succeeding in both failure modes.
+///
+/// It resolves through the same chokepoint the real bind does, so the answer
+/// is the answer — not a second implementation that could drift from it. The
+/// dash name is echoed but never looked up: what would be written is a
+/// property of the session, and refusing here for an unknown dash would make
+/// the read fail where the write would have.
+fn run_bind_dry_run(
+    name: &str,
+    session: Option<&str>,
+    json: bool,
+    quiet: bool,
+) -> Result<(), String> {
+    let resolved = calling_session_id("dash binding", session)?;
+    let state = resolved
+        .state
+        .as_deref()
+        .unwrap_or("unknown to any instance");
+    if json {
+        print_ok(
+            "dash bind",
+            serde_json::json!({
+                "dash": name,
+                "dry_run": true,
+                "posted_session_id": resolved.posted,
+                "tug_session_id": resolved.session_id,
+                "state": resolved.state,
+                "line_id": resolved.line_id,
+                "rotated": resolved.rotated,
+                "resolved": resolved.resolved,
+            }),
+        );
+    } else if !quiet {
+        println!(
+            "Would bind session {} to dash '{name}'",
+            resolved.session_id
+        );
+        println!("  State: {state}");
+        if let Some(line) = resolved.line_id.as_deref() {
+            println!("  Line: {line}");
+        }
+        if resolved.rotated {
+            println!(
+                "  (this shell holds {}, which has rotated)",
+                resolved.posted
+            );
+        }
+        if !resolved.resolved {
+            println!(
+                "  (no live instance answered, so this is the id in the environment, unexpanded)"
+            );
+        }
+        println!("Nothing was written.");
+    }
+    Ok(())
+}
+
+/// What became of a verb's attempt to claim the dash for its session.
+///
+/// Three outcomes, and the whole point is that the third is not the other two.
+/// A run with no session and a run with no instance genuinely have nothing to
+/// claim, and never had. A run that *had* both and was told no is a claim that
+/// did not happen on a machine that could have made it — and that used to be a
+/// stderr warning on an exit-0 run, so the caller was told the verb worked.
+enum Claim {
+    /// No calling session — a headless run, a fixture, a plain terminal.
+    NoSession,
+    /// No live Tug instance to hold the fact. A binding lives in the ledger,
+    /// not in the worktree, so there is nowhere to put it.
+    NoInstance,
+    /// The calling session works a different checkout. A session may only bind
+    /// a dash in its own project (`dash_api::bind`), so this claim was never
+    /// this session's to make — the same kind of no-op as having no session at
+    /// all, reached from the other direction. The ordinary shape is a CLI
+    /// fixture creating a scratch dash in a temp repo from inside a card.
+    OtherProject,
+    /// A refusal this side cannot classify, because the instance is older than
+    /// the `project_dir` the resolve now answers with. Warned about, not
+    /// failed on: a claim that may not have been this session's to make is not
+    /// evidence that a claim was lost, and refusing to install a build until
+    /// the app restarts is the version-skew mistake W1 already paid for.
+    Unclassified(String),
+    /// Bound, onto the segment the server named.
+    Claimed(String),
+    /// A session and an instance were both there, and the bind was refused.
+    Refused(String),
+}
+
+impl Claim {
+    /// The JSON half every claiming verb merges into its own outcome, so a
+    /// script reads what happened rather than inferring it from an exit code.
+    fn as_json(&self) -> serde_json::Value {
+        match self {
+            Claim::Claimed(session) => serde_json::json!({
+                "claimed": true,
+                "claimed_by": session,
+            }),
+            Claim::NoSession => serde_json::json!({
+                "claimed": false,
+                "claim_skipped": "no calling session",
+            }),
+            Claim::NoInstance => serde_json::json!({
+                "claimed": false,
+                "claim_skipped": "no running Tug instance",
+            }),
+            Claim::OtherProject => serde_json::json!({
+                "claimed": false,
+                "claim_skipped": "the calling session works another checkout",
+            }),
+            Claim::Unclassified(detail) | Claim::Refused(detail) => serde_json::json!({
+                "claimed": false,
+                "claim_error": detail,
+            }),
+        }
+    }
+
+    /// The refusal, when the claim is one the verb must fail on — and, on the
+    /// way past, the stderr warning for the one it must not.
+    fn refusal(&self, name: &str) -> Option<String> {
+        match self {
+            Claim::Refused(detail) => Some(format!(
+                "could not bind this session to dash '{name}': {detail}. The dash is on disk and \
+                 the work can go on, but nothing records who is doing it — `tugtool dash bind \
+                 {name}` once the refusal above is dealt with, or `--dry-run` to see which \
+                 session this shell resolves to"
+            )),
+            Claim::Unclassified(detail) => {
+                eprintln!("warning: could not bind this session to dash '{name}': {detail}");
+                None
+            }
+            _ => None,
+        }
+    }
+}
+
 /// Say that the calling session is working this dash.
 ///
 /// **The verbs that start or resume work on a dash call this** — `create` and
@@ -1514,15 +1732,98 @@ fn run_arc_stop(
 /// in the shade, and — since the pilot works only for bound dashes — is never
 /// offered for joining at all.
 ///
-/// Best-effort by construction, and silent on both no-op paths. There is
-/// nothing to claim without a calling session (a headless run, a fixture), and
-/// nothing to claim it *on* without a live instance, since a binding is a fact
-/// the ledger holds rather than something the worktree needs. A failure warns
-/// on stderr and never fails the verb the user actually asked for.
-fn claim_dash(name: &str) {
-    if let Err(e) = run_bind(name, None, None, false, true) {
-        eprintln!("warning: could not bind this session to dash '{name}': {e}");
+/// Two of the three no-ops are real and stay silent: there is nothing to claim
+/// without a calling session, and nowhere to put it without a live instance.
+/// A **refusal** is neither, and the caller is handed it rather than a warning
+/// on an otherwise-successful run.
+fn claim_dash(name: &str) -> Claim {
+    if !crate::session_identity::have_calling_session() {
+        return Claim::NoSession;
     }
+    if !any_live_instance() {
+        return Claim::NoInstance;
+    }
+    let resolved = match crate::session_identity::resolve("dash binding", None) {
+        Ok(resolved) => resolved,
+        Err(detail) => return Claim::Refused(detail),
+    };
+    let project = match binding_project(None) {
+        Ok(project) => project,
+        Err(detail) => return Claim::Refused(detail),
+    };
+    // Skip a claim that was never this session's to make, before making it.
+    // A session may only bind a dash in its own checkout, and a mismatch here
+    // is not a claim that failed — it is one that never applied.
+    match same_checkout(resolved.project_dir.as_deref(), &project) {
+        Some(false) => return Claim::OtherProject,
+        Some(true) => {}
+        // An instance older than the `project_dir` field cannot be asked, so
+        // the attempt goes ahead and a refusal from it is warned about rather
+        // than failed on.
+        None => {
+            return match run_bind_reporting_as(&resolved, &project, name) {
+                Ok(session) => Claim::Claimed(session),
+                Err(detail) => Claim::Unclassified(detail),
+            };
+        }
+    }
+    match run_bind_reporting_as(&resolved, &project, name) {
+        Ok(session) => Claim::Claimed(session),
+        Err(detail) => Claim::Refused(detail),
+    }
+}
+
+/// Whether the session's checkout and the dash's are the same one — or `None`
+/// when there is no way to tell.
+///
+/// The two spellings come from different processes and may differ by
+/// symlink (`/var` against `/private/var` is the everyday case), so both are
+/// canonicalized before they are compared. A canonicalization that fails
+/// answers `None` rather than guessing: the caller downgrades an unknown to
+/// "attempt and warn", which is what it did before the field existed, so a bad
+/// guess here can only ever lose a refusal it never used to make.
+fn same_checkout(session_project: Option<&str>, dash_project: &std::path::Path) -> Option<bool> {
+    let session_project = session_project?;
+    let canonical = |path: &std::path::Path| std::fs::canonicalize(path).ok();
+    let session = canonical(std::path::Path::new(session_project))?;
+    let dash = canonical(dash_project)?;
+    Some(session == dash)
+}
+
+/// Whether any Tug instance is running to hold a binding.
+///
+/// The same registry read `post_instance_api` opens with. Asked separately so
+/// "nobody is running" can be told apart from "somebody said no" without
+/// matching on the text of an error message.
+fn any_live_instance() -> bool {
+    if let Ok(Some(_)) = std::env::current_dir()
+        .map_err(|_| ())
+        .and_then(|cwd| tugcore::registry::find_for_cwd(&cwd).map_err(|_| ()))
+    {
+        return true;
+    }
+    !tugcore::registry::list_live()
+        .unwrap_or_default()
+        .is_empty()
+}
+
+/// The bind a claim makes: silent on success, and it answers with the segment
+/// the server wrote onto rather than printing it. The session and the project
+/// are resolved by the caller, which needed both to decide whether to make the
+/// attempt at all.
+fn run_bind_reporting_as(
+    session: &crate::session_identity::Resolved,
+    project: &std::path::Path,
+    name: &str,
+) -> Result<String, String> {
+    let response = post_dash_api(serde_json::json!({
+        "op": "bind",
+        "tug_session_id": session.session_id,
+        "project_dir": project.to_string_lossy(),
+        "dash": name,
+    }))
+    .map_err(|e| refuse(session, e))?;
+    Ok(answered_session(&response, session))
 }
 
 fn run_unbind(

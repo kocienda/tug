@@ -37,7 +37,7 @@ fn git_stdout(dir: &Path, args: &[&str]) -> String {
 /// A one-shot stand-in for a running tugcast: accepts POSTs, hands each JSON
 /// body back over a channel, and answers `{"status":"ok"}`.
 fn fake_tugcast() -> (u16, mpsc::Receiver<serde_json::Value>) {
-    fake_tugcast_with(false)
+    fake_tugcast_with(ResolveAnswer::Generic)
 }
 
 /// The same, but answering `unknown op` to the identity chokepoint's
@@ -45,10 +45,58 @@ fn fake_tugcast() -> (u16, mpsc::Receiver<serde_json::Value>) {
 /// machine has for the minutes between installing a build and restarting the
 /// app.
 fn fake_tugcast_predating_resolve() -> (u16, mpsc::Receiver<serde_json::Value>) {
-    fake_tugcast_with(true)
+    fake_tugcast_with(ResolveAnswer::UnknownOp)
 }
 
-fn fake_tugcast_with(refuse_resolve: bool) -> (u16, mpsc::Receiver<serde_json::Value>) {
+/// A tugcast that answers `resolve` by naming a *different* live segment —
+/// the shape a rotation leaves, and the one a session asks `--dry-run` about.
+fn fake_tugcast_resolving_to(
+    session_id: &str,
+    state: &str,
+    line_id: &str,
+) -> (u16, mpsc::Receiver<serde_json::Value>) {
+    fake_tugcast_with(ResolveAnswer::Rotated {
+        body: format!(
+            r#"{{"status":"ok","session_id":"{session_id}","state":"{state}","line_id":"{line_id}"}}"#
+        ),
+    })
+}
+
+/// A tugcast that places the calling session in `project_dir` — so the claim
+/// is one it *could* have made — and then refuses the bind.
+///
+/// The project matters: a claim skips itself when the session works another
+/// checkout, because that claim was never its to make. This is the other case,
+/// the one a verb must fail on.
+fn fake_tugcast_refusing_bind(
+    project_dir: &Path,
+    reason: &str,
+) -> (u16, mpsc::Receiver<serde_json::Value>) {
+    fake_tugcast_with(ResolveAnswer::RefusingBind {
+        resolve: format!(
+            r#"{{"status":"ok","session_id":"seg-1","state":"live","project_dir":"{}"}}"#,
+            project_dir.display()
+        ),
+        refusal: format!(r#"{{"status":"error","message":"{reason}"}}"#),
+    })
+}
+
+/// How the stand-in answers the identity chokepoint's `resolve` op.
+enum ResolveAnswer {
+    /// Whatever the generic handler says — `{"status":"ok","cleared":1}`,
+    /// which carries no `session_id`, so the posted id stands.
+    Generic,
+    /// A tugcast older than the chokepoint, which is what every machine has
+    /// for the minutes between installing a build and restarting the app.
+    UnknownOp,
+    /// A named live segment, with its ledger state and line.
+    Rotated { body: String },
+    /// Resolve answers with `resolve`; anything else is refused with
+    /// `refusal`.
+    RefusingBind { resolve: String, refusal: String },
+}
+
+fn fake_tugcast_with(resolve: ResolveAnswer) -> (u16, mpsc::Receiver<serde_json::Value>) {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let port = listener.local_addr().unwrap().port();
     let (tx, rx) = mpsc::channel();
@@ -78,16 +126,44 @@ fn fake_tugcast_with(refuse_resolve: bool) -> (u16, mpsc::Receiver<serde_json::V
             if let Ok(value) = serde_json::from_slice::<serde_json::Value>(&body) {
                 let is_resolve = value.get("op").and_then(|o| o.as_str()) == Some("resolve");
                 let _ = tx.send(value);
-                if refuse_resolve && is_resolve {
-                    let payload = br#"{"status":"error","message":"unknown op 'resolve'"}"#;
-                    let _ = write!(
-                        stream,
-                        "HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-                        payload.len()
-                    );
-                    let _ = stream.write_all(payload);
-                    let _ = stream.flush();
-                    continue;
+                match &resolve {
+                    ResolveAnswer::UnknownOp if is_resolve => {
+                        let payload = br#"{"status":"error","message":"unknown op 'resolve'"}"#;
+                        let _ = write!(
+                            stream,
+                            "HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                            payload.len()
+                        );
+                        let _ = stream.write_all(payload);
+                        let _ = stream.flush();
+                        continue;
+                    }
+                    ResolveAnswer::Rotated { body } if is_resolve => {
+                        let _ = write!(
+                            stream,
+                            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                            body.len()
+                        );
+                        let _ = stream.write_all(body.as_bytes());
+                        let _ = stream.flush();
+                        continue;
+                    }
+                    ResolveAnswer::RefusingBind { resolve, refusal } => {
+                        let (status, body) = if is_resolve {
+                            ("200 OK", resolve)
+                        } else {
+                            ("400 Bad Request", refusal)
+                        };
+                        let _ = write!(
+                            stream,
+                            "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                            body.len()
+                        );
+                        let _ = stream.write_all(body.as_bytes());
+                        let _ = stream.flush();
+                        continue;
+                    }
+                    _ => {}
                 }
             }
             let payload = br#"{"status":"ok","cleared":1}"#;
@@ -860,4 +936,287 @@ fn a_legacy_journal_on_disk_is_folded_and_continued_by_the_binary() {
     continue_join(&tmp_path, &root, "demo");
     assert!(!journal.exists(), "the journal is read out of existence");
     assert_finished(&tmp_path, &root, "demo");
+}
+
+/// `dash bind --dry-run` answers "which session am I, really" and writes
+/// nothing.
+///
+/// Before it, a session whose `$TUG_SESSION_ID` was frozen at spawn had one
+/// way to find out whether that id still named anything: bind, and read the
+/// receipt. That is a write standing in for a question — and it is the gesture
+/// the postmortem found reporting success in both failure modes.
+#[test]
+fn dash_bind_dry_run_names_the_segment_and_writes_nothing() {
+    let tmp = tempfile::tempdir().unwrap();
+    let tmp_path = tmp.path().canonicalize().unwrap();
+    let repo_dir = tempfile::tempdir().unwrap();
+    let root = repo_dir.path().canonicalize().unwrap();
+    repo_with_dash(&root, "demo");
+
+    let (port, requests) = fake_tugcast_resolving_to("seg-new", "live", "line-1");
+    register_fake_instance(&tmp_path, port);
+
+    let mut dry = tug(&tmp_path);
+    dry.current_dir(&root);
+    dry.env("TUG_SESSION_ID", "seg-old");
+    dry.args(["--json", "dash", "bind", "demo", "--dry-run"]);
+    let out = dry.output().unwrap();
+    assert!(
+        out.status.success(),
+        "dry run failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let document: serde_json::Value =
+        serde_json::from_slice(&out.stdout).expect("the dry run prints one JSON document");
+    let data = &document["data"];
+    assert_eq!(data["dry_run"], true);
+    assert_eq!(data["posted_session_id"], "seg-old");
+    assert_eq!(
+        data["tug_session_id"], "seg-new",
+        "it reports the segment a real bind would land on, not the frozen one",
+    );
+    assert_eq!(data["state"], "live");
+    assert_eq!(data["line_id"], "line-1");
+    assert_eq!(data["rotated"], true);
+
+    let body = requests
+        .recv_timeout(std::time::Duration::from_secs(10))
+        .expect("it resolves through the same chokepoint a real bind does");
+    assert_eq!(body["op"], "resolve");
+    assert!(
+        requests
+            .recv_timeout(std::time::Duration::from_millis(500))
+            .is_err(),
+        "and posts nothing else — a dry run is a read",
+    );
+}
+
+/// The plain-text half of the same read, for a person at a prompt.
+#[test]
+fn dash_bind_dry_run_says_it_wrote_nothing() {
+    let tmp = tempfile::tempdir().unwrap();
+    let tmp_path = tmp.path().canonicalize().unwrap();
+    let repo_dir = tempfile::tempdir().unwrap();
+    let root = repo_dir.path().canonicalize().unwrap();
+    repo_with_dash(&root, "demo");
+
+    let (port, _requests) = fake_tugcast_resolving_to("seg-new", "live", "line-1");
+    register_fake_instance(&tmp_path, port);
+
+    let mut dry = tug(&tmp_path);
+    dry.current_dir(&root);
+    dry.env("TUG_SESSION_ID", "seg-old");
+    dry.args(["dash", "bind", "demo", "--dry-run"]);
+    let out = dry.output().unwrap();
+    assert!(out.status.success());
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(text.contains("Would bind session seg-new"), "{text}");
+    assert!(text.contains("State: live"), "{text}");
+    assert!(text.contains("which has rotated"), "{text}");
+    assert!(text.contains("Nothing was written."), "{text}");
+}
+
+/// A refused claim fails the verb that made it.
+///
+/// `dash create` mints a worktree *and* records who is working it. When the
+/// second half is refused by an instance that could have done it, the verb
+/// used to print a stderr warning and exit 0 — so a script, and a skill, read
+/// the run as wholly successful and went on. The worktree still exists and the
+/// receipt still says so; what changed is that the exit code and the JSON both
+/// carry the half that did not happen.
+#[test]
+fn a_refused_claim_fails_dash_create_and_says_so_in_the_json() {
+    let tmp = tempfile::tempdir().unwrap();
+    let tmp_path = tmp.path().canonicalize().unwrap();
+    let repo_dir = tempfile::tempdir().unwrap();
+    let root = repo_dir.path().canonicalize().unwrap();
+    git(&root, &["init", "-b", "main"]);
+    git(&root, &["config", "user.name", "t"]);
+    git(&root, &["config", "user.email", "t@t"]);
+    std::fs::create_dir_all(root.join(".tugtool")).unwrap();
+    std::fs::write(root.join(".tugtool/config.toml"), "").unwrap();
+    std::fs::write(root.join("a.txt"), "base\n").unwrap();
+    git(&root, &["add", "-A"]);
+    git(&root, &["commit", "-m", "base"]);
+
+    let (port, _requests) = fake_tugcast_refusing_bind(&root, "card runs another-dash");
+    register_fake_instance(&tmp_path, port);
+
+    let mut create = tug(&tmp_path);
+    create.current_dir(&root);
+    create.env("TUG_SESSION_ID", "seg-1");
+    create.args(["--json", "dash", "create", "demo"]);
+    let out = create.output().unwrap();
+
+    assert!(
+        !out.status.success(),
+        "a claim that did not happen must not read as a clean run"
+    );
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("card runs another-dash"),
+        "the refusal names the instance's own reason: {stderr}"
+    );
+
+    let document: serde_json::Value =
+        serde_json::from_slice(&out.stdout).expect("the receipt is still a document");
+    assert_eq!(document["data"]["claimed"], false);
+    assert!(
+        document["data"]["claim_error"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("card runs another-dash"),
+        "{}",
+        document["data"]
+    );
+    assert_eq!(
+        document["data"]["created"], true,
+        "and the half that did happen is still reported as done",
+    );
+    assert!(
+        root.join(".tug/worktrees/demo").is_dir(),
+        "the worktree is on disk; the verb failed about the claim, not the create",
+    );
+}
+
+/// A run with no calling session claims nothing, and that is not a failure.
+///
+/// Headless runs and fixtures have no session to record, and never had. The
+/// JSON says which of the three happened rather than leaving a reader to infer
+/// it from an exit code that is the same either way.
+#[test]
+fn a_run_with_no_session_reports_the_claim_skipped_and_succeeds() {
+    let tmp = tempfile::tempdir().unwrap();
+    let tmp_path = tmp.path().canonicalize().unwrap();
+    let repo_dir = tempfile::tempdir().unwrap();
+    let root = repo_dir.path().canonicalize().unwrap();
+    git(&root, &["init", "-b", "main"]);
+    git(&root, &["config", "user.name", "t"]);
+    git(&root, &["config", "user.email", "t@t"]);
+    std::fs::create_dir_all(root.join(".tugtool")).unwrap();
+    std::fs::write(root.join(".tugtool/config.toml"), "").unwrap();
+    std::fs::write(root.join("a.txt"), "base\n").unwrap();
+    git(&root, &["add", "-A"]);
+    git(&root, &["commit", "-m", "base"]);
+
+    // No registry, no session: `tug()` already removes TUG_SESSION_ID.
+    let mut create = tug(&tmp_path);
+    create.current_dir(&root);
+    create.args(["--json", "dash", "create", "demo"]);
+    let out = create.output().unwrap();
+    assert!(
+        out.status.success(),
+        "a headless create is not a failure: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    let document: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(document["data"]["claimed"], false);
+    assert_eq!(document["data"]["claim_skipped"], "no calling session");
+}
+
+/// A claim the calling session was never entitled to make is skipped, not
+/// failed on.
+///
+/// A session may only bind a dash in its own checkout. When a CLI fixture
+/// creates a scratch dash in a temp repo from inside a card — the everyday
+/// shape in this very test suite — the bind would be refused for a reason that
+/// says nothing about whether a claim was lost. It is a no-op of the same kind
+/// as having no session at all, and the JSON names it as one.
+#[test]
+fn a_session_in_another_checkout_skips_the_claim_and_succeeds() {
+    let tmp = tempfile::tempdir().unwrap();
+    let tmp_path = tmp.path().canonicalize().unwrap();
+    let repo_dir = tempfile::tempdir().unwrap();
+    let root = repo_dir.path().canonicalize().unwrap();
+    let elsewhere = tempfile::tempdir().unwrap();
+    let elsewhere = elsewhere.path().canonicalize().unwrap();
+    git(&root, &["init", "-b", "main"]);
+    git(&root, &["config", "user.name", "t"]);
+    git(&root, &["config", "user.email", "t@t"]);
+    std::fs::create_dir_all(root.join(".tugtool")).unwrap();
+    std::fs::write(root.join(".tugtool/config.toml"), "").unwrap();
+    std::fs::write(root.join("a.txt"), "base\n").unwrap();
+    git(&root, &["add", "-A"]);
+    git(&root, &["commit", "-m", "base"]);
+
+    // The session works `elsewhere`; the dash is being made in `root`.
+    let (port, requests) = fake_tugcast_refusing_bind(&elsewhere, "it cannot bind a dash in");
+    register_fake_instance(&tmp_path, port);
+
+    let mut create = tug(&tmp_path);
+    create.current_dir(&root);
+    create.env("TUG_SESSION_ID", "seg-1");
+    create.args(["--json", "dash", "create", "demo"]);
+    let out = create.output().unwrap();
+    assert!(
+        out.status.success(),
+        "a claim that was never this session's to make is not a failure: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    let document: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(document["data"]["claimed"], false);
+    assert_eq!(
+        document["data"]["claim_skipped"],
+        "the calling session works another checkout",
+    );
+
+    let body = requests
+        .recv_timeout(std::time::Duration::from_secs(10))
+        .expect("it resolves to find out");
+    assert_eq!(body["op"], "resolve");
+    assert!(
+        requests
+            .recv_timeout(std::time::Duration::from_millis(500))
+            .is_err(),
+        "and posts no bind it already knows would be refused",
+    );
+}
+
+/// An instance older than the resolve's `project_dir` cannot be asked, so a
+/// refusal from it warns rather than failing the verb.
+///
+/// The version-skew rule W1 paid for: a new `tugtool` against a tugcast that
+/// has not restarted must degrade to what it did before, never refuse
+/// wholesale.
+#[test]
+fn a_refusal_from_an_instance_that_cannot_place_the_session_only_warns() {
+    let tmp = tempfile::tempdir().unwrap();
+    let tmp_path = tmp.path().canonicalize().unwrap();
+    let repo_dir = tempfile::tempdir().unwrap();
+    let root = repo_dir.path().canonicalize().unwrap();
+    git(&root, &["init", "-b", "main"]);
+    git(&root, &["config", "user.name", "t"]);
+    git(&root, &["config", "user.email", "t@t"]);
+    std::fs::create_dir_all(root.join(".tugtool")).unwrap();
+    std::fs::write(root.join(".tugtool/config.toml"), "").unwrap();
+    std::fs::write(root.join("a.txt"), "base\n").unwrap();
+    git(&root, &["add", "-A"]);
+    git(&root, &["commit", "-m", "base"]);
+
+    // A resolve answer with no `project_dir` — the older instance's shape.
+    let (port, _requests) = fake_tugcast_with(ResolveAnswer::RefusingBind {
+        resolve: r#"{"status":"ok","session_id":"seg-1","state":"live"}"#.to_string(),
+        refusal: r#"{"status":"error","message":"card runs another-dash"}"#.to_string(),
+    });
+    register_fake_instance(&tmp_path, port);
+
+    let mut create = tug(&tmp_path);
+    create.current_dir(&root);
+    create.env("TUG_SESSION_ID", "seg-1");
+    create.args(["--json", "dash", "create", "demo"]);
+    let out = create.output().unwrap();
+    assert!(
+        out.status.success(),
+        "an unclassifiable refusal must not refuse the build: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains("card runs another-dash"),
+        "but it is still said out loud",
+    );
+
+    let document: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(document["data"]["claimed"], false);
 }

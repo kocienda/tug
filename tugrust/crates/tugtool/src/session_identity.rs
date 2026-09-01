@@ -41,6 +41,13 @@ pub(crate) struct Resolved {
     pub state: Option<String>,
     /// The line the posted id belongs to, when an instance placed it.
     pub line_id: Option<String>,
+    /// The checkout this session works, as the ledger row spells it.
+    ///
+    /// `None` from an instance that predates the field — and from the soft
+    /// fallback, where nobody answered at all. A caller uses it to tell "this
+    /// session could have done that and did not" from "this session was never
+    /// entitled to", and must treat `None` as "cannot tell".
+    pub project_dir: Option<String>,
     /// Every segment id the line has worn — what a session-keyed *reader*
     /// expands over. Empty when nothing answered.
     pub segments: Vec<String>,
@@ -61,6 +68,7 @@ impl Resolved {
             posted,
             state: None,
             line_id: None,
+            project_dir: None,
             segments: Vec::new(),
             rotated: false,
             resolved: false,
@@ -91,6 +99,17 @@ fn posted_session_id() -> Option<String> {
     std::env::var("TUG_SESSION_ID")
         .ok()
         .filter(|s| !s.is_empty())
+}
+
+/// Whether this process was born with a calling session at all.
+///
+/// The one question about the raw id that is not about its *value*, and so the
+/// one a caller may ask without resolving. A verb whose claim is best-effort
+/// asks it to tell "there is nobody to claim for" — a headless run, a fixture,
+/// a plain terminal — apart from "somebody was asked and said no". The id
+/// itself does not leave this module.
+pub(crate) fn have_calling_session() -> bool {
+    posted_session_id().is_some()
 }
 
 /// The calling session, resolved to its line's live segment, or the
@@ -176,6 +195,7 @@ fn ask_instance(posted: &str) -> Result<Resolved, String> {
         session_id,
         state: str_field("state"),
         line_id: str_field("line_id"),
+        project_dir: str_field("project_dir"),
         segments: response
             .get("segments")
             .and_then(|v| v.as_array())

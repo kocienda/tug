@@ -854,6 +854,15 @@ pub enum DashCommands {
         /// line's live segment.
         #[arg(long)]
         session: Option<String>,
+        /// Print the segment this bind would land on and its ledger state,
+        /// and write nothing.
+        ///
+        /// The question a session asks before binding is "which session am I,
+        /// really" — the id in its environment was frozen at spawn and the
+        /// Wheel rotates on purpose. Answering it by binding and reading the
+        /// receipt makes a write out of a read.
+        #[arg(long)]
+        dry_run: bool,
     },
     /// Stop the arc, keep the dash.
     ///
