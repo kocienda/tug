@@ -52,7 +52,8 @@ use tugtool_core::plan;
 
 use super::agent_supervisor::{AgentSupervisor, SpawnState};
 use super::dash_arc::{
-    ArcAction, ArcFacts, PromptKind, PromptWhy, Rotation, StepLedgerFacts, arc_action, step_range,
+    ArcAction, ArcFacts, PromptKind, PromptWhy, QUIET_TURN_HORIZON, Rotation, StepLedgerFacts,
+    arc_action, step_range,
 };
 use crate::wheel::{self, RotationRequest};
 
@@ -98,6 +99,16 @@ struct ArcState {
     compacted_since_below: bool,
     /// A prompt the runner sent whose turn has not been read back yet.
     pending: Option<PendingPrompt>,
+    /// How many turns the seated stage has ended in a row without closing a
+    /// step. Cleared by a close and by a rotation; a compact turn neither
+    /// clears it nor adds to it.
+    quiet_turns: u32,
+    /// The seated session's `turns_ended` as the previous tick read it — what
+    /// makes "a turn ended since we last looked" answerable at all. `None`
+    /// until the first tick, which seeds it without counting: a stage tugcast
+    /// inherited across a restart has ended turns nobody here watched, and
+    /// they are not this horizon's to hold against it.
+    turns_seen: Option<u32>,
 }
 
 /// A prompt already delivered, remembered until the turn it opened ends.
@@ -234,15 +245,39 @@ async fn evaluate(ctx: &ArcContext, state: &Arc<Mutex<HashMap<String, ArcState>>
     else {
         return;
     };
+    let mut reading = reading;
 
+    let quiet_turns;
     {
         let mut map = state.lock().await;
         let entry = map.entry(key.clone()).or_default();
+        // Count the turn that just ended, before anything else reads the
+        // memory. A tick fires on a changeset recompute as well as on a turn
+        // end, so the count is over *turns* — the unit the stage acts in —
+        // rather than over ticks, which fire for reasons the stage had no
+        // part in.
+        let previously_seen = entry.turns_seen.replace(reading.turns_ended);
+        let a_turn_ended = previously_seen.is_some_and(|seen| reading.turns_ended > seen);
+        if reading.facts.ledger.step_just_done {
+            entry.quiet_turns = 0;
+        } else if a_turn_ended && !reading.facts.compact_turn_just_ended {
+            entry.quiet_turns = entry.quiet_turns.saturating_add(1);
+        }
+        quiet_turns = entry.quiet_turns;
         // A dispatched rotation whose `arc-stage` line has not landed yet: the
         // newest line still names the session that just ended, which is
         // indistinguishable from a stage that died. Wait for the line.
         if let Some(dispatched_at) = entry.in_flight_at {
-            if reading.record.stages.len() <= dispatched_at {
+            // The wait is not unbounded. A dispatch whose session never
+            // announces leaves this latched, and every future tick returned
+            // early — the arc's second silent wedge, self-healing only if the
+            // entry happened to read `Errored` later. The quiet-turn horizon
+            // retires it: the card is ending turns and the line the latch is
+            // waiting for is not coming, so let the tick through and let the
+            // predicate say what the record actually shows.
+            if reading.record.stages.len() <= dispatched_at
+                && entry.quiet_turns < QUIET_TURN_HORIZON
+            {
                 return;
             }
             entry.in_flight_at = None;
@@ -271,6 +306,7 @@ async fn evaluate(ctx: &ArcContext, state: &Arc<Mutex<HashMap<String, ArcState>>
             entry.compacted_since_below = false;
         }
     }
+    reading.facts.quiet_turns = quiet_turns;
 
     let action = arc_action(&reading.record, &reading.facts);
 
@@ -295,6 +331,7 @@ async fn evaluate(ctx: &ArcContext, state: &Arc<Mutex<HashMap<String, ArcState>>
         last_done_count = ?memory.last_done_count,
         idle = reading.facts.session_idle,
         step_just_done = reading.facts.ledger.step_just_done,
+        quiet_turns = reading.facts.quiet_turns,
         compacted_since_below = reading.facts.compacted_since_below,
         compact_turn_just_ended = reading.facts.compact_turn_just_ended,
         action = %describe_action(action.as_ref()),
@@ -606,6 +643,10 @@ fn read(
             declarations.latest,
             Some(tugdash_core::dash::DashDeclaration::Audited)
         ),
+        // Runner memory, and the one fact this pass cannot gather: the count
+        // is over turns the *previous* tick already saw, so `evaluate` stamps
+        // it after this read returns.
+        quiet_turns: 0,
     };
 
     // Where devise writes: the dash's own `plan.md`, repo-relative, which is
@@ -865,6 +906,11 @@ async fn rotate(
         // A fresh session has compacted nothing and is owed no turn.
         entry.compacted_since_below = false;
         entry.pending = None;
+        // A fresh stage is owed the whole horizon: whatever the last one did
+        // or failed to do is not this one's record. `turns_seen` goes with it
+        // — the seated session is new, and its turn count starts over.
+        entry.quiet_turns = 0;
+        entry.turns_seen = None;
     }
 
     match outcome {
@@ -2581,6 +2627,120 @@ Some context.
                     .to_string()
             ],
             "the boundary is seen and the stage is told to walk on"
+        );
+    }
+
+    /// **The quiet-turn horizon, counted over turns rather than ticks.**
+    ///
+    /// The arc's largest silent wedge: an implement turn that ends closing no
+    /// step decided `None`, and every tick after it decided `None` too. No
+    /// receipt, no gesture, no face — an unattended run simply stopped
+    /// advancing and said nothing.
+    ///
+    /// A tick fires on a changeset recompute as well as on a turn end, so the
+    /// count must be over turns; this drives two sweeps against one turn count
+    /// to prove a repeated tick is not a repeated turn, then advances the
+    /// count and takes the second quiet turn to the stop.
+    #[tokio::test]
+    async fn two_quiet_implement_turns_stop_the_arc_and_leave_a_receipt() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        implementing_project(root, "done", "pending");
+
+        let (ctx, entry, _register_rx) = harness(root).await;
+        set_context(&entry, 100_000).await;
+        let state = Arc::new(Mutex::new(HashMap::new()));
+        // The stage has closed step 1 and the arc has already acted on that
+        // boundary: `last_done_count` equals the plan's count, so nothing on
+        // this tick is a boundary.
+        state.lock().await.insert(
+            demo_key(root),
+            ArcState {
+                last_done_count: Some(1),
+                turns_seen: Some(0),
+                ..Default::default()
+            },
+        );
+
+        // Turn one ends quietly. The arc waits.
+        sweep(&ctx, &state).await;
+        assert_eq!(
+            state.lock().await[&demo_key(root)].quiet_turns,
+            1,
+            "one turn ended and closed nothing"
+        );
+        assert!(read_arc(root, "demo").unwrap().stopped.is_none());
+
+        // A second tick on the *same* turn is not a second turn.
+        sweep(&ctx, &state).await;
+        assert_eq!(
+            state.lock().await[&demo_key(root)].quiet_turns,
+            1,
+            "a tick is not a turn"
+        );
+        assert!(read_arc(root, "demo").unwrap().stopped.is_none());
+
+        // Turn two ends quietly too. That is the horizon.
+        entry.lock().await.turns_ended = 2;
+        sweep(&ctx, &state).await;
+
+        let record = read_arc(root, "demo").unwrap();
+        assert_eq!(
+            record.stopped,
+            Some((ArcStage::Implement, "implement idle".to_string())),
+            "the stop is written where every reader of the arc will find it"
+        );
+        assert!(
+            submitted(&entry).await.is_empty(),
+            "the horizon is a stop with a receipt, never a re-prompt"
+        );
+    }
+
+    /// A turn that closes a step clears the count, so a stage that goes quiet,
+    /// recovers, and goes quiet again gets the whole horizon back.
+    ///
+    /// This is also the reopened-step case W3 left for this workstream: a
+    /// re-walk of a reopened step is indistinguishable from a first walk to
+    /// the runner, and it must be — what clears the count is the boundary,
+    /// whichever walk produced it.
+    #[tokio::test]
+    async fn a_closed_step_clears_the_quiet_count() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        implementing_project(root, "done", "pending");
+
+        let (ctx, entry, _register_rx) = harness(root).await;
+        set_context(&entry, 100_000).await;
+        let state = Arc::new(Mutex::new(HashMap::new()));
+        state.lock().await.insert(
+            demo_key(root),
+            ArcState {
+                last_done_count: Some(1),
+                turns_seen: Some(0),
+                ..Default::default()
+            },
+        );
+
+        sweep(&ctx, &state).await;
+        assert_eq!(state.lock().await[&demo_key(root)].quiet_turns, 1);
+
+        // The stage closes step 2 and ends its turn.
+        std::fs::write(
+            root.join(".tug/dashes/demo/plan.md"),
+            plan_with_statuses("done", "done"),
+        )
+        .unwrap();
+        entry.lock().await.turns_ended = 2;
+        sweep(&ctx, &state).await;
+
+        assert_eq!(
+            state.lock().await[&demo_key(root)].quiet_turns,
+            0,
+            "a boundary is the opposite of a quiet turn"
+        );
+        assert!(
+            read_arc(root, "demo").unwrap().stopped.is_none(),
+            "and the arc is walking on, not stopped"
         );
     }
 

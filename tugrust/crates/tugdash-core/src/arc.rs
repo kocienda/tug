@@ -106,6 +106,20 @@ pub enum ArcStopReason {
     /// was never reduced. Distinct from [`ArcStopReason::ApiError`] because
     /// the fix differs: the compaction is retried, not the work.
     CompactFailed,
+    /// The implement stage ended the quiet-turn horizon of turns without
+    /// closing a step.
+    ///
+    /// The stage is alive, its turns are ending, and the Step Status Ledger is
+    /// not moving — a wandering stage, or one that finished the work and never
+    /// ran `dash step done`. Before this the arc simply decided nothing, tick
+    /// after tick, which is the loudest of the silent wedges: an unattended
+    /// run that sits with no receipt and no gesture to answer it.
+    ///
+    /// Resumable, and the receipt names the resume — the stop is a hand-back
+    /// with a sentence, deliberately not a re-prompt. Re-prompting a stage
+    /// that has twice declined to close a step is asking the same question
+    /// louder; handing the card back is what puts a person in front of it.
+    ImplementIdle,
 }
 
 impl ArcStopReason {
@@ -134,6 +148,7 @@ impl ArcStopReason {
         ArcStopReason::StdinClosed,
         ArcStopReason::ArcRunning,
         ArcStopReason::CompactFailed,
+        ArcStopReason::ImplementIdle,
     ];
 
     /// The word written into `arc-stop`'s note.
@@ -160,6 +175,7 @@ impl ArcStopReason {
             ArcStopReason::StdinClosed => "stdin closed",
             ArcStopReason::ArcRunning => "arc running",
             ArcStopReason::CompactFailed => "compact failed",
+            ArcStopReason::ImplementIdle => "implement idle",
         }
     }
 
@@ -189,6 +205,9 @@ impl ArcStopReason {
             ArcStopReason::ArcRunning => "the card was already running another score",
             ArcStopReason::CompactFailed => {
                 "its /compact turn ended in an API error, so the context was never reduced"
+            }
+            ArcStopReason::ImplementIdle => {
+                "the implement stage ended two turns without closing a step"
             }
         }
     }

@@ -171,7 +171,26 @@ pub struct ArcFacts {
     /// Read from the dash-log's declarations rather than from anything the
     /// stage said: a stage announces nothing and is believed about nothing.
     pub audit_declared: bool,
+    /// How many turns the seated stage has ended in a row without closing a
+    /// step — the runner's count, because only a caller holding the previous
+    /// reading can say a turn *ended*, exactly as with
+    /// [`StepLedgerFacts::step_just_done`].
+    ///
+    /// A compact turn does not count: it is an act the arc itself asked for
+    /// and it closes no step by construction. A re-walk of a reopened step is
+    /// indistinguishable from a first walk here, and needs to be: what resets
+    /// the count is a step closing, whichever walk closed it.
+    pub quiet_turns: u32,
 }
+
+/// How many turns an implement stage may end without closing a step before
+/// the arc stops and hands the card back.
+///
+/// Two, so a stage that ends one turn asking a question or reporting a snag
+/// gets the next turn to recover — which is the ordinary shape of a stage
+/// that then closes its step. Two in a row is a stage that is not walking the
+/// ledger, and no number of further ticks will make it start.
+pub const QUIET_TURN_HORIZON: u32 = 2;
 
 /// The inclusive step range a continued implement stage walks, as the opening
 /// prompt and the transcript's divider both spell it.
@@ -486,6 +505,17 @@ fn implement_action(facts: &ArcFacts) -> Option<ArcAction> {
     }
     // Every other act here is a step-boundary act, and never mid-step.
     if !facts.ledger.step_just_done {
+        // …but a stage whose turns keep ending on no boundary at all is not
+        // waiting for anything. Sitting here was the arc's largest silent
+        // wedge: `None` forever, no receipt, and nothing on the card to say
+        // the run had stopped advancing. At the horizon it stops instead, and
+        // the receipt names `tugtool dash run` like every other stop.
+        if facts.quiet_turns >= QUIET_TURN_HORIZON {
+            return Some(ArcAction::Stop {
+                stage: ArcStage::Implement,
+                reason: ArcStopReason::ImplementIdle,
+            });
+        }
         return None;
     }
     let next = facts.ledger.first_pending?;
@@ -608,6 +638,7 @@ mod tests {
             compacted_since_below: false,
             compact_turn_just_ended: false,
             audit_declared: false,
+            quiet_turns: 0,
         }
     }
 
@@ -1083,6 +1114,80 @@ mod tests {
         facts.context_tokens = tokens;
         facts.stage_continues = true;
         facts
+    }
+
+    /// **The quiet-turn horizon.** An implement turn that ends closing no step
+    /// leaves the arc nothing to do — and used to leave it nothing to do
+    /// *forever*, with no receipt and no gesture to answer. One such turn is
+    /// patience; the horizon's worth is a stop.
+    #[test]
+    fn one_quiet_implement_turn_waits_and_the_horizon_stops() {
+        let seated = record(&[ArcStage::Implement]);
+
+        let mut facts = implementing(Some(120_000), false);
+        facts.quiet_turns = 1;
+        assert_eq!(
+            arc_action(&seated, &facts),
+            None,
+            "one quiet turn is a stage that may yet close its step"
+        );
+
+        facts.quiet_turns = QUIET_TURN_HORIZON;
+        assert_eq!(
+            arc_action(&seated, &facts),
+            Some(ArcAction::Stop {
+                stage: ArcStage::Implement,
+                reason: ArcStopReason::ImplementIdle,
+            }),
+            "the horizon stops with a reason the receipt can read back"
+        );
+    }
+
+    /// The horizon never outranks a step boundary. A turn that closed a step
+    /// is not quiet whatever the count says — and the count is the runner's to
+    /// clear, so a stale one must not turn a working stage into a stopped one.
+    ///
+    /// This is also the reopened-step case: a re-walk of a reopened step is
+    /// indistinguishable from a first walk here, and the boundary it produces
+    /// is the same boundary.
+    #[test]
+    fn a_step_boundary_outranks_the_horizon() {
+        let mut facts = implementing(Some(120_000), true);
+        facts.quiet_turns = QUIET_TURN_HORIZON + 5;
+        let (kind, _) = prompt(arc_action(&record(&[ArcStage::Implement]), &facts));
+        assert_eq!(
+            kind,
+            PromptKind::Continue { steps: (4, 9) },
+            "the stage is walking; the count is the runner's to have cleared"
+        );
+    }
+
+    /// The horizon is the implement stage's alone. Devise, review, and audit
+    /// end by rotating and decide something on every turn they end, so a
+    /// count against them would stop an arc that was never stuck.
+    #[test]
+    fn the_horizon_does_not_reach_the_stages_that_end_by_rotating() {
+        let mut facts = facts();
+        facts.quiet_turns = QUIET_TURN_HORIZON + 5;
+        assert_eq!(
+            arc_action(&record(&[ArcStage::Devise]), &facts),
+            Some(ArcAction::Rotate(Rotation::plain(ArcStage::Review))),
+            "a devise stage with a linting plan rotates, horizon or no"
+        );
+    }
+
+    /// A run whose walk is over is `Done` or an audit rotation, never a stop:
+    /// the completion arm sits above the boundary arm, so a finished run that
+    /// has also been quiet reads as finished.
+    #[test]
+    fn a_finished_run_is_not_stopped_by_the_horizon() {
+        let mut facts = implementing(Some(120_000), false);
+        facts.ledger.run_complete = true;
+        facts.quiet_turns = QUIET_TURN_HORIZON + 5;
+        assert_eq!(
+            arc_action(&record(&[ArcStage::Implement]), &facts),
+            Some(ArcAction::Rotate(Rotation::plain(ArcStage::Audit))),
+        );
     }
 
     #[test]
