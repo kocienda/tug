@@ -21,8 +21,9 @@ use tugtool_core::{Config, find_repo_root, sanitize_branch_name};
 
 use crate::dash::{
     DashDeclaration, DashDeclarations, DashRoundMeta, FitFact, MarkStage, StepPhase,
-    append_dash_log, append_mark_declaration, append_run_through, append_step_declaration,
-    detect_default_branch, read_declarations, validate_dash_name,
+    append_dash_log, append_mark_declaration, append_run_through, detect_default_branch,
+    open_dash_log, read_declarations, step_declaration_note, validate_dash_name,
+    write_dash_log_line,
 };
 
 /// Outcome of [`create`].
@@ -2093,12 +2094,84 @@ pub(crate) fn write_atomic(path: &Path, contents: &str) -> Result<(), String> {
     })
 }
 
+/// Commit the two records a step move produces — the ledger table and the
+/// dash-log line — as close to together as two files can be committed.
+///
+/// No filesystem moves two files as one, and the dash-log cannot be
+/// rename-committed the way the plan can: it is shared by every dash in the
+/// project and appended to concurrently, so read-modify-rename would drop a
+/// neighbouring dash's line. What is available instead is *ordering the
+/// fallible parts before the committing parts*, which is what this does:
+///
+/// 1. **Open the log first.** Creating `.tug/` and opening the file is where a
+///    log append actually fails — a bad permission, a missing parent, a full
+///    disk on the create. Doing it before the table moves means those failures
+///    leave both records exactly as they were.
+/// 2. **Rename the plan.** [`write_atomic`] writes a sibling temp and renames,
+///    so the table is never half-written.
+/// 3. **Write the line** through the handle already open. On a file opened
+///    `O_APPEND` this is one `write` with nowhere left to go wrong for a
+///    reason step 1 could not already have found.
+/// 4. **Roll the table back if step 3 still fails.** The original bytes are in
+///    hand, so the plan goes back to what it was and the refusal says the row
+///    was not moved — true again.
+///
+/// What remains is a hard crash in the gap between the rename and the write,
+/// which no two-file scheme closes. That gap is why `dash doctor` exists: the
+/// window is now a machine failure rather than an ordinary error path, and it
+/// is detected and repairable rather than silent.
+///
+/// **Idempotent re-entry writes nothing.** A `step start` on a row already `in
+/// progress` produces byte-identical text, and if the log already declares that
+/// step open the act has entirely happened — so no duplicate `step-start` line
+/// is appended. The two conditions are checked together on purpose: a table
+/// that did not move while the log says nothing is the *desync*, and appending
+/// the missing line there is the repair, not a duplicate.
+#[allow(clippy::too_many_arguments)]
+fn write_step_pair(
+    repo_root: &Path,
+    name: &str,
+    plan: &Path,
+    source: &str,
+    edited: &str,
+    phase: StepPhase,
+    step: u32,
+    total: u32,
+    note_tail: &str,
+    log_already_says_so: bool,
+) -> Result<(), String> {
+    if edited == source && log_already_says_so {
+        return Ok(());
+    }
+
+    let mut log = open_dash_log(repo_root).map_err(|e| {
+        format!("the dash-log will not open ({e}); step {step} of '{name}' was not moved")
+    })?;
+
+    write_atomic(plan, edited)?;
+
+    let note = step_declaration_note(step, total, note_tail);
+    if let Err(e) = write_dash_log_line(&mut log, name, phase.marker(), note.trim()) {
+        let undone = match write_atomic(plan, source) {
+            Ok(()) => "the row was put back",
+            Err(_) => {
+                "AND THE ROW COULD NOT BE PUT BACK — the table and the log now \
+                 disagree; run `tugtool dash doctor`"
+            }
+        };
+        return Err(format!(
+            "step {step} of '{name}' could not be declared in the dash-log ({e}); {undone}"
+        ));
+    }
+    Ok(())
+}
+
 /// Drive one ledger row and the dash-log in a single gesture ([P04]).
 ///
 /// The edit is computed, verified, and only then written, so every refusal
-/// leaves the plan byte-for-byte as it was. The log line is appended after the
-/// write succeeds, which is what makes the log trustworthy for derivation
-/// ([P01]) — a declaration exists only where the ledger moved.
+/// leaves the plan byte-for-byte as it was, and the pair is committed by
+/// [`write_step_pair`], which is where the "two records, one act" discipline
+/// lives.
 fn step_in(
     repo_root: &Path,
     name: &str,
@@ -2106,6 +2179,7 @@ fn step_in(
     phase: StepPhase,
     commit: Option<&str>,
     through: Option<u32>,
+    why: Option<&str>,
 ) -> Result<StepOutcome, String> {
     let branch = branch_name(name);
     let worktree = worktree_path(repo_root, name);
@@ -2129,11 +2203,11 @@ fn step_in(
 
     let anchor = format!("step-{step}");
     let total = doc.ledger_rows.len() as u32;
-    let title = doc
+    let (title, row_commit) = doc
         .ledger_rows
         .iter()
         .find(|r| r.anchor == anchor)
-        .map(|r| r.title.clone())
+        .map(|r| (r.title.clone(), r.commit.clone()))
         .ok_or_else(|| format!("{rel}: no ledger row for #{anchor}"))?;
 
     // The run's selection is declared before its first step moves, so a run that
@@ -2156,14 +2230,19 @@ fn step_in(
     let through = through.or(declared.run_through);
 
     let status = match phase {
-        StepPhase::Start => "in progress",
+        StepPhase::Start | StepPhase::Reopen => "in progress",
         StepPhase::Done => "done",
         StepPhase::Withdrawn => "withdrawn",
+        StepPhase::Reset => "pending",
     };
     // A withdrawal records no commit, because none was made — so its note tail
     // falls through to the step's title, the grammar a `step-start` writes.
     let sha = match phase {
         StepPhase::Start | StepPhase::Withdrawn => None,
+        // A park clears the cell; a reopen keeps whatever the round recorded,
+        // so the outcome reports the row as it now stands rather than nothing.
+        StepPhase::Reset => None,
+        StepPhase::Reopen => row_commit.clone(),
         StepPhase::Done => Some(match commit {
             // A sha the caller supplies is checked against the worktree the
             // dash actually runs in. Recorded unverified, any string at all
@@ -2185,16 +2264,45 @@ fn step_in(
         }),
     };
 
-    let edited = tugtool_core::plan::set_ledger_status(&source, &anchor, status, sha.as_deref())
-        .map_err(|e| format!("{rel}: {e}"))?;
-    write_atomic(&abs, &edited)?;
+    let edited = match phase {
+        StepPhase::Reset => tugtool_core::plan::reset_ledger_row(&source, &anchor),
+        StepPhase::Reopen => tugtool_core::plan::reopen_ledger_row(&source, &anchor),
+        _ => tugtool_core::plan::set_ledger_status(&source, &anchor, status, sha.as_deref()),
+    }
+    .map_err(|e| format!("{rel}: {e}"))?;
 
-    let note_tail = match &sha {
-        Some(sha) => sha.clone(),
-        None => format!("Step {step}: {title}"),
+    // A `done` note's tail is the round's sha; every other phase's is the
+    // step's title, which is what a display has to show. A `--why` rides after
+    // it, so the reason a step was parked or reopened is in the log line that
+    // records the act rather than in nobody's memory.
+    let note_tail = match (phase, &sha, why) {
+        (StepPhase::Done, Some(sha), _) => sha.clone(),
+        (_, _, Some(why)) if !why.trim().is_empty() => {
+            format!("Step {step}: {title} — {}", why.trim())
+        }
+        _ => format!("Step {step}: {title}"),
     };
-    append_step_declaration(repo_root, name, phase, step, total, &note_tail)
-        .map_err(|e| e.to_string())?;
+
+    // Whether the log already carries this exact act, which is what makes a
+    // re-entry a no-op rather than a duplicate line. Only `start` re-enters:
+    // every other phase either moves the row or refuses at the gate above.
+    let log_already_says_so = phase == StepPhase::Start
+        && declared.step == Some((step, total))
+        && declared.step_in_flight;
+
+    write_step_pair(
+        repo_root,
+        name,
+        &abs,
+        &source,
+        &edited,
+        phase,
+        step,
+        total,
+        &note_tail,
+        log_already_says_so,
+    )
+    .map_err(|e| format!("{rel}: {e}"))?;
 
     Ok(StepOutcome {
         dash: name.to_string(),
@@ -2224,6 +2332,7 @@ pub fn step_start(name: &str, step: u32, through: u32) -> Result<StepOutcome, St
         StepPhase::Start,
         None,
         Some(through),
+        None,
     )
 }
 
@@ -2231,7 +2340,7 @@ pub fn step_start(name: &str, step: u32, through: u32) -> Result<StepOutcome, St
 pub fn step_done(name: &str, step: u32, commit: Option<&str>) -> Result<StepOutcome, String> {
     let repo_root = find_repo_root().map_err(|e| e.to_string())?;
     migrate_worktrees(&repo_root, &mut Vec::new());
-    step_in(&repo_root, name, step, StepPhase::Done, commit, None)
+    step_in(&repo_root, name, step, StepPhase::Done, commit, None, None)
 }
 
 /// Withdraw a step: the ledger row goes `withdrawn` and the commit cell stays
@@ -2243,7 +2352,55 @@ pub fn step_done(name: &str, step: u32, commit: Option<&str>) -> Result<StepOutc
 pub fn step_withdraw(name: &str, step: u32) -> Result<StepOutcome, String> {
     let repo_root = find_repo_root().map_err(|e| e.to_string())?;
     migrate_worktrees(&repo_root, &mut Vec::new());
-    step_in(&repo_root, name, step, StepPhase::Withdrawn, None, None)
+    step_in(
+        &repo_root,
+        name,
+        step,
+        StepPhase::Withdrawn,
+        None,
+        None,
+        None,
+    )
+}
+
+/// Park a step: the ledger row goes back to `pending`, its commit cell is
+/// cleared, and the log records the park.
+///
+/// This is the gesture withdraw was being pressed into meaning and does not
+/// mean. A withdrawal *closes* a step — it advances the run and can arm the
+/// join — which is the right record for "we decided not to walk this" and the
+/// wrong one for "we opened this and are putting it down". A park says the
+/// second thing: nothing is claimed about the step, and the run has not moved
+/// past it.
+///
+/// Refused on `done`, which is [`step_reopen`]'s business.
+pub fn step_reset(name: &str, step: u32, why: Option<&str>) -> Result<StepOutcome, String> {
+    let repo_root = find_repo_root().map_err(|e| e.to_string())?;
+    migrate_worktrees(&repo_root, &mut Vec::new());
+    step_in(&repo_root, name, step, StepPhase::Reset, None, None, why)
+}
+
+/// Reopen a finished step: the ledger row goes `done` → `in progress`, its
+/// commit cell stands, and the log records why.
+///
+/// The audit-rejected case, and the reason `done` is no longer the end of the
+/// road. The log line does two things: it names the reason, so a later reader
+/// knows what the re-walk is answering, and it **un-arms the join** — the
+/// generation's last close is gone, so `run_complete` reads false until the
+/// step closes again. A dash whose work an audit rejected must not be offerable
+/// for landing, and that fact now lives in the log rather than in a person.
+pub fn step_reopen(name: &str, step: u32, why: &str) -> Result<StepOutcome, String> {
+    let repo_root = find_repo_root().map_err(|e| e.to_string())?;
+    migrate_worktrees(&repo_root, &mut Vec::new());
+    step_in(
+        &repo_root,
+        name,
+        step,
+        StepPhase::Reopen,
+        None,
+        None,
+        Some(why),
+    )
 }
 
 /// Resolve `rev` to a commit in `worktree`, or say why it does not.
@@ -5867,6 +6024,12 @@ Some context.
         .unwrap()
     }
 
+    /// The project's whole dash-log, as text.
+    fn log_text(root: &Path) -> String {
+        fs::read_to_string(tugtool_core::project_state_dir(root).join("dash-log.md"))
+            .unwrap_or_default()
+    }
+
     /// The ledger row for `anchor`, as the plan on disk now reads.
     fn ledger_row(root: &Path, name: &str, anchor: &str) -> tugtool_core::plan::LedgerRow {
         let source = fs::read_to_string(plan_file(root, name)).unwrap();
@@ -5919,6 +6082,194 @@ Some context.
         assert_eq!(
             ledger_row(&root, "step-dash", "step-2").status,
             "in progress"
+        );
+    }
+
+    /// The park: an opened step goes back to never-walked, in the table and in
+    /// the log, and the run does not advance past it.
+    #[serial]
+    #[test]
+    fn step_reset_parks_an_open_step_in_both_records() {
+        let (_temp, root) = stepped_dash("park-dash");
+
+        step_start("park-dash", 1, 2).unwrap();
+        let parked = step_reset("park-dash", 1, Some("the approach was wrong")).unwrap();
+        assert_eq!(parked.status, "pending");
+        assert_eq!(parked.commit, None);
+        assert_eq!(ledger_row(&root, "park-dash", "step-1").status, "pending");
+
+        // The log declares the park, carries the reason, and reports the step
+        // as neither in flight nor closed.
+        let decls = crate::dash::read_declarations(&root, "park-dash");
+        assert!(!decls.step_in_flight, "a parked step is not in flight");
+        assert!(!decls.run_complete);
+        assert_eq!(decls.step, Some((1, 2)));
+        assert!(
+            log_text(&root)
+                .contains("step-reset  1/2 Step 1: The first step — the approach was wrong"),
+            "the log names the park and its reason: {}",
+            log_text(&root)
+        );
+
+        // And it is genuinely a park, not a close: the step opens again.
+        let reopened = step_start("park-dash", 1, 2).unwrap();
+        assert_eq!(reopened.status, "in progress");
+    }
+
+    /// A park is refused on a finished row. Un-finishing is `reopen`'s act,
+    /// and the two keep different records for a reason.
+    #[serial]
+    #[test]
+    fn step_reset_refuses_a_done_row() {
+        let (_temp, root) = stepped_dash("park-done-dash");
+        step_start("park-done-dash", 1, 2).unwrap();
+        step_done("park-done-dash", 1, None).unwrap();
+
+        let before = fs::read_to_string(plan_file(&root, "park-done-dash")).unwrap();
+        let err = step_reset("park-done-dash", 1, None).unwrap_err();
+        assert!(
+            err.contains("'done'") && err.contains("'pending'"),
+            "the refusal names both ends: {err}"
+        );
+        assert_eq!(
+            fs::read_to_string(plan_file(&root, "park-done-dash")).unwrap(),
+            before,
+            "a refused park leaves the plan byte-for-byte as it was"
+        );
+    }
+
+    /// Reopen is the audit-rejected case: the row comes back to `in progress`
+    /// keeping its sha, and — the settled decision — the join un-arms until the
+    /// step closes again.
+    #[serial]
+    #[test]
+    fn step_reopen_unarms_the_join_until_the_step_recloses() {
+        let (_temp, root) = stepped_dash("reopen-dash");
+        let worktree = worktree_path(&root, "reopen-dash");
+
+        step_start("reopen-dash", 1, 1).unwrap();
+        fs::write(worktree.join("one.txt"), "first\n").unwrap();
+        commit("reopen-dash", "r1", None).unwrap();
+        let done = step_done("reopen-dash", 1, None).unwrap();
+        let sha = done.commit.clone().unwrap();
+        assert!(
+            dash_detail_entry_in(&root, "reopen-dash")
+                .unwrap()
+                .join_ready
+        );
+
+        let reopened = step_reopen("reopen-dash", 1, "the audit rejected the approach").unwrap();
+        assert_eq!(reopened.status, "in progress");
+        assert_eq!(
+            reopened.commit.as_deref(),
+            Some(sha.as_str()),
+            "the rejected round is still on the branch and still named"
+        );
+        let row = ledger_row(&root, "reopen-dash", "step-1");
+        assert_eq!(row.status, "in progress");
+        assert_eq!(row.commit.as_deref(), Some(sha.as_str()));
+
+        let detail = dash_detail_entry_in(&root, "reopen-dash").unwrap();
+        assert!(!detail.run_complete, "the run is no longer finished");
+        assert!(
+            !detail.join_ready,
+            "rejected work must not be offerable for landing"
+        );
+        assert_eq!(detail.stage, "implementing");
+        assert!(
+            log_text(&root)
+                .contains("step-reopen  1/2 Step 1: The first step — the audit rejected"),
+            "the log names the reopen and why: {}",
+            log_text(&root)
+        );
+
+        // Re-closing re-arms it, with no further gesture.
+        fs::write(worktree.join("one.txt"), "second try\n").unwrap();
+        commit("reopen-dash", "r2", None).unwrap();
+        step_done("reopen-dash", 1, None).unwrap();
+        let detail = dash_detail_entry_in(&root, "reopen-dash").unwrap();
+        assert!(detail.run_complete);
+        assert!(detail.join_ready);
+    }
+
+    /// Reopen refuses every row that is not `done` — a step nobody finished is
+    /// not a step anybody can un-finish.
+    #[serial]
+    #[test]
+    fn step_reopen_refuses_a_row_that_was_never_closed() {
+        let (_temp, root) = stepped_dash("reopen-open-dash");
+        step_start("reopen-open-dash", 1, 2).unwrap();
+        let err = step_reopen("reopen-open-dash", 1, "because").unwrap_err();
+        assert!(
+            err.contains("'in progress'"),
+            "the refusal names the row's actual status: {err}"
+        );
+        assert_eq!(
+            ledger_row(&root, "reopen-open-dash", "step-1").status,
+            "in progress"
+        );
+    }
+
+    /// Idempotent re-entry writes nothing. Re-opening a step already open is a
+    /// legal gesture — an interrupted run does it — and it used to append a
+    /// `step-start` line every time, so a log that is the derivation surface
+    /// filled with declarations of an act that did not happen.
+    #[serial]
+    #[test]
+    fn re_entering_an_open_step_appends_no_second_log_line() {
+        let (_temp, root) = stepped_dash("reentry-dash");
+
+        step_start("reentry-dash", 1, 2).unwrap();
+        let after_first = log_text(&root);
+        assert_eq!(after_first.matches("step-start").count(), 1);
+
+        step_start("reentry-dash", 1, 2).unwrap();
+        step_start("reentry-dash", 1, 2).unwrap();
+        assert_eq!(
+            log_text(&root).matches("step-start").count(),
+            1,
+            "re-entry declares nothing new: {}",
+            log_text(&root)
+        );
+        assert_eq!(
+            ledger_row(&root, "reentry-dash", "step-1").status,
+            "in progress"
+        );
+
+        // But a *different* step still declares itself, and a re-entry after a
+        // park is a genuine reopening of the row.
+        step_start("reentry-dash", 2, 2).unwrap();
+        assert_eq!(log_text(&root).matches("step-start").count(), 2);
+        step_reset("reentry-dash", 2, None).unwrap();
+        step_start("reentry-dash", 2, 2).unwrap();
+        assert_eq!(
+            log_text(&root).matches("step-start").count(),
+            3,
+            "a park makes the next start a real one again"
+        );
+    }
+
+    /// The desync repair rides on the same predicate: a table that already
+    /// reads `in progress` while the log declares nothing gets the missing
+    /// line rather than being mistaken for a re-entry.
+    #[serial]
+    #[test]
+    fn a_table_ahead_of_the_log_gets_the_missing_declaration() {
+        let (_temp, root) = stepped_dash("desync-dash");
+
+        // Move the table alone, exactly as a crash between the two writes does.
+        let plan = plan_file(&root, "desync-dash");
+        let source = fs::read_to_string(&plan).unwrap();
+        let moved =
+            tugtool_core::plan::set_ledger_status(&source, "step-1", "in progress", None).unwrap();
+        fs::write(&plan, &moved).unwrap();
+        assert!(!log_text(&root).contains("step-start"));
+
+        step_start("desync-dash", 1, 2).unwrap();
+        assert_eq!(
+            log_text(&root).matches("step-start").count(),
+            1,
+            "the log caught up rather than being taken for already-correct"
         );
     }
 

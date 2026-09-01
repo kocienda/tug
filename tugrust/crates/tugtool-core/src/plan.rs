@@ -1363,13 +1363,138 @@ impl std::error::Error for LedgerEditError {}
 /// `start` rather than a hand-edit of the table. `withdrawn` to `done` is
 /// refused — a step that is now to be walked takes the same path every other
 /// step takes.
+///
+/// `pending` is reachable from every *open* status — `pending`, `in progress`,
+/// `withdrawn` — and from none other. That is `dash step reset`: the row goes
+/// back to never-walked, which is the park a real run needs and which withdraw
+/// was being pressed into meaning. A `done` row is still terminal here on
+/// purpose; walking one back is [`reopen_ledger_row`]'s job, and it is a
+/// different act with a different record.
 fn transition_allowed(from: &str, to: &str) -> bool {
     match to {
         "in progress" => from == "pending" || from == "in progress" || from == "withdrawn",
         "done" => from == "in progress",
         "withdrawn" => from == "pending" || from == "in progress" || from == "withdrawn",
+        "pending" => from == "pending" || from == "in progress" || from == "withdrawn",
         _ => false,
     }
+}
+
+/// What a row edit does to the commit cell it is not primarily about.
+///
+/// Three answers, and the reason there are three: a step that closes *sets*
+/// the cell, a step that reopens *leaves* it — the round was made, it is still
+/// on the branch, and a reader following the cell back finds the work the
+/// audit rejected — and a step that resets *clears* it, because a row back at
+/// `pending` claims nothing was walked and a sha sitting beside that claim is
+/// the one thing worse than an empty cell.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CommitCell<'a> {
+    Leave,
+    Set(&'a str),
+    Clear,
+}
+
+/// Walk one Step Status Ledger row back to `pending`, clearing its commit cell.
+///
+/// This is the park a real run needs and did not have: a step that was opened
+/// and is not going to be finished now goes back to never-walked, rather than
+/// being withdrawn — which advances the run and arms the join — or hand-edited,
+/// which desyncs the table from the log. `done` is refused, because a finished
+/// step is not un-finished; [`reopen_ledger_row`] is that act.
+///
+/// `anchor` is spelled without the leading `#` (`"step-3"`).
+pub fn reset_ledger_row(source: &str, anchor: &str) -> Result<String, LedgerEditError> {
+    let (row_status, row_title, row_line) = locate_row(source, anchor)?;
+    if !transition_allowed(&row_status, "pending") {
+        return Err(LedgerEditError::BadTransition {
+            anchor: anchor.to_string(),
+            from: row_status,
+            to: "pending".to_string(),
+        });
+    }
+    let edited = rewrite_ledger_line(source, row_line, Some("pending"), CommitCell::Clear)
+        .ok_or_else(|| LedgerEditError::RoundTrip {
+            anchor: anchor.to_string(),
+        })?;
+    verify_row(&edited, anchor, "pending", &row_title, Some(None))?;
+    Ok(edited)
+}
+
+/// Reopen a `done` Step Status Ledger row: back to `in progress`, commit kept.
+///
+/// The audit-rejected case, and the reason `done` stopped being terminal. The
+/// gate is deliberately *not* [`transition_allowed`]: `done` → `in progress`
+/// is legal only through this verb, so an ordinary `dash step start` on a
+/// finished row still refuses and the walk-back stays a deliberate act with
+/// its own record.
+///
+/// The commit cell is left standing. The row is `in progress` carrying the sha
+/// of the round that was rejected, which is exactly what a reader needs; the
+/// re-close overwrites it with the round that answered the rejection.
+///
+/// `anchor` is spelled without the leading `#` (`"step-3"`).
+pub fn reopen_ledger_row(source: &str, anchor: &str) -> Result<String, LedgerEditError> {
+    let (row_status, row_title, row_line) = locate_row(source, anchor)?;
+    if row_status != "done" {
+        return Err(LedgerEditError::BadTransition {
+            anchor: anchor.to_string(),
+            from: row_status,
+            to: "in progress".to_string(),
+        });
+    }
+    let edited = rewrite_ledger_line(source, row_line, Some("in progress"), CommitCell::Leave)
+        .ok_or_else(|| LedgerEditError::RoundTrip {
+            anchor: anchor.to_string(),
+        })?;
+    verify_row(&edited, anchor, "in progress", &row_title, None)?;
+    Ok(edited)
+}
+
+/// A row's `(status, title, line)`, or the refusal that says why it is not
+/// there — the preamble every ledger edit shares.
+fn locate_row(source: &str, anchor: &str) -> Result<(String, String, usize), LedgerEditError> {
+    let doc = parse(source).map_err(|_| LedgerEditError::NotAPlan)?;
+    if doc.ledger_line.is_none() {
+        return Err(LedgerEditError::NoLedger);
+    }
+    let row = doc
+        .ledger_rows
+        .iter()
+        .find(|r| r.anchor == anchor)
+        .ok_or_else(|| LedgerEditError::NoRow {
+            anchor: anchor.to_string(),
+        })?;
+    Ok((row.status.clone(), row.title.clone(), row.line))
+}
+
+/// The proof an edit did what it claimed: re-read the document it produced and
+/// check the row against what was asked for.
+///
+/// `commit` is doubly optional on purpose — `None` means "whatever it is now
+/// is fine", `Some(None)` means "it must read back as no commit at all", and
+/// `Some(Some(sha))` means "it must read back as this sha".
+fn verify_row(
+    edited: &str,
+    anchor: &str,
+    status: &str,
+    title: &str,
+    commit: Option<Option<&str>>,
+) -> Result<(), LedgerEditError> {
+    let stale = || LedgerEditError::RoundTrip {
+        anchor: anchor.to_string(),
+    };
+    let reparsed = parse(edited).map_err(|_| stale())?;
+    let back = reparsed
+        .ledger_rows
+        .iter()
+        .find(|r| r.anchor == anchor)
+        .ok_or_else(stale)?;
+    let commit_reads_back = commit.is_none_or(|want| back.commit.as_deref() == want);
+    if back.status != status || back.title != title || !commit_reads_back {
+        return Err(stale());
+    }
+    Ok(())
 }
 
 /// Set one Step Status Ledger row's status, and its commit cell on `done`.
@@ -1387,53 +1512,27 @@ pub fn set_ledger_status(
     status: &str,
     commit: Option<&str>,
 ) -> Result<String, LedgerEditError> {
-    let doc = parse(source).map_err(|_| LedgerEditError::NotAPlan)?;
-    if doc.ledger_line.is_none() {
-        return Err(LedgerEditError::NoLedger);
-    }
-    let row = doc
-        .ledger_rows
-        .iter()
-        .find(|r| r.anchor == anchor)
-        .ok_or_else(|| LedgerEditError::NoRow {
-            anchor: anchor.to_string(),
-        })?;
-
-    if !transition_allowed(&row.status, status) {
+    let (row_status, row_title, row_line) = locate_row(source, anchor)?;
+    if !transition_allowed(&row_status, status) {
         return Err(LedgerEditError::BadTransition {
             anchor: anchor.to_string(),
-            from: row.status.clone(),
+            from: row_status,
             to: status.to_string(),
         });
     }
 
-    let edited = rewrite_ledger_line(source, row.line, Some(status), commit).ok_or_else(|| {
-        LedgerEditError::RoundTrip {
-            anchor: anchor.to_string(),
-        }
+    let edited = rewrite_ledger_line(
+        source,
+        row_line,
+        Some(status),
+        commit.map_or(CommitCell::Leave, CommitCell::Set),
+    )
+    .ok_or_else(|| LedgerEditError::RoundTrip {
+        anchor: anchor.to_string(),
     })?;
 
     // The proof the edit did what it claimed: re-read the document it produced.
-    let reparsed = parse(&edited).map_err(|_| LedgerEditError::RoundTrip {
-        anchor: anchor.to_string(),
-    })?;
-    let back = reparsed
-        .ledger_rows
-        .iter()
-        .find(|r| r.anchor == anchor)
-        .ok_or_else(|| LedgerEditError::RoundTrip {
-            anchor: anchor.to_string(),
-        })?;
-    let commit_reads_back = match commit {
-        Some(sha) => back.commit.as_deref() == Some(sha),
-        None => true,
-    };
-    if back.status != status || back.title != row.title || !commit_reads_back {
-        return Err(LedgerEditError::RoundTrip {
-            anchor: anchor.to_string(),
-        });
-    }
-
+    verify_row(&edited, anchor, status, &row_title, commit.map(Some))?;
     Ok(edited)
 }
 
@@ -1451,42 +1550,14 @@ pub fn rewrite_ledger_commit_cell(
     anchor: &str,
     commit: &str,
 ) -> Result<String, LedgerEditError> {
-    let doc = parse(source).map_err(|_| LedgerEditError::NotAPlan)?;
-    if doc.ledger_line.is_none() {
-        return Err(LedgerEditError::NoLedger);
-    }
-    let row = doc
-        .ledger_rows
-        .iter()
-        .find(|r| r.anchor == anchor)
-        .ok_or_else(|| LedgerEditError::NoRow {
-            anchor: anchor.to_string(),
+    let (row_status, row_title, row_line) = locate_row(source, anchor)?;
+    let edited =
+        rewrite_ledger_line(source, row_line, None, CommitCell::Set(commit)).ok_or_else(|| {
+            LedgerEditError::RoundTrip {
+                anchor: anchor.to_string(),
+            }
         })?;
-
-    let edited = rewrite_ledger_line(source, row.line, None, Some(commit)).ok_or_else(|| {
-        LedgerEditError::RoundTrip {
-            anchor: anchor.to_string(),
-        }
-    })?;
-
-    let reparsed = parse(&edited).map_err(|_| LedgerEditError::RoundTrip {
-        anchor: anchor.to_string(),
-    })?;
-    let back = reparsed
-        .ledger_rows
-        .iter()
-        .find(|r| r.anchor == anchor)
-        .ok_or_else(|| LedgerEditError::RoundTrip {
-            anchor: anchor.to_string(),
-        })?;
-    if back.commit.as_deref() != Some(commit)
-        || back.status != row.status
-        || back.title != row.title
-    {
-        return Err(LedgerEditError::RoundTrip {
-            anchor: anchor.to_string(),
-        });
-    }
+    verify_row(&edited, anchor, &row_status, &row_title, Some(Some(commit)))?;
     Ok(edited)
 }
 
@@ -1497,7 +1568,7 @@ fn rewrite_ledger_line(
     source: &str,
     line_no: usize,
     status: Option<&str>,
-    commit: Option<&str>,
+    commit: CommitCell<'_>,
 ) -> Option<String> {
     let mut pieces: Vec<&str> = source.split_inclusive('\n').collect();
     let piece = *pieces.get(line_no.checked_sub(1)?)?;
@@ -1518,8 +1589,13 @@ fn rewrite_ledger_line(
     } else if cells.len() < 4 {
         return None;
     }
-    if let Some(sha) = commit {
-        set_cell(cells.get_mut(4)?, &format!("`{sha}`"));
+    match commit {
+        CommitCell::Leave => {}
+        CommitCell::Set(sha) => set_cell(cells.get_mut(4)?, &format!("`{sha}`")),
+        // The placeholder the parser reads back as "no commit recorded", and
+        // the spelling a freshly authored plan already uses for an unwalked
+        // row — so a reset row is byte-shaped like one that was never walked.
+        CommitCell::Clear => set_cell(cells.get_mut(4)?, "—"),
     }
 
     let rebuilt = format!("{indent}{}{trailing}{eol}", cells.join("|"));
@@ -2201,6 +2277,102 @@ Some context.
             .filter(|(_, (x, y))| x != y)
             .map(|(i, (x, y))| (i + 1, x.to_string(), y.to_string()))
             .collect()
+    }
+
+    /// Reset is the park: the row goes back to never-walked and the commit
+    /// cell goes with it, so the line reads exactly as an unwalked row does.
+    #[test]
+    fn ledger_reset_returns_a_walked_row_to_pending_with_an_empty_commit() {
+        let started = set_ledger_status(MINIMAL, "step-1", "in progress", None).unwrap();
+        let reset = reset_ledger_row(&started, "step-1").expect("an open step parks");
+        assert_eq!(
+            reset, MINIMAL,
+            "a parked row is byte-identical to a fresh one"
+        );
+
+        // And from a withdrawal, which is the other open status.
+        let withdrawn = set_ledger_status(MINIMAL, "step-1", "withdrawn", None).unwrap();
+        assert_eq!(reset_ledger_row(&withdrawn, "step-1").unwrap(), MINIMAL);
+    }
+
+    /// The commit cell is cleared, not merely left: a `pending` row carrying a
+    /// sha claims a round that its status says was never made.
+    #[test]
+    fn ledger_reset_clears_a_recorded_commit() {
+        let started = set_ledger_status(MINIMAL, "step-1", "in progress", None).unwrap();
+        let done = set_ledger_status(&started, "step-1", "done", Some("a4477d5")).unwrap();
+        let reopened = reopen_ledger_row(&done, "step-1").unwrap();
+        let reset = reset_ledger_row(&reopened, "step-1").expect("a reopened step parks");
+        let row = parse(&reset).unwrap().ledger_rows.remove(0);
+        assert_eq!(row.status, "pending");
+        assert_eq!(row.commit, None, "the sha went with the status");
+    }
+
+    /// `done` is not walked back by `reset`. It is walked back by `reopen`,
+    /// and only by `reopen` — the two acts keep different records.
+    #[test]
+    fn ledger_reset_refuses_a_done_row() {
+        let started = set_ledger_status(MINIMAL, "step-1", "in progress", None).unwrap();
+        let done = set_ledger_status(&started, "step-1", "done", Some("a4477d5")).unwrap();
+        assert_eq!(
+            reset_ledger_row(&done, "step-1"),
+            Err(LedgerEditError::BadTransition {
+                anchor: "step-1".to_string(),
+                from: "done".to_string(),
+                to: "pending".to_string(),
+            })
+        );
+    }
+
+    /// Reopen moves `done` back to `in progress` and leaves the sha standing —
+    /// the round was made, and a reader following the cell finds the work the
+    /// audit rejected.
+    #[test]
+    fn ledger_reopen_moves_done_back_keeping_the_commit() {
+        let started = set_ledger_status(MINIMAL, "step-1", "in progress", None).unwrap();
+        let done = set_ledger_status(&started, "step-1", "done", Some("a4477d5")).unwrap();
+        let reopened = reopen_ledger_row(&done, "step-1").expect("a done step reopens");
+        let diff = line_diff(&done, &reopened);
+        assert_eq!(diff.len(), 1, "exactly one line moves: {diff:?}");
+        assert_eq!(
+            diff[0].2,
+            "| #step-1 | The only step | in progress | `a4477d5` |"
+        );
+    }
+
+    /// Reopen is only ever a walk-back. Asking it to reopen a row that was
+    /// never closed is a refusal, not a no-op, because the caller believed
+    /// something about the row that is not true.
+    #[test]
+    fn ledger_reopen_refuses_every_row_that_is_not_done() {
+        for from in ["pending", "in progress", "withdrawn"] {
+            let source = if from == "pending" {
+                MINIMAL.to_string()
+            } else {
+                set_ledger_status(MINIMAL, "step-1", from, None).unwrap()
+            };
+            assert_eq!(
+                reopen_ledger_row(&source, "step-1"),
+                Err(LedgerEditError::BadTransition {
+                    anchor: "step-1".to_string(),
+                    from: from.to_string(),
+                    to: "in progress".to_string(),
+                }),
+                "reopening a '{from}' row must refuse"
+            );
+        }
+    }
+
+    /// `dash step start` is not a back door onto a finished row: the extra
+    /// edge lives on `reopen` alone, so the ordinary verb still refuses.
+    #[test]
+    fn ledger_start_still_refuses_a_done_row() {
+        let started = set_ledger_status(MINIMAL, "step-1", "in progress", None).unwrap();
+        let done = set_ledger_status(&started, "step-1", "done", Some("a4477d5")).unwrap();
+        assert!(matches!(
+            set_ledger_status(&done, "step-1", "in progress", None),
+            Err(LedgerEditError::BadTransition { .. })
+        ));
     }
 
     #[test]

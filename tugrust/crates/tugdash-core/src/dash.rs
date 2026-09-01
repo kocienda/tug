@@ -176,21 +176,43 @@ pub fn append_dash_log(
     marker: &str,
     note: &str,
 ) -> Result<(), TugError> {
+    let mut file = open_dash_log(repo_root)?;
+    write_dash_log_line(&mut file, dash, marker, note)
+}
+
+/// Open the project's dash-log for appending, creating the file and its
+/// directory if this is the first write.
+///
+/// Split out of [`append_dash_log`] so a caller that must move two records
+/// together can do the part that fails — creating the directory, opening the
+/// file — *before* it commits the other record, and then hold the handle. The
+/// append itself, through a handle already open, is a single `write` on a file
+/// opened `O_APPEND`: as close to "cannot fail for a reason you could have
+/// foreseen" as a filesystem gets. See `ops::step_in`.
+pub fn open_dash_log(repo_root: &Path) -> Result<std::fs::File, TugError> {
     refuse_unredirected_temp_repo(repo_root);
     let dir = project_state_dir(repo_root);
     fs::create_dir_all(&dir).map_err(TugError::Io)?;
-    let path = dir.join("dash-log.md");
-
-    let note = note.replace('\n', " ");
-    let line = format!("{}  {}  {}  {}\n", now_iso8601(), dash, marker, note.trim());
-
-    let mut file = OpenOptions::new()
+    OpenOptions::new()
         .create(true)
         .append(true)
-        .open(&path)
-        .map_err(TugError::Io)?;
-    file.write_all(line.as_bytes()).map_err(TugError::Io)?;
-    Ok(())
+        .open(dir.join("dash-log.md"))
+        .map_err(TugError::Io)
+}
+
+/// Append one record through a handle [`open_dash_log`] returned.
+///
+/// The timestamp is stamped here rather than at open time, so a handle held
+/// across some work still dates the line by when the line was written.
+pub fn write_dash_log_line(
+    file: &mut std::fs::File,
+    dash: &str,
+    marker: &str,
+    note: &str,
+) -> Result<(), TugError> {
+    let note = note.replace('\n', " ");
+    let line = format!("{}  {}  {}  {}\n", now_iso8601(), dash, marker, note.trim());
+    file.write_all(line.as_bytes()).map_err(TugError::Io)
 }
 
 /// Whether writing project state for `repo_root` would land in the user's live
@@ -260,11 +282,25 @@ pub enum DashDeclaration {
 /// `Withdrawn` closes a step the run decided not to walk. It closes as a
 /// `Done` does — a withdrawal is a step ending — and records no commit,
 /// because none was made.
+///
+/// `Reset` and `Reopen` are the two ways a closed step comes back. They are
+/// not ends at all, which is why the name of this type is now a half-truth
+/// worth keeping: every variant is still one entry in the log's step
+/// vocabulary, and the vocabulary is what a reader switches on.
+///
+/// - `Reset` parks a step: the row goes back to `pending`, the run un-advances,
+///   and nothing about the step is claimed any more. This is what withdraw was
+///   being pressed into meaning, and it is not what withdraw means.
+/// - `Reopen` walks a `done` step back to `in progress` — the audit-rejected
+///   case. It **un-arms the join** until the step re-closes, and the log line
+///   is the whole of how [`read_declarations`] knows that.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StepPhase {
     Start,
     Done,
     Withdrawn,
+    Reset,
+    Reopen,
 }
 
 impl StepPhase {
@@ -274,7 +310,20 @@ impl StepPhase {
             StepPhase::Start => "step-start",
             StepPhase::Done => "step-done",
             StepPhase::Withdrawn => "step-withdrawn",
+            StepPhase::Reset => "step-reset",
+            StepPhase::Reopen => "step-reopen",
         }
+    }
+
+    /// Whether this phase leaves the step **open** — its work unfinished and
+    /// the run not advanced past it.
+    ///
+    /// `Start` and `Reopen` open; `Done` and `Withdrawn` close; `Reset` does
+    /// neither, and is the one phase this predicate cannot answer for, so it
+    /// is not asked — see [`read_declarations`], which handles the park as its
+    /// own case.
+    pub fn opens_the_step(self) -> bool {
+        matches!(self, StepPhase::Start | StepPhase::Reopen)
     }
 }
 
@@ -454,6 +503,15 @@ fn read_step_title(note: &str, current: u32) -> Option<String> {
 /// so without that reset a name reused after a join would be born `audited`.
 /// A missing log, an empty log, and a log with nothing after the terminal line
 /// all read as no declarations.
+///
+/// **Reading a log written by a newer build.** Every marker this match does
+/// not know falls through the `_` arm having still dated the dash, so a reader
+/// that predates `step-reset` and `step-reopen` degrades rather than refuses:
+/// it keeps answering from the markers it does know. The degradation has a
+/// direction worth naming — an old reader sees a reopened step's earlier
+/// `step-done` as the last word and so still arms the join, which is exactly
+/// the behaviour it had before the markers existed. That is the skew rule
+/// W1 settled: a new fact an old reader cannot see leaves it where it was.
 pub fn read_declarations(repo_root: &Path, dash: &str) -> DashDeclarations {
     let path = project_state_dir(repo_root).join("dash-log.md");
     let Ok(text) = fs::read_to_string(&path) else {
@@ -482,7 +540,7 @@ pub fn read_declarations(repo_root: &Path, dash: &str) -> DashDeclarations {
         // dash an age without giving it a stage.
         found.last_activity = Some(timestamp.to_owned());
         match marker {
-            "step-start" | "step-done" | "step-withdrawn" => {
+            "step-start" | "step-done" | "step-withdrawn" | "step-reset" | "step-reopen" => {
                 if let Some((current, total)) = read_step_fields(note) {
                     found.latest = Some(DashDeclaration::Step { current, total });
                     found.step = Some((current, total));
@@ -495,19 +553,37 @@ pub fn read_declarations(repo_root: &Path, dash: &str) -> DashDeclarations {
                     if found.run_through.is_some() {
                         found.run_first.get_or_insert(current);
                     }
-                    // A done note's tail is the round's sha, not a title — the
-                    // start's title stays current until the next start. Both
-                    // closing markers take the `else`: a withdrawal ends a step
-                    // and advances the run exactly as a completion does, which
-                    // is what keeps a dash whose final selected step was
-                    // withdrawn joinable rather than wedged.
-                    if marker == "step-start" {
-                        found.step_title = read_step_title(note, current);
-                        found.step_in_flight = true;
-                        last_step_done = None;
-                    } else {
-                        found.step_in_flight = false;
-                        last_step_done = Some(current);
+                    match marker {
+                        // The two markers that leave a step *open*. Both carry
+                        // a title in the note's tail, and both clear
+                        // `last_step_done`, which is what un-arms the join: a
+                        // reopened final step means the run is no longer
+                        // finished, and nothing but this line says so.
+                        "step-start" | "step-reopen" => {
+                            found.step_title = read_step_title(note, current);
+                            found.step_in_flight = true;
+                            last_step_done = None;
+                        }
+                        // A park neither opens nor closes. The step is not in
+                        // flight and the run has not advanced past it, so the
+                        // completion arithmetic loses its last close exactly
+                        // as a reopen does — a selection with a parked step in
+                        // it is not finished.
+                        "step-reset" => {
+                            found.step_title = read_step_title(note, current);
+                            found.step_in_flight = false;
+                            last_step_done = None;
+                        }
+                        // The closes. A done note's tail is the round's sha,
+                        // not a title — the start's title stays current until
+                        // the next one. A withdrawal ends a step and advances
+                        // the run exactly as a completion does, which is what
+                        // keeps a dash whose final selected step was withdrawn
+                        // joinable rather than wedged.
+                        _ => {
+                            found.step_in_flight = false;
+                            last_step_done = Some(current);
+                        }
                     }
                 }
             }
@@ -647,8 +723,23 @@ pub fn append_step_declaration(
     total: u32,
     tail: &str,
 ) -> Result<(), TugError> {
-    let note = format!("{current}/{total} {}", tail.trim());
-    append_dash_log(repo_root, dash, phase.marker(), note.trim())
+    append_dash_log(
+        repo_root,
+        dash,
+        phase.marker(),
+        step_declaration_note(current, total, tail).trim(),
+    )
+}
+
+/// The note a step declaration carries: the `i/N` token [`read_step_fields`]
+/// reads, then whatever tail the phase wrote.
+///
+/// One function because there are now two writers — [`append_step_declaration`]
+/// and `ops::write_step_pair`, which holds its log handle open across the
+/// table's rename — and two spellings of one grammar is how a reader comes to
+/// understand one of them and not the other.
+pub fn step_declaration_note(current: u32, total: u32, tail: &str) -> String {
+    format!("{current}/{total} {}", tail.trim())
 }
 
 /// Append a `built` or `audited` declaration (Spec S01, [P09]).

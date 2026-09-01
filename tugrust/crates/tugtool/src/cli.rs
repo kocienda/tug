@@ -944,6 +944,34 @@ pub enum StepAction {
         /// Step number, matching the ledger's `#step-<n>` anchor.
         step: u32,
     },
+    /// Park a step: the ledger row goes back to `pending` and its commit cell
+    /// is cleared.
+    ///
+    /// The gesture for "we opened this and are putting it down", which
+    /// `withdraw` does not mean — a withdrawal closes the step, advances the
+    /// run, and can arm the join. A park claims nothing about the step and
+    /// leaves the run where it was. Refused on a `done` row; that is `reopen`.
+    Reset {
+        /// Step number, matching the ledger's `#step-<n>` anchor.
+        step: u32,
+        /// Why the step is being parked. Recorded in the dash-log line.
+        #[arg(long)]
+        why: Option<String>,
+    },
+    /// Reopen a finished step: `done` back to `in progress`, commit kept.
+    ///
+    /// For work an audit rejected. The dash-log line un-arms the join until
+    /// the step closes again, so a dash with rejected work in it cannot be
+    /// offered for landing while the re-walk is outstanding.
+    Reopen {
+        /// Step number, matching the ledger's `#step-<n>` anchor.
+        step: u32,
+        /// Why the step is being reopened — what the re-walk is answering.
+        /// Required: a reopen with no reason is the hand-edit this verb
+        /// exists to replace, wearing a verb's clothes.
+        #[arg(long)]
+        why: String,
+    },
 }
 
 #[derive(Subcommand)]

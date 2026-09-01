@@ -533,6 +533,17 @@ fn run_step(name: &str, action: StepAction, json: bool, quiet: bool) -> Result<(
             claim = Some(claim_dash(name));
             outcome
         }
+        // Parking and reopening are run acts too, on the same grounds.
+        StepAction::Reset { step, why } => {
+            let outcome = ops::step_reset(name, step, why.as_deref())?;
+            claim = Some(claim_dash(name));
+            outcome
+        }
+        StepAction::Reopen { step, why } => {
+            let outcome = ops::step_reopen(name, step, &why)?;
+            claim = Some(claim_dash(name));
+            outcome
+        }
     };
     if json {
         match &claim {
