@@ -3577,6 +3577,23 @@ enum Decision {
     Backpressure,
 }
 
+/// Which dashes a repo still has a **record** of — or that it could not be
+/// asked, which is a different thing and must stay one.
+///
+/// `Known` is an answer: these owner-key stems have a record, and a binding
+/// naming anything else names a dash that is gone. `Unreadable` is not an
+/// answer — `git` could not be run at all, and an empty set there is
+/// indistinguishable from a repo with no dashes in it. Collapsed into "no
+/// dashes", a moved repo or a stale `project_dir` spelling silently unbinds
+/// every card on the machine at once.
+///
+/// Built by [`AgentSupervisor::live_dash_records`], read by
+/// [`AgentSupervisor::reported_binding`].
+enum DashRecords {
+    Known(std::collections::HashSet<String>),
+    Unreadable,
+}
+
 /// Announce a completed session↔dash mating to every connected deck.
 ///
 /// A bind has two doors — the `bind_dash` CONTROL verb a card sends, and
@@ -4962,10 +4979,14 @@ impl AgentSupervisor {
         let (row_dash_id, row_dash_name) = match row.filter(|r| r.dash_id.is_some()) {
             Some(row) => {
                 let project = row.project_dir.clone();
-                let live = tokio::task::spawn_blocking(move || Self::live_dash_branches(&project))
-                    .await
-                    .unwrap_or_default();
-                Self::reported_binding(&live, row.dash_id, row.dash_name)
+                // A panicked blocking task is not evidence the dash is gone
+                // either — it reads as `Unreadable` for the same reason a
+                // failed `git` does.
+                let records =
+                    tokio::task::spawn_blocking(move || Self::live_dash_records(&project))
+                        .await
+                        .unwrap_or(DashRecords::Unreadable);
+                Self::reported_binding(&records, row.dash_id, row.dash_name)
             }
             None => (None, None),
         };
@@ -5816,54 +5837,122 @@ impl AgentSupervisor {
         ));
     }
 
-    /// The `tugdash/*` branch refs that still exist in `repo`.
+    /// The repo's dash records, keyed by legacy owner key (`tugdash/<name>`).
     ///
-    /// **One** `git for-each-ref` per repo, membership-tested in memory — not
-    /// a `rev-parse` per dash ([P05]). The callers are the startup restore
+    /// **Two** `git` reads per repo, membership-tested in memory — not a
+    /// `rev-parse` per dash ([P05]). The callers are the startup restore
     /// round-trip cards wait on behind `RESTORE_PASS_SETTLE_TIMEOUT_MS` and
     /// the per-spawn ack; neither may grow subprocess fan-out proportional to
     /// the dash count.
-    fn live_dash_branches(repo: &str) -> std::collections::HashSet<String> {
-        let Ok(out) = std::process::Command::new("git")
-            .arg("-C")
-            .arg(repo)
-            .args([
-                "for-each-ref",
-                "--format=%(refname:short)",
-                "refs/heads/tugdash/",
-            ])
-            .output()
-        else {
-            return std::collections::HashSet::new();
+    ///
+    /// **The branch is not the record.** A dash's durable identity is its
+    /// `tugid` git-config entry, which `ensure_dash_id` mints at bind time and
+    /// which needs no branch — so an arc that bound before its branch existed
+    /// is bound by design (`server.rs`, the `arc_run` door) and gating on the
+    /// ref alone nulls it deterministically. A teardown takes both: `git branch
+    /// -D` deletes the branch's whole config section, `tugid` included, which
+    /// is what makes their absence together mean "gone".
+    ///
+    /// The config read is only trusted once `for-each-ref` has proved the repo
+    /// answers at all: `git config --get-regexp` exits 1 on *no matches*, which
+    /// would otherwise read the same as a repo that is not there.
+    fn live_dash_records(repo: &str) -> DashRecords {
+        let git = |args: &[&str]| {
+            std::process::Command::new("git")
+                .arg("-C")
+                .arg(repo)
+                .args(args)
+                .output()
         };
-        if !out.status.success() {
-            return std::collections::HashSet::new();
+        let Ok(refs) = git(&[
+            "for-each-ref",
+            "--format=%(refname:short)",
+            "refs/heads/tugdash/",
+        ]) else {
+            return DashRecords::Unreadable;
+        };
+        if !refs.status.success() {
+            return DashRecords::Unreadable;
         }
-        String::from_utf8_lossy(&out.stdout)
+        let mut records: std::collections::HashSet<String> = String::from_utf8_lossy(&refs.stdout)
             .lines()
             .map(str::trim)
             .filter(|l| !l.is_empty())
             .map(str::to_owned)
-            .collect()
+            .collect();
+        if let Ok(config) = git(&["config", "--get-regexp", r"^branch\.tugdash/.*\.tugid$"])
+            && config.status.success()
+        {
+            for line in String::from_utf8_lossy(&config.stdout).lines() {
+                // `branch.tugdash/<name>.tugid <value>` — the stem between the
+                // `branch.` prefix and the `.tugid` suffix is the legacy key.
+                let key = line.split_whitespace().next().unwrap_or_default();
+                if let Some(stem) = key
+                    .strip_prefix("branch.")
+                    .and_then(|k| k.strip_suffix(".tugid"))
+                    && !stem.is_empty()
+                {
+                    records.insert(stem.to_string());
+                }
+            }
+        }
+        DashRecords::Known(records)
     }
 
     /// A stored binding as it should be *reported*: the pair as written, or
-    /// nulls when the dash's branch is gone ([P05]).
+    /// nulls when the dash's record is gone ([P05]).
     ///
     /// The eager clear on a tugcast-side landing covers the card workflow;
     /// this is the lazy half that keeps reads correct when tugcast was never
     /// in the loop — a terminal join, or a crash between teardown and the
     /// CLI's `dash_gone` broadcast.
+    ///
+    /// A read that cannot see the repo keeps the ledger's answer. Nulling is a
+    /// claim — "this dash is gone" — and only evidence may make it; a failed
+    /// `git` is the absence of evidence. The wrong direction here blanks the
+    /// dash chip on every card at once with nothing saying why, which is the
+    /// half of the postmortem that had no instrumentation.
+    ///
+    /// Every decision traces under `dev::ledger`, because the surface it
+    /// governs is a chip going blank and the question asked afterwards is
+    /// always "why did it think the dash was gone".
     fn reported_binding(
-        live_branches: &std::collections::HashSet<String>,
+        records: &DashRecords,
         dash_id: Option<String>,
         dash_name: Option<String>,
     ) -> (Option<String>, Option<String>) {
-        match dash_id {
-            Some(id) if live_branches.contains(tugdash_core::ops::legacy_owner_key(&id)) => {
+        let Some(id) = dash_id else {
+            return (None, None);
+        };
+        match records {
+            DashRecords::Unreadable => {
+                tracing::warn!(
+                    target: "dev::ledger",
+                    event = "ledger.reported_binding.kept_unreadable",
+                    dash_id = id.as_str(),
+                    "the repo could not be read; keeping the ledger's binding rather than nulling it",
+                );
                 (Some(id), dash_name)
             }
-            _ => (None, None),
+            DashRecords::Known(records) => {
+                if records.contains(tugdash_core::ops::legacy_owner_key(&id)) {
+                    tracing::debug!(
+                        target: "dev::ledger",
+                        event = "ledger.reported_binding.kept",
+                        dash_id = id.as_str(),
+                    );
+                    (Some(id), dash_name)
+                } else {
+                    tracing::info!(
+                        target: "dev::ledger",
+                        event = "ledger.reported_binding.nulled",
+                        dash_id = id.as_str(),
+                        records = records.len(),
+                        "the repo holds no branch and no tugid for this dash",
+                    );
+                    (None, None)
+                }
+            }
         }
     }
 
@@ -7780,10 +7869,10 @@ impl AgentSupervisor {
         // per-card stats (not a boot walk) under a directory the app already
         // reads — no new TCC surface.
         let claude_root = ledger.claude_projects_root().to_path_buf();
-        // One `for-each-ref` per distinct repo among the bound rows, so a
+        // One pair of git reads per distinct repo among the bound rows, so a
         // binding whose dash has since been joined or discarded reads as
         // unbound ([P05]) without a git call per row.
-        let live_dashes_by_project: std::collections::HashMap<String, _> = {
+        let dash_records_by_project: std::collections::HashMap<String, DashRecords> = {
             let projects: std::collections::HashSet<String> = lines
                 .iter()
                 .filter(|(_, segment, _)| segment.dash_id.is_some())
@@ -7793,23 +7882,27 @@ impl AgentSupervisor {
                 projects
                     .into_iter()
                     .map(|project| {
-                        let live = Self::live_dash_branches(&project);
-                        (project, live)
+                        let records = Self::live_dash_records(&project);
+                        (project, records)
                     })
                     .collect()
             })
             .await
             .unwrap_or_default()
         };
-        let no_dashes = std::collections::HashSet::new();
+        // A project the map has no entry for was never asked — a panicked
+        // blocking task, or a row whose spelling drifted out of the set. That
+        // is `Unreadable`, not "no dashes": the old empty-set default here was
+        // the second way a valid binding got nulled.
+        let unasked = DashRecords::Unreadable;
         let bindings: Vec<serde_json::Value> = lines
             .into_iter()
             .filter_map(|(line, segment, turn_count)| {
                 let card_id = line.card_id.clone()?;
                 let (dash_id, dash_name) = Self::reported_binding(
-                    live_dashes_by_project
+                    dash_records_by_project
                         .get(&segment.project_dir)
-                        .unwrap_or(&no_dashes),
+                        .unwrap_or(&unasked),
                     segment.dash_id,
                     segment.dash_name,
                 );
@@ -16890,6 +16983,147 @@ mod tests {
         assert_eq!(row.card_id.as_deref(), Some("card-1"));
         assert_eq!(row.state, LedgerState::Live);
         assert_eq!(row.turn_count, 0);
+    }
+
+    // ── reported_binding: what makes a stored binding readable as gone ───────
+
+    /// A dash whose branch is there reads bound, and one nothing knows about
+    /// reads unbound. The two ordinary cases.
+    #[test]
+    fn a_binding_is_reported_when_its_dash_has_a_record() {
+        let records = DashRecords::Known(["tugdash/demo".to_string()].into_iter().collect());
+        assert_eq!(
+            AgentSupervisor::reported_binding(
+                &records,
+                Some("tugdash/demo#1755-aabbcc".into()),
+                Some("demo".into()),
+            ),
+            (Some("tugdash/demo#1755-aabbcc".into()), Some("demo".into())),
+        );
+        assert_eq!(
+            AgentSupervisor::reported_binding(
+                &records,
+                Some("tugdash/joined#1755-ddeeff".into()),
+                Some("joined".into()),
+            ),
+            (None, None),
+            "a dash the repo has no record of is gone, and the chip should say so",
+        );
+    }
+
+    /// A repo that could not be read keeps the ledger's answer.
+    ///
+    /// Nulling is a claim — "this dash is gone" — and only evidence may make
+    /// it. The old gate could not tell a failed `git` from a repo with no
+    /// dashes in it, so a moved checkout or a stale `project_dir` spelling
+    /// blanked the dash chip on every card at once, with nothing said.
+    #[test]
+    fn an_unreadable_repo_keeps_the_ledgers_binding_rather_than_nulling_it() {
+        assert_eq!(
+            AgentSupervisor::reported_binding(
+                &DashRecords::Unreadable,
+                Some("tugdash/demo#1755-aabbcc".into()),
+                Some("demo".into()),
+            ),
+            (Some("tugdash/demo#1755-aabbcc".into()), Some("demo".into())),
+        );
+        assert_eq!(
+            AgentSupervisor::reported_binding(&DashRecords::Unreadable, None, None),
+            (None, None),
+            "and an unbound row stays unbound; there is nothing to keep",
+        );
+    }
+
+    /// The pre-branch arc binding, which the branch-only gate nulled every
+    /// time.
+    ///
+    /// `tugtool dash run` binds through `ensure_dash_id`, which mints the
+    /// owner key as git config and needs no branch — so between that bind and
+    /// the dash's creation the binding is valid and has no `tugdash/<name>`
+    /// ref. Gating on the ref alone made the card read unbound for that whole
+    /// window, deterministically.
+    #[test]
+    fn a_pre_branch_arc_binding_is_reported_from_its_tugid_alone() {
+        let repo = tempfile::tempdir().unwrap();
+        git_init(repo.path());
+        run_git(
+            repo.path(),
+            &["config", "branch.tugdash/arc.tugid", "1755-aabbcc"],
+        );
+
+        let records = AgentSupervisor::live_dash_records(repo.path().to_str().unwrap());
+        assert!(matches!(records, DashRecords::Known(_)));
+        assert_eq!(
+            AgentSupervisor::reported_binding(
+                &records,
+                Some("tugdash/arc#1755-aabbcc".into()),
+                Some("arc".into()),
+            ),
+            (Some("tugdash/arc#1755-aabbcc".into()), Some("arc".into())),
+            "a dash with a tugid and no branch yet is bound by design",
+        );
+    }
+
+    /// A branch with no tugid — the legacy, pre-id shape — still reads as a
+    /// record. Neither half is required; their absence *together* is what
+    /// means gone, because a teardown takes both.
+    #[test]
+    fn a_branch_without_a_tugid_is_still_a_record() {
+        let repo = tempfile::tempdir().unwrap();
+        git_init(repo.path());
+        run_git(repo.path(), &["commit", "--allow-empty", "-m", "root"]);
+        run_git(repo.path(), &["branch", "tugdash/legacy"]);
+
+        let records = AgentSupervisor::live_dash_records(repo.path().to_str().unwrap());
+        assert_eq!(
+            AgentSupervisor::reported_binding(
+                &records,
+                Some("tugdash/legacy".into()),
+                Some("legacy".into()),
+            ),
+            (Some("tugdash/legacy".into()), Some("legacy".into())),
+        );
+    }
+
+    /// A readable repo with no dashes in it answers `Known` and empty — a real
+    /// answer, and the one that must stay distinct from not having been asked.
+    #[test]
+    fn a_repo_with_no_dashes_answers_known_and_empty() {
+        let repo = tempfile::tempdir().unwrap();
+        git_init(repo.path());
+
+        match AgentSupervisor::live_dash_records(repo.path().to_str().unwrap()) {
+            DashRecords::Known(records) => assert!(records.is_empty()),
+            DashRecords::Unreadable => panic!("a readable repo with no dashes is not unreadable"),
+        }
+    }
+
+    /// A path that is not a repo at all is `Unreadable`. This is the shape a
+    /// stale `project_dir` spelling takes, and the one the old gate read as
+    /// "every dash is gone".
+    #[test]
+    fn a_path_that_is_not_a_repo_is_unreadable() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(matches!(
+            AgentSupervisor::live_dash_records(dir.path().to_str().unwrap()),
+            DashRecords::Unreadable,
+        ));
+    }
+
+    fn run_git(repo: &std::path::Path, args: &[&str]) {
+        let out = std::process::Command::new("git")
+            .arg("-C")
+            .arg(repo)
+            .args(args)
+            .output()
+            .expect("git runs");
+        assert!(out.status.success(), "git {args:?}: {out:?}");
+    }
+
+    fn git_init(repo: &std::path::Path) {
+        run_git(repo, &["init", "--quiet", "-b", "main"]);
+        run_git(repo, &["config", "user.email", "t@example.com"]);
+        run_git(repo, &["config", "user.name", "T"]);
     }
 
     /// The rotation seat's two frames, in the order the deck needs them.
