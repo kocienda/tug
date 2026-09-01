@@ -105,7 +105,7 @@ Six workstreams, ordered by dependency. W1–W3 are the confidence-critical core
 The postmortem posed two options: stop the id being stale, or stop it being usable raw. Take the second, completely, and add the guard that makes it stick:
 
 1. **`calling_session_id` resolves, always.** The tugtool-side resolver asks the instance API for the live segment of its line before any use (it already holds the port-walk machinery), and every verb prints the *resolved* id. `run_bind` reads `response["session_id"]` instead of echoing the posted value. Add `--session` to `bind|stop|unbind|run`, and rewrite the refusal to name the resolved id and its `state`.
-2. **Route the three stragglers through the door.** `draft` owners, `ask`, and `changes claim|disclaim` either resolve through the same chokepoint or their servers/readers expand by line (`Owner::keys()` gains line expansion; `pending-ask-store` routes by line; decide whether `file_events` grows a `line_id` column — `CHANGES_SCHEMA_VERSION` bump — or its readers keep re-expanding). Fix `draft/SKILL.md:82` to stop pinning the raw id.
+2. **Route the three stragglers through the door.** `draft` owners, `ask`, and `changes claim|disclaim` either resolve through the same chokepoint or their servers/readers expand by line (`Owner::keys()` gains line expansion; `pending-ask-store` routes by line). **Settled 2026-08-31: `file_events` grows a `line_id` column** — the durable fix, surviving a sessions-ledger prune — with the required `CHANGES_SCHEMA_VERSION` bump and registered migration. Fix `draft/SKILL.md:82` to stop pinning the raw id.
 3. **The guard tests.** In the `no_ad_hoc_ledger_opens` mold: a source-scan test that refuses any `std::env::var("TUG_SESSION_ID")` outside the one resolver (allowlist: the spawn-time exporters); a tugcast test that refuses any session-keyed binding `UPDATE` outside `set_dash_binding`/`seat_line_binding`. This is the single highest-leverage item in the whole plan — it converts the fourth incident into the last one.
 4. **Close the expansion edges.** `seat_line_binding` gains the `state='live'` predicate; `live_segment_of`'s ordering prefers the newest live segment during the rotation-overlap window (the posted-id-wins tiebreak is the wrong bias when the poster is the retiring segment); verify the `tugcode` respawn assumption (a rotation always re-spawns tugcode) with a test, since the whole design leans on it.
 
@@ -117,13 +117,13 @@ The postmortem posed two options: stop the id being stale, or stop it being usab
 
 ### W3 — Complete the step machine; make the three records one story
 
-1. **`step reset <n>`** — row to `pending`, commit cell cleared, paired log line, refused on `done`. **`step reopen <n>`** — `done → in progress` with a log line naming why (the audit-rejected case); decide whether reopen un-arms `join_ready` (it should — the log line gives `read_declarations` the fact it needs).
+1. **`step reset <n>`** — row to `pending`, commit cell cleared, paired log line, refused on `done`. **`step reopen <n>`** — `done → in progress` with a log line naming why (the audit-rejected case). **Settled 2026-08-31: reopen un-arms `join_ready`** until the step is re-closed — the log line gives `read_declarations` the fact it needs.
 2. **One writer, one truth.** Table and log move in a single atomic write (write both to temp, rename both, or derive one from the other); `step start` re-entry stops appending duplicate log lines when the rewrite was a no-op.
 3. **`dash doctor <name>`** — diffs table vs log vs sqlite binding vs arc record, names each disagreement in a sentence, and offers the reconciling append. This is also the recovery gesture the skills can finally teach. Run its read-only core in `dash status` so an ordinary status call says "ledger and log disagree at step 4" instead of silently answering from one side.
 
 ### W4 — The arc cannot wedge or mis-stop silently
 
-1. **A quiet-turn horizon.** An implement turn that ends closing no step increments a counter; after N (2?) quiet turns the runner stops with a new receipt-bearing stop reason (`ImplementIdle`) naming the resume gesture. Same horizon retires a latched `in_flight_at`.
+1. **A quiet-turn horizon.** An implement turn that ends closing no step increments a counter; after **2 quiet turns (settled 2026-08-31)** the runner stops with a new receipt-bearing stop reason (`ImplementIdle`) naming the resume gesture — a stop with a receipt, not a re-prompt. Same horizon retires a latched `in_flight_at`.
 2. **Restart correctness.** Persist armed hand-backs beside `deck_model`; re-derive `last_done_count` from the ledger at startup instead of seeding at current; fix the false `CardTaken` by recording dispatch intent (an `arc-dispatch` line) before the wheel fires, so a crash in the gap reads as "re-rotate" rather than "taken".
 3. **Loud appends.** A failed `arc-stop`/`arc-done` append logs at warn with the path, never `let _ =`.
 
@@ -145,8 +145,6 @@ One app-test that *is* the postmortem: open an arc, force an implement rotation 
 - **Do not run W1–W3 as a dash.** The machinery under repair is the machinery a dash runs on; a rotation mid-fix would be debugging the patient with the patient. Main-lane sessions, ordinary `/commit` landings.
 - W5 is the natural first `/dash-plan` passenger once W1–W3 are landed — it exercises exactly the paths just hardened, and its audit stage is the acceptance test for the skill rewrites.
 
-### Open questions for the user
+### Open questions
 
-1. `step reopen` un-arming `join_ready` — confirm that is the wanted semantics (a reopened step should un-ready the join until re-closed).
-2. `file_events.line_id` column vs reader-side expansion — the column is the durable fix (survives a sessions-ledger prune) but touches shared-ledger schema; reader-side is smaller.
-3. The quiet-turn horizon N for `ImplementIdle` (proposal: 2), and whether the stop should instead re-prompt once before stopping.
+None. The three that were open — reopen un-arming `join_ready`, the `file_events.line_id` column, and the `ImplementIdle` horizon of 2 — were settled by the user 2026-08-31 and folded into W1, W3, and W4 above.
