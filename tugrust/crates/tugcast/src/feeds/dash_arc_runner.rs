@@ -203,7 +203,7 @@ pub async fn run_arc_engine(
 
 /// Evaluate every arc a live session is bound to.
 async fn sweep(ctx: &ArcContext, state: &Arc<Mutex<HashMap<String, ArcState>>>) {
-    for arc in bound_arcs(ctx) {
+    for arc in bound_arcs(ctx).await {
         evaluate(ctx, state, &arc).await;
     }
 }
@@ -214,7 +214,18 @@ async fn sweep(ctx: &ArcContext, state: &Arc<Mutex<HashMap<String, ArcState>>>) 
 /// names no session, so "whose card is this arc on" is answered by the ledger
 /// the Bind control already writes. `bound_sessions_by_dash` filters to live
 /// rows, so a card that closed takes its arc out of the sweep.
-fn bound_arcs(ctx: &ArcContext) -> Vec<BoundArc> {
+///
+/// **The session it hands back is the card's, not the row's**, and that
+/// distinction is the whole of `at0505`'s finding. The ledger row a binding
+/// sits on is a *segment* — after a rotation, the fresh one `seat_line_binding`
+/// moved the dash onto — while the supervisor's map is keyed by the **tug
+/// session id**, which is the card's address and never moves. Handing the
+/// segment on meant `session_snapshot` looked up an id no entry wears, answered
+/// `None`, and the arc ran factless from its first rotation onward: no
+/// predicate, no decision, no clock. That is the shape W6 watched for ninety
+/// seconds and read as a consequence of the kill; the kill had nothing to do
+/// with it.
+async fn bound_arcs(ctx: &ArcContext) -> Vec<BoundArc> {
     let Ok(by_dash) = ctx.session_ledger.bound_sessions_by_dash() else {
         return Vec::new();
     };
@@ -230,11 +241,48 @@ fn bound_arcs(ctx: &ArcContext) -> Vec<BoundArc> {
             out.push(BoundArc {
                 project: PathBuf::from(&row.project_dir),
                 dash,
-                session: TugSessionId::new(session.clone()),
+                session: card_session_for_segment(ctx, session).await,
             });
         }
     }
     out
+}
+
+/// The card's own session id for a segment the ledger says is bound.
+///
+/// The supervisor's map is keyed by the **tug session id** — the card's
+/// address, minted at spawn and never moved, because every frame the card sends
+/// is stamped with it and its whole services bag is built around it. A rotation
+/// mints a *segment*, records a row under claude's own id, and moves the dash
+/// binding onto it; from then on the ledger's answer to "which session is on
+/// this dash" is an id no supervisor entry wears.
+///
+/// So the walk is by `claude_session_id`, which is the entry's own record of
+/// which segment it is currently running — the direct key first, since before
+/// any rotation the two are one string and every existing test lives there.
+/// Falling back to the segment itself is what keeps a card tugcast has no entry
+/// for (one rebound from tugbank, one already closed) reaching
+/// [`session_snapshot`]'s own `None` rather than being silently dropped from
+/// the sweep.
+///
+/// `try_lock` on the entries, deliberately: this holds the map lock, and an
+/// entry another task is mid-write on would otherwise be a lock-order
+/// inversion. A busy entry is skipped for this tick and found on the next —
+/// the sweep runs at least once a minute, and a wrong answer here costs an arc
+/// its whole run.
+async fn card_session_for_segment(ctx: &ArcContext, segment: &str) -> TugSessionId {
+    let direct = TugSessionId::new(segment.to_string());
+    let map = ctx.supervisor.ledger.lock().await;
+    if map.contains_key(&direct) {
+        return direct;
+    }
+    for (key, entry) in map.iter() {
+        let Ok(entry) = entry.try_lock() else { continue };
+        if entry.claude_session_id.as_deref() == Some(segment) {
+            return key.clone();
+        }
+    }
+    direct
 }
 
 /// A key that separates two dashes of the same name in different projects.
@@ -251,6 +299,18 @@ fn arc_key(arc: &BoundArc) -> String {
 /// run its scoped git read for no gain; a longer one would make a lowered
 /// `arc_stall_secs` untestable.
 const CLOCK_POLL: Duration = Duration::from_secs(60);
+
+/// How long a card may hold no tugcode child before the arc reads it as gone.
+///
+/// Not a clock in the [`clock_ran_out`] sense and deliberately far shorter than
+/// one. The stall deadline measures *silence* — a session that is alive and not
+/// working — and half an hour is the right order for that, because a stage
+/// running a test sweep is legitimately silent. This measures **absence**: no
+/// process at all, which no working stage ever has. A crash-retry closes the
+/// gap in about a second (`DEFAULT_RETRY_DELAY`, plus a spawn), so thirty
+/// seconds is an order of magnitude of headroom over the only legitimate case
+/// and still turns the wedge `at0505` found from *forever* into *late*.
+const CHILD_GONE_GRACE: Duration = Duration::from_secs(30);
 
 /// Whether the arc's clock has run out.
 ///
@@ -269,6 +329,14 @@ fn clock_ran_out(last_motion_at: Option<Instant>, now: Instant, timeout: Option<
 async fn evaluate(ctx: &ArcContext, state: &Arc<Mutex<HashMap<String, ArcState>>>, arc: &BoundArc) {
     let key = arc_key(arc);
     let Some(session) = session_snapshot(ctx, &arc.session).await else {
+        // No snapshot is no facts, and no facts used to be no clock: the arc
+        // sat, and every tick returned here having decided nothing and having
+        // recorded nothing about how long that had been true. W6's stage-kill
+        // probe watched exactly this for ninety seconds. The clock is the
+        // floor under it — the same principle as the busy latch's, that a
+        // class the machine cannot classify must degrade to *late* rather than
+        // to *forever*.
+        watch_the_clock_unseated(ctx, state, arc, &key).await;
         return;
     };
     // Read the memory before the blocking read, because the blocking read is
@@ -449,6 +517,95 @@ async fn evaluate(ctx: &ArcContext, state: &Arc<Mutex<HashMap<String, ArcState>>
     }
 }
 
+/// The clock over an arc whose session hands back no snapshot at all.
+///
+/// [`session_snapshot`] answers `None` for an entry that is not there and for
+/// one parked `Idle` with nothing of this process's own to say about it — a
+/// card rebound from tugbank that no deck has spawned yet. Reading that as a
+/// death would stop every in-flight arc on every relaunch, so it is a **wait**,
+/// and the wait is right. What was wrong is that it was unbounded: the arc
+/// produced no facts, so the predicate never ran, so nothing clocked it, so
+/// the wait had no end and no receipt. A card that never comes back leaves an
+/// arc running on disk forever with nobody told.
+///
+/// So the wait is timed by the same clock every other silence is. `None` is
+/// not motion and is never stamped as any — the first tick seeds the stamp
+/// (silence tugcast did not watch is not silence it may hold against a stage,
+/// exactly as in [`evaluate`]) and every tick after it only reads. When the
+/// deadline passes the arc stops as [`ArcStopReason::Stalled`], through the
+/// same receipt-bearing path as every other stop, with the hand-back **armed**
+/// rather than sent: there is no live session to hand a model back to, and the
+/// card's next spawn is where the arm lands.
+///
+/// An arc already stopped or done is left alone — the record is terminal and a
+/// second `arc-stop` line would be the machine talking about a run that ended.
+async fn watch_the_clock_unseated(
+    ctx: &ArcContext,
+    state: &Arc<Mutex<HashMap<String, ArcState>>>,
+    arc: &BoundArc,
+    key: &str,
+) {
+    let project = arc.project.clone();
+    let dash = arc.dash.clone();
+    let Ok(Some((record, config))) = tokio::task::spawn_blocking(move || {
+        let record = read_arc(&project, &dash)?;
+        let config = Config::load_from_project(&project)
+            .unwrap_or_default()
+            .tugtool
+            .dash
+            .clone();
+        Some((record, config))
+    })
+    .await
+    else {
+        return;
+    };
+    if record.done || record.stopped.is_some() {
+        return;
+    }
+    let stalled = {
+        let mut map = state.lock().await;
+        let entry = map.entry(key.to_owned()).or_default();
+        if entry.last_motion_at.is_none() {
+            entry.last_motion_at = Some(Instant::now());
+        }
+        clock_ran_out(entry.last_motion_at, Instant::now(), config.stall_timeout())
+    };
+    // Said on every tick, decision or not, for the same reason `arc.tick` is:
+    // an arc waiting silently is an arc whose wait can only be found by
+    // guessing. This is the line W6 went looking for and did not find.
+    info!(
+        target: "dev::session-lifecycle",
+        event = "arc.unseated",
+        dash = %arc.dash,
+        session = %arc.session,
+        stage = record
+            .current_stage()
+            .map(|stage| stage.as_str())
+            .unwrap_or("-"),
+        stalled,
+    );
+    if !stalled {
+        return;
+    }
+    let stage = record.current_stage().unwrap_or(ArcStage::Implement);
+    stop_arc_for_session(
+        &ctx.supervisor,
+        &ctx.wheel,
+        &arc.session,
+        &arc.project,
+        &arc.dash,
+        stage,
+        ArcStopReason::Stalled,
+        StopDelivery {
+            hand_back: HandBack::Arm,
+            record: true,
+        },
+    )
+    .await;
+    state.lock().await.remove(key);
+}
+
 /// The `action` word on an `arc.tick` line — one token per decision, so the
 /// log can be grepped for what the arc did at a boundary.
 fn describe_action(action: Option<&ArcAction>) -> String {
@@ -510,20 +667,48 @@ async fn session_snapshot(ctx: &ArcContext, id: &TugSessionId) -> Option<Session
     // not a death: the ledger row the sweep found is still `live`, and the arc
     // picks up on the card's first idle after it spawns. Reading it as gone
     // would stop every in-flight arc on every restart. `Errored` and `Closed`
-    // are the states with nothing left to advance.
+    // are the states with nothing left to advance — and so, since W7, is an
+    // `Idle` this process watched go `Live` first.
     let entry_arc = entry_arc?;
     let (live, idle, turns_ended, api_error, turn_cancelled, claude_session_id, context_window) = {
         let entry = entry_arc.lock().await;
         let live = match entry.spawn_state {
-            // The early return costs the taken-card arm its immediacy, and
-            // that is the right trade. A `/new` parks the entry `Idle`, so no
-            // stop is decided until the card spawns again — the stop lands at
-            // the user's next prompt rather than at the gesture. A card parked
-            // `Idle` is indistinguishable from a card whose tugcast just
-            // restarted, and judging it would stop every in-flight arc on
-            // every relaunch.
+            // **The two `Idle`s.** A card parked `Idle` used to be
+            // indistinguishable from a card whose tugcast had just restarted,
+            // so every one of them was read as a wait — which is why killing a
+            // stage's claude reached no decision at all, and W6 could not write
+            // the stage-kill test (`at0503`'s docblock recorded it as
+            // behaviour). `ever_live_here` is the fact that tells them apart:
+            // an entry this process watched reach `Live` and then found back at
+            // `Idle` has lost the child it was running. That is a death, and
+            // the arc stops as `SessionGone` at the sweep that reads it.
+            //
+            // The other `Idle` is unchanged and still a wait: an entry rebound
+            // from tugbank that no deck has spawned yet. It never reached
+            // `Live` here, so it never sets the flag.
+            //
+            // `reset_session` — the `/clear` gesture — clears the flag as part
+            // of making the entry fresh, so a `/new` still costs the taken-card
+            // arm its immediacy and lands its stop at the user's next prompt,
+            // which is the trade this arm was written for and is a better
+            // receipt than "its session ended".
+            SpawnState::Idle if entry.ever_live_here => false,
             SpawnState::Idle => return None,
-            SpawnState::Spawning | SpawnState::Live => true,
+            // **A card with no child is not live, whatever the bridge
+            // believes.** `spawn_state` is the bridge's own account of itself,
+            // and a bridge whose child crashed is retrying — so it goes on
+            // saying `Live`, correctly, for the second the respawn takes. What
+            // it has no way to say is that the retry never came back, and
+            // `at0505` drives exactly that: the stage's tugcode is killed,
+            // tugcast holds no child for the card, nothing replaces it, and the
+            // entry reads `Live` indefinitely. The arc then had a live session
+            // producing nothing — no reason to stop, and nothing to move.
+            //
+            // `child_gone_at` is the absence, and the grace is what keeps an
+            // ordinary retry from being read as a death.
+            SpawnState::Spawning | SpawnState::Live => !entry
+                .child_gone_at
+                .is_some_and(|gone| gone.elapsed() >= CHILD_GONE_GRACE),
             SpawnState::Errored | SpawnState::Closed => false,
         };
         (
@@ -2096,6 +2281,215 @@ Some context.
 
         sweep(&ctx, &state).await;
         assert_eq!(entry.lock().await.queue.len(), 0);
+    }
+
+    /// The sweep finds the card behind a segment a rotation moved the binding
+    /// onto — which is the difference between an arc that decides and one that
+    /// never sees a fact again.
+    ///
+    /// The ledger's answer to "which session is on this dash" is the segment
+    /// `seat_line_binding` seated. The supervisor's map is keyed by the card's
+    /// tug session id. Before the first rotation those are one string, which is
+    /// why every test above this one passed while a real run went factless the
+    /// moment its opening stage was seated (`at0505`).
+    #[tokio::test]
+    async fn a_rotated_binding_still_finds_the_card_the_arc_runs_on() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        project_with_document(root, ".tug/dashes/demo/brief.md");
+        tugdash_core::arc::append_arc_start(root, "demo", ".tug/dashes/demo/brief.md").unwrap();
+
+        let (ctx, entry, _register_rx) = harness(root).await;
+        // The rotation: a fresh segment on the card's line, recorded under
+        // claude's own id, with the dash binding moved onto it — and the card
+        // still addressed as `claude-1`, because a card's address never moves.
+        ctx.session_ledger
+            .record_spawn(
+                "stage-2",
+                "ws-test",
+                &root.to_string_lossy(),
+                "card-1",
+                2_000,
+                "claude-1",
+                None,
+            )
+            .unwrap();
+        ctx.session_ledger
+            .set_dash_binding("claude-1", None)
+            .unwrap();
+        ctx.session_ledger
+            .set_dash_binding("stage-2", Some(("tugdash/demo#1", "demo")))
+            .unwrap();
+        entry.lock().await.claude_session_id = Some("stage-2".to_string());
+
+        let arcs = bound_arcs(&ctx).await;
+        assert_eq!(arcs.len(), 1, "the dash is bound to exactly one card");
+        assert_eq!(
+            arcs[0].session.as_str(),
+            "claude-1",
+            "the sweep hands on the card's address, not the segment the row wears",
+        );
+    }
+
+    /// A stage whose child died and was never replaced stops as `session gone`.
+    ///
+    /// The wedge `at0505` drove and W6 could not: `spawn_state` is the bridge's
+    /// own account of itself, and a bridge retrying a crashed child goes on
+    /// saying `Live`. Killed for real, tugcast held no child for the card,
+    /// nothing replaced it, and the entry read `Live` indefinitely — a live
+    /// session producing nothing, which the predicate has no arm for and the
+    /// clock would only catch at the stall deadline half an hour later.
+    ///
+    /// The absence is the fact, and [`CHILD_GONE_GRACE`] is what keeps an
+    /// ordinary one-second retry from being read as a death.
+    #[tokio::test]
+    async fn a_child_gone_past_the_grace_stops_the_arc_as_session_gone() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        project_with_document(root, ".tug/dashes/demo/brief.md");
+        tugdash_core::arc::append_arc_start(root, "demo", ".tug/dashes/demo/brief.md").unwrap();
+        tugdash_core::arc::append_arc_stage(root, "demo", ArcStage::Devise, "claude-1", None)
+            .unwrap();
+
+        let (ctx, entry, _register_rx) = harness(root).await;
+        {
+            let mut e = entry.lock().await;
+            e.spawn_state = SpawnState::Live;
+            e.child_pid = None;
+            e.child_gone_at = Some(Instant::now() - CHILD_GONE_GRACE - Duration::from_secs(1));
+        }
+        let state = Arc::new(Mutex::new(HashMap::new()));
+
+        sweep(&ctx, &state).await;
+        let record = read_arc(root, "demo").unwrap();
+        assert_eq!(
+            record.stopped.as_ref().map(|(stage, reason)| (*stage, reason.as_str())),
+            Some((ArcStage::Devise, ArcStopReason::SessionGone.as_str())),
+            "a card with no child is not live, whatever the bridge believes",
+        );
+    }
+
+    /// The same absence, inside the grace, is the retry it usually is.
+    #[tokio::test]
+    async fn a_child_gone_within_the_grace_is_a_respawn_not_a_death() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        project_with_document(root, ".tug/dashes/demo/brief.md");
+        tugdash_core::arc::append_arc_start(root, "demo", ".tug/dashes/demo/brief.md").unwrap();
+        tugdash_core::arc::append_arc_stage(root, "demo", ArcStage::Devise, "claude-1", None)
+            .unwrap();
+
+        let (ctx, entry, _register_rx) = harness(root).await;
+        {
+            let mut e = entry.lock().await;
+            e.spawn_state = SpawnState::Live;
+            e.child_pid = None;
+            e.child_gone_at = Some(Instant::now());
+        }
+        // The wheel seated this session, so the stage reads as current — else
+        // the arc stops as a taken card and this test would pass for the wrong
+        // reason (or, as it first did, fail for one).
+        ctx.session_ledger
+            .set_stage_provenance("claude-1", "devise", None)
+            .unwrap();
+        let state = Arc::new(Mutex::new(HashMap::new()));
+
+        sweep(&ctx, &state).await;
+        // Not "no stop": a seated devise stage that ends a turn having written
+        // no plan is judged on its own product, and that judgement is another
+        // test's subject. The claim here is narrower and is the whole of what
+        // the grace is for — whatever the arc decides, it does not decide the
+        // session is *gone*, because a gap of a second is a respawn in flight.
+        let stopped = read_arc(root, "demo").unwrap().stopped;
+        assert_ne!(
+            stopped.as_ref().map(|(_, reason)| reason.as_str()),
+            Some(ArcStopReason::SessionGone.as_str()),
+            "a crash-retry closes the gap in about a second and must not read as a death",
+        );
+    }
+
+    /// The two `Idle`s, told apart.
+    ///
+    /// An entry rebound from tugbank that no deck has spawned yet is a wait —
+    /// judging it would stop every in-flight arc on every relaunch, which is
+    /// what `at0503`'s first case asserts. An entry *this process* watched
+    /// reach `Live` and then found back at `Idle` has lost its child.
+    #[tokio::test]
+    async fn an_idle_this_process_never_ran_waits_and_one_it_did_is_gone() {
+        for (ever_live_here, expect_stop) in [(false, false), (true, true)] {
+            let dir = tempfile::tempdir().unwrap();
+            let root = dir.path();
+            project_with_document(root, ".tug/dashes/demo/brief.md");
+            tugdash_core::arc::append_arc_start(root, "demo", ".tug/dashes/demo/brief.md").unwrap();
+            tugdash_core::arc::append_arc_stage(root, "demo", ArcStage::Devise, "claude-1", None)
+                .unwrap();
+
+            let (ctx, entry, _register_rx) = harness(root).await;
+            {
+                let mut e = entry.lock().await;
+                e.spawn_state = SpawnState::Idle;
+                e.ever_live_here = ever_live_here;
+            }
+            let state = Arc::new(Mutex::new(HashMap::new()));
+
+            sweep(&ctx, &state).await;
+            assert_eq!(
+                read_arc(root, "demo").unwrap().stopped.is_some(),
+                expect_stop,
+                "ever_live_here = {ever_live_here}",
+            );
+        }
+    }
+
+    /// An arc whose session yields no snapshot at all is clocked, not dropped.
+    ///
+    /// The floor under every shape the machine cannot classify: `evaluate`
+    /// returned early on `None`, so no facts reached the predicate and — since
+    /// W6's clock is driven by facts — nothing counted the silence either. The
+    /// wait stays a wait, and a bounded one.
+    #[tokio::test]
+    async fn an_arc_with_no_snapshot_is_clocked_and_eventually_stops_as_stalled() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        project_with_document(root, ".tug/dashes/demo/brief.md");
+        std::fs::write(
+            root.join(".tugtool/config.toml"),
+            "[tugtool.dash]\narc_stall_secs = 1\n",
+        )
+        .unwrap();
+        tugdash_core::arc::append_arc_start(root, "demo", ".tug/dashes/demo/brief.md").unwrap();
+        tugdash_core::arc::append_arc_stage(root, "demo", ArcStage::Devise, "claude-1", None)
+            .unwrap();
+
+        let (ctx, _entry, _register_rx) = harness(root).await;
+        // The entry the sweep would read, removed: `session_snapshot` answers
+        // `None`, which is the shape this covers.
+        ctx.supervisor
+            .ledger
+            .lock()
+            .await
+            .remove(&TugSessionId::new("claude-1".to_string()));
+        let state = Arc::new(Mutex::new(HashMap::new()));
+
+        // The first tick seeds the stamp and decides nothing: silence tugcast
+        // did not watch is not silence it may hold against a stage.
+        sweep(&ctx, &state).await;
+        assert!(read_arc(root, "demo").unwrap().stopped.is_none(), "the seed decides nothing");
+
+        // Age the stamp past the deadline rather than sleeping through it.
+        {
+            let mut map = state.lock().await;
+            for entry in map.values_mut() {
+                entry.last_motion_at = Some(Instant::now() - Duration::from_secs(5));
+            }
+        }
+        sweep(&ctx, &state).await;
+        let record = read_arc(root, "demo").unwrap();
+        assert_eq!(
+            record.stopped.as_ref().map(|(stage, reason)| (*stage, reason.as_str())),
+            Some((ArcStage::Devise, ArcStopReason::Stalled.as_str())),
+            "a factless arc degrades to late, never to forever",
+        );
     }
 
     #[tokio::test]
