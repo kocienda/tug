@@ -64,7 +64,9 @@ That re-rotates the stopped stage and nothing earlier ([P11]). A stage never re-
 
 **Find what is already written.** The wheel opens on *documents*, so before asking the user for anything, find out which exist. Documents are not tracked and so never appear in `tugtool changes` — the filesystem is the record, and `tugtool dash documents <name>` reads it: the brief, the plan, and the task list, each with its own address. Run it for each name `dash list` reports and each directory under `.tug/dashes/`. A dash already carrying a brief is this door's input and naming it is usually the entire Orient stage: *"`foo` already has a brief — hand it to the wheel?"* A dash carrying a **plan** is one the devise stage already ran on; its course resumes at review or implement, not at devise.
 
-**A lone argument that names an existing dash is a continuation, not a new idea.** What a user types there — a bare slug, no verb, no sentence — is exactly what an existing dash is called. So before reading a short argument as an idea, check it against `tugtool dash list`. On a hit, say which dash it is and offer to continue it: resume its course with `tugtool dash run <name>`, or bind this card to it with `/dash-bind` when the binding is all they wanted. Guessing "new idea" here starts a second dash beside the one they meant.
+**A lone argument that names an existing dash is a continuation, not a new idea.** What a user types there — a bare slug, no verb, no sentence — is exactly what an existing dash is called. So before reading a short argument as an idea, check it against `tugtool dash list`. On a hit, say which dash it is and offer to continue it: `tugtool dash run <name>` resumes its course, and does the binding on the way. Guessing "new idea" here starts a second dash beside the one they meant.
+
+**When a dash looks bound to the wrong thing, diagnose before you re-bind.** `tugtool dash doctor <name>` compares all four of a dash's records — the ledger table, the dash-log, the sqlite binding, and the arc record — and names each disagreement in a sentence, offering the reconciling append where one exists. `/dash-bind` writes one of those four and answers nothing about the other three, so a bind that exits 0 over a stopped course or a desynced ledger is a success that changed nothing. Reach for the doctor first, and for `/dash-bind` only when the doctor says the binding is the thing that is wrong.
 
 Invoked bare with nothing in flight, ask what to work on. That is the whole of the empty case — no menu, no roster of commands.
 
@@ -113,11 +115,15 @@ Write the brief to the `brief` path it prints, against [`tuglaws/brief-skeleton.
 tugtool dash run <name>
 ```
 
-The verb takes no document: it opens on what the dash has. A brief alone opens the course at **devise**, which is this door's whole point. (A brief beside a task list would open at implement — that is the `/dash` door's course, and it is why nothing here writes one.)
+The verb takes no document: it opens on what the dash has. `--course` defaults to `plan`, which is this door's course — devise → review → implement → audit — so there is no flag to pass here. Within it the brief you just wrote opens the course at **devise**, which is this door's whole point. (Passing `--course dash` would open at implement with no devise stage and no review stage; that is the `/dash` door's course, and it is why nothing here writes a task list.)
 
 The verb refuses without a calling session, because a course runs *on a card* and there would otherwise be nowhere for a stage to rotate. It records the course, binds this session to the dash, and returns — **and the first rotation happens when this turn ends, not on arrival** ([P05]). That ordering is not incidental: the request is issued from inside your own turn, and rotating on receipt would kill the session mid-sentence.
 
-So issuing that command is the last thing you do. Say what happens next (stage 6), and end the turn. **Ending the turn is the hand-off.** Do not wait, do not poll `dash arc`, and do not print a command for the user to click — there is nothing for them to do, which is the entire point of the wheel.
+**Read the receipt before you end the turn.** That is not polling and it is not waiting: the verb has already returned, and its own words are the one place the anchor is visible. Confirm two things in them — that the arc opened or resumed, and that the session it names is a **live** one. `--json` says both directly: `started` or `resumed` is true, and `tug_session_id` is the server's answer rather than the id this shell was born holding.
+
+A run whose receipt names no live session has bound the course to nothing, and every stage it seats will rotate onto a card that is not there. **If the receipt is not what it should be, say so and run `tugtool dash doctor <name>`.** This is the one session that can see the anchor being set; a stage that finds it wrong later has to recover from it instead.
+
+With the receipt confirmed, issuing that command was the last thing you do. Say what happens next (stage 6), and end the turn. **Ending the turn is the hand-off.** Do not wait for a rotation, do not poll `dash arc`, and do not print a command for the user to click — there is nothing for them to do, which is the entire point of the wheel.
 
 Say which contract you are entering as you enter it. The hand-off is the moment the user would otherwise lose the thread, and naming it is most of what the narration is for.
 
@@ -149,11 +155,14 @@ This is the stage this skill owns outright, because nothing else in the course w
 - **A dash's documents live at its own address.** `.tug/dashes/<name>/`, never in the working tree, and `tugtool dash documents <name>` is what reports them. Nothing is declared and nothing is asked.
 - **A course opens on a document, never on an idea.** Write the brief in this conversation first, on the user's model. `tugtool dash run <name>` needs a document to exist.
 - **Write the brief and nothing else.** No plan — that is the devise stage's product. No task list — that would open the other course. This door's output is one document.
-- **Hand off by ending the turn.** The first rotation happens at *this* turn's end, so issuing `dash run` is the last thing you do — never wait on it, never poll it, never print a command to start it.
+- **Read the receipt, then end the turn.** The first rotation happens at *this* turn's end, so issuing `dash run` is the last thing you do — but its receipt is a returned value, not a thing to wait for, and confirming it names a live session is this session's one chance to see the anchor set. Never wait on the rotation, never poll `dash arc`, never print a command to start it.
+- **Diagnose before re-binding.** `tugtool dash doctor <name>` reads all four of a dash's records and says which disagrees; `/dash-bind` writes one and answers nothing about the rest.
 - **There is no review gate.** The review is a stage on its own fresh session, reading the plan cold — there is nothing here to hold and no chip to print.
 - **Never devise or review here.** Both are stages of the course, on sessions that have never seen this conversation, and that coldness is the whole of what this door buys.
 - **Landing is the user's act.** Stop before the join, every time.
 
 ## When to reach for something else
 
-The other door is `/dash` — the same wheel entered with the task list already written, for the change whose shape is already clear. Beyond the two doors, a user who knows exactly which room they want should type it: `/tugplug:spike-card`, `/tugplug:dash-review`, `/tugplug:dash-implement`. (`/tugplug:dash-devise` is not among them — it is a stage of a course and stops when it is run outside one.)
+The other door is `/dash` — the same wheel entered with the task list already written, for the change whose shape is already clear. Something the user mostly wants to *look at* belongs at `/tugplug:spike-card`.
+
+**The stage skills are not among the alternatives.** `dash-devise`, `dash-review`, `dash-implement`, and `dash-audit` are stages of a course, and each refuses to run outside one — they are internal machinery rather than doors, and there is no one-stage course for a typed invocation to land in. A plan that exists and wants reviewing, or a ledger that exists and wants walking, is a dash whose course is resumed with `tugtool dash run <name>`.

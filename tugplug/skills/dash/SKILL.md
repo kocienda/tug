@@ -116,14 +116,20 @@ Write **this document** to the `tasks` path `dash documents` printed — the who
 ### 5. Hand off
 
 ```bash
-tugtool dash run <name>
+tugtool dash run <name> --course dash
 ```
 
-The verb takes no document: it opens on what the dash has. A brief beside a task list opens the course at **implement**, because there is nothing to devise and nothing to review — the door answered both. A brief alone would open at devise, which is the other door's course.
+`--course dash` is what makes this the dash course: implement → audit, no devise stage and no review stage, because this door answered what both of them ask. The flag records the kind in the course's own durable record, so the runner reads it rather than guessing from which documents happen to be on disk. Omitted, it defaults to `plan` — the other door's course — so it is not optional here.
+
+The verb otherwise takes no document: it opens on what the dash has.
 
 It refuses without a calling session, because a course runs *on a card* and there would otherwise be nowhere for a stage to rotate. It records the course, binds this session to the dash, and returns — **and the first rotation happens when this turn ends, not on arrival.** That ordering is not incidental: the request is issued from inside your own turn, and rotating on receipt would kill the session mid-sentence.
 
-So issuing that command is the last thing you do. Say what happens next, and end the turn. **Ending the turn is the hand-off.** Do not wait, do not poll `dash arc`, and do not print a command for the user to click.
+**Read the receipt before you end the turn.** That is not polling and it is not waiting: the verb has already returned, and its own words are the one place the anchor is visible. Confirm two things in them — that the arc opened or resumed, and that the session it names is a **live** one. `--json` says both directly: `started` or `resumed` is true, and `tug_session_id` is the server's answer rather than the id this shell was born holding.
+
+A run whose receipt names no live session has bound the course to nothing, and every stage it seats will rotate onto a card that is not there. **If the receipt is not what it should be, say so and run `tugtool dash doctor <name>`** — it compares the course record against the binding and the ledger and names which disagrees. This is the one session that can see the anchor being set; a stage that finds it wrong later has to recover from it instead.
+
+With the receipt confirmed, issuing that command was the last thing you do. Say what happens next, and end the turn. **Ending the turn is the hand-off.** Do not wait for a rotation, do not poll `dash arc`, and do not print a command for the user to click.
 
 ### 6. Say what happens next
 
@@ -143,10 +149,13 @@ Nothing else will speak until the run is over, so tell the user what they are ab
 - **Never lint the task list, and never grow it into a plan.** A task list that wants a plan's frame wanted the other door.
 - **Ask about the design, never the process.** Bounded by the doctrine's never-ask list — nothing with a conventional default, nothing the code can answer, never "should I continue?".
 - **The advisory is a sentence, never a dialog.** One offer of `/dash-plan`, then do what the user says.
-- **Hand off by ending the turn.** The first rotation happens at *this* turn's end, so `dash run` is the last thing you do — never wait on it, never poll it.
+- **`--course dash`, always.** The flag is what records this door's progression; without it the course defaults to the other door's and opens at devise over a brief this door already settled.
+- **Read the receipt, then end the turn.** The first rotation happens at *this* turn's end, so `dash run` is the last thing you do — but its receipt is a returned value, not a thing to wait for, and confirming it names a live session is this session's one chance to see the anchor set. Never wait on the rotation, never poll `dash arc`.
 - **Landing is the user's act.** The course stops before the join, every time.
 - **Never discard on your own initiative.** `tugtool dash discard` destroys work; it is named here only so that rule has somewhere to live.
 
 ## When to reach for something else
 
-The other door is `/dash-plan`, for work whose decisions want settling before any step is written. A user who knows exactly which room they want should type it: `/tugplug:spike-card` for something to look at, `/tugplug:dash-review` for a plan that exists, `/tugplug:dash-implement` for a ledger to walk.
+The other door is `/dash-plan`, for work whose decisions want settling before any step is written. Something the user mostly wants to *look at* belongs at `/tugplug:spike-card`.
+
+**The stage skills are not among the alternatives.** `dash-devise`, `dash-review`, `dash-implement`, and `dash-audit` are stages of a course, and each refuses to run outside one — they are internal machinery rather than doors, and there is no one-stage course for a typed invocation to land in. A plan that exists and wants reviewing, or a ledger that exists and wants walking, is a dash whose course is resumed with `tugtool dash run <name>`.
