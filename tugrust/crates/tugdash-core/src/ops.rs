@@ -1879,6 +1879,17 @@ pub struct DashStatus {
     /// masquerade as a live one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub conflict: Option<ConflictSummary>,
+    /// Where this dash's four records disagree, one sentence each — the
+    /// read-only core of `dash doctor`, run on every status call.
+    ///
+    /// A status that answers from one side of a disagreement is exactly how
+    /// a desync goes unnoticed: join-arming derives from the dash-log while
+    /// the arc's resume pointer derives from the markdown table, so a status
+    /// composed from the log alone reads perfectly confident about a dash
+    /// whose next step is not where it says. Empty when the records agree,
+    /// which is the ordinary case and costs a status call one document parse.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub disagreements: Vec<String>,
 }
 
 /// What a standing conflict looks like from outside: how many paths it holds
@@ -1967,7 +1978,7 @@ pub fn derive_stage(
 /// card is never reported and a dash whose cards have all closed reads as
 /// unbound. Best-effort throughout — no db, no table, no `dash_id` column (an
 /// unmigrated ledger) all read as an empty list.
-fn bound_sessions_for(owner_key: &str) -> Vec<String> {
+pub(crate) fn bound_sessions_for(owner_key: &str) -> Vec<String> {
     let Some(db) = sessions_db_file() else {
         return Vec::new();
     };
@@ -2063,6 +2074,7 @@ pub fn status_in(repo_root: &Path, name: &str) -> Result<DashStatus, String> {
         last_activity: declarations.last_activity.clone(),
         fit,
         conflict: conflict_summary(repo_root, name),
+        disagreements: crate::doctor::diagnose(repo_root, name).sentences(),
     })
 }
 
@@ -6290,6 +6302,127 @@ Some context.
             1,
             "the log caught up rather than being taken for already-correct"
         );
+    }
+
+    /// The doctor end to end over a real dash: a table moved by hand is
+    /// detected, an ordinary `dash status` says so rather than answering from
+    /// one side, and `--repair` appends the declaration that reconciles it.
+    #[serial]
+    #[test]
+    fn the_doctor_finds_a_hand_moved_table_and_status_says_so() {
+        let (_temp, root) = stepped_dash("doctor-dash");
+
+        // A healthy dash is quiet, and so is its status.
+        assert!(crate::doctor::diagnose(&root, "doctor-dash").healthy());
+        assert!(
+            status_in(&root, "doctor-dash")
+                .unwrap()
+                .disagreements
+                .is_empty()
+        );
+
+        // Now the hand-edit — or the crash between the two writes, which
+        // leaves exactly this.
+        let plan = plan_file(&root, "doctor-dash");
+        let source = fs::read_to_string(&plan).unwrap();
+        let moved =
+            tugtool_core::plan::set_ledger_status(&source, "step-2", "in progress", None).unwrap();
+        fs::write(&plan, &moved).unwrap();
+
+        let diagnosis = crate::doctor::diagnose(&root, "doctor-dash");
+        assert_eq!(
+            diagnosis
+                .findings
+                .iter()
+                .map(|f| f.code.as_str())
+                .collect::<Vec<_>>(),
+            ["undeclared-open-row"]
+        );
+
+        // An ordinary status call carries the sentence, which is the point:
+        // nobody has to know to run the doctor to find out.
+        let status = status_in(&root, "doctor-dash").unwrap();
+        assert_eq!(status.disagreements.len(), 1);
+        assert!(
+            status.disagreements[0].contains("step 2"),
+            "{:?}",
+            status.disagreements
+        );
+
+        // Repair appends, never rewrites, and the log's own reading moves.
+        let before = log_text(&root);
+        let outcome = crate::doctor::doctor(&root, "doctor-dash", true).unwrap();
+        assert_eq!(outcome.appended.len(), 1);
+        assert_eq!(outcome.left_for_a_person, 0);
+        let after = log_text(&root);
+        assert!(
+            after.starts_with(&before),
+            "the dash-log is append-only; a repair may only add to it"
+        );
+        assert!(
+            after.contains("step-start  2/2 Step 2: The second step (reconciled by dash doctor)")
+        );
+
+        let decls = crate::dash::read_declarations(&root, "doctor-dash");
+        assert_eq!(decls.step, Some((2, 2)));
+        assert!(decls.step_in_flight);
+        assert!(crate::doctor::diagnose(&root, "doctor-dash").healthy());
+        assert!(
+            status_in(&root, "doctor-dash")
+                .unwrap()
+                .disagreements
+                .is_empty()
+        );
+    }
+
+    /// The audit's headline through the real verbs: a run the log says
+    /// finished, over a table with an open row inside the selection. Named,
+    /// and deliberately not repaired — which record is right is a judgment.
+    #[serial]
+    #[test]
+    fn the_doctor_names_a_join_armed_over_an_open_row() {
+        let (_temp, root) = stepped_dash("armed-dash");
+        let worktree = worktree_path(&root, "armed-dash");
+
+        step_start("armed-dash", 1, 2).unwrap();
+        fs::write(worktree.join("one.txt"), "first\n").unwrap();
+        commit("armed-dash", "r1", None).unwrap();
+        step_done("armed-dash", 1, None).unwrap();
+        step_start("armed-dash", 2, 2).unwrap();
+        fs::write(worktree.join("two.txt"), "second\n").unwrap();
+        commit("armed-dash", "r2", None).unwrap();
+        step_done("armed-dash", 2, None).unwrap();
+        assert!(
+            dash_detail_entry_in(&root, "armed-dash")
+                .unwrap()
+                .join_ready
+        );
+
+        // Somebody walks step 2's row back by hand. The log still arms the
+        // join; the table now resumes at 2. Those are the two families the
+        // doctor exists to compare.
+        let plan = plan_file(&root, "armed-dash");
+        let source = fs::read_to_string(&plan).unwrap();
+        let walked = tugtool_core::plan::reset_ledger_row(
+            &tugtool_core::plan::reopen_ledger_row(&source, "step-2").unwrap(),
+            "step-2",
+        )
+        .unwrap();
+        fs::write(&plan, &walked).unwrap();
+
+        let outcome = crate::doctor::doctor(&root, "armed-dash", true).unwrap();
+        let codes: Vec<&str> = outcome
+            .diagnosis
+            .findings
+            .iter()
+            .map(|f| f.code.as_str())
+            .collect();
+        assert!(codes.contains(&"armed-over-open-rows"), "{codes:?}");
+        assert!(
+            outcome.appended.is_empty(),
+            "a judgment call is never repaired silently"
+        );
+        assert!(outcome.left_for_a_person >= 1);
     }
 
     /// The incident's shape, inverted: a dash driven only by the verbs a run

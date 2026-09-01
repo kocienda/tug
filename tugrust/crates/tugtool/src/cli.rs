@@ -767,6 +767,32 @@ pub enum DashCommands {
         /// Dash name.
         name: String,
     },
+    /// Compare the four records a dash keeps and name every disagreement.
+    ///
+    /// A dash records itself four ways — the plan's Step Status Ledger, the
+    /// dash-log's declarations, the sqlite session binding, and the arc
+    /// record — and no two are written by the same act. The split that
+    /// matters: **status and join-arming derive from the log, while the arc's
+    /// resume pointer and the changeset feed's closed count derive from the
+    /// table.** So a hand-edited table does not desync a display from the
+    /// truth; it desyncs where a run will resume from whether it may be
+    /// landed.
+    ///
+    /// Detection is free and always safe — its read-only core also runs
+    /// inside `dash status`. Repair is opt-in, and is always an *append* to
+    /// the dash-log, never a rewrite: the log is append-only, and the table
+    /// is the authored document, so a reconcilable disagreement is fixed by
+    /// catching the log up to the table. Disagreements that need a judgment
+    /// are named and left.
+    ///
+    /// Exit 0 when the records agree, 1 when they do not.
+    Doctor {
+        /// Dash name.
+        name: String,
+        /// Append the reconciling dash-log lines the findings offer.
+        #[arg(long)]
+        repair: bool,
+    },
     /// Drive a plan's Step Status Ledger and the dash-log in one gesture.
     ///
     /// The ledger row and the log line move together, which is what lets

@@ -77,6 +77,7 @@ pub fn dispatch(cmd: DashCommands, json: bool, quiet: bool) -> ExitCode {
         DashCommands::List => run_list(json, quiet),
         DashCommands::Show { name } => run_show(&name, json, quiet),
         DashCommands::Status { name } => run_status(&name, json, quiet),
+        DashCommands::Doctor { name, repair } => run_doctor(&name, repair, json, quiet),
         DashCommands::Step { name, action } => run_step(&name, action, json, quiet),
         DashCommands::Mark { name, stage, note } => {
             run_mark(&name, stage.into(), note, json, quiet)
@@ -499,8 +500,74 @@ fn run_status(name: &str, json: bool, quiet: bool) -> Result<(), String> {
         } else {
             println!("Sessions: {}", data.bound_sessions.join(", "));
         }
+        // Last, and unmissable. A status that answered from one side of a
+        // disagreement is how a desync goes unnoticed for a whole run.
+        if !data.disagreements.is_empty() {
+            println!();
+            println!(
+                "Records disagree ({}) — run `tugtool dash doctor {}`:",
+                data.disagreements.len(),
+                data.name
+            );
+            for sentence in &data.disagreements {
+                println!("  - {sentence}");
+            }
+        }
     }
     Ok(())
+}
+
+/// Compare a dash's four records and say where they disagree ([P04]).
+///
+/// The exit code is the finding: 0 when the records agree, 1 when they do
+/// not, so a script can gate on it without parsing anything. A `--repair` run
+/// that reconciles every reconcilable finding still exits 1 if something was
+/// left for a person — the dash is not healthy just because the doctor did
+/// what it could.
+fn run_doctor(name: &str, repair: bool, json: bool, quiet: bool) -> Result<(), String> {
+    let outcome = tugdash_core::doctor::doctor_here(name, repair)?;
+
+    if json {
+        print_ok("dash doctor", &outcome);
+    } else if !quiet {
+        if let Some(ledger) = &outcome.diagnosis.ledger {
+            println!("Ledger: {ledger}");
+        }
+        if outcome.diagnosis.healthy() {
+            println!("The records agree.");
+        } else {
+            println!(
+                "{} disagreement(s) between this dash's records:",
+                outcome.diagnosis.findings.len()
+            );
+            for finding in &outcome.diagnosis.findings {
+                println!("\n  [{}] {}", finding.code, finding.sentence);
+                match (&finding.repair, repair) {
+                    (Some(fix), false) => println!(
+                        "      Repair (`--repair`): append `{}  {}` — {}",
+                        fix.marker, fix.note, fix.effect
+                    ),
+                    (Some(_), true) => println!("      Repaired."),
+                    (None, _) => println!("      No safe automatic repair; this one needs you."),
+                }
+            }
+        }
+        if !outcome.appended.is_empty() {
+            println!("\nAppended {} dash-log line(s).", outcome.appended.len());
+        }
+    }
+
+    // A repair that reconciled everything it could still reports the dash as
+    // unhealthy if anything is left — the verb answers "do the records agree",
+    // not "did I try".
+    if outcome.diagnosis.healthy() || (repair && outcome.left_for_a_person == 0) {
+        Ok(())
+    } else {
+        Err(format!(
+            "'{name}' has {} record disagreement(s) no automatic repair can settle",
+            outcome.left_for_a_person
+        ))
+    }
 }
 
 /// Drive one ledger row and its dash-log line (Spec S02).

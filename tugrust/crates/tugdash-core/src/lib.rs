@@ -34,6 +34,11 @@ pub mod resolve;
 /// performed for real, so an agent has a tree and verification has a build.
 pub mod workshop;
 
+/// `dash doctor` — the four records a dash keeps, compared, with every
+/// disagreement named in a sentence and a reconciling append offered where one
+/// record can be caught up to another without a judgment.
+pub mod doctor;
+
 /// Surface resolution and the fit check — a project's declared surfaces, the
 /// touched paths each claims, the expanded commands that check them, and the
 /// runner behind `tugtool dash verify`.
@@ -51,6 +56,7 @@ pub use dash::{
     DashDeclaration, DashDeclarations, DashRoundMeta, MarkStage, StepPhase, append_dash_log,
     detect_default_branch, is_terminal, read_declarations, split_log_line, validate_dash_name,
 };
+pub use doctor::{DashDiagnosis, DashFinding, DashRepair, DoctorOutcome, diagnose, doctor};
 pub use oplog::{
     JoinPhase, JoinProgress, OpAfter, OpBefore, OpConfig, OpPayload, OpVerb, RedoOutcome,
     UndoOutcome, list_ops, redo_in, undo_in,
