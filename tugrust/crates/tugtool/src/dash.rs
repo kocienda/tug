@@ -1320,6 +1320,14 @@ pub(crate) fn post_instance_api(
         .into();
 
     let mut last_error = None;
+    // **A refusal outranks a shrug.** `unknown_session` is one instance
+    // saying "not mine, keep walking"; anything else is the instance that
+    // *owns* the session telling the caller why it said no. Keeping only the
+    // last error let a bystander's shrug overwrite the owner's sentence, so a
+    // bind displaced by a running course reported `unknown_session` instead
+    // of naming the course — on any machine with a second instance live,
+    // which is every machine running an app-test beside a real app.
+    let mut owner_error: Option<String> = None;
     for port in ports {
         let url = format!("http://127.0.0.1:{port}{path}");
         let response = match agent.post(&url).send_json(body.clone()) {
@@ -1339,15 +1347,19 @@ pub(crate) fn post_instance_api(
         if value.get("status").and_then(|s| s.as_str()) == Some("ok") {
             return Ok(value);
         }
-        last_error = Some(
-            value
-                .get("message")
-                .and_then(|m| m.as_str())
-                .unwrap_or("unknown error")
-                .to_string(),
-        );
+        let message = value
+            .get("message")
+            .and_then(|m| m.as_str())
+            .unwrap_or("unknown error")
+            .to_string();
+        if message != "unknown_session" && owner_error.is_none() {
+            owner_error = Some(message.clone());
+        }
+        last_error = Some(message);
     }
-    Err(last_error.unwrap_or_else(|| "no instance accepted the request".to_string()))
+    Err(owner_error
+        .or(last_error)
+        .unwrap_or_else(|| "no instance accepted the request".to_string()))
 }
 
 /// The calling session, **resolved** to its line's live segment, or the
