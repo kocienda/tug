@@ -1,5 +1,5 @@
 {
-  "description": "Auto-approve tugplug skills and safe Bash commands; deny file-lifecycle commands the change ledger cannot read. Decided by `tugtool hook pre-tool-use`.",
+  "description": "Auto-approve tugplug skills and safe Bash commands; deny file-lifecycle commands the change ledger cannot read, and any repo write a course stage makes after closing a step in the same turn. Decided by `tugtool hook pre-tool-use`.",
   "hooks": {
     "PreToolUse": [
       {
@@ -13,6 +13,15 @@
       },
       {
         "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/pre-tool-use.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit",
         "hooks": [
           {
             "type": "command",

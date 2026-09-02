@@ -189,21 +189,13 @@ pub(crate) fn step_announcement(
 /// The ledger move already happened; a receipt that cannot be painted must not
 /// unmake it.
 pub(crate) fn announce(command: &str, line: &str) {
-    let Some(resolved) = crate::session_identity::resolve_soft(None) else {
-        return;
-    };
-    if !resolved.resolved {
-        return;
-    }
     let project_dir = std::env::current_dir()
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or_default();
-    let _ = crate::dash::post_instance_api(
-        "/api/session",
+    let _ = crate::session_identity::ask_about_calling_session(
+        "note",
         "announcing a dash gesture",
         serde_json::json!({
-            "op": "note",
-            "tug_session_id": resolved.session_id,
             "command": command,
             "note": line,
             "project_dir": project_dir,
@@ -220,20 +212,10 @@ pub(crate) fn announce(command: &str, line: &str) {
 /// on exactly the terms [`announce`] is: a report that does not land leaves the
 /// gate where it was before W8, which is open.
 pub(crate) fn report_step_closed(step: u32) {
-    let Some(resolved) = crate::session_identity::resolve_soft(None) else {
-        return;
-    };
-    if !resolved.resolved {
-        return;
-    }
-    let _ = crate::dash::post_instance_api(
-        "/api/session",
+    let _ = crate::session_identity::ask_about_calling_session(
+        "step_closed",
         "recording a step close against this turn",
-        serde_json::json!({
-            "op": "step_closed",
-            "tug_session_id": resolved.session_id,
-            "step": step,
-        }),
+        serde_json::json!({ "step": step }),
     );
 }
 

@@ -658,7 +658,7 @@ fn run_step(name: &str, action: StepAction, json: bool, quiet: bool) -> Result<(
         // The run is declared exactly once, inside the `step start` that opens
         // it, so its announcement rides that call and precedes the step's own.
         dash_course::announce(
-            &format!("dash step start {} --through {through}", data.step),
+            &format!("dash step {} start {} --through {through}", data.dash, data.step),
             &format!(
                 "{}: run declared through step {through} of {}",
                 data.dash, data.total
@@ -666,7 +666,7 @@ fn run_step(name: &str, action: StepAction, json: bool, quiet: bool) -> Result<(
         );
     }
     dash_course::announce(
-        &format!("dash step {} {}", mv.spelling(), data.step),
+        &format!("dash step {} {} {}", data.dash, mv.spelling(), data.step),
         &dash_course::step_announcement(
             &data.dash,
             data.step,
@@ -723,7 +723,7 @@ fn run_mark(
 ) -> Result<(), String> {
     let data = ops::mark(name, stage, note.as_deref())?;
     dash_course::announce(
-        &format!("dash mark {}", data.stage),
+        &format!("dash mark {} {}", data.dash, data.stage),
         &format!("{}: marked {}", data.dash, data.stage),
     );
     if json {

@@ -21,6 +21,7 @@ use serde_json::Value;
 use crate::changes::AppError;
 
 use super::file::gate_decision;
+use tugchanges_core::shell_ops::{ParseOutcome, parse_shell_ops};
 
 #[derive(Subcommand)]
 pub enum HookCommands {
@@ -93,8 +94,32 @@ impl Decision {
 
 /// The decision for one PreToolUse payload, or `None` for "no opinion".
 pub fn pre_tool_use(payload: &Value) -> Option<Decision> {
+    pre_tool_use_with(payload, turn_facts)
+}
+
+/// [`pre_tool_use`], with the turn boundary's one I/O call injected.
+///
+/// The boundary asks a running instance, and a unit test that asked one would
+/// be asking the *developer's own card* about the developer's own turn — the
+/// ambient-session hazard `common::tugtool` exists to close, met from inside
+/// the process instead of from a spawn. So the ask is a parameter: the units
+/// hand in an answer, and `tests/turn_boundary_cli.rs` drives the real round
+/// trip against a stand-in tugcast, which is where it belongs.
+pub(crate) fn pre_tool_use_with(
+    payload: &Value,
+    facts: impl FnOnce() -> TurnFacts,
+) -> Option<Decision> {
     let tool = payload.get("tool_name")?.as_str()?;
     let input = payload.get("tool_input")?;
+    // **The turn boundary comes first.** It is the only rule here that denies
+    // what every other rule would allow — a repo write, or `dash step start`,
+    // from a course stage whose turn has already closed a step. Everything
+    // else a stage may do at any time reaches this and is not a gesture, so
+    // the server is not even asked (`gesture_of` answers `None` before any
+    // round trip).
+    if let Some(deny) = boundary_decision(payload, facts) {
+        return Some(deny);
+    }
     match tool {
         "Skill" => {
             let skill = input.get("skill")?.as_str()?;
@@ -126,10 +151,262 @@ pub fn pre_tool_use(payload: &Value) -> Option<Decision> {
     }
 }
 
+// ---------------------------------------------------------------------------
+// The turn boundary
+// ---------------------------------------------------------------------------
+
+/// What a tool call is about to do, in the only vocabulary the turn boundary
+/// cares about: is this the *work* of a step, or something a stage may do at
+/// any time?
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Gesture {
+    /// An `Edit`/`Write`/`MultiEdit`/`NotebookEdit` on a repo file.
+    ToolWrite,
+    /// A Bash command whose file operations the change grammar reads as writes
+    /// — or cannot read at all, which the existing gate denies anyway.
+    ShellWrite,
+    /// `tugtool file edit|run|rm|mv|cp|probe`, or `tugedit`: a write wearing
+    /// the CLI's name, and auto-approved by prefix everywhere else here.
+    TugWrite,
+    /// `tugtool dash step start` — opening the next step, which is the overrun
+    /// in its purest form.
+    StepStart,
+}
+
+impl Gesture {
+    /// How the refusal names what it refused.
+    fn named(self) -> &'static str {
+        match self {
+            Gesture::ToolWrite => "this edit",
+            Gesture::ShellWrite => "this command's writes",
+            Gesture::TugWrite => "this edit",
+            Gesture::StepStart => "opening the next step",
+        }
+    }
+}
+
+/// The sentence a crossed boundary refuses with.
+///
+/// It names the gesture, the fact, and the one act that unblocks everything —
+/// in that order, because a refusal that does not say what to do next is a
+/// wall rather than a rail.
+pub(crate) fn boundary_refusal(gesture: Gesture, step: u32) -> String {
+    format!(
+        "The turn boundary: step {step} closed this turn — end the turn; the course prompts the \
+         next step. {} belongs to the next turn. The Wheel acts only *between* turns, so pacing, \
+         `/compact`, rotation and the idle clock are all locked out until this one ends. Report \
+         the ledger state and stop.",
+        capitalize(gesture.named())
+    )
+}
+
+fn capitalize(text: &str) -> String {
+    let mut chars = text.chars();
+    match chars.next() {
+        Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+        None => String::new(),
+    }
+}
+
+/// Whether a path a write-shaped tool names is a **repo file** — the only kind
+/// the boundary is about.
+///
+/// Scratch is not work: a stage writing outside its own working directory, or
+/// into `target/`, is staging or building rather than walking the next step,
+/// and refusing it would make the gate an obstacle rather than a rail.
+///
+/// Placement is **relative to the call's own `cwd`**, not by absolute prefix.
+/// A scratch list of `/tmp`-shaped roots would be both wrong on other
+/// platforms and wrong here — macOS puts every temp directory under
+/// `/var/folders`, which is also where a fixture's whole checkout lives. What
+/// the boundary actually means by "the work" is "inside the tree this call is
+/// being made in", and that is one comparison with nothing to keep current.
+pub(crate) fn is_repo_path(path: &str, cwd: Option<&str>) -> bool {
+    if path.is_empty() {
+        return false;
+    }
+    // A relative path with no cwd cannot be placed, and the boundary declines
+    // to guess — which is the open direction, the only one a gate over
+    // ordinary editing may fail in.
+    let Some(cwd) = cwd.filter(|c| !c.is_empty()) else {
+        return false;
+    };
+    let absolute = if path.starts_with('/') {
+        PathBuf::from(path)
+    } else {
+        PathBuf::from(cwd).join(path)
+    };
+    absolute.starts_with(cwd)
+        && absolute
+            .components()
+            .all(|c| c.as_os_str() != std::ffi::OsStr::new("target"))
+}
+
+/// The `tugtool`/`tugedit` invocations that write repo files, and the one that
+/// opens a step.
+///
+/// Read off the argument list rather than the change grammar, because the
+/// grammar reads `tugtool` as the CLI whose every verb prints its own receipt
+/// — true, and beside the point once a turn has closed a step.
+pub(crate) fn tug_gesture(command: &str) -> Option<Gesture> {
+    let words: Vec<&str> = command.split_whitespace().collect();
+    let first = *words.first()?;
+    if first == "tugedit" {
+        return (!words.contains(&"--preview")).then_some(Gesture::TugWrite);
+    }
+    if first != "tugtool" {
+        return None;
+    }
+    // Skip the global flags a verb may be reached through.
+    let mut rest = words[1..].iter().copied().filter(|w| !w.starts_with('-'));
+    match (rest.next(), rest.next(), rest.next(), rest.next()) {
+        (Some("file"), Some(verb), _, _)
+            if matches!(verb, "edit" | "run" | "rm" | "mv" | "cp" | "probe") =>
+        {
+            (!words.contains(&"--preview")).then_some(Gesture::TugWrite)
+        }
+        // `dash step <name> start` — the dash's name is the address, and it
+        // sits between the noun and the verb.
+        (Some("dash"), Some("step"), Some(_), Some("start")) => Some(Gesture::StepStart),
+        _ => None,
+    }
+}
+
+/// What this tool call would do, or `None` for a call the boundary has no
+/// opinion about — every read, every status verb, `dash doctor`, the draft
+/// verb, and anything the change grammar reads as touching no files.
+pub(crate) fn gesture_of(payload: &Value) -> Option<Gesture> {
+    let tool = payload.get("tool_name")?.as_str()?;
+    let input = payload.get("tool_input")?;
+    let cwd = payload.get("cwd").and_then(Value::as_str);
+    match tool {
+        "Edit" | "Write" | "MultiEdit" | "NotebookEdit" => {
+            let path = input
+                .get("file_path")
+                .or_else(|| input.get("notebook_path"))
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            is_repo_path(path, cwd).then_some(Gesture::ToolWrite)
+        }
+        "Bash" => {
+            let command = input.get("command")?.as_str()?;
+            if let Some(gesture) = tug_gesture(command.trim_start()) {
+                return Some(gesture);
+            }
+            let base = cwd
+                .map(PathBuf::from)
+                .or_else(|| std::env::current_dir().ok())
+                .unwrap_or_default();
+            match parse_shell_ops(command, &base) {
+                ParseOutcome::Ops(ops) if !ops.is_empty() => Some(Gesture::ShellWrite),
+                // A command the grammar refuses is denied on its own terms
+                // anyway; naming the boundary first is the more actionable of
+                // the two refusals, because ending the turn settles both.
+                ParseOutcome::Unparseable { .. } => Some(Gesture::ShellWrite),
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
+
+/// The server's answer about the calling turn, or the reason there is none.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum TurnFacts {
+    /// A course stage whose current turn has already closed this step.
+    ClosedStep(u32),
+    /// Asked and answered: nothing to refuse over. Off a course, or on one
+    /// with the turn's step still open.
+    Open,
+    /// Nobody to ask — no calling session, no live instance, or an instance
+    /// too old to know the op. **Degrades open, always.** A gate that bricked
+    /// editing across a mixed install would cost more than the overrun it
+    /// prevents (Part IV item 4).
+    Unknown { skewed: bool },
+}
+
+/// Ask the owning instance whether this turn has already closed a step.
+fn turn_facts() -> TurnFacts {
+    let answer = crate::session_identity::ask_about_calling_session(
+        "turn_facts",
+        "checking the course's turn boundary",
+        serde_json::json!({}),
+    );
+    match answer {
+        None => TurnFacts::Unknown { skewed: false },
+        Some(Err(message)) => TurnFacts::Unknown {
+            skewed: message.contains("unknown op"),
+        },
+        Some(Ok(response)) => {
+            if response.get("on_course").and_then(Value::as_bool) != Some(true) {
+                return TurnFacts::Open;
+            }
+            match response
+                .get("step_closed_this_turn")
+                .and_then(Value::as_u64)
+            {
+                Some(step) => TurnFacts::ClosedStep(step as u32),
+                None => TurnFacts::Open,
+            }
+        }
+    }
+}
+
+/// The boundary's verdict on one payload: `Some(deny)` only when a course
+/// stage that has already closed a step this turn reaches for the next one.
+fn boundary_decision(payload: &Value, facts: impl FnOnce() -> TurnFacts) -> Option<Decision> {
+    let gesture = gesture_of(payload)?;
+    match facts() {
+        TurnFacts::ClosedStep(step) => Some(Decision::Deny(boundary_refusal(gesture, step))),
+        TurnFacts::Open => None,
+        TurnFacts::Unknown { skewed } => {
+            if skewed {
+                warn_about_skew_once();
+            }
+            None
+        }
+    }
+}
+
+/// Say once, through a `systemMessage`, that the boundary gate is inactive
+/// because the running instance predates it.
+///
+/// Once, because the alternative is a line on every edit for as long as the
+/// app goes unrestarted. The stamp lives in this boot's temp directory, so the
+/// notice returns after a reboot and after the restart that would fix it.
+fn warn_about_skew_once() {
+    let stamp = std::env::temp_dir().join("tug-turn-boundary-skew-warned");
+    if stamp.exists() {
+        return;
+    }
+    if std::fs::write(&stamp, b"1").is_err() {
+        return;
+    }
+    println!(
+        "{}",
+        serde_json::json!({
+            "systemMessage": "Tug: the running instance predates the course turn-boundary op, \
+                              so the boundary gate is inactive for this session. Restart Tug to \
+                              enable it. Nothing is blocked in the meantime."
+        })
+    );
+}
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
+
+    /// The units' own `pre_tool_use`, shadowing the glob-imported one: every
+    /// pre-boundary test is about the *other* rules, and none of them may
+    /// reach a running instance to find out about a turn.
+    fn pre_tool_use(payload: &Value) -> Option<Decision> {
+        super::pre_tool_use_with(payload, || TurnFacts::Open)
+    }
+
+    /// The same, for a turn that has already closed step `n`.
+    fn pre_tool_use_after_closing(payload: &Value, step: u32) -> Option<Decision> {
+        super::pre_tool_use_with(payload, || TurnFacts::ClosedStep(step))
+    }
 
     fn bash(command: &str) -> Value {
         bash_in(command, "/tmp")
@@ -193,6 +470,140 @@ mod tests {
             None
         );
         assert_eq!(pre_tool_use(&json!({ "nope": 1 })), None);
+    }
+
+    // ── The turn boundary ─────────────────────────────────────────────────
+    //
+    // The pure halves here; the round trip is driven end to end against a
+    // real fake tugcast in `tests/turn_boundary_cli.rs`, which is the only
+    // place the degrade-open rules can actually be observed.
+
+    #[test]
+    fn the_refusal_names_the_step_the_gesture_and_the_way_out() {
+        let refusal = boundary_refusal(Gesture::ToolWrite, 3);
+        assert!(
+            refusal.contains("step 3 closed this turn — end the turn; the course prompts the next step"),
+            "{refusal}"
+        );
+        assert!(refusal.contains("This edit"), "{refusal}");
+        assert!(
+            boundary_refusal(Gesture::StepStart, 1).contains("Opening the next step"),
+            "a refused start says what it refused"
+        );
+    }
+
+    #[test]
+    fn a_write_tool_on_a_repo_file_is_a_gesture_and_scratch_is_not() {
+        let write = |path: &str| {
+            json!({
+                "tool_name": "Edit",
+                "tool_input": { "file_path": path },
+                "cwd": "/proj",
+            })
+        };
+        assert_eq!(gesture_of(&write("src/main.rs")), Some(Gesture::ToolWrite));
+        assert_eq!(gesture_of(&write("/proj/src/main.rs")), Some(Gesture::ToolWrite));
+        // Staging and building are not the next step's work.
+        assert_eq!(gesture_of(&write("/elsewhere/scratch.txt")), None);
+        assert_eq!(gesture_of(&write("target/debug/x")), None);
+    }
+
+    #[test]
+    fn a_read_is_never_a_gesture() {
+        assert_eq!(
+            gesture_of(&json!({ "tool_name": "Read", "tool_input": { "file_path": "/proj/a" } })),
+            None
+        );
+        assert_eq!(gesture_of(&bash("grep -rn foo .")), None);
+        assert_eq!(gesture_of(&bash("git status")), None);
+    }
+
+    #[test]
+    fn the_ledger_verbs_a_stage_may_always_run_are_not_gestures() {
+        for command in [
+            "tugtool dash status demo",
+            "tugtool dash doctor demo",
+            "tugtool draft set --json",
+            "tugtool dash step demo done 1",
+            "tugtool dash commit demo -m x",
+            "tugtool file edit --preview",
+        ] {
+            assert_eq!(gesture_of(&bash(command)), None, "{command}");
+        }
+    }
+
+    #[test]
+    fn the_cli_verbs_that_write_are_gestures_despite_the_prefix_approval() {
+        assert_eq!(gesture_of(&bash("tugtool file edit")), Some(Gesture::TugWrite));
+        assert_eq!(
+            gesture_of(&bash("tugtool file run -- cargo fmt")),
+            Some(Gesture::TugWrite)
+        );
+        assert_eq!(gesture_of(&bash("tugedit")), Some(Gesture::TugWrite));
+        assert_eq!(
+            gesture_of(&bash("tugtool dash step demo start 2 --through 5")),
+            Some(Gesture::StepStart)
+        );
+        // The global flags a verb may be reached through do not hide it.
+        assert_eq!(
+            gesture_of(&bash("tugtool --json dash step demo start 2 --through 5")),
+            Some(Gesture::StepStart)
+        );
+    }
+
+    #[test]
+    fn a_shell_write_is_a_gesture_and_so_is_one_the_grammar_cannot_read() {
+        let dir = checkout();
+        let cwd = dir.path().to_string_lossy().into_owned();
+        assert_eq!(
+            gesture_of(&bash_in("rm src/main.rs", &cwd)),
+            Some(Gesture::ShellWrite)
+        );
+        let unreadable =
+            "python3 - <<'PY'\nimport pathlib\npathlib.Path('src/main.tsx').write_text('x')\nPY";
+        assert_eq!(
+            gesture_of(&bash_in(unreadable, &cwd)),
+            Some(Gesture::ShellWrite)
+        );
+    }
+
+    #[test]
+    fn a_relative_path_with_no_cwd_is_never_placed() {
+        // The boundary declines to guess where a path lives, which is the
+        // open direction — the only one a gate over ordinary editing may
+        // fail in.
+        assert!(!is_repo_path("src/main.rs", None));
+        assert!(!is_repo_path("/proj/src/main.rs", None));
+        assert!(is_repo_path("/proj/src/main.rs", Some("/proj")));
+    }
+
+    #[test]
+    fn the_boundary_outranks_the_prefix_approval_and_the_grammar_alike() {
+        let dir = checkout();
+        let cwd = dir.path().to_string_lossy().into_owned();
+        // `tugtool` is auto-approved by prefix everywhere else here, and this
+        // is the one rule that outranks that.
+        let start = bash_in("tugtool dash step demo start 2 --through 5", &cwd);
+        match pre_tool_use_after_closing(&start, 1) {
+            Some(Decision::Deny(reason)) => assert!(reason.contains("step 1 closed this turn")),
+            other => panic!("expected the boundary's deny, got {other:?}"),
+        }
+        // And a command the change grammar already refuses is refused for the
+        // boundary's reason instead, because ending the turn settles both.
+        let unreadable =
+            "python3 - <<'PY'\nimport pathlib\npathlib.Path('src/main.tsx').write_text('x')\nPY";
+        match pre_tool_use_after_closing(&bash_in(unreadable, &cwd), 4) {
+            Some(Decision::Deny(reason)) => assert!(reason.contains("end the turn"), "{reason}"),
+            other => panic!("expected the boundary's deny, got {other:?}"),
+        }
+        // A read from the same session is untouched.
+        assert!(
+            matches!(
+                pre_tool_use_after_closing(&bash_in("ls -la", &cwd), 1),
+                Some(Decision::Allow(_))
+            ),
+            "a closed boundary refuses the next step's work, not a look at the last one's"
+        );
     }
 
     #[test]

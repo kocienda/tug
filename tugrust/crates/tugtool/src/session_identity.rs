@@ -171,6 +171,37 @@ pub(crate) fn resolve_soft(session: Option<&str>) -> Option<Resolved> {
     Some(ask_instance(&posted).unwrap_or_else(|_| Resolved::unresolved(posted)))
 }
 
+
+/// Ask the owning instance a session-addressed question **whose op resolves at
+/// its own door**, with the posted id filled in from this process's identity.
+///
+/// The chokepoint's one narrow opening, and what makes it safe: no caller ever
+/// receives the raw id, and every op reached this way expands it server-side
+/// exactly as `/api/dash` does. What it buys is a single round trip instead of
+/// a resolve followed by the real question — which matters on the hot path,
+/// where the PreToolUse gate asks on every write-shaped tool call a course
+/// stage makes.
+///
+/// The outer `None` is "this process has no calling session at all" — a plain
+/// terminal, a fixture, a foreign project — which is not a failure and must
+/// never read as one. The inner `Err` is an instance that answered and refused,
+/// including `unknown op` from one older than the op; every caller of this is
+/// advisory ([P01]'s skew rule, Part IV item 4) and must degrade rather than
+/// refuse on it.
+pub(crate) fn ask_about_calling_session(
+    op: &str,
+    subject: &str,
+    fields: serde_json::Value,
+) -> Option<Result<serde_json::Value, String>> {
+    let posted = posted_session_id()?;
+    let mut body = serde_json::json!({ "op": op, "tug_session_id": posted });
+    if let (Some(target), Some(extra)) = (body.as_object_mut(), fields.as_object()) {
+        for (key, value) in extra {
+            target.insert(key.clone(), value.clone());
+        }
+    }
+    Some(post_instance_api("/api/session", subject, body))
+}
 /// Ask the instance that owns the line. Walks every live instance, exactly as
 /// a binding write does: `sessions.db` is per-instance, so the first machine
 /// to answer is not always the right one.

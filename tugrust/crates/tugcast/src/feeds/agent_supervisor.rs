@@ -15689,6 +15689,68 @@ mod tests {
     /// A replayed transcript's historical `task_started` frames describe jobs
     /// that died with the session that ran them. Folding them in would open
     /// jobs nothing can ever close, leaving the dash permanently unjoinable.
+    // ── the course's turn boundary (W8) ──────────────────────────────────────
+
+    /// The one fact the PreToolUse hook cannot have: which turn a step was
+    /// closed in. The verb reports it, the gate asks, and it lives exactly as
+    /// long as the turn does.
+    #[tokio::test]
+    async fn a_closed_step_is_the_turns_and_is_forgotten_when_the_turn_ends() {
+        let (sup, _state_rx, _meta_rx, _control_rx) = make_supervisor_with_store();
+        sup.handle_control(
+            "spawn_session",
+            &spawn_payload("card-bound", "sess-bound"),
+            10,
+        )
+        .await
+        .expect_handled();
+
+        assert_eq!(sup.step_closed_this_turn("sess-bound").await, None);
+        assert!(sup.mark_step_closed_this_turn("sess-bound", 1).await);
+        assert_eq!(sup.step_closed_this_turn("sess-bound").await, Some(1));
+
+        // The turn boundary the course demands: whatever this turn closed is
+        // no longer this turn's business, and the gate opens again.
+        let entry = {
+            let ledger = sup.ledger.lock().await;
+            ledger.get(&TugSessionId::new("sess-bound")).unwrap().clone()
+        };
+        entry.lock().await.step_closed_this_turn = None;
+        assert_eq!(sup.step_closed_this_turn("sess-bound").await, None);
+    }
+
+    /// A rotation mints a segment; the card's address does not move. So a
+    /// close reported under the fresh segment has to reach the card's entry —
+    /// the walk Part XI item 1 found `bound_arcs` missing, one layer over.
+    #[tokio::test]
+    async fn a_rotated_segment_still_finds_the_card_it_runs_on() {
+        let (sup, _state_rx, _meta_rx, _control_rx) = make_supervisor_with_store();
+        sup.handle_control(
+            "spawn_session",
+            &spawn_payload("card-rot", "sess-rot"),
+            10,
+        )
+        .await
+        .expect_handled();
+        {
+            let ledger = sup.ledger.lock().await;
+            let entry = ledger.get(&TugSessionId::new("sess-rot")).unwrap().clone();
+            drop(ledger);
+            entry.lock().await.claude_session_id = Some("segment-2".to_string());
+        }
+
+        assert!(sup.mark_step_closed_this_turn("segment-2", 3).await);
+        assert_eq!(
+            sup.step_closed_this_turn("sess-rot").await,
+            Some(3),
+            "the fresh segment and the card's own id are one entry",
+        );
+        // And a segment nothing here wears is simply not found — which
+        // degrades the gate open, the only direction it may fail in.
+        assert!(!sup.mark_step_closed_this_turn("nobody", 1).await);
+        assert_eq!(sup.step_closed_this_turn("nobody").await, None);
+    }
+
     #[tokio::test]
     async fn a_wake_closes_the_job_whose_notification_woke_the_turn() {
         let (sup, _state_rx, _meta_rx, _control_rx) = make_supervisor_with_store();
