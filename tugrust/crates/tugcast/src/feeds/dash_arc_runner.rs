@@ -1912,13 +1912,13 @@ Some context.
         assert_eq!(
             wheel::prompt::stage_ask("implement", None, "foo", Some("2-4")).as_deref(),
             Some(
-                "/tugplug:dash-implement foo Steps 2-4 — under this arc, close one step and end your turn; the arc prompts you with the next"
+                "/tugplug:dash-implement foo implement Step 2 and end your turn; Steps 2-4 remain on this run"
             )
         );
         assert_eq!(
             wheel::prompt::stage_ask("implement", None, "foo", None).as_deref(),
             Some(
-                "/tugplug:dash-implement foo — under this arc, close one step and end your turn; the arc prompts you with the next"
+                "/tugplug:dash-implement foo implement one step and end your turn"
             )
         );
     }
@@ -2087,7 +2087,7 @@ Some context.
         .unwrap();
         assert_eq!(
             prompt,
-            "/tugplug:dash-implement demo Steps 4-9 — under this arc, close one step and end your turn; the arc prompts you with the next"
+            "/tugplug:dash-implement demo implement Step 4 and end your turn; Steps 4-9 remain on this run"
         );
     }
 
@@ -2117,7 +2117,7 @@ Some context.
         .unwrap();
         assert_eq!(
             prompt,
-            "/tugplug:dash-implement demo — under this arc, close one step and end your turn; the arc prompts you with the next"
+            "/tugplug:dash-implement demo implement one step and end your turn"
         );
     }
 
@@ -3323,7 +3323,7 @@ Some context.
         assert_eq!(
             submitted(&entry).await,
             vec![
-                "/tugplug:dash-implement demo Steps 2-2 — under this arc, close one step and end your turn; the arc prompts you with the next"
+                "/tugplug:dash-implement demo implement Step 2 and end your turn; it is the run's last step"
                     .to_string()
             ],
             "the boundary is seen and the stage is told to walk on"
@@ -3356,7 +3356,7 @@ Some context.
         assert_eq!(
             submitted(&entry).await,
             vec![
-                "/tugplug:dash-implement demo Steps 2-2 — under this arc, close one step and end your turn; the arc prompts you with the next"
+                "/tugplug:dash-implement demo implement Step 2 and end your turn; it is the run's last step"
                     .to_string()
             ],
             "the close the crash interrupted is answered on the first tick back"
@@ -3665,7 +3665,7 @@ Some context.
                 "continue" => assert_eq!(
                     submitted(&entry).await,
                     vec![
-                "/tugplug:dash-implement demo Steps 2-2 — under this arc, close one step and end your turn; the arc prompts you with the next"
+                "/tugplug:dash-implement demo implement Step 2 and end your turn; it is the run's last step"
                     .to_string()
             ],
                     "a window the compaction brought down keeps its session"

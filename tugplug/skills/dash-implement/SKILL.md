@@ -27,6 +27,8 @@ disallowed-tools: Task, AskUserQuestion
   - `Step N` — walk a **single** step (e.g. `Step 3`).
   - `Steps N-M` — walk a **range/batch** of steps, inclusive (e.g. `Steps 3-5`).
 
+Under a course, the wheel's ask reads `implement Step N and end your turn; Steps N-M remain on this run` (or `…; it is the run's last step`). Read it exactly as it parses: `Step N` is **this turn's one step**, and `Steps N-M` is the run's *remainder* — a fact about how far the declared run reaches, never a batch instruction. The selection was declared at the run's start, and `--through` never shrinks to the step you are walking.
+
 The **Step Status Ledger** at the top of the plan's Execution Steps is the source of truth for "where are we?". Read it first:
 
 - With no selector, resume at the **first row that is neither `done` nor `withdrawn`** — including a row left `in progress` by an interrupted run, which `dash step start` re-enters idempotently — and continue to the end. A `withdrawn` row is a step somebody decided not to walk; resuming at one would re-open a decision the run already made.
@@ -105,7 +107,7 @@ What is a problem is a resolved session the dash is not bound to. `dash status -
 
 ### 2. Implement (walk the steps)
 
-**The run reaches `--through <m>`, one step per turn.** Resolve the selection exactly as Setup says and declare `--through <m>` with the selection's last step — `m` never shrinks to the one step you are walking, because `m` is the run's end and that is what arms the join. Then walk **one** step: the first row that is neither `done` nor `withdrawn`. Close it with `done` or `withdraw`, report the ledger state, and end your turn. The course reads the boundary and prompts this same session with `Steps N-M` for the next one, so the run still reaches `m`; the turn is only the unit the course paces it in.
+**The run reaches `--through <m>`, one step per turn.** Resolve the selection exactly as Setup says and declare `--through <m>` with the selection's last step — `m` never shrinks to the one step you are walking, because `m` is the run's end and that is what arms the join. Then walk **one** step: the first row that is neither `done` nor `withdrawn`. Close it with `done` or `withdraw`, report the ledger state, and end your turn. The course reads the boundary and prompts this same session with the next step's ask, so the run still reaches `m`; the turn is only the unit the course paces it in.
 
 The reason is the wheel's: every act it takes on the seated session — a compaction above the project's threshold, and the rotation that follows one the compaction could not bring back under it — is sent at a turn's end, because a prompt sent into an open turn would queue behind a model still working. So a step boundary has to be a turn boundary.
 

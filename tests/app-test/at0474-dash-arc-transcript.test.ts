@@ -62,8 +62,8 @@ const REVIEW_PROMPT = "/tugplug:dash-review foo";
  * behind a `session_segment`.
  */
 const CONTINUE_PROMPT =
-  "/tugplug:dash-implement foo Steps 4-13 — close one step and end your turn";
-const CONTINUE_PROMPT_ARGS = "Steps 4-13 — close one step and end your turn";
+  "/tugplug:dash-implement foo implement Step 4 and end your turn; Steps 4-13 remain on this run";
+const CONTINUE_PROMPT_ARGS = "implement Step 4 and end your turn; Steps 4-13 remain on this run";
 /** The quiet-line row a nameless subsystem's notice gets. The wheel has a name. */
 const NOTICE_ROW = '[data-slot="tug-notice"]';
 const CODE_OUTPUT_FEED = 0x40; // FeedId.CODE_OUTPUT

@@ -50,7 +50,7 @@ const LINE = "c1a0d1ea-0000-4000-8000-000000000496";
 
 /** The prompt the Wheel put on the wire — the raw text, not claude's envelope. */
 const WHEEL_COMMAND = "/tugplug:dash-implement";
-const WHEEL_ARGS = "demo Steps 4-13 — close one step and end your turn";
+const WHEEL_ARGS = "demo implement Step 4 and end your turn; Steps 4-13 remain on this run";
 const WHEEL_SENT = `${WHEEL_COMMAND} ${WHEEL_ARGS}`;
 
 /** What the user typed, one turn later, in the same session. */
