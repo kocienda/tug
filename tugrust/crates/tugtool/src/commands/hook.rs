@@ -323,8 +323,32 @@ pub(crate) enum TurnFacts {
     Unknown { skewed: bool },
 }
 
+/// Whether this process was spawned into a course at all.
+///
+/// The gate's cheap pre-filter, and the reason it is worth having: without it
+/// **every** edit on **every** Session card pays a localhost round trip to
+/// find out that nothing is being paced. A course stage's claude is spawned
+/// with `TUG_DASH_COURSE` (`buildClaudeSpawnEnv`), and a hook is claude's own
+/// child, so it inherits.
+///
+/// It is a filter and not the answer. The variable is frozen at spawn like
+/// every spawn-time variable, so it can outlive the course it names — which is
+/// why the server is still asked, and the server's `on_course` is what
+/// decides. What the filter may do wrong is go quiet on a stage whose spawn
+/// carried neither spelling, and that direction is the open one, which is the
+/// only one this gate may fail in. `TUG_DASH_ARC` is the old spelling, still
+/// exported beside the new one for one release (`tuglaws/wheel.md`).
+fn spawned_into_a_course() -> bool {
+    ["TUG_DASH_COURSE", "TUG_DASH_ARC"]
+        .iter()
+        .any(|key| std::env::var(key).is_ok_and(|value| !value.is_empty()))
+}
+
 /// Ask the owning instance whether this turn has already closed a step.
 fn turn_facts() -> TurnFacts {
+    if !spawned_into_a_course() {
+        return TurnFacts::Open;
+    }
     let answer = crate::session_identity::ask_about_calling_session(
         "turn_facts",
         "checking the course's turn boundary",

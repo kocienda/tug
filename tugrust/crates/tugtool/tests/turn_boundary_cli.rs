@@ -153,6 +153,10 @@ fn hook(tmp: &Path) -> Command {
     let mut cmd = tugtool();
     cmd.env("TMPDIR", tmp);
     cmd.env("TUG_DATA_DIR", tmp.join("state"));
+    // The gate's cheap pre-filter: a card that was not spawned into a course
+    // is not asked about at all. Every test below that expects a round trip
+    // is a course stage, and the one that does not clears this.
+    cmd.env("TUG_DASH_COURSE", "demo");
     cmd.args(["hook", "pre-tool-use"]);
     cmd
 }
@@ -359,6 +363,30 @@ fn a_foreign_project_with_no_calling_session_asks_nothing_at_all() {
             .recv_timeout(std::time::Duration::from_millis(500))
             .is_err(),
         "a project with no course running is not a thing to ask about",
+    );
+}
+
+#[test]
+fn a_card_never_spawned_into_a_course_opens_no_socket() {
+    let tmp = tempfile::tempdir().unwrap();
+    let tmp = tmp.path().canonicalize().unwrap();
+    let (port, requests) = fake_tugcast(Facts::OnCourseClosed(1));
+    register_fake_instance(&tmp, port);
+
+    // Without this filter every edit on every Session card would pay a
+    // localhost round trip to be told that nothing is being paced.
+    let mut cmd = hook(&tmp);
+    cmd.env_remove("TUG_DASH_COURSE");
+    cmd.env_remove("TUG_DASH_ARC");
+    cmd.env("TUG_SESSION_ID", "seg-1");
+    let stdout = decide(&mut cmd, edit_of(&tmp));
+
+    assert_eq!(verdict(&stdout).map(|(d, _)| d), None, "{stdout}");
+    assert!(
+        requests
+            .recv_timeout(std::time::Duration::from_millis(500))
+            .is_err(),
+        "an ordinary card is not a course stage, and is not asked about",
     );
 }
 

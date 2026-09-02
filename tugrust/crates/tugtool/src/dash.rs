@@ -242,6 +242,12 @@ fn run_commit(name: &str, message: &str, json: bool, quiet: bool) -> Result<(), 
     let data = ops::commit(name, message, round_meta)?;
     // A round is a manipulation of the run's record like any other, and the
     // one the user most wants to see arrive (W8 Task 3).
+    //
+    // **This does pay the HTTP walk the claim below refuses to pay**, on the
+    // one verb that runs on every round. The difference is the reader: the
+    // claim would re-assert a fact `create` and `step start` already recorded,
+    // which nobody was waiting for, and this is the line the person watching
+    // the run sees the round by. A cost with a reader is a different cost.
     if data.committed {
         dash_course::announce(
             &format!("dash commit {name}"),
