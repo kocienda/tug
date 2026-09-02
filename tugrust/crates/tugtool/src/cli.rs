@@ -1176,6 +1176,24 @@ pub enum HostCommands {
     )]
     StateDir,
 
+    /// Put back the session rows a lost user-set name needs to be reachable.
+    ///
+    /// A name the user typed lives on the line and outlives every session id
+    /// the line wears, but the listings walked sessions — so a deleted last
+    /// segment left the name in the database with nothing able to reach it.
+    #[command(
+        long_about = "Put back the session rows a lost user-set name needs to be reachable.\n\nA name the user typed lives on the `lines` table and outlives every session\nid the line wears. Every listing path walked `sessions`, though, so a line\nwhose last segment was deleted kept its name with nothing left that could\nreach it.\n\nFor each per-instance `sessions.db` this machine holds (or the one named\nby --db), finds every line carrying a user-set name and no\nsurviving session, reads the session that line owned out of `minted_tags`\n(append-only by Spec S08, so the pairing is a record rather than a guess),\ncounts the corroborating rows in `facts`, and checks the transcript is on\ndisk. It prints that plan, then writes.\n\nA line whose transcript is gone keeps its name and stays unrestored — a\nrestored row the picker cannot open is worse than the loss. A ledger with no `lines`\ntable predates the migration and is skipped rather than failed on.\nRe-running writes nothing: a line with a segment is not stranded."
+    )]
+    RestoreNames {
+        /// Repair one ledger by path instead of every instance's.
+        #[arg(long, value_name = "PATH")]
+        db: Option<std::path::PathBuf>,
+
+        /// Print the plan and stop without writing.
+        #[arg(long)]
+        dry_run: bool,
+    },
+
     /// Dump the live changeset aggregate (observability).
     ///
     /// GETs http://127.0.0.1:<port>/api/changesets — the same compose the

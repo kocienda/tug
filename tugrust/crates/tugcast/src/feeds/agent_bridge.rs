@@ -1923,14 +1923,6 @@ pub async fn relay_session_io(
                                     }
                                 }
                             }
-                            // After each successful spawn record, cap the
-                            // workspace to the configured non-live row max.
-                            // Eviction targets the oldest closed/failed row,
-                            // never the just-spawned (live) row.
-                            sessions_recorder.evict_for_workspace(
-                                &workspace_key,
-                                crate::session_ledger::DEV_LEDGER_MAX_PER_WORKSPACE,
-                            );
                         }
 
                         // Track replay window so the LIVE-turn check

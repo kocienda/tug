@@ -813,12 +813,6 @@ pub trait SessionsRecorder: Send + Sync {
     /// as a diagnostic crumb until age eviction or explicit Trash.
     fn mark_failed(&self, session_id: &str);
 
-    /// Cap-evict the oldest non-live row in `workspace_key` if the cap is
-    /// exceeded. The bridge calls this after each successful `record` so a
-    /// fresh spawn never pushes the workspace's non-live row count above
-    /// the cap. No-op if under cap.
-    fn evict_for_workspace(&self, workspace_key: &str, cap: usize);
-
     /// Insert a fresh row in the submission journal for this session.
     /// Called from the supervisor's `dispatch_one` intercept on every
     /// inbound `user_message`, BEFORE the frame is forwarded to tugcode.
@@ -986,25 +980,6 @@ impl LedgerSessionsRecorder {
             return;
         };
         let _ = tx.send(build_session_removed_frame(session_id));
-    }
-
-    /// Internal helper used by the trait method; kept inline here so the
-    /// supervisor's broadcast path can be exercised by integration tests.
-    fn evict_for_workspace_impl(&self, workspace_key: &str, cap: usize) {
-        match self.ledger.evict_oldest_closed(workspace_key, cap) {
-            Ok(evicted) => {
-                for id in &evicted {
-                    self.broadcast_removed(id);
-                    tracing::info!(
-                        target: "dev::session-lifecycle",
-                        event = "ledger.evict_cap",
-                        session_id = id.as_str(),
-                        workspace_key,
-                    );
-                }
-            }
-            Err(err) => warn!(error = %err, workspace_key, "ledger evict_oldest_closed failed"),
-        }
     }
 
     /// Age-sweep the ledger, dropping every non-live row whose
@@ -1266,10 +1241,6 @@ impl SessionsRecorder for LedgerSessionsRecorder {
             ));
         }
         self.broadcast_row(session_id);
-    }
-
-    fn evict_for_workspace(&self, workspace_key: &str, cap: usize) {
-        self.evict_for_workspace_impl(workspace_key, cap);
     }
 
     fn insert_pending_turn(
@@ -2012,7 +1983,15 @@ fn build_listed_union(
                 entry.row.last_user_prompt = meta.last_user_prompt;
             }
             entry.row.turn_count = entry.row.turn_count.max(meta.turn_count);
-            if entry.row.name.is_none() {
+            // A user-set name on the line outranks everything: it is the
+            // user's own word, and the scan's `name` is an `aiTitle`. The
+            // ledger row usually carries it already (the listing joins
+            // `lines`), so this matters for the row the scan owns — but
+            // preferring it here too means the two paths cannot disagree.
+            if meta.line_name_user_set && meta.line_name.is_some() {
+                entry.row.name = meta.line_name;
+                entry.row.name_user_set = true;
+            } else if entry.row.name.is_none() {
                 entry.row.name = meta.name;
             }
             // A ledger row whose line has no callsign yet shows the one the
@@ -2037,9 +2016,19 @@ fn build_listed_union(
                     last_user_prompt: meta.last_user_prompt,
                     state: crate::session_ledger::SessionState::Closed,
                     card_id: None,
-                    name: meta.name,
-                    // A scanned `aiTitle` is never a user rename.
-                    name_user_set: false,
+                    // The **line's** name when the user typed one, else the
+                    // transcript's `aiTitle`. A scanned `aiTitle` is never a
+                    // user rename, but the line this session belongs to may
+                    // carry one — and it does exactly when the `sessions` row
+                    // is gone and the name outlived it. Reading only the
+                    // `aiTitle` here is what made such a session list under a
+                    // machine's guess instead of the user's own word.
+                    name: if meta.line_name_user_set && meta.line_name.is_some() {
+                        meta.line_name
+                    } else {
+                        meta.name
+                    },
+                    name_user_set: meta.line_name_user_set,
                     // The callsign of the line the scan birthed for this
                     // session ([P07]) — the picker sees a real tag before the
                     // session is ever adopted, and adoption seats that same
@@ -10538,7 +10527,6 @@ impl SessionsRecorder for NoopSessionsRecorder {
     fn record_user_prompt(&self, _session_id: &str, _prompt: &str) {}
     fn mark_closed(&self, _session_id: &str) {}
     fn mark_failed(&self, _session_id: &str) {}
-    fn evict_for_workspace(&self, _workspace_key: &str, _cap: usize) {}
     fn insert_pending_turn(
         &self,
         _session_id: &str,
@@ -11265,6 +11253,73 @@ mod tests {
             .len(),
             1
         );
+    }
+
+    /// A scan meta for a session the ledger has no row for, on a line the
+    /// user named.
+    fn scanned(
+        session_id: &str,
+        line_id: &str,
+        ai_title: Option<&str>,
+        line_name: Option<&str>,
+    ) -> crate::external_sessions::ExternalSessionMeta {
+        crate::external_sessions::ExternalSessionMeta {
+            session_id: session_id.to_string(),
+            turn_count: 3,
+            last_user_prompt: Some("hi".to_string()),
+            name: ai_title.map(str::to_string),
+            created_at: 1,
+            last_used_at: 100,
+            file_size: 10,
+            file_mtime: 100,
+            tag: Some("ashen-bagel".to_string()),
+            line_id: Some(line_id.to_string()),
+            line_name: line_name.map(str::to_string),
+            line_name_user_set: line_name.is_some(),
+        }
+    }
+
+    #[test]
+    fn a_scanned_session_lists_under_the_name_on_its_line() {
+        // The shape a lost name leaves behind: the `sessions` row is gone, so
+        // the transcript surfaces through the scan alone — but `minted_tags`
+        // still joins it to the line the user named, and the row must wear
+        // that name rather than the transcript's machine-written `aiTitle`.
+        let scan = crate::external_sessions::ScanOutcome {
+            metas: vec![scanned(
+                "d361bcf4",
+                "line-lens",
+                Some("Investigating a layout regression"),
+                Some("lens-xp"),
+            )],
+            canonical_project_dir: "/proj".to_string(),
+            ..Default::default()
+        };
+
+        let listed = build_listed_union(Vec::new(), &HashMap::new(), Some(scan));
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].origin, "external");
+        assert_eq!(listed[0].row.name.as_deref(), Some("lens-xp"));
+        assert!(
+            listed[0].row.name_user_set,
+            "the user's own word, not a guess"
+        );
+    }
+
+    #[test]
+    fn a_scanned_session_on_an_unnamed_line_keeps_its_ai_title() {
+        // The control: with no rename on the line, the `aiTitle` is the best
+        // name there is, and it is not a user-set one.
+        let scan = crate::external_sessions::ScanOutcome {
+            metas: vec![scanned("abc123", "line-anon", Some("Some auto title"), None)],
+            canonical_project_dir: "/proj".to_string(),
+            ..Default::default()
+        };
+
+        let listed = build_listed_union(Vec::new(), &HashMap::new(), Some(scan));
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].row.name.as_deref(), Some("Some auto title"));
+        assert!(!listed[0].row.name_user_set);
     }
 
     #[test]
@@ -19601,63 +19656,6 @@ mod tests {
         assert_eq!(err["session_id"], "live1");
         assert_eq!(err["reason"], "session_is_live");
         assert!(ledger.get("live1").unwrap().is_some(), "row retained");
-    }
-
-    #[tokio::test]
-    async fn evict_for_workspace_emits_removed_pushes() {
-        let (_sup, ledger, mut rx) = make_supervisor_with_ledger();
-
-        // 21 closed rows in ws-1; cap eviction should drop the oldest.
-        for i in 0..21 {
-            let id = format!("s{i}");
-            ledger
-                .record_spawn(&id, "ws-1", "/p", "c", 1_000_000 - i as i64, &id, None)
-                .unwrap();
-            ledger.mark_closed(&id).unwrap();
-        }
-        while rx.try_recv().is_ok() {}
-
-        // Build a fresh recorder bound to the same ledger + the
-        // supervisor's existing CONTROL channel — re-using the inline
-        // recorder is harder than constructing a peer one for this case.
-        // The supervisor's control_tx isn't directly exposed, so we
-        // verify via the store's own recorder by triggering eviction.
-        let fresh_recorder = LedgerSessionsRecorder::with_broadcast(
-            Arc::clone(&ledger),
-            // Re-create a control channel and a receiver that sees the
-            // same broadcast — the receiver from `make_supervisor_with_ledger`
-            // is wired to the supervisor's tx, not this fresh recorder.
-            broadcast::channel::<Frame>(64).0,
-        );
-        // Drop the supervisor's rx; we don't use it here.
-        drop(rx);
-        // Listen on the fresh recorder's tx via a fresh subscriber.
-        let mut local_rx = {
-            let (tx, rx2) = broadcast::channel::<Frame>(64);
-            // Replace fresh_recorder's control_tx with this fresh tx.
-            let recorder_with_local_tx =
-                LedgerSessionsRecorder::with_broadcast(Arc::clone(&ledger), tx);
-            recorder_with_local_tx.evict_for_workspace_impl("ws-1", 20);
-            rx2
-        };
-        // 21 → 20 = 1 evicted; expect exactly one removed push.
-        let _ = fresh_recorder; // silence unused warning
-        let mut removed_ids = Vec::new();
-        while let Ok(frame) = local_rx.try_recv() {
-            if let Ok(v) = serde_json::from_slice::<serde_json::Value>(&frame.payload) {
-                if v.get("action").and_then(|a| a.as_str()) == Some("session_updated")
-                    && v.get("removed").and_then(|r| r.as_bool()) == Some(true)
-                {
-                    if let Some(id) = v.get("session_id").and_then(|s| s.as_str()) {
-                        removed_ids.push(id.to_owned());
-                    }
-                }
-            }
-        }
-        assert_eq!(removed_ids.len(), 1);
-        // The oldest closed row is s20 (we recorded with last_used_at =
-        // 1_000_000 - i, so s20 has the smallest timestamp).
-        assert_eq!(removed_ids[0], "s20");
     }
 
     #[tokio::test]

@@ -61,6 +61,15 @@ pub struct ExternalSessionMeta {
     /// That line's id, so a listing can fold a scanned session's segments the
     /// same way it folds a ledger row's.
     pub line_id: Option<String>,
+    /// The **user-set name** on that line, when it carries one ([P11]). A
+    /// scanned transcript's own `name` is an `aiTitle` and never a rename, so
+    /// without this a session whose `sessions` row is gone lists anonymously
+    /// while its name sits intact on `lines` — which is exactly how a named
+    /// session went missing. `None` when the line is unnamed or auto-titled.
+    pub line_name: Option<String>,
+    /// Whether [`Self::line_name`] is the user's own word rather than an auto
+    /// title. Only a user-set name outranks the transcript's `aiTitle`.
+    pub line_name_user_set: bool,
 }
 
 /// Why a candidate file was excluded from the scan. Surfaced only via
@@ -1087,6 +1096,8 @@ fn parse_session_file_inner(
             // one afterwards and reads the callsign off it ([P07]).
             tag: None,
             line_id: None,
+            line_name: None,
+            line_name_user_set: false,
         },
         resume,
         resumed,
@@ -1417,6 +1428,8 @@ fn meta_from_cache_row(row: ScanCacheRow) -> ExternalSessionMeta {
         // Filled from the line below, which is the only place a scanned
         // session's callsign comes from now.
         tag: None,
+        line_name: None,
+        line_name_user_set: false,
     }
 }
 
@@ -1612,7 +1625,16 @@ pub fn scan_external_sessions_cached_with_progress(
         match ledger.ensure_scan_line(&meta.session_id, now) {
             Ok(Some(line_id)) => {
                 match ledger.get_line(&line_id) {
-                    Ok(Some(line)) => meta.tag = Some(line.tag),
+                    Ok(Some(line)) => {
+                        meta.tag = Some(line.tag);
+                        // The line's own name travels with the callsign. A
+                        // scanned session's `sessions` row may be long gone
+                        // while the name the user typed is still on `lines`,
+                        // and reading only the tag here is what left such a
+                        // session listed but nameless.
+                        meta.line_name = line.name;
+                        meta.line_name_user_set = line.name_user_set;
+                    }
                     Ok(None) => {}
                     Err(err) => {
                         tracing::warn!(error = %err, "external scan: line read failed");

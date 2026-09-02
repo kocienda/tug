@@ -14,7 +14,7 @@
 //! - `INSERT  state="live", card_id=<card_id>` on `spawn_session_ok`.
 //! - `UPDATE  state="closed"`                  on `close_session` or tugcode exit.
 //! - `UPDATE  state="failed"`                  on `resume_failed` (replaces the previous row-removal).
-//! - `DELETE` on cap/age eviction or explicit trash.
+//! - `DELETE` on the age sweep or explicit trash.
 //!
 //! `card_id` is set when the session first binds to a card and is preserved
 //! across the row's lifetime — `mark_closed` and `mark_failed` retain it as
@@ -24,14 +24,27 @@
 //!
 //! # Eviction
 //!
-//! - **Cap per workspace** — `DEV_LEDGER_MAX_PER_WORKSPACE` (20). On
-//!   `record_spawn`, the oldest non-live row by `last_used_at` is evicted if
-//!   the workspace already holds the cap.
-//! - **Age expiry** — `DEV_LEDGER_MAX_AGE_DAYS` (90). Tugcast startup sweeps
-//!   any non-live row whose `last_used_at` is older than the cap.
+//! One policy, and it is age. **Age expiry** — `DEV_LEDGER_MAX_AGE_DAYS`
+//! (90). Tugcast startup sweeps any non-live row whose `last_used_at` is
+//! older than that.
 //!
-//! Live rows are never evicted by either policy. A long-pinned card keeps its
-//! ledger row regardless of age.
+//! There is deliberately **no per-workspace cap**. One lived here for four
+//! months, written when a session row was throwaway picker telemetry, and it
+//! outlived that rationale: it evicted the last segment of a line the user
+//! had named by hand. A bounded row count is not a resource this ledger
+//! needs to defend, and no number is small enough to be worth a name.
+//!
+//! And the sweep cannot take a name either. Every *automatic* delete over
+//! `sessions` goes through the `sparing_named_lines!` guard, which refuses to
+//! remove the last surviving segment of a line whose name the user typed. The
+//! guard sits beside the `DELETE` rather than in each caller, because the
+//! caller is where this went wrong once already. `trash` — the user's own
+//! explicit gesture — is deliberately not guarded: deleting a session on
+//! purpose is the one act that may cost a name, and when it takes a line's
+//! last segment the name goes with it rather than being left to strand.
+//!
+//! Live rows are never evicted. A long-pinned card keeps its ledger row
+//! regardless of age.
 //!
 //! # Schema
 //!
@@ -66,7 +79,7 @@
 //! commit trailers cite callsigns.
 //!
 //! **It is never recycled.** `sessions` rows are hard-`DELETE`d — trash, the
-//! cascade paths, cap/age eviction — so the `sessions_tag` unique index frees a
+//! cascade paths, the age sweep — so the `sessions_tag` unique index frees a
 //! callsign the moment its row dies, and a recycled callsign would make an old
 //! commit's citation resolve to a *different* session: a confidently wrong
 //! answer, strictly worse than an unresolvable one. So the arbiter is the
@@ -146,8 +159,60 @@ macro_rules! not_private {
     };
 }
 
-/// Maximum non-live rows per workspace before cap eviction kicks in on spawn.
-pub const DEV_LEDGER_MAX_PER_WORKSPACE: usize = 20;
+/// The **named-line guard**, spelled once and wrapped around every *automatic*
+/// delete over `sessions`. The argument is the SQL criterion naming the rows
+/// that path wants gone; what comes back is that same set, minus any row whose
+/// removal would strand a line the user named.
+///
+/// A `/rename` is the user's own word about their own work, and the ledger
+/// treated it as cache: a per-workspace cap deleted the last segment of the
+/// line named `lens-xp`, and the name — still intact on `lines` — became
+/// unreachable, because every listing path walks `sessions`. The guard lives
+/// here, beside the `DELETE`, rather than in each caller, because the caller
+/// is exactly where that went wrong once already.
+///
+/// **Set-aware, not row-at-a-time** — which is why this is a CTE and not a
+/// clause. A predicate asking each row on its own "is another segment of my
+/// line still here?" answers yes for *both* segments of a two-segment line,
+/// and then deletes both, stranding the name it was written to save. So the
+/// criterion is materialized once as `doomed`, and a row is spared only when
+/// its line is named, no segment of that line survives the criterion, and it
+/// is the newest of the doomed ones. Exactly one segment is left standing per
+/// named line, and it is the newest.
+///
+/// `trash` — the user's own explicit gesture — is deliberately not wrapped in
+/// this. Deleting a session on purpose is the one act that may cost a name.
+macro_rules! sparing_named_lines {
+    ($doomed_criterion:literal) => {
+        concat!(
+            "WITH doomed AS (
+                 SELECT session_id, line_id, last_used_at FROM sessions
+                 WHERE ",
+            $doomed_criterion,
+            "
+             )
+             SELECT d.session_id FROM doomed d
+             WHERE NOT (
+                 EXISTS (
+                     SELECT 1 FROM lines l
+                     WHERE l.line_id = d.line_id AND l.name_user_set = 1
+                 )
+                 AND NOT EXISTS (
+                     SELECT 1 FROM sessions s
+                     WHERE s.line_id = d.line_id
+                       AND s.session_id NOT IN (SELECT session_id FROM doomed)
+                 )
+                 AND NOT EXISTS (
+                     SELECT 1 FROM doomed n
+                     WHERE n.line_id = d.line_id
+                       AND (n.last_used_at > d.last_used_at
+                            OR (n.last_used_at = d.last_used_at
+                                AND n.session_id > d.session_id))
+                 )
+             )"
+        )
+    };
+}
 
 /// Days since `last_used_at` after which a non-live row is age-evicted on
 /// startup sweep.
@@ -1758,7 +1823,7 @@ impl SessionLedger {
                 ON sessions(forked_from_session_id);
 
             -- The all-time tag arbiter (Spec S08). `sessions` rows are hard
-            -- DELETEd — trash, the cascade paths, cap/age eviction — so the
+            -- DELETEd — trash, the cascade paths, the age sweep — so the
             -- `sessions_tag` index above can enforce uniqueness among live
             -- sessions but not permanence. Commit trailers cite tags, and a
             -- recycled tag makes an old commit's citation resolve to a
@@ -2167,8 +2232,8 @@ impl SessionLedger {
             -- Same persistence posture as `overview_posts`, for the same
             -- reasons. Deliberately NO session cascade: a fact's whole value
             -- is that it still says what happened after the `sessions` row it
-            -- names has been evicted by the 20-per-workspace cap or the 90-day
-            -- sweep. UNCAPPED: fact volume is tens to low hundreds of rows per
+            -- names has been swept at 90 days or trashed by hand.
+            -- UNCAPPED: fact volume is tens to low hundreds of rows per
             -- working day, and nothing prunes.
             --
             -- NEVER register this table with `rebuild_table_if_schema_drifted`.
@@ -3725,12 +3790,45 @@ impl SessionLedger {
     /// `record_spawn` time, so no client-side canonicalization is needed.
     /// `list_for_workspace` matches against the canonical key and stays
     /// for the supervisor's resume-resolution path.
+    ///
+    /// **Line-first, not session-first.** The listing enumerates the lines of
+    /// work in this directory and attaches their segments, rather than walking
+    /// `sessions` and hoping a line hangs off each row. The difference shows up
+    /// in exactly one case and it is the case that matters: a line the user
+    /// named whose every segment has gone. The name is on `lines` and intact,
+    /// but a session-first listing cannot reach it, so the line reads as
+    /// deleted although nothing deleted it. Here it is a row, under its own
+    /// name.
+    ///
+    /// The stranded row's session id comes from `minted_tags`, which recorded
+    /// the pairing when the callsign was claimed and is append-only (Spec S08),
+    /// so this is a join to a durable record rather than a guess. A named line
+    /// no tag was ever minted for yields no row: there is nothing to resume
+    /// into and nothing to point at, and a row that names neither is worse
+    /// than an honest absence.
     pub fn list_for_project_dir(&self, project_dir: &str) -> Result<Vec<SessionRow>, LedgerError> {
         let conn = self.db.lock().expect("ledger mutex");
         let mut stmt = conn.prepare(&format!(
             "SELECT {SESSION_COLUMNS} FROM {SESSIONS_JOINED}
              WHERE s.project_dir = ?1
-             ORDER BY s.last_used_at DESC"
+             UNION ALL
+             SELECT m.session_id, l.project_dir, l.project_dir, l.created_at,
+                    l.last_used_at, 0, NULL, 'closed', NULL,
+                    l.name, l.name_user_set, l.tag, NULL, 0, NULL, NULL, l.line_id
+             FROM lines l
+             JOIN minted_tags m ON m.line_id = l.line_id
+             WHERE l.project_dir = ?1
+               AND l.name_user_set = 1
+               AND NOT EXISTS (
+                   SELECT 1 FROM sessions s2 WHERE s2.line_id = l.line_id
+               )
+               -- One row per stranded line: the newest mint the line has,
+               -- picked by rowid so a tie in `minted_at` cannot double it.
+               AND m.rowid = (
+                   SELECT MAX(m2.rowid) FROM minted_tags m2
+                   WHERE m2.line_id = l.line_id
+               )
+             ORDER BY last_used_at DESC"
         ))?;
         let rows = stmt
             .query_map(params![project_dir], row_from_query)?
@@ -3848,7 +3946,7 @@ impl SessionLedger {
     /// Answers from `sessions` first, then from `external_scan_cache`. A
     /// citation is written by a commit made from a Tug session, which is a
     /// `sessions` row at commit time — but `sessions` rows are hard-deleted by
-    /// cap eviction and the age sweep, while the transcript stays on disk and
+    /// the age sweep and by trash, while the transcript stays on disk and
     /// the picker keeps listing it from the scan cache. A citation must not go
     /// dark on a session the picker can still resume, so an id the `sessions`
     /// table cannot answer falls back to the scan cache, synthesized the same
@@ -5426,31 +5524,54 @@ impl SessionLedger {
     /// is the obvious instinct and it is wrong: that table is the all-time tag
     /// arbiter (Spec S08), and freeing the callsign would let a later session
     /// mint it — making this session's commit trailers cite someone else.
+    ///
+    /// **A user-set name goes with the line's last segment.** Every *automatic*
+    /// delete spares such a row (`sparing_named_lines!`), so this is the only
+    /// path that can leave a named line with no segments at all — and the
+    /// line-first listing would then keep offering that line forever, pointing
+    /// at a transcript now sitting in `.tug-trash`. The user asked for the
+    /// session to go, so the name goes with it, which also releases the
+    /// `lines_user_name` index so the spelling can be typed again.
     pub fn trash(&self, session_id: &str) -> Result<TrashOutcome, LedgerError> {
         let forwarding = self.forwarding();
         let mut conn = self.db.lock().expect("ledger mutex");
         let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         // Read state + project_dir under the same lock so the JSONL move
         // afterwards has the canonical project_dir we recorded at spawn.
-        let row: Option<(String, String)> = tx
+        let row: Option<(String, String, String)> = tx
             .query_row(
-                "SELECT state, project_dir FROM sessions WHERE session_id = ?1",
+                "SELECT state, project_dir, line_id FROM sessions WHERE session_id = ?1",
                 params![session_id],
-                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                    ))
+                },
             )
             .optional()?;
-        let project_dir = match row {
+        let (project_dir, line_id) = match row {
             None => return Err(LedgerError::NotFound(session_id.to_owned())),
-            Some((state, _)) if state == "live" => {
+            Some((state, _, _)) if state == "live" => {
                 return Err(LedgerError::InvalidState(
                     "cannot trash a live session".to_owned(),
                 ));
             }
-            Some((_, pd)) => pd,
+            Some((_, pd, line)) => (pd, line),
         };
         tx.execute(
             "DELETE FROM sessions WHERE session_id = ?1",
             params![session_id],
+        )?;
+        // The user's own gesture is the one delete that may cost a name, and
+        // it costs it exactly when there is no segment left to carry it.
+        tx.execute(
+            "UPDATE lines SET name = NULL, name_user_set = 0
+             WHERE line_id = ?1
+               AND name_user_set = 1
+               AND NOT EXISTS (SELECT 1 FROM sessions s WHERE s.line_id = ?1)",
+            params![line_id],
         )?;
         // Explicit attribution cascade (the legacy trigger cannot reach the
         // attached changes db): an evicted session takes its rows with it.
@@ -5482,15 +5603,18 @@ impl SessionLedger {
     /// trash so the user can `mv` them back if they recognize the loss.
     ///
     /// Their `minted_tags` rows stay — the arbiter is append-only (Spec S08).
+    ///
+    /// **A name the user typed is never taken here.** The selection runs
+    /// through `sparing_named_lines!`, so a row that is the last surviving
+    /// segment of a user-named line is left where it is — row and JSONL both.
     pub fn trash_for_project_dir(&self, project_dir: &str) -> Result<Vec<String>, LedgerError> {
         let forwarding = self.forwarding();
         let mut conn = self.db.lock().expect("ledger mutex");
         let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         let doomed: Vec<String> = {
-            let mut stmt = tx.prepare(
-                "SELECT session_id FROM sessions
-                 WHERE project_dir = ?1 AND state != 'live'",
-            )?;
+            let mut stmt = tx.prepare(sparing_named_lines!(
+                "project_dir = ?1 AND state != 'live'"
+            ))?;
             stmt.query_map(params![project_dir], |row| row.get::<_, String>(0))?
                 .collect::<Result<Vec<_>, _>>()?
         };
@@ -5559,63 +5683,6 @@ impl SessionLedger {
         count
     }
 
-    /// If the workspace already holds at least `cap` non-live rows, evict
-    /// the oldest (lowest `last_used_at`). Returns the session ids of the
-    /// evicted rows so the caller can broadcast `session_updated
-    /// { removed: true }` pushes. Live rows are never evicted.
-    ///
-    /// Intended to be called after `record_spawn`, so the just-inserted row
-    /// is never the eviction target (it's live).
-    ///
-    /// Evicted rows keep their `minted_tags` claim — the arbiter is
-    /// append-only (Spec S08), so an evicted session's callsign is spent
-    /// forever rather than returning to the pool.
-    pub fn evict_oldest_closed(
-        &self,
-        workspace_key: &str,
-        cap: usize,
-    ) -> Result<Vec<String>, LedgerError> {
-        let forwarding = self.forwarding();
-        let mut conn = self.db.lock().expect("ledger mutex");
-        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-        let non_live_count: i64 = tx.query_row(
-            "SELECT COUNT(*) FROM sessions
-             WHERE workspace_key = ?1 AND state != 'live'",
-            params![workspace_key],
-            |row| row.get(0),
-        )?;
-        if (non_live_count as usize) <= cap {
-            tx.commit()?;
-            return Ok(Vec::new());
-        }
-        // We're over the cap — drop the oldest. Plural-safe: if the cap was
-        // exceeded by more than one (e.g., a clock skew or a code path that
-        // skipped eviction earlier), this brings the workspace back to cap.
-        let to_remove = (non_live_count as usize) - cap;
-        // Collect the doomed ids first so we can return them after the
-        // delete commits.
-        let doomed: Vec<String> = {
-            let mut stmt = tx.prepare(
-                "SELECT session_id FROM sessions
-                 WHERE workspace_key = ?1 AND state != 'live'
-                 ORDER BY last_used_at ASC
-                 LIMIT ?2",
-            )?;
-            stmt.query_map(params![workspace_key, to_remove as i64], |row| {
-                row.get::<_, String>(0)
-            })?
-            .collect::<Result<Vec<_>, _>>()?
-        };
-        for id in &doomed {
-            tx.execute("DELETE FROM sessions WHERE session_id = ?1", params![id])?;
-            self.delete_session_events(&tx, id, forwarding)?;
-        }
-        tx.commit()?;
-        drop(conn);
-        self.settle_session_deletes(doomed.iter().map(String::as_str));
-        Ok(doomed)
-    }
-
     /// Demote any rows still marked `live` (and bound to a card) into the
     /// `closed` state. Called once at tugcast startup: a previous tugcast
     /// process that crashed without cleanly closing its sessions will have
@@ -5677,16 +5744,21 @@ impl SessionLedger {
     /// the caller can broadcast `session_updated { removed: true }` pushes.
     ///
     /// Their `minted_tags` rows stay — the arbiter is append-only (Spec S08).
+    ///
+    /// **A name the user typed is never swept.** The selection runs through
+    /// `sparing_named_lines!`, so the last surviving segment of a user-named
+    /// line outlives any age, however long the line has sat untouched. That
+    /// is the whole point: age is a fair reason to forget an anonymous row
+    /// and never a reason to forget a name.
     pub fn sweep_expired(&self, max_age_ms: i64, now: i64) -> Result<Vec<String>, LedgerError> {
         let cutoff = now - max_age_ms;
         let forwarding = self.forwarding();
         let mut conn = self.db.lock().expect("ledger mutex");
         let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         let doomed: Vec<String> = {
-            let mut stmt = tx.prepare(
-                "SELECT session_id FROM sessions
-                 WHERE state != 'live' AND last_used_at < ?1",
-            )?;
+            let mut stmt = tx.prepare(sparing_named_lines!(
+                "state != 'live' AND last_used_at < ?1"
+            ))?;
             stmt.query_map(params![cutoff], |row| row.get::<_, String>(0))?
                 .collect::<Result<Vec<_>, _>>()?
         };
@@ -12024,8 +12096,8 @@ mod tests {
 
     #[test]
     fn facts_survive_deletion_of_the_session_they_name() {
-        // Permanence is the whole point: the 20-per-workspace cap and the
-        // 90-day sweep hard-DELETE `sessions` rows, and a fact must still say
+        // Permanence is the whole point: the 90-day sweep and an explicit
+        // trash both hard-DELETE `sessions` rows, and a fact must still say
         // what happened afterwards.
         let ledger = fresh();
         seed_live(&ledger, "s1", WS_A, "card-1", millis(0));
@@ -13134,94 +13206,6 @@ mod tests {
         assert!(session_dir.join(".tug-trash").exists());
     }
 
-    // ── eviction ─────────────────────────────────────────────────────────────
-
-    #[test]
-    fn evict_oldest_closed_no_op_under_cap() {
-        let l = fresh();
-        for i in 0..5 {
-            let id = format!("s{i}");
-            seed_live(&l, &id, WS_A, "c", millis(i));
-            l.mark_closed(&id).unwrap();
-        }
-        assert_eq!(l.evict_oldest_closed(WS_A, 20).unwrap().len(), 0);
-        assert_eq!(l.list_for_workspace(WS_A).unwrap().len(), 5);
-    }
-
-    #[test]
-    fn evict_oldest_closed_removes_oldest_when_at_cap_plus_one() {
-        let l = fresh();
-        // Insert 21 closed rows: s0 oldest (millis(20)) → s20 newest (millis(0))
-        for i in 0..21 {
-            let id = format!("s{i}");
-            seed_live(&l, &id, WS_A, "c", millis(20 - i));
-            l.mark_closed(&id).unwrap();
-        }
-        // Sanity: 21 rows.
-        assert_eq!(l.list_for_workspace(WS_A).unwrap().len(), 21);
-
-        let evicted = l
-            .evict_oldest_closed(WS_A, DEV_LEDGER_MAX_PER_WORKSPACE)
-            .unwrap();
-        assert_eq!(evicted, vec!["s0".to_owned()]);
-        // s0 was oldest; should be gone.
-        assert!(l.get("s0").unwrap().is_none());
-        // The cap is exact afterwards.
-        assert_eq!(l.list_for_workspace(WS_A).unwrap().len(), 20);
-    }
-
-    #[test]
-    fn evict_oldest_closed_never_targets_live_rows() {
-        let l = fresh();
-        // 19 live rows + 2 closed, both older than the live ones.
-        for i in 0..19 {
-            let id = format!("live{i}");
-            seed_live(&l, &id, WS_A, "c", millis(0));
-        }
-        seed_live(&l, "closed0", WS_A, "c", millis(20));
-        l.mark_closed("closed0").unwrap();
-        seed_live(&l, "closed1", WS_A, "c", millis(15));
-        l.mark_closed("closed1").unwrap();
-        assert_eq!(l.list_for_workspace(WS_A).unwrap().len(), 21);
-
-        let evicted = l
-            .evict_oldest_closed(WS_A, DEV_LEDGER_MAX_PER_WORKSPACE)
-            .unwrap();
-        // Only the non-live count crossed the cap (2 non-live > 20 cap is
-        // false, so eviction is a no-op). The plan's intent is "cap on
-        // non-live rows so live rows are never the eviction target". The
-        // eviction never touches live rows; with only 2 non-live, nothing
-        // gets evicted.
-        assert!(evicted.is_empty());
-    }
-
-    #[test]
-    fn evict_oldest_closed_caps_non_live_count() {
-        let l = fresh();
-        // 21 closed rows + 5 live rows.
-        for i in 0..21 {
-            let id = format!("c{i}");
-            seed_live(&l, &id, WS_A, "c", millis(40 - i));
-            l.mark_closed(&id).unwrap();
-        }
-        for i in 0..5 {
-            let id = format!("live{i}");
-            seed_live(&l, &id, WS_A, "c", millis(0));
-        }
-
-        let evicted = l
-            .evict_oldest_closed(WS_A, DEV_LEDGER_MAX_PER_WORKSPACE)
-            .unwrap();
-        assert_eq!(evicted, vec!["c0".to_owned()]);
-        assert!(l.get("c0").unwrap().is_none(), "oldest closed evicted");
-        for i in 0..5 {
-            assert!(
-                l.get(&format!("live{i}")).unwrap().is_some(),
-                "live{i} must survive"
-            );
-        }
-    }
-
     // ── sweep_expired ────────────────────────────────────────────────────────
 
     #[test]
@@ -13270,6 +13254,271 @@ mod tests {
         let swept = l.sweep_expired(max_age_ms, now).unwrap();
         assert_eq!(swept, vec!["stale".to_owned()]);
         assert!(l.get("stale").unwrap().is_none());
+    }
+
+    // ── the named-line guard ────────────────────────────────────────────────
+    //
+    // A `/rename` is the user's own word, and no automatic delete may cost
+    // one. These exercise the two guarded paths, and the shape that broke the
+    // obvious predicate: a named line every one of whose segments is doomed.
+
+    /// A second segment on an existing line — the shape a rotation leaves.
+    fn seed_segment(ledger: &SessionLedger, id: &str, line_id: &str, now: i64) {
+        ledger
+            .record_spawn(id, WS_A, "/proj", "c", now, line_id, None)
+            .expect("record_spawn");
+    }
+
+    fn name_the_line(ledger: &SessionLedger, line_id: &str, name: &str) {
+        ledger.rename(line_id, Some(name)).expect("rename");
+    }
+
+    #[test]
+    fn sweep_spares_the_last_segment_of_a_named_line() {
+        let l = fresh();
+        let now = millis(0);
+        let max_age_ms = DEV_LEDGER_MAX_AGE_DAYS * 86_400_000;
+
+        // Long past the age cutoff, and the only segment its line has.
+        seed_live(&l, "lens-xp-seg", WS_A, "c", millis(200));
+        l.mark_closed("lens-xp-seg").unwrap();
+        name_the_line(&l, "lens-xp-seg", "lens-xp");
+
+        let swept = l.sweep_expired(max_age_ms, now).unwrap();
+        assert!(swept.is_empty(), "a named line's last segment is not age");
+        assert!(l.get("lens-xp-seg").unwrap().is_some());
+    }
+
+    #[test]
+    fn sweep_takes_the_last_segment_of_an_unnamed_line() {
+        let l = fresh();
+        let now = millis(0);
+        let max_age_ms = DEV_LEDGER_MAX_AGE_DAYS * 86_400_000;
+
+        // Same age, same last-segment shape — the only difference is that
+        // nobody typed a name for it. This is the control the guard needs:
+        // without it the guard would read as "the sweep stopped working".
+        seed_live(&l, "anon", WS_A, "c", millis(200));
+        l.mark_closed("anon").unwrap();
+
+        let swept = l.sweep_expired(max_age_ms, now).unwrap();
+        assert_eq!(swept, vec!["anon".to_owned()]);
+        assert!(l.get("anon").unwrap().is_none());
+    }
+
+    #[test]
+    fn sweep_takes_the_older_segment_of_a_named_line() {
+        let l = fresh();
+        let now = millis(0);
+        let max_age_ms = DEV_LEDGER_MAX_AGE_DAYS * 86_400_000;
+
+        // Two segments of one named line; only the older one is expired, so
+        // the guard has nothing to do and the sweep does its ordinary work.
+        seed_live(&l, "old-seg", WS_A, "c", millis(200));
+        l.mark_closed("old-seg").unwrap();
+        seed_segment(&l, "new-seg", "old-seg", millis(5));
+        l.mark_closed("new-seg").unwrap();
+        name_the_line(&l, "old-seg", "dash-compact");
+
+        let swept = l.sweep_expired(max_age_ms, now).unwrap();
+        assert_eq!(swept, vec!["old-seg".to_owned()]);
+        assert!(l.get("old-seg").unwrap().is_none());
+        assert!(l.get("new-seg").unwrap().is_some());
+    }
+
+    #[test]
+    fn sweep_keeps_the_newest_when_every_segment_of_a_named_line_expires() {
+        let l = fresh();
+        let now = millis(0);
+        let max_age_ms = DEV_LEDGER_MAX_AGE_DAYS * 86_400_000;
+
+        // The shape a row-at-a-time predicate gets wrong: asked on its own,
+        // each of these two rows can point at the other as a survivor, and
+        // both get deleted. The guard is set-aware, so the newest stands.
+        seed_live(&l, "seg-older", WS_A, "c", millis(200));
+        l.mark_closed("seg-older").unwrap();
+        seed_segment(&l, "seg-newer", "seg-older", millis(150));
+        l.mark_closed("seg-newer").unwrap();
+        name_the_line(&l, "seg-older", "tripwire-xp");
+
+        let swept = l.sweep_expired(max_age_ms, now).unwrap();
+        assert_eq!(swept, vec!["seg-older".to_owned()]);
+        assert!(l.get("seg-older").unwrap().is_none());
+        assert!(
+            l.get("seg-newer").unwrap().is_some(),
+            "one segment survives so the name stays reachable"
+        );
+    }
+
+    #[test]
+    fn sweep_spares_a_named_line_whose_only_surviving_segment_is_live() {
+        let l = fresh();
+        let now = millis(0);
+        let max_age_ms = DEV_LEDGER_MAX_AGE_DAYS * 86_400_000;
+
+        // A live segment counts as a survivor, so the expired one goes.
+        seed_live(&l, "seg-closed", WS_A, "c", millis(200));
+        l.mark_closed("seg-closed").unwrap();
+        seed_segment(&l, "seg-live", "seg-closed", millis(0));
+        name_the_line(&l, "seg-closed", "layout-xp");
+
+        let swept = l.sweep_expired(max_age_ms, now).unwrap();
+        assert_eq!(swept, vec!["seg-closed".to_owned()]);
+        assert!(l.get("seg-live").unwrap().is_some());
+    }
+
+    #[test]
+    fn trash_for_project_dir_spares_the_last_segment_of_a_named_line() {
+        let l = fresh();
+        seed_live(&l, "named-seg", WS_A, "c", millis(0));
+        l.mark_closed("named-seg").unwrap();
+        name_the_line(&l, "named-seg", "dots-hacking");
+        // An unnamed neighbour in the same project dir, to prove the path
+        // still does its job around the row it spares.
+        seed_live(&l, "anon-seg", WS_A, "c", millis(0));
+        l.mark_closed("anon-seg").unwrap();
+
+        let dropped = l.trash_for_project_dir("/proj").unwrap();
+        assert_eq!(dropped, vec!["anon-seg".to_owned()]);
+        assert!(l.get("named-seg").unwrap().is_some());
+        assert!(l.get("anon-seg").unwrap().is_none());
+    }
+
+    #[test]
+    fn trash_for_project_dir_keeps_the_newest_segment_of_a_named_line() {
+        let l = fresh();
+        // Both segments match the project dir, so both are doomed by the
+        // criterion; the guard leaves the newest standing.
+        seed_live(&l, "pd-older", WS_A, "c", millis(9));
+        l.mark_closed("pd-older").unwrap();
+        seed_segment(&l, "pd-newer", "pd-older", millis(1));
+        l.mark_closed("pd-newer").unwrap();
+        name_the_line(&l, "pd-older", "live-atoms-in-editing");
+
+        let dropped = l.trash_for_project_dir("/proj").unwrap();
+        assert_eq!(dropped, vec!["pd-older".to_owned()]);
+        assert!(l.get("pd-newer").unwrap().is_some());
+    }
+
+    #[test]
+    fn trash_is_unguarded_because_it_is_the_users_own_gesture() {
+        let l = fresh();
+        seed_live(&l, "named-seg", WS_A, "c", millis(0));
+        l.mark_closed("named-seg").unwrap();
+        name_the_line(&l, "named-seg", "ensure-dash-completion");
+
+        // Explicit trashing is the one delete that may cost a name: the user
+        // said so, and refusing it would be the ledger overruling them.
+        l.trash("named-seg").unwrap();
+        assert!(l.get("named-seg").unwrap().is_none());
+    }
+
+    // ── the line-first listing ──────────────────────────────────────────────
+    //
+    // A listing that walks `sessions` can only ever show a line that still has
+    // one. The name lives on `lines` and outlives every segment, so the
+    // listing enumerates lines and attaches their segments instead.
+
+    /// Strand a line the way it was stranded for real: the `sessions` row
+    /// goes — straight at the table, which is what the cap did — and the
+    /// line, its name, and the mint naming its session stay. Not `trash`:
+    /// the user's own gesture takes the name with it, which is the whole
+    /// difference between the two.
+    fn strand(ledger: &SessionLedger, session_id: &str) {
+        {
+            let conn = ledger.db.lock().unwrap();
+            conn.execute(
+                "DELETE FROM sessions WHERE session_id = ?1",
+                params![session_id],
+            )
+            .expect("delete the segment");
+        }
+        assert!(
+            ledger.get(session_id).unwrap().is_none(),
+            "the segment is gone"
+        );
+    }
+
+    #[test]
+    fn a_named_line_lists_when_every_segment_is_gone() {
+        let l = fresh();
+        l.record_spawn("seg-1", WS_A, "/proj", "c", millis(3), "line-lens", None)
+            .unwrap();
+        l.mark_closed("seg-1").unwrap();
+        name_the_line(&l, "line-lens", "lens-xp");
+        strand(&l, "seg-1");
+
+        let listed = l.list_for_project_dir("/proj").unwrap();
+        let row = listed
+            .iter()
+            .find(|r| r.line_id == "line-lens")
+            .expect("the named line is a row although no segment survives it");
+        assert_eq!(row.name.as_deref(), Some("lens-xp"));
+        assert!(row.name_user_set);
+        assert_eq!(
+            row.session_id, "seg-1",
+            "the minted_tags join names a session recorded, never guessed"
+        );
+    }
+
+    #[test]
+    fn an_unnamed_stranded_line_does_not_list() {
+        let l = fresh();
+        l.record_spawn("anon-seg", WS_A, "/proj", "c", millis(3), "line-anon", None)
+            .unwrap();
+        l.mark_closed("anon-seg").unwrap();
+        strand(&l, "anon-seg");
+
+        // Nobody typed a name for this one, so there is nothing to preserve
+        // and a row would be a session the user cannot place.
+        let listed = l.list_for_project_dir("/proj").unwrap();
+        assert!(listed.iter().all(|r| r.line_id != "line-anon"));
+    }
+
+    #[test]
+    fn a_named_line_with_a_surviving_segment_lists_once() {
+        let l = fresh();
+        l.record_spawn("kept", WS_A, "/proj", "c", millis(3), "line-kept", None)
+            .unwrap();
+        l.mark_closed("kept").unwrap();
+        name_the_line(&l, "line-kept", "layout-xp");
+
+        // The stranded arm must not double a line that is listing perfectly
+        // well through its own segment.
+        let listed = l.list_for_project_dir("/proj").unwrap();
+        let mine: Vec<_> = listed
+            .iter()
+            .filter(|r| r.line_id == "line-kept")
+            .collect();
+        assert_eq!(mine.len(), 1);
+        assert_eq!(mine[0].session_id, "kept");
+        assert_eq!(mine[0].name.as_deref(), Some("layout-xp"));
+    }
+
+    #[test]
+    fn trashing_the_last_segment_of_a_named_line_unlists_it() {
+        let l = fresh();
+        l.record_spawn("gone", WS_A, "/proj", "c", millis(3), "line-gone", None)
+            .unwrap();
+        l.mark_closed("gone").unwrap();
+        name_the_line(&l, "line-gone", "tugrev-bringup");
+
+        // The user asked for this one to go, and its transcript went to
+        // `.tug-trash` with it. The stranded arm must not turn round and
+        // re-offer the line: that row would point at a transcript nothing can
+        // open, which is the ghost the repair verb refuses to write.
+        l.trash("gone").unwrap();
+
+        let listed = l.list_for_project_dir("/proj").unwrap();
+        assert!(
+            listed.iter().all(|r| r.line_id != "line-gone"),
+            "a line the user threw away does not come back as a name"
+        );
+        let line = l.get_line("line-gone").unwrap().expect("the line survives");
+        assert!(
+            line.name.is_none() && !line.name_user_set,
+            "the one gesture that may cost a name has cost it"
+        );
     }
 
     // ── trash_for_project_dir ───────────────────────────────────────────────

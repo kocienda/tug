@@ -43,6 +43,7 @@ pub fn dispatch(cmd: HostCommands, json: bool, quiet: bool) -> ExitCode {
             quiet: sweep_quiet,
         } => commands::run_sweep(yes, json || sweep_json, quiet || sweep_quiet, dry_run),
         HostCommands::StateDir => commands::run_state_dir(json, quiet),
+        HostCommands::RestoreNames { db, dry_run } => commands::run_restore_names(db, dry_run),
         HostCommands::Changesets { port, instance } => {
             commands::run_changesets(port, instance, json)
         }
