@@ -35,7 +35,9 @@ export const FeedId = {
   GIT_HEAD: 0x27,
   GIT_COMMIT_FILES: 0x28,
   GIT_COMMIT_FILES_QUERY: 0x29,
-  // Stats
+  // Stats (retired): the quartet's feeds were removed when the 1 Hz
+  // unconditional push to every client was retired. The constants stay
+  // reserved — never reuse 0x30-0x33 for another feed.
   STATS: 0x30,
   STATS_PROCESS_INFO: 0x31,
   STATS_TOKEN_USAGE: 0x32,

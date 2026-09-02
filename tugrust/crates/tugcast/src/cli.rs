@@ -18,8 +18,8 @@ fn default_session() -> String {
 #[command(name = "tugcast")]
 #[command(version = VERSION)]
 #[command(
-    about = "WebSocket multiplexer serving terminal, code, filesystem, git, and stats feeds to tugdeck",
-    long_about = "tugcast multiplexes multiple data feeds over a single WebSocket connection to\nthe tugdeck browser frontend. Feeds include: terminal I/O (via tmux), Claude Code\nevents (via tugcode bridge), filesystem watching, git status, system stats, and\ntugbank defaults. Each feed is identified by a FeedId byte in binary-framed messages.\n\nUsage:\n  tugcast                               Start with defaults (session: cc-<TUG_INSTANCE_ID> or cc0, port: 55255)\n  tugcast --session dev --port 8080         Custom session and port\n  tugcast --source-tree /path/to/project    Watch a specific directory"
+    about = "WebSocket multiplexer serving terminal, code, filesystem, and git feeds to tugdeck",
+    long_about = "tugcast multiplexes multiple data feeds over a single WebSocket connection to\nthe tugdeck browser frontend. Feeds include: terminal I/O (via tmux), Claude Code\nevents (via tugcode bridge), filesystem watching, git status, and\ntugbank defaults. Each feed is identified by a FeedId byte in binary-framed messages.\n\nUsage:\n  tugcast                               Start with defaults (session: cc-<TUG_INSTANCE_ID> or cc0, port: 55255)\n  tugcast --session dev --port 8080         Custom session and port\n  tugcast --source-tree /path/to/project    Watch a specific directory"
 )]
 pub struct Cli {
     /// Tmux session name to attach to (created if it doesn't exist).

@@ -77,14 +77,23 @@ impl FeedId {
     /// followed card's project dir (tugdeck → tugcast)
     pub const GIT_COMMIT_FILES_QUERY: Self = Self(0x29);
 
-    // -- Stats --
-    /// Aggregate stats snapshot (tugcast → tugdeck)
+    // -- Stats (retired) --
+    /// Retired: the aggregate stats snapshot feed was removed along with the
+    /// rest of the stats quartet when the 1 Hz unconditional push to every
+    /// client was retired. The constant stays reserved — never reuse 0x30 for
+    /// another feed.
     pub const STATS: Self = Self(0x30);
-    /// Process info stats (tugcast → tugdeck)
+    /// Retired: the process-info stats feed was removed with the rest of the
+    /// stats quartet. The constant stays reserved — never reuse 0x31 for
+    /// another feed.
     pub const STATS_PROCESS_INFO: Self = Self(0x31);
-    /// Token usage stats (tugcast → tugdeck)
+    /// Retired: the token-usage stats feed was removed with the rest of the
+    /// stats quartet. The constant stays reserved — never reuse 0x32 for
+    /// another feed.
     pub const STATS_TOKEN_USAGE: Self = Self(0x32);
-    /// Build status stats (tugcast → tugdeck)
+    /// Retired: the build-status stats feed was removed with the rest of the
+    /// stats quartet. The constant stays reserved — never reuse 0x33 for
+    /// another feed.
     pub const STATS_BUILD_STATUS: Self = Self(0x33);
 
     // -- Code (Claude Code bridge) --

@@ -48,7 +48,6 @@ pub mod session_scoped;
 pub mod session_synopsis;
 pub mod shell;
 pub mod shell_words;
-pub mod stats;
 pub mod terminal;
 pub mod text_ref;
 pub mod tripwire;

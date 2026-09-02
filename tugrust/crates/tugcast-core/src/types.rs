@@ -4,7 +4,6 @@
 //! serialized as JSON payloads in WebSocket frames.
 
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 /// Filesystem event types
 ///
@@ -1170,19 +1169,6 @@ pub struct FileTreeSnapshot {
     pub truncated: bool,
 }
 
-/// Aggregate stats snapshot combining all collector outputs
-///
-/// Each collector produces a JSON value that is stored in the collectors map
-/// under the collector's name. The timestamp indicates when this snapshot
-/// was assembled.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct StatSnapshot {
-    /// Map of collector name to collector output (heterogeneous JSON values)
-    pub collectors: HashMap<String, serde_json::Value>,
-    /// ISO 8601 timestamp of snapshot assembly
-    pub timestamp: String,
-}
-
 // MARK: - Overview
 
 /// Who wrote a Overview post. The channel has exactly three authors and no
@@ -1763,41 +1749,6 @@ mod tests {
         };
         let json = serde_json::to_string(&event).unwrap();
         assert_eq!(json, r#"{"kind":"Renamed","from":"old.rs","to":"new.rs"}"#);
-    }
-
-    #[test]
-    fn test_stat_snapshot_json_round_trip() {
-        let mut collectors = HashMap::new();
-        collectors.insert(
-            "process_info".to_string(),
-            serde_json::json!({"pid": 12345, "cpu_percent": 12.5}),
-        );
-        collectors.insert(
-            "token_usage".to_string(),
-            serde_json::json!({"total_tokens": 23000}),
-        );
-
-        let snapshot = StatSnapshot {
-            collectors,
-            timestamp: "2026-02-15T10:30:05Z".to_string(),
-        };
-
-        let json = serde_json::to_string(&snapshot).unwrap();
-        let decoded: StatSnapshot = serde_json::from_str(&json).unwrap();
-        assert_eq!(snapshot, decoded);
-    }
-
-    #[test]
-    fn test_stat_snapshot_empty_collectors() {
-        let snapshot = StatSnapshot {
-            collectors: HashMap::new(),
-            timestamp: "2026-02-15T10:30:05Z".to_string(),
-        };
-
-        let json = serde_json::to_string(&snapshot).unwrap();
-        let decoded: StatSnapshot = serde_json::from_str(&json).unwrap();
-        assert_eq!(snapshot, decoded);
-        assert_eq!(decoded.collectors.len(), 0);
     }
 
     /// The shared wire-contract fixture, also validated by the tugdeck bun

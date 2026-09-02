@@ -1,6 +1,6 @@
 [package]
 name = "tugcast"
-description = "WebSocket multiplexer — bridges terminal, code, filesystem, git, and stats feeds to tugdeck"
+description = "WebSocket multiplexer — bridges terminal, code, filesystem, and git feeds to tugdeck"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

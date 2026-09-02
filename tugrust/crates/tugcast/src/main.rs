@@ -77,9 +77,6 @@ use crate::feeds::agent_supervisor::{
     SpawnerFactory, default_spawner_factory,
 };
 use crate::feeds::filetree::FileTreeQuery;
-#[cfg(debug_assertions)]
-use crate::feeds::stats::BuildStatusCollector;
-use crate::feeds::stats::{ProcessInfoCollector, TokenUsageCollector};
 use crate::feeds::terminal::{self, TerminalFeed};
 use crate::feeds::workspace_registry::WorkspaceRegistry;
 use crate::router::{BROADCAST_CAPACITY, FeedRouter};
@@ -1102,31 +1099,6 @@ async fn main() {
         }
     });
 
-    // Create stats collectors
-    let process_info =
-        Arc::new(ProcessInfoCollector::new()) as Arc<dyn crate::feeds::stats::StatCollector>;
-    let token_usage = Arc::new(TokenUsageCollector::new(cli.session.clone()))
-        as Arc<dyn crate::feeds::stats::StatCollector>;
-    // BuildStatusCollector is dev-only: it reads tugrust/target/, which
-    // does not exist in a bundled Tug.app. Release tugcast skips both
-    // construction and feed registration.
-    #[cfg(debug_assertions)]
-    let build_status = Arc::new(BuildStatusCollector::new(
-        resources::source_tree().join("target"),
-    )) as Arc<dyn crate::feeds::stats::StatCollector>;
-
-    // Stats run through the unified stats surface: the subsystem creates
-    // its own channels and spawns its tasks; the router receives only the
-    // watch receivers (registered with the other snapshot watches below).
-    // BuildStatusCollector is dev-only, so release skips the push and
-    // `collectors.len()` still matches senders inside `StatsRunner::run`.
-    #[allow(unused_mut)]
-    let mut stats_collectors: Vec<Arc<dyn crate::feeds::stats::StatCollector>> =
-        vec![process_info, token_usage];
-    #[cfg(debug_assertions)]
-    stats_collectors.push(build_status);
-    let stats_watch_rxs = feeds::stats::spawn_stats_feeds(stats_collectors, cancel.clone());
-
     // Create shutdown channel for control commands
     let (shutdown_tx, mut shutdown_rx) = mpsc::channel::<u8>(1);
 
@@ -1820,8 +1792,7 @@ async fn main() {
     // ownership claims against `client_sessions`.
     feed_router.set_supervisor(Arc::clone(&supervisor));
 
-    // Register snapshot watches. `stats_build_rx` is pushed only in debug
-    // builds since BuildStatusCollector is gated out of release.
+    // Register snapshot watches.
     //
     // `bootstrap.ft_watch_rx` is INCLUDED here even though FILETREE
     // responses now flow primarily through the shared broadcast
@@ -1990,7 +1961,6 @@ async fn main() {
         bootstrap.ft_watch_rx.clone(),
         changeset_all_rx,
     ];
-    snapshot_watches.extend(stats_watch_rxs);
     if let Some(rx) = defaults_rx {
         snapshot_watches.push(rx);
     }
@@ -2013,8 +1983,7 @@ async fn main() {
 
     // Filesystem, filetree, and git feed tasks are owned by the
     // WorkspaceRegistry's bootstrap entry — spawned inside
-    // `WorkspaceEntry::new` above; their tasks (and the stats subsystem's,
-    // spawned by `spawn_stats_feeds` above) all run through the feed
+    // `WorkspaceEntry::new` above; their tasks all run through the feed
     // abstraction's spawn paths.
 
     // The TCP listener is already bound above (right after CLI parse)
