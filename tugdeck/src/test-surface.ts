@@ -357,7 +357,7 @@ import {
  * composer, the editor and the scroll are all the production ones; only the
  * transport is stood in for. Additive; major stays `2`.
  */
-export const SURFACE_VERSION = "2.14.0" as const;
+export const SURFACE_VERSION = "2.15.0" as const;
 
 /**
  * A {@link TugTestSurface.dictionaryLookupProbe} reading: the payload Look Up
@@ -496,6 +496,11 @@ export interface SeedDeckStateArgs {
  *    is a different store from the one `ingestFrame` reaches, so a shell row
  *    — and the command blocks that claim one, like the `/commit` receipt —
  *    is otherwise only reachable by executing a real command.
+ *  - `dashNote` — deliver a live dash gesture's quiet line
+ *    (`store.ingestDashNote`, [P12]). Live notes arrive off the changeset
+ *    verb store, which a harness test has no server to feed, so this is the
+ *    one way to observe the reducer's seating: inside the open turn when one
+ *    is streaming, its own quiet ink row otherwise.
  */
 export type SessionDriveAction =
   | { op: "send"; text: string; atoms?: AtomSegment[]; suppress?: boolean }
@@ -512,6 +517,14 @@ export type SessionDriveAction =
       cwd: string;
       exitCode?: number;
       startedAtMs?: number;
+    }
+  | {
+      op: "dashNote";
+      exchangeId: string;
+      command: string;
+      text: string;
+      cwd: string;
+      timestamp?: number;
     };
 
 /**
@@ -2741,6 +2754,19 @@ export function createTugTestSurface(deck: DeckManager): TugTestSurface {
           });
           return;
         }
+        case "dashNote":
+          // The live dash-note path ([P12]): the reducer seats the sentence
+          // inside the open turn when one is streaming, or as its own quiet
+          // ink row when none is — which seat is exactly what a test drives
+          // this to observe.
+          store.ingestDashNote({
+            exchangeId: action.exchangeId,
+            command: action.command,
+            text: action.text,
+            cwd: action.cwd,
+            timestamp: action.timestamp ?? Date.now(),
+          });
+          return;
         default: {
           const exhaustive: never = action;
           throw new Error(

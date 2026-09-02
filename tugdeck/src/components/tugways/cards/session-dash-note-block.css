@@ -1,0 +1,18 @@
+/* ============================================================================
+   Dash-note quiet line — the between-turns seat
+   ========================================================================= */
+
+/**
+ * One sentence on the `TugQuietLine` substrate ([P12]). The mid-turn seat
+ * renders inside the assistant body column and inherits its inset for free;
+ * this row stands alone at the transcript's edge, so it takes the same inset
+ * by arithmetic (`--tugx-transcript-body-inset`, the gutter plus its gap) —
+ * both seats of the same line land at the same x, and a course reads as one
+ * column of conversation whichever seat a note took.
+ *
+ * @module components/tugways/cards/session-dash-note-block
+ */
+
+.session-card-transcript-quiet-row {
+  padding-inline-start: var(--tugx-transcript-body-inset);
+}

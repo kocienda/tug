@@ -58,6 +58,30 @@ export interface ShellExchangeCompleteActionEvent {
 }
 
 /**
+ * A dash gesture's quiet line ([P12]) entered the transcript. NOT a wire
+ * event — `useLandingReceipts` watches the changeset verb store's dash notes
+ * and calls `codeSessionStore.ingestDashNote`, which dispatches these. The
+ * reducer decides the note's seat: inside the open turn's message stream when
+ * one is streaming (the note narrates work THIS turn is doing), or as its own
+ * quiet ink row when none is (a hand-run verb, a run-start line between
+ * stages). `command`/`exchangeId`/`cwd` exist for that fallback row, which is
+ * shaped exactly like the restore path's ledger replay so the two dedup by
+ * turn key.
+ */
+export interface DashNoteActionEvent {
+  type: "dash_note";
+  /** `landingExchangeId(receiptId)` — the fallback row's stable identity. */
+  exchangeId: string;
+  /** The synthetic record-rendered command (`dash step <name> done`). */
+  command: string;
+  /** The server-derived sentence — the note's entire visible content. */
+  text: string;
+  /** The bound project dir, for the fallback row's cwd. */
+  cwd: string;
+  timestamp: number;
+}
+
+/**
  * A `/match` or `/search` run's current state entered the transcript. NOT a
  * wire event — `RefsSessionStore` folds `REFS_OUTPUT` and calls
  * `codeSessionStore.ingestRefs`, which dispatches this.
@@ -1486,4 +1510,5 @@ export type CodeSessionEvent =
   | SessionRewindActionEvent
   | ShellExchangeStartedActionEvent
   | ShellExchangeCompleteActionEvent
+  | DashNoteActionEvent
   | RefsResultActionEvent;

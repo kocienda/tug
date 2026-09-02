@@ -65,6 +65,7 @@ import {
   truncateTranscriptAtAnchor,
   upsertInkTurn,
   appendTurnInterleavingInk,
+  absorbDashNotes,
   systemNoteKey,
   type CodeSessionState,
 } from "./code-session-store/reducer";
@@ -1007,6 +1008,27 @@ export class CodeSessionStore {
         anchorMsgId: event.anchorMsgId,
       });
     }
+  }
+
+  /**
+   * Seat a dash gesture's quiet line ([P12]). Called by `useLandingReceipts`
+   * for each fresh dash note the changeset verb store delivers. The reducer
+   * decides the seat: inside the open turn's message stream when one is
+   * streaming (the note narrates work this turn is doing, and renders between
+   * the tool calls it arrived among), or as its own quiet ink row when none
+   * is. This is the ONLY live path for a dash note; the restore path replays
+   * the same ledger rows through `ingestShellExchange` as `dash …` commands,
+   * which the quiet-row registration claims.
+   */
+  ingestDashNote(event: {
+    exchangeId: string;
+    command: string;
+    text: string;
+    cwd: string;
+    timestamp: number;
+  }): void {
+    if (this._disposed) return;
+    this.dispatch({ type: "dash_note", ...event });
   }
 
   /**
@@ -2497,9 +2519,12 @@ export class CodeSessionStore {
             // JSONL replay, so a bare append would strand the replayed Claude
             // turn behind shell rows it chronologically precedes. The helper
             // only slides past trailing shell turns; non-shell order is intact.
-            this._transcript = appendTurnInterleavingInk(
-              this._transcript,
-              effect.entry,
+            // The arriving turn may be the one a restored dash-note row was
+            // waiting for — absorb it inside at its clock position ([P12]),
+            // so the reload race converges on the live reading whichever
+            // side landed first.
+            this._transcript = absorbDashNotes(
+              appendTurnInterleavingInk(this._transcript, effect.entry),
             );
           }
           break;
@@ -2507,8 +2532,12 @@ export class CodeSessionStore {
           // Shell exchange ([P06]/[P12]): upsert the turn — settle in place
           // (same turnKey) or insert at its timestamp position (mint /
           // restore interleave). Copy-on-write, disjoint from the Claude
-          // turn lifecycle.
-          this._transcript = upsertInkTurn(this._transcript, effect.entry);
+          // turn lifecycle. A dash-note row whose turn is already committed
+          // is then absorbed into it ([P12]) — the other side of the same
+          // convergence the `append-transcript` case runs.
+          this._transcript = absorbDashNotes(
+            upsertInkTurn(this._transcript, effect.entry),
+          );
           break;
         case "flush-prepend":
           // Commit the staged older batch ahead of the existing
@@ -2516,7 +2545,13 @@ export class CodeSessionStore {
           // their `turnKey`s) are reused, so React preserves the
           // already-mounted rows' identity across the index shift ([L26]).
           if (this._prependStaging.length > 0) {
-            this._transcript = [...this._prependStaging, ...this._transcript];
+            // The older bracket may hold the turns that restored dash-note
+            // rows were waiting for — the same absorption the append path
+            // runs ([P12]), on the block that just became visible.
+            this._transcript = absorbDashNotes([
+              ...this._prependStaging,
+              ...this._transcript,
+            ]);
             this._prependStaging = [];
           }
           break;

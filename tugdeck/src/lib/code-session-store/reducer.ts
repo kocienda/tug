@@ -82,6 +82,7 @@ import type {
   SessionRewindActionEvent,
   ShellExchangeStartedActionEvent,
   ShellExchangeCompleteActionEvent,
+  DashNoteActionEvent,
   RefsResultActionEvent,
 } from "./events";
 import type {
@@ -117,6 +118,7 @@ import type {
   WakeTrigger,
 } from "./types";
 import { isInkOrigin } from "./types";
+import { dashNoteSentence, matchesDashNote } from "../dash-note-command";
 import { compactionNoteText, isCompactionSubmission } from "./compaction";
 import { stageNoteText } from "./stages";
 import {
@@ -5973,6 +5975,110 @@ export function upsertInkTurn(
   return insertInkAnchored(transcript, entry);
 }
 
+/**
+ * Absorb restored dash-note ink rows into the turns they narrated ([P12]).
+ *
+ * A dash note seated live lands INSIDE the streaming turn ({@link
+ * handleDashNote}); after a relaunch the same note re-arrives as a shell
+ * ledger row, which alone would seat it *between* turns — a transcript that
+ * reads one way live and another way after every reopen. This pass closes
+ * that gap deterministically from the clocks both sides already carry: the
+ * ledger row's `startedAtMs` is the gesture's wall-clock, and replayed turns
+ * carry their original submit/end times (the same clocks [P07]'s
+ * between-turn interleave already trusts). A dash-note ink row whose
+ * timestamp falls within a committed Claude turn's span is re-seated in that
+ * turn as a `source: "dash"` system_note at its clock position among the
+ * messages — the seat the note had when it happened.
+ *
+ * Runs wrapper-side on the committed transcript at every site that can
+ * complete the pair — ink arriving (`ingest-ink-turn`), a turn arriving
+ * (`append-transcript`), an older bracket committing (`flush-prepend`) — so
+ * both orders of the reload race converge on the same reading. Idempotent
+ * and dedup-safe: the re-seat keys on the ledger identity
+ * (`dash-note-<exchangeId>`, the same key the live seat takes), and a turn
+ * already carrying the note (by key, or a dash note with the identical
+ * sentence) absorbs the row by dropping it. Returns the SAME array
+ * reference when nothing moved, so a quiet pass costs no snapshot churn.
+ *
+ * A row no turn spans — a verb run by hand while the card sat idle, a
+ * run-start line between stages — stays exactly where it is: between turns
+ * is that note's true seat.
+ */
+export function absorbDashNotes(
+  transcript: ReadonlyArray<TurnEntry>,
+): ReadonlyArray<TurnEntry> {
+  interface Seat {
+    turnIndex: number;
+    note: SystemNote;
+    duplicate: boolean;
+  }
+  const seats = new Map<number, Seat>();
+  for (let i = 0; i < transcript.length; i++) {
+    const row = transcript[i]!;
+    if (row.origin !== "shell") continue;
+    const msg = row.messages[0];
+    if (
+      row.messages.length !== 1 ||
+      msg === undefined ||
+      msg.kind !== "shell_exchange" ||
+      !matchesDashNote(msg.command)
+    ) {
+      continue;
+    }
+    const ts = msg.startedAtMs;
+    for (let t = 0; t < transcript.length; t++) {
+      const turn = transcript[t]!;
+      if (isInkOrigin(turn.origin)) continue;
+      if (ts < turnSortTs(turn) || ts > turn.endedAt) continue;
+      const key = `dash-note-${msg.exchangeId}`;
+      const text = dashNoteSentence(msg);
+      const duplicate = turn.messages.some(
+        (m) =>
+          m.messageKey === key ||
+          (m.kind === "system_note" && m.source === "dash" && m.text === text),
+      );
+      seats.set(i, {
+        turnIndex: t,
+        duplicate,
+        note: {
+          kind: "system_note",
+          messageKey: key,
+          createdAt: ts,
+          text,
+          source: "dash",
+        },
+      });
+      break;
+    }
+  }
+  if (seats.size === 0) return transcript;
+  const next: TurnEntry[] = [];
+  const insertsByTurn = new Map<number, SystemNote[]>();
+  for (const seat of seats.values()) {
+    if (seat.duplicate) continue;
+    const list = insertsByTurn.get(seat.turnIndex) ?? [];
+    list.push(seat.note);
+    insertsByTurn.set(seat.turnIndex, list);
+  }
+  for (let i = 0; i < transcript.length; i++) {
+    if (seats.has(i)) continue; // the row's content moved (or already lives) inside its turn
+    const turn = transcript[i]!;
+    const inserts = insertsByTurn.get(i);
+    if (inserts === undefined) {
+      next.push(turn);
+      continue;
+    }
+    const messages = turn.messages.slice();
+    for (const note of inserts) {
+      let at = messages.length;
+      while (at > 0 && messages[at - 1]!.createdAt > note.createdAt) at--;
+      messages.splice(at, 0, note);
+    }
+    next.push({ ...turn, messages });
+  }
+  return next;
+}
+
 function shellMessage(
   event: ShellExchangeStartedActionEvent | ShellExchangeCompleteActionEvent,
 ): ShellExchangeMessage {
@@ -6011,6 +6117,72 @@ function handleShellExchange(
     event.type === "shell_exchange_complete" ? event.anchorMsgId : undefined;
   const entry = buildShellTurnEntry(shellMessage(event), anchorMsgId);
   return { state, effects: [{ kind: "ingest-ink-turn", entry }] };
+}
+
+/**
+ * `dash_note` reducer handler — seat a dash gesture's quiet line ([P12])
+ * where a reader would expect the sentence in a conversation.
+ *
+ * A note that arrives while a turn is open narrates work THAT turn is doing —
+ * the seated session ran the verb between two of its own tool calls — so it
+ * appends to the open turn's scratch as a `source: "dash"` system_note,
+ * exactly the mid-turn seat a live compaction boundary takes
+ * ({@link handleCompactBoundary}). It renders between the tool calls it
+ * arrived among and commits with the turn.
+ *
+ * A note with no open turn (a verb run by hand from a bare terminal, a
+ * run-start line landing between stages) falls back to its own quiet ink row
+ * at the transcript's end — built with the exchangeId the restore path mints
+ * for the same ledger row, so a later ledger replay upserts the same turn key
+ * instead of drawing the gesture twice.
+ *
+ * The suppressed-`/compact`-turn edge (open turn, no scratch) takes the same
+ * fallback: a note must land somewhere, and a turn whose commit is dropped is
+ * nowhere.
+ */
+function handleDashNote(
+  state: CodeSessionState,
+  event: DashNoteActionEvent,
+): { state: CodeSessionState; effects: Effect[] } {
+  const turnKey = state.pendingTurn?.turnKey;
+  const entry = turnKey !== undefined ? state.scratch.get(turnKey) : undefined;
+  if (turnKey === undefined || entry === undefined) {
+    const row = buildShellTurnEntry(
+      shellMessage({
+        type: "shell_exchange_complete",
+        exchangeId: event.exchangeId,
+        command: event.command,
+        output: event.text,
+        exitCode: 0,
+        cwd: event.cwd,
+        cwdAfter: null,
+        startedAtMs: event.timestamp,
+        settledAtMs: event.timestamp,
+      }),
+    );
+    return { state, effects: [{ kind: "ingest-ink-turn", entry: row }] };
+  }
+  // Keyed on the ledger identity, not the per-turn systemNoteSeq: the same
+  // note restored after a relaunch re-arrives as the `restored-N` ledger row,
+  // and {@link absorbDashNotes} dedups its re-seat against exactly this key —
+  // one gesture, one line, on every path.
+  const note: SystemNote = {
+    kind: "system_note",
+    messageKey: `dash-note-${event.exchangeId}`,
+    createdAt: event.timestamp,
+    text: event.text,
+    source: "dash",
+  };
+  return {
+    state: {
+      ...state,
+      scratch: withScratchEntry(state.scratch, turnKey, {
+        ...entry,
+        messages: [...entry.messages, note],
+      }),
+    },
+    effects: [],
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -6106,6 +6278,8 @@ export function reduce(
     case "shell_exchange_started":
     case "shell_exchange_complete":
       return handleShellExchange(state, event);
+    case "dash_note":
+      return handleDashNote(state, event);
     case "refs_result":
       return handleRefsResult(state, event);
     case "session_init":

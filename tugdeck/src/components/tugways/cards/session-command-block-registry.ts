@@ -89,10 +89,26 @@ export type CommandBlockMatcher = (command: string) => boolean;
  */
 export type CommandBlockAttribution = "shell" | "git" | "wheel";
 
+/**
+ * How a claimed row occupies the transcript.
+ *
+ * `entry` is the default: a full transcript entry — participant header,
+ * timestamp • cwd, `#s{n}` address, body, end-state — the shape every
+ * `$`-route exchange has always worn. `quiet` is for the derived lines nobody
+ * ran: a dash gesture's note is one sentence painted from the record
+ * ([P12]), and dressing it as a command exchange announces a process that
+ * never ran — a header, a command block, and an output panel wrapping one
+ * line of prose. A `quiet` row renders as that line alone; the renderer owns
+ * the whole of it.
+ */
+export type CommandBlockPresentation = "entry" | "quiet";
+
 /** Optional facts a registration may declare beyond matcher and renderer. */
 export interface CommandBlockOptions {
   /** Defaults to `shell` — see {@link CommandBlockAttribution}. */
   attribution?: CommandBlockAttribution;
+  /** Defaults to `entry` — see {@link CommandBlockPresentation}. */
+  presentation?: CommandBlockPresentation;
   /**
    * The projection half of `data-tugx-findable` for this row kind — the
    * text this renderer puts on screen, in the order it renders it, one
@@ -124,6 +140,7 @@ interface CommandBlockRegistration {
   matcher: CommandBlockMatcher;
   renderer: CommandBlockRenderer;
   attribution: CommandBlockAttribution;
+  presentation: CommandBlockPresentation;
   findParts: ((message: ShellExchangeMessage) => string[] | null) | undefined;
 }
 
@@ -153,6 +170,7 @@ export function registerCommandBlock(
     matcher,
     renderer,
     attribution: options.attribution ?? "shell",
+    presentation: options.presentation ?? "entry",
     findParts: options.findParts,
   });
 }
@@ -182,6 +200,20 @@ export function resolveCommandAttribution(command: string): CommandBlockAttribut
     if (registration.matcher(trimmed)) return registration.attribution;
   }
   return "shell";
+}
+
+/**
+ * Resolve how a command's row occupies the transcript. Total on the same
+ * terms as {@link resolveCommandBlock}, and resolved by the *same* walk in
+ * the *same* order — a row's shape and its block are one reading of the
+ * command, exactly as its attribution is.
+ */
+export function resolveCommandPresentation(command: string): CommandBlockPresentation {
+  const trimmed = command.trim();
+  for (const registration of COMMAND_BLOCK_REGISTRY) {
+    if (registration.matcher(trimmed)) return registration.presentation;
+  }
+  return "entry";
 }
 
 /**

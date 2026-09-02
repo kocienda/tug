@@ -777,6 +777,9 @@ export function spawnSessionResume(
  *  - `shellExchange` — settle a completed `$`-route exchange row. The
  *    shell feed is a different store from the one `ingestFrame` reaches,
  *    so a shell row is otherwise only reachable by running a command.
+ *  - `dashNote` — deliver a live dash gesture's quiet line ([P12]); the
+ *    reducer seats it inside the open turn when one is streaming, or as
+ *    its own quiet ink row when none is.
  */
 export type SessionDriveAction =
   | { op: "send"; text: string; atoms?: unknown[]; suppress?: boolean }
@@ -795,6 +798,14 @@ export type SessionDriveAction =
       cwd: string;
       exitCode?: number;
       startedAtMs?: number;
+    }
+  | {
+      op: "dashNote";
+      exchangeId: string;
+      command: string;
+      text: string;
+      cwd: string;
+      timestamp?: number;
     };
 
 /**

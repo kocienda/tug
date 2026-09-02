@@ -186,11 +186,20 @@ export interface AssistantThinking extends MessageBase {
  * onto a fresh claude session for the next stage of an arc, and the row
  * marks where one stage ended and the next began. Its text is composed by
  * `stageNoteText` in `stages.ts`.
+ *
+ * `dash` is a dash gesture's quiet line ([P12]): the server derived one
+ * sentence from the dash-log — created, run declared, step started, closed,
+ * a round — and it arrived while this turn was streaming, so it belongs
+ * INSIDE the turn, between the tool calls it happened among. That is what
+ * makes a course read as a conversation: "step 1/3 started" above the work,
+ * "step 1/3 closed" below it, the wheel's next ask after. A note arriving
+ * with no turn open falls back to its own quiet ink row instead
+ * (`handleDashNote`).
  */
 export interface SystemNote extends MessageBase {
   kind: "system_note";
   text: string;
-  source: "scheduled" | "compact" | "notice" | "stage" | "other";
+  source: "scheduled" | "compact" | "notice" | "stage" | "dash" | "other";
   /**
    * On a `notice`, which subsystem spoke (e.g. `"base-motion"`) — the row's
    * attribution label. Tug started this turn, and the row says so rather than

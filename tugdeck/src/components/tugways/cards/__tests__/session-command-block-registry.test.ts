@@ -29,6 +29,7 @@ import {
   registeredCommandBlocks,
   resolveCommandAttribution,
   resolveCommandBlock,
+  resolveCommandPresentation,
 } from "../session-command-block-registry";
 import type { CommandBlockRenderer } from "../session-command-block-registry";
 import { ShellExchangeBlock } from "../shell-exchange-block";
@@ -101,6 +102,19 @@ describe("session-command-block-registry", () => {
     expect(resolveCommandAttribution("/land")).toBe("git");
     // Total on the same terms as the renderer resolve.
     expect(resolveCommandAttribution("git status")).toBe("shell");
+  });
+
+  test("presentation defaults to entry and is declared per registration", () => {
+    registerCommandBlock("plain", (c) => c === "ls", RendererA);
+    registerCommandBlock("note", (c) => c === "dash step demo done", RendererB, {
+      attribution: "wheel",
+      presentation: "quiet",
+    });
+    // The default is the shape every exchange has always worn, so a
+    // registration that says nothing gets it — as does an unclaimed command.
+    expect(resolveCommandPresentation("ls")).toBe("entry");
+    expect(resolveCommandPresentation("dash step demo done")).toBe("quiet");
+    expect(resolveCommandPresentation("git status")).toBe("entry");
   });
 
   test("attribution resolves by the same walk as the renderer", () => {

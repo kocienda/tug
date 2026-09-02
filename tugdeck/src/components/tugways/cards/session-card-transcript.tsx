@@ -91,6 +91,7 @@ import {
   ClipboardList,
   Cog,
   Search,
+  ShipWheel,
   X,
 } from "lucide-react";
 import {
@@ -188,6 +189,7 @@ import { TugTranscriptEntry } from "@/components/tugways/tug-transcript-entry";
 import {
   resolveCommandAttribution,
   resolveCommandBlock,
+  resolveCommandPresentation,
 } from "./session-command-block-registry";
 // Side-effect imports: each bespoke receipt renderer joins the command-block
 // registry before the first resolve ([P08], and [P06] for the dash lane's
@@ -791,6 +793,29 @@ const ShellTurnCell = React.memo(function ShellTurnCell({
   const isArcRow = attribution === "wheel";
   // A row nobody typed: both receipts alike want the shell's chrome gone.
   const isReceiptRow = isGitRow || isArcRow;
+  // A quiet row ([P12]) is one derived sentence, and it renders as one: the
+  // claimed block owns the whole row — no participant header, no `#s{n}`
+  // address, no cwd, no end-state, no collapse. The entry scaffolding all
+  // describes an exchange somebody performed, and nobody performed this one;
+  // the responder scope and cell menu stay so the line selects and copies
+  // like any other ink.
+  if (resolveCommandPresentation(message.command) === "quiet") {
+    return (
+      <ResponderScope>
+      <AnnotationScope value={annotation}>
+      <div
+        {...cellProps}
+        ref={cellRef}
+        className="session-card-transcript-quiet-row"
+        data-slot="session-transcript-quiet-row"
+      >
+        <CommandBlock message={message} />
+      </div>
+      {menu}
+      </AnnotationScope>
+      </ResponderScope>
+    );
+  }
   return (
     <ResponderScope>
     <AnnotationScope value={annotation}>
@@ -1305,6 +1330,28 @@ const CodeRowBody: React.FC<CodeRowBodyProps> = ({
                   findable
                 />
               }
+              tone="quiet"
+            />
+          </div>,
+        );
+        continue;
+      }
+      if (message.source === "dash") {
+        // A dash gesture's quiet line ([P12]), seated inside the turn it
+        // narrates — "step 1/3 started" above the work, "step 1/3 closed"
+        // below it — so a course reads as one conversation. The wheel's
+        // glyph says whose record is speaking; the sentence is server-
+        // derived and rendered verbatim. Same quiet-line substrate as the
+        // notice row; the marked span is what the search index projects.
+        elements.push(
+          <div
+            key={message.messageKey}
+            className="session-card-transcript-dash-note"
+            data-slot="dash-note"
+          >
+            <TugQuietLine
+              icon={<ShipWheel size={16} aria-hidden="true" />}
+              subject={<span data-tugx-findable="">{message.text}</span>}
               tone="quiet"
             />
           </div>,

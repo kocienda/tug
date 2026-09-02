@@ -148,10 +148,19 @@ export function useLandingReceipts(
 
       // Every manipulation of a dash's step list, announced by the verb that
       // made it (W8). The user watches a run from the card, and before these
-      // the only sign of progression was a stuck indicator.
+      // the only sign of progression was a stuck indicator. Not `append`: a
+      // note is not a landing row, it is one sentence the reducer seats
+      // conversationally — inside the open turn when one is streaming,
+      // between turns otherwise (`handleDashNote`).
       for (const dashNote of verbStore.dashNotes(tugSessionId)) {
         if (dashNote.seq <= prevNoteSeq) continue;
-        append(dashNote.command, dashNote.note, dashNote.receiptId);
+        codeSessionStore.ingestDashNote({
+          exchangeId: landingExchangeId(dashNote.receiptId),
+          command: dashNote.command,
+          text: dashNote.note,
+          cwd: changesController.projectDir,
+          timestamp: Date.now(),
+        });
         prevNoteSeq = dashNote.seq;
       }
     };
