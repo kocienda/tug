@@ -168,6 +168,7 @@ async fn announce_line(ctx: &DashNotesContext, root: &Path, line: &str) {
         return;
     };
     let command = command_for_line(dash, marker);
+    let mut painted: std::collections::HashSet<String> = std::collections::HashSet::new();
     let bound = match ctx.sessions.live_sessions_on_dash_named(dash) {
         Ok(bound) => bound,
         Err(err) => {
@@ -177,6 +178,21 @@ async fn announce_line(ctx: &DashNotesContext, root: &Path, line: &str) {
     };
     for (session, project_dir) in bound {
         if !session_works_in(&project_dir, root) {
+            continue;
+        }
+        // **One line per card, not per bound row.** A rotation leaves the
+        // retired segment's row `live` on the same line until the card closes,
+        // and `seat_line_binding` is what keeps only one of them bound — a
+        // belt to that brace, because two rows resolving to one card would
+        // draw the gesture twice on it.
+        //
+        // Resolved *before* painting, not after: a check that runs after the
+        // row is written is not a guard, it is a count.
+        let card = match ctx.supervisor.card_entry_for_segment(&session).await {
+            Some((card, _)) => card.as_str().to_string(),
+            None => session.clone(),
+        };
+        if !painted.insert(card) {
             continue;
         }
         ctx.supervisor
