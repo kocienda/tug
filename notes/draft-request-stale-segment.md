@@ -98,6 +98,30 @@ were missed. Three changes:
    `binding.tugSessionId` directly. Enumerate the allowed derivations; fail
    the build on a new raw use.
 
+## Two things the task list must size
+
+Both are visible in the three steps above but neither is scoped by them, and
+a door that folds them in silently will under-size the work.
+
+**The `entryKey` audit is its own beat.** Step 1 rewrites where `entryKey` is
+derived; it does not tell you what depends on the old value. Every consumer of
+the verb-store correlation key has to be read for the same split — the commit
+round-trip appeared to work through the incident, which means either a
+consumer that resolves line-first already or a second latent address nobody
+has hit yet, and those two want different fixes. Walk the consumers before
+changing the derivation, not after, and write the finding down: it is the
+difference between a fix and a coincidence.
+
+**The structural guard will widen.** A lint that enumerates the allowed
+derivations of a server-bound owner identity will almost certainly find raw
+`binding.tugSessionId` uses beyond `changes-route-controller.ts`. That is the
+guard working — a class closed structurally is closed everywhere or it is not
+closed ([L31]'s sibling argument) — but it is not work this brief scoped, and
+the cost is unknown until the guard is written. Write the guard first, read
+what it catches, then decide with the user whether the outside-the-shade hits
+land in this arc or as a follow-on. Do not quietly fix them all, and do not
+quietly allowlist them all.
+
 ## Acceptance
 
 An app-test in the `at0504` family: seed a line whose binding id is a
