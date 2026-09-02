@@ -844,8 +844,7 @@ fn apply_dash_request(
 /// vocabulary ([P03]).
 #[derive(serde::Deserialize)]
 struct SessionApiRequest {
-    /// `rotate` | `rotate_cancel` | `resolve` | `note` | `step_closed` |
-    /// `turn_facts`.
+    /// `rotate` | `rotate_cancel` | `resolve` | `step_closed` | `turn_facts`.
     op: String,
     #[serde(default)]
     tug_session_id: Option<String>,
@@ -865,13 +864,6 @@ struct SessionApiRequest {
     /// The reasoning effort to seat it at. Absent leaves the level as it is.
     #[serde(default)]
     effort: Option<String>,
-    /// `note`: the verb as it was typed, which the card's row shows after its
-    /// `$` sigil.
-    #[serde(default)]
-    command: Option<String>,
-    /// `note`: the one sentence announcing what the gesture did.
-    #[serde(default)]
-    note: Option<String>,
     /// `step_closed`: the step the calling turn just closed.
     #[serde(default)]
     step: Option<u32>,
@@ -1011,32 +1003,34 @@ async fn session_handler(
         };
     }
 
-    // ── The turn-boundary ops, and the card's quiet lines ─────────────────
+    // ── The turn-boundary ops ─────────────────────────────────────────────
     //
-    // Three ops that need no wheel either, handled beside `resolve` for the
+    // Two ops that need no wheel either, handled beside `resolve` for the
     // same reason: they read and write facts a `tugtool` verb holds and the
     // server keeps. Each resolves the posted id at its own door, exactly as
     // `/api/dash` does, so a stale spawn-time id lands on the live segment
     // ([P01]).
     //
+    // **The card's quiet lines are not here**, and the reason is the whole
+    // shape of W8 Task 3: an announcement a caller *posts* is a second
+    // fallible write and an act a caller can omit. They are derived from the
+    // dash-log instead, by `feeds/dash_notes.rs`, so the announcement is
+    // skippable only by not writing the record.
+    //
     // **Skew.** An instance older than W8 answers `unknown op '…'`, and every
     // caller of these degrades: the announcement is not drawn, the boundary is
     // not recorded, and the gate denies nothing. A gate that bricked editing
     // on a mixed install would be worse than the overrun it prevents.
-    if matches!(req.op.as_str(), "note" | "step_closed" | "turn_facts") {
+    if matches!(req.op.as_str(), "step_closed" | "turn_facts") {
         let seated = {
             let ledger = Arc::clone(&ledger);
             let posted = session_id.clone();
             match tokio::task::spawn_blocking(move || {
                 let live = ledger.live_segment_of(&posted).ok().flatten();
-                let row = live
-                    .as_deref()
-                    .and_then(|id| ledger.get(id).ok().flatten())
-                    .or_else(|| ledger.get(&posted).ok().flatten());
                 let on_course = live
                     .as_deref()
                     .is_some_and(|id| crate::wheel::course_is_running(&ledger, id));
-                (live, row.map(|r| r.project_dir), on_course)
+                (live, on_course)
             })
             .await
             {
@@ -1049,7 +1043,7 @@ async fn session_handler(
                 }
             }
         };
-        let (live, row_project, on_course) = seated;
+        let (live, on_course) = seated;
         // No live segment is not this instance's business to refuse over: the
         // walk should keep going, and a caller whose whole line has closed is
         // told so by `resolve`, which is the op that owes that sentence.
@@ -1057,26 +1051,6 @@ async fn session_handler(
             return err(StatusCode::NOT_FOUND, "unknown_session");
         };
         return match req.op.as_str() {
-            "note" => {
-                let Some(note) = req.note.clone().filter(|n| !n.is_empty()) else {
-                    return err(StatusCode::BAD_REQUEST, "note needs a note");
-                };
-                let command = req.command.clone().unwrap_or_else(|| "dash".to_string());
-                let project_dir = req
-                    .project_dir
-                    .clone()
-                    .filter(|p| !p.is_empty())
-                    .or(row_project)
-                    .unwrap_or_default();
-                supervisor
-                    .record_dash_note(&live, &project_dir, &command, &note)
-                    .await;
-                (
-                    StatusCode::OK,
-                    axum::Json(serde_json::json!({ "status": "ok", "session_id": live })),
-                )
-                    .into_response()
-            }
             "step_closed" => {
                 let Some(step) = req.step else {
                     return err(

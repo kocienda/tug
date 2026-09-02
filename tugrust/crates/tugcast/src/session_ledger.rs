@@ -5194,6 +5194,39 @@ impl SessionLedger {
         Ok(affected)
     }
 
+    /// Every **live** session bound to the dash *named* `dash`, with the
+    /// checkout each one works.
+    ///
+    /// Keyed on `dash_name` rather than on `dash_id`, which is what
+    /// [`Self::bound_sessions_by_dash`] groups by, because the caller is
+    /// reading a record that only knows names: a dash-log line names its dash
+    /// and nothing else. The owner key is the authority for *binding*; the
+    /// name is what the record speaks, and a consumer of the record has to
+    /// meet it there.
+    ///
+    /// The `project_dir` rides along because a name alone does not place a
+    /// dash — two checkouts may each have a `refactor` — and the caller knows
+    /// which tree it read the record from. A dash's stage session works the
+    /// worktree, not the root, so the caller's test is containment rather than
+    /// equality.
+    pub fn live_sessions_on_dash_named(
+        &self,
+        dash: &str,
+    ) -> Result<Vec<(String, String)>, LedgerError> {
+        let conn = self.db.lock().expect("ledger mutex");
+        let mut stmt = conn.prepare(
+            "SELECT session_id, project_dir
+             FROM sessions
+             WHERE state = 'live' AND dash_name = ?1
+             ORDER BY last_used_at DESC",
+        )?;
+        let rows = stmt
+            .query_map(params![dash], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
     /// Every **live** session bound to a dash, grouped by the dash's owner
     /// key — the one query every consumer of bound-ness uses ([P08]).
     ///

@@ -1964,6 +1964,18 @@ async fn main() {
         wheel_tick_rx,
     ));
 
+    // The run's quiet lines. A derived view of the dash-log rather than an act
+    // any caller performs, so the announcement is skippable only by not
+    // writing the record — at which point the mutation did not happen (W8).
+    tokio::spawn(feeds::dash_notes::run_dash_notes(
+        feeds::dash_notes::DashNotesContext {
+            registry: Arc::clone(&registry),
+            supervisor: Arc::clone(&supervisor),
+            sessions: Arc::clone(&ledger),
+            cancel: cancel.clone(),
+        },
+    ));
+
     // JOTS feed — watches the machine-global `jots.json` and pushes the whole
     // document to every client. The nudge lets `PUT /api/jots` force an
     // immediate rebuild. The migration runs first so a user arriving from a

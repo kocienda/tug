@@ -478,7 +478,12 @@ pub fn is_terminal(marker: &str, note: &str) -> bool {
 
 /// Read the `i`/`N` a step declaration's note leads with. An unparseable note
 /// is skipped rather than guessed at.
-fn read_step_fields(note: &str) -> Option<(u32, u32)> {
+///
+/// Public on the same grounds as [`split_log_line`]: the dash-log grammar has
+/// one set of readers, all in `tugcast`, and a second parser of it is how a
+/// clause comes to hold in one reader and not the other. The quiet-line
+/// observer (`feeds/dash_notes.rs`) reads the same notes this does.
+pub fn read_step_fields(note: &str) -> Option<(u32, u32)> {
     let token = note.split_whitespace().next()?;
     let (current, total) = token.split_once('/')?;
     Some((current.parse().ok()?, total.parse().ok()?))
@@ -487,7 +492,11 @@ fn read_step_fields(note: &str) -> Option<(u32, u32)> {
 /// The title a `step-start` note carries after its `i/N` token. The tail is
 /// written as `Step {i}: {title}`, so that spelled-out prefix is stripped back
 /// off; any other tail is kept verbatim. Empty reads as no title.
-fn read_step_title(note: &str, current: u32) -> Option<String> {
+///
+/// Public for the same reason [`read_step_fields`] is. On a `step-done` the
+/// tail is the round's sha rather than a title, and this reads it unchanged —
+/// which is what the quiet line wants there too.
+pub fn read_step_title(note: &str, current: u32) -> Option<String> {
     let (_, tail) = note.split_once(char::is_whitespace)?;
     let tail = tail.trim();
     let title = tail

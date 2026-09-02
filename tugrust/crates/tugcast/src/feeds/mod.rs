@@ -15,6 +15,7 @@ pub mod claude_usage;
 pub mod code;
 pub mod dash_arc;
 pub mod dash_arc_runner;
+pub mod dash_notes;
 pub mod deck_seatings;
 pub mod defaults;
 pub mod draft_engine;

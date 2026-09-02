@@ -86,18 +86,6 @@ impl StepMove {
     pub(crate) fn closed_a_step(self) -> bool {
         matches!(self, StepMove::Done | StepMove::Withdrawn)
     }
-
-    /// The sub-verb that makes this move, for an announcement that echoes the
-    /// gesture as it was typed.
-    pub(crate) fn spelling(self) -> &'static str {
-        match self {
-            StepMove::Opened => "start",
-            StepMove::Reopened => "reopen",
-            StepMove::Done => "done",
-            StepMove::Withdrawn => "withdraw",
-            StepMove::Reset => "reset",
-        }
-    }
 }
 
 /// The sentence a step verb ends with under a course: what just happened, and
@@ -145,66 +133,9 @@ fn course_prompts(step: u32, through: Option<u32>) -> String {
     }
 }
 
-/// The one-line announcement a gesture makes on the card, in the fixed shape
-/// every ledger gesture uses: the verb as it was typed, and one sentence.
-///
-/// Kept beside the directive because the two are the same fact told to two
-/// readers — the directive instructs the model, the announcement shows the
-/// person watching the card that the run moved.
-pub(crate) fn step_announcement(
-    dash: &str,
-    step: u32,
-    total: u32,
-    mv: StepMove,
-    commit: Option<&str>,
-) -> String {
-    let verb = match mv {
-        StepMove::Opened => "started",
-        StepMove::Reopened => "reopened",
-        StepMove::Done => "closed",
-        StepMove::Withdrawn => "withdrawn",
-        StepMove::Reset => "reset to pending",
-    };
-    let mut line = format!("{dash}: step {step}/{total} {verb}");
-    if let Some(commit) = commit {
-        line.push_str(&format!(" ({commit})"));
-    }
-    line
-}
-
 // ---------------------------------------------------------------------------
-// The card's quiet lines, and the boundary fact
+// The boundary fact
 // ---------------------------------------------------------------------------
-
-/// Announce one ledger gesture on the calling session's card, as durable ink.
-///
-/// **Why the verb and not the stage.** A run's progression was invisible from
-/// the card — the only sign was a stuck indicator — because every announcement
-/// was a thing a stage was asked to write in prose, and a forgotten
-/// announcement is this incident's whole shape. So the gesture announces
-/// itself: `tugcast` records a `$`-route shell-exchange row keyed to the
-/// caller's *line* (so a rotation carries it) and broadcasts it, exactly the
-/// way a `/commit` landing's receipt reaches the card ([P07]/[D111]).
-///
-/// **Advisory, always.** Nothing here can fail the verb. No instance, an
-/// instance too old to know the op, no calling session at all — a plain
-/// terminal, a fixture, a foreign project — and the line is simply not drawn.
-/// The ledger move already happened; a receipt that cannot be painted must not
-/// unmake it.
-pub(crate) fn announce(command: &str, line: &str) {
-    let project_dir = std::env::current_dir()
-        .map(|p| p.to_string_lossy().into_owned())
-        .unwrap_or_default();
-    let _ = crate::session_identity::ask_about_calling_session(
-        "note",
-        "announcing a dash gesture",
-        serde_json::json!({
-            "command": command,
-            "note": line,
-            "project_dir": project_dir,
-        }),
-    );
-}
 
 /// Tell the server this turn has closed a step.
 ///
@@ -289,18 +220,6 @@ mod tests {
         assert!(!StepMove::Reset.closed_a_step());
         assert!(!StepMove::Opened.closed_a_step());
         assert!(!StepMove::Reopened.closed_a_step());
-    }
-
-    #[test]
-    fn the_announcement_names_the_dash_the_step_and_the_commit() {
-        assert_eq!(
-            step_announcement("lens-retirement", 1, 7, StepMove::Done, Some("999353ca1")),
-            "lens-retirement: step 1/7 closed (999353ca1)"
-        );
-        assert_eq!(
-            step_announcement("d", 2, 7, StepMove::Opened, None),
-            "d: step 2/7 started"
-        );
     }
 
     #[test]

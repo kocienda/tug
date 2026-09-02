@@ -46,6 +46,14 @@ What the key buys is that two incarnations of a reused name are distinct: discar
 
 **The rule: anything git can see is derived on every read and never stored; anything it cannot is declared once, in the dash-log, by a verb** ([D138]). Rounds and dirt are visible to git, so they are recomputed every time and cannot go stale; an interrupted teardown is not, and is declared on the operation record the same verb already writes. "This build succeeded" and "I am on step 4 of 9" are not visible to git at all, so a verb writes them down. **A stage is never written to a config key** — that would make the derived half stale-able and the declared half duplicated.
 
+### The card's quiet lines are the same rule, one layer up
+
+Every manipulation of the step list draws one line on the card bound to the dash — created, run declared, step started, closed, withdrawn, parked, reopened, `mark`, each round. **That line is a derived view of the dash-log, not an act any caller performs.** `tugcast` tails each open project's log and paints what it reads (`feeds/dash_notes.rs`), through the same server-authored channel the arc's own receipt uses.
+
+The alternative — each verb posting its own announcement — was tried and is wrong twice. A post is a **second fallible write**, which is exactly the shape of Part II's "verbs succeed while achieving nothing": a row that moved and an announcement that did not is a gesture nothing anywhere knows was missed. And a post is an **act a caller performs**, so a caller can omit it — every new call site and every hand-run verb another chance to forget, which is the shape of the incident these lines exist because of.
+
+Deriving inverts both. The announcement is skippable only by not writing the record, at which point the mutation did not happen; and a verb run by hand in a bare terminal draws the line identically, because nothing about the caller is an input. The generalization worth carrying: **a fact that must be seen is derived from the record that must be written, never announced beside it.**
+
 ## Arcs and stages
 
 An arc is a dash's **course**: a schedule of rotations that carries one dash from a plan through review, implement, and audit without anybody clicking between them — and from a brief through a devising stage first, when a brief is all it was handed. A *stage* there is a rotation of the card's claude session — a fresh session seated under the same card, on a chosen model, opening on a composed prompt — and it is **not** one of the seven derived words above. The two senses share a spelling and nothing else: a dash is `implementing` because a `dash step` declaration says so, and an arc is in its `review` stage because that is the session currently seated.

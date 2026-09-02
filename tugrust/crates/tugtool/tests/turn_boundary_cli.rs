@@ -27,7 +27,7 @@ use common::tugtool;
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpListener;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::mpsc;
 
@@ -523,58 +523,65 @@ fn a_step_verb_speaks_the_boundary_only_under_a_course() {
         "the run's last step names no next one: {out}"
     );
 
-    // And the whole run announced itself on the card, and told the server
-    // which turns closed a step.
-    let mut notes = Vec::new();
+    // The run told the server which turns closed a step — the timely half of
+    // the boundary gate. The card's own lines are **not** here and must not
+    // be: they are derived from the dash-log by the server's observer, so no
+    // verb posts one and a fixture watching the wire sees none.
     let mut closes = Vec::new();
+    let mut posted_ops = Vec::new();
     while let Ok(body) = requests.recv_timeout(std::time::Duration::from_millis(500)) {
-        match body.get("op").and_then(|o| o.as_str()) {
-            Some("note") => notes.push((
-                body["command"].as_str().unwrap_or_default().to_string(),
-                body["note"].as_str().unwrap_or_default().to_string(),
-            )),
-            Some("step_closed") => closes.push(body["step"].as_u64().unwrap_or_default()),
-            _ => {}
+        let op = body
+            .get("op")
+            .and_then(|o| o.as_str())
+            .unwrap_or_default()
+            .to_string();
+        if op == "step_closed" {
+            closes.push(body["step"].as_u64().unwrap_or_default());
         }
+        posted_ops.push(op);
     }
-    assert!(
-        notes.contains(&(
-            "dash create demo".into(),
-            "demo: dash created on tugdash/demo".into()
-        )),
-        "{notes:?}"
-    );
-    assert!(
-        notes.contains(&(
-            "dash step demo start 1 --through 2".into(),
-            "demo: run declared through step 2 of 2".into()
-        )),
-        "the run is declared once, by the start that declared it: {notes:?}"
-    );
-    assert!(
-        notes.contains(&(
-            "dash step demo start 1".into(),
-            "demo: step 1/2 started".into()
-        )),
-        "{notes:?}"
-    );
-    assert!(
-        notes
-            .iter()
-            .any(|(command, note)| command == "dash step demo done 1"
-                && note.starts_with("demo: step 1/2 closed (")),
-        "a close names the round it recorded: {notes:?}"
-    );
-    assert!(
-        !notes.contains(&(
-            "dash step demo start 2 --through 2".into(),
-            "demo: run declared through step 2 of 2".into()
-        )),
-        "and never again by a step that merely inherits it: {notes:?}"
-    );
     assert_eq!(
         closes,
         vec![1, 2],
         "each close is reported against the turn that made it",
     );
+    assert!(
+        !posted_ops.iter().any(|op| op == "note"),
+        "an announcement a caller posts is a second fallible write and an act a \
+         caller can omit — the record is the source: {posted_ops:?}",
+    );
+
+    // And the record the observer reads carries every gesture, which is what
+    // makes the card's view of the run unforgettable rather than well-behaved.
+    //
+    // Found by walking rather than by `project_state_dir`: that path is
+    // derived from *this* process's `TUG_DATA_DIR`, and the log belongs to the
+    // child's.
+    let log = std::fs::read_to_string(find_dash_log(&tmp.join("state")).expect("a dash-log"))
+        .expect("a readable dash-log");
+    for marker in ["created", "run-through", "step-start", "step-done"] {
+        assert!(
+            log.lines().any(|line| {
+                tugdash_core::dash::split_log_line(line)
+                    .is_some_and(|(_, dash, m, _)| dash == "demo" && m == marker)
+            }),
+            "the record is missing a {marker} line:\n{log}"
+        );
+    }
+}
+
+/// The one `dash-log.md` under a scratch data dir, whose project slug is the
+/// child's to derive rather than this process's.
+fn find_dash_log(state: &Path) -> Option<PathBuf> {
+    for entry in std::fs::read_dir(state).ok()? {
+        let path = entry.ok()?.path();
+        if path.is_dir() {
+            if let Some(found) = find_dash_log(&path) {
+                return Some(found);
+            }
+        } else if path.file_name().is_some_and(|n| n == "dash-log.md") {
+            return Some(path);
+        }
+    }
+    None
 }

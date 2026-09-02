@@ -2105,15 +2105,6 @@ pub struct StepOutcome {
     /// a start, and on a done when the generation has declared a run.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub through: Option<u32>,
-    /// The run **this call declared**, when it was this call that wrote the
-    /// `run-through` line — not merely the selection in force.
-    ///
-    /// Separate from `through` because they answer different questions: a
-    /// `done` reports the selection it closed against every time, while a run
-    /// is declared exactly once, and the card's announcement of "a run was
-    /// declared" must not fire on every step that merely inherits it.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub declared_run: Option<u32>,
 }
 
 /// Write `contents` over `path` without ever leaving a half-written plan on
@@ -2253,7 +2244,6 @@ fn step_in(
     // The run's selection is declared before its first step moves, so a run that
     // dies after the start still says what it set out to do ([P01], Spec S01).
     let declared = read_declarations(repo_root, name);
-    let mut declared_run = None;
     if let Some(through) = through {
         if through < step {
             return Err(format!(
@@ -2266,7 +2256,6 @@ fn step_in(
         }
         if declared.run_through != Some(through) {
             append_run_through(repo_root, name, through).map_err(|e| e.to_string())?;
-            declared_run = Some(through);
         }
     }
     let through = through.or(declared.run_through);
@@ -2354,7 +2343,6 @@ fn step_in(
         status: status.to_string(),
         commit: sha,
         through,
-        declared_run,
     })
 }
 

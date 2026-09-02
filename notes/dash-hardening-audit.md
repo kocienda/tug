@@ -972,9 +972,7 @@ notice frame; what there is, is the mechanism `/commit`, `/dash-join`,
 **line** so a rotation carries it, plus one unsolicited CONTROL frame so the
 card paints its live copy now instead of at the next restore ([D111], [P12]).
 A dash gesture is exactly that shape, so `dash_note` is `arc_receipt`'s
-sibling, and the row's command is the verb **as it was typed**
-(`dash step demo done 1`) with the sentence as its output — which makes the row
-read as the `$` ink of somebody having run it, because that is what happened.
+sibling.
 
 **One difference, and it is the whole of the deck-side work.** `arc_receipt` is
 a single value per session: an arc ends once. A run's gestures are a
@@ -983,6 +981,53 @@ accumulates them under its own monotonic `seq` — not under `receipt_id`, which
 is `null` whenever no shell ledger is configured — and each card seeds its
 watermark at mount, so a card that opens mid-run appends only what arrives from
 there and lets its restore supply the rest.
+
+**1b. The line is a derived view of the record, and the first cut had it as a
+post.** This is the correction that matters most in this Part, and it was the
+user's, mid-workstream. W8 first had each `tugtool dash` verb post its own
+announcement to the server. That is the wrong binding twice over:
+
+- **A post is a second fallible write** — the exact shape W2 spent a whole
+  workstream closing. A verb whose row moved and whose announcement did not is
+  a gesture that happened and was never seen, and nothing anywhere would know.
+  Part II's second sentence, met from a direction nobody had counted.
+- **A post is an act a caller performs, so a caller can omit it.** Every new
+  call site, every second implementation, every hand-run verb is another chance
+  for the announcement to be forgotten — and a forgotten announcement is
+  precisely this incident's shape. The fix reproduced the defect one level up.
+
+The landed shape is `feeds/dash_notes.rs`: tugcast tails each open project's
+**dash-log** and paints the line off the record. The dash-log is already what
+every surface reads a dash's state from, so the announcement is now skippable
+only by not writing the record — at which point the mutation did not happen.
+A verb run by hand in a bare terminal draws the line identically, because
+nothing about the caller is an input. **The generalization, now in
+`dash-lifecycle.md`: a fact that must be seen is derived from the record that
+must be written, never announced beside it.**
+
+Three consequences worth naming, because each is a cost the derived shape pays
+and the post did not:
+
+- **Observation is polled**, once a second per open project. The dash-log lives
+  under the data dir rather than a workspace root, so it reaches no watcher
+  this process runs — the same relationship `changeset_all`'s own dash-log
+  probe already has to the same file, and its docblock already says it: *the
+  event is real, only its observation is polled.*
+- **A restart paints nothing retroactively.** The byte cursor is seeded at the
+  file's current end, so the card's view of a run begins where the process did.
+  A persisted cursor that backfilled would paint a three-day-old gesture onto
+  whatever card is bound today, which is a worse wrong than a missing line.
+- **The sentence is rendered from the record, not echoed from an invocation.**
+  The log does not keep which flags a verb carried, so the row's `$` command is
+  a faithful rendering (`dash step demo done`) rather than a transcript. What
+  the record gives back for free is better than what the verb had: a
+  `step-start`'s note carries the step's **title**, so the card now says
+  `demo: step 1/7 started — The first step`.
+
+And one thing the re-bind deleted rather than moved: `StepOutcome::declared_run`,
+added so the verb could announce a run's declaration exactly once. The record
+already distinguishes them — a `run-through` line is written once per selection
+— so the field had no reader left.
 
 **2. The gate could not be built out of the existing hook alone, for two
 reasons the brief names as one.** The plugin's `PreToolUse` hook matched only
@@ -1057,33 +1102,45 @@ just closed is not the next step's work.
 
 ### What each gesture now shows on the card
 
-One `$`-route row per gesture, written by the verb, keyed to the caller's line:
+One `$`-route row per dash-log line, painted by the server's observer and keyed
+to the bound card's line. The `dash-log` marker is the source; the `$` command
+is rendered from it, not echoed from an invocation.
 
-| gesture | row |
+| dash-log marker | row |
 |---|---|
-| `dash create` | `$ dash create <n>` — `<n>: dash created on tugdash/<n>` |
-| the run's declaration | `$ dash step <n> start i --through m` — `<n>: run declared through step m of N` |
-| `step start` | `$ dash step <n> start i` — `<n>: step i/N started` |
-| `step done` | `$ dash step <n> done i` — `<n>: step i/N closed (<sha>)` |
-| `step withdraw` | `$ dash step <n> withdraw i` — `<n>: step i/N withdrawn` |
-| `step reset` | `$ dash step <n> reset i` — `<n>: step i/N reset to pending` |
-| `step reopen` | `$ dash step <n> reopen i` — `<n>: step i/N reopened` |
-| `dash mark` | `$ dash mark <n> <stage>` — `<n>: marked <stage>` |
-| `dash commit` | `$ dash commit <n>` — `<n>: committed (<sha>)` |
+| `created` | `$ dash create <n>` — `<n>: dash created` |
+| `run-through` | `$ dash step <n> start --through` — `<n>: run declared through step m` |
+| `step-start` | `$ dash step <n> start` — `<n>: step i/N started — <title>` |
+| `step-done` | `$ dash step <n> done` — `<n>: step i/N closed (<sha>)` |
+| `step-withdrawn` | `$ dash step <n> withdraw` — `<n>: step i/N withdrawn` |
+| `step-reset` | `$ dash step <n> reset` — `<n>: step i/N parked back to pending` |
+| `step-reopen` | `$ dash step <n> reopen` — `<n>: step i/N reopened — <why>` |
+| `built` / `audited` | `$ dash mark <n> <stage>` — `<n>: marked <stage>` |
+| a round's short sha | `$ dash commit <n>` — `<n>: round <sha> — <instruction>` |
 
-The run's declaration announces **once**, from the `step start` that actually
-wrote the `run-through` line — which is why `StepOutcome` grows `declared_run`
-beside `through`: the first answers "did this call declare a run", the second
-"which selection is in force", and only the first should draw a row.
+**The closed set is those nine, and the omissions are decisions rather than
+gaps.** A join or a discard already paints its own landing receipt — and its
+marker is a sha too, so the terminal test has to be read *before* the sha test
+or a join would show up as a round. An `arc-*` marker is the course's own
+record and ends in the arc receipt. `replayed` and `verified` are their own
+verbs with their own read-outs. A `-` marker is `dash commit` finding nothing
+to commit, which moved no record. A tenth line about the same event is noise,
+not visibility.
 
 ### What W8 deliberately left
 
-- **No app-test drives the note channel end to end.** The CLI test asserts the
-  `note` op is posted, the deck test asserts the frame becomes a row, and
-  nothing joins them through a real tugcast — the same "nothing joins them"
-  Part IX item 12 found was the whole finding, one channel over. The surfaces
-  are there for it (`at0216` covers shell-exchange ink, `at0482` covers ink by
-  line); the test is not written.
+- **Nothing drives the quiet-line channel end to end.** The observer's reading
+  of the record is unit-tested at both altitudes — every marker's sentence, the
+  cursor's seed/growth/truncation/half-line behaviour, and which cards a line
+  reaches — and the deck test asserts a `dash_note` frame becomes a row. What
+  joins them is a real tugcast tailing a real dash-log onto a real card, and
+  that is not written. It is the same "nothing joins them" Part IX item 12
+  found was the whole finding, one channel over, and the surfaces for it exist
+  (`at0216` covers shell-exchange ink, `at0482` covers ink by line).
+- **The observation is polled, and a restart does not backfill.** Both are
+  named in item 1b as costs the derived shape pays. A persisted cursor would
+  close the second and open a worse hole — a stale gesture painted on today's
+  card — so it is a decision rather than a gap.
 - **An in-process source-scan guard for ambient-session reads** (item 5).
 - **A `dash doctor` reading of the boundary.** The doctor compares four
   records; the turn's closed step is a fifth fact, in memory, and it has no
@@ -1092,5 +1149,11 @@ beside `through`: the first answers "did this call declare a run", the second
   this workstream closes. The gate refuses a stage that closes a step and keeps
   working; it cannot make a stage that has stopped working end its turn, because
   only a model can end a turn. The clock is still the answer there.
+- **The close's report to the server is still a post** (`{op:"step_closed"}`),
+  and deliberately: which *turn* a close happened in is not in the record and
+  cannot be derived from it. The observer marks the same fact from the log as a
+  **backstop**, so a report that never landed still reaches the gate a tick
+  late — late being the right failure, since the alternative is a gate open for
+  the whole turn.
 - **`at0168`'s `maker.lens` row** — pre-existing, item 6 above, and still the
   Lens arc's call rather than the harness's.
