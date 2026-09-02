@@ -11,7 +11,7 @@
  * arrangement (`columnDrawsSplit` in `deck-store-selectors.ts`), so a slot set
  * to split and standing one card deep renders as one undivided card. Before the
  * overlay that stored split was invisible on every surface and unreachable from
- * the Lens, because the section's column rows were gated on `members.length > 1`
+ * the Layout card, because the section's column rows were gated on `members.length > 1`
  * — so it sat there until a second card arrived and it resurfaced as a surprise.
  *
  *   1. **Every slot the kind defines is marked**, occupied or not, and each
@@ -41,15 +41,15 @@ import { launchTugApp, note, type App } from "./_harness";
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
 
-const LENS_WIDTH = 420;
+const RAIL_WIDTH = 420;
 const PANE_WIDTH = 420;
 const AFTER_LAND_MS = 900;
 
 const wait = (ms: number): Promise<void> =>
   new Promise<void>((r) => setTimeout(r, ms));
 
-const PLACES = '[data-testid="lens-layouts-places"]';
-const mark = (key: string): string => `[data-testid="lens-layouts-place-${key}"]`;
+const PLACES = '[data-testid="layout-card-places"]';
+const mark = (key: string): string => `[data-testid="layout-card-place-${key}"]`;
 
 interface Rect {
   top: number;
@@ -67,7 +67,7 @@ interface MarkFacts {
 }
 
 /**
- * Three-up with the Lens on the right: slot 0 shared by two cards, slot 1 held
+ * Three-up with the Layout card on the right: slot 0 shared by two cards, slot 1 held
  * by ONE card — and the imposition stores slot 1 as split.
  *
  * That is the trap, seeded as the state it is. A deck reaches it by splitting a
@@ -105,12 +105,12 @@ function deckShape() {
     panes: [
       ...members.map(([id, slot, cardId]) => pane(id, slot, cardId)),
       {
-        id: "pLens",
+        id: "pRail",
         position: { x: 0, y: 0 },
-        size: { width: LENS_WIDTH, height: 900 },
+        size: { width: RAIL_WIDTH, height: 900 },
         cardIds: ["L"],
         activeCardId: "L",
-        title: "Lens",
+        title: "Layout",
         acceptsFamilies: [],
       },
     ],
@@ -146,7 +146,7 @@ async function hover(app: App, selector: string): Promise<void> {
 }
 
 /** Tab until `selector` is the group carrying the keyboard ring — the walk the
- *  Lens ladder is actually navigated by (at0277 and at0455 use the same one). */
+ *  sidebar ladder is actually navigated by (at0277 and at0455 use the same one). */
 async function tabUntilKbd(app: App, selector: string): Promise<void> {
   const reached = (): Promise<boolean> =>
     app.evalJS<boolean>(
@@ -191,7 +191,7 @@ async function cursorOnto(app: App, row: string, value: string): Promise<void> {
 /** Take the ring off the rows and put it on the picture, whose marks audition
  *  nothing — the keyboard's way of ending an audition without pressing. */
 async function cursorOffTheRows(app: App): Promise<void> {
-  await tabUntilKbd(app, `[data-testid="lens-layouts-places"]`);
+  await tabUntilKbd(app, `[data-testid="layout-card-places"]`);
   await wait(300);
 }
 
@@ -248,7 +248,7 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
       const app = await launchTugApp();
       try {
         await app.evalJS<null>(
-          `(window.__tug.setTugbankValue("dev.tugtool.lens", "widthPx", { kind: "i64", value: ${LENS_WIDTH} }), null)`,
+          `(window.__tug.setTugbankValue("dev.tugtool.layout", "widthPx", { kind: "i64", value: ${RAIL_WIDTH} }), null)`,
         );
         await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
         await app.waitForCondition<boolean>(
@@ -301,7 +301,7 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
         // whole set — a declared value would prove only that the rule exists.
         const weights = await app.evalJS<number[]>(
           `Array.prototype.map.call(
-            document.querySelectorAll('${PLACES} [data-testid^="lens-layouts-place-"]'),
+            document.querySelectorAll('${PLACES} [data-testid^="layout-card-place-"]'),
             function (el) { return Number(getComputedStyle(el).opacity); }
           )`,
         );
@@ -327,7 +327,7 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
         // Which sides are marked is a live read of what is standing: `railsFor`
         // in `layouts-section.tsx` counts the OPEN sidebar cards, so a card
         // that is registered but hidden is not drawn and not marked. Here the
-        // Lens holds the right edge and the left is empty.
+        // Layout card holds the right edge and the left is empty.
         expect(marks["rail-right"].mode).toBe("stack");
 
         // ── The rows are fixed, and the count does not move. ──
@@ -339,7 +339,7 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
         // deck made everything below it jump as cards moved.
         const rows = await app.evalJS<string[]>(
           `Array.prototype.map.call(
-            document.querySelectorAll('[data-testid="lens-layouts-section"] [data-slot="tug-choice-group"]'),
+            document.querySelectorAll('[data-testid="layout-card-section"] [data-slot="tug-choice-group"]'),
             function (el) { return el.getAttribute("data-testid"); }
           )`,
         );
@@ -348,9 +348,9 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
           rows.slice(0, 3),
           "the three deck-wide rows lead, in a fixed order",
         ).toEqual([
-          "lens-layouts-kind",
-          "lens-layouts-layout",
-          "lens-layouts-width",
+          "layout-card-kind",
+          "layout-card-layout",
+          "layout-card-width",
         ]);
         // Under them, one row per REGISTERED sidebar card — the show/hide +
         // side question the picture cannot ask, because a hidden card is
@@ -362,12 +362,12 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
           "every remaining row is a sidebar card's",
         ).toBeGreaterThanOrEqual(1);
         for (const id of sidebarRows) {
-          expect(id).toMatch(/^lens-layouts-sidebar-/);
+          expect(id).toMatch(/^layout-card-sidebar-/);
         }
-        expect(sidebarRows).toContain("lens-layouts-sidebar-layout");
+        expect(sidebarRows).toContain("layout-card-sidebar-layout");
         const retired = await app.evalJS<number>(
           `document.querySelectorAll(
-            '[data-testid^="lens-layouts-side-"], [data-testid^="lens-layouts-rail-"], [data-testid^="lens-layouts-column-"]'
+            '[data-testid^="layout-card-side-"], [data-testid^="layout-card-rail-"], [data-testid^="layout-card-column-"]'
           ).length`,
         );
         expect(retired, "the per-place rows are gone, not hidden").toBe(0);
@@ -384,7 +384,7 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
       const app = await launchTugApp();
       try {
         await app.evalJS<null>(
-          `(window.__tug.setTugbankValue("dev.tugtool.lens", "widthPx", { kind: "i64", value: ${LENS_WIDTH} }), null)`,
+          `(window.__tug.setTugbankValue("dev.tugtool.layout", "widthPx", { kind: "i64", value: ${RAIL_WIDTH} }), null)`,
         );
         await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
         await app.waitForCondition<boolean>(
@@ -430,7 +430,7 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
         const targets = await app.evalJS<Record<string, [number, number]>>(
           `(function () {
             var out = {};
-            var nodes = document.querySelectorAll('${PLACES} [data-testid^="lens-layouts-place-"]');
+            var nodes = document.querySelectorAll('${PLACES} [data-testid^="layout-card-place-"]');
             Array.prototype.forEach.call(nodes, function (el) {
               var r = el.getBoundingClientRect();
               out[el.getAttribute("data-testid")] = [r.width, r.height];
@@ -443,7 +443,7 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
             .sort()
             .map(
               (k) =>
-                `${k.replace("lens-layouts-place-", "")} ` +
+                `${k.replace("layout-card-place-", "")} ` +
                 `${Math.round(targets[k][0])}×${Math.round(targets[k][1])}`,
             )
             .join(", ")}`,
@@ -465,7 +465,7 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
       const app = await launchTugApp();
       try {
         await app.evalJS<null>(
-          `(window.__tug.setTugbankValue("dev.tugtool.lens", "widthPx", { kind: "i64", value: ${LENS_WIDTH} }), null)`,
+          `(window.__tug.setTugbankValue("dev.tugtool.layout", "widthPx", { kind: "i64", value: ${RAIL_WIDTH} }), null)`,
         );
         await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
         await app.waitForCondition<boolean>(
@@ -486,7 +486,7 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
         await wait(300);
         expect(
           await app.evalJS<boolean>(
-            `document.querySelector('[data-testid="lens-layouts-plan"]').hasAttribute("data-previewing")`,
+            `document.querySelector('[data-testid="layout-card-plan"]').hasAttribute("data-previewing")`,
           ),
           "hovering a mark does not swap the plan out from under the reader",
         ).toBe(false);
@@ -557,11 +557,11 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
       const app = await launchTugApp();
       try {
         await app.evalJS<null>(
-          `(window.__tug.setTugbankValue("dev.tugtool.lens", "widthPx", { kind: "i64", value: ${LENS_WIDTH} }), null)`,
+          `(window.__tug.setTugbankValue("dev.tugtool.layout", "widthPx", { kind: "i64", value: ${RAIL_WIDTH} }), null)`,
         );
         await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
         await app.waitForCondition<boolean>(
-          `document.querySelector('[data-testid="lens-layouts-sidebar-layout"]') !== null`,
+          `document.querySelector('[data-testid="layout-card-sidebar-layout"]') !== null`,
           { timeoutMs: 8_000 },
         );
         await wait(AFTER_LAND_MS);
@@ -571,31 +571,31 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
         // side-move affordance at all. The row can also say Off, which is the
         // answer no mark on a drawing of the open deck could offer.
         const arrows = await app.evalJS<number>(
-          `document.querySelectorAll('[data-testid^="lens-layouts-place-side-"]').length`,
+          `document.querySelectorAll('[data-testid^="layout-card-place-side-"]').length`,
         );
         expect(
           arrows,
           "the picture carries no side-move affordance — the rows own placement",
         ).toBe(0);
 
-        const lensBefore = await app.evalJS<number>(
-          `document.querySelector('.tug-pane[data-pane-id="pLens"]').getBoundingClientRect().left`,
+        const railBefore = await app.evalJS<number>(
+          `document.querySelector('.tug-pane[data-pane-id="pRail"]').getBoundingClientRect().left`,
         );
         const cardBefore = await app.evalJS<number>(
           `document.querySelector('.tug-pane[data-pane-id="p1"]').getBoundingClientRect().left`,
         );
         expect(
-          lensBefore,
+          railBefore,
           "the Layout card starts to the right of the content cards",
         ).toBeGreaterThan(cardBefore);
 
         await app.click(
-          `[data-testid="lens-layouts-sidebar-layout"] [data-choice-value="left"]`,
+          `[data-testid="layout-card-sidebar-layout"] [data-choice-value="left"]`,
         );
         await wait(AFTER_LAND_MS);
 
-        const lensAfter = await app.evalJS<number>(
-          `document.querySelector('.tug-pane[data-pane-id="pLens"]').getBoundingClientRect().left`,
+        const railAfter = await app.evalJS<number>(
+          `document.querySelector('.tug-pane[data-pane-id="pRail"]').getBoundingClientRect().left`,
         );
         const cardAfter = await app.evalJS<number>(
           `document.querySelector('.tug-pane[data-pane-id="p1"]').getBoundingClientRect().left`,
@@ -603,18 +603,18 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
         // The real card moved, not just the row: the press went through the
         // section's own `set-sidebar-side` route.
         expect(
-          lensAfter,
+          railAfter,
           "pressing Left on the Layout card's row moved the real Layout card to the left edge",
         ).toBeLessThan(cardAfter);
         note(
-          `lens ${Math.round(lensBefore)} → ${Math.round(lensAfter)}, ` +
+          `rail ${Math.round(railBefore)} → ${Math.round(railAfter)}, ` +
             `card ${Math.round(cardBefore)} → ${Math.round(cardAfter)}`,
         );
 
         // And the row now reads the side it holds.
         const activeNow = await app.evalJS<string | null>(
           `(function () {
-            var el = document.querySelector('[data-testid="lens-layouts-sidebar-layout"] [data-choice-value][data-state="active"]');
+            var el = document.querySelector('[data-testid="layout-card-sidebar-layout"] [data-choice-value][data-state="active"]');
             return el === null ? null : el.getAttribute("data-choice-value");
           })()`,
         );
@@ -632,7 +632,7 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
       const app = await launchTugApp();
       try {
         await app.evalJS<null>(
-          `(window.__tug.setTugbankValue("dev.tugtool.lens", "widthPx", { kind: "i64", value: ${LENS_WIDTH} }), null)`,
+          `(window.__tug.setTugbankValue("dev.tugtool.layout", "widthPx", { kind: "i64", value: ${RAIL_WIDTH} }), null)`,
         );
         await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
         await app.waitForCondition<boolean>(
@@ -646,12 +646,12 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
         // Tab reaches the overlay itself, not a mark inside it: the marks are
         // items the cursor walks, exactly as a segmented row's segments are.
         // A stop per mark would make Tab crawl the drawing.
-        // Seed the ring into the Lens before walking it, exactly as at0454
+        // Seed the ring into the Layout card before walking it, exactly as at0454
         // does — Tab moves the ring within the key card, and without this the
         // walk starts wherever the deck happened to leave it.
         await app.dispatchControlAction("toggle-layout");
         await wait(300);
-        await tabUntilKbd(app, '[data-testid="lens-layouts-kind"]');
+        await tabUntilKbd(app, '[data-testid="layout-card-kind"]');
         const walk: string[] = [];
         for (let i = 0; i < 16; i += 1) {
           await app.nativeKey("Tab");
@@ -667,13 +667,13 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
           walk.push(at);
           // Stop on arrival: the claim is that the walk REACHES the picture,
           // and stopping here leaves the ring on it for the arrows below.
-          if (at === "lens-layouts-places") break;
+          if (at === "layout-card-places") break;
         }
         note(`ladder below Cards: ${walk.join(" -> ")}`);
         expect(
           walk,
           "the picture is a rung on the ladder, not a control only a mouse can reach",
-        ).toContain("lens-layouts-places");
+        ).toContain("layout-card-places");
         const stops = await app.evalJS<number>(
           `document.querySelectorAll('${PLACES}[data-tug-focusable]').length`,
         );
@@ -710,7 +710,7 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
                     .trim();
             };
             var others = Array.prototype.filter.call(
-              document.querySelectorAll('${PLACES} [data-testid^="lens-layouts-place-"]'),
+              document.querySelectorAll('${PLACES} [data-testid^="layout-card-place-"]'),
               function (n) { return !n.hasAttribute("data-key-cursor"); }
             );
             return {
@@ -718,7 +718,7 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
               cursorStroke: strokeOf(el),
               restStroke: strokeOf(others[0] || null),
               previewing: document
-                .querySelector('[data-testid="lens-layouts-plan"]')
+                .querySelector('[data-testid="layout-card-plan"]')
                 .hasAttribute("data-previewing"),
             };
           })()`,
@@ -743,7 +743,7 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
         // exactly what a press does: it sets the other thing, and the glyph
         // under the cursor turns over to say so.
         const key = (cursorFacts.testid ?? "").replace(
-          "lens-layouts-place-",
+          "layout-card-place-",
           "",
         );
         const before = (await readMarks(app))[key]?.mode;
@@ -770,11 +770,11 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
       const app = await launchTugApp();
       try {
         await app.evalJS<null>(
-          `(window.__tug.setTugbankValue("dev.tugtool.lens", "widthPx", { kind: "i64", value: ${LENS_WIDTH} }), null)`,
+          `(window.__tug.setTugbankValue("dev.tugtool.layout", "widthPx", { kind: "i64", value: ${RAIL_WIDTH} }), null)`,
         );
         await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
         await app.waitForCondition<boolean>(
-          `document.querySelector('[data-testid="lens-layouts-sidebar-jots"]') !== null`,
+          `document.querySelector('[data-testid="layout-card-sidebar-jots"]') !== null`,
           { timeoutMs: 8_000 },
         );
         await wait(AFTER_LAND_MS);
@@ -789,11 +789,11 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
 
         // ── The rows read what stands: Layout open on the right, Jots off. ──
         expect(
-          await activeOf("lens-layouts-sidebar-layout"),
+          await activeOf("layout-card-sidebar-layout"),
           "the Layout card's row reads the side it holds",
         ).toBe("right");
         expect(
-          await activeOf("lens-layouts-sidebar-jots"),
+          await activeOf("layout-card-sidebar-jots"),
           "a hidden card's row reads Off",
         ).toBe("off");
 
@@ -811,11 +811,11 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
 
         // ── Pressing a side on a hidden card's row shows it THERE. ──
         await app.click(
-          `[data-testid="lens-layouts-sidebar-jots"] [data-choice-value="left"]`,
+          `[data-testid="layout-card-sidebar-jots"] [data-choice-value="left"]`,
         );
         await wait(AFTER_LAND_MS);
         expect(
-          await activeOf("lens-layouts-sidebar-jots"),
+          await activeOf("layout-card-sidebar-jots"),
           "the row now reads the side it was shown on",
         ).toBe("left");
         const jotsLeft = await app.evalJS<number>(
@@ -840,10 +840,10 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
 
         // ── Off hides it again, and everything retracts together. ──
         await app.click(
-          `[data-testid="lens-layouts-sidebar-jots"] [data-choice-value="off"]`,
+          `[data-testid="layout-card-sidebar-jots"] [data-choice-value="off"]`,
         );
         await wait(AFTER_LAND_MS);
-        expect(await activeOf("lens-layouts-sidebar-jots")).toBe("off");
+        expect(await activeOf("layout-card-sidebar-jots")).toBe("off");
         expect(
           await app.evalJS<number>(
             `document.querySelectorAll('.tug-pane[data-rail-side="left"]').length`,
@@ -870,7 +870,7 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
       const app = await launchTugApp();
       try {
         await app.evalJS<null>(
-          `(window.__tug.setTugbankValue("dev.tugtool.lens", "widthPx", { kind: "i64", value: ${LENS_WIDTH} }), null)`,
+          `(window.__tug.setTugbankValue("dev.tugtool.layout", "widthPx", { kind: "i64", value: ${RAIL_WIDTH} }), null)`,
         );
         await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
         await app.waitForCondition<boolean>(
@@ -888,7 +888,7 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
         // inert, on the arrangement being auditioned. The live overlay steps
         // back while it speaks, or two mark sets overlap — one of them at the
         // wrong geometry.
-        await cursorOnto(app, "lens-layouts-width", "wide");
+        await cursorOnto(app, "layout-card-width", "wide");
         await wait(400);
         const ghostFacts = await app.evalJS<{
           ghostMode: string | null;
@@ -897,7 +897,7 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
           `(function () {
             var layer = document.querySelector('.layouts-plan-layer[data-plan-active]');
             if (layer === null) return null;
-            var ghostMark = layer.querySelector('[data-testid="lens-layouts-places-ghost"] .layout-places-mark[data-place="col-1"]');
+            var ghostMark = layer.querySelector('[data-testid="layout-card-places-ghost"] .layout-places-mark[data-place="col-1"]');
             var live = document.querySelector('${PLACES} .layout-places-mark[data-place="col-1"]');
             return {
               ghostMode: ghostMark === null ? null : ghostMark.getAttribute("data-mode"),
@@ -928,7 +928,7 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
             var layer = document.querySelector('.layouts-plan-layer[data-plan-active]');
             if (layer === null) return { layerId: null, inside: false };
             var block = layer.querySelectorAll(".layout-mini-field .layout-mini-block")[0];
-            var ghostMark = layer.querySelector('[data-testid="lens-layouts-places-ghost"] .layout-places-mark[data-place="col-0"]');
+            var ghostMark = layer.querySelector('[data-testid="layout-card-places-ghost"] .layout-places-mark[data-place="col-0"]');
             if (!block || ghostMark === null) return { layerId: layer.getAttribute("data-plan-preview-id"), inside: false };
             var b = block.getBoundingClientRect();
             var m = ghostMark.getBoundingClientRect();
@@ -953,10 +953,10 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
         // bottom in a proposal. Stand two cards on the right rail, raise any
         // preview, and count.
         await app.click(
-          `[data-testid="lens-layouts-sidebar-jots"] [data-choice-value="right"]`,
+          `[data-testid="layout-card-sidebar-jots"] [data-choice-value="right"]`,
         );
         await wait(AFTER_LAND_MS);
-        await cursorOnto(app, "lens-layouts-width", "wide");
+        await cursorOnto(app, "layout-card-width", "wide");
         await wait(400);
         const railDrawing = await app.evalJS<{
           committed: number;
@@ -995,7 +995,7 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
         await wait(400);
         const after = await app.evalJS<{ previewing: boolean; liveOpacity: string }>(
           `(function () {
-            var plan = document.querySelector('[data-testid="lens-layouts-plan"]');
+            var plan = document.querySelector('[data-testid="layout-card-plan"]');
             var live = document.querySelector('${PLACES} .layout-places-mark[data-place="col-0"]');
             return {
               previewing: plan !== null && plan.hasAttribute("data-previewing"),
@@ -1021,12 +1021,12 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
         // it that way. Rest on a segment for longer than any clock and read.
         await hover(
           app,
-          `[data-testid="lens-layouts-width"] [data-choice-value="wide"]`,
+          `[data-testid="layout-card-width"] [data-choice-value="wide"]`,
         );
         await wait(600);
         expect(
           await app.evalJS<boolean>(
-            `document.querySelector('[data-testid="lens-layouts-plan"]').hasAttribute("data-previewing")`,
+            `document.querySelector('[data-testid="layout-card-plan"]').hasAttribute("data-previewing")`,
           ),
           "a pointer resting on a segment does not swap the drawing",
         ).toBe(false);

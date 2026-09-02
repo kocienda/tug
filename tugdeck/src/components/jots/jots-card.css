@@ -23,7 +23,7 @@
   min-block-size: 0;
 }
 
-/* The card's own chrome, where the Lens band used to be: the filter field
+/* The card's own chrome, where its old section band used to be: the filter field
    takes the width and the `+` sits at its trailing end. */
 .jots-toolbar {
   display: flex;
@@ -70,10 +70,12 @@
   height: auto;
   --tugx-list-view-padding-inline: 0;
   --tugx-list-view-padding-block: 0;
-  /* Row height. The Lens's one-line lists carry the same number on
-     `.lens-oneline-list`, so a jot row and a Lens row read as one measure —
-     they are the same kind of surface (see `lens-list-presentation.ts`, whose
-     props these rows also take). */
+  /* Row height. The other rail cards' one-line lists carry the same number on
+     their own rules — the Cards list on `.cards-list .cards-oneline` in
+     `cards-card.css` — so a jot row and a Cards row read as one measure. They
+     are the same kind of surface (see `rail-list-presentation.ts`, whose props
+     these rows also take); the number is repeated per card rather than shared
+     through a class, so a change here is a change there too. */
   --tugx-list-row-padding-block: 2px;
   /* One step in from the toolbar's own inline padding, so the incipits read as
      sitting UNDER the card's controls rather than starting at the same hard
@@ -83,7 +85,7 @@
 }
 
 /* If this list is ever tuned back to hairlines (`rowStriping: "none"` in
-   `lens-list-presentation.ts`), they show on EVERY row — re-assert the divider
+   `rail-list-presentation.ts`), they show on EVERY row — re-assert the divider
    the list-view's "clean selected block" rule drops around a selected / cursor
    row, exactly as the Cards list does. Inert while the list is striped,
    which draws no hairlines at all. */

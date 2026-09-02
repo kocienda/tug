@@ -2,7 +2,7 @@
  * at0462-card-slot-badge.test.ts — a card says which slot it stands in.
  *
  * Under a multi-slot imposition the deck has numbered places, and until the
- * badge the only surface that named them was the Lens: a reader looking at a
+ * badge the only surface that named them was the Cards card: a reader looking at a
  * card had to look somewhere else to learn where it stood. The badge brings
  * that fact back onto the card — one numbered chip at the head of the pane's
  * control cluster, leading the stack badge beside it.
@@ -22,7 +22,7 @@
  *      there is a position here and it is unimportant, which is false.
  *   3. **A sidebar is not a member of the chain.** A pane the deck treats as a
  *      sidebar gets no badge even when the state hands it a slot — the same
- *      guard the Lens's own slot picker applies.
+ *      guard the Cards card's own slot picker applies.
  *   4. **It stands at the cluster's anchored end.** The chip trails every verb
  *      in the pane's rollup, leads the column badge and the close box, and
  *      sits on the row's own vertical. It led the row until that reasoning was
@@ -37,7 +37,7 @@
  *      absent on every card that titles itself in one line.
  *   5. **The badge opens a picker that moves the card.** Pressing it opens a
  *      popup of every place in the arrangement with the card's own filled;
- *      choosing one dispatches the same `assign-slot` the Lens dispatches, so
+ *      choosing one dispatches the same `assign-slot` the Cards card dispatches, so
  *      the pane moves AND raises, and the badge repaints to the new place.
  *   6. **The picker's chips exist for the keyboard.** Every one of them
  *      reports itself to the focus engine with a key of its own — the direct
@@ -541,10 +541,10 @@ describe.skipIf(!SHOULD_RUN)("at0462 — the card's slot badge", () => {
           room.inset,
           "the run is seated inside the bubble, not pressed against its border",
         ).toBeGreaterThanOrEqual(4);
-        // The Lens picker's cut. Same job, same target — a reader who learns
+        // The Cards picker's cut. Same job, same target — a reader who learns
         // the gesture on one surface meets the same size on the other.
-        expect(room.width, "chips are the Lens picker's width").toBe(18);
-        expect(room.height, "chips are the Lens picker's height").toBe(22);
+        expect(room.width, "chips are the Cards picker's width").toBe(18);
+        expect(room.height, "chips are the Cards picker's height").toBe(22);
         expect(chips.digits, "one chip per place in the arrangement").toEqual([
           "1",
           "2",

@@ -1671,9 +1671,9 @@ Some context.
 
     /// What a dash worked directly writes for itself: steps, a ledger, and
     /// none of the skeleton's frame.
-    const TASK_LIST: &str = r#"## Centre the Lens empty reading {#dash-lens-none}
+    const TASK_LIST: &str = r#"## Centre the Dashes empty reading {#dash-empty-none}
 
-The Dashes section's empty state reads None, centred in its own row.
+The Dashes card's empty state reads None, centred in its own row.
 
 ### Execution Steps {#execution-steps}
 

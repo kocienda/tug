@@ -1,4 +1,4 @@
-/* @tug-pairings: none — the slot layout on a Lens row. Every color belongs to
+/* @tug-pairings: none — the slot layout on a Cards card row. Every color belongs to
    the composed `TugSlotLayout` ([L20]); this file only sets the digit's family
    and the standoff from whatever follows the picker in the row. */
 

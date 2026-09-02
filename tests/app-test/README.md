@@ -56,10 +56,10 @@ Running everything is almost never the right move: each file launches its own `T
 
 ```ts
 /**
- * at0240-lens-focus-grammar.test.ts — ...prose...
+ * at0241-jots-editor.test.ts — ...prose...
  *
  * @covers tugdeck/src/components/jots/
- * @covers tugdeck/src/lib/lens-store/
+ * @covers tugdeck/src/components/cards/cards-store/
  */
 ```
 

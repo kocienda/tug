@@ -2024,7 +2024,7 @@ app-test *FILES:
 # command: it names what it is testing and why.
 #
 #   just app-test-changed                        # from the working diff
-#   just app-test-changed tugdeck/src/lib/lens-store/index.ts   # from explicit paths
+#   just app-test-changed tugdeck/src/components/cards/cards-card.tsx   # from explicit paths
 #
 # A few paths run before any test's first assertion (the harness, the deck
 # entry point), so no `@covers` line can scope them; the selector prints a

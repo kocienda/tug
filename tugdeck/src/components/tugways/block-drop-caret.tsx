@@ -9,7 +9,7 @@
  * about the drag re-renders React mid-gesture ([L06]/[L08]) — the caret is
  * appearance, committed only as a DOM write.
  *
- * It is absolutely positioned within `.lens-sections` (its offset parent), so
+ * It is absolutely positioned within `.cards-sections` (its offset parent), so
  * its `top` is a content-relative offset the handler computes from the
  * sections' measured rects.
  *

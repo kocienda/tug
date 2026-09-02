@@ -46,7 +46,7 @@ function pane(
 }
 
 function deck(cards: CardState[], panes: TugPaneState[]): DeckState {
-  return { cards, panes, imposition: { sidebars: { lens: { side: "right" } } }, hasFocus: true };
+  return { cards, panes, imposition: { sidebars: { tripwires: { side: "right" } } }, hasFocus: true };
 }
 
 // Pane names resolve through the card registry now, so the projection tests

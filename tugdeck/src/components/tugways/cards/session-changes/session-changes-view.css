@@ -40,7 +40,7 @@
   padding: 4px 0;
   font-family: var(--tug-font-family-mono);
   font-size: var(--tug-font-size-xs);
-  /* Muted "None" — matches the Lens sections' empty label (and the shade's
+  /* Muted "None" — matches the rail cards' empty label (and the shade's
      other None labels), not the old success green. */
   color: var(--tug7-element-global-text-normal-subtle-rest);
 }

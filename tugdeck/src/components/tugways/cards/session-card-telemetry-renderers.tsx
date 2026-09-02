@@ -1300,7 +1300,7 @@ export const SessionTelemetryStatusRow = React.forwardRef<
           // one thing that changes while somebody watches — the position in
           // the run — and before any step is declared it says where in the
           // lifecycle the dash is, in a word. The strip is on the surfaces
-          // whose subject IS the dash: the Lens, the shade, and this cell's
+          // whose subject IS the dash: the Dashes card, the shade, and this cell's
           // own placard, one press away.
           //
           // **Authored exactly as STATE is.** Three siblings inside the value

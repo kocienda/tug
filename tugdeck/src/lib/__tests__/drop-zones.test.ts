@@ -205,20 +205,20 @@ describe("a card only ever sees the places its own kind can stand in", () => {
   });
 
   it("a sidebar card sees its rail's positions and no content slot", () => {
-    const state = deck([pane("p1", 0), pane("lens")]);
+    const state = deck([pane("p1", 0), pane("tripwires")]);
     const railRects = splitRects(0, [280, 300]);
     const set = enumerateDropZones(
       state,
-      "lens",
+      "tripwires",
       measured({
         slots: new Map([[0, slotRect(0)]]),
         panes: new Map([
           ["p1", slotRect(0)],
-          ["lens", railRects[0]],
+          ["tripwires", railRects[0]],
           ["notes", railRects[1]],
         ]),
         tabBars: new Map([["p1", { x: 0, y: RUN_TOP, width: SLOT_WIDTH, height: 30 }]]),
-        rails: [{ side: "right", members: ["lens", "notes"] }],
+        rails: [{ side: "right", members: ["tripwires", "notes"] }],
       }),
     );
     expect(keys(set.zones)).toEqual(["rail:right:0", "rail:right:1"]);
@@ -226,14 +226,14 @@ describe("a card only ever sees the places its own kind can stand in", () => {
   });
 
   it("tab bars are zones for a content card and never for a sidebar card", () => {
-    const state = deck([pane("p1", 0), pane("p2", 1), pane("lens")]);
+    const state = deck([pane("p1", 0), pane("p2", 1), pane("tripwires")]);
     const tabBars = new Map([
       ["p2", { x: SLOT_X[1], y: RUN_TOP, width: SLOT_WIDTH, height: 30 }],
     ]);
     const panes = new Map([
       ["p1", slotRect(0)],
       ["p2", slotRect(1)],
-      ["lens", slotRect(2)],
+      ["tripwires", slotRect(2)],
     ]);
     const content = enumerateDropZones(
       state,
@@ -244,12 +244,12 @@ describe("a card only ever sees the places its own kind can stand in", () => {
 
     const sidebar = enumerateDropZones(
       state,
-      "lens",
+      "tripwires",
       measured({
         slots: new Map([[1, slotRect(1)]]),
         panes,
         tabBars,
-        rails: [{ side: "right", members: ["lens"] }],
+        rails: [{ side: "right", members: ["tripwires"] }],
       }),
     );
     expect(keys(sidebar.zones)).toEqual(["rail:right:0"]);

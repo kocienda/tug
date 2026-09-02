@@ -2,7 +2,7 @@
  * overview-card-registration.tsx — registers the Overview card ([L25]).
  *
  * The Overview is an ordinary registered card hosted by the normal `CardHost`
- * inside a sidebar pane, exactly as Jots and the Lens are: the pane/card
+ * inside a sidebar pane, exactly as Jots and the rail are: the pane/card
  * machinery (FocusContext, responder scope, title-bar chrome, the [L12]
  * selection boundary `CardHost` registers per card) is what makes focus restore
  * and the rail's own affordances nearly free.
@@ -40,7 +40,7 @@ export {
 };
 
 /** Register the Overview card. `hidden` keeps it out of the type-picker `[+]`
- *  menu — it is reachable through its own toggle, like Jots and the Lens. */
+ *  menu — it is reachable through its own toggle, like Jots and the rail. */
 export function registerOverviewCard(): void {
   registerCard({
     componentId: OVERVIEW_CARD_ID,
@@ -63,7 +63,7 @@ export function registerOverviewCard(): void {
     // Pins to a deck edge and insets the imposition band rather than taking a
     // slot inside it.
     layoutRole: "sidebar",
-    // Out of the Lens's Cards list, as Jots and the Lens itself are: those rows
+    // Out of the Cards card's list, as Jots and that card itself are: those rows
     // are the deck's content cards, each carrying a slot picker for an
     // arrangement a rail can never stand in.
     cardsGroup: "none",

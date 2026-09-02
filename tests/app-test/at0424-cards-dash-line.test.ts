@@ -1,5 +1,5 @@
 /**
- * at0424-lens-dash-line.test.ts — dash progress rides the session's row at its
+ * at0424-cards-dash-line.test.ts — dash progress rides the session's row at its
  * fixed height: the title cluster and the step ring, never a fourth line.
  *
  * The Cards section is organized by CARDS, so a dash's place in it is inside
@@ -175,7 +175,7 @@ describe.skipIf(!SHOULD_RUN)("AT0424: dash progress on the session's row", () =>
       const tugbankPath = mkTempTugbank();
       seedTugbankForLaunch(tugbankPath, { sourceTreePath: CHECKOUT });
       const app = await launchTugApp({
-        testName: "at0424-lens-dash-line",
+        testName: "at0424-cards-dash-line",
         env: { TUGBANK_PATH: tugbankPath, TUG_DATA_DIR: scratch?.dataRoot ?? "" },
       });
       try {
@@ -254,7 +254,7 @@ describe.skipIf(!SHOULD_RUN)("AT0424: dash progress on the session's row", () =>
         // The row says the dash's name exactly once, in the title's identity
         // run — the sigil rides the session's name wherever it is named.
         expect(await dashRunsOnSessionRow(app)).toBe(1);
-        note("at0424 lens with the cluster", (await app.screenshot()).path);
+        note("at0424 cards with the cluster", (await app.screenshot()).path);
 
         // ── The step opens: the fraction and the ring arrive ──────────────
         await shellAndSettle(
@@ -300,7 +300,7 @@ describe.skipIf(!SHOULD_RUN)("AT0424: dash progress on the session's row", () =>
         // Still no fourth line, still the same cells.
         expect(await count(app, DASH_LINE)).toBe(0);
         expect(await listCellCount(app)).toBe(bareCells);
-        note("at0424 lens with the walk begun", (await app.screenshot()).path);
+        note("at0424 cards with the walk begun", (await app.screenshot()).path);
 
         // ── Unbind, for real ──────────────────────────────────────────────
         await shellAndSettle(app, `${tugtoolPath(CHECKOUT)} dash unbind`, 2);
@@ -324,7 +324,7 @@ describe.skipIf(!SHOULD_RUN)("AT0424: dash progress on the session's row", () =>
       const tugbankPath = mkTempTugbank();
       seedTugbankForLaunch(tugbankPath, { sourceTreePath: CHECKOUT });
       const app = await launchTugApp({
-        testName: "at0424-lens-dash-line-documents",
+        testName: "at0424-cards-dash-line-documents",
         env: { TUGBANK_PATH: tugbankPath, TUG_DATA_DIR: scratch?.dataRoot ?? "" },
       });
       try {

@@ -1,5 +1,5 @@
 /**
- * slot-picker.tsx — where a Lens row's card stands, and the two ways to move it.
+ * slot-picker.tsx — where a Cards card row's card stands, and the two ways to move it.
  *
  * A `TugSlotLayout` in its control form, drawn as a **window**: the slot the
  * row's card holds, with its neighbours either side, rather than every slot in
@@ -42,7 +42,7 @@
  * badge opens, so the gesture is learned once and works from either end.
  *
  * Assigning always assigns *and* raises, even when another pane already holds
- * that slot: a slot is a vertical stack, and the Lens list is the switching
+ * that slot: a slot is a vertical stack, and the Cards card list is the switching
  * surface. There is no toggle-off; a pane leaves its slot by being dragged out
  * or by the imposition being turned off.
  *
@@ -77,13 +77,13 @@ import type { TugPopoverMeasurable } from "@/components/tugways/tug-popover";
  * per-row `FocusModeContext`, so the slots register into their own row's descend
  * scope — the mode scopes the walk, and this shared constant is only the
  * within-row ordering. They are reachable by descending (ArrowRight) onto the
- * row, never from the Lens's Tab cycle. Same authoring as the session picker's
+ * row, never from the Cards card's Tab cycle. Same authoring as the session picker's
  * row trash button.
  */
 const ROW_SLOT_FOCUS_GROUP = "cards-row-slots";
 
 /** Focus group for the jump popup's run — its own surface, its own walk. */
-const JUMP_SLOT_FOCUS_GROUP = "lens-slot-jump";
+const JUMP_SLOT_FOCUS_GROUP = "cards-slot-jump";
 
 /**
  * The slot layout for the row that represents `cardId`. Renders `null` when the
@@ -107,7 +107,7 @@ export function SlotPicker({ cardId }: { cardId: string }): React.ReactElement |
   // rendering a different element for one of its slots, and composing Radix's
   // auto-toggle onto a control that already has its own `onSelect` is the
   // fight `TugPopoverAnchor` was written to avoid. The rect is re-read on
-  // every Popper update, so it tracks the row through a Lens scroll.
+  // every Popper update, so it tracks the row through a Cards card scroll.
   const anchor = React.useRef<TugPopoverMeasurable>({
     // The RUN's own box, so the popup opens centred under it and reads as the
     // window expanding into the whole arrangement. Anchoring to the card's own

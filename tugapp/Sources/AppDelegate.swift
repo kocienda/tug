@@ -826,7 +826,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         // Keyboard Shortcuts… — the keymap configurator, a card of its own
         // rather than a pane of Settings. No key equivalent: ⌘, belongs to
         // Settings, and this card is also reachable from a control inside
-        // Settings and from the Lens.
+        // Settings and from the Cards card.
         let keyboardItem = NSMenuItem(title: "Keyboard Shortcuts...", action: #selector(showKeyboardShortcuts(_:)), keyEquivalent: "")
         keyboardItem.identifier = NSUserInterfaceItemIdentifier("app.keyboardShortcuts")
         appMenu.addItem(keyboardItem)
@@ -1240,7 +1240,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         // the beep is honest feedback that the column had no move to make.
         //
         // Every one of them is selection-relative — the frontend resolves the
-        // Lens selection, else the Cards list's cursor, else the first
+        // layout selection, else the Cards list's cursor, else the first
         // responder — so the move target is all the payload there is.
         wMenu.addItem(NSMenuItem(title: "Split or Stack Column", action: #selector(toggleColumnSplit(_:)), keyEquivalent: "").identified("window.columnSplit"))
         for (title, where_, id) in [

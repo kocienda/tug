@@ -181,7 +181,7 @@ export function useSessionIdentityMenu({
 
   const showSession = React.useCallback((): void => {
     if (openCardId === null) return;
-    // The registry's own raise — the same funnel a Lens row's click and a
+    // The registry's own raise — the same funnel a Cards card row's click and a
     // chip's click go through, so three gestures cannot drift into three
     // raises ([L30]).
     dispatchCommand("focus-session-card", { cardId: openCardId });

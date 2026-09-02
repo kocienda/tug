@@ -1,5 +1,5 @@
 /**
- * Pure-logic tests for the Lens Cards projection.
+ * Pure-logic tests for the Cards card projection.
  *
  * `buildCardsRows` is pure over its inputs and its resolver seams, so the
  * whole two-level model — grouping, filing, ordering, filtering, collapse,
@@ -59,7 +59,7 @@ function pane(id: string, cardIds: string[], activeCardId?: string): TugPaneStat
 }
 
 function deck(cards: CardState[], panes: TugPaneState[]): DeckState {
-  return { cards, panes, imposition: { sidebars: { lens: { side: "left" } } }, hasFocus: true };
+  return { cards, panes, imposition: { sidebars: { tripwires: { side: "left" } } }, hasFocus: true };
 }
 
 function binding(
@@ -109,7 +109,7 @@ const STANDARD_GROUPS = {
   diff: "files" as const,
   settings: "tools" as const,
   "gallery-buttons": "tools" as const,
-  lens: "none" as const,
+  tripwires: "none" as const,
 };
 
 function inputs(
@@ -774,10 +774,10 @@ describe("filtering", () => {
 // ---------------------------------------------------------------------------
 
 describe("exclusions", () => {
-  it("the Lens pane is not in its own mirror", () => {
+  it("the Cards card pane is not in its own mirror", () => {
     const d = deck(
-      [card("lens-card", "lens"), card("t1", "text")],
-      [pane("pl", ["lens-card"]), pane("p1", ["t1"])],
+      [card("tripwires-card", "tripwires"), card("t1", "text")],
+      [pane("pl", ["tripwires-card"]), pane("p1", ["t1"])],
     );
     const rows = buildCardsRows(
       inputs(d),
@@ -1003,7 +1003,7 @@ describe("summarizeGroup", () => {
 // ---------------------------------------------------------------------------
 
 describe("a session's dash", () => {
-  const SESSION_GROUPS = { session: "sessions" as const, lens: "none" as const };
+  const SESSION_GROUPS = { session: "sessions" as const, tripwires: "none" as const };
 
   /** A snapshot whose one dash binds `sessions`. */
   function snapshotWith(

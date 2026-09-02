@@ -51,7 +51,7 @@ const NO_RUNS: CompactionRuns = new Map();
 
 /**
  * What every pulse surface says for the length of a `/compact` run — the
- * card's `session-masthead` and the Lens **Sessions** row read the same
+ * card's `session-masthead` and the Cards card **Sessions** row read the same
  * string, so a compacting session says one thing wherever it is shown.
  */
 export const COMPACTING_PULSE_TEXT = "Compacting context…";
@@ -159,7 +159,7 @@ const NEVER_COMPACTING = (): boolean => false;
  *
  *  - **The snapshot is this card's boolean, not the whole runs map.** A map read
  *    changes identity on every write to any card, so one card compacting
- *    re-rendered every session row in the app — the masthead, all of the Lens's
+ *    re-rendered every session row in the app — the masthead, all of the Cards card's
  *    monitor rows, and every row in an open picker. A boolean compares equal
  *    across an unrelated card's run and React bails out.
  *  - **No `cardId`, no subscription.** A row for a session no card holds can

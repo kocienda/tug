@@ -1,10 +1,10 @@
 /**
- * at0277-lens-row-accessories-keyboard.test.ts — the Lens's row accessories and
- * the Layouts segments answer the keyboard.
+ * at0277-row-accessories-keyboard.test.ts — the sidebar cards' row accessories
+ * and the Layouts segments answer the keyboard.
  *
  * ## What this gates
  *
- * Three surfaces in the Lens were reachable only by pointer, which under the
+ * Three surfaces on the sidebar rail were reachable only by pointer, which under the
  * focus language means they did not exist at all for a keyboard user:
  *
  *  - **A jot row's copy / delete buttons.** They render inside the list's
@@ -60,7 +60,7 @@ const TEST_TIMEOUT_MS = 90_000;
 const JOTS_LIST = ".jots-card .jots-list";
 const JOTS_KBD = `${JOTS_LIST}[data-key-view-kbd]`;
 const CURSOR_ROW = `${JOTS_LIST} [data-key-cursor]`;
-const KIND_GROUP = '[data-testid="lens-layouts-kind"]';
+const KIND_GROUP = '[data-testid="layout-card-kind"]';
 
 const JOTS = Array.from({ length: 4 }, (_, i) => ({
   id: `s${i}`,
@@ -69,7 +69,7 @@ const JOTS = Array.from({ length: 4 }, (_, i) => ({
 
 function priorCardDeck() {
   return {
-    // A Text card, so the Lens's Cards band has a row to descend into once
+    // A Text card, so the Cards card has a row to descend into once
     // an imposition turns its slot picker on.
     cards: [{ id: "A", componentId: "text", title: "File", closable: true }],
     panes: [
@@ -88,7 +88,7 @@ function priorCardDeck() {
     // omits it takes whatever arrangement the machine's own saved deck was
     // left in — which decides where the CARDS cursor starts, and so whether
     // section C's walk begins where it says it does.
-    imposition: { kind: "one-up", lens: "right" },
+    imposition: { kind: "one-up", sidebars: {} },
     hasFocus: true,
   };
 }
@@ -97,7 +97,7 @@ function priorCardDeck() {
 async function kbdLabel(app: App): Promise<string | null> {
   return app.evalJS<string | null>(
     `(function(){
-      var el = document.querySelector('.jots-card [data-key-view-kbd], .cards-card [data-key-view-kbd], .lens-content [data-key-view-kbd]');
+      var el = document.querySelector('.jots-card [data-key-view-kbd], .cards-card [data-key-view-kbd]');
       return el === null ? null : el.getAttribute('aria-label');
     })()`,
   );
@@ -108,7 +108,7 @@ async function kbdLabel(app: App): Promise<string | null> {
  *
  * The check runs after EVERY Tab, including the last, and the bound is a
  * runaway guard rather than a claim about the walk's length. Both matter: with
- * all three Lens sections expanded and the Cards filter live, the walk from the
+ * the Jots, Cards and Layout cards all standing and the Cards filter live, the walk from the
  * Layouts list round to the Cards list is exactly twelve stops — so a loop that
  * spent its last Tab and then threw without re-checking reported a walk that
  * had in fact arrived.
@@ -127,7 +127,7 @@ async function tabUntilKbd(app: App, selector: string): Promise<void> {
   throw new Error(`Tab never reached ${selector}`);
 }
 
-describe.skipIf(!SHOULD_RUN)("at0277 — Lens row accessories answer the keyboard", () => {
+describe.skipIf(!SHOULD_RUN)("at0277 — sidebar row accessories answer the keyboard", () => {
   test(
     "Right descends onto a jot row's buttons and onto a slot, and the Layouts segments walk as rows",
     async () => {
@@ -143,7 +143,7 @@ describe.skipIf(!SHOULD_RUN)("at0277 — Lens row accessories answer the keyboar
       try {
         seedTugbankForLaunch(tugbankPath);
         const app = await launchTugApp({
-          testName: "at0277-lens-row-accessories-keyboard",
+          testName: "at0277-row-accessories-keyboard",
           env: { TUGBANK_PATH: tugbankPath, TUG_JOTS_PATH: jotsPath },
         });
         try {
@@ -158,10 +158,10 @@ describe.skipIf(!SHOULD_RUN)("at0277 — Lens row accessories answer the keyboar
             `window.__tug.assertHostRootRegistered("A")`,
             { timeoutMs: 5_000 },
           );
-          // This test spans two surfaces: the Jots card's rows and the Lens's
-          // Layouts segments. Open both, and start on a jot row — opening a card
-          // is not a keyboard entry, so the click is what puts the movement
-          // cursor on the row (the Lens band click used to do that here).
+          // This test spans two surfaces: the Jots card's rows and the Layout
+          // card's Layouts segments. Open both, and start on a jot row — opening
+          // a card is not a keyboard entry, so the click is what puts the
+          // movement cursor on the row.
           await app.dispatchControlAction("toggle-layout");
           await app.dispatchControlAction("toggle-jots");
           await app.waitForCondition<boolean>(
@@ -198,7 +198,7 @@ describe.skipIf(!SHOULD_RUN)("at0277 — Lens row accessories answer the keyboar
           await app.nativeKey("ArrowRight");
           await app.waitForCondition<boolean>(
             `(function(){
-              var el = document.querySelector('.jots-card [data-key-view-kbd], .cards-card [data-key-view-kbd], .lens-content [data-key-view-kbd]');
+              var el = document.querySelector('.jots-card [data-key-view-kbd], .cards-card [data-key-view-kbd]');
               return el !== null && el.getAttribute('aria-label') === 'Copy jot';
             })()`,
             { timeoutMs: 3_000 },
@@ -208,7 +208,7 @@ describe.skipIf(!SHOULD_RUN)("at0277 — Lens row accessories answer the keyboar
           // zero-width slot — the descend has to land somewhere the eye can see.
           expect(
             await app.evalJS<number>(
-              `Math.round(document.querySelector('.jots-card [data-key-view-kbd], .cards-card [data-key-view-kbd], .lens-content [data-key-view-kbd]').getBoundingClientRect().width)`,
+              `Math.round(document.querySelector('.jots-card [data-key-view-kbd], .cards-card [data-key-view-kbd]').getBoundingClientRect().width)`,
             ),
           ).toBeGreaterThan(0);
 
@@ -249,7 +249,7 @@ describe.skipIf(!SHOULD_RUN)("at0277 — Lens row accessories answer the keyboar
           await app.nativeKey("ArrowRight");
           await app.waitForCondition<boolean>(
             `(function(){
-              var el = document.querySelector('.jots-card [data-key-view-kbd], .cards-card [data-key-view-kbd], .lens-content [data-key-view-kbd]');
+              var el = document.querySelector('.jots-card [data-key-view-kbd], .cards-card [data-key-view-kbd]');
               return el !== null && el.getAttribute('aria-label') === 'Delete jot';
             })()`,
             { timeoutMs: 3_000 },
@@ -257,7 +257,7 @@ describe.skipIf(!SHOULD_RUN)("at0277 — Lens row accessories answer the keyboar
           await app.nativeKey("ArrowLeft");
           await app.waitForCondition<boolean>(
             `(function(){
-              var el = document.querySelector('.jots-card [data-key-view-kbd], .cards-card [data-key-view-kbd], .lens-content [data-key-view-kbd]');
+              var el = document.querySelector('.jots-card [data-key-view-kbd], .cards-card [data-key-view-kbd]');
               return el !== null && el.getAttribute('aria-label') === 'Copy jot';
             })()`,
             { timeoutMs: 3_000 },
@@ -273,7 +273,7 @@ describe.skipIf(!SHOULD_RUN)("at0277 — Lens row accessories answer the keyboar
           await app.nativeKey("ArrowRight");
           await app.waitForCondition<boolean>(
             `(function(){
-              var el = document.querySelector('.jots-card [data-key-view-kbd], .cards-card [data-key-view-kbd], .lens-content [data-key-view-kbd]');
+              var el = document.querySelector('.jots-card [data-key-view-kbd], .cards-card [data-key-view-kbd]');
               return el !== null && el.getAttribute('aria-label') === 'Copy jot';
             })()`,
             { timeoutMs: 3_000 },
@@ -295,7 +295,7 @@ describe.skipIf(!SHOULD_RUN)("at0277 — Lens row accessories answer the keyboar
           );
 
           // ---- C. The Layouts CARDS axis walks as the row it is drawn as.
-          // The segments live in the LENS, a different card: Tab walks within
+          // The segments live in the LAYOUT CARD, a different card: Tab walks within
           // a card, so crossing takes a focus gesture, not more Tabs.
           await app.dispatchControlAction("toggle-layout");
           await tabUntilKbd(app, KIND_GROUP);
@@ -330,7 +330,7 @@ describe.skipIf(!SHOULD_RUN)("at0277 — Lens row accessories answer the keyboar
           // the ring (the cross-section walk is at0341's to gate further).
           await app.nativeKey("ArrowDown");
           await app.waitForCondition<boolean>(
-            `document.querySelector('[data-testid="lens-layouts-layout"][data-key-view-kbd]') !== null`,
+            `document.querySelector('[data-testid="layout-card-layout"][data-key-view-kbd]') !== null`,
             { timeoutMs: 3_000 },
           );
           // Back to the CARDS row by the backward Tab walk — the stops are
@@ -366,7 +366,7 @@ describe.skipIf(!SHOULD_RUN)("at0277 — Lens row accessories answer the keyboar
           await app.nativeKey("ArrowRight");
           await app.waitForCondition<boolean>(
             `(function(){
-              var el = document.querySelector('.jots-card [data-key-view-kbd], .cards-card [data-key-view-kbd], .lens-content [data-key-view-kbd]');
+              var el = document.querySelector('.jots-card [data-key-view-kbd], .cards-card [data-key-view-kbd]');
               return el !== null && (el.getAttribute('aria-label') || '').indexOf('Close ') === 0;
             })()`,
             { timeoutMs: 3_000 },
@@ -379,7 +379,7 @@ describe.skipIf(!SHOULD_RUN)("at0277 — Lens row accessories answer the keyboar
           // stands anywhere yet, and the claim here is about the WALK.
           const slotAt = (n: number): string =>
             `(function(){
-               var el = document.querySelector('.jots-card [data-key-view-kbd], .cards-card [data-key-view-kbd], .lens-content [data-key-view-kbd]');
+               var el = document.querySelector('.jots-card [data-key-view-kbd], .cards-card [data-key-view-kbd]');
                return el !== null
                  && el.getAttribute('data-slot') === 'tug-slot'
                  && el.textContent.trim() === '${n}';

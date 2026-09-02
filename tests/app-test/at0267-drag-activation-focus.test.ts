@@ -2,24 +2,24 @@
  * at0267-drag-activation-focus.test.ts — a drag is a content gesture, not a
  * focus gesture (tuglaws/focus-language.md § Drag and the keyboard).
  *
- * The repro this pins: a prompt-entry card holds the keyboard while the Lens
- * sits inactive beside it, and the user grabs a jot row in the Lens.
+ * The repro this pins: a prompt-entry card holds the keyboard while the Jots card
+ * sits inactive beside it, and the user grabs a jot row in the Jots card.
  * Every scenario below was a distinct failure before the drag doctrine landed:
  *
- *  1. **Selection commits on mousedown.** A mousedown on an inactive Lens's
+ *  1. **Selection commits on mousedown.** A mousedown on an inactive Jots card's
  *     jot row moves the list's owned selection to that row immediately —
  *     so the drag carries the row it selected — and does NOT activate the
- *     Lens. Selection used to ride `click`, which no drag ever produces.
+ *     Jots card. Selection used to ride `click`, which no drag ever produces.
  *
  *  2. **Mouseup commits the activation.** The same gesture ended without a
- *     drag is a plain click: the Lens activates on mouseup.
+ *     drag is a plain click: the Jots card activates on mouseup.
  *
  *  3. **Dragstart cancels the activation.** A `dragstart` between the down and
  *     the up means the gesture was a drag: the source card stays inactive
  *     (macOS background-drag semantics) and the keyboard stays where it was.
  *
  *  4. **One click brings the card back with its caret.** Returning to the
- *     entry from the Lens takes exactly ONE click: the card activates and the
+ *     entry from the Jots card takes exactly ONE click: the card activates and the
  *     caret lands. It used to take three — the unguarded engine re-`focus()`
  *     of an already-focused contenteditable blurs to `<body>` in WebKit, and
  *     the watchdog does not correct `<body>`.
@@ -32,7 +32,7 @@
  *
  *  6. **One click works after a REAL drag from a parked-sink start.**
  *     Deselect via the deck canvas, run a genuine CGEvent-driven drag (WebKit
- *     runs the real drag session) from the never-activated Lens into the
+ *     runs the real drag session) from the never-activated Jots card into the
  *     entry, then click the entry ONCE: the card activates with its caret.
  *     Two defects used to stack here. First, WebKit delivers no `pointerdown`
  *     for the first click after a native drag session (the drag consumed the
@@ -89,7 +89,7 @@ function selectedJotIdExpr(): string {
   })()`;
 }
 
-function deckWithEntryAndLens() {
+function deckWithEntryAndJots() {
   return {
     cards: [
       {
@@ -165,7 +165,7 @@ describe.skipIf(!SHOULD_RUN)("at0267 — drag, activation, and focus", () => {
         });
         try {
           await app.seedDeckState({
-            state: deckWithEntryAndLens(),
+            state: deckWithEntryAndJots(),
             focusCardId: ENTRY_CARD_ID,
           });
           await app.waitForCondition<boolean>(
@@ -221,7 +221,7 @@ describe.skipIf(!SHOULD_RUN)("at0267 — drag, activation, and focus", () => {
           console.log("[at0267] after mousedown:", JSON.stringify(afterDown));
           // Selection moved with the mousedown — the drag would carry this row.
           expect(afterDown.selected).toBe("s2");
-          // ...and the Lens did NOT activate: the gesture is still undecided.
+          // ...and the Jots card did NOT activate: the gesture is still undecided.
           expect(afterDown.activeCard).toBe(ENTRY_CARD_ID);
 
           await app.nativeMouseUp(s2);
@@ -275,7 +275,7 @@ describe.skipIf(!SHOULD_RUN)("at0267 — drag, activation, and focus", () => {
           // The D/E symptom was that returning to the entry took three clicks:
           // the first activated but blurred to `<body>` (the unguarded engine
           // re-`focus()`), the second re-settled the engine, and only the
-          // third landed a caret. Hand the Lens the keyboard, then click once.
+          // third landed a caret. Hand the Jots card the keyboard, then click once.
           await app.nativeClickAtElement(rowLabel("s0"));
           await settle();
           expect(await app.getActiveCardId()).toBe(JOTS_CARD_ID);
@@ -316,7 +316,7 @@ describe.skipIf(!SHOULD_RUN)("at0267 — drag, activation, and focus", () => {
           expect((await readLedger()).violations).toBe(0);
 
           // ---- 5. A drop into a NON-key card claims nothing.
-          // Hand the Lens the active card again so the entry is a background
+          // Hand the Jots card the active card again so the entry is a background
           // card, then drop a jot onto its editor.
           await app.nativeClickAtElement(rowLabel("s1"));
           await settle();
@@ -391,7 +391,7 @@ describe.skipIf(!SHOULD_RUN)("at0267 — drag, activation, and focus", () => {
 
           // ---- 6. One click works after a REAL drag from a parked-sink
           // start. Deselect via the deck canvas (no pane active), run a
-          // genuine CGEvent drag from the inactive Lens into the entry, then
+          // genuine CGEvent drag from the inactive Jots card into the entry, then
           // click the entry ONCE. Pins both the post-drag pointer-stream
           // resync and the theft gate's parked-sink permit.
           await app.nativeClick({ x: 120, y: 640 });

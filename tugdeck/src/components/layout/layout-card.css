@@ -23,7 +23,7 @@
   font-family: var(--tug-font-family-sans);
   color: var(--tug7-element-global-text-normal-default-rest);
   /* The card owns its pane's height, so it owns the overflow too: the whole
-     picker scrolls as one document. The Lens used to hand every band to a
+     picker scrolls as one document. The old rail card used to hand every band to a
      scroller it owned; a card has no siblings to negotiate that with. */
   block-size: 100%;
   min-block-size: 0;

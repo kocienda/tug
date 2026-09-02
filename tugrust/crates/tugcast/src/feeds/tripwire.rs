@@ -146,7 +146,7 @@ pub fn kick(tripwire_name: &str) -> bool {
 static SETTLE_TELL: OnceLock<mpsc::Sender<String>> = OnceLock::new();
 
 /// Tell the engine a trip was settled by a verb in another process, so the
-/// Lens sees it now rather than on the next tick (Spec S02).
+/// Tripwires card sees it now rather than on the next tick (Spec S02).
 ///
 /// Distinct from [`kick`] because it is: `kick` is process-local and answers
 /// `false` from a CLI, which is exactly why the verb needs a door of its own.

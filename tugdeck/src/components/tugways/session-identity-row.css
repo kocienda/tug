@@ -32,7 +32,7 @@
   gap: var(--tug-space-2xs);
   flex: 0 0 auto;
   /* And the step on the far side, into the mount's trailing furniture — the
-     Lens's slot picker and column badge. Stated on the cluster itself rather
+     Cards card's slot picker and column badge. Stated on the cluster itself rather
      than on the slots, so it arrives and leaves exactly when the dash binding
      does; a `:has()` keyed on this element's presence would paint once and
      then quietly stop matching ([L06], the same argument the dash line carries

@@ -4,7 +4,7 @@
  *
  * This is the generic mechanism behind the `toggleMenu` pane affordance
  * (`pane-model.md`): the title bar's card-contributed controls are NOT
- * lens-specific chrome baked into `TugPane`. Any card publishes its items
+ * card-specific chrome baked into `TugPane`. Any card publishes its items
  * here; `CardTitleBar` subscribes for the active card and renders them,
  * and nothing when there are none. `tug-pane.tsx` imports only this store —
  * never a card-specific module ([L10]/[L25]).

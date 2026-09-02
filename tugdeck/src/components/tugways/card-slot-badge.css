@@ -107,7 +107,7 @@
    Two shorter rectangles flanking the chip, each showing only the edge that
    clears it. The chip alone says *place 2*; the wings say *of several*, which
    is the fact that makes the number mean anything and the fact the title bar
-   otherwise has no room to state. It is the same picture the Lens draws with a
+   otherwise has no room to state. It is the same picture the Cards card draws with a
    run of chips, at the size a title bar can afford: one numbered place, in
    front, with its neighbours behind it.
 
@@ -151,5 +151,5 @@
 /* The popup's run has no rules here at all: it wears
    `.tug-slot-layout-popup`, which is where the air inside the bubble and the
    chips' pressable cut are stated once for both surfaces that open one. The
-   Lens row's own window opens the same popup, and the two used to state the
+   Cards card row's own window opens the same popup, and the two used to state the
    same four declarations in two files — one fact, kept in step by hand. */

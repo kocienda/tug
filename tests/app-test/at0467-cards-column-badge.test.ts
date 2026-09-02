@@ -1,8 +1,8 @@
 /**
- * at0467-cards-column-badge.test.ts — a Lens row says where its card stands
+ * at0467-cards-column-badge.test.ts — a Cards row says where its card stands
  * INSIDE its slot.
  *
- * The slot run on a Lens Sessions row says which numbered place the card holds.
+ * The slot run on a Cards Sessions row says which numbered place the card holds.
  * It has never said the rest of the coordinate: whether that place is shared,
  * by how many, and — when the place is split — which band the card is. The
  * column badge is that fact, drawn in the slot chip's own footprint so the two
@@ -13,7 +13,7 @@
  *   1. **Every row in an imposed deck carries the badge, and a place one card
  *      deep reads `1`.** The lone card is in the fixture as the case that used
  *      to draw nothing: its own masthead said the card stood in a place while
- *      its Lens row said it stood nowhere, which is two surfaces disagreeing
+ *      its Cards row said it stood nowhere, which is two surfaces disagreeing
  *      about the same card. It is also the row whose place can still be split,
  *      and the badge is the hint that it can.
  *   2. **A stacked slot's rows show the member COUNT, and each marks its own
@@ -23,10 +23,10 @@
  *      three sharers says which of them you are actually looking at.
  *   3. **A split slot's rows show the BAND LETTER, in the column's own member
  *      order.** A is the topmost band. This is the one place letters appear,
- *      and it is what makes a Lens row and the pane's own cluster the same
+ *      and it is what makes a Cards row and the pane's own cluster the same
  *      address rather than two descriptions.
  *
- * The badge on a Lens row is a READOUT — the row is its own door, and the
+ * The badge on a Cards row is a READOUT — the row is its own door, and the
  * member picker's door is the badge on the pane's cluster (at0455). So there is
  * no gesture here to drive; the claims are about what the row says.
  *
@@ -60,7 +60,7 @@ const wait = (ms: number): Promise<void> =>
  * slot 1 — the one-deep place in the same fixture as the shared one. A text
  * card holds slot 2, because the Sessions group and the rest of the Cards
  * section are two different row components and the badge has to be on both.
- * The Lens holds the right rail so the rows are on screen.
+ * The Cards card holds the right rail so the rows are on screen.
  */
 function deckShape(): Record<string, unknown> {
   const slots: Record<string, number> = { A: 0, B: 0, D: 0, C: 1 };
@@ -97,12 +97,12 @@ function deckShape(): Record<string, unknown> {
         slot: 2,
       },
       {
-        id: "pLens",
+        id: "pCards",
         position: { x: 0, y: 0 },
         size: { width: 420, height: 900 },
         cardIds: ["L"],
         activeCardId: "L",
-        title: "Lens",
+        title: "Cards",
         acceptsFamilies: [],
       },
     ],
@@ -130,7 +130,7 @@ interface RowBadge {
   front: boolean;
 }
 
-/** Every Lens Sessions row, with whatever column badge it carries. */
+/** Every Cards Sessions row, with whatever column badge it carries. */
 async function rowBadges(app: App): Promise<RowBadge[]> {
   return app.evalJS<RowBadge[]>(
     `Array.prototype.slice.call(
@@ -182,7 +182,7 @@ async function contentRowBadge(app: App): Promise<string> {
   );
 }
 
-describe.skipIf(!SHOULD_RUN)("at0467 — the Lens row's column badge", () => {
+describe.skipIf(!SHOULD_RUN)("at0467 — the Cards row's column badge", () => {
   test(
     "every row says where its card stands, one card deep or shared",
     async () => {
@@ -190,7 +190,7 @@ describe.skipIf(!SHOULD_RUN)("at0467 — the Lens row's column badge", () => {
       try {
         await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
         // An unbound session card renders the project picker instead of a
-        // session, and its Lens row would carry no session id to find it by.
+        // session, and its Cards row would carry no session id to find it by.
         for (const cardId of SESSION_CARDS) {
           await app.bindSession(cardId, {
             tugSessionId: sessionIdOf(cardId),

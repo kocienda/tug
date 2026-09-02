@@ -204,7 +204,7 @@ export interface CardRegistration {
    * slot, answers ⌘1..⌘N, and follows the content width presets.
    *
    * `"sidebar"` is a card that pins to a deck edge and insets the imposition
-   * band instead of living inside it — the Lens and Jots. Sidebar cards take no
+   * band instead of living inside it — the rail and Jots. Sidebar cards take no
    * slot, are refused by `assignCardToSlot`, and carry a `{ side, pinned }`
    * entry in the deck's imposition record rather than a position in the N-Up.
    *
@@ -236,7 +236,7 @@ export interface CardRegistration {
    * while it is the key card — Class B of the mode derivation ([P10]).
    *
    * `true` for the cards whose whole content is engine focus stops the
-   * keyboard walks: the Lens, Jots, Settings and its bodies, Keyboard, About,
+   * keyboard walks: the rail, Jots, Settings and its bodies, Keyboard, About,
    * Overview, Pulse, DevTools. Their rings and arrow movement are the interface,
    * so the mode is on the moment the card is key and no ⌥⇥ is needed.
    *
@@ -251,7 +251,7 @@ export interface CardRegistration {
    * out the deck: **lower is greedier** — fed first when there is surplus,
    * drained last when there is a deficit.
    *
-   * The Overview is 1, the Lens 2, Jots 3; anything else takes
+   * The Overview is 1, the rail 2, Jots 3; anything else takes
    * {@link DEFAULT_GREED_RANK}. A rail carrying several cards is as greedy as
    * its greediest member (`deck-manager.ts` folds the members with `Math.min`),
    * so a prose reader stacked with a modest card keeps the prose reader's

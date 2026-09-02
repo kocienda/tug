@@ -275,7 +275,7 @@ export const SessionResumeCell: TugListViewCellRenderer<SessionsDataSource> = ({
   // long prompt tail) shows no mark, which is correct.
   return (
     <SessionIdentityRow
-      // Title, description, activity. The same component the Lens and the
+      // Title, description, activity. The same component the Cards card and the
       // masthead wear — three surfaces showing the same thing had no business
       // showing it three ways.
       //

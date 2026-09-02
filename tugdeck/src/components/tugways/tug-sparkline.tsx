@@ -70,7 +70,7 @@
  * *Hidden pause* is different in kind: the element is off screen, so the
  * picture is ARBITRARY rather than flat, and the tape is stopped WITHOUT being
  * disturbed — no origin move, no repaint, no rebuild. Collapsing the two is
- * what made the Lens judder, because its rows cross the intersection boundary
+ * what made the Cards card judder, because its rows cross the intersection boundary
  * constantly and each crossing rebased a picture that could not survive being
  * translated. The gate accordingly observes the nearest scroll container with a
  * generous margin and waits out a flap before believing it.
@@ -365,7 +365,7 @@ function makePainter(
 
   // A canvas's control may be transferred exactly ONCE, and a second attempt
   // throws `InvalidStateError` — out of a `useLayoutEffect`, which does not
-  // fail one sparkline but the whole render pass containing it. On the Lens
+  // fail one sparkline but the whole render pass containing it. On the Cards card
   // that is the entire rail. The `key` is supposed to guarantee a fresh
   // element, but "supposed to" is not a reason to let a throw escape: under
   // double-invoked effects, or any future dependency that changes without also
@@ -584,7 +584,7 @@ export function TugSparkline({
     // `repaint` — the new worker entry starts with an EMPTY tape, and the tape
     // effect below does not re-run for a resolution change. A live tape would
     // recover within one settle tick; a flat-dormant or hidden-paused one —
-    // which is most of the Lens, most of the time — would stay blank until its
+    // which is most of the Cards card, most of the time — would stay blank until its
     // next activity, possibly forever. Without this the fix would blank every
     // idle tape it was meant to sharpen.
     tapeRef.current?.cancelRebase();
@@ -730,7 +730,7 @@ export function TugSparkline({
       clearInterval: (handle) => window.clearInterval(handle),
       setTimeout: (fn, ms) => window.setTimeout(fn, ms),
       clearTimeout: (handle) => window.clearTimeout(handle),
-      // The dev panel (Opt-Cmd-/) is where gate churn is read: scroll the Lens
+      // The dev panel (Opt-Cmd-/) is where gate churn is read: scroll the Cards card
       // rail hard and this log should stay quiet. Never `console.warn`.
       onTransition: (from, to) => {
         tugDevLogStore.debug("sparkline", `${from} → ${to}`);

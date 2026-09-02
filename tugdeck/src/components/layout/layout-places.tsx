@@ -17,7 +17,7 @@
  * the two come apart below two cards: membership churn preserves an
  * arrangement (`columnDrawsSplit`), so a slot set to split and standing one
  * card deep draws as one undivided block. Before this overlay that stored split
- * was invisible on every surface and unreachable from the Lens — the column
+ * was invisible on every surface and unreachable from any of them — the column
  * rows were gated on `members.length > 1` — so it sat there until a second card
  * arrived and it resurfaced as a surprise. Every place therefore wears its
  * glyph at one weight, whatever stands under it, and stays pressable so the
@@ -222,7 +222,7 @@ function PlaceMark({
             value: proposed,
             phase: "discrete",
           }}
-          data-testid={`lens-layouts-place-${place.key}`}
+          data-testid={`layout-card-place-${place.key}`}
           data-choice-value={proposed}
           data-sender={senderId}
         />
@@ -270,7 +270,7 @@ export function LayoutPlaces({
     const root = rootRef.current;
     if (root === null) return [];
     return Array.from(
-      root.querySelectorAll('[data-testid^="lens-layouts-place-"]'),
+      root.querySelectorAll('[data-testid^="layout-card-place-"]'),
     );
   }, []);
 
@@ -348,7 +348,7 @@ export function LayoutPlaces({
       className={ghost ? "layout-places layout-places-ghost" : "layout-places"}
       data-layout={layout}
       data-testid={
-        ghost ? "lens-layouts-places-ghost" : "lens-layouts-places"
+        ghost ? "layout-card-places-ghost" : "layout-card-places"
       }
       ref={ghost ? undefined : setRootRef}
       tabIndex={!ghost && focusGroup !== undefined ? 0 : undefined}

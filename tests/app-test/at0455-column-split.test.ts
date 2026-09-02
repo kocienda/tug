@@ -73,7 +73,7 @@ const AFTER_LAND_MS = 900;
 const SPLIT = ["cmd", "ctrl"] as const;
 const SPLIT_END = ["cmd", "ctrl", "shift"] as const;
 
-const LENS_WIDTH = 420;
+const RAIL_WIDTH = 420;
 const PANE_WIDTH = 420;
 
 const frame = (paneId: string): string => `.tug-pane[data-pane-id="${paneId}"]`;
@@ -94,7 +94,7 @@ interface Rect {
 
 /**
  * Four cards in a three-up: two sharing slot 0, two sharing slot 1, plus the
- * Lens on the right.
+ * Layout card on the right.
  *
  * Two occupied-and-shared slots rather than one, because the bug a
  * single-column fixture cannot see is a seam property that is keyed by index
@@ -131,12 +131,12 @@ function deckShape() {
     panes: [
       ...members.map(([id, slot, cardId]) => pane(id, slot, cardId)),
       {
-        id: "pLens",
+        id: "pRail",
         position: { x: 0, y: 0 },
-        size: { width: LENS_WIDTH, height: 900 },
+        size: { width: RAIL_WIDTH, height: 900 },
         cardIds: ["L"],
         activeCardId: "L",
-        title: "Lens",
+        title: "Layout",
         acceptsFamilies: [],
       },
     ],
@@ -175,14 +175,14 @@ function splitFrameCount(app: App): Promise<number> {
   );
 }
 
-/** A place's mark on the Layout drawing — the Lens door for its arrangement. */
+/** A place's mark on the Layout drawing — the Layout card's door for its arrangement. */
 const placeMark = (key: string): string =>
-  `[data-testid="lens-layouts-place-${key}"]`;
+  `[data-testid="layout-card-place-${key}"]`;
 
 /** Which slots the drawing currently marks, low to high. */
 function markedSlots(app: App): Promise<number[]> {
   return app.evalJS<number[]>(
-    `Array.from(document.querySelectorAll('[data-testid="lens-layouts-places"] .layout-places-mark[data-place^="col-"]'))
+    `Array.from(document.querySelectorAll('[data-testid="layout-card-places"] .layout-places-mark[data-place^="col-"]'))
       .map(function (el) {
         return parseInt(el.getAttribute("data-place").replace("col-", ""), 10);
       })
@@ -222,7 +222,7 @@ describe.skipIf(!SHOULD_RUN)("at0455 — column split", () => {
       const app = await launchTugApp({ testName: "at0455-column-split" });
       try {
         await app.evalJS<null>(
-          `(window.__tug.setTugbankValue("dev.tugtool.lens", "widthPx", { kind: "i64", value: ${LENS_WIDTH} }), null)`,
+          `(window.__tug.setTugbankValue("dev.tugtool.layout", "widthPx", { kind: "i64", value: ${RAIL_WIDTH} }), null)`,
         );
         await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
         await app.waitForCondition<boolean>(
@@ -428,26 +428,26 @@ describe.skipIf(!SHOULD_RUN)("at0455 — column split", () => {
   );
 
   test(
-    "the Lens row and the badge menu are doors to the split, and the flip never cuts",
+    "the Layout card's row and the badge menu are doors to the split, and the flip never cuts",
     async () => {
       const app = await launchTugApp({
         testName: "at0455-column-split-doors",
       });
       try {
         await app.evalJS<null>(
-          `(window.__tug.setTugbankValue("dev.tugtool.lens", "widthPx", { kind: "i64", value: ${LENS_WIDTH} }), null)`,
+          `(window.__tug.setTugbankValue("dev.tugtool.layout", "widthPx", { kind: "i64", value: ${RAIL_WIDTH} }), null)`,
         );
         await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
         await app.dispatchControlAction("toggle-layout");
         await app.waitForCondition<boolean>(
-          `document.querySelector('[data-testid="lens-layouts-kind"]') !== null`,
+          `document.querySelector('[data-testid="layout-card-kind"]') !== null`,
           { timeoutMs: 8_000 },
         );
         await wait(AFTER_LAND_MS);
 
         // ── The picture marks every drawn slot, the empty one included. ──
         //
-        // The Lens door for a column's arrangement is a mark on the deck's own
+        // The Layout card's door for a column's arrangement is a mark on the deck's own
         // drawing rather than a row of words under it (at0469 covers the mark
         // itself); what this file still owns is that the door reaches the
         // COLUMN command and that the geometry follows.
@@ -456,7 +456,7 @@ describe.skipIf(!SHOULD_RUN)("at0455 — column split", () => {
           "a mark for every slot the kind defines, the empty slot 2 included",
         ).toEqual([0, 1, 2]);
 
-        // ── The Lens door splits. ──
+        // ── The Layout card's door splits. ──
         //
         // One mark rather than two segments: it carries the arrangement NOT in
         // force, so pressing it is always "make it the other thing" and the
@@ -583,7 +583,7 @@ describe.skipIf(!SHOULD_RUN)("at0455 — column split", () => {
         ).toEqual([0, 1, 2]);
         const survivor = await app.evalJS<string | null>(
           `(function () {
-            var el = document.querySelector('[data-testid="lens-layouts-places"] .layout-places-mark[data-place="col-0"]');
+            var el = document.querySelector('[data-testid="layout-card-places"] .layout-places-mark[data-place="col-0"]');
             return el === null ? null : el.getAttribute("data-mode");
           })()`,
         );
@@ -615,7 +615,7 @@ describe.skipIf(!SHOULD_RUN)("at0455 — column split", () => {
       });
       try {
         await app.evalJS<null>(
-          `(window.__tug.setTugbankValue("dev.tugtool.lens", "widthPx", { kind: "i64", value: ${LENS_WIDTH} }), null)`,
+          `(window.__tug.setTugbankValue("dev.tugtool.layout", "widthPx", { kind: "i64", value: ${RAIL_WIDTH} }), null)`,
         );
         await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
         await app.waitForCondition<boolean>(
@@ -625,7 +625,7 @@ describe.skipIf(!SHOULD_RUN)("at0455 — column split", () => {
         await wait(AFTER_LAND_MS);
 
         // ⌃⌘S on the focused card's slot. The chord resolves the layout
-        // selection, which with nothing picked in the Lens is the first
+        // selection, which with nothing picked in the Cards card is the first
         // responder — card A, in slot 0.
         await app.nativeKey("s", SPLIT);
         await wait(AFTER_LAND_MS);
@@ -718,7 +718,7 @@ describe.skipIf(!SHOULD_RUN)("at0455 — column split", () => {
       const app = await launchTugApp({ testName: "at0455-column-split-flow" });
       try {
         await app.evalJS<null>(
-          `(window.__tug.setTugbankValue("dev.tugtool.lens", "widthPx", { kind: "i64", value: ${LENS_WIDTH} }), null)`,
+          `(window.__tug.setTugbankValue("dev.tugtool.layout", "widthPx", { kind: "i64", value: ${RAIL_WIDTH} }), null)`,
         );
         await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
         await app.waitForCondition<boolean>(

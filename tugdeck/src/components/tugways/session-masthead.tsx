@@ -9,7 +9,7 @@
  * it is FOR, and what it is doing this second.
  *
  * **The three lines are `SessionIdentityRow`'s, not this component's.** The
- * masthead, the Lens rows, and the new-session picker rows show the same thing,
+ * masthead, the Cards card rows, and the new-session picker rows show the same thing,
  * so they wear one authoring of it — not only of the shape but of what goes in
  * it: the identity, the description ladder, the activity ladder, the phase dot,
  * and the tape are all that component's, and this one asks for them at the
@@ -129,7 +129,7 @@ import {
 } from "@/lib/session-ledger-store";
 
 /**
- * The masthead's dot box. The row's denser cut, not the Lens's 28: the masthead
+ * The masthead's dot box. The row's denser cut, not the Cards card's 28: the masthead
  * is a 72px chrome tier and a dot that size would out-shout the name it marks.
  */
 const MASTHEAD_DOT_SIZE = TUG_SESSION_ROW_STACK_DOT_SIZE;

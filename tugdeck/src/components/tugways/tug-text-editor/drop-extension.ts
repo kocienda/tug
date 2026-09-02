@@ -121,7 +121,7 @@ const IMG_EXTS: ReadonlySet<string> = new Set([
 
 /**
  * Drags the editor claims: a file drag (images → atoms, everything else →
- * filename text) and a Lens jot drag ([P05]), which lands its text at the
+ * filename text) and a Jots card jot drag ([P05]), which lands its text at the
  * drop point. Both paint the same ring + drop caret. Keyboard-driven or
  * application-specific drags pass through untouched.
  */

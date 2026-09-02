@@ -246,8 +246,8 @@ export function ConfigureTug(): ReactElement {
   const transport = useAppTransportState();
   const deck = useDeckManager();
   const deckState = useSyncExternalStore(deck.subscribe, deck.getSnapshot);
-  // The Lens stands at its pin on any restored deck, so it must not read as
-  // "this deck already holds work" — count everything but the Lens.
+  // The rail stands at its pin on any restored deck, so it must not read as
+  // "this deck already holds work" — count everything but the rail.
   const cardCount = countWorkCards(deckState);
   const [openedFirstSession, setOpenedFirstSession] = useState(false);
   // The Tug-menu "Configure Tug…" route: the wizard opened by request on an app that

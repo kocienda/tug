@@ -26,7 +26,7 @@
  *    selection state at rest, so the badge is monochrome — and it marks no
  *    level at all (`showLevel={false}`), because at that size a lit element is
  *    grit rather than an answer.
- *  - **a Lens row**, where `lens-column-badge.css` hands in the run's three
+ *  - **a Cards card row**, where `cards-column-badge.css` hands in the run's three
  *    inks. The chip there IS a control with a selection state, so the badge has
  *    one too: the element the card occupies takes the selection fill outright.
  *

@@ -164,7 +164,7 @@ attachLocalModelStore(connection);
 >>
 
 # the numeric deletes (sed -i '' '835,849d' && '521,522d' && '166d')
-file tugdeck/src/components/lens/sections/layouts-section.tsx
+file tugdeck/src/components/layout/layout-card.tsx
   delete 835 .. 849
   delete 521 .. 522
   delete 166

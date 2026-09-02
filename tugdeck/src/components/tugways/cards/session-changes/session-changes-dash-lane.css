@@ -8,7 +8,7 @@
 .session-changes-dash-lane {
   display: flex;
   flex-direction: column;
-  /* The air between one dash and the next — the same step the Lens gives its
+  /* The air between one dash and the next — the same step the Dashes card gives its
      blocks. A dash is two lines, and at 2px the blocks touched: the second
      line of one sat as close to the eyebrow of the next as to its own. */
   gap: var(--tug-space-xl);

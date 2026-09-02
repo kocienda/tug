@@ -32,7 +32,7 @@
  *
  * The stale-descend heal this file used to pin third went with the gesture it
  * rode: it needed a re-entry into a surface that already held the first
- * responder, which is what ⌘L into the Lens was and what no rail card has —
+ * responder, which is what ⌘L into the Cards card was and what no rail card has —
  * the rail ladder's third state hides the side instead. Re-entry into a rail
  * is at0501's.
  *

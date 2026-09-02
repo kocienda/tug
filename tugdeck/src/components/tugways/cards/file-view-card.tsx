@@ -4,7 +4,7 @@
  * One card renders every viewable file kind; the body branches on
  * `classifyFileKind` of its bound path. A future kind is a branch here, not a
  * new card: one registry entry, one seed shape (`{ path }`), one open-registry
- * story, one Lens filter.
+ * story, one Cards card filter.
  *
  * The card is strictly read-only. It keeps no dirty state, registers no save
  * plumbing, and publishes no `menuState.file` block — which is why the native
@@ -224,7 +224,7 @@ export function FileViewCardContent({ cardId }: { cardId: string }) {
   }, [cardId]);
 
   // A fresh card binds its path AFTER mount (the seed restores), so registry
-  // consumers that project the card — the Lens Files list — must re-read when
+  // consumers that project the card — the Cards card Files list — must re-read when
   // the binding lands, not only when the card registers.
   useLayoutEffect(() => {
     pathRef.current = path;

@@ -5450,10 +5450,10 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
     // They come apart because `reconcileDescendedRow` decides the descend is
     // over by asking `currentFocusMode()` / `isFocusModePushed()`, and both
     // delegate to the manager's ACTIVE context. Assigning a slot hands
-    // activation to the slotted card, so for as long as the Lens is in the
+    // activation to the slotted card, so for as long as the rail is in the
     // background those two answer about a different card's stack entirely —
     // base mode, nothing pushed — and the record is dropped as though the user
-    // had escaped out of the row. The Lens's own stack still holds the scope,
+    // had escaped out of the row. The rail's own stack still holds the scope,
     // which is exactly the state ⌘L comes back to.
     //
     // So the ref is treated as derived rather than authoritative: whenever our
@@ -6147,7 +6147,7 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
     );
 
     // A pointerdown a finer gesture affordance claimed (`defaultPrevented` —
-    // a Lens row arming its carry). Selection does not commit on that press,
+    // a rail row arming its carry). Selection does not commit on that press,
     // because the press may be about to become a drag; it commits on the
     // CLICK instead, which only arrives if the gesture stayed a click. A drag
     // swallows its own trailing click, so it selects nothing.
@@ -6255,7 +6255,7 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
         // mousedown `preventDefault` eats the click).
         //
         // A `defaultPrevented` pointerdown belongs to a finer gesture
-        // affordance that claimed the pointer before it bubbled here — a Lens
+        // affordance that claimed the pointer before it bubbled here — a rail
         // row arming its own reorder carry — and cannot be read as a
         // row-selection gesture YET, because it does not know which it is: a
         // carry must reorder without selecting (for a session row, `onSelect`

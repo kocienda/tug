@@ -2,11 +2,11 @@
  * at0250-focus-steal-trap.test.ts — the watchdog's steal trap ([P04] /
  * Spec S03 of the keyboard-as-engine-state plan).
  *
- * The at0247 Phase-B shape, reachable via the activation channel: the Lens
+ * The at0247 Phase-B shape, reachable via the activation channel: the Jots card
  * holds the keyboard target (ring on the jots list, engine-routed) while
  * a session editor card is present. A RAW `.focus()` on the editor's
  * contenteditable — the exact write class behind the historical
- * relaunch-with-Lens-focus failure — must:
+ * relaunch-with-sidebar-focus failure — must:
  *
  *   1. steal nothing: the ring stays on the jots list, `violations`
  *      stays 0 (keys never routed through the stolen register);
@@ -14,7 +14,7 @@
  *   3. be ATTRIBUTED: the `steals` ledger names the offender — a raw write
  *      introduced next month announces itself instead of being silently
  *      absorbed;
- *   4. leave the keyboard alive: a native ArrowDown still moves the Lens
+ *   4. leave the keyboard alive: a native ArrowDown still moves the Jots card
  *      cursor.
  *
  * The steal it stages is a raw DOM focus write, and the correction it asserts
@@ -137,7 +137,7 @@ describe.skipIf(!SHOULD_RUN)("at0250 — the watchdog's steal trap", () => {
           );
 
           // THE STEAL: a raw focus write on the editor's contenteditable
-          // while the Lens holds the target — outside any granted window.
+          // while the Jots card holds the target — outside any granted window.
           await app.evalJS<void>(
             `document.querySelector('[data-card-id="A"] .cm-content').focus()`,
           );
@@ -171,7 +171,7 @@ describe.skipIf(!SHOULD_RUN)("at0250 — the watchdog's steal trap", () => {
             verdict.stealOffenders.some((s) => s.includes("cm-")),
           ).toBe(true);
 
-          // The keyboard is alive: ArrowDown moves the Lens cursor.
+          // The keyboard is alive: ArrowDown moves the Jots card cursor.
           await app.nativeKey("ArrowDown");
           await app.waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(CURSOR)}) !== null`,

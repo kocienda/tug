@@ -50,7 +50,7 @@ import { launchTugApp, note, type App } from "./_harness";
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
 
-const LENS_WIDTH = 420;
+const RAIL_WIDTH = 420;
 /** The settle window, with room for a landing tween. */
 const AFTER_LAND_MS = 900;
 /** The slim content-width preset. */
@@ -68,7 +68,7 @@ const COMMAND = 1 << 20;
 const wait = (ms: number): Promise<void> =>
   new Promise<void>((r) => setTimeout(r, ms));
 
-/** A deck of `count` content cards, one per slot, with the Lens on the right. */
+/** A deck of `count` content cards, one per slot, with the Layout card on the right. */
 function deckShape(
   count: number,
   layout: "fit" | "flow",
@@ -97,12 +97,12 @@ function deckShape(
         slot: index,
       })),
       {
-        id: "pLens",
+        id: "pRail",
         position: { x: 0, y: 0 },
-        size: { width: LENS_WIDTH, height: 900 },
+        size: { width: RAIL_WIDTH, height: 900 },
         cardIds: ["L"],
         activeCardId: "L",
-        title: "Lens",
+        title: "Layout",
         acceptsFamilies: [],
       },
     ],
@@ -121,14 +121,14 @@ async function openDeck(
   options: { cards: number; layout: "fit" | "flow"; slots?: number },
 ): Promise<void> {
   await app.evalJS<null>(
-    `(window.__tug.setTugbankValue("dev.tugtool.lens", "widthPx", { kind: "i64", value: ${LENS_WIDTH} }), null)`,
+    `(window.__tug.setTugbankValue("dev.tugtool.layout", "widthPx", { kind: "i64", value: ${RAIL_WIDTH} }), null)`,
   );
   await app.seedDeckState({
     state: deckShape(options.cards, options.layout, options.slots),
     focusCardId: "A",
   });
   await app.waitForCondition<boolean>(
-    `document.querySelector('[data-testid="lens-layouts-plan"]') !== null`,
+    `document.querySelector('[data-testid="layout-card-plan"]') !== null`,
     { timeoutMs: 8_000 },
   );
   await wait(AFTER_LAND_MS);
@@ -141,9 +141,9 @@ async function bandWidth(app: App): Promise<number> {
     `(function () {
       var box = document.querySelector("[data-deck-canvas-background]")
         .getBoundingClientRect();
-      var lens = document.querySelector('.tug-pane[data-pane-id="pLens"]')
+      var rail = document.querySelector('.tug-pane[data-pane-id="pRail"]')
         .getBoundingClientRect();
-      return (lens.left - 5) - (box.left + 5);
+      return (rail.left - 5) - (box.left + 5);
     })()`,
   );
 }

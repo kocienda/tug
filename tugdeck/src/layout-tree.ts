@@ -304,9 +304,9 @@ export interface TugPaneState {
    * imposer does not place. A slotted pane derives its horizontal anchor
    * and its full canvas height at render (see `lib/layout-imposer.ts`)
    * while still owning its geometry per [L09]; the pane's width is never
-   * touched by the imposer. The Lens pane is imposed too but never
+   * touched by the imposer. The rail pane is imposed too but never
    * slotted — it is the strip's fixed end, pinned from
-   * `imposition.lens`, and {@link validateDeckState} rejects a Lens pane
+   * `imposition.sidebars`, and {@link validateDeckState} rejects a rail pane
    * carrying a slot. Additive-optional like `widthPreset?` — no
    * serialization version bump.
    */
@@ -322,8 +322,9 @@ export interface TugPaneState {
  * - `activePaneId` identifies the deck's currently-active pane, if any.
  * - `imposition` is the deck's layout imposition: `kind`, the active N-up
  *   rule the imposer places slotted panes with (absent = nothing imposed),
- *   and `lens`, the side the Lens holds. Always present; the default is
- *   `{ lens: "right" }`.
+ *   and `sidebars`, where each sidebar card records the side it holds and
+ *   whether it stands at its pin. Always present; a card absent from it has
+ *   never been placed and opens on the default side.
  * - `hasFocus` tracks whether the tugdeck window is the OS-foreground
  *   window. Session-only (never serialized): the deck store seeds it
  *   from `document.hasFocus()` at construction and flips it on window
@@ -463,7 +464,7 @@ export function clampPanesToDeck(state: DeckState): DeckState {
  *   3. no pane has `cardIds.length === 0`;
  *   4. every `pane.activeCardId` is a member of that pane's `cardIds`;
  *   5. when `state.activePaneId` is set, it references a real pane;
- *   6. at most one pane hosts the Lens card, and it carries no `slot`.
+ *   6. at most one pane hosts any one sidebar card, and it carries no `slot`.
  *   7. no pane's `position.y` is above the deck's top edge — a title bar
  *      the user cannot reach is a trap, not a layout ({@link DECK_TOP_Y}).
  *   8. when `state.bullseyePaneId` is set, it references a real pane. A

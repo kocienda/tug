@@ -80,7 +80,7 @@ function imposedDeckShape() {
       pane("p3", 2, "C"),
     ],
     activePaneId: "p1",
-    imposition: { kind: "three-up", lens: "right" },
+    imposition: { kind: "three-up", sidebars: {} },
     hasFocus: true,
   };
 }

@@ -1,5 +1,5 @@
 /**
- * `jotsStore` — the [L02] store surface for the Jots Lens section.
+ * `jotsStore` — the [L02] store surface for the Jots card.
  *
  * Composes the pure logic in `jots-doc.ts` with the live JOTS feed,
  * optimistic mutations, debounced autosave (`PUT /api/jots`), a bounded

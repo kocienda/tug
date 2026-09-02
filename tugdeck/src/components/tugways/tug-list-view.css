@@ -196,7 +196,7 @@ body {
    IT USED TO WEAR ONE, AND THAT IS WORTH KEEPING because the machinery it
    needed is what made the case against it. A boundary mark on a scroller cannot
    be a plain outline: outside the border box the list is routinely edge-to-edge
-   in a clipping host (a Lens band is `overflow: hidden` at zero inline
+   in a clipping host (a rail band is `overflow: hidden` at zero inline
    padding), and inside it an outline paints BEFORE the element's positioned
    descendants, so a selected row's opaque ground erased the stroke along its
    own edges and a sticky header cut the sides. Drawing it took a sticky overlay
@@ -225,7 +225,7 @@ body {
    in-flow box rather than `padding-block`: sticky descendants must pin against
    the scrollport's padding-box edge. It has to be the FIRST in-flow box, and a
    `::before` pseudo would always precede it, so the spacer is its own element.
-   Zero-height consumers (the Lens lists) render it at zero height. */
+   Zero-height consumers (the rail lists) render it at zero height. */
 .tug-list-view-top-spacer {
   position: sticky;
   top: 0;

@@ -6860,8 +6860,8 @@ Some context.
     }
 
     /// The feed's shared composition carries the same declared stage and step
-    /// progress `status` reports — which is what lights up the Lens Dashes
-    /// section and the Changes dash lane with no frontend change ([P01]).
+    /// progress `status` reports — which is what lights up the Dashes card
+    /// and the Changes dash lane with no frontend change ([P01]).
     #[serial]
     #[test]
     fn detail_entries_carry_declared_stage_and_step() {

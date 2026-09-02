@@ -167,7 +167,7 @@ pub(crate) fn bind(
         return DashApiOutcome::UnknownSession;
     };
     // **A session may only bind a dash in its own project**, which is the rule
-    // the Lens's Bind control already states to the user ("This dash belongs to
+    // the Dashes card's Bind control already states to the user ("This dash belongs to
     // …") and the server was taking on trust. It is not a nicety: without it a
     // short-lived CLI process anywhere on the machine can rebind a live
     // session to a dash in a directory that session has never seen. That is
@@ -254,7 +254,7 @@ pub(crate) fn unbind(ledger: &SessionLedger, tug_session_id: &str) -> DashApiOut
 /// **No receipt and no hand-back.** There is no card left to paint one on: the
 /// entry is going `Closed`, and `wheel::hand_back` refuses `Closed` by
 /// design. That is not a silent failure — the record says it, `tugtool dash
-/// arc` says it, and the Lens says it. The only surface missing is one that
+/// arc` says it, and the Dashes card says it. The only surface missing is one that
 /// does not exist.
 ///
 /// Unlike an ending, this path *does* write the record: nothing terminal has

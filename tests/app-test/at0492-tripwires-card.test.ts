@@ -235,7 +235,7 @@ describe.skipIf(!SHOULD_RUN)(
             ).toBeCloseTo(closedTitleX, 0);
 
             // The brief is a paragraph and the row shows its first sentence.
-            // Printed whole it claimed more height than every other Lens
+            // Printed whole it claimed more height than every other sidebar
             // section put together, and the rail had no way to give it.
             const gist = await app.evalJS<string>(
               `document.querySelector("[data-tripwires-gist]").textContent`,

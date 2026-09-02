@@ -15,12 +15,12 @@
  *     fact about it.
  *   - `DashLifecycleLine` — track · glyph · fraction · note · facts. No age.
  *   - `DashLifecycleBlock` — eyebrow (atom · rule · workers) over the line:
- *     the Lens row and the shade row, at the rail and reading scales. The
+ *     the rail row and the shade row, at the rail and reading scales. The
  *     eyebrow says WHO, the line says WHAT — every reading of the dash's
  *     state, the phase glyph included, is on the second line.
  *
  * **Two registers, one grammar.** The strip belongs to the three surfaces
- * whose subject IS the dash (the Lens's Dashes section, the Changes shade, the
+ * whose subject IS the dash (the rail's Dashes section, the Changes shade, the
  * DASH placard); the two where a session is the subject get the mark instead.
  * The sixth, Z2's DASH cell, is an instrument readout and takes the shape its
  * four neighbours already take: two dots and a word. The rules are [D168].
@@ -109,7 +109,7 @@ const BRIEF = `${ROOT}/.tug/dashes/tugedit-bringup/brief.md`;
 
 sessionNameStore.setName(WORKER, "tugedit bringup");
 sessionTagStore.setTag(WORKER, "juicy-river-3");
-sessionNameStore.setName(SOLO, "Lens polish");
+sessionNameStore.setName(SOLO, "rail polish");
 sessionTagStore.setTag(SOLO, "amber-fox-7");
 
 function steps(
@@ -168,8 +168,8 @@ interface Moment {
 const IMPLEMENT_TITLE = "`tugtool file edit`, the `tugedit` bin, and the receipt";
 const DRAFT_SUBJECT = "Add tugedit-core and the edit-program language";
 const DASH = "tugedit-bringup";
-const SOLO_SUBJECT = "Lens Dashes empty state reads None, centered";
-const SOLO_DASH = "lens-none-empty";
+const SOLO_SUBJECT = "rail Dashes empty state reads None, centered";
+const SOLO_DASH = "rail-none-empty";
 const SOLO_PLAN = `${ROOT}/.tug/dashes/${SOLO_DASH}/plan.md`;
 
 const MOMENTS: readonly Moment[] = [
@@ -184,7 +184,7 @@ const MOMENTS: readonly Moment[] = [
   {
     key: "devise",
     caption:
-      "Devise is on the card — the point every surface but the Lens shows nothing for today",
+      "Devise is on the card — the point every surface but the rail shows nothing for today",
     workers: [WORKER],
     prompt: "/tugplug:dash-devise tugedit-bringup",
     branched: false,
@@ -699,7 +699,7 @@ export function GalleryDashLifecycle(): React.ReactElement {
               <Worker sessionId={WORKER} register="reading" />
               <TugDashAtom name={DASH} register="reading" />
             </span>
-            <TugDashAtom name="lens-none-empty" register="reading" />
+            <TugDashAtom name="rail-none-empty" register="reading" />
           </div>
         </Stage>
       </section>
@@ -804,7 +804,7 @@ export function GalleryDashLifecycle(): React.ReactElement {
         <p className="cg-dash-prose">
           Two surfaces take this rather than the track, and they are the two
           where a SESSION is the subject and the dash is one fact about it: the
-          session card's masthead title line, and the Lens's session rows. Both
+          session card's masthead title line, and the rail's session rows. Both
           lead with a name that elides, and the strip beside an eliding name is
           a graphic competing with the thing the row is named for. The pill
           wears the track's own palette and breathes on the track's own cycle,
@@ -902,7 +902,7 @@ export function GalleryDashLifecycle(): React.ReactElement {
                 </div>
                 <div className="cg-dash-surface">
                   <span className="cg-dash-surface-name">
-                    Lens / Changes shade · DashLifecycleBlock size=read
+                    rail / Changes shade · DashLifecycleBlock size=read
                   </span>
                   <DashLifecycleBlock
                     name={name}
@@ -1037,7 +1037,7 @@ export function GalleryDashLifecycle(): React.ReactElement {
             </div>
             <div className="cg-dash-surface">
               <span className="cg-dash-surface-name">
-                Lens / Changes shade · DashLifecycleBlock size=read
+                rail / Changes shade · DashLifecycleBlock size=read
               </span>
               <DashLifecycleBlock
                 name={BLOCKED_DASH}

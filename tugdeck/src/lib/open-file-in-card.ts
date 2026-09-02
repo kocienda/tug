@@ -78,7 +78,7 @@ function openFileInViewerCard(store: IDeckManagerStore, path: string): void {
   }
 
   // Same save-before-activation discipline as the Text fall-through: the
-  // surface that dispatched this open — the Lens Files list, say — must save
+  // surface that dispatched this open — the Cards card Files list, say — must save
   // its focus bag before `addCard` activates the new card ([L23]).
   const outgoing = store.getFirstResponderCardId();
   const slot = neighborSlot(store, outgoing);
@@ -132,7 +132,7 @@ export function openFileInCard(
   // Save the outgoing card's focus bag before the new card claims focus.
   // `addCard` activates the fresh card directly (no `transferFocusForActivation`
   // to run the outgoing save the reuse / newTab / existing paths get), so
-  // without this the previously-focused surface — e.g. the Lens Text Files list
+  // without this the previously-focused surface — e.g. the Cards card Text Files list
   // that dispatched this open — loses its saved keyboard key view, and a later
   // Cmd-L back into it falls to default-focus (wrong section, no ring) instead
   // of restoring the row the user was on ([L23] save-before-activation).

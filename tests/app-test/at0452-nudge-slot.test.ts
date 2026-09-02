@@ -16,7 +16,7 @@
  * quietly disagree about what they are acting on: the first responder with no
  * selection, an explicit multi-card selection, and — the rung the whole ladder
  * was built for — the Cards list's cursor row while the keyboard is in the
- * Lens, where the first responder is a rail and reading it alone would refuse.
+ * Cards card, where the first responder is a rail and reading it alone would refuse.
  *
  * The batch claim is held the way at0451 holds it, by the cut detector rather
  * than by geometry: both cards land in the right slots whether the mutator
@@ -44,7 +44,7 @@ const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
 
 const FRAMES = ".tug-pane[data-pane-id]";
-const LENS_WIDTH = 675;
+const RAIL_WIDTH = 675;
 const PANE_WIDTH = 420;
 /** The settle window (`IMPOSITION_SETTLE_MS`) plus room for the tween to land. */
 const AFTER_LAND_MS = 900;
@@ -103,17 +103,17 @@ function deckShape() {
       pane("p2", 1, "B"),
       pane("p3", 2, "C"),
       {
-        id: "pLens",
+        id: "pRail",
         position: { x: 0, y: 0 },
-        size: { width: LENS_WIDTH, height: 900 },
+        size: { width: RAIL_WIDTH, height: 900 },
         cardIds: ["L"],
         activeCardId: "L",
-        title: "Lens",
+        title: "Layout",
         acceptsFamilies: [],
       },
     ],
     activePaneId: "p1",
-    imposition: { kind: "three-up", lens: "right" },
+    imposition: { kind: "three-up", sidebars: { layout: { side: "right" } } },
     hasFocus: true,
   };
 }
@@ -172,7 +172,7 @@ async function cursorTitle(app: App): Promise<string> {
  * Park the cursor on the row whose text contains `title`.
  *
  * Home first, then down — never down from wherever the cursor happens to be:
- * the list's last row hands the arrow onward to the next Lens section rather
+ * the list's last row hands the arrow onward rather
  * than clamping, so a walk that starts below its target leaves the Cards list
  * and the cursor stops existing. Fails loudly rather than walking forever.
  */
@@ -200,9 +200,9 @@ async function focusCardsList(app: App): Promise<void> {
   );
 }
 
-async function seedLensPreferred(app: App): Promise<void> {
+async function seedRailPreferred(app: App): Promise<void> {
   await app.evalJS<null>(
-    `(window.__tug.setTugbankValue("dev.tugtool.lens", "widthPx", { kind: "i64", value: ${LENS_WIDTH} }), null)`,
+    `(window.__tug.setTugbankValue("dev.tugtool.layout", "widthPx", { kind: "i64", value: ${RAIL_WIDTH} }), null)`,
   );
 }
 
@@ -214,7 +214,7 @@ describe.skipIf(!SHOULD_RUN)(
       async () => {
         const app = await launchTugApp({ testName: "at0452-nudge-slot" });
         try {
-          await seedLensPreferred(app);
+          await seedRailPreferred(app);
           await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
           await app.waitForCondition<boolean>(
             `document.querySelectorAll(${JSON.stringify(FRAMES)}).length === 4`,
@@ -321,11 +321,11 @@ describe.skipIf(!SHOULD_RUN)(
     );
 
     test(
-      "the chord reaches the handler with the keyboard in the Lens",
+      "the chord reaches the handler with the keyboard in the Cards card",
       async () => {
-        const app = await launchTugApp({ testName: "at0452-nudge-lens" });
+        const app = await launchTugApp({ testName: "at0452-nudge-cards" });
         try {
-          await seedLensPreferred(app);
+          await seedRailPreferred(app);
           await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
           await app.waitForCondition<boolean>(
             `document.querySelectorAll(${JSON.stringify(FRAMES)}).length === 4`,
@@ -334,7 +334,7 @@ describe.skipIf(!SHOULD_RUN)(
           await wait(AFTER_LAND_MS);
           await setSelection(app, []);
 
-          // With the keyboard in the Cards list the first responder is the Lens
+          // With the keyboard in the Cards list the first responder is the Cards card
           // — a rail, which has no slot. Read through the first responder alone
           // this refuses; read through the ladder's cursor rung it moves the row
           // the caret is standing on, which is the whole reason the rung exists.
@@ -350,7 +350,7 @@ describe.skipIf(!SHOULD_RUN)(
           const slots = await slotsByCard(app);
           expect(
             slots.C,
-            "the cursor row nudged left while the Lens held the keyboard",
+            "the cursor row nudged left while the Cards card held the keyboard",
           ).toBe(1);
           expect(slots.A, "and nothing else moved").toBe(0);
           expect(slots.B, "nothing at all").toBe(1);

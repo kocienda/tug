@@ -21,7 +21,7 @@
  * things drew them. They used to do it by each spelling the same five
  * declarations, with a comment conceding the duplication was cheaper than a
  * cross-import. That holds at two users and stops holding at the third, which
- * is where the Lens and the dash picker were about to arrive.
+ * is where the rail and the dash picker were about to arrive.
  *
  * Laws: [L19] file pair, docblock, `data-slot`; [L20] owns `--tugx-section-label-*`
  * and composes no other component's tokens.

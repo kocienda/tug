@@ -31,7 +31,7 @@
  * user answers — and so is the tool call that dialog is blocked on. That is
  * not pending in the sense above: the work is underway and the user is
  * standing in it. It is also the one condition in the app whose entire
- * purpose is to be noticed, from a Lens rail across the room, so it takes
+ * purpose is to be noticed, from a Cards card rail across the room, so it takes
  * the caution tone AND the pulse. Every yellow dot in the app says the same
  * thing the same way: answer me.
  *

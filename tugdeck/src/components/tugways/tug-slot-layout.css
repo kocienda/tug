@@ -79,7 +79,7 @@
 
 /* ── The run, seated in a popup ───────────────────────────────────────────
    Both surfaces that open the whole arrangement as a bubble — a card's own
-   slot badge and a Lens row's windowed run — put this class on the run
+   slot badge and a Cards card row's windowed run — put this class on the run
    inside it, because they are the same surface reached from two places: a
    reader who learns the gesture on one meets the same target on the other.
 

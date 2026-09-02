@@ -88,7 +88,7 @@ const SAVE_SETTLE_MS = 1_200;
 const SETTLE_TAIL_MS = 900;
 
 const RAIL_WIDTH = 420;
-const LENS_PANE = "pLens";
+const LAYOUT_PANE = "pLayout";
 const JOTS_PANE = "pJots";
 
 const frame = (paneId: string): string =>
@@ -106,12 +106,12 @@ function deckShape() {
     ],
     panes: [
       {
-        id: LENS_PANE,
+        id: LAYOUT_PANE,
         position: { x: 0, y: 0 },
         size: { width: RAIL_WIDTH, height: 900 },
         cardIds: ["L"],
         activeCardId: "L",
-        title: "Lens",
+        title: "Layout",
         acceptsFamilies: [],
       },
       {
@@ -124,7 +124,7 @@ function deckShape() {
         acceptsFamilies: [],
       },
     ],
-    activePaneId: LENS_PANE,
+    activePaneId: LAYOUT_PANE,
     imposition: {
       kind: "three-up",
       sidebars: { layout: { side: "right" }, jots: { side: "right" } },
@@ -371,11 +371,11 @@ describe.skipIf(!SHOULD_RUN)(
             );
             const stacked = await railRects(app);
             expect(
-              Math.abs(stacked[LENS_PANE].top - stacked[JOTS_PANE].top),
+              Math.abs(stacked[LAYOUT_PANE].top - stacked[JOTS_PANE].top),
               "stacked members share a top edge",
             ).toBeLessThanOrEqual(EPSILON);
             expect(
-              Math.abs(stacked[LENS_PANE].bottom - stacked[JOTS_PANE].bottom),
+              Math.abs(stacked[LAYOUT_PANE].bottom - stacked[JOTS_PANE].bottom),
               "and a bottom edge",
             ).toBeLessThanOrEqual(EPSILON);
             expect(await splitFrameCount(app), "nothing is split yet").toBe(0);
@@ -438,27 +438,27 @@ describe.skipIf(!SHOULD_RUN)(
               // Raise whichever member is currently behind, so the click has
               // something to change.
               const buried =
-                zBefore[LENS_PANE] < zBefore[JOTS_PANE] ? LENS_PANE : JOTS_PANE;
+                zBefore[LAYOUT_PANE] < zBefore[JOTS_PANE] ? LAYOUT_PANE : JOTS_PANE;
               await app.nativeClickAtElement(
                 `${frame(buried)} .tug-pane-title-bar`,
               );
               await app.waitForCondition<boolean>(
                 `(function () {
                   var el = document.querySelector(${JSON.stringify(
-                    frame(LENS_PANE),
+                    frame(LAYOUT_PANE),
                   )});
-                  return parseInt(getComputedStyle(el).zIndex, 10) !== ${zBefore[LENS_PANE]};
+                  return parseInt(getComputedStyle(el).zIndex, 10) !== ${zBefore[LAYOUT_PANE]};
                 })()`,
                 { timeoutMs: 5_000 },
               );
               const zAfter = await railZIndexes(app);
               expect(
-                zAfter[buried] > zAfter[buried === LENS_PANE ? JOTS_PANE : LENS_PANE],
+                zAfter[buried] > zAfter[buried === LAYOUT_PANE ? JOTS_PANE : LAYOUT_PANE],
                 "the click really did raise the pane — otherwise this proves nothing",
               ).toBe(true);
               await settled(app);
               const after = await railRects(app);
-              for (const paneId of [LENS_PANE, JOTS_PANE]) {
+              for (const paneId of [LAYOUT_PANE, JOTS_PANE]) {
                 expect(
                   Math.abs(after[paneId].top - before[paneId].top),
                   `${paneId} did not move vertically when a member was raised`,
@@ -483,16 +483,16 @@ describe.skipIf(!SHOULD_RUN)(
               await app.waitForCondition<boolean>(
                 `(function () {
                   var r = document.querySelector(${JSON.stringify(
-                    frame(LENS_PANE),
+                    frame(LAYOUT_PANE),
                   )}).getBoundingClientRect();
-                  return Math.abs(r.height - ${before[LENS_PANE].height}) > 2;
+                  return Math.abs(r.height - ${before[LAYOUT_PANE].height}) > 2;
                 })()`,
                 { timeoutMs: 5_000 },
               );
               await settled(app);
               const after = await railRects(app);
               const shortest = Math.min(
-                after[LENS_PANE].height,
+                after[LAYOUT_PANE].height,
                 after[JOTS_PANE].height,
               );
               expect(
@@ -527,10 +527,10 @@ describe.skipIf(!SHOULD_RUN)(
               const before = await railRects(app);
               const orderBefore = await railOrderOnScreen(app);
               const upperPane =
-                before[LENS_PANE].top < before[JOTS_PANE].top
-                  ? LENS_PANE
+                before[LAYOUT_PANE].top < before[JOTS_PANE].top
+                  ? LAYOUT_PANE
                   : JOTS_PANE;
-              const lower = before[upperPane === LENS_PANE ? JOTS_PANE : LENS_PANE];
+              const lower = before[upperPane === LAYOUT_PANE ? JOTS_PANE : LAYOUT_PANE];
               const column = Math.round(
                 before[upperPane].left + before[upperPane].width / 2,
               );
@@ -555,7 +555,7 @@ describe.skipIf(!SHOULD_RUN)(
                 // drop failed to take back off would show up here as a frame
                 // standing somewhere the imposer never put it.
                 const afterNudge = await railRects(app);
-                for (const paneId of [LENS_PANE, JOTS_PANE]) {
+                for (const paneId of [LAYOUT_PANE, JOTS_PANE]) {
                   expect(
                     Math.abs(afterNudge[paneId].top - before[paneId].top),
                     `${paneId} came back to where the nudge found it`,
@@ -594,12 +594,12 @@ describe.skipIf(!SHOULD_RUN)(
               const after = await railRects(app);
               // The members traded places…
               expect(
-                after[LENS_PANE].top > after[JOTS_PANE].top,
-              ).not.toBe(before[LENS_PANE].top > before[JOTS_PANE].top);
+                after[LAYOUT_PANE].top > after[JOTS_PANE].top,
+              ).not.toBe(before[LAYOUT_PANE].top > before[JOTS_PANE].top);
               // …and each kept its own height, because a weight is keyed by
               // the card rather than by the position. A height that moved with
               // the slot would be the positional-fractions bug.
-              for (const paneId of [LENS_PANE, JOTS_PANE]) {
+              for (const paneId of [LAYOUT_PANE, JOTS_PANE]) {
                 expect(
                   Math.abs(after[paneId].height - before[paneId].height),
                   `${paneId} carried its height to its new place`,
@@ -625,7 +625,7 @@ describe.skipIf(!SHOULD_RUN)(
               );
               await settled(app);
               const alone = await railRects(app);
-              const survivor = alone[LENS_PANE];
+              const survivor = alone[LAYOUT_PANE];
               expect(
                 Math.abs(survivor.top - GAP),
                 "the survivor takes the whole run, top",
@@ -945,7 +945,7 @@ describe.skipIf(!SHOULD_RUN)(
             // exactly the state worth asserting: focus on one member, the
             // picker open on the other.
             await app.nativeClickAtElement(
-              `${frame(LENS_PANE)} .tug-pane-title-bar`,
+              `${frame(LAYOUT_PANE)} .tug-pane-title-bar`,
             );
             await app.waitForCondition<boolean>(
               `window.__tug.getActiveCardId() === "L"`,
@@ -964,7 +964,7 @@ describe.skipIf(!SHOULD_RUN)(
             expect(
               await checkedRowPaneId(app),
               "the check marks the focused member, not the topmost one",
-            ).toBe(LENS_PANE);
+            ).toBe(LAYOUT_PANE);
 
             // The rows read in rail order, top to bottom — the order the eye
             // reads the rail in.
@@ -1000,11 +1000,11 @@ describe.skipIf(!SHOULD_RUN)(
               `(window.__tug.dispatchControlAction("focus-session-card", { cardId: "L" }), null)`,
             );
             await app.waitForCondition<boolean>(
-              `document.querySelector('[data-testid="lens-layouts-places"] .layout-places-mark[data-place^="rail-"]') !== null`,
+              `document.querySelector('[data-testid="layout-card-places"] .layout-places-mark[data-place^="rail-"]') !== null`,
               { timeoutMs: 5_000 },
             );
             const railMarks = await app.evalJS<string[]>(
-              `Array.from(document.querySelectorAll('[data-testid="lens-layouts-places"] .layout-places-mark[data-place^="rail-"]'))
+              `Array.from(document.querySelectorAll('[data-testid="layout-card-places"] .layout-places-mark[data-place^="rail-"]'))
                 .map(function (el) { return el.getAttribute("data-place"); })
                 .sort()`,
             );
@@ -1016,7 +1016,7 @@ describe.skipIf(!SHOULD_RUN)(
             // test has just spent its length driving.
             expect(
               await app.getElementAttribute(
-                '[data-testid="lens-layouts-places"] .layout-places-mark[data-place="rail-right"]',
+                '[data-testid="layout-card-places"] .layout-places-mark[data-place="rail-right"]',
                 "data-mode",
               ),
               "the mark says what the right rail is set to",

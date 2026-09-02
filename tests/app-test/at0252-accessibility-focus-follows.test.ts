@@ -110,7 +110,7 @@ describe.skipIf(!SHOULD_RUN)("at0252 — accessibility focus-follows mirror", ()
             { timeoutMs: 5_000 },
           );
 
-          // Keyboard into the Lens: engine-routed key view on the
+          // Keyboard into the Jots card: engine-routed key view on the
           // jots list, activeElement parked on the sink. The band leads
           // its section and every control on it is a stop, so the walk
           // crosses the band before it reaches the rows.

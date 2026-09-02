@@ -587,7 +587,7 @@ pub enum TripwireCommands {
         /// Something the user should see. Requires --headline.
         #[arg(long)]
         awaiting: bool,
-        /// The one line the Lens row shows for an awaiting trip.
+        /// The one line the Tripwires row shows for an awaiting trip.
         #[arg(long)]
         headline: Option<String>,
         /// Ask for a change to be authored on a dash, saying in one line what
@@ -1102,10 +1102,10 @@ pub enum HostCommands {
     ///
     /// Posts a JSON action to the tugcast /api/tell endpoint.
     #[command(
-        long_about = "Send an action to tugcast via HTTP POST.\n\nPosts a JSON body to http://127.0.0.1:<port>/api/tell.\nThe body contains {\"action\": \"<ACTION>\", ...params}.\n\nParameters are specified with -p KEY=VALUE (repeatable).\nValues are auto-coerced: true/false -> bool, null -> null,\nintegers -> number, floats -> number, everything else -> string.\n\nExamples:\n  tugtool host tell restart\n  tugtool host tell show-card -p component=about\n  tugtool host tell toggle-lens"
+        long_about = "Send an action to tugcast via HTTP POST.\n\nPosts a JSON body to http://127.0.0.1:<port>/api/tell.\nThe body contains {\"action\": \"<ACTION>\", ...params}.\n\nParameters are specified with -p KEY=VALUE (repeatable).\nValues are auto-coerced: true/false -> bool, null -> null,\nintegers -> number, floats -> number, everything else -> string.\n\nExamples:\n  tugtool host tell restart\n  tugtool host tell show-card -p component=about\n  tugtool host tell toggle-cards"
     )]
     Tell {
-        /// Action name (e.g., reload, show-card, toggle-lens)
+        /// Action name (e.g., reload, show-card, toggle-cards)
         action: String,
 
         /// Tugcast server port (overrides --instance and CLI discovery).

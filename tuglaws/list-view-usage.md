@@ -75,7 +75,7 @@ a *data source* and a *cell renderer*; the cell renderer's job is to compose
    unconditionally — the opt-in prop is gone — because the handle is what makes
    the list's *edges* visible to the navigator, and the edges are what carry an
    arrow onward when the cursor runs off the end: to a declared seam where the
-   surface authored one, else along the liveliness net (the Lens's next
+   surface authored one, else along the liveliness net (the next rail card's
    section). Interior arrows are unchanged. The handle is **vertical-axis only**:
    a one-column list would otherwise read as a 1-D run in which `Left` means
    "cursor up", so horizontal arrows fall through to the surface's seams instead
@@ -83,7 +83,7 @@ a *data source* and a *cell renderer*; the cell renderer's job is to compose
    consulted ahead of any movement.
 
    A list that can be filtered to zero rows must withhold its `focusGroup` when
-   empty, the way the Lens sections gate theirs on `navigable` — the wash is a
+   empty, the way a filterable rail list gates its group on its row count — the wash is a
    sufficient container mark only because a cursor bar sits inside it, so a
    focusable list with no rows would have no legible focus indicator at all.
 
@@ -93,9 +93,9 @@ a *data source* and a *cell renderer*; the cell renderer's job is to compose
 
 7. **Rows are separated by a line OR a band, never both, and never from consumer CSS.** `rowSeparator` draws the hairline between rows; `rowStriping` tints alternate rows instead. They say the same thing, so a list that turns one on turns the other off — a striped list with hairlines too is stating its structure twice. Both are the primitive's, and the band especially cannot be hand-rolled in a consumer stylesheet: `:nth-child` is read against the *rendered window*, not the data, so a consumer zebra rule makes the bands crawl as the window slides under a scroll. The primitive publishes `data-row-parity` from the absolute row index for exactly this reason. **Both parities paint** — odd rows wash toward the surface's foreground, even rows toward its content surface, which are opposites in every theme. Washing one parity and leaving the other on the host surface is the obvious construction and it is wrong: one step of a few percent is legible only when it repeats, so a long list looks banded while a two-row list looks like two identical rows. Strength is a named rung (`"faint"` / `"subtle"` / `"medium"` / `"strong"` = 2 / 4 / 7 / 11%) or any percent, and it applies to both directions, so the step between neighbours is twice it.
 
-8. **A dense list sets its text measure once, with `rowTextSize`.** Rows in one list agreeing on a size matters more than each cell renderer picking for itself, so the prop deliberately outranks each `TugLabel`'s own `size`. It reaches the content column only — shrinking a list's type must not shrink its close boxes. Lists that read as one rail — the Lens's Cards list and the Jots card's, which stand one above the other when both sidebars share a side — share one measure from one place; see `lens-list-presentation.ts`.
+8. **A dense list sets its text measure once, with `rowTextSize`.** Rows in one list agreeing on a size matters more than each cell renderer picking for itself, so the prop deliberately outranks each `TugLabel`'s own `size`. It reaches the content column only — shrinking a list's type must not shrink its close boxes. Lists that read as one rail — the Cards card's list and the Jots card's, which stand one above the other when both sidebars share a side — share one measure from one place; see `rail-list-presentation.ts`.
 
-9. **An in-row action is not a row pick, and it names its target.** A close box, a trash button, a reveal — any `TugIconButton` in a row — acts on the row it sits in; picking that row is a different gesture with different consequences (a Lens Cards pick fronts the bound card). `TugListView` keeps them apart for you: a pointer gesture that lands on a focus-refusing control (`data-tug-focus="refuse"`, which every `TugIconButton` carries) commits no selection and moves no cursor. A consumer must not try to arrange this itself with `stopPropagation` on the button's click — **selection commits at pointerdown**, which has already bubbled by the time any click handler runs, so the click-level guard reads as if it worked while the row was picked a moment earlier. The action's own dispatch then has to say WHICH row it acts on: send `close-tab` with the card id, not `close`, or the pane closes whichever card is front and the user watches the wrong file go.
+9. **An in-row action is not a row pick, and it names its target.** A close box, a trash button, a reveal — any `TugIconButton` in a row — acts on the row it sits in; picking that row is a different gesture with different consequences (a Cards row pick fronts the bound card). `TugListView` keeps them apart for you: a pointer gesture that lands on a focus-refusing control (`data-tug-focus="refuse"`, which every `TugIconButton` carries) commits no selection and moves no cursor. A consumer must not try to arrange this itself with `stopPropagation` on the button's click — **selection commits at pointerdown**, which has already bubbled by the time any click handler runs, so the click-level guard reads as if it worked while the row was picked a moment earlier. The action's own dispatch then has to say WHICH row it acts on: send `close-tab` with the card id, not `close`, or the pane closes whichever card is front and the user watches the wrong file go.
 
 ## Selection ownership matrix
 
@@ -107,11 +107,11 @@ Pick the mechanism by the list's intent — do not invent a third path.
 | Pick-to-confirm (commit on OK) | consumer-owned: `delegate.onSelect` → `useState` | model / effort picker |
 | Read-only display | none + `interactive={false}` | skills / agents / help listings |
 | Tool-output display | none + `inline` | transcript body-kinds |
-| Many rows selected at once, acted on together | `multiSelect` — consumer-owned SET: the host supplies `selectedIds` and receives `onPick` / `onToggle` / `onExtendTo`, each answering whether it took the row, plus `onClear` for the `Escape` the list captures while a set stands | lens Cards (the layout selection) |
+| Many rows selected at once, acted on together | `multiSelect` — consumer-owned SET: the host supplies `selectedIds` and receives `onPick` / `onToggle` / `onExtendTo`, each answering whether it took the row, plus `onClear` for the `Escape` the list captures while a set stands | the Cards card (the layout selection) |
 
 The multi-select row is the fifth path, not a variant of the others, and its
 ownership is the point. The set lives in the consumer's store because it
-outlives the list: the Lens's Cards selection is what the deck's layout verbs
+outlives the list: the Cards card's selection is what the deck's layout verbs
 act on, and it has to survive the section collapsing away. The list renders the
 set (`data-selected` on every member row, painted by CSS, [L06]) and reports
 intents; it decides nothing about membership.
@@ -161,8 +161,8 @@ adding a consumer.
 | dev session picker (`session-picker-cells`) | `TugListRow` title/subtitle (both filter-highlighted) + trailing trash | `selectionRequired` | filtered by `TugFilterField` |
 | dev recents (`session-picker-cells`) | `TugListRow` `children` (RTL path + `<mark>`, justified) | `selectionRequired` | |
 | `/resume` overlay (`resume-sheet`) | the session-picker cells | none | filtered by `TugFilterField` |
-| lens Cards (`cards-section`) | four cell models over `TugListRow`: the session monitor (leading dot + trailing sparkline), the one-line card row (leading close box + slot picker on the title line), the generic indented subrow, and the group-header row (leading kind glyph + count, a trailing `BlockFoldCue` — the section band's own affordance one size down — and Space toggles the group) | `multiSelect` (the layout selection) + cursor | filtered by `TugFilterField`; one-line rows take striping + measure from `lens-list-presentation.ts`. Headers are `"cell"`-role, NOT the inert `"header"` role, so the arrow walk reaches them — which is why the section always passes an `initialSelectedIndex` (the cursor must seed onto a card, never onto a collapse toggle) |
-| Jots card (`jots-card`) | `TugListRow` `children` (incipit, drag source + inline markdown) | `selectionRequired` | filtered by `TugFilterField`; one-line list — striping + measure from `lens-list-presentation.ts` |
+| the Cards card (`cards-card.tsx`) | four cell models over `TugListRow`: the session monitor (leading dot + trailing sparkline), the one-line card row (leading close box + slot picker on the title line), the generic indented subrow, and the group-header row (leading kind glyph + count, a trailing `BlockFoldCue` — the section band's own affordance one size down — and Space toggles the group) | `multiSelect` (the layout selection) + cursor | filtered by `TugFilterField`; one-line rows take striping + measure from `rail-list-presentation.ts`. Headers are `"cell"`-role, NOT the inert `"header"` role, so the arrow walk reaches them — which is why the section always passes an `initialSelectedIndex` (the cursor must seed onto a card, never onto a collapse toggle) |
+| Jots card (`jots-card`) | `TugListRow` `children` (incipit, drag source + inline markdown) | `selectionRequired` | filtered by `TugFilterField`; one-line list — striping + measure from `rail-list-presentation.ts` |
 | `gallery-list-view-filter` | custom path cells | none | the `useFilteredDataSource` wrapper's living contract |
 | `rewind-sheet` | `TugListRow` title/subtitle | consumer | |
 | transcript body-kinds (`path-list`, `todo-list`, `search-result`) | see [Sanctioned exceptions](#sanctioned-exceptions) | none, `inline` | |

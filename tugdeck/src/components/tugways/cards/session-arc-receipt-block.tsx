@@ -9,7 +9,7 @@
  * `ShellExchangeBlock`.
  *
  * **It leads with the track**, which is the whole design. `DashLifecycleLine`
- * is the second line of {@link DashLifecycleBlock}, already worn by the Lens's
+ * is the second line of {@link DashLifecycleBlock}, already worn by the Dashes card's
  * Dashes section, the Changes shade's collapsed row, and the masthead placard;
  * a reader who learned the strip on any of those has learned this row for
  * free. The stages the arc actually walked go underneath, one row each.

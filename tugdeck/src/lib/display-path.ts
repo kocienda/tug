@@ -3,7 +3,7 @@
  * opened.
  *
  * A payload's path is absolute and stays absolute ([P15]); what a surface
- * *draws* is nearly always shorter — a tool header's basename, a Lens row's
+ * *draws* is nearly always shorter — a tool header's basename, a Cards card row's
  * `parent/name`, a diff header's filename. Those spellings are display
  * decisions, and they belong in one place because the alternative already
  * happened: four private `basename` helpers, three of them disagreeing about

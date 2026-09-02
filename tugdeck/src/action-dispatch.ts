@@ -585,7 +585,7 @@ export function initActionDispatch(
   // At the base mode the key card is asked first, because a card with a cycle
   // scope wants the toggle at its own responder: the session card pushes its
   // cycle mode and seeds its commit-home there. A card that registers no
-  // handler (the Lens, a diff card, anything Class-B) reports unhandled, and
+  // handler (a rail card, a diff card, anything Class-B) reports unhandled, and
   // the deck-level meaning below stands in — flip the bit, seed a ring.
   //
   // While a floating surface holds a trapped mode, the key card is the WRONG
@@ -617,7 +617,7 @@ export function initActionDispatch(
   });
 
   // set-imposition: choose the deck's N-up arrangement, or turn it off.
-  // Dispatched by the Lens Layouts section's kind picker. `kind: null` clears
+  // Dispatched by the Layout card's kind picker. `kind: null` clears
   // it, freezing every imposed pane where the user last saw it.
   registerAction("set-imposition", (payload) => {
     const kind = payload.kind;
@@ -677,7 +677,7 @@ export function initActionDispatch(
   });
 
   // set-content-width: choose the width content cards read at across the whole
-  // deck. Dispatched by the Lens Layouts section's width picker. It lands on
+  // deck. Dispatched by the Layout card's width picker. It lands on
   // every content pane at once, which is what makes it the deck's width rather
   // than a seed for the next card the user opens.
   registerAction(TUG_ACTIONS.SET_CONTENT_WIDTH, (payload) => {
@@ -690,7 +690,7 @@ export function initActionDispatch(
   });
 
   // set-imposition-layout: choose whether slots resolve as band fractions (fit)
-  // or as positions in a strip (flow). Dispatched by the Lens Layouts section's
+  // or as positions in a strip (flow). Dispatched by the Layout card's
   // Layout group. Orthogonal to the kind: the deck keeps its N-up rule and
   // every card keeps its slot, and only what a slot MEANS changes.
   registerAction(TUG_ACTIONS.SET_IMPOSITION_LAYOUT, (payload) => {
@@ -703,7 +703,7 @@ export function initActionDispatch(
   });
 
   // set-sidebar-side: choose the side of the deck a sidebar card holds — the
-  // other axis of the imposition. Dispatched by the Lens Layouts section, one
+  // other axis of the imposition. Dispatched by the Layout card, one
   // control per registered sidebar card.
   registerAction(TUG_ACTIONS.SET_SIDEBAR_SIDE, (payload) => {
     const componentId = payload.componentId;
@@ -719,7 +719,7 @@ export function initActionDispatch(
   });
 
   // set-sidebar-open: show or hide a sidebar card outright. Dispatched by the
-  // Lens Layouts section's per-card row. Deliberately NOT the three-state
+  // Layout card's per-card row. Deliberately NOT the three-state
   // toggle: that one is a summons and moves the keyboard; this one states
   // where things stand, and a settings row that stole focus on every press
   // would make the section unusable from the keyboard.
@@ -740,8 +740,8 @@ export function initActionDispatch(
     }
   });
 
-  // set-slot-window: how many places a Lens row draws around its own.
-  // Dispatched by the Lens Layouts section's Slot Window row. The only action
+  // set-slot-window: how many places a Cards card row draws around its own.
+  // Dispatched by the Layout card's Slot Window row. The only action
   // in this neighbourhood that touches no deck state at all — nothing moves,
   // nothing is arranged, the rows simply state the same fact at another width
   // — so it writes the preference and stops. Every row reads it through
@@ -756,7 +756,7 @@ export function initActionDispatch(
   });
 
   // set-rail-mode: stack or split one side's rail. Dispatched by the title
-  // bar's stack badge menu and by the Lens Layouts section's per-side rail row.
+  // bar's stack badge menu and by the Layout card's per-side rail row.
   // A side is a stack or a split — all of its visible members participate,
   // which is why the payload names a side rather than a pair of cards.
   registerAction(TUG_ACTIONS.SET_RAIL_MODE, (payload) => {
@@ -782,7 +782,7 @@ export function initActionDispatch(
   });
 
   // set-column-mode: stack or split the cards sharing one numbered slot.
-  // Dispatched by the title bar's stack badge menu, the Lens Layouts section's
+  // Dispatched by the title bar's stack badge menu, the Layout card's
   // per-slot column row, and ⌃⌘S. A slot is a stack or a split — all of its
   // members participate, which is why the payload names a slot rather than a
   // pair of cards.
@@ -814,7 +814,7 @@ export function initActionDispatch(
 
   // assign-slot: put a card's pane at a numbered position in the active
   // imposition. Dispatched by ⌘1..⌘9 on the deck canvas and by the `SlotPicker`
-  // cluster on Lens Sessions and Text Files rows. `slot` is 0-based (the
+  // cluster on the Cards card's session and text-file rows. `slot` is 0-based (the
   // buttons render 1-based).
   //
   // The assignment always flashes the card's pane, including when the card was
@@ -912,8 +912,8 @@ export function initActionDispatch(
   });
 
   // focus-session-card: activate a specific card (front its pane + promote the
-  // responder chain) and flash its title bar once. Dispatched by a Lens
-  // Sessions monitor row on click ([P04]). Like `focus-pane` it routes through
+  // responder chain) and flash its title bar once. Dispatched by a Cards card
+  // session monitor row on click ([P04]). Like `focus-pane` it routes through
   // `transferFocusForActivation` so the activation fires the full
   // will/didDeactivate + will/didActivate transition; the flash is pure
   // appearance (a CSS class toggled on the pane header DOM, removed on
@@ -963,7 +963,7 @@ export function initActionDispatch(
     const origin =
       typeof payload.originCardId === "string" ? payload.originCardId : null;
     // The named host first, the first responder second: a menu mounted in a
-    // rail — the Overview, the Lens — names a card that holds no slot of its
+    // rail — the Overview, the Cards card — names a card that holds no slot of its
     // own and so has no neighbour to offer, and the reader's focused card is
     // the better answer than the head of the arrangement.
     const slot =

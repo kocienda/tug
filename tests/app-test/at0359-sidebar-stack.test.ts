@@ -3,7 +3,7 @@
  * default.
  *
  * The deck ships with both sidebars defaulting to the right, so "what happens
- * when the Lens and Jots share a side" is the out-of-the-box picture rather than
+ * when the Layout card and Jots share a side" is the out-of-the-box picture rather than
  * a corner case. The answer is the one the deck already gives for two panes
  * sharing a slot: they stand **front-to-back**, same pin and same full height,
  * and z-order decides which you see.
@@ -13,7 +13,7 @@
  * the member rows is that door, and it is asserted here as part of the resting
  * picture. What must not drift is what a rail does when nobody has asked for
  * anything: an automatic split spent a rail to show two half-cards, which is
- * the arrangement lifting Jots out of the Lens existed to escape.
+ * the arrangement lifting Jots out of the rail existed to escape.
  *
  * What that claim decomposes into, and what this test asserts:
  *
@@ -48,7 +48,7 @@ const TEST_TIMEOUT_MS = 120_000;
 
 // The Layout card's own body: it renders only while its pane stands, and it
 // is the address that survives a hide/show cycle, which mints a new pane.
-const LENS_PANE = '.layouts-section';
+const LAYOUT_PANE = '.layouts-section';
 const JOTS_CARD = '[data-card-id] .jots-card';
 const STACK_BADGE = '[data-testid="tug-pane-title-bar-stack-badge"]';
 const STACK_MENU = '[data-testid="tug-pane-title-bar-stack-menu"]';
@@ -101,7 +101,7 @@ const FRONT_IS_JOTS_JS = `(function () {
 const RAIL_Z_JS = `Array.from(document.querySelectorAll(".tug-pane")).filter(function (p) {
   return p.querySelector(".jots-card") !== null || p.querySelector(".layouts-section") !== null;
 }).map(function (p) {
-  var kind = p.querySelector(".jots-card") !== null ? "jots" : "lens";
+  var kind = p.querySelector(".jots-card") !== null ? "jots" : "layout";
   return kind + "=" + window.getComputedStyle(p).zIndex;
 }).join(" ")`;
 
@@ -135,21 +135,21 @@ describe.skipIf(!SHOULD_RUN)(
   "at0359 — same-side sidebars stand front-to-back",
   () => {
     test(
-      "the Lens and Jots share one rail, at one rect, reachable by the stack badge",
+      "the Layout card and Jots share one rail, at one rect, reachable by the stack badge",
       async () => {
         const app = await launchTugApp({ testName: "at0359-sidebar-stack" });
         try {
-          // A content card for the rail to stand beside, then the Lens. Opened
+          // A content card for the rail to stand beside, then the Layout card. Opened
           // by its own toggle rather than left to the factory default, so this
           // test asserts the stack and not the stand-up (at0276 owns that).
           await app.dispatchControlAction("show-component-gallery");
           await app.dispatchControlAction("toggle-layout");
           await app.waitForCondition<boolean>(
-            `document.querySelector(${JSON.stringify(LENS_PANE)}) !== null`,
+            `document.querySelector(${JSON.stringify(LAYOUT_PANE)}) !== null`,
             { timeoutMs: 10_000 },
           );
-          const lensAlone = await paneRect(app, ".layouts-section");
-          expect(lensAlone).not.toBeNull();
+          const layoutAlone = await paneRect(app, ".layouts-section");
+          expect(layoutAlone).not.toBeNull();
 
           // ── Jots joins it. Both default to the right, so this is the stack. ──
           await app.dispatchControlAction("toggle-jots");
@@ -158,23 +158,23 @@ describe.skipIf(!SHOULD_RUN)(
             { timeoutMs: 10_000 },
           );
 
-          const lens = await paneRect(app, ".layouts-section");
+          const layout = await paneRect(app, ".layouts-section");
           const jots = await paneRect(app, JOTS_CARD);
-          expect(lens).not.toBeNull();
+          expect(layout).not.toBeNull();
           expect(jots).not.toBeNull();
           note(
             "rail rects",
-            `lens=${JSON.stringify(lens)} jots=${JSON.stringify(jots)}`,
+            `layout=${JSON.stringify(layout)} jots=${JSON.stringify(jots)}`,
           );
 
           // 1. The same rect, not merely the same side.
-          expect(jots, "the two members occupy one rail").toEqual(lens as Rect);
+          expect(jots, "the two members occupy one rail").toEqual(layout as Rect);
 
           // 2. The full run each — the rail did not divide to make room.
           expect(
-            lens!.height,
+            layout!.height,
             "the rail is as tall as it was before the second card joined",
-          ).toBe(lensAlone!.height);
+          ).toBe(layoutAlone!.height);
 
           // 3. The badge, on both, reading the stack's depth.
           await app.waitForCondition<boolean>(

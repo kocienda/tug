@@ -8,9 +8,7 @@
  * to lose the size you gave it.
  *
  * Keyed by componentId, on that card's own tugbank domain
- * (`dev.tugtool.<componentId>`, key `widthPx`) — never Web storage. The Lens
- * predates this and keeps its width inside `lensStore`, at exactly that domain
- * and key, so the two agree by construction if it ever moves here.
+ * (`dev.tugtool.<componentId>`, key `widthPx`) — never Web storage.
  *
  * Conformance: [L02] `useSyncExternalStore`-compatible `subscribe` +
  * `getSnapshot`, and the snapshot reference is stable while nothing changes.

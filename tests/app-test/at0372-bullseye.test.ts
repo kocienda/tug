@@ -21,7 +21,7 @@
  *     `--tug-imposer-inset-*` values rather than from a number typed here —
  *     so an implementation that centred in the canvas instead of the band
  *     (ignoring the rails) fails, which is precisely the mistake that reads
- *     as correct on a deck with no Lens open.
+ *     as correct on a deck with no rail open.
  *  2. **Every exit door, one case per row of the plan's table.** The two
  *     shapes fail differently and both are covered: the focus-shaped doors
  *     (a second chord, clicking another pane, clicking bare canvas) are a
@@ -37,10 +37,10 @@
  *  4. **An imposed pane returns to its slot.** Bullseye takes precedence
  *     over the imposition while it holds and hands the pane back to it on
  *     exit, which is the branch-ordering claim in `tug-pane.tsx`.
- *  5. **A rail bullseyes, and its place stays reserved.** The Lens takes the
+ *  5. **A rail bullseyes, and its place stays reserved.** The Layout card takes the
  *     posture like any other pane, and the assertion that separates that from
  *     a HIDE is the band's centre: read before entry, it is the same number
- *     the bullseyed Lens is centred on and the same number the band still
+ *     the bullseyed rail is centred on and the same number the band still
  *     reports while it holds. A rail treated as gone would hand its inset
  *     back, the chain would re-impose wider, and both would move. The menu
  *     gate is read in the same breath, enabled and then checked, so the gate
@@ -108,7 +108,7 @@ const SLIM = 675;
  *  because something reached every pane is unmistakable from one that did
  *  not move at all. */
 const SEEDED_WIDTH = 511;
-const LENS_WIDTH = 412;
+const RAIL_WIDTH = 412;
 
 /** The settle window (`IMPOSITION_SETTLE_MS`), with room for the tween. */
 const AFTER_LAND_MS = 900;
@@ -131,7 +131,7 @@ interface PaneRecord {
 }
 
 /**
- * Two free content panes and a pinned Lens. Free rather than slotted so the
+ * Two free content panes and a pinned Layout card. Free rather than slotted so the
  * ordinary case is the plain one; the imposed case gets its own seed below.
  */
 function freeDeck(): Record<string, unknown> {
@@ -154,12 +154,12 @@ function freeDeck(): Record<string, unknown> {
       pane("p1", 40, "A"),
       pane("p2", 60, "B"),
       {
-        id: "pLens",
+        id: "pRail",
         position: { x: 0, y: 0 },
-        size: { width: LENS_WIDTH, height: 900 },
+        size: { width: RAIL_WIDTH, height: 900 },
         cardIds: ["L"],
         activeCardId: "L",
-        title: "Lens",
+        title: "Layout",
         acceptsFamilies: [],
       },
     ],
@@ -170,7 +170,7 @@ function freeDeck(): Record<string, unknown> {
 }
 
 /**
- * A full `three-up`: slots 0, 1, 2 left to right, plus the Lens. The seeded
+ * A full `three-up`: slots 0, 1, 2 left to right, plus the Layout card. The seeded
  * `position.x` values are deliberately all bunched at the left and in an
  * order that does NOT match the slots — because an imposed pane's stored
  * position is a last-known value the imposer superseded, and reading it
@@ -204,12 +204,12 @@ function threeUpDeck(): Record<string, unknown> {
       pane("pMid", "B", 1),
       pane("pRight", "C", 2),
       {
-        id: "pLens",
+        id: "pRail",
         position: { x: 0, y: 0 },
-        size: { width: LENS_WIDTH, height: 900 },
+        size: { width: RAIL_WIDTH, height: 900 },
         cardIds: ["L"],
         activeCardId: "L",
-        title: "Lens",
+        title: "Layout",
         acceptsFamilies: [],
       },
     ],
@@ -370,7 +370,7 @@ describe.skipIf(!SHOULD_RUN)(
           const restRect = await paneRect(app, "p1");
           const restRecord = await paneRecord(app, "p1");
           const otherRect = await paneRect(app, "p2");
-          const lensRect = await paneRect(app, "pLens");
+          const railRect = await paneRect(app, "pRail");
           expect(restRect.width).toBe(SEEDED_WIDTH);
 
           // --- Entry: comfy, centred in the band, full vertical run. --------
@@ -380,7 +380,7 @@ describe.skipIf(!SHOULD_RUN)(
           const centre = Math.round(inRect.left + inRect.width / 2);
           // One pixel of slack for the sub-pixel rounding in the calc chain;
           // an implementation centring in the CANVAS rather than the band
-          // misses by half the Lens's width, not by one.
+          // misses by half the rail's width, not by one.
           expect(Math.abs(centre - (await bandCentreX(app)))).toBeLessThanOrEqual(1);
           // The run is top gap to bottom gap, not the pane's stored height.
           expect(inRect.height).toBeGreaterThan(restRect.height);
@@ -420,7 +420,7 @@ describe.skipIf(!SHOULD_RUN)(
           // The rail, by contrast, keeps its pin. A rail that left would take
           // the band's insets with it and the bullseyed card would jump the
           // moment the posture began.
-          expect(await paneRect(app, "pLens")).toEqual(lensRect);
+          expect(await paneRect(app, "pRail")).toEqual(railRect);
 
           // The Window item reports checked while the posture holds.
           expect(await menuItem(app, "window.bullseye")).toEqual({
@@ -513,38 +513,38 @@ describe.skipIf(!SHOULD_RUN)(
           await wait(AFTER_LAND_MS);
 
           // --- A rail takes the posture, and its edge stays reserved. -------
-          // The claim that separates this from a hide: while the Lens stands
+          // The claim that separates this from a hide: while the Layout card stands
           // in the middle of the band, the band is still inset by the rail's
           // width on the right. A rail that had been treated as gone would
           // hand that inset back, the chain would re-impose wider, and the
-          // Lens would land somewhere else on exit. So the band centre is
+          // Layout card would land somewhere else on exit. So the band centre is
           // read BEFORE entry and asserted to be the same one the bullseyed
-          // Lens is centred on — one number that can only agree if the place
+          // rail is centred on — one number that can only agree if the place
           // was held open.
-          const lensRect = await paneRect(app, "pLens");
-          const lensRecord = await paneRecord(app, "pLens");
+          const railRect = await paneRect(app, "pRail");
+          const railRecord = await paneRecord(app, "pRail");
           const bandBefore = await bandCentreX(app);
           await focusCard(app, "L");
           expect((await menuItem(app, "window.bullseye")).enabled).toBe(true);
 
           await bullseyeChord(app);
-          expect(await isBullseyed(app, "pLens")).toBe(true);
-          const lensIn = await paneRect(app, "pLens");
-          expect(lensIn.width).toBe(COMFY);
+          expect(await isBullseyed(app, "pRail")).toBe(true);
+          const railIn = await paneRect(app, "pRail");
+          expect(railIn.width).toBe(COMFY);
           expect(
-            Math.abs(Math.round(lensIn.left + lensIn.width / 2) - bandBefore),
+            Math.abs(Math.round(railIn.left + railIn.width / 2) - bandBefore),
           ).toBeLessThanOrEqual(1);
           expect(await bandCentreX(app)).toBe(bandBefore);
           // And nothing about the rail's record moved — the side and the
           // width the band is inset by are exactly what they were.
-          expect(await paneRecord(app, "pLens")).toEqual(lensRecord);
+          expect(await paneRecord(app, "pRail")).toEqual(railRecord);
           expect((await menuItem(app, "window.bullseye")).checked).toBe(true);
 
           // Out again, to the pixel: the rail drops back onto the edge it
           // never stopped holding.
           await bullseyeChord(app);
-          expect(await paneRect(app, "pLens")).toEqual(lensRect);
-          expect(await isBullseyed(app, "pLens")).toBe(false);
+          expect(await paneRect(app, "pRail")).toEqual(railRect);
+          expect(await isBullseyed(app, "pRail")).toBe(false);
 
           // --- An imposed pane bullseyes and returns to its slot anchor. ----
           await focusCard(app, "A");
@@ -662,24 +662,24 @@ describe.skipIf(!SHOULD_RUN)(
           expect(await paneRect(app, "p2")).toEqual(restRect);
 
           // --- On the RAIL, where the button is the only pointer door. ------
-          const lensRect = await paneRect(app, "pLens");
-          await app.revealPaneControls('.tug-pane[data-pane-id="pLens"]');
-          await app.nativeClickAtElement(button("pLens"));
+          const railRect = await paneRect(app, "pRail");
+          await app.revealPaneControls('.tug-pane[data-pane-id="pRail"]');
+          await app.nativeClickAtElement(button("pRail"));
           await wait(AFTER_LAND_MS);
-          expect(await isBullseyed(app, "pLens")).toBe(true);
-          expect((await paneRect(app, "pLens")).width).toBe(COMFY);
+          expect(await isBullseyed(app, "pRail")).toBe(true);
+          expect((await paneRect(app, "pRail")).width).toBe(COMFY);
           // A bullseyed rail exposes no edge: its one handle drags the RAIL's
           // width from the deck edge, and the frame is not standing there.
           expect(
             await app.evalJS<number>(
-              `document.querySelectorAll('.tug-pane[data-pane-id="pLens"] .tug-pane-resize').length`,
+              `document.querySelectorAll('.tug-pane[data-pane-id="pRail"] .tug-pane-resize').length`,
             ),
           ).toBe(0);
 
-          await app.nativeClickAtElement(button("pLens"));
+          await app.nativeClickAtElement(button("pRail"));
           await wait(AFTER_LAND_MS);
-          expect(await isBullseyed(app, "pLens")).toBe(false);
-          expect(await paneRect(app, "pLens")).toEqual(lensRect);
+          expect(await isBullseyed(app, "pRail")).toBe(false);
+          expect(await paneRect(app, "pRail")).toEqual(railRect);
         } finally {
           await app.close();
         }
@@ -813,7 +813,7 @@ describe.skipIf(!SHOULD_RUN)(
           const canvas = await canvasOf();
           const restLeft = await paneRect(app, "pLeft");
           const restRight = await paneRect(app, "pRight");
-          const restLens = await paneRect(app, "pLens");
+          const restRail = await paneRect(app, "pRail");
           // Sanity: the fixture really is left / centre / right on screen,
           // whatever the stored positions say.
           expect(restLeft.left).toBeLessThan(restRight.left);
@@ -832,7 +832,7 @@ describe.skipIf(!SHOULD_RUN)(
           expect(goneRight.left).toBeGreaterThanOrEqual(canvasRight);
 
           // The rail still stands.
-          expect(await paneRect(app, "pLens")).toEqual(restLens);
+          expect(await paneRect(app, "pRail")).toEqual(restRail);
 
           // And both come back to their slot anchors, to the pixel.
           await bullseyeChord(app);

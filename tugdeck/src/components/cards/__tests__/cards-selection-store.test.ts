@@ -4,7 +4,7 @@
  * The real store class, driven directly; no deck is stood up here because
  * `DeckManager`'s constructor calls `createRoot`, so the resolver ladder, the
  * prune subscription, and the collapse rule are covered against the live deck
- * in `tests/app-test/at0451-lens-multiselect.test.ts` instead of against a
+ * in `tests/app-test/at0451-cards-multiselect.test.ts` instead of against a
  * stand-in here.
  */
 import { describe, expect, test } from "bun:test";

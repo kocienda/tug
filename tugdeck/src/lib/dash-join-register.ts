@@ -2,7 +2,7 @@
  * dash-join-register — what the join says, in one sentence, everywhere.
  *
  * A dash on its way to landing passes through reconciling, ready, question,
- * joining, blocked. Three surfaces show that: the Lens Dashes
+ * joining, blocked. Three surfaces show that: the Dashes card's
  * row, the Changes shade's dash row, and the composer's status row. Before
  * this, each derived its own words, which is how two surfaces come to disagree
  * about one dash — and one of the sentences named a control that had been
@@ -166,7 +166,7 @@ export function dashJoinRegister(
   // nothing to say: a dash being worked is not trying to join, and its blockers
   // are not a join failure — a freshly created dash with no rounds carries an
   // `empty` blocker that means "nothing here yet", which read as a join refusal
-  // would put a red register on every new dash in the Lens.
+  // would put a red register on every new dash in the Dashes card.
   //
   // The exception is anything that implies somebody already acted. A live
   // join, a run in flight, a standing question or a stated refusal cannot

@@ -1,6 +1,6 @@
 /**
  * `TugDevLogStore` — module-scope owner of the in-app log buffer
- * surfaced by the `Log` section on the Lens.
+ * surfaced by the `Log` section on the DevTools card.
  *
  * Append API:
  *   ```ts
@@ -262,7 +262,7 @@ class TugDevLogStore {
     }
     // Host mirror, every build: `warn`/`error` also go to tugcast's log.
     // The Log tab is only readable by someone sitting in front of the app
-    // with the Lens open, and a release instance exposes no `window`
+    // with the DevTools card open, and a release instance exposes no `window`
     // handle onto this store — so a warning about a restore that came back
     // short was, in practice, written nowhere a person could later read.
     // `tugcast.log` is the durable, after-the-fact surface.

@@ -126,7 +126,7 @@ describe("moveKeyViewSpatial — group cursor delegation", () => {
     ctx.registerCursorHandle("list", handle);
     ctx.setKeyView("list", true);
     // No declared spatial order for this mode → the liveliness net carries the ring on
-    // to the next stop in the walk (the Lens's next section) instead of clamping.
+    // to the next stop in the walk (the rail's next section) instead of clamping.
     expect(m.moveKeyViewSpatial("down")).toBe(true);
     expect(m.keyView()).toBe("next-section");
     expect(state.index).toBe(1); // the cursor did not move; the ring left the group

@@ -190,7 +190,7 @@ export interface BlockChromeProps {
    * Altitude tier for the header shell ([P03]), forwarded to
    * {@link BlockHeader} → {@link BlockStrip} as `data-altitude`. `leaf`
    * (default) is the tool-call header, pixel-unchanged; a session-entry card
-   * passes `entry` for a marginally roomier strip. `section` is the Lens band
+   * passes `entry` for a marginally roomier strip. `section` is the rail band
    * (composed directly on `BlockStrip`, not through the chrome).
    */
   altitude?: BlockAltitude;

@@ -1,5 +1,89 @@
 [
   {
+    "config": "five-up/cards-left",
+    "canvas": 1400,
+    "left": 420,
+    "right": null,
+    "sliver": 160
+  },
+  {
+    "config": "five-up/cards-left",
+    "canvas": 1800,
+    "left": 420,
+    "right": null,
+    "sliver": 240
+  },
+  {
+    "config": "five-up/cards-left",
+    "canvas": 2200,
+    "left": 420,
+    "right": null,
+    "sliver": 155
+  },
+  {
+    "config": "five-up/cards-left",
+    "canvas": 2600,
+    "left": 420,
+    "right": null,
+    "sliver": 245
+  },
+  {
+    "config": "five-up/cards-left",
+    "canvas": 3000,
+    "left": 420,
+    "right": null,
+    "sliver": 150
+  },
+  {
+    "config": "five-up/cards-left",
+    "canvas": 3400,
+    "left": 420,
+    "right": null,
+    "sliver": 250
+  },
+  {
+    "config": "five-up/cards-left+overview-right",
+    "canvas": 1400,
+    "left": 420,
+    "right": 545,
+    "sliver": 385
+  },
+  {
+    "config": "five-up/cards-left+overview-right",
+    "canvas": 1800,
+    "left": 420,
+    "right": 555,
+    "sliver": 0
+  },
+  {
+    "config": "five-up/cards-left+overview-right",
+    "canvas": 2200,
+    "left": 420,
+    "right": 545,
+    "sliver": 390
+  },
+  {
+    "config": "five-up/cards-left+overview-right",
+    "canvas": 2600,
+    "left": 420,
+    "right": 550,
+    "sliver": 0
+  },
+  {
+    "config": "five-up/cards-left+overview-right",
+    "canvas": 3000,
+    "left": 420,
+    "right": 545,
+    "sliver": 395
+  },
+  {
+    "config": "five-up/cards-left+overview-right",
+    "canvas": 3400,
+    "left": 420,
+    "right": 545,
+    "sliver": 0
+  },
+  {
     "config": "five-up/dragged-left+overview-right",
     "canvas": 1400,
     "left": 600,
@@ -166,90 +250,6 @@
     "left": null,
     "right": 420,
     "sliver": 250
-  },
-  {
-    "config": "five-up/lens-left",
-    "canvas": 1400,
-    "left": 420,
-    "right": null,
-    "sliver": 160
-  },
-  {
-    "config": "five-up/lens-left",
-    "canvas": 1800,
-    "left": 420,
-    "right": null,
-    "sliver": 240
-  },
-  {
-    "config": "five-up/lens-left",
-    "canvas": 2200,
-    "left": 420,
-    "right": null,
-    "sliver": 155
-  },
-  {
-    "config": "five-up/lens-left",
-    "canvas": 2600,
-    "left": 420,
-    "right": null,
-    "sliver": 245
-  },
-  {
-    "config": "five-up/lens-left",
-    "canvas": 3000,
-    "left": 420,
-    "right": null,
-    "sliver": 150
-  },
-  {
-    "config": "five-up/lens-left",
-    "canvas": 3400,
-    "left": 420,
-    "right": null,
-    "sliver": 250
-  },
-  {
-    "config": "five-up/lens-left+overview-right",
-    "canvas": 1400,
-    "left": 420,
-    "right": 545,
-    "sliver": 385
-  },
-  {
-    "config": "five-up/lens-left+overview-right",
-    "canvas": 1800,
-    "left": 420,
-    "right": 555,
-    "sliver": 0
-  },
-  {
-    "config": "five-up/lens-left+overview-right",
-    "canvas": 2200,
-    "left": 420,
-    "right": 545,
-    "sliver": 390
-  },
-  {
-    "config": "five-up/lens-left+overview-right",
-    "canvas": 2600,
-    "left": 420,
-    "right": 550,
-    "sliver": 0
-  },
-  {
-    "config": "five-up/lens-left+overview-right",
-    "canvas": 3000,
-    "left": 420,
-    "right": 545,
-    "sliver": 395
-  },
-  {
-    "config": "five-up/lens-left+overview-right",
-    "canvas": 3400,
-    "left": 420,
-    "right": 545,
-    "sliver": 0
   },
   {
     "config": "five-up/overview-dragged-under-comfort-right",
@@ -378,6 +378,90 @@
     "sliver": 375
   },
   {
+    "config": "four-up/cards-left",
+    "canvas": 1400,
+    "left": 420,
+    "right": null,
+    "sliver": 160
+  },
+  {
+    "config": "four-up/cards-left",
+    "canvas": 1800,
+    "left": 420,
+    "right": null,
+    "sliver": 240
+  },
+  {
+    "config": "four-up/cards-left",
+    "canvas": 2200,
+    "left": 420,
+    "right": null,
+    "sliver": 155
+  },
+  {
+    "config": "four-up/cards-left",
+    "canvas": 2600,
+    "left": 420,
+    "right": null,
+    "sliver": 245
+  },
+  {
+    "config": "four-up/cards-left",
+    "canvas": 3000,
+    "left": 420,
+    "right": null,
+    "sliver": 150
+  },
+  {
+    "config": "four-up/cards-left",
+    "canvas": 3400,
+    "left": 420,
+    "right": null,
+    "sliver": 250
+  },
+  {
+    "config": "four-up/cards-left+overview-right",
+    "canvas": 1400,
+    "left": 420,
+    "right": 545,
+    "sliver": 385
+  },
+  {
+    "config": "four-up/cards-left+overview-right",
+    "canvas": 1800,
+    "left": 420,
+    "right": 555,
+    "sliver": 0
+  },
+  {
+    "config": "four-up/cards-left+overview-right",
+    "canvas": 2200,
+    "left": 420,
+    "right": 545,
+    "sliver": 390
+  },
+  {
+    "config": "four-up/cards-left+overview-right",
+    "canvas": 2600,
+    "left": 420,
+    "right": 550,
+    "sliver": 0
+  },
+  {
+    "config": "four-up/cards-left+overview-right",
+    "canvas": 3000,
+    "left": 420,
+    "right": 545,
+    "sliver": 395
+  },
+  {
+    "config": "four-up/cards-left+overview-right",
+    "canvas": 3400,
+    "left": 420,
+    "right": 545,
+    "sliver": 0
+  },
+  {
     "config": "four-up/dragged-left+overview-right",
     "canvas": 1400,
     "left": 600,
@@ -544,90 +628,6 @@
     "left": null,
     "right": 420,
     "sliver": 250
-  },
-  {
-    "config": "four-up/lens-left",
-    "canvas": 1400,
-    "left": 420,
-    "right": null,
-    "sliver": 160
-  },
-  {
-    "config": "four-up/lens-left",
-    "canvas": 1800,
-    "left": 420,
-    "right": null,
-    "sliver": 240
-  },
-  {
-    "config": "four-up/lens-left",
-    "canvas": 2200,
-    "left": 420,
-    "right": null,
-    "sliver": 155
-  },
-  {
-    "config": "four-up/lens-left",
-    "canvas": 2600,
-    "left": 420,
-    "right": null,
-    "sliver": 245
-  },
-  {
-    "config": "four-up/lens-left",
-    "canvas": 3000,
-    "left": 420,
-    "right": null,
-    "sliver": 150
-  },
-  {
-    "config": "four-up/lens-left",
-    "canvas": 3400,
-    "left": 420,
-    "right": null,
-    "sliver": 250
-  },
-  {
-    "config": "four-up/lens-left+overview-right",
-    "canvas": 1400,
-    "left": 420,
-    "right": 545,
-    "sliver": 385
-  },
-  {
-    "config": "four-up/lens-left+overview-right",
-    "canvas": 1800,
-    "left": 420,
-    "right": 555,
-    "sliver": 0
-  },
-  {
-    "config": "four-up/lens-left+overview-right",
-    "canvas": 2200,
-    "left": 420,
-    "right": 545,
-    "sliver": 390
-  },
-  {
-    "config": "four-up/lens-left+overview-right",
-    "canvas": 2600,
-    "left": 420,
-    "right": 550,
-    "sliver": 0
-  },
-  {
-    "config": "four-up/lens-left+overview-right",
-    "canvas": 3000,
-    "left": 420,
-    "right": 545,
-    "sliver": 395
-  },
-  {
-    "config": "four-up/lens-left+overview-right",
-    "canvas": 3400,
-    "left": 420,
-    "right": 545,
-    "sliver": 0
   },
   {
     "config": "four-up/overview-dragged-under-comfort-right",
@@ -756,6 +756,90 @@
     "sliver": 375
   },
   {
+    "config": "one-up/cards-left",
+    "canvas": 1400,
+    "left": 420,
+    "right": null,
+    "sliver": 0
+  },
+  {
+    "config": "one-up/cards-left",
+    "canvas": 1800,
+    "left": 420,
+    "right": null,
+    "sliver": 0
+  },
+  {
+    "config": "one-up/cards-left",
+    "canvas": 2200,
+    "left": 420,
+    "right": null,
+    "sliver": 0
+  },
+  {
+    "config": "one-up/cards-left",
+    "canvas": 2600,
+    "left": 420,
+    "right": null,
+    "sliver": 0
+  },
+  {
+    "config": "one-up/cards-left",
+    "canvas": 3000,
+    "left": 420,
+    "right": null,
+    "sliver": 0
+  },
+  {
+    "config": "one-up/cards-left",
+    "canvas": 3400,
+    "left": 420,
+    "right": null,
+    "sliver": 0
+  },
+  {
+    "config": "one-up/cards-left+overview-right",
+    "canvas": 1400,
+    "left": 420,
+    "right": 545,
+    "sliver": 385
+  },
+  {
+    "config": "one-up/cards-left+overview-right",
+    "canvas": 1800,
+    "left": 420,
+    "right": 545,
+    "sliver": 0
+  },
+  {
+    "config": "one-up/cards-left+overview-right",
+    "canvas": 2200,
+    "left": 420,
+    "right": 545,
+    "sliver": 0
+  },
+  {
+    "config": "one-up/cards-left+overview-right",
+    "canvas": 2600,
+    "left": 420,
+    "right": 545,
+    "sliver": 0
+  },
+  {
+    "config": "one-up/cards-left+overview-right",
+    "canvas": 3000,
+    "left": 420,
+    "right": 545,
+    "sliver": 0
+  },
+  {
+    "config": "one-up/cards-left+overview-right",
+    "canvas": 3400,
+    "left": 420,
+    "right": 545,
+    "sliver": 0
+  },
+  {
     "config": "one-up/dragged-left+overview-right",
     "canvas": 1400,
     "left": 600,
@@ -921,90 +1005,6 @@
     "canvas": 3400,
     "left": null,
     "right": 420,
-    "sliver": 0
-  },
-  {
-    "config": "one-up/lens-left",
-    "canvas": 1400,
-    "left": 420,
-    "right": null,
-    "sliver": 0
-  },
-  {
-    "config": "one-up/lens-left",
-    "canvas": 1800,
-    "left": 420,
-    "right": null,
-    "sliver": 0
-  },
-  {
-    "config": "one-up/lens-left",
-    "canvas": 2200,
-    "left": 420,
-    "right": null,
-    "sliver": 0
-  },
-  {
-    "config": "one-up/lens-left",
-    "canvas": 2600,
-    "left": 420,
-    "right": null,
-    "sliver": 0
-  },
-  {
-    "config": "one-up/lens-left",
-    "canvas": 3000,
-    "left": 420,
-    "right": null,
-    "sliver": 0
-  },
-  {
-    "config": "one-up/lens-left",
-    "canvas": 3400,
-    "left": 420,
-    "right": null,
-    "sliver": 0
-  },
-  {
-    "config": "one-up/lens-left+overview-right",
-    "canvas": 1400,
-    "left": 420,
-    "right": 545,
-    "sliver": 385
-  },
-  {
-    "config": "one-up/lens-left+overview-right",
-    "canvas": 1800,
-    "left": 420,
-    "right": 545,
-    "sliver": 0
-  },
-  {
-    "config": "one-up/lens-left+overview-right",
-    "canvas": 2200,
-    "left": 420,
-    "right": 545,
-    "sliver": 0
-  },
-  {
-    "config": "one-up/lens-left+overview-right",
-    "canvas": 2600,
-    "left": 420,
-    "right": 545,
-    "sliver": 0
-  },
-  {
-    "config": "one-up/lens-left+overview-right",
-    "canvas": 3000,
-    "left": 420,
-    "right": 545,
-    "sliver": 0
-  },
-  {
-    "config": "one-up/lens-left+overview-right",
-    "canvas": 3400,
-    "left": 420,
-    "right": 545,
     "sliver": 0
   },
   {
@@ -1134,6 +1134,90 @@
     "sliver": 0
   },
   {
+    "config": "six-up/cards-left",
+    "canvas": 1400,
+    "left": 420,
+    "right": null,
+    "sliver": 160
+  },
+  {
+    "config": "six-up/cards-left",
+    "canvas": 1800,
+    "left": 420,
+    "right": null,
+    "sliver": 240
+  },
+  {
+    "config": "six-up/cards-left",
+    "canvas": 2200,
+    "left": 420,
+    "right": null,
+    "sliver": 155
+  },
+  {
+    "config": "six-up/cards-left",
+    "canvas": 2600,
+    "left": 420,
+    "right": null,
+    "sliver": 245
+  },
+  {
+    "config": "six-up/cards-left",
+    "canvas": 3000,
+    "left": 420,
+    "right": null,
+    "sliver": 150
+  },
+  {
+    "config": "six-up/cards-left",
+    "canvas": 3400,
+    "left": 420,
+    "right": null,
+    "sliver": 250
+  },
+  {
+    "config": "six-up/cards-left+overview-right",
+    "canvas": 1400,
+    "left": 420,
+    "right": 545,
+    "sliver": 385
+  },
+  {
+    "config": "six-up/cards-left+overview-right",
+    "canvas": 1800,
+    "left": 420,
+    "right": 555,
+    "sliver": 0
+  },
+  {
+    "config": "six-up/cards-left+overview-right",
+    "canvas": 2200,
+    "left": 420,
+    "right": 545,
+    "sliver": 390
+  },
+  {
+    "config": "six-up/cards-left+overview-right",
+    "canvas": 2600,
+    "left": 420,
+    "right": 550,
+    "sliver": 0
+  },
+  {
+    "config": "six-up/cards-left+overview-right",
+    "canvas": 3000,
+    "left": 420,
+    "right": 545,
+    "sliver": 395
+  },
+  {
+    "config": "six-up/cards-left+overview-right",
+    "canvas": 3400,
+    "left": 420,
+    "right": 545,
+    "sliver": 0
+  },
+  {
     "config": "six-up/dragged-left+overview-right",
     "canvas": 1400,
     "left": 600,
@@ -1300,90 +1384,6 @@
     "left": null,
     "right": 420,
     "sliver": 250
-  },
-  {
-    "config": "six-up/lens-left",
-    "canvas": 1400,
-    "left": 420,
-    "right": null,
-    "sliver": 160
-  },
-  {
-    "config": "six-up/lens-left",
-    "canvas": 1800,
-    "left": 420,
-    "right": null,
-    "sliver": 240
-  },
-  {
-    "config": "six-up/lens-left",
-    "canvas": 2200,
-    "left": 420,
-    "right": null,
-    "sliver": 155
-  },
-  {
-    "config": "six-up/lens-left",
-    "canvas": 2600,
-    "left": 420,
-    "right": null,
-    "sliver": 245
-  },
-  {
-    "config": "six-up/lens-left",
-    "canvas": 3000,
-    "left": 420,
-    "right": null,
-    "sliver": 150
-  },
-  {
-    "config": "six-up/lens-left",
-    "canvas": 3400,
-    "left": 420,
-    "right": null,
-    "sliver": 250
-  },
-  {
-    "config": "six-up/lens-left+overview-right",
-    "canvas": 1400,
-    "left": 420,
-    "right": 545,
-    "sliver": 385
-  },
-  {
-    "config": "six-up/lens-left+overview-right",
-    "canvas": 1800,
-    "left": 420,
-    "right": 555,
-    "sliver": 0
-  },
-  {
-    "config": "six-up/lens-left+overview-right",
-    "canvas": 2200,
-    "left": 420,
-    "right": 545,
-    "sliver": 390
-  },
-  {
-    "config": "six-up/lens-left+overview-right",
-    "canvas": 2600,
-    "left": 420,
-    "right": 550,
-    "sliver": 0
-  },
-  {
-    "config": "six-up/lens-left+overview-right",
-    "canvas": 3000,
-    "left": 420,
-    "right": 545,
-    "sliver": 395
-  },
-  {
-    "config": "six-up/lens-left+overview-right",
-    "canvas": 3400,
-    "left": 420,
-    "right": 545,
-    "sliver": 0
   },
   {
     "config": "six-up/overview-dragged-under-comfort-right",
@@ -1512,6 +1512,90 @@
     "sliver": 375
   },
   {
+    "config": "three-up/cards-left",
+    "canvas": 1400,
+    "left": 420,
+    "right": null,
+    "sliver": 160
+  },
+  {
+    "config": "three-up/cards-left",
+    "canvas": 1800,
+    "left": 420,
+    "right": null,
+    "sliver": 240
+  },
+  {
+    "config": "three-up/cards-left",
+    "canvas": 2200,
+    "left": 420,
+    "right": null,
+    "sliver": 155
+  },
+  {
+    "config": "three-up/cards-left",
+    "canvas": 2600,
+    "left": 420,
+    "right": null,
+    "sliver": 245
+  },
+  {
+    "config": "three-up/cards-left",
+    "canvas": 3000,
+    "left": 420,
+    "right": null,
+    "sliver": 0
+  },
+  {
+    "config": "three-up/cards-left",
+    "canvas": 3400,
+    "left": 420,
+    "right": null,
+    "sliver": 0
+  },
+  {
+    "config": "three-up/cards-left+overview-right",
+    "canvas": 1400,
+    "left": 420,
+    "right": 545,
+    "sliver": 385
+  },
+  {
+    "config": "three-up/cards-left+overview-right",
+    "canvas": 1800,
+    "left": 420,
+    "right": 555,
+    "sliver": 0
+  },
+  {
+    "config": "three-up/cards-left+overview-right",
+    "canvas": 2200,
+    "left": 420,
+    "right": 545,
+    "sliver": 390
+  },
+  {
+    "config": "three-up/cards-left+overview-right",
+    "canvas": 2600,
+    "left": 420,
+    "right": 550,
+    "sliver": 0
+  },
+  {
+    "config": "three-up/cards-left+overview-right",
+    "canvas": 3000,
+    "left": 420,
+    "right": 545,
+    "sliver": 395
+  },
+  {
+    "config": "three-up/cards-left+overview-right",
+    "canvas": 3400,
+    "left": 420,
+    "right": 545,
+    "sliver": 0
+  },
+  {
     "config": "three-up/dragged-left+overview-right",
     "canvas": 1400,
     "left": 600,
@@ -1677,90 +1761,6 @@
     "canvas": 3400,
     "left": null,
     "right": 420,
-    "sliver": 0
-  },
-  {
-    "config": "three-up/lens-left",
-    "canvas": 1400,
-    "left": 420,
-    "right": null,
-    "sliver": 160
-  },
-  {
-    "config": "three-up/lens-left",
-    "canvas": 1800,
-    "left": 420,
-    "right": null,
-    "sliver": 240
-  },
-  {
-    "config": "three-up/lens-left",
-    "canvas": 2200,
-    "left": 420,
-    "right": null,
-    "sliver": 155
-  },
-  {
-    "config": "three-up/lens-left",
-    "canvas": 2600,
-    "left": 420,
-    "right": null,
-    "sliver": 245
-  },
-  {
-    "config": "three-up/lens-left",
-    "canvas": 3000,
-    "left": 420,
-    "right": null,
-    "sliver": 0
-  },
-  {
-    "config": "three-up/lens-left",
-    "canvas": 3400,
-    "left": 420,
-    "right": null,
-    "sliver": 0
-  },
-  {
-    "config": "three-up/lens-left+overview-right",
-    "canvas": 1400,
-    "left": 420,
-    "right": 545,
-    "sliver": 385
-  },
-  {
-    "config": "three-up/lens-left+overview-right",
-    "canvas": 1800,
-    "left": 420,
-    "right": 555,
-    "sliver": 0
-  },
-  {
-    "config": "three-up/lens-left+overview-right",
-    "canvas": 2200,
-    "left": 420,
-    "right": 545,
-    "sliver": 390
-  },
-  {
-    "config": "three-up/lens-left+overview-right",
-    "canvas": 2600,
-    "left": 420,
-    "right": 550,
-    "sliver": 0
-  },
-  {
-    "config": "three-up/lens-left+overview-right",
-    "canvas": 3000,
-    "left": 420,
-    "right": 545,
-    "sliver": 395
-  },
-  {
-    "config": "three-up/lens-left+overview-right",
-    "canvas": 3400,
-    "left": 420,
-    "right": 545,
     "sliver": 0
   },
   {
@@ -1890,6 +1890,90 @@
     "sliver": 0
   },
   {
+    "config": "two-up/cards-left",
+    "canvas": 1400,
+    "left": 420,
+    "right": null,
+    "sliver": 160
+  },
+  {
+    "config": "two-up/cards-left",
+    "canvas": 1800,
+    "left": 420,
+    "right": null,
+    "sliver": 240
+  },
+  {
+    "config": "two-up/cards-left",
+    "canvas": 2200,
+    "left": 420,
+    "right": null,
+    "sliver": 0
+  },
+  {
+    "config": "two-up/cards-left",
+    "canvas": 2600,
+    "left": 420,
+    "right": null,
+    "sliver": 0
+  },
+  {
+    "config": "two-up/cards-left",
+    "canvas": 3000,
+    "left": 420,
+    "right": null,
+    "sliver": 0
+  },
+  {
+    "config": "two-up/cards-left",
+    "canvas": 3400,
+    "left": 420,
+    "right": null,
+    "sliver": 0
+  },
+  {
+    "config": "two-up/cards-left+overview-right",
+    "canvas": 1400,
+    "left": 420,
+    "right": 545,
+    "sliver": 385
+  },
+  {
+    "config": "two-up/cards-left+overview-right",
+    "canvas": 1800,
+    "left": 420,
+    "right": 555,
+    "sliver": 0
+  },
+  {
+    "config": "two-up/cards-left+overview-right",
+    "canvas": 2200,
+    "left": 420,
+    "right": 545,
+    "sliver": 390
+  },
+  {
+    "config": "two-up/cards-left+overview-right",
+    "canvas": 2600,
+    "left": 420,
+    "right": 545,
+    "sliver": 0
+  },
+  {
+    "config": "two-up/cards-left+overview-right",
+    "canvas": 3000,
+    "left": 420,
+    "right": 545,
+    "sliver": 0
+  },
+  {
+    "config": "two-up/cards-left+overview-right",
+    "canvas": 3400,
+    "left": 420,
+    "right": 545,
+    "sliver": 0
+  },
+  {
     "config": "two-up/dragged-left+overview-right",
     "canvas": 1400,
     "left": 600,
@@ -2055,90 +2139,6 @@
     "canvas": 3400,
     "left": null,
     "right": 420,
-    "sliver": 0
-  },
-  {
-    "config": "two-up/lens-left",
-    "canvas": 1400,
-    "left": 420,
-    "right": null,
-    "sliver": 160
-  },
-  {
-    "config": "two-up/lens-left",
-    "canvas": 1800,
-    "left": 420,
-    "right": null,
-    "sliver": 240
-  },
-  {
-    "config": "two-up/lens-left",
-    "canvas": 2200,
-    "left": 420,
-    "right": null,
-    "sliver": 0
-  },
-  {
-    "config": "two-up/lens-left",
-    "canvas": 2600,
-    "left": 420,
-    "right": null,
-    "sliver": 0
-  },
-  {
-    "config": "two-up/lens-left",
-    "canvas": 3000,
-    "left": 420,
-    "right": null,
-    "sliver": 0
-  },
-  {
-    "config": "two-up/lens-left",
-    "canvas": 3400,
-    "left": 420,
-    "right": null,
-    "sliver": 0
-  },
-  {
-    "config": "two-up/lens-left+overview-right",
-    "canvas": 1400,
-    "left": 420,
-    "right": 545,
-    "sliver": 385
-  },
-  {
-    "config": "two-up/lens-left+overview-right",
-    "canvas": 1800,
-    "left": 420,
-    "right": 555,
-    "sliver": 0
-  },
-  {
-    "config": "two-up/lens-left+overview-right",
-    "canvas": 2200,
-    "left": 420,
-    "right": 545,
-    "sliver": 390
-  },
-  {
-    "config": "two-up/lens-left+overview-right",
-    "canvas": 2600,
-    "left": 420,
-    "right": 545,
-    "sliver": 0
-  },
-  {
-    "config": "two-up/lens-left+overview-right",
-    "canvas": 3000,
-    "left": 420,
-    "right": 545,
-    "sliver": 0
-  },
-  {
-    "config": "two-up/lens-left+overview-right",
-    "canvas": 3400,
-    "left": 420,
-    "right": 545,
     "sliver": 0
   },
   {

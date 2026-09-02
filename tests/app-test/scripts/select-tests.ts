@@ -6,10 +6,10 @@
  * lines in its header docblock:
  *
  *     /**
- *      * at0240-lens-focus-grammar.test.ts — ...prose...
+ *      * at0241-jots-editor.test.ts — ...prose...
  *      *
  *      * @covers tugdeck/src/components/jots/
- *      * @covers tugdeck/src/lib/lens-store/
+ *      * @covers tugdeck/src/components/cards/cards-store/
  *      *\/
  *
  * A `@covers` value is either a repo-relative path prefix (a trailing `/` means the whole
@@ -199,6 +199,19 @@ const ACCEPTED_FANOUT: Record<string, number> = {
     // Changes shade) arrived. Both drive the shipping composer through real
     // control frames, so neither could name a narrower module honestly.
     "tugdeck/src/components/tugways/tug-prompt-entry.tsx": 21,
+
+    // The deck itself. Every card the deck can stand — free, slotted, or on a
+    // rail — is created, activated, closed and persisted through this one
+    // manager, so an app-test that asserts what the deck DID has nowhere
+    // narrower to name. It sat at exactly 20 for a long time, which was the
+    // budget holding by luck rather than by design.
+    //
+    // Recorded at 21 when at0506 (the factory rail: a fresh install's first
+    // card stands all four sidebar cards, Cards frontmost) arrived. The rail's
+    // plan is a pure function a unit test already covers; what the app-test
+    // pins is the commit — four panes appended in one state change, in the
+    // z-order that settles which member a stack draws — and that lives here.
+    "tugdeck/src/deck-manager.ts": 21,
 };
 
 interface TestCoverage {
@@ -467,9 +480,10 @@ if (coreOnly) {
     // A missing file reaches the runner as `[ERR] (the file failed before any
     // test reported)` wrapped around bun's "filters did not match any test
     // files" — which reads as the app being broken and is instead this list
-    // having outlived a rename. `at0231-lens-toggle-focus.test.ts` became
-    // `at0231-sidebar-toggle.test.ts` when the Lens broke out, and the core
-    // tier was red for everyone until somebody read the message closely.
+    // having outlived a rename: a tier entry kept naming a file that had been
+    // renamed under it — `at0231-sidebar-toggle.test.ts` is the one that got
+    // caught — and the core tier was red for everyone until somebody read the
+    // message closely.
     // `@covers` paths are already checked this way; the tier itself was not.
     const missing = CORE_TIER.filter(
         (f) => !existsSync(join(APP_TEST_DIR, f)),

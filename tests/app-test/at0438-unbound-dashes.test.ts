@@ -131,7 +131,7 @@ const count = (app: App, selector: string): Promise<number> =>
 
 /**
  * Press the row's Bind item until `expected` appears — the shape at0405 uses,
- * for the same reason. The Lens list recomposes on the aggregate's own
+ * for the same reason. The Dashes list recomposes on the aggregate's own
  * schedule, so a click's coordinates can go stale between the aim and the
  * press. A missed press changes nothing, so re-aiming is safe.
  */
@@ -162,7 +162,7 @@ describe.skipIf(!SHOULD_RUN)("AT0438: the always-on Dashes card", () => {
       const tugbankPath = mkTempTugbank();
       seedTugbankForLaunch(tugbankPath, { sourceTreePath: CHECKOUT });
       const app = await launchTugApp({
-        testName: "at0438-lens-unbound-dashes",
+        testName: "at0438-unbound-dashes",
         env: { TUGBANK_PATH: tugbankPath, TUG_DATA_DIR: scratch?.dataRoot ?? "" },
       });
       try {
@@ -238,7 +238,7 @@ describe.skipIf(!SHOULD_RUN)("AT0438: the always-on Dashes card", () => {
         expect(unboundMenu.replay.label).toContain("already current with");
         // And the session is NOT working it, so no title cluster on its row.
         expect(await count(app, PROGRESS)).toBe(0);
-        note("at0438 lens, unbound register", (await app.screenshot()).path);
+        note("at0438 dashes card, unbound register", (await app.screenshot()).path);
 
         // ── Bind: the row STAYS and the worker's atom takes the eyebrow ───
         await shellAndSettle(app, `${tugtoolPath(CHECKOUT)} dash bind ${DASH_NAME}`);
@@ -305,7 +305,7 @@ describe.skipIf(!SHOULD_RUN)("AT0438: the always-on Dashes card", () => {
           `document.querySelector(${JSON.stringify(PROGRESS)}) !== null`,
           { timeoutMs: 30000 },
         );
-        note("at0438 lens, bound register", (await app.screenshot()).path);
+        note("at0438 dashes card, bound register", (await app.screenshot()).path);
 
         // ── Unbind: the worker's atom leaves the eyebrow ──────────────────
         await shellAndSettle(app, `${tugtoolPath(CHECKOUT)} dash unbind`, 1);

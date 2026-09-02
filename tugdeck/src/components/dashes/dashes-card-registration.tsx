@@ -25,7 +25,7 @@ import { DashesContent } from "./dashes-card";
 export { DASHES_CARD_ID };
 
 /** The width the Dashes rail opens at before the user has sized it — the one
- *  the four cards the Lens broke into share, so a rail holding several of them
+ *  the four cards the rail broke into share, so a rail holding several of them
  *  does not open ragged. */
 export const DEFAULT_DASHES_WIDTH_PX = 420;
 

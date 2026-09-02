@@ -1329,7 +1329,7 @@ export function DashStepItems({
  * `DASH` popup — opened from the status row's fourth cell while the session is
  * driving a dash, in place of the `TASKS` reading.
  *
- * The cockpit detail for one dash, in the vocabulary the Lens and the Changes
+ * The cockpit detail for one dash, in the vocabulary the Dashes card and the Changes
  * shade already speak: `DashLifecycleBlock` at the reading scale — the atom
  * and the workers over the track, the phase glyph, the fraction, the phase in
  * a word, and every divergence fact the dash carries — then **the plan's

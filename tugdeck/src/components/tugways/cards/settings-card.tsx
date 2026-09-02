@@ -27,7 +27,7 @@
  * says so.
  *
  * The keymap configurator is not here — it lives in the Keyboard Shortcuts
- * card (`keyboard-card.tsx`), reachable from the app menu and the Lens.
+ * card (`keyboard-card.tsx`), reachable from the app menu and the Cards card.
  *
  * Laws: the selected section is external state read through `useTugbankValue`
  * ([L02] via `useSyncExternalStore`); the tab view dispatches `selectTab`

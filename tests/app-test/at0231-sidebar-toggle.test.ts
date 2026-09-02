@@ -22,8 +22,8 @@
  *      rail activates it rather than hiding it; only the press after
  *      that takes it away.
  *
- * A third scenario stood here — `focus-lens` opening the Lens and a second
- * press restoring the prior card. It retired with the command: the keyboard
+ * A third scenario stood here — a per-card focus verb opening its rail card
+ * and a second press restoring the prior card. It retired with the command: the keyboard
  * addresses the RAILS now (`toggle-rail`), and a per-card focus verb has no
  * successor to point this at.
  *
@@ -55,7 +55,7 @@ const TEST_TIMEOUT_MS = 60_000;
 // The card's own body is the address for "the rail is standing": it renders
 // only while the pane does, and unlike a pane id it survives the hide/show
 // cycle this file is entirely about, which mints a new pane each time.
-const RAIL_PANE_SELECTOR = `[data-testid="lens-layouts-section"]`;
+const RAIL_PANE_SELECTOR = `[data-testid="layout-card-section"]`;
 
 async function railPaneExists(app: App): Promise<boolean> {
   return app.evalJS<boolean>(

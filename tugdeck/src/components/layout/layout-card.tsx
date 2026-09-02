@@ -37,9 +37,10 @@
  * is cheap enough to give every place the drawing draws, so every one of them
  * has one — every slot the kind defines, and every occupied side.
  *
- * All of it writes the deck's `imposition` record — so "where is the Lens" and
- * "how wide is a Session card" are layout questions answered beside the other
- * layout questions rather than in an app-wide preference somewhere else. The
+ * All of it writes the deck's `imposition` record — so "which side does a rail
+ * hold, if it is on the deck at all" and "how wide is a Session card" are
+ * layout questions answered beside the other layout questions rather than in
+ * an app-wide preference somewhere else. The
  * sidebar side of it stays **registry-driven**: the cards that registered
  * `layoutRole: "sidebar"` are what the overlay offers, in registration order,
  * and a third one appears by registering with nothing to add in this file.
@@ -162,7 +163,7 @@ import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 /** The card's focus group — every stop it offers lives here.
  *
  *  A card owns one group and every control inside it declares an order in
- *  that group, which is what makes the arrows step from row to row. The Lens
+ *  that group, which is what makes the arrows step from row to row. The old rail card
  *  handed each band its own group; a card is the band now, so the group is a
  *  constant rather than a prop. */
 const LAYOUT_FOCUS_GROUP = "layout-card";
@@ -170,24 +171,24 @@ const LAYOUT_FOCUS_GROUP = "layout-card";
 /** Stable `event.sender` per group, so the card's one `selectValue` handler
  *  can tell the axes apart. A sidebar group's sender carries the componentId it
  *  moves, which is how one handler serves however many sidebar cards register. */
-const KIND_SENDER_ID = "lens-layouts-kind";
-const LAYOUT_SENDER_ID = "lens-layouts-layout";
-const WIDTH_SENDER_ID = "lens-layouts-width";
-const SIDE_SENDER_PREFIX = "lens-layouts-side:";
-const RAIL_SENDER_PREFIX = "lens-layouts-rail:";
-const COLUMN_SENDER_PREFIX = "lens-layouts-column:";
+const KIND_SENDER_ID = "layout-card-kind";
+const LAYOUT_SENDER_ID = "layout-card-layout";
+const WIDTH_SENDER_ID = "layout-card-width";
+const SIDE_SENDER_PREFIX = "layout-card-side:";
+const RAIL_SENDER_PREFIX = "layout-card-rail:";
+const COLUMN_SENDER_PREFIX = "layout-card-column:";
 
 /** Ids of the captions, so each group can point `aria-labelledby` at its own
  *  `TugLabel`. */
-const KIND_CAPTION_ID = "lens-layouts-kind-caption";
-const LAYOUT_CAPTION_ID = "lens-layouts-layout-caption";
-const WIDTH_CAPTION_ID = "lens-layouts-width-caption";
+const KIND_CAPTION_ID = "layout-card-kind-caption";
+const LAYOUT_CAPTION_ID = "layout-card-layout-caption";
+const WIDTH_CAPTION_ID = "layout-card-width-caption";
 
 /** The three rows' focus orders. Distinct, and declared rather than defaulted,
  *  because they are separate stops: sharing an order would give two groups one
  *  focus key ([Q12]) between them, and the engine resolves a key to exactly one
  *  stop — so the other would be unreachable by any addressed placement. Being
- *  separately ordered is also what makes them separate rows of the Lens's arrow
+ *  separately ordered is also what makes them separate rows of this card's arrow
  *  plane, so a vertical arrow steps from one group to the next.
  *
  *  Three is the whole list, and fixed. The per-place rows this card used to
@@ -197,7 +198,7 @@ const WIDTH_CAPTION_ID = "lens-layouts-width-caption";
  *
  *  A fourth stood here for a while: the slot window, how many places a Cards
  *  row draws around its card's own. It was the odd one — every other row
- *  states a DECK fact, and that one stated how the Lens draws a fact — and the
+ *  states a DECK fact, and that one stated how the Cards card draws a fact — and the
  *  window settled at five, which is where it stays. The preference and the
  *  `set-slot-window` action it dispatched are untouched, so the size is still
  *  switchable; what is gone is a row asking the reader to choose in a card
@@ -276,7 +277,7 @@ interface SidebarEntry {
  *
  * The registry is fixed by the time this card renders (registration is a
  * boot step), so this is a plain read rather than store-observed state — there
- * is no moment at which a card registers behind a rendered Layout card.
+ * is no moment at which a card registers behind a rendered picker.
  */
 function sidebarEntries(): SidebarEntry[] {
   const entries: SidebarEntry[] = [];
@@ -364,7 +365,7 @@ function useImposition(): DeckImposition {
  * membership churn deliberately preserves the arrangement
  * (`columnDrawsSplit`), so a slot set to split and standing one card deep keeps
  * `mode: "split"` — invisible on every surface and, under that gate,
- * unreachable from the Lens. It sat there until a second card arrived and
+ * unreachable from any surface. It sat there until a second card arrived and
  * resurfaced as a surprise. The rails avoided exactly this trap by never gating
  * their rows on membership; the columns walked into it.
  */
@@ -392,7 +393,7 @@ interface CommittedFlow {
  * so the picture and the frames it pictures cannot part company. The band is
  * asked of the store because it is a measurement of the canvas rather than a
  * fact in the snapshot; the store owns that measurement, and a second one taken
- * off the Lens's own DOM would agree with the deck's only by luck.
+ * off this card's own DOM would agree with the deck's only by luck.
  *
  * Recomputed with the snapshot ([L02]). A canvas resize re-imposes through the
  * settled-resize retune, which commits and re-renders everything subscribed —
@@ -480,7 +481,7 @@ function useCommittedColumnOffsets(): Readonly<
  * pane that does**, and that fallback is what makes the instrument usable
  * where it now lives. In the canvas the strip could say "you are in no slot"
  * honestly, because a reader standing in a rail was a rare state. Standing in
- * the Lens is not rare — pressing the strip itself activates the Lens pane —
+ * a rail is not rare — pressing the strip itself activates this card's pane —
  * so a mark derived from the live active pane alone went blank the instant a
  * hand touched the thing it was marking on. The frontmost slotted pane is the
  * card the reader was in before they stepped into the panel, which is what
@@ -598,7 +599,7 @@ interface PlanLayer {
 }
 
 /** The caption's values, with a muted separator between them and the first
- *  carrying the weight — the AI mixer's readout, worn by the Lens. */
+ *  carrying the weight — the AI mixer's readout, worn here. */
 function PlanCaption({
   values,
 }: {
@@ -723,7 +724,7 @@ export function LayoutContent(
   // store rather than the command funnel. That is deliberate and narrow: a
   // scrub is per-frame appearance, which has no command to be ([L06]), and
   // the commit that follows it has to land the exact number the previews were
-  // drawing. Both go through the store's own one writer ([P11]), so the Lens's
+  // drawing. Both go through the store's own one writer ([P11]), so this card's
   // strip and the canvas's wheel cannot come to different answers.
   const previewFlow = useCallback((offset: number): void => {
     getDeckStore()?.previewFlowOffset(offset);
@@ -803,7 +804,7 @@ export function LayoutContent(
   // responder chain ([L11]) — there are no change callbacks — so the card
   // hosts one responder and routes by sender.
   const { ResponderScope, responderRef } = useResponder({
-    id: "lens-layouts-section",
+    id: "layout-card-section",
     actions: {
       [TUG_ACTIONS.SELECT_VALUE]: (event: ActionEvent) => {
         const value = event.value;
@@ -1114,7 +1115,7 @@ export function LayoutContent(
     <ResponderScope>
       <div
         className="layouts-section"
-        data-testid="lens-layouts-section"
+        data-testid="layout-card-section"
         ref={responderRef as (el: HTMLDivElement | null) => void}
       >
         {/* The figure: the drawing, and the places standing on it. They are
@@ -1136,7 +1137,7 @@ export function LayoutContent(
       <div className="layouts-figure">
         <div
           className="layouts-plan"
-          data-testid="lens-layouts-plan"
+          data-testid="layout-card-plan"
           ref={planRef}
           aria-hidden="true"
         >
@@ -1281,7 +1282,7 @@ export function LayoutContent(
               focusGroup={LAYOUT_FOCUS_GROUP}
               focusOrder={LAYOUTS_KIND_FOCUS_ORDER}
               aria-labelledby={KIND_CAPTION_ID}
-              data-testid="lens-layouts-kind"
+              data-testid="layout-card-kind"
             />
           </div>
 
@@ -1304,7 +1305,7 @@ export function LayoutContent(
               focusGroup={LAYOUT_FOCUS_GROUP}
               focusOrder={LAYOUTS_LAYOUT_FOCUS_ORDER}
               aria-labelledby={LAYOUT_CAPTION_ID}
-              data-testid="lens-layouts-layout"
+              data-testid="layout-card-layout"
             />
           </div>
 
@@ -1327,12 +1328,12 @@ export function LayoutContent(
               focusGroup={LAYOUT_FOCUS_GROUP}
               focusOrder={LAYOUTS_WIDTH_FOCUS_ORDER}
               aria-labelledby={WIDTH_CAPTION_ID}
-              data-testid="lens-layouts-width"
+              data-testid="layout-card-width"
             />
           </div>
 
           {sidebars.map((entry, index) => {
-            const captionId = `lens-layouts-sidebar-caption-${entry.componentId}`;
+            const captionId = `layout-card-sidebar-caption-${entry.componentId}`;
             const open = openSidebarIds.has(entry.componentId);
             return (
               <div
@@ -1360,7 +1361,7 @@ export function LayoutContent(
                   focusGroup={LAYOUT_FOCUS_GROUP}
                   focusOrder={LAYOUTS_FIRST_SIDEBAR_ROW_FOCUS_ORDER + index}
                   aria-labelledby={captionId}
-                  data-testid={`lens-layouts-sidebar-${entry.componentId}`}
+                  data-testid={`layout-card-sidebar-${entry.componentId}`}
                 />
               </div>
             );

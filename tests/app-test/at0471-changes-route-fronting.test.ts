@@ -165,7 +165,7 @@ describe.skipIf(!SHOULD_RUN)("AT0471: a deferred fronting re-arms", () => {
         await app.spawnSessionResume("A", { tugSessionId: SID, projectDir: scratch });
         await app.awaitEngineReady("A", { timeoutMs: 15000 });
 
-        // The Lens is how the arc is read without touching the dash — the
+        // The Dashes card is how the arc is read without touching the dash — the
         // register reaching `ready` is the offer standing, independent of
         // whether the card did anything about it.
         await app.dispatchControlAction("toggle-dashes");

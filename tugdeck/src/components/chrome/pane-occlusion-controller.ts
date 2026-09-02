@@ -30,7 +30,7 @@
  * read back from each frame's inline `z-index`, which React renders from the
  * store's pane order in the same commit this controller's effect follows.
  *
- * Appearance-zone gestures (drag, resize, Lens resize) move frames without
+ * Appearance-zone gestures (drag, resize, rail resize) move frames without
  * store commits, so the three gesture machines in `tug-pane.tsx` bracket
  * their moves with `paneOcclusionGesture.begin()` / `.end()`: begin reveals
  * every pane immediately and blocks hides for the duration; end re-arms the
@@ -378,7 +378,7 @@ export function usePaneOcclusionController(
   }, [snapshot, activePaneId, deckRootRef]);
 
   // Registration: the gesture bracket's instance hook, the canvas resize
-  // observer (window resizes and Lens-inset changes move imposed frames
+  // observer (window resizes and rail-inset changes move imposed frames
   // without a store notify), and unmount cleanup. [L03]
   useLayoutEffect(() => {
     instance = {

@@ -10,7 +10,7 @@
  * and its tooltip says why, in the arc receipt's own words.
  *
  * The strip is the height of the line's cap, so it rides any line box an atom
- * already sits on — the masthead's title line, the Lens's meta line, the
+ * already sits on — the masthead's title line, the rail's meta line, the
  * transcript footer's status cell — without growing it. The ring beside it
  * stays the session's own indicator; this is the dash's.
  *
@@ -290,7 +290,7 @@ function cellTip(model: DashTrackModel, phase: DashPhase, state: DashCellState):
 
 export interface TugDashTrackProps {
   model: DashTrackModel;
-  /** `rail` beside other rails (the Lens, the footer); `read` on a reading surface. */
+  /** `rail` beside other rails (the rail, the footer); `read` on a reading surface. */
   size?: "rail" | "read";
   "aria-label"?: string;
 }

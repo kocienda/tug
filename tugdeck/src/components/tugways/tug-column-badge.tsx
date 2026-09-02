@@ -14,7 +14,7 @@
  *    over three filled bands with the band's end of the run marked. Every band
  *    of a split is visible at once, so position is real information there and
  *    the badge's job is naming rather than revealing: a letter is an address to
- *    match against a Lens row.
+ *    match against a Cards card row.
  *
  * Number and letter therefore map categorically onto stack and split, which is
  * teachable in a sentence and can never be misread against a slot number.
@@ -35,7 +35,7 @@
  *
  * **Whether the glyph marks the level at all is the surface's call**, through
  * `showLevel`. The character always says it; the mark is a second telling, and
- * it earns its keep only where something nearby teaches the reading — a Lens
+ * it earns its keep only where something nearby teaches the reading — a Cards card
  * row's slot picker, whose selection fill the badge borrows. In a pane's title
  * bar there is nothing to teach it and no room to say it, so the glyph draws
  * the run and stops.
@@ -51,7 +51,7 @@
  * state, no mark at all.
  *
  * Presentational by construction: it renders a `<span>` and owns only the
- * drawing. The pane cluster's menu trigger and the Lens row compose it, and the
+ * drawing. The pane cluster's menu trigger and the Cards card row compose it, and the
  * door behavior stays theirs.
  *
  * Laws: [L06] appearance via CSS and DOM attributes, never React state;
@@ -108,7 +108,7 @@ export function columnBadgeCharacter(
  * A stack lit its top slice unconditionally once, on the argument that the
  * badge stands on the card you can see and a visible stacked card is the front
  * one. That is true of a badge on a pane's own title bar and false everywhere
- * else: a Lens row names a card that may be buried three deep, and lighting the
+ * else: a Cards card row names a card that may be buried three deep, and lighting the
  * front slice there said *this card is on top* about a card that is not. The
  * pane cluster does not contradict this — it draws no lit element at all.
  *
@@ -150,7 +150,7 @@ export interface TugColumnBadgeProps
    * three-element run that is itself the height of a lowercase letter — the
    * eye registers it as noise on the badge rather than as an answer, and it
    * competes with the character, which is stating the same thing exactly.
-   * On a Lens row the run is drawn beside a slot picker whose own selection
+   * On a Cards card row the run is drawn beside a slot picker whose own selection
    * fill teaches the reading, so there the mark lands.
    *
    * The root's `data-lit` is unaffected either way: that is the computed

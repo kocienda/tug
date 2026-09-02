@@ -3,7 +3,7 @@
  *
  * The shared layout skeleton behind the tool-call header (`BlockHeader`,
  * altitude `leaf`), the session-entry cards (`BlockChrome`, altitude
- * `entry`), and the Lens section bands (`LensSection`, altitude
+ * `entry`), and the rail section bands (`LensSection`, altitude
  * `section`). One calm row of slots:
  *
  *   leading  name?  detail …  trailing…  | actions
@@ -64,7 +64,7 @@ export interface BlockStripProps {
    * Stamps `data-tugx-findable` on the name span, opting the verb into
    * transcript Find. Set by {@link BlockHeader} for the tool-call header —
    * whose name the search index projects for every block, collapsed or
-   * expanded. Off by default so a strip outside the transcript (a Lens
+   * expanded. Off by default so a strip outside the transcript (a rail
    * section band, a changeset file row) contributes no unprojected unit.
    */
   nameFindable?: boolean;
@@ -97,7 +97,7 @@ export interface BlockStripProps {
   className?: string;
   /** `data-slot` on the root (e.g. `"tool-call-header"`). Omitted when unset. */
   dataSlot?: string;
-  /** `data-testid` on the root (e.g. a section band's `"lens-section-band"`). */
+  /** `data-testid` on the root (e.g. a section band's `"cards-section-band"`). */
   dataTestid?: string;
   /** Value for `data-phase` on the root (the lifecycle dot's phase). */
   dataPhase?: string;
@@ -105,20 +105,20 @@ export interface BlockStripProps {
   dataCollapsed?: boolean;
   /**
    * Click handler on the strip root. A caller that treats the whole band
-   * as an affordance (the Lens section bands focus their section's list)
+   * as an affordance (the rail section bands focus their section's list)
    * wires it here; slot contents that own their own clicks (buttons) stop
    * propagation or are filtered by the caller.
    */
   onClick?: (event: React.MouseEvent<HTMLDivElement>) => void;
   /**
    * Pointerdown handler on the strip root. A caller that makes the whole
-   * strip draggable (the Lens section bands are carried to reorder) wires it
+   * strip draggable (the rail section bands are carried to reorder) wires it
    * here and does its own filtering of presses that landed on a control.
    */
   onPointerDown?: (event: React.PointerEvent<HTMLDivElement>) => void;
   /**
    * Keydown handler on the strip root. A strip that is itself a keyboard stop
-   * reads its own keys here — the Lens section bands take Space as the fold,
+   * reads its own keys here — the rail section bands take Space as the fold,
    * ahead of the synthesized press the engine would otherwise complete as a
    * click ([P02]).
    */

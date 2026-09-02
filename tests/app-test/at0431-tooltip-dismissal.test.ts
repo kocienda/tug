@@ -12,7 +12,7 @@
  * was treated as an act for a while — any scroll anywhere took every bubble
  * down — and a scroll is not an act at all. A transcript following its bottom
  * scrolls itself every time a streaming session appends a row, so a bubble
- * standing over the Lens across the window was being torn down several times
+ * standing over a rail card across the window was being torn down several times
  * a second by a scroller nobody was touching, with the pointer never moving.
  * The rule a scroll stands for is that the target moved out from under the
  * pointer, and only a scroller the trigger sits INSIDE can move it. So the

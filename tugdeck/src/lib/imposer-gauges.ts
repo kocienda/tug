@@ -8,7 +8,7 @@
  * extends that same mechanism across subtrees. A gauge REGISTERS an element
  * for a named signal; the canvas's existing per-frame writers PUBLISH to that
  * signal; the publisher writes the value onto every registered element as a
- * custom property. No store, no state, no render — the Lens's miniature can
+ * custom property. No store, no state, no render — the Layout card's miniature can
  * track a drag frame-for-frame without React learning that anything moved.
  *
  * The signals:

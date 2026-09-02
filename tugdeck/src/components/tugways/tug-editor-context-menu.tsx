@@ -47,7 +47,7 @@
  *   outside the menu close it; presses inside the menu element are ignored.
  *   Both, because `mousedown` is a compatibility event a surface can suppress
  *   by calling `preventDefault` on its `pointerdown` — which is what left a
- *   menu over a Lens row undismissable.
+ *   menu over a Cards card row undismissable.
  *
  * - Dispatch-observer dismissal: the menu subscribes to the responder
  *   chain's observeDispatch while open. Any action flowing through the
@@ -621,7 +621,7 @@ export function TugEditorContextMenu({
     // BOTH presses, and the pair is not belt-and-braces. `mousedown` alone was
     // the dismissal for a long time, and it is a COMPATIBILITY event: a
     // surface whose `pointerdown` handler calls `preventDefault` suppresses it
-    // outright, and the menu then had nothing left to hear. The Lens's rows do
+    // outright, and the menu then had nothing left to hear. The Cards card's rows do
     // exactly that — a press there is a reorder that has not decided it is a
     // drag yet, and claiming the press is how the list knows to hold its
     // selection — so a menu opened over a session row stayed up while the user

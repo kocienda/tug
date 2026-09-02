@@ -2,7 +2,7 @@
  * jots-card-registration.tsx — registers the Jots card ([L25]).
  *
  * Jots is an ordinary registered card hosted by the normal `CardHost` inside a
- * sidebar pane, exactly as the Lens is: the pane/card machinery (FocusContext,
+ * sidebar pane, exactly as the other rail cards are: the pane/card machinery (FocusContext,
  * responder scope, title-bar chrome) is what makes focus restore and the pane's
  * own affordances nearly free.
  *
@@ -25,7 +25,7 @@ import { JotsContent } from "./jots-card";
 export { JOTS_CARD_ID };
 
 /** The width the Jots rail opens at before the user has sized it. Modelled on
- *  the Lens: the two stand in one rail by default, and a card that opened
+ *  the Cards card: the two stand in one rail by default, and a card that opened
  *  wider than its neighbour would just be resized back. */
 export const DEFAULT_JOTS_WIDTH_PX = 420;
 
@@ -33,7 +33,7 @@ export const DEFAULT_JOTS_WIDTH_PX = 420;
 export const MIN_JOTS_WIDTH_PX = 320;
 
 /** Register the Jots card. `hidden` keeps it out of the type-picker `[+]`
- *  menu — it is reachable through its own toggle, like the Lens. */
+ *  menu — it is reachable through its own toggle, like every rail card. */
 export function registerJotsCard(): void {
   registerCard({
     componentId: JOTS_CARD_ID,
@@ -53,7 +53,7 @@ export function registerJotsCard(): void {
     // Pins to a deck edge and insets the imposition band rather than taking a
     // slot inside it.
     layoutRole: "sidebar",
-    // Out of the Lens's Cards list, as the Lens itself is: those rows are the
+    // Out of the Cards card's list, as that card itself is: those rows are the
     // deck's content cards, and each carries a slot picker for an arrangement
     // a rail can never stand in.
     cardsGroup: "none",

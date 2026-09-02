@@ -1,8 +1,8 @@
 /**
- * at0247-relaunch-lens-keyboard.test.ts — the TRUE quit-and-relaunch
- * Lens keyboard pin.
+ * at0247-relaunch-keyboard.test.ts — the TRUE quit-and-relaunch
+ * sidebar keyboard pin.
  *
- * Pins the relaunch-with-Lens-focus case (#57/#51): quit the app with
+ * Pins the relaunch-with-sidebar-focus case (#57/#51): quit the app with
  * keyboard focus on the Jots list, relaunch, and the restored
  * ring must be a keyboard the user can actually drive — zero invariant
  * violations, and a NATIVE ArrowDown moves `data-key-cursor`.
@@ -19,7 +19,7 @@
  *
  * | Phase | Tugbank state at launch | Action                        | Assertion                     |
  * |-------|-------------------------|-------------------------------|-------------------------------|
- * | A     | empty (fresh temp DB)   | seed session deck → bind real | tugbank disk holds the Lens   |
+ * | A     | empty (fresh temp DB)   | seed session deck → bind real | tugbank disk holds the Jots   |
  * |       |                         | session → ⌘L + Tab to the     | card's `bag.focus` with       |
  * |       |                         | jots list → quitGracefully| `keyboard: true`              |
  * | B     | populated (from A)      | relaunch with                 | ring on the jots list,    |
@@ -45,7 +45,7 @@
  * cursor, and the late-bound editor NOT holding `document.activeElement`
  * (post-bind probe: `activeElement` = the jots list itself — the
  * bind-path focus claim is gated on card activation, so no steal fires
- * while the Lens is the active card). The user-reported failure
+ * while the Jots card is the active card). The user-reported failure
  * evidently needs an ingredient the harness cannot recreate (real OS
  * window-focus timing during restore, or a raw substrate `view.focus()`
  * on the real re-resume path). The pin therefore lands LIVE from the
@@ -53,7 +53,7 @@
  * keyboard-as-engine-state rework rather than reproducing its trigger.
  *
  * @covers tugdeck/src/components/jots/
- * @covers tugdeck/src/lib/lens-store/
+ * @covers tugdeck/src/components/cards/cards-store/
  * @covers tugdeck/src/serialization.ts
  * @covers tugdeck/src/components/tugways/focus-manager.ts
  */
@@ -110,9 +110,9 @@ async function cursorRowText(app: App): Promise<string | null> {
   );
 }
 
-describe.skipIf(!SHOULD_RUN)("at0247 — true relaunch Lens keyboard pin", () => {
+describe.skipIf(!SHOULD_RUN)("at0247 — true relaunch sidebar keyboard pin", () => {
   test(
-    "quit with Lens keyboard focus; relaunch restores a ring the keyboard actually reaches",
+    "quit with sidebar keyboard focus; relaunch restores a ring the keyboard actually reaches",
     async () => {
       const tugbankPath = mkTempTugbank();
       const filesDir = mkdtempSync(join(tmpdir(), "tug-at0247-"));
@@ -134,7 +134,7 @@ describe.skipIf(!SHOULD_RUN)("at0247 — true relaunch Lens keyboard pin", () =>
         // ── Phase A: real session card, real ⌘L + Tab, graceful quit. ──
         {
           const app = await launchTugApp({
-            testName: "at0247-relaunch-lens-keyboard-A",
+            testName: "at0247-relaunch-keyboard-A",
             env: { TUGBANK_PATH: tugbankPath, TUG_JOTS_PATH: jotsPath },
             persistInTestMode: true,
           });
@@ -203,7 +203,7 @@ describe.skipIf(!SHOULD_RUN)("at0247 — true relaunch Lens keyboard pin", () =>
           }
         }
 
-        // ── Phase A disk assertion: the Lens bag persisted a keyboard
+        // ── Phase A disk assertion: the Jots card's bag persisted a keyboard
         //    focus on the jots section. ──
         const onDisk = tugbankRead<{
           focus?: { kind?: string; focusKey?: string; keyboard?: boolean } | null;
@@ -218,7 +218,7 @@ describe.skipIf(!SHOULD_RUN)("at0247 — true relaunch Lens keyboard pin", () =>
         //    test. ──
         {
           const app = await launchTugApp({
-            testName: "at0247-relaunch-lens-keyboard-B",
+            testName: "at0247-relaunch-keyboard-B",
             env: { TUGBANK_PATH: tugbankPath, TUG_JOTS_PATH: jotsPath },
             persistInTestMode: true,
             restoreInTestMode: true,
@@ -237,7 +237,7 @@ describe.skipIf(!SHOULD_RUN)("at0247 — true relaunch Lens keyboard pin", () =>
             );
 
             // The session card's late bind — in production the session
-            // re-resumes when tugcast feeds land, AFTER the Lens ring
+            // re-resumes when tugcast feeds land, AFTER the Jots ring
             // has restored, and its editor mounts behind the (now
             // un-bypassed) `feedsReady` gate. The harness bind stands
             // in for that re-resume: same card, same editor, same

@@ -6,7 +6,7 @@
  * the top one. Until now nothing on the deck admitted that: a fully covered
  * pane is stamped `data-occluded="true"` and hidden outright, so a buried card
  * contributed not one pixel — not an edge, not a shadow — to say it existed,
- * and the Lens rail was the only way to reach it. The badge is the local
+ * and the Cards card was the only way to reach it. The badge is the local
  * admission and the picker is the local way through.
  *
  * What is worth proving here, in the order the user meets it:
@@ -14,7 +14,7 @@
  *   1. The badge appears exactly where there is a stack. Its condition is
  *      `slotStack.length > 1` and nothing else — no "am I on top?" test — so
  *      BOTH panes in a two-deep slot render one, and a pane alone in its slot,
- *      a free pane, and the Lens render none. `data-stack-depth` on the frame
+ *      a free pane, and a lone rail render none. `data-stack-depth` on the frame
  *      carries the same number for anything that wants it without a badge.
  *
  *   2. The picker lists the slot, topmost first, with the front pane checked.
@@ -23,7 +23,7 @@
  *      the occlusion controller to render a row for a pane that is hidden.
  *
  *   3. Choosing a row raises that pane — first responder AND z-order, in one
- *      commit, through the same `transferFocusForActivation` a Lens row click
+ *      commit, through the same `transferFocusForActivation` a Cards row click
  *      or a ⌘N slot assignment takes.
  *
  *   4. Cmd-click on a title bar opens the same picker and does NOT raise the
@@ -67,7 +67,7 @@ import { launchTugApp, note, type App } from "./_harness";
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 90_000;
 
-const LENS_WIDTH = 300;
+const RAIL_WIDTH = 300;
 /** The settle window (`IMPOSITION_SETTLE_MS`), with room for the tween. */
 const AFTER_LAND_MS = 900;
 
@@ -127,14 +127,14 @@ function pane(
   };
 }
 
-function lensPane() {
+function railPane() {
   return {
-    id: "pLens",
+    id: "pRail",
     position: { x: 0, y: 0 },
-    size: { width: LENS_WIDTH, height: 900 },
+    size: { width: RAIL_WIDTH, height: 900 },
     cardIds: ["L"],
     activeCardId: "L",
-    title: "Lens",
+    title: "Layout",
     acceptsFamilies: [],
   };
 }
@@ -146,7 +146,7 @@ function lensPane() {
  *   p1 / A  — slot 0, FRONT,  420px wide
  *   p2 / B  — slot 2, alone in its slot
  *   pFree/F — no slot at all
- *   pLens   — the Lens, which never carries a slot
+ *   pRail   — the Layout card, which never carries a slot
  *
  * The two slot-0 panes are given different widths on purpose: the wider buried
  * one is not fully covered, so the occlusion controller leaves it visible and
@@ -166,10 +166,10 @@ function deckShape() {
       pane("p1", "A", 420, 0),
       pane("p2", "B", 420, 2),
       pane("pFree", "F", 380),
-      lensPane(),
+      railPane(),
     ],
     activePaneId: "p1",
-    imposition: { kind: "three-up", lens: "right" },
+    imposition: { kind: "three-up", sidebars: { layout: { side: "right" } } },
     hasFocus: true,
   };
 }
@@ -183,7 +183,7 @@ function occludedDeckShape() {
       pane("p1", "A", 420, 0),
       pane("p2", "B", 420, 2),
       pane("pFree", "F", 380),
-      lensPane(),
+      railPane(),
     ],
   };
 }
@@ -281,8 +281,8 @@ describe.skipIf(!SHOULD_RUN)(
 
           expect(await count(app, `${frame("p2")} ${BADGE}`), "a pane alone in its slot stands in a place one deep").toBe(1);
           expect(await badgeText(app, "p2"), "and says so — one of one").toBe("1");
-          expect(await count(app, `${frame("pLens")} ${BADGE}`), "a lone rail is a place too, and splittable").toBe(1);
-          expect(await badgeText(app, "pLens"), "reading the same one").toBe("1");
+          expect(await count(app, `${frame("pRail")} ${BADGE}`), "a lone rail is a place too, and splittable").toBe(1);
+          expect(await badgeText(app, "pRail"), "reading the same one").toBe("1");
           // The one case that still draws nothing: a pane standing in no place
           // at all. A chip there would claim a position the pane does not hold
           // — the same rule the slot chip beside it follows.
@@ -294,10 +294,10 @@ describe.skipIf(!SHOULD_RUN)(
           expect(await stackDepthAttr(app, "p2")).toBe("1");
           expect(await stackDepthAttr(app, "pFree")).toBe("0");
           // A rail is a PLACE two cards can share, the same as a slot, so the
-          // Lens standing alone on one reads 1 — exactly as `p2` alone in its
-          // slot does. It read 0 back when the Lens was the only rail there
+          // Layout card standing alone on one reads 1 — exactly as `p2` alone in its
+          // slot does. It read 0 back when the Layout card was the only rail there
           // could be and a rail was not somewhere a second card could stand.
-          expect(await stackDepthAttr(app, "pLens")).toBe("1");
+          expect(await stackDepthAttr(app, "pRail")).toBe("1");
 
           // --- The badge is unlit at rest. ---------------------------------
           expect(
@@ -467,10 +467,10 @@ describe.skipIf(!SHOULD_RUN)(
               panes: [
                 pane("p0", "Z", 520, 0),
                 pane("p1", "A", 420, 0),
-                lensPane(),
+                railPane(),
               ],
               activePaneId: "p1",
-              imposition: { kind: "three-up", lens: "right" },
+              imposition: { kind: "three-up", sidebars: { layout: { side: "right" } } },
               hasFocus: true,
             },
             focusCardId: "A",

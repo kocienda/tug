@@ -1,5 +1,5 @@
 /**
- * cards-column-badge.tsx — where a Lens row's card stands inside its slot.
+ * cards-column-badge.tsx — where a Cards card row's card stands inside its slot.
  *
  * The slot run beside it says which slot the card holds. This says the rest of
  * the coordinate: how many cards share that slot when it stacks, and which band
@@ -9,7 +9,7 @@
  * does on that card's own masthead.
  *
  * A readout, not a control: the badge on the pane's own cluster is the door to
- * the member picker, and a Lens row's door is the row itself.
+ * the member picker, and a Cards card row's door is the row itself.
  *
  * Laws: [L02] the deck state enters through `useSyncExternalStore` here, in a
  *       component of its own, rather than inside the cell that renders it —

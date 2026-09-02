@@ -29,11 +29,11 @@ describe("focusSnapshotToTarget", () => {
     expect(
       focusSnapshotToTarget({
         kind: "dom",
-        focusKey: "lens-section-layouts:0",
+        focusKey: "layout-card-kind:0",
         keyboard: true,
       }),
     ).toEqual({
-      target: { kind: "focus-key", focusKey: "lens-section-layouts:0" },
+      target: { kind: "focus-key", focusKey: "layout-card-kind:0" },
       modality: "keyboard",
     });
     expect(

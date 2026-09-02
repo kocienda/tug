@@ -178,7 +178,7 @@ describe("the strip", () => {
   });
 
   test("the strip names each slot's extent, folded and cleaned the same way", () => {
-    // The extents ride out with the positions so the Lens's committed miniature
+    // The extents ride out with the positions so the Layout card's committed miniature
     // draws the strip the frames stand on rather than re-deriving it by
     // subtracting a gap it assumes. Every fold the positions do, these do:
     // duplicates take the widest, unreadable widths drop, negatives read zero.
@@ -702,7 +702,7 @@ describe("the allocator in flow", () => {
     comfortWidth: 320,
     greedRank: 1,
   };
-  const lens: RailPolicy = {
+  const cards: RailPolicy = {
     preferredWidth: 420,
     minWidth: 320,
     comfortWidth: 320,
@@ -720,7 +720,7 @@ describe("the allocator in flow", () => {
       { slot: 1, width: CONTENT_WIDTH_COMFY_PX },
       { slot: 2, width: CONTENT_WIDTH_COMFY_PX },
     ],
-    rails: { left: lens, right: overview },
+    rails: { left: cards, right: overview },
     maxRailWidth: CONTENT_WIDTH_SLIM_PX,
   });
 
@@ -728,7 +728,7 @@ describe("the allocator in flow", () => {
     const fit = allocateSidebarWidths(crowded("fit"));
     expect(fit).not.toBeNull();
     const drained =
-      (fit?.left ?? 0) < lens.preferredWidth ||
+      (fit?.left ?? 0) < cards.preferredWidth ||
       (fit?.right ?? 0) < overview.preferredWidth;
     expect(
       drained,
@@ -738,7 +738,7 @@ describe("the allocator in flow", () => {
 
   /** One rail, three comfy cards (lefts 0, 805, 1610; strip 2410), and a canvas
    *  chosen so the band at the rail's preferred width ends THREE PIXELS inside
-   *  the second card — the hairline under the Lens this objective exists for. */
+   *  the second card — the hairline under the Layout card this objective exists for. */
   const hairlineDeck: AllocatorInput = {
     canvasWidth: 1243,
     kind: "three-up",

@@ -8,7 +8,7 @@
  * Layout:
  *  - Variants  — six glyphs in a wrapping card grid
  *  - pulsing-dot — the whole bench for the breathing dot in one section: the
- *                size ladder under a live state picker, the Lens-row
+ *                size ladder under a live state picker, the rail-row
  *                destination, and the two knobs still worth benching.
  *                The ladder and the picker are one grid because they were
  *                always one question — every size the app asks for, crossing
@@ -144,9 +144,9 @@ function GalleryCell({
 
 /**
  * Where the glyph is going, and the size it goes there at — the leading slot
- * of a Lens Sessions row.
+ * of a Cards card session row.
  */
-const LENS_SIZE = 28;
+const RAIL_SIZE = 28;
 
 /** The size the envelope is judged at, and the size it was authored at. */
 const BENCH_SIZE = 32;
@@ -158,7 +158,7 @@ const BENCH_SIZE = 32;
  * This is the bench that matters now. The breathing dot was designed at 32px
  * and judged there; making it the only dot means it also has to serve a status
  * cell at 10. It does that by being two treatments rather than one figure
- * scaled: a big one for the Lens, where there are enough pixels for relative
+ * scaled: a big one for the Cards card, where there are enough pixels for relative
  * size to encode state, and a small one that is the previous glyph's geometry
  * exactly — same dot ratio, same full-box ring, same hairline — carrying the
  * new motion and nothing else.
@@ -174,7 +174,7 @@ const LADDER: ReadonlyArray<{ size: number; where: string }> = [
   { size: 16, where: "indicator default" },
   { size: 20, where: "—" },
   { size: 24, where: "—" },
-  { size: 28, where: "Lens session row" },
+  { size: 28, where: "Cards card session row" },
   { size: 32, where: "authored size" },
 ];
 
@@ -350,7 +350,7 @@ export function GalleryTugProgressIndicator(): React.ReactElement {
             the previous glyph's geometry exactly — same 0.5 dot ratio, same
             full-box static ring, same hairline — picking up the new motion and
             nothing else, so a settled dot in a Z2 cell or a tool-call header
-            paints the pixels it always painted. From 28px up it is the Lens
+            paints the pixels it always painted. From 28px up it is the Cards card
             figure, where the extra size buys a 0.6 dot ratio, a ring held
             inside the box, and the PRESENCE ladder: running owns the whole box,
             paused and aborted draw in to 0.7, stopped and completed recede to
@@ -403,7 +403,7 @@ export function GalleryTugProgressIndicator(): React.ReactElement {
             dot already holds, and picks it up mid-stride.
           </TugLabel>
           <TugLabel size="2xs" emphasis="calm">
-            The destination, at the {LENS_SIZE}px the Lens actually asks for:
+            The destination, at the {RAIL_SIZE}px the Cards card actually asks for:
             the leading slot of a Sessions row, over the row's own two-line
             type. Beside it the scale reference — the real Z5 submit button, a
             36px square, which is the legibility this variant is aiming at and
@@ -422,7 +422,7 @@ export function GalleryTugProgressIndicator(): React.ReactElement {
               />
               <TugProgressIndicator
                 variant="pulsing-dot"
-                size={LENS_SIZE}
+                size={RAIL_SIZE}
                 state="running"
               />
             </div>
@@ -431,7 +431,7 @@ export function GalleryTugProgressIndicator(): React.ReactElement {
             <div className="gpi-row-preview">
               <TugProgressIndicator
                 variant="pulsing-dot"
-                size={LENS_SIZE}
+                size={RAIL_SIZE}
                 state="running"
               />
               <div className="gpi-row-preview-text">
@@ -473,10 +473,10 @@ export function GalleryTugProgressIndicator(): React.ReactElement {
                 shape="diamond"
               />
             </GalleryCell>
-            <GalleryCell caption={`diamond, at the Lens's ${LENS_SIZE}px`}>
+            <GalleryCell caption={`diamond, at the Cards card's ${RAIL_SIZE}px`}>
               <TugProgressIndicator
                 variant="pulsing-dot"
-                size={LENS_SIZE}
+                size={RAIL_SIZE}
                 role="action"
                 state="running"
                 shape="diamond"
@@ -500,7 +500,7 @@ export function GalleryTugProgressIndicator(): React.ReactElement {
             name. The stroke cells set `--…-pulse-weight`, which is still an
             ordinary variable. The period is not pinned either — dots run the
             nominal 2s unless a caller opts into the jitter, and the only caller
-            that does is the Lens.
+            that does is the Cards card.
           </TugLabel>
           <div className="gpi-grid">
             {KNOBS.map(({ key, caption, style }) => (

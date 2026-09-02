@@ -3716,7 +3716,7 @@ export function SessionCardBody({
     enterChanges,
   ]);
 
-  // The same reveal, asked for out loud — a Lens dash row activating routes
+  // The same reveal, asked for out loud — a Dashes card dash row activating routes
   // here through the card-content responder, and this is [D152]'s one reveal
   // path rather than a second one. Defined beside the effect above so both
   // share the controller and the memory: whichever fires first spends the
@@ -4569,7 +4569,7 @@ export function SessionCardBody({
         entryDelegateRef.current?.focus();
       },
       // Open this card's Changes shade. Sent by a surface that shows this
-      // card's dash — the Lens's Dashes row — after fronting the card.
+      // card's dash — the Dashes card's Dashes row — after fronting the card.
       //
       // It has to live on THIS responder rather than on the bare `cardId`:
       // `sendToTarget` walks `parentId` upward from its target, the bare id

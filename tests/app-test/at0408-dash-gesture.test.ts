@@ -57,7 +57,7 @@ const SHEET = `${CARD} .session-view-pane[data-view="changes"] [data-slot="tug-s
 const PICKER = '[data-slot="dash-picker-sheet"]';
 // The dash marker on the masthead's title line — the identity's own run
 // since the masthead badge was retired. Scoped to the masthead, because a
-// line-tier identity anywhere else (a Lens row, a picker row) wears it too.
+// line-tier identity anywhere else (a Cards row, a picker row) wears it too.
 const CHIP =
   '[data-slot="session-masthead"] [data-slot="session-identity-dash"]';
 /** What that run reads: the identity's dash grammar, sigil included. */
@@ -149,7 +149,7 @@ describe.skipIf(!SHOULD_RUN)("AT0408: the /dash-bind gesture", () => {
         await app.awaitEngineReady("A", { timeoutMs: 15000 });
 
         // ── Wait for the aggregate to answer ──────────────────────────────
-        // The Lens's Dashes section reads the same `ChangesetAllStore` the
+        // The Dashes card reads the same `ChangesetAllStore` the
         // card's controller does, so a row for the fixture dash there is proof
         // the snapshot has composed this project's dashes. Typing before that
         // would send `/dash-bind <known>` down the CREATE path.

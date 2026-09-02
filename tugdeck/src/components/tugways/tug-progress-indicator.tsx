@@ -524,7 +524,7 @@ export const TugProgressIndicator = React.forwardRef<HTMLSpanElement, TugProgres
 
     // No period jitter is applied here. The pulsing dot runs the nominal
     // period unless a caller pins one — see `dotDriftFor`, which only the
-    // Lens's session rows use. An indicator cannot draw its own: the Z2 STATE
+    // Cards card's session rows use. An indicator cannot draw its own: the Z2 STATE
     // cell renders two of them flanking one label, and any per-indicator draw
     // has that pair breathing against each other.
     const rootStyle: React.CSSProperties = {

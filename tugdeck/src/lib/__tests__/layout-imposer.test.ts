@@ -128,12 +128,12 @@ function solveOneRail(input: {
 
 /** A 1000×800 canvas with no rail — the simplest span to hand-compute against. */
 const FULL: ImposerSpan = { x: 0, width: 1000, height: 800 };
-/** The same canvas with a 260px Lens holding the left. The inset is the
- *  Lens's width plus one gap, because the Lens is itself imposed a gap off
+/** The same canvas with a 260px rail holding the left. The inset is the
+ *  rail's width plus one gap, because the rail is itself imposed a gap off
  *  the canvas edge. */
-const LENS_LEFT: ImposerSpan = { x: 265, width: 735, height: 800 };
-/** The same canvas with a 260px Lens holding the right. */
-const LENS_RIGHT: ImposerSpan = { x: 0, width: 735, height: 800 };
+const RAIL_LEFT: ImposerSpan = { x: 265, width: 735, height: 800 };
+/** The same canvas with a 260px rail holding the right. */
+const RAIL_RIGHT: ImposerSpan = { x: 0, width: 735, height: 800 };
 
 /** Terse placement literal for the geometry cases. */
 const at = (slot: number, count: number): ImposedPlacement => ({ slot, count });
@@ -219,12 +219,12 @@ describe("resolveSpan", () => {
     expect(resolveSpan(canvas, [])).toEqual(FULL);
   });
 
-  test("a left-side Lens insets the span's origin by its width plus a gap", () => {
-    expect(resolveSpan(canvas, [{ side: "left", width: 260 }])).toEqual(LENS_LEFT);
+  test("a left-side rail insets the span's origin by its width plus a gap", () => {
+    expect(resolveSpan(canvas, [{ side: "left", width: 260 }])).toEqual(RAIL_LEFT);
   });
 
-  test("a right-side Lens insets the span's width only", () => {
-    expect(resolveSpan(canvas, [{ side: "right", width: 260 }])).toEqual(LENS_RIGHT);
+  test("a right-side rail insets the span's width only", () => {
+    expect(resolveSpan(canvas, [{ side: "right", width: 260 }])).toEqual(RAIL_RIGHT);
   });
 
   test("rails on both sides inset the band from both", () => {
@@ -268,7 +268,7 @@ describe("resolvePlacement", () => {
     expect(resolvePlacement("four-up", 0).count).toBe(4);
   });
 
-  test("a placement is the slot and the count, and nothing about the Lens", () => {
+  test("a placement is the slot and the count, and nothing about the rail", () => {
     expect(resolvePlacement("three-up", 1)).toEqual({ slot: 1, count: 3 });
   });
 
@@ -285,7 +285,7 @@ describe("travelFraction", () => {
     expect(travelFraction(at(0, 4))).toBe(0);
   });
 
-  test("the last slot has travelled all of it — that is why it meets the Lens", () => {
+  test("the last slot has travelled all of it — that is why it meets the rail", () => {
     expect(travelFraction(at(1, 2))).toBe(1);
     expect(travelFraction(at(3, 4))).toBe(1);
   });
@@ -388,24 +388,24 @@ describe("imposeRect", () => {
     }
   });
 
-  test("an overlapping arrangement never reaches under the Lens", () => {
-    const last = imposeRect(at(2, 3), 500, LENS_RIGHT);
-    const lensNearEdge = LENS_RIGHT.x + LENS_RIGHT.width;
-    expect(last.position.x + last.size.width).toBe(lensNearEdge - GAP);
+  test("an overlapping arrangement never reaches under the rail", () => {
+    const last = imposeRect(at(2, 3), 500, RAIL_RIGHT);
+    const railNearEdge = RAIL_RIGHT.x + RAIL_RIGHT.width;
+    expect(last.position.x + last.size.width).toBe(railNearEdge - GAP);
   });
 
-  test("a left-side Lens numbers left to right too — slot 0 is beside it", () => {
-    const a = imposeRect(at(0, 2), 300, LENS_LEFT);
-    const b = imposeRect(at(1, 2), 300, LENS_LEFT);
+  test("a left-side rail numbers left to right too — slot 0 is beside it", () => {
+    const a = imposeRect(at(0, 2), 300, RAIL_LEFT);
+    const b = imposeRect(at(1, 2), 300, RAIL_LEFT);
     // Slot 1 is the leftmost position on this deck, which is the one against
-    // the Lens. The Lens's side moves the band, never the numbering.
-    expect(a.position.x).toBe(LENS_LEFT.x + GAP);
+    // the rail. The rail's side moves the band, never the numbering.
+    expect(a.position.x).toBe(RAIL_LEFT.x + GAP);
     // The last slot's right edge lands a gap short of the canvas's right.
     expect(b.position.x + b.size.width).toBe(995);
   });
 
-  test("a right-docked Lens leaves slot 0 exactly where a closed one does", () => {
-    expect(imposeRect(at(0, 2), 300, LENS_RIGHT).position.x).toBe(
+  test("a right-docked rail leaves slot 0 exactly where a closed one does", () => {
+    expect(imposeRect(at(0, 2), 300, RAIL_RIGHT).position.x).toBe(
       imposeRect(at(0, 2), 300, FULL).position.x,
     );
   });
@@ -419,15 +419,15 @@ describe("imposeRect", () => {
   });
 
   test("the run is the span height less the top gap and the deeper bottom", () => {
-    const rect = imposeRect(at(0, 2), 321, LENS_LEFT);
+    const rect = imposeRect(at(0, 2), 321, RAIL_LEFT);
     expect(rect.position.y).toBe(IMPOSITION_GAP_PX);
     expect(rect.size.height).toBe(
-      LENS_LEFT.height - IMPOSITION_GAP_PX - impositionGapBottomPx(),
+      RAIL_LEFT.height - IMPOSITION_GAP_PX - impositionGapBottomPx(),
     );
   });
 
   test("width is a pass-through for every span", () => {
-    for (const span of [FULL, LENS_LEFT, LENS_RIGHT]) {
+    for (const span of [FULL, RAIL_LEFT, RAIL_RIGHT]) {
       for (const w of [1, 120, 640, 4000]) {
         expect(imposeRect(at(0, 2), w, span).size.width).toBe(w);
       }
@@ -459,7 +459,7 @@ describe("imposeStyle", () => {
   });
 
   // The pin's SHAPE is the same on every deck and in every slot — only the
-  // inset terms and the fraction differ. That is what a Lens flip has to
+  // inset terms and the fraction differ. That is what a rail flip has to
   // interpolate; a pin that turned around and measured from `100%` would be
   // swapping a percentage for a bare length, which has nothing to cross.
   test("every pin has the same shape: `left`, from the left inset", () => {
@@ -605,7 +605,7 @@ describe("imposeSidebarStyle", () => {
   // The width a drag rewrites is a property, and the pin is written over the
   // SAME expression: on the right rail the pin is `100% - width - gap`, so a
   // width that moved without the pin moving would move the pinned edge — the
-  // one edge the Lens holds. One property feeding both makes that impossible.
+  // one edge the rail holds. One property feeding both makes that impossible.
   test("the width is a property the pin reads, over the pane's own as fallback", () => {
     const style = imposeSidebarStyle("left", 987);
     expect(style.width).toBe(widthOf("left", 987));
@@ -820,36 +820,36 @@ describe("railSeamProperty", () => {
 describe("railSeamFractions", () => {
   test("no seams below two members", () => {
     expect(railSeamFractions([], undefined)).toEqual([]);
-    expect(railSeamFractions(["lens"], undefined)).toEqual([]);
+    expect(railSeamFractions(["cards"], undefined)).toEqual([]);
   });
 
   test("absent shares divide equally", () => {
-    expect(railSeamFractions(["lens", "jots"], undefined)).toEqual([0.5]);
-    const thirds = railSeamFractions(["lens", "jots", "overview"], undefined);
+    expect(railSeamFractions(["cards", "jots"], undefined)).toEqual([0.5]);
+    const thirds = railSeamFractions(["cards", "jots", "overview"], undefined);
     expect(thirds[0]).toBeCloseTo(1 / 3, 10);
     expect(thirds[1]).toBeCloseTo(2 / 3, 10);
   });
 
   test("weights set the division", () => {
-    expect(railSeamFractions(["lens", "jots"], { lens: 3, jots: 1 })).toEqual([
+    expect(railSeamFractions(["cards", "jots"], { cards: 3, jots: 1 })).toEqual([
       0.75,
     ]);
   });
 
   test("an unnamed member weighs 1", () => {
-    expect(railSeamFractions(["lens", "jots"], { lens: 3 })).toEqual([0.75]);
+    expect(railSeamFractions(["cards", "jots"], { cards: 3 })).toEqual([0.75]);
   });
 
   test("renormalizes over the members actually standing", () => {
     // Jots closed: the record still names it, but the rail divides what it has
     // between the two that are there ([P06]).
-    const shares = { lens: 1, jots: 2, overview: 1 };
-    expect(railSeamFractions(["lens", "overview"], shares)).toEqual([0.5]);
+    const shares = { cards: 1, jots: 2, overview: 1 };
+    expect(railSeamFractions(["cards", "overview"], shares)).toEqual([0.5]);
   });
 
   test("a degenerate weight reads as 1 rather than as an error", () => {
     for (const bad of [0, -4, Number.NaN, Number.POSITIVE_INFINITY]) {
-      expect(railSeamFractions(["lens", "jots"], { lens: bad })).toEqual([0.5]);
+      expect(railSeamFractions(["cards", "jots"], { cards: bad })).toEqual([0.5]);
     }
   });
 
@@ -869,8 +869,8 @@ describe("railSeamFractions", () => {
 describe("railSharesFromFractions", () => {
   test("round-trips against railSeamFractions", () => {
     for (const order of [
-      ["lens", "jots"],
-      ["lens", "jots", "overview"],
+      ["cards", "jots"],
+      ["cards", "jots", "overview"],
     ]) {
       for (const shares of [
         undefined,
@@ -889,7 +889,7 @@ describe("railSharesFromFractions", () => {
   });
 
   test("an equal division comes back as the all-ones record an absent one means", () => {
-    const order = ["lens", "jots", "overview"];
+    const order = ["cards", "jots", "overview"];
     const recovered = railSharesFromFractions(
       order,
       railSeamFractions(order, undefined),
@@ -901,8 +901,8 @@ describe("railSharesFromFractions", () => {
     // The [P02] property, and the reason this is a function rather than a line
     // of gesture code: dragging the top seam of a three-member rail must not
     // move the bottom member's share of the run.
-    const order = ["lens", "jots", "overview"];
-    const shares = { lens: 1, jots: 2, overview: 3 };
+    const order = ["cards", "jots", "overview"];
+    const shares = { cards: 1, jots: 2, overview: 3 };
     const before = railSeamFractions(order, shares);
     const after = [before[0] + 0.1, before[1]];
     const recovered = railSharesFromFractions(order, after);
@@ -912,7 +912,7 @@ describe("railSharesFromFractions", () => {
   });
 
   test("every weight is positive, even from degenerate fractions", () => {
-    const order = ["lens", "jots", "overview"];
+    const order = ["cards", "jots", "overview"];
     for (const fractions of [
       [0, 0],
       [1, 1],
@@ -929,7 +929,7 @@ describe("railSharesFromFractions", () => {
   });
 
   test("a rail of one is one whole share", () => {
-    expect(railSharesFromFractions(["lens"], [])).toEqual({ lens: 1 });
+    expect(railSharesFromFractions(["cards"], [])).toEqual({ cards: 1 });
     expect(railSharesFromFractions([], [])).toEqual({});
   });
 });
@@ -942,43 +942,43 @@ describe("effectiveRailOrder", () => {
 
   test("with no stored order, the caller's order stands, filtered to the side", () => {
     const state = imposition({
-      lens: { side: "right" },
+      cards: { side: "right" },
       jots: { side: "right" },
     });
-    expect(effectiveRailOrder(state, "right", ["lens", "jots"])).toEqual([
-      "lens",
+    expect(effectiveRailOrder(state, "right", ["cards", "jots"])).toEqual([
+      "cards",
       "jots",
     ]);
-    expect(effectiveRailOrder(state, "left", ["lens", "jots"])).toEqual([]);
+    expect(effectiveRailOrder(state, "left", ["cards", "jots"])).toEqual([]);
   });
 
   test("a card on the other side is not on this rail", () => {
     const state = imposition({
-      lens: { side: "left" },
+      cards: { side: "left" },
       jots: { side: "right" },
     });
-    expect(effectiveRailOrder(state, "left", ["lens", "jots"])).toEqual(["lens"]);
-    expect(effectiveRailOrder(state, "right", ["lens", "jots"])).toEqual([
+    expect(effectiveRailOrder(state, "left", ["cards", "jots"])).toEqual(["cards"]);
+    expect(effectiveRailOrder(state, "right", ["cards", "jots"])).toEqual([
       "jots",
     ]);
   });
 
   test("cards default to the right, so an empty map rails them there", () => {
     const state = imposition({});
-    expect(effectiveRailOrder(state, "right", ["lens", "jots"])).toEqual([
-      "lens",
+    expect(effectiveRailOrder(state, "right", ["cards", "jots"])).toEqual([
+      "cards",
       "jots",
     ]);
   });
 
   test("the stored order wins", () => {
     const state = imposition(
-      { lens: { side: "right" }, jots: { side: "right" } },
-      { right: { mode: "split", order: ["jots", "lens"] } },
+      { cards: { side: "right" }, jots: { side: "right" } },
+      { right: { mode: "split", order: ["jots", "cards"] } },
     );
-    expect(effectiveRailOrder(state, "right", ["lens", "jots"])).toEqual([
+    expect(effectiveRailOrder(state, "right", ["cards", "jots"])).toEqual([
       "jots",
-      "lens",
+      "cards",
     ]);
   });
 
@@ -986,11 +986,11 @@ describe("effectiveRailOrder", () => {
     // The [R06] twin: the caller's list is z-sensitive at its source, and a
     // stored order is what makes a split rail's vertical order immune to that.
     const state = imposition(
-      { lens: { side: "right" }, jots: { side: "right" } },
-      { right: { mode: "split", order: ["jots", "lens"] } },
+      { cards: { side: "right" }, jots: { side: "right" } },
+      { right: { mode: "split", order: ["jots", "cards"] } },
     );
-    expect(effectiveRailOrder(state, "right", ["lens", "jots"])).toEqual(
-      effectiveRailOrder(state, "right", ["jots", "lens"]),
+    expect(effectiveRailOrder(state, "right", ["cards", "jots"])).toEqual(
+      effectiveRailOrder(state, "right", ["jots", "cards"]),
     );
   });
 
@@ -998,46 +998,46 @@ describe("effectiveRailOrder", () => {
     // Jots closed, or moved to the other side: the record keeps its place for
     // when it returns, and the rail lays out the members it has.
     const state = imposition(
-      { lens: { side: "right" }, jots: { side: "left" } },
-      { right: { mode: "split", order: ["jots", "lens"] } },
+      { cards: { side: "right" }, jots: { side: "left" } },
+      { right: { mode: "split", order: ["jots", "cards"] } },
     );
-    expect(effectiveRailOrder(state, "right", ["lens", "jots"])).toEqual([
-      "lens",
+    expect(effectiveRailOrder(state, "right", ["cards", "jots"])).toEqual([
+      "cards",
     ]);
   });
 
   test("a member the order does not name is appended, in the order given", () => {
     const state = imposition(
       {
-        lens: { side: "right" },
+        cards: { side: "right" },
         jots: { side: "right" },
         overview: { side: "right" },
       },
       { right: { mode: "split", order: ["jots"] } },
     );
     expect(
-      effectiveRailOrder(state, "right", ["lens", "jots", "overview"]),
-    ).toEqual(["jots", "lens", "overview"]);
+      effectiveRailOrder(state, "right", ["cards", "jots", "overview"]),
+    ).toEqual(["jots", "cards", "overview"]);
   });
 
   test("a returning member lands back where the order says, not at the end", () => {
     // A closed card has no standing pane, so the caller hands it in no longer;
     // the record still names it, and reopening puts it back at its place.
     const state = imposition(
-      { lens: { side: "right" }, jots: { side: "right" } },
-      { right: { mode: "split", order: ["jots", "lens"] } },
+      { cards: { side: "right" }, jots: { side: "right" } },
+      { right: { mode: "split", order: ["jots", "cards"] } },
     );
-    expect(effectiveRailOrder(state, "right", ["lens"])).toEqual(["lens"]);
-    expect(effectiveRailOrder(state, "right", ["lens", "jots"])).toEqual([
+    expect(effectiveRailOrder(state, "right", ["cards"])).toEqual(["cards"]);
+    expect(effectiveRailOrder(state, "right", ["cards", "jots"])).toEqual([
       "jots",
-      "lens",
+      "cards",
     ]);
   });
 });
 
 describe("rail arrangement accessors", () => {
   const base: DeckImposition = {
-    sidebars: { lens: { side: "right" }, jots: { side: "right" } },
+    sidebars: { cards: { side: "right" }, jots: { side: "right" } },
   };
 
   test("an absent record reads as a stack on both sides", () => {
@@ -1059,14 +1059,14 @@ describe("rail arrangement accessors", () => {
     const split = withRailShares(
       withRailOrder(withRailMode(base, "right", "split"), "right", [
         "jots",
-        "lens",
+        "cards",
       ]),
       "right",
-      { jots: 2, lens: 1 },
+      { jots: 2, cards: 1 },
     );
     const stacked = withRailMode(split, "right", "stack");
-    expect(stacked.rails?.right?.order).toEqual(["jots", "lens"]);
-    expect(stacked.rails?.right?.shares).toEqual({ jots: 2, lens: 1 });
+    expect(stacked.rails?.right?.order).toEqual(["jots", "cards"]);
+    expect(stacked.rails?.right?.shares).toEqual({ jots: 2, cards: 1 });
     expect(railModeOf(withRailMode(stacked, "right", "split"), "right")).toBe(
       "split",
     );
@@ -1076,14 +1076,14 @@ describe("rail arrangement accessors", () => {
     const split = withRailShares(
       withRailOrder(withRailMode(base, "right", "split"), "right", [
         "jots",
-        "lens",
+        "cards",
       ]),
       "right",
-      { jots: 2, lens: 1 },
+      { jots: 2, cards: 1 },
     );
     const equalized = withoutRailShares(split, "right");
     expect(equalized.rails?.right?.shares).toBeUndefined();
-    expect(equalized.rails?.right?.order).toEqual(["jots", "lens"]);
+    expect(equalized.rails?.right?.order).toEqual(["jots", "cards"]);
     expect(railModeOf(equalized, "right")).toBe("split");
     expect(withoutRailShares(base, "right")).toBe(base);
   });
@@ -1097,24 +1097,24 @@ describe("rail arrangement accessors", () => {
   });
 });
 
-describe("the arrangement clears the Lens by exactly one gap", () => {
-  // The derivation the pinned-Lens geometry rests on: with the Lens on the
+describe("the arrangement clears the rail by exactly one gap", () => {
+  // The derivation the pinned-rail geometry rests on: with the rail on the
   // right at width W, its near edge sits at `canvasW - GAP - W`, and the last
   // slot's card must land one gap short of that.
   const CANVAS = { width: 1000, height: 800 };
 
   for (const W of [260, 420, 500]) {
-    test(`a ${W}px right-side Lens leaves the last slot one gap off it`, () => {
+    test(`a ${W}px right-side rail leaves the last slot one gap off it`, () => {
       const span = resolveSpan(CANVAS, [{ side: "right", width: W }]);
       const rect = imposeRect(at(1, 2), 240, span);
       expect(rect.position.x + rect.size.width).toBe(CANVAS.width - GAP - W - GAP);
       expect(imposeRect(at(0, 2), 240, span).position.x).toBe(GAP);
     });
 
-    test(`a ${W}px left-side Lens leaves slot 1 one gap off it`, () => {
+    test(`a ${W}px left-side rail leaves slot 1 one gap off it`, () => {
       const span = resolveSpan(CANVAS, [{ side: "left", width: W }]);
       // Slot 1 is the leftmost position, so on this deck it is the one against
-      // the Lens; the last slot runs to the canvas's right edge.
+      // the rail; the last slot runs to the canvas's right edge.
       expect(imposeRect(at(0, 2), 240, span).position.x).toBe(GAP + W + GAP);
       const last = imposeRect(at(1, 2), 240, span);
       expect(last.position.x + last.size.width).toBe(CANVAS.width - GAP);
@@ -1141,8 +1141,8 @@ describe("the CSS and numeric forms agree", () => {
 
   const CASES: Array<[ImposerSpan, number]> = [
     [FULL, 1000],
-    [LENS_RIGHT, 1000],
-    [LENS_LEFT, 1000],
+    [RAIL_RIGHT, 1000],
+    [RAIL_LEFT, 1000],
   ];
 
   for (const [name, widths] of [
@@ -1178,13 +1178,13 @@ describe("the space allocator", () => {
     { slot: 1, width: 800 },
     { slot: 2, width: 800 },
   ];
-  /** The band that tiles the shape above exactly, and the Lens width that
+  /** The band that tiles the shape above exactly, and the rail width that
    *  produces it on a canvas of width W: `W - 3·gap - band`. */
   const EXACT_BAND = 3 * 800 + 2 * GAP;
-  const lensFor = (canvasWidth: number): number =>
+  const railWidthFor = (canvasWidth: number): number =>
     canvasWidth - GAP * 3 - EXACT_BAND;
 
-  /** Every seam in the chain, measured through `imposeRect` at a given Lens
+  /** Every seam in the chain, measured through `imposeRect` at a given rail
    *  width — the geometry the allocator's answer actually produces. */
   function seamsAt(
     canvasWidth: number,
@@ -1216,15 +1216,15 @@ describe("the space allocator", () => {
       preferredWidth: 400,
       minWidth: 320,
     });
-    expect(width).toBe(lensFor(canvasWidth));
+    expect(width).toBe(railWidthFor(canvasWidth));
     for (const seam of seamsAt(canvasWidth, width ?? 0, THREE_UP_RUN, "three-up")) {
       expect(seam).toBeCloseTo(GAP, 9);
     }
   });
 
-  test("gaps grow the Lens and overlaps shrink it", () => {
+  test("gaps grow the rail and overlaps shrink it", () => {
     const preferredWidth = 420;
-    // A deck 20px wider than the exact fit spreads the cards: the Lens takes
+    // A deck 20px wider than the exact fit spreads the cards: the rail takes
     // the surplus.
     const roomy = 2865;
     expect(seamsAt(roomy, preferredWidth, THREE_UP_RUN, "three-up")[0]).toBeGreaterThan(GAP);
@@ -1238,7 +1238,7 @@ describe("the space allocator", () => {
     expect(grown).toBe(440);
     expect(grown).toBeGreaterThan(preferredWidth);
 
-    // And 20px narrower overlaps them: the Lens gives the difference back.
+    // And 20px narrower overlaps them: the rail gives the difference back.
     const crowded = 2825;
     expect(seamsAt(crowded, preferredWidth, THREE_UP_RUN, "three-up")[0]).toBeLessThan(GAP);
     const shrunk = allocateOneRail({
@@ -1425,7 +1425,7 @@ describe("the space allocator", () => {
       preferredWidth: 400,
       minWidth: 320,
     });
-    expect(stacked).toBe(lensFor(canvasWidth));
+    expect(stacked).toBe(railWidthFor(canvasWidth));
   });
 
   test("the order of the occupied list does not matter", () => {
@@ -1437,7 +1437,7 @@ describe("the space allocator", () => {
       preferredWidth: 400,
       minWidth: 320,
     });
-    expect(shuffled).toBe(lensFor(canvasWidth));
+    expect(shuffled).toBe(railWidthFor(canvasWidth));
   });
 
   test("no seam to solve for still answers, at the chosen width", () => {
@@ -1475,7 +1475,7 @@ describe("the space allocator", () => {
     ).toBe(320);
   });
 
-  test("a non-finite input leaves the Lens alone", () => {
+  test("a non-finite input leaves the rail alone", () => {
     const base = {
       canvasWidth: 2845,
       kind: "three-up" as const,
@@ -1514,7 +1514,7 @@ describe("the space allocator", () => {
 describe("the total is chosen by the picture it paints", () => {
   // The crowded deck the picture-directed chooser exists for: three comfy
   // cards side by side in three-up, the Overview holding the right at its
-  // 56ch comfort measure over a 400px hard floor, the Lens on the left.
+  // 56ch comfort measure over a 400px hard floor, the Cards card on the left.
   //
   // A least-squares total is flat across ~1800px of canvas here, because it
   // saturates against the floors — which is why the deck looked, from the
@@ -1525,13 +1525,13 @@ describe("the total is chosen by the picture it paints", () => {
     comfortWidth: 512,
     greedRank: 1,
   });
-  const LENS = rail({ preferredWidth: 420, minWidth: 320, greedRank: 2 });
+  const CARDS = rail({ preferredWidth: 420, minWidth: 320, greedRank: 2 });
   const THREE_COMFY = [0, 1, 2].map((slot) => ({ slot, width: 800 }));
   const at = (canvasWidth: number) => ({
     canvasWidth,
     kind: "three-up" as const,
     occupied: THREE_COMFY,
-    rails: { left: LENS, right: OVERVIEW },
+    rails: { left: CARDS, right: OVERVIEW },
     maxRailWidth: CONTENT_WIDTH_SLIM_PX,
   });
   const answerAt = (canvasWidth: number) =>
@@ -1613,7 +1613,7 @@ describe("the total is chosen by the picture it paints", () => {
       canvasWidth: 3000,
       kind: "three-up" as const,
       occupied: THREE_COMFY,
-      rails: { left: LENS, right: dragged },
+      rails: { left: CARDS, right: dragged },
       maxRailWidth: CONTENT_WIDTH_SLIM_PX,
     };
     const answer = allocateSidebarWidths(crowded) as {
@@ -1625,7 +1625,7 @@ describe("the total is chosen by the picture it paints", () => {
   });
 
   test("a deficit drains comfort before it drains the hard floor", () => {
-    // Both tiers, in reverse greed order within each: the Lens gives up its
+    // Both tiers, in reverse greed order within each: the Cards rail gives up its
     // whole range before the Overview gives up a pixel of measure, and the
     // Overview reaches its hard floor last of all.
     const drained = answerAt(3200);
@@ -1653,12 +1653,12 @@ describe("greed order decides which rail is the wide one", () => {
   /** The Overview: the greediest rail, at the ch-derived magnitudes the plan's
    *  example uses. Fed first, drained last. */
   const OVERVIEW = rail({ preferredWidth: 560, minWidth: 496, greedRank: 1 });
-  /** The Lens: greedier than Jots, less greedy than the Overview. */
-  const LENS = rail({ preferredWidth: 420, minWidth: 320, greedRank: 2 });
+  /** The Cards card: greedier than Jots, less greedy than the Overview. */
+  const CARDS = rail({ preferredWidth: 420, minWidth: 320, greedRank: 2 });
 
   const solve = (
     canvasWidth: number,
-    left = LENS,
+    left = CARDS,
     right = OVERVIEW,
     occupied: readonly { slot: number; width: number }[] = TWO_CARDS,
   ) =>
@@ -1678,11 +1678,11 @@ describe("greed order decides which rail is the wide one", () => {
   });
 
   test("a deficit drains the least greedy rail first, to its floor", () => {
-    // 100px short: the Lens gives all of it and lands on its floor while the
+    // 100px short: the Cards rail gives all of it and lands on its floor while the
     // Overview does not move. The greediest rail gives width only after every
     // other rail is standing on its floor.
     expect(solve(canvasFor(880))).toEqual({ left: 320, right: 560 });
-    // 164px short: the Lens is already spent, so the Overview gives the rest —
+    // 164px short: the Cards rail is already spent, so the Overview gives the rest —
     // exactly down to its own floor, and no further.
     expect(solve(canvasFor(816))).toEqual({ left: 320, right: 496 });
   });
@@ -1699,7 +1699,7 @@ describe("greed order decides which rail is the wide one", () => {
         canvasWidth,
         kind: "two-up",
         occupied: TWO_CARDS,
-        rails: { left: LENS, right: OVERVIEW },
+        rails: { left: CARDS, right: OVERVIEW },
         maxRailWidth: CONTENT_WIDTH_SLIM_PX,
       },
       { left: 320, right: 496 },
@@ -1709,7 +1709,7 @@ describe("greed order decides which rail is the wide one", () => {
 
   test("a surplus feeds the greediest rail first, to its ceiling", () => {
     // 200px spare: the Overview takes the 115 that carries it to the slim
-    // ceiling before the Lens grows a pixel, and the Lens takes the rest.
+    // ceiling before the Cards rail grows a pixel, and it takes the rest.
     // BOTH rails end above their preferences — the fill is bounded by the
     // target and the ceiling, never by a preference.
     expect(solve(canvasFor(1180))).toEqual({
@@ -1729,7 +1729,7 @@ describe("greed order decides which rail is the wide one", () => {
 
   test("reversing the sides reverses the answer, not the order", () => {
     // Greed is the rail's, not the side's.
-    expect(solve(canvasFor(880), OVERVIEW, LENS)).toEqual({
+    expect(solve(canvasFor(880), OVERVIEW, CARDS)).toEqual({
       left: 560,
       right: 320,
     });
@@ -1763,11 +1763,11 @@ describe("greed order decides which rail is the wide one", () => {
     // Fewer than two occupied slots is no seam and nothing to solve. Each
     // rail answers with its preference, held between its own bounds — not
     // with a shared number, and not with a refusal.
-    expect(solve(2605, LENS, OVERVIEW, [{ slot: 0, width: 800 }])).toEqual({
+    expect(solve(2605, CARDS, OVERVIEW, [{ slot: 0, width: 800 }])).toEqual({
       left: 420,
       right: 560,
     });
-    expect(solve(2605, LENS, OVERVIEW, [])).toEqual({ left: 420, right: 560 });
+    expect(solve(2605, CARDS, OVERVIEW, [])).toEqual({ left: 420, right: 560 });
   });
 
   test("the answer tiles the chain measured through both rails", () => {
@@ -1797,7 +1797,7 @@ describe("greed order decides which rail is the wide one", () => {
       canvasWidth,
       kind: "two-up" as const,
       occupied: TWO_CARDS,
-      rails: { left: LENS, right: OVERVIEW },
+      rails: { left: CARDS, right: OVERVIEW },
       maxRailWidth: CONTENT_WIDTH_SLIM_PX,
     };
     const even = seamPicture(input, { left: 490, right: 490 });
@@ -1826,7 +1826,7 @@ describe("the stacking folds a rail is built from", () => {
     greedRank: 1,
   });
   const JOTS = rail({ preferredWidth: 420, minWidth: 320, greedRank: 3 });
-  const LENS = rail({ preferredWidth: 420, minWidth: 320, greedRank: 2 });
+  const CARDS = rail({ preferredWidth: 420, minWidth: 320, greedRank: 2 });
 
   test("a stacked rail takes the wider preference and the tighter floors", () => {
     // Both floors fold the same way, and independently: the rail must satisfy
@@ -1841,8 +1841,8 @@ describe("the stacking folds a rail is built from", () => {
   });
 
   test("a rail carrying the greediest card is greedy wherever it stands", () => {
-    // Overview + Jots on the left against the Lens on the right: the left rail
-    // is rank 1, so the Lens drains first even though Jots alone would not
+    // Overview + Jots on the left against the Cards card on the right: the left rail
+    // is rank 1, so Cards drains first even though Jots alone would not
     // outrank it.
     const widths = allocateSidebarWidths({
       canvasWidth: 880 + GAP * 4 + 1605,
@@ -1851,7 +1851,7 @@ describe("the stacking folds a rail is built from", () => {
         { slot: 0, width: 800 },
         { slot: 1, width: 800 },
       ],
-      rails: { left: fold([OVERVIEW, JOTS]), right: LENS },
+      rails: { left: fold([OVERVIEW, JOTS]), right: CARDS },
       maxRailWidth: CONTENT_WIDTH_SLIM_PX,
     });
     expect(widths).toEqual({ left: 560, right: 320 });
@@ -1865,7 +1865,7 @@ describe("the stacking folds a rail is built from", () => {
         { slot: 0, width: 800 },
         { slot: 1, width: 800 },
       ],
-      rails: { left: fold([OVERVIEW, JOTS]), right: LENS },
+      rails: { left: fold([OVERVIEW, JOTS]), right: CARDS },
       maxRailWidth: CONTENT_WIDTH_SLIM_PX,
     });
     expect(widths?.left).toBeGreaterThanOrEqual(OVERVIEW.minWidth);

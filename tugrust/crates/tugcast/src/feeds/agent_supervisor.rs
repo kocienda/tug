@@ -4250,7 +4250,7 @@ impl AgentSupervisor {
             }
             "deck_log" => {
                 // The deck's `warn`/`error` dev-log entries, mirrored here so
-                // they survive into `tugcast.log`. The Lens Log tab is only
+                // they survive into `tugcast.log`. The DevTools Log tab is only
                 // readable live, and a release build exposes no handle onto
                 // that store — so without this a warning about, say, a restore
                 // that came back short is written nowhere anyone can read
@@ -9433,7 +9433,7 @@ impl AgentSupervisor {
                 };
                 // A switch mid-stage is real and belongs in the record, so it
                 // goes where a switch belongs: the dash-log, which `tugtool
-                // dash arc` prints and the Lens reads.
+                // dash arc` prints and the Dashes card reads.
                 //
                 // The transcript's stage divider is deliberately **not**
                 // touched, and `stage_model` on the session row is not
@@ -13806,7 +13806,7 @@ mod tests {
 
     /// A session may only bind a dash in its **own** project ([D147]).
     ///
-    /// The Lens's Bind control has always said this to the user ("This dash
+    /// The Dashes card's Bind control has always said this to the user ("This dash
     /// belongs to …") and the server took it on trust — so any short-lived CLI
     /// process on the machine could rebind a live session to a dash in a
     /// directory that session had never seen. It happened: an app-test's

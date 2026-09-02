@@ -493,7 +493,7 @@ function isGenericNonFileTool(frame: ToolUse): boolean {
  *
  * Deliberately far above any display width, because it is NOT a display
  * budget. How much of a phrase fits is the DECK's to decide, at the width the
- * surface actually has: the Z2 strip and a Lens session row are different
+ * surface actually has: the Z2 strip and a Cards session row are different
  * widths, both move with the window, and `TugPulse` truncates an activity in
  * the MIDDLE — which it can only do given the whole string, since a command
  * identifies itself at the head and names what it acts on at the tail. A

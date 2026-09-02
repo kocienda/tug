@@ -93,7 +93,7 @@ body {
      The row's own name for `TugPulse`'s `--tugx-pulse-stacked-trailing-rise`,
      declared on the row's pulse element below (that component's documented
      mount-site override). The knob is aliased rather than reached for so the
-     row's tuning numbers read together here, and so tuning the Lens rail
+     row's tuning numbers read together here, and so tuning the rail
      cannot move a tape on some other stacked mount.
 
      This is the TWO-line value — a nudge off the line it rides. The
@@ -282,7 +282,7 @@ body {
    every mount that wears the stack should land on it identically.
 
    It was two numbers instead, one per surface, and both of them were wrong in
-   opposite directions: the Lens sat 5px below the pair's center and the
+   opposite directions: the Cards card sat 5px below the pair's center and the
    masthead, carrying a second lift of its own on top of this one, 4px above it.
    Two hand-tuned lifts cannot agree, and the eye reads the disagreement as two
    different instruments.
@@ -444,7 +444,7 @@ body {
 }
 
 /* The activity's TYPE on the three-level stack, stated once for every mount
-   that wears it — the masthead, the picker's rows, and the Lens rail.
+   that wears it — the masthead, the picker's rows, and the rail.
 
    `TugPulse`'s own presets set the run in the CONDENSED face, which is right
    where the PULSE is a bar of its own: a tool call is a machine string in a
@@ -482,7 +482,7 @@ body {
    a flex item of its own and would take the shrink instead — a graph drawn at
    one width and laid out at another is a graph that lies about its scale.
 
-   Here rather than at a mount site: it was a Lens-only class on a Lens-only
+   Here rather than at a mount site: it was a Cards card-only class on a Cards card-only
    copy of the tape, and the masthead's copy was left to be correct by accident
    of sitting inside a button. */
 .tug-session-row .tug-pulse-trailing .tug-sparkline {

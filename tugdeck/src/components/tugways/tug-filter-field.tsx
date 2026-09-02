@@ -22,8 +22,8 @@
  *    into the list's data source as an input (the session picker, `/resume`).
  *  - **Module-store adapter** — the field and the list are siblings that
  *    cannot see each other, so the delegate writes a module store the list
- *    body reads through `useSyncExternalStore` (the Lens sections, via
- *    `lens-filter-store.ts`).
+ *    body reads through `useSyncExternalStore` (the rail cards, via
+ *    `attached-filter.ts`).
  *
  * ## Nothing to filter
  *
@@ -54,7 +54,7 @@
  *    predicate — so the field declares, live, that it captures `Escape` while
  *    its query is non-empty. The ladder yields and the field's own keydown
  *    clears it.
- *  - In the **base focus mode** (the Lens) a bare Escape resolves through the
+ *  - In the **base focus mode** (the rail) a bare Escape resolves through the
  *    static keybinding map to `CANCEL_DIALOG` and dispatches into the
  *    responder chain. The field registers a `CANCEL_DIALOG` handler that
  *    exists *only while the query is non-empty* (an accessor on the actions

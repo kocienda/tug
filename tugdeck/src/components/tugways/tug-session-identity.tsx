@@ -601,7 +601,7 @@ export function TugSessionCitation({
       register={register}
       missing={missing}
       // The raise rides the registry's own `focus-session-card` — the same
-      // funnel the Lens rows dispatch — so a chip's click and a row's click
+      // funnel the Cards card rows dispatch — so a chip's click and a row's click
       // cannot drift into two raises ([L30]).
       onOpen={
         canRaise

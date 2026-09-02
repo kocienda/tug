@@ -1,5 +1,5 @@
 /**
- * zz-probe-layout-miniature.test.ts — the Lens miniature as an instrument.
+ * zz-probe-layout-miniature.test.ts — the Layout card's miniature as an instrument.
  *
  * The committed drawing is the one layer that tracks the deck: given the live
  * flow offset, the band, and each occupied slot's extent, it draws the strip
@@ -36,7 +36,7 @@ import { launchTugApp, note, type App } from "./_harness";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 
-const LENS_WIDTH = 420;
+const RAIL_WIDTH = 420;
 /** Deliberately uneven, and wide enough that no stack's minimum flattens them
  *  — the drawing has nothing to say about proportions a deck does not hold. */
 const PANE_WIDTHS = [720, 480, 620, 540, 500];
@@ -48,7 +48,7 @@ const AFTER_LAND_MS = 900;
 const wait = (ms: number): Promise<void> =>
   new Promise<void>((r) => setTimeout(r, ms));
 
-/** Five cards of five different widths in a six-up, the Lens on the right —
+/** Five cards of five different widths in a six-up, the Layout card on the right —
  *  a strip comfortably longer than the band on any window this harness opens. */
 function deckShape(): Record<string, unknown> {
   const ids = ["A", "B", "C", "D", "E"];
@@ -74,12 +74,12 @@ function deckShape(): Record<string, unknown> {
         slot: index,
       })),
       {
-        id: "pLens",
+        id: "pRail",
         position: { x: 0, y: 0 },
-        size: { width: LENS_WIDTH, height: 900 },
+        size: { width: RAIL_WIDTH, height: 900 },
         cardIds: ["L"],
         activeCardId: "L",
-        title: "Lens",
+        title: "Layout",
         acceptsFamilies: [],
       },
     ],
@@ -155,10 +155,10 @@ async function bandWidth(app: App): Promise<number> {
       var box = document
         .querySelector("[data-deck-canvas-background]")
         .getBoundingClientRect();
-      var lens = document
-        .querySelector('.tug-pane[data-pane-id="pLens"]')
+      var rail = document
+        .querySelector('.tug-pane[data-pane-id="pRail"]')
         .getBoundingClientRect();
-      return (lens.left - 5) - (box.left + 5);
+      return (rail.left - 5) - (box.left + 5);
     })()`,
   );
 }
@@ -170,15 +170,15 @@ describe.skipIf(!SHOULD_RUN)("zz probe — layout miniature", () => {
       const app = await launchTugApp({ testName: "zz-probe-layout-miniature" });
       try {
         await app.evalJS<null>(
-          `(window.__tug.setTugbankValue("dev.tugtool.lens", "widthPx", { kind: "i64", value: ${LENS_WIDTH} }), null)`,
+          `(window.__tug.setTugbankValue("dev.tugtool.layout", "widthPx", { kind: "i64", value: ${RAIL_WIDTH} }), null)`,
         );
         await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
         await app.waitForCondition<boolean>(
-          `document.querySelector('[data-testid="lens-layouts-plan"]') !== null`,
+          `document.querySelector('[data-testid="layout-card-plan"]') !== null`,
           { timeoutMs: 8_000 },
         );
         await app.evalJS(
-          `document.querySelector('[data-testid="lens-layouts-section"]')
+          `document.querySelector('[data-testid="layout-card-section"]')
              .scrollIntoView({ block: "center" })`,
         );
         await wait(AFTER_LAND_MS);
@@ -289,7 +289,7 @@ describe.skipIf(!SHOULD_RUN)("zz probe — layout miniature", () => {
         await wait(300);
         for (let i = 0; i < 24; i += 1) {
           const on = await app.evalJS<boolean>(
-            `document.querySelector('[data-testid="lens-layouts-width"][data-key-view-kbd]') !== null`,
+            `document.querySelector('[data-testid="layout-card-width"][data-key-view-kbd]') !== null`,
           );
           if (on) break;
           await app.nativeKey("Tab");
@@ -297,14 +297,14 @@ describe.skipIf(!SHOULD_RUN)("zz probe — layout miniature", () => {
         }
         for (let i = 0; i < 8; i += 1) {
           const on = await app.evalJS<boolean>(
-            `document.querySelector('[data-testid="lens-layouts-width"] [data-key-cursor][data-choice-value="wide"]') !== null`,
+            `document.querySelector('[data-testid="layout-card-width"] [data-key-cursor][data-choice-value="wide"]') !== null`,
           );
           if (on) break;
           await app.nativeKey("ArrowRight");
           await wait(150);
         }
         await app.waitForCondition<boolean>(
-          `document.querySelector('[data-testid="lens-layouts-plan"]')
+          `document.querySelector('[data-testid="layout-card-plan"]')
              .hasAttribute("data-previewing")`,
           { timeoutMs: 4_000 },
         );
@@ -323,11 +323,11 @@ describe.skipIf(!SHOULD_RUN)("zz probe — layout miniature", () => {
       const app = await launchTugApp({ testName: "zz-probe-layout-miniature" });
       try {
         await app.evalJS<null>(
-          `(window.__tug.setTugbankValue("dev.tugtool.lens", "widthPx", { kind: "i64", value: ${LENS_WIDTH} }), null)`,
+          `(window.__tug.setTugbankValue("dev.tugtool.layout", "widthPx", { kind: "i64", value: ${RAIL_WIDTH} }), null)`,
         );
         await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
         await app.waitForCondition<boolean>(
-          `document.querySelector('[data-testid="lens-layouts-plan"]') !== null`,
+          `document.querySelector('[data-testid="layout-card-plan"]') !== null`,
           { timeoutMs: 8_000 },
         );
         await wait(AFTER_LAND_MS);

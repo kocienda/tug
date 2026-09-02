@@ -1,5 +1,5 @@
 /**
- * at0470-slot-window.test.ts — a Lens row states its place through a window.
+ * at0470-slot-window.test.ts — a Cards row states its place through a window.
  *
  * A row used to draw the whole imposition: one chip per slot, the held one
  * lit. That encoded position geometrically — find the lit chip in the ruler —
@@ -49,7 +49,7 @@ import { launchTugApp, note, type App } from "./_harness";
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
 
-const LENS_WIDTH = 460;
+const CARDS_WIDTH = 460;
 const PANE_WIDTH = 400;
 const AFTER_LAND_MS = 900;
 
@@ -70,7 +70,7 @@ interface WindowFacts {
 }
 
 /**
- * Six-up with the Lens on the right and three cards spread across the run —
+ * Six-up with the Cards card on the right and three cards spread across the run —
  * one at each end and one in the middle, which is what makes the stub claim
  * and the alignment claim readable in a single deck.
  */
@@ -102,12 +102,12 @@ function deckShape() {
         slot,
       })),
       {
-        id: "pLens",
+        id: "pCards",
         position: { x: 0, y: 0 },
-        size: { width: LENS_WIDTH, height: 900 },
+        size: { width: CARDS_WIDTH, height: 900 },
         cardIds: ["L"],
         activeCardId: "L",
-        title: "Lens",
+        title: "Cards",
         acceptsFamilies: [],
       },
     ],
@@ -119,7 +119,7 @@ function deckShape() {
 
 async function openDeck(app: App): Promise<void> {
   await app.evalJS<null>(
-    `(window.__tug.setTugbankValue("dev.tugtool.cards", "widthPx", { kind: "i64", value: ${LENS_WIDTH} }), null)`,
+    `(window.__tug.setTugbankValue("dev.tugtool.cards", "widthPx", { kind: "i64", value: ${CARDS_WIDTH} }), null)`,
   );
   // The window width is a PERSISTED preference, deck-wide and machine-global,
   // which is exactly what it is meant to be — and exactly why it has to be
@@ -128,7 +128,7 @@ async function openDeck(app: App): Promise<void> {
   // once and fail forever after on a claim about the deck rather than about
   // itself.
   await app.evalJS<null>(
-    `(window.__tug.setTugbankValue("dev.tugtool.lens", "slotWindow", { kind: "i64", value: 3 }), null)`,
+    `(window.__tug.setTugbankValue("dev.tugtool.slot-window", "slotWindow", { kind: "i64", value: 3 }), null)`,
   );
   await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
   await app.waitForCondition<boolean>(
@@ -138,7 +138,7 @@ async function openDeck(app: App): Promise<void> {
   await wait(AFTER_LAND_MS);
 }
 
-/** Every row's window, in the Lens's own order. */
+/** Every row's window, in the Cards card's own order. */
 async function windows(app: App): Promise<WindowFacts[]> {
   return app.evalJS<WindowFacts[]>(
     `Array.prototype.map.call(
@@ -174,7 +174,7 @@ async function pressPosition(
   await wait(500);
 }
 
-describe.skipIf(!SHOULD_RUN)("at0470 — the Lens row's slot window", () => {
+describe.skipIf(!SHOULD_RUN)("at0470 — the Cards row's slot window", () => {
   test(
     "three real places per row, centred where it can be and slid where it cannot",
     async () => {
@@ -407,9 +407,9 @@ describe.skipIf(!SHOULD_RUN)("at0470 — the Lens row's slot window", () => {
 
         // Put it back. The preference is machine-global and outlives the app,
         // so a file that widens it and walks away sets the starting width for
-        // every other test that renders a Lens row.
+        // every other test that renders a Cards row.
         await app.evalJS<null>(
-          `(window.__tug.setTugbankValue("dev.tugtool.lens", "slotWindow", { kind: "i64", value: 3 }), null)`,
+          `(window.__tug.setTugbankValue("dev.tugtool.slot-window", "slotWindow", { kind: "i64", value: 3 }), null)`,
         );
       } finally {
         await app.close();

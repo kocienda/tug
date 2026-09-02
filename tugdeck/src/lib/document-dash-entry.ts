@@ -4,7 +4,7 @@
  * A `DocumentDashEntry` is a dash that exists only as documents: a brief, maybe
  * a plan, and no `tugdash/<name>` branch yet. Every surface that names a dash
  * reads a `DashChangesetEntry` and a `DashTrackModel`, and this module is the
- * one place that turns the documents-only row into both — once, so the Lens,
+ * one place that turns the documents-only row into both — once, so the Dashes card,
  * the shade, and the session index cannot each invent their own reading.
  *
  * The line the two functions hold is what the wire can honestly say. The

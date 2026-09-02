@@ -1,7 +1,7 @@
 /**
  * The prompt entry's end-of-doc insertion rule, pinned through the pure
  * `applyAppendInsertion` helper: text arriving from outside the editor (a
- * Lens snippet dropped with no resolvable offset) lands as-is on an empty
+ * Jots card snippet dropped with no resolvable offset) lands as-is on an empty
  * editor and appended on its own line over a mid-compose draft.
  */
 import { describe, expect, test } from "bun:test";

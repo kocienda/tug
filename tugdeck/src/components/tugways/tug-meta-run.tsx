@@ -21,7 +21,7 @@
  * slots are fixed, the overflow lands on top of the trailing controls. `fit`
  * says what a run does when the line runs out: `"natural"` takes the width its
  * parts need (correct where the run is sized by its content — a right-aligned
- * tail in the Lens), `"clip"` bounds it to the box and fades the last visible
+ * tail in the rail), `"clip"` bounds it to the box and fades the last visible
  * fact out. The fade is self-gating: it covers the trailing edge of the BOX, so
  * a run that fits is fading empty space and nothing shows.
  *

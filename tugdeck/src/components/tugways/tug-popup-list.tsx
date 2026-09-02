@@ -434,7 +434,7 @@ export function TugPopupListFooter({
  * How an empty body reads. `prose` is a muted italic remark ("No
  * committed turns yet."); `word` is the bare reading for "nothing
  * here" — centered and plain on a row-height box, the same treatment
- * the Lens gives its own empty sections.
+ * the rail gives its own empty sections.
  *
  * The split is not decoration. A single word is a *reading*, so it
  * belongs on the axis a value would occupy and italics make it read as

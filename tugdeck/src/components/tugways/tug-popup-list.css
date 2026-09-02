@@ -165,7 +165,7 @@
 /* The bare-word form — "None", and nothing else. Centered on a
    row-height box and plain, so it sits where a value would sit rather
    than reading as an aside about the absence of one. Matches the
-   Lens's own empty marker (`.lens-section-empty`); the two are stated
+   rail's own empty marker (`.cards-section-empty`); the two are stated
    separately because each layer owns its geometry, and what is shared
    is the reading, not a token. */
 /* @tug-renders-on var(--tug7-surface-popover-primary-normal-default-rest) */

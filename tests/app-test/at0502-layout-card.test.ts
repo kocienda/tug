@@ -1,8 +1,8 @@
 /**
  * at0502-layout-card.test.ts — the **Layout** card as a card.
  *
- * The layout picker used to be a band inside the Lens, reached by opening the
- * Lens and finding it. It is a registered sidebar card now, and this pins the
+ * The layout picker used to be a band inside a larger sidebar card, reached by
+ * opening that card and finding it. It is a registered sidebar card now, and this pins the
  * three facts that makes true — the ones no unit test can reach, because each
  * one is about the deck actually standing the card up:
  *
@@ -36,7 +36,7 @@ const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 60_000;
 
 /** The card's root — the element the body renders into. */
-const CARD = '[data-testid="lens-layouts-section"]';
+const CARD = '[data-testid="layout-card-section"]';
 
 /** The committed drawing's blocks: one per slot the arrangement defines. */
 const BLOCKS = '[data-plan-layer="committed"] .layout-mini-block';
@@ -73,7 +73,7 @@ describe.skipIf(!SHOULD_RUN)("at0502 — the Layout card", () => {
 
         // ---- 2. It draws the deck.
         await app.waitForCondition<boolean>(
-          `document.querySelector('[data-testid="lens-layouts-plan"]') !== null`,
+          `document.querySelector('[data-testid="layout-card-plan"]') !== null`,
           { timeoutMs: 8_000 },
         );
         const blocks = await app.evalJS<number>(
@@ -84,7 +84,7 @@ describe.skipIf(!SHOULD_RUN)("at0502 — the Layout card", () => {
         // ---- 3. It lists itself among the sidebar rows.
         expect(
           await app.evalJS<boolean>(
-            `document.querySelector('[data-testid="lens-layouts-sidebar-layout"]') !== null`,
+            `document.querySelector('[data-testid="layout-card-sidebar-layout"]') !== null`,
           ),
         ).toBe(true);
 

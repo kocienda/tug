@@ -41,7 +41,7 @@
  *    unequal heights. An unchanged index (or Escape) eases back and commits
  *    nothing.
  *  - **Escape** aborts locally: the handler's own capture-phase keydown
- *    listener swallows the key (so the Lens `CANCEL_DIALOG` responder never
+ *    listener swallows the key (so the rail `CANCEL_DIALOG` responder never
  *    sees it) and eases the drag back without committing.
  *
  * **The gesture ends before the settle plays.** Releasing the drag latch and
@@ -74,7 +74,7 @@ import { group } from "@/components/tugways/tug-animator";
  * Move the item at `from` to index `to` in a copy of `arr` (pure). It is the
  * arithmetic every drag-reorder does once the drop index is known, and it
  * lives here because this hook is the only thing that ever needed it — it sat
- * in the Lens's section registry for as long as reordering the Lens's bands
+ * in the rail's section registry for as long as reordering the rail's bands
  * was the reorder the deck had. Out-of-range indices are clamped; the input is
  * never mutated.
  */
@@ -93,7 +93,7 @@ const SETTLE_MS = 140;
 /**
  * Stamped on the container while a carry is in flight — the declared state a
  * surface inside it keys its own carry behavior off. It is deliberately
- * generic (`data-tug-*`, like `data-tug-placement`) rather than Lens-private:
+ * generic (`data-tug-*`, like `data-tug-placement`) rather than rail-private:
  * `TugListView` reads it to stand its focus ring down, and a shared primitive
  * must not have to know which host is dragging it.
  */
@@ -173,7 +173,7 @@ export interface UseBlockReorderOptions {
    * wait on an animation.
    *
    * It is the caller's to define, because only the caller knows what focusing
-   * a block means for its surface: a Lens section places on the section's own
+   * a block means for its surface: a rail section places on the section's own
    * focus key, a list row moves the list's movement cursor. Placement is
    * `place()`'s, never a raw focus write ([L22]).
    */
@@ -485,8 +485,8 @@ export function useBlockReorder({
 
       const onKey = (ev: KeyboardEvent): void => {
         if (ev.key !== "Escape") return;
-        // Keep the abort local: swallow Escape so the Lens `CANCEL_DIALOG`
-        // responder does not also fire (which would focus the Lens out).
+        // Keep the abort local: swallow Escape so the rail `CANCEL_DIALOG`
+        // responder does not also fire (which would focus the rail out).
         //
         // Substrate-local rather than a scoped binding, for the same reason
         // the card drag's Escape is: the claim lasts exactly as long as the

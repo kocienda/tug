@@ -1,7 +1,7 @@
 /**
  * devtools-card.tsx — DevTools card (app-level singleton).
  *
- * The interim home for the Log and Telemetry inspectors after the Lens
+ * The interim home for the Log and Telemetry inspectors after the rail card that
  * rework moved them off the rail. A single card hosting the two inspectors
  * behind an internal `TugTabBar` (the Settings-card idiom) — a fixed,
  * non-closable tab set, not a multi-card pane stack. Opened by ⌥⌘/ (the
@@ -10,7 +10,7 @@
  *
  * The Telemetry tab follows the last non-DevTools key card — "the session I'm
  * working in" — via `useTrackFollowedCard(<this card's id>)`, the same
- * follow the Lens used, excluding this card from the follow.
+ * follow they used, excluding this card from the follow.
  *
  * Laws: tab selection is card-local data (`useState`, [L02]); the tab bar
  * dispatches `selectTab` through the chain to this card's responder ([L11]);

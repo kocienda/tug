@@ -32,7 +32,7 @@
  * `session-card.tsx` sets off the snapshot's `pendingAsk`).
  *
  * While it is up the session reads **Awaiting** in the Z2 STATE cell and in the
- * Lens session row, the same as the permission and question dialogs. Those two
+ * Cards card session row, the same as the permission and question dialogs. Those two
  * get there through the reducer's `phase`; this one cannot (it belongs to no
  * turn), so it reaches the indicator through `sessionSessionPhaseKey`'s own
  * `pendingAsk` axis — see `session-phase-visual.ts`.

@@ -101,7 +101,7 @@ import {
 } from "@/lib/imposer-motion";
 import { dispatchCommand } from "@/command-dispatch";
 import {
-  attachLensSelectionToDeck,
+  attachLayoutSelectionToDeck,
   cardsSelectionStore,
 } from "@/components/cards/cards-selection-store";
 import { shrinkCardsState } from "@/components/cards/cards-escape";
@@ -187,12 +187,12 @@ const CARD_ZINDEX_BASE = 1;
  * Z-index BAND for sidebar panes — the rails. A rail must sit ABOVE every free
  * pane (tiny array-order z, 1..N) so it is never occluded by a card, yet
  * strictly BELOW the canvas-overlay base (`--tug-z-overlay-base` = 9000) into
- * which every popup/menu/tooltip — including the Lens's own `…` menu and
- * section popovers — portals. A naive "always on top" z above 9000 would bury
+ * which every popup/menu/tooltip — including a rail card's own `…` menu and
+ * its popovers — portals. A naive "always on top" z above 9000 would bury
  * those popups behind the rail. 8999 is the tier the former dev-panel overlay
  * used, and the band is the nine values below it.
  *
- * It has to be a band rather than the single value it was when the Lens was the
+ * It has to be a band rather than the single value it was when one card was the
  * only rail: **same-side sidebars stand front-to-back**, so the two of them have
  * to be orderable against each other. Within the band they take the deck's own
  * z-order — array position, the thing `activateCard` moves — which is what makes
@@ -341,7 +341,7 @@ function sidebarRailsOf(state: DeckState): readonly SidebarRail[] {
 
 /**
  * Everything the imposer reads, as one string: the imposition record, which
- * pane holds which slot, and the pinned Lens's width. Two decks with the same
+ * pane holds which slot, and the pinned rail's width. Two decks with the same
  * signature put every derived frame in the same place, so a change to it is
  * exactly the set of moments the deck should cross to a new arrangement rather
  * than cut.
@@ -1174,7 +1174,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       // Every gate below is a silent return, never a warn: the digit row
       // is bound in full, and a number the current arrangement doesn't
       // have is a chord the user simply hasn't configured. `assign-slot`
-      // does the work, so the keyboard and the Lens's SlotPicker share
+      // does the work, so the keyboard and the Cards card's SlotPicker share
       // one path (detach-from-tab-group, raise, clamp, persist).
       [TUG_ACTIONS.MOVE_TO_SLOT]: (event: ActionEvent) => {
         if (typeof event.value !== "number") return;
@@ -1183,7 +1183,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         if (kind === undefined) return;
         if (event.value < 1 || event.value > slotCount(kind)) return;
         // The layout selection, not the first responder. With the keyboard in
-        // the Lens the first responder IS the Lens card — a rail — so reading
+        // the Cards card the first responder IS that card — a rail — so reading
         // it alone refused every slot chord typed while the Cards list had
         // focus, which is exactly when one is most likely to be typed.
         const cardIds = contentCardsInLayoutSelection(store);
@@ -1415,17 +1415,17 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       },
       // Escape's last-resort meaning while a layout selection stands: drop it.
       //
-      // The selection is deck state, not Lens state — it is what the next
+      // The selection is deck state, not the Cards card's — it is what the next
       // layout verb acts on, and it outlives both the gesture that made it and
-      // the keyboard's presence in the Lens. A plain click on a Cards row
-      // FRONTS the card it names, which takes the keyboard out of the Lens
-      // entirely; the Lens's own responder is then off the chain, and without
+      // the keyboard's presence in that card. A plain click on a Cards row
+      // FRONTS the card it names, which takes the keyboard out of the rail
+      // entirely; the Cards card's own responder is then off the chain, and without
       // this entry the standing selection had no key that could take it back.
       //
       // Registered CONDITIONALLY, and that is the whole safety argument: an
       // unconditional entry on the root responder would mark every Escape in
       // the app handled (the chain has no way for a handler to decline), which
-      // is why the Lens's responder was content-local in the first place. The
+      // is why that responder was content-local in the first place. The
       // key is present only while there is a set to clear, so every other
       // Escape in the app walks off the root exactly as it did before.
       //
@@ -1436,7 +1436,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       ...(hasLayoutSelection
         ? {
             [TUG_ACTIONS.CANCEL_DIALOG]: (_event: ActionEvent) => {
-              // The same table the Lens's own responder runs, so the answer to
+              // The same table the Cards card's own responder runs, so the answer to
               // Escape does not change with where the keyboard happens to be
               // standing — which was the whole complaint. `shrinkCardsState`
               // takes the filter rung first if there is one; the focus-out rung
@@ -1509,7 +1509,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       [TUG_ACTIONS.SHOW_KEYBOARD_SHORTCUTS]: (_event: ActionEvent) => {
         // Open (or raise) the Keyboard Shortcuts singleton card. Same
         // find-or-create-then-focus-claim shape as SHOW_SETTINGS. Dispatched
-        // by the app menu's item and by the Lens.
+        // by the app menu's item and by the Cards card.
         const snapshot = store.getSnapshot();
         const keyboardCard = snapshot.cards.find(
           (c) => c.componentId === "keyboard",
@@ -1757,11 +1757,11 @@ export function DeckCanvas(_props: DeckCanvasProps) {
   // ---------------------------------------------------------------------------
   // Layout-imposer span insets
   // ---------------------------------------------------------------------------
-  // The band imposed panes are placed across is the canvas minus the Lens on
+  // The band imposed panes are placed across is the canvas minus the rail on
   // the side it holds — slotted positions are never under it, though a free
   // pane may still be dragged there. The two insets reach CSS as custom
   // properties on the frames' own containing block, so an imposed frame's
-  // `calc()` tracks a window resize or a Lens width drag with no JavaScript at
+  // `calc()` tracks a window resize or a rail width drag with no JavaScript at
   // all ([L06]). This is why a resize costs the deck nothing while it is
   // happening: the browser does the reflow, and no code here runs per frame.
   //
@@ -1960,20 +1960,20 @@ export function DeckCanvas(_props: DeckCanvasProps) {
   // ---------------------------------------------------------------------------
   // Layout selection reconciliation
   // ---------------------------------------------------------------------------
-  // The layout selection is the Lens's to build and the deck's to honor, so it
-  // is reconciled here rather than in the Lens: the canvas is mounted for as
-  // long as there is a deck, and the Lens is not. Pruning closed cards out of
+  // The layout selection is the Cards card's to build and the deck's to honor, so it
+  // is reconciled here rather than in that card: the canvas is mounted for as
+  // long as there is a deck, and the Cards card is not. Pruning closed cards out of
   // the set and collapsing it when the user fronts something else both need to
-  // happen whether the Cards section is on screen or collapsed away.
+  // happen whether the Cards card is on screen or closed away.
   // [L03] — a subscription registered in a layout effect, torn down with it.
-  useLayoutEffect(() => attachLensSelectionToDeck(store), [store]);
+  useLayoutEffect(() => attachLayoutSelectionToDeck(store), [store]);
 
   // ---------------------------------------------------------------------------
   // Settled-resize re-tune
   // ---------------------------------------------------------------------------
-  // A new canvas width is a new band, and the Lens width that made the chain
+  // A new canvas width is a new band, and the rail width that made the chain
   // tile evenly at the old one may not at the new one. So the space allocator
-  // gets a third moment beside the Layouts pick: the canvas came to rest at a
+  // gets a third moment beside the Layout card's pick: the canvas came to rest at a
   // size it was not at before — because the user dragged the window edge, or
   // because the OS resized it (a display change, a space move).
   //
@@ -2021,7 +2021,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
   // Settling into a new arrangement
   // ---------------------------------------------------------------------------
   // A change to the ARRANGEMENT moves derived frames without anyone touching
-  // them: the Lens crossing to the other side, an N-up swap, the pin coming
+  // them: a rail crossing to the other side, an N-up swap, the pin coming
   // back, a card sent to another slot. The frames cross to their new places
   // rather than cutting, and the crossing is FLIP: React commits the final
   // geometry in one layout pass, and each moved frame is then tweened by a
@@ -2435,7 +2435,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
   // is load-bearing: React runs layout effects in declaration order, and the
   // inset effect writes the `--tug-imposer-inset-*` values every imposed
   // frame's `left` calc resolves against. Measuring Last before the fresh
-  // insets land would tween every Lens side flip from a stale delta.
+  // insets land would tween every rail side flip from a stale delta.
   useLayoutEffect(() => {
     const el = containerRef.current;
     const firstRects = settleFirstRectsRef.current;
@@ -2782,7 +2782,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
   // Where each imposed pane sits.
   //
   // In FIT a slot's anchor is a pure function of the kind and the slot — no
-  // pane's place depends on any other's, and the Lens's side moves the band's
+  // pane's place depends on any other's, and the rail's side moves the band's
   // edges rather than the numbering — so this is a per-pane lookup rather than
   // a chain resolved from a vantage point that sees them all. Resolved here
   // only because the canvas is where the kind is already in hand.
@@ -3359,7 +3359,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
   // autoscroll already obeys ([P01], [P12]).
   //
   // `previewFlowOffset` is the per-frame half, and it is the STORE's: the
-  // Lens's strip scrubs the same quantity onto the same element, so the one
+  // Layout card's strip scrubs the same quantity onto the same element, so the one
   // writer lives where both callers can reach it ([P11]). This binds it for
   // the canvas's own gestures.
   const previewFlowOffset = useCallback(

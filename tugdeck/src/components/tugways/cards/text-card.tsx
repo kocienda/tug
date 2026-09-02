@@ -662,12 +662,12 @@ export function TextCardContent({ cardId }: { cardId: string }) {
     });
     // A fresh card binds its path — and names its buffer — AFTER mount (the
     // async file read / untitled allocation), so registry consumers that
-    // project the card (the Lens Text Files list) must re-read when the path or
+    // project the card (the Cards card Text Files list) must re-read when the path or
     // name lands, not just when the card registers. Notify on every path OR
-    // fileName change so the Lens titles the open row the moment the binding
+    // fileName change so the Cards card titles the open row the moment the binding
     // resolves — instead of stranding a nameless row until the next deck
     // re-render.
-    // The unsaved mark rides the same channel: the Lens row paints the dot the
+    // The unsaved mark rides the same channel: the Cards card row paints the dot the
     // card header wears, so it must re-read when the dirty bit sets or clears.
     const unsavedMark = (snap: ReturnType<typeof store.getSnapshot>): boolean =>
       snap.saveMode === "manual" && snap.saveState !== "clean";

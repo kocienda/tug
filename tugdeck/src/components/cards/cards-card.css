@@ -41,12 +41,12 @@
    section's flex share and scrolls its rows internally.
 
    EDGE-TO-EDGE. The list carries no margin, no frame, and no radius: its rows
-   run the full width of the Lens rail and are separated by the `flush` layout's
+   run the full width of the rail and are separated by the `flush` layout's
    hairlines alone. A rounded, inset box inside a section that is itself a
    bordered band drew a second rectangle around the same content — the rail
    already says where the section starts and ends. The row inset does the whole
    job of holding the text off the edge, and it matches the header's, so a
-   band's title and its rows start on ONE vertical line. Matches the other Lens
+   band's title and its rows start on ONE vertical line. Matches the other rail
    lists. */
 .tug-list-view.cards-list {
   flex: 1 1 auto;
@@ -76,7 +76,7 @@
   padding-inline-end: var(--tugx-cards-row-trailing-pad);
 }
 
-/* Row dividers ALWAYS show in the Lens lists — re-assert the hairline the
+/* Row dividers ALWAYS show in the rail lists — re-assert the hairline the
    list-view's "clean selected block" rule drops around a selected / cursor row
    ([L06]). `!important` deliberately overrides that primitive's `:has()`
    suppression, whose specificity would otherwise win. */
@@ -86,7 +86,7 @@
 }
 
 /* The leading column holds the close box at the width the session rows give
-   their phase dot, so the two glyphs sit on one line down the Lens and the
+   their phase dot, so the two glyphs sit on one line down the rail and the
    names all start at the same offset. */
 .cards-list .tug-list-row-leading {
   inline-size: 28px;
@@ -124,11 +124,13 @@
 
 /* THE DENSE ROW METRIC. A one-line row bottoms out on its 24px close box, so
    the block padding is the only thing that sets its height — the same 2px the
-   Jots list takes from `.lens-oneline-list`, which is what makes a file row
-   and a jot row the same height down the rail. Scoped to the one-line rows
-   on purpose: the session monitor rows are three lines and keep the row
-   default's air, and the group headers keep theirs so a group reads as
-   separated from the one above it. */
+   Jots list sets on `.tug-list-view.jots-list` in `jots-card.css`, which is
+   what makes a file row and a jot row the same height down the rail. No
+   shared class carries the number: each rail card's list states it on its own
+   rule, so the two are kept equal by hand rather than by the cascade. Scoped
+   to the one-line rows on purpose: the session monitor rows are three lines
+   and keep the row default's air, and the group headers keep theirs so a
+   group reads as separated from the one above it. */
 .cards-list .cards-oneline {
   --tugx-list-row-padding-block: 2px;
 }
@@ -158,7 +160,7 @@
   align-items: center;
   /* The box takes the line's slack, so the coordinate sits at the content
      column's end on every row kind and the impositions read as one column down
-     the Lens. */
+     the Cards card. */
   margin-inline-start: auto;
   /* The trailing inset is the session row's own knob, spent here as a margin
      so the two row kinds stay on ONE vertical: the session rows pay it as
@@ -237,7 +239,7 @@
 /* ── Group headers ────────────────────────────────────────────────────────── */
 
 /* THE SUB-HEADER'S OWN TONE — the third level the rail grew.
-   The Lens used to have two: a band on the Lens's surface, and the band's
+   This card used to have two: a band on the old rail card's surface, and the band's
    content in a well cut below it. Cards has three — band, group sub-header,
    rows — and a third level needs a third tone. Borrowing one of the two it
    sits between is what does not work: on the well the sub-header is one more
@@ -271,15 +273,15 @@ body {
   /* How far the sub-header lifts off the well, as a percentage of the
      surface's own foreground. The rows' bands are ±4%; below about 6 this
      stops reading as a level and starts reading as a third stripe. */
-  --tugx-lens-group-header-wash: 9%;
+  --tugx-group-header-wash: 9%;
   /* The two lines that close the band. Subtle by default — the wash is what
      separates the levels, and the rules only draw where one ends; the strong
      border tone (`--tug7-element-global-border-normal-strong-rest`) is the
      next rung up if they want to carry more of the work. */
-  --tugx-lens-group-header-rule: var(--tug7-element-global-border-normal-muted-rest);
+  --tugx-group-header-rule: var(--tug7-element-global-border-normal-muted-rest);
   /* How far the sub-header's glyph and label stand off the row's leading edge,
      so the movement caret on that edge has room. TUNE HERE. */
-  --tugx-lens-group-header-inset: 4px;
+  --tugx-group-header-inset: 4px;
 }
 
 /* @tug-renders-on: --tug7-surface-card-primary-normal-well-rest */
@@ -288,11 +290,11 @@ body {
   background-color: color-mix(
     in oklab,
     var(--tug7-element-global-text-normal-default-rest)
-      var(--tugx-lens-group-header-wash, 9%),
+      var(--tugx-group-header-wash, 9%),
     var(--tug7-surface-card-primary-normal-well-rest)
   );
-  border-bottom-color: var(--tugx-lens-group-header-rule) !important;
-  box-shadow: inset 0 1px 0 0 var(--tugx-lens-group-header-rule);
+  border-bottom-color: var(--tugx-group-header-rule) !important;
+  box-shadow: inset 0 1px 0 0 var(--tugx-group-header-rule);
 }
 
 /* A group header is a row like any other — it takes the same chrome, the same
@@ -317,7 +319,7 @@ body {
      the label is measured from the glyph, so the line moves as a piece — the
      same nudge, for the same reason, that the session rows take. Leading only:
      the fold cue rides the row's trailing slot and does not move with it. */
-  padding-inline-start: var(--tugx-lens-group-header-inset);
+  padding-inline-start: var(--tugx-group-header-inset);
 }
 
 /* The group's kind glyph, in the column the rows' own glyphs stand in. It is
@@ -379,7 +381,7 @@ body {
   color: var(--tug7-element-global-text-normal-subtle-rest);
 }
 
-/* The card's own chrome, where the Lens band used to be: the filter field
+/* The card's own chrome, where its old section band used to be: the filter field
    takes the width. */
 .cards-toolbar {
   display: flex;
@@ -397,6 +399,6 @@ body {
 /* How the session monitor row divides its width — which line the dot, the
    slots, and the sparkline ride, and what each costs the text beside it — is
    `tug-session-row.css`'s, not this file's. Nothing about that row's packing is
-   authored here, so the Lens cannot drift from the fit the gallery approved.
-   That now includes the tape, whose `flex-shrink: 0` was a Lens-only class on
-   a Lens-only copy of the instrument and is the row's rule. */
+   authored here, so the card cannot drift from the fit the gallery approved.
+   That now includes the tape, whose `flex-shrink: 0` was a rail-only class on
+   a rail-only copy of the instrument and is the row's rule. */

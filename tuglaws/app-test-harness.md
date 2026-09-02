@@ -88,8 +88,8 @@ Every app-test launches its own `Tug.app` subprocess, and whole invocations are 
 So coverage is declared at the test, in the header docblock:
 
 ```
- * @covers tugdeck/src/components/lens/
- * @covers tugdeck/src/lib/lens-store/
+ * @covers tugdeck/src/components/cards/
+ * @covers tugdeck/src/components/cards/cards-store/
 ```
 
 `just app-test-changed` resolves the working diff through those declarations and runs the matching set; `just app-test-covers-check` fails on a test that declares nothing and on a path that no longer resolves. Colocation is the load-bearing property — a declaration that lives next to the test it describes moves when the test moves and is visible in the diff that changes the test, which is what a central manifest cannot offer.

@@ -3,7 +3,7 @@
  *
  * A dash is not a claim. Rendered in session-file grammar a dash branch reads
  * as one — so it gets its own species of row: one `DashLifecycleBlock` at the
- * READING scale, the same block the Lens's Dashes section renders at the
+ * READING scale, the same block the Dashes card renders at the
  * rail, so the two surfaces speak one language. Line 1 is who — the dash atom
  * and one worker atom per bound session; line 2 is what the dash is doing —
  * track · fraction · note · divergence. The row keeps its per-row fold, and no
@@ -417,7 +417,7 @@ function DashRow({
         variant="flush"
         density="compact"
       >
-        {/* The dash's whole life in the one block the Lens's rows wear, here
+        {/* The dash's whole life in the one block the Dashes card's rows wear, here
             at the reading scale — the shade is the surface you came to read,
             and a line a step smaller than the register beneath it would read
             as a footnote to its own block. Line 1 is who: the dash atom and
@@ -477,7 +477,7 @@ function DashRow({
         />
       </TugListRow>
       {/* What the JOIN is doing, in the one shared register — the same
-          sentence the Lens row and the composer show, because all three call
+          sentence the Dashes card row and the composer show, because all three call
           one derivation. It states and never asks: every act in the arc lives
           in Z5 or in the prompt. */}
       <span className="session-changes-dash-register">
@@ -588,7 +588,7 @@ function DocumentDashRow({
     >
       <TugListRow variant="flush" density="compact">
         {/* The same block a branch row wears, over the same counted model the
-            Lens's documents-only row uses — never `dashTrackModelFromEntry`
+            Dashes card's documents-only row uses — never `dashTrackModelFromEntry`
             over the adapted entry, which carries no steps and would read
             `review` for a plan already half walked. */}
         <DashLifecycleBlock

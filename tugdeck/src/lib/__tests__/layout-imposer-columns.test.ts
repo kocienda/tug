@@ -60,7 +60,7 @@ const GAP_BOTTOM = `var(${IMPOSITION_GAP_BOTTOM_PROPERTY}, ${IMPOSITION_GAP_BOTT
  *  could be divided. */
 const bare = (): DeckImposition => ({
   kind: "three-up",
-  sidebars: { lens: { side: "right" } },
+  sidebars: { tripwires: { side: "right" } },
 });
 
 describe("columnModeOf", () => {
@@ -102,7 +102,7 @@ describe("the column withers", () => {
     expect(next.columns).toEqual({ 1: { mode: "split" } });
     // Everything else the imposition carries is untouched.
     expect(next.kind).toBe("three-up");
-    expect(next.sidebars).toEqual({ lens: { side: "right" } });
+    expect(next.sidebars).toEqual({ tripwires: { side: "right" } });
   });
 
   test("re-stacking keeps the order and the shares", () => {

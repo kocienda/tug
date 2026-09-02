@@ -16,7 +16,7 @@
  *
  * It opens NO feed of its own — the per-workspace `CHANGESET` feed (0x23)
  * is retired. Instead it subscribes to the app-level `ChangesetAllStore`
- * singleton (`CHANGESET_ALL`, 0x24 — the same store the Lens reads) and
+ * singleton (`CHANGESET_ALL`, 0x24 — the same store the rail reads) and
  * derives its slice as a filtered projection: this card's project by
  * `workspace_key`, its session entry by `owner_id`, the project's dash
  * entries, and the unattributed bucket.
@@ -116,7 +116,7 @@ export function draftDrifted(entry: SessionChangesetEntry | null): boolean {
 /**
  * A minimal project shell for a binding whose project the feed hasn't
  * emitted yet — enough identity to render immediately; the feed's next
- * frame supplies the real project. Mirrors the Lens `placeholderProject`.
+ * frame supplies the real project. Mirrors the rail `placeholderProject`.
  */
 function placeholderProject(binding: ChangesRouteBinding): ProjectChangeset {
   const dir = binding.projectDir;

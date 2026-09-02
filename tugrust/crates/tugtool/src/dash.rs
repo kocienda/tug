@@ -1896,7 +1896,7 @@ impl Claim {
 /// one, and leaving the claim to whoever remembered to type `dash bind` is the
 /// same mistake [D147] removed from the join's other end. `commit` is
 /// deliberately not among them: see the note there. A dash whose worker
-/// nobody recorded shows no worker on its Lens row, on the session masthead or
+/// nobody recorded shows no worker on its Dashes card row, on the session masthead or
 /// in the shade, and — since the pilot works only for bound dashes — is never
 /// offered for joining at all.
 ///

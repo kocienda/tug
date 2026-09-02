@@ -428,10 +428,10 @@ describe.skipIf(!SHOULD_RUN)("at0387 — the session row's own menu", () => {
   );
 
   test(
-    "a press elsewhere in the Lens closes the menu",
+    "a press elsewhere in the Cards card closes the menu",
     async () => {
       const LIST = ".cards-list";
-      const LENS_DESCRIPTION = `${LIST} .cards-row .tug-session-row-description`;
+      const CARDS_DESCRIPTION = `${LIST} .cards-row .tug-session-row-description`;
       const app = await launchTugApp({
         testName: "at0387-session-identity-menu-dismiss",
       });
@@ -444,17 +444,17 @@ describe.skipIf(!SHOULD_RUN)("at0387 — the session row's own menu", () => {
         expect(await app.evalJS<boolean>(publishSession())).toBe(true);
         await app.dispatchControlAction("toggle-cards");
         await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(LENS_DESCRIPTION)}) !== null`,
+          `document.querySelector(${JSON.stringify(CARDS_DESCRIPTION)}) !== null`,
           { timeoutMs: 15_000 },
         );
 
-        await app.nativeRightClickAtElement(LENS_DESCRIPTION);
+        await app.nativeRightClickAtElement(CARDS_DESCRIPTION);
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(MENU)}) !== null`,
           { timeoutMs: 8_000 },
         );
 
-        // A point in the Lens the menu is not covering, computed rather than
+        // A point in the Cards card the menu is not covering, computed rather than
         // guessed — a press that landed INSIDE the menu would activate an item
         // and close it for the wrong reason, which is a green test for a broken
         // dismissal.
@@ -475,7 +475,7 @@ describe.skipIf(!SHOULD_RUN)("at0387 — the session row's own menu", () => {
         note("at0387 dismiss press", JSON.stringify(point));
         expect(point.clear).toBe(true);
 
-        // The regression this holds: the Lens's rows arm a reorder on
+        // The regression this holds: the Cards card's rows arm a reorder on
         // `pointerdown` and CLAIM the press with `preventDefault`, which
         // suppresses the compatibility `mousedown` — and `mousedown` was the
         // menu's only mouse dismissal. The menu sat over the list while the

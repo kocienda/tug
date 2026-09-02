@@ -1,6 +1,6 @@
 /**
  * changeset-card-retired.test.ts — the graceful-degrade path for the retired
- * Changeset card (now the Lens `kind: "sessions"` section).
+ * Changeset card (now the rail `kind: "sessions"` section).
  *
  * A persisted deck blob written before the retirement may still name a
  * `componentId: "changeset"` card. With `registerChangesetCard` gone, that
@@ -61,7 +61,7 @@ function persistedBlob(): DeckState {
       },
     ],
     activePaneId: "p2",
-    imposition: { sidebars: { lens: { side: "right" } } },
+    imposition: { sidebars: { session: { side: "right" } } },
     hasFocus: true,
   };
 }
@@ -111,7 +111,7 @@ describe("retired changeset card degrades a persisted deck blob gracefully", () 
         },
       ],
       activePaneId: "p1",
-      imposition: { sidebars: { lens: { side: "right" } } },
+      imposition: { sidebars: { session: { side: "right" } } },
       hasFocus: true,
     };
     expect(

@@ -914,7 +914,7 @@ mod tests {
     #[test]
     fn the_numeric_deletes_parse_in_any_order() {
         let ops = ops(concat!(
-            "file tugdeck/src/components/lens/sections/layouts-section.tsx\n",
+            "file tugdeck/src/components/layout/layout-card.tsx\n",
             "  delete 835 .. 849\n",
             "  delete 521 .. 522\n",
             "  delete 166\n",

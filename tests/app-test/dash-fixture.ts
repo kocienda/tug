@@ -644,7 +644,7 @@ export function fixturePlanDocument(
   return fixturePlan(rows, statuses);
 }
 
-/** Titles for a generated plan's rows. A run's step title reaches the Lens and
+/** Titles for a generated plan's rows. A run's step title reaches the Dashes card and
  *  the shade as the metadata line's note, so they have to differ to be worth
  *  asserting on. Long enough for any row count a fixture asks for. */
 const STEP_TITLES = [

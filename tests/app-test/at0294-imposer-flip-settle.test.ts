@@ -43,8 +43,8 @@
  * z-order moves nothing, so a bare raise must arm no settle window.
  *
  * Scenario:
- *   1. Seed a two-up deck with a pinned Lens on the right.
- *   2. Flip the Lens to the left. Mid-window: the container wears
+ *   1. Seed a two-up deck with a pinned Layout card on the right.
+ *   2. Flip the Layout card to the left. Mid-window: the container wears
  *      `data-imposer-settling` and every animation on a frame is transform-only.
  *   3. After land: no animations, no attribute, no inline transform, and the
  *      frames sit where `imposeRect` says.
@@ -81,11 +81,11 @@ const TEST_TIMEOUT_MS = 90_000;
 /** The imposition gaps (`lib/layout-imposer.ts`). */
 const GAP = 5;
 /** The widest a rail may stand (the slim content width). The fixture stands
- *  the Lens here AND seeds it as the durable chosen width, which pins the
+ *  the Layout card here AND seeds it as the durable chosen width, which pins the
  *  allocator ([D136]) out of the picture for the settles below: this deck's
  *  two narrow cards leave the rails far more room than any rail may take, so
  *  the allocator's answer is the CEILING at every one of its moments — which
- *  is where the Lens already stands. A settle here is therefore pure motion,
+ *  is where the Layout card already stands. A settle here is therefore pure motion,
  *  and the transform-only census stays a claim about the settle rather than
  *  about the allocator.
  *
@@ -93,7 +93,7 @@ const GAP = 5;
  *  starts and never a cap on it, so on a deck with room to give the rail grows
  *  whatever it was standing at. The bound that binds is the one the deck's
  *  slack runs into. */
-const LENS_WIDTH = 675;
+const RAIL_WIDTH = 675;
 const PANE_WIDTH = 420;
 /** The settle window (`IMPOSITION_SETTLE_MS`), with room for the tween to land. */
 const SETTLE_MS = 300;
@@ -128,17 +128,17 @@ function deckShape() {
       pane("p1", 0, "A"),
       pane("p2", 1, "B"),
       {
-        id: "pLens",
+        id: "pRail",
         position: { x: 0, y: 0 },
-        size: { width: LENS_WIDTH, height: 900 },
+        size: { width: RAIL_WIDTH, height: 900 },
         cardIds: ["L"],
         activeCardId: "L",
-        title: "Lens",
+        title: "Layout",
         acceptsFamilies: [],
       },
     ],
     activePaneId: "p1",
-    // No `sidebars` entry: the rail is unplaced at seed and `setLensSide` is
+    // No `sidebars` entry: the rail is unplaced at seed and `setRailSide` is
     // what puts it on a side, which is the transition this file measures.
     imposition: { kind: "two-up" },
     hasFocus: true,
@@ -237,7 +237,7 @@ async function settling(app: App): Promise<boolean> {
   );
 }
 
-async function setLensSide(app: App, side: "left" | "right"): Promise<void> {
+async function setRailSide(app: App, side: "left" | "right"): Promise<void> {
   await app.evalJS<null>(
     `(window.__tug.dispatchControlAction("set-sidebar-side", { componentId: "layout", side: ${JSON.stringify(
       side,
@@ -267,27 +267,27 @@ async function viewportWidth(app: App): Promise<number> {
 
 /**
  * Where `imposeRect` puts a slot's left edge, hand-computed: the span is the
- * canvas minus the Lens's side, the band is the span inset by a gap at each
+ * canvas minus the rail's side, the band is the span inset by a gap at each
  * end, and the slot rides `slot / (count - 1)` of the leftover travel.
  *
- * `lensWidth` is MEASURED rather than taken from the seed, and re-measured at
+ * `railWidth` is MEASURED rather than taken from the seed, and re-measured at
  * each assertion rather than once at rest. A pane renders at its stored width
  * raised to its stack's size floor, and an arrangement change re-runs the space
- * allocator, which may hand the Lens a different width than the one seeded here
+ * allocator, which may hand the rail a different width than the one seeded here
  * — so neither the seeded number nor an earlier reading is the number the band
- * is inset by. The slot arithmetic is what this checks; the width the Lens
+ * is inset by. The slot arithmetic is what this checks; the width the rail
  * arrives at is `at0303`'s business, and the floor is `at0284`'s.
  */
 function expectedLeft(
   slot: number,
   count: number,
   viewport: number,
-  lensSide: "left" | "right",
-  lensWidth: number,
+  railSide: "left" | "right",
+  railWidth: number,
   paneWidth: number = PANE_WIDTH,
 ): number {
-  const inset = lensWidth + GAP;
-  const spanX = lensSide === "left" ? inset : 0;
+  const inset = railWidth + GAP;
+  const spanX = railSide === "left" ? inset : 0;
   const spanWidth = viewport - inset;
   const band = spanWidth - GAP * 2;
   const travel = Math.max(0, band - paneWidth);
@@ -295,9 +295,9 @@ function expectedLeft(
   return spanX + GAP + fraction * travel;
 }
 
-async function lensWidth(app: App): Promise<number> {
+async function railWidth(app: App): Promise<number> {
   return app.evalJS<number>(
-    `document.querySelector('.tug-pane[data-pane-id="pLens"]').getBoundingClientRect().width`,
+    `document.querySelector('.tug-pane[data-pane-id="pRail"]').getBoundingClientRect().width`,
   );
 }
 
@@ -318,11 +318,11 @@ async function frameLeft(app: App, paneId: string): Promise<number> {
 const wait = (ms: number): Promise<void> =>
   new Promise<void>((r) => setTimeout(r, ms));
 
-/** Seed the Lens's durable chosen width to the fixture's standing width — see
- *  the `LENS_WIDTH` note. */
-async function seedLensPreferred(app: App): Promise<void> {
+/** Seed the rail's durable chosen width to the fixture's standing width — see
+ *  the `RAIL_WIDTH` note. */
+async function seedRailPreferred(app: App): Promise<void> {
   await app.evalJS<null>(
-    `(window.__tug.setTugbankValue("dev.tugtool.lens", "widthPx", { kind: "i64", value: ${LENS_WIDTH} }), null)`,
+    `(window.__tug.setTugbankValue("dev.tugtool.layout", "widthPx", { kind: "i64", value: ${RAIL_WIDTH} }), null)`,
   );
 }
 
@@ -336,7 +336,7 @@ describe.skipIf(!SHOULD_RUN)(
           testName: "at0294-imposer-flip-settle",
         });
         try {
-          await seedLensPreferred(app);
+          await seedRailPreferred(app);
           await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
           await app.waitForCondition<boolean>(
             `document.querySelectorAll(${JSON.stringify(FRAMES)}).length === 3`,
@@ -346,8 +346,8 @@ describe.skipIf(!SHOULD_RUN)(
 
           const vp = await viewportWidth(app);
 
-          // --- Settle one: the Lens crosses to the left. -------------------
-          await setLensSide(app, "left");
+          // --- Settle one: the Layout card crosses to the left. -------------------
+          await setRailSide(app, "left");
 
           // Mid-window. The container marks the gesture, and every animation
           // running on a frame touches transform and nothing else — a single
@@ -382,13 +382,13 @@ describe.skipIf(!SHOULD_RUN)(
           // And the frames are where the imposer says, not a tween's length
           // short of it.
           {
-            const lens = await lensWidth(app);
+            const rail = await railWidth(app);
             expect(await frameLeft(app, "p1")).toBeCloseTo(
-              expectedLeft(0, 2, vp, "left", lens),
+              expectedLeft(0, 2, vp, "left", rail),
               0,
             );
             expect(await frameLeft(app, "p2")).toBeCloseTo(
-              expectedLeft(1, 2, vp, "left", lens),
+              expectedLeft(1, 2, vp, "left", rail),
               0,
             );
           }
@@ -396,14 +396,14 @@ describe.skipIf(!SHOULD_RUN)(
           // --- Settle two: back to the right. ------------------------------
           // The residue only appears after a settle has completed, so a
           // first-gesture-only test would miss a clear that runs once.
-          await setLensSide(app, "right");
+          await setRailSide(app, "right");
           await wait(AFTER_LAND_MS);
           {
             const inline = await inlineTransforms(app);
             expect(Object.values(inline).every((v) => v === "")).toBe(true);
           }
           expect(await frameLeft(app, "p1")).toBeCloseTo(
-            expectedLeft(0, 2, vp, "right", await lensWidth(app)),
+            expectedLeft(0, 2, vp, "right", await railWidth(app)),
             0,
           );
 
@@ -447,7 +447,7 @@ describe.skipIf(!SHOULD_RUN)(
         try {
           // Focus B, so p2 is the frame on top and a raise of p1 is
           // observable: without one, A crosses to p2's slot underneath it.
-          await seedLensPreferred(app);
+          await seedRailPreferred(app);
           await app.seedDeckState({ state: deckShape(), focusCardId: "B" });
           await app.waitForCondition<boolean>(
             `document.querySelectorAll(${JSON.stringify(FRAMES)}).length === 3`,
@@ -455,7 +455,7 @@ describe.skipIf(!SHOULD_RUN)(
           );
           await wait(AFTER_LAND_MS);
           const vp = await viewportWidth(app);
-          const lens = await lensWidth(app);
+          const rail = await railWidth(app);
           expect(await frameZIndex(app, "p1")).toBeLessThan(
             await frameZIndex(app, "p2"),
           );
@@ -479,7 +479,7 @@ describe.skipIf(!SHOULD_RUN)(
             await frameZIndex(app, "p2"),
           );
 
-          // Now the gesture the Lens's slot picker dispatches: put A at the
+          // Now the gesture the rail's slot picker dispatches: put A at the
           // slot B already holds. A moves, so it tweens — and by the time it
           // does, it is already the frame on top.
           await app.evalJS<null>(
@@ -500,7 +500,7 @@ describe.skipIf(!SHOULD_RUN)(
           await wait(AFTER_LAND_MS);
           expect(await settling(app)).toBe(false);
           expect(await frameLeft(app, "p1")).toBeCloseTo(
-            expectedLeft(1, 2, vp, "right", lens),
+            expectedLeft(1, 2, vp, "right", rail),
             0,
           );
           expect(await frameZIndex(app, "p1")).toBeGreaterThan(
@@ -520,7 +520,7 @@ describe.skipIf(!SHOULD_RUN)(
           testName: "at0294-imposer-flip-width",
         });
         try {
-          await seedLensPreferred(app);
+          await seedRailPreferred(app);
           await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
           await app.waitForCondition<boolean>(
             `document.querySelectorAll(${JSON.stringify(FRAMES)}).length === 3`,
@@ -604,7 +604,7 @@ describe.skipIf(!SHOULD_RUN)(
             const origins = await inlineTransformOrigins(app);
             expect(Object.values(origins).every((v) => v === "")).toBe(true);
           }
-          const lens = await lensWidth(app);
+          const rail = await railWidth(app);
           for (const [paneId, slot] of [
             ["p1", 0],
             ["p2", 1],
@@ -615,7 +615,7 @@ describe.skipIf(!SHOULD_RUN)(
               ),
             ).toBeCloseTo(675, 0);
             expect(await frameLeft(app, paneId)).toBeCloseTo(
-              expectedLeft(slot, 2, vp, "right", lens, 675),
+              expectedLeft(slot, 2, vp, "right", rail, 675),
               0,
             );
           }
@@ -633,7 +633,7 @@ describe.skipIf(!SHOULD_RUN)(
           testName: "at0294-imposer-flip-retarget",
         });
         try {
-          await seedLensPreferred(app);
+          await seedRailPreferred(app);
           await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
           await app.waitForCondition<boolean>(
             `document.querySelectorAll(${JSON.stringify(FRAMES)}).length === 3`,
@@ -645,7 +645,7 @@ describe.skipIf(!SHOULD_RUN)(
           // Two changes inside one window. The second measures each frame's
           // live visual rect — which includes the running tween's transform —
           // so the new motion starts where the eye is.
-          await setLensSide(app, "left");
+          await setRailSide(app, "left");
           await wait(Math.floor(SETTLE_MS / 3));
           await setImposition(app, "one-up");
 
@@ -666,9 +666,9 @@ describe.skipIf(!SHOULD_RUN)(
           }
 
           // One-up puts every imposed frame at the same centred place, and the
-          // Lens now holds the left — so the retarget landed on the arrangement
+          // Layout card now holds the left — so the retarget landed on the arrangement
           // the LAST change asked for, not the first.
-          const centred = expectedLeft(0, 1, vp, "left", await lensWidth(app));
+          const centred = expectedLeft(0, 1, vp, "left", await railWidth(app));
           expect(await frameLeft(app, "p1")).toBeCloseTo(centred, 0);
           expect(await frameLeft(app, "p2")).toBeCloseTo(centred, 0);
         } finally {

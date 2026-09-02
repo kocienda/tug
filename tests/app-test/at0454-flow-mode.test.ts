@@ -53,12 +53,12 @@ const TEST_TIMEOUT_MS = 120_000;
 const AFTER_LAND_MS = 900;
 /** Frames are measured in device pixels; a rounded pin is within a pixel. */
 const TOL = 1.5;
-const LENS_WIDTH = 420;
+const RAIL_WIDTH = 420;
 const PANE_WIDTH = 420;
 const SLOTS = 5;
-const KIND_TILES = '[data-testid="lens-layouts-kind"] [data-choice-value]';
-const LAYOUT_TILES = '[data-testid="lens-layouts-layout"] [data-choice-value]';
-const KIND_GROUP = '[data-testid="lens-layouts-kind"]';
+const KIND_TILES = '[data-testid="layout-card-kind"] [data-choice-value]';
+const LAYOUT_TILES = '[data-testid="layout-card-layout"] [data-choice-value]';
+const KIND_GROUP = '[data-testid="layout-card-kind"]';
 
 const wait = (ms: number): Promise<void> =>
   new Promise<void>((r) => setTimeout(r, ms));
@@ -72,7 +72,7 @@ interface CutRecord {
   dh: number;
 }
 
-/** Five cards in a six-up, plus the Lens on the right — a strip comfortably
+/** Five cards in a six-up, plus the Layout card on the right — a strip comfortably
  *  longer than the band on any window this harness opens. */
 function deckShape() {
   const pane = (id: string, slot: number, cardId: string) => ({
@@ -99,12 +99,12 @@ function deckShape() {
     panes: [
       ...ids.map((id, index) => pane(`p${index + 1}`, index, id)),
       {
-        id: "pLens",
+        id: "pRail",
         position: { x: 0, y: 0 },
-        size: { width: LENS_WIDTH, height: 900 },
+        size: { width: RAIL_WIDTH, height: 900 },
         cardIds: ["L"],
         activeCardId: "L",
-        title: "Lens",
+        title: "Layout",
         acceptsFamilies: [],
       },
     ],
@@ -154,10 +154,10 @@ async function band(app: App): Promise<{ left: number; right: number }> {
     `(function () {
       var el = document.querySelector("[data-deck-canvas-background]");
       var box = el.getBoundingClientRect();
-      var lens = document
-        .querySelector('.tug-pane[data-pane-id="pLens"]')
+      var rail = document
+        .querySelector('.tug-pane[data-pane-id="pRail"]')
         .getBoundingClientRect();
-      return { left: box.left + 5, right: lens.left - 5 };
+      return { left: box.left + 5, right: rail.left - 5 };
     })()`,
   );
 }
@@ -175,7 +175,7 @@ async function setLayout(app: App, layout: "fit" | "flow"): Promise<void> {
 }
 
 /** Tab until `selector` is the group carrying the keyboard ring — the walk the
- *  Lens ladder is actually navigated by (at0277 uses the same one). */
+ *  sidebar ladder is actually navigated by (at0277 uses the same one). */
 async function tabUntilKbd(app: App, selector: string): Promise<void> {
   const reached = (): Promise<boolean> =>
     app.evalJS<boolean>(
@@ -195,7 +195,7 @@ async function activeLayoutTile(app: App): Promise<string | null> {
   return app.evalJS<string | null>(
     `(function () {
       var el = document.querySelector(
-        '[data-testid="lens-layouts-layout"] [data-choice-value][data-state="active"]',
+        '[data-testid="layout-card-layout"] [data-choice-value][data-state="active"]',
       );
       return el === null ? null : el.getAttribute("data-choice-value");
     })()`,
@@ -223,7 +223,7 @@ describe.skipIf(!SHOULD_RUN)("at0454 — flow mode", () => {
       const app = await launchTugApp({ testName: "at0454-flow-mode" });
       try {
         await app.evalJS<null>(
-          `(window.__tug.setTugbankValue("dev.tugtool.lens", "widthPx", { kind: "i64", value: ${LENS_WIDTH} }), null)`,
+          `(window.__tug.setTugbankValue("dev.tugtool.layout", "widthPx", { kind: "i64", value: ${RAIL_WIDTH} }), null)`,
         );
         await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
         await app.waitForCondition<boolean>(
@@ -362,13 +362,13 @@ describe.skipIf(!SHOULD_RUN)("at0454 — flow mode", () => {
             document
               .querySelectorAll('.tug-pane[data-imposed], .tug-slot-vacancy[data-vacant-slot]')
               .forEach(function (el) {
-                if (el.getAttribute("data-pane-id") === "pLens") return;
+                if (el.getAttribute("data-pane-id") === "pRail") return;
                 right = Math.max(right, el.getBoundingClientRect().right);
               });
-            var lens = document
-              .querySelector('.tug-pane[data-pane-id="pLens"]')
+            var rail = document
+              .querySelector('.tug-pane[data-pane-id="pRail"]')
               .getBoundingClientRect();
-            return { right: right, band: lens.left - 5 };
+            return { right: right, band: rail.left - 5 };
           })()`,
         );
         note(
@@ -400,12 +400,12 @@ describe.skipIf(!SHOULD_RUN)("at0454 — flow mode", () => {
               var pane = el && el.closest ? el.closest(".tug-pane") : null;
               return pane === null ? null : pane.getAttribute("data-pane-id");
             }
-            var lens = document
-              .querySelector('.tug-pane[data-pane-id="pLens"]')
+            var rail = document
+              .querySelector('.tug-pane[data-pane-id="pRail"]')
               .getBoundingClientRect();
             return {
               margin: paneAt(window.innerWidth - 2, 600),
-              inBand: paneAt(lens.left - 5 - 40, 600),
+              inBand: paneAt(rail.left - 5 - 40, 600),
             };
           })()`,
         );
@@ -448,7 +448,7 @@ describe.skipIf(!SHOULD_RUN)("at0454 — flow mode", () => {
       const app = await launchTugApp({ testName: "at0454-flow-bullseye" });
       try {
         await app.evalJS<null>(
-          `(window.__tug.setTugbankValue("dev.tugtool.lens", "widthPx", { kind: "i64", value: ${LENS_WIDTH} }), null)`,
+          `(window.__tug.setTugbankValue("dev.tugtool.layout", "widthPx", { kind: "i64", value: ${RAIL_WIDTH} }), null)`,
         );
         await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
         await app.waitForCondition<boolean>(
@@ -541,7 +541,7 @@ describe.skipIf(!SHOULD_RUN)("at0454 — flow mode", () => {
       const app = await launchTugApp({ testName: "at0454-flow-control" });
       try {
         await app.evalJS<null>(
-          `(window.__tug.setTugbankValue("dev.tugtool.lens", "widthPx", { kind: "i64", value: ${LENS_WIDTH} }), null)`,
+          `(window.__tug.setTugbankValue("dev.tugtool.layout", "widthPx", { kind: "i64", value: ${RAIL_WIDTH} }), null)`,
         );
         await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
         await app.waitForCondition<boolean>(
@@ -581,7 +581,7 @@ describe.skipIf(!SHOULD_RUN)("at0454 — flow mode", () => {
         const drawing = await app.evalJS<{ layout: string | null; windows: number }>(
           `(function () {
             var mini = document.querySelector(
-              '[data-testid="lens-layouts-plan"] [data-plan-layer="committed"] .layout-mini',
+              '[data-testid="layout-card-plan"] [data-plan-layer="committed"] .layout-mini',
             );
             return {
               layout: mini.getAttribute("data-layout"),
@@ -644,7 +644,7 @@ describe.skipIf(!SHOULD_RUN)("at0454 — flow mode", () => {
         );
         await app.nativeKey("ArrowDown");
         await app.waitForCondition<boolean>(
-          `document.querySelector('[data-testid="lens-layouts-layout"][data-key-view-kbd]') !== null`,
+          `document.querySelector('[data-testid="layout-card-layout"][data-key-view-kbd]') !== null`,
           { timeoutMs: 3_000 },
         );
         note("the Layout row takes the ring off the end of the Cards run");
@@ -655,7 +655,7 @@ describe.skipIf(!SHOULD_RUN)("at0454 — flow mode", () => {
           await app.evalJS<string | null>(
             `(function () {
               var el = document.querySelector(
-                '[data-testid="lens-layouts-layout"] [data-key-cursor]',
+                '[data-testid="layout-card-layout"] [data-key-cursor]',
               );
               return el === null ? null : el.getAttribute("data-choice-value");
             })()`,

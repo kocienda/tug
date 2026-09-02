@@ -20,7 +20,7 @@ export interface TextCardOpenEntry {
   /**
    * The card's display name — the bound file's basename, or the buffer's
    * untitled name (`"Untitled"`, `"Untitled-2"`, …) before it binds a path.
-   * Null before the buffer names itself. The Lens Text Files list titles an
+   * Null before the buffer names itself. The Cards card Text Files list titles an
    * unbound (path-less) row from this.
    */
   getDisplayName(): string | null;
@@ -33,7 +33,7 @@ export interface TextCardOpenEntry {
   /**
    * True when the card wears its unsaved-changes mark — manual mode with a
    * dirty buffer. Narrower than {@link isDirty}, which counts the transient
-   * non-clean states an automatic-save buffer passes through. The Lens Text
+   * non-clean states an automatic-save buffer passes through. The Cards card Text
    * Files row paints the same dot the card header does.
    */
   hasUnsavedMark(): boolean;
@@ -68,7 +68,7 @@ const entries = new Map<string, TextCardOpenEntry>();
 /** Observers notified when the set of open cards — or a card's bound path —
  *  changes, or its unsaved mark sets or clears. A card binds its path
  *  asynchronously (mount → file read), so a consumer that projects open cards
- *  (the Lens Text Files list) must re-read when the binding lands, not just
+ *  (the Cards card Text Files list) must re-read when the binding lands, not just
  *  when the card mounts. */
 const listeners = new Set<() => void>();
 let version = 0;

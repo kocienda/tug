@@ -76,7 +76,7 @@ const AFTER_LAND_MS = 900;
 /** ⌥⇧⌘[ / ⌥⇧⌘] — the nudge modifiers (at0452 pins that they arrive). */
 const NUDGE = ["cmd", "alt", "shift"] as const;
 
-const LENS_WIDTH = 420;
+const RAIL_WIDTH = 420;
 const PANE_WIDTH = 420;
 
 const frame = (paneId: string): string => `.tug-pane[data-pane-id="${paneId}"]`;
@@ -96,7 +96,7 @@ interface Rect {
 
 /**
  * Two cards sharing slot 0 of a three-up and one standing alone in slot 1, plus
- * the Lens on the right.
+ * the Layout card on the right.
  *
  * Slot 0 starts at two so the division can be dragged to a ratio the user
  * chose; slot 1's card is the third member, one nudge away.
@@ -130,12 +130,12 @@ function deckShape() {
     panes: [
       ...members.map(([id, cardId, slot]) => pane(id, cardId, slot)),
       {
-        id: "pLens",
+        id: "pRail",
         position: { x: 0, y: 0 },
-        size: { width: LENS_WIDTH, height: 900 },
+        size: { width: RAIL_WIDTH, height: 900 },
         cardIds: ["L"],
         activeCardId: "L",
-        title: "Lens",
+        title: "Layout",
         acceptsFamilies: [],
       },
     ],
@@ -241,7 +241,7 @@ describe.skipIf(!SHOULD_RUN)("at0456 — column overflow", () => {
       const app = await launchTugApp({ testName: "at0456-column-overflow" });
       try {
         await app.evalJS<null>(
-          `(window.__tug.setTugbankValue("dev.tugtool.lens", "widthPx", { kind: "i64", value: ${LENS_WIDTH} }), null)`,
+          `(window.__tug.setTugbankValue("dev.tugtool.layout", "widthPx", { kind: "i64", value: ${RAIL_WIDTH} }), null)`,
         );
         await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
         await app.waitForCondition<boolean>(

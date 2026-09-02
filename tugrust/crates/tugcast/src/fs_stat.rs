@@ -1,8 +1,8 @@
 //! HTTP handler for `POST /api/fs/stat` — batch file-existence probes.
 //!
-//! The frontend's recently-open file surfaces (the Lens Text Files
-//! section) list stored MRU paths that may have been deleted or moved
-//! since they were recorded. This endpoint answers "is this still an
+//! The frontend's recently-open file surfaces list stored MRU paths
+//! that may have been deleted or moved since they were recorded. This
+//! endpoint answers "is this still an
 //! openable file?" for a batch of paths in one round trip, keyed by the
 //! inbound path string so the client maps results without re-deriving
 //! canonical forms.

@@ -460,7 +460,7 @@ export interface TugTextEditorDelegate {
   /**
    * Bring the caret into view in every scroller that encloses it, including
    * scrollers OUTSIDE the editor. An editor that grows uncapped inside an
-   * outer list (the Lens jot editor) makes that LIST scroll, and nothing
+   * outer list (the Jots card jot editor) makes that LIST scroll, and nothing
    * there follows the caret — such a consumer calls this on each edit.
    *
    * Scheduled on CM6's measure cycle, so it runs once the caret layer has
@@ -574,7 +574,7 @@ export interface TugTextEditorProps
   borderless?: boolean;
   /**
    * Do NOT register this editor's `paintMirrorAsActive` engine hooks with the
-   * enclosing card. Set for a TRANSIENT, in-list editor (e.g. the Lens jot
+   * enclosing card. Set for a TRANSIENT, in-list editor (e.g. the Jots card jot
    * editor) that is not the card's primary text surface: registering /
    * unregistering card engine hooks as such an editor mounts and unmounts
    * churns the card's engine-hooks set, which re-fires the card's

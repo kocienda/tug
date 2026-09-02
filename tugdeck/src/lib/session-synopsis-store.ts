@@ -14,7 +14,7 @@
  *
  * A faithful clone of `session-name-store.ts` — same by-id getter, same
  * monotonic version token, same seed/set split — because the resolver hook
- * and the Lens's whole-list projection need exactly the shapes that store
+ * and the Cards card's whole-list projection need exactly the shapes that store
  * already publishes.
  *
  * @module lib/session-synopsis-store
@@ -35,7 +35,7 @@ class SessionSynopsisStore {
   /**
    * A monotonic token that bumps on every change — the whole-store
    * `useSyncExternalStore` snapshot, for a consumer that derives something from
-   * MANY synopses at once (the Lens Sessions list filters on its rows' labels)
+   * MANY synopses at once (the Cards card Sessions list filters on its rows' labels)
    * and so cannot subscribe by a single id.
    */
   getVersion = (): number => this.version;

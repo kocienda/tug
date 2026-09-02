@@ -20,9 +20,9 @@
  *      middle lands the card at that index, and the column's stored SHARES are
  *      untouched — heights travel with cards, so a reorder is not a resize.
  *   2. **Escape cancels, and swallows.** Mid-drag Escape commits nothing and
- *      leaves the geometry where it was — *and* the Lens's selection survives,
+ *      leaves the geometry where it was — *and* the Cards card's selection survives,
  *      which is the half that proves the key was swallowed rather than merely
- *      handled. An unswallowed Escape would also reach the Lens's
+ *      handled. An unswallowed Escape would also reach the Cards card's
  *      `CANCEL_DIALOG` responder and empty it.
  *   3. **Body-drop divides.** A card dropped on the lower half of a slot
  *      where one card stands alone creates a two-member split column with the
@@ -83,7 +83,7 @@ const AFTER_LAND_MS = 900;
 /** Geometry tolerance, in px. */
 const EPSILON = 3;
 
-const LENS_WIDTH = 380;
+const RAIL_WIDTH = 380;
 const PANE_WIDTH = 380;
 
 const frame = (paneId: string): string => `.tug-pane[data-pane-id="${paneId}"]`;
@@ -103,7 +103,7 @@ interface Rect {
 }
 
 /**
- * Four cards across a three-up with the Lens pinned right: two sharing slot 0,
+ * Four cards across a three-up with the Layout card pinned right: two sharing slot 0,
  * one in slot 1, one in slot 2.
  *
  * Slot 0 starts with two so it can be split and reordered; slot 1 holds a lone
@@ -143,12 +143,12 @@ function deckShape() {
     panes: [
       ...members.map(([id, cardId, slot]) => pane(id, cardId, slot)),
       {
-        id: "pLens",
+        id: "pRail",
         position: { x: 0, y: 0 },
-        size: { width: LENS_WIDTH, height: 900 },
+        size: { width: RAIL_WIDTH, height: 900 },
         cardIds: ["L"],
         activeCardId: "L",
-        title: "Lens",
+        title: "Layout",
         acceptsFamilies: [],
       },
     ],
@@ -231,7 +231,7 @@ async function columnOffsetOf(app: App, slot: number): Promise<number> {
   );
 }
 
-/** Which pane ids the Lens's layout selection is holding. */
+/** Which pane ids the Cards card's layout selection is holding. */
 async function layoutSelection(app: App): Promise<string[]> {
   return app.evalJS<string[]>(
     `(window.__tug.getLayoutSelection() || []).slice().sort()`,
@@ -257,7 +257,7 @@ describe.skipIf(!SHOULD_RUN)("at0457 — the drop-zone drag", () => {
       const app = await launchTugApp({ testName: "at0457-drop-zone-drag" });
       try {
         await app.evalJS<null>(
-          `(window.__tug.setTugbankValue("dev.tugtool.lens", "widthPx", { kind: "i64", value: ${LENS_WIDTH} }), null)`,
+          `(window.__tug.setTugbankValue("dev.tugtool.layout", "widthPx", { kind: "i64", value: ${RAIL_WIDTH} }), null)`,
         );
         await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
         await app.waitForCondition<boolean>(
@@ -297,7 +297,7 @@ describe.skipIf(!SHOULD_RUN)("at0457 — the drop-zone drag", () => {
           ).toBeNull();
         }
 
-        // ── 2. Escape cancels, and the Lens's selection proves the swallow. ──
+        // ── 2. Escape cancels, and the Cards card's selection proves the swallow. ──
         {
           await app.evalJS<null>(
             `(window.__tug.setLayoutSelection(["A", "B"]), null)`,
@@ -334,7 +334,7 @@ describe.skipIf(!SHOULD_RUN)("at0457 — the drop-zone drag", () => {
           expect(Math.abs(after.p1.left - before.p1.left)).toBeLessThan(EPSILON);
           expect(
             await layoutSelection(app),
-            "the Escape was swallowed — the Lens never saw it",
+            "the Escape was swallowed — the Cards card never saw it",
           ).toEqual(["A", "B"]);
           note("escape cancelled with the selection intact");
         }
@@ -464,7 +464,7 @@ describe.skipIf(!SHOULD_RUN)("at0457 — the drop-zone drag", () => {
 
         // ── 7. The two vocabularies do not meet. ──
         //
-        // A content card dropped over the Lens's rail does not join the rail:
+        // A content card dropped over the Layout card's rail does not join the rail:
         // rails are not zones for a content card, and content slots are not
         // zones for a sidebar card ([P10]). at0401 asserts the other half —
         // a pinned card dragged deep into the content band stays on its rail.
@@ -475,7 +475,7 @@ describe.skipIf(!SHOULD_RUN)("at0457 — the drop-zone drag", () => {
             `JSON.stringify(window.tugdeck.diag.getDeckState().imposition.sidebars || {})`,
           );
           await app.nativeDragElement(titleBar("p4"), {
-            selector: `${frame("pLens")} .tug-pane-title-bar`,
+            selector: `${frame("pRail")} .tug-pane-title-bar`,
           });
           await wait(AFTER_LAND_MS);
           expect(

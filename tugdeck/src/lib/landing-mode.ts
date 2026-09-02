@@ -167,7 +167,7 @@ export interface LandingSnapshot {
    *
    * Derived by the mode rather than by the composer, which is what keeps the
    * entry ignorant of which landing it is hosting: commit mode has no dash and
-   * always returns null, join mode returns the same reading the Lens row and
+   * always returns null, join mode returns the same reading the Dashes card row and
    * the shade row show, because all three call one derivation.
    */
   register: DashJoinRegister | null;

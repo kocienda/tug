@@ -91,7 +91,7 @@ const bare = (policy: Omit<RailPolicy, "comfortWidth">): RailPolicy => ({
   ...policy,
   comfortWidth: policy.minWidth,
 });
-const LENS: RailPolicy = bare({
+const CARDS: RailPolicy = bare({
   preferredWidth: 420,
   minWidth: 320,
   greedRank: 2,
@@ -140,9 +140,9 @@ const RAIL_FIXTURES: readonly RailFixture[] = [
     memberFloors: { right: [OVERVIEW.minWidth] },
   },
   {
-    name: "lens-left",
-    rails: { left: LENS },
-    memberFloors: { left: [LENS.minWidth] },
+    name: "cards-left",
+    rails: { left: CARDS },
+    memberFloors: { left: [CARDS.minWidth] },
   },
   {
     name: "jots-right",
@@ -155,9 +155,9 @@ const RAIL_FIXTURES: readonly RailFixture[] = [
     memberFloors: { right: [OVERVIEW.minWidth, JOTS.minWidth] },
   },
   {
-    name: "lens-left+overview-right",
-    rails: { left: LENS, right: OVERVIEW },
-    memberFloors: { left: [LENS.minWidth], right: [OVERVIEW.minWidth] },
+    name: "cards-left+overview-right",
+    rails: { left: CARDS, right: OVERVIEW },
+    memberFloors: { left: [CARDS.minWidth], right: [OVERVIEW.minWidth] },
   },
   {
     name: "jots-left+overview-right",
@@ -179,9 +179,9 @@ const RAIL_FIXTURES: readonly RailFixture[] = [
   },
   {
     name: "overview-dragged-under-comfort-right",
-    rails: { right: DRAGGED_UNDER_COMFORT, left: LENS },
+    rails: { right: DRAGGED_UNDER_COMFORT, left: CARDS },
     memberFloors: {
-      left: [LENS.minWidth],
+      left: [CARDS.minWidth],
       right: [DRAGGED_UNDER_COMFORT.minWidth],
     },
   },

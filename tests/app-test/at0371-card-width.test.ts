@@ -24,17 +24,17 @@
  *     pane at once (at0357); this must not. The second pane is measured after
  *     every choice and holds its seeded width to the pixel.
  *  3. **A rail has no width to set at all** — a sidebar's width is the space
- *     allocator's answer, never a preset ([P04]) — so the Lens does not even
+ *     allocator's answer, never a preset ([P04]) — so the rail does not even
  *     draw the affordance. Structure, not enablement: the control is absent.
  *  4. **A card's width is not paid for out of a rail's.** The verb commits
  *     with the allocator held off, unlike the deck-wide Card Width default.
- *     Re-solving here would shrink the Lens to its floor every time a reader
+ *     Re-solving here would shrink the rail to its floor every time a reader
  *     widened a card — the user's rail spent by a gesture that never mentioned
- *     it. The Lens's measured width after every choice is what holds that.
+ *     it. The rail's measured width after every choice is what holds that.
  *
  * What LEFT this file with the chords, and where it went: the selection ladder
  * — "the verb resolves through the layout selection, so a chord typed with the
- * keyboard in the Lens lands on the card the user last worked in". That is a
+ * keyboard in the Cards card lands on the card the user last worked in". That is a
  * property of the resolver rather than of width, and it is still driven
  * natively by three verbs that kept their chords: ⌘1..9 (at0465), the nudge
  * pair (at0452), and ⌃⌘B (at0372). The popup cannot hold it, because a popup
@@ -69,7 +69,7 @@ const WIDE = 1230;
  *  because something reached every pane is unmistakable from one that did
  *  not move at all. */
 const SEEDED_WIDTH = 511;
-const LENS_WIDTH = 412;
+const RAIL_WIDTH = 412;
 
 /** The settle window (`IMPOSITION_SETTLE_MS`), with room for the tween. */
 const AFTER_LAND_MS = 900;
@@ -98,12 +98,12 @@ function deckShape(): Record<string, unknown> {
       pane("p1", 0, "A"),
       pane("p2", 2, "B"),
       {
-        id: "pLens",
+        id: "pRail",
         position: { x: 0, y: 0 },
-        size: { width: LENS_WIDTH, height: 900 },
+        size: { width: RAIL_WIDTH, height: 900 },
         cardIds: ["L"],
         activeCardId: "L",
-        title: "Lens",
+        title: "Layout",
         acceptsFamilies: [],
       },
     ],
@@ -173,9 +173,9 @@ describe.skipIf(!SHOULD_RUN)(
           ).toBe(SEEDED_WIDTH);
           // --- And no rail paid for it. -------------------------------------
           expect(
-            await paneWidth(app, "pLens"),
-            "a card's width is not spent out of the Lens's",
-          ).toBe(LENS_WIDTH);
+            await paneWidth(app, "pRail"),
+            "a card's width is not spent out of the rail's",
+          ).toBe(RAIL_WIDTH);
 
           // --- The second pane answers its own popup. -----------------------
           await setWidth(app, "p2", "slim", SLIM);
@@ -183,13 +183,13 @@ describe.skipIf(!SHOULD_RUN)(
             await paneWidth(app, "p1"),
             "and the first pane keeps the width it had",
           ).toBe(WIDE);
-          expect(await paneWidth(app, "pLens")).toBe(LENS_WIDTH);
+          expect(await paneWidth(app, "pRail")).toBe(RAIL_WIDTH);
 
           // --- A rail has no width to set, so it draws no affordance. -------
           // Absence, not a disabled control: a sidebar's width is the
           // allocator's answer, so there is no preset for a picker to offer.
           const railButtons = await app.evalJS<number>(
-            `document.querySelectorAll(${JSON.stringify(widthButton("pLens"))}).length`,
+            `document.querySelectorAll(${JSON.stringify(widthButton("pRail"))}).length`,
           );
           note(`rail width buttons: ${railButtons}`);
           expect(

@@ -11,7 +11,7 @@
  * source. The `TugFilterField` is OUTSIDE the list view's DOM tree.
  *
  * **Two sanctioned filter mechanisms, and why this one is here.** The
- * product surfaces (session picker, `/resume`, the Lens sections) filter
+ * product surfaces (session picker, `/resume`, the rail cards) filter
  * *inside* their own data source's `recompute()`, because their cell
  * renderers are typed against a concrete data source and would otherwise
  * have to translate every index through `baseIndexFor` — an index-confusion

@@ -1100,7 +1100,7 @@ export interface CodeSessionSnapshot {
   } | null;
 
   /**
-   * A jot dragged from the Lens onto (or double-clicked into) the prompt
+   * A jot dragged from the Jots card onto (or double-clicked into) the prompt
    * entry parks its text here for the entry to insert. `at` is the drop point
    * in client coordinates (resolved to a document offset), or `null` for
    * append semantics. Set by {@link CodeSessionStore.insertJot}, cleared

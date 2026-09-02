@@ -60,16 +60,16 @@ describe("projectLeafName", () => {
 describe("customName and description", () => {
   test("both stand independently, with no fallback between them", () => {
     const both = identity({
-      name: "Refactor the Lens",
+      name: "Refactor the deck",
       synopsis: "Reworking the pane chrome",
     });
-    expect(both.customName).toBe("Refactor the Lens");
+    expect(both.customName).toBe("Refactor the deck");
     expect(both.description).toBe("Reworking the pane chrome");
   });
 
   test("a name without a description leaves the description empty", () => {
-    const named = identity({ name: "Refactor the Lens" });
-    expect(named.customName).toBe("Refactor the Lens");
+    const named = identity({ name: "Refactor the deck" });
+    expect(named.customName).toBe("Refactor the deck");
     expect(named.description).toBeNull();
   });
 
@@ -94,10 +94,10 @@ describe("customName and description", () => {
 describe("sessionTitleParts", () => {
   test("a custom name REMOVES the callsign — no run, no residue", () => {
     const parts = sessionTitleParts(
-      identity({ name: "Refactor the Lens", tag: "stocky-pixie" }),
+      identity({ name: "Refactor the deck", tag: "stocky-pixie" }),
     );
     expect(parts).toEqual({
-      name: "Refactor the Lens",
+      name: "Refactor the deck",
       callsign: null,
     });
   });
@@ -107,13 +107,13 @@ describe("sessionTitleParts", () => {
     // already wearing it, so there is no collision left for a callsign to
     // disambiguate. This is the rule the user asked for again and again.
     for (const record of [
-      identity({ name: "Refactor the Lens", tag: "stocky-pixie" }),
-      identity({ name: "Refactor the Lens", tag: null }),
-      identity({ name: "Refactor the Lens", projectDir: null }),
-      identity({ name: "Refactor the Lens", synopsis: "the pane chrome" }),
+      identity({ name: "Refactor the deck", tag: "stocky-pixie" }),
+      identity({ name: "Refactor the deck", tag: null }),
+      identity({ name: "Refactor the deck", projectDir: null }),
+      identity({ name: "Refactor the deck", synopsis: "the pane chrome" }),
     ]) {
       expect(sessionTitleParts(record).callsign).toBeNull();
-      expect(sessionTitleParts(record).name).toBe("Refactor the Lens");
+      expect(sessionTitleParts(record).name).toBe("Refactor the deck");
     }
   });
 
@@ -153,7 +153,7 @@ describe("sessionTitleParts", () => {
     expect(sessionTitleParts(unnamed).name).toBe(sessionIdentityLine(unnamed));
     expect(sessionIdentityLine(unnamed)).toBe("tugtool/stocky-pixie");
     // And the callsign a named session stops SHOWING is still carried whole.
-    const named = identity({ name: "Refactor the Lens", tag: "stocky-pixie" });
+    const named = identity({ name: "Refactor the deck", tag: "stocky-pixie" });
     expect(sessionTitleParts(named).name).not.toContain("/");
     expect(sessionIdentityLine(named)).toBe("tugtool/stocky-pixie");
   });
@@ -177,15 +177,15 @@ describe("sessionTitleParts", () => {
 describe("sessionDisplayTitle — the flat form of the same rule", () => {
   test("a custom name is the whole string", () => {
     expect(
-      sessionDisplayTitle(identity({ name: "Refactor the Lens" })),
-    ).toBe("Refactor the Lens");
+      sessionDisplayTitle(identity({ name: "Refactor the deck" })),
+    ).toBe("Refactor the deck");
   });
 
   test("a named session's flat form carries no separator at all", () => {
     // The `:` belonged to the callsign run, and a named session has none.
     expect(
-      sessionDisplayTitle(identity({ name: "Refactor the Lens" })),
-    ).toBe("Refactor the Lens");
+      sessionDisplayTitle(identity({ name: "Refactor the deck" })),
+    ).toBe("Refactor the deck");
   });
 
   test("an unnamed session is its identity line, unchanged", () => {
@@ -322,7 +322,7 @@ describe("sessionIdentityLine", () => {
     expect(sessionIdentityLine(identity({ branch: "feature/x" }))).toBe(
       "tugtool/stocky-pixie",
     );
-    expect(sessionIdentityLine(identity({ name: "Refactor the Lens" }))).toBe(
+    expect(sessionIdentityLine(identity({ name: "Refactor the deck" }))).toBe(
       "tugtool/stocky-pixie",
     );
   });

@@ -10,9 +10,10 @@
  * — and solves for the total that puts every seam on one imposition gap. That
  * total is then shared out under a fixed order of invariants: floors are
  * inviolable, the tiling total outranks preferences, preferences fill in greed
- * order (the Overview is greedier than the Lens, which is greedier than Jots),
- * and the slim content width (675) caps everything. Nothing is graded and the
- * answer is a pure function of the canvas, the chain, and the rails' policies.
+ * order (the Overview is greedier than the Layout card, which is greedier than
+ * Jots), and the slim content width (675) caps everything. Nothing is graded
+ * and the answer is a pure function of the canvas, the chain, and the rails'
+ * policies.
  *
  * The total is chosen by the picture it PAINTS — scored on `imposeRect`'s real
  * clamped geometry, worst occlusion first — and a rail carries two floors: the
@@ -26,8 +27,9 @@
  *     `IMPOSITION_GAP_PX`. The rail's crossing is a FLIP settle like any other
  *     arrangement change, not a cut.
  *  2. It leaves the preference alone. The allocated width is live geometry; the
- *     width the user CHOSE is what the Lens reopens at, and no number of
- *     re-tunes may touch it. Read through the production path — close the Lens,
+ *     width the user CHOSE is what the rail reopens at, and no number of
+ *     re-tunes may touch it. Read through the production path — close the
+ *     Layout card,
  *     open it again, and it must come back at the preferred width. This is the
  *     no-ratchet guard, and it is now structural: the solver cannot see a rail's
  *     standing width at all.
@@ -45,10 +47,10 @@
  *     dispatched it — so the assign itself re-solves the rails for the chain
  *     it just completed, with no separate Layouts click needed.
  *  6. Two rails answer with two widths, in greed order. With the Overview on one
- *     edge and the Lens on the other, the two rails stand at DIFFERENT widths,
- *     and which one is wide is the registered greed order's answer: shrink what
- *     the chain leaves and the Lens drains to its floor while the Overview holds
- *     its measure.
+ *     edge and the Layout card on the other, the two rails stand at DIFFERENT
+ *     widths, and which one is wide is the registered greed order's answer:
+ *     shrink what the chain leaves and the Layout card drains to its floor
+ *     while the Overview holds its measure.
  *  7. A crowded deck spends comfort to un-occlude the cards. When the chain
  *     overlaps at the rails' comfort floors but tiles below them, the Overview
  *     gives up its comfortable measure and the chain stands clear — showing
@@ -90,10 +92,11 @@ const TEST_TIMEOUT_MS = 90_000;
 const GAP = 5;
 /** The widest any rail may stand: the slim content width. */
 const CEILING = 675;
-/** The preferred Lens width this test seeds, so nothing depends on the default. */
+/** The preferred rail width this test seeds, so nothing depends on the default. */
 const PREFERRED = 420;
-/** The Lens's registered floor (`lib/lens-store/types.ts`). */
-const MIN_LENS_WIDTH_PX = 320;
+/** The Layout card's registered floor (`MIN_LAYOUT_WIDTH_PX` in
+ *  `components/layout/layout-card-registration.tsx`). */
+const MIN_RAIL_WIDTH_PX = 320;
 /** The settle window, with room for the tween to land. */
 const AFTER_LAND_MS = 900;
 /** Frames are measured in device pixels; a rounded pin is within a pixel. */
@@ -104,21 +107,21 @@ const TOL = 1.5;
 // ([D166]), so a three-card deck under five-up is a chain with two holes in it
 // and no surplus left for a rail to flex into. A filled chain is what the
 // arithmetic below describes, and what these claims are about.
-const THREE_UP_TILE = '[data-testid="lens-layouts-kind"] [data-choice-value="three-up"]';
-const KIND_TILES = '[data-testid="lens-layouts-kind"] [data-choice-value]';
-const LENS_FRAME = `.tug-pane[data-pane-id="pLens"]`;
+const THREE_UP_TILE = '[data-testid="layout-card-kind"] [data-choice-value="three-up"]';
+const KIND_TILES = '[data-testid="layout-card-kind"] [data-choice-value]';
+const RAIL_FRAME = `.tug-pane[data-pane-id="pRail"]`;
 /** The Layout card's body, wherever its pane stands — the address that
  *  survives a hide/show cycle, which mints a new pane id. */
-const LAYOUT_FRAME = `[data-testid="lens-layouts-section"]`;
+const LAYOUT_FRAME = `[data-testid="layout-card-section"]`;
 /** The three chain panes, in slot order. */
 const CHAIN = ["p1", "p2", "p3"];
 
 /**
  * A deck of three cards in slots 1, 3 and 5 (stored 0-based) at `paneWidth`,
- * with the Lens pinned right at `lensWidth`. The kind starts at two-up, so
+ * with the Layout card pinned right at `railWidth`. The kind starts at two-up, so
  * choosing Five Up in the Layouts section is a real kind change.
  */
-function deckShape(paneWidth: number, lensWidth: number) {
+function deckShape(paneWidth: number, railWidth: number) {
   const pane = (id: string, slot: number, cardId: string) => ({
     id,
     position: { x: 40, y: 40 },
@@ -141,17 +144,17 @@ function deckShape(paneWidth: number, lensWidth: number) {
       pane("p2", 1, "B"),
       pane("p3", 2, "C"),
       {
-        id: "pLens",
+        id: "pRail",
         position: { x: 0, y: 0 },
-        size: { width: lensWidth, height: 900 },
+        size: { width: railWidth, height: 900 },
         cardIds: ["L"],
         activeCardId: "L",
-        title: "Lens",
+        title: "Layout",
         acceptsFamilies: [],
       },
     ],
     activePaneId: "p1",
-    imposition: { kind: "two-up", lens: "right" },
+    imposition: { kind: "two-up", sidebars: { layout: { side: "right" } } },
     hasFocus: true,
   };
 }
@@ -159,10 +162,10 @@ function deckShape(paneWidth: number, lensWidth: number) {
 const wait = (ms: number): Promise<void> =>
   new Promise<void>((r) => setTimeout(r, ms));
 
-/** Seed the user's preferred Lens width, the number the flex range centres on. */
+/** Seed the user's preferred rail width, the number the flex range centres on. */
 async function seedPreferredWidth(app: App, widthPx: number): Promise<void> {
   await app.evalJS<null>(
-    `(window.__tug.setTugbankValue("dev.tugtool.lens", "widthPx", { kind: "i64", value: ${widthPx} }), null)`,
+    `(window.__tug.setTugbankValue("dev.tugtool.layout", "widthPx", { kind: "i64", value: ${widthPx} }), null)`,
   );
 }
 
@@ -196,16 +199,16 @@ async function seams(app: App): Promise<number[]> {
 }
 
 /**
- * The pane width whose exact solve puts the Lens `offset` px off the preferred
+ * The pane width whose exact solve puts the rail `offset` px off the preferred
  * width. Three cards and two gaps fill the band, and the band is the canvas
- * less the Lens and three gaps — so `lens = canvas - 5·gap - 3·width`.
+ * less the rail and three gaps — so `rail = canvas - 5·gap - 3·width`.
  */
 function paneWidthFor(canvas: number, offset: number): number {
   return Math.floor((canvas - GAP * 5 - (PREFERRED + offset)) / 3);
 }
 
 /** What the allocator must answer for that fixture — the same arithmetic back. */
-function predictedLensWidth(canvas: number, paneWidth: number): number {
+function predictedRailWidth(canvas: number, paneWidth: number): number {
   return canvas - GAP * 5 - paneWidth * 3;
 }
 
@@ -228,7 +231,7 @@ function railTotalFor(canvas: number, paneWidth: number): number {
   return canvas - GAP * 6 - paneWidth * 3;
 }
 
-/** The three-card chain with the Overview pinned left and the Lens right, each
+/** The three-card chain with the Overview pinned left and the Layout card right, each
  *  standing at the width its owner chose. */
 async function seedTwoRails(
   app: App,
@@ -271,10 +274,10 @@ async function seedTwoRails(
 async function seedFixture(
   app: App,
   paneWidth: number,
-  lensWidth: number,
+  railWidth: number,
 ): Promise<void> {
   await app.seedDeckState({
-    state: deckShape(paneWidth, lensWidth),
+    state: deckShape(paneWidth, railWidth),
     focusCardId: "A",
   });
   await app.waitForCondition<boolean>(
@@ -284,7 +287,7 @@ async function seedFixture(
 }
 
 describe.skipIf(!SHOULD_RUN)(
-  "at0303 — the space allocator flexes the Lens to tile the chain",
+  "at0303 — the space allocator flexes the rail to tile the chain",
   () => {
     test(
       "an in-range solve lands exact seams, settles by FLIP, and leaves the preference alone",
@@ -305,14 +308,14 @@ describe.skipIf(!SHOULD_RUN)(
           await seedFixture(app, paneWidth, PREFERRED);
           await wait(AFTER_LAND_MS);
 
-          // At rest the Lens shows the preferred width: seeding a deck is not
+          // At rest the rail shows the preferred width: seeding a deck is not
           // one of the moments that re-tunes.
-          expect(await frameWidth(app, "pLens")).toBeCloseTo(PREFERRED, 0);
+          expect(await frameWidth(app, "pRail")).toBeCloseTo(PREFERRED, 0);
 
           // ── The moment: choose Five Up. ──────────────────────────────────
           await app.nativeClickAtElement(THREE_UP_TILE);
 
-          // The Lens's new width crosses by the settle FLIP rather than
+          // The rail's new width crosses by the settle FLIP rather than
           // cutting — the width is part of the arrangement signature.
           await app.waitForCondition<boolean>(
             `document.querySelector("[data-imposer-settling]") !== null`,
@@ -325,8 +328,8 @@ describe.skipIf(!SHOULD_RUN)(
             ),
           ).toBe(false);
 
-          expect(await frameWidth(app, "pLens")).toBeCloseTo(
-            predictedLensWidth(canvas, paneWidth),
+          expect(await frameWidth(app, "pRail")).toBeCloseTo(
+            predictedRailWidth(canvas, paneWidth),
             0,
           );
           for (const seam of await seams(app)) {
@@ -342,7 +345,7 @@ describe.skipIf(!SHOULD_RUN)(
             `(window.__tug.dispatchControlAction("toggle-layout"), null)`,
           );
           await app.waitForCondition<boolean>(
-            `document.querySelector(${JSON.stringify(LENS_FRAME)}) === null`,
+            `document.querySelector(${JSON.stringify(RAIL_FRAME)}) === null`,
             { timeoutMs: 5_000 },
           );
           await app.evalJS<null>(
@@ -387,12 +390,12 @@ describe.skipIf(!SHOULD_RUN)(
           expect(reachable).toBeGreaterThan(200);
           await seedFixture(app, reachable, PREFERRED);
           await wait(AFTER_LAND_MS);
-          expect(await frameWidth(app, "pLens")).toBeCloseTo(PREFERRED, 0);
+          expect(await frameWidth(app, "pRail")).toBeCloseTo(PREFERRED, 0);
 
           await app.nativeClickAtElement(THREE_UP_TILE);
           await wait(AFTER_LAND_MS);
-          const grown = await frameWidth(app, "pLens");
-          expect(grown).toBeCloseTo(predictedLensWidth(canvas, reachable), 0);
+          const grown = await frameWidth(app, "pRail");
+          expect(grown).toBeCloseTo(predictedRailWidth(canvas, reachable), 0);
           expect(grown).toBeGreaterThan(PREFERRED);
           for (const seam of await seams(app)) {
             expect(Math.abs(seam - GAP)).toBeLessThanOrEqual(TOL);
@@ -407,7 +410,7 @@ describe.skipIf(!SHOULD_RUN)(
           await app.seedDeckState({
             state: {
               ...deckShape(unreachable, PREFERRED),
-              imposition: { kind: "three-up", lens: "right" },
+              imposition: { kind: "three-up", sidebars: { layout: { side: "right" } } },
             },
             focusCardId: "A",
           });
@@ -415,7 +418,7 @@ describe.skipIf(!SHOULD_RUN)(
           await app.nativeClickAtElement(THREE_UP_TILE);
           await wait(AFTER_LAND_MS);
 
-          expect(await frameWidth(app, "pLens")).toBeCloseTo(CEILING, 0);
+          expect(await frameWidth(app, "pRail")).toBeCloseTo(CEILING, 0);
           for (const seam of await seams(app)) {
             expect(seam).toBeGreaterThan(GAP);
           }
@@ -424,7 +427,7 @@ describe.skipIf(!SHOULD_RUN)(
           // the rail happens to be standing, so re-asserting changes nothing.
           await app.nativeClickAtElement(THREE_UP_TILE);
           await wait(AFTER_LAND_MS);
-          expect(await frameWidth(app, "pLens")).toBeCloseTo(CEILING, 0);
+          expect(await frameWidth(app, "pRail")).toBeCloseTo(CEILING, 0);
         } finally {
           await app.close();
         }
@@ -448,8 +451,8 @@ describe.skipIf(!SHOULD_RUN)(
           await wait(AFTER_LAND_MS);
           await app.nativeClickAtElement(THREE_UP_TILE);
           await wait(AFTER_LAND_MS);
-          expect(await frameWidth(app, "pLens")).toBeCloseTo(
-            predictedLensWidth(canvas, first),
+          expect(await frameWidth(app, "pRail")).toBeCloseTo(
+            predictedRailWidth(canvas, first),
             0,
           );
 
@@ -460,14 +463,14 @@ describe.skipIf(!SHOULD_RUN)(
           const second = paneWidthFor(canvas, -30);
           await app.seedDeckState({
             state: {
-              ...deckShape(second, predictedLensWidth(canvas, first)),
-              imposition: { kind: "three-up", lens: "right" },
+              ...deckShape(second, predictedRailWidth(canvas, first)),
+              imposition: { kind: "three-up", sidebars: { layout: { side: "right" } } },
             },
             focusCardId: "A",
           });
           await wait(AFTER_LAND_MS);
-          expect(await frameWidth(app, "pLens")).toBeCloseTo(
-            predictedLensWidth(canvas, first),
+          expect(await frameWidth(app, "pRail")).toBeCloseTo(
+            predictedRailWidth(canvas, first),
             0,
           );
           expect(
@@ -480,8 +483,8 @@ describe.skipIf(!SHOULD_RUN)(
           await app.nativeClickAtElement(THREE_UP_TILE);
           await wait(AFTER_LAND_MS);
 
-          expect(await frameWidth(app, "pLens")).toBeCloseTo(
-            predictedLensWidth(canvas, second),
+          expect(await frameWidth(app, "pRail")).toBeCloseTo(
+            predictedRailWidth(canvas, second),
             0,
           );
           for (const seam of await seams(app)) {
@@ -507,7 +510,7 @@ describe.skipIf(!SHOULD_RUN)(
           // Sized so the THREE-card chain's exact solve sits 30px above the
           // preferred width — in range. The two-card chain it starts as is
           // never solved at all: seeding a deck is not one of the moments,
-          // so the Lens rests at the preferred width until a gesture asks.
+          // so the rail rests at the preferred width until a gesture asks.
           const canvas = await canvasWidth(app);
           const paneWidth = paneWidthFor(canvas, 30);
           expect(paneWidth).toBeGreaterThan(200);
@@ -520,7 +523,7 @@ describe.skipIf(!SHOULD_RUN)(
             state: {
               ...shape,
               panes: [...shape.panes],
-              imposition: { kind: "three-up", lens: "right" },
+              imposition: { kind: "three-up", sidebars: { layout: { side: "right" } } },
             },
             focusCardId: "A",
           });
@@ -529,11 +532,11 @@ describe.skipIf(!SHOULD_RUN)(
             { timeoutMs: 8_000 },
           );
           await wait(AFTER_LAND_MS);
-          expect(await frameWidth(app, "pLens")).toBeCloseTo(PREFERRED, 0);
+          expect(await frameWidth(app, "pRail")).toBeCloseTo(PREFERRED, 0);
 
           // ── Put the loose card in the chain's one hole — the assign the
-          // Lens row's slot
-          // picker dispatches (a ⌘N chord lands on the same verb). The assign
+          // Cards row's slot picker dispatches (a ⌘N chord lands on the same
+          // verb). The assign
           // completes a chain the allocator can tile, and the assign ITSELF
           // is the moment: the user just asked the deck to arrange itself,
           // and the deck makes room for what it was asked to arrange. ──────
@@ -542,8 +545,8 @@ describe.skipIf(!SHOULD_RUN)(
           );
           await wait(AFTER_LAND_MS);
 
-          expect(await frameWidth(app, "pLens")).toBeCloseTo(
-            predictedLensWidth(canvas, paneWidth),
+          expect(await frameWidth(app, "pRail")).toBeCloseTo(
+            predictedRailWidth(canvas, paneWidth),
             0,
           );
           for (const seam of await seams(app)) {
@@ -564,7 +567,7 @@ describe.skipIf(!SHOULD_RUN)(
         });
         try {
           // Both preferences are seeded, so nothing here depends on a default:
-          // the Overview at its ch-derived width, the Lens at 420.
+          // the Overview at its ch-derived width, the Layout card at 420.
           await seedPreferredWidth(app, PREFERRED);
           await app.evalJS<null>(
             `(window.__tug.setTugbankValue("dev.tugtool.overview", "widthPx", { kind: "i64", value: ${DEFAULT_OVERVIEW_WIDTH_PX} }), null)`,
@@ -575,7 +578,7 @@ describe.skipIf(!SHOULD_RUN)(
 
           // ── Surplus. The chain wants 60px more rail than the two
           // preferences total. The GREEDIEST rail is fed first, so all of it
-          // goes to the Overview and the Lens does not move at all. ──────────
+          // goes to the Overview and the Layout card does not move at all. ────
           const surplusPane = twoRailPaneWidth(
             canvas,
             PREFERRED + DEFAULT_OVERVIEW_WIDTH_PX + 60,
@@ -587,20 +590,20 @@ describe.skipIf(!SHOULD_RUN)(
 
           const surplusTotal = railTotalFor(canvas, surplusPane);
           const fedOverview = await frameWidth(app, "pGaz");
-          const heldLens = await frameWidth(app, "pLens");
-          expect(heldLens, "the less greedy rail is not fed first").toBeCloseTo(
+          const heldRail = await frameWidth(app, "pRail");
+          expect(heldRail, "the less greedy rail is not fed first").toBeCloseTo(
             PREFERRED,
             0,
           );
           expect(fedOverview).toBeCloseTo(surplusTotal - PREFERRED, 0);
           expect(fedOverview).toBeGreaterThan(DEFAULT_OVERVIEW_WIDTH_PX);
-          expect(Math.round(fedOverview)).not.toBe(Math.round(heldLens));
+          expect(Math.round(fedOverview)).not.toBe(Math.round(heldRail));
           for (const seam of await seams(app)) {
             expect(Math.abs(seam - GAP)).toBeLessThanOrEqual(TOL);
           }
 
           // ── Deficit. Now the chain wants 140px LESS rail than the two
-          // preferences total, which is more than the Lens alone can give.
+          // preferences total, which is more than the Layout card alone can give.
           // The least greedy rail drains first and lands on its floor; only
           // then does the Overview give the remainder — and it is still the
           // wider of the two. ───────────────────────────────────────────────
@@ -614,14 +617,14 @@ describe.skipIf(!SHOULD_RUN)(
           await wait(AFTER_LAND_MS);
 
           const deficitTotal = railTotalFor(canvas, deficitPane);
-          const drainedLens = await frameWidth(app, "pLens");
+          const drainedRail = await frameWidth(app, "pRail");
           const holdingOverview = await frameWidth(app, "pGaz");
           expect(
-            drainedLens,
+            drainedRail,
             "the least greedy rail drains all the way to its floor",
-          ).toBeCloseTo(MIN_LENS_WIDTH_PX, 0);
-          expect(holdingOverview).toBeCloseTo(deficitTotal - MIN_LENS_WIDTH_PX, 0);
-          expect(holdingOverview).toBeGreaterThan(drainedLens);
+          ).toBeCloseTo(MIN_RAIL_WIDTH_PX, 0);
+          expect(holdingOverview).toBeCloseTo(deficitTotal - MIN_RAIL_WIDTH_PX, 0);
+          expect(holdingOverview).toBeGreaterThan(drainedRail);
           // And never under the Overview's own hard floor, the width below which
           // a post stops painting at all.
           expect(holdingOverview).toBeGreaterThanOrEqual(MIN_OVERVIEW_WIDTH_PX);
@@ -657,13 +660,13 @@ describe.skipIf(!SHOULD_RUN)(
           // another; a little lower they stand clear. The deck's duty to show
           // the user's cards outranks the Overview's comfortable measure, so
           // comfort is spent — and spent by the greediest rail last, only after
-          // the Lens has given everything it has.
+          // the Layout card has given everything it has.
           //
           // Aimed at the MIDDLE of that band rather than a fixed number of
           // pixels below comfort: the band is exactly the distance between the
           // Overview's two floors, and retuning its type moves both. A hardcoded
           // descent asks for a total the rails may no longer be able to reach.
-          const comfortTotal = MIN_LENS_WIDTH_PX + COMFORT_OVERVIEW_WIDTH_PX;
+          const comfortTotal = MIN_RAIL_WIDTH_PX + COMFORT_OVERVIEW_WIDTH_PX;
           const comfortBand = COMFORT_OVERVIEW_WIDTH_PX - MIN_OVERVIEW_WIDTH_PX;
           expect(
             comfortBand,
@@ -677,7 +680,7 @@ describe.skipIf(!SHOULD_RUN)(
           await wait(AFTER_LAND_MS);
 
           const overview = await frameWidth(app, "pGaz");
-          const lens = await frameWidth(app, "pLens");
+          const rail = await frameWidth(app, "pRail");
 
           // The cards stand clear. This is the assertion the landed Phase 1
           // solver failed: it pinned the Overview at its comfort measure and let
@@ -687,16 +690,16 @@ describe.skipIf(!SHOULD_RUN)(
             expect(Math.abs(seam - GAP)).toBeLessThanOrEqual(TOL);
           }
 
-          // And it was bought with the Overview's comfort, at the Lens's
+          // And it was bought with the Overview's comfort, at the Layout card's
           // expense first and never below the width the Overview cannot paint
           // under.
           expect(
-            lens,
+            rail,
             "the least greedy rail gives everything before comfort is spent",
-          ).toBeCloseTo(MIN_LENS_WIDTH_PX, 0);
+          ).toBeCloseTo(MIN_RAIL_WIDTH_PX, 0);
           expect(overview).toBeLessThan(COMFORT_OVERVIEW_WIDTH_PX);
           expect(overview).toBeGreaterThanOrEqual(MIN_OVERVIEW_WIDTH_PX);
-          expect(overview + lens).toBeCloseTo(
+          expect(overview + rail).toBeCloseTo(
             railTotalFor(canvas, crowdedPane),
             0,
           );

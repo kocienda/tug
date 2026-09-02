@@ -1,5 +1,5 @@
 /**
- * Native HTML5 drag of a Lens jot into the Session card's prompt entry
+ * Native HTML5 drag of a Jots card jot into the Session card's prompt entry
  * ([P04]/[P05]).
  *
  * The drag is the platform's own: the row's incipit is `draggable`, the payload
@@ -18,7 +18,7 @@ export const JOT_MIME = "application/x-tug-jot";
 /**
  * Start a jot drag from a row. Call from the incipit's `onDragStart` (the
  * element must carry `draggable`). `copy` is the only allowed effect — a
- * jot is never moved out of the Lens.
+ * jot is never moved out of the Jots card.
  */
 export function jotDragStart(
   event: React.DragEvent,

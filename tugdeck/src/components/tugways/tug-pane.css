@@ -124,7 +124,7 @@ body {
 /* ============================================================================
    Settling into a new arrangement
    ----------------------------------------------------------------------------
-   Changing the imposition — the Lens's side, the N-up kind, the pin — moves
+   Changing the imposition — a rail's side, the N-up kind, the pin — moves
    every derived frame at once, and the frames CROSS to their new places rather
    than cutting, so the arrangement reads as one thing rearranging itself
    instead of several things teleporting.
@@ -322,7 +322,7 @@ body {
  * A rail is not a card in the slot band, and the layout imposer has always
  * known it: a sidebar pane pins to a deck edge, takes its width from the
  * allocator rather than a preset, and insets the band the content cards live
- * in. Until now its chrome said none of that — Lens wore the same tinted
+ * in. Until now its chrome said none of that — a rail wore the same tinted
  * title band as a Diff.
  *
  * So the deck's three chrome tiers are three looks:
@@ -432,7 +432,7 @@ body {
 
 /* The name: content-width rather than stretched, so the stripe bands are
    measured from the WORD's end and the reading centers on the word rather than
-   on a box that swallowed the bar. Uppercase and tracked — the voice Lens
+   on a box that swallowed the bar. Uppercase and tracked — the voice the rail
    already speaks in its own section bands, brought up into the chrome so the
    bar and the bands below it read as one column. */
 /* @tug-renders-on: --tugx-pane-bg */
@@ -540,7 +540,7 @@ body {
   cursor: grabbing;
 }
 
-/* One-shot activation flash ([P04]): a Lens Sessions row click fronts the
+/* One-shot activation flash ([P04]): a Cards card session row click fronts the
    bound card and pulses an accent ring around its border. The class is added
    on dispatch (on the pane root) and removed on `animationend` (see
    `flashPaneBorder` in action-dispatch.ts). The ring is an OUTSET box-shadow

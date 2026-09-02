@@ -59,8 +59,10 @@ const ROW_TEXT_SIZE = 12;
 
 // ===========================================================================
 // Row HEIGHT is the one knob that has to be CSS — it is the row component's
-// own token and the list passes it down by cascade. It lives on
-// `.lens-oneline-list` in `lens-content.css`.
+// own token and the list passes it down by cascade. No shared class carries
+// it: each rail card's own list rule states the number — `.cards-list
+// .cards-oneline` in `cards-card.css`, `.tug-list-view.jots-list` in
+// `jots-card.css` — and they are kept equal by hand.
 // ===========================================================================
 
 /** Presentation props shared by the rail cards' one-line lists. */

@@ -95,7 +95,7 @@ function FallbackContextMenu({ x, y, onClose }: { x: number; y: number; onClose:
     // Dismiss on click-away or keypress. Both press events, for the reason
     // TugEditorContextMenu listens for both: `mousedown` is a compatibility
     // event, and a surface that calls `preventDefault` on its `pointerdown`
-    // (the Lens's reorder-armed rows do) suppresses it — leaving a menu with
+    // (the rail's reorder-armed rows do) suppresses it — leaving a menu with
     // nothing to hear and no way to close.
     const dismiss = () => onClose();
     const onPress = (e: Event) => {
@@ -679,7 +679,7 @@ export function ResponderChainProvider({ children }: { children: React.ReactNode
      * At BASE the answer used to be an unconditional no, and that is the seam
      * this closes. A key view that declares Escape its own (`captures`) is
      * bypassed in the most common state there is — no dialog, no descend scope
-     * — so who arbitrated the press depended on invisible mode state: the Lens
+     * — so who arbitrated the press depended on invisible mode state: the rail
      * list's "while there is a set, Escape is the list's" contract held inside a
      * popover and not on the plain deck. Consulting the same predicate
      * `actDispatchListener` consults makes one arbitration story for all modes.
@@ -1042,7 +1042,7 @@ export function ResponderChainProvider({ children }: { children: React.ReactNode
           } else if (focusManager.kbfManual()) {
             //  (6) the last rung, structurally below every one above: at the
             //      BASE mode with KBF manually engaged, Escape leaves the mode.
-            //      This is the Lens / diff-card case — a card engaged by ⌥⇥
+            //      This is the rail / diff-card case — a card engaged by ⌥⇥
             //      with no cycle scope of its own, so there is no `escapeExits`
             //      mode for rung (5) to pop. Sited under the "not base mode"
             //      branch precisely so it can never pre-empt a dismissable
@@ -1126,7 +1126,7 @@ export function ResponderChainProvider({ children }: { children: React.ReactNode
     // The floor under the spatial plane: a bare arrow that nothing has claimed
     // moves the ring one step along the mode's linear walk order, wrapping. This
     // is what carries the key view across surfaces that declare no spatial order
-    // — the Lens's sections, any list whose edge the navigator declined.
+    // — the rail's sections, any list whose edge the navigator declined.
     //
     // It runs AFTER the key-view delegate on purpose: a descended row scope's
     // in-row arrow walks and any `KeyViewBehavior.onKey` consumer own their keys,

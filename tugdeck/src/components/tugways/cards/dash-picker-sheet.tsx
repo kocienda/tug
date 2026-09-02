@@ -46,7 +46,7 @@ import type { DashChangesetEntry } from "@/lib/changeset-types";
 
 export interface DashPickerSheetProps {
   /** This project's dash entries, in the snapshot's order — the picker does
-   *  not apply the Lens's ordering, which is that surface's presentation
+   *  not apply the Dashes card's ordering, which is that surface's presentation
    *  choice rather than a property of the dashes. */
   dashes: readonly DashChangesetEntry[];
   /** Owner key of this card's current dash: marks the row and seeds the

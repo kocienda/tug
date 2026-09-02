@@ -20,7 +20,7 @@
  *   B. **An identity change repaints a live surface with no reload.** The
  *      change arrives the way the wire delivers it — a real `session_updated`
  *      frame through `dispatchAction`, the production decoder and the
- *      production store writes — and the mounted Lens session row and title
+ *      production store writes — and the mounted Cards session row and title
  *      bar must repaint from it. The change used is the ledger's callsign
  *      **reroll**, which is a real shipping event: a collided mint is rerolled
  *      rather than suffixed, so a callsign shown "from the drop" changes once,
@@ -37,7 +37,7 @@
  *
  * The per-run filter mark is deliberately NOT asserted here. It is enforced by
  * construction — `TugSessionIdentity` highlights each run separately and never
- * sees a joined string — and the Lens Cards filter cannot reach the case anyway:
+ * sees a joined string — and the Cards card's filter cannot reach the case anyway:
  * it matches a card row on `project/callsign`, not on the session's custom name,
  * so a query for the name the user typed drops the row rather than marking it.
  * That gap is recorded in the plan's follow-ons.
@@ -63,9 +63,9 @@ const TAG = "stocky-pixie";
 /** What the ledger sends when it rerolls a collided mint ([P12]). */
 const REROLLED_TAG = "syrupy-beam";
 /** The user's own name for the session, from `/rename`. */
-const RENAME = "Refactor the Lens";
-const LENS_ROW = ".cards-list .cards-row[data-session-id]";
-// Scoped to the session pane by id: the Lens is a pane too, and once it is
+const RENAME = "Refactor the imposer";
+const CARDS_ROW = ".cards-list .cards-row[data-session-id]";
+// Scoped to the session pane by id: the Cards card is a pane too, and once it is
 // open an unscoped query would read ITS title bar.
 const TITLE_BAR = '.tug-pane[data-pane-id="p1"] [data-slot="tug-pane-title-bar"]';
 
@@ -147,16 +147,16 @@ describe.skipIf(!SHOULD_RUN)("at0373 — session identity is one resolver, subsc
 
         // ---- B. A rename repaints a live surface. --------------------------
         //
-        // The Lens is open and its session row is mounted, so this is a live
+        // The Cards card is open and its session row is mounted, so this is a live
         // subscription being exercised, not a remount.
         await app.dispatchControlAction("toggle-cards");
         await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(LENS_ROW)}) !== null`,
+          `document.querySelector(${JSON.stringify(CARDS_ROW)}) !== null`,
           { timeoutMs: 15_000 },
         );
         const lineBefore = await app.evalJS<string>(
           `(function(){
-            var row = document.querySelector(${JSON.stringify(LENS_ROW)});
+            var row = document.querySelector(${JSON.stringify(CARDS_ROW)});
             var t = row.querySelector(".tug-list-row-title");
             return t === null ? "" : t.innerText;
           })()`,
@@ -182,7 +182,7 @@ describe.skipIf(!SHOULD_RUN)("at0373 — session identity is one resolver, subsc
         // hangs here until the timeout.
         await app.waitForCondition<boolean>(
           `(function(){
-            var row = document.querySelector(${JSON.stringify(LENS_ROW)});
+            var row = document.querySelector(${JSON.stringify(CARDS_ROW)});
             if (row === null) return false;
             var t = row.querySelector(".tug-list-row-title");
             return t !== null && t.innerText.indexOf("${REROLLED_TAG}") !== -1;
@@ -219,7 +219,7 @@ describe.skipIf(!SHOULD_RUN)("at0373 — session identity is one resolver, subsc
         ).toBe(true);
         await app.waitForCondition<boolean>(
           `(function(){
-            var row = document.querySelector(${JSON.stringify(LENS_ROW)});
+            var row = document.querySelector(${JSON.stringify(CARDS_ROW)});
             if (row === null) return false;
             var name = row.querySelector(".tug-session-identity-name");
             return name !== null && name.innerText.indexOf(${JSON.stringify(RENAME)}) !== -1;
@@ -228,7 +228,7 @@ describe.skipIf(!SHOULD_RUN)("at0373 — session identity is one resolver, subsc
         );
         const runs = await app.evalJS<{ name: string; callsigns: number }>(
           `(function(){
-            var row = document.querySelector(${JSON.stringify(LENS_ROW)});
+            var row = document.querySelector(${JSON.stringify(CARDS_ROW)});
             var name = row.querySelector(".tug-session-identity-name");
             return {
               name: name === null ? "" : name.innerText,

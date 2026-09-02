@@ -84,7 +84,7 @@ function typeFilter(
 ): Promise<null> {
   return app.evalJS<null>(`(function(){
     var el = document.querySelector(${JSON.stringify(FILTER_INPUT)});
-    if (!el) throw new Error("lens filter input not found");
+    if (!el) throw new Error("jots filter input not found");
     el.focus();
     var setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
     setter.call(el, ${JSON.stringify(text)});
@@ -191,7 +191,7 @@ describe.skipIf(!SHOULD_RUN)("at0266 — a rail card's filter field", () => {
           ).toBe(false);
 
           // (C) Escape clears the filter in place: rows come back, the section
-          // stays expanded, and the Lens stays open.
+          // stays expanded, and the Jots card stays open.
           await app.evalJS<null>(`(function(){
             var el = document.querySelector(${JSON.stringify(FILTER_INPUT)});
             el.focus();

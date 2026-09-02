@@ -1399,7 +1399,7 @@ The line:"
 ///    line is asked to name the undertaking and its object. The wording asks
 ///    for less than the budget on purpose: the first cut at this line said
 ///    "about 110 characters" and the model filled every one of them, which
-///    overran the Lens and picker rows and shipped clipped mid-word.
+///    overran the rail and picker rows and shipped clipped mid-word.
 ///
 /// The instruction is deliberately **extractive**: `ground_synopsis` refuses a
 /// description whose words are not in the digest, so telling the model to reuse
@@ -1425,7 +1425,7 @@ START WITH A VERB, in the plain command form: Rework, Repair, Trace, Port, Audit
 ARTICLES AND CONJUNCTIONS ARE ALLOWED. \"the\", \"a\", \"and\" — use them where the sentence wants them. This is the one line that gets to read as English.
 NAME THE WORK AND ITS OBJECT: what is being done, and to what. One subject and one object for the newest work, with at most one earlier item riding after it — never a list of surfaces, parts, or steps.
 BE BRIEF. ROOM FOR ABOUT 65 CHARACTERS, and shorter is better — a line that runs long is cut off mid-word on every surface that shows it.
-SENTENCE CASE. Proper names keep their capitals — Lens, Finder, Keychain, CodeMirror.
+SENTENCE CASE. Proper names keep their capitals — Finder, Keychain, CodeMirror, WebKit.
 No period at the end. No quotes.
 
 USE THE DIGEST'S OWN WORDS. Build the line out of words that appear in the digest you were given; do not reach for a synonym when the digest has the word. Never name a tool — Bash, Edit, Read, Write, Grep — and never write a path or a file's location.

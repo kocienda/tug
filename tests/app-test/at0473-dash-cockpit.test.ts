@@ -103,7 +103,7 @@ const SID_A = "a7c0d1ea-0000-4000-8000-000000000473";
 const SID_B = "a7c0d1ea-0000-4000-8000-000000000474";
 
 const SECTION = '.dashes-section';
-const PLAN_ROWS = `${SECTION} [data-slot="lens-document-dash-row"]`;
+const PLAN_ROWS = `${SECTION} [data-slot="dash-document-row"]`;
 const EMPTY = `${SECTION} [data-slot="dashes-empty"]`;
 const planRow = (name: string): string => `${PLAN_ROWS}[data-dash="${name}"]`;
 

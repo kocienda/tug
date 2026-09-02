@@ -702,7 +702,7 @@ export function applyBagFocus(
       // claim used to do a SECOND job through its focusin (chain
       // promotion), and that half must survive: settle the first
       // responder on the target's nearest responder so accelerators and
-      // the cancel ladder route into the card's content (the Lens's
+      // the cancel ladder route into the card's content (the rail's
       // Escape focus-out lives on a content-local responder the upward
       // walk can only reach when FR starts at or below it).
       const chain = getResponderChainManager();

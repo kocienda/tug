@@ -63,8 +63,8 @@ const LAST_DASH = DASH_NAMES[DASH_NAMES.length - 1] ?? "";
 
 const CARD = '.dashes-section';
 const LIST = `${CARD} .tug-list-view.dashes-list`;
-const ROWS = `${CARD} [data-slot="lens-document-dash-row"]`;
-const LAST_ROW = `${CARD} [data-slot="lens-document-dash-row"][data-dash="${LAST_DASH}"]`;
+const ROWS = `${CARD} [data-slot="dash-document-row"]`;
+const LAST_ROW = `${CARD} [data-slot="dash-document-row"][data-dash="${LAST_DASH}"]`;
 
 /** This checkout — the build under test, and never the tree a dash is cut in. */
 const CHECKOUT = realpathSync(resolve(import.meta.dir, "..", ".."));
@@ -215,7 +215,7 @@ describe.skipIf(!SHOULD_RUN)("AT0499: the Dashes card scrolls its own rows", () 
         expect(reachable.rowTop).toBeGreaterThanOrEqual(reachable.viewTop - 1);
         expect(reachable.rowBottom).toBeLessThanOrEqual(reachable.viewBottom + 1);
 
-        note("at0499 lens, bottom of the dashes band", (await app.screenshot()).path);
+        note("at0499 dashes card, bottom of the dashes band", (await app.screenshot()).path);
       } finally {
         await app.close();
         rmTempTugbank(tugbankPath);

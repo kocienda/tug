@@ -6,7 +6,7 @@
  * row. This pins that grammar end to end: a real `tugtool dash create` in the
  * project under test composes into `snapshot.dashes`, the lane renders one
  * `DashLifecycleBlock` at reading scale — the atom and the workers over the
- * track, the note and the divergence facts, the same block the Lens's Dashes
+ * track, the note and the divergence facts, the same block the Dashes card's
  * section renders at the rail ([D141]) — the expanded face carries the
  * worktree's dirty files and the maintained join draft as read-only ink, and
  * nowhere in the lane is there a claim, disclaim, or hunk-election affordance

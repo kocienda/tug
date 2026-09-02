@@ -489,7 +489,7 @@ export interface ConsumeCommandInsertActionEvent {
 /**
  * Internal action injected by `CodeSessionStore.insertJot`. Not a wire
  * event. Parks a jot's `{ text, at }` on `pendingJotInsert` when a
- * Lens jot is dragged onto (or double-clicked into) the prompt entry;
+ * Jots card jot is dragged onto (or double-clicked into) the prompt entry;
  * the entry observes the slot via `useSyncExternalStore`, inserts the text
  * inside a `useLayoutEffect`, and dispatches `consume_jot_insert`. `at`
  * is the drop point in client coordinates (resolved to a document offset) or

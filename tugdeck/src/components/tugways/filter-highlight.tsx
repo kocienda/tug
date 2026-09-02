@@ -2,7 +2,7 @@
  * filter-highlight — paint a list-filter query's matched spans inside a row.
  *
  * One renderer for every filtered list (the session picker, the `/resume`
- * overlay, the Lens sections, the gallery filter card), so a match looks the
+ * overlay, the rail cards, the gallery filter card), so a match looks the
  * same wherever it is found. The output is inline fragments — plain strings
  * and `<mark class="tug-filter-mark">` spans — which compose into a
  * `TugListRow`'s `title` / `subtitle` and therefore keep the row's typography,

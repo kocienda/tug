@@ -314,7 +314,7 @@ export const TUG_ACTIONS = {
   // PREVIOUS_TAB:   payload — none. Step to the previous card in the
   //                 deck's lateral ring: every tab of every visible pane
   //                 (front of each slot / rail, plus free panes; the
-  //                 sidebars ride it, Lens included), one ring. Within a
+  //                 sidebars ride it, rail included), one ring. Within a
   //                 pane it is a tab switch; at a pane's first tab it
   //                 crosses into the previous pane's last. Handled by the
   //                 deck canvas, which owns the geometry.
@@ -340,7 +340,7 @@ export const TUG_ACTIONS = {
   //                 row is bound so an out-of-range number is inert rather
   //                 than beeping: the handler no-ops when there is no
   //                 imposition, when nothing is selected, when the
-  //                 selection is the Lens, or when N exceeds the
+  //                 selection is the rail, or when N exceeds the
   //                 arrangement's slot count.
   // NUDGE_SLOT:     payload — `value: number`, either -1 (left) or +1
   //                 (right). Deck-level: move every card in the layout
@@ -811,7 +811,7 @@ export const TUG_ACTIONS = {
   // ---- Deck verbs that had no name ----
   //
   // These five were reachable only as `DeckManager` method calls — a
-  // drag, a Lens row, an internal caller — so no table could see them and
+  // drag, a rail row, an internal caller — so no table could see them and
   // no keymap could offer them. Naming them is what makes them commands.
   //
   // CENTER_PANE:     payload — none. Put the addressed card's pane in the
@@ -913,7 +913,7 @@ export const TUG_ACTIONS = {
   // SET_CONTENT_WIDTH: payload — `{ preset }`. Set the deck's default content
   //                    width and put every content pane on it, overwriting the
   //                    per-pane widths the title-bar popup had set. Its door is
-  //                    the Lens Layouts section's Card Width group.
+  //                    the rail Layouts section's Card Width group.
   SET_CONTENT_WIDTH:      "set-content-width",
   // SET_IMPOSITION_LAYOUT: payload — `{ layout }`. Choose how the deck resolves
   //                        its slots: `"fit"`, where each slot is an anchor at
@@ -921,11 +921,11 @@ export const TUG_ACTIONS = {
   //                        its cards, or `"flow"`, where the occupied slots
   //                        stand in a strip that runs off the right edge and
   //                        the active card is revealed into view. Its door is
-  //                        the Lens Layouts section's Layout group.
+  //                        the rail Layouts section's Layout group.
   SET_IMPOSITION_LAYOUT:  "set-imposition-layout",
   // SET_SIDEBAR_SIDE: payload — `{ componentId, side }`. Move a sidebar card to
   //                   a deck edge, re-pinning it if it had been dragged loose.
-  //                   Its door is the Lens Layouts section's sidebar positions
+  //                   Its door is the rail Layouts section's sidebar positions
   //                   group, which draws one control per registered sidebar
   //                   card.
   SET_SIDEBAR_SIDE:       "set-sidebar-side",
@@ -937,12 +937,12 @@ export const TUG_ACTIONS = {
   //                   hide and whose side segments show a hidden card where
   //                   they say.
   SET_SIDEBAR_OPEN:       "set-sidebar-open",
-  // SET_SLOT_WINDOW: payload — `{ size }`, 3 or 5. How many places a Lens row
+  // SET_SLOT_WINDOW: payload — `{ size }`, 3 or 5. How many places a rail row
   //                  draws around the one its card holds. A reading
   //                  preference rather than a deck fact — it moves no card and
   //                  changes no arrangement — so it is persisted through
   //                  tugbank and nothing about the deck's state knows it
-  //                  happened. Its door is the Lens Layouts section's Slot
+  //                  happened. Its door is the rail Layouts section's Slot
   //                  Window row.
   SET_SLOT_WINDOW:        "set-slot-window",
   // SET_RAIL_MODE: payload — `{ side, mode }`. Stack or split one side's rail:
@@ -950,7 +950,7 @@ export const TUG_ACTIONS = {
   //                decides which you see; split, the side's run is divided
   //                between them and every member is visible at once. Stack is
   //                the default. Its doors are the title bar's stack badge menu
-  //                and the Lens Layouts section's per-side rail row.
+  //                and the rail Layouts section's per-side rail row.
   SET_RAIL_MODE:          "set-rail-mode",
   // EQUALIZE_RAIL: payload — `{ side }`. Divide a split rail's run equally
   //                again, discarding the heights a seam drag set while keeping
@@ -962,7 +962,7 @@ export const TUG_ACTIONS = {
   //                  numbered slot. Stacked they stand front-to-back and
   //                  z-order decides which you see; split, the slot's vertical
   //                  run is divided between them. Stack is the default. Its
-  //                  doors are the title bar's stack badge menu, the Lens
+  //                  doors are the title bar's stack badge menu, the rail
   //                  Layouts section's per-slot column row, and ⌃⌘S.
   SET_COLUMN_MODE:        "set-column-mode",
   // EQUALIZE_COLUMN: payload — `{ slot }`. Divide a split column's run equally

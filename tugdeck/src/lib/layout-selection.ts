@@ -4,15 +4,15 @@
  * Slot assignment, width presets, and the geometry commands that follow all ask
  * the same question, and they ask it here so there is one answer. The ladder:
  *
- * 1. The Lens's layout selection, filtered to cards the deck still holds.
+ * 1. The Cards card's layout selection, filtered to cards the deck still holds.
  * 2. Failing that, the row the Cards list's cursor is standing on — while the
  *    keyboard is actually in that list, and not otherwise.
  * 3. Failing that, the deck's first responder — the single-card behavior that
  *    predates the selection, now the degenerate case rather than the rule.
  * 4. Failing that, nothing.
  *
- * Rungs 1 and 2 are what make the chords work with keyboard focus in the Lens.
- * The first responder there is the Lens card itself — a rail — so a handler
+ * Rungs 1 and 2 are what make the chords work with keyboard focus in the Cards
+ * card. The first responder there is that card itself — a rail — so a handler
  * reading only rung 3 refuses every slot chord typed while the Cards list has
  * focus, which is exactly when the user is most likely to type one.
  *
@@ -116,7 +116,7 @@ export function resolveColumnMenuFact(
  * A rail pins to a deck edge and insets the band — it is the imposition's fixed
  * end, not the chain's to arrange — so it drops out here rather than refusing
  * the whole gesture. That is what lets a slot chord work on a selection that
- * happens to include the Lens instead of dying on it.
+ * happens to include a rail instead of dying on it.
  *
  * An empty answer is a refusal, and a refusal says so: it writes to the dev log
  * rather than returning silently, so a chord that appears to do nothing can be

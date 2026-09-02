@@ -703,7 +703,7 @@ export interface AppendInsertion {
 
 /**
  * Compute the end-of-doc insertion for text arriving from outside the
- * editor — today a jot dropped from the Lens with no resolvable drop
+ * editor — today a jot dropped from the Jots card with no resolvable drop
  * offset. An effectively empty editor takes the text as-is; a mid-compose
  * draft gets it appended on its own line, never clobbered.
  *
@@ -1418,7 +1418,7 @@ export const TugPromptEntry = React.forwardRef<
   // row. All DOM writes, no React state ([L06]).
   //
   // Two payloads land here: a file drag (images become atoms, other files
-  // their basename) and a Lens jot drag ([P05]) — the same accept ring
+  // their basename) and a Jots card jot drag ([P05]) — the same accept ring
   // and drop caret for both, so a jot reads exactly like an image over
   // the entry.
   const handleEntryDragOver = useCallback(
@@ -1956,7 +1956,7 @@ export const TugPromptEntry = React.forwardRef<
     codeSessionStore.consumePendingCommandInsert();
   }, [pendingCommandInsert, codeSessionStore]);
 
-  // Jot insert ([P05]). A jot dragged from the Lens onto the prompt
+  // Jot insert ([P05]). A jot dragged from the Jots card onto the prompt
   // entry (or double-clicked) parks `{ text, at }` here; this effect inserts
   // the text — at the drop offset when `at` resolves, else appended (empty
   // editor takes it as-is, non-empty on a new line, the

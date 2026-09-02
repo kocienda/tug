@@ -8,7 +8,7 @@
  * it, the idiom Windows 11's Snap Layouts established.
  *
  * Both edges can carry a rail and either can carry more than one card, because
- * the deck's own default stacks the Lens and Jots on the right. A stacked
+ * the deck's own default stacks the rail cards on the right. A stacked
  * rail's cards stand front-to-back, so the picture draws them as a stack of
  * paper — the ones behind peeking out at the top. A side the user has SPLIT is
  * a divided strip instead, because that is then the arrangement the deck
@@ -57,7 +57,7 @@ import {
 } from "@/lib/layout-imposer";
 
 /** The width a rail contributes to the drawing, in the same nominal pixels the
- *  content-width presets are stated in — the Lens's customary standing width.
+ *  content-width presets are stated in — a rail's customary standing width.
  *  The proportion between this and the preset is what makes "Slim" and "Wide"
  *  two different pictures of the same deck. */
 const RAIL_NOMINAL_PX = 420;

@@ -7,7 +7,7 @@
  * about it varies by surface, which is why it is one component rather than a
  * shape each mount assembles from the same six constants.
  *
- * It was two. The masthead's `MastheadSparkline` and the Lens row's
+ * It was two. The masthead's `MastheadSparkline` and the Cards card row's
  * `RowSparkline` were the same component under two names — same store, same
  * series, same rate-channel filter, same bin, same full scale, same curve, same
  * box, same title — and the only thing that told them apart was which file they
@@ -52,7 +52,7 @@ const SPARK_TITLE = "Session activity — text, tokens, tools, and subagents";
 /**
  * The handle on this instrument, as distinct from any other tape the app draws.
  * `TugSparkline` owns `data-slot="tug-sparkline"` and takes a closed prop list,
- * so a class is the mechanism available — and it is the one the Lens's copy
+ * so a class is the mechanism available — and it is the one the Cards card's copy
  * already used.
  */
 const SPARK_CLASS = "session-activity-spark";
@@ -103,8 +103,8 @@ export function SessionActivitySparkline({
       // Its own class, always, on top of whatever the mount adds. A session's
       // tape is a findable thing and a generic sparkline is not, so this is what
       // a test or a stylesheet names to reach THIS instrument rather than
-      // walking the structure around it. The Lens's `.sessions-monitor-spark`
-      // used to be that handle and went with the Lens-only copy of the tape; a
+      // walking the structure around it. The Cards card's `.sessions-monitor-spark`
+      // used to be that handle and went with the Cards card-only copy of the tape; a
       // selector that has to spell out `.tug-pulse-trailing .tug-sparkline`
       // instead is naming three components to find one.
       className={

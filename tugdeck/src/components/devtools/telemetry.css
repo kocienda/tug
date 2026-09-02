@@ -3,7 +3,7 @@
  * shared field-row / field-section primitives ([P10]).
  *
  * These rules were extracted from the former dev-panel CSS (deleted with the
- * panel) so the Lens Telemetry section keeps its layout independently.
+ * panel) so the DevTools card Telemetry section keeps its layout independently.
  * Class names are preserved from the origin so the relocated TSX needs no
  * churn; the few `--tugx-devpanel-*` slots the field values read are
  * declared here, scoped to the inspector root. No colors — TugLabel /

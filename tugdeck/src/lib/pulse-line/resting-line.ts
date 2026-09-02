@@ -71,7 +71,7 @@ export function completedRestingLine(atMs: number): string {
 
 /**
  * The resting reading for a session that has said nothing yet — the state
- * the Lens shows for the whole life of a session nobody has prompted.
+ * the Cards card shows for the whole life of a session nobody has prompted.
  *
  * A null `createdAtMs` is the window before the session ledger answers. The
  * line still reads as the state it is; it just cannot date it yet.

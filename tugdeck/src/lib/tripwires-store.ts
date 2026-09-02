@@ -1,5 +1,5 @@
 /**
- * `tripwiresStore` — the [L02] store behind the **Tripwires** Lens section.
+ * `tripwiresStore` — the [L02] store behind the **Tripwires** rail section.
  *
  * The tripwires ledger is machine-global and written by processes this deck does
  * not talk to: another instance's engine claims a trip, a `tugtool tripwire`

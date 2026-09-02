@@ -150,7 +150,7 @@ export interface BlockFoldCueProps {
   /**
    * Author the cue into a keyboard walk ([P02]) — forwarded to the button's own
    * opt-in. A cue inside a transcript body leaves this off (the block's own
-   * surface decides how it is reached); the Lens section bands pass their
+   * surface decides how it is reached); the rail section bands pass their
    * section's group, which is what makes a fold reachable by arrow.
    */
   focusGroup?: string;

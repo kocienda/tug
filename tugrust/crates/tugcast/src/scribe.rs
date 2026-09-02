@@ -886,7 +886,7 @@ mod tests {
 
     #[test]
     fn unwrap_hard_wraps_leaves_unwrapped_messages_alone() {
-        let clean = "tugdash(pulse-display): PULSE two-level display\n\nThe PULSE now reads as one two-level grammar wherever it appears.\n\n- tugcast: new headline_register normalizer strips wrapping quotes.\n- Lens (L1): the session row grows a goal line between the name and the activity.";
+        let clean = "tugdash(pulse-display): PULSE two-level display\n\nThe PULSE now reads as one two-level grammar wherever it appears.\n\n- tugcast: new headline_register normalizer strips wrapping quotes.\n- Cards (L1): the session row grows a goal line between the name and the activity.";
         assert_eq!(unwrap_hard_wraps(clean), clean);
     }
 

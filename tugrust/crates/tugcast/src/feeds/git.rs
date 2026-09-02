@@ -385,7 +385,7 @@ pub async fn build_commit_files_snapshot(
 }
 
 // ---------------------------------------------------------------------------
-// Recent-commits (`git log`) sourcing for the Git History Lens section.
+// Recent-commits (`git log`) sourcing for the Git History surface.
 // ---------------------------------------------------------------------------
 
 /// The unit-separator byte git emits for `%x1f` — used to delimit the log
@@ -1758,7 +1758,7 @@ index 1111111..2222222 100644
         );
     }
 
-    // -- git log sourcing (Git History Lens section) --
+    // -- git log sourcing (Git History surface) --
 
     /// A committed repo on `main` with three commits whose subjects are, oldest
     /// to newest, `first`/`second`/`third`.

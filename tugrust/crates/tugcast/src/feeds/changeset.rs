@@ -4863,7 +4863,7 @@ Some context.
     #[tokio::test]
     async fn firmlink_split_row_is_attributed() {
         let (_dir, root) = init_repo();
-        std::fs::write(root.join("lens-frame.md"), "edit").unwrap();
+        std::fs::write(root.join("rail-frame.md"), "edit").unwrap();
         let link_home = tempfile::tempdir().unwrap();
         let link = link_home.path().join("link");
         std::os::unix::fs::symlink(&root, &link).unwrap();
@@ -4883,7 +4883,7 @@ Some context.
         // Legacy row: absolute file_path under the real path, project_dir the
         // symlink spelling — the two disagree, exactly the live bug.
         ledger
-            .record_file_event(&event("sess", "tu-1", &root.join("lens-frame.md"), &link))
+            .record_file_event(&event("sess", "tu-1", &root.join("rail-frame.md"), &link))
             .unwrap();
 
         // Compose against the symlink spelling (repo_root_for returns it verbatim).

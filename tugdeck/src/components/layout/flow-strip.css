@@ -16,7 +16,7 @@
  * described three times because one element cannot both paint the deck, take a
  * press for each of its places, and number them.
  *
- * The strip stands on the LENS's own panel, not on the deck canvas, and that is
+ * The strip stands on the LAYOUT CARD's own panel, not on the deck canvas, and that is
  * the whole of what changed about its ink when it moved. In the canvas the
  * segments had to hand in card-family tokens by name: a `TugSlot`'s own tokens
  * name a control on a control surface, and the canvas is a dark ground in every
@@ -77,7 +77,7 @@
   opacity: 0.8;
 }
 
-/* While a card is being dragged the deck is drop-zone country and the Lens
+/* While a card is being dragged the deck is drop-zone country and the strip
    steps out of the pointer's way with it. The channel stamps the drag on every
    registered element, so the gate is a selector rather than a decision anyone
    has to make in JS. */

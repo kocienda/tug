@@ -62,7 +62,7 @@ tugtool tripwire resolve <name> --awaiting --headline "<one line>" [--author "<w
 tugtool tripwire dismiss <name>
 ```
 
-`--quiet` is "nothing here anybody needs to see" and is the ordinary outcome — a tripwire fires on a pattern, and the pattern occurring is usually not news. `--awaiting` is the tripwire raising its hand: the headline is the one line the Lens row shows, and the trip **holds** — it keeps the tripwire's one-run slot and stays on the surface — until the user has seen it. `dismiss` settles an awaiting trip by hand and discards the dash it was holding.
+`--quiet` is "nothing here anybody needs to see" and is the ordinary outcome — a tripwire fires on a pattern, and the pattern occurring is usually not news. `--awaiting` is the tripwire raising its hand: the headline is the one line the Tripwires row shows, and the trip **holds** — it keeps the tripwire's one-run slot and stays on the surface — until the user has seen it. `dismiss` settles an awaiting trip by hand and discards the dash it was holding.
 
 An awaiting trip is also resolved by the dash disappearing: joining or discarding it answers the question the tripwire asked. There is no timeout, on purpose — a question that evaporates overnight is a question nobody was asked.
 
@@ -130,7 +130,7 @@ tugtool tripwire rm <name>            gone, with its log
 
 `pause` rather than `rm` for a tripwire that is misbehaving: the log is the evidence for the repair, and removing the tripwire throws it away.
 
-The **Tripwires section** of the Lens shows the same things — the roster with each tripwire's branch, a dot while a trip is live and a held one while a trip is awaiting, and the trip log behind each row — with two knobs: pause and model. Its collapsed band carries the live count, so the standing watches read at a glance without opening anything. Authoring stays here, because those are the fields where a wrong value makes a tripwire silently useless rather than visibly wrong.
+The **Tripwires card** shows the same things — the roster with each tripwire's branch, a dot while a trip is live and a held one while a trip is awaiting, and the trip log behind each row — with two knobs: pause and model. Its collapsed band carries the live count, so the standing watches read at a glance without opening anything. Authoring stays here, because those are the fields where a wrong value makes a tripwire silently useless rather than visibly wrong.
 
 ## Judgement
 

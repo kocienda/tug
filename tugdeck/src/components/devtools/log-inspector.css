@@ -10,7 +10,7 @@
 */
 
 /**
- * log-inspector.css — Log section on the Lens.
+ * log-inspector.css — Log section on the DevTools card.
  *
  * Owns the `--tugx-devlog-*` slot family ([L20]). Reads only the
  * dev-panel chrome surface for row backgrounds when no surface of

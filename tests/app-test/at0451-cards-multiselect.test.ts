@@ -1,11 +1,11 @@
 /**
- * at0451-lens-multiselect.test.ts — a layout verb acts on the selection, and
+ * at0451-cards-multiselect.test.ts — a layout verb acts on the selection, and
  * moves all of it at once.
  *
  * Before the layout selection there was one target and one way to name it: the
  * deck's first responder. That reading has a hole the user falls into daily —
- * with the keyboard in the Lens, the first responder IS the Lens card, which is
- * a rail, so `MOVE_TO_SLOT` refused every ⌘-digit typed while the Cards list
+ * with the keyboard in the Cards list, the first responder IS the Cards card,
+ * which is a rail, so `MOVE_TO_SLOT` refused every ⌘-digit typed while the list
  * had focus. The chord did nothing and said nothing, at exactly the moment the
  * user was looking at the list of cards and deciding where to put one.
  *
@@ -30,7 +30,7 @@
  * BOTH sides of the keyboard — which is the claim worth two presses rather than
  * one. The engine's Escape ladder outranks the responder chain at every rung,
  * and a plain click on a Cards row fronts the card it names and takes the
- * keyboard out of the Lens; so the press had two ways to be swallowed, each
+ * keyboard out of the Cards card; so the press had two ways to be swallowed, each
  * reachable by an ordinary gesture, and which one the user was in was invisible.
  * The list CAPTURES Escape while it holds the keyboard and a set stands, and the
  * root responder registers a `CANCEL_DIALOG` entry for exactly as long as one
@@ -47,16 +47,16 @@
  * and the detector records the jump. Zero cuts across a two-card move is the
  * assertion that the commit was single.
  *
- * The third test is the Escape table itself (`lens-escape.ts`,
+ * The third test is the Escape table itself (`cards-escape.ts`,
  * `tuglaws/focus-language.md`): filter text, then the selection, then focus out
  * — and never anything else, from whichever first-responder shape the press
  * arrives in. Several handlers can answer it — the Cards list while it holds
- * the keyboard, the Lens's own responder, the deck root's conditional entry —
+ * the keyboard, the Cards card's own responder, the deck root's conditional entry —
  * and the defect the table exists to prevent is those handlers disagreeing
  * about their inputs and their order, which is what the user sees as "Escape
  * does something different every time". So the two cases here drive the two
  * shapes that used to resolve differently: a set whose rows are not on screen
- * at all (the group folded over it), and a press answered from OUTSIDE the Lens
+ * at all (the group folded over it), and a press answered from OUTSIDE the Cards card
  * after a click fronted a card and took the keyboard with it. The invariant
  * both assert is the same one: each press shrinks exactly one rung, and the
  * rung above it is untouched.
@@ -79,7 +79,7 @@ const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
 
 const FRAMES = ".tug-pane[data-pane-id]";
-const LENS_WIDTH = 675;
+const CARDS_WIDTH = 675;
 const PANE_WIDTH = 420;
 /** The settle window (`IMPOSITION_SETTLE_MS`) plus room for the tween to land. */
 const AFTER_LAND_MS = 900;
@@ -121,12 +121,12 @@ function deckShape() {
       pane("p2", 1, "B"),
       pane("p3", 2, "C"),
       {
-        id: "pLens",
+        id: "pCards",
         position: { x: 0, y: 0 },
-        size: { width: LENS_WIDTH, height: 900 },
+        size: { width: CARDS_WIDTH, height: 900 },
         cardIds: ["L"],
         activeCardId: "L",
-        title: "Lens",
+        title: "Cards",
         acceptsFamilies: [],
       },
     ],
@@ -223,8 +223,8 @@ async function cursorTitle(app: App): Promise<string> {
  * Park the cursor on the row whose text contains `title`.
  *
  * Home first, then down — never down from wherever the cursor happens to be.
- * The list's last row hands the arrow onward to the next Lens section rather
- * than clamping (the liveliness net), so a walk that starts below its target
+ * The list's last row hands the arrow onward rather than clamping (the
+ * liveliness net), so a walk that starts below its target
  * leaves the Cards list entirely and the cursor stops existing. Fails loudly
  * rather than walking forever: a cursor that will not move is the interesting
  * failure.
@@ -248,7 +248,7 @@ async function walkCursorTo(app: App, title: string): Promise<void> {
  * Put the keyboard in the Cards list and wait until its cursor is painted.
  *
  * Called again after every slot chord, because assigning a slot RAISES the card
- * it moved and takes the keyboard with it — the Lens's documented slot-assign
+ * it moved and takes the keyboard with it — the Cards card's documented slot-assign
  * exit, pinned by at0278. That is deliberate behavior this test rides rather
  * than fights.
  */
@@ -280,9 +280,9 @@ async function clickRowTitled(app: App, title: string): Promise<boolean> {
   return true;
 }
 
-async function seedLensPreferred(app: App): Promise<void> {
+async function seedCardsPreferred(app: App): Promise<void> {
   await app.evalJS<null>(
-    `(window.__tug.setTugbankValue("dev.tugtool.cards", "widthPx", { kind: "i64", value: ${LENS_WIDTH} }), null)`,
+    `(window.__tug.setTugbankValue("dev.tugtool.cards", "widthPx", { kind: "i64", value: ${CARDS_WIDTH} }), null)`,
   );
 }
 
@@ -292,9 +292,9 @@ describe.skipIf(!SHOULD_RUN)(
     test(
       "the layout chords resolve through the selection, and move it as one",
       async () => {
-        const app = await launchTugApp({ testName: "at0451-lens-multiselect" });
+        const app = await launchTugApp({ testName: "at0451-cards-multiselect" });
         try {
-          await seedLensPreferred(app);
+          await seedCardsPreferred(app);
           await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
           await app.waitForCondition<boolean>(
             `document.querySelectorAll(${JSON.stringify(FRAMES)}).length === 4`,
@@ -348,9 +348,9 @@ describe.skipIf(!SHOULD_RUN)(
           expect(slots.C, "and so did its second — one slot, both cards").toBe(0);
           expect(slots.A, "the unselected card kept its slot").toBe(2);
 
-          // ---- The headline bug: the chord works with the keyboard in the Lens ----
+          // ---- The headline bug: the chord works with the keyboard in the Cards card ----
           //
-          // Fronting the Lens makes a RAIL the first responder. Read through the
+          // Fronting the Cards card makes a RAIL the first responder. Read through the
           // first responder alone this refuses; read through the selection it
           // does what the user asked. The activation also proves the collapse
           // rule's limit: a rail taking focus is not the user leaving the
@@ -367,14 +367,14 @@ describe.skipIf(!SHOULD_RUN)(
           slots = await slotsByCard(app);
           expect(
             slots.B,
-            "⌘2 with the keyboard in the Lens moves the selection",
+            "⌘2 with the keyboard in the Cards card moves the selection",
           ).toBe(1);
           expect(slots.C, "both of it").toBe(1);
 
           // ---- A second verb, a different shape, the same ladder ----
           // The nudge is RELATIVE where ⌘n is absolute, so it exercises the
           // resolver's other half: the group either moves whole or refuses
-          // whole. Still typed with the keyboard in the Lens.
+          // whole. Still typed with the keyboard in the Cards card.
           await app.nativeKey("]", ["cmd", "alt", "shift"]);
           await wait(AFTER_LAND_MS);
           slots = await slotsByCard(app);
@@ -414,9 +414,9 @@ describe.skipIf(!SHOULD_RUN)(
     test(
       "the Cards list builds the selection from the keyboard and the mouse",
       async () => {
-        const app = await launchTugApp({ testName: "at0451-lens-gestures" });
+        const app = await launchTugApp({ testName: "at0451-cards-gestures" });
         try {
-          await seedLensPreferred(app);
+          await seedCardsPreferred(app);
           await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
           await app.waitForCondition<boolean>(
             `document.querySelectorAll(${JSON.stringify(FRAMES)}).length === 4`,
@@ -426,8 +426,8 @@ describe.skipIf(!SHOULD_RUN)(
           await setSelection(app, []);
 
           // ⌘L seeds the keyboard onto the Cards list, which is where every
-          // gesture below is typed. From here the first responder is the LENS —
-          // a rail — for the whole test, so nothing that follows could be
+          // gesture below is typed. From here the first responder is the CARDS
+          // CARD — a rail — for the whole test, so nothing that follows could be
           // reaching the deck through the old first-responder reading.
           await focusCardsList(app);
           await walkCursorTo(app, "Card B");
@@ -438,7 +438,7 @@ describe.skipIf(!SHOULD_RUN)(
           // The row under the caret is plainly what the user means. Requiring a
           // Space first would make the keyboard the one way of working that has
           // to announce itself twice — and reading the first responder instead
-          // would find the Lens and refuse.
+          // would find the Cards card and refuse.
           expect(await getSelection(app)).toEqual([]);
           await app.nativeKey("3", ["cmd"]);
           await wait(AFTER_LAND_MS);
@@ -565,7 +565,7 @@ describe.skipIf(!SHOULD_RUN)(
           //
           // A selection is a standing statement about what the next verb acts
           // on, so the user needs a way to take it back that is not "select
-          // something else". The Lens keeps the keyboard: one press, one job.
+          // something else". The Cards card keeps the keyboard: one press, one job.
           //
           // The list CAPTURES the press while a set stands, which is what makes
           // this the same answer every time. Every rung of the engine's Escape
@@ -583,7 +583,7 @@ describe.skipIf(!SHOULD_RUN)(
             await app.evalJS<boolean>(
               `document.querySelector(${JSON.stringify(CURSOR_ROW)}) !== null`,
             ),
-            "and stops there — it does not also throw the keyboard out of the Lens",
+            "and stops there — it does not also throw the keyboard out of the Cards card",
           ).toBe(true);
 
           // ---- A plain click MOVES the selection ---------------------------
@@ -608,7 +608,7 @@ describe.skipIf(!SHOULD_RUN)(
           // built decided which rung of the Escape ladder the press reached,
           // and the user has no way to know which state they are in.
           // The click FRONTED the card it named, which took the keyboard out of
-          // the Lens: the Cards list is not holding it, and the Lens's own
+          // the Cards card: the Cards list is not holding it, and the Cards card's own
           // responder is off the chain. So this press can only be answered by
           // the root — which is the point. A selection is deck state, and the
           // key that takes it back cannot depend on where the keyboard drifted.
@@ -616,7 +616,7 @@ describe.skipIf(!SHOULD_RUN)(
             await app.evalJS<boolean>(
               `document.querySelector(${JSON.stringify(CURSOR_ROW)}) !== null`,
             ),
-            "the click left the Lens without the keyboard",
+            "the click left the Cards card without the keyboard",
           ).toBe(false);
           await app.nativeKey("Escape");
           await wait(300);
@@ -629,7 +629,7 @@ describe.skipIf(!SHOULD_RUN)(
           //
           // Repeating the press must walk one way: selection, then focus, then
           // nothing. It used not to. Escape with an empty set focuses OUT of
-          // the Lens, which re-activates the card that was fronted before ⌘L —
+          // the Cards card, which re-activates the card that was fronted before ⌘L —
           // and the deck attacher reads any content-card activation as "the
           // user moved on" and collapses the selection onto it. So the
           // focus-out MADE a selection, and the next press cleared the one the
@@ -663,11 +663,11 @@ describe.skipIf(!SHOULD_RUN)(
     );
 
     test(
-      "Escape shrinks Lens state in one order, whatever the rows are showing",
+      "Escape shrinks Cards state in one order, whatever the rows are showing",
       async () => {
-        const app = await launchTugApp({ testName: "at0451-lens-escape-table" });
+        const app = await launchTugApp({ testName: "at0451-cards-escape-table" });
         try {
-          await seedLensPreferred(app);
+          await seedCardsPreferred(app);
           await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
           await app.waitForCondition<boolean>(
             `document.querySelectorAll(${JSON.stringify(FRAMES)}).length === 4`,
@@ -682,7 +682,7 @@ describe.skipIf(!SHOULD_RUN)(
           // over the rows on screen — so folding the group the selected cards
           // live in made the list report "nothing selected" about a selection
           // that was standing perfectly well. The press then went to the
-          // ladder and threw the keyboard out of the Lens instead, and the set
+          // ladder and threw the keyboard out of the Cards card instead, and the set
           // came back into view still selected when the group re-opened. What
           // the user is taking back is the SET, not the visible part of it.
           await focusCardsList(app);
@@ -715,7 +715,7 @@ describe.skipIf(!SHOULD_RUN)(
             await app.evalJS<boolean>(
               `document.querySelector(${JSON.stringify(CURSOR_ROW)}) !== null`,
             ),
-            "and spends the press there — the keyboard stays in the Lens",
+            "and spends the press there — the keyboard stays in the Cards card",
           ).toBe(true);
 
           // Unfold for the next case.
@@ -726,9 +726,9 @@ describe.skipIf(!SHOULD_RUN)(
           // ---- Filter text is the first rung, the selection the second -----
           //
           // The table is the same table from every first-responder shape, and
-          // this half drives the one the Lens's own responder cannot answer:
+          // this half drives the one the Cards card's own responder cannot answer:
           // a click on a Cards row FRONTS the card it names and takes the
-          // keyboard out of the Lens, so the press is answered by the deck
+          // keyboard out of the Cards card, so the press is answered by the deck
           // root's conditional entry. It used to clear the selection flatly,
           // skipping the query standing above it — two handlers, two different
           // answers to one key, which is what the user sees as "Escape does
@@ -752,7 +752,7 @@ describe.skipIf(!SHOULD_RUN)(
             await app.evalJS<boolean>(
               `document.querySelector(${JSON.stringify(CURSOR_ROW)}) !== null`,
             ),
-            "and takes the keyboard out of the Lens with it",
+            "and takes the keyboard out of the Cards card with it",
           ).toBe(false);
 
           await app.nativeKey("Escape");

@@ -409,7 +409,7 @@ export interface BindTarget {
 }
 
 /**
- * Resolve Bind's target from the Lens's followed card (Table T01) — pure, so
+ * Resolve Bind's target from the Dashes card's followed card (Table T01) — pure, so
  * its whole truth table is a unit test rather than a DOM one.
  *
  * The ladder stops at the followed card deliberately. Reaching past it to some
@@ -452,7 +452,7 @@ export function resolveBindTarget(input: {
  * is a correct room to open, and picking the first keeps the answer stable
  * across renders rather than depending on iteration luck.
  *
- * Null is the common case, not an error: the Lens lists every dash in every
+ * Null is the common case, not an error: the Dashes card lists every dash in every
  * open project, so a dash nobody holds — or one whose worker's card is closed —
  * simply has no room to open. That is what makes the row inert, and what the
  * row's own affordance has to advertise.
@@ -479,7 +479,7 @@ function useWorkerCard(entry: DashChangesetEntry): string | null {
 }
 
 /**
- * The tug session of the card the Lens is following, or null.
+ * The tug session of the card the Dashes card is following, or null.
  *
  * Where this section's answers go. Bind's target is narrower — it refuses a
  * card in another project — but a replay's outcome has to reach a reader even
@@ -538,7 +538,7 @@ const DashVerbsContext = React.createContext<DashVerbs | null>(null);
  *
  * Bind's refusals arrive here as the item's own disabled reason, verbatim from
  * {@link resolveBindTarget} ([L31]). Unbind is deliberately absent: it stays the
- * fronted shade row's verb, and a Lens row routes you there.
+ * fronted shade row's verb, and a Dashes card row routes you there.
  *
  * The press reports **nothing locally** for a bind: on success the worker's atom
  * arrives on the eyebrow, so a pending state would be reporting into a control
@@ -718,7 +718,7 @@ function DashJoinRow({ row }: { row: DashRow }): React.ReactElement | null {
         join={entry.join}
         holdersBusy={entry.holders_busy === true}
         landBeat={landBeat}
-        // The Lens is the one surface that renders dashes nobody is holding,
+        // The Dashes card is the one surface that renders dashes nobody is holding,
         // so it is the one that has to hand the register that fact ([D147]).
         bound={(entry.bound_sessions ?? []).length > 0}
         altitude="section"
@@ -756,7 +756,7 @@ const PlanCell: TugListViewCellRenderer<CockpitRowsDataSource> = ({
       className="dashes-row"
       variant="flush"
       density="compact"
-      data-slot="lens-document-dash-row"
+      data-slot="dash-document-row"
       data-dash={entry.display_name}
       data-review={entry.review}
       data-begun={begun ? "true" : "false"}

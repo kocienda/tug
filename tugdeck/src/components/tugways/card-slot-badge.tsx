@@ -2,7 +2,7 @@
  * CardSlotBadge — the slot a card's pane stands in, said on the card itself.
  *
  * Under a multi-slot imposition the deck has places, and until now the only
- * surface that named them was the Lens: a reader looking at a card had to look
+ * surface that named them was the Cards card: a reader looking at a card had to look
  * somewhere else to learn where it stood. The badge is that fact, brought back
  * to the card — one numbered chip at the head of the pane's control cluster,
  * carrying the pane's `slot + 1`.
@@ -26,7 +26,7 @@
  * knobs ([L20]).
  *
  * **Absent, not dimmed, when there is no slot to name.** A one-up imposition,
- * a pane with no `slot`, a sidebar, and the Lens all render nothing at all.
+ * a pane with no `slot`, a sidebar, and the Cards card all render nothing at all.
  * That departs from the register-not-component rule the flow strip follows,
  * and deliberately: that rule governs a fact that always exists and only
  * changes emphasis — how much of the strip the band shows is always true, so
@@ -40,7 +40,7 @@
  * engine, so the walk can see them — but nothing parks the key view on a chip
  * when the popup opens by pointer, and the ambient key view on a Session card
  * rests in the composer, a multi-line surface that owns Tab by construction.
- * So the first keyboard path to slot assignment outside the Lens is authored
+ * So the first keyboard path to slot assignment outside the Cards card is authored
  * rather than open. Closing it is focus-engine work, not this component's.
  *
  * Laws: [L02] the imposition, the host pane and its slot all enter through
@@ -75,7 +75,7 @@ import {
  * Focus group for the popup's chips. The popup is its own surface, so the
  * group is the whole of the walk inside it — ArrowLeft/Right steps the
  * arrangement and Enter puts the card there, which is the first keyboard path
- * to slot assignment outside the Lens.
+ * to slot assignment outside the Cards card.
  */
 const BADGE_SLOT_FOCUS_GROUP = "card-slot-badge-slots";
 
@@ -115,7 +115,7 @@ export function CardSlotBadge({ cardId }: CardSlotBadgeProps): React.ReactElemen
   const host = deck.panes.find((pane) => pane.cardIds.includes(cardId));
   if (host === undefined || host.slot === undefined) return null;
 
-  // A sidebar — the Lens among them — is the imposition's fixed end rather
+  // A sidebar — the Cards card among them — is the imposition's fixed end rather
   // than a member of the chain it bounds. The same guard `SlotPicker` applies.
   const sidebar = findSidebarPanes(deck).some((entry) => entry.pane.id === host.id);
   if (sidebar) return null;
@@ -265,7 +265,7 @@ export function CardSlotBadge({ cardId }: CardSlotBadgeProps): React.ReactElemen
             focusGroup={BADGE_SLOT_FOCUS_GROUP}
             slotLabel={(slot) => `Put at position ${slot + 1}`}
             onSelectSlot={(slot) => {
-              // The same action the Lens's own picker dispatches, which
+              // The same action the Cards card's own picker dispatches, which
               // already assigns AND raises — a slot is a vertical stack, and
               // moving a card there means being able to see it.
               dispatchCommand("assign-slot", { cardId, slot });

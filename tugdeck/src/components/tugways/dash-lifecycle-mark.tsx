@@ -2,7 +2,7 @@
  * DashLifecycleMark — a dash's life at a glance: pill · glyph · fraction.
  *
  * The compact register of the lifecycle grammar, for the two surfaces where a
- * dash is not the subject — the session masthead's title line and the Lens's
+ * dash is not the subject — the session masthead's title line and the Dashes card's
  * session rows. There a session is the subject and the dash is one fact about
  * it, so the reading is three marks wide and cannot grow:
  *
@@ -21,7 +21,7 @@
  * already on the line is a second thing to keep in step.
  *
  * The whole track — five cells and one tick per step — belongs to the surfaces
- * whose subject IS the dash: the Lens's Dashes section, the Changes shade's
+ * whose subject IS the dash: the Dashes card, the Changes shade's
  * dash lane, and the DASH placard. The track appeared on six surfaces at once
  * and on the two narrow ones it collided with the marks beside it; this is the
  * reading those two get instead. One grammar, two registers.
@@ -59,7 +59,7 @@ export function dashMarkFraction(
 
 export interface DashLifecycleMarkProps {
   model: DashTrackModel;
-  /** `rail` beside other rails (the Lens's rows); `read` on a reading surface. */
+  /** `rail` beside other rails (the Dashes card's rows); `read` on a reading surface. */
   size?: "rail" | "read";
   /** The dash's name, for the accessible sentence. */
   name?: string;

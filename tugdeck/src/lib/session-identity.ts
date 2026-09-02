@@ -2,7 +2,7 @@
  * session-identity.ts — the one place Tug decides what a session is called.
  *
  * Tug used to name a session five different ways: a chip rule, a chooser-row
- * rule, a Lens-entry hash sniff, a title-bar composer, and the Rust feed's own
+ * rule, a card-row hash sniff, a title-bar composer, and the Rust feed's own
  * precedence. No two agreed. This module is [D123] ("a pane's name is one
  * string produced in one place") applied to the session: one resolver produces
  * one structured {@link SessionIdentity} record, and every surface renders that
@@ -124,7 +124,7 @@ export interface SessionIdentity {
  * The facts about a session that do NOT live in the three by-id identity
  * stores, supplied by a caller that already holds them.
  *
- * The picker and the Lens hold a whole `SessionRow` and pass it through
+ * The picker and the Cards card hold a whole `SessionRow` and pass it through
  * {@link sessionIdentityContextFrom}; the Session card and the masthead pass
  * their project dir and (for the placard) the branch. Anything omitted
  * resolves to its honest empty value rather than being invented — except
@@ -251,7 +251,7 @@ export function composeSessionIdentity(input: {
   };
 }
 
-/** The context a `SessionRow` supplies — the picker's and the Lens's path in. */
+/** The context a `SessionRow` supplies — the picker's and the Cards card's path in. */
 export function sessionIdentityContextFrom(
   row: SessionRow,
 ): SessionIdentityContext {
@@ -308,7 +308,7 @@ export function resolveSessionIdentity(
  *
  * By-id getters, deliberately: the stores also publish whole-store version
  * tokens, but those exist for consumers deriving across many sessions at once
- * (the Lens's filter projection). Reading a version token here would wake every
+ * (the Cards card's filter projection). Reading a version token here would wake every
  * identity surface in the app on any session's rename.
  *
  * Overloaded on the argument, so a caller that already holds a session id gets
@@ -569,7 +569,7 @@ export function sessionIdentityLineFor(
   return sessionIdentityLine(resolveSessionIdentity(sessionId, context));
 }
 
-/** The Line string for a card's session binding — the Lens's cards projection. */
+/** The Line string for a card's session binding — the Cards card's own projection. */
 export function sessionIdentityLineForBinding(
   binding: CardSessionBinding,
 ): string {
@@ -580,9 +580,9 @@ export function sessionIdentityLineForBinding(
 
 /**
  * The display title for a card's session binding — the flat-row half of the
- * Lens's cards projection, beside {@link sessionIdentityLineForBinding}.
+ * Cards card's own projection, beside {@link sessionIdentityLineForBinding}.
  *
- * The Lens needs both and for different jobs: this is what a row SHOWS, the
+ * The Cards card needs both and for different jobs: this is what a row SHOWS, the
  * Line is what a filter still MATCHES, so typing a callsign finds a session
  * whose row no longer prints one.
  */

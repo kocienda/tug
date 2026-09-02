@@ -2,10 +2,10 @@
  * cards-selection-store.ts — the layout selection: which cards the deck's
  * layout verbs act on.
  *
- * The Lens's Cards list is the surface that builds this set (plain pick,
+ * The Cards card's list is the surface that builds this set (plain pick,
  * ⌘-toggle, ⇧-extend), but the set is not the list's: `resolveLayoutSelection`
  * reads it from the deck canvas's command handlers, which are mounted whether
- * the Lens is open or not, and the selection survives the section collapsing.
+ * that card is open or not, and the selection survives its closing.
  * A module store is the house [L02] shape for that seam — the list is a view of
  * the set through `useSyncExternalStore`, never its owner.
  *
@@ -14,7 +14,7 @@
  *
  * Two rules keep it honest against a deck that moves underneath it:
  *
- * - **Prune, never grow.** {@link attachLensSelectionToDeck} subscribes to the
+ * - **Prune, never grow.** {@link attachLayoutSelectionToDeck} subscribes to the
  *   deck and drops ids whose cards are gone. A selection that prunes to empty
  *   falls back to first-responder resolution, which is the intended degenerate
  *   case rather than a failure.
@@ -107,13 +107,13 @@ export class CardsSelectionStore {
   }
 
   /**
-   * Skip the next auto-select in {@link attachLensSelectionToDeck} — the
+   * Skip the next auto-select in {@link attachLayoutSelectionToDeck} — the
    * collapse that turns a fresh content-card activation into a selection of
    * that card.
    *
    * Set by a programmatic focus *restore*, where the activation is not the user
-   * moving on to a card: Escape's focus-out from the Lens re-activates the card
-   * that was fronted before ⌘L, and without this the restore would create the
+   * moving on to a card: Escape's focus-out from the Cards card re-activates the one
+   * that was fronted before it took focus, and without this the restore would create the
    * very selection the next Escape clears. Any future restore that must not
    * select sets this the same way, immediately before the transfer.
    *
@@ -229,10 +229,10 @@ export function getLayoutCursorCard(): string | null {
  *
  * The collapse fires on a *transition* of the first-responder bit, not on the
  * bit's standing value — a selection built while some other card is fronted
- * (⌘-clicking rows in the Lens never fronts anything) must survive, and only a
+ * (⌘-clicking rows in the Cards card never fronts anything) must survive, and only a
  * fresh activation means the user moved on.
  */
-export function attachLensSelectionToDeck(
+export function attachLayoutSelectionToDeck(
   deck: IDeckManagerStore,
   selection: CardsSelectionStore = cardsSelectionStore,
 ): () => void {
@@ -250,7 +250,7 @@ export function attachLensSelectionToDeck(
     const suppressed = selection.consumeAutoSelectSuppression();
     if (fr === null) return;
     const card = state.cards.find((c) => c.id === fr);
-    // A rail taking focus — the Lens itself, most of the time — is not the
+    // A rail taking focus — the Cards card itself, most of the time — is not the
     // user leaving the selection behind; it is how the selection gets made.
     if (card === undefined || isSidebarCard(card.componentId)) return;
     if (selection.getSnapshot().ids.includes(fr)) return;

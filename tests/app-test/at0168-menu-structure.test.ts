@@ -165,12 +165,15 @@ const STATIC_ITEMS: ReadonlyArray<{ id: string; key?: string; mods?: number }> =
   // the app-test bundle's profile is "apptest", so they are absent here
   // and not asserted.
   { id: "maker.reload", key: "r", mods: MOD.command | MOD.shift },
-  // The three per-card sidebar toggles, chord-less: the keyboard addresses the
+  // The six per-card sidebar toggles, chord-less: the keyboard addresses the
   // rails now, and these rows kept their place in the menu and nothing else.
   // An empty key here is the assertion — a sweep that wrote one would mean the
   // table still ships a default chord for them.
-  { id: "maker.lens", key: "" },
   { id: "maker.jots", key: "" },
+  { id: "maker.tripwires", key: "" },
+  { id: "maker.dashes", key: "" },
+  { id: "maker.cards", key: "" },
+  { id: "maker.layout", key: "" },
   { id: "maker.overview", key: "" },
   // And the rail pair that replaced them, both swept: ⌃⌘← and ⌃⌘→.
   { id: "maker.leftRail", key: ARROW_LEFT, mods: MOD.command | MOD.control },

@@ -118,7 +118,7 @@ const MIN_SENTENCE_CHARS: usize = 20;
 /// to say what the whole session is about. Room for a clause and its qualifier
 /// is what lets it say that.
 ///
-/// 72, not more: the line's real display room is the Lens row and the picker
+/// 72, not more: the line's real display room is the rail row and the picker
 /// row, both of which cut around 96 characters mid-word — and a description
 /// that routinely arrives clipped, by this budget's `…` or the row's, reads as
 /// a broken line rather than a standing one. The budget is the display's, and
@@ -3415,12 +3415,12 @@ mod tests {
     /// digest — but the register normalizer appends exactly that character when
     /// an answer runs past the budget, so grounding the clipped text refused
     /// every over-long description as `path-bearing`. On 2026-08-09 that was 101
-    /// of the day's 112 refusals, and the Lens showed a description frozen for as
+    /// of the day's 112 refusals, and the card showed a description frozen for as
     /// long as the model kept writing long.
     #[test]
     fn an_over_budget_answer_is_not_refused_for_the_gate_s_own_clip_marker() {
         let ask = "align the session description and pulse activity indent flush \
-                   with the title across the picker, the title bar, and the Lens";
+                   with the title across the picker, the title bar, and the rail";
         let digest = compose_synopsis_digest(
             Some(ask),
             &[],
@@ -3430,7 +3430,7 @@ mod tests {
         )
         .expect("describes something");
         let answer = "Align the session description and pulse activity indent \
-                      flush with the title across the picker, the title bar, and the Lens";
+                      flush with the title across the picker, the title bar, and the rail";
         let report = synopsis_register_report(answer);
         assert!(report.clipped, "the fixture must exercise the clip");
         assert!(report.text.ends_with('…'));
@@ -3823,7 +3823,7 @@ mod tests {
         for ask in [
             "clean up the usage sheet",
             "clean up the gutter selection",
-            "fix the focus caret in Lens",
+            "fix the focus caret in Jots",
         ] {
             std::fs::OpenOptions::new()
                 .append(true)
@@ -3836,7 +3836,7 @@ mod tests {
 
         assert_eq!(
             cache.current_ask.as_deref(),
-            Some("fix the focus caret in Lens"),
+            Some("fix the focus caret in Jots"),
             "the newest ask is the current work item, no barrier required"
         );
         assert_eq!(

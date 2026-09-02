@@ -9,7 +9,7 @@
  *    a picture of an arrangement, for a chooser to label one of its options
  *    with. The enclosing control owns selection and hover.
  *  - **Control** — with `onSelectSlot`. Every slot is a button, and clicking
- *    one asks for that position. This is the in-row form on a Lens Sessions or
+ *    one asks for that position. This is the in-row form on a Cards card Sessions or
  *    Text Files row.
  *
  * `states` gives the per-slot look; anything it does not cover reads as
@@ -22,7 +22,7 @@
  * each slot at its own place and its own width, as fractions of the layout,
  * which is what the deck's flow strip is. Given
  * {@link TugSlotLayoutProps.window} it is a WINDOW — a fixed-width slice of
- * the run centred on one slot, which is what a Lens row is, and what keeps a
+ * the run centred on one slot, which is what a Cards card row is, and what keeps a
  * row's width from growing every time the deck learns another place.
  *
  * Same slots, same states, same `setStates` projection in all three: only what

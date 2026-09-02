@@ -1245,7 +1245,7 @@ pub enum OverviewRefKind {
     Plan,
     /// A brief document under the roadmap.
     Brief,
-    /// A dash by name — reveals it in the Lens, where its join is offered.
+    /// A dash by name — reveals it on the Dashes card, where its join is offered.
     Dash,
 }
 

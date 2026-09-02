@@ -48,7 +48,7 @@ function baseState(): DeckState {
       makePane("pane-2", ["card-c"], "card-c"),
     ],
     activePaneId: "pane-1",
-    imposition: { sidebars: { lens: { side: "right" } } },
+    imposition: { sidebars: { tripwires: { side: "right" } } },
     hasFocus: true,
   };
 }
@@ -224,7 +224,7 @@ describe("deckColumnsOf", () => {
       })),
       imposition: {
         kind: "three-up",
-        sidebars: { lens: { side: "right" } },
+        sidebars: { tripwires: { side: "right" } },
         ...imposition,
       },
       hasFocus: true,
@@ -353,7 +353,7 @@ describe("a split column in flow", () => {
       imposition: {
         kind: "three-up",
         layout: "flow",
-        sidebars: { lens: { side: "right" } },
+        sidebars: { tripwires: { side: "right" } },
         columns: { 0: { mode: "split", order: ["pane-a", "pane-b"] } },
       },
       hasFocus: true,
@@ -387,7 +387,7 @@ describe("a split column in flow", () => {
       imposition: {
         kind: "three-up",
         layout: "flow",
-        sidebars: { lens: { side: "right" } },
+        sidebars: { tripwires: { side: "right" } },
       },
       hasFocus: true,
     };
@@ -415,7 +415,7 @@ describe("columnBadgeFactsOf", () => {
       })),
       imposition: {
         kind: "three-up",
-        sidebars: { lens: { side: "right" } },
+        sidebars: { tripwires: { side: "right" } },
         ...(columns === undefined ? {} : { columns }),
       },
       hasFocus: true,
@@ -424,7 +424,7 @@ describe("columnBadgeFactsOf", () => {
 
   test("a place one card deep is still a place, and it reads 1", () => {
     // The pane's own cluster has said so since its badge became
-    // unconditional; a Lens row that answered null for the same card said the
+    // unconditional; a rail row that answered null for the same card said the
     // opposite about it.
     expect(
       columnBadgeFactsOf(state({ "pane-a": 0, "pane-b": 1 }), "card-pane-a"),

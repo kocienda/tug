@@ -16,7 +16,7 @@
  *
  * A slot is an **anchor at a fixed fraction of the band**, and nothing else in
  * the deck moves it. **Numbering always runs left to right** — slot 1 is the
- * leftmost position on the deck, whatever side the Lens holds and whether or
+ * leftmost position on the deck, whatever side the rail holds and whether or
  * not it is open. A number that means "left" on one deck and "right" on another
  * is a number you have to think about before you can use it.
  *
@@ -43,7 +43,7 @@
  * and nothing else's.** Closing, widening, or adding a card leaves every other
  * card exactly where it was — a slot is a place in the arrangement, never a
  * place in a queue. Slack therefore spreads evenly between the cards rather
- * than pooling beside the Lens; an arrangement that stays still is worth more
+ * than pooling beside the rail; an arrangement that stays still is worth more
  * than one whose margins collect in one place.
  *
  * When the cards are wider than their share, the offsets crowd together and the
@@ -51,7 +51,7 @@
  * the whole band has no travel at all (`max(0, …)`) and sits on the far edge in
  * every slot.
  *
- * The Lens is imposed too, by {@link imposeSidebarStyle}, but it is the strip's
+ * The rail is imposed too, by {@link imposeSidebarStyle}, but it is the strip's
  * fixed end rather than a link in the chain: it holds its pin and its width
  * while the cards absorb the crowding.
  *
@@ -87,8 +87,8 @@
  * its OWN width; a wide reading rail no longer drags a list rail wide with it.
  *
  * **The moments.** The deck re-solves when the user asks it to arrange itself:
- * a click in the Layouts section, a card assigned to a slot (the imposer's own
- * verb, whichever door dispatched it — the Lens's slot picker or a ⌘N chord),
+ * a click in the Layout card, a card assigned to a slot (the imposer's own
+ * verb, whichever door dispatched it — the Cards card's slot picker or a ⌘N chord),
  * and a canvas that comes to rest at a new size. Everything else — dragging a
  * card out of the chain, closing one — leaves the rails alone, since the user
  * was moving a card and did not ask for their rail to be resized. At those
@@ -802,7 +802,7 @@ export function isContentWidth(value: unknown): value is ContentWidth {
   return value === "slim" || value === "comfy" || value === "wide";
 }
 
-/** Every imposition kind, in ascending slot count — the Lens picker's order. */
+/** Every imposition kind, in ascending slot count — the Layout card's picker order. */
 export const IMPOSITION_KINDS: readonly ImpositionKind[] = [
   "one-up",
   "two-up",
@@ -821,7 +821,7 @@ export const DEFAULT_IMPOSITION_KIND: ImpositionKind = "three-up";
 
 /**
  * The **imposition gap**: the space an imposed pane keeps from the canvas
- * edges, from the Lens rail, and from the pane in the neighbouring slot.
+ * edges, from the rail, and from the pane in the neighbouring slot.
  *
  * This is the same gap the Option-drag snap holds between two card edges —
  * `tug-pane.tsx` imports it for `computeSnap` / `computeResizeSnap` rather than
@@ -1081,7 +1081,7 @@ const FLOW_CLIP_STEP_GAIN = 1000;
 const GAP_BOTTOM = `var(${IMPOSITION_GAP_BOTTOM_PROPERTY}, ${IMPOSITION_GAP_BOTTOM_MAKER_PX}px)`;
 
 /** The CSS custom properties carrying the rail insets (see `deck-canvas.tsx`).
- *  These carry the Lens rail only; the gap is added on top of them here, so the
+ *  These carry the rail only; the gap is added on top of them here, so the
  *  numeric twin below and the CSS agree by construction. */
 const INSET_LEFT = "var(--tug-imposer-inset-left, 0px)";
 const INSET_RIGHT = "var(--tug-imposer-inset-right, 0px)";
@@ -1206,7 +1206,7 @@ export interface FlowStanding {
  * is clamped to the kind, so shrinking four-up to two-up pulls the outer slots
  * in rather than dropping their panes out of the arrangement.
  *
- * The Lens's side is not an input. It moves the band's edges — which is the
+ * The rail's side is not an input. It moves the band's edges — which is the
  * insets' job, not the numbering's — and slot 1 is the leftmost position on
  * either deck.
  */
@@ -1239,11 +1239,11 @@ export function travelFraction(placement: ImposedPlacement): number {
  * Geometry
  * ---------------------------------------------------------------------------*/
 
-/** The band the chain is laid across: the canvas minus the Lens's inset on the
- *  side it holds. Imposed panes are never under the Lens.
+/** The band the chain is laid across: the canvas minus the rail's inset on the
+ *  side it holds. Imposed panes are never under the rail.
  *
  *  The span is the *raw* band — the chain's own imposition gap is not folded in
- *  here, so this stays a plain description of the canvas and the Lens. Both
+ *  here, so this stays a plain description of the canvas and the rail. Both
  *  {@link imposeRect} and {@link imposeStyle} inset it by that gap themselves. */
 export interface ImposerSpan {
   x: number;
@@ -1349,9 +1349,9 @@ export function imposeRect(
  * resize.
  *
  * Because the numbering never turns around, the pin's *shape* is the same on
- * every deck — only the two inset terms change when the Lens crosses. That is
+ * every deck — only the two inset terms change when the rail crosses. That is
  * what a flip has to interpolate: one expression, same form on both sides. (An
- * arrangement that measured from the right when the Lens was left would be
+ * arrangement that measured from the right when the rail was left would be
  * swapping a bare length for a percentage, which is not the same kind of value
  * and cuts instead of crossing.)
  *
@@ -2729,7 +2729,7 @@ export const SLIVER_PX = 32;
  * it is nonzero at nearly every candidate total, so it would govern always, and
  * the allocator would drag a rail across its whole range chasing a cut it can
  * only ever shrink. It did exactly that before this existed — a two-card wide
- * deck whose nearest boundary sat past the rail ceiling had the Lens pushed
+ * deck whose nearest boundary sat past the rail ceiling had the rail pushed
  * from the 420px its owner set to its 675px maximum, to take a 316px cut down
  * to 61px. Still cut, still not a boundary, and the user's rail gone.
  *
@@ -2829,11 +2829,11 @@ function pictureOfChain(
 }
 
 /**
- * The Lens's frame: pinned to the side it holds, one gap in on three edges and
+ * The rail's frame: pinned to the side it holds, one gap in on three edges and
  * the deeper gap at the bottom, at the width the pane carries.
  *
- * The Lens is imposed but it is not a link in the chain. A chain link travels
- * across the band and can end up overlapped when the deck is crowded. The Lens
+ * The rail is imposed but it is not a link in the chain. A chain link travels
+ * across the band and can end up overlapped when the deck is crowded. The rail
  * must never be overlapped, so it holds the strip's far end at a fixed pin and
  * the cards share what is left of the band ({@link resolveSpan}).
  *
@@ -2851,7 +2851,7 @@ function pictureOfChain(
  * over a number keeps the frame's resting geometry a single property whichever
  * side it holds.
  *
- * Crossing between the two sides is not this expression's job. The Lens travels
+ * Crossing between the two sides is not this expression's job. The rail travels
  * by the same measured FLIP tween as every other frame (`deck-canvas.tsx`,
  * `lib/pane-flip.ts`): the new side lands in one layout pass and a transform
  * carries the frame across. Interpolating the rail instead would re-resolve
@@ -2874,9 +2874,9 @@ function pictureOfChain(
  * and it stays the default.
  *
  * Both arrangements have now been lived on, and each was found wanting alone.
- * An automatic vertical split was tried first and was a worse Lens: it spent a
- * rail's height to show two half-cards, which is what the Jots section was
- * already doing inside the Lens, only less space-efficient. The stack that
+ * An automatic vertical split was tried first and was a worse rail: it spent a
+ * rail's height to show two half-cards, which is what the Jots card was
+ * already doing on its own, only less space-efficient. The stack that
  * replaced it hides content the user wants visible at once. What both verdicts
  * point at is that the division is a *choice*, so the user makes it per side —
  * {@link RailArrangement} records it, and passing `options.member` here is what

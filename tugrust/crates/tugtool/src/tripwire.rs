@@ -579,9 +579,9 @@ fn kick_live_instance(tripwire: &str) -> bool {
 /// has, and the whole of what replaced the envelope parser.
 ///
 /// The ledger write is the resolution and the tell is a nudge, in that order
-/// for the same reason `trip` orders them that way: the row is what the Lens
-/// eventually reads, and no instance running is the ordinary case for a
-/// machine with the app closed. What the tell buys is the Lens repainting now
+/// for the same reason `trip` orders them that way: the row is what the Tripwires
+/// card eventually reads, and no instance running is the ordinary case for a
+/// machine with the app closed. What the tell buys is the card repainting now
 /// rather than on the engine's next tick.
 fn run_resolve(
     name: &str,
@@ -602,7 +602,7 @@ fn run_resolve(
     let headline = match (awaiting, headline) {
         (true, None) | (true, Some("")) => {
             return Err(
-                "--awaiting needs --headline: the headline is the one line the Lens row shows, \
+                "--awaiting needs --headline: the headline is the one line the Tripwires row shows, \
                  and an awaiting trip with none says nothing to the person it is waiting for"
                     .to_string(),
             );

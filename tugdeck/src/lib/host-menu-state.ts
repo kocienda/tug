@@ -531,7 +531,7 @@ export interface MenuStateDeckProjection {
   selectionActive: boolean;
   /**
    * Panes sharing the focused pane's slot. 0 when the focused pane holds no
-   * slot (free pane or Lens) and when nothing is selected. Gates the
+   * slot (free pane or rail) and when nothing is selected. Gates the
    * Window menu's three stack items, enabled iff this exceeds 1.
    */
   stackDepth: number;

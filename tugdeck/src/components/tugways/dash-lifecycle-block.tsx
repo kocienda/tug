@@ -5,13 +5,13 @@
  * one worker atom per bound session (none is how *unbound* reads — it is the
  * absence of workers, not a stage). Line two is {@link DashLifecycleLine},
  * which carries every reading of what the dash is DOING — the track, the phase
- * glyph, the fraction, the word, the facts. The Lens's Dashes section, the
+ * glyph, the fraction, the word, the facts. The Dashes card, the
  * Changes shade's collapsed dash row and the masthead's dash placard are this
  * one block, all three at the reading scale, so a reader who learned it once
  * has learned it everywhere, and the block never grows: two lines for every
  * phase, from the brief to the join.
  *
- * **One scale, wherever a whole dash is shown.** The Lens set the block at
+ * **One scale, wherever a whole dash is shown.** The Dashes card sets the block at
  * `rail` for a while — list ink, sized to the section's other rows — and the
  * track came out too small to read as a graphic. A dash's block is the thing
  * the section exists for, not an entry in a list of names, so it is sized as

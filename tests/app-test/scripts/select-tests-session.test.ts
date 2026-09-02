@@ -30,9 +30,9 @@ import { dirname, join, resolve } from "node:path";
 const REAL_APP_TEST_DIR = resolve(dirname(import.meta.dir));
 
 /** Four source paths with real, non-empty, mutually distinct `@covers` fan-out. */
-const ATTRIBUTED = "tugdeck/src/lib/lens-store/store.ts";
+const ATTRIBUTED = "tugdeck/src/components/cards/cards-store/cards-store.ts";
 const HINTED = "tugcode/src/types.ts";
-const UNHINTED = "tugdeck/src/components/lens/lens-panel.tsx";
+const UNHINTED = "tugdeck/src/components/jots/jots-card.tsx";
 const FOREIGN = "tugdeck/src/components/chrome/deck-canvas.tsx";
 
 let root: string;

@@ -112,7 +112,7 @@ export interface IDeckManagerStore {
    * touches no state at all.
    *
    * On the store rather than in the canvas because the strip that scrubs is in
-   * the LENS while the element the offset is written on is the canvas's: two
+   * the LAYOUT CARD while the element the offset is written on is the canvas's: two
    * implementations would be two clamps and two chances to disagree.
    */
   previewFlowOffset: (offset: number) => void;
@@ -239,8 +239,8 @@ export interface IDeckManagerStore {
    * Re-center the pane hosting `cardId` in the live canvas, at its current
    * size. What a `placement: "center"` card takes on every show, so a
    * position saved under an older arrangement can never leave it standing
-   * behind the pinned Lens. A pane whose geometry is derived (slotted, or the
-   * Lens itself) is left alone.
+   * behind the pinned rail. A pane whose geometry is derived (slotted, or the
+   * rail itself) is left alone.
    */
   centerPane: (cardId: string) => void;
 

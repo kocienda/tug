@@ -103,7 +103,7 @@ What is a problem is a resolved session the dash is not bound to. `dash status -
    Where the project's own test tooling keeps a history of past runs, read it rather than trusting your memory of this one — `tugtool apptest history` answers for a project whose checks run through it, and a project with no such record simply has none. Say which reds the history already knew about; those are the ones this run did not cause.
 
    **A run that inherits a recorded baseline does not re-establish one.** Read `baseline.md`, say what it says, and carry on — re-running a whole suite at every rotation is the cost the record exists to remove.
-5. **The Step Status Ledger is the progress surface.** `dash step start`, `dash step done` and `dash step withdraw` move its rows, and the Lens, the Changes card, and the Z2 placard all read from it. There is no second list to keep: the ledger is the record of where the run is, and the verbs are what move it.
+5. **The Step Status Ledger is the progress surface.** `dash step start`, `dash step done` and `dash step withdraw` move its rows, and the Dashes card, the Changes card, and the Z2 placard all read from it. There is no second list to keep: the ledger is the record of where the run is, and the verbs are what move it.
 
 ### 2. Implement (walk the steps)
 
@@ -129,7 +129,7 @@ Walk the resolved steps in dependency order. For each step:
   ```bash
   tugtool dash step <name> start <n> --through <m>
   ```
-  This moves the ledger row to `in progress` and records the step in the dash-log, which is what makes the dash read as `implementing (i/N)` in the Lens and the Changes card while you work.
+  This moves the ledger row to `in progress` and records the step in the dash-log, which is what makes the dash read as `implementing (i/N)` on the Dashes card and the Changes card while you work.
 
   **`--through <m>` is the last step of the selection you resolved in Setup**, and it is required. It is how the machine can tell a run that finished from a run that stopped early: when step `m` goes `done`, the dash is finished, the join arms itself, and the user is offered the join without anybody having to remember to say so. A run that never declared where it ends can only ever look like a run still in progress. Pass the same `m` on every step of the run — re-declaring the same value is a no-op.
 - Read the step's Tasks / References / Checkpoint.
@@ -236,7 +236,7 @@ A purely internal change — a refactor, a doctrine edit, a backend fix already 
 tugtool dash mark <name> built
 ```
 
-Optional telemetry, and nothing gates on it. It stamps the stage word `built` on the dash's faces in place of the derived `ready`, which is worth doing when you *did* build so the Lens says what happened. Skipping it changes nothing about whether the join is offered.
+Optional telemetry, and nothing gates on it. It stamps the stage word `built` on the dash's faces in place of the derived `ready`, which is worth doing when you *did* build so the Dashes card says what happened. Skipping it changes nothing about whether the join is offered.
 
 **Stop here either way.** Do not merge. The join is the user's.
 

@@ -55,7 +55,7 @@ class SessionTagStore {
   /**
    * A monotonic token that bumps on every change — the whole-store
    * `useSyncExternalStore` snapshot, for a consumer that derives something from
-   * MANY tags at once (the Lens Sessions list filters on its rows' labels) and
+   * MANY tags at once (the Cards card Sessions list filters on its rows' labels) and
    * so cannot subscribe by a single id.
    */
   getVersion = (): number => this.version;

@@ -1,5 +1,5 @@
 /**
- * cards-data-source.ts — the `TugListView` data source for the Lens **Cards**
+ * cards-data-source.ts — the `TugListView` data source for the Cards card **Cards**
  * section: a pane-first mirror of the deck canvas, grouped by kind.
  *
  * The deck's data model is pane-first — a pane owns an ordered `cardIds` and
@@ -60,7 +60,7 @@ import {
   getOpenFileViewCardsVersion,
   subscribeOpenFileViewCards,
 } from "@/lib/file-view-open-registry";
-import type { LensCardsRowOrder } from "@/lib/lens-store/types";
+import type { CardsRowOrder } from "@/components/cards/cards-store/types";
 import {
   sessionDisplayTitleForBinding,
   sessionIdentityLineForBinding,
@@ -273,7 +273,7 @@ export function idOfRow(row: CardsRow): string {
 /** How a card's presentation is resolved. Every field defaults to the real
  *  registry / open registries, so production passes nothing. */
 export interface CardsResolvers {
-  /** The Lens group a componentId files under, or `"none"` to omit it. */
+  /** The Cards card group a componentId files under, or `"none"` to omit it. */
   group: (componentId: string) => CardsGroup | "none";
   /** An open Text card's bound path. */
   textPath: (cardId: string) => string | null;
@@ -323,7 +323,7 @@ export const DEFAULT_RESOLVERS: CardsResolvers = {
 export interface LensCardsInputs {
   readonly deck: DeckState | null;
   /** The user's persisted per-group arrangement, by order key. */
-  readonly cardsRowOrder: LensCardsRowOrder;
+  readonly cardsRowOrder: CardsRowOrder;
   /** The user's persisted group order; empty means the built-in one. */
   readonly groupOrder: readonly string[];
   /** Groups the user has collapsed. */

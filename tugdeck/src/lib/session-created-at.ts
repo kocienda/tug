@@ -21,7 +21,7 @@
  *     has to see the detached row.
  *
  * Null until one of them answers. Shared rather than re-derived per surface,
- * because a masthead and a Lens row dating the same session differently is the
+ * because a masthead and a Cards card row dating the same session differently is the
  * failure one resolver exists to prevent ([D123]).
  *
  * Laws: [L02] the replay read enters through `useSyncExternalStore`; the

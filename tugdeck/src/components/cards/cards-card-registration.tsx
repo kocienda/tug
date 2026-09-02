@@ -25,7 +25,7 @@ import { CardsContent } from "./cards-card";
 export { CARDS_CARD_ID };
 
 /** The width the Cards rail opens at before the user has sized it — the one
- *  the four cards the Lens broke into share. */
+ *  the four cards the rail broke into share. */
 export const DEFAULT_CARDS_WIDTH_PX = 420;
 
 /** The narrowest a card row's name, its disambiguating run and its slot picker
@@ -42,7 +42,7 @@ export function registerCardsCard(): void {
     contentFactory: (cardId: string) => <CardsContent cardId={cardId} />,
     defaultMeta: { title: "Cards", icon: "LayoutGrid", closable: true },
     // Rows elide where prose cannot, so this gives width back before a reading
-    // surface does — the rank the Lens held.
+    // surface does — the rank the rail held.
     greedRank: 2,
     hidden: true,
     // Every row here is an engine focus stop and the arrows are how the list is

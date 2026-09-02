@@ -19,11 +19,11 @@ describe("parseBeatFileTarget", () => {
   test("an absolute path is recognized whole", () => {
     expect(
       parseBeatFileTarget(
-        "Editing /Users/k/src/tugtool/tests/app-test/at9998-lens-title-probe.test.ts",
+        "Editing /Users/k/src/tugtool/tests/app-test/at9998-rail-title-probe.test.ts",
       ),
     ).toEqual({
       head: "Editing ",
-      path: "/Users/k/src/tugtool/tests/app-test/at9998-lens-title-probe.test.ts",
+      path: "/Users/k/src/tugtool/tests/app-test/at9998-rail-title-probe.test.ts",
       tail: "",
     });
   });

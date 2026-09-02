@@ -38,7 +38,7 @@ export function KeyboardCardContent() {
 /**
  * Register the Keyboard Shortcuts card. `hidden` keeps it out of the
  * type-picker `[+]` menu — it is an app-level configurator, not pane content —
- * while the Lens still lists it. The envelope matches the session and Settings
+ * while the Cards card still lists it. The envelope matches the session and Settings
  * cards: a list this long wants the room.
  *
  * Placement is the deck's to decide. This card is a working surface the user

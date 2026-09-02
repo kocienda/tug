@@ -6,7 +6,7 @@
  * tracking, the one shared baseline, the stacked leading — and nothing
  * else. Mount sites supply content: the legend node, the two strings, and a
  * trailing accessory (the activity sparkline). They contribute no type
- * rules of their own, so the Z2 strip and the Lens row cannot drift apart,
+ * rules of their own, so the Z2 strip and the Cards card row cannot drift apart,
  * and a change made once in `tug-pulse.css` lands on both.
  *
  * Two layouts, one contract:
@@ -79,7 +79,7 @@ export const TUG_PULSE_PRESETS: readonly TugPulsePreset[] = [
 
 /**
  * The preset every PULSE wears unless its mount site says otherwise.
- * Changing this line changes the Z2 strip and the Lens together.
+ * Changing this line changes the Z2 strip and the Cards card together.
  */
 export const TUG_PULSE_DEFAULT_PRESET: TugPulsePreset = "condensed";
 

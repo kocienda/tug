@@ -1,11 +1,11 @@
 /**
- * at0257-lens-session-reorder.test.ts — drag-to-reorder for the session rows in
- * the Lens Cards section, plus the new-session-lands-at-the-bottom overlay.
+ * at0257-cards-session-reorder.test.ts — drag-to-reorder for the session rows in
+ * the Cards card, plus the new-session-lands-at-the-bottom overlay.
  *
  * The rows are fed by `cardSessionBindingStore` in bind order; the ROW ITSELF
  * is the handle — there is no grip — and a vertical drag from its own surface
  * drives the shared `useBlockReorder` FLIP, whose drop commits a persisted user
- * order (`dev.tugtool.lens/cardsRowOrder.sessions`) that the Cards projection
+ * order (`dev.tugtool.cards/cardsRowOrder.sessions`) that the Cards projection
  * applies. Sessions absent from that order sort to the bottom, so a session
  * bound AFTER a reorder never disturbs the arrangement.
  *
@@ -28,7 +28,7 @@
  * @covers tugdeck/src/components/cards/cards-card.css
  * @covers tugdeck/src/components/cards/cards-card.tsx
  * @covers tugdeck/src/components/tugways/block-reorder.ts
- * @covers tugdeck/src/lib/lens-store/
+ * @covers tugdeck/src/components/cards/cards-store/
  * @covers tugdeck/src/components/tugways/tug-session-row.tsx
  */
 
@@ -92,7 +92,7 @@ async function domOrder(app: App): Promise<string[]> {
   );
 }
 
-describe.skipIf(!SHOULD_RUN)("at0257 — Lens Sessions reorder + bottom-append", () => {
+describe.skipIf(!SHOULD_RUN)("at0257 — Cards Sessions reorder + bottom-append", () => {
   test(
     "dragging a session above another persists the new order; a later session lands last",
     async () => {
@@ -100,7 +100,7 @@ describe.skipIf(!SHOULD_RUN)("at0257 — Lens Sessions reorder + bottom-append",
       try {
         seedTugbankForLaunch(tugbankPath);
         const app = await launchTugApp({
-          testName: "at0257-lens-session-reorder",
+          testName: "at0257-cards-session-reorder",
           env: { TUGBANK_PATH: tugbankPath },
           persistInTestMode: true,
         });
@@ -162,13 +162,13 @@ describe.skipIf(!SHOULD_RUN)("at0257 — Lens Sessions reorder + bottom-append",
           );
           expect(activeAfter).toBe(activeBefore);
 
-          // The reorder persisted to tugbank under the Lens domain.
-          // The order now lives per-group under one record: the Cards section
-          // keys a single-card session pane by its session id, so the sessions
-          // group holds exactly what the old `sessionOrder` key did.
+          // The reorder persisted to tugbank under the Cards card's own
+          // domain. The order lives per-group under one record, and a
+          // single-card session pane is keyed by its session id, so the
+          // sessions group holds exactly what the old `sessionOrder` key did.
           const persisted = tugbankRead<Record<string, string[]>>(
             tugbankPath,
-            "dev.tugtool.lens",
+            "dev.tugtool.cards",
             "cardsRowOrder",
           );
           const order = persisted?.value?.sessions ?? [];
@@ -206,7 +206,7 @@ describe.skipIf(!SHOULD_RUN)("at0257 — Lens Sessions reorder + bottom-append",
       try {
         seedTugbankForLaunch(tugbankPath);
         const app = await launchTugApp({
-          testName: "at0257-lens-session-clamp",
+          testName: "at0257-cards-session-clamp",
           env: { TUGBANK_PATH: tugbankPath },
           persistInTestMode: true,
         });
@@ -275,7 +275,7 @@ describe.skipIf(!SHOULD_RUN)("at0257 — Lens Sessions reorder + bottom-append",
       try {
         seedTugbankForLaunch(tugbankPath);
         const app = await launchTugApp({
-          testName: "at0257-lens-session-row-edges",
+          testName: "at0257-cards-session-row-edges",
           env: { TUGBANK_PATH: tugbankPath },
           persistInTestMode: true,
         });

@@ -123,7 +123,7 @@ export interface TugTabBarProps extends Omit<React.ComponentPropsWithoutRef<"div
 const DEFAULT_TAB_ICON = "Diamond";
 
 /** Render a lucide icon by name, or null if the name is absent or unrecognised.
- *  Shared with the Lens's Cards section, whose tool rows wear the same
+ *  Shared with the Cards card, whose tool rows wear the same
  *  registration icon a tab does — one resolver, so the two never disagree. */
 export function renderIcon(iconName: string | undefined): React.ReactNode {
   const name = iconName ?? DEFAULT_TAB_ICON;

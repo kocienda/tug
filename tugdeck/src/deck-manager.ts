@@ -50,6 +50,9 @@ import {
   takesContentWidth,
 } from "./card-registry";
 import { CARDS_CARD_ID } from "./lib/cards-card-id";
+import { DASHES_CARD_ID } from "./lib/dashes-card-id";
+import { LAYOUT_CARD_ID } from "./lib/layout-card-id";
+import { TRIPWIRES_CARD_ID } from "./lib/tripwires-card-id";
 import {
   bullseyePaneIdOf,
   columnMoveOrder,
@@ -99,7 +102,6 @@ import {
   sidebarSide,
   railHiddenMembers,
   withRailHidden,
-  isSidebarSide,
   clampFlowOffset,
   clampStripOffset,
   columnModeOf,
@@ -137,9 +139,11 @@ import {
   type ColumnMode,
   type ImpositionLayout,
   type ColumnMoveTarget,
+  type RailArrangement,
   type RailMode,
   type RailPolicy,
   type RailWidths,
+  type SidebarEntry,
   type SidebarSide,
 } from "./lib/layout-imposer";
 import { getTugZoom } from "./components/tugways/scale-timing";
@@ -351,14 +355,149 @@ function spliceCardFromStack(
 }
 
 /**
+ * The cards a factory-fresh deck stands on its rail, top to bottom.
+ *
+ * Read as the rail's vertical order and — reversed — as the order the panes
+ * are appended in, which is what settles which one is frontmost; see
+ * {@link factoryRailImposition} and `DeckManager._createFactoryRail`.
+ */
+export const FACTORY_RAIL_ORDER: readonly string[] = [
+  CARDS_CARD_ID,
+  DASHES_CARD_ID,
+  LAYOUT_CARD_ID,
+  TRIPWIRES_CARD_ID,
+];
+
+/**
+ * The imposition a factory-fresh deck's rail stands under: all four cards
+ * pinned, and the right side stacked in {@link FACTORY_RAIL_ORDER}.
+ *
+ * The order is written explicitly rather than left absent because absent means
+ * *registration* order to {@link effectiveRailOrder}, and `main.tsx` registers
+ * jots, overview, tripwires, dashes, cards, layout — not the order the factory
+ * rail asks for. Pinning goes through {@link withSidebarPinned}, which resolves
+ * each card's side through `sidebarSide` to {@link DEFAULT_SIDEBAR_SIDE}
+ * (`"right"`) on a deck that has never placed it.
+ *
+ * Pure over the imposition — no registry, no DOM — so the rail's plan can be
+ * read without a container.
+ */
+export function factoryRailImposition(
+  imposition: DeckImposition,
+): DeckImposition {
+  const pinned = FACTORY_RAIL_ORDER.reduce(
+    (acc, componentId) => withSidebarPinned(acc, componentId, true),
+    imposition,
+  );
+  return {
+    ...pinned,
+    rails: {
+      ...pinned.rails,
+      right: { mode: "stack", order: [...FACTORY_RAIL_ORDER] },
+    },
+  };
+}
+
+/**
+ * Drop every unregistered componentId from an imposition — the imposition half
+ * of what {@link filterDeckStateByRegistration} does for cards and panes.
+ *
+ * Two passes, in this order. First **registration**: an unregistered id leaves
+ * `sidebars`, leaves each side's `rails[side].order`, and leaves that side's
+ * `rails[side].shares`. Second — and **only for a side that still has a stored
+ * `order`** — any surviving `shares` key naming no id in that `order` is
+ * dropped, which is what makes the two records agree again.
+ *
+ * The order of those passes is the whole design. `RailArrangement.order` is
+ * documented to outlive the members it names on purpose ([L23]): close a split
+ * member and its position is still recorded, so reopening it puts it back where
+ * it was. A reconciliation keyed on *standing* would destroy that. Keying on
+ * *registration* does not, because an unregistered id can never stand again.
+ * And the second pass is guarded on `order` being present because a side
+ * carrying `shares` and no `order` has nothing to reconcile against — dropping
+ * its weights there would erase a real arrangement.
+ *
+ * An `order`, a `shares`, a side, or the whole `rails` record left empty is
+ * removed rather than kept as `[]` / `{}`, matching `parseRails`, which drops
+ * empty fields for the same reason. `mode` is never touched: it describes the
+ * side, not its membership.
+ *
+ * Returns the same reference when there was nothing to sweep.
+ */
+export function sweepImposition(
+  imposition: DeckImposition,
+  isRegistered: (componentId: string) => boolean,
+): DeckImposition {
+  let changed = false;
+
+  const sidebars: Record<string, SidebarEntry> = {};
+  for (const [componentId, entry] of Object.entries(imposition.sidebars ?? {})) {
+    if (!isRegistered(componentId)) {
+      changed = true;
+      continue;
+    }
+    sidebars[componentId] = entry;
+  }
+
+  const rails: { left?: RailArrangement; right?: RailArrangement } = {};
+  for (const side of ["left", "right"] as const) {
+    const arrangement = imposition.rails?.[side];
+    if (arrangement === undefined) continue;
+
+    let order = arrangement.order;
+    if (order !== undefined) {
+      const kept = order.filter((id) => isRegistered(id));
+      if (kept.length !== order.length) {
+        changed = true;
+        order = kept.length > 0 ? kept : undefined;
+      }
+    }
+
+    let shares = arrangement.shares;
+    if (shares !== undefined) {
+      const survivors = Object.entries(shares).filter(
+        // Pass one on the left of the `&&`, pass two on the right — and the
+        // right is inert unless this side still stores an `order`.
+        ([id]) => isRegistered(id) && (order === undefined || order.includes(id)),
+      );
+      if (survivors.length !== Object.keys(shares).length) {
+        changed = true;
+        shares =
+          survivors.length > 0 ? Object.fromEntries(survivors) : undefined;
+      }
+    }
+
+    const swept: RailArrangement = { ...arrangement };
+    if (order === undefined) delete swept.order;
+    else swept.order = order;
+    if (shares === undefined) delete swept.shares;
+    else swept.shares = shares;
+
+    if (Object.keys(swept).length > 0) rails[side] = swept;
+    else changed = true;
+  }
+
+  if (!changed) return imposition;
+
+  const next: DeckImposition = { ...imposition, sidebars };
+  if (Object.keys(rails).length > 0) next.rails = rails;
+  else delete next.rails;
+  return next;
+}
+
+/**
  * Drop cards whose `componentId` is not registered, and any stack left with no
- * surviving cards; rewrite each surviving stack's `cardIds` + `activeCardId`.
+ * surviving cards; rewrite each surviving stack's `cardIds` + `activeCardId`;
+ * and sweep the same unregistered ids out of the imposition, which is what
+ * keeps the placement record agreeing with the card list rather than
+ * contradicting it. See {@link sweepImposition}.
  *
  * Pure over `(state, isRegistered)` — the DeckManager passes `getRegistration`.
  * This is the graceful-degrade path for a retired card: a persisted blob that
- * names, e.g., the old `"changeset"` card (now a Lens section) drops that card
- * with a warn, and a stack that held only it drops too — no boot crash.
- * Returns `state` unchanged (same reference) when nothing was dropped.
+ * still names a card no registration answers for drops it with a warn, a stack
+ * that held only it drops too — no boot crash — and its `sidebars` entry and
+ * its place in `rails.right` go with it. Returns `state` unchanged (same
+ * reference) when nothing was dropped and nothing was swept.
  */
 export function filterDeckStateByRegistration(
   state: DeckState,
@@ -407,6 +546,13 @@ export function filterDeckStateByRegistration(
     }
   }
 
+  // An imposition-only edit still counts: a dead id can outlive every card
+  // that named it — the user's `rails.right.order` held a dead id long after the
+  // card was gone — and returning `state` there would leave the record
+  // uncorrected and unsaved.
+  const imposition = sweepImposition(state.imposition, isRegistered);
+  if (imposition !== state.imposition) changed = true;
+
   if (!changed) return state;
 
   const keptPaneIds = new Set(keptStacks.map((s) => s.id));
@@ -419,6 +565,7 @@ export function filterDeckStateByRegistration(
     ...state,
     cards: keptCards,
     panes: keptStacks,
+    imposition,
     ...(activePaneId !== undefined
       ? { activePaneId }
       : { activePaneId: undefined }),
@@ -816,11 +963,12 @@ export class DeckManager implements IDeckManagerStore {
 
   /**
    * True when the boot honored the persisted boot state and found no layout
-   * at all — a factory-fresh install. The factory deck stands its rail open at
-   * its pin on {@link DEFAULT_SIDEBAR_SIDE}, but not until it has a card to
-   * stand beside ({@link factoryRailPending}). Stays false under the
-   * ordinary test-mode boot, which discards the boot state and starts empty
-   * for the harness to seed.
+   * at all — a factory-fresh install. The factory deck stands its whole rail
+   * open at its pin on {@link DEFAULT_SIDEBAR_SIDE} — all four cards of
+   * {@link FACTORY_RAIL_ORDER} — but not until it has a card to stand beside
+   * ({@link factoryRailPending}). Stays false under the ordinary test-mode
+   * boot, which discards the boot state and starts empty for the harness to
+   * seed.
    */
   private factoryFresh = false;
 
@@ -828,7 +976,8 @@ export class DeckManager implements IDeckManagerStore {
    * The factory deck's rail, waiting for the deck's first card. A brand-new
    * install opens onto the setup wizard over a bare canvas, and a rail of
    * empty cards beside it is a promise about work that does not exist yet.
-   * The first card the user opens is the rail's cue to stand up beside it.
+   * The first card the user opens is the cue for the whole rail — every card
+   * in {@link FACTORY_RAIL_ORDER} — to stand up beside it.
    */
   private factoryRailPending = false;
 
@@ -1371,10 +1520,10 @@ export class DeckManager implements IDeckManagerStore {
    * every show, not only at creation. The card is a singleton that survives in
    * the layout blob, so a position saved from an older arrangement outlives
    * that arrangement — and the middle of the canvas is the one place the
-   * pinned Lens can never be standing.
+   * pinned rail can never be standing.
    *
    * A pane whose geometry is DERIVED is left alone: a slotted pane is placed
-   * by the imposer and the Lens by its pin, so writing a stored position for
+   * by the imposer and a rail by its pin, so writing a stored position for
    * either would be writing a number nothing reads.
    */
   centerPane(cardId: string): void {
@@ -1529,7 +1678,7 @@ export class DeckManager implements IDeckManagerStore {
    * Choosing a side also RE-PINS a sidebar that had been dragged loose: naming
    * the side a card holds is the gesture that says it holds one. This is why the
    * call is not short-circuited on an unchanged side — picking "right" while a
-   * floating Lens already records "right" is a request to put it back.
+   * floating rail already records "right" is a request to put it back.
    */
   setSidebarSide(componentId: string, side: SidebarSide): void {
     const imposition = this.deckState.imposition;
@@ -1571,7 +1720,7 @@ export class DeckManager implements IDeckManagerStore {
 
   /**
    * Stack or split `side`'s rail — the one gesture that changes what a shared
-   * rail *is*, reached from the stack badge and the Lens's Layout section.
+   * rail *is*, reached from the stack badge and the Layout card.
    *
    * Splitting materializes the side's `order` in the same imposition, so a
    * split rail's vertical order is stored state from the first frame rather
@@ -1732,8 +1881,8 @@ export class DeckManager implements IDeckManagerStore {
 
   /**
    * Stack or split `slot`'s column — the content-side twin of
-   * {@link setRailMode}, reached from the stack badge, the Lens's Layouts
-   * section, and ⌃⌘S.
+   * {@link setRailMode}, reached from the stack badge, the Layout
+   * card, and ⌃⌘S.
    *
    * Splitting materializes the slot's `order` in the same imposition for the
    * same reason a rail does: a split column's vertical order is stored state
@@ -2030,7 +2179,7 @@ export class DeckManager implements IDeckManagerStore {
        * The reveal rules answer for the pane the gesture was ABOUT, and for
        * almost every caller that is the active one — the gesture raised it, or
        * moved the arrangement under it. A move within a column is the
-       * exception: `moveInColumn` can carry a member the Lens resolved rather
+       * exception: `moveInColumn` can carry a member the Cards card resolved rather
        * than the one holding focus, and it is that member the user just sent
        * somewhere and now wants to see.
        */
@@ -2141,8 +2290,8 @@ export class DeckManager implements IDeckManagerStore {
    *
    * THE MOMENTS. A rail's width belongs to the user, and the deck may spend
    * it only when the user has just asked the deck to arrange itself: a click
-   * in the Layouts section, a card assigned to a slot (`assignCardToSlot` —
-   * the imposer's own verb, whether the Lens's slot picker or a ⌘N chord
+   * in the Layout card, a card assigned to a slot (`assignCardToSlot` —
+   * the imposer's own verb, whether the Cards card's slot picker or a ⌘N chord
    * dispatched it), and a canvas that came to rest at a new size
    * (`deck-canvas.tsx`'s settled-resize observer — the window edge, a display
    * change, a space move). Nothing else re-solves. Dragging a card out of the
@@ -2178,7 +2327,7 @@ export class DeckManager implements IDeckManagerStore {
 
   /**
    * Commit a new imposition record, moving every pane whose geometry it
-   * derives. The Lens returns to its pin through here, and the space allocator
+   * derives. A rail returns to its pin through here, and the space allocator
    * re-solves its width for the arrangement being committed.
    */
   private _reimpose(
@@ -2240,7 +2389,92 @@ export class DeckManager implements IDeckManagerStore {
     if (!this.factoryRailPending) return;
     if (isSidebarCard(componentId)) return;
     this.factoryRailPending = false;
-    this._createSidebarPane(CARDS_CARD_ID);
+    this._createFactoryRail();
+  }
+
+  /**
+   * Stand every card of {@link FACTORY_RAIL_ORDER} on the rail, in a single
+   * state commit.
+   *
+   * One commit rather than four calls to {@link _createSidebarPane}: four
+   * commits would be four notifies, four saves, and four first-responder
+   * flips, and the deck would be seen mid-rail three times on the way to a
+   * picture nobody arranged.
+   *
+   * The panes are appended in **reverse** of {@link FACTORY_RAIL_ORDER}, so
+   * Cards lands last. `state.panes` is the deck's z-order and
+   * `railFrontmostPaneId` in `components/chrome/deck-canvas.tsx` reads the
+   * *last* matching entry, so appending Cards last is what makes it the member
+   * you see. The rail's vertical order is a separate record and is written by
+   * {@link factoryRailImposition}.
+   *
+   * Each pane takes its width, height and family policy exactly as
+   * {@link _createSidebarPane} does; on a factory-fresh install none of the
+   * four has a reopen width, so each resolves to its registered preferred one.
+   */
+  private _createFactoryRail(): void {
+    const seats: { card: CardState; pane: TugPaneState }[] = [];
+    const canvasHeight = this.container.clientHeight || 600;
+
+    for (const componentId of [...FACTORY_RAIL_ORDER].reverse()) {
+      const registration = getRegistration(componentId);
+      if (!registration) {
+        console.warn(
+          `[DeckManager] _createFactoryRail: no registration for "${componentId}". ` +
+            `Register the card before the factory rail stands.`,
+        );
+        continue;
+      }
+      const sizePolicy = getSizePolicy(componentId);
+      const width = Math.max(
+        sizePolicy.min.width,
+        this._sidebarReopenWidth(componentId) ?? sizePolicy.preferred.width,
+      );
+      const cardId = crypto.randomUUID();
+      seats.push({
+        card: {
+          id: cardId,
+          componentId,
+          title: registration.defaultMeta.title,
+          closable: registration.defaultMeta.closable !== false,
+        },
+        pane: {
+          id: crypto.randomUUID(),
+          // Position/height are nominal — the pane render layer pins a sidebar
+          // from `imposition.sidebars`. Width is the live rail width.
+          position: { x: 0, y: 0 },
+          size: { width, height: canvasHeight },
+          cardIds: [cardId],
+          activeCardId: cardId,
+          title: registration.defaultTitle ?? registration.defaultMeta.title,
+          acceptsFamilies: registration.acceptsFamilies ?? [],
+        },
+      });
+    }
+
+    if (seats.length === 0) return;
+    // Last appended is frontmost, which is the head of FACTORY_RAIL_ORDER.
+    const front = seats[seats.length - 1]!;
+
+    this._flipFirstResponder(
+      front.card.id,
+      () => {
+        this.deckState = {
+          ...this.deckState,
+          cards: [...this.deckState.cards, ...seats.map((seat) => seat.card)],
+          panes: [...this.deckState.panes, ...seats.map((seat) => seat.pane)],
+          activePaneId: front.pane.id,
+          imposition: factoryRailImposition(this.deckState.imposition),
+        };
+        this.notify("_createFactoryRail");
+        this.scheduleSave();
+        for (const seat of seats) {
+          this.cardLifecycle.notifyCardDidFinishConstruction(seat.card.id);
+        }
+        this.putFocusedCardIdGuarded(front.card.id);
+      },
+      "claimFactoryRail",
+    );
   }
 
   /**
@@ -2606,14 +2840,14 @@ export class DeckManager implements IDeckManagerStore {
    * the same measurement, and a reader that had to know which mode it was in
    * before it could ask how wide the deck is would be carrying the distinction
    * into places that do not have it. This used to refuse in fit, which made the
-   * Lens's drawing derive its own fit band out of nominal units — and that
+   * Layout card's drawing derive its own fit band out of nominal units — and that
    * second derivation is exactly why the plan jumped when the layout toggled.
    *
-   * Public because the Lens's plan draws the committed arrangement to the real
+   * Public because the Layout card's plan draws the committed arrangement to the real
    * proportions, and the strip alone does not say how much of it is on screen —
    * that is the band, and the band is a measurement of the canvas rather than a
    * fact in `DeckState`. Reading it here keeps the deck's one measurement in
-   * one place; a second one taken off the DOM in the Lens would agree with this
+   * one place; a second one taken off the DOM in that card would agree with this
    * only by luck.
    *
    * It answers from the container's current width, so a caller reading it
@@ -2723,7 +2957,7 @@ export class DeckManager implements IDeckManagerStore {
    * The run a column's members stand in, in px, or `null` when the canvas has
    * no height to speak of.
    *
-   * Public for the reason {@link getBandWidth} is: the Lens's miniature
+   * Public for the reason {@link getBandWidth} is: the Layout card's miniature
    * draws an overflowing column as a strip behind a run, and a stored offset
    * only means something against the run it was measured in. Reading it here
    * keeps the deck's one measurement in one place.
@@ -3046,8 +3280,8 @@ export class DeckManager implements IDeckManagerStore {
    * flow gesture, and the one writer of it ([P11]).
    *
    * It lives on the store rather than in the canvas because the strip that
-   * scrubs is in the LENS and the element the offset is written on is the
-   * canvas's: a second implementation on the Lens's side would be a second
+   * scrubs is in the LAYOUT CARD and the element the offset is written on is the
+   * canvas's: a second implementation on that card's side would be a second
    * clamp, a second property, and a second chance to disagree. The store
    * already holds the container it measures the band off, so it is the one
    * place both gestures can reach.
@@ -3505,7 +3739,7 @@ export class DeckManager implements IDeckManagerStore {
       // epilogue.
       //
       // A raw `activateCard` here would flip the first responder but skip the
-      // focus transfer — the outgoing card (the Lens, whose list dispatched the
+      // focus transfer — the outgoing card (the Cards card, whose list dispatched the
       // assign) would never save its bag, and the slotted card would never
       // receive its focus claim (no caret until the user clicks into it).
       // Detaching has already raised and activated the new pane, in which case
@@ -5237,9 +5471,9 @@ export class DeckManager implements IDeckManagerStore {
    *
    * And the rails are left ALONE — `retuneRails: false`, unlike every other
    * caller of `_commitImposition`. That is the difference between this verb and
-   * `setContentWidth`: choosing the deck's content width is a Layouts click,
+   * `setContentWidth`: choosing the deck's content width is a Layout-card click,
    * one of the moments the deck is licensed to re-arrange itself, while sizing
-   * the card you are looking at is not. Re-solving here shrank the Lens to its
+   * the card you are looking at is not. Re-solving here shrank the rail to its
    * floor on an ordinary ⌃⌘-digit, which is the user's rail spent on a gesture
    * that never mentioned it.
    */
@@ -5364,35 +5598,16 @@ export class DeckManager implements IDeckManagerStore {
     return putCardState(cardId, bag, options);
   }
 
-  /**
-   * The Lens side carried by the retired app-wide preference, or `undefined`
-   * when the user never set one.
-   *
-   * The side lives in the layout blob now. A user who set the old preference
-   * but whose blob predates the record would otherwise have their choice
-   * silently reset, so it is read once here and passed to `deserialize` as
-   * the last-resort fallback. Nothing writes this key any more, and the value
-   * persists into the layout blob on the next save.
-   */
-  private readLegacyLensSide(): SidebarSide | undefined {
-    const client = getTugbankClient();
-    if (!client) return undefined;
-    const entry = client.get("dev.tugtool.lens", "anchorSide");
-    if (!entry || entry.kind !== "string") return undefined;
-    return isSidebarSide(entry.value) ? entry.value : undefined;
-  }
-
   private loadLayout(): DeckState {
     const canvasWidth = this.container.clientWidth || 800;
     const canvasHeight = this.container.clientHeight || 600;
-    const fallbackSidebarSide = this.readLegacyLensSide() ?? DEFAULT_SIDEBAR_SIDE;
 
     let state: DeckState | null = null;
 
     if (this.initialLayout !== null) {
       try {
         const json = JSON.stringify(this.initialLayout);
-        state = deserialize(json, canvasWidth, canvasHeight, fallbackSidebarSide);
+        state = deserialize(json, canvasWidth, canvasHeight);
       } catch (e) {
         console.warn("DeckManager: failed to deserialize initialLayout from API, falling back", e);
       }
@@ -5400,7 +5615,7 @@ export class DeckManager implements IDeckManagerStore {
     }
 
     if (state === null) {
-      state = buildDefaultLayout(fallbackSidebarSide);
+      state = buildDefaultLayout();
       this.factoryFresh = this.bootStateHonored;
     }
 

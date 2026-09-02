@@ -365,7 +365,7 @@ export function TugTooltip({
   //
   // `scroll` is the one that is scoped, because it is the one that is not a
   // gesture. A transcript following its bottom scrolls itself every time a
-  // streaming session appends a row, and a bubble standing over the Lens
+  // streaming session appends a row, and a bubble standing over the Cards card
   // across the window was being torn down by it several times a second with
   // the pointer never moving. The rule a scroll is standing for is that the
   // target moved out from under the pointer, so only a scroller the trigger

@@ -37,8 +37,8 @@
  *      status` — leaves the composer holding plain text: no routing chip, no
  *      atom of any kind. Routing is a submit-time decision over the whole
  *      line, so nothing may materialize in the document while the user types.
- *   3. The Lens's row for the same session shows no goal line either. The
- *      card's strip and the Lens row read the same PULSE state through two
+ *   3. The Cards row for the same session shows no goal line either. The
+ *      card's strip and the Cards row read the same PULSE state through two
  *      separate call sites, so absence has to be pinned on both.
  *
  * **Typing only — this test never submits a turn.** A real send into a
@@ -82,10 +82,10 @@ const MASTHEAD = `${PANE} [data-slot="session-masthead"]`;
 const STRIP = `${MASTHEAD} .tug-pulse`;
 const HEADLINE = `${PANE} [data-slot="tug-pulse-headline"]`;
 
-// The Lens's own row for the same session. Addressed the way
-// `at0257-lens-session-reorder.test.ts` addresses Sessions rows.
-const LENS_ROW = `.cards-list .session-row-content[data-session-id="${SID}"]`;
-const LENS_INTENT = `${LENS_ROW} [data-slot="tug-pulse-headline"]`;
+// The Cards card's own row for the same session. Addressed the way
+// `at0257-cards-session-reorder.test.ts` addresses Sessions rows.
+const CARDS_ROW = `.cards-list .session-row-content[data-session-id="${SID}"]`;
+const CARDS_INTENT = `${CARDS_ROW} [data-slot="tug-pulse-headline"]`;
 
 let projectDir = "";
 
@@ -214,20 +214,20 @@ describe.skipIf(!SHOULD_RUN)(
           expect(await count(app, HEADLINE)).toBe(0);
           expect(await mastheadText(app)).not.toContain("PULSE");
 
-          // 3. The Lens says the same thing. The strip and the Lens row are
+          // 3. The Cards card says the same thing. The strip and the Cards row are
           //    two separate readers of the same PULSE state, so a regression can
           //    land in one and not the other — the claim is only pinned where
           //    it is asserted.
           await app.dispatchControlAction("toggle-cards");
           await app.waitForCondition<boolean>(
-            `document.querySelector(${JSON.stringify(LENS_ROW)}) !== null`,
+            `document.querySelector(${JSON.stringify(CARDS_ROW)}) !== null`,
             { timeoutMs: 10_000 },
           );
           // No goal line in the rail either, and no word standing in for one.
-          expect(await count(app, LENS_INTENT)).toBe(0);
+          expect(await count(app, CARDS_INTENT)).toBe(0);
           expect(
             await app.evalJS<string>(
-              `(document.querySelector(${JSON.stringify(LENS_ROW)})
+              `(document.querySelector(${JSON.stringify(CARDS_ROW)})
                  || { innerText: "" }).innerText`,
             ),
           ).not.toContain("PULSE");

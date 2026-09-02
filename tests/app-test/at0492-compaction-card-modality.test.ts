@@ -168,7 +168,7 @@ describe.skipIf(!SHOULD_RUN)(
             await app.getComputedStyleValue(ROLLUP_ROW, "display"),
           ).toBe("none");
 
-          // (3) The close ROUTE — where ⌘W, Close All, and the Lens's remote
+          // (3) The close ROUTE — where ⌘W, Close All, and the Cards row's remote
           // close box all end up, and the one door with no on-screen control
           // to dim. Dispatched rather than chorded because ⌘W is a native menu
           // key equivalent, which a background app-test cannot deliver: the

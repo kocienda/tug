@@ -67,7 +67,7 @@ export type SessionLifecycleState =
  * directly — but the reason nothing consumed the overlay was that the *consumer
  * was never wired*, not that no consumer was wanted. The Awaiting reading it was
  * meant to produce is a real requirement, and it does not live here: the STATE
- * cell and the Lens row both flatten their indicator through
+ * cell and the Cards card row both flatten their indicator through
  * `sessionSessionPhaseKey` (`session-phase-visual.ts`), which is where
  * `pendingAsk` now surfaces as Awaiting. Deleting an unread overlay was right;
  * concluding from its silence that the feature was unwanted was not.

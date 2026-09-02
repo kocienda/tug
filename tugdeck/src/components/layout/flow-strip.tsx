@@ -30,7 +30,7 @@
  * So the strip carries what the picture cannot, and nothing else:
  *
  * - **The NUMBERS.** The plan draws blocks; only the strip says which place is
- *   which, in the same numbered chip the Lens's Cards row arranges places with
+ *   which, in the same numbered chip the Layout card's Cards row arranges places with
  *   and the masthead badge names one with.
  * - **The PRESS.**
  * - **Which card the reader is IN**, in the accent — a live selection, which is

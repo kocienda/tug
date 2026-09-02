@@ -2,11 +2,11 @@
  * at0246-focus-boot-invariant.test.ts — the focus engine's honesty contract
  * at cold-boot restore.
  *
- * Scenario: the deck restores with the Lens holding a saved *keyboard* focus
+ * Scenario: the deck restores with the Jots card holding a saved *keyboard* focus
  * (`bag.focus = { kind: "dom", focusKey: "jots-card:0",
  * keyboard: true }`) while a focus-claiming editor card (the
  * `gallery-prompt-entry` session stand-in) is also present. Historically this
- * is the "ring lies" boot race: the Lens restore paints `data-key-view-kbd`
+ * is the "ring lies" boot race: the Jots card restore paints `data-key-view-kbd`
  * on the jots list while the editor's late mount steals
  * `document.activeElement` — the ring promises keystrokes that actually go to
  * the editor, and the keyboard reads as dead.
@@ -16,7 +16,7 @@
  * authority, the boot must end with the ring and the keyboard on the same
  * element — `document.activeElement` inside (or containing) the
  * `[data-key-view-kbd]` element — with ZERO tripwire violations, and
- * ArrowDown must move the Lens cursor (`data-key-cursor`), proving the
+ * ArrowDown must move the Jots card cursor (`data-key-cursor`), proving the
  * keydown path reaches the ringed list.
  *
  * Runs against an isolated jots file (`TUG_JOTS_PATH`) so the
@@ -48,7 +48,7 @@ const JOTS_FOCUS_KEY = "jots-card:0";
 
 /**
  * A deck with a free pane hosting the prompt-entry editor card (the
- * focus-claiming session stand-in) and the anchored Lens rail at a FIXED
+ * focus-claiming session stand-in) and the anchored Jots rail at a FIXED
  * card id, so the seeded `bag.focus` and `focusCardId` name it.
  */
 function deckWithJotsAndEditor() {
@@ -90,7 +90,7 @@ function deckWithJotsAndEditor() {
 
 describe.skipIf(!SHOULD_RUN)("at0246 — focus boot invariant", () => {
   test(
-    "boot restore with a saved Lens keyboard target: ring/DOM-focus drift is impossible or loudly detected",
+    "boot restore with a saved sidebar keyboard target: ring/DOM-focus drift is impossible or loudly detected",
     async () => {
       const tugbankPath = mkTempTugbank();
       const jotsDir = mkdtempSync(join(tmpdir(), "tug-at0246-"));

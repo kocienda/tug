@@ -2,13 +2,13 @@
  * at0483-dash-lifecycle-mark.test.ts — the COMPACT register of the dash
  * lifecycle grammar, on both surfaces that wear it.
  *
- * One grammar has two registers. Where the dash is the SUBJECT — Lens ·
- * Dashes, the Changes shade's dash lane, the DASH placard — it draws as the
+ * One grammar has two registers. Where the dash is the SUBJECT — the Dashes
+ * card, the Changes shade's dash lane, the DASH placard — it draws as the
  * track. Where the dash is one FACT ABOUT A SESSION it draws as the mark:
  * `DashPhaseMark` · one pill · `TugStepFraction`, riding the title run after
  * the identity's own `^<dash>` sigil. Both of the mark's hosts come from one
  * component, `SessionIdentityRow`, so this file drives one session and reads
- * the masthead and the Lens's session row from the same beat — a register
+ * the masthead and the Cards card's session row from the same beat — a register
  * that disagreed with itself between two surfaces would be the drift that
  * pinning it is for.
  *
@@ -88,7 +88,7 @@ const SESSION_ROW = `${CARDS} [data-session-id="${SID}"]`;
 const MASTHEAD_MARK =
   `[data-slot="session-masthead"] [data-slot="session-identity-row-progress"]` +
   ` [data-slot="tug-dash-lifecycle-mark"]`;
-const LENS_MARK =
+const CARDS_MARK =
   `${SESSION_ROW} [data-slot="session-identity-row-progress"]` +
   ` [data-slot="tug-dash-lifecycle-mark"]`;
 /** The identity's own `^<dash>` run, inside the masthead's row. */
@@ -201,13 +201,13 @@ const count = (app: App, selector: string): Promise<number> =>
 const awaitBothMarks = (app: App): Promise<boolean> =>
   app.waitForCondition<boolean>(
     `document.querySelector(${JSON.stringify(MASTHEAD_MARK)}) !== null &&
-     document.querySelector(${JSON.stringify(LENS_MARK)}) !== null`,
+     document.querySelector(${JSON.stringify(CARDS_MARK)}) !== null`,
     { timeoutMs: 30000 },
   );
 
 describe.skipIf(!SHOULD_RUN)("AT0483: the compact dash register", () => {
   test(
-    "one grammar on the masthead and the Lens row: the run's numerals, the phase word, and a stopped arc",
+    "one grammar on the masthead and the Cards row: the run's numerals, the phase word, and a stopped arc",
     async () => {
       const tugbankPath = mkTempTugbank();
       seedTugbankForLaunch(tugbankPath, { sourceTreePath: CHECKOUT });
@@ -234,7 +234,7 @@ describe.skipIf(!SHOULD_RUN)("AT0483: the compact dash register", () => {
 
         // ── Before any binding, neither host draws anything ───────────────
         expect(await count(app, MASTHEAD_MARK)).toBe(0);
-        expect(await count(app, LENS_MARK)).toBe(0);
+        expect(await count(app, CARDS_MARK)).toBe(0);
         expect(await count(app, MASTHEAD_DASH_RUN)).toBe(0);
 
         // ── A declared run over a longer plan ─────────────────────────────
@@ -245,10 +245,10 @@ describe.skipIf(!SHOULD_RUN)("AT0483: the compact dash register", () => {
         await awaitBothMarks(app);
 
         const masthead = await readMark(app, MASTHEAD_MARK);
-        const lens = await readMark(app, LENS_MARK);
+        const cardsRow = await readMark(app, CARDS_MARK);
         note("at0483 implement · masthead", JSON.stringify(masthead));
-        note("at0483 implement · lens row", JSON.stringify(lens));
-        for (const reading of [masthead, lens]) {
+        note("at0483 implement · cards row", JSON.stringify(cardsRow));
+        for (const reading of [masthead, cardsRow]) {
           expect(reading.phase).toBe("implement");
           // The glyph and the pill name the same phase as the mark around
           // them: one reading, three elements, never three opinions.
@@ -274,10 +274,10 @@ describe.skipIf(!SHOULD_RUN)("AT0483: the compact dash register", () => {
         );
 
         const briefMasthead = await readMark(app, MASTHEAD_MARK);
-        const briefLens = await readMark(app, LENS_MARK);
+        const briefCards = await readMark(app, CARDS_MARK);
         note("at0483 brief · masthead", JSON.stringify(briefMasthead));
-        note("at0483 brief · lens row", JSON.stringify(briefLens));
-        for (const reading of [briefMasthead, briefLens]) {
+        note("at0483 brief · cards row", JSON.stringify(briefCards));
+        for (const reading of [briefMasthead, briefCards]) {
           // The LIFECYCLE phase, which this dash has, and not the git stage,
           // which it does not: `dash create` cut no rounds and the brief is
           // the whole of what exists.
@@ -298,10 +298,10 @@ describe.skipIf(!SHOULD_RUN)("AT0483: the compact dash register", () => {
         );
 
         const stopped = await readMark(app, MASTHEAD_MARK);
-        const stoppedLens = await readMark(app, LENS_MARK);
+        const stoppedCards = await readMark(app, CARDS_MARK);
         note("at0483 stopped · masthead", JSON.stringify(stopped));
-        note("at0483 stopped · lens row", JSON.stringify(stoppedLens));
-        for (const reading of [stopped, stoppedLens]) {
+        note("at0483 stopped · cards row", JSON.stringify(stoppedCards));
+        for (const reading of [stopped, stoppedCards]) {
           // `data-stopped` on the mark AND on the glyph inside it. This is
           // what the CSS keys the breathing off, and it is the attribute
           // rather than the animation because a background window runs no
@@ -318,7 +318,7 @@ describe.skipIf(!SHOULD_RUN)("AT0483: the compact dash register", () => {
         await shellAndSettle(app, `${tugtoolPath(CHECKOUT)} dash unbind`, 1);
         await app.waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(MASTHEAD_MARK)}).length === 0 &&
-           document.querySelectorAll(${JSON.stringify(LENS_MARK)}).length === 0`,
+           document.querySelectorAll(${JSON.stringify(CARDS_MARK)}).length === 0`,
           { timeoutMs: 30000 },
         );
         expect(await count(app, MASTHEAD_DASH_RUN)).toBe(0);

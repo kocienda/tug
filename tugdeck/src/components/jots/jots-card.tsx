@@ -3,9 +3,9 @@
  * reusable prompt fragments backed by the machine-global `jots.json`
  * (`jotsStore`).
  *
- * Jots is a capture surface, not a lens onto the deck, so it stands as its own
- * sidebar card rather than as a band inside the Lens. It brings its own chrome
- * — filter field, `+`, focus group — where it used to rent the Lens band's.
+ * Jots is a capture surface, not a mirror of the deck, so it stands as its own
+ * sidebar card rather than as a band inside a shared rail card. It brings its own chrome
+ * — filter field, `+`, focus group — where it used to rent that band's.
  *
  * The list is authored into the card's focus group, so it is one Tab stop.
  * The grammar:
@@ -208,7 +208,7 @@ function useJots() {
 /**
  * The card's toolbar: the filter field and the `+`.
  *
- * The Lens hands its sections a band to hang these on; a card has to bring its
+ * A section band used to hang these; a card has to bring its
  * own. Both stops are authored into the card's focus group ahead of the list,
  * so arrowing up out of the rows reaches them.
  *
@@ -276,7 +276,7 @@ function JotsToolbar({
  * affordance is on screen before the descend reaches it. Same authoring as the
  * session picker's row trash button.
  */
-const ROW_ACTION_FOCUS_GROUP = "lens-jot-row-actions";
+const ROW_ACTION_FOCUS_GROUP = "jots-row-actions";
 
 /** The display row on the shared `TugListRow` chrome: the draggable incipit is
  *  the content column and a hover-reveal copy / delete pair is the trailing
@@ -631,7 +631,7 @@ function JotEditorRow({
   // (`PLACEMENT_POLICY_ATTRIBUTE`, nearest marker wins), so the gesture
   // interpreter classifies a chrome click as `placement: "suppressed"` and the
   // caret stays put. A pointerdown in the text, in another row, or outside the
-  // Lens is untouched, so those still place / commit as before.
+  // jots list is untouched, so those still place / commit as before.
   //
   // Timestamp of the last card-chrome pointerdown, read by `onBlur` as a
   // last-resort net. A recency window (not a one-shot boolean) is robust to the
@@ -738,11 +738,11 @@ function JotEditorRow({
   }, [manager, store, jot.id]);
 
   // Keep the caret in view as the jot is edited. The editor grows uncapped
-  // and the Lens list is the single scroller (see `jots-section.css`), so a
-  // jot taller than the Lens makes the LIST scroll — nothing auto-follows
+  // and the jots list is the single scroller (see `jots-card.css`), so a
+  // jot taller than the card makes the LIST scroll — nothing auto-follows
   // the caret there. The substrate owns the reveal (it owns the caret): it
   // schedules on CM6's measure cycle and clears the card's pinned header. This
-  // is why the edit can never scroll off, even when the content dwarfs the Lens.
+  // is why the edit can never scroll off, even when the content dwarfs the card.
   const onChange = useCallback(
     (text: string): void => {
       store.updateJot(jot.id, text);
@@ -862,7 +862,7 @@ function JotEditorRow({
           // Registering the card's engine hooks as it mounts / unmounts churns
           // the card's hooks set, which re-fires the card's `applyBagFocus`
           // restore and yanks the keyboard key view off the Jots list to the
-          // Lens's default section on close. Opt out.
+          // card's own default on close. Opt out.
           suppressCardEngineHooks
           markdownTextStyling
           lineWrap

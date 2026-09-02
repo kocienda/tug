@@ -105,13 +105,13 @@
 /* ── The tape's INK on the chrome band ──────────────────────────────────
    Ink only. WHERE the tape sits is the row's, derived there from the pair it
    centers on, and this file states no lift of its own: a second offset here
-   is how the masthead came to sit 4px above the vertical the Lens was 5px
+   is how the masthead came to sit 4px above the vertical the Cards card was 5px
    below. The instrument's own defaults wash out against the tinted chrome band
    — which is not the pane background the tape was tuned on — so the line is
    pinned to the chrome foreground (the instrument draws in `currentColor`).
 
    The COLOR is the whole adjustment. The weights are the instrument's, at the
-   same values the Lens's rows draw: a heavier line over a heavier fill is a
+   same values the Cards card's rows draw: a heavier line over a heavier fill is a
    different mark, and two marks of the same session's work standing a card
    apart read as two different graphs even when the box and the numbers behind
    them are identical. Pinning to the chrome foreground puts the tape on the

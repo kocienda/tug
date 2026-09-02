@@ -507,7 +507,7 @@ function paintRecessShade(
  * The atom's `label` and `value` are both `<project>/<callsign>` and both stay
  * that: the value is the wire marker and the clipboard sidecar, and the label
  * is what an unresolvable chip falls back to. What a *reader* sees is the same
- * thing the masthead and the Lens show them — a session they have named reads
+ * thing the masthead and the Cards card show them — a session they have named reads
  * as that name here too, and the callsign returns only under a collision.
  *
  * A **snapshot**, and the only honest one available here, exactly as

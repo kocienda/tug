@@ -65,7 +65,7 @@ const TEST_TIMEOUT_MS = 180_000;
 const SID = "a7c0d1ea-0000-4000-8000-000000000407";
 
 const SECTION = '.dashes-section';
-const DASH_NAME = "at0407-lens";
+const DASH_NAME = "at0407-dash";
 const ROW = `${SECTION} [data-slot="dashes-row"][data-dash="${DASH_NAME}"]`;
 
 /** The stepped dash — a second one, so the bare-dash assertions above keep
@@ -429,6 +429,9 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Dashes card", () => {
         ).toBeLessThanOrEqual(1);
         // And no plan row wears a next-gesture button: it read as a label
         // rather than a control, and the row reports rather than acts.
+        // The slot keeps its retired spelling deliberately: it is the name the
+        // button was emitted under, and a guard against re-introduction has to
+        // name what would come back.
         expect(stack.gestures, "no next-gesture button survives").toBe(0);
         expect(
           Math.abs(stack.lead - stack.tail),

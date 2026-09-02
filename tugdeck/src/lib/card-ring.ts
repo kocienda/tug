@@ -7,12 +7,12 @@
  * place at all (a free pane). Buried panes are the depth axis's territory
  * (Previous/Next Card in Stack).
  *
- * **The sidebars are on the ring, the Lens included.** They are cards the
+ * **The sidebars are on the ring, the rail included.** They are cards the
  * user reads and types in, standing in plain sight, so a lateral walk that
  * skipped them would leave the one card always on screen as the one the
- * keyboard could not reach. `move-to-slot` excludes the Lens because a
+ * keyboard could not reach. `move-to-slot` excludes the rail because a
  * sidebar takes no slot — that is a fact about slots, not a general rule
- * about sidebars, and reading it as one is what left the Lens off this ring
+ * about sidebars, and reading it as one is what left the rail off this ring
  * while Jots rode it. A rail is a place exactly as a slot is ([D128]), so a
  * rail's front is a ring position exactly as a slot's front is.
  *

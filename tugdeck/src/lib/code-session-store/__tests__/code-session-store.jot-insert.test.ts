@@ -1,5 +1,5 @@
 /**
- * `pendingJotInsert` slot — the store side of dragging a Lens jot
+ * `pendingJotInsert` slot — the store side of dragging a Jots card jot
  * into the prompt entry. A drag/drop parks `{ text, at }` here for the entry
  * to insert (at the drop point when `at` is present, else appended); the entry
  * clears it once inserted.

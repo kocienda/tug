@@ -40,8 +40,8 @@
  * deliberately re-arranges the rails after the hand stops. Those are recorded
  * in `tuglaws/animation-doctrine.md`, not here.
  *
- * Scenario: a three-up deck with a pinned Lens, then one gesture at a time —
- * slot move, deck width change, Lens side flip, bullseye in and out, raise,
+ * Scenario: a three-up deck with a pinned Layout card, then one gesture at a time —
+ * slot move, deck width change, rail side flip, bullseye in and out, raise,
  * card open, card close, and a retarget (a second slot move dispatched inside
  * the first one's settle window). The detector is drained after each so a cut
  * is attributed to the gesture that caused it.
@@ -67,7 +67,7 @@ const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
 
 const FRAMES = ".tug-pane[data-pane-id]";
-const LENS_WIDTH = 675;
+const RAIL_WIDTH = 675;
 const PANE_WIDTH = 420;
 /** The settle window (`IMPOSITION_SETTLE_MS`) plus room for the tween to land. */
 const AFTER_LAND_MS = 900;
@@ -81,7 +81,7 @@ const AFTER_LAND_MS = 900;
 const ALLOWED_CUTS: Record<string, { max: number; why: string }> = {
   "slot-move": { max: 0, why: "carried by the settle" },
   "content-width": { max: 0, why: "carried by the settle" },
-  "lens-side": { max: 0, why: "carried by the settle" },
+  "rail-side": { max: 0, why: "carried by the settle" },
   "bullseye-in": { max: 0, why: "carried by the settle" },
   "bullseye-out": { max: 0, why: "carried by the settle" },
   raise: { max: 0, why: "z-order only; nothing moves" },
@@ -161,17 +161,17 @@ function deckShape() {
       pane("p2", 1, "B"),
       pane("p3", 2, "C"),
       {
-        id: "pLens",
+        id: "pRail",
         position: { x: 0, y: 0 },
-        size: { width: LENS_WIDTH, height: 900 },
+        size: { width: RAIL_WIDTH, height: 900 },
         cardIds: ["L"],
         activeCardId: "L",
-        title: "Lens",
+        title: "Layout",
         acceptsFamilies: [],
       },
     ],
     activePaneId: "p1",
-    imposition: { kind: "three-up", lens: "right" },
+    imposition: { kind: "three-up", sidebars: { layout: { side: "right" } } },
     hasFocus: true,
   };
 }
@@ -191,10 +191,10 @@ async function takeCuts(app: App): Promise<CutRecord[]> {
   return app.evalJS<CutRecord[]>(`window.__tug.takeCutRecords()`);
 }
 
-/** Seed the Lens's durable chosen width so the allocator is not in the picture. */
-async function seedLensPreferred(app: App): Promise<void> {
+/** Seed the rail's durable chosen width so the allocator is not in the picture. */
+async function seedRailPreferred(app: App): Promise<void> {
   await app.evalJS<null>(
-    `(window.__tug.setTugbankValue("dev.tugtool.lens", "widthPx", { kind: "i64", value: ${LENS_WIDTH} }), null)`,
+    `(window.__tug.setTugbankValue("dev.tugtool.layout", "widthPx", { kind: "i64", value: ${RAIL_WIDTH} }), null)`,
   );
 }
 
@@ -233,7 +233,7 @@ describe.skipIf(!SHOULD_RUN)(
           testName: "at0450-imposer-cut-census",
         });
         try {
-          await seedLensPreferred(app);
+          await seedRailPreferred(app);
           await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
           await app.waitForCondition<boolean>(
             `document.querySelectorAll(${JSON.stringify(FRAMES)}).length === 4`,
@@ -303,7 +303,7 @@ describe.skipIf(!SHOULD_RUN)(
             );
           });
 
-          found["lens-side"] = await census(app, async () => {
+          found["rail-side"] = await census(app, async () => {
             await app.evalJS<null>(
               `(window.__tug.dispatchControlAction("set-sidebar-side", { componentId: "layout", side: "left" }), null)`,
             );

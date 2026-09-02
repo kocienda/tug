@@ -2850,9 +2850,9 @@ export const ELEMENT_SURFACE_PAIRING_MAP: ElementSurfacePairing[] = [
   // ---- tug-value-input.css ----
   { element: "--tug7-element-global-text-normal-inverse-rest", surface: "--tug7-element-global-fill-normal-accentCool-rest", role: "content" },
 
-  // ---- lens/layout-places.css ----
+  // ---- layout/layout-places.css ----
   //
-  // The Lens's layout marks. The surface is a BORDER token because that is
+  // The rail's layout marks. The surface is a BORDER token because that is
   // what the miniature paints its blocks with (`layout-miniature.css`), and a
   // mark stands on a block — pairing it against the section's background
   // would be checking two things that never touch. Registered here rather

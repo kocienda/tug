@@ -467,7 +467,7 @@ export class JoinModeController implements LandingMode {
       seedMessage: this.seedMessage,
       canLandIgnoringMessage: gate.ok,
       landBlockedReason,
-      // The same reading the Lens row and the shade row show, because all
+      // The same reading the Dashes card row and the shade row show, because all
       // three call one derivation ([P04]). The composer is where somebody who
       // typed `/dash-join` is actually looking.
       register:

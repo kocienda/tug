@@ -308,7 +308,7 @@ describe.skipIf(!SHOULD_RUN)(
             );
             expect(offState).toBe("off");
 
-            // Back on, and every row returns — the choice is a lens over the
+            // Back on, and every row returns — the choice is a filter over the
             // walk already held, not a re-fetch. (At least: the automatic walk
             // kept paging while nothing matched, so it may now hold more.)
             await app.click(FILES_OPTION);

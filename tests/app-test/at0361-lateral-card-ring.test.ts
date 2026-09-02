@@ -1,5 +1,5 @@
 /**
- * at0361-lateral-card-ring.test.ts — ⇧⌘] / ⇧⌘[ walk the whole deck, Lens
+ * at0361-lateral-card-ring.test.ts — ⇧⌘] / ⇧⌘[ walk the whole deck, Layout
  * included.
  *
  * The lateral axis of card navigation ([D129]) is one ring over every
@@ -15,7 +15,7 @@
  * after each press, read through `getFocusedCardId` — the composite first
  * responder, not a class on a frame.
  *
- * **The sidebars are on it.** The Lens is the card most likely to be on
+ * **The sidebars are on it.** A sidebar card is the kind most likely to be on
  * screen at any moment and it was the one the first cut skipped, by analogy
  * to `move-to-slot`'s exclusion — which is a fact about *slots*, a thing no
  * sidebar takes. Jots, with no such special case, rode the ring the whole
@@ -23,7 +23,7 @@
  * membership rules are pinned exactly at the unit layer
  * (`lib/__tests__/card-ring.test.ts`); what this adds is that the real
  * chord, resolved by AppKit and round-tripped through the responder chain,
- * actually lands focus in the Lens.
+ * actually lands focus in the Layout card.
  *
  * Why a seeded deck rather than the default one: the ring's order is
  * structural — left rail, slots by number, free panes, right rail — so a
@@ -53,7 +53,7 @@ function card(id: string, componentId = "gallery-input") {
 
 /**
  * Two slotted panes — the first holding two tabs, so the walk has both an
- * inside-a-pane step and a crossing step — plus the Lens on the right rail.
+ * inside-a-pane step and a crossing step — plus the Layout card on the right rail.
  * Ring order is therefore A → B → C → L and back to A.
  */
 function deckShape() {
@@ -86,17 +86,17 @@ function deckShape() {
         slot: 1,
       },
       {
-        id: "pLens",
+        id: "pRail",
         position: { x: 0, y: 0 },
         size: { width: 300, height: 900 },
         cardIds: ["L"],
         activeCardId: "L",
-        title: "Lens",
+        title: "Layout",
         acceptsFamilies: [],
       },
     ],
     activePaneId: "p0",
-    imposition: { kind: "two-up", lens: "right" },
+    imposition: { kind: "two-up", sidebars: { layout: { side: "right" } } },
     hasFocus: true,
   };
 }
@@ -127,7 +127,7 @@ async function focused(app: App): Promise<string | null> {
 
 describe.skipIf(!SHOULD_RUN)("at0361 — the lateral ring walks the whole deck", () => {
   test(
-    "⇧⌘] steps within a pane, crosses into the next, reaches the Lens, and wraps",
+    "⇧⌘] steps within a pane, crosses into the next, reaches the Layout card, and wraps",
     async () => {
       const app = await launchTugApp({ testName: "at0361-ring-forward" });
       try {
@@ -145,7 +145,7 @@ describe.skipIf(!SHOULD_RUN)("at0361 — the lateral ring walks the whole deck",
         note("at0361 after press 2", String(await focused(app)));
         await app.expectFocusedCard("C", { timeoutMs: 5_000 });
 
-        // Into the Lens — the regression this file exists for.
+        // Into the Layout card — the regression this file exists for.
         await pressNext(app);
         note("at0361 after press 3", String(await focused(app)));
         await app.expectFocusedCard("L", { timeoutMs: 5_000 });
@@ -162,14 +162,14 @@ describe.skipIf(!SHOULD_RUN)("at0361 — the lateral ring walks the whole deck",
   );
 
   test(
-    "⇧⌘[ is the same ring in reverse, Lens first",
+    "⇧⌘[ is the same ring in reverse, Layout card first",
     async () => {
       const app = await launchTugApp({ testName: "at0361-ring-backward" });
       try {
         await seed(app);
         await app.expectFocusedCard("A", { timeoutMs: 5_000 });
 
-        // Backwards from the ring's first position is its last — the Lens,
+        // Backwards from the ring's first position is its last — the Layout card,
         // one press away rather than three.
         await pressPrevious(app);
         note("at0361 back 1", String(await focused(app)));
@@ -200,9 +200,9 @@ describe.skipIf(!SHOULD_RUN)("at0361 — the lateral ring walks the whole deck",
     "Window ▸ Next Card is live once the ring has a second position",
     async () => {
       // The gate reads `visibleCardCount` off the same function that
-      // computes the step, so a Lens that is on the ring for the walk must
+      // computes the step, so a Layout card that is on the ring for the walk must
       // be on it for the gate too — a deck of one content card plus the
-      // Lens is exactly the shape that separates the two.
+      // Layout card is exactly the shape that separates the two.
       const app = await launchTugApp({ testName: "at0361-ring-gate" });
       try {
         await app.seedDeckState({
@@ -223,17 +223,17 @@ describe.skipIf(!SHOULD_RUN)("at0361 — the lateral ring walks the whole deck",
                 slot: 0,
               },
               {
-                id: "pLens",
+                id: "pRail",
                 position: { x: 0, y: 0 },
                 size: { width: 300, height: 900 },
                 cardIds: ["L"],
                 activeCardId: "L",
-                title: "Lens",
+                title: "Layout",
                 acceptsFamilies: [],
               },
             ],
             activePaneId: "p0",
-            imposition: { kind: "one-up", lens: "right" },
+            imposition: { kind: "one-up", sidebars: { layout: { side: "right" } } },
             hasFocus: true,
           },
           focusCardId: "A",
@@ -244,7 +244,7 @@ describe.skipIf(!SHOULD_RUN)("at0361 — the lateral ring walks the whole deck",
         if (!state.found) throw new Error("window.nextCard is not in the Window menu");
         expect(
           state.enabled,
-          "one content card + the Lens is a two-position ring",
+          "one content card + the Layout card is a two-position ring",
         ).toBe(true);
       } finally {
         await app.close();

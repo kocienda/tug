@@ -1,7 +1,7 @@
 /**
  * TugSessionRow — one session, as a row.
  *
- * **One shape, three mounts.** The masthead, the Lens rows, and the
+ * **One shape, three mounts.** The masthead, the Cards card rows, and the
  * new-session picker rows all show the same thing, so the shape is authored
  * once, here, and each of them composes it. Nothing is hand-rolled at a mount
  * site: the component library is the consistency mechanism rather than a
@@ -20,14 +20,14 @@
  * rest form now (`sessionActivityRestLine`). Both are retired rather than
  * merely unused.
  *
- * There is no reorder handle among the furniture. A Lens row is carried by its
+ * There is no reorder handle among the furniture. A Cards card row is carried by its
  * own surface (`block-reorder`), so every part of the row sits at the row's own
  * edge.
  *
  * The component is PRESENTATIONAL. Every part arrives as a node: the indicator
  * is the caller's phase dot, the slots are the caller's picker, the sparkline is
  * the caller's tape, and the three text levels are `React.ReactNode` so a mount
- * site can hand in filter-highlighted runs. So the Lens mounts it over live
+ * site can hand in filter-highlighted runs. So the Cards card mounts it over live
  * stores and the gallery mounts it over fixtures, and the two cannot drift.
  *
  * ── The fit ──────────────────────────────────────────────────────────────
@@ -63,7 +63,7 @@ import { TugTooltip } from "./tug-tooltip";
  * How a session row packs its furniture — the one fit that ships.
  *
  * `inset` moves the indicator onto the title line and hands the whole leading
- * column back to the two lines below it: measured at the Lens rail, a 34px wider
+ * column back to the two lines below it: measured at the rail, a 34px wider
  * activity run for the cost of a 20px advance on the one line that had width to
  * spare. It reads as one row rather than a glyph beside a paragraph, and unlike
  * the fits that also reclaimed the furniture's column it takes no affordance
@@ -125,9 +125,9 @@ export const TUG_SESSION_ROW_INDICATOR_SIZE = 28;
  * picker row.
  *
  * Smaller than {@link TUG_SESSION_ROW_INDICATOR_SIZE} because those are denser
- * than the Lens's monitor row: the dot leads a title that has two lines under it
+ * than the Cards card's monitor row: the dot leads a title that has two lines under it
  * on a tighter measure, and at 28 it would out-shout the name it is marking. The
- * 28 stays where it is — the Lens keeps its indicator, and the size is a caller
+ * 28 stays where it is — the Cards card keeps its indicator, and the size is a caller
  * choice rather than a component change.
  *
  * Still the BOX, not the dot: the ring travels to the box edge and the dot
@@ -183,7 +183,7 @@ export const TUG_SESSION_ROW_SPARK_HEIGHT = Math.round(
 /**
  * The tape's SHAPE — full-scale in characters, and the perceptual curve.
  * Declared once, here, for every surface that draws a session's activity
- * (the Lens row and the card's masthead): two tapes showing the same session
+ * (the Cards card row and the card's masthead): two tapes showing the same session
  * must agree on what "full" means and how loud a burst reads, or the same
  * work would draw two different graphs.
  */
@@ -227,7 +227,7 @@ const NO_SPARK_RESERVE_STYLE = {
  * The empty room between the dot's INK and the trailing edge of the advance
  * it is centered in — what the title is charged for and the dot does not use.
  *
- * The stylesheet's 20px advance was measured against the Lens's 28px dot,
+ * The stylesheet's 20px advance was measured against the Cards card's 28px dot,
  * whose ink very nearly fills it. The denser mounts pass 16 — and the glyph's
  * own geometry drops the dot's share of its box from 0.6 to 0.5 down there —
  * so 16px of box is 8px of ink centered in a 20px column with six pixels of
@@ -414,7 +414,7 @@ export interface TugSessionRowProps
 
   /**
    * A last line under the activity, indented one step further in than the
-   * sub-lines. The Lens fills it with the dash a session is working on; the
+   * sub-lines. The Cards card fills it with the dash a session is working on; the
    * masthead and the picker pass nothing and the row is its three-line self.
    *
    * A node rather than a lookup, so the shape stays presentational and the
@@ -443,7 +443,7 @@ export interface TugSessionRowProps
  * Untouched is the common case and deliberately costs nothing: a mount that
  * passes no complete text (or whose description is empty) renders exactly the
  * span it did before, with no tooltip machinery around it — these rows are
- * drawn by the dozen in the Lens and the picker.
+ * drawn by the dozen in the Cards card and the picker.
  *
  * `truncated` is inverted from `elided` because the two say the same thing
  * from opposite ends: a line the mount already shortened needs no measurement

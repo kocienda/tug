@@ -16,7 +16,7 @@
  * behind a gesture that named one card.
  *
  * It is the same fault `setCardWidths` was given `retuneRails: false` for — a
- * ⌃⌘-digit drained the Lens to its floor — and the two verbs are siblings: both
+ * ⌃⌘-digit drained the Layout card to its floor — and the two verbs are siblings: both
  * are card-addressed, so neither may spend the rails. The rule that separates
  * them from the Layouts click is membership, not verb: a pane entering the
  * chain retunes, a pane moving inside it does not.
@@ -44,9 +44,9 @@ const TEST_TIMEOUT_MS = 90_000;
 const AFTER_LAND_MS = 900;
 /** Frames are measured in device pixels; a rounded pin is within a pixel. */
 const TOL = 1.5;
-const LENS_WIDTH = 420;
+const LAYOUT_WIDTH = 420;
 const PANE_WIDTH = 420;
-const KIND_TILES = '[data-testid="lens-layouts-kind"] [data-choice-value]';
+const KIND_TILES = '[data-testid="layout-card-kind"] [data-choice-value]';
 
 const wait = (ms: number): Promise<void> =>
   new Promise<void>((r) => setTimeout(r, ms));
@@ -77,12 +77,12 @@ function deckShape() {
       pane("p2", 1, "B"),
       pane("p3", 2, "C"),
       {
-        id: "pLens",
+        id: "pRail",
         position: { x: 0, y: 0 },
-        size: { width: LENS_WIDTH, height: 900 },
+        size: { width: LAYOUT_WIDTH, height: 900 },
         cardIds: ["L"],
         activeCardId: "L",
-        title: "Lens",
+        title: "Layout",
         acceptsFamilies: [],
       },
       {
@@ -132,7 +132,7 @@ describe.skipIf(!SHOULD_RUN)(
         });
         try {
           await app.evalJS<null>(
-            `(window.__tug.setTugbankValue("dev.tugtool.lens", "widthPx", { kind: "i64", value: ${LENS_WIDTH} }), null)`,
+            `(window.__tug.setTugbankValue("dev.tugtool.layout", "widthPx", { kind: "i64", value: ${LAYOUT_WIDTH} }), null)`,
           );
           await app.seedDeckState({ state: deckShape(), focusCardId: "B" });
           await app.waitForCondition<boolean>(
@@ -147,7 +147,7 @@ describe.skipIf(!SHOULD_RUN)(
             `(window.__tug.setLayoutSelection([]), null)`,
           );
           const railBefore = await frameWidth(app, "pGaz");
-          const lensBefore = await frameWidth(app, "pLens");
+          const layoutBefore = await frameWidth(app, "pRail");
           expect(await slotOf(app, "p2"), "the middle card starts at slot 2").toBe(1);
 
           await app.nativeKey("3", ["cmd"]);
@@ -158,16 +158,16 @@ describe.skipIf(!SHOULD_RUN)(
           expect(await slotOf(app, "p3"), "both of them").toBe(2);
 
           const railAfter = await frameWidth(app, "pGaz");
-          const lensAfter = await frameWidth(app, "pLens");
+          const layoutAfter = await frameWidth(app, "pRail");
           note(
-            `rail ${railBefore} → ${railAfter}, lens ${lensBefore} → ${lensAfter}`,
+            `rail ${railBefore} → ${railAfter}, layout ${layoutBefore} → ${layoutAfter}`,
           );
           expect(
             Math.abs(railAfter - railBefore),
             "the left rail is the user's, and a slot move never asked for it",
           ).toBeLessThanOrEqual(TOL);
           expect(
-            Math.abs(lensAfter - lensBefore),
+            Math.abs(layoutAfter - layoutBefore),
             "nor the right one",
           ).toBeLessThanOrEqual(TOL);
 
@@ -181,11 +181,11 @@ describe.skipIf(!SHOULD_RUN)(
           );
           await wait(AFTER_LAND_MS);
           const railRetuned = await frameWidth(app, "pGaz");
-          const lensRetuned = await frameWidth(app, "pLens");
-          note(`after a licensed retune: rail ${railRetuned}, lens ${lensRetuned}`);
+          const layoutRetuned = await frameWidth(app, "pRail");
+          note(`after a licensed retune: rail ${railRetuned}, layout ${layoutRetuned}`);
           expect(
             Math.abs(railRetuned - railBefore) > TOL ||
-              Math.abs(lensRetuned - lensBefore) > TOL,
+              Math.abs(layoutRetuned - layoutBefore) > TOL,
             "a Layouts click does re-solve — the width was there to take",
           ).toBe(true);
         } finally {

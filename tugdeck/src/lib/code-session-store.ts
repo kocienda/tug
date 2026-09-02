@@ -648,7 +648,7 @@ export class CodeSessionStore {
 
   /**
    * Dev-only read-only accessor over the internal reducer state.
-   * Used by the Lens Telemetry section to surface live
+   * Used by the Cards card Telemetry section to surface live
    * counters and live-clock anchors (`awaitingApprovalSince`,
    * `transportNonOnlineSince`, etc.) that aren't on the public
    * snapshot because they would surprise non-dev consumers. The
@@ -1495,7 +1495,7 @@ export class CodeSessionStore {
    * document offset), or `null` for append semantics (a click / no point).
    * The entry observes the slot, inserts, and calls
    * {@link consumePendingJotInsert}. Public because the dispatch source is
-   * a UI surface (a Lens drag / double-click), not the reducer.
+   * a UI surface (a Cards card drag / double-click), not the reducer.
    */
   insertJot(text: string, at: { x: number; y: number } | null): void {
     if (this._disposed) return;

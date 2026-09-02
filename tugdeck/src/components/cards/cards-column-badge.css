@@ -8,7 +8,7 @@
  * | --tug7-element-control-border-filled-action-rest  | --tug7-surface-control-primary-filled-action-rest  | control       | .cards-column-badge lit border  |
  * | --tug7-surface-control-primary-filled-action-rest | --tug7-surface-global-primary-normal-default-rest  | decorative    | .cards-column-badge lit fill    |
  *
- * The column badge on a Lens row: the standoff from the slot run it follows,
+ * The column badge on a Cards card row: the standoff from the slot run it follows,
  * and the run's own colours.
  *
  * The rule is *wear what the slot chip beside you wears*, and here the chip is

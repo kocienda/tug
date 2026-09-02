@@ -102,7 +102,7 @@ import { getCardCloseGuard } from "@/lib/card-close-guard";
 import { cardSessionBindingStore } from "@/lib/card-session-binding-store";
 import { useChangesetAll } from "@/lib/changeset-all-store";
 import { classifyFileKind } from "@/lib/file-kinds";
-import { lensStore } from "@/lib/lens-store/lens-store";
+import { cardsStore } from "@/components/cards/cards-store/cards-store";
 import { sessionNameStore } from "@/lib/session-name-store";
 import { sessionTagStore } from "@/lib/session-tag-store";
 
@@ -126,7 +126,7 @@ const CARDS_FILTER_FOCUS_ORDER = -1;
 
 // Pane rows are matched for reorder by their uniform order key. Deliberately
 // NOT `data-card-id`: that attribute is the card HOST's, and a row carrying it
-// would make `[data-card-id="…"]` resolve to a Lens row instead of the card's
+// would make `[data-card-id="…"]` resolve to a Cards card row instead of the card's
 // own pane.
 const ROW_SELECTOR = ".cards-row[data-cards-row-id]";
 const ROW_KIND_ATTR = "data-cards-row-id";
@@ -147,7 +147,7 @@ const ROW_ACTION_FOCUS_GROUP = "cards-row-actions";
 
 // The section's remembered selection — the last-touched row id, mapped to a
 // cursor seed on the next Cmd-L / Tab. Module-level so it outlives a collapse
-// toggle; valid while the Lens is a singleton card.
+// toggle; valid while the Cards card is a singleton card.
 let lastSelectedRowId: string | null = null;
 
 /** Row verbs the section body hands the module-level cells. */
@@ -165,7 +165,7 @@ const CardsCellContext = React.createContext<CardsCellContextValue | null>(null)
  * Whether closing this card will stop and ask rather than just close — the
  * card's own close guard has unsaved work to raise a Save / Don't Save sheet
  * over. It is asked BEFORE the close is sent, because the answer decides
- * whether the Lens fronts the card first: only a close that puts a question on
+ * whether the Cards card fronts the card first: only a close that puts a question on
  * screen needs the user looking at the card it appears on.
  *
  * The pane's `close-tab` handler consults exactly this guard and nothing else,
@@ -211,7 +211,7 @@ const GROUP_GLYPHS: Readonly<Record<CardsGroup, React.ReactElement>> = {
 };
 
 /** Any other card's glyph: its registration's icon, through the same resolver
- *  the tab bar uses, so a card looks the same in the Lens as on its tab. */
+ *  the tab bar uses, so a card looks the same in the Cards card as on its tab. */
 function registrationGlyph(identity: CardIdentity): React.ReactNode {
   return renderIcon(identity.icon ?? undefined);
 }
@@ -232,7 +232,7 @@ function registrationGlyph(identity: CardIdentity): React.ReactNode {
  *  voice.
  *
  *  The content column is authored by hand because it carries the slot picker on
- *  the name line, which is what lines the pickers up down the Lens.
+ *  the name line, which is what lines the pickers up down the Cards card.
  *
  *  A card with unsaved changes carries the same `•` after its name that the
  *  card's own header wears (`text-card.tsx` sets it on `cardTitleStore`), so
@@ -336,7 +336,7 @@ function OneLineRow({
       }
       // A pane row is its own reorder handle — a vertical drag from anywhere on
       // it that is not the close box or the slot picker carries it. A subrow
-      // has no handle: reordering tabs from the Lens is not this section's job.
+      // has no handle: reordering tabs from the Cards card is not this section's job.
       onPointerDown={
         rowId !== null ? (e) => ctx.onRowPointerDown(rowId, e) : undefined
       }
@@ -389,7 +389,7 @@ function OneLineRow({
 
 /** The group header: a cursorable row whose Space toggles the group's collapse.
  *  It composes `TugListRow` like every other row, and its fold wears the SAME
- *  affordance the Lens section bands wear, at the same edge — a `BlockFoldCue`
+ *  affordance the rail cards' bands wear, at the same edge — a `BlockFoldCue`
  *  in the trailing slot, one size down. A rail whose two levels of fold looked
  *  and sat differently made the reader learn each one; one cue, always at the
  *  right, means learning it once. The leading column is the group's kind glyph
@@ -657,16 +657,16 @@ function useCardsInputs(filterQuery: string): {
 } {
   const bindings = useOpenBindings();
   const cardsRowOrder = useSyncExternalStore(
-    lensStore.subscribe,
-    useCallback(() => lensStore.getSnapshot().cardsRowOrder, []),
+    cardsStore.subscribe,
+    useCallback(() => cardsStore.getSnapshot().cardsRowOrder, []),
   );
   const groupOrder = useSyncExternalStore(
-    lensStore.subscribe,
-    useCallback(() => lensStore.getSnapshot().cardsGroupOrder, []),
+    cardsStore.subscribe,
+    useCallback(() => cardsStore.getSnapshot().cardsGroupOrder, []),
   );
   const collapsedGroups = useSyncExternalStore(
-    lensStore.subscribe,
-    useCallback(() => lensStore.getSnapshot().collapsedCardGroups, []),
+    cardsStore.subscribe,
+    useCallback(() => cardsStore.getSnapshot().collapsedCardGroups, []),
   );
   // A session label is `<project>/<callsign>`, built at recompute time, so the
   // tag store's version is an input: a callsign arriving late — or the ledger
@@ -724,7 +724,7 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
   // The cursor seeds onto the remembered row, else onto the first PANE row —
   // never left undefined. `TugListView` seeds an unset cursor to its first
   // cursorable row, and because group headers are cursorable that would be a
-  // collapse toggle: every Cmd-L into a fresh Lens would land on a header
+  // collapse toggle: every fresh open of this card would land on a header
   // instead of on a card. Index 0 is the fallback only when the projection
   // holds no pane row at all (every group collapsed), where the header is the
   // only thing there to land on.
@@ -801,7 +801,7 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
     commit: (order) => {
       const group = dragGroupRef.current;
       if (group === null) return;
-      lensStore.setCardsRowOrder(group, [...order]);
+      cardsStore.setCardsRowOrder(group, [...order]);
     },
     selector: ROW_SELECTOR,
     kindAttr: ROW_KIND_ATTR,
@@ -830,7 +830,7 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
     containerRef: listWrapRef,
     caretRef,
     getVisibleOrder: () => dataSource.visibleGroupOrder(),
-    commit: (order) => lensStore.setCardsGroupOrder([...order]),
+    commit: (order) => cardsStore.setCardsGroupOrder([...order]),
     selector: GROUP_RUN_SELECTOR,
     kindAttr: GROUP_RUN_ATTR,
     // The keyboard lands on the group's header — the block's own handle, and
@@ -898,8 +898,8 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
   );
 
   const onToggleGroup = useCallback((group: CardsGroup): void => {
-    const collapsed = lensStore.getSnapshot().collapsedCardGroups;
-    lensStore.setCardGroupCollapsed(group, !collapsed.includes(group));
+    const collapsed = cardsStore.getSnapshot().collapsedCardGroups;
+    cardsStore.setCardGroupCollapsed(group, !collapsed.includes(group));
   }, []);
 
   const cellContext = useMemo<CardsCellContextValue>(
@@ -950,7 +950,7 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
   //
   // The list is a VIEW of the selection ([L02]); the set itself lives in
   // `cardsSelectionStore` because it outlives this section — the deck's slot and
-  // width verbs resolve through it whether the Lens is open or collapsed.
+  // width verbs resolve through it whether the Cards card is open or collapsed.
   //
   // Two id spaces meet here and the section is the translator. The list speaks
   // row ids (`pane:…` / `card:…` / `header:…`, from `idOfRow`) because that is
@@ -1017,7 +1017,7 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
         cardsSelectionStore.extendTo(cardId, visibleCardOrder);
         return true;
       },
-      // Escape, whenever there is a set — the same clear the Lens's own
+      // Escape, whenever there is a set — the same clear the Cards card's own
       // `CANCEL_DIALOG` responder runs, reached from the one place the ladder
       // could otherwise outrank it: while the list holds the keyboard.
       onClear: (): boolean => {

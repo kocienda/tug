@@ -201,7 +201,7 @@ export interface CommandMenuFacts {
    *
    * Unlike {@link cardWidth} and {@link bullseye}, this reads the layout
    * selection's full ladder rather than the focused pane, because that is what
-   * the chords act on: a selection in the Lens, else the row the Cards list's
+   * the chords act on: a selection in the Cards card, else the row its list's
    * cursor stands on, else the first responder. A fact narrower than the verb
    * would dim an item whose chord still fires — and a dimmed item's key
    * equivalent is swallowed by AppKit before the web view ever sees it, so the
@@ -659,7 +659,7 @@ const SLOT_COMMANDS: readonly CommandEntry[] = Array.from(
  * the keymap pane.
  *
  * **Unpromoted**, like ⌘1..9 and for the neighbouring reason ([Q02]): the
- * nudge acts on the layout selection, which is a fact about the Lens's list
+ * nudge acts on the layout selection, which is a fact about the Cards card's list
  * and not about the frontmost card, so there is nothing for a menu item's
  * `validate` to read that would tell a live nudge from a dead one. A menu item
  * that is always enabled and sometimes inert is worse than no menu item, and
@@ -688,7 +688,7 @@ const NUDGE_SLOT_COMMANDS: readonly CommandEntry[] = [
  * stands in, and move a card within it.
  *
  * **The tier, derived** (tuglaws/chord-tiers.md): ⌃⌘ is Tug's own layout
- * vocabulary — ⌃⌘L Show Lens, ⌃⌘T Next Theme, ⌃⌘1/2/3 card width — and a slot
+ * vocabulary — ⌃⌘←/→ Show Rail, ⌃⌘T Next Theme, ⌃⌘1/2/3 card width — and a slot
  * dividing is a layout act, so it belongs there rather than on plain ⌘, which
  * R3 reserves for verbs hit many times an hour. Letter S is unoccupied in the
  * tier (only ⌘S and ⇧⌘S exist on KeyS) and is the obvious mnemonic.
@@ -706,7 +706,7 @@ const NUDGE_SLOT_COMMANDS: readonly CommandEntry[] = [
  * **Promoted to the Window menu**, unlike ⌘1..9 and the nudge pair. The
  * objection that kept them off it was that a menu item's `validate` had
  * nothing to read: these act on the layout selection, which is a fact about
- * the Lens's list rather than about the frontmost card. That was answerable,
+ * the Cards card's list rather than about the frontmost card. That was answerable,
  * and the answer costs a fact — `menu.column`, resolved through the same
  * ladder the handlers walk, so an item is live exactly when its chord would
  * act. The menu is where a chord is discovered, and a chord nobody can find is
@@ -1243,8 +1243,8 @@ export const COMMANDS: readonly CommandEntry[] = [
   // the menu opened. Each handler no-ops on a collapsed selection.
   //
   // ⌥⌘U / ⌥⌘L are the user's grant and are recorded as an anomaly in
-  // chord-tiers.md: ⌥ composes on no base here (⌘U is unbound, ⌘L is Focus
-  // Lens), so the pair is a mnemonic — U for upper, L for lower — rather
+  // chord-tiers.md: ⌥ composes on no base here (neither ⌘U nor ⌘L is
+  // bound), so the pair is a mnemonic — U for upper, L for lower — rather
   // than a derivation. `menuEligible` with an empty Swift key equivalent,
   // so `applyCommandChords` writes both and both stay rebindable.
   {
@@ -1611,7 +1611,7 @@ export const COMMANDS: readonly CommandEntry[] = [
   //
   // **The tier, derived** (tuglaws/chord-tiers.md): a card's posture on the
   // deck is Tug's own layout machinery, so it takes the Tug tier ⌃⌘
-  // alongside ⌃⌘L Show Lens, ⌃⌘T Next Theme, and the ⌃⌘1..6 Go to Slot
+  // alongside ⌃⌘←/→ Show Rail, ⌃⌘T Next Theme, and the ⌃⌘1..6 Go to Slot
   // row directly above. Plain ⌘ is out under R3 — a deliberate posture change is
   // not a many-times-an-hour verb — and the composed sets are out under R1,
   // because there is no ⌘B base for this to be a variant or counterpart of
@@ -1668,7 +1668,7 @@ export const COMMANDS: readonly CommandEntry[] = [
     internal: true,
   },
   {
-    // Its door is the Lens Layouts section's per-card row: Off hides the
+    // Its door is the Layout card's per-card row: Off hides the
     // card, a side segment shows a hidden one. The componentId set is the
     // registry's, so the payload set is runtime.
     id: TUG_ACTIONS.SET_SIDEBAR_OPEN,
@@ -1677,7 +1677,7 @@ export const COMMANDS: readonly CommandEntry[] = [
     internal: true,
   },
   {
-    // Its door is the Lens Layouts section's Slot Window row. Internal for the
+    // Its door is the Layout card's Slot Window row. Internal for the
     // reason the rows around it are: the two widths are a segmented choice
     // whose answer is only legible beside the rows it redraws, so a palette
     // entry reading "Set Slot Window" would be a verb with no picture.
@@ -1687,8 +1687,8 @@ export const COMMANDS: readonly CommandEntry[] = [
     internal: true,
   },
   {
-    // Its doors are the title bar's stack badge menu and the Lens Layouts
-    // section's per-side rail row; the side set is the deck's, so the payload
+    // Its doors are the title bar's stack badge menu and the Layout card's
+    // per-side rail row; the side set is the deck's, so the payload
     // set is runtime.
     id: TUG_ACTIONS.SET_RAIL_MODE,
     title: "Set Rail Mode",
@@ -1703,7 +1703,7 @@ export const COMMANDS: readonly CommandEntry[] = [
     internal: true,
   },
   {
-    // Its doors are the stack badge menu, the Lens Layouts section's per-slot
+    // Its doors are the stack badge menu, the Layout card's per-slot
     // column row, and ⌃⌘S; the slot set is the deck's, so the payload set is
     // runtime.
     id: TUG_ACTIONS.SET_COLUMN_MODE,
@@ -1734,14 +1734,14 @@ export const COMMANDS: readonly CommandEntry[] = [
     internal: true,
   },
   {
-    // Its door is the Lens Layouts section's Card Width group.
+    // Its door is the Layout card's Card Width group.
     id: TUG_ACTIONS.SET_CONTENT_WIDTH,
     title: "Set Content Width",
     routing: "registry",
     internal: true,
   },
   {
-    // Its door is the Lens Layouts section's Layout group.
+    // Its door is the Layout card's Layout group.
     id: TUG_ACTIONS.SET_IMPOSITION_LAYOUT,
     title: "Set Imposition Layout",
     routing: "registry",
@@ -1749,7 +1749,7 @@ export const COMMANDS: readonly CommandEntry[] = [
   },
   {
     // The slot set follows the active imposition, so the payload set is
-    // runtime; its door is the Lens rows' slot pickers.
+    // runtime; its door is the Cards card's row slot pickers.
     id: "assign-slot",
     title: "Assign Slot",
     routing: "registry",
@@ -1766,7 +1766,7 @@ export const COMMANDS: readonly CommandEntry[] = [
     internal: true,
   },
   {
-    // Its door is a Lens Sessions monitor row.
+    // Its door is a session monitor row in the Cards card.
     id: "focus-session-card",
     title: "Focus Session Card",
     routing: "registry",
@@ -1791,7 +1791,7 @@ export const COMMANDS: readonly CommandEntry[] = [
     ],
   },
   {
-    // Chord-less, with Show Lens and Show Overview — see Show Lens above.
+    // Chord-less, like every sidebar row — the rail toggles above carry the chords.
     id: TUG_ACTIONS.TOGGLE_JOTS,
     title: "Show Jots",
     routing: "registry",
@@ -1801,7 +1801,7 @@ export const COMMANDS: readonly CommandEntry[] = [
 
   // ---- Tripwires ----
   {
-    // Chord-less, with the other sidebar rows — see Show Lens above.
+    // Chord-less, like every sidebar row — the rail toggles above carry the chords.
     id: TUG_ACTIONS.TOGGLE_TRIPWIRES,
     title: "Show Tripwires",
     routing: "registry",
@@ -1811,7 +1811,7 @@ export const COMMANDS: readonly CommandEntry[] = [
 
   // ---- Dashes ----
   {
-    // Chord-less, with the other sidebar rows — see Show Lens above.
+    // Chord-less, like every sidebar row — the rail toggles above carry the chords.
     id: TUG_ACTIONS.TOGGLE_DASHES,
     title: "Show Dashes",
     routing: "registry",
@@ -1821,7 +1821,7 @@ export const COMMANDS: readonly CommandEntry[] = [
 
   // ---- Cards ----
   {
-    // Chord-less, with the other sidebar rows — see Show Lens above.
+    // Chord-less, like every sidebar row — the rail toggles above carry the chords.
     id: TUG_ACTIONS.TOGGLE_CARDS,
     title: "Show Cards",
     routing: "registry",
@@ -1831,7 +1831,7 @@ export const COMMANDS: readonly CommandEntry[] = [
 
   // ---- Layout ----
   {
-    // Chord-less, with the other sidebar rows — see Show Lens above.
+    // Chord-less, like every sidebar row — the rail toggles above carry the chords.
     id: TUG_ACTIONS.TOGGLE_LAYOUT,
     title: "Show Layout",
     routing: "registry",
@@ -1841,7 +1841,7 @@ export const COMMANDS: readonly CommandEntry[] = [
 
   // ---- Overview ----
   {
-    // Chord-less, with Show Lens and Show Jots — see Show Lens above.
+    // Chord-less, like every sidebar row — the rail toggles above carry the chords.
     id: TUG_ACTIONS.TOGGLE_OVERVIEW,
     title: "Show Overview",
     routing: "registry",

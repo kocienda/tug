@@ -22,7 +22,7 @@
  * opacity, on the theory that a `border-width` in the effect stack would demote
  * the pulse off the compositor. Measured on a pinned bench of 100 glyphs, that
  * structure cost ~17% of the main thread with **every animation paused** — the
- * furniture, not the motion. Six boxes per glyph is 600 boxes for a Lens
+ * furniture, not the motion. Six boxes per glyph is 600 boxes for a rail
  * column, each carrying a promoted layer and a stacking context to be walked
  * every frame. The stroke layers in particular bought nothing, because the
  * animation they were protecting was never accelerated in the first place.
@@ -39,7 +39,7 @@
  * `--…-emit-reach`, which is `1.0` — the box edge — so the glyph is
  * layout-safe: no part of the motion overflows the square the caller reserved.
  *
- * **Two treatments, one motion.** Every value here is the BIG one — the Lens
+ * **Two treatments, one motion.** Every value here is the BIG one — the Cards card
  * session row, 28px and up. Below that the component derives a different
  * geometry and publishes it as `-auto` variables that the defaults here defer
  * to, reaching the previous glyph's exact proportions at 16px and under: a 0.5
@@ -170,7 +170,7 @@
      column of other headers. Those dots belong to ONE thing and have to read
      locked together, so nothing here jitters them by default.
 
-     The one caller that opts in is the Lens's session list (`dotDriftFor`),
+     The one caller that opts in is the Cards card's session list (`dotDriftFor`),
      where the dots represent genuinely separate items. It multiplies the
      period and nothing else, so every loop in a glyph still shares one
      duration and stays welded. */
@@ -489,7 +489,7 @@
    element's compositing status, so hinting changes nothing about whether an
    animation walks (`tuglaws/animation-doctrine.md`). The refusal stands on the
    multiplier instead: hinted layers still cost backing memory and mounted
-   layer population, and 200 of them on a Lens column raises the price of
+   layer population, and 200 of them on a rail column raises the price of
    every walk anything else causes. */
 .tug-progress-pulsing-dot[data-breathing] .tug-progress-pulsing-dot-dot,
 .tug-progress-pulsing-dot[data-emitting] .tug-progress-pulsing-dot-ring {

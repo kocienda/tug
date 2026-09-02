@@ -4,7 +4,7 @@
  * The state itself is computed on the server and rides the dash changeset entry
  * as one string ([P03]); nothing here parses a plan. What lives here is the
  * shared reading of that string, so the three surfaces that paint the mark —
- * the Lens Dashes row, the Changes shade's dash row, and the masthead dash chip
+ * the Dashes card row, the Changes shade's dash row, and the masthead dash chip
  * — cannot disagree about which states paint or about what they mean.
  *
  * **Only `stale` and `never-reviewed` paint.** A mark that is always present is
@@ -52,7 +52,7 @@ export function dashReviewPaints(
  * The two painting states get different words because they call for different
  * responses: a plan that moved past its review wants a re-review, while a plan
  * nothing ever vouched for wants a first one. `planPath` is named only where
- * the surface is this project's own room and the path is actionable — the Lens
+ * the surface is this project's own room and the path is actionable — the Dashes card
  * spans projects on one line, so it passes none.
  */
 export function dashReviewTooltip(

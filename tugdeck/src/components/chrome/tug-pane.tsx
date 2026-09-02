@@ -282,7 +282,7 @@ export interface CardTitleBarProps {
    * Every pane sharing this pane's slot, topmost first, already resolved for
    * display — passed straight through from {@link TugPaneProps.slotStack}.
    * Drives the stack badge (rendered only past depth 1) and the rows of the
-   * picker it opens. Empty for a free pane and for the Lens.
+   * picker it opens. Empty for a free pane and for a rail pane.
    */
   slotStack?: readonly SlotStackEntry[];
   /** Raise the pane a picker row names. Wired in `DeckCanvas`. */
@@ -455,7 +455,7 @@ function CardTitleBar({
   const placeAlone = badgeCount < 2;
   // Generic title-bar contributions: the active card may publish items via
   // `paneTitleBarItemsStore`. The pane renders them without knowing what
-  // card published them (the `cardTitleStore` precedent) — no lens import.
+  // card published them (the `cardTitleStore` precedent) — no cards-card import.
   // An item wears itself as a standing button or as a `…` row; the two are
   // split here so each side renders only what belongs to it, and the `…`
   // button itself appears only when a row asked for it.
@@ -725,7 +725,7 @@ function CardTitleBar({
       // first — ahead of the save guard, because there is nothing to decide
       // about a card that is not going anywhere. The X is already disabled,
       // so what arrives here is a route with no on-screen control to dim:
-      // ⌘W, Close All Card Tabs, the Lens's remote close box. The holder
+      // ⌘W, Close All Card Tabs, a rail card's remote close box. The holder
       // speaks the reason ([L31]).
       const heldId = resolveModalHold?.(scope) ?? null;
       if (heldId !== null) {
@@ -1357,7 +1357,7 @@ function CardTitleBar({
                         // height of a lowercase letter — it reads as grit on
                         // the badge rather than as an answer, and the
                         // character beside it is already saying the same
-                        // thing exactly. The Lens row keeps the mark, where
+                        // thing exactly. The Cards row keeps the mark, where
                         // the slot picker's own selection fill teaches it.
                         showLevel={false}
                       />
@@ -1630,9 +1630,9 @@ function snapshotCardRects(
   zoom = 1,
 ): { id: string; rect: Rect }[] {
   const results: { id: string; rect: Rect }[] = [];
-  // Every pane is a snap candidate — including the pinned Lens. A free pane
-  // dragged with Option snaps its edge to the Lens's edge just as it does to
-  // any other card, so a card can be abutted to it. The Lens exposes the same
+  // Every pane is a snap candidate — including a pinned rail. A free pane
+  // dragged with Option snaps its edge to the rail's edge just as it does to
+  // any other card, so a card can be abutted to it. A rail exposes the same
   // `getBoundingClientRect` as any pane, so its rect needs no special case.
   const els = document.querySelectorAll<HTMLElement>(
     ".tug-pane[data-pane-id]",
@@ -1736,11 +1736,11 @@ function releaseImposedFrame(
 
 /**
  * How far the pointer must travel before a press becomes a gesture — on the
- * title bar (drag), on a resize handle, and on the Lens's deck-facing edge.
+ * title bar (drag), on a resize handle, and on a rail's deck-facing edge.
  *
  * Under this, the press is a click: it focuses the pane and commits nothing.
  * The distinction matters most for a pane whose geometry is derived — a slotted
- * card, or the pinned Lens — because committing a move or a resize is what
+ * card, or a pinned rail — because committing a move or a resize is what
  * releases it from the arrangement, and that should take an actual drag.
  */
 export const DRAG_MOVE_THRESHOLD_PX = 3;
@@ -1826,7 +1826,7 @@ export interface TugPaneProps {
    * This pane's place in the imposition chain, when it holds a slot. Resolved
    * by `DeckCanvas`, which is the only vantage point that can see every
    * slotted pane's width at once — a pane cannot work out its own offset down
-   * the chain from its own state. Absent for a free pane and for the Lens.
+   * the chain from its own state. Absent for a free pane and for a rail pane.
    */
   placement?: ImposedPlacement;
   /**
@@ -1878,7 +1878,7 @@ export interface TugPaneProps {
    *
    * The entries arrive display-resolved (title and topmost flag already
    * decided), so the title bar renders its stack picker from props alone and
-   * never reaches for the deck store. Absent for a free pane and for the Lens,
+   * never reaches for the deck store. Absent for a free pane and for a rail,
    * which hold no slot and therefore stand in no stack.
    */
   slotStack?: readonly SlotStackEntry[];
@@ -1903,7 +1903,7 @@ export interface TugPaneProps {
    * `DeckCanvas` for the same reason — a pane cannot see its slot's other
    * occupants, and a member's index is a fact about the column rather than
    * about the pane. Absent on a stacked slot, on a column of one, on a free
-   * pane, and on the Lens, all of which take the undivided run.
+   * pane, and on a rail, all of which take the undivided run.
    */
   columnMember?: ColumnMemberPlacement;
   /**
@@ -1972,9 +1972,9 @@ type ResizeEdge = "n" | "s" | "e" | "w" | "nw" | "ne" | "sw" | "se";
 
 const RESIZE_EDGES: ResizeEdge[] = ["n", "s", "e", "w", "nw", "ne", "sw", "se"];
 
-// Gutter reserved on the deck side so the Lens can't be widened to cover
+// Gutter reserved on the deck side so a rail can't be widened to cover
 // the whole viewport. The effective max width is `window.innerWidth - this`.
-const LENS_MIN_GUTTER_PX = 80;
+const RAIL_MIN_GUTTER_PX = 80;
 
 // Safety net for a resize episode opened by a pointer gesture. Pointer-up is
 // the real end and always fires; this only covers a pane torn down mid-drag,
@@ -2037,7 +2037,7 @@ export function TugPane({
   const { id, position, size } = stackState;
   // Two derived geometry modes, both placed by `lib/layout-imposer.ts`.
   //
-  // Pinned — the Lens, while it is standing at its side. It holds that side
+  // Pinned — a rail card, while it is standing at its side. It holds that side
   // at a fixed pin and keeps its own width, so it exposes only its deck-facing
   // resize edge and is excluded from merge. It is DRAGGABLE, and dragging it
   // is exactly how it stops being pinned: the commit releases it, `sidebarSide`
@@ -2049,7 +2049,7 @@ export function TugPane({
   // still its own; the imposer never touches it.
   //
   // The two are mutually exclusive, which the deck-state invariant already
-  // guarantees (the Lens pane never carries a slot); the check here keeps the
+  // guarantees (a rail pane never carries a slot); the check here keeps the
   // render honest against a hand-built state. A free pane is neither and uses
   // its stored `position`/`size`. Every mode still owns its geometry [L09].
   const pinned = sidebarSide !== undefined;
@@ -2253,7 +2253,7 @@ export function TugPane({
     actions: {
       [TUG_ACTIONS.CLOSE]: (_event: ActionEvent) => handleChromeClose(),
       [TUG_ACTIONS.CLOSE_ALL]: (_event: ActionEvent) => handleCloseAll(),
-      // The X button, aimed from elsewhere — today the Lens's pane row. It
+      // The X button, aimed from elsewhere — today the Cards card's pane row. It
       // delegates to the same `requestClose()` the chrome close goes through,
       // so a remote close box inherits the X's whole policy rather than a
       // second, weaker one: every hosted card's save guard runs, and a
@@ -2366,7 +2366,7 @@ export function TugPane({
   // Rail-ness follows the ACTIVE card's registration, the same way the
   // masthead and the title do. It reads `layoutRole` — what the card IS — and
   // not `sidebarSide`, which says only where a rail currently stands: a
-  // released Lens is still a tool, and its livery should not blink when it
+  // released rail card is still a tool, and its livery should not blink when it
   // leaves its pin. `activeCardRegistration` resolves only for a stacked pane,
   // so a single-card pane falls back to the role its caller resolved from the
   // same registration, exactly as `effectiveMeta` falls back to `meta`.
@@ -2880,11 +2880,11 @@ export function TugPane({
       dragActive.current = true;
       dragStartPointer.current = { x: event.clientX, y: event.clientY };
 
-      // A derived pane (pinned Lens, imposed card) is released from whatever
+      // A derived pane (a pinned rail, an imposed card) is released from whatever
       // was deriving its geometry by MOVING it, not by being touched: the
       // release waits for the pointer to travel (see `releaseImposedFrame`,
       // called from the first frame past the threshold). Until then the pane
-      // still belongs to the arrangement, so a click on the Lens's title bar —
+      // still belongs to the arrangement, so a click on a rail's title bar —
       // to focus it, or to start a gesture and think better of it — leaves it
       // pinned where it was.
       dragMoved.current = false;
@@ -3353,11 +3353,11 @@ export function TugPane({
       /**
        * Escape cancels, and the key goes no further.
        *
-       * Capture phase and `stopImmediatePropagation` because the Lens's
+       * Capture phase and `stopImmediatePropagation` because the Cards card's
        * `CANCEL_DIALOG` responder is also listening for Escape, and a cancelled
-       * drag that additionally collapsed the Lens's selection would be one
+       * drag that additionally collapsed that card's selection would be one
        * keypress doing two unrelated things. `card-drag-coordinator.ts` swallows
-       * it the same way for the tab drag, and `lens/block-reorder.ts`'s comment
+       * it the same way for the tab drag, and `tugways/block-reorder.ts`'s comment
        * names this gesture as the same case.
        */
       function onGestureKeyDown(e: KeyboardEvent) {
@@ -3639,7 +3639,7 @@ export function TugPane({
       // The responder chain's own key listener is a window-capture listener
       // (`responder-chain-provider.tsx`), and capture descends outward-in — so
       // a document-capture listener runs AFTER it and never sees a key the
-      // chain stopped. `lens/block-reorder.ts` registers its drag's Escape the
+      // chain stopped. `tugways/block-reorder.ts` registers its drag's Escape the
       // same way, for the same reason; `card-drag-coordinator.ts` uses
       // `document` and gets away with it only because nothing swallows the keys
       // it cares about first.
@@ -3887,30 +3887,30 @@ export function TugPane({
     [id, onCardMoved, position.x, position.y, size.width, size.height],
   );
 
-  // Deck-facing-edge resize for the pinned Lens. It stays pinned to its
-  // side, so only its width changes. For a right-side Lens the exposed edge
-  // is the west one (dragging left grows it); for a left-side Lens it is the
+  // Deck-facing-edge resize for a pinned rail. It stays pinned to its
+  // side, so only its width changes. For a right-side rail the exposed edge
+  // is the west one (dragging left grows it); for a left-side rail it is the
   // east edge (dragging right grows it). Width-only keeps the derived pin
   // intact (the generic handler would set left/top, fighting it). The commit
-  // writes `size.width` to the pane; the reopen-width mirror to `lensStore`
+  // writes `size.width` to the pane; the reopen-width mirror to `sidebarWidthStore`
   // lives in the deck manager's card-moved handler, keeping this pane
-  // lens-agnostic.
+  // card-agnostic.
   //
-  // The width is written as `LENS_WIDTH_PROPERTY` on the frames' container
+  // The width is written as `sidebarWidthProperty(side)` on the frames' container
   // rather than onto this frame, because the width is not this frame's alone:
-  // a right-side Lens is pinned by an expression that SUBTRACTS its width from
+  // a right-side rail is pinned by an expression that SUBTRACTS its width from
   // the canvas, and the band the cards ride is inset by it. Writing the frame's
   // own `width` moves only the dragged edge's box and leaves those two
-  // expressions on the width the last render baked in — the Lens's pinned edge
+  // expressions on the width the last render baked in — the rail's pinned edge
   // walks off the deck edge it is supposed to hold, and the cards do not learn
   // the rail moved until pointer-up. One property write feeds all three, and
   // the browser resolves them together: the pinned edge holds and the
   // arrangement re-imposes under the moving edge, live ([L06]).
   //
   // The exposed edge snaps with Option held, exactly like any other pane
-  // edge: the Lens is the moving side and every other pane is a snap target.
+  // edge: the rail is the moving side and every other pane is a snap target.
   // Those targets are re-measured per frame rather than snapshotted at gesture
-  // start — under live re-imposition a card's edge moves as the Lens grows, and
+  // start — under live re-imposition a card's edge moves as the rail grows, and
   // a guide drawn from a start-of-gesture rect would mark an alignment that is
   // no longer there. [D01, D03, D04]
   const handleSidebarResizeStart = useCallback(
@@ -3943,7 +3943,7 @@ export function TugPane({
       const minWidth = sizePolicy.min.width;
       const maxWidth = Math.max(
         minWidth,
-        window.innerWidth - LENS_MIN_GUTTER_PX,
+        window.innerWidth - RAIL_MIN_GUTTER_PX,
       );
       // A left rail's deck edge faces right (east): rightward motion
       // grows it. A right rail's deck edge faces left (west): leftward
@@ -3951,8 +3951,8 @@ export function TugPane({
       const growSign = sidebarSide === "left" ? 1 : -1;
 
       // The pinned edge is measured rather than derived from `position`, which
-      // the pinned Lens does not use. It is a fixed number for the gesture:
-      // the deck edge the Lens holds is the one thing this drag may not move.
+      // a pinned rail does not use. It is a fixed number for the gesture:
+      // the deck edge the rail holds is the one thing this drag may not move.
       const canvasBounds = container.getBoundingClientRect();
       const guideEdgeOffsets = measureGuideEdgeOffsets(frame, zoom);
       const frameRect = frame.getBoundingClientRect();
@@ -3969,16 +3969,16 @@ export function TugPane({
       let latestX = startClientX;
       let latestAlt = event.altKey;
       let rafId: number | null = null;
-      let lensResizeMoved = false;
+      let railResizeMoved = false;
 
       // The deck-facing edge is a handle like any other: under the move
       // threshold the press is a click, which states no width and commits
       // nothing.
       const latchSidebarResizeMove = (clientX: number): boolean => {
-        if (lensResizeMoved) return true;
+        if (railResizeMoved) return true;
         if (Math.abs(clientX - startClientX) < DRAG_MOVE_THRESHOLD_PX) return false;
-        lensResizeMoved = true;
-        // The Lens is a coverer like any other pane; a shrinking rail
+        railResizeMoved = true;
+        // A rail is a coverer like any other pane; a shrinking rail
         // exposes what it hid, without a store commit until pointer-up.
         paneOcclusionGesture.begin();
         return true;
@@ -4053,7 +4053,7 @@ export function TugPane({
         width = computeWidth();
         clearGuideElements(resizeGuideEls);
         // The property stays as the gesture left it. The commit re-renders the
-        // Lens at this width and `DeckCanvas` writes the same number back, so
+        // rail at this width and `DeckCanvas` writes the same number back, so
         // there is no frame where the deck reads the pre-gesture width.
         container.style.setProperty(widthProperty, `${width}px`);
         onCardMoved(id, position, { width, height: size.height });

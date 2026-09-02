@@ -15,7 +15,7 @@
  * surface here.
  *
  * Time is rendered in local time as `HH:MM:SS.mmm` — same density the
- * the Lens Log section uses for log entries. Local time
+ * the DevTools card Log section uses for log entries. Local time
  * matches the dev-panel convention and the wall-clock most consumers
  * recognize ("this transition happened at 14:23"); UTC would force
  * mental arithmetic for every row read.

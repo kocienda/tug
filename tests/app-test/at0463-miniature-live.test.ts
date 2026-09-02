@@ -1,5 +1,5 @@
 /**
- * at0463-miniature-live.test.ts — the Lens miniature is an instrument, not a
+ * at0463-miniature-live.test.ts — the Layout card's miniature is an instrument, not a
  * diagram.
  *
  * The committed drawing has always been able to show where the deck STOOD at
@@ -44,7 +44,7 @@ import { launchTugApp, note, type App } from "./_harness";
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
 
-const LENS_WIDTH = 420;
+const RAIL_WIDTH = 420;
 /** The settle window, with room for a landing tween. */
 const AFTER_LAND_MS = 900;
 /** Long enough for the autoscroll's rate integrator to travel visibly. */
@@ -54,9 +54,9 @@ const wait = (ms: number): Promise<void> =>
   new Promise<void>((r) => setTimeout(r, ms));
 
 const COMMITTED_MINI =
-  '[data-testid="lens-layouts-plan"] [data-plan-layer="committed"] .layout-mini';
+  '[data-testid="layout-card-plan"] [data-plan-layer="committed"] .layout-mini';
 
-/** Five content cards and the Lens on the right, six-up so slot 1 exists. */
+/** Five content cards and the Layout card on the right, six-up so slot 1 exists. */
 function deckShape(): Record<string, unknown> {
   const ids = ["A", "B", "C", "D", "E"];
   return {
@@ -81,12 +81,12 @@ function deckShape(): Record<string, unknown> {
         slot: index,
       })),
       {
-        id: "pLens",
+        id: "pRail",
         position: { x: 0, y: 0 },
-        size: { width: LENS_WIDTH, height: 900 },
+        size: { width: RAIL_WIDTH, height: 900 },
         cardIds: ["L"],
         activeCardId: "L",
-        title: "Lens",
+        title: "Layout",
         acceptsFamilies: [],
       },
     ],
@@ -102,7 +102,7 @@ function deckShape(): Record<string, unknown> {
 /** Open the deck with the Layouts plan on screen. */
 async function openDeck(app: App, layout?: "flow"): Promise<void> {
   await app.evalJS<null>(
-    `(window.__tug.setTugbankValue("dev.tugtool.lens", "widthPx", { kind: "i64", value: ${LENS_WIDTH} }), null)`,
+    `(window.__tug.setTugbankValue("dev.tugtool.layout", "widthPx", { kind: "i64", value: ${RAIL_WIDTH} }), null)`,
   );
   const state = deckShape();
   if (layout === "flow") {
@@ -110,11 +110,11 @@ async function openDeck(app: App, layout?: "flow"): Promise<void> {
   }
   await app.seedDeckState({ state, focusCardId: "A" });
   await app.waitForCondition<boolean>(
-    `document.querySelector('[data-testid="lens-layouts-plan"]') !== null`,
+    `document.querySelector('[data-testid="layout-card-plan"]') !== null`,
     { timeoutMs: 8_000 },
   );
   await app.evalJS(
-    `document.querySelector('[data-testid="lens-layouts-section"]')
+    `document.querySelector('[data-testid="layout-card-section"]')
        .scrollIntoView({ block: "center" })`,
   );
   await wait(AFTER_LAND_MS);
@@ -526,9 +526,9 @@ describe.skipIf(!SHOULD_RUN)("at0463 — the miniature is live", () => {
           `(function () {
             var box = document.querySelector("[data-deck-canvas-background]")
               .getBoundingClientRect();
-            var lens = document.querySelector('.tug-pane[data-pane-id="pLens"]')
+            var rail = document.querySelector('.tug-pane[data-pane-id="pRail"]')
               .getBoundingClientRect();
-            return (lens.left - 5) - (box.left + 5);
+            return (rail.left - 5) - (box.left + 5);
           })()`,
         );
         const published = await gauge(app, "--gauge-flow-offset");

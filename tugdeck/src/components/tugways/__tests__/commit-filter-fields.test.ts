@@ -152,14 +152,14 @@ describe("commitFilterFields scope", () => {
     // dash atom `^<name>` — so the name, and the sigil spelling the atom
     // shows, both find the commit under Message and neither does under any
     // other target.
-    const joined: GitLogCommit = { ...COMMIT, tug_dash: "tugdash/lens-routes" };
-    expect(filterQueryMatch("lens-routes", commitFilterFields(joined, ["message"]))).toBe(true);
-    expect(filterQueryMatch("^lens-routes", commitFilterFields(joined, ["message"]))).toBe(true);
-    expect(filterQueryMatch("lens-routes", commitFilterFields(joined, ["detail", "files"]))).toBe(false);
+    const joined: GitLogCommit = { ...COMMIT, tug_dash: "tugdash/rail-routes" };
+    expect(filterQueryMatch("rail-routes", commitFilterFields(joined, ["message"]))).toBe(true);
+    expect(filterQueryMatch("^rail-routes", commitFilterFields(joined, ["message"]))).toBe(true);
+    expect(filterQueryMatch("rail-routes", commitFilterFields(joined, ["detail", "files"]))).toBe(false);
     // A hand commit has no attribution to match — and the trailer's own
     // `tugdash/` ref prefix is plumbing, not something the row ever shows.
-    expect(filterQueryMatch("lens-routes", commitFilterFields(COMMIT, ["message"]))).toBe(false);
-    expect(filterQueryMatch("tugdash/lens-routes", commitFilterFields(joined, ["message"]))).toBe(false);
+    expect(filterQueryMatch("rail-routes", commitFilterFields(COMMIT, ["message"]))).toBe(false);
+    expect(filterQueryMatch("tugdash/rail-routes", commitFilterFields(joined, ["message"]))).toBe(false);
   });
 
   test("files alone reads the paths, not the message", () => {

@@ -1,6 +1,6 @@
 /**
  * cards-session-cell.tsx — the session *monitor* row, as it appears for a
- * single-card session pane in the Lens's Cards section:
+ * single-card session pane in the Cards card:
  *
  *   [dot] <session name>^<dash> ⚒ 7/12           <slot layout>
  *   <description>
@@ -26,7 +26,7 @@
  * `TugSessionRow`, the shape the masthead and the new-session picker also wear:
  * how it divides a rail's width between the dot, the title, the slots, and the
  * activity with its tape is that component's decision, so what the gallery
- * approves is what the Lens wears, by construction rather than by two files
+ * approves is what the Cards card wears, by construction rather than by two files
  * agreeing.
  *
  * The row carries `data-session-id` (which session this is) alongside the
@@ -57,11 +57,11 @@ export interface CardsSessionRowProps {
   selected: boolean;
 }
 
-/** One monitor row: the shared `SessionIdentityRow`, at the Lens's settings.
+/** One monitor row: the shared `SessionIdentityRow`, at the Cards card's settings.
  *  Every decision about what the row SAYS — the description ladder, the
  *  activity ladder, the beat grammar — and about how it PACKS belongs to that
  *  component, so what ships here is what the gallery approved. What is left
- *  here is what is genuinely the Lens's: the slot picker, the reorder handle,
+ *  here is what is genuinely the Cards card's: the slot picker, the reorder handle,
  *  and the filter query. The `TugListView` cell wrapper still owns cursor /
  *  selection / click. */
 export function CardsSessionRow({

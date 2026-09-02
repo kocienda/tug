@@ -59,7 +59,7 @@ const AFTER_LAND_MS = 900;
 /** Geometry tolerance, in px. */
 const EPSILON = 3;
 
-const LENS_WIDTH = 380;
+const RAIL_WIDTH = 380;
 const PANE_WIDTH = 420;
 /**
  * What a held-open slot reserves here: the widest card standing in the chain
@@ -97,14 +97,14 @@ function paneOf(id: string, cardId: string, slot: number) {
   };
 }
 
-function lensPane() {
+function railPane() {
   return {
-    id: "pLens",
+    id: "pRail",
     position: { x: 0, y: 0 },
-    size: { width: LENS_WIDTH, height: 900 },
+    size: { width: RAIL_WIDTH, height: 900 },
     cardIds: ["L"],
     activeCardId: "L",
-    title: "Lens",
+    title: "Layout",
     acceptsFamilies: [],
   };
 }
@@ -122,7 +122,7 @@ function cardsFor(ids: readonly string[]) {
 }
 
 /**
- * One card, in the SECOND slot of a two-up, with the Lens pinned right.
+ * One card, in the SECOND slot of a two-up, with the Layout card pinned right.
  *
  * The far slot deliberately: with the card at the band's far end and slot 0
  * standing empty at its near end, the tile and the card are at opposite ends
@@ -132,7 +132,7 @@ function cardsFor(ids: readonly string[]) {
 function oneCardDeck() {
   return {
     cards: cardsFor(["A"]),
-    panes: [paneOf("p1", "A", 1), lensPane()],
+    panes: [paneOf("p1", "A", 1), railPane()],
     activePaneId: "p1",
     imposition: { kind: "two-up", sidebars: { layout: { side: "right" } } },
     hasFocus: true,
@@ -143,7 +143,7 @@ function oneCardDeck() {
 function gappedFlowDeck() {
   return {
     cards: cardsFor(["A", "B"]),
-    panes: [paneOf("p1", "A", 0), paneOf("p2", "B", 2), lensPane()],
+    panes: [paneOf("p1", "A", 0), paneOf("p2", "B", 2), railPane()],
     activePaneId: "p1",
     imposition: {
       kind: "three-up",
@@ -219,7 +219,7 @@ describe.skipIf(!SHOULD_RUN)("at0465 — the held-open slot", () => {
       const app = await launchTugApp({ testName: "at0465-empty-slot" });
       try {
         await app.evalJS<null>(
-          `(window.__tug.setTugbankValue("dev.tugtool.lens", "widthPx", { kind: "i64", value: ${LENS_WIDTH} }), null)`,
+          `(window.__tug.setTugbankValue("dev.tugtool.layout", "widthPx", { kind: "i64", value: ${RAIL_WIDTH} }), null)`,
         );
         await app.seedDeckState({ state: oneCardDeck(), focusCardId: "A" });
         await app.waitForCondition<boolean>(
@@ -436,7 +436,7 @@ describe.skipIf(!SHOULD_RUN)("at0465 — the held-open slot", () => {
       const app = await launchTugApp({ testName: "at0465-empty-slot-flow" });
       try {
         await app.evalJS<null>(
-          `(window.__tug.setTugbankValue("dev.tugtool.lens", "widthPx", { kind: "i64", value: ${LENS_WIDTH} }), null)`,
+          `(window.__tug.setTugbankValue("dev.tugtool.layout", "widthPx", { kind: "i64", value: ${RAIL_WIDTH} }), null)`,
         );
         await app.seedDeckState({ state: gappedFlowDeck(), focusCardId: "A" });
         await app.waitForCondition<boolean>(

@@ -5,7 +5,7 @@
  * compact commit row per commit.
  *
  * Data rides the shared `gitLogStore()` (`GIT_LOG` feed) — the card knows
- * its own `projectDir` from the binding, so the Lens-follow indirection is
+ * its own `projectDir` from the binding, so the Cards card-follow indirection is
  * gone. The store is an app-level singleton keyed by one requested root, so
  * `requestLog` fires only while THIS card's History view is the active slot
  * (`active`), and the render gates on `requestedRoot === projectDir` — two
@@ -40,7 +40,7 @@
  * hash, message, details, or changed paths match ({@link commitFilterFields});
  * diffs are deliberately not searched. The query is this view's own React
  * state — the field and the list are in one component, so the module-store
- * adapter the Lens sections need does not apply here.
+ * adapter the Cards card sections need does not apply here.
  *
  * Beside it, a `TugOptionGroup` AIMS the filter: Hash / Message / Detail /
  * Files, all on by default, each independently switchable
@@ -192,7 +192,7 @@ export function SessionHistoryView({
   const focusGroup = useId();
   const DONE_ORDER = 1;
   // The filter field registers BEHIND Done at order -1 with a `skip` policy,
-  // exactly as the Lens section bands do: click-reachable and
+  // exactly as the Cards card section bands do: click-reachable and
   // ArrowDown-escapable, but out of the Tab walk and never the seeded key
   // view — Done stays the shade's opening destination, so Return still
   // means Done.
@@ -363,7 +363,7 @@ export function SessionHistoryView({
             </span>
           }
           name="History"
-          // The filter holds the header's trailing edge, where the Lens
+          // The filter holds the header's trailing edge, where the Cards card
           // sections carry theirs — pinned above the scroller, so the control
           // that trims the list never scrolls away from it. Mounted only for a
           // repo with commits: there is nothing to trim otherwise, and a field

@@ -84,7 +84,7 @@ export function isFocusDestination(
  * registered under `componentId`. A sidebar card is a singleton and its pane
  * hosts nothing else (`acceptsFamilies: []` and an un-mergeable family), so the
  * derivation is single-valued. This is the one predicate every consumer that
- * needs "which pane is the Lens / the Jots card" goes through.
+ * needs "which pane is the rail / the Jots card" goes through.
  */
 export function findSidebarPane(
   state: DeckState,
@@ -128,7 +128,7 @@ export function findSidebarPanes(
  * (last = topmost, the order `DeckState.panes` itself carries). Empty when
  * the slot is unoccupied.
  *
- * `undefined` never matches: a free pane and the Lens hold no slot, so they
+ * `undefined` never matches: a free pane and the rail hold no slot, so they
  * stand in no stack. The membership and the order are both fully determined
  * by state the deck already owns, which is why nothing here is stored — a
  * stored copy could only ever disagree with the array it was copied from.
@@ -269,7 +269,7 @@ export function deckFlowStrip(state: DeckState): FlowStrip | null {
  * geometry it is in, or `null` when it has no numbered places at all.
  *
  * The layout-blind twin of {@link deckFlowStrip}, and the reason it exists is
- * the Lens's plan: the drawing has to place a block per slot in both modes, and
+ * the rail's plan: the drawing has to place a block per slot in both modes, and
  * before this it could only ask about flow. So it derived fit itself, out of
  * nominal units, and the two pictures did not agree — the plan visibly jumped
  * when the layout toggled even though nothing about the deck had moved that
@@ -420,7 +420,7 @@ export function deckColumnsOf(state: DeckState): readonly DeckColumn[] {
  * `mode === "split" && members.length >= 2`, which is what the pane's own
  * cluster reads, while `columnBadgeFactsOf` asked only about `mode`. The same
  * lone card then wore a stack badge on its masthead and a split band letter —
- * `A`, an address matched against nothing — on its Lens row. Two surfaces
+ * `A`, an address matched against nothing — on its rail row. Two surfaces
  * contradicting each other about one card is not a bug either of them can be
  * blamed for; it is a rule that was written down twice.
  */
@@ -444,7 +444,7 @@ export interface ColumnBadgeFacts {
  * imposition to stand in.
  *
  * **A place one card deep is still a place**, and it reads `1`. The pane's own
- * cluster has said so since the badge became unconditional there, and a Lens
+ * cluster has said so since the badge became unconditional there, and a rail
  * row that went blank for the same card said the opposite about it — one
  * surface claiming the card stands somewhere and the other claiming it stands
  * nowhere. The absence also cost the reader the one case where the badge is a
@@ -452,7 +452,7 @@ export interface ColumnBadgeFacts {
  * split, and a row with no badge on it gives no hint that it can.
  *
  * Read over {@link deckColumnsOf} and nothing else, which is the deck's one
- * reading of its columns — so a Lens row and the pane's own cluster cannot
+ * reading of its columns — so a rail row and the pane's own cluster cannot
  * disagree about which member is at which index.
  *
  * **Rails are deliberately out of reach here, and do not need to be in it.**
@@ -462,7 +462,7 @@ export interface ColumnBadgeFacts {
  * module-private to `components/chrome/deck-canvas.tsx` and reads the boot-time
  * card registry rather than deck state — not something a pure `(state, cardId)`
  * selector can call without dragging the registry into this layer. It would buy
- * nothing either way: the only sidebar-hosted cards are the Lens, Jots, and
+ * nothing either way: the only sidebar-hosted cards are the rail, Jots, and
  * Overview, none of which is a Session row, and a rail member's badge is
  * already drawn on its own pane from `sidebarStack`.
  */

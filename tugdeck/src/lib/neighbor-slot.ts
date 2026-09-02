@@ -22,7 +22,7 @@ import { slotCount } from "./layout-imposer";
  *
  * `undefined` is "no opinion, take the default slot": no arrangement is up, the
  * arrangement has one slot, or the originating card holds no slot of its own (a
- * sidebar card such as the Lens, or a free-floating pane).
+ * sidebar card such as the rail, or a free-floating pane).
  */
 export function neighborSlot(
   store: IDeckManagerStore,

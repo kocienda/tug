@@ -72,7 +72,7 @@
  *
  * {@link filterMatchScore} and {@link filterHighlightRanges} are the
  * entry points for the `TugFilterField` list-filter surfaces (the
- * session picker, the `/resume` overlay, the Lens sections). They sit
+ * session picker, the `/resume` overlay, the rail cards). They sit
  * on top of `scoreMatch`, adding two things a long list needs that a
  * ≤50-item popup does not: a compactness rule that rejects a match too
  * scattered to mean anything, and a per-row score the list orders by

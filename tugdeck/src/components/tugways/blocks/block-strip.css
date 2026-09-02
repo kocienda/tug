@@ -34,10 +34,10 @@
   --tugx-block-strip-padding: var(--tug-space-sm) var(--tug-space-md);
 }
 
-/* section — the Lens band altitude ([P03]): a `sm` semibold name (the title
+/* section — the rail band altitude ([P03]): a `sm` semibold name (the title
    reads as a quiet heading, not a heavyweight banner), a touch taller line
    box, and the same roomier padding. The name size / weight here is shared by
-   the Lens section bands AND the Session card's Changes / History Shade
+   the rail section bands AND the Session card's Changes / History Shade
    headers (same `data-altitude="section"` chrome). */
 .tool-call-header[data-altitude="section"] {
   --tugx-toolheader-name-size: var(--tug-font-size-sm);
@@ -50,7 +50,7 @@
    explicit `top: 0`, overriding the leaf `.tool-call-header`'s
    `top: var(--tugx-pin-stack-top, 0)`. This breaks the self-reference: the
    band's measured height is published on the section BODY (see
-   `lens-section-band.css`), never on an ancestor the strip would read from. */
+   this file), never on an ancestor the strip would read from. */
 .tool-call-header[data-altitude="section"] {
   top: 0;
 }

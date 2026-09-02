@@ -2310,7 +2310,7 @@ export class FocusContext {
       // A group at an edge in a scope with NO declared order. The same liveliness net
       // applies here as inside a declared scope ([P01]): the arrow walks on along the
       // linear order instead of clamping, so a list's last row continues into whatever
-      // is authored after it (the Lens's next section) rather than dead-ending. When
+      // is authored after it (the rail's next section) rather than dead-ending. When
       // the walk finds nowhere to go the group simply holds — either way the arrow is
       // consumed, so the page never scrolls and the key never beeps ([P08]).
       if (this.moveKeyViewLinear(direction) !== null) this.landAfterMovement();
@@ -2403,7 +2403,7 @@ export class FocusContext {
    * node ([Q12]: a stop is `group:order`).
    *
    * For a surface that DERIVES its spatial plane from what is registered rather
-   * than from a hand-kept list (the Lens). The alternative is an author
+   * than from a hand-kept list (the rail). The alternative is an author
    * remembering to add each new control to a table somewhere else, and the
    * failure when they don't is silent — the stop is simply off the plane and the
    * liveliness net catches its arrows, which looks like nothing at all. Reading
@@ -2873,7 +2873,7 @@ export class FocusManager {
    * parks the sink (which carries no responder and fires no useful
    * `focusin`), so the register must track the key view explicitly, or
    * responder-scoped dispatch (accelerators, the cancel ladder) strands on
-   * whatever coarse container the activation settle left (the Lens's
+   * whatever coarse container the activation settle left (the rail's
    * Escape focus-out lives on a content-local responder the upward walk
    * only reaches when FR starts at or below it).
    */

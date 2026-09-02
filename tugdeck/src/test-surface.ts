@@ -220,7 +220,7 @@ import {
  * `1.19.0`: adds {@link TugTestSurface.activateCard} — the raise gesture as
  * a surface verb (mirrors `closePane`), for the pane-occlusion cell
  * ([AT0332]): a fully-buried pane cannot be reached by a click, so the test
- * raises it the way a Lens Cards row does, through
+ * raises it the way a Cards card row does, through
  * `DeckManager.activateCard`. Additive; major stays `1`.
  *
  * `1.20.0`: adds {@link TugTestSurface.getScrollDisplacementCount} and
@@ -1463,7 +1463,7 @@ export interface TugTestSurface {
 
   /**
    * Raise/activate a card by id — the same `DeckManager.activateCard`
-   * mutation a Lens Cards-row click commits. SURFACE_VERSION 1.19.0, for
+   * mutation a Cards card row click commits. SURFACE_VERSION 1.19.0, for
    * the pane-occlusion cell ([AT0332]): a fully-buried pane presents no
    * clickable pixels, so raise-from-buried is driven here.
    */
@@ -1510,7 +1510,7 @@ export interface TugTestSurface {
 
   /**
    * Put the layout selection on exactly these cards (SURFACE_VERSION 2.10.0),
-   * anchored on the last of them — the state a run of ⌘/⇧ clicks in the Lens's
+   * anchored on the last of them — the state a run of ⌘/⇧ clicks in the Cards card's
    * Cards list would leave behind.
    *
    * An empty array clears it, which is how a test drives the resolver's
@@ -1587,7 +1587,7 @@ function makeEmptyDeckState(): DeckState {
   return {
     cards: [],
     panes: [],
-    imposition: { sidebars: { lens: { side: DEFAULT_SIDEBAR_SIDE } } },
+    imposition: { sidebars: { tripwires: { side: DEFAULT_SIDEBAR_SIDE } } },
     hasFocus: typeof document !== "undefined" ? document.hasFocus() : false,
   };
 }

@@ -50,7 +50,7 @@
  * to paint, exactly as `dash-lifecycle.md`'s **card closed** row already says
  * of its own case: there is no card left to paint one on, and the only surface
  * missing is one that does not exist. The record, `tugtool dash arc`, and the
- * Lens carry it, and the assertion below states the picker outright so the
+ * Dashes card carry it, and the assertion below states the picker outright so the
  * absence is a claim this file makes rather than a check it quietly dropped.
  *
  * The kill is by pid because that is the gesture — a process dying is not a

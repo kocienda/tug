@@ -1,7 +1,7 @@
 /**
  * dash-join-register — the one sentence the join says, state by state.
  *
- * Three surfaces render this: the Lens Dashes row, the Changes shade's dash
+ * Three surfaces render this: the Dashes card Dashes row, the Changes shade's dash
  * row, and the composer's status row. They agree because they all call this
  * derivation — so what is pinned here is the whole state→sentence table, and,
  * just as load-bearing, the ORDER the arms are tried in. Precedence is where a
@@ -185,7 +185,7 @@ describe("what the register says", () => {
 
   test("an unbound joinable dash says nothing rather than promising a reconcile", () => {
     // The pilot never runs for a dash nobody holds, so naming a reconcile on
-    // the Lens row would be a promise the machine has already declined to
+    // the Dashes card row would be a promise the machine has already declined to
     // keep — standing there forever.
     expect(reg({ phase: "previewed" }, { stage: "ready", bound: false })).toBeNull();
     // A candidate that DID land (from a `/dash-join` on demand, or from a bind
@@ -198,7 +198,7 @@ describe("what the register says", () => {
   test("a fresh dash's `empty` blocker is not a join refusal", () => {
     // A dash created a moment ago has no rounds, so the board reports an
     // `empty` blocker meaning "nothing here yet". Read as a join failure it
-    // would put a red register on every new dash in the Lens — the arc has not
+    // would put a red register on every new dash in the Dashes card — the arc has not
     // begun, so the register says nothing at all.
     const fresh = reg(
       {

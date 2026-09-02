@@ -2,7 +2,7 @@
  * tug-pulse.css — the PULSE's typographic contract.
  *
  * Everything the PULSE looks like is declared HERE, once, as
- * `--tugx-pulse-*` knobs on `body`. The Z2 strip and the Lens row are
+ * `--tugx-pulse-*` knobs on `body`. The Z2 strip and the Cards card row are
  * mount sites: they supply the legend, the two strings, and the trailing
  * accessory, and contribute NO typography of their own. Tuning the PULSE
  * means editing this file, and every surface moves together.
@@ -94,7 +94,7 @@ body {
   --tugx-pulse-sep-gap: 0.45em;
   --tugx-pulse-sep-color: var(--tug7-element-global-text-normal-muted-disabled-rest);
 
-  /* ── Stacked layout (Lens) ──────────────────────────────────────────── */
+  /* ── Stacked layout (Cards card) ──────────────────────────────────────────── */
   /* Top of the block to the first baseline. Must CLEAR the tallest run's
      ascent — a strut only wins the baseline group while it is the tallest
      thing in it. 13 clears the ladder's top rung; at0283 measures the step
@@ -141,7 +141,7 @@ body {
 
 /* The bar clips, and the clip lands on the PADDING box — so a mount site whose
    legend or accessory is a pressable control gives the bar inline padding to
-   stand the cut off its ring (`--tugx-session-row-pulse-inset` in the Lens row) and takes the same
+   stand the cut off its ring (`--tugx-session-row-pulse-inset` in the Cards card row) and takes the same
    amount off its own. A control flush to a clipping edge loses the ring stroke
    that paints outside it. */
 .tug-pulse[data-layout="inline"] {
@@ -340,7 +340,7 @@ body {
   padding-inline-start: var(--tugx-pulse-trailing-gap);
 }
 
-/* ── Stacked layout — the Lens row's two lines ────────────────────────── */
+/* ── Stacked layout — the Cards card row's two lines ────────────────────────── */
 
 .tug-pulse[data-layout="stacked"] {
   flex-direction: column;
@@ -354,7 +354,7 @@ body {
    between it and the first run and indents every line by that much — which
    read as the PULSE hanging right of the name line above it. Air between the
    run and the accessory is the accessory's own margin instead, so the strut
-   costs exactly the zero width it declares and all three of a Lens row's
+   costs exactly the zero width it declares and all three of a Cards card row's
    lines start on one vertical. */
 .tug-pulse-line {
   display: flex;

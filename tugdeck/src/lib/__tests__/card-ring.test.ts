@@ -7,7 +7,7 @@
  * against a real deck shape without mounting anything.
  *
  * Membership is the half that has already been wrong once. The first cut
- * excluded the Lens by analogy to `move-to-slot` — an exclusion that is a
+ * excluded the rail by analogy to `move-to-slot` — an exclusion that is a
  * fact about *slots*, which a sidebar never takes — and the result was a
  * deck whose always-visible card was the only one the keyboard could not
  * reach laterally, while Jots (the other sidebar, with no such special case)
@@ -66,13 +66,13 @@ function pane(
   };
 }
 
-/** The shipped default: the Lens pinned to the right rail. */
-const LENS_RIGHT: DeckImposition = { sidebars: { lens: { side: "right" } } };
+/** The shipped default: the rail pinned to the right rail. */
+const RAIL_RIGHT: DeckImposition = { sidebars: { tripwires: { side: "right" } } };
 
 function deck(
   cards: CardState[],
   panes: TugPaneState[],
-  imposition: DeckImposition = LENS_RIGHT,
+  imposition: DeckImposition = RAIL_RIGHT,
 ): DeckState {
   return {
     cards,
@@ -84,8 +84,8 @@ function deck(
 }
 
 describe("membership", () => {
-  test("a pinned Lens is on the ring", () => {
-    // The regression this file exists for. The Lens is a card the user reads
+  test("a pinned rail is on the ring", () => {
+    // The regression this file exists for. The rail is a card the user reads
     // and types in, standing in plain sight; skipping it left the deck's
     // most-always-visible card unreachable by ⇧⌘[ / ⇧⌘].
     const state = deck(
@@ -178,7 +178,7 @@ describe("stepping", () => {
     ],
   );
 
-  test("forward wraps through the Lens and back to the start", () => {
+  test("forward wraps through the rail and back to the start", () => {
     expect(stepCardRing(state, "a", 1)).toBe("b");
     expect(stepCardRing(state, "b", 1)).toBe("L");
     expect(stepCardRing(state, "L", 1)).toBe("a");

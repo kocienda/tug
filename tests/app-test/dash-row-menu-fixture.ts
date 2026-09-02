@@ -13,7 +13,7 @@
  * four copies of a retry is three chances for one of them to be subtly wrong.
  *
  * The two surfaces open it differently, which {@link openDashRowMenu} hides:
- * the Changes shade's lane has a `⋯` opener, the Lens's Dashes rows have none
+ * the Changes shade's lane has a `⋯` opener, the Dashes card's rows have none
  * (their eyebrow is the identities alone) and answer a right-click on the row.
  * Same menu, same items, one way to drive it.
  *
@@ -35,7 +35,7 @@ export type DashRowMenuAction =
 
 /**
  * The `⋯` opener on a row, for the surface that has one. `row` is the row's
- * own selector; the Lens's rows match nothing here and are right-clicked.
+ * own selector; the Dashes card's rows match nothing here and are right-clicked.
  */
 export const dashRowMenuOpener = (row: string): string =>
   `${row} [data-slot="session-changes-dash-row-menu-open"]`;
@@ -66,7 +66,7 @@ const settle = (ms = 200): Promise<unknown> => new Promise((r) => setTimeout(r, 
  * opens nothing, which is what makes the retry a retry rather than a
  * double-open.
  *
- * A row with no opener is opened by its own right-click — the Lens's grammar.
+ * A row with no opener is opened by its own right-click — the Dashes card's grammar.
  */
 export async function openDashRowMenu(
   app: App,

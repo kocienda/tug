@@ -107,7 +107,7 @@ export const SETTLE_TICKS = 2;
  * costs more than it saves — so the gate waits this long before believing the
  * tape has really left the screen. Re-entry cancels the wait outright.
  *
- * The flapping is real and constant on the Lens rail: rows change height on
+ * The flapping is real and constant on the rail: rows change height on
  * every pulse beat (a `ResizeObserver` on the sparkline's own parent rewrites
  * the middle-truncated activity run) and the Cards section re-sorts by
  * activity, so a row near the clip edge crosses the intersection boundary
@@ -210,7 +210,7 @@ export interface SparklineTapeOptions {
   setTimeout: (fn: () => void, ms: number) => number;
   clearTimeout: (handle: number) => void;
   /**
-   * Every dormancy transition, for the dev panel. Churn on the Lens rail is
+   * Every dormancy transition, for the dev panel. Churn on the rail is
    * exactly what {@link HIDDEN_PAUSE_DELAY_MS} exists to stop, and this is how
    * a human sees whether it stopped: scroll hard and watch the log stay quiet.
    * Injected rather than imported so the policy module keeps no dependency on
@@ -300,7 +300,7 @@ export class SparklineTape {
    *    ARBITRARY. Reached by the visibility gate. Nothing about the tape is
    *    disturbed on the way in; it is a stopped scroll and nothing more.
    *
-   * Collapsing them is what made the Lens judder: a full rebase of a non-flat
+   * Collapsing them is what made the Cards card judder: a full rebase of a non-flat
    * picture on every scroll-boundary crossing.
    */
   private state: SparklineTapeState = "flat-dormant";
@@ -1033,7 +1033,7 @@ export class SparklineTape {
     // off screen holding the level the meters still hold is already resting on
     // its data, and rebuilding it would move nothing while putting a paint, an
     // origin write and a pause into the trace for every hidden tape that
-    // crosses its deadline. That is most of the Lens, most of the time.
+    // crosses its deadline. That is most of the Cards card, most of the time.
     const now = this.opts.now();
     const held = this.tape.length > 0 ? this.tape[this.tape.length - 1].v : 0;
     if (Math.abs(this.sampleRate(now) - held) < this.deadband) return;
@@ -1045,9 +1045,9 @@ export class SparklineTape {
    * mid-staircase, mid-burst, anything. That is the whole difference from flat
    * dormancy, and it is why this path changes NOTHING except stopping: no `t0`
    * move, no repaint, no rebuild. Moving the origin here would translate a
-   * picture that is not translation-invariant, which is the Lens judder.
+   * picture that is not translation-invariant, which is the Cards card judder.
    *
-   * The tape may sit here for longer than an epoch — a collapsed Lens section,
+   * The tape may sit here for longer than an epoch — a collapsed Cards card section,
    * a backgrounded window. That is safe because the rollover trigger is the
    * clock comparison in {@link rollover}, not the animation's `onfinish`: a
    * paused animation never finishes, so a tape hidden across a boundary would

@@ -31,7 +31,7 @@
  *      delivers are three facts that could disagree. Pressing ⌃⌘→ for real is
  *      the only assertion that reads all three at once.
  *
- * The per-card rows (`toggle-lens` and its siblings) still run the card-level
+ * The per-card rows (`toggle-cards` and its siblings) still run the card-level
  * ladder and are pinned by at0231; what changed for them is that they carry no
  * default chord, which at0168 asserts off the live menu.
  *

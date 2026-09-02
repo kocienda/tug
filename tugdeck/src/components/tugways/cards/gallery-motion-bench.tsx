@@ -59,7 +59,7 @@ const ESCAPE_THE_CARD = false;
  */
 const BENCH_COUNT = 100;
 
-/** The size the Lens actually asks for, so the bench measures a real glyph. */
+/** The size the Cards card actually asks for, so the bench measures a real glyph. */
 const BENCH_SIZE = 28;
 
 /** Which glyph the bench populates — one variant at a time, by design. */

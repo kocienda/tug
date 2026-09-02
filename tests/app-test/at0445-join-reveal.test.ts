@@ -229,7 +229,7 @@ async function shadeAppearsWithin(app: App, ms: number): Promise<boolean> {
   return false;
 }
 
-/** A dash's Lens register word right now, or null if it has none. */
+/** A dash's register word on the Dashes card right now, or null if it has none. */
 function registerWord(app: App, dash: string): Promise<string | null> {
   return app.evalJS<string | null>(
     `document.querySelector(${JSON.stringify(dashRegister(dash))})?.getAttribute("data-word") ?? null`,
@@ -255,7 +255,7 @@ async function registerEverReaches(
   return false;
 }
 
-/** Wait for a dash's Lens register to reach a word — the arc, without a gesture. */
+/** Wait for a dash's Dashes-card register to reach a word — the arc, without a gesture. */
 async function registerReaches(
   app: App,
   dash: string,
@@ -295,7 +295,7 @@ describe.skipIf(!SHOULD_RUN)("AT0445: a ready dash summons the shade", () => {
         await app.spawnSessionResume("A", { tugSessionId: SID, projectDir: scratch });
         await app.awaitEngineReady("A", { timeoutMs: 15000 });
 
-        // The Lens stays up for the whole run: it is where the arc is read
+        // The Dashes card stays up for the whole run: it is where the arc is read
         // from without touching either dash. The shade is a view swap inside
         // the card, so the two do not contend.
         await app.dispatchControlAction("toggle-dashes");
@@ -324,7 +324,7 @@ describe.skipIf(!SHOULD_RUN)("AT0445: a ready dash summons the shade", () => {
           binaryRoot: cli.binaryRoot,
           env: { ...(cli.env ?? {}), TUG_SESSION_ID: SID },
         });
-        // Read from the Lens rather than from the verb's own exit: the row
+        // Read from the Dashes card rather than from the verb's own exit: the row
         // grows the bound worker's atom, which is the deck seeing the ledger
         // row the pilot will read. The atom is the positive signal — an absent
         // Bind would also be true of a row that never rendered.
@@ -332,7 +332,7 @@ describe.skipIf(!SHOULD_RUN)("AT0445: a ready dash summons the shade", () => {
           `document.querySelector('${dashRow(DASH)} [data-slot="tug-dash-lifecycle-worker"]') !== null`,
           { timeoutMs: 30000 },
         );
-        note("at0445 bound: the ledger row landed and the Lens row saw it");
+        note("at0445 bound: the ledger row landed and the dash row saw it");
         await registerReaches(app, DASH, "ready", 240000);
 
         // The reveal. No gesture, no mark, no declaration — a reconciled dash

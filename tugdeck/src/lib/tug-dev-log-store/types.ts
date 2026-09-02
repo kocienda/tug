@@ -1,6 +1,6 @@
 /**
  * Public types for `TugDevLogStore` — the in-app logging surface that
- * backs the `Log` section on the Lens.
+ * backs the `Log` section on the DevTools card.
  *
  * The store is append-only from the app's perspective: anywhere in
  * tugdeck can call `tugDevLogStore.{debug,info,warn,error}(...)` to

@@ -1,10 +1,10 @@
 /**
  * cards-groups.ts — which group a card's pane row files under in the Cards card.
  *
- * The Lens's Cards section is a mirror of the deck canvas, and it buckets pane
+ * The Cards card is a mirror of the deck canvas, and it buckets pane
  * rows into three groups: Sessions, Files, Tools. The bucket is read off the
  * card registry rather than from a table kept here, so a card type declares its
- * own Lens home the same way it declares its type-picker category.
+ * own Cards card home the same way it declares its type-picker category.
  *
  * Resolution runs in three steps, first hit wins:
  *
@@ -22,7 +22,7 @@
 
 import type { CardRegistration } from "@/card-registry";
 
-/** A group in the Lens's Cards section. */
+/** A group in the Cards card. */
 export type CardsGroup = "sessions" | "files" | "tools";
 
 /**
@@ -71,8 +71,8 @@ export const GROUP_TITLES: Readonly<Record<CardsGroup, string>> = {
 };
 
 /**
- * The group `reg`'s cards file under, or `"none"` for a card that has no Lens
- * representation at all (the Lens itself — the mirror does not reflect itself).
+ * The group `reg`'s cards file under, or `"none"` for a card that has no Cards card
+ * representation at all (the Cards card itself — the mirror does not reflect itself).
  */
 export function resolveCardsGroup(
   reg: CardRegistration,

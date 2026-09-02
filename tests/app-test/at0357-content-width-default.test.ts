@@ -15,7 +15,7 @@
  *     were a card. The fixture overfills the band (four slotted cards want
  *     more than any plausible window holds, so no rail width tiles the
  *     chain), and the graded licence ([D136]) answers with the one width it
- *     may: the Lens's hard floor, the deepest the rail can give against a
+ *     may: the rail's hard floor, the deepest the rail can give against a
  *     chain that overlaps. THAT is the assertion — the rail lands on the
  *     floor, not on the preset a stamp would have written, and a second
  *     width click finds nothing left to give and moves it no further.
@@ -52,19 +52,19 @@ const TEST_TIMEOUT_MS = 90_000;
 const SLIM = 675;
 const COMFY = 800;
 
-/** The seeded Lens rail width — a number no preset resolves to, so a rail that
+/** The seeded rail width — a number no preset resolves to, so a rail that
  *  moved would be unmistakable. */
-const LENS_WIDTH = 412;
+const RAIL_WIDTH = 412;
 
-/** The Lens's hard floor (`MIN_LENS_WIDTH_PX`) — the allocator's whole answer
+/** The Layout card's hard floor (`MIN_LAYOUT_WIDTH_PX`) — the allocator's whole answer
  *  on this overfilled deck: the deepest the rail may give against a chain
  *  that overlaps, and visibly not a preset. */
-const LENS_MIN = 320;
+const RAIL_MIN = 320;
 
 const WIDTH_TILE = (preset: string): string =>
-  `[data-testid="lens-layouts-width"] [data-choice-value="${preset}"]`;
+  `[data-testid="layout-card-width"] [data-choice-value="${preset}"]`;
 
-/** Four content panes filling four-up, plus the Lens standing at its pin.
+/** Four content panes filling four-up, plus the Layout card standing at its pin.
  *  Four, deliberately: at slim the chain wants a band of 2715px and at comfy
  *  3215px, so on any window the harness can launch the allocator's solve is
  *  far under every rail's shrink floor and the licence refuses — the rail
@@ -95,12 +95,12 @@ function deckShape(): Record<string, unknown> {
       pane("p3", 2, "C"),
       pane("p4", 3, "D"),
       {
-        id: "pLens",
+        id: "pRail",
         position: { x: 0, y: 0 },
-        size: { width: LENS_WIDTH, height: 900 },
+        size: { width: RAIL_WIDTH, height: 900 },
         cardIds: ["L"],
         activeCardId: "L",
-        title: "Lens",
+        title: "Layout",
         acceptsFamilies: [],
       },
     ],
@@ -142,7 +142,7 @@ describe.skipIf(!SHOULD_RUN)(
           testName: "at0357-content-width-default",
         });
         try {
-          // The seed carries the Lens pane, so the Lens is already open —
+          // The seed carries the rail pane, so the Layout card is already open —
           // toggling here would close it.
           await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
           await app.waitForCondition<boolean>(
@@ -166,7 +166,7 @@ describe.skipIf(!SHOULD_RUN)(
           // rail width tiles this chain, so the graded licence gave the rail
           // to its hard floor against the overlap — and the floor is where it
           // stands: the allocator's answer, never the stamp's.
-          expect(await paneWidth(app, "pLens")).toBe(LENS_MIN);
+          expect(await paneWidth(app, "pRail")).toBe(RAIL_MIN);
 
           // ── A card opened now arrives at the deck's width. ──
           await app.dispatchControlAction("show-devtools");
@@ -176,7 +176,7 @@ describe.skipIf(!SHOULD_RUN)(
           );
           const openedWidth = await app.evalJS<number>(
             `(function () {
-              var seeded = ["p1", "p2", "p3", "p4", "pLens"];
+              var seeded = ["p1", "p2", "p3", "p4", "pRail"];
               var panes = Array.from(document.querySelectorAll('.tug-pane'));
               var fresh = panes.filter(function (el) {
                 return seeded.indexOf(el.getAttribute("data-pane-id")) === -1;
@@ -198,12 +198,12 @@ describe.skipIf(!SHOULD_RUN)(
           // Standing at the floor already, the comfy click's retune has
           // nothing left to give and moves the rail no further — and still
           // does not stamp it.
-          expect(await paneWidth(app, "pLens")).toBe(LENS_MIN);
+          expect(await paneWidth(app, "pRail")).toBe(RAIL_MIN);
           expect(
             await app.evalJS<number[]>(
               `Array.from(document.querySelectorAll('.tug-pane'))
                 .filter(function (el) {
-                  return el.getAttribute("data-pane-id") !== "pLens";
+                  return el.getAttribute("data-pane-id") !== "pRail";
                 })
                 .map(function (el) {
                   return Math.round(el.getBoundingClientRect().width);

@@ -25,7 +25,7 @@ export const RECENT_DOCUMENTS_KEY = "recent-documents";
 
 /**
  * tugbank key for the per-path last-opened timestamps (epoch ms), kept
- * alongside the MRU so the Lens Text Files section can show "Last opened …"
+ * alongside the MRU so the Cards card Text Files section can show "Last opened …"
  * on a recent (not-open) file. A parallel map rather than a shape change to
  * {@link RECENT_DOCUMENTS_KEY} — the host menu + the existing coercion consume
  * the plain `string[]` unchanged.
@@ -192,7 +192,7 @@ export function getRecentDocumentsSnapshot(): readonly string[] {
 
 /**
  * The reachable MRU — `recents` minus the paths the last existence probe
- * reported gone. The list surfaces (the Lens Text Files section) read
+ * reported gone. The list surfaces (the Cards card Text Files section) read
  * this, so a deleted or moved file is never offered as openable. Same
  * stable-reference contract as {@link getRecentDocumentsSnapshot}.
  */

@@ -1,5 +1,5 @@
 /**
- * at0312-cards-two-level.test.ts — the Lens Cards section is a pane-first
+ * at0312-cards-two-level.test.ts — the Cards card is a pane-first
  * mirror of the deck, and its second level is never a folder.
  *
  * ## What this gates
@@ -335,7 +335,7 @@ describe.skipIf(!SHOULD_RUN)("at0312 — Cards is two-level, never a folder", ()
         expect(collapsed.countPainted).toBe(true);
 
         // A group header stands on a DIFFERENT surface from the rows it
-        // divides — the Lens's own, where the band above the list stands,
+        // divides — the card's own, where the band above the list stands,
         // while the rows sit in the section body's well. That step is what
         // gives the list its two levels; without it the header takes the
         // rows' alternating band and the section flattens into one run of

@@ -118,7 +118,7 @@ export function commitFilterFields(
     fields.push(commit.subject, commit.body);
     // The dash attribution rides with the message: `Tug-Dash:` is a trailer on
     // the message itself, and the dash atom is how the row states it. Matched
-    // as the atom READS, so `^lens-routes` and the bare name both find the
+    // as the atom READS, so `^rail-routes` and the bare name both find the
     // commit and both mark the atom's name.
     const dashName = dashNameFromTrailer(commit.tug_dash);
     if (dashName !== null) fields.push(joinBadgeText(dashName));

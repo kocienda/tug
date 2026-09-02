@@ -12,7 +12,7 @@
  * resolved once here rather than at each mount site.
  *
  * That distinction is the whole point of the file. The shape was already shared
- * — the masthead, the picker, and the Lens all mounted `TugSessionRow` — and
+ * — the masthead, the picker, and the Cards card all mounted `TugSessionRow` — and
  * the surfaces still drifted, because everything that DECIDES what goes into
  * the shape was written three times. Three description ladders (two of which
  * had three rungs and one two), three activity ladders (one with a compaction
@@ -27,7 +27,7 @@
  *
  *  1. **{@link SessionIdentityRowProps.dotSize}** — the indicator's glyph box.
  *     The dense mounts (chrome, the picker's rows) take
- *     {@link TUG_SESSION_ROW_STACK_DOT_SIZE}; the Lens's monitor rail takes
+ *     {@link TUG_SESSION_ROW_STACK_DOT_SIZE}; the Cards card's monitor rail takes
  *     {@link TUG_SESSION_ROW_INDICATOR_SIZE}. ONE number, used for both the dot
  *     and the ink-slack correction the title is measured by — those were two
  *     props at every mount site, and two numbers that must agree is one number
@@ -45,7 +45,7 @@
  *
  * Everything past those three is either the same on every surface (both
  * ladders, the beat grammar, the `pulse/enabled` gate) or is a piece of the
- * mount's own furniture handed straight through (the Lens's slot picker, the
+ * mount's own furniture handed straight through (the Cards card's slot picker, the
  * picker's badges and trash, the masthead's popovers and copy handles).
  *
  * ── The description ladder ([D132]) ──────────────────────────────────────
@@ -53,7 +53,7 @@
  * date it was created. The lower two are facts STANDING IN for a line nobody
  * has written yet, so they are marked and painted a step quieter.
  *
- * All three rungs on every surface. The Lens carried only two, on the argument
+ * All three rungs on every surface. The Cards card carried only two, on the argument
  * that its rows are always bound live cards and so never reach the prompt rung
  * — which, if true, makes the rung free, and if false makes it the one
  * human-meaningful line the row could have shown.
@@ -466,7 +466,7 @@ export interface SessionIdentityRowProps
   /**
    * Wrap the tape before it is mounted — for a surface that hangs an
    * affordance on it. The masthead's tape is the trigger for the expanded
-   * Activity card; the Lens's is a reading and nothing more.
+   * Activity card; the Cards card's is a reading and nothing more.
    */
   renderTape?: (tape: React.ReactNode) => React.ReactNode;
 
@@ -632,7 +632,7 @@ export function SessionIdentityRow({
       : null;
 
   // When the session was made. Two sources, resolved once and shared, so a
-  // masthead and a Lens row cannot date the same session differently. The row
+  // masthead and a Cards card row cannot date the same session differently. The row
   // is handed over rather than read again — `facts` is already whichever row
   // this mount trusts, and the resolver's own second read of the same row was
   // a duplicate subscription on every session row in the app.
@@ -772,7 +772,7 @@ export function SessionIdentityRow({
   // that grew with the plan drove the name and the strip into each other. The
   // mark says the same three things in a box that cannot grow — where the dash
   // is, that it is alive, and how far along. The track itself belongs to the
-  // surfaces whose subject IS the dash: the Lens's Dashes section, the Changes
+  // surfaces whose subject IS the dash: the Cards card's Dashes section, the Changes
   // shade's dash lane, and the DASH placard.
   //
   // The glyph is keyed on the lifecycle PHASE, not the git stage — a card

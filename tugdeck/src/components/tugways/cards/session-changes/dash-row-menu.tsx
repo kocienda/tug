@@ -102,7 +102,7 @@ export interface DashRowMenuResult {
   openMenu: (anchor: HTMLElement | null) => void;
   /**
    * Open the menu at a viewport point — the right-click path, for a surface
-   * that carries no opener of its own. The Lens's Dashes rows are that
+   * that carries no opener of its own. The Dashes card's Dashes rows are that
    * surface: the verbs are the same set, reached by the gesture every other
    * list row in the app answers.
    */

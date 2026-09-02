@@ -179,7 +179,7 @@ describe("the liveness rule — only executing work breathes", () => {
 });
 
 describe("waiting on the user pulses, wherever it is seen from", () => {
-  // One wait, two vantage points — the session's dot in the Lens and the
+  // One wait, two vantage points — the session's dot in the Cards card and the
   // blocked call's dot in the transcript. Both are yellow and both move, so
   // a user who learns the signal in one place reads it in the other.
   it("pulses the session's awaiting-approval dot, in the caution tone", () => {

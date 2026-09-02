@@ -34,7 +34,7 @@
   background-color: var(--tug7-surface-global-primary-normal-sunken-rest);
 }
 
-/* The run the cards are drawn across — everything the Lens has not taken. It
+/* The run the cards are drawn across — everything the rail has not taken. It
    does NOT clip: the flow window stands inside it and stands two pixels proud
    of the cards, which is the bracket's whole shape, and a clip here sheared
    those two pixels off the top and bottom of the accent. */
@@ -221,7 +221,7 @@
    between the two is a translation ([P08], [P09]). Writing it as a translation
    rather than as the position itself is what keeps the rest state exactly the
    drawing it always was: with no publisher — a preview layer, a deck at rest, a
-   Lens mounted before anything moved — the slide is zero and nothing composes.
+   card mounted before anything moved — the slide is zero and nothing composes.
 
    `--mini-slide-x` / `--mini-slide-y` are written by the component, which is the
    only place that knows which slot's signal a block listens to and what scale

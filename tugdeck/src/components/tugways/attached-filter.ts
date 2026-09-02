@@ -19,7 +19,7 @@
  * So the relationship is ONE object, created by {@link useAttachedFilter} and
  * handed to both participants. Each end publishes itself into it on mount and
  * reads the other end at keystroke time — never at render time, because either
- * may mount after the other (a list behind a loading state, a collapsed Lens
+ * may mount after the other (a list behind a loading state, a collapsed rail
  * section whose body is not in the tree yet).
  *
  * ## Type-select: the list keeps the keyboard
@@ -102,7 +102,7 @@ export interface AttachedFilterBinding {
 
 /**
  * Create a binding outside React — for a pair the component tree cannot hold in
- * one place. The Lens sections are the case: a section's field lives in its
+ * one place. The rail sections are the case: a section's field lives in its
  * band and its list in its body, siblings that can only meet through a
  * module store, so their binding is group-keyed there rather than per-render
  * here. Inside one component, use {@link useAttachedFilter}.

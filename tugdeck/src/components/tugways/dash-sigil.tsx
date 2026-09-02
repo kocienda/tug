@@ -24,7 +24,7 @@
  * the markup that carries it. `data-slot` is the caller's, so a test can tell
  * an identity run from an Unbound row.
  *
- * It lives in `tugways` rather than beside the Lens section that prompted it,
+ * It lives in `tugways` rather than beside the Dashes card that prompted it,
  * because `tug-session-identity` is a tugways component and a tugways file
  * importing a feature's is the layering backwards.
  *

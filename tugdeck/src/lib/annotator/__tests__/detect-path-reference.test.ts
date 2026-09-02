@@ -128,23 +128,23 @@ describe("scanPathReferences — paths found inside longer text", () => {
 
   test("a cited range survives the parentheses around it", () => {
     const text =
-      "Model A (/Users/k/src/tugdeck/lens-content.tsx:124-135) wires it";
+      "Model A (/Users/k/src/tugdeck/rail-content.tsx:124-135) wires it";
     const [only] = scanPathReferences(text);
     expect(only).toMatchObject({
-      path: "/Users/k/src/tugdeck/lens-content.tsx",
+      path: "/Users/k/src/tugdeck/rail-content.tsx",
       line: 124,
       endLine: 135,
     });
     expect(text.slice(only.start, only.end)).toBe(
-      "/Users/k/src/tugdeck/lens-content.tsx:124-135",
+      "/Users/k/src/tugdeck/rail-content.tsx:124-135",
     );
   });
 
   test("a bare name with a citation keeps both", () => {
-    const text = "A caret sits in the container (lens-content.tsx:166).";
+    const text = "A caret sits in the container (rail-content.tsx:166).";
     const [only] = scanPathReferences(text);
-    expect(only).toMatchObject({ path: "lens-content.tsx", line: 166 });
-    expect(text.slice(only.start, only.end)).toBe("lens-content.tsx:166");
+    expect(only).toMatchObject({ path: "rail-content.tsx", line: 166 });
+    expect(text.slice(only.start, only.end)).toBe("rail-content.tsx:166");
   });
 
   test("a backwards range is not a citation, and its text is not part of the run", () => {
@@ -189,8 +189,8 @@ describe("prose and code produce the same candidates", () => {
   });
 
   test("a line citation is carried through from running text", () => {
-    expect(found("see lens-content.tsx:166 there")).toMatchObject({
-      path: "lens-content.tsx",
+    expect(found("see rail-content.tsx:166 there")).toMatchObject({
+      path: "rail-content.tsx",
       line: 166,
     });
     expect(found("the docstring (block-reorder.ts:1-33)")).toMatchObject({

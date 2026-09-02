@@ -539,7 +539,7 @@ body {
 
 /* ---- Pressed ----
    The pointer-down pose, shared by both variants. It closes a real gap: a row
-   whose click ACTS without leaving a selection behind (the Lens session
+   whose click ACTS without leaving a selection behind (the Cards card session
    monitor fronts the clicked card and marks nothing) had no visual answer to
    the press at all — the row did the work silently.
 

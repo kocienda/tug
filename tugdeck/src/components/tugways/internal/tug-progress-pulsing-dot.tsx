@@ -37,7 +37,7 @@
  * stays welded to the dot's turn with no timer, no WAAPI chaining, and no
  * per-frame main-thread work. Every dot in the app runs that same duration
  * unless its caller opts into a jitter ({@link dotDriftFor}), which only the
- * Lens's session list does. Firing near the turn also keeps the ring inside a
+ * Cards card's session list does. Firing near the turn also keeps the ring inside a
  * single cycle, so the pulse needs no wrap across the cycle boundary.
  *
  * Same frame is the whole of it, and the loops live on two elements behind two
@@ -59,7 +59,7 @@
  * ring paints nothing ({@link rejoinEmitter}). They carry separate phase
  * variables for exactly this window, so starting one never disturbs the other.
  *
- * **Two treatments.** The glyph serves both a 28px Lens row and a 10px status
+ * **Two treatments.** The glyph serves both a 28px Cards card row and a 10px status
  * cell, and it does that by carrying two geometries rather than scaling one —
  * see {@link BIG_SIZE}. The motion below is common to both; the proportions,
  * the ring's reach, and the PRESENCE ladder are not.
@@ -197,7 +197,7 @@ export const DEFAULT_BREATH_TURN = 0.3;
  * The size band across which this glyph changes what it is trying to be.
  *
  * There are two treatments here, not one figure scaled. At {@link BIG_SIZE} and
- * up — the Lens session row — it is a figure meant to be read across a room:
+ * up — the Cards card session row — it is a figure meant to be read across a room:
  * the dot takes 60% of the box, the ring stays inside it, and the PRESENCE
  * ladder encodes state as relative size. At {@link SMALL_SIZE} and down — a Z2
  * status cell, a tool-call header, a setup step — it is a marker in a row of
@@ -396,7 +396,7 @@ export const DEFAULT_FADE_POWER = 1;
  * `transform: scale`d element renders at border × scale.
  *
  * Read it as an intent rather than a rendered ratio: borders resolve to device
- * pixels, so at the sizes this glyph runs at (a 28px Lens row, a 32px bench
+ * pixels, so at the sizes this glyph runs at (a 28px Cards card row, a 32px bench
  * cell) neighboring weights can paint identically.
  */
 export const DEFAULT_PULSE_WEIGHT = 1.6;
@@ -531,7 +531,7 @@ const DRIFT_SPREAD = 0.04;
  *
  * **Drift is opt-in, and almost nothing opts in.** It is not a property of the
  * glyph and not a property of the indicator either; it is a property of a LIST
- * OF ITEMS, and the only such list is the Lens's session rows. Every other
+ * OF ITEMS, and the only such list is the Cards card's session rows. Every other
  * pulsing dot in the app runs the nominal period, locked — which is what the
  * Z2 STATE cell needs, since it renders two separate indicators flanking one
  * label and they have to read as one status. Automatic drift, at either level,
@@ -543,7 +543,7 @@ const DRIFT_SPREAD = 0.04;
  *
  * Keyed rather than drawn, because identity is what the jitter is supposed to
  * track. A random draw per mount would re-roll a session's rate every time the
- * Lens filtered, scrolled it out and back, or hot-reloaded; hashing the id
+ * Cards card filtered, scrolled it out and back, or hot-reloaded; hashing the id
  * means a session breathes at its own rate for as long as it exists, and two
  * rows never collide by accident of timing. It also needs no state, so it
  * survives every remount for free.

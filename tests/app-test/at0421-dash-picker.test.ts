@@ -61,7 +61,7 @@ const PICKER = '[data-slot="dash-picker-sheet"]';
 const PICKER_ROWS = `${PICKER} [data-slot="dash-picker-row"]`;
 // The dash marker on the masthead's title line — the identity's own run
 // since the masthead badge was retired. Scoped to the masthead, because a
-// line-tier identity anywhere else (a Lens row, a picker row) wears it too.
+// line-tier identity anywhere else (a Cards row, a picker row) wears it too.
 const CHIP =
   '[data-slot="session-masthead"] [data-slot="session-identity-dash"]';
 /** What that run reads: the identity's dash grammar, sigil included. */
@@ -141,7 +141,7 @@ async function openCard(app: App): Promise<void> {
   await app.awaitEngineReady("A", { timeoutMs: 15000 });
   // The picker lists what the snapshot holds, so wait until it holds the
   // fixtures — before the first compose the bare form would caution instead.
-  // The Lens's Dashes section reads the same `ChangesetAllStore` the card's
+  // The Dashes card reads the same `ChangesetAllStore` the card's
   // controller does, so a row there is the proof, and it is observable from
   // outside the card.
   await app.dispatchControlAction("toggle-dashes");
@@ -244,7 +244,7 @@ describe.skipIf(!SHOULD_RUN)("AT0421: the /dash-bind picker", () => {
         expect(bound).not.toBe(chipText(rows[0]));
 
         // ── Re-opened, the bound row wears its worker ─────────────────────
-        // The same eyebrow grammar the Lens and the shade lead with, which is
+        // The same eyebrow grammar the Dashes card and the shade lead with, which is
         // the fact this picker exists to weigh: somebody is on that one.
         await runCommand(app, "/dash-bind");
         await app.waitForCondition<boolean>(

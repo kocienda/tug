@@ -1,7 +1,7 @@
 /**
  * The arc among a dash's metadata facts.
  *
- * One derivation feeds every surface that names a dash — the Lens Dashes row,
+ * One derivation feeds every surface that names a dash — the Dashes card Dashes row,
  * the Changes shade's collapsed dash row, the DASH placard — because all of
  * them read `dashMetaFacts`. So what the arc *says* is settled here, as a pure
  * function over a wire entry, rather than three times over three DOMs.

@@ -259,7 +259,7 @@ describe.skipIf(!SHOULD_RUN)("AT0444: a slow resolver is not a dead one", () => 
         );
 
         // ── The run starts, and nothing started it ────────────────────────
-        // Read from the Lens first, because the shade is not up yet: the run
+        // Read from the Dashes card first, because the shade is not up yet: the run
         // is the pilot's, and this file must not be the thing that began it.
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(DASH_REGISTER)})?.getAttribute("data-word") === "reconciling"`,

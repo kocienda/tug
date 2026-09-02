@@ -396,7 +396,7 @@ const revealRequests = new WeakMap<
 /**
  * Scroll the caret into view in every scroller that encloses it — including
  * scrollers OUTSIDE the editor, which is the case that needs this: an editor
- * that grows uncapped inside an outer list (the Lens snippet editor) makes the
+ * that grows uncapped inside an outer list (the Jots card snippet editor) makes the
  * LIST scroll, and nothing there follows the caret.
  *
  * Scheduled on CM6's own measure cycle rather than a frame. The caret is a div

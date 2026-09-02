@@ -1,7 +1,7 @@
 /**
  * at0310-file-view-open.test.ts — opening a file Tug views rather than edits:
  * the viewer card mounts, fetches real bytes, reuses by path, and lists in the
- * Lens Files section. A second case covers the PDF branch of the same card,
+ * Cards card's Files group. A second case covers the PDF branch of the same card,
  * which the deck renders itself with pdf.js.
  *
  * ## What this gates
@@ -16,7 +16,7 @@
  *      element: it is true only after a successful fetch AND decode.
  *   3. A second open of the same path fronts the same card instead of
  *      mounting a second copy of the same bytes.
- *   4. The Lens **Files** section lists the viewer beside text cards, without
+ *   4. The Cards card's **Files** group lists the viewer beside text cards, without
  *      the unsaved dot (a viewer is read-only and can never be dirty), and its
  *      close box closes the card.
  *   5. The pane wears the **document masthead** the card publishes: name,
@@ -211,7 +211,7 @@ function encodePdf(): Buffer {
 
 describe.skipIf(!SHOULD_RUN)("at0310 — image opens in a viewer card", () => {
   test(
-    "open-file mounts a file-view card, reuses by path, and lists in the Lens",
+    "open-file mounts a file-view card, reuses by path, and lists in the Cards card",
     async () => {
       const dir = fs.mkdtempSync(path.join(os.tmpdir(), "at0310-"));
       const file = path.join(dir, "gradient.png");
@@ -346,7 +346,7 @@ describe.skipIf(!SHOULD_RUN)("at0310 — image opens in a viewer card", () => {
         expect(await app.evalJS<number>(countByComponent("file-view"))).toBe(1);
         expect(await app.getActiveCardId()).toBe(viewerCardId);
 
-        // ---- The Lens Files section lists it, read-only.
+        // ---- The Cards card's Files group lists it, read-only.
         await app.evalJS<null>(
           `(window.__tug.dispatchControlAction("toggle-cards"), null)`,
         );
