@@ -142,8 +142,10 @@ pub struct FeedRouter {
     pub(crate) stream_outputs: HashMap<FeedId, (broadcast::Sender<Frame>, LagPolicy)>,
     /// FeedId → mpsc::Sender for input feeds (client → server).
     input_sinks: HashMap<FeedId, mpsc::Sender<Frame>>,
-    /// Snapshot watch receivers (delivered to every client on connect).
-    snapshot_watches: Vec<watch::Receiver<Frame>>,
+    /// Snapshot watch receivers, keyed by the feed each carries (delivered
+    /// to every client on connect, and re-delivered when a subscription
+    /// later adds that feed).
+    snapshot_watches: Vec<(FeedId, watch::Receiver<Frame>)>,
     /// Multi-producer broadcast senders. Each client clones the FeedRouter
     /// and at `ClientState::Live` calls `subscribe()` on every entry here
     /// to get its own receiver, then spawns a forwarder that `recv()`s
@@ -159,6 +161,9 @@ pub struct FeedRouter {
     input_ownership: InputOwnership,
     /// Counter for assigning unique client IDs.
     client_id_counter: Arc<AtomicU64>,
+    /// Process-global per-feed counters. `FeedRouter` is `Clone` and cloned
+    /// per connection, so the `Arc` is shared rather than duplicated.
+    feed_counters: Arc<GlobalFeedCounters>,
 
     /// Multi-session supervisor. `None` until Step 8 wires it in `main.rs`.
     /// When present, the router cross-checks CODE_INPUT frames against
@@ -211,6 +216,7 @@ impl FeedRouter {
             snapshot_broadcast_senders: Vec::new(),
             input_ownership: Arc::new(Mutex::new(HashMap::new())),
             client_id_counter: Arc::new(AtomicU64::new(1)),
+            feed_counters: Arc::new(GlobalFeedCounters::default()),
             supervisor: None,
             session,
             auth,
@@ -290,8 +296,15 @@ impl FeedRouter {
     }
 
     /// Add snapshot watches (delivered on connect + forwarded on change).
+    ///
+    /// Each watch's key is derived from its own current value: every
+    /// registered watch is seeded with a frame carrying its feed id, so no
+    /// call site has to name it and this signature can stand.
     pub(crate) fn add_snapshot_watches(&mut self, watches: Vec<watch::Receiver<Frame>>) {
-        self.snapshot_watches.extend(watches);
+        self.snapshot_watches.extend(watches.into_iter().map(|rx| {
+            let feed_id = rx.borrow().feed_id;
+            (feed_id, rx)
+        }));
     }
 
     /// Add multi-producer broadcast senders. Each connected client
@@ -531,22 +544,284 @@ fn build_stream_map(
 }
 
 // ---------------------------------------------------------------------------
-// Helpers: send control frames to client
+// Per-feed counters
 // ---------------------------------------------------------------------------
 
-/// Send a JSON control frame (flags=CONTROL) to the client.
-/// Returns false if the client disconnected.
-async fn send_control_json(
-    socket: &mut WebSocket,
-    feed_id: FeedId,
-    json: &serde_json::Value,
-) -> bool {
-    let payload = serde_json::to_vec(json).unwrap_or_default();
-    let frame = Frame::control(feed_id, payload);
-    socket
-        .send(Message::Binary(frame.encode().into()))
-        .await
-        .is_ok()
+/// The per-connection counter table, owned by the [`ClientSink`].
+///
+/// The feed-id namespace is a `u8`, so 256 rows is exhaustive by
+/// construction: an unknown feed id is counted rather than dropped from the
+/// accounting. Single-task ownership is what lets these be plain `u64` with
+/// no synchronization at all.
+struct FeedCounters {
+    frames: [u64; 256],
+    bytes: [u64; 256],
+    dropped: [u64; 256],
+}
+
+impl FeedCounters {
+    fn new() -> Self {
+        Self {
+            frames: [0; 256],
+            bytes: [0; 256],
+            dropped: [0; 256],
+        }
+    }
+
+    fn record_sent(&mut self, feed: FeedId, byte_len: usize) {
+        let i = feed.as_byte() as usize;
+        self.frames[i] += 1;
+        self.bytes[i] += byte_len as u64;
+    }
+
+    /// A dropped frame increments this column *instead of* frames/bytes,
+    /// never both.
+    fn record_dropped(&mut self, feed: FeedId) {
+        self.dropped[feed.as_byte() as usize] += 1;
+    }
+}
+
+/// The process-global counter table, held on [`FeedRouter`] behind an `Arc`
+/// and shared by every connection.
+///
+/// A fixed 256-wide atomic array has no map lookup, no lock, and no
+/// allocation, so counting can never gate a frame. Relaxed ordering is
+/// correct because nothing reads these counters to establish a happens-before
+/// relationship; they are telemetry.
+struct GlobalFeedCounters {
+    frames: [AtomicU64; 256],
+    bytes: [AtomicU64; 256],
+    dropped: [AtomicU64; 256],
+}
+
+impl Default for GlobalFeedCounters {
+    fn default() -> Self {
+        Self {
+            frames: std::array::from_fn(|_| AtomicU64::new(0)),
+            bytes: std::array::from_fn(|_| AtomicU64::new(0)),
+            dropped: std::array::from_fn(|_| AtomicU64::new(0)),
+        }
+    }
+}
+
+impl GlobalFeedCounters {
+    fn record_sent(&self, feed: FeedId, byte_len: usize) {
+        let i = feed.as_byte() as usize;
+        self.frames[i].fetch_add(1, Ordering::Relaxed);
+        self.bytes[i].fetch_add(byte_len as u64, Ordering::Relaxed);
+    }
+
+    fn record_dropped(&self, feed: FeedId) {
+        self.dropped[feed.as_byte() as usize].fetch_add(1, Ordering::Relaxed);
+    }
+}
+
+/// Does this connection's subscription admit a frame on `feed_id`? ([P04])
+///
+/// `CONTROL` and `HEARTBEAT` are the control and liveness planes and are
+/// always admitted — a client that could unsubscribe its own liveness could
+/// hang itself. A `None` subscription means everything, which is the state of
+/// every connection that has said nothing, and is what makes the filter
+/// wire-compatible on the day it ships.
+fn admits(subscription: Option<&HashSet<FeedId>>, feed_id: FeedId) -> bool {
+    if feed_id == FeedId::CONTROL || feed_id == FeedId::HEARTBEAT {
+        return true;
+    }
+    match subscription {
+        None => true,
+        Some(set) => set.contains(&feed_id),
+    }
+}
+
+/// Parse a `subscribe_feeds` payload into a full replacement set (Spec S01).
+///
+/// `None` means the message was malformed — a missing or non-array `feeds`
+/// field — and the caller leaves the connection's subscription untouched.
+/// Resetting to "everything" on a malformed message would be a silent way to
+/// lose a filter. Values that do not coerce to a `u8` are skipped rather than
+/// rejected, so one bad entry does not discard the whole set; an empty array
+/// is legal and means "nothing but the exemptions".
+fn parse_subscribe_feeds(payload: &serde_json::Value) -> Option<HashSet<FeedId>> {
+    let feeds = payload.get("feeds")?.as_array()?;
+    Some(
+        feeds
+            .iter()
+            .filter_map(|v| v.as_u64())
+            .filter_map(|n| u8::try_from(n).ok())
+            .map(FeedId)
+            .collect(),
+    )
+}
+
+/// Build the `feed_stats` CONTROL response (Spec S02).
+///
+/// Pure over its arguments so it is unit-testable without a socket. Rows
+/// whose three counters are all zero are omitted, which is what keeps the
+/// response short rather than 256 rows long.
+fn build_feed_stats_json(
+    client_id: u64,
+    subscribed: Option<&HashSet<FeedId>>,
+    conn: &FeedCounters,
+    global: &GlobalFeedCounters,
+) -> serde_json::Value {
+    fn row(feed: u8, frames: u64, bytes: u64, dropped: u64) -> Option<serde_json::Value> {
+        if frames == 0 && bytes == 0 && dropped == 0 {
+            return None;
+        }
+        let mut obj = serde_json::json!({
+            "feed": feed,
+            "frames": frames,
+            "bytes": bytes,
+            "dropped": dropped,
+        });
+        if let Some(name) = FeedId(feed).name() {
+            obj.as_object_mut()
+                .expect("json! object")
+                .insert("name".into(), name.into());
+        }
+        Some(obj)
+    }
+
+    let connection: Vec<serde_json::Value> = (0..=u8::MAX)
+        .filter_map(|b| {
+            let i = b as usize;
+            row(b, conn.frames[i], conn.bytes[i], conn.dropped[i])
+        })
+        .collect();
+
+    let global_rows: Vec<serde_json::Value> = (0..=u8::MAX)
+        .filter_map(|b| {
+            let i = b as usize;
+            row(
+                b,
+                global.frames[i].load(Ordering::Relaxed),
+                global.bytes[i].load(Ordering::Relaxed),
+                global.dropped[i].load(Ordering::Relaxed),
+            )
+        })
+        .collect();
+
+    // `null` for a connection that has sent no `subscribe_feeds`, which is
+    // deliberately distinguishable from `[]`. Sorted so the response is
+    // deterministic across runs.
+    let subscribed = match subscribed {
+        None => serde_json::Value::Null,
+        Some(set) => {
+            let mut bytes: Vec<u8> = set.iter().map(|f| f.as_byte()).collect();
+            bytes.sort_unstable();
+            serde_json::Value::from(bytes)
+        }
+    };
+
+    serde_json::json!({
+        "type": "feed_stats",
+        "client_id": client_id,
+        "subscribed": subscribed,
+        "connection": connection,
+        "global": global_rows,
+    })
+}
+
+// ---------------------------------------------------------------------------
+// ClientSink: the single server-to-client gate
+// ---------------------------------------------------------------------------
+
+/// What became of a frame handed to [`ClientSink::send_frame`].
+///
+/// `Dropped` is what the subscription filter will answer once a connection
+/// can name the feeds it wants. Nothing constructs it yet; the variant is
+/// here so every call site is written once against its final shape. A
+/// dropped frame is **not** a disconnect and must never trigger teardown.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SendOutcome {
+    Sent,
+    Dropped,
+    Disconnected,
+}
+
+impl SendOutcome {
+    fn is_disconnected(self) -> bool {
+        matches!(self, SendOutcome::Disconnected)
+    }
+}
+
+/// The one thing in `handle_client` that holds the socket.
+///
+/// Every server-to-client frame is emitted by [`ClientSink::send_frame`],
+/// which is what makes completeness structural rather than a review habit:
+/// nothing else owns a `WebSocket`, so a ninth send site cannot be written
+/// without reaching through the sink. The per-feed counters, the
+/// subscription set, and the retained snapshot receivers land on this
+/// struct in later steps.
+struct ClientSink {
+    socket: WebSocket,
+    client_id: u64,
+    /// The feeds this connection asked for, or `None` if it has never asked.
+    /// `None` is not "no feeds" — it is "everything", which is why an
+    /// existing client that never learns the verb is unaffected.
+    subscription: Option<HashSet<FeedId>>,
+    /// This connection's own table. Plain `u64`s: the client task is its
+    /// only writer.
+    counters: FeedCounters,
+    /// The process-global table, shared with every other connection.
+    global_counters: Arc<GlobalFeedCounters>,
+    /// One keyed clone per snapshot feed this connection was given at
+    /// `ClientState::Live`, held so a later subscription can re-deliver a
+    /// retained latest value. Stream feeds are deliberately absent: a
+    /// broadcast has no retained value, so there is nothing to re-deliver.
+    retained_watches: Vec<(FeedId, watch::Receiver<Frame>)>,
+}
+
+impl ClientSink {
+    fn new(socket: WebSocket, client_id: u64, global_counters: Arc<GlobalFeedCounters>) -> Self {
+        Self {
+            socket,
+            client_id,
+            subscription: None,
+            counters: FeedCounters::new(),
+            global_counters,
+            retained_watches: Vec::new(),
+        }
+    }
+
+    /// The single gate: filter, encode once, count, send.
+    ///
+    /// A refused frame is dropped here and counted in the drop column — never
+    /// queued and never drained, because there is no per-connection queue and
+    /// an unsubscribe whose effect is deferred is worse than one that is
+    /// exact. It costs no encode at all.
+    async fn send_frame(&mut self, frame: Frame) -> SendOutcome {
+        let feed_id = frame.feed_id;
+        if !admits(self.subscription.as_ref(), feed_id) {
+            self.counters.record_dropped(feed_id);
+            self.global_counters.record_dropped(feed_id);
+            return SendOutcome::Dropped;
+        }
+        let bytes = frame.encode();
+        let byte_len = bytes.len();
+        if self
+            .socket
+            .send(Message::Binary(bytes.into()))
+            .await
+            .is_ok()
+        {
+            self.counters.record_sent(feed_id, byte_len);
+            self.global_counters.record_sent(feed_id, byte_len);
+            SendOutcome::Sent
+        } else {
+            SendOutcome::Disconnected
+        }
+    }
+
+    /// Send a JSON control frame (flags=CONTROL) to the client.
+    /// Returns false if the client disconnected.
+    async fn send_control_json(&mut self, feed_id: FeedId, json: &serde_json::Value) -> bool {
+        let payload = serde_json::to_vec(json).unwrap_or_default();
+        !self
+            .send_frame(Frame::control(feed_id, payload))
+            .await
+            .is_disconnected()
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -756,6 +1031,10 @@ async fn handle_client(mut socket: WebSocket, mut router: FeedRouter) {
         return;
     }
 
+    // From here on nothing holds the raw socket: every server-to-client
+    // frame goes through the sink.
+    let mut sink = ClientSink::new(socket, client_id, Arc::clone(&router.feed_counters));
+
     // Build the StreamMap for output fan-in
     let (mut stream_map, lag_policies) = build_stream_map(&router.stream_outputs);
 
@@ -768,15 +1047,15 @@ async fn handle_client(mut socket: WebSocket, mut router: FeedRouter) {
                 info!(client_id, %lagged_feed, "Client re-entering BOOTSTRAP state");
 
                 // Send lag_detected control frame
-                let _ = send_control_json(
-                    &mut socket,
-                    lagged_feed,
-                    &serde_json::json!({
-                        "type": "lag_detected",
-                        "feed_id": lagged_feed.as_byte()
-                    }),
-                )
-                .await;
+                let _ = sink
+                    .send_control_json(
+                        lagged_feed,
+                        &serde_json::json!({
+                            "type": "lag_detected",
+                            "feed_id": lagged_feed.as_byte()
+                        }),
+                    )
+                    .await;
 
                 // Dispatch bootstrap based on feed
                 if lagged_feed == FeedId::TERMINAL_OUTPUT {
@@ -784,11 +1063,7 @@ async fn handle_client(mut socket: WebSocket, mut router: FeedRouter) {
                     match terminal::capture_pane(&router.session).await {
                         Ok(snapshot) => {
                             let frame = Frame::new(FeedId::TERMINAL_OUTPUT, snapshot);
-                            if socket
-                                .send(Message::Binary(frame.encode().into()))
-                                .await
-                                .is_err()
-                            {
+                            if sink.send_frame(frame).await.is_disconnected() {
                                 info!(client_id, "Client disconnected during snapshot send");
                                 teardown_client(&router, client_id).await;
                                 return;
@@ -801,15 +1076,15 @@ async fn handle_client(mut socket: WebSocket, mut router: FeedRouter) {
                     }
                 } else {
                     // Other feeds: no bootstrap available yet
-                    let _ = send_control_json(
-                        &mut socket,
-                        lagged_feed,
-                        &serde_json::json!({
-                            "type": "bootstrap_unavailable",
-                            "feed_id": lagged_feed.as_byte()
-                        }),
-                    )
-                    .await;
+                    let _ = sink
+                        .send_control_json(
+                            lagged_feed,
+                            &serde_json::json!({
+                                "type": "bootstrap_unavailable",
+                                "feed_id": lagged_feed.as_byte()
+                            }),
+                        )
+                        .await;
                 }
 
                 // Drain any buffered frames from the stream map
@@ -824,11 +1099,7 @@ async fn handle_client(mut socket: WebSocket, mut router: FeedRouter) {
 
                 // Flush buffer to client
                 for frame in buffer.drain(..) {
-                    if socket
-                        .send(Message::Binary(frame.encode().into()))
-                        .await
-                        .is_err()
-                    {
+                    if sink.send_frame(frame).await.is_disconnected() {
                         info!(client_id, "Client disconnected during buffer flush");
                         teardown_client(&router, client_id).await;
                         return;
@@ -846,14 +1117,15 @@ async fn handle_client(mut socket: WebSocket, mut router: FeedRouter) {
                 let (snap_tx, mut snap_rx) = mpsc::channel::<Frame>(16);
 
                 let snapshot_watches = std::mem::take(&mut router.snapshot_watches);
-                for mut watch_rx in snapshot_watches {
+                for (feed_id, mut watch_rx) in snapshot_watches {
+                    // Retain a keyed clone so a later `subscribe_feeds` that
+                    // adds this feed can re-deliver its latest value ([P05]).
+                    // The deck's own replay cache cannot cover that case: it
+                    // is filled from frames that arrive, and under a
+                    // subscription the frame never arrived.
+                    sink.retained_watches.push((feed_id, watch_rx.clone()));
                     let frame = watch_rx.borrow_and_update().clone();
-                    if !frame.payload.is_empty()
-                        && socket
-                            .send(Message::Binary(frame.encode().into()))
-                            .await
-                            .is_err()
-                    {
+                    if !frame.payload.is_empty() && sink.send_frame(frame).await.is_disconnected() {
                         info!(
                             client_id,
                             "Client disconnected during initial snapshot send"
@@ -908,7 +1180,7 @@ async fn handle_client(mut socket: WebSocket, mut router: FeedRouter) {
                 loop {
                     tokio::select! {
                         Some(frame) = snap_rx.recv() => {
-                            if socket.send(Message::Binary(frame.encode().into())).await.is_err() {
+                            if sink.send_frame(frame).await.is_disconnected() {
                                 info!(client_id, "Client disconnected");
                                 teardown_client(&router, client_id).await;
                                 return;
@@ -918,7 +1190,7 @@ async fn handle_client(mut socket: WebSocket, mut router: FeedRouter) {
                         Some((feed_id, result)) = stream_map.next() => {
                             match result {
                                 Ok(frame) => {
-                                    if socket.send(Message::Binary(frame.encode().into())).await.is_err() {
+                                    if sink.send_frame(frame).await.is_disconnected() {
                                         info!(client_id, "Client disconnected");
                                         teardown_client(&router, client_id).await;
                                         return;
@@ -943,6 +1215,18 @@ async fn handle_client(mut socket: WebSocket, mut router: FeedRouter) {
                                         feed_id = %feed_id,
                                         skipped,
                                     );
+                                    // [P06]: a feed this connection did not
+                                    // ask for can still lag, because every
+                                    // client subscribes a receiver to every
+                                    // stream feed. Recovering it would run a
+                                    // tmux capture-pane, or push a whole
+                                    // replay buffer at a gate that discards
+                                    // every frame of it. The telemetry above
+                                    // still fires, so the waterfall keeps no
+                                    // blind spot.
+                                    if !admits(sink.subscription.as_ref(), feed_id) {
+                                        continue;
+                                    }
                                     let policy = lag_policies.get(&feed_id).cloned().unwrap_or(LagPolicy::Warn);
                                     match policy {
                                         LagPolicy::Bootstrap => {
@@ -956,7 +1240,7 @@ async fn handle_client(mut socket: WebSocket, mut router: FeedRouter) {
                                         LagPolicy::Replay(replay_buf) => {
                                             warn!(client_id, %feed_id, skipped, "Stream lagged, replaying from buffer");
                                             // Send lag_recovery control frame
-                                            if !send_control_json(&mut socket, feed_id, &serde_json::json!({
+                                            if !sink.send_control_json(feed_id, &serde_json::json!({
                                                 "type": "lag_recovery",
                                                 "feed_id": feed_id.as_byte()
                                             })).await {
@@ -965,14 +1249,14 @@ async fn handle_client(mut socket: WebSocket, mut router: FeedRouter) {
                                             }
                                             // Replay buffered frames
                                             for frame in replay_buf.snapshot() {
-                                                if socket.send(Message::Binary(frame.encode().into())).await.is_err() {
+                                                if sink.send_frame(frame).await.is_disconnected() {
                                                     info!(client_id, "Client disconnected during replay");
                                                     teardown_client(&router, client_id).await;
                                                     return;
                                                 }
                                             }
                                             // Send lag_recovery_complete
-                                            if !send_control_json(&mut socket, feed_id, &serde_json::json!({
+                                            if !sink.send_control_json(feed_id, &serde_json::json!({
                                                 "type": "lag_recovery_complete",
                                                 "feed_id": feed_id.as_byte()
                                             })).await {
@@ -989,7 +1273,7 @@ async fn handle_client(mut socket: WebSocket, mut router: FeedRouter) {
                             }
                         }
 
-                        msg = socket.recv() => {
+                        msg = sink.socket.recv() => {
                             match msg {
                                 Some(Ok(Message::Binary(data))) => {
                                     if let Ok((frame, _)) = Frame::decode(&data) {
@@ -1015,57 +1299,119 @@ async fn handle_client(mut socket: WebSocket, mut router: FeedRouter) {
                                         else if fid == FeedId::CONTROL {
                                             if let Ok(payload) = serde_json::from_slice::<serde_json::Value>(&frame.payload) {
                                                 if let Some(action) = payload.get("action").and_then(|a| a.as_str()) {
-                                                    match intercept_session_control(
-                                                        router.supervisor.as_ref(),
-                                                        action,
-                                                        &frame.payload,
-                                                        client_id,
-                                                    ).await {
-                                                        ControlIntercept::Handled => {}
-                                                        ControlIntercept::HandledError { detail } => {
-                                                            warn!(client_id, action, detail, "session control rejected");
-                                                            // Echo the rejected payload's identifying
-                                                            // fields so the client can route the error
-                                                            // to the originating card. A `spawn_session`
-                                                            // rejection, in particular, must reach that
-                                                            // card's spawn-error banner — without
-                                                            // `card_id` the client cannot tell which
-                                                            // unbound card the failed spawn belonged to.
-                                                            let mut err = serde_json::json!({
-                                                                "type": "error",
-                                                                "detail": detail,
-                                                            });
-                                                            if let Some(obj) = err.as_object_mut() {
-                                                                if action == "spawn_session" {
-                                                                    obj.insert(
-                                                                        "action".into(),
-                                                                        "spawn_session_error".into(),
-                                                                    );
-                                                                }
-                                                                if let Some(cid) = payload
-                                                                    .get("card_id")
-                                                                    .and_then(|v| v.as_str())
-                                                                {
-                                                                    obj.insert("card_id".into(), cid.into());
-                                                                }
-                                                                if let Some(sid) = payload
-                                                                    .get("tug_session_id")
-                                                                    .and_then(|v| v.as_str())
-                                                                {
-                                                                    obj.insert(
-                                                                        "tug_session_id".into(),
-                                                                        sid.into(),
-                                                                    );
+                                                    // Router-internal telemetry read. Matched
+                                                    // ahead of the interceptor so it never
+                                                    // reaches the supervisor or dispatch_action.
+                                                    // The subscription argument is None until
+                                                    // the connection can name its feeds.
+                                                    if action == "feed_stats" {
+                                                        let stats = build_feed_stats_json(
+                                                            sink.client_id,
+                                                            sink.subscription.as_ref(),
+                                                            &sink.counters,
+                                                            &sink.global_counters,
+                                                        );
+                                                        let _ = sink.send_control_json(FeedId::CONTROL, &stats).await;
+                                                    } else if action == "subscribe_feeds" {
+                                                        // A full replacement set (Spec S01).
+                                                        // Idempotent, no delta form, no
+                                                        // unsubscribe verb, no acknowledgement
+                                                        // frame — the effect is observable in
+                                                        // feed_stats and in what arrives.
+                                                        match parse_subscribe_feeds(&payload) {
+                                                            Some(set) => {
+                                                                // The add-set is a difference, not
+                                                                // the whole set: a previous None
+                                                                // already had everything, so a
+                                                                // first subscribe_feeds adds
+                                                                // nothing and re-delivers nothing.
+                                                                let added: Vec<FeedId> = match &sink.subscription {
+                                                                    None => Vec::new(),
+                                                                    Some(prev) => set.difference(prev).copied().collect(),
+                                                                };
+                                                                debug!(client_id, feeds = set.len(), added = added.len(), "subscribe_feeds applied");
+                                                                sink.subscription = Some(set);
+                                                                // Re-deliver each newly added
+                                                                // snapshot feed's retained latest
+                                                                // value. A feed with no retained
+                                                                // watch — every stream feed — is
+                                                                // skipped, which matches broadcast
+                                                                // semantics exactly: there is no
+                                                                // latest value to send.
+                                                                for feed_id in added {
+                                                                    let retained = sink
+                                                                        .retained_watches
+                                                                        .iter()
+                                                                        .find(|(id, _)| *id == feed_id)
+                                                                        .map(|(_, rx)| rx.borrow().clone());
+                                                                    let Some(frame) = retained else { continue };
+                                                                    if frame.payload.is_empty() {
+                                                                        continue;
+                                                                    }
+                                                                    if sink.send_frame(frame).await.is_disconnected() {
+                                                                        info!(client_id, "Client disconnected during subscription re-delivery");
+                                                                        teardown_client(&router, client_id).await;
+                                                                        return;
+                                                                    }
                                                                 }
                                                             }
-                                                            let _ = send_control_json(&mut socket, FeedId::CONTROL, &err).await;
+                                                            None => {
+                                                                warn!(client_id, "subscribe_feeds carried no feeds array; subscription left unchanged");
+                                                            }
                                                         }
-                                                        ControlIntercept::PassThrough => {
-                                                            crate::actions::dispatch_action(
-                                                                action,
-                                                                &frame.payload,
-                                                                &router.action_context(),
-                                                            ).await;
+                                                    } else {
+                                                        match intercept_session_control(
+                                                            router.supervisor.as_ref(),
+                                                            action,
+                                                            &frame.payload,
+                                                            client_id,
+                                                        ).await {
+                                                            ControlIntercept::Handled => {}
+                                                            ControlIntercept::HandledError { detail } => {
+                                                                warn!(client_id, action, detail, "session control rejected");
+                                                                // Echo the rejected payload's identifying
+                                                                // fields so the client can route the error
+                                                                // to the originating card. A `spawn_session`
+                                                                // rejection, in particular, must reach that
+                                                                // card's spawn-error banner — without
+                                                                // `card_id` the client cannot tell which
+                                                                // unbound card the failed spawn belonged to.
+                                                                let mut err = serde_json::json!({
+                                                                    "type": "error",
+                                                                    "detail": detail,
+                                                                });
+                                                                if let Some(obj) = err.as_object_mut() {
+                                                                    if action == "spawn_session" {
+                                                                        obj.insert(
+                                                                            "action".into(),
+                                                                            "spawn_session_error".into(),
+                                                                        );
+                                                                    }
+                                                                    if let Some(cid) = payload
+                                                                        .get("card_id")
+                                                                        .and_then(|v| v.as_str())
+                                                                    {
+                                                                        obj.insert("card_id".into(), cid.into());
+                                                                    }
+                                                                    if let Some(sid) = payload
+                                                                        .get("tug_session_id")
+                                                                        .and_then(|v| v.as_str())
+                                                                    {
+                                                                        obj.insert(
+                                                                            "tug_session_id".into(),
+                                                                            sid.into(),
+                                                                        );
+                                                                    }
+                                                                }
+                                                                let _ = sink.send_control_json(FeedId::CONTROL, &err).await;
+                                                            }
+                                                            ControlIntercept::PassThrough => {
+                                                                crate::actions::dispatch_action(
+                                                                    action,
+                                                                    &frame.payload,
+                                                                    &router.action_context(),
+                                                                ).await;
+                                                            }
                                                         }
                                                     }
                                                 }
@@ -1093,7 +1439,7 @@ async fn handle_client(mut socket: WebSocket, mut router: FeedRouter) {
                                                         client_id,
                                                         "CODE_INPUT missing tug_session_id, rejecting"
                                                     );
-                                                    let _ = send_control_json(&mut socket, fid, &serde_json::json!({
+                                                    let _ = sink.send_control_json(fid, &serde_json::json!({
                                                         "type": "error",
                                                         "detail": "missing_tug_session_id",
                                                     })).await;
@@ -1105,7 +1451,7 @@ async fn handle_client(mut socket: WebSocket, mut router: FeedRouter) {
                                                         tug_session_id = session.as_str(),
                                                         "CODE_INPUT for session not owned by client"
                                                     );
-                                                    let _ = send_control_json(&mut socket, fid, &serde_json::json!({
+                                                    let _ = sink.send_control_json(fid, &serde_json::json!({
                                                         "type": "error",
                                                         "detail": "session_not_owned",
                                                         "tug_session_id": session.as_str(),
@@ -1113,7 +1459,7 @@ async fn handle_client(mut socket: WebSocket, mut router: FeedRouter) {
                                                 }
                                                 InputDecision::Claimed(owner) => {
                                                     warn!(client_id, %fid, owner, "Input claimed by another client");
-                                                    let _ = send_control_json(&mut socket, fid, &serde_json::json!({
+                                                    let _ = sink.send_control_json(fid, &serde_json::json!({
                                                         "type": "input_claimed",
                                                         "feed_id": fid.as_byte(),
                                                         "owner": owner
@@ -1139,7 +1485,7 @@ async fn handle_client(mut socket: WebSocket, mut router: FeedRouter) {
 
                         _ = heartbeat_interval.tick() => {
                             let hb = Frame::heartbeat();
-                            if socket.send(Message::Binary(hb.encode().into())).await.is_err() {
+                            if sink.send_frame(hb).await.is_disconnected() {
                                 info!(client_id, "Client disconnected during heartbeat send");
                                 teardown_client(&router, client_id).await;
                                 return;
@@ -1972,5 +2318,266 @@ mod tests {
         assert_eq!(router.next_client_id(), 1);
         assert_eq!(router.next_client_id(), 2);
         assert_eq!(router.next_client_id(), 3);
+    }
+
+    // ---- Per-feed counters ----
+
+    /// Find the row for `feed` in one of the response's two tables.
+    fn stats_row(table: &serde_json::Value, feed: u8) -> Option<&serde_json::Value> {
+        table
+            .as_array()
+            .expect("table is an array")
+            .iter()
+            .find(|r| r["feed"] == feed)
+    }
+
+    #[test]
+    fn record_sent_accumulates_on_its_own_index_only() {
+        let mut c = FeedCounters::new();
+        c.record_sent(FeedId::CODE_OUTPUT, 100);
+        c.record_sent(FeedId::CODE_OUTPUT, 40);
+
+        let i = FeedId::CODE_OUTPUT.as_byte() as usize;
+        assert_eq!(c.frames[i], 2);
+        assert_eq!(c.bytes[i], 140);
+        assert_eq!(c.dropped[i], 0);
+
+        // The neighbours on either side are untouched — an off-by-one in the
+        // index would land on one of them.
+        assert_eq!(c.frames[i - 1], 0);
+        assert_eq!(c.bytes[i - 1], 0);
+        assert_eq!(c.frames[i + 1], 0);
+        assert_eq!(c.bytes[i + 1], 0);
+    }
+
+    #[test]
+    fn record_dropped_touches_only_the_drop_column() {
+        let mut c = FeedCounters::new();
+        c.record_dropped(FeedId::PULSE);
+
+        let i = FeedId::PULSE.as_byte() as usize;
+        assert_eq!(c.dropped[i], 1);
+        assert_eq!(
+            (c.frames[i], c.bytes[i]),
+            (0, 0),
+            "a drop is counted instead of a send, never as well as one"
+        );
+    }
+
+    #[test]
+    fn feed_stats_omits_all_zero_rows() {
+        let mut conn = FeedCounters::new();
+        conn.record_sent(FeedId::JOTS, 512);
+        let global = GlobalFeedCounters::default();
+        global.record_sent(FeedId::JOTS, 512);
+
+        let v = build_feed_stats_json(7, None, &conn, &global);
+
+        assert_eq!(v["type"], "feed_stats");
+        assert_eq!(v["client_id"], 7);
+        assert_eq!(
+            v["connection"].as_array().unwrap().len(),
+            1,
+            "one feed moved, so one row — not 256 (got {v:#})"
+        );
+        let row = stats_row(&v["connection"], FeedId::JOTS.as_byte()).expect("the JOTS row");
+        assert_eq!(row["frames"], 1);
+        assert_eq!(row["bytes"], 512);
+        assert_eq!(row["dropped"], 0);
+    }
+
+    #[test]
+    fn feed_stats_row_survives_on_the_drop_column_alone() {
+        // A feed that was only ever refused has zero frames and zero bytes;
+        // dropping its row would hide exactly what the counter is for.
+        let mut conn = FeedCounters::new();
+        conn.record_dropped(FeedId::CODE_OUTPUT);
+        let global = GlobalFeedCounters::default();
+
+        let v = build_feed_stats_json(1, None, &conn, &global);
+
+        let row = stats_row(&v["connection"], FeedId::CODE_OUTPUT.as_byte())
+            .expect("a drop-only row is still a row");
+        assert_eq!(row["frames"], 0);
+        assert_eq!(row["bytes"], 0);
+        assert_eq!(row["dropped"], 1);
+        assert!(
+            v["global"].as_array().unwrap().is_empty(),
+            "the global table saw nothing at all"
+        );
+    }
+
+    #[test]
+    fn feed_stats_distinguishes_no_subscription_from_an_empty_one() {
+        let conn = FeedCounters::new();
+        let global = GlobalFeedCounters::default();
+
+        let none = build_feed_stats_json(1, None, &conn, &global);
+        assert!(
+            none["subscribed"].is_null(),
+            "a connection that never sent subscribe_feeds is null, not []"
+        );
+
+        let empty = HashSet::new();
+        let empty = build_feed_stats_json(1, Some(&empty), &conn, &global);
+        assert_eq!(
+            empty["subscribed"],
+            serde_json::json!([]),
+            "an explicit empty subscription is [], not null"
+        );
+
+        let set: HashSet<FeedId> = [FeedId::JOTS, FeedId::CONTROL, FeedId::CODE_OUTPUT]
+            .into_iter()
+            .collect();
+        let named = build_feed_stats_json(1, Some(&set), &conn, &global);
+        assert_eq!(
+            named["subscribed"],
+            serde_json::json!([0x40, 0xA0, 0xC0]),
+            "the bytes come back sorted, so the response is deterministic"
+        );
+    }
+
+    #[test]
+    fn feed_stats_names_known_feeds_and_leaves_unknown_ones_bare() {
+        let mut conn = FeedCounters::new();
+        conn.record_sent(FeedId::CODE_OUTPUT, 10);
+        // 0x7F is in no feed table on either side of the wire.
+        conn.record_sent(FeedId(0x7F), 10);
+        let global = GlobalFeedCounters::default();
+
+        let v = build_feed_stats_json(1, None, &conn, &global);
+
+        let known = stats_row(&v["connection"], 0x40).expect("the CODE_OUTPUT row");
+        assert_eq!(known["name"], "CodeOutput");
+
+        let unknown = stats_row(&v["connection"], 0x7F).expect("the unknown feed is still counted");
+        assert!(
+            unknown.get("name").is_none(),
+            "an unknown byte carries no name field at all (got {unknown:#})"
+        );
+    }
+
+    // ---- The subscription filter ----
+
+    #[test]
+    fn admits_everything_when_the_connection_has_never_asked() {
+        // The None state is what every existing client is in, so this is the
+        // property that makes the filter wire-compatible on the day it ships.
+        for feed in [
+            FeedId::CODE_OUTPUT,
+            FeedId::JOTS,
+            FeedId::TERMINAL_OUTPUT,
+            FeedId(0x7F),
+        ] {
+            assert!(admits(None, feed), "{feed:?} must pass a None subscription");
+        }
+    }
+
+    #[test]
+    fn admits_the_control_and_liveness_planes_against_an_empty_set() {
+        // A client that could unsubscribe its own heartbeat could hang itself,
+        // and one that could unsubscribe CONTROL could not ask for anything
+        // back.
+        let empty = HashSet::new();
+        assert!(admits(Some(&empty), FeedId::CONTROL));
+        assert!(admits(Some(&empty), FeedId::HEARTBEAT));
+        assert!(
+            !admits(Some(&empty), FeedId::CODE_OUTPUT),
+            "an empty set means nothing but the exemptions"
+        );
+    }
+
+    #[test]
+    fn admits_is_membership_for_everything_else() {
+        let set: HashSet<FeedId> = [FeedId::JOTS, FeedId::DEFAULTS].into_iter().collect();
+        assert!(admits(Some(&set), FeedId::JOTS));
+        assert!(admits(Some(&set), FeedId::DEFAULTS));
+        assert!(!admits(Some(&set), FeedId::CODE_OUTPUT));
+        assert!(!admits(Some(&set), FeedId::FILETREE));
+    }
+
+    #[test]
+    fn parse_subscribe_feeds_reads_a_well_formed_array() {
+        let v = serde_json::json!({ "action": "subscribe_feeds", "feeds": [64, 65, 160] });
+        let set = parse_subscribe_feeds(&v).expect("a well-formed array parses");
+        assert_eq!(
+            set,
+            [FeedId::CODE_OUTPUT, FeedId::CODE_INPUT, FeedId::JOTS]
+                .into_iter()
+                .collect::<HashSet<_>>()
+        );
+    }
+
+    #[test]
+    fn parse_subscribe_feeds_accepts_an_empty_array_as_a_real_answer() {
+        let v = serde_json::json!({ "action": "subscribe_feeds", "feeds": [] });
+        let set = parse_subscribe_feeds(&v).expect("an empty array is legal");
+        assert!(
+            set.is_empty(),
+            "an empty set means nothing but the exemptions, which is not the \
+             same as never having asked"
+        );
+    }
+
+    #[test]
+    fn parse_subscribe_feeds_refuses_a_malformed_message_rather_than_emptying_it() {
+        // None is the caller's signal to leave the subscription alone.
+        // Returning Some(empty) here would silently narrow a connection to the
+        // exemptions; returning "everything" would silently lose a filter.
+        assert!(
+            parse_subscribe_feeds(&serde_json::json!({ "action": "subscribe_feeds" })).is_none(),
+            "a missing feeds key is malformed"
+        );
+        assert!(
+            parse_subscribe_feeds(&serde_json::json!({ "feeds": 64 })).is_none(),
+            "a non-array feeds field is malformed"
+        );
+        assert!(
+            parse_subscribe_feeds(&serde_json::json!({ "feeds": "64,65" })).is_none(),
+            "a string is not an array"
+        );
+        assert!(
+            parse_subscribe_feeds(&serde_json::json!({ "feeds": null })).is_none(),
+            "an explicit null is not an array"
+        );
+    }
+
+    #[test]
+    fn parse_subscribe_feeds_skips_junk_entries_without_discarding_the_set() {
+        // One bad entry must not cost the client its whole subscription.
+        let v = serde_json::json!({
+            "feeds": [64, 256, -1, "160", 1.5, null, 160]
+        });
+        let set = parse_subscribe_feeds(&v).expect("the array itself is well formed");
+        assert_eq!(
+            set,
+            [FeedId::CODE_OUTPUT, FeedId::JOTS]
+                .into_iter()
+                .collect::<HashSet<_>>(),
+            "256 is out of range, -1 is not a u64, \"160\" is a string, 1.5 is \
+             not an integer, and null is nothing — the two real bytes survive"
+        );
+    }
+
+    #[test]
+    fn parse_subscribe_feeds_folds_duplicates() {
+        let v = serde_json::json!({ "feeds": [160, 160, 160] });
+        let set = parse_subscribe_feeds(&v).expect("parses");
+        assert_eq!(
+            set.len(),
+            1,
+            "a set, so duplicates are free rather than an error"
+        );
+    }
+
+    #[test]
+    fn a_client_may_name_the_exempt_feeds_harmlessly() {
+        // 192 and 255 in a feeds array are accepted; the exemption fires first
+        // either way, so naming them changes nothing.
+        let v = serde_json::json!({ "feeds": [192, 255] });
+        let set = parse_subscribe_feeds(&v).expect("parses");
+        assert!(admits(Some(&set), FeedId::CONTROL));
+        assert!(admits(Some(&set), FeedId::HEARTBEAT));
+        assert!(!admits(Some(&set), FeedId::JOTS));
     }
 }

@@ -182,6 +182,52 @@ export class TugConnection {
    */
   private rxBuffer: Uint8Array = new Uint8Array(0);
   private callbacks: Map<number, FrameCallback[]> = new Map();
+  /**
+   * The feed set this connection has told the server it wants, via
+   * `subscribe_feeds`. Accumulated and **monotonic**: it never shrinks, for
+   * the life of the tab.
+   *
+   * Monotonicity is what keeps `lastPayload`'s late-subscriber replay
+   * working. `dispatch` caches a feed's most recent frame whether or not a
+   * handler is registered, which is exactly how a store that mounts late
+   * gets its first value; a union that shrank when the last handler
+   * unregistered would stop those frames arriving and the cache would go
+   * cold. Opting a feed out is a deliberate, named act for a later phase,
+   * never an emergent effect of a component unmounting.
+   *
+   * Deliberately **not** cleared on `onclose`, for the same reason it never
+   * shrinks on unregister. The server keeps no memory of a closed
+   * connection, so the next socket is told the whole set again after its own
+   * handshake — but the set it is told has to be the one this tab
+   * accumulated rather than a fresh recompute. `callbacks` survives a close
+   * with the unmounted cards' entries already spliced out, so recomputing
+   * from scratch would quietly narrow the subscription across every
+   * reconnect: a feed whose card was open before the close and has closed
+   * since would fall out of it, `lastPayload` having been cleared by the
+   * same handler. A stream feed dropped that way has nothing to re-deliver
+   * it — the server's latest-value pass covers snapshot feeds only — so the
+   * card would mount blank on its next open and stay blank until the
+   * producer spoke again.
+   */
+  private subscribedFeeds: Set<number> = new Set();
+  /**
+   * Every feed id this deck has ever written on, minus the exempt planes.
+   *
+   * These belong in the subscription because the router addresses input
+   * rejections — `input_claimed`, `session_not_owned`,
+   * `missing_tug_session_id` — to the *input feed's own id* rather than to
+   * CONTROL, so they follow that feed's subscription. `filetree-store.ts`
+   * writes FILETREE_QUERY but reads only FILETREE, so without this it
+   * would never hear its own rejection.
+   *
+   * Deliberately **not** cleared on `onclose`. This is a per-tab fact about
+   * which feeds this deck writes on, not per-socket state, and dropping it
+   * would take those feeds out of the post-handshake union and re-open that
+   * window on every reconnect.
+   */
+  private sentFeeds: Set<number> = new Set();
+  /** Whether a coalescing microtask is already queued. */
+  private subscriptionSyncPending: boolean = false;
   private lastPayload: Map<number, Uint8Array> = new Map();
   // Replay-on-subscribe cache for feeds that MULTIPLEX several payload kinds
   // onto one feed id. `lastPayload` keeps a single frame per feed, so a later
@@ -347,6 +393,19 @@ export class TugConnection {
             // and force-close immediately.
             this.lastFrameAt = Date.now();
             this.startHeartbeat();
+            // Re-establish this socket's subscription: the accumulated set,
+            // widened by whatever is live right now. Both halves matter.
+            // Nothing re-registers on reconnect — `callbacks` survives the
+            // close untouched, so no `onFrame` will run — which is why the
+            // recompute alone cannot be the answer: it would carry only the
+            // cards still mounted, and a feed whose card has closed since
+            // would silently fall out of the subscription. And the
+            // accumulated set alone cannot be either, since a registration
+            // made while the wire was down never reached the server.
+            //
+            // Unconditional, because a fresh socket knows nothing regardless
+            // of whether the set differs from the last one's.
+            this.flushSubscription(true);
             // The lifecycle is the sole event surface for open/close
             // transitions; it internally fires `connectionDidReconnect`
             // after `connectionDidOpen` if a prior close was observed.
@@ -394,6 +453,11 @@ export class TugConnection {
       // whatever is current. See [D05].
       this.lastPayload.clear();
       this.lastPayloadByType.clear();
+      // `subscribedFeeds` and `sentFeeds` both survive the close on purpose —
+      // see their docstrings. Only the coalescing flag is per-socket: a
+      // microtask queued against the dead socket must not be taken for one
+      // queued against the next.
+      this.subscriptionSyncPending = false;
       // Reset the inbound reassembly buffer — any partial frame held
       // across the close belongs to the prior connection and must
       // not bleed into post-reconnect parsing.
@@ -562,6 +626,24 @@ export class TugConnection {
     payload: Uint8Array,
     flags: number = FrameFlags.DATA,
   ): boolean {
+    // CONTROL and HEARTBEAT are exempt from the server's filter, so
+    // recording them would buy nothing — and CONTROL in particular would
+    // recurse, since the `subscribe_feeds` frame below is itself a CONTROL
+    // write.
+    if (
+      feedId !== FeedId.CONTROL &&
+      feedId !== FeedId.HEARTBEAT &&
+      !this.sentFeeds.has(feedId)
+    ) {
+      this.sentFeeds.add(feedId);
+      // Synchronously, and before the payload goes out. The router answers
+      // an input frame's rejection on that frame's own feed id inside the
+      // same receive turn that read it, so a subscription deferred to the
+      // coalescing microtask arrives after the rejection has already been
+      // dropped at the gate. Only the first write on a feed pays this; the
+      // rest are covered by the set membership above.
+      this.flushSubscription(false);
+    }
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       const frame: Frame = { feedId, flags, payload };
       this.ws.send(encodeFrame(frame));
@@ -575,6 +657,64 @@ export class TugConnection {
       });
     }
     return false;
+  }
+
+  /**
+   * The feeds this connection should be subscribed to right now: every feed
+   * with at least one live callback, plus every feed it has written on.
+   *
+   * Non-empty arrays rather than map keys: `onFrame`'s unsubscribe splices
+   * the callback out of its array but never deletes the key, so a key set
+   * alone over-reports.
+   */
+  private computeFeedUnion(): Set<number> {
+    const union = new Set<number>(this.sentFeeds);
+    for (const [feedId, list] of this.callbacks) {
+      if (list.length > 0) union.add(feedId);
+    }
+    return union;
+  }
+
+  /**
+   * Coalesce a subscription recompute onto a microtask, so a burst of stores
+   * registering in one tick sends one frame rather than one frame each.
+   *
+   * Coalescing is for registrations, which have no deadline. Writes do have
+   * one and take the synchronous path in {@link trySend} instead.
+   */
+  private scheduleSubscriptionSync(): void {
+    if (this.subscriptionSyncPending) return;
+    this.subscriptionSyncPending = true;
+    queueMicrotask(() => {
+      this.subscriptionSyncPending = false;
+      this.flushSubscription(false);
+    });
+  }
+
+  /**
+   * Fold the current union into the accumulated set and, if that changed
+   * anything, tell the server.
+   *
+   * `force` re-sends even when nothing grew, which is what the
+   * post-handshake path needs: a fresh socket knows nothing, so the set has
+   * to be re-established whether or not it differs from what the previous
+   * socket carried.
+   */
+  private flushSubscription(force: boolean): void {
+    const union = this.computeFeedUnion();
+    let grew = false;
+    for (const feedId of union) {
+      if (!this.subscribedFeeds.has(feedId)) {
+        this.subscribedFeeds.add(feedId);
+        grew = true;
+      }
+    }
+    if (!grew && !force) return;
+    if (this.state !== ConnectionState.CONNECTED) return;
+    // Sorted so the wire is deterministic and a packet capture reads in
+    // feed order.
+    const feeds = [...this.subscribedFeeds].sort((a, b) => a - b);
+    this.trySendControlFrame("subscribe_feeds", { feeds });
   }
 
   /**
@@ -631,9 +771,16 @@ export class TugConnection {
     }
     const list = this.callbacks.get(feedId)!;
     list.push(callback);
+    // The feed is now live for this connection. Coalesced, so a tick that
+    // mounts a dozen stores sends one frame.
+    this.scheduleSubscriptionSync();
     const unsubscribe = (): void => {
       const idx = list.indexOf(callback);
       if (idx >= 0) list.splice(idx, 1);
+      // The set is monotonic, so this can only ever be a no-op on the wire.
+      // It runs anyway so the recompute has one entry point rather than two
+      // rules about when it is worth doing.
+      this.scheduleSubscriptionSync();
     };
     // Replay cached payload for late subscribers (e.g. cards mounted after
     // the initial snapshot was sent). This ensures snapshot feeds deliver

@@ -47,6 +47,7 @@
 pub mod catalog;
 pub mod probes;
 
+use std::collections::HashMap;
 use std::net::TcpListener as StdTcpListener;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -1113,6 +1114,109 @@ impl TestWs {
             .await?;
         self.buffer.remove(idx);
         Ok(())
+    }
+
+    /// Send an arbitrary JSON payload on an arbitrary feed.
+    pub async fn send_feed_payload(&mut self, feed_id: FeedId, payload: serde_json::Value) {
+        let bytes = serde_json::to_vec(&payload).expect("control json");
+        let frame = Frame::new(feed_id, bytes);
+        self.sink
+            .lock()
+            .await
+            .send(Message::Binary(frame.encode().into()))
+            .await
+            .expect("send control frame");
+    }
+
+    /// Send an arbitrary JSON payload as a `CONTROL` frame.
+    ///
+    /// The typed `send_*` helpers cover the session-lifecycle actions; this
+    /// is for the router-internal ones that carry no card or session.
+    pub async fn send_control_payload(&mut self, payload: serde_json::Value) {
+        self.send_feed_payload(FeedId::CONTROL, payload).await;
+    }
+
+    /// Drain whatever the socket offers for `window`, then return a per-feed
+    /// census of everything this client has buffered since it connected.
+    ///
+    /// The window is a settling period rather than a deadline: it always runs
+    /// to its end, so two clients given the same window are compared over the
+    /// same amount of wall clock.
+    pub async fn census_over(&mut self, window: Duration) -> HashMap<u8, usize> {
+        let deadline = Instant::now() + window;
+        loop {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                break;
+            }
+            match tokio::time::timeout(remaining, self.stream.next()).await {
+                Ok(Some(Ok(Message::Binary(bytes)))) => {
+                    let Ok((frame, _)) = Frame::decode(&bytes) else {
+                        continue;
+                    };
+                    let payload = serde_json::from_slice::<serde_json::Value>(&frame.payload)
+                        .unwrap_or(serde_json::Value::Null);
+                    self.buffer.push(DecodedFrame {
+                        feed_id: frame.feed_id,
+                        payload,
+                    });
+                }
+                Ok(Some(Ok(_))) => continue,
+                Ok(Some(Err(_))) | Ok(None) => break,
+                Err(_) => break,
+            }
+        }
+        let mut census: HashMap<u8, usize> = HashMap::new();
+        for f in &self.buffer {
+            *census.entry(f.feed_id.as_byte()).or_insert(0) += 1;
+        }
+        census
+    }
+
+    /// Pump until a `CONTROL` frame whose payload `type` is `ty` arrives.
+    ///
+    /// Returns that payload together with a per-feed census of every frame
+    /// that arrived *before* it. The server writes one socket from one task,
+    /// so a frame it had already sent when it built the reply is necessarily
+    /// a frame that arrived ahead of the reply — which makes the census an
+    /// exact account of what this connection received, not an approximation
+    /// racing the wire.
+    ///
+    /// The matched frame is consumed, so consecutive calls see consecutive
+    /// replies rather than re-matching the first one out of the buffer. Only
+    /// replies are ever consumed, so the census stays exact for every feed
+    /// but `CONTROL`, whose already-answered replies it no longer counts.
+    pub async fn await_control_type(
+        &mut self,
+        ty: &str,
+        timeout: Duration,
+    ) -> Result<(serde_json::Value, HashMap<u8, usize>), String> {
+        let deadline = Instant::now() + timeout;
+        let idx = self
+            .pump_until(deadline, |f| {
+                f.feed_id == FeedId::CONTROL && f.payload["type"] == ty
+            })
+            .await?;
+        let mut census: HashMap<u8, usize> = HashMap::new();
+        for f in &self.buffer[..idx] {
+            *census.entry(f.feed_id.as_byte()).or_insert(0) += 1;
+        }
+        Ok((self.buffer.remove(idx).payload, census))
+    }
+
+    /// Pump until a frame arrives on some feed other than `CONTROL` or
+    /// `HEARTBEAT`, and return that feed's id. Which snapshot feed lands
+    /// first depends on what the spawned tugcast registered, so a test that
+    /// only needs *some* real traffic asks for it this way rather than
+    /// naming a feed and hoping.
+    pub async fn await_any_data_feed(&mut self, timeout: Duration) -> Result<FeedId, String> {
+        let deadline = Instant::now() + timeout;
+        let idx = self
+            .pump_until(deadline, |f| {
+                f.feed_id != FeedId::CONTROL && f.feed_id != FeedId::HEARTBEAT
+            })
+            .await?;
+        Ok(self.buffer[idx].feed_id)
     }
 
     /// Count `SESSION_SIDEBAND` frames currently in the buffer (or

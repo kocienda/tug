@@ -542,6 +542,169 @@ mod tests {
         assert_eq!(FeedId::HEARTBEAT.as_byte(), 0xFF);
     }
 
+    // ---- The two feed tables ----
+
+    /// This crate's own source, scanned for the `impl FeedId` table.
+    const RUST_PROTOCOL_SRC: &str =
+        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/protocol.rs"));
+
+    /// The deck's copy of the same table. The two files are one wire contract
+    /// written twice, and nothing but the test below holds them together.
+    const DECK_PROTOCOL_TS: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../../tugdeck/src/protocol.ts"
+    ));
+
+    /// The size both tables must agree on, so a scanner that silently matches
+    /// nothing cannot pass vacuously.
+    const FEED_TABLE_LEN: usize = 38;
+
+    /// A screaming-snake identifier, and nothing else.
+    fn is_feed_constant_name(name: &str) -> bool {
+        !name.is_empty()
+            && name
+                .chars()
+                .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
+    }
+
+    /// Scans `pub const NAME: Self = Self(0xAB);` lines **inside the
+    /// `impl FeedId` block only**. The bound is correctness rather than
+    /// tidiness: `impl FrameFlags` declares its own `CONTROL` at `0x01` while
+    /// `FeedId::CONTROL` is `0xC0`, so a block-unaware scan maps that name to
+    /// the wrong byte and reports a divergence that is not there.
+    fn scan_rust_feed_table(src: &str) -> std::collections::BTreeMap<String, u8> {
+        let mut table = std::collections::BTreeMap::new();
+        let mut in_block = false;
+        for line in src.lines() {
+            if !in_block {
+                in_block = line.trim_end() == "impl FeedId {";
+                continue;
+            }
+            if line == "}" {
+                break;
+            }
+            let trimmed = line.trim();
+            let Some(rest) = trimmed.strip_prefix("pub const ") else {
+                continue;
+            };
+            let Some((name, rest)) = rest.split_once(": Self = Self(0x") else {
+                continue;
+            };
+            let Some(hex) = rest.strip_suffix(");") else {
+                continue;
+            };
+            let Ok(byte) = u8::from_str_radix(hex, 16) else {
+                continue;
+            };
+            if !is_feed_constant_name(name) {
+                continue;
+            }
+            assert!(
+                table.insert(name.to_string(), byte).is_none(),
+                "FeedId::{name} is declared twice in the Rust table"
+            );
+        }
+        assert!(
+            in_block,
+            "the `impl FeedId` block was not found in tugcast-core/src/protocol.rs"
+        );
+        table
+    }
+
+    /// Scans `NAME: 0xAB,` lines inside `export const FeedId = { … } as const;`.
+    fn scan_deck_feed_table(src: &str) -> std::collections::BTreeMap<String, u8> {
+        let mut table = std::collections::BTreeMap::new();
+        let mut in_block = false;
+        for line in src.lines() {
+            if !in_block {
+                in_block = line.trim_end() == "export const FeedId = {";
+                continue;
+            }
+            let trimmed = line.trim();
+            if trimmed == "} as const;" {
+                break;
+            }
+            let Some((name, rest)) = trimmed.split_once(": 0x") else {
+                continue;
+            };
+            let Some(hex) = rest.strip_suffix(',') else {
+                continue;
+            };
+            let Ok(byte) = u8::from_str_radix(hex, 16) else {
+                continue;
+            };
+            if !is_feed_constant_name(name) {
+                continue;
+            }
+            assert!(
+                table.insert(name.to_string(), byte).is_none(),
+                "{name} is declared twice in the deck table"
+            );
+        }
+        assert!(
+            in_block,
+            "the `export const FeedId` block was not found in tugdeck/src/protocol.ts"
+        );
+        table
+    }
+
+    /// The Rust and TypeScript feed tables are one table written twice. A byte
+    /// that agrees on only one side is a frame the deck decodes onto the wrong
+    /// feed, or silently drops. Compare parsed bytes, never hex text: the two
+    /// files disagree on hex case today.
+    #[test]
+    fn feed_id_tables_do_not_drift() {
+        let rust = scan_rust_feed_table(RUST_PROTOCOL_SRC);
+        let deck = scan_deck_feed_table(DECK_PROTOCOL_TS);
+
+        assert_eq!(
+            rust.len(),
+            FEED_TABLE_LEN,
+            "the Rust feed table holds {} constants, not {FEED_TABLE_LEN} — raise \
+             FEED_TABLE_LEN if a feed was genuinely added",
+            rust.len()
+        );
+        assert_eq!(
+            deck.len(),
+            FEED_TABLE_LEN,
+            "the deck feed table holds {} constants, not {FEED_TABLE_LEN} — raise \
+             FEED_TABLE_LEN if a feed was genuinely added",
+            deck.len()
+        );
+
+        let rust_only: Vec<&str> = rust
+            .keys()
+            .filter(|name| !deck.contains_key(*name))
+            .map(String::as_str)
+            .collect();
+        let deck_only: Vec<&str> = deck
+            .keys()
+            .filter(|name| !rust.contains_key(*name))
+            .map(String::as_str)
+            .collect();
+        let mismatched: Vec<String> = rust
+            .iter()
+            .filter_map(|(name, byte)| {
+                deck.get(name)
+                    .filter(|deck_byte| *deck_byte != byte)
+                    .map(|deck_byte| format!("{name} (Rust 0x{byte:02x}, deck 0x{deck_byte:02x})"))
+            })
+            .collect();
+
+        assert!(
+            rust_only.is_empty(),
+            "declared in tugcast-core but missing from tugdeck/src/protocol.ts: {rust_only:?}"
+        );
+        assert!(
+            deck_only.is_empty(),
+            "declared in tugdeck/src/protocol.ts but missing from tugcast-core: {deck_only:?}"
+        );
+        assert!(
+            mismatched.is_empty(),
+            "the two feed tables disagree on these bytes: {mismatched:?}"
+        );
+    }
+
     #[test]
     fn test_tug_session_id_hashable_and_cloneable() {
         use std::collections::HashMap;
