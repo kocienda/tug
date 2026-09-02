@@ -3,9 +3,9 @@
  * card's masthead title, bound and unbound by the real CLI through the card's
  * own shell route.
  *
- * The whole loop is real. `tugtool dash bind` resolves the calling session
+ * The whole loop is real. `tugtool arc bind` resolves the calling session
  * from `TUG_SESSION_ID` — which is exactly what the `$` shell route stamps on
- * the child — and POSTs `/api/dash` to the instance whose ledger owns that
+ * the child — and POSTs `/api/arc` to the instance whose ledger owns that
  * session, so the session is seeded into this instance's ledger first
  * (`seedLedger`) or the command exits with `no session`. The run that appears
  * is driven by the dash's `bound_sessions` moving in the account-global
@@ -45,8 +45,8 @@
  *
  * @covers tugdeck/src/components/tugways/session-masthead.tsx
  * @covers tugdeck/src/components/tugways/tug-session-identity.tsx
- * @covers tugdeck/src/lib/dash-session-index.ts
- * @covers tugdeck/src/lib/dash-review.ts
+ * @covers tugdeck/src/lib/arc-session-index.ts
+ * @covers tugdeck/src/lib/arc-review.ts
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
@@ -164,7 +164,7 @@ describe.skipIf(!SHOULD_RUN)("AT0406: the masthead's dash run", () => {
         const bareHeight = await mastheadHeight(app);
 
         // ── Bind, for real ────────────────────────────────────────────────
-        await shellAndSettle(app, `${tugtoolPath(CHECKOUT)} dash bind ${DASH_NAME}`, 0);
+        await shellAndSettle(app, `${tugtoolPath(CHECKOUT)} arc bind ${DASH_NAME}`, 0);
         note(
           "at0406 bind row",
           await app.evalJS<string>(
@@ -323,7 +323,7 @@ describe.skipIf(!SHOULD_RUN)("AT0406: the masthead's dash run", () => {
         expect(await mastheadHeight(app)).toBe(bareHeight);
 
         // ── Unbind, for real ──────────────────────────────────────────────
-        await shellAndSettle(app, `${tugtoolPath(CHECKOUT)} dash unbind`, 1);
+        await shellAndSettle(app, `${tugtoolPath(CHECKOUT)} arc unbind`, 1);
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(RUN)}) === null`,
           { timeoutMs: 15000 },

@@ -145,10 +145,10 @@ export function useSessionBranch(projectDir: string | null): string | null {
  *
  * The dash is matched on its **owner key**, never on its name: a stale binding
  * to a dead incarnation of a reused name must not paint the wrong dash's mark.
- * This is the same rule the shade lane's `orderDashLane` states for choosing
+ * This is the same rule the shade lane's `orderArcLane` states for choosing
  * its fronted row.
  */
-export function dashReviewForProject(
+export function arcReviewForProject(
   data: WorkspacesChangesetSnapshot,
   projectDir: string | null,
   dashOwnerId: string | null,
@@ -173,7 +173,7 @@ export function useDashReviewState(
 ): string | null {
   const data = useChangesetAll();
   return useMemo(
-    () => dashReviewForProject(data, projectDir, dashOwnerId),
+    () => arcReviewForProject(data, projectDir, dashOwnerId),
     [data, projectDir, dashOwnerId],
   );
 }

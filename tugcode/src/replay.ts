@@ -1111,7 +1111,7 @@ const COMMAND_ENVELOPE_ARGS_RE = /<command-args>([\s\S]*?)<\/command-args>/;
  * what the JSONL holds.
  *
  * Claude Code rewrites a slash command into its `<command-*>` envelope before
- * it writes the record, so the literal `/tugplug:dash-implement foo Steps 4-13`
+ * it writes the record, so the literal `/tugplug:arc-implement foo Steps 4-13`
  * that went out comes back as three tags. Put back together, name then args,
  * it is the sent text again — and that is what {@link WheelPromptLedger}
  * matches on, since Tug's record holds what Tug sent.

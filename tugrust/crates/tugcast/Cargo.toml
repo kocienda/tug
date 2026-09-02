@@ -42,7 +42,7 @@ tower-http = { workspace = true }
 tugcast-core = { path = "../tugcast-core" }
 tugtool-core = { workspace = true }
 tuggram = { workspace = true }
-tugdash-core = { workspace = true }
+tugarc-core = { workspace = true }
 tugchanges-core = { workspace = true }
 tugbank-core = { workspace = true }
 uuid = { workspace = true }

@@ -100,7 +100,7 @@ export class CardSessionBindingStore {
    * existing record.
    *
    * A merge and not a `setBinding`: a bind can arrive mid-session (a skill
-   * running `tugtool dash bind`, or a `bind_dash_ok` broadcast), and replacing
+   * running `tugtool arc bind`, or a `bind_dash_ok` broadcast), and replacing
    * the whole record there would clobber the `workspaceKey` the spawn ack
    * established — the value `useCardWorkspaceKey` builds the pane's feed
    * filter from.

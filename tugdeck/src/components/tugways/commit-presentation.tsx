@@ -150,7 +150,7 @@ export function CommitMetaCell({
  * single space (the atom's glyph and its word are what separate them; a
  * heavier delimiter only spent width). The sha is a
  * {@link CommitShaText} (right-click → copy the full hash); a trailing
- * `badge` slot carries surface-specific marks (the History shade's dash-join
+ * `badge` slot carries surface-specific marks (the History shade's arc-join
  * badge, say) inside the same text flow so it wraps with the subject.
  */
 export function CommitIdentityLine({

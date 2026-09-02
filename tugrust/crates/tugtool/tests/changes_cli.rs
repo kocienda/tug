@@ -929,7 +929,7 @@ fn add_dash_worktree(root: &Path, name: &str) -> PathBuf {
     worktree
 }
 
-/// The defect this contract closes: `dash-implement` runs `tugtool draft set`
+/// The defect this contract closes: `arc-implement` runs `tugtool draft set`
 /// from inside the dash worktree, so a cwd-derived project key put every
 /// planned run's authored draft under the worktree — while the join reads with
 /// the base repository root in hand. The row could never match, and the landing
@@ -967,7 +967,7 @@ fn a_dash_draft_written_from_the_worktree_keys_by_the_base_root() {
 /// checked-out branch of the directory it is handed, and only the worktree has
 /// `tugdash/<name>` there. Substituting the base root *before* owner resolution
 /// would read `main`, and an ownerless `draft set` from inside a worktree —
-/// precisely what `dash-implement` runs — would land on the session instead.
+/// precisely what `arc-implement` runs — would land on the session instead.
 #[test]
 fn an_ownerless_set_from_the_worktree_still_resolves_the_dash() {
     let (_repo, root) = init_repo();
@@ -1168,7 +1168,7 @@ fn dash_replay_moves_a_behind_dash_onto_the_new_base_tip() {
     advance_main(&root, "moved\n");
 
     let mut cmd = tug_dash(db.path(), state.path(), &root);
-    cmd.args(["dash", "replay", "demo", "--json"]);
+    cmd.args(["arc", "replay", "demo", "--json"]);
     let (code, stdout, stderr) = run(cmd);
     assert_eq!(code, 0, "stderr: {stderr}");
     let v = parse(&stdout);
@@ -1209,7 +1209,7 @@ fn dash_replay_records_a_rebase_the_agent_already_made() {
         .output()
         .unwrap();
     let round = String::from_utf8_lossy(&round.stdout).trim().to_string();
-    let plan = root.join(".tug/dashes/demo/plan.md");
+    let plan = root.join(".tug/arcs/demo/plan.md");
     std::fs::create_dir_all(plan.parent().unwrap()).unwrap();
     std::fs::write(
         &plan,
@@ -1226,7 +1226,7 @@ fn dash_replay_records_a_rebase_the_agent_already_made() {
     git(&worktree, &["rebase", "-q", "main"]);
 
     let mut cmd = tug_dash(db.path(), state.path(), &root);
-    cmd.args(["dash", "replay", "demo", "--json"]);
+    cmd.args(["arc", "replay", "demo", "--json"]);
     let (code, stdout, stderr) = run(cmd);
     assert_eq!(code, 0, "stderr: {stderr}");
     let v = parse(&stdout);
@@ -1261,7 +1261,7 @@ fn dash_replay_reports_a_conflict_and_exits_one_without_moving_anything() {
     advance_main(&root, "base-moved\n");
 
     let mut cmd = tug_dash(db.path(), state.path(), &root);
-    cmd.args(["dash", "replay", "demo", "--json"]);
+    cmd.args(["arc", "replay", "demo", "--json"]);
     let (code, stdout, stderr) = run(cmd);
     assert_eq!(code, 1, "a conflict is not success; stderr: {stderr}");
     let v = parse(&stdout);

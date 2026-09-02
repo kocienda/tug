@@ -16,7 +16,7 @@ The model reaches for those interpreters for a reason, and the reason is not tha
 
 ```bash
 tugedit <<'EDIT'
-file tugrust/crates/tugdash-core/src/ops.rs
+file tugrust/crates/tugarc-core/src/ops.rs
   replace 'entry.stage, "working"' with 'entry.stage, "the git stage"'
   after /^fn redo_replay\b/ insert <<
     let _guard = replay_guard();
@@ -147,7 +147,7 @@ That form exists because block-replaces-block is the commonest edit in the evide
 
 ```
 # the rename campaign (sed -i '' -e … -e … file / perl -pi across files)
-files tugrust/crates/tugdash-core/src/ops.rs tugrust/crates/tugdash-core/src/replay.rs
+files tugrust/crates/tugarc-core/src/ops.rs tugrust/crates/tugarc-core/src/replay.rs
   replace 'ReleaseOutcome' with 'DiscardOutcome' all
   sub /\brelease_in\b/ 'discard_in' all
   sub /\bfn release_/ 'fn discard_' all

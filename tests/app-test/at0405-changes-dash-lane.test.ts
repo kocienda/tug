@@ -3,10 +3,10 @@
  * against a real dash created by the real CLI.
  *
  * A dash is a different species from a claimed file, so it gets a different
- * row. This pins that grammar end to end: a real `tugtool dash create` in the
+ * row. This pins that grammar end to end: a real `tugtool arc create` in the
  * project under test composes into `snapshot.dashes`, the lane renders one
  * `DashLifecycleBlock` at reading scale — the atom and the workers over the
- * track, the note and the divergence facts, the same block the Dashes card's
+ * track, the note and the divergence facts, the same block the Arcs card's
  * section renders at the rail ([D141]) — the expanded face carries the
  * worktree's dirty files and the maintained join draft as read-only ink, and
  * nowhere in the lane is there a claim, disclaim, or hunk-election affordance
@@ -58,18 +58,18 @@
  * the real CLI and pins the run against it; asserting it here would have meant
  * asserting it against a fabricated frame.
  *
- * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-dash-lane.tsx
- * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-dash-brief.tsx
- * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-dash-brief.css
- * @covers tugdeck/src/lib/dash-file-clusters.ts
+ * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-arc-lane.tsx
+ * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-arc-brief.tsx
+ * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-arc-brief.css
+ * @covers tugdeck/src/lib/arc-file-clusters.ts
  * @covers tugdeck/src/lib/landing-message.ts
- * @covers tugdeck/src/components/tugways/cards/session-changes/dash-row-menu.tsx
+ * @covers tugdeck/src/components/tugways/cards/session-changes/arc-row-menu.tsx
  * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-view.tsx
  * @covers tugdeck/src/lib/changes-route-controller.ts
- * @covers tugdeck/src/components/tugways/dash-lifecycle-block.tsx
- * @covers tugdeck/src/components/tugways/dash-lifecycle-line.tsx
- * @covers tugdeck/src/components/tugways/tug-dash-track.tsx
- * @covers tugdeck/src/lib/document-dash-entry.ts
+ * @covers tugdeck/src/components/tugways/arc-lifecycle-block.tsx
+ * @covers tugdeck/src/components/tugways/arc-lifecycle-line.tsx
+ * @covers tugdeck/src/components/tugways/tug-arc-track.tsx
+ * @covers tugdeck/src/lib/document-arc-entry.ts
  * @covers tugdeck/src/components/tugways/tug-section-label.tsx
  */
 

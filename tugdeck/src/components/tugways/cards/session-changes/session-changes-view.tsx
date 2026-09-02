@@ -16,7 +16,7 @@
  * the view mounts no second whole-session document above it. The repo-wide
  * view is a different surface entirely: the Project Diff card (`/diff`).
  *
- * Below the file rows sits the `SessionChangesDashLane` — the project's dashes
+ * Below the file rows sits the `SessionChangesArcLane` — the project's dashes
  * in their own grammar, with their own fold. The header's fold-all cue and
  * combined pop-out keep acting on the head entries only; the lane owns its
  * own folding, because a dash is a different species from a claimed file.
@@ -53,16 +53,16 @@ import {
   type TugChangesListEntry,
 } from "@/components/tugways/tug-changes-list";
 import {
-  SessionChangesDashLane,
+  SessionChangesArcLane,
   canDiscardFromHere,
-  type DashLaneBinding,
-  type DashLaneJoinFace,
-  type DashLaneDiscard,
-  type DashLaneReplay,
-} from "./session-changes-dash-lane";
-import type { DashJoinActions } from "./session-changes-dash-join";
+  type ArcLaneBinding,
+  type ArcLaneJoinFace,
+  type ArcLaneDiscard,
+  type ArcLaneReplay,
+} from "./session-changes-arc-lane";
+import type { ArcJoinActions } from "./session-changes-arc-join";
 import type { JoinOutcome } from "@/lib/join-mode-controller";
-import { useChangesetLandingDashes } from "@/lib/changeset-join-store";
+import { useChangesetLandingArcs } from "@/lib/changeset-join-store";
 import type { DiffDescriptor } from "@/lib/git-diff-store";
 import { cardSessionBindingStore } from "@/lib/card-session-binding-store";
 import { getConnection } from "@/lib/connection-singleton";
@@ -100,7 +100,7 @@ export interface SessionChangesViewProps {
    * off the dash's own feed entry. Absent leaves the lane read-only, which is
    * what an unbound card shows.
    */
-  dashJoin?: DashJoinSource;
+  arcJoin?: ArcJoinSource;
   /**
    * The shade's own dismissal, at the trailing edge of the header. Absent
    * leaves the header without one, which is what a host that has no way to
@@ -122,12 +122,12 @@ export interface SessionChangesDismiss {
 }
 
 /** What the card hands the view for the fronted dash row's join face. */
-export interface DashJoinSource {
+export interface ArcJoinSource {
   /** Owner key of the dash the join is about, or null when none is aimed.
-   *  It outranks the card's binding for fronting: `/dash-join <name>` aims
+   *  It outranks the card's binding for fronting: `/arc-join <name>` aims
    *  without binding, and the face has to appear on the dash being landed. */
   dashId: string | null;
-  actions: DashJoinActions;
+  actions: ArcJoinActions;
 }
 
 export function SessionChangesView({
@@ -135,7 +135,7 @@ export function SessionChangesView({
   projectDir,
   changesController,
   codeSessionStore,
-  dashJoin,
+  arcJoin,
   dismiss,
 }: SessionChangesViewProps): React.ReactElement {
   const snap = useSyncExternalStore(
@@ -178,20 +178,20 @@ export function SessionChangesView({
   // fronted dash is resolved from the same snapshot the lane orders by; an
   // unbound card watches the empty key, which is idle by construction.
   // A join in flight decides the fronted row; the card's binding decides it
-  // the rest of the time. `/dash-join <name>` aims at a dash without binding to
+  // the rest of the time. `/arc-join <name>` aims at a dash without binding to
   // it, and the join face — outcome, blockers, the resolve ladder — is the
   // fronted row's alone, so fronting by the binding would leave a named join
   // live in the composer with nothing in the room to explain a refusal.
-  const frontedDashId = dashJoin?.dashId ?? boundDashId;
+  const frontedDashId = arcJoin?.dashId ?? boundDashId;
   // A card can be bound to a dash before its branch exists — the planning
   // phase. It has no changeset entry, so the lane fronts its document row
   // instead of falling silent about the dash the card is working.
-  const documentDash =
+  const documentArc =
     boundDashId === null ||
     snap.dashes.some((entry) => entry.owner_id === boundDashId)
       ? null
-      : (snap.documentDashes.find((row) => row.owner_id === boundDashId) ?? null);
-  // The resolution ladder's overlay is read per ROW, in `DashRow`, keyed by
+      : (snap.documentArcs.find((row) => row.owner_id === boundDashId) ?? null);
+  // The resolution ladder's overlay is read per ROW, in `ArcRow`, keyed by
   // that row's own dash — the store is keyed by dash, and every row now carries
   // a face, so a single read here would paint the fronted dash's ladder under
   // all of them.
@@ -209,7 +209,7 @@ export function SessionChangesView({
   // the row returns with its blockers, because a failure is the one outcome
   // that still wants somebody. A landed one never returns — the server drops
   // it from the feed.
-  const landingDashes = useChangesetLandingDashes(project.workspace_key);
+  const landingDashes = useChangesetLandingArcs(project.workspace_key);
   const offeredDashes = useMemo(
     () =>
       landingDashes.size === 0
@@ -339,7 +339,7 @@ export function SessionChangesView({
       : null;
   const hasSessionFiles = sessionFiles.length > 0;
   // Dashes count against emptiness: a project whose only news is a dash is
-  // not an all-clear, and "None" over a rendered dash lane would contradict
+  // not an all-clear, and "None" over a rendered arc lane would contradict
   // the rows below it.
   const isEmpty =
     !hasSessionFiles &&
@@ -418,7 +418,7 @@ export function SessionChangesView({
   // binding change that would move the lane's fronting out from under an open
   // join.
   const tugSessionId = cardSessionBindingStore.getBinding(cardId)?.tugSessionId;
-  const laneBinding: DashLaneBinding | undefined =
+  const laneBinding: ArcLaneBinding | undefined =
     tugSessionId === undefined || project === null
       ? undefined
       : {
@@ -446,11 +446,11 @@ export function SessionChangesView({
   // no new wire field — and the two gates are folded into one sentence so the
   // fronted row's Discard and an unbound row's can never disagree.
   //
-  // `discard_in` is deliberately left unguarded: `tugtool dash discard` is a
+  // `discard_in` is deliberately left unguarded: `tugtool arc discard` is a
   // power tool the app-test preamble's stranded-fixture sweep depends on, and
   // the one genuinely irreversible case — base dirt overlapping the dash's own
   // files — is already refused server-side before anything moves.
-  const laneDiscard: DashLaneDiscard | undefined =
+  const laneDiscard: ArcLaneDiscard | undefined =
     project === null
       ? undefined
       : {
@@ -474,7 +474,7 @@ export function SessionChangesView({
   // own facts ({@link replayDisabledReason}); what the lane folds in is only
   // the in-flight gate, since `ReplayState` is one slot per card and a second
   // press would render the first one's phase.
-  const laneReplay: DashLaneReplay | undefined =
+  const laneReplay: ArcLaneReplay | undefined =
     project === null
       ? undefined
       : {
@@ -488,11 +488,11 @@ export function SessionChangesView({
             replayVerb.phase === "pending" ? "A replay is in flight" : null,
         };
 
-  const laneJoinFace: DashLaneJoinFace | undefined =
-    dashJoin !== undefined
+  const laneJoinFace: ArcLaneJoinFace | undefined =
+    arcJoin !== undefined
       ? {
           join,
-          actions: dashJoin.actions,
+          actions: arcJoin.actions,
         }
       : undefined;
 
@@ -547,7 +547,7 @@ export function SessionChangesView({
           onElectHunks={(path, ids) => changesController.electHunks(path, ids)}
         />
       ) : null}
-      <SessionChangesDashLane
+      <SessionChangesArcLane
         dashes={offeredDashes}
         boundDashId={boundDashId}
         frontedDashId={frontedDashId}
@@ -557,7 +557,7 @@ export function SessionChangesView({
         binding={laneBinding}
         discard={laneDiscard}
         replay={laneReplay}
-        documentDash={documentDash}
+        documentArc={documentArc}
       />
     </div>,
     headerActions,

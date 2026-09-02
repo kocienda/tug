@@ -3,14 +3,14 @@
 //! One command tree over three surfaces: the top-level git verbs
 //! (`changes`/`preflight`/`commit`/`log`/`diff`/`draft`, backed by
 //! `tugchanges_core`), the `dash` namespace (worktree work units, backed by
-//! `tugdash_core`), and the `host` namespace (instance/gate/state-dir/tell/init
+//! `tugarc_core`), and the `host` namespace (instance/gate/state-dir/tell/init
 //! plumbing).
 
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand, ValueEnum};
 
-use tugdash_core::{JoinStrategy, MarkStage};
+use tugarc_core::{JoinStrategy, MarkStage};
 
 use crate::commands::{GateCommands, InstanceCommands};
 
@@ -107,7 +107,7 @@ const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), " (", env!("TUG_COMMIT"
 #[command(version = VERSION)]
 #[command(about = "tugtool — changes & commits, dashes, and host plumbing")]
 #[command(
-    long_about = "tugtool — the unified Tug developer CLI.\n\nTop-level verbs own this session's git surface: changes (which files this\nsession changed), preflight (the one-shot readout a landing starts from),\ncommit (stage → commit → structured receipt), draft (the maintained landing\ndraft), log, and diff. `tugtool dash …` drives worktree-isolated work units;\n`tugtool host …` is instance/project plumbing (instance, gate, state-dir,\ntell, init)."
+    long_about = "tugtool — the unified Tug developer CLI.\n\nTop-level verbs own this session's git surface: changes (which files this\nsession changed), preflight (the one-shot readout a landing starts from),\ncommit (stage → commit → structured receipt), draft (the maintained landing\ndraft), log, and diff. `tugtool arc …` drives worktree-isolated work units;\n`tugtool host …` is instance/project plumbing (instance, gate, state-dir,\ntell, init)."
 )]
 pub struct Cli {
     /// Increase output verbosity
@@ -258,9 +258,9 @@ pub enum Commands {
     #[command(subcommand)]
     Draft(DraftCommands),
 
-    /// Worktree-isolated work units (create/commit/join/discard/list/show).
+    /// Worktree-isolated units of work — an arc, of either kind.
     #[command(subcommand)]
-    Dash(DashCommands),
+    Arc(ArcCommands),
 
     /// Standing tripwires — what watches, what it says, and what it did.
     #[command(subcommand)]
@@ -603,44 +603,44 @@ pub enum TripwireCommands {
 }
 
 #[derive(Subcommand)]
-pub enum DashCommands {
-    /// Create a new dash (branch + worktree, hydrated via the post_create hook).
+pub enum ArcCommands {
+    /// Create a new arc (branch + worktree, hydrated via the post_create hook).
     Create {
-        /// Dash name (lowercase letters, digits, hyphens; 2+ chars).
+        /// Arc name (lowercase letters, digits, hyphens; 2+ chars).
         name: String,
         /// Description of the work.
         #[arg(long)]
         description: Option<String>,
         /// Move the base checkout's uncommitted work into the new worktree,
         /// leaving it uncommitted there — for when work already under way on
-        /// the base turns out to belong to this dash. Content is carried, not
+        /// the base turns out to belong to this arc. Content is carried, not
         /// index state: a staged edit arrives unstaged. Without this flag the
         /// base is reported and left exactly as it is.
         #[arg(long)]
         carry: bool,
-        /// Branch the dash forks from and lands back onto. Defaults to the
+        /// Branch the arc forks from and lands back onto. Defaults to the
         /// repository's default branch; name it explicitly when the checkout
-        /// is parked somewhere else and the dash belongs to *that* branch.
-        /// Ignored when the dash already exists — a base is set at birth.
+        /// is parked somewhere else and the arc belongs to *that* branch.
+        /// Ignored when the arc already exists — a base is set at birth.
         #[arg(long)]
         base: Option<String>,
     },
-    /// Commit the dash worktree (if dirty) and append a dash-log line.
+    /// Commit the arc's worktree (if dirty) and append a dash-log line.
     ///
     /// Reads round metadata (instruction/summary) from stdin as JSON.
     Commit {
-        /// Dash name.
+        /// Arc name.
         name: String,
         /// Git commit message (the conventional-commit subject).
         #[arg(long)]
         message: String,
     },
-    /// Join a dash into its base branch, then tear down ([P14]).
+    /// Join an arc into its base branch, then tear down ([P14]).
     Join {
-        /// Dash name.
+        /// Arc name.
         name: String,
         /// Custom commit message (default: the maintained draft, else the
-        /// dash description).
+        /// arc's description).
         #[arg(long)]
         message: Option<String>,
         /// Integration strategy.
@@ -656,13 +656,13 @@ pub enum DashCommands {
         /// re-merge, and a structured-merge driver — then land the result.
         #[arg(long)]
         resolve: bool,
-        /// Proceed although the dash's conflict chain says a resolve may still
+        /// Proceed although the arc's conflict chain says a resolve may still
         /// be running, tearing down whatever it had reached. The op log keeps
-        /// the resolver's checkpoints; `tugtool dash undo` restores them.
+        /// the resolver's checkpoints; `tugtool arc undo` restores them.
         #[arg(long = "break-lease")]
         break_lease: bool,
     },
-    /// Move a dash's rounds onto its base branch's current tip.
+    /// Move an arc's rounds onto its base branch's current tip.
     ///
     /// Replays each round in memory and, when every one is clean, moves the
     /// branch under its live worktree — refusing rather than clobbering if the
@@ -671,50 +671,50 @@ pub enum DashCommands {
     /// only repairs the record, which is how an agent finishes a rebase it did
     /// by hand.
     Replay {
-        /// Dash name.
+        /// Arc name.
         name: String,
     },
-    /// Clear the base-side work that is blocking this dash's join.
+    /// Clear the base-side work that is blocking this arc's join.
     ///
-    /// Base copies the dash already carries byte for byte are dropped —
-    /// nothing is lost, because those bytes are on the dash branch. The user's
+    /// Base copies the arc already carries byte for byte are dropped —
+    /// nothing is lost, because those bytes are on the arc's branch. The user's
     /// own divergent edits are committed onto the base as one commit of their
-    /// own, so a collision with the dash's work becomes an ordinary join
+    /// own, so a collision with the arc's work becomes an ordinary join
     /// conflict and reaches the resolution ladder. An edit another live session
     /// holds is refused by name and nothing moves.
     ///
     /// It clears the block and stops; joining stays a separate gesture.
-    /// `tugtool dash undo` reverses the commit and leaves the same content
+    /// `tugtool arc undo` reverses the commit and leaves the same content
     /// uncommitted.
     ResolveBase {
-        /// Dash name.
+        /// Arc name.
         name: String,
     },
     /// Verify the fit: check the tree a join would land against the surfaces
     /// this project declares.
     ///
-    /// Resolves every path the dash would land to the surface claiming the
+    /// Resolves every path the arc would land to the surface claiming the
     /// longest matching prefix, refuses — naming the paths, before running a
     /// single check — when one resolves to no surface, then runs what the
     /// matched surfaces declare from the worktree root. A green run records
     /// the head it verified and the base it verified onto; it gates nothing.
     Verify {
-        /// Dash name.
+        /// Arc name.
         name: String,
         /// Verify from this commit instead of `merge-base(<base>, <branch>)`.
         #[arg(long)]
         base: Option<String>,
-        /// Verify up to this commit instead of the dash branch tip.
+        /// Verify up to this commit instead of the arc branch's tip.
         #[arg(long)]
         head: Option<String>,
     },
-    /// Discard a dash: delete its worktree + branch without merging.
+    /// Discard an arc: delete its worktree + branch without merging.
     Discard {
-        /// Dash name.
+        /// Arc name.
         name: String,
-        /// Proceed although the dash's conflict chain says a resolve may still
+        /// Proceed although the arc's conflict chain says a resolve may still
         /// be running, tearing down whatever it had reached. The op log keeps
-        /// the resolver's checkpoints; `tugtool dash undo` restores them.
+        /// the resolver's checkpoints; `tugtool arc undo` restores them.
         #[arg(long = "break-lease")]
         break_lease: bool,
     },
@@ -722,10 +722,10 @@ pub enum DashCommands {
     ///
     /// Every reversal is a compare-and-swap: it verifies the world still
     /// matches what the operation left, and refuses by name rather than forcing
-    /// if anything landed since. Restores git state only — a restored dash
+    /// if anything landed since. Restores git state only — a restored arc
     /// reads as unbound until a session binds it again.
     Undo {
-        /// Dash name; without one, the newest operation on any dash.
+        /// Arc name; without one, the newest operation on any arc.
         name: Option<String>,
         /// Print the operation log and exit, changing nothing.
         #[arg(long)]
@@ -740,7 +740,7 @@ pub enum DashCommands {
     /// `undo, redo, undo` toggles one operation instead of descending through
     /// bookkeeping records.
     Redo {
-        /// Dash name; without one, the newest undo on any dash.
+        /// Arc name; without one, the newest undo on any arc.
         name: Option<String>,
         /// Print the operation log and exit, changing nothing.
         #[arg(long)]
@@ -750,26 +750,26 @@ pub enum DashCommands {
     ///
     /// One reader for the seam a project uses to say how its own tree is
     /// hydrated, checked, and built: `post_create`, `verify`, `build`. Takes no
-    /// dash name — the declaration belongs to the project, not to one dash. A
+    /// arc name — the declaration belongs to the project, not to one arc. A
     /// project that declares nothing (or has no config file at all) is not an
     /// error: every key reports as undeclared and the verb exits 0.
     Config,
-    /// List every active dash, derived from git.
+    /// List every active arc, derived from git.
     List,
-    /// Show one dash's metadata, rounds, and worktree dirt.
+    /// Show one arc's metadata, rounds, and worktree dirt.
     Show {
-        /// Dash name.
+        /// Arc name.
         name: String,
     },
-    /// Report one dash's lifecycle: stage, rounds, worktree dirt, draft,
+    /// Report one arc's lifecycle: stage, rounds, worktree dirt, draft,
     /// interrupted landing, and the sessions working on it.
     Status {
-        /// Dash name.
+        /// Arc name.
         name: String,
     },
-    /// Compare the four records a dash keeps and name every disagreement.
+    /// Compare the four records an arc keeps and name every disagreement.
     ///
-    /// A dash records itself four ways — the plan's Step Status Ledger, the
+    /// An arc records itself four ways — the plan's Step Status Ledger, the
     /// dash-log's declarations, the sqlite session binding, and the arc
     /// record — and no two are written by the same act. The split that
     /// matters: **status and join-arming derive from the log, while the arc's
@@ -779,7 +779,7 @@ pub enum DashCommands {
     /// landed.
     ///
     /// Detection is free and always safe — its read-only core also runs
-    /// inside `dash status`. Repair is opt-in, and is always an *append* to
+    /// inside `arc status`. Repair is opt-in, and is always an *append* to
     /// the dash-log, never a rewrite: the log is append-only, and the table
     /// is the authored document, so a reconcilable disagreement is fixed by
     /// catching the log up to the table. Disagreements that need a judgment
@@ -787,7 +787,7 @@ pub enum DashCommands {
     ///
     /// Exit 0 when the records agree, 1 when they do not.
     Doctor {
-        /// Dash name.
+        /// Arc name.
         name: String,
         /// Append the reconciling dash-log lines the findings offer.
         #[arg(long)]
@@ -796,11 +796,11 @@ pub enum DashCommands {
     /// Drive a plan's Step Status Ledger and the dash-log in one gesture.
     ///
     /// The ledger row and the log line move together, which is what lets
-    /// `dash status` and the Changes card report `implementing (i/N)` without
+    /// `arc status` and the Changes card report `implementing (i/N)` without
     /// re-parsing markdown. A plan that does not strictly parse is refused,
     /// never guessed at.
     Step {
-        /// Dash name.
+        /// Arc name.
         name: String,
         #[command(subcommand)]
         action: StepAction,
@@ -810,7 +810,7 @@ pub enum DashCommands {
     /// One dash-log line and nothing else: `built` after a debug instance is
     /// up, `audited` after an audit finds the work in good shape.
     Mark {
-        /// Dash name.
+        /// Arc name.
         name: String,
         /// The stage to declare.
         #[arg(value_enum)]
@@ -819,29 +819,27 @@ pub enum DashCommands {
         #[arg(long)]
         note: Option<String>,
     },
-    /// Hand this dash's documents to the server-driven arc: record that its
+    /// Hand this arc's documents to the wheel: record that its
     /// work runs as rotating devise / review / implement stages on the calling
     /// card.
     ///
-    /// Opens on the dash's brief, or on its plan when only that exists. A dash
-    /// whose arc stopped is resumed instead — the documents hold the progress,
+    /// Opens on the arc's brief, or on its plan when only that exists. An arc
+    /// that stopped is resumed instead — the documents hold the progress,
     /// so a resume re-runs the stopped stage and never restarts from the top.
     ///
     /// The arc runs *on a card*, so the verb refuses without a calling
     /// session: there would be nowhere for a stage to rotate.
     Run {
-        /// Dash name — the arc's key, valid before any branch exists.
+        /// Arc name — its key, valid before any branch exists.
         name: String,
-        /// Which progression the course runs — `plan` (devise → review →
-        /// implement → audit) or `dash` (implement → audit, with the task
-        /// list as implement's first act).
+        /// Which kind of arc this is — `dash` (implement → audit, the task
+        /// list as implement's first act) or `trek` (devise → review →
+        /// implement → audit).
         ///
-        /// Defaults to `plan`, which reproduces the derivation every dash
-        /// had before the kind was recorded: a plan document opens at
-        /// review, a brief alone opens at devise. Recorded when the arc
-        /// opens and ignored on a resume — the record is the arc's identity.
-        #[arg(long, value_parser = ["dash", "plan"], default_value = "plan")]
-        course: String,
+        /// Defaults to `trek`. Recorded when the arc opens and ignored on a
+        /// resume.
+        #[arg(long, value_parser = ["dash", "trek"], default_value = "trek")]
+        kind: String,
         /// Project directory (default: cwd). Travels as your own spelling —
         /// the server canonicalizes it ([L29]).
         #[arg(long)]
@@ -852,35 +850,36 @@ pub enum DashCommands {
         #[arg(long)]
         session: Option<String>,
     },
-    /// Report where a dash's documents live and which of them exist.
+    /// Report where an arc's documents live and which of them exist.
     ///
-    /// A dash with no documents directory is a state, not an error: the verb
+    /// An arc with no documents directory is a state, not an error: the verb
     /// exits 0 and says every one is absent. `--ensure` creates the directory
     /// (and keeps `.tug/` out of git), so a skill can write into it after one
     /// call. The three addresses are the brief, the devised plan, and the
     /// `/dash` door's task list.
     Documents {
-        /// Dash name.
+        /// Arc name.
         name: String,
         /// Create the documents directory if it does not exist.
         #[arg(long)]
         ensure: bool,
     },
-    /// Report one dash's arc — document, plan, stages, stopped reason, done.
+    /// Report one arc's record — document, plan, kind, stages, stopped
+    /// reason, done.
     ///
-    /// A dash with no arc is a state, not an error: the verb exits 0 and says
-    /// so, which is every dash created by hand.
-    Arc {
-        /// Dash name.
+    /// An arc with no record is a state, not an error: the verb exits 0 and
+    /// says so, which is every arc created by hand.
+    Record {
+        /// Arc name.
         name: String,
         /// Project directory (default: cwd).
         #[arg(long)]
         project: Option<std::path::PathBuf>,
     },
-    /// Mate the calling session to a dash, so surfaces can say which session
-    /// is working on which dash.
+    /// Mate the calling session to an arc, so surfaces can say which session
+    /// is working on which arc.
     Bind {
-        /// Dash name.
+        /// Arc name.
         name: String,
         /// Project directory (default: cwd). Travels as your own spelling —
         /// the server canonicalizes it ([L29]).
@@ -900,14 +899,14 @@ pub enum DashCommands {
         #[arg(long)]
         dry_run: bool,
     },
-    /// Stop the arc, keep the dash.
+    /// Stop the arc, keep its branch and worktree.
     ///
     /// Deliberately not a `pause`: a stopped arc is already resumable with
-    /// `tugtool dash run <name>`, so a second word for the same record would
+    /// `tugtool arc run <name>`, so a second word for the same record would
     /// be a lie about the record. Before this verb existed the only way to
     /// reach a stopped-and-resumable arc was to make something fail.
     Stop {
-        /// Dash name.
+        /// Arc name.
         name: String,
         /// Project directory (default: cwd). Travels as your own spelling —
         /// the server canonicalizes it ([L29]).
@@ -920,7 +919,7 @@ pub enum DashCommands {
     },
     /// Stop the arc because the stage met a decision that is the user's.
     ///
-    /// The gesture that replaced a mid-course `AskUserQuestion`. A stage
+    /// The gesture that replaced a mid-arc `AskUserQuestion`. A stage
     /// running under the wheel has no user in front of it — the run is meant
     /// to walk unattended, and a stage parked on a dialog is a run that has
     /// stopped without saying so: no record, no receipt, no resume, and the
@@ -928,10 +927,10 @@ pub enum DashCommands {
     /// and the question it stopped over becomes the arc's last note and the
     /// tail of the receipt on the card.
     ///
-    /// `tugtool dash run <name>` picks the work back up once it is answered,
+    /// `tugtool arc run <name>` picks the work back up once it is answered,
     /// exactly as it does after any other stop.
     Ask {
-        /// Dash name.
+        /// Arc name.
         name: String,
         /// The decision, in one sentence, in the stage's own words. It is the
         /// whole of what the user has to go on, so it names the choice rather
@@ -946,7 +945,7 @@ pub enum DashCommands {
         #[arg(long)]
         session: Option<String>,
     },
-    /// Drop the calling session's dash binding.
+    /// Drop the calling session's arc binding.
     Unbind {
         /// Project directory (default: cwd).
         #[arg(long)]
@@ -993,7 +992,7 @@ pub enum StepAction {
     Done {
         /// Step number, matching the ledger's `#step-<n>` anchor.
         step: u32,
-        /// Commit to record (default: the dash branch's tip).
+        /// Commit to record (default: the arc branch's tip).
         #[arg(long)]
         commit: Option<String>,
     },
@@ -1231,17 +1230,17 @@ mod tests {
     }
 
     #[test]
-    fn dash_stop_takes_a_name_and_an_optional_project() {
+    fn arc_stop_takes_a_name_and_an_optional_project() {
         let cli = Cli::parse_from([
             "tugtool",
-            "dash",
+            "arc",
             "stop",
             "interruption",
             "--project",
             "/tmp/p",
         ]);
         match cli.command {
-            Some(Commands::Dash(DashCommands::Stop {
+            Some(Commands::Arc(ArcCommands::Stop {
                 name,
                 project,
                 session,
@@ -1250,15 +1249,15 @@ mod tests {
                 assert_eq!(project.as_deref(), Some(std::path::Path::new("/tmp/p")));
                 assert!(session.is_none(), "--session defaults to the environment");
             }
-            _ => panic!("dash stop did not parse"),
+            _ => panic!("arc stop did not parse"),
         }
 
-        let cli = Cli::parse_from(["tugtool", "dash", "stop", "interruption"]);
+        let cli = Cli::parse_from(["tugtool", "arc", "stop", "interruption"]);
         match cli.command {
-            Some(Commands::Dash(DashCommands::Stop { project, .. })) => {
+            Some(Commands::Arc(ArcCommands::Stop { project, .. })) => {
                 assert!(project.is_none(), "--project defaults to the cwd")
             }
-            _ => panic!("dash stop did not parse"),
+            _ => panic!("arc stop did not parse"),
         }
     }
 }

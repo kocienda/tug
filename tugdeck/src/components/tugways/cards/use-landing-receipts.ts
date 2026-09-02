@@ -90,7 +90,7 @@ export function useLandingReceipts(
     // same terms, but arrive as a sequence rather than a single value. Seeded
     // with whatever the store already holds so a card mounting mid-run appends
     // only what arrives from here — the earlier rows are its restore's.
-    const seeded = verbStore.dashNotes(tugSessionId);
+    const seeded = verbStore.arcNotes(tugSessionId);
     let prevNoteSeq: number = seeded.length === 0 ? 0 : seeded[seeded.length - 1].seq;
 
     /**
@@ -122,11 +122,11 @@ export function useLandingReceipts(
       }
       prevCommit = commit.phase;
 
-      // Join: the same edge, on the dash lane's landing. A preview settles in
+      // Join: the same edge, on the arc lane's landing. A preview settles in
       // `preview` and never here, so only a real land leaves ink.
       const joined = verbStore.joinState(commitKey);
       if (joined.phase === "done" && prevJoin !== "done" && joined.summary !== null) {
-        append("/dash-join", joined.summary, joined.receiptId);
+        append("/arc-join", joined.summary, joined.receiptId);
       }
       prevJoin = joined.phase;
 
@@ -138,7 +138,7 @@ export function useLandingReceipts(
       }
       prevDiscard = discarded.phase;
 
-      // The arc's ending ([P12]): one receipt row, and no `/dash-join` chip —
+      // The arc's ending ([P12]): one receipt row, and no `/arc-join` chip —
       // the join offer is the shade's to raise ([D147], [D152]).
       const arc = verbStore.arcReceipt(tugSessionId);
       if (arc !== null && arc.receiptId !== prevArcReceipt) {
@@ -152,16 +152,16 @@ export function useLandingReceipts(
       // note is not a landing row, it is one sentence the reducer seats
       // conversationally — inside the open turn when one is streaming,
       // between turns otherwise (`handleDashNote`).
-      for (const dashNote of verbStore.dashNotes(tugSessionId)) {
-        if (dashNote.seq <= prevNoteSeq) continue;
+      for (const arcNote of verbStore.arcNotes(tugSessionId)) {
+        if (arcNote.seq <= prevNoteSeq) continue;
         codeSessionStore.ingestDashNote({
-          exchangeId: landingExchangeId(dashNote.receiptId),
-          command: dashNote.command,
-          text: dashNote.note,
+          exchangeId: landingExchangeId(arcNote.receiptId),
+          command: arcNote.command,
+          text: arcNote.note,
           cwd: changesController.projectDir,
           timestamp: Date.now(),
         });
-        prevNoteSeq = dashNote.seq;
+        prevNoteSeq = arcNote.seq;
       }
     };
 

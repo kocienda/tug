@@ -200,7 +200,7 @@ export function dashTip(facts: DashTipFacts): React.ReactNode {
   return (
     <span className="tugx-tip">
       <span className="tugx-tip-mono">{facts.name}</span>
-      <span className="tugx-tip-meta">dash — reveal in the rail</span>
+      <span className="tugx-tip-meta">arc — reveal in the rail</span>
     </span>
   );
 }

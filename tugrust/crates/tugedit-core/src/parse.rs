@@ -826,7 +826,7 @@ mod tests {
     #[test]
     fn the_rename_campaign_parses() {
         let ops = ops(concat!(
-            "files tugrust/crates/tugdash-core/src/ops.rs tugrust/crates/tugdash-core/src/replay.rs\n",
+            "files tugrust/crates/tugarc-core/src/ops.rs tugrust/crates/tugarc-core/src/replay.rs\n",
             "  replace 'ReleaseOutcome' with 'DiscardOutcome' all\n",
             r"  sub /\brelease_in\b/ 'discard_in' all",
             "\n",

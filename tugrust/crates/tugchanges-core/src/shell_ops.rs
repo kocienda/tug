@@ -1526,7 +1526,7 @@ mod tests {
 
     #[test]
     fn a_quoted_mention_is_not_a_command() {
-        assert_no_file_ops("tugtool dash commit d --message \"git mv a b\"");
+        assert_no_file_ops("tugtool arc commit d --message \"git mv a b\"");
         assert_no_file_ops("git commit -m 'rm the old file'");
         assert_no_file_ops("grep rm foo.txt");
     }
@@ -1744,7 +1744,7 @@ mod tests {
         );
         assert_not_steered(
             dir.path(),
-            "python3 - <<'EOF'\nopen('.tug/dashes/x/plan.md','w').write(payload)\nEOF",
+            "python3 - <<'EOF'\nopen('.tug/arcs/x/plan.md','w').write(payload)\nEOF",
         );
     }
 

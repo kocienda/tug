@@ -55,23 +55,20 @@ describe("buildClaudeSpawnEnv", () => {
     expect(env.CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING).toBe("true");
   });
 
-  test("the course variable is set under a course and cleared without one", () => {
-    expect(buildClaudeSpawnEnv({}, "seg-1", "hardening").TUG_DASH_COURSE).toBe("hardening");
-    // Absent is what clears it: the variable belongs to a course, not a card,
+  test("the arc variable is set under an arc and cleared without one", () => {
+    expect(buildClaudeSpawnEnv({}, "seg-1", "hardening").TUG_ARC).toBe("hardening");
+    // Absent is what clears it: the variable belongs to an arc, not a card,
     // so a session inheriting a stale one must not keep it.
-    expect(
-      buildClaudeSpawnEnv({ TUG_DASH_COURSE: "stale" }, "seg-1", null).TUG_DASH_COURSE,
-    ).toBeUndefined();
+    expect(buildClaudeSpawnEnv({ TUG_ARC: "stale" }, "seg-1", null).TUG_ARC).toBeUndefined();
   });
 
-  // The old spelling ships beside the new one for a release, so a skill from
-  // a bundle older than the rename still reads that a course is driving it.
-  // Both move together — a card that kept `TUG_DASH_ARC` past its course
-  // would tell an old skill to walk a selection nothing was pacing.
-  test("the old TUG_DASH_ARC spelling rides along and is cleared with it", () => {
-    expect(buildClaudeSpawnEnv({}, "seg-1", "hardening").TUG_DASH_ARC).toBe("hardening");
-    expect(
-      buildClaudeSpawnEnv({ TUG_DASH_ARC: "stale" }, "seg-1", null).TUG_DASH_ARC,
-    ).toBeUndefined();
+  // The drift guard. Both retired spellings are gone with no compatibility
+  // window ([P01]): tugcode, tugcast and the plugin ship in one bundle, so a
+  // stage's spawn and the skill that reads it are always the same build, and
+  // a variable nothing reads is a variable that can only mislead.
+  test("neither retired spelling is ever exported", () => {
+    const env = buildClaudeSpawnEnv({}, "seg-1", "hardening");
+    expect(env).not.toHaveProperty("TUG_DASH_COURSE");
+    expect(env).not.toHaveProperty("TUG_DASH_ARC");
   });
 });

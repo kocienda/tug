@@ -33,10 +33,10 @@
  *
  *     TUG_REAL_CLAUDE=1 just app-test tests/app-test/at0480-arc-compacts-seated-stage.test.ts
  *
- * @covers tugrust/crates/tugcast/src/feeds/dash_arc.rs
- * @covers tugrust/crates/tugcast/src/feeds/dash_arc_runner.rs
+ * @covers tugrust/crates/tugcast/src/feeds/arc.rs
+ * @covers tugrust/crates/tugcast/src/feeds/arc_runner.rs
  * @covers tugdeck/src/components/tugways/cards/session-card-transcript.tsx
- * @covers tugdeck/src/lib/dash-meta-facts.ts
+ * @covers tugdeck/src/lib/arc-meta-facts.ts
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
@@ -226,7 +226,7 @@ describe.skipIf(!SHOULD_RUN)("AT0480: the arc compacts a seated implement stage"
         // Opening the arc binds this card and starts the wheel: review first,
         // because the document lints as a plan, then implement once the review
         // stage has ended a turn.
-        await shell(app, `${cli} dash run ${DASH_NAME}`);
+        await shell(app, `${cli} arc run ${DASH_NAME}`);
         await app.waitForCondition<boolean>(
           `Array.from(document.querySelectorAll(${JSON.stringify(STAGE_DIVIDERS)}))
              .some((el) => (el.textContent || "").indexOf("implement") !== -1)`,
@@ -257,7 +257,7 @@ describe.skipIf(!SHOULD_RUN)("AT0480: the arc compacts a seated implement stage"
 
         // The placard reads the same act off the arc record.
         const arc = JSON.parse(
-          tugtool(["dash", "arc", DASH_NAME, "--json"], {
+          tugtool(["arc", "record", DASH_NAME, "--json"], {
             cwd: projectDir(),
             binaryRoot: CHECKOUT,
             env: scratch?.cli.env,

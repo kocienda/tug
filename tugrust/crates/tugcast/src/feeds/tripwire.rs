@@ -11,7 +11,7 @@
 //!
 //! **One stream: the landing.** A wire fires when a landing gesture commits
 //! onto the base branch the wire names — `/commit` on the main lane, a
-//! `/dash-join` on the dash lane — and nothing else reaches this engine
+//! `/arc-join` on the arc lane — and nothing else reaches this engine
 //! ([P01]). The gesture sends a [`LandingEvent`] and returns; the engine
 //! assembles the rest on its own task, so nothing the user waits on waits on
 //! a tripwire. The event key is `landing:<sha>`, so two instances over one
@@ -165,7 +165,7 @@ pub fn tell(tripwire_name: &str) -> bool {
 pub enum LandingKind {
     /// `/commit` on the main lane.
     Commit,
-    /// `/dash-join` on the dash lane.
+    /// `/arc-join` on the arc lane.
     Join,
 }
 
@@ -432,7 +432,7 @@ fn sweep_awaiting(config: &Arc<TripwireEngineConfig>, db: &Arc<Db>) {
         if repo_root.is_empty() {
             continue;
         }
-        if tugdash_core::ops::dash_exists_in(std::path::Path::new(&repo_root), dash) {
+        if tugarc_core::ops::dash_exists_in(std::path::Path::new(&repo_root), dash) {
             continue;
         }
         let settled = ledger::settle_if_awaiting(
@@ -1058,14 +1058,14 @@ async fn run_in_tree(
         let dash = dash.clone();
         let tripwire = run.tripwire.clone();
         move || {
-            let outcome = tugdash_core::ops::create_in(
+            let outcome = tugarc_core::ops::create_in(
                 &repo_root,
                 &dash,
                 Some(format!("tripwire {tripwire}")),
                 false,
                 None,
             )?;
-            tugdash_core::ops::set_laid_by(&repo_root, &dash, &format!("tripwire/{tripwire}"));
+            tugarc_core::ops::set_laid_by(&repo_root, &dash, &format!("tripwire/{tripwire}"));
             Ok::<_, String>(outcome)
         }
     })
@@ -1316,9 +1316,9 @@ fn authoring_contract(tripwire: &str, dash: &str, worktree: &std::path::Path) ->
         "You are working on the dash `{dash}`, whose worktree is at `{path}`. Work only under \
          that path, and give every command an absolute path — a shell's working directory does \
          not survive between commands.\n\n\
-         First run `tugtool dash create {dash}` — the dash already exists, so this claims it for \
+         First run `tugtool arc create {dash}` — the dash already exists, so this claims it for \
          this session and nothing else.\n\n\
-         Commit with `tugtool dash commit {dash} --message \"<subject>\"`; that is the only path \
+         Commit with `tugtool arc commit {dash} --message \"<subject>\"`; that is the only path \
          that commits here, and joining the work back is the user's act, never yours. If there \
          is nothing worth changing, change nothing and say so.\n\n\
          Close your turn by running \
@@ -1472,7 +1472,7 @@ async fn discard_agent_dash(repo_root: &std::path::Path, dash: &str) {
     let repo_root = repo_root.to_path_buf();
     let dash_name = dash.to_string();
     let removed = tokio::task::spawn_blocking(move || {
-        tugdash_core::ops::discard_agent_dash_in(&repo_root, &dash_name, Some("tripwire"))
+        tugarc_core::ops::discard_agent_dash_in(&repo_root, &dash_name, Some("tripwire"))
     })
     .await;
     if let Ok(Err(e)) = removed {
@@ -2927,7 +2927,7 @@ mod tests {
 
             assert_eq!(dashes_in(&root), vec![format!("tugdash/{dash}")]);
             assert_eq!(
-                tugdash_core::ops::laid_by(&root, &dash).as_deref(),
+                tugarc_core::ops::laid_by(&root, &dash).as_deref(),
                 Some("tripwire/ci")
             );
 
@@ -2942,7 +2942,7 @@ mod tests {
             assert!(
                 seen[1]
                     .prompt
-                    .contains(&format!("tugtool dash create {dash}"))
+                    .contains(&format!("tugtool arc create {dash}"))
                     && seen[1]
                         .prompt
                         .contains("update the expected string in a_test.rs")
@@ -2951,7 +2951,7 @@ mod tests {
                         .contains("The expected string was never updated")
                     && seen[1]
                         .prompt
-                        .contains(&format!("tugtool dash commit {dash}"))
+                        .contains(&format!("tugtool arc commit {dash}"))
                     && seen[1]
                         .prompt
                         .contains(&seen[1].worktree.display().to_string()),
@@ -3252,7 +3252,7 @@ mod tests {
             );
 
             // The user joins or discards it — from here the two are one event.
-            tugdash_core::ops::discard_agent_dash_in(&root, &dash, Some("test")).unwrap();
+            tugarc_core::ops::discard_agent_dash_in(&root, &dash, Some("test")).unwrap();
             sweep_awaiting(&config, &db);
 
             let trip = ledger::trips_for_tripwire(&h.conn, tripwire.id, 1).unwrap();

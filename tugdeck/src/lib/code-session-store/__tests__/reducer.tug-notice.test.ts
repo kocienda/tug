@@ -30,7 +30,7 @@ const TUG = FIXTURE_IDS.TUG_SESSION_ID;
 const BODY =
   "[base-motion replay] The base branch main moved to abcdef012 under dash \"demo\".";
 const WHEEL_PROMPT =
-  "/tugplug:dash-implement tripwire Steps 4-13 — under this arc, close one step and end your turn; the arc prompts you with the next";
+  "/tugplug:arc-implement tripwire Steps 4-13 — under this arc, close one step and end your turn; the arc prompts you with the next";
 
 function makeStore(): { store: CodeSessionStore; conn: TestFrameChannel } {
   const conn = new TestFrameChannel();
@@ -134,7 +134,7 @@ describe("tug_notice — the opener that makes an injected turn visible", () => 
     ).toBe(false);
   });
 
-  // The prompt opens with `/tugplug:dash-implement`, which the wheel INVOKED
+  // The prompt opens with `/tugplug:arc-implement`, which the wheel INVOKED
   // rather than wrote about. A typed prompt's leading command becomes a command
   // atom in the composer, and the wheel's does too — the row reads as a command
   // run, not as a line of text that happens to start with a slash.

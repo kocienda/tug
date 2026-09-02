@@ -2,7 +2,7 @@
 //!
 //! A test that spawns a real binary with the ambient environment intact runs
 //! **as the developer's session**. `tripwire_cli.rs` did exactly that: it ran
-//! `tugtool dash create` in a temp repo with neither `TUG_SESSION_ID` nor the
+//! `tugtool arc create` in a temp repo with neither `TUG_SESSION_ID` nor the
 //! instance registry scrubbed, so on a machine where the suite runs from
 //! inside a Session card — which is most of them — the spawned binary reached
 //! the real registry and posted a bind naming a scratch dash in a directory

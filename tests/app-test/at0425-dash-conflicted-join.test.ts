@@ -41,12 +41,12 @@
  * - **Adopt** round-trips for real: the click sends `bind_dash`, and the row
  *   flips to Leave only on the `bind_dash_ok` broadcast that comes back.
  *
- * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-dash-join.tsx
- * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-dash-lane.tsx
+ * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-arc-join.tsx
+ * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-arc-lane.tsx
  * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-view.tsx
  * @covers tugdeck/src/lib/join-mode-controller.ts
  * @covers tugdeck/src/lib/changeset-join-store.ts
- * @covers tugrust/crates/tugdash-core/src/resolve.rs
+ * @covers tugrust/crates/tugarc-core/src/resolve.rs
  * @covers tugrust/crates/tugcast/src/feeds/join_board.rs
  */
 
@@ -88,10 +88,10 @@ const FRONTED_LABEL = `${LANE} [data-slot="session-changes-dash-lane-fronted-lab
 
 const DASH = "at0425-conflict";
 const ROW = `${LANE} [data-slot="session-changes-dash-row"][data-dash="${DASH}"]`;
-const JOIN_FACE = `${ROW} [data-slot="session-changes-dash-join"]`;
-const REGISTER = `${ROW} [data-slot="dash-join-register"]`;
-const CONFLICTS = `${ROW} [data-slot="session-changes-dash-join-conflicts"]`;
-const ARCHAEOLOGY = `${ROW} [data-slot="session-changes-dash-join-archaeology"]`;
+const JOIN_FACE = `${ROW} [data-slot="session-changes-arc-join"]`;
+const REGISTER = `${ROW} [data-slot="arc-join-register"]`;
+const CONFLICTS = `${ROW} [data-slot="session-changes-arc-join-conflicts"]`;
+const ARCHAEOLOGY = `${ROW} [data-slot="session-changes-arc-join-archaeology"]`;
 
 const DASHES_CARD = '.dashes-section';
 
@@ -211,13 +211,13 @@ describe.skipIf(!SHOULD_RUN)("AT0425: the conflicted landing face answers its co
         await app.spawnSessionResume("A", { tugSessionId: SID, projectDir: projectDir() });
         await app.awaitEngineReady("A", { timeoutMs: 15000 });
 
-        // The aggregate has composed the dash once the Dashes card lists it.
-        await app.dispatchControlAction("toggle-dashes");
+        // The aggregate has composed the dash once the Arcs card lists it.
+        await app.dispatchControlAction("toggle-arcs");
         await app.waitForCondition<boolean>(
           `document.querySelector('${DASHES_CARD} [data-slot="dashes-row"][data-dash="${DASH}"]') !== null`,
           { timeoutMs: 30000 },
         );
-        await app.dispatchControlAction("toggle-dashes");
+        await app.dispatchControlAction("toggle-arcs");
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(DASHES_CARD)}) === null`,
           { timeoutMs: 8000 },
@@ -226,7 +226,7 @@ describe.skipIf(!SHOULD_RUN)("AT0425: the conflicted landing face answers its co
         // ── The incident's state, reconstructed for real ──────────────────
         // Unbound card, join aimed by name. The mode enters, the shade rises,
         // and the dash entry already carries the answer: `conflicted`.
-        await runCommand(app, `/dash-join ${DASH}`);
+        await runCommand(app, `/arc-join ${DASH}`);
         await app.waitForCondition<boolean>(
           `(function(){
             var el = document.querySelector(${JSON.stringify(ROUTE_GROUP)} + ' [data-state="active"]');

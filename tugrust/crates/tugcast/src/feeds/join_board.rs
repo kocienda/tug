@@ -29,13 +29,13 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{Arc, Mutex, OnceLock};
 
+use tugarc_core::ops::{self, DashDetail};
 use tugcast_core::types::{
     DashConflictCommit, DashConflictHistory, DashJoinBlocker, DashJoinOffer, DashJoinQuestion,
     DashJoinReport, DashJoinState, DashResolvedFile,
 };
-use tugdash_core::ops::{self, DashDetail};
 
-use tugdash_core::resolve::{self, CandidateStatus};
+use tugarc_core::resolve::{self, CandidateStatus};
 
 /// The cacheable half of one dash's join facts, and the head pair it describes.
 #[derive(Clone)]
@@ -97,15 +97,15 @@ pub fn sweep(live_owner_keys: &[String]) {
 pub fn sweep_workshops(repo_root: &Path, live_dashes: &[String]) {
     let live: Vec<String> = live_dashes
         .iter()
-        .map(|name| tugdash_core::workshop::workshop_branch(name))
+        .map(|name| tugarc_core::workshop::workshop_branch(name))
         .collect();
 
-    for name in tugdash_core::workshop::existing(repo_root) {
-        let branch = tugdash_core::workshop::workshop_branch(&name);
+    for name in tugarc_core::workshop::existing(repo_root) {
+        let branch = tugarc_core::workshop::workshop_branch(&name);
         if live.contains(&branch) {
             continue;
         }
-        let owner_key = tugdash_core::ops::dash_owner_key(repo_root, &name);
+        let owner_key = tugarc_core::ops::dash_owner_key(repo_root, &name);
         if crate::feeds::join_occupancy::run_kind(&owner_key).is_some() {
             continue;
         }
@@ -115,11 +115,11 @@ pub fn sweep_workshops(repo_root: &Path, live_dashes: &[String]) {
         // remove`/`prune` in the same `.git/worktrees` as the one the join is
         // running. The open join record is the "a join owns this dash right
         // now" fact, and it outlives the dash's presence on the feed by design.
-        if tugdash_core::ops::join_in_flight(repo_root, &name) {
+        if tugarc_core::ops::join_in_flight(repo_root, &name) {
             continue;
         }
         let mut warnings = Vec::new();
-        tugdash_core::workshop::remove(repo_root, &name, &mut warnings);
+        tugarc_core::workshop::remove(repo_root, &name, &mut warnings);
         for warning in warnings {
             tracing::warn!(workshop = %name, %warning, "dash-join: orphaned workshop");
         }
@@ -560,7 +560,7 @@ mod tests {
         assert!(conflicted.candidate.is_none());
 
         // The ladder builds and anchors a candidate.
-        let outcome = tugdash_core::resolve::resolve_conflicts(repo, "demo", None).unwrap();
+        let outcome = tugarc_core::resolve::resolve_conflicts(repo, "demo", None).unwrap();
         let candidate = outcome.candidate_commit.clone().expect("candidate");
 
         let resolved = compose(repo);
@@ -591,7 +591,7 @@ mod tests {
             stale.stale_note.is_some(),
             "and the demotion carries a sentence"
         );
-        assert_eq!(tugdash_core::resolve::read_candidate(repo, "demo"), None);
+        assert_eq!(tugarc_core::resolve::read_candidate(repo, "demo"), None);
     }
 
     #[test]
@@ -686,7 +686,7 @@ mod tests {
         let repo = temp.path();
         let head = ops::rev_parse(repo, "tugdash/demo").unwrap();
 
-        tugdash_core::resolve::write_question(
+        tugarc_core::resolve::write_question(
             repo,
             "demo",
             &head,
@@ -705,7 +705,7 @@ mod tests {
             "the stuck line quotes what was asked: {stuck}"
         );
         assert!(
-            tugdash_core::resolve::read_question(repo, "demo", &head).is_none(),
+            tugarc_core::resolve::read_question(repo, "demo", &head).is_none(),
             "the converted fact is gone, so this happens once"
         );
     }
@@ -729,7 +729,7 @@ mod tests {
         )
         .expect("the dash is free");
 
-        tugdash_core::resolve::write_question(
+        tugarc_core::resolve::write_question(
             repo,
             "demo",
             &head,
@@ -760,8 +760,8 @@ mod tests {
         // Without the driver the ladder gives up and parks a conflict, which
         // is what a resolver would then open.
         git(repo, &["config", "--unset", "tugdash.mergedriver"]);
-        tugdash_core::resolve::resolve_conflicts(repo, "demo", None).unwrap();
-        tugdash_core::resolve::mark_resolve_begun(repo, "demo").unwrap();
+        tugarc_core::resolve::resolve_conflicts(repo, "demo", None).unwrap();
+        tugarc_core::resolve::mark_resolve_begun(repo, "demo").unwrap();
 
         let leased =
             |state: &DashJoinState| state.blockers.iter().any(|b| b.kind == "live-resolve");
@@ -795,7 +795,7 @@ mod tests {
         let repo = temp.path();
         let detail = detail_for(repo);
 
-        tugdash_core::resolve::resolve_conflicts(repo, "demo", None).unwrap();
+        tugarc_core::resolve::resolve_conflicts(repo, "demo", None).unwrap();
         assert!(compose(repo).candidate.is_some());
 
         // The base moves, which is what makes the candidate stale.
@@ -814,7 +814,7 @@ mod tests {
         assert!(during.candidate.is_none(), "a stale candidate is not shown");
         assert!(during.stale_note.is_some(), "and the note says why");
         assert!(
-            tugdash_core::resolve::read_candidate(repo, "demo").is_some(),
+            tugarc_core::resolve::read_candidate(repo, "demo").is_some(),
             "but the ref still stands under the live run"
         );
 
@@ -822,7 +822,7 @@ mod tests {
         let after = compose(repo);
         assert!(after.stale_note.is_some());
         assert_eq!(
-            tugdash_core::resolve::read_candidate(repo, "demo"),
+            tugarc_core::resolve::read_candidate(repo, "demo"),
             None,
             "released, the ordinary demotion collects it"
         );
@@ -840,8 +840,8 @@ mod tests {
         let temp = fixture();
         let repo = temp.path();
 
-        tugdash_core::workshop::Workshop::open_existing(repo, "demo").expect("a live dash");
-        let workshop = tugdash_core::workshop::workshop_path(repo, "demo");
+        tugarc_core::workshop::Workshop::open_existing(repo, "demo").expect("a live dash");
+        let workshop = tugarc_core::workshop::workshop_path(repo, "demo");
         assert!(workshop.exists());
 
         // Still live: the sweep leaves it alone, which is the whole reason the
@@ -855,7 +855,7 @@ mod tests {
         // But a run still holds it, so it is not the sweeper's to take:
         // removing a checkout out from under a working resolver would turn a
         // leaked directory into a lost run.
-        let owner_key = tugdash_core::ops::dash_owner_key(repo, "demo");
+        let owner_key = tugarc_core::ops::dash_owner_key(repo, "demo");
         let held = crate::feeds::join_occupancy::acquire(
             &owner_key,
             crate::feeds::join_occupancy::JoinRunKind::Resolve,
@@ -869,7 +869,7 @@ mod tests {
         sweep_workshops(repo, &[]);
         assert!(!workshop.exists(), "released, the orphan is collected");
         assert!(
-            !tugdash_core::workshop::existing(repo)
+            !tugarc_core::workshop::existing(repo)
                 .iter()
                 .any(|n| n == "demo"),
             "branch and directory both"
@@ -896,7 +896,7 @@ mod tests {
         unsafe {
             std::env::set_var("TUG_DATA_DIR", data.path());
         }
-        let outcome = tugdash_core::resolve::resolve_conflicts(repo, "demo", None).unwrap();
+        let outcome = tugarc_core::resolve::resolve_conflicts(repo, "demo", None).unwrap();
         outcome.candidate_commit.clone().expect("candidate")
     }
 

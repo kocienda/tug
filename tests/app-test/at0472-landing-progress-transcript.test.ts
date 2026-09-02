@@ -39,7 +39,7 @@
  * @covers tugdeck/src/components/tugways/cards/session-card-transcript.tsx
  * @covers tugdeck/src/components/tugways/cards/session-card.tsx
  * @covers tugdeck/src/components/tugways/tug-prompt-entry.tsx
- * @covers tugdeck/src/components/tugways/dash-join-register.tsx
+ * @covers tugdeck/src/components/tugways/arc-join-register.tsx
  * @covers tugdeck/src/components/tugways/cards/session-landing-progress-row.css
  * @covers tugdeck/src/components/tugways/tug-transcript-entry.css
  * @covers tugdeck/src/components/tugways/cards/session-command-block-registry.ts
@@ -78,10 +78,10 @@ const EDITOR = `${CARD} [data-slot="tug-text-editor"] .cm-content`;
 const SCROLLER = `${CARD} [data-tug-scroll-key="session-card-transcript"]`;
 /** The live-edge row, and the register it composes. */
 const LIVE_EDGE = `${SCROLLER} [data-slot="session-landing-progress-row"]`;
-const LIVE_REGISTER = `${LIVE_EDGE} [data-slot="dash-join-register"]`;
+const LIVE_REGISTER = `${LIVE_EDGE} [data-slot="arc-join-register"]`;
 /** The room the register used to live in. */
 const COMPOSER_STATUS = `${CARD} .tug-prompt-entry-status`;
-const COMPOSER_REGISTER = `${COMPOSER_STATUS} [data-slot="dash-join-register"]`;
+const COMPOSER_REGISTER = `${COMPOSER_STATUS} [data-slot="arc-join-register"]`;
 /** Every transcript row, so the last one's box can be measured. */
 const TRANSCRIPT_ROWS = `${SCROLLER} .tug-list-view-cell[data-tug-list-cell-index]`;
 const JOIN_BUTTON = `${CARD} .tug-prompt-entry-commit-button[aria-label="Join"]`;
@@ -206,7 +206,7 @@ describe.skipIf(!SHOULD_RUN)("AT0472: landing progress is transcript ink", () =>
         // this file's subject and is deliberately untouched.)
         expect(
           await app.evalJS<number>(
-            `document.querySelectorAll(${JSON.stringify(`${CARD} [data-slot="tug-prompt-entry"] [data-slot="dash-join-register"]`)}).length`,
+            `document.querySelectorAll(${JSON.stringify(`${CARD} [data-slot="tug-prompt-entry"] [data-slot="arc-join-register"]`)}).length`,
           ),
           "the composer carries no register anywhere in it",
         ).toBe(0);
@@ -335,7 +335,7 @@ describe.skipIf(!SHOULD_RUN)("AT0472: landing progress is transcript ink", () =>
         );
         note(`at0472 ink: ${JSON.stringify(facts)}`);
         expect(
-          facts.commands.filter((c) => c === "/dash-join").length,
+          facts.commands.filter((c) => c === "/arc-join").length,
           "one landing, one ink turn — progress at the live edge is never ledgered",
         ).toBe(1);
       } finally {

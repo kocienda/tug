@@ -380,7 +380,7 @@ pub struct ChangesetFile {
 /// cell, and both belong to the Changes shade rather than to a placard — a
 /// list that renders a title and a state needs a title and a state.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct DashStep {
+pub struct ArcStep {
     /// The step's title, as the ledger table spells it.
     pub title: String,
     /// The status cell, lowercased: `pending` | `in progress` | `done`.
@@ -597,7 +597,7 @@ pub enum ChangesetEntry {
         /// Empty when the dash records no plan, when the file cannot be read,
         /// or when it does not parse — the same silence `review` keeps.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        steps: Vec<DashStep>,
+        steps: Vec<ArcStep>,
         /// The base branch the dash was created from.
         base: String,
         /// Number of commits on the dash branch past its base.
@@ -663,7 +663,7 @@ pub enum ChangesetEntry {
 }
 
 /// What an arc is doing on one dash — the wire spelling of
-/// `tugdash_core::ops::DashArcState`.
+/// `tugarc_core::ops::DashArcState`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DashArcState {
     /// The stage last rotated: `devise` | `review` | `implement`.
@@ -1022,7 +1022,7 @@ impl DashDocuments {
     }
 }
 
-/// A dash that exists only as documents: `.tug/dashes/<name>/` with no
+/// A dash that exists only as documents: `.tug/arcs/<name>/` with no
 /// `tugdash/<name>` branch yet ([P04]).
 ///
 /// This is the planning phase in flight — a brief written, a plan being
@@ -1031,7 +1031,7 @@ impl DashDocuments {
 /// a base, rounds, and files, none of which a branchless dash has. A
 /// `dash create` turns this row into a live one rather than adding a second.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct DocumentDashEntry {
+pub struct DocumentArcEntry {
     /// `dash_owner_key(repo, name)` — the same identity a live dash wears, so
     /// a card bound before the branch exists still finds its own row (R01).
     pub owner_id: String,
@@ -1096,7 +1096,7 @@ pub struct ProjectChangeset {
     pub unattributed_draft: Option<ChangesetDraft>,
     /// Dashes that exist only as documents — no branch yet — sorted by name.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub document_dashes: Vec<DocumentDashEntry>,
+    pub document_arcs: Vec<DocumentArcEntry>,
 }
 
 /// The account-global aggregate changeset snapshot, delivered process-level on
@@ -2025,7 +2025,7 @@ mod tests {
                 orphaned: vec![],
             },
             unattributed_draft: None,
-            document_dashes: vec![],
+            document_arcs: vec![],
         };
         let json = serde_json::to_string(&project).unwrap();
         assert!(json.contains(r#""project_dir":"/tmp/proj""#));
@@ -2033,9 +2033,9 @@ mod tests {
         assert!(json.contains(r#""branch":"main""#));
         // Exactly one workspace_key in the flattened output.
         assert_eq!(json.matches("workspace_key").count(), 1);
-        // A project with no document-only dash carries no `document_dashes`
+        // A project with no document-only dash carries no `document_arcs`
         // key at all, so older readers see the payload they already understand.
-        assert!(!json.contains("document_dashes"));
+        assert!(!json.contains("document_arcs"));
     }
 
     #[test]
@@ -2043,13 +2043,13 @@ mod tests {
         let snapshot: WorkspacesChangesetSnapshot =
             serde_json::from_str(WORKSPACES_CHANGESET_GOLDEN).unwrap();
         let repo = &snapshot.projects[0];
-        assert_eq!(repo.document_dashes.len(), 2);
-        let first = &repo.document_dashes[0];
+        assert_eq!(repo.document_arcs.len(), 2);
+        let first = &repo.document_arcs[0];
         assert_eq!(first.display_name, "dash-cockpit");
         // Absolute, and composed nowhere but the server ([D138]).
         assert_eq!(
             first.documents.plan.as_deref(),
-            Some("/repo/.tug/dashes/dash-cockpit/plan.md")
+            Some("/repo/.tug/arcs/dash-cockpit/plan.md")
         );
         assert_eq!(
             first.documents.brief_title.as_deref(),
@@ -2062,12 +2062,12 @@ mod tests {
         // two rows have been opened.
         assert_eq!((first.steps_done, first.steps_begun), (1, 2));
         // A dash whose devise stage has not run has a plan and no brief.
-        let second = &repo.document_dashes[1];
+        let second = &repo.document_arcs[1];
         assert_eq!(second.review.as_deref(), Some("never-reviewed"));
         assert!(second.documents.brief.is_none());
         // The non-repo project has no dashes at all, so the key is absent and
         // decodes as empty rather than as missing data.
-        assert!(snapshot.projects[1].document_dashes.is_empty());
+        assert!(snapshot.projects[1].document_arcs.is_empty());
     }
 
     /// The live dash carries its documents on the same object, absolute.
@@ -2086,7 +2086,7 @@ mod tests {
             .expect("the golden carries one dash");
         assert_eq!(
             documents.plan.as_deref(),
-            Some("/repo/.tug/dashes/fix-join/plan.md")
+            Some("/repo/.tug/arcs/fix-join/plan.md")
         );
         assert!(!documents.is_empty());
     }

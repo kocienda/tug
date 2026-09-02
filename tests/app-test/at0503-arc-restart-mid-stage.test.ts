@@ -24,7 +24,7 @@
  *
  *   - **The restart itself.** The card comes back on the stage's own segment,
  *     the binding rides the restart onto it, and the arc *waits* — no stop, no
- *     receipt, no rotation. That is `dash-lifecycle.md`'s relaunch row, and it
+ *     receipt, no rotation. That is `arc-lifecycle.md`'s relaunch row, and it
  *     is the promise the whole Wheel rests on.
  *   - **The taken card.** The same state, but the card comes back on a fresh
  *     segment carrying no stage label — a `/new`, a reset, a rewind fork. That
@@ -51,13 +51,13 @@
  * rather than in `Errored` or `Closed`. Driven here, the arc sat for ninety
  * seconds and decided nothing, which is the documented behaviour and not a
  * defect. `SessionGone` is reachable from `Errored`/`Closed`, which a kill is
- * not the gesture for; it is pinned in `dash_arc.rs`'s
+ * not the gesture for; it is pinned in `arc.rs`'s
  * `a_dead_session_stops_the_arc_whatever_the_documents_say`.
  *
- * @covers tugrust/crates/tugcast/src/feeds/dash_arc.rs
- * @covers tugrust/crates/tugcast/src/feeds/dash_arc_runner.rs
+ * @covers tugrust/crates/tugcast/src/feeds/arc.rs
+ * @covers tugrust/crates/tugcast/src/feeds/arc_runner.rs
  * @covers tugrust/crates/tugcast/src/session_ledger.rs
- * @covers tugrust/crates/tugdash-core/src/arc.rs
+ * @covers tugrust/crates/tugarc-core/src/arc.rs
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
@@ -210,7 +210,7 @@ function seedTheLine(app: App, dash: string, tip: "stage" | "fresh"): void {
 
 /**
  * The arc generation a mid-stage crash leaves in the dash-log: opened on the
- * plan, running the plan course, with the implement stage seated on `STAGE`.
+ * plan, running as a trek, with the implement stage seated on `STAGE`.
  *
  * Written straight into the real log rather than through a verb, because the
  * verb that writes these lines is the runner, and the runner writing them is
@@ -218,19 +218,19 @@ function seedTheLine(app: App, dash: string, tip: "stage" | "fresh"): void {
  */
 function seedTheArc(dash: string): void {
   const log = dashLogPath(scratch?.dataRoot ?? "");
-  appendDashLogLine(log, dash, "arc-start", `.tug/dashes/${dash}/plan.md`);
-  appendDashLogLine(log, dash, "arc-course", "plan");
+  appendDashLogLine(log, dash, "arc-start", `.tug/arcs/${dash}/plan.md`);
+  appendDashLogLine(log, dash, "arc-kind", "trek");
   appendDashLogLine(log, dash, "arc-stage", `implement ${STAGE} opus`);
 }
 
-/** What `tugtool dash arc --json` says about the dash right now. */
+/** What `tugtool arc record --json` says about the dash right now. */
 function arcReport(dash: string): {
   stopped: [string, string] | null;
   stages: number;
   done: boolean;
 } {
   const out = JSON.parse(
-    tugtool(["dash", "arc", dash, "--json"], {
+    tugtool(["arc", "record", dash, "--json"], {
       cwd: projectDir(),
       binaryRoot: CHECKOUT,
       env: scratch?.cli.env,

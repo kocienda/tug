@@ -2,7 +2,7 @@
  * at0462-ink-fork-restore.test.ts — a forked line of work keeps its receipts
  * across a relaunch.
  *
- * The regression this exists for, reported five times: a `/dash-join` (or any
+ * The regression this exists for, reported five times: a `/arc-join` (or any
  * rewind-fork) makes tugcode restart Claude under a **forked** session id, and
  * the sessions ledger records that fork as another **segment** of the card's
  * line. The durable ink — the `/commit` and join receipts that live only in

@@ -3768,7 +3768,7 @@ export const TugPromptEntry = React.forwardRef<
   //
   // The group is a VIEW of whichever landing mode is up, not a second home for
   // the selection: `value` is derived from `landingActive` alone. That is what
-  // makes every existing entry and exit path — ⌃⌘C, `/commit`, `/dash-join`,
+  // makes every existing entry and exit path — ⌃⌘C, `/commit`, `/arc-join`,
   // the Session menu, a successful land, Cancel ✕, Escape, the shade's
   // self-close — move the visible tab with no extra wiring.
   //

@@ -4,7 +4,7 @@
  *
  * ## Why this exists
  *
- * `tuglaws/dash-lifecycle.md`'s Interruptions table promises three things of
+ * `tuglaws/arc-lifecycle.md`'s Interruptions table promises three things of
  * every interruption: the arc does something sayable, the user sees a receipt,
  * and there is a gesture that resumes. The first and third are records, and
  * the Rust tests pin them. The **second** is a claim about a card, and a claim
@@ -19,7 +19,7 @@
  * running, and both are here in full — receipt, `--json` state, and a working
  * resume:
  *
- *   - **`tugtool dash stop`** — the verb that means *stop the arc, keep the
+ *   - **`tugtool arc stop`** — the verb that means *stop the arc, keep the
  *     dash*, and the receipt that says so.
  *   - **A second `/dash` naming another dash** — refused by name, with the
  *     first arc's binding untouched and its record still live.
@@ -31,13 +31,13 @@
  * short of a real multi-stage claude run produces one, and a fixture that
  * wrote the column by hand would be asserting against state no code path
  * builds. Those rows are covered where their facts are real: `arc_action`'s
- * table tests for the cancel arm, and `dash_api`'s integration tests over a
+ * table tests for the cancel arm, and `arc_api`'s integration tests over a
  * real ledger for the ending's seated list and its receipt.
  *
- * @covers tugrust/crates/tugcast/src/feeds/dash_arc.rs
- * @covers tugrust/crates/tugcast/src/feeds/dash_arc_runner.rs
- * @covers tugrust/crates/tugcast/src/dash_api.rs
- * @covers tugrust/crates/tugtool/src/dash.rs
+ * @covers tugrust/crates/tugcast/src/feeds/arc.rs
+ * @covers tugrust/crates/tugcast/src/feeds/arc_runner.rs
+ * @covers tugrust/crates/tugcast/src/arc_api.rs
+ * @covers tugrust/crates/tugtool/src/arc.rs
  * @covers tugcode/src/session.ts
  */
 
@@ -155,14 +155,14 @@ async function shellRowText(app: App): Promise<string[]> {
   return JSON.parse(raw) as string[];
 }
 
-/** What `tugtool dash arc --json` says about a dash, read from the fixture. */
+/** What `tugtool arc record --json` says about a dash, read from the fixture. */
 function arcReport(name: string): {
   stopped: [string, string] | null;
   resume: string | null;
   done: boolean;
 } {
   const out = JSON.parse(
-    tugtool(["dash", "arc", name, "--json"], {
+    tugtool(["arc", "record", name, "--json"], {
       cwd: projectDir(),
       binaryRoot: CHECKOUT,
       env: scratch?.cli.env,
@@ -212,7 +212,7 @@ describe.skipIf(!SHOULD_RUN)("AT0476: an interrupted arc says so on the card", (
         // told, in words, on the surface the user is watching.
         await shellUntil(
           app,
-          `${cli} dash run ${DASH_NAME} && ${cli} dash stop ${DASH_NAME}`,
+          `${cli} arc run ${DASH_NAME} && ${cli} arc stop ${DASH_NAME}`,
           "you stopped it",
         );
 
@@ -241,7 +241,7 @@ describe.skipIf(!SHOULD_RUN)("AT0476: an interrupted arc says so on the card", (
         expect(receipt).toContain(DASH_NAME);
         // The receipt says how to pick the work back up — that is the third
         // column of every row of the doctrine table.
-        expect(receipt).toContain(`tugtool dash run ${DASH_NAME}`);
+        expect(receipt).toContain(`tugtool arc run ${DASH_NAME}`);
         note("at0476 card with the stop receipt", (await app.screenshot()).path);
 
         // ── And the work is still there ───────────────────────────────────
@@ -250,7 +250,7 @@ describe.skipIf(!SHOULD_RUN)("AT0476: an interrupted arc says so on the card", (
         // once the arc is resumed the runner is free to rotate it again, so
         // the record is a moving target and the CLI's statement is not.
         const resumed = JSON.parse(
-          tugtool(["dash", "run", DASH_NAME, "--json"], {
+          tugtool(["arc", "run", DASH_NAME, "--json"], {
             cwd: projectDir(),
             binaryRoot: CHECKOUT,
             env: { ...scratch?.cli.env, TUG_SESSION_ID: SID },
@@ -281,12 +281,12 @@ describe.skipIf(!SHOULD_RUN)("AT0476: an interrupted arc says so on the card", (
         await openCard(app);
 
         // One line again, and for the same reason: the refusal is about a
-        // card running a **live** course, and a tick between the two verbs
+        // card running a **live** arc, and a tick between the two verbs
         // would seat a stage or stop the arc, either of which changes the
         // question being asked.
         await shellAndSettle(
           app,
-          `${cli} dash run ${OTHER_DASH} && ${cli} dash bind ${THIRD_DASH}`,
+          `${cli} arc run ${OTHER_DASH} && ${cli} arc bind ${THIRD_DASH}`,
         );
 
         // ── The interruption that is refused rather than described ────────

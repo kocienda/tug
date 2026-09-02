@@ -33,7 +33,7 @@ const SUMMARY = [
 /** The shell-ledger row the server wrote for this landing. */
 const LEDGER_ROW = {
   id: 4207,
-  command: "/dash-join",
+  command: "/arc-join",
   output: SUMMARY,
   exit_code: 0,
   cwd: "/p",
@@ -57,7 +57,7 @@ function appendLive(store: CodeSessionStore, receiptId: number | null): void {
   store.ingestShellExchange({
     phase: "complete",
     exchangeId: landingExchangeId(receiptId),
-    command: "/dash-join",
+    command: "/arc-join",
     output: SUMMARY,
     exitCode: 0,
     cwd: "/p",
@@ -84,7 +84,7 @@ describe("a landing's receipt is one turn on both delivery paths", () => {
     expect(turns).toHaveLength(1);
     expect(turns[0].messages[0]).toMatchObject({
       kind: "shell_exchange",
-      command: "/dash-join",
+      command: "/arc-join",
       output: SUMMARY,
     });
   });

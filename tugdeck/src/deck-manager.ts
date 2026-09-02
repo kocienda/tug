@@ -50,7 +50,7 @@ import {
   takesContentWidth,
 } from "./card-registry";
 import { CARDS_CARD_ID } from "./lib/cards-card-id";
-import { DASHES_CARD_ID } from "./lib/dashes-card-id";
+import { ARCS_CARD_ID } from "./lib/arcs-card-id";
 import { LAYOUT_CARD_ID } from "./lib/layout-card-id";
 import { TRIPWIRES_CARD_ID } from "./lib/tripwires-card-id";
 import {
@@ -363,7 +363,7 @@ function spliceCardFromStack(
  */
 export const FACTORY_RAIL_ORDER: readonly string[] = [
   CARDS_CARD_ID,
-  DASHES_CARD_ID,
+  ARCS_CARD_ID,
   LAYOUT_CARD_ID,
   TRIPWIRES_CARD_ID,
 ];

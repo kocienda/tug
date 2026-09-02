@@ -6,7 +6,7 @@
  *
  * `notes/wheel-rotation-strands-the-arc.md` records one incident: a stage
  * rotated, and the arc was stranded. The card's dash face went blank, a
- * `tugtool dash` verb run from a shell born before the rotation was refused
+ * `tugtool arc` verb run from a shell born before the rotation was refused
  * because that shell still held the session id it started with, and the run
  * did not walk on. Six workstreams of hardening followed. Every one of them is
  * tested where its fact lives — the ledger's units, the predicate's table, the
@@ -16,19 +16,19 @@
  * ## The rotation is the event, not the errand
  *
  * The first draft of this file spent twenty minutes getting to a rotation the
- * hard way: a plan-course arc through a real review stage, then a real
+ * hard way: a trek through a real review stage, then a real
  * implement stage, then two real step boundaries with the compaction threshold
  * on the floor so the second one rotated. It never arrived, and the reason is
  * worth keeping: **every one of those minutes was spent earning a rotation,
  * and none of them was spent on what the incident was about.** A rotation is a
  * fresh segment minted on the card's line and seated by the wheel. The
- * *opening* rotation of a dash course is exactly that, and it lands about a
+ * *opening* rotation of a dash is exactly that, and it lands about a
  * second after the door is opened.
  *
  * So the door is the gesture, and the four things the incident lost are the
  * assertions:
  *
- *   1. **The course kind is recorded and obeyed.** `--course dash` opens at
+ *   1. **The kind is recorded and obeyed.** `--kind dash` opens at
  *      implement; the same dash without it opens at devise. That is W5's
  *      recorded kind, driven end to end for the first time — the second test
  *      is the contrast, and the contrast is what makes it a *recorded* kind
@@ -39,7 +39,7 @@
  *      `(session_id, line_id)` pair goes out before `bind_dash_ok`, so the
  *      deck's segment → line → card walk can resolve the announcement instead
  *      of silently no-opping.
- *   3. **A stale id still lands on the live segment.** `tugtool dash bind
+ *   3. **A stale id still lands on the live segment.** `tugtool arc bind
  *      --dry-run --json`, run with the id the card was *born* with, reports
  *      `rotated: true` and resolves to the segment the card is on *now*. That
  *      is W1's chokepoint, over a real rotation, and `--dry-run` is the
@@ -65,14 +65,14 @@
  * free — but it is one spawn, the same cost `at0476`'s second test already
  * pays, and the arc is stopped as soon as the reading is taken.
  *
- * @covers tugrust/crates/tugcast/src/feeds/dash_arc.rs
- * @covers tugrust/crates/tugcast/src/feeds/dash_arc_runner.rs
+ * @covers tugrust/crates/tugcast/src/feeds/arc.rs
+ * @covers tugrust/crates/tugcast/src/feeds/arc_runner.rs
  * @covers tugrust/crates/tugcast/src/feeds/agent_supervisor.rs
  * @covers tugrust/crates/tugcast/src/session_ledger.rs
- * @covers tugrust/crates/tugtool/src/dash.rs
- * @covers tugrust/crates/tugdash-core/src/arc.rs
+ * @covers tugrust/crates/tugtool/src/arc.rs
+ * @covers tugrust/crates/tugarc-core/src/arc.rs
  * @covers tugdeck/src/lib/card-session-binding-store.ts
- * @covers tugdeck/src/lib/dash-session-index.ts
+ * @covers tugdeck/src/lib/arc-session-index.ts
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
@@ -102,10 +102,10 @@ import {
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 240_000;
 
-/** The card the dash course runs on — and, after its rotation, the stale id. */
+/** The card the dash runs on — and, after its rotation, the stale id. */
 const SID_DASH = "a7c0d1ea-0000-4000-8000-000000000504";
-/** The card the plan course runs on. Its own card, so its own spawn id. */
-const SID_PLAN = "a7c0d1ea-0000-4000-8000-000000000505";
+/** The card the trek runs on. Its own card, so its own spawn id. */
+const SID_TREK = "a7c0d1ea-0000-4000-8000-000000000505";
 
 const CARD = '[data-card-id="A"]';
 const PROMPT_INPUT = `${CARD} [data-slot="tug-text-editor"] .cm-content`;
@@ -146,8 +146,8 @@ const DECK_SEAT_FOLLOWS_A_ROTATION = true;
 const DECK_SEAT_NOTE =
   "the deck moves the card onto the segment the wheel seated";
 
-const DASH_COURSE = "at0504-dash-course";
-const PLAN_COURSE = "at0504-plan-course";
+const DASH_ARC = "at0504-dash";
+const TREK_ARC = "at0504-trek";
 
 /** This checkout — the build under test, and never the tree a dash is cut in. */
 const CHECKOUT = realpathSync(resolve(import.meta.dir, "..", ".."));
@@ -162,15 +162,15 @@ beforeAll(() => {
 
   // Two dashes with **identical documents** — a brief and a task list, which
   // is the shape `/dash` leaves. Identical on purpose: the only thing that
-  // differs between the two tests is the `--course` flag, so a difference in
+  // differs between the two tests is the `--kind` flag, so a difference in
   // where the arc opens can only be the recorded kind talking.
-  for (const dash of [DASH_COURSE, PLAN_COURSE]) {
+  for (const dash of [DASH_ARC, TREK_ARC]) {
     createDash(projectDir(), dash, `at0504 ${dash}`, scratch.cli);
     writeFileSync(dashBriefPath(projectDir(), dash), "# A brief\n\nOne small thing.\n");
     writeFileSync(dashTasksPath(projectDir(), dash), fixturePlanDocument(1));
   }
 
-  for (const id of [SID_DASH, SID_PLAN]) {
+  for (const id of [SID_DASH, SID_TREK]) {
     fixtureDirs.push(seedScratchSession(projectDir(), id));
   }
 });
@@ -226,20 +226,20 @@ interface ArcStageLine {
 
 interface ArcReading {
   stages: ArcStageLine[];
-  course: string | null;
+  kind: string | null;
   stopped: [string, string] | null;
 }
 
-/** What `tugtool dash arc --json` says about a dash right now. */
+/** What `tugtool arc record --json` says about a dash right now. */
 function arcReport(name: string): ArcReading {
   const out = JSON.parse(
-    tugtool(["dash", "arc", name, "--json"], {
+    tugtool(["arc", "record", name, "--json"], {
       cwd: projectDir(),
       binaryRoot: CHECKOUT,
       env: scratch?.cli.env,
     }),
   ) as { data: { arc: ArcReading | null } };
-  return out.data.arc ?? { stages: [], course: null, stopped: null };
+  return out.data.arc ?? { stages: [], kind: null, stopped: null };
 }
 
 /**
@@ -289,7 +289,7 @@ function bindDryRun(
   resolved: boolean;
 } {
   const out = JSON.parse(
-    tugtool(["dash", "bind", name, "--dry-run", "--json"], {
+    tugtool(["arc", "bind", name, "--dry-run", "--json"], {
       cwd: projectDir(),
       binaryRoot: CHECKOUT,
       env: { ...scratch?.cli.env, TUG_SESSION_ID: stale },
@@ -309,7 +309,7 @@ function bindDryRun(
 
 describe.skipIf(!SHOULD_RUN)("AT0504: a rotation the work does not notice", () => {
   test(
-    "a dash course opens at implement, and its rotation carries the binding and the id",
+    "a dash opens at implement, and its rotation carries the binding and the id",
     async () => {
       const tugbankPath = mkTempTugbank();
       seedTugbankForLaunch(tugbankPath, { sourceTreePath: CHECKOUT });
@@ -323,16 +323,16 @@ describe.skipIf(!SHOULD_RUN)("AT0504: a rotation the work does not notice", () =
 
         // The door. Opening the arc binds this card and starts the wheel,
         // whose first act is the rotation this whole file is about.
-        await shell(app, `${cli} dash run ${DASH_COURSE} --course dash`);
-        const arc = await waitForRotation(DASH_COURSE);
-        note(`at0504 dash-course arc: ${JSON.stringify(arc)}`);
+        await shell(app, `${cli} arc run ${DASH_ARC} --kind dash`);
+        const arc = await waitForRotation(DASH_ARC);
+        note(`at0504 dash arc: ${JSON.stringify(arc)}`);
 
-        // ── 1. The recorded course decided where to open ─────────────────
+        // ── 1. The recorded kind decided where to open ───────────────────
         //
-        // A brief with no plan opens at *devise* under the default course —
+        // A brief with no plan opens at *devise* under the default kind —
         // which the second test drives, over identical documents. So this is
         // the kind talking, not the documents.
-        expect(arc.course, "the kind is recorded, not derived later").toBe("dash");
+        expect(arc.kind, "the kind is recorded, not derived later").toBe("dash");
         expect(arc.stages[0]?.stage, "no devise, no review").toBe("implement");
         const seatedSegment = arc.stages[0]!.session_id;
         expect(seatedSegment, "a rotation seated a fresh segment").not.toBe(SID_DASH);
@@ -346,7 +346,7 @@ describe.skipIf(!SHOULD_RUN)("AT0504: a rotation the work does not notice", () =
         // The card's divider is the same fact wearing a face, and it is
         // deliberately **observed rather than waited on**. Its text is
         // composed from the announcement's own field, which W5 left spelled
-        // `arc` and sourced from the resolved course — so what it reads is a
+        // `arc` and sourced from the resolved kind — so what it reads is a
         // question about presentation, and a test that blocked on a guess at
         // its wording would spend its whole budget being wrong about
         // something it is not claiming. (It did: the first version of this
@@ -372,7 +372,7 @@ describe.skipIf(!SHOULD_RUN)("AT0504: a rotation the work does not notice", () =
         // the ledger was right and only the deck was wrong. That is the
         // difference between "the binding was lost" and "the binding was not
         // announced", and they are different bugs.
-        const dry = bindDryRun(DASH_COURSE, SID_DASH);
+        const dry = bindDryRun(DASH_ARC, SID_DASH);
         note(`at0504 stale-id resolution: ${JSON.stringify(dry)}`);
         expect(dry.posted_session_id, "the stale id is what went out").toBe(SID_DASH);
         expect(dry.resolved, "an instance answered").toBe(true);
@@ -422,7 +422,7 @@ describe.skipIf(!SHOULD_RUN)("AT0504: a rotation the work does not notice", () =
           `(document.querySelector(${JSON.stringify(MASTHEAD_DASH)})?.textContent ?? "").trim()`,
         );
         note(`at0504 masthead after the rotation: ${JSON.stringify(sigil)}`);
-        expect(sigil, "the card still names its dash").toContain(DASH_COURSE);
+        expect(sigil, "the card still names its dash").toContain(DASH_ARC);
 
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(Z2_DASH_VALUE)}) !== null`,
@@ -435,7 +435,7 @@ describe.skipIf(!SHOULD_RUN)("AT0504: a rotation the work does not notice", () =
         expect(placard.length, "the Z2 placard did not blank").toBeGreaterThan(0);
 
         // Stop the arc rather than leaving a stage running past the reading.
-        await shell(app, `${cli} dash stop ${DASH_COURSE}`);
+        await shell(app, `${cli} arc stop ${DASH_ARC}`);
       } finally {
         await app.close();
         rmTempTugbank(tugbankPath);
@@ -445,32 +445,32 @@ describe.skipIf(!SHOULD_RUN)("AT0504: a rotation the work does not notice", () =
   );
 
   test(
-    "the same documents without --course open at devise, which is what makes the kind a kind",
+    "the same documents without --kind open at devise, which is what makes the kind a kind",
     async () => {
       const tugbankPath = mkTempTugbank();
       seedTugbankForLaunch(tugbankPath, { sourceTreePath: CHECKOUT });
       const app = await launchTugApp({
-        testName: "at0504-arc-plan-course-default",
+        testName: "at0504-arc-trek-default",
         env: { TUGBANK_PATH: tugbankPath, TUG_DATA_DIR: scratch?.dataRoot ?? "" },
       });
       const cli = tugtoolPath(CHECKOUT);
       try {
-        await openCard(app, SID_PLAN);
+        await openCard(app, SID_TREK);
 
-        // No `--course`, so the default. [B08]'s default is `plan`, and its
-        // asymmetry is deliberate: opening a dash-course dash at devise costs
-        // two rotations it did not need, while opening a plan-course dash at
-        // implement skips a cold read it did.
-        await shell(app, `${cli} dash run ${PLAN_COURSE}`);
-        const arc = await waitForRotation(PLAN_COURSE);
-        note(`at0504 plan-course arc: ${JSON.stringify(arc)}`);
+        // No `--kind`, so the default. [B08]'s default is `trek`, and the two
+        // errors are not symmetric: opening a dash at devise costs two
+        // rotations it did not need, while opening a trek at implement skips a
+        // cold read it did. The cheaper mistake is the default.
+        await shell(app, `${cli} arc run ${TREK_ARC}`);
+        const arc = await waitForRotation(TREK_ARC);
+        note(`at0504 trek arc: ${JSON.stringify(arc)}`);
 
-        expect(arc.course, "the default is recorded like any other kind").toBe("plan");
+        expect(arc.kind, "the default is recorded like any other kind").toBe("trek");
         expect(arc.stages[0]?.stage, "a brief with no plan settles first").toBe(
           "devise",
         );
 
-        await shell(app, `${cli} dash stop ${PLAN_COURSE}`);
+        await shell(app, `${cli} arc stop ${TREK_ARC}`);
       } finally {
         await app.close();
         rmTempTugbank(tugbankPath);

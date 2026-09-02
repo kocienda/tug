@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/tugtool", "crates/tugtool-core", "crates/tugdash-core", "crates/tugchanges-core", "crates/tugedit-core", "crates/tugcast", "crates/tugcast-core", "crates/tugexec", "crates/tugrelaunch", "crates/tugbank-core", "crates/tugbank", "crates/tuggram", "crates/tuglog", "crates/tugcore"]
+members = ["crates/tugtool", "crates/tugtool-core", "crates/tugarc-core", "crates/tugchanges-core", "crates/tugedit-core", "crates/tugcast", "crates/tugcast-core", "crates/tugexec", "crates/tugrelaunch", "crates/tugbank-core", "crates/tugbank", "crates/tuggram", "crates/tuglog", "crates/tugcore"]
 
 [workspace.package]
 version = "0.8.0"
@@ -67,7 +67,7 @@ sha2 = "0.10"
 # Internal crates
 tugtool-core = { path = "crates/tugtool-core" }
 tuggram = { path = "crates/tuggram" }
-tugdash-core = { path = "crates/tugdash-core" }
+tugarc-core = { path = "crates/tugarc-core" }
 tugchanges-core = { path = "crates/tugchanges-core" }
 tugedit-core = { path = "crates/tugedit-core" }
 

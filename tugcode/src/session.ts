@@ -197,7 +197,7 @@ const CANONICAL_PERMISSION_DENY_MESSAGE =
 export function buildClaudeSpawnEnv(
   processEnv: Record<string, string | undefined>,
   sessionId: string,
-  course: string | null,
+  arc: string | null,
 ): Record<string, string | undefined> {
   const {
     ANTHROPIC_API_KEY,
@@ -218,21 +218,13 @@ export function buildClaudeSpawnEnv(
   // it is opt-in via this variable.
   scrubbedEnv.CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING = "true";
 
-  // Under a course, the stage's claude carries the dash name so the stage
-  // skills can read it from a Bash step. Absent is what *clears* it: the
-  // variable belongs to a course, not to a card.
-  //
-  // **Skew.** `TUG_DASH_ARC` is the old spelling, exported beside
-  // `TUG_DASH_COURSE` for one release: a skill from a bundle older than the
-  // rename reads the old name and still learns it is under a course, rather
-  // than concluding nothing is driving it and walking the whole selection in
-  // one turn. Both are cleared together, so neither can outlive a course.
-  if (course !== null) {
-    scrubbedEnv.TUG_DASH_COURSE = course;
-    scrubbedEnv.TUG_DASH_ARC = course;
+  // Under an arc, the stage's claude carries the arc name so the stage skills
+  // can read it from a Bash step. Absent is what *clears* it: the variable
+  // belongs to an arc, not to a card.
+  if (arc !== null) {
+    scrubbedEnv.TUG_ARC = arc;
   } else {
-    delete scrubbedEnv.TUG_DASH_COURSE;
-    delete scrubbedEnv.TUG_DASH_ARC;
+    delete scrubbedEnv.TUG_ARC;
   }
   return scrubbedEnv;
 }
@@ -3287,9 +3279,9 @@ export class SessionManager {
    * into the child's environment on every one.
    *
    * Per-arc, not per-card: a fresh session started with no stage clears it, so
-   * the first plain `/new` after a course spawns without `TUG_DASH_COURSE`.
+   * the first plain `/new` after an arc spawns without `TUG_ARC`.
    */
-  private currentCourse: string | null = null;
+  private currentArc: string | null = null;
   /**
    * Working directories added via `/add-dir` ([#step-13c]), in add order. Like
    * {@link currentEffort}, tugcode owns the `--add-dir` flags and re-applies
@@ -3825,7 +3817,7 @@ export class SessionManager {
     const scrubbedEnv = buildClaudeSpawnEnv(
       process.env as Record<string, string | undefined>,
       this.sessionId,
-      this.currentCourse,
+      this.currentArc,
     );
 
     return Bun.spawn([claudePath, ...args], {
@@ -8366,16 +8358,16 @@ export class SessionManager {
    * Kills current process and respawns without --resume.
    *
    * `stage` is present only when the server-driven arc originated this
-   * rotation. It does two things and nothing else: it records the course name
-   * so every spawn from here carries `TUG_DASH_COURSE`, and it announces the fresh
+   * rotation. It does two things and nothing else: it records the arc name
+   * so every spawn from here carries `TUG_ARC`, and it announces the fresh
    * session as lineage before the synthetic `session_init` — the placement
    * {@link rewindSession}'s fork announcement already uses, because the bridge
    * must stage the identity transfer before the `session_init` that consumes
    * it.
    *
    * With no stage the path is byte-identical to what a plain `/new` from the
-   * deck emits today, and the course record is *cleared* — the variable
-   * belongs to a course, not to a card.
+   * deck emits today, and the arc record is *cleared* — the variable
+   * belongs to an arc, not to a card.
    */
   async handleNewSession(stage?: SessionStageSpec): Promise<void> {
     return this.respawn(() => this.newSession(stage));
@@ -8385,12 +8377,9 @@ export class SessionManager {
     const parentSessionId = this.resolveClaudeId();
     await this.killAndCleanup();
 
-    // Absent is what *clears* it: the course variables belong to a course, not
-    // to a card, so a rotation naming none spawns claude without them.
-    //
-    // `course ?? arc` is the skew read: a tugcast older than the rename sends
-    // only `arc`, and taking it keeps the course instead of dropping it.
-    this.currentCourse = stage?.course ?? stage?.arc ?? null;
+    // Absent is what *clears* it: the arc variable belongs to an arc, not to a
+    // card, so a rotation naming none spawns claude without it.
+    this.currentArc = stage?.arc ?? null;
 
     // The effort is recorded before the spawn so the level rides that one
     // spawn. Setting it afterwards would cost a second respawn through
@@ -8431,13 +8420,7 @@ export class SessionManager {
             stage: stage.name,
             model: this.currentModel ?? "",
             ...(stage.document !== undefined ? { document: stage.document } : {}),
-            // Sourced from the resolved course rather than from `stage.arc`,
-            // so an older tugcast that sent only `arc` and a newer one that
-            // sends `course` both announce the same name. The outbound field
-            // keeps its old spelling: tugcast's parser and the deck's divider
-            // read it, and renaming a third wire hop buys nothing the
-            // resolution here has not already bought.
-            ...(this.currentCourse !== null ? { arc: this.currentCourse } : {}),
+            ...(this.currentArc !== null ? { arc: this.currentArc } : {}),
             ...(stage.steps !== undefined ? { steps: stage.steps } : {}),
             ...(stage.prompt !== undefined ? { prompt: stage.prompt } : {}),
           }

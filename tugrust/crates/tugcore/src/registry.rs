@@ -218,9 +218,9 @@ pub fn find_for_cwd(cwd: &Path) -> Result<Option<Instance>, Error> {
 /// at the shared `.git`, whose parent is the main checkout.
 ///
 /// Public because instance discovery is not its only consumer: `same_project`
-/// in `tugcast::dash_api` resolves both sides of a bind through it, so a
-/// session spawned in a checkout and a `tugtool dash` call made from inside
-/// that checkout's dash worktree read as one project rather than two. One
+/// in `tugcast::arc_api` resolves both sides of a bind through it, so a
+/// session spawned in a checkout and a `tugtool arc` call made from inside
+/// that checkout's arc worktree read as one project rather than two. One
 /// translation, two callers — a second implementation would be a second
 /// quiet path resolver.
 pub fn linked_worktree_base(cwd: &Path) -> Option<PathBuf> {

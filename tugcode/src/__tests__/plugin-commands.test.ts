@@ -96,7 +96,7 @@ describe("enumeratePluginCommands", () => {
   // (`resolveRemoteCommand`, tugdeck), and a second catalog entry whose leaf is
   // also `dash` would make that resolution ambiguous — which reads to the user
   // as "Unknown command" rather than as anything nameable.
-  test("the repository's own plugin catalogues tugplug:dash, unambiguously", () => {
+  test("the repository's own plugin catalogues tugplug:dash and tugplug:trek, unambiguously", () => {
     const pluginDir = join(import.meta.dir, "..", "..", "..", "tugplug");
     if (!existsSync(join(pluginDir, "skills"))) return; // not a full checkout.
 
@@ -117,6 +117,17 @@ describe("enumeratePluginCommands", () => {
 
     const dashLeaves = cmds.filter((c) => c.name.split(":").pop() === "dash");
     expect(dashLeaves.map((c) => c.name)).toEqual(["tugplug:dash"]);
+
+    // The other door, on the same terms: a second catalog entry whose leaf is
+    // also `trek` is what would make a bare `/trek` ambiguous.
+    const trek = cmds.find((c) => c.name === "tugplug:trek");
+    expect(trek).toBeDefined();
+    expect(trek!.description.length).toBeGreaterThan(0);
+    const trekSource = readFileSync(join(pluginDir, "skills", "trek", "SKILL.md"), "utf8");
+    expect(trekSource).toContain(trek!.description);
+
+    const trekLeaves = cmds.filter((c) => c.name.split(":").pop() === "trek");
+    expect(trekLeaves.map((c) => c.name)).toEqual(["tugplug:trek"]);
   });
 });
 

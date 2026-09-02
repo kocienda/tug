@@ -191,7 +191,7 @@ export interface AssistantThinking extends MessageBase {
  * sentence from the dash-log — created, run declared, step started, closed,
  * a round — and it arrived while this turn was streaming, so it belongs
  * INSIDE the turn, between the tool calls it happened among. That is what
- * makes a course read as a conversation: "step 1/3 started" above the work,
+ * makes an arc read as a conversation: "step 1/3 started" above the work,
  * "step 1/3 closed" below it, the wheel's next ask after. A note arriving
  * with no turn open falls back to its own quiet ink row instead
  * (`handleDashNote`).

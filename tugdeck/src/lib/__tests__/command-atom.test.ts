@@ -215,10 +215,10 @@ describe("mintLeadingCommandAtom", () => {
 
   test("lifts a bare command out of the text, leaving the args as written", () => {
     expect(
-      mintLeadingCommandAtom("/tugplug:dash-review dash/x.md", [], K),
+      mintLeadingCommandAtom("/tugplug:arc-review dash/x.md", [], K),
     ).toEqual({
       text: `${K} dash/x.md`,
-      atoms: [cmd("tugplug:dash-review")],
+      atoms: [cmd("tugplug:arc-review")],
     });
   });
 

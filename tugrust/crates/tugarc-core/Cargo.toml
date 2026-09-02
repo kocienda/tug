@@ -1,0 +1,26 @@
+[package]
+name = "tugarc-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Core library for tugarc: git-derived worktree work units (arcs)"
+
+[lib]
+name = "tugarc_core"
+path = "src/lib.rs"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+dirs.workspace = true
+rand.workspace = true
+rusqlite.workspace = true
+tempfile.workspace = true
+tugcore.workspace = true
+tugchanges-core.workspace = true
+tugtool-core.workspace = true
+tuggram.workspace = true
+
+[dev-dependencies]
+serial_test = "3"

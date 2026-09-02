@@ -2478,6 +2478,23 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e421abadd41a4225275504ea4d6566923418b7f05506fbc9c0fe86ba7396114b"
 
 [[package]]
+name = "tugarc-core"
+version = "0.8.0"
+dependencies = [
+ "dirs",
+ "rand 0.10.0",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "serial_test",
+ "tempfile",
+ "tugchanges-core",
+ "tugcore",
+ "tuggram",
+ "tugtool-core",
+]
+
+[[package]]
 name = "tugbank"
 version = "0.8.0"
 dependencies = [
@@ -2543,11 +2560,11 @@ dependencies = [
  "tower-http",
  "tracing",
  "tracing-subscriber",
+ "tugarc-core",
  "tugbank-core",
  "tugcast-core",
  "tugchanges-core",
  "tugcore",
- "tugdash-core",
  "tuggram",
  "tuglog",
  "tugtool-core",
@@ -2593,23 +2610,6 @@ dependencies = [
  "serial_test",
  "tempfile",
  "thiserror 2.0.18",
-]
-
-[[package]]
-name = "tugdash-core"
-version = "0.8.0"
-dependencies = [
- "dirs",
- "rand 0.10.0",
- "rusqlite",
- "serde",
- "serde_json",
- "serial_test",
- "tempfile",
- "tugchanges-core",
- "tugcore",
- "tuggram",
- "tugtool-core",
 ]
 
 [[package]]
@@ -2684,9 +2684,9 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.18",
  "toml",
+ "tugarc-core",
  "tugchanges-core",
  "tugcore",
- "tugdash-core",
  "tugedit-core",
  "tugtool-core",
  "ureq",

@@ -70,9 +70,9 @@ import { AppTestAskDialog } from "../chrome/session-app-test-ask-dialog";
 import { pendingAskStore } from "@/lib/pending-ask-store";
 import {
   SessionChangesView,
-  type DashJoinSource,
+  type ArcJoinSource,
 } from "./session-changes/session-changes-view";
-import type { DashJoinActions } from "./session-changes/session-changes-dash-join";
+import type { ArcJoinActions } from "./session-changes/session-changes-arc-join";
 import { SessionHistoryView } from "./session-history/session-history-view";
 import { SessionTelemetryStatusRow } from "./session-card-telemetry-renderers";
 import type { SessionTelemetryStatusRowHandle } from "./session-card-telemetry-renderers";
@@ -86,14 +86,14 @@ import {
 } from "../chrome/session-route-indicator-badge";
 import { AiChip } from "./ai-chip";
 import { useAiConfigSheet } from "./ai-config-sheet";
-import { DashPickerSheet } from "./dash-picker-sheet";
+import { ArcPickerSheet } from "./arc-picker-sheet";
 import { useModel } from "@/lib/use-model";
 import {
   REVIEW_PLAN_COMMAND,
   readLastReviewedPlan,
   resolvePlanReviewTarget,
   writeLastReviewedPlan,
-} from "@/lib/dash-review-target";
+} from "@/lib/arc-review-target";
 import { useUnavailableModelBulletin } from "@/lib/use-unavailable-model-bulletin";
 import { persistModelCatalog } from "@/lib/model-catalog";
 import { useRewindSheet } from "./rewind-sheet";
@@ -199,8 +199,8 @@ import { tugDevLogStore } from "@/lib/tug-dev-log-store/tug-dev-log-store";
 import { createStagedLanding, type StagedLanding } from "./staged-landing";
 import { LandingNoticeController } from "./landing-notice-controller";
 import { DiscardErrorNoticeController } from "./discard-error-notice-controller";
-import { DashBindErrorNoticeController } from "./dash-bind-error-notice-controller";
-import { DashReplayNoticeController } from "./dash-replay-notice-controller";
+import { ArcBindErrorNoticeController } from "./arc-bind-error-notice-controller";
+import { ArcReplayNoticeController } from "./arc-replay-notice-controller";
 import { deriveColdRestoreActive } from "./session-card-restore-gate";
 import { REPLAY_SOFT_BUDGET_MS } from "@/lib/code-session-store";
 import { PromptHistoryStore } from "@/lib/prompt-history-store";
@@ -208,7 +208,7 @@ import type { EditorSettingsStore } from "@/lib/editor-settings-store";
 import type { TranscriptSettingsStore } from "@/lib/transcript-settings-store";
 import type { SessionMetadataStore } from "@/lib/session-metadata-store";
 import { getConnection } from "@/lib/connection-singleton";
-import { DASH_NAME_CAUTION, isShellSafeDashName } from "@/lib/dash-name";
+import { ARC_NAME_CAUTION, isShellSafeArcName } from "@/lib/arc-name";
 import type { CompletionProvider } from "@/lib/tug-text-types";
 import {
   cardSessionBindingStore,
@@ -2669,7 +2669,7 @@ export function SessionCardBody({
   const commitModeController = commitModeControllerRef.current;
   useEffect(() => () => commitModeController.dispose(), [commitModeController]);
 
-  // Join mode ([P01]/[P04]) — commit mode's twin for the dash lane, rebuilt on
+  // Join mode ([P01]/[P04]) — commit mode's twin for the arc lane, rebuilt on
   // the same session-swap boundary and for the same reason: a new session has
   // its own bindings and its own dash.
   const joinModeControllerRef = useRef<JoinModeController | null>(null);
@@ -3716,7 +3716,7 @@ export function SessionCardBody({
     enterChanges,
   ]);
 
-  // The same reveal, asked for out loud — a Dashes card dash row activating routes
+  // The same reveal, asked for out loud — a Arcs card dash row activating routes
   // here through the card-content responder, and this is [D152]'s one reveal
   // path rather than a second one. Defined beside the effect above so both
   // share the controller and the memory: whichever fires first spends the
@@ -4275,7 +4275,7 @@ export function SessionCardBody({
       const message = args.trim();
       commitModeController.enter(message.length > 0 ? message : undefined);
     },
-    // `/dash-bind <name>` — work on a dash, making it if needed ([P06]).
+    // `/arc-bind <name>` — work on a dash, making it if needed ([P06]).
     //
     // Two paths, each using the thing for what it is. An existing name is a
     // pure UI-concept write, so it goes over the `bind_dash` CONTROL verb:
@@ -4293,17 +4293,17 @@ export function SessionCardBody({
     // and falling through to create would fire a git mutation on the strength
     // of a snapshot that has not answered yet.
     //
-    // A mistyped name therefore creates a dash. That is `tugtool dash
+    // A mistyped name therefore creates a dash. That is `tugtool arc
     // create`'s semantics and this gesture inherits it on purpose:
-    // `/dash-bind` means "work on this dash, making it if needed", so there is
+    // `/arc-bind` means "work on this dash, making it if needed", so there is
     // no name it can refuse for being unfamiliar. The shell receipt is what
     // makes the outcome legible.
     //
     // Bare form picks ([P01]): several dashes open the picker sheet, exactly
     // one binds directly, none cautions. `/dash` no longer arrives here — the
     // bare name was surrendered to the `tugplug:dash` orchestrator skill, and
-    // `/dash-bind` is the only spelling that reaches this handler.
-    "dash-bind": (args) => {
+    // `/arc-bind` is the only spelling that reaches this handler.
+    "arc-bind": (args) => {
       const notify = paneBulletinRef.current;
       // The `/diff` precedent: a surface that needs a binding returns silently
       // when the store has none.
@@ -4335,7 +4335,7 @@ export function SessionCardBody({
         // opening a sheet to confirm the only option is ceremony.
         if (snap.dashes.length === 0) {
           notify?.caution(
-            "No dashes in this project — /dash-bind <name> starts one",
+            "No arcs in this project — /arc-bind <name> starts one",
           );
           return;
         }
@@ -4344,11 +4344,11 @@ export function SessionCardBody({
           return;
         }
         void cardPickerSheet.showSheet({
-          title: "Work on a dash",
+          title: "Work on an arc",
           icon: "GitBranch",
           iconRole: "agent",
           content: (close) => (
-            <DashPickerSheet
+            <ArcPickerSheet
               dashes={snap.dashes}
               boundDashId={binding.dash?.id ?? null}
               onPick={(entry) => bindToDash(entry.display_name)}
@@ -4363,24 +4363,24 @@ export function SessionCardBody({
         bindToDash(name);
         return;
       }
-      if (!isShellSafeDashName(name)) {
-        notify?.caution(DASH_NAME_CAUTION);
+      if (!isShellSafeArcName(name)) {
+        notify?.caution(ARC_NAME_CAUTION);
         return;
       }
       if (shellSessionStore.getSnapshot().inflight !== null) {
         notify?.caution("A shell command is already running");
         return;
       }
-      shellSessionStore.exec(`tugtool dash create ${name}`);
+      shellSessionStore.exec(`tugtool arc create ${name}`);
     },
-    // `/dash-review [path]` — review a plan, as an ordinary turn on whatever
+    // `/arc-review [path]` — review a plan, as an ordinary turn on whatever
     // model is selected right now. Nothing here changes the model, and nothing
     // schedules a turn on the user's behalf: the chip is the gesture, and the
     // moment before clicking it is the moment to switch models if they want to.
     //
     // Bare-form resolution is the only cleverness — explicit arg, else the plan
     // this card last reviewed, else the bound dash's recorded plan.
-    "dash-review": (args) => {
+    "arc-review": (args) => {
       const notify = paneBulletinRef.current;
       if (!codeSessionStore.getSnapshot().canSubmit) {
         notify?.caution("Can't review a plan while a turn is in flight");
@@ -4405,7 +4405,7 @@ export function SessionCardBody({
           ? undefined
           : changesController
               .getSnapshot()
-              .documentDashes.find((row) => row.display_name === boundName)
+              .documentArcs.find((row) => row.display_name === boundName)
               ?.documents.plan);
       const target = resolvePlanReviewTarget({
         args,
@@ -4414,7 +4414,7 @@ export function SessionCardBody({
         boundDash: boundPlan === undefined ? null : { plan: boundPlan },
       });
       if ("refused" in target) {
-        notify?.caution("Name the plan — /dash-review <path>");
+        notify?.caution("Name the plan — /arc-review <path>");
         return;
       }
       writeLastReviewedPlan(cardId, target.path);
@@ -4424,7 +4424,7 @@ export function SessionCardBody({
       );
       codeSessionStore.send(submission.text, submission.atoms);
     },
-    // `/dash-join [name] [message…]` — the dash lane's landing gesture ([P04]).
+    // `/arc-join [name] [message…]` — the arc lane's landing gesture ([P04]).
     // It no longer submits a turn: the landing is the user's act and belongs in
     // front of the button, so this enters join mode and the card runs the git
     // itself.
@@ -4433,7 +4433,7 @@ export function SessionCardBody({
     // message seeds the join message as an edited draft, exactly as `/commit
     // <message>` does. There is no turn gate: entering a mode mid-turn is
     // harmless — only the *land* is gated ([P05]).
-    "dash-join": (args) => {
+    "arc-join": (args) => {
       const notify = paneBulletinRef.current;
       const snap = changesController.getSnapshot();
       const rest = args.trim();
@@ -4451,8 +4451,8 @@ export function SessionCardBody({
       if (entry === undefined) {
         notify?.caution(
           first.length > 0
-            ? `No dash named '${first}' in this project`
-            : "No dash bound — /dash-join <name>",
+            ? `No arc named '${first}' in this project`
+            : "No arc bound — /arc-join <name>",
         );
         return;
       }
@@ -4569,7 +4569,7 @@ export function SessionCardBody({
         entryDelegateRef.current?.focus();
       },
       // Open this card's Changes shade. Sent by a surface that shows this
-      // card's dash — the Dashes card's Dashes row — after fronting the card.
+      // card's dash — the Arcs card's Dashes row — after fronting the card.
       //
       // It has to live on THIS responder rather than on the bare `cardId`:
       // `sendToTarget` walks `parentId` upward from its target, the bare id
@@ -4840,12 +4840,12 @@ export function SessionCardBody({
       [cardId],
     ),
   );
-  // The dash lane's landing face. What a landing would do comes off the dash's
+  // The arc lane's landing face. What a landing would do comes off the dash's
   // own feed entry, so the card hands the shade only the gestures; the view
   // supplies the round trip and the turn gate from its own reads. None of these
   // lands — landing is the composer's, and the composer is where a refusal can
   // be shown to the hand that made it.
-  const dashJoinActions = useMemo<DashJoinActions>(
+  const arcJoinActions = useMemo<ArcJoinActions>(
     () => ({
       aim: (entry) => joinModeController.aim(joinTargetFromEntry(entry)),
       // The escalation's answer ([P06]). Addressed by `request_id` rather than
@@ -4874,10 +4874,10 @@ export function SessionCardBody({
     }),
     [changesController, joinModeController],
   );
-  const dashJoin = useMemo<DashJoinSource>(
+  const arcJoin = useMemo<ArcJoinSource>(
     () => ({
       // Which dash the landing is ABOUT, which is not always the one this card
-      // is bound to: `/dash-join <name>` aims at a dash by name without
+      // is bound to: `/arc-join <name>` aims at a dash by name without
       // binding. The face has to follow the target, or a named join comes up
       // live in the composer and unmounted in the room that explains it.
       //
@@ -4885,9 +4885,9 @@ export function SessionCardBody({
       // target when a row is merely EXPANDED. Fronting on an aim would move the
       // lane under the reader for a dash they did not ask to land.
       dashId: joinSnapshot.active ? (joinSnapshot.dash?.ownerId ?? null) : null,
-      actions: dashJoinActions,
+      actions: arcJoinActions,
     }),
-    [joinSnapshot.active, joinSnapshot.dash, dashJoinActions],
+    [joinSnapshot.active, joinSnapshot.dash, arcJoinActions],
   );
   // A question put to the developer by a process outside the turn stream, with
   // that process blocked on the answer. The snapshot's `pendingAsk` reference
@@ -5129,10 +5129,10 @@ export function SessionCardBody({
             />
             <ClaimErrorNoticeController entryKey={changesController.entryKey} />
             {boundSessionId !== null ? (
-              <DashBindErrorNoticeController tugSessionId={boundSessionId} />
+              <ArcBindErrorNoticeController tugSessionId={boundSessionId} />
             ) : null}
             {boundSessionId !== null ? (
-              <DashReplayNoticeController tugSessionId={boundSessionId} />
+              <ArcReplayNoticeController tugSessionId={boundSessionId} />
             ) : null}
             <TugPaneBulletinProvider
               placement="bottom"
@@ -5347,10 +5347,10 @@ export function SessionCardBody({
                   codeSessionStore={codeSessionStore}
                   // A landing in flight supplies its own target, so an
                   // aimed-but-unbound dash still gets its face.
-                  dashJoin={
+                  arcJoin={
                     boundDashId !== null ||
                     (joinSnapshot.active && joinSnapshot.dash !== null)
-                      ? dashJoin
+                      ? arcJoin
                       : undefined
                   }
                   dismiss={changesDismiss}
@@ -5439,7 +5439,7 @@ export function SessionCardBody({
                     : commitModeController
                 }
                 // What the Changes room lands for this card: a dash in reach —
-                // bound, or aimed at by name through `/dash-join` — means a join.
+                // bound, or aimed at by name through `/arc-join` — means a join.
                 // The aimed case matters because that command enters join mode
                 // without binding.
                 changesLandingKind={

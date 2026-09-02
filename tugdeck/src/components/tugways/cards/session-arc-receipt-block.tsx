@@ -8,9 +8,9 @@
  * string and presents it as a receipt instead of the generic fenced
  * `ShellExchangeBlock`.
  *
- * **It leads with the track**, which is the whole design. `DashLifecycleLine`
- * is the second line of {@link DashLifecycleBlock}, already worn by the Dashes card's
- * Dashes section, the Changes shade's collapsed row, and the masthead placard;
+ * **It leads with the track**, which is the whole design. `ArcLifecycleLine`
+ * is the second line of {@link ArcLifecycleBlock}, already worn by the Arcs card's
+ * Arcs section, the Changes shade's collapsed row, and the masthead placard;
  * a reader who learned the strip on any of those has learned this row for
  * free. The stages the arc actually walked go underneath, one row each.
  *
@@ -33,10 +33,10 @@ import type React from "react";
 
 import { BlockChrome } from "@/components/tugways/blocks/block-chrome";
 import { ToolBlockHistoryCollapse } from "@/components/tugways/blocks/collapse-context";
-import { DashLifecycleLine } from "@/components/tugways/dash-lifecycle-line";
+import { ArcLifecycleLine } from "@/components/tugways/arc-lifecycle-line";
 import { TugAtomRef } from "@/components/tugways/tug-atom-ref";
-import { TugDashAtom } from "@/components/tugways/tug-dash-atom";
-import { dashTrackModel } from "@/components/tugways/tug-dash-track";
+import { TugArcAtom } from "@/components/tugways/tug-arc-atom";
+import { arcTrackModel } from "@/components/tugways/tug-arc-track";
 import type { ShellExchangeMessage } from "@/lib/code-session-store/types";
 import {
   registerCommandBlock,
@@ -138,18 +138,18 @@ export function parseArcReceipt(output: string): ParsedArcReceipt | null {
  * leaves. A stopped arc rests on the stage it stopped in and carries the
  * reason, which is what paints the strip's stopped tone.
  */
-function trackModelFor(parsed: ParsedArcReceipt): ReturnType<typeof dashTrackModel> {
+function trackModelFor(parsed: ParsedArcReceipt): ReturnType<typeof arcTrackModel> {
   const documents =
     parsed.document !== null && parsed.document.endsWith("brief.md")
       ? { brief: parsed.document, plan: parsed.plan ?? undefined }
       : { plan: parsed.plan ?? undefined };
   if (parsed.outcome === "stopped") {
-    return dashTrackModel({
+    return arcTrackModel({
       documents,
       arc: { stage: parsed.stop?.stage ?? "review", stopped: parsed.stop?.reason },
     });
   }
-  return dashTrackModel({
+  return arcTrackModel({
     documents,
     arc: { stage: "audit", done: true },
     stage: "audited",
@@ -161,8 +161,8 @@ export function SessionArcReceiptBlock(props: CommandBlockProps): React.ReactEle
   if (parsed === null) return <ShellExchangeBlock {...props} />;
   const identity = (
     <span className="arc-receipt-identity">
-      <TugDashAtom name={parsed.dash} />
-      <DashLifecycleLine
+      <TugArcAtom name={parsed.dash} />
+      <ArcLifecycleLine
         model={trackModelFor(parsed)}
         note={
           parsed.outcome === "complete"

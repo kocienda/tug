@@ -32,7 +32,7 @@ use tracing::warn;
 /// evicted by it — see [`LANDING_RECEIPT_COMMANDS`].
 pub const MAX_EXCHANGES_PER_SESSION: usize = 500;
 
-/// The `command` values a landing writes: a `/commit`, `/dash-join`, or
+/// The `command` values a landing writes: a `/commit`, `/arc-join`, or
 /// `/dash-discard` receipt.
 ///
 /// A receipt is the user's act rather than session chatter ([D111]), and it is
@@ -41,7 +41,7 @@ pub const MAX_EXCHANGES_PER_SESSION: usize = 500;
 /// ink was merged from a fork could otherwise cross the cap on its next `$`
 /// command and evict, oldest-first, exactly the historical receipts that merge
 /// existed to rescue.
-pub const LANDING_RECEIPT_COMMANDS: [&str; 3] = ["/commit", "/dash-join", "/dash-discard"];
+pub const LANDING_RECEIPT_COMMANDS: [&str; 3] = ["/commit", "/arc-join", "/dash-discard"];
 
 /// `LANDING_RECEIPT_COMMANDS` as a SQL value list, so the eviction predicate
 /// and the constant above cannot drift apart.
@@ -769,7 +769,7 @@ mod tests {
     #[test]
     fn an_anchor_round_trips_through_both_reads() {
         let led = ShellLedger::open_in_memory().unwrap();
-        led.record_exchange(&anchored("s1", "/dash-join", "msg_01ABC"))
+        led.record_exchange(&anchored("s1", "/arc-join", "msg_01ABC"))
             .unwrap();
 
         let listed = led.list_exchanges_since("s1", None).unwrap();
@@ -828,7 +828,7 @@ mod tests {
         assert_eq!(led.assign_line("s1", "line-1").unwrap(), 1);
         led.record_exchange(&NewShellExchange {
             line_id: "line-1".to_string(),
-            ..anchored("s1", "/dash-join", "msg_01NEW")
+            ..anchored("s1", "/arc-join", "msg_01NEW")
         })
         .unwrap();
         let rows = led.list_exchanges_since("line-1", None).unwrap();

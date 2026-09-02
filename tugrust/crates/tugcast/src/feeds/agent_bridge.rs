@@ -38,8 +38,8 @@ use super::attribution::{
 };
 use super::code::{parse_code_input, splice_tug_session_id};
 use crate::path_resolver::CanonicalPath;
+use tugarc_core::arc::{ArcStage, append_arc_stage};
 use tugchanges_core::shell_ops::DeclaredKind;
-use tugdash_core::arc::{ArcStage, append_arc_stage};
 
 // ---------------------------------------------------------------------------
 // CrashBudget
@@ -3184,7 +3184,7 @@ struct SessionSegmentAnnouncement {
     /// What a rotation seated the segment as. Present on a `rotation`.
     stage: Option<String>,
     /// The dash the arc is keyed by. Present on every rotation the runner
-    /// originates; absent on a rotation no course is driving.
+    /// originates; absent on a rotation no arc is driving.
     arc: Option<String>,
     /// The model the stage was rotated with, or `None` for the account
     /// default — which the log spells `-`.

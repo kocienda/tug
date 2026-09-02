@@ -40,14 +40,14 @@
  * what makes "verbatim" checkable: the assertion reads the joined tree.
  *
  * @covers tugdeck/src/components/tugways/chrome/session-question-dialog.tsx
- * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-dash-join.tsx
+ * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-arc-join.tsx
  * @covers tugdeck/src/lib/changeset-join-store.ts
  * @covers tugdeck/src/lib/changeset-types.ts
  * @covers tugrust/crates/tugcast/src/feeds/join_resolver.rs
  * @covers tugrust/crates/tugcast/src/feeds/agent_supervisor.rs
  * @covers tugrust/crates/tugcast/src/feeds/join_board.rs
  * @covers tugrust/crates/tugcast-core/src/types.rs
- * @covers tugrust/crates/tugdash-core/src/resolve.rs
+ * @covers tugrust/crates/tugarc-core/src/resolve.rs
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
@@ -83,11 +83,11 @@ const LANE = `${SHEET} [data-slot="session-changes-dash-lane"]`;
 
 const DASH = "at0442-ask";
 const ROW = `${LANE} [data-slot="session-changes-dash-row"][data-dash="${DASH}"]`;
-const JOIN_FACE = `${ROW} [data-slot="session-changes-dash-join"]`;
-const QUESTION = `${ROW} [data-slot="session-changes-dash-join-question"]`;
+const JOIN_FACE = `${ROW} [data-slot="session-changes-arc-join"]`;
+const QUESTION = `${ROW} [data-slot="session-changes-arc-join-question"]`;
 const WIZARD = `${QUESTION} [data-slot="session-question-dialog"]`;
-const ACCOUNT = `${ROW} [data-slot="session-changes-dash-join-account"]`;
-const REGISTER = `${ROW} [data-slot="dash-join-register"]`;
+const ACCOUNT = `${ROW} [data-slot="session-changes-arc-join-account"]`;
+const REGISTER = `${ROW} [data-slot="arc-join-register"]`;
 
 const DASHES_CARD = '.dashes-section';
 
@@ -219,18 +219,18 @@ describe.skipIf(!SHOULD_RUN)("AT0442: the resolver's escalation", () => {
         bindDash(repo, DASH, SID, scratch?.cli ?? {});
         silenceJoinPrompt(repo, DASH);
 
-        // The aggregate has composed the dash once the Dashes card lists it.
-        await app.dispatchControlAction("toggle-dashes");
+        // The aggregate has composed the dash once the Arcs card lists it.
+        await app.dispatchControlAction("toggle-arcs");
         await app.waitForCondition<boolean>(
           `document.querySelector('${DASHES_CARD} [data-slot="dashes-row"][data-dash="${DASH}"]') !== null`,
           { timeoutMs: 30000 },
         );
-        await app.dispatchControlAction("toggle-dashes");
+        await app.dispatchControlAction("toggle-arcs");
 
-        // `/dash-join` fronts the row so the escalation renders in its face.
+        // `/arc-join` fronts the row so the escalation renders in its face.
         // It does not start the run — the pilot already did, because the dash
         // is built.
-        await runCommand(app, `/dash-join ${DASH}`);
+        await runCommand(app, `/arc-join ${DASH}`);
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(JOIN_FACE)}) !== null`,
           { timeoutMs: 40000 },

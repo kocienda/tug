@@ -29,7 +29,7 @@ const COMPLETE = [
 
 const STOPPED = [
   "arc stopped · foo · in review — the review ended without stamping the plan",
-  "resume with tugtool dash run foo",
+  "resume with tugtool arc run foo",
   "opened on dash/foo-brief.md",
   "devise · opus · claude-a",
   "review · opus · claude-b",
@@ -96,7 +96,7 @@ describe("parsing a stopped arc", () => {
     expect(parsed?.stop).toEqual({
       stage: "review",
       reason: "the review ended without stamping the plan",
-      next: "resume with tugtool dash run foo",
+      next: "resume with tugtool arc run foo",
     });
     // The stages it did walk are still the record, and still parsed.
     expect(parsed?.stages).toHaveLength(2);
@@ -133,7 +133,7 @@ describe("the row the transcript builds around it", () => {
     expect(matchesArcReceipt("/dash-arc")).toBe(true);
     expect(matchesArcReceipt("/dash-arc foo")).toBe(true);
     expect(matchesArcReceipt("/dash-archive")).toBe(false);
-    expect(matchesArcReceipt("/dash-join")).toBe(false);
+    expect(matchesArcReceipt("/arc-join")).toBe(false);
   });
 
   it("attributes the row to the wheel, not the shell that carried it", () => {

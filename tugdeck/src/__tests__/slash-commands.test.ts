@@ -203,27 +203,36 @@ describe("mergeCommandProviders", () => {
     expect(items.some((i) => i.label === "tugplug:devise")).toBe(true);
   });
 
-  test("typing /dash offers the orchestrator skill above the dash-* verbs", () => {
-    // Load-bearing for the on-ramp: `dash-bind` and `dash-join` are local
-    // commands that both *start* with the query, so all three are offered. If
-    // they outranked the skill, the front door would be steering users away
-    // from itself at the moment of use. They cannot: `scoreCommandMatch` is
-    // namespace-aware, so the query scores against `tugplug:dash`'s leaf as an
-    // EXACT hit while the local verbs can only reach PREFIX.
+  test("typing /dash offers the door skill, and not the surrendered alias", () => {
+    // Load-bearing for the on-ramp: the query scores against `tugplug:dash`'s
+    // leaf as an EXACT hit, so the front door ranks first among everything the
+    // catalog offers for it. The card verbs are spelled `arc-*` now and are
+    // not prefix hits for this query at all — which is the point of the split:
+    // `/dash` reaches the door and nothing else competes for it.
     const merged = mergeCommandProviders(
       localCommandCompletionProvider(),
-      namesProvider("tugplug:dash", "tugplug:dash-plan"),
+      namesProvider("tugplug:dash", "tugplug:arc-devise"),
     );
     const ranked = labels(merged, "dash");
     expect(ranked[0]).toBe("tugplug:dash");
-    expect(ranked).toContain("dash-bind");
-    expect(ranked).toContain("dash-join");
-    expect(ranked.indexOf("tugplug:dash")).toBeLessThan(
-      ranked.indexOf("dash-bind"),
-    );
     // And the surrendered alias is not in the popup at all — it never was
     // (aliases are excluded), and now it is not in the registry either.
     expect(ranked).not.toContain("dash");
+  });
+
+  test("typing /arc offers the card's own arc verbs", () => {
+    // The other half of the split: the gestures a card answers itself are
+    // `arc-bind`, `arc-join` and `arc-review`, and a bare `/arc` is how a user
+    // finds all three. A skill sharing the namespace does not crowd them out —
+    // it reaches PREFIX on its leaf, exactly as they do on their names.
+    const merged = mergeCommandProviders(
+      localCommandCompletionProvider(),
+      namesProvider("tugplug:arc-devise"),
+    );
+    const ranked = labels(merged, "arc");
+    expect(ranked).toContain("arc-bind");
+    expect(ranked).toContain("arc-join");
+    expect(ranked).toContain("arc-review");
   });
 });
 

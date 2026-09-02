@@ -1,7 +1,7 @@
 /**
  * landing-press-receipt — one durable line per land press ([L31]).
  *
- * The dash-join hunt turned on a single backend log line; without it there was
+ * The arc-join hunt turned on a single backend log line; without it there was
  * nothing to read at all. The deck's own dev log cannot fill that role, because
  * it dies with a reload and the incident that motivated this *contained* a
  * reload. tugcast's log is the only durable record an instance keeps, so every

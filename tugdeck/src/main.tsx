@@ -61,7 +61,7 @@ import { registerJotsCard } from "./components/jots/jots-card-registration";
 import { registerOverviewCard } from "./components/overview/overview-card-registration";
 import { registerCardsCard } from "./components/cards/cards-card-registration";
 import { registerLayoutCard } from "./components/layout/layout-card-registration";
-import { registerDashesCard } from "./components/dashes/dashes-card-registration";
+import { registerArcsCard } from "./components/arcs/arcs-card-registration";
 import { registerTripwiresCard } from "./components/tripwires/tripwires-card-registration";
 import { registerTextCard } from "./components/tugways/cards/text-card-registration";
 import { registerFileViewCard } from "./components/tugways/cards/file-view-card-registration";
@@ -341,7 +341,7 @@ if (!container) {
   registerJotsCard();
   registerOverviewCard();
   registerTripwiresCard();
-  registerDashesCard();
+  registerArcsCard();
   registerCardsCard();
   // Registration order is the order the Layout card lists its rows in.
   registerLayoutCard();
@@ -584,7 +584,7 @@ if (!container) {
   // Wire the maintained-draft overlay store ([P24]): live streaming text +
   // freshness for the changeset card's draft panel, read via `useChangesetDraft`.
   attachChangesetDraftStore(connection);
-  // Wire the dash-join resolve overlay store (Spec S12, [P31]/[P32]): the
+  // Wire the arc-join resolve overlay store (Spec S12, [P31]/[P32]): the
   // /btw-style resolution progress + result, read via `useChangesetJoinResolve`.
   attachChangesetJoinStore(connection);
 

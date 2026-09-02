@@ -56,7 +56,7 @@
  *
  * @covers tugdeck/src/components/tugways/tug-prompt-entry.tsx
  * @covers tugdeck/src/components/tugways/cards/session-landing-progress-row.tsx
- * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-dash-lane.tsx
+ * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-arc-lane.tsx
  * @covers tugdeck/src/lib/join-mode-controller.ts
  * @covers tugdeck/src/lib/shade-view-controller.ts
  */
@@ -122,7 +122,7 @@ const row = (dash: string): string =>
   `${LANE} [data-slot="session-changes-dash-row"][data-dash="${dash}"]`;
 const landsAs = (dash: string): string =>
   `${row(dash)} [data-slot="session-changes-dash-lands-as"]`;
-const CANDIDATE = `${CARD} [data-slot="dash-join-register"][data-word="ready"]`;
+const CANDIDATE = `${CARD} [data-slot="arc-join-register"][data-word="ready"]`;
 
 /**
  * A transcript with more turns than the pane can show.
@@ -229,7 +229,7 @@ function deckShape() {
 const settle = (ms = 200): Promise<unknown> => new Promise((r) => setTimeout(r, ms));
 
 /**
- * Open the room in JOIN mode, the way a user does: `/dash-join`.
+ * Open the room in JOIN mode, the way a user does: `/arc-join`.
  *
  * Retried, because the command needs the dash to have reached the changeset
  * feed — before that it answers with a bulletin and nothing opens. The feed
@@ -243,7 +243,7 @@ async function openTheRoomOnTheJoin(app: App): Promise<void> {
     await settle();
     await app.nativeKey("a", ["cmd"]);
     await app.nativeKey("Delete");
-    await app.nativeType("/dash-join");
+    await app.nativeType("/arc-join");
     await settle();
     // Dismiss the completion popup. Join mode is not up yet, so this reaches
     // the popup and not the mode.
@@ -262,10 +262,10 @@ async function openTheRoomOnTheJoin(app: App): Promise<void> {
       );
       return;
     } catch {
-      note(`at0496 /dash-join did not open the room in join mode (attempt ${attempt})`);
+      note(`at0496 /arc-join did not open the room in join mode (attempt ${attempt})`);
     }
   }
-  throw new Error("at0496: /dash-join never opened the room in join mode");
+  throw new Error("at0496: /arc-join never opened the room in join mode");
 }
 
 /**
@@ -283,7 +283,7 @@ function inViewProbe(selector: string): string {
     return JSON.stringify({
       found: true,
       inView: a.top >= b.top - 1 && a.bottom <= b.bottom + 1 && a.height > 0,
-      word: el.querySelector("[data-slot=\\"dash-join-register\\"]")?.getAttribute("data-word") ?? null,
+      word: el.querySelector("[data-slot=\\"arc-join-register\\"]")?.getAttribute("data-word") ?? null,
       el: { top: Math.round(a.top), bottom: Math.round(a.bottom) },
       scroller: { top: Math.round(b.top), bottom: Math.round(b.bottom) },
     });

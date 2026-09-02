@@ -34,7 +34,7 @@
  * outcome word plus that outcome's fields (`_ok {outcome, …}`) or a guard's
  * refusal (`_err {detail}`). Three of the five outcomes — `current`,
  * `deferred`, `conflicted` — move nothing a dash row can show, so the outcome
- * is also reported to {@link dashReplayOutcomeStore}, which the card's notice
+ * is also reported to {@link arcReplayOutcomeStore}, which the card's notice
  * controller turns into a pane bulletin. Without that a press whose answer was
  * "I declined, and here is why" would be indistinguishable from a dead button.
  *
@@ -54,9 +54,9 @@ import { useSyncExternalStore } from "react";
 import type { TugConnection } from "../connection";
 import { FeedId } from "../protocol";
 import {
-  dashReplayOutcomeStore,
-  type DashReplayOutcomeWord,
-} from "./dash-replay-outcome-store";
+  arcReplayOutcomeStore,
+  type ArcReplayOutcomeWord,
+} from "./arc-replay-outcome-store";
 import { gitLogStore } from "./git-log-store";
 
 export type GitInitPhase = "idle" | "pending" | "error";
@@ -264,7 +264,7 @@ export interface DashNote {
  * `outcome` is the server's own word — `current`, `replayed`, `recorded`,
  * `deferred`, `conflicted` — and `detail` the text that goes with a `deferred`.
  * Three of those five move nothing the row can show, which is why the outcome
- * also reports to {@link dashReplayOutcomeStore} for the pane bulletin.
+ * also reports to {@link arcReplayOutcomeStore} for the pane bulletin.
  */
 export type ReplayPhase = "idle" | "pending" | "error" | "done";
 
@@ -512,7 +512,7 @@ export class ChangesetVerbStore {
       for (const listener of [...this._listeners]) listener();
     } else if (body.action === "dash_note") {
       // The run's quiet lines. Unsolicited like `arc_receipt` and for the same
-      // reason — a `tugtool dash` verb is a short-lived process with no client
+      // reason — a `tugtool arc` verb is a short-lived process with no client
       // waiting — but a sequence rather than a single value, because every one
       // of a run's gestures is meant to be read. The server has already
       // persisted each row, so this is the live copy; a card that mounts later
@@ -523,7 +523,7 @@ export class ChangesetVerbStore {
       const notes = this._dashNotes.get(session) ?? [];
       this._dashNoteSeq += 1;
       notes.push({
-        command: typeof body.command === "string" ? body.command : "dash",
+        command: typeof body.command === "string" ? body.command : "arc",
         note,
         receiptId: receiptIdOf(body),
         seq: this._dashNoteSeq,
@@ -626,9 +626,9 @@ export class ChangesetVerbStore {
       // The outcomes that move nothing have no other voice ([P06]).
       const sessionId = typeof body.session_id === "string" ? body.session_id : null;
       if (sessionId !== null && outcome !== null) {
-        dashReplayOutcomeStore.report(sessionId, {
+        arcReplayOutcomeStore.report(sessionId, {
           dash,
-          outcome: outcome as DashReplayOutcomeWord,
+          outcome: outcome as ArcReplayOutcomeWord,
           detail,
           roundSubject:
             typeof body.round_subject === "string" ? body.round_subject : null,
@@ -646,7 +646,7 @@ export class ChangesetVerbStore {
       this._setReplay(entryKey, { phase: "error", outcome: null, detail: null, error: detail });
       const sessionId = typeof body.session_id === "string" ? body.session_id : null;
       if (sessionId !== null) {
-        dashReplayOutcomeStore.report(sessionId, {
+        arcReplayOutcomeStore.report(sessionId, {
           dash,
           outcome: "error",
           detail,
@@ -982,7 +982,7 @@ export class ChangesetVerbStore {
   }
 
   /** Every dash gesture announced for `tugSessionId`, oldest first. */
-  dashNotes(tugSessionId: string): readonly DashNote[] {
+  arcNotes(tugSessionId: string): readonly DashNote[] {
     return this._dashNotes.get(tugSessionId) ?? EMPTY_DASH_NOTES;
   }
 
@@ -1111,7 +1111,7 @@ export function useChangesetDisclaim(entryKey: string): DisclaimState & { clear:
 }
 
 /**
- * React hook: the dash-join round-trip state for one dash entry plus its
+ * React hook: the arc-join round-trip state for one dash entry plus its
  * triggers. Returns idle + no-op triggers when no store is attached.
  */
 export function useChangesetJoin(entryKey: string): JoinState & {

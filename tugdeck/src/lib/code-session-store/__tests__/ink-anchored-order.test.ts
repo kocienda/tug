@@ -3,7 +3,7 @@
  *
  * A durable ink row records, at write time, the transcript turn it followed.
  * On restore it seats itself after that turn instead of re-deriving a position
- * from clocks — the derivation that put a `/dash-join` receipt five thousand
+ * from clocks — the derivation that put a `/arc-join` receipt five thousand
  * pixels above the transcript's end after a relaunch, because a replayed
  * assistant turn wore the relaunch wall-clock.
  *

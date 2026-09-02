@@ -4,7 +4,7 @@
  *
  * A dash's brief and its plan were readable because they were files in the
  * working tree the reader could open. They are still files — at
- * `.tug/dashes/<name>/`, untracked — and the card must not have made them
+ * `.tug/arcs/<name>/`, untracked — and the card must not have made them
  * harder to reach by moving them. This drives the whole of that claim through
  * the real app: a real dash whose documents the real CLI addresses by name,
  * bound to a real session, with the strip read out of the shade's DOM and one
@@ -27,16 +27,16 @@
  * workspace by spawning a real session on it: no fixture ever writes a dash
  * document into the checkout under test.
  *
- * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-dash-documents.tsx
- * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-dash-documents.css
- * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-dash-lane.tsx
+ * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-arc-documents.tsx
+ * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-arc-documents.css
+ * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-arc-lane.tsx
  * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-view.tsx
- * @covers tugdeck/src/components/tugways/dash-lifecycle-block.tsx
- * @covers tugdeck/src/lib/document-dash-entry.ts
+ * @covers tugdeck/src/components/tugways/arc-lifecycle-block.tsx
+ * @covers tugdeck/src/lib/document-arc-entry.ts
  * @covers tugdeck/src/lib/changes-route-controller.ts
  * @covers tugrust/crates/tugcast/src/feeds/changeset.rs
  * @covers tugrust/crates/tugcast-core/src/types.rs
- * @covers tugrust/crates/tugdash-core/src/ops.rs
+ * @covers tugrust/crates/tugarc-core/src/ops.rs
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";

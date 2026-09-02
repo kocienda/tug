@@ -1,7 +1,7 @@
-//! The course's turn boundary, driven through the real binaries against a
+//! The arc's turn boundary, driven through the real binaries against a
 //! stand-in tugcast (W8).
 //!
-//! The incident this pins: on the course machinery's first live run a stage
+//! The incident this pins: on the wheel machinery's first live run a stage
 //! did everything right through the first boundary — `step start 1`, work,
 //! `dash commit`, `step done 1` — and then, instead of ending its turn, kept
 //! working straight into step 2. The Wheel acts only *between* turns, so an
@@ -11,13 +11,13 @@
 //!
 //! Two halves, because the answer is two things.
 //!
-//! **The gate** (`tugtool hook pre-tool-use`) is the behaviour table: course ×
+//! **The gate** (`tugtool hook pre-tool-use`) is the behaviour table: arc ×
 //! step-closed-this-turn × server age. The one row that denies is the overrun;
 //! every other row must leave ordinary work untouched, because a gate that
 //! bricks editing on a mixed install or on somebody else's project costs more
 //! than the overrun it prevents.
 //!
-//! **The verb** (`tugtool dash step …`) is the other half: under a course it
+//! **The verb** (`tugtool arc step …`) is the other half: under an arc it
 //! ends with the sentence naming what the discipline demands next, off one it
 //! stays plain, and either way it announces the gesture on the card and tells
 //! the server which turn closed a step.
@@ -34,12 +34,12 @@ use std::sync::mpsc;
 /// How the stand-in answers `POST /api/session {op:"turn_facts"}`.
 #[derive(Clone)]
 enum Facts {
-    /// A course stage whose turn has already closed step `n`.
-    OnCourseClosed(u32),
-    /// A course stage with the turn's step still open.
-    OnCourseOpen,
-    /// Bound to no course at all — an ordinary card.
-    OffCourse,
+    /// An arc stage whose turn has already closed step `n`.
+    OnArcClosed(u32),
+    /// An arc stage with the turn's step still open.
+    OnArcOpen,
+    /// Bound to no arc at all — an ordinary card.
+    OffArc,
     /// An instance older than W8: it does not know the op.
     PredatingTheOp,
 }
@@ -47,20 +47,20 @@ enum Facts {
 impl Facts {
     fn body(&self) -> (&'static str, String) {
         match self {
-            Facts::OnCourseClosed(step) => (
+            Facts::OnArcClosed(step) => (
                 "200 OK",
                 format!(
-                    r#"{{"status":"ok","session_id":"seg-1","on_course":true,"step_closed_this_turn":{step}}}"#
+                    r#"{{"status":"ok","session_id":"seg-1","on_arc":true,"step_closed_this_turn":{step}}}"#
                 ),
             ),
-            Facts::OnCourseOpen => (
+            Facts::OnArcOpen => (
                 "200 OK",
-                r#"{"status":"ok","session_id":"seg-1","on_course":true,"step_closed_this_turn":null}"#
+                r#"{"status":"ok","session_id":"seg-1","on_arc":true,"step_closed_this_turn":null}"#
                     .to_string(),
             ),
-            Facts::OffCourse => (
+            Facts::OffArc => (
                 "200 OK",
-                r#"{"status":"ok","session_id":"seg-1","on_course":false,"step_closed_this_turn":3}"#
+                r#"{"status":"ok","session_id":"seg-1","on_arc":false,"step_closed_this_turn":3}"#
                     .to_string(),
             ),
             Facts::PredatingTheOp => (
@@ -153,10 +153,10 @@ fn hook(tmp: &Path) -> Command {
     let mut cmd = tugtool();
     cmd.env("TMPDIR", tmp);
     cmd.env("TUG_DATA_DIR", tmp.join("state"));
-    // The gate's cheap pre-filter: a card that was not spawned into a course
+    // The gate's cheap pre-filter: a card that was not spawned into an arc
     // is not asked about at all. Every test below that expects a round trip
-    // is a course stage, and the one that does not clears this.
-    cmd.env("TUG_DASH_COURSE", "demo");
+    // is an arc stage, and the one that does not clears this.
+    cmd.env("TUG_ARC", "demo");
     cmd.args(["hook", "pre-tool-use"]);
     cmd
 }
@@ -211,7 +211,7 @@ fn edit_of(cwd: &Path) -> serde_json::Value {
 fn a_stage_that_closed_a_step_this_turn_cannot_edit_again() {
     let tmp = tempfile::tempdir().unwrap();
     let tmp = tmp.path().canonicalize().unwrap();
-    let (port, _requests) = fake_tugcast(Facts::OnCourseClosed(1));
+    let (port, _requests) = fake_tugcast(Facts::OnArcClosed(1));
     register_fake_instance(&tmp, port);
 
     let mut cmd = hook(&tmp);
@@ -220,7 +220,7 @@ fn a_stage_that_closed_a_step_this_turn_cannot_edit_again() {
 
     assert_eq!(decision, "deny");
     assert!(
-        reason.contains("step 1 closed this turn — end the turn; the course prompts the next step"),
+        reason.contains("step 1 closed this turn — end the turn; the arc prompts the next step"),
         "the refusal names the gesture and the way out: {reason}"
     );
 }
@@ -229,14 +229,14 @@ fn a_stage_that_closed_a_step_this_turn_cannot_edit_again() {
 fn and_cannot_open_the_next_step_either() {
     let tmp = tempfile::tempdir().unwrap();
     let tmp = tmp.path().canonicalize().unwrap();
-    let (port, _requests) = fake_tugcast(Facts::OnCourseClosed(2));
+    let (port, _requests) = fake_tugcast(Facts::OnArcClosed(2));
     register_fake_instance(&tmp, port);
 
     let mut cmd = hook(&tmp);
     cmd.env("TUG_SESSION_ID", "seg-1");
     let payload = serde_json::json!({
         "tool_name": "Bash",
-        "tool_input": { "command": "tugtool dash step demo start 3 --through 7" },
+        "tool_input": { "command": "tugtool arc step demo start 3 --through 7" },
         "cwd": tmp.to_string_lossy(),
     });
     let (decision, reason) = verdict(&decide(&mut cmd, payload)).expect("a decision");
@@ -249,7 +249,7 @@ fn and_cannot_open_the_next_step_either() {
 fn but_the_reads_and_the_ledger_verbs_are_untouched() {
     let tmp = tempfile::tempdir().unwrap();
     let tmp = tmp.path().canonicalize().unwrap();
-    let (port, _requests) = fake_tugcast(Facts::OnCourseClosed(1));
+    let (port, _requests) = fake_tugcast(Facts::OnArcClosed(1));
     register_fake_instance(&tmp, port);
 
     for payload in [
@@ -260,12 +260,12 @@ fn but_the_reads_and_the_ledger_verbs_are_untouched() {
         }),
         serde_json::json!({
             "tool_name": "Bash",
-            "tool_input": { "command": "tugtool dash status demo" },
+            "tool_input": { "command": "tugtool arc status demo" },
             "cwd": tmp.to_string_lossy(),
         }),
         serde_json::json!({
             "tool_name": "Bash",
-            "tool_input": { "command": "tugtool dash doctor demo" },
+            "tool_input": { "command": "tugtool arc doctor demo" },
             "cwd": tmp.to_string_lossy(),
         }),
         serde_json::json!({
@@ -293,7 +293,7 @@ fn but_the_reads_and_the_ledger_verbs_are_untouched() {
 fn the_same_session_with_the_step_still_open_edits_freely() {
     let tmp = tempfile::tempdir().unwrap();
     let tmp = tmp.path().canonicalize().unwrap();
-    let (port, _requests) = fake_tugcast(Facts::OnCourseOpen);
+    let (port, _requests) = fake_tugcast(Facts::OnArcOpen);
     register_fake_instance(&tmp, port);
 
     let mut cmd = hook(&tmp);
@@ -303,13 +303,13 @@ fn the_same_session_with_the_step_still_open_edits_freely() {
 }
 
 #[test]
-fn a_card_on_no_course_is_never_paced() {
-    // The server answers with a closed step *and* `on_course: false` — a shape
+fn a_card_on_no_arc_is_never_paced() {
+    // The server answers with a closed step *and* `on_arc: false` — a shape
     // the machine will not produce, spelled here so the gate's own reading of
-    // "under a course" is what is being asserted rather than the server's.
+    // "under an arc" is what is being asserted rather than the server's.
     let tmp = tempfile::tempdir().unwrap();
     let tmp = tmp.path().canonicalize().unwrap();
-    let (port, _requests) = fake_tugcast(Facts::OffCourse);
+    let (port, _requests) = fake_tugcast(Facts::OffArc);
     register_fake_instance(&tmp, port);
 
     let mut cmd = hook(&tmp);
@@ -346,11 +346,11 @@ fn an_old_server_degrades_open_and_is_not_even_asked_twice() {
 fn a_foreign_project_with_no_calling_session_asks_nothing_at_all() {
     let tmp = tempfile::tempdir().unwrap();
     let tmp = tmp.path().canonicalize().unwrap();
-    let (port, requests) = fake_tugcast(Facts::OnCourseClosed(1));
+    let (port, requests) = fake_tugcast(Facts::OnArcClosed(1));
     register_fake_instance(&tmp, port);
 
     // The standalone contract: `Tug.app` ships this hook to people whose
-    // projects have nothing to do with a course. No `TUG_SESSION_ID` means
+    // projects have nothing to do with an arc. No `TUG_SESSION_ID` means
     // there is no calling session to ask about, and the gate must not so much
     // as open a socket.
     let mut cmd = hook(&tmp);
@@ -362,22 +362,21 @@ fn a_foreign_project_with_no_calling_session_asks_nothing_at_all() {
         requests
             .recv_timeout(std::time::Duration::from_millis(500))
             .is_err(),
-        "a project with no course running is not a thing to ask about",
+        "a project with no arc running is not a thing to ask about",
     );
 }
 
 #[test]
-fn a_card_never_spawned_into_a_course_opens_no_socket() {
+fn a_card_never_spawned_into_an_arc_opens_no_socket() {
     let tmp = tempfile::tempdir().unwrap();
     let tmp = tmp.path().canonicalize().unwrap();
-    let (port, requests) = fake_tugcast(Facts::OnCourseClosed(1));
+    let (port, requests) = fake_tugcast(Facts::OnArcClosed(1));
     register_fake_instance(&tmp, port);
 
     // Without this filter every edit on every Session card would pay a
     // localhost round trip to be told that nothing is being paced.
     let mut cmd = hook(&tmp);
-    cmd.env_remove("TUG_DASH_COURSE");
-    cmd.env_remove("TUG_DASH_ARC");
+    cmd.env_remove("TUG_ARC");
     cmd.env("TUG_SESSION_ID", "seg-1");
     let stdout = decide(&mut cmd, edit_of(&tmp));
 
@@ -386,7 +385,7 @@ fn a_card_never_spawned_into_a_course_opens_no_socket() {
         requests
             .recv_timeout(std::time::Duration::from_millis(500))
             .is_err(),
-        "an ordinary card is not a course stage, and is not asked about",
+        "an ordinary card is not an arc stage, and is not asked about",
     );
 }
 
@@ -435,7 +434,7 @@ fn repo_with_a_two_step_plan(root: &Path) {
 }
 
 fn write_plan(root: &Path) {
-    let dir = root.join(".tug/dashes/demo");
+    let dir = root.join(".tug/arcs/demo");
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(
         dir.join("plan.md"),
@@ -468,44 +467,41 @@ fn a_step_verb_speaks_the_boundary_only_under_a_course() {
     let tmp = tmp.path().canonicalize().unwrap();
     let repo = tempfile::tempdir().unwrap();
     let root = repo.path().canonicalize().unwrap();
-    let (port, requests) = fake_tugcast(Facts::OnCourseOpen);
+    let (port, requests) = fake_tugcast(Facts::OnArcOpen);
     register_fake_instance(&tmp, port);
     repo_with_a_two_step_plan(&root);
 
-    let (ok, out) = run(&mut tug(&tmp, &root), &["dash", "create", "demo"]);
+    let (ok, out) = run(&mut tug(&tmp, &root), &["arc", "create", "demo"]);
     assert!(ok, "{out}");
     write_plan(&root);
 
-    // Off a course, the read-out is plain: a person at a terminal moving their
+    // Off an arc, the read-out is plain: a person at a terminal moving their
     // own ledger needs no marching orders.
     let (ok, out) = run(
         &mut tug(&tmp, &root),
-        &["dash", "step", "demo", "start", "1", "--through", "2"],
+        &["arc", "step", "demo", "start", "1", "--through", "2"],
     );
     assert!(ok, "{out}");
     assert!(out.contains("Step 1/2 of"), "{out}");
     assert!(
         !out.contains("This turn closes"),
-        "no course is running, so nothing is being paced: {out}"
+        "no arc is running, so nothing is being paced: {out}"
     );
 
     // Under one, every step verb ends with what the discipline demands next.
-    let (ok, out) = run(&mut tug(&tmp, &root), &["dash", "run", "demo"]);
+    let (ok, out) = run(&mut tug(&tmp, &root), &["arc", "run", "demo"]);
     assert!(ok, "{out}");
 
-    let (ok, out) = run(
-        &mut tug(&tmp, &root),
-        &["dash", "step", "demo", "done", "1"],
-    );
+    let (ok, out) = run(&mut tug(&tmp, &root), &["arc", "step", "demo", "done", "1"]);
     assert!(ok, "{out}");
     assert!(
-        out.contains("Step 1 closed. End your turn now — the course prompts Step 2."),
+        out.contains("Step 1 closed. End your turn now — the arc prompts Step 2."),
         "the close names the boundary and what comes after it: {out}"
     );
 
     let (ok, out) = run(
         &mut tug(&tmp, &root),
-        &["dash", "step", "demo", "start", "2", "--through", "2"],
+        &["arc", "step", "demo", "start", "2", "--through", "2"],
     );
     assert!(ok, "{out}");
     assert!(
@@ -513,13 +509,10 @@ fn a_step_verb_speaks_the_boundary_only_under_a_course() {
         "and an open says what the turn is for: {out}"
     );
 
-    let (ok, out) = run(
-        &mut tug(&tmp, &root),
-        &["dash", "step", "demo", "done", "2"],
-    );
+    let (ok, out) = run(&mut tug(&tmp, &root), &["arc", "step", "demo", "done", "2"]);
     assert!(ok, "{out}");
     assert!(
-        out.contains("Step 2 closed. End your turn now — the course takes the run from here."),
+        out.contains("Step 2 closed. End your turn now — the arc takes the run from here."),
         "the run's last step names no next one: {out}"
     );
 
@@ -562,7 +555,7 @@ fn a_step_verb_speaks_the_boundary_only_under_a_course() {
     for marker in ["created", "run-through", "step-start", "step-done"] {
         assert!(
             log.lines().any(|line| {
-                tugdash_core::dash::split_log_line(line)
+                tugarc_core::log::split_log_line(line)
                     .is_some_and(|(_, dash, m, _)| dash == "demo" && m == marker)
             }),
             "the record is missing a {marker} line:\n{log}"

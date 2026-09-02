@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use tugcast_core::types::{
-    ChangesetDraft, ChangesetEntry, ChangesetFile, ChangesetSnapshot, DashStep, DocumentDashEntry,
+    ArcStep, ChangesetDraft, ChangesetEntry, ChangesetFile, ChangesetSnapshot, DocumentArcEntry,
     OrphanedFile, SharedOwner, UnattributedFile,
 };
 
@@ -778,7 +778,7 @@ pub(crate) async fn attach_dash_composition(
         let mut dash_by_legacy: HashMap<&str, &crate::session_ledger::ChangesetDraftRow> =
             HashMap::new();
         for d in drafts.iter().filter(|d| d.owner_kind == "dash") {
-            let legacy = tugdash_core::ops::legacy_owner_key(&d.owner_id);
+            let legacy = tugarc_core::ops::legacy_owner_key(&d.owner_id);
             match dash_by_legacy.entry(legacy) {
                 std::collections::hash_map::Entry::Vacant(slot) => {
                     slot.insert(d);
@@ -803,7 +803,7 @@ pub(crate) async fn attach_dash_composition(
             {
                 *draft = by_owner
                     .get(owner_id.as_str())
-                    .or_else(|| dash_by_legacy.get(tugdash_core::ops::legacy_owner_key(owner_id)))
+                    .or_else(|| dash_by_legacy.get(tugarc_core::ops::legacy_owner_key(owner_id)))
                     .map(|row| draft_from_row(row));
                 // `dash_detail_entries_in` derives its stage without draft
                 // visibility; this overlay is the caller that can see one,
@@ -1301,7 +1301,7 @@ async fn min_live_at_ms(repo_root: &Path, rel: &str) -> i64 {
 ///
 /// The letter is the whole status for every case but a rename or copy, where
 /// git appends a similarity score (`R100`); the entry carries the letter.
-fn dash_file_row(file: tugdash_core::DashDetailFile) -> ChangesetFile {
+fn dash_file_row(file: tugarc_core::DashDetailFile) -> ChangesetFile {
     let letter = file.status.chars().next().unwrap_or('M');
     let op = match letter {
         'A' => "created",
@@ -1343,7 +1343,7 @@ fn dash_file_row(file: tugdash_core::DashDetailFile) -> ChangesetFile {
 /// Every failure path is `(None, empty)` deliberately ([P03]): a plan that
 /// cannot be read has not been shown to be stale and has not been shown to have
 /// no steps, and an unreadable plan is a normal state rather than an incident.
-fn dash_plan_reading(abs: &Path) -> (Option<String>, Vec<DashStep>, bool) {
+fn dash_plan_reading(abs: &Path) -> (Option<String>, Vec<ArcStep>, bool) {
     let Ok(source) = std::fs::read_to_string(abs).inspect_err(
         |e| tracing::debug!(path = %abs.display(), error = %e, "dash plan unreadable"),
     ) else {
@@ -1358,7 +1358,7 @@ fn dash_plan_reading(abs: &Path) -> (Option<String>, Vec<DashStep>, bool) {
     let steps = doc
         .ledger_rows
         .iter()
-        .map(|row| DashStep {
+        .map(|row| ArcStep {
             title: row.title.clone(),
             status: row.status.clone(),
         })
@@ -1372,38 +1372,37 @@ fn dash_plan_reading(abs: &Path) -> (Option<String>, Vec<DashStep>, bool) {
 /// The document whose ledger a dash's steps live in: its plan when it has one,
 /// the `/dash` door's task list otherwise.
 ///
-/// The same precedence `tugdash_core::ledger_file` applies on disk, read here
+/// The same precedence `tugarc_core::ledger_file` applies on disk, read here
 /// off the documents the walk already stat'd rather than by touching the
 /// filesystem a second time.
-fn ledger_document(documents: &tugdash_core::DashDocuments) -> Option<&str> {
+fn ledger_document(documents: &tugarc_core::DashDocuments) -> Option<&str> {
     documents.plan.as_deref().or(documents.tasks.as_deref())
 }
 
 /// Derive one dash entry per `refs/heads/tugdash/` branch.
 ///
-/// The composition lives in `tugdash_core::dash_detail_entries_in` — the same
-/// code `tugtool dash list|status` reads — so the CLI and the Changes card can
+/// The composition lives in `tugarc_core::dash_detail_entries_in` — the same
+/// code `tugtool arc list|status` reads — so the CLI and the Changes card can
 /// no longer disagree about a dash's base, worktree, or round count. This maps
 /// that shared detail onto the wire type and adds the one thing only tugcast
 /// knows: which live sessions are mated to each dash ([P08]).
 ///
-/// tugdash-core is synchronous (git subprocesses), so the whole walk runs on
+/// tugarc-core is synchronous (git subprocesses), so the whole walk runs on
 /// the blocking pool in one hop — the same discipline `do_changeset_join`
 /// uses. `bound_sessions` comes from **one** ledger query for the repo, fanned
 /// out across entries; never a query per dash.
-/// Whether this compose must hide `repo_root`'s dashes: an app-test instance
+/// Whether this compose must hide `repo_root`'s arcs: an app-test instance
 /// composing the checkout under test.
 ///
 /// The `--source-tree` bootstrap makes the checkout a workspace in every
-/// instance, so without this an app-test's aggregate would list whatever
-/// dashes the *developer* has out — and any assertion about the dash
-/// population (a picker's rows, the Unbound section's presence) would be an
-/// assertion about whoever runs the suite. A dash is for implementing a plan,
-/// not for running a test: every fixture dash lives in a scratch repository,
-/// so the checkout's dash entries are noise here by construction. Session
-/// entries are untouched — the changes-attribution tests really do compose
-/// the checkout's dirt.
-fn dashes_hidden_for(repo_root: &Path) -> bool {
+/// instance, so without this an app-test's aggregate would list whatever arcs
+/// the *developer* has out — and any assertion about the arc population (a
+/// picker's rows, the Unbound section's presence) would be an assertion about
+/// whoever runs the suite. An arc is for doing the work, not for running a
+/// test: every fixture arc lives in a scratch repository, so the checkout's
+/// arc entries are noise here by construction. Session entries are untouched
+/// — the changes-attribution tests really do compose the checkout's dirt.
+fn arcs_hidden_for(repo_root: &Path) -> bool {
     let is_apptest =
         tugcore::instance::instance_id().is_some_and(|id| tugcore::ports::is_apptest_id(&id));
     if !is_apptest {
@@ -1432,7 +1431,7 @@ fn dashes_hidden_for(repo_root: &Path) -> bool {
 
 /// The engine's `DashDocuments` as the wire's — the same six fields, one
 /// crate boundary apart.
-fn dash_documents(documents: tugdash_core::DashDocuments) -> tugcast_core::types::DashDocuments {
+fn dash_documents(documents: tugarc_core::DashDocuments) -> tugcast_core::types::DashDocuments {
     tugcast_core::types::DashDocuments {
         brief: documents.brief,
         brief_title: documents.brief_title,
@@ -1443,7 +1442,7 @@ fn dash_documents(documents: tugdash_core::DashDocuments) -> tugcast_core::types
     }
 }
 
-/// The dashes that exist only as documents — a `.tug/dashes/<name>/` with no
+/// The dashes that exist only as documents — a `.tug/arcs/<name>/` with no
 /// `tugdash/<name>` branch ([P04]).
 ///
 /// This is what makes the planning phase visible as in-flight rather than the
@@ -1453,14 +1452,14 @@ fn dash_documents(documents: tugdash_core::DashDocuments) -> tugcast_core::types
 pub(crate) async fn document_dash_entries(
     project_dir: &Path,
     ledger: Option<&crate::session_ledger::SessionLedger>,
-) -> Vec<DocumentDashEntry> {
+) -> Vec<DocumentArcEntry> {
     let Some(root) = repo_root_for(project_dir).await else {
         return Vec::new();
     };
     // The same argument `dash_entries` makes: an app-test's aggregate must not
     // list the dashes the developer happens to be carrying in the checkout
     // under test.
-    if dashes_hidden_for(&root) {
+    if arcs_hidden_for(&root) {
         return Vec::new();
     }
     let bound_by_dash = ledger
@@ -1477,17 +1476,17 @@ pub(crate) async fn document_dash_entries(
 fn document_dash_entries_in(
     root: &Path,
     bound_by_dash: &std::collections::HashMap<String, Vec<String>>,
-) -> Vec<DocumentDashEntry> {
-    tugdash_core::document_dashes(root)
+) -> Vec<DocumentArcEntry> {
+    tugarc_core::document_arcs(root)
         .into_iter()
-        .filter(|name| !tugdash_core::ops::branch_exists(root, &format!("tugdash/{name}")))
+        .filter(|name| !tugarc_core::ops::branch_exists(root, &format!("tugdash/{name}")))
         .map(|name| {
-            let documents = tugdash_core::DashDocuments::read(root, &name);
+            let documents = tugarc_core::DashDocuments::read(root, &name);
             let (review, steps, task_list) = ledger_document(&documents)
                 .map(|plan| dash_plan_reading(Path::new(plan)))
                 .unwrap_or((None, Vec::new(), false));
-            let owner_id = tugdash_core::ops::dash_owner_key(root, &name);
-            DocumentDashEntry {
+            let owner_id = tugarc_core::ops::dash_owner_key(root, &name);
+            DocumentArcEntry {
                 bound_sessions: bound_by_dash.get(&owner_id).cloned().unwrap_or_default(),
                 owner_id,
                 task_list,
@@ -1501,7 +1500,7 @@ fn document_dash_entries_in(
                     .count() as u32,
                 steps_begun: steps.iter().filter(|s| s.status != "pending").count() as u32,
                 review,
-                arc: tugdash_core::read_arc(root, &name).map(|record| {
+                arc: tugarc_core::read_arc(root, &name).map(|record| {
                     tugcast_core::types::DashArcState {
                         stage: record.current_stage().map(|s| s.as_str().to_owned()),
                         stopped: record.stopped.as_ref().map(|(_, why)| why.clone()),
@@ -1595,7 +1594,7 @@ async fn dash_entries(
     ledger: Option<&crate::session_ledger::SessionLedger>,
     live_dirt: &BTreeMap<String, (String, String)>,
 ) -> Vec<ChangesetEntry> {
-    if dashes_hidden_for(repo_root) {
+    if arcs_hidden_for(repo_root) {
         return Vec::new();
     }
     let bound_by_dash = ledger
@@ -1614,11 +1613,11 @@ async fn dash_entries(
     // second scheduling round trip for a file read that costs less than one of
     // the git subprocesses already in here ([P04]).
     let Ok(details) = tokio::task::spawn_blocking(move || {
-        let details = tugdash_core::dash_detail_entries_in(&root);
+        let details = tugarc_core::dash_detail_entries_in(&root);
         // Which branch the base checkout has out is a property of the
         // repository, not of a dash, so it is read once for the whole recompute
         // and handed to each dash's composition rather than re-read per dash.
-        let current_branch = tugdash_core::ops::current_branch(&root).unwrap_or_default();
+        let current_branch = tugarc_core::ops::current_branch(&root).unwrap_or_default();
         let live: Vec<String> = details.iter().map(|d| d.owner_key.clone()).collect();
         crate::feeds::join_board::sweep(&live);
         // The same idea one level down: a workshop is a real checkout on disk,
@@ -1751,7 +1750,7 @@ async fn dash_entries(
 /// `git commit -m <message> -- <files…>`, committing **only** those paths and
 /// refusing an empty list / blank message with the same error strings. The
 /// sync library is driven off the async feed via `spawn_blocking`, the same
-/// pattern tugcast uses for `tugdash-core` ([P02]).
+/// pattern tugcast uses for `tugarc-core` ([P02]).
 ///
 /// Returns the structured [`tugchanges_core::CommitReceipt`]; the card path takes
 /// `.sha` and the raw `.numstat` for the wire frame it already scrapes ([Q01]).
@@ -1838,7 +1837,7 @@ pub(crate) fn format_commit_summary(
     format!("committed {short} · {count} file(s) · +{added} −{removed}\n{files_line}\n{message}")
 }
 
-/// The `/dash-join` receipt's durable summary (Spec S01).
+/// The `/arc-join` receipt's durable summary (Spec S01).
 ///
 /// Built like [`format_commit_summary`] and for the same reason: the header is
 /// fixed so the deck's parser can claim it, `·` is U+00B7, and the message is
@@ -1867,7 +1866,7 @@ pub(crate) fn format_join_summary(
     rounds: u32,
     message: &str,
     files: &[tugchanges_core::FileStat],
-    fit: Option<&tugdash_core::dash::FitFact>,
+    fit: Option<&tugarc_core::log::FitFact>,
 ) -> String {
     let short = &sha[..sha.len().min(10)];
     let message = message.trim();
@@ -1973,7 +1972,7 @@ pub(crate) fn format_discard_summary(
     // dash's brief and plan are the only trace of decisions the user may want
     // back, so the receipt says they are still there ([P11]).
     if documents_kept.is_some() {
-        lines.push(format!("Its documents stay at .tug/dashes/{dash}/."));
+        lines.push(format!("Its documents stay at .tug/arcs/{dash}/."));
     }
     if lines.is_empty() {
         return header;
@@ -3152,25 +3151,25 @@ Some context.
         } else {
             source
         };
-        let dir = root.join(".tug").join("dashes").join(name);
+        let dir = root.join(".tug").join("arcs").join(name);
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("plan.md"), source).unwrap();
     }
 
     fn write_dash_brief(root: &Path, name: &str, title: &str) {
-        let dir = root.join(".tug").join("dashes").join(name);
+        let dir = root.join(".tug").join("arcs").join(name);
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("brief.md"), format!("# {title}\n\nProse.\n")).unwrap();
     }
 
-    fn document_entries(root: &Path) -> Vec<DocumentDashEntry> {
+    fn document_entries(root: &Path) -> Vec<DocumentArcEntry> {
         document_dash_entries_in(root, &std::collections::HashMap::new())
     }
 
     /// Write a `/dash` door's task list: the steps and the ledger and nothing
     /// else — no metadata, no phase overview, no deliverables.
     fn write_dash_task_list(root: &Path, name: &str, statuses: &[&str]) {
-        let dir = root.join(".tug").join("dashes").join(name);
+        let dir = root.join(".tug").join("arcs").join(name);
         std::fs::create_dir_all(&dir).unwrap();
         let mut ledger = String::new();
         let mut steps = String::new();
@@ -3193,7 +3192,7 @@ Some context.
         .unwrap();
     }
 
-    /// The `/dash` course's ledger lives in `tasks.md`, and the shade reads it
+    /// A dash's ledger lives in `tasks.md`, and the shade reads it
     /// exactly as it reads a plan's — same rows, same counts, and the
     /// `task_list` flag set so no surface asks it about a review it cannot have.
     #[test]
@@ -3211,7 +3210,7 @@ Some context.
         assert!(entry.task_list, "a tasks.md is a task list");
         assert_eq!(
             entry.documents.tasks.as_deref(),
-            Some(&*root.join(".tug/dashes/direct/tasks.md").to_string_lossy())
+            Some(&*root.join(".tug/arcs/direct/tasks.md").to_string_lossy())
         );
     }
 
@@ -3245,7 +3244,7 @@ Some context.
         assert_eq!(entries[0].display_name, "foo");
         assert_eq!(
             entries[0].documents.brief.as_deref(),
-            Some(&*root.join(".tug/dashes/foo/brief.md").to_string_lossy())
+            Some(&*root.join(".tug/arcs/foo/brief.md").to_string_lossy())
         );
         assert_eq!(
             entries[0].documents.brief_title.as_deref(),
@@ -3275,7 +3274,7 @@ Some context.
         write_dash_plan(&root, "fresh-dash", &["pending"], false);
 
         let entries = document_entries(&root);
-        let by_name: std::collections::HashMap<&str, &DocumentDashEntry> = entries
+        let by_name: std::collections::HashMap<&str, &DocumentArcEntry> = entries
             .iter()
             .map(|e| (e.display_name.as_str(), e))
             .collect();
@@ -3326,11 +3325,11 @@ Some context.
         write_dash_brief(&root, "live", "The live brief");
         write_dash_plan(&root, "live", &["done", "pending"], true);
 
-        let documents = tugdash_core::DashDocuments::read(&root, "live");
+        let documents = tugarc_core::DashDocuments::read(&root, "live");
         let wire = dash_documents(documents);
         assert_eq!(
             wire.plan.as_deref(),
-            Some(&*root.join(".tug/dashes/live/plan.md").to_string_lossy())
+            Some(&*root.join(".tug/arcs/live/plan.md").to_string_lossy())
         );
         assert!(wire.plan.as_deref().unwrap().starts_with('/'));
         assert_eq!(wire.brief_title.as_deref(), Some("The live brief"));
@@ -3390,7 +3389,7 @@ Some context.
         let (_, steps, _) = dash_plan_reading(&dir.path().join("plan.md"));
         assert_eq!(
             steps,
-            vec![DashStep {
+            vec![ArcStep {
                 title: "The only step".to_string(),
                 status: "pending".to_string(),
             }]
@@ -3491,7 +3490,7 @@ Some context.
             "an unbound dash is never piloted, ready or not"
         );
 
-        let owner_key = tugdash_core::ops::ensure_dash_id(&root, "finished").unwrap();
+        let owner_key = tugarc_core::ops::ensure_dash_id(&root, "finished").unwrap();
         let ledger = SessionLedger::open_in_memory().unwrap();
         ledger
             .record_spawn(
@@ -3526,11 +3525,11 @@ Some context.
             "exactly the ready dash is piloted, and exactly once"
         );
         assert!(
-            tugdash_core::verify::read_pilot_mark(&root, "finished").is_some(),
+            tugarc_core::verify::read_pilot_mark(&root, "finished").is_some(),
             "the pair it acted on is claimed"
         );
         assert!(
-            tugdash_core::verify::read_pilot_mark(&root, "pending").is_none(),
+            tugarc_core::verify::read_pilot_mark(&root, "pending").is_none(),
             "a dash still implementing is never touched"
         );
 
@@ -3559,7 +3558,7 @@ Some context.
                 "tugdash/demo",
             ],
         );
-        let documents = root.join(".tug/dashes/demo");
+        let documents = root.join(".tug/arcs/demo");
         std::fs::create_dir_all(&documents).unwrap();
         write_plan(&documents, true);
 
@@ -3595,7 +3594,7 @@ Some context.
     /// untouched, which is where every fixture dash lives.
     ///
     /// Env-mutating, safe under nextest's process-per-test model — the same
-    /// regime `tugdash_core::ops`'s universe tests run under.
+    /// regime `tugarc_core::ops`'s universe tests run under.
     #[tokio::test]
     async fn an_apptest_instance_hides_the_universe_checkouts_dashes() {
         let (_dir, root) = init_repo();
@@ -3609,7 +3608,7 @@ Some context.
         );
 
         // SAFETY: one process per test under nextest — the same regime
-        // `tugdash_core::ops`'s universe tests run under.
+        // `tugarc_core::ops`'s universe tests run under.
         unsafe {
             std::env::set_var("TUG_INSTANCE_ID", "apptest-0000");
             std::env::set_var(tugtool_core::REPO_UNIVERSE_ENV, &root);
@@ -3646,7 +3645,7 @@ Some context.
         git(&root, &["switch", "-q", "main"]);
 
         // A creation id, and a live session mated to the dash under it.
-        let owner_key = tugdash_core::ops::ensure_dash_id(&root, "demo").unwrap();
+        let owner_key = tugarc_core::ops::ensure_dash_id(&root, "demo").unwrap();
         let ledger = SessionLedger::open_in_memory().unwrap();
         ledger
             .record_spawn(
@@ -3764,7 +3763,7 @@ Some context.
         );
         // Composing is a read path and must not have minted one ([P02]).
         assert_eq!(
-            tugdash_core::ops::dash_owner_key(&root, "old"),
+            tugarc_core::ops::dash_owner_key(&root, "old"),
             "tugdash/old",
             "compose stayed read-only on git config"
         );
@@ -4554,7 +4553,7 @@ Some context.
     /// `files:`, claimed by its prefix rather than by an index.
     #[test]
     fn format_join_summary_carries_the_fit_between_the_header_and_the_files() {
-        let fit = tugdash_core::dash::FitFact {
+        let fit = tugarc_core::log::FitFact {
             head: "3f0a1c9e2b7d4f6a".to_string(),
             base: "91c4de70f2a3b5c7".to_string(),
             current: true,
@@ -4581,7 +4580,7 @@ Some context.
     /// showed a head without the base it was verified onto would name no tree.
     #[test]
     fn format_join_summary_says_stale_and_still_names_the_pair() {
-        let fit = tugdash_core::dash::FitFact {
+        let fit = tugarc_core::log::FitFact {
             head: "3f0a1c9e2b7d4f6a".to_string(),
             base: "91c4de70f2a3b5c7".to_string(),
             current: false,
@@ -4599,7 +4598,7 @@ Some context.
     /// cursor has to survive, pinned on the server that writes them.
     #[test]
     fn format_join_summary_is_parse_stable_across_every_optional_line() {
-        let fit = tugdash_core::dash::FitFact {
+        let fit = tugarc_core::log::FitFact {
             head: "3f0a1c9e2b7d4f6a".to_string(),
             base: "91c4de70f2a3b5c7".to_string(),
             current: true,
@@ -4696,15 +4695,15 @@ Some context.
     #[test]
     fn format_discard_summary_says_the_documents_stay() {
         assert_eq!(
-            format_discard_summary("spike", 0, 0, &[], Some("/repo/.tug/dashes/spike")),
+            format_discard_summary("spike", 0, 0, &[], Some("/repo/.tug/arcs/spike")),
             "discarded spike · 0 round(s)\n\
-             Its documents stay at .tug/dashes/spike/."
+             Its documents stay at .tug/arcs/spike/."
         );
     }
 
     #[test]
     fn dash_file_rows_map_letters_and_renames() {
-        // The parse now lives in tugdash-core (shared with the CLI); what this
+        // The parse now lives in tugarc-core (shared with the CLI); what this
         // layer owns is the letter → op mapping and the score-stripped status.
         let files: Vec<ChangesetFile> = [
             ("added.txt", "A"),
@@ -4714,7 +4713,7 @@ Some context.
         ]
         .into_iter()
         .map(|(path, status)| {
-            dash_file_row(tugdash_core::DashDetailFile {
+            dash_file_row(tugarc_core::DashDetailFile {
                 path: path.to_owned(),
                 status: status.to_owned(),
                 added: None,

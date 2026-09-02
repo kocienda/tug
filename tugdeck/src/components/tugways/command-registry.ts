@@ -986,10 +986,10 @@ export const COMMANDS: readonly CommandEntry[] = [
   },
   {
     // Its door is an Overview post's dash chip — a link, not a menu item or
-    // a chord. Distinct from Show Dashes on purpose: a link reveals the rail,
+    // a chord. Distinct from Show Arcs on purpose: a link reveals the rail,
     // where the toggle would take it away from a reader who had it open.
-    id: "reveal-dashes",
-    title: "Reveal Dashes",
+    id: "reveal-arcs",
+    title: "Reveal Arcs",
     routing: "registry",
     internal: true,
   },
@@ -1809,13 +1809,13 @@ export const COMMANDS: readonly CommandEntry[] = [
     bindings: [],
   },
 
-  // ---- Dashes ----
+  // ---- Arcs ----
   {
     // Chord-less, like every sidebar row — the rail toggles above carry the chords.
-    id: TUG_ACTIONS.TOGGLE_DASHES,
-    title: "Show Dashes",
+    id: TUG_ACTIONS.TOGGLE_ARCS,
+    title: "Show Arcs",
     routing: "registry",
-    menuItemId: "maker.dashes",
+    menuItemId: "maker.arcs",
     bindings: [],
   },
 
@@ -2656,7 +2656,7 @@ export const ACTIONS_OUTSIDE_THE_TABLE: ReadonlySet<string> = new Set<string>([
   TUG_ACTIONS.BIND_DASH,
   TUG_ACTIONS.UNBIND_DASH,
   TUG_ACTIONS.REQUEST_DISCARD_DASH,
-  TUG_ACTIONS.REQUEST_REPLAY_DASH,
+  TUG_ACTIONS.REQUEST_REPLAY_ARC,
   // Sent card-to-card by a surface showing that card's dash, never typed:
   // the reader already has ⌃⌘C for their own card's shade, and a chord that
   // meant "reveal somebody else's" would have no way to name whose.

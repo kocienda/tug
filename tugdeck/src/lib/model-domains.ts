@@ -36,12 +36,15 @@ export const DEFAULT_MODEL_SELECTOR = "default";
 /**
  * tugbank domain for the plan each card last reviewed, keyed by card id.
  *
- * Bare `/dash-review` resolves through this first: the gesture's moment is a
- * plan just devised and edited, when the card is usually *not* bound to a dash
- * yet — and when it is, it is frequently bound to a dash implementing a
+ * Bare `/arc-review` resolves through this first: the gesture's moment is a
+ * plan just devised and edited, when the card is usually *not* bound to an arc
+ * yet — and when it is, it is frequently bound to an arc implementing a
  * different plan. Card-keyed, so it joins the startup orphan sweep.
  *
  * A path, and only a path. There is no companion domain holding a review model:
  * a review runs on whatever the user has selected, and choosing it is their act.
  */
+// The domain string stays `dev.dash-review-last` for the reason `ARCS_CARD_ID`
+// stays `"dashes"`: it is a tugbank persistence key, and renaming it would
+// orphan every card's stored value. State, not vocabulary.
 export const PLAN_REVIEW_LAST_DOMAIN = "dev.dash-review-last";

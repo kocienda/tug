@@ -30,11 +30,11 @@
  * base commit moving underneath one of them, and the real `changeset_replay`
  * round trip. No dash is ever cut in the developer's checkout.
  *
- * @covers tugdeck/src/components/dashes/dashes-card.tsx
- * @covers tugdeck/src/components/dashes/dashes-card.css
- * @covers tugdeck/src/components/tugways/cards/session-changes/dash-row-menu.tsx
- * @covers tugdeck/src/components/tugways/cards/dash-replay-notice-controller.tsx
- * @covers tugdeck/src/lib/dash-replay-outcome-store.ts
+ * @covers tugdeck/src/components/arcs/arcs-card.tsx
+ * @covers tugdeck/src/components/arcs/arcs-card.css
+ * @covers tugdeck/src/components/tugways/cards/session-changes/arc-row-menu.tsx
+ * @covers tugdeck/src/components/tugways/cards/arc-replay-notice-controller.tsx
+ * @covers tugdeck/src/lib/arc-replay-outcome-store.ts
  * @covers tugdeck/src/lib/changeset-verb-store.ts
  * @covers tugdeck/src/components/tugways/action-vocabulary.ts
  * @covers tugrust/crates/tugcast/src/feeds/agent_supervisor.rs
@@ -172,7 +172,7 @@ function deckShape() {
 
 const settle = (ms = 200): Promise<unknown> => new Promise((r) => setTimeout(r, ms));
 
-/** Bring the card up, spawn its session, and open the Dashes rail. */
+/** Bring the card up, spawn its session, and open the Arcs rail. */
 async function openDashesRail(app: App): Promise<void> {
   await app.enableDeckTrace(true);
   await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
@@ -183,7 +183,7 @@ async function openDashesRail(app: App): Promise<void> {
   // as a workspace, so its dashes reach the aggregate.
   await app.spawnSessionResume("A", { tugSessionId: SID, projectDir: projectDir() });
   await app.awaitEngineReady("A", { timeoutMs: 15000 });
-  await app.dispatchControlAction("toggle-dashes");
+  await app.dispatchControlAction("toggle-arcs");
   await app.waitForCondition<boolean>(
     `document.querySelector(${JSON.stringify(SECTION)}) !== null`,
     { timeoutMs: 20000 },
@@ -321,7 +321,7 @@ describe.skipIf(!SHOULD_RUN)("AT0469: acting on a dash from a surface that shows
         // nothing any dash row prints — the line carries the dash's standing,
         // not the checkout's git bookkeeping — so success speaks here or it
         // does not speak at all.
-        await pressDashRowMenuItem(app, dashRow(BEHIND), "request-replay-dash");
+        await pressDashRowMenuItem(app, dashRow(BEHIND), "request-replay-arc");
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(BULLETIN)}) !== null`,
           { timeoutMs: 30000 },
@@ -345,7 +345,7 @@ describe.skipIf(!SHOULD_RUN)("AT0469: acting on a dash from a surface that shows
           await openDashRowMenu(app, dashRow(BEHIND));
           afterwards = await app.evalJS<{ disabled: boolean; label: string }>(
             `(() => {
-               const el = document.querySelector('[data-slot="tug-editor-context-menu"] [data-item-action="request-replay-dash"]');
+               const el = document.querySelector('[data-slot="tug-editor-context-menu"] [data-item-action="request-replay-arc"]');
                return {
                  disabled: el !== null && el.hasAttribute("data-disabled"),
                  label: el === null ? "" : (el.textContent || ""),
@@ -418,7 +418,7 @@ describe.skipIf(!SHOULD_RUN)("AT0469: acting on a dash from a surface that shows
         // The press runs a real replay that stops at the conflicting round and
         // touches nothing. Every fact on the row is byte-identical afterwards,
         // which is exactly why the answer has to arrive somewhere else.
-        await pressDashRowMenuItem(app, shadeRow, "request-replay-dash");
+        await pressDashRowMenuItem(app, shadeRow, "request-replay-arc");
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(BULLETIN)}) !== null`,
           { timeoutMs: 20000 },

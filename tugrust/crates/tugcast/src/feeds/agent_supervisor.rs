@@ -335,7 +335,7 @@ pub struct LedgerEntry {
     /// things to anything judging a card. An entry rebound from tugbank at
     /// startup sits `Idle` because nothing has spawned it yet — a wait, and
     /// reading it as a death would stop every in-flight arc on every relaunch
-    /// ([`crate::feeds::dash_arc_runner`]). An entry that ran here and is
+    /// ([`crate::feeds::arc_runner`]). An entry that ran here and is
     /// `Idle` again lost the child it was running: a killed claude, a reset.
     /// That is not a wait, and the ninety seconds an arc spent sitting over
     /// one is what this field exists to end.
@@ -408,7 +408,7 @@ pub struct LedgerEntry {
     /// A stamp rather than a flag, because the honest reading is a *duration*:
     /// a child gone for a second is a respawn in flight, and a child gone for
     /// [`CHILD_GONE_GRACE`] is a session that is not coming back. The reader
-    /// is [`crate::feeds::dash_arc_runner`]'s `session_snapshot`, which is the
+    /// is [`crate::feeds::arc_runner`]'s `session_snapshot`, which is the
     /// one place that turns this into `SessionGone`.
     ///
     /// In memory, like [`Self::context_window_tokens`]: it is a claim about
@@ -451,7 +451,7 @@ pub struct LedgerEntry {
     /// turn now in flight**, or `None` when the turn has closed none.
     ///
     /// The turn boundary is the single most load-bearing discipline in a
-    /// course: the Wheel acts only between turns, so a stage that closes a
+    /// an arc: the Wheel acts only between turns, so a stage that closes a
     /// step and keeps working locks it out of pacing, `/compact`, rotation and
     /// the idle clock alike (`notes/dash-hardening-audit.md`, W8). Enforcing
     /// that needs one fact the PreToolUse hook cannot have — the hook is a
@@ -1360,22 +1360,22 @@ fn replay_lineage(
     // carries it: a rotation's `session_init` records a fresh row, and only
     // `dash bind` / `dash run` ever write a binding — so asking the head alone
     // would find nothing on every arc that has rotated once.
-    // A course, if there is one. There need not be: a rotation with nothing
+    // An arc, if there is one. There need not be: a rotation with nothing
     // driving it has no dash binding and no arc record, and its transcript is
-    // just as much an invariant of the rotation as one on a course's ([B05]). So
-    // the course supplies only the two facts that are genuinely its — the arc
+    // just as much an invariant of the rotation as an arc's ([B05]). So
+    // the arc supplies only the two facts that are genuinely its — the arc
     // name and the document it opened on — and the rest comes off the row.
-    let course = chain
+    let arc = chain
         .iter()
         .find_map(|id| recorder.dash_name_for(id))
         .and_then(|dash| {
-            tugdash_core::arc::read_arc(project_dir, &dash).map(|record| (dash, record))
+            tugarc_core::arc::read_arc(project_dir, &dash).map(|record| (dash, record))
         });
     let entries: Vec<serde_json::Value> = chain
         .iter()
         .map(|session_id| {
             let recorded = recorder.stage_provenance(session_id);
-            let logged = course
+            let logged = arc
                 .as_ref()
                 .and_then(|(_, record)| record.stages.iter().find(|s| &s.session_id == session_id));
             // The row is the answer; the arc record is the fallback for a row
@@ -1396,9 +1396,9 @@ fn replay_lineage(
             if let Some((label, model)) = seated {
                 entry.insert("stage".into(), serde_json::json!(label));
                 entry.insert("model".into(), serde_json::json!(model));
-                // The course's own two facts, and only where a course seated
-                // this entry — a courseless rotation names neither.
-                if let (Some((dash, record)), Some(_)) = (course.as_ref(), logged) {
+                // The arc's own two facts, and only where an arc seated this
+                // entry — an arcless rotation names neither.
+                if let (Some((dash, record)), Some(_)) = (arc.as_ref(), logged) {
                     entry.insert("arc".into(), serde_json::json!(dash));
                     if let Some(document) = record.plan.as_ref().or(record.document.as_ref()) {
                         entry.insert("document".into(), serde_json::json!(document));
@@ -2688,7 +2688,7 @@ fn parse_changeset_draft_set_payload(
 struct ChangesetJoinPayload {
     project_dir: String,
     dash: String,
-    strategy: tugdash_core::JoinStrategy,
+    strategy: tugarc_core::JoinStrategy,
     message: Option<String>,
     preview: bool,
     /// A pre-resolved candidate commit to land ([P31]/[P32], Spec S12): when
@@ -2721,9 +2721,9 @@ fn parse_changeset_join_payload(payload: &[u8]) -> Result<ChangesetJoinPayload, 
         .ok_or(ControlError::Malformed)?
         .to_string();
     let strategy = match value.get("strategy").and_then(|v| v.as_str()) {
-        None | Some("squash") => tugdash_core::JoinStrategy::Squash,
-        Some("merge") => tugdash_core::JoinStrategy::Merge,
-        Some("rebase") => tugdash_core::JoinStrategy::Rebase,
+        None | Some("squash") => tugarc_core::JoinStrategy::Squash,
+        Some("merge") => tugarc_core::JoinStrategy::Merge,
+        Some("rebase") => tugarc_core::JoinStrategy::Rebase,
         Some(_) => return Err(ControlError::Malformed),
     };
     let message = value
@@ -3681,7 +3681,7 @@ enum DashRecords {
 /// Announce a completed session↔dash mating to every connected deck.
 ///
 /// A bind has two doors — the `bind_dash` CONTROL verb a card sends, and
-/// `POST /api/dash` the CLI posts (which is what `tugtool dash create`'s
+/// `POST /api/arc` the CLI posts (which is what `tugtool arc create`'s
 /// auto-bind rides) — and it is the same fact through either one. Both call
 /// this, because a deck that learns about one door's binds but not the other's
 /// wears a chip that disagrees with the ledger until something else happens to
@@ -5362,7 +5362,7 @@ impl AgentSupervisor {
             // when it closes, and an arc that left with no record would say
             // `review` forever with nothing running.
             if let Some(ledger) = self.session_ledger.as_ref() {
-                crate::dash_api::stop_an_on_course_cards_arc_as_closed(ledger, &claude_id);
+                crate::arc_api::stop_an_on_arc_cards_arc_as_closed(ledger, &claude_id);
             }
             self.sessions_recorder.mark_closed(&claude_id);
         }
@@ -5812,7 +5812,7 @@ impl AgentSupervisor {
     /// it passes the [L29] gateway here — one call, at the boundary — to reach
     /// the key the row was written under.
     /// Handle a `bind_dash` CONTROL request (Spec S03): mate a session to a
-    /// dash. Shares its ledger half with `POST /api/dash` so a bind issued
+    /// dash. Shares its ledger half with `POST /api/arc` so a bind issued
     /// from a card and one issued from the CLI cannot diverge.
     ///
     /// Broadcasts `bind_dash_ok {tug_session_id, dash_id, dash_name}` or
@@ -5824,7 +5824,7 @@ impl AgentSupervisor {
             Self::send_bind_dash_err(&self.control_tx, &request.tug_session_id, "no_ledger");
             return;
         };
-        // The gateway ([L29]) — the same resolution `/api/dash` applies, so
+        // The gateway ([L29]) — the same resolution `/api/arc` applies, so
         // both surfaces open the same repo for the same spelling.
         let project = crate::path_resolver::resolve_to_claude_form(std::path::Path::new(
             &request.project_dir,
@@ -5832,12 +5832,12 @@ impl AgentSupervisor {
         let session = request.tug_session_id.clone();
         let dash = request.dash.clone();
         let outcome = tokio::task::spawn_blocking(move || {
-            crate::dash_api::bind(&ledger, &project, &session, &dash)
+            crate::arc_api::bind(&ledger, &project, &session, &dash)
         })
         .await;
 
         match outcome {
-            Ok(crate::dash_api::DashApiOutcome::Bound {
+            Ok(crate::arc_api::ArcApiOutcome::Bound {
                 session_id,
                 dash_id,
                 dash_name,
@@ -5858,14 +5858,14 @@ impl AgentSupervisor {
                     None,
                 );
             }
-            Ok(crate::dash_api::DashApiOutcome::UnknownSession) => {
+            Ok(crate::arc_api::ArcApiOutcome::UnknownSession) => {
                 Self::send_bind_dash_err(
                     &self.control_tx,
                     &request.tug_session_id,
                     "unknown_session",
                 );
             }
-            Ok(crate::dash_api::DashApiOutcome::Error(detail)) => {
+            Ok(crate::arc_api::ArcApiOutcome::Error(detail)) => {
                 Self::send_bind_dash_err(&self.control_tx, &request.tug_session_id, &detail);
             }
             Ok(_) => {}
@@ -5888,17 +5888,17 @@ impl AgentSupervisor {
         };
         let session = tug_session_id.to_string();
         let outcome =
-            tokio::task::spawn_blocking(move || crate::dash_api::unbind(&ledger, &session)).await;
+            tokio::task::spawn_blocking(move || crate::arc_api::unbind(&ledger, &session)).await;
 
         match outcome {
-            Ok(crate::dash_api::DashApiOutcome::Unbound { session_id }) => {
+            Ok(crate::arc_api::ArcApiOutcome::Unbound { session_id }) => {
                 self.registry.changeset_all_bump().notify_one();
                 broadcast_unbind_dash_ok(&self.control_tx, &session_id);
             }
-            Ok(crate::dash_api::DashApiOutcome::UnknownSession) => {
+            Ok(crate::arc_api::ArcApiOutcome::UnknownSession) => {
                 Self::send_bind_dash_err(&self.control_tx, tug_session_id, "unknown_session");
             }
-            Ok(crate::dash_api::DashApiOutcome::Error(detail)) => {
+            Ok(crate::arc_api::ArcApiOutcome::Error(detail)) => {
                 Self::send_bind_dash_err(&self.control_tx, tug_session_id, &detail);
             }
             Ok(_) => {}
@@ -6026,7 +6026,7 @@ impl AgentSupervisor {
                 (Some(id), dash_name)
             }
             DashRecords::Known(records) => {
-                if records.contains(tugdash_core::ops::legacy_owner_key(&id)) {
+                if records.contains(tugarc_core::ops::legacy_owner_key(&id)) {
                     tracing::debug!(
                         target: "dev::ledger",
                         event = "ledger.reported_binding.kept",
@@ -6064,7 +6064,7 @@ impl AgentSupervisor {
     ) {
         let canonical =
             crate::path_resolver::CanonicalPath::from_raw(std::path::Path::new(project_dir));
-        let legacy_key = tugdash_core::ops::legacy_owner_key(owner_key);
+        let legacy_key = tugarc_core::ops::legacy_owner_key(owner_key);
         let keys = if legacy_key == owner_key {
             vec![owner_key]
         } else {
@@ -6203,7 +6203,7 @@ impl AgentSupervisor {
                 // engine's own task (Risk R01).
                 crate::feeds::tripwire::landed(crate::feeds::tripwire::LandingEvent {
                     repo_root: project_dir.to_string(),
-                    branch: tugdash_core::ops::current_branch(dir).unwrap_or_default(),
+                    branch: tugarc_core::ops::current_branch(dir).unwrap_or_default(),
                     sha: receipt.sha.clone(),
                     kind: crate::feeds::tripwire::LandingKind::Commit,
                     dash: None,
@@ -6559,7 +6559,7 @@ impl AgentSupervisor {
     }
 
     /// Handle a `changeset_join` CONTROL request (Spec S03, [P14]): preview or
-    /// execute a dash join via `tugdash-core`.
+    /// execute a dash join via `tugarc-core`.
     ///
     /// Guards match the other changeset verbs: `project_dir` must be a current
     /// `WorkspaceRegistry` entry (never touch an arbitrary path off the wire)
@@ -6618,11 +6618,11 @@ impl AgentSupervisor {
         // with the branch — a key read afterwards is the legacy one and names
         // none of the id-keyed rows this landing has to sweep ([L23], [P05],
         // Risk R02).
-        let owner_key = tugdash_core::ops::dash_owner_key(dir, &request.dash);
+        let owner_key = tugarc_core::ops::dash_owner_key(dir, &request.dash);
         // The round count belongs to the receipt, and a landed join deletes the
         // branch it is counted from — so it is read here, for the same reason
         // the owner key is.
-        let rounds = tugdash_core::dash_detail_entries_in(dir)
+        let rounds = tugarc_core::dash_detail_entries_in(dir)
             .into_iter()
             .find(|d| d.name == request.dash)
             .map(|d| d.rounds)
@@ -6656,7 +6656,7 @@ impl AgentSupervisor {
 
         let dir_owned = dir.to_path_buf();
         let dash = request.dash.clone();
-        let opts = tugdash_core::JoinOptions {
+        let opts = tugarc_core::JoinOptions {
             strategy: request.strategy,
             message: request.message.clone(),
             preview: request.preview,
@@ -6683,7 +6683,7 @@ impl AgentSupervisor {
         let beat_project_dir = project_dir.to_string();
         let beat_dash = request.dash.clone();
         let result = tokio::task::spawn_blocking(move || {
-            tugdash_core::join_in_with_progress(&dir_owned, &dash, opts, |beat, status| {
+            tugarc_core::join_in_with_progress(&dir_owned, &dash, opts, |beat, status| {
                 Self::send_changeset_join_land_delta(
                     &beat_tx,
                     &beat_project_dir,
@@ -6780,7 +6780,7 @@ impl AgentSupervisor {
                             self.shell_ledger.as_ref(),
                             self.session_ledger.as_ref(),
                             request.session_id.as_deref(),
-                            "/dash-join",
+                            "/arc-join",
                             &summary,
                             project_dir,
                         );
@@ -6914,9 +6914,9 @@ impl AgentSupervisor {
     }
 
     /// Record `model → <selector> in <stage>` when the card is running a live
-    /// course's stage.
+    /// arc's stage.
     ///
-    /// A no-op for every other card: the note is about a course, and a user
+    /// A no-op for every other card: the note is about an arc, and a user
     /// changing models on their own card is not one.
     pub(crate) async fn note_model_switch(&self, session: &str, selector: &str) {
         let Some(ledger) = self.session_ledger.clone() else {
@@ -6935,7 +6935,7 @@ impl AgentSupervisor {
                 return;
             }
             let project = std::path::Path::new(&row.project_dir);
-            let Some(record) = tugdash_core::arc::read_arc(project, dash) else {
+            let Some(record) = tugarc_core::arc::read_arc(project, dash) else {
                 return;
             };
             if record.done || record.stopped.is_some() {
@@ -6944,7 +6944,7 @@ impl AgentSupervisor {
             let Some(stage) = record.current_stage() else {
                 return;
             };
-            if let Err(e) = tugdash_core::arc::append_arc_note(
+            if let Err(e) = tugarc_core::arc::append_arc_note(
                 project,
                 dash,
                 &format!("model → {selector} in {}", stage.as_str()),
@@ -6955,7 +6955,7 @@ impl AgentSupervisor {
         .await;
     }
 
-    /// The model a card returns to when a course gives it back — the deck's own
+    /// The model a card returns to when an arc gives it back — the deck's own
     /// selector, which only a WebSocket client's `model_change` ever writes.
     ///
     /// `None` when the card never chose one, which a caller words as the
@@ -7013,7 +7013,7 @@ impl AgentSupervisor {
     /// vocabulary. The direct key first — before any rotation the two are one
     /// string — then `claude_session_id`, which is the entry's own record of
     /// which segment it is currently running. The same walk
-    /// `dash_arc_runner::card_session_for_segment` makes, for the same reason.
+    /// `arc_runner::card_session_for_segment` makes, for the same reason.
     ///
     /// `try_lock` on the entries: this holds the map lock, so an entry another
     /// task is mid-write on is skipped rather than inverted on.
@@ -7151,7 +7151,7 @@ impl AgentSupervisor {
     }
 
     /// Handle a `changeset_join_resolve` CONTROL request (Spec S12, [P31]/[P32]):
-    /// run the tugdash-core resolution ladder with the scribe AI rung injected,
+    /// run the tugarc-core resolution ladder with the scribe AI rung injected,
     /// streaming per-file progress. The ladder builds a candidate commit off to
     /// the side; the card reviews it and lands it via a follow-up
     /// `changeset_join {candidate}`. Broadcasts the terminal
@@ -7184,12 +7184,12 @@ impl AgentSupervisor {
         // Resolve press — the shape the false error face used to invite — would
         // otherwise start a second `finish_join` doing `reset --hard` on the
         // workshop the first one's resolver is editing.
-        let owner_key = tugdash_core::ops::dash_owner_key(dir, &request.dash);
+        let owner_key = tugarc_core::ops::dash_owner_key(dir, &request.dash);
         // Snapshotted here so a question this run raises stays matched to the
         // head it was raised against, even if a round lands on the dash while
         // the resolver waits for the answer.
-        let dash_head = tugdash_core::ops::dash_detail_entry_in(dir, &request.dash)
-            .and_then(|detail| tugdash_core::ops::rev_parse(dir, &detail.branch).ok());
+        let dash_head = tugarc_core::ops::dash_detail_entry_in(dir, &request.dash)
+            .and_then(|detail| tugarc_core::ops::rev_parse(dir, &detail.branch).ok());
         let occupancy = match crate::feeds::join_occupancy::acquire(
             &owner_key,
             crate::feeds::join_occupancy::JoinRunKind::Resolve,
@@ -7258,9 +7258,9 @@ impl AgentSupervisor {
             // Last attempt's refusal stops applying the moment this one starts;
             // leaving it standing would render a running resolve under the
             // sentence that ended the one before it.
-            tugdash_core::resolve::clear_stuck(&dir_owned, &dash);
-            let merger_ref = merger.as_ref().map(|m| m as &dyn tugdash_core::FileMerger);
-            tugdash_core::resolve_conflicts(&dir_owned, &dash, merger_ref)
+            tugarc_core::resolve::clear_stuck(&dir_owned, &dash);
+            let merger_ref = merger.as_ref().map(|m| m as &dyn tugarc_core::FileMerger);
+            tugarc_core::resolve_conflicts(&dir_owned, &dash, merger_ref)
         })
         .await;
 
@@ -7458,7 +7458,7 @@ impl AgentSupervisor {
         control_tx: &broadcast::Sender<Frame>,
         project_dir: &str,
         dash: &str,
-        outcome: &tugdash_core::ResolveOutcome,
+        outcome: &tugarc_core::ResolveOutcome,
     ) {
         let mut body = serde_json::to_value(outcome).unwrap_or_else(|_| serde_json::json!({}));
         if let Some(map) = body.as_object_mut() {
@@ -7485,10 +7485,10 @@ impl AgentSupervisor {
     /// that will not proceed and no account of why. The durable fact is what
     /// the board renders; the frame is the liveness hint.
     fn record_join_stuck(dir: &std::path::Path, dash: &str, detail: &str) {
-        let Ok(head) = tugdash_core::ops::rev_parse(dir, &format!("tugdash/{dash}")) else {
+        let Ok(head) = tugarc_core::ops::rev_parse(dir, &format!("tugdash/{dash}")) else {
             return;
         };
-        tugdash_core::resolve::write_stuck(dir, dash, &head, detail);
+        tugarc_core::resolve::write_stuck(dir, dash, &head, detail);
     }
 
     /// Refuse a resolve **before it started**, without disturbing the run that
@@ -7557,7 +7557,7 @@ impl AgentSupervisor {
         let dir_owned = dir.to_path_buf();
         let dash = request.dash.clone();
         let result = tokio::task::spawn_blocking(move || {
-            tugdash_core::ops::resolve_base_in(&dir_owned, &dash, &live_dirt)
+            tugarc_core::ops::resolve_base_in(&dir_owned, &dash, &live_dirt)
         })
         .await;
 
@@ -7584,7 +7584,7 @@ impl AgentSupervisor {
                 }
                 for (session, paths) in by_session {
                     let text = format!(
-                        "Your in-progress edit to {} was committed onto the base as its own commit, to clear the join of dash '{}'. The files are unchanged on disk; `tugtool dash undo` puts the edit back uncommitted.",
+                        "Your in-progress edit to {} was committed onto the base as its own commit, to clear the join of dash '{}'. The files are unchanged on disk; `tugtool arc undo` puts the edit back uncommitted.",
                         paths.join(", "),
                         outcome.name,
                     );
@@ -7648,7 +7648,7 @@ impl AgentSupervisor {
     }
 
     /// Handle a `changeset_discard` CONTROL request: discard a dash (worktree +
-    /// branch) without merging, via `tugdash-core`. Same guards as the join
+    /// branch) without merging, via `tugarc-core`. Same guards as the join
     /// verb; fires the aggregate bump so the dash entry disappears from the
     /// card. Broadcasts `changeset_discard_ok {…}` / `changeset_discard_err`.
     async fn do_changeset_discard(&self, request: &ChangesetDiscardPayload) {
@@ -7677,11 +7677,11 @@ impl AgentSupervisor {
         // Resolved before the teardown, for the reason `do_changeset_join`
         // states: `discard_in` deletes the branch and its config with it
         // ([L23], [P05], Risk R02).
-        let owner_key = tugdash_core::ops::dash_owner_key(dir, &request.dash);
+        let owner_key = tugarc_core::ops::dash_owner_key(dir, &request.dash);
         // What the discard is about to destroy, read while it still exists —
         // `dash_detail_entries_in` is the only accessor and after the teardown
         // the branch is gone and the subjects are unrecoverable (Spec S02).
-        let detail = tugdash_core::dash_detail_entries_in(dir)
+        let detail = tugarc_core::dash_detail_entries_in(dir)
             .into_iter()
             .find(|d| d.name == request.dash);
         let discarded_rounds = detail.as_ref().map(|d| d.rounds).unwrap_or(0);
@@ -7691,7 +7691,7 @@ impl AgentSupervisor {
         let dir_owned = dir.to_path_buf();
         let dash = request.dash.clone();
         let result = tokio::task::spawn_blocking(move || {
-            tugdash_core::discard_in(&dir_owned, &dash, Some("card"), false)
+            tugarc_core::discard_in(&dir_owned, &dash, Some("card"), false)
         })
         .await;
 
@@ -7782,7 +7782,7 @@ impl AgentSupervisor {
     }
 
     /// Handle a `changeset_replay` CONTROL request: replay a dash's rounds onto
-    /// its base branch's current tip, via `tugdash-core`. Same two guards as the
+    /// its base branch's current tip, via `tugarc-core`. Same two guards as the
     /// discard verb; fires the aggregate bump so the row's divergence facts
     /// recompute. Broadcasts `changeset_replay_ok {…}` / `changeset_replay_err`.
     ///
@@ -7824,7 +7824,7 @@ impl AgentSupervisor {
         let dir_owned = dir.to_path_buf();
         let dash = request.dash.clone();
         let result =
-            tokio::task::spawn_blocking(move || tugdash_core::replay_onto(&dir_owned, &dash)).await;
+            tokio::task::spawn_blocking(move || tugarc_core::replay_onto(&dir_owned, &dash)).await;
 
         match result {
             Ok(Ok(outcome)) => {
@@ -9868,7 +9868,7 @@ impl AgentSupervisor {
                                 entry.turns_ended += 1;
                                 entry.turn_api_error = turn_ended_in_api_error(&frame.payload);
                                 entry.turn_cancelled = turn_ended_in_user_cancel(&frame.payload);
-                                // The turn boundary the course demands has
+                                // The turn boundary the arc demands has
                                 // been reached: whatever this turn closed is
                                 // no longer *this* turn's business, and the
                                 // gate opens again (W8).
@@ -10901,9 +10901,9 @@ mod tests {
         assert!(!turn_ended_in_api_error(other));
     }
 
-    /// A card on a course with a live arc, seated in `review`, and the ledger that
-    /// holds it.
-    fn on_course_review_card(root: &std::path::Path) -> Arc<crate::session_ledger::SessionLedger> {
+    /// A card on an arc with a live arc record, seated in `review`, and the
+    /// ledger that holds it.
+    fn on_arc_review_card(root: &std::path::Path) -> Arc<crate::session_ledger::SessionLedger> {
         let ledger = Arc::new(crate::session_ledger::SessionLedger::open_in_memory().unwrap());
         ledger
             .record_spawn(
@@ -10922,11 +10922,11 @@ mod tests {
         ledger
             .set_stage_provenance("claude-1", "review", None)
             .unwrap();
-        tugdash_core::arc::append_arc_start(root, "demo", "dash/demo-brief.md").unwrap();
-        tugdash_core::arc::append_arc_stage(
+        tugarc_core::arc::append_arc_start(root, "demo", "dash/demo-brief.md").unwrap();
+        tugarc_core::arc::append_arc_stage(
             root,
             "demo",
-            tugdash_core::arc::ArcStage::Review,
+            tugarc_core::arc::ArcStage::Review,
             "claude-1",
             None,
         )
@@ -10936,7 +10936,7 @@ mod tests {
 
     #[tokio::test]
     #[serial_test::serial]
-    async fn a_model_switch_on_an_on_course_card_lands_in_the_dash_log() {
+    async fn a_model_switch_on_an_on_arc_card_lands_in_the_dash_log() {
         let home = tempfile::tempdir().unwrap();
         // SAFETY: `#[serial]`; no other thread reads the environment here.
         unsafe {
@@ -10944,7 +10944,7 @@ mod tests {
         }
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
-        let ledger = on_course_review_card(root);
+        let ledger = on_arc_review_card(root);
 
         let (sup, _ledger, _rx) = make_supervisor_for_ledger(Arc::clone(&ledger), None);
         let tug_session_id = TugSessionId::new("claude-1");
@@ -10954,7 +10954,7 @@ mod tests {
             .await;
 
         assert_eq!(
-            tugdash_core::arc::read_arc(root, "demo").unwrap().notes,
+            tugarc_core::arc::read_arc(root, "demo").unwrap().notes,
             vec!["model → sonnet in review".to_string()],
         );
 
@@ -10962,7 +10962,7 @@ mod tests {
         sup.dispatch_one(model_change_frame("claude-1", "sonnet"))
             .await;
         assert_eq!(
-            tugdash_core::arc::read_arc(root, "demo")
+            tugarc_core::arc::read_arc(root, "demo")
                 .unwrap()
                 .notes
                 .len(),
@@ -10974,7 +10974,7 @@ mod tests {
         sup.dispatch_one(model_change_frame("claude-1", "opus"))
             .await;
         assert_eq!(
-            tugdash_core::arc::read_arc(root, "demo").unwrap().notes,
+            tugarc_core::arc::read_arc(root, "demo").unwrap().notes,
             vec![
                 "model → sonnet in review".to_string(),
                 "model → opus in review".to_string(),
@@ -11026,18 +11026,18 @@ mod tests {
             .await;
 
         assert_eq!(
-            tugdash_core::arc::read_arc(root, "demo"),
+            tugarc_core::arc::read_arc(root, "demo"),
             None,
-            "a card running no course leaves the log alone",
+            "a card running no arc leaves the log alone",
         );
 
-        // Bound to a dash whose arc has already stopped is also not a course.
-        let ledger = on_course_review_card(root);
-        tugdash_core::arc::append_arc_stop(
+        // Bound to a dash whose arc has already stopped is also not on one.
+        let ledger = on_arc_review_card(root);
+        tugarc_core::arc::append_arc_stop(
             root,
             "demo",
-            tugdash_core::arc::ArcStage::Review,
-            tugdash_core::arc::ArcStopReason::StoppedByUser,
+            tugarc_core::arc::ArcStage::Review,
+            tugarc_core::arc::ArcStopReason::StoppedByUser,
         )
         .unwrap();
         let (sup, _ledger, _rx) = make_supervisor_for_ledger(ledger, None);
@@ -11045,7 +11045,7 @@ mod tests {
         sup.dispatch_one(model_change_frame("claude-1", "sonnet"))
             .await;
         assert!(
-            tugdash_core::arc::read_arc(root, "demo")
+            tugarc_core::arc::read_arc(root, "demo")
                 .unwrap()
                 .notes
                 .is_empty(),
@@ -11084,33 +11084,33 @@ mod tests {
         ledger
             .set_stage_provenance("claude-1", "review", None)
             .unwrap();
-        tugdash_core::arc::append_arc_start(root, "demo", "dash/demo-brief.md").unwrap();
-        tugdash_core::arc::append_arc_stage(
+        tugarc_core::arc::append_arc_start(root, "demo", "dash/demo-brief.md").unwrap();
+        tugarc_core::arc::append_arc_stage(
             root,
             "demo",
-            tugdash_core::arc::ArcStage::Review,
+            tugarc_core::arc::ArcStage::Review,
             "claude-1",
             None,
         )
         .unwrap();
 
-        crate::dash_api::stop_an_on_course_cards_arc_as_closed(&ledger, "claude-1");
+        crate::arc_api::stop_an_on_arc_cards_arc_as_closed(&ledger, "claude-1");
 
         assert_eq!(
-            tugdash_core::arc::read_arc(root, "demo").unwrap().stopped,
+            tugarc_core::arc::read_arc(root, "demo").unwrap().stopped,
             Some((
-                tugdash_core::arc::ArcStage::Review,
+                tugarc_core::arc::ArcStage::Review,
                 "card closed".to_string()
             )),
         );
         // Twice is once: the second read finds the arc already stopped and
         // leaves the log alone, so a close that races anything else does not
         // stack `arc-stop` lines.
-        crate::dash_api::stop_an_on_course_cards_arc_as_closed(&ledger, "claude-1");
+        crate::arc_api::stop_an_on_arc_cards_arc_as_closed(&ledger, "claude-1");
         assert_eq!(
-            tugdash_core::arc::read_arc(root, "demo").unwrap().stopped,
+            tugarc_core::arc::read_arc(root, "demo").unwrap().stopped,
             Some((
-                tugdash_core::arc::ArcStage::Review,
+                tugarc_core::arc::ArcStage::Review,
                 "card closed".to_string()
             )),
         );
@@ -11515,7 +11515,7 @@ mod tests {
     /// press silent.
     #[test]
     fn every_replay_outcome_serializes_its_word_and_its_fields() {
-        use tugdash_core::ReplayOutcome;
+        use tugarc_core::ReplayOutcome;
 
         let current = serde_json::to_value(ReplayOutcome::Current).unwrap();
         assert_eq!(current["outcome"], "current");
@@ -11562,7 +11562,7 @@ mod tests {
     /// (Spec S03), so every shipped `changeset_join_ok` consumer is unaffected.
     #[test]
     fn changeset_join_ok_omits_blockers_when_there_are_none() {
-        let outcome = tugdash_core::JoinOutcome {
+        let outcome = tugarc_core::JoinOutcome {
             fit: None,
             name: "d".to_string(),
             base_branch: "main".to_string(),
@@ -11591,7 +11591,7 @@ mod tests {
         // history, and it must be absent rather than an empty array.
         assert!(body.get("archaeology").is_none());
 
-        let blocked = tugdash_core::JoinBlocker {
+        let blocked = tugarc_core::JoinBlocker {
             kind: "off-base".to_string(),
             title: "The base is on another branch".to_string(),
             detail: "Check out 'main' first.".to_string(),
@@ -12833,7 +12833,7 @@ mod tests {
             Some(&ledger),
             None,
             None,
-            "/dash-join",
+            "/arc-join",
             "landed",
             "/p",
         );
@@ -12846,7 +12846,7 @@ mod tests {
             Some(&ledger),
             None,
             Some("f6e43925-1a2b-4c3d-8e9f-0a1b2c3d4e5f"),
-            "/dash-join",
+            "/arc-join",
             "landed",
             "/p",
         );
@@ -12862,7 +12862,7 @@ mod tests {
     ///
     /// The point of writing it through `record_landing_receipt` rather than
     /// through a writer of its own is that it then restores by the same
-    /// machinery `/commit` and `/dash-join` restore by, and shows up in the
+    /// machinery `/commit` and `/arc-join` restore by, and shows up in the
     /// same `GET /api/ink-census` read. Counting DOM rows after a relaunch
     /// would prove the render; this proves what the render is *of*.
     #[test]
@@ -12928,7 +12928,7 @@ mod tests {
             Some(&shell),
             Some(&sessions),
             Some("parent"),
-            "/dash-join",
+            "/arc-join",
             "landed",
             "/proj",
         );
@@ -13055,7 +13055,7 @@ mod tests {
             Some(&shell),
             Some(&sessions),
             Some("parent"),
-            "/dash-join",
+            "/arc-join",
             "landed",
             "/proj",
         );
@@ -13274,8 +13274,8 @@ mod tests {
         // The result is in git regardless, and the composition the feed runs
         // reports it — which is the whole point of moving terminal truth off
         // CONTROL and onto the replayed snapshot feed.
-        let detail = tugdash_core::ops::dash_detail_entry_in(&root, "demo").expect("detail");
-        let branch = tugdash_core::ops::current_branch(&root).unwrap();
+        let detail = tugarc_core::ops::dash_detail_entry_in(&root, "demo").expect("detail");
+        let branch = tugarc_core::ops::current_branch(&root).unwrap();
         let state = crate::feeds::join_board::join_state_for(
             &root,
             &detail,
@@ -13288,7 +13288,7 @@ mod tests {
             "the candidate survived: {state:?}"
         );
         assert!(
-            tugdash_core::resolve::read_candidate(&root, "demo").is_some(),
+            tugarc_core::resolve::read_candidate(&root, "demo").is_some(),
             "and it is anchored in git"
         );
 
@@ -13365,7 +13365,7 @@ mod tests {
                     orphaned: vec![],
                 },
                 unattributed_draft: None,
-                document_dashes: vec![],
+                document_arcs: vec![],
             }],
         }
     }
@@ -13829,7 +13829,7 @@ mod tests {
         );
     }
 
-    /// **The [L29] pin.** `/api/dash` resolves `project_dir` through the
+    /// **The [L29] pin.** `/api/arc` resolves `project_dir` through the
     /// gateway, so a non-canonical spelling reaches the same session row as
     /// the canonical one — the CLI never canonicalizes.
     #[cfg(unix)]
@@ -13844,16 +13844,16 @@ mod tests {
         std::os::unix::fs::symlink(&root, &link).unwrap();
 
         let canonical = crate::path_resolver::resolve_to_claude_form(&link);
-        let outcome = crate::dash_api::bind(&ledger, &canonical, "sess-1", "demo");
+        let outcome = crate::arc_api::bind(&ledger, &canonical, "sess-1", "demo");
         assert!(matches!(
             outcome,
-            crate::dash_api::DashApiOutcome::Bound { .. }
+            crate::arc_api::ArcApiOutcome::Bound { .. }
         ));
 
         let dash_id = ledger.get("sess-1").unwrap().unwrap().dash_id.unwrap();
         // The id was minted in the *real* repo, reachable through the link.
         assert_eq!(
-            tugdash_core::ops::dash_owner_key(&root, "demo"),
+            tugarc_core::ops::dash_owner_key(&root, "demo"),
             dash_id,
             "the symlink spelling resolved to the same repo the canonical one names"
         );
@@ -13875,9 +13875,9 @@ mod tests {
         let ledger = crate::session_ledger::SessionLedger::open_in_memory().unwrap();
         seed_live_session(&ledger, "sess-1", "card-1", &root.to_string_lossy());
 
-        let refused = crate::dash_api::bind(&ledger, &elsewhere, "sess-1", "stranger");
+        let refused = crate::arc_api::bind(&ledger, &elsewhere, "sess-1", "stranger");
         match refused {
-            crate::dash_api::DashApiOutcome::Error(message) => assert!(
+            crate::arc_api::ArcApiOutcome::Error(message) => assert!(
                 message.contains("cannot bind"),
                 "the refusal names what it refused: {message}"
             ),
@@ -13891,8 +13891,8 @@ mod tests {
         // The same session's own project still binds, so the guard costs the
         // ordinary path nothing.
         assert!(matches!(
-            crate::dash_api::bind(&ledger, &root, "sess-1", "demo"),
-            crate::dash_api::DashApiOutcome::Bound { .. }
+            crate::arc_api::bind(&ledger, &root, "sess-1", "demo"),
+            crate::arc_api::ArcApiOutcome::Bound { .. }
         ));
     }
 
@@ -13904,12 +13904,12 @@ mod tests {
         let (_dir, root) = repo_with_dash("demo");
         let ledger = crate::session_ledger::SessionLedger::open_in_memory().unwrap();
         assert!(matches!(
-            crate::dash_api::bind(&ledger, &root, "not-mine", "demo"),
-            crate::dash_api::DashApiOutcome::UnknownSession
+            crate::arc_api::bind(&ledger, &root, "not-mine", "demo"),
+            crate::arc_api::ArcApiOutcome::UnknownSession
         ));
         assert!(matches!(
-            crate::dash_api::unbind(&ledger, "not-mine"),
-            crate::dash_api::DashApiOutcome::UnknownSession
+            crate::arc_api::unbind(&ledger, "not-mine"),
+            crate::arc_api::ArcApiOutcome::UnknownSession
         ));
     }
 
@@ -13942,10 +13942,10 @@ mod tests {
             })
             .unwrap();
 
-        let outcome = crate::dash_api::dash_gone(&ledger, &root, owner_key);
+        let outcome = crate::arc_api::dash_gone(&ledger, &root, owner_key);
         assert!(matches!(
             outcome,
-            crate::dash_api::DashApiOutcome::Cleared { cleared: 2, .. }
+            crate::arc_api::ArcApiOutcome::Cleared { cleared: 2, .. }
         ));
         assert!(ledger.get("sess-1").unwrap().unwrap().dash_id.is_none());
         assert!(ledger.get("sess-2").unwrap().unwrap().dash_id.is_none());
@@ -13997,7 +13997,7 @@ mod tests {
         std::fs::write(worktree.join("b.txt"), "work\n").unwrap();
         git_in(&worktree, &["add", "-A"]);
         git_in(&worktree, &["commit", "-m", "round"]);
-        let owner_key = tugdash_core::ops::ensure_dash_id(&root, "demo").unwrap();
+        let owner_key = tugarc_core::ops::ensure_dash_id(&root, "demo").unwrap();
         assert!(owner_key.contains('#'), "id-qualified: {owner_key}");
 
         let (mut sup, _state_rx, _meta_rx, _control_rx) = make_supervisor_with_store();
@@ -14040,7 +14040,7 @@ mod tests {
         // The teardown really happened — the branch and its config are gone,
         // so nothing could re-derive the key from here.
         assert_eq!(
-            tugdash_core::ops::dash_owner_key(&root, "demo"),
+            tugarc_core::ops::dash_owner_key(&root, "demo"),
             "tugdash/demo",
             "the branch config died with the branch"
         );
@@ -15740,7 +15740,7 @@ mod tests {
         assert!(entry.lock().await.is_quiet());
     }
 
-    // ── the course's turn boundary (W8) ──────────────────────────────────────
+    // ── the arc's turn boundary (W8) ─────────────────────────────────────────
 
     /// The one fact the PreToolUse hook cannot have: which turn a step was
     /// closed in. The verb reports it, the gate asks, and it lives exactly as
@@ -15760,7 +15760,7 @@ mod tests {
         assert!(sup.mark_step_closed_this_turn("sess-bound", 1).await);
         assert_eq!(sup.step_closed_this_turn("sess-bound").await, Some(1));
 
-        // The turn boundary the course demands: whatever this turn closed is
+        // The turn boundary the arc demands: whatever this turn closed is
         // no longer this turn's business, and the gate opens again.
         let entry = {
             let ledger = sup.ledger.lock().await;
@@ -17367,7 +17367,7 @@ mod tests {
     /// The pre-branch arc binding, which the branch-only gate nulled every
     /// time.
     ///
-    /// `tugtool dash run` binds through `ensure_dash_id`, which mints the
+    /// `tugtool arc run` binds through `ensure_dash_id`, which mints the
     /// owner key as git config and needs no branch — so between that bind and
     /// the dash's creation the binding is valid and has no `tugdash/<name>`
     /// ref. Gating on the ref alone made the card read unbound for that whole
@@ -21148,17 +21148,13 @@ mod tests {
                 .set_fork_provenance(pair[1], pair[0], None)
                 .expect("provenance");
         }
-        tugdash_core::arc::append_arc_start(root, dash, "dash/foo-brief.md").expect("arc-start");
+        tugarc_core::arc::append_arc_start(root, dash, "dash/foo-brief.md").expect("arc-start");
         for (stage, id, model) in [
-            (tugdash_core::arc::ArcStage::Devise, "s-devise", "opus"),
-            (tugdash_core::arc::ArcStage::Review, "s-review", "fable"),
-            (
-                tugdash_core::arc::ArcStage::Implement,
-                "s-implement",
-                "opus",
-            ),
+            (tugarc_core::arc::ArcStage::Devise, "s-devise", "opus"),
+            (tugarc_core::arc::ArcStage::Review, "s-review", "fable"),
+            (tugarc_core::arc::ArcStage::Implement, "s-implement", "opus"),
         ] {
-            tugdash_core::arc::append_arc_stage(root, dash, stage, id, Some(model))
+            tugarc_core::arc::append_arc_stage(root, dash, stage, id, Some(model))
                 .expect("arc-stage");
         }
         ledger
@@ -21196,7 +21192,7 @@ mod tests {
     }
 
     /// The invariant [B05] asks for: a rotation's transcript survives a
-    /// relaunch. With no course behind it there is no dash binding and no arc
+    /// relaunch. With no arc behind it there is no dash binding and no arc
     /// record to read, so the lineage has to come off the row or not at all.
     #[test]
     fn a_chain_rotated_with_no_score_behind_it_still_carries_its_lineage() {
@@ -21228,7 +21224,7 @@ mod tests {
         assert_eq!(lineage[1]["model"], "opus");
         assert!(
             lineage[1].get("arc").is_none() && lineage[1].get("document").is_none(),
-            "a rotation with no course names neither"
+            "a rotation with no arc names neither"
         );
     }
 

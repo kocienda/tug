@@ -1,5 +1,5 @@
 /**
- * at0473-dash-cockpit.test.ts — the Dashes card is the dash cockpit:
+ * at0473-dash-cockpit.test.ts — the Arcs card is the dash cockpit:
  * it lists the *waiting paperwork* beside the live dashes, in the same
  * two-line block a live dash wears.
  *
@@ -51,12 +51,12 @@
  * repository carries several real plans, so any assertion here would otherwise
  * be an assertion about whatever was devised that week.
  *
- * @covers tugdeck/src/components/dashes/dashes-card.tsx
- * @covers tugdeck/src/components/dashes/dashes-card.css
- * @covers tugdeck/src/lib/document-dash-entry.ts
- * @covers tugdeck/src/components/tugways/dash-lifecycle-block.tsx
- * @covers tugdeck/src/components/tugways/tug-dash-track.tsx
- * @covers tugdeck/src/components/tugways/tug-dash-track.css
+ * @covers tugdeck/src/components/arcs/arcs-card.tsx
+ * @covers tugdeck/src/components/arcs/arcs-card.css
+ * @covers tugdeck/src/lib/document-arc-entry.ts
+ * @covers tugdeck/src/components/tugways/arc-lifecycle-block.tsx
+ * @covers tugdeck/src/components/tugways/tug-arc-track.tsx
+ * @covers tugdeck/src/components/tugways/tug-arc-track.css
  * @covers tugdeck/src/lib/changeset-types.ts
  * @covers tugdeck/src/components/tugways/cards/session-card-telemetry-popovers.tsx
  * @covers tugdeck/src/components/tugways/cards/session-card-telemetry-popovers.css
@@ -285,8 +285,8 @@ describe.skipIf(!SHOULD_RUN)("AT0473: the dash cockpit lists waiting plans", () 
         await app.spawnSessionResume("A", { tugSessionId: SID_A, projectDir: dirA() });
         await app.awaitEngineReady("A", { timeoutMs: 15000 });
 
-        await app.dispatchControlAction("toggle-dashes");
-        // Opening the rail makes the *Dashes card* the key card, and the
+        await app.dispatchControlAction("toggle-arcs");
+        // Opening the rail makes the *Arcs card* the key card, and the
         // followed card is the last key card that is not it — tracked from the
         // moment the card mounts, so a focus that happened before it existed is
         // not history it has. Raising A is the real gesture that gives the card
@@ -372,7 +372,7 @@ describe.skipIf(!SHOULD_RUN)("AT0473: the dash cockpit lists waiting plans", () 
         // move — they are already at the dash's own address — so what changes
         // is only which list the name is on. Driven with the real verbs.
         const adopter = createDash(dirA(), ADOPTER, "at0473 adopter", projectA!.cli);
-        tugtool(["dash", "step", ADOPTER, "start", "1", "--through", "2"], {
+        tugtool(["arc", "step", ADOPTER, "start", "1", "--through", "2"], {
           cwd: dirA(),
           binaryRoot: CHECKOUT,
           env: projectA!.cli.env,
@@ -465,12 +465,12 @@ describe.skipIf(!SHOULD_RUN)("AT0473: the dash cockpit lists waiting plans", () 
           env: projectA!.cli.env,
         });
         await app.waitForCondition<boolean>(
-          `(document.querySelector(${JSON.stringify(CELL)})?.querySelector(".session-telemetry-endcap-label")?.textContent ?? "").trim() === "DASH"`,
+          `(document.querySelector(${JSON.stringify(CELL)})?.querySelector(".session-telemetry-endcap-label")?.textContent ?? "").trim() === "ARC"`,
           { timeoutMs: 60000 },
         );
         const bare = await app.evalJS<DashCellProbe>(PROBE_DASH_CELL);
         note("at0473 Z2 as DASH, no plan", JSON.stringify(bare));
-        expect(bare.label).toBe("DASH");
+        expect(bare.label).toBe("ARC");
         // No strip in this box: the cell is an instrument, and the whole
         // track lives on its placard ([D168]).
         expect(bare.tracks).toBe(0);
@@ -506,7 +506,7 @@ describe.skipIf(!SHOULD_RUN)("AT0473: the dash cockpit lists waiting plans", () 
 
         const dashBox = await app.evalJS<DashCellProbe>(PROBE_DASH_CELL);
         note("at0473 Z2 as DASH", JSON.stringify(dashBox));
-        expect(dashBox.label).toBe("DASH");
+        expect(dashBox.label).toBe("ARC");
         // **Numbers whenever there are numbers.** A declared step turns the
         // word into the pair, which is the one reading that changes while
         // somebody watches. Plain text, not a `TugStepFraction`: this cell is
@@ -526,7 +526,7 @@ describe.skipIf(!SHOULD_RUN)("AT0473: the dash cockpit lists waiting plans", () 
         // truncated, because nothing left in it would still be true truncated.
         expect(dashBox.text).not.toContain(DASH_NAME);
         // Which dash it is lives in the accessible label, in full.
-        expect(dashBox.aria).toBe(`dash ${DASH_NAME}, step 1 of 3`);
+        expect(dashBox.aria).toBe(`arc ${DASH_NAME}, step 1 of 3`);
         // **The box did not move between readings.** A word and a pair of
         // numbers are the same 18ch box: the width is authored per
         // `data-priority`, never sized to what the cell happens to say, so a

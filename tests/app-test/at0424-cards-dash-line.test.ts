@@ -26,10 +26,10 @@
  *
  * The counters' arrival is driven rather than assumed: the fixture dash
  * adopts a plan with no step started — the cluster then shows the stage glyph
- * alone — and a real `tugtool dash step … start` through the shell route is
+ * alone — and a real `tugtool arc step … start` through the shell route is
  * what makes the fraction and the ring appear.
  *
- * Everything is real. `tugtool dash bind` runs through the card's own `$`
+ * Everything is real. `tugtool arc bind` runs through the card's own `$`
  * shell route (the route that stamps `TUG_SESSION_ID`), and the marks appear
  * because `bound_sessions` moved in the account-global aggregate the row's
  * own subscription reads. `dash unbind` takes them away the same way.
@@ -41,12 +41,12 @@
  * @covers tugdeck/src/components/tugways/session-identity-row.css
  * @covers tugdeck/src/components/tugways/tug-step-fraction.tsx
  * @covers tugdeck/src/components/tugways/tug-step-fraction.css
- * @covers tugdeck/src/components/tugways/tug-dash-track.tsx
- * @covers tugdeck/src/components/tugways/tug-dash-track.css
- * @covers tugdeck/src/components/tugways/dash-lifecycle-mark.tsx
- * @covers tugdeck/src/components/tugways/dash-lifecycle-mark.css
- * @covers tugdeck/src/components/tugways/dash-phase-mark.tsx
- * @covers tugdeck/src/lib/dash-session-index.ts
+ * @covers tugdeck/src/components/tugways/tug-arc-track.tsx
+ * @covers tugdeck/src/components/tugways/tug-arc-track.css
+ * @covers tugdeck/src/components/tugways/arc-lifecycle-mark.tsx
+ * @covers tugdeck/src/components/tugways/arc-lifecycle-mark.css
+ * @covers tugdeck/src/components/tugways/arc-phase-mark.tsx
+ * @covers tugdeck/src/lib/arc-session-index.ts
  * @covers tugdeck/src/components/tugways/tug-session-row.tsx
  * @covers tugdeck/src/components/tugways/tug-session-row.css
  */
@@ -198,7 +198,7 @@ describe.skipIf(!SHOULD_RUN)("AT0424: dash progress on the session's row", () =>
         const bareCells = await listCellCount(app);
 
         // ── Bind, for real ────────────────────────────────────────────────
-        await shellAndSettle(app, `${tugtoolPath(CHECKOUT)} dash bind ${DASH_NAME}`);
+        await shellAndSettle(app, `${tugtoolPath(CHECKOUT)} arc bind ${DASH_NAME}`);
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(PROGRESS)}) !== null`,
           { timeoutMs: 30000 },
@@ -259,7 +259,7 @@ describe.skipIf(!SHOULD_RUN)("AT0424: dash progress on the session's row", () =>
         // ── The step opens: the fraction and the ring arrive ──────────────
         await shellAndSettle(
           app,
-          `${tugtoolPath(CHECKOUT)} dash step ${DASH_NAME} start 1 --through 2`,
+          `${tugtoolPath(CHECKOUT)} arc step ${DASH_NAME} start 1 --through 2`,
           1,
         );
         await app.waitForCondition<boolean>(
@@ -303,7 +303,7 @@ describe.skipIf(!SHOULD_RUN)("AT0424: dash progress on the session's row", () =>
         note("at0424 cards with the walk begun", (await app.screenshot()).path);
 
         // ── Unbind, for real ──────────────────────────────────────────────
-        await shellAndSettle(app, `${tugtoolPath(CHECKOUT)} dash unbind`, 2);
+        await shellAndSettle(app, `${tugtoolPath(CHECKOUT)} arc unbind`, 2);
         await app.waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(PROGRESS)}).length === 0`,
           { timeoutMs: 30000 },
@@ -345,7 +345,7 @@ describe.skipIf(!SHOULD_RUN)("AT0424: dash progress on the session's row", () =>
 
         // Binding needs no branch: the owner key is a git config entry, so a
         // card can hold a dash from the first line of its brief.
-        await shellAndSettle(app, `${tugtoolPath(CHECKOUT)} dash bind ${BRIEF_ONLY}`);
+        await shellAndSettle(app, `${tugtoolPath(CHECKOUT)} arc bind ${BRIEF_ONLY}`);
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(PROGRESS)}) !== null`,
           { timeoutMs: 30000 },

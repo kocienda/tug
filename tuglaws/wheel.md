@@ -34,7 +34,7 @@ A rotation is defined as much by what it cannot change as by what it carries. `R
 - The model. Absent means the account default, which sends *no* `model_change` frame at all rather than one carrying `"default"`.
 - The reasoning effort. Absent leaves the level as it is.
 - The opening prompt, and the stage label the transcript's divider renders.
-- The course this rotation belongs to (below), and the divider facts a course supplies: the document, the plan, the step range.
+- The arc this rotation belongs to (below), and the divider facts an arc supplies: the document, the plan, the step range.
 
 **Always dropped.**
 
@@ -52,52 +52,50 @@ The edge it waits for is the idle transition tugcast already computes once, in t
 
 A caller who is genuinely not in a turn is asking about the next one, and the receipt says so. Nothing is lost — a request is a promise about a turn's end, and there is always a next turn.
 
-## Courses, and how a card is handed back
+## Arcs, and how a card is handed back
 
-A **course** is what drives a series of rotations. Today they are all dash courses, whose course name is the dash, which reaches tugcode as the stage object's `course` field and the child process's `TUG_DASH_COURSE`.
+An **arc** is what drives a series of rotations. Its name reaches tugcode as the stage object's `arc` field and the child process's `TUG_ARC`.
 
-**The old spellings ride along for one release.** The stage object also carries `arc`, and every stage spawn also exports `TUG_DASH_ARC`, both holding the same dash name. A tugcode older than the rename reads `arc`; a skill from an older bundle reads `TUG_DASH_ARC`; a tugcode newer than a tugcast reads `course ?? arc`. Every direction of a mixed pair therefore *keeps* the course rather than dropping it, which is the only degradation a course can afford — a stage that concludes nothing is driving it walks the whole selection in one turn, which is the failure the retrenchment records. Both names are set together and cleared together, so neither can outlive the course it belongs to.
+**An arc comes in two kinds, and the record decides which.** Both open on a brief. A **trek** runs devise → review → implement → audit; a **dash** runs implement → audit, because the `/dash` door's whole economy is skipping the settling those two stages buy. The kind is written into the arc's durable record as an `arc-kind` line when the arc opens, from `tugtool arc run --kind dash|trek`, and `start_action` reads it — the documents no longer answer this, because on a dash's opening there is nothing on disk to ask: the task list is the implement stage's own first act ([B04]).
 
-**A dash course comes in two progressions, and the record decides which.** Both open on a brief. A **plan course** runs devise → review → implement → audit; a **dash course** runs implement → audit, because the `/dash` door's whole economy is skipping the settling those two stages buy. The kind is written into the arc's durable record as an `arc-course` line when the arc opens, from `tugtool dash run --course dash|plan`, and `start_action` reads it — the documents no longer answer this, because on a dash course's opening there is nothing on disk to ask: the task list is the implement stage's own first act ([B04]).
+`--kind` **defaults to `trek`**, and within a trek the documents still say how far along it the arc already is: a document that lints as a plan opens at review, a brief alone at devise. That default is exactly the derivation every arc had before the kind was recorded, so an existing arc resumes unchanged.
 
-`--course` **defaults to `plan`**, and within a plan course the documents still say how far along it the arc already is: a document that lints as a plan opens at review, a brief alone at devise. That default is exactly the derivation every dash had before the kind was recorded, so an existing dash resumes unchanged.
-
-**A pre-kind dash has no `arc-course` line, and the old document sniff is its fallback** — plan at review, task list at implement, brief at devise, with `plan.md` outranking `tasks.md`. The skew direction is toward *more* settling: a pre-kind dash the door meant as a dash course but left with only a brief opens at devise, spending two rotations it did not need rather than skipping a cold read it did.
+**A pre-kind arc has no `arc-kind` line, and the old document sniff is its fallback** — plan at review, task list at implement, brief at devise, with `plan.md` outranking `tasks.md`. The skew direction is toward *more* settling: a pre-kind arc the door meant as a dash but left with only a brief opens at devise, spending two rotations it did not need rather than skipping a cold read it did.
 
 **A client may name the model for the stage it asks for.** That is not switching the user's model, and the older guardrail saying never to is retired by this layer: a rotation names the model for *its* stage, and the card returns to the user's own when the stage is over. What the hand-back guarantees is what makes the naming safe.
 
-A course ends by handing the card back — one `model_change` frame carrying `deck_model`, so the card the user resumes typing into is on the user's own model. Without it a rotation's model change is permanent: tugcode records the selector on its manager and every later spawn reuses it, including through the user's own `/new`.
+An arc ends by handing the card back — one `model_change` frame carrying `deck_model`, so the card the user resumes typing into is on the user's own model. Without it a rotation's model change is permanent: tugcode records the selector on its manager and every later spawn reuses it, including through the user's own `/new`.
 
-**A rotation with no course is a one-stage course, and ends the same way.** It names a model, so it changed one, and no course's ending will ever restore it. The wheel arms a hand-back at the moment it performs such a rotation and fires it on that session's next turn-end tick. One turn is the right window because one turn is what the client asks for: a hand-off of a single review turn ends when that review's turn ends. A rotation naming no model arms nothing — it changed nothing, so there is nothing to restore.
+**A rotation with no arc is a one-stage arc, and ends the same way.** It names a model, so it changed one, and no arc's ending will ever restore it. The wheel arms a hand-back at the moment it performs such a rotation and fires it on that session's next turn-end tick. One turn is the right window because one turn is what the client asks for: a hand-off of a single review turn ends when that review's turn ends. A rotation naming no model arms nothing — it changed nothing, so there is nothing to restore.
 
-**One course per card.** A rotation requested for a card already running a live course is refused by name — `arc running` — rather than queued. Two schedulers driving one card can interleave, and refusing is the one behavior that cannot. A second rotation request on a card that already has one *pending* replaces it, which is the natural reading of a caller changing its mind mid-turn, and the receipt says it replaced one.
+**One arc per card.** A rotation requested for a card already running a live arc is refused by name — `arc running` — rather than queued. Two schedulers driving one card can interleave, and refusing is the one behavior that cannot. A second rotation request on a card that already has one *pending* replaces it, which is the natural reading of a caller changing its mind mid-turn, and the receipt says it replaced one.
 
 **A pending rotation does not survive a tugcast restart, and should not.** It is a promise about the end of a turn that is in flight right now; a restart ends that turn by killing the claude running it, so a request that survived would fire into a session that never finished the work it was scheduled behind.
 
-**A pending rotation is withdrawable.** `--cancel` clears it and says whether there was one; cancelling with nothing pending is a state, not an error. Withdrawing leaves nothing behind, which is the correct amount of ceremony for a promise about the next few seconds — unlike a course's stop, which is a durable record with a resume path because a course is a document-driven schedule.
+**A pending rotation is withdrawable.** `--cancel` clears it and says whether there was one; cancelling with nothing pending is a state, not an error. Withdrawing leaves nothing behind, which is the correct amount of ceremony for a promise about the next few seconds — unlike an arc's stop, which is a durable record with a resume path because an arc is a document-driven schedule.
 
 ### One threshold
 
-**A course that seats a stage with more turns to run watches that session's context against one threshold, and has two answers to a context that has crossed it.** `[tugtool.dash].implement_compact_tokens` is a project declaration in tokens, `300000` when nothing is declared. Above it the seated session is sent a `/compact` — it keeps its session, its lineage, and its stage label, and only its context comes down. A context the compaction could not bring back under the line gets the second and last answer: the stage rotates to a fresh session. The cheaper act always gets the first crossing, and a compaction the session never performed — an API error, a user's cancel — is never remembered as one, so the next boundary compacts again rather than falling through to the rotation.
+**An arc that seats a stage with more turns to run watches that session's context against one threshold, and has two answers to a context that has crossed it.** `[tugtool.dash].implement_compact_tokens` is a project declaration in tokens, `300000` when nothing is declared. Above it the seated session is sent a `/compact` — it keeps its session, its lineage, and its stage label, and only its context comes down. A context the compaction could not bring back under the line gets the second and last answer: the stage rotates to a fresh session. The cheaper act always gets the first crossing, and a compaction the session never performed — an API error, a user's cancel — is never remembered as one, so the next boundary compacts again rather than falling through to the rotation.
 
 **The threshold is a number of tokens, never a share of the model's window.** What makes a stage work badly is a long context, and long is a token count. The share that count happens to be of whatever model the stage was seated on is a different quantity, and on a very large window it is not even close to the same judgement: read as a fraction, one number would mean 120,000 tokens on one model and 600,000 on another. One setting, one unit, one meaning wherever the stage runs.
 
-**Like a rotation, a compaction happens at a turn end and never inside one.** The turn-end rule above is the whole reason: a prompt sent into an open turn would queue behind a model still working, and there would be no idle edge to read the result against. Under a course, the implement stage therefore closes one step per turn and ends it, so every step boundary is a turn boundary the course can act on — a rule of the stage's ask and its skill rather than of the wheel, because only a model can end a turn.
+**Like a rotation, a compaction happens at a turn end and never inside one.** The turn-end rule above is the whole reason: a prompt sent into an open turn would queue behind a model still working, and there would be no idle edge to read the result against. Under an arc, the implement stage therefore closes one step per turn and ends it, so every step boundary is a turn boundary the arc can act on — a rule of the stage's ask and its skill rather than of the wheel, because only a model can end a turn.
 
-**That rule is now held up by machinery as well as by words, because words alone did not hold it.** On the course machinery's first live run a stage closed step 1 and walked straight into step 2 in the same turn, through the skill's sentence and the wheel's own opening prompt alike — and an unended turn locks the wheel out of *everything*: pacing, the `/compact` above the threshold, the rotation after it, and the `ImplementIdle` clock, which counts turns that end. So the step verbs speak the boundary at the moment they move a row (`dash step done` ends with the sentence naming what the discipline demands next), and the PreToolUse gate refuses the overrun: once a course stage's turn has closed a step, a repo write or a `dash step start` from that same turn is denied by name. Only a model can end a turn, which is why the gate can only refuse what comes next rather than perform the ending — but refusing what comes next is enough, because there is then nothing else the turn can do.
+**That rule is now held up by machinery as well as by words, because words alone did not hold it.** On the wheel machinery's first live run a stage closed step 1 and walked straight into step 2 in the same turn, through the skill's sentence and the wheel's own opening prompt alike — and an unended turn locks the wheel out of *everything*: pacing, the `/compact` above the threshold, the rotation after it, and the `ImplementIdle` clock, which counts turns that end. So the step verbs speak the boundary at the moment they move a row (`arc step done` ends with the sentence naming what the discipline demands next), and the PreToolUse gate refuses the overrun: once an arc stage's turn has closed a step, a repo write or an `arc step start` from that same turn is denied by name. Only a model can end a turn, which is why the gate can only refuse what comes next rather than perform the ending — but refusing what comes next is enough, because there is then nothing else the turn can do.
 
 The one fact the gate cannot compute is which *turn* a close happened in: the hook is a fresh process, and turn boundaries are tugcast's (`LedgerEntry::turn_active`). So the verb reports the close through `POST /api/session {op:"step_closed"}`, the server holds it on the card's entry until the turn ends, and the gate asks through `{op:"turn_facts"}` — the same chokepoint shape the identity resolver uses, and skew-safe on the same terms: an instance that does not know the op leaves the gate denying nothing.
 
-**The wheel gains no verb here, and "Three verbs, and no others" stands exactly as written.** Sending a prompt to a seated session is a *client's* act, taken at the edge the wheel already computes: it lives in the arc runner and reaches the session through the supervisor's dispatcher, never through `rotate`. Naming a fourth verb would contradict the sentence under that heading — deciding what runs next is a client's — which is precisely the boundary that keeps a course's policy out of the wheel. And it is the same division "Always dropped" above already draws: carrying context across a rotation is `/compact`'s job, so a course that wants the context kept asks for a compaction rather than a rotation.
+**The wheel gains no verb here, and "Three verbs, and no others" stands exactly as written.** Sending a prompt to a seated session is a *client's* act, taken at the edge the wheel already computes: it lives in the arc runner and reaches the session through the supervisor's dispatcher, never through `rotate`. Naming a fourth verb would contradict the sentence under that heading — deciding what runs next is a client's — which is precisely the boundary that keeps an arc's policy out of the wheel. And it is the same division "Always dropped" above already draws: carrying context across a rotation is `/compact`'s job, so an arc that wants the context kept asks for a compaction rather than a rotation.
 
-## A course hands over a part, not a title
+## An arc hands over a part, not a title
 
 A stage opens on a prompt, and every character of that prompt is composed from documents. Four clauses, each omitted when its fact is absent:
 
 1. **The ask** — the slash command the stage's skill answers to, naming the document it is about.
 2. **Where to start** — the repo-relative paths the document's own findings cite, extracted mechanically from its backticked tokens and kept only where they resolve to a file that exists.
 3. **What moved** — what git says has changed in those paths since the document was last written.
-4. **Where the course is** — for a course that stopped and is resuming, which stage it stopped in and why.
+4. **Where the arc is** — for an arc that stopped and is resuming, which stage it stopped in and why.
 
 Nothing here is a sentence a model wrote about the work. A summary would be a claim nobody could check, and it would drift from the documents the moment they changed. A document citing nothing, in a repo git has never seen, produces exactly the bare ask — which is what makes the composition a safe replacement for one.
 
@@ -105,7 +103,7 @@ Nothing here is a sentence a model wrote about the work. A summary would be a cl
 
 A rotation's transcript is an invariant, and an invariant that only held while the process lived would not be one. So what a rotation seated a session as is written on the session's own row — `stage_label` and `stage_model` in `sessions.db`, beside the fork edge, from the same announcement and at the same moment.
 
-The restore reads the row. It consults a course's record only for the two facts that are genuinely the course's — the arc name and the document it opened on — and only where a course seated that entry. That is why a card rotated with nothing driving it replays as one scroll: there is no arc record to consult, and none is needed.
+The restore reads the row. It consults an arc's record only for the two facts that are genuinely the arc's — its name and the document it opened on — and only where an arc seated that entry. That is why a card rotated with nothing driving it replays as one scroll: there is no arc record to consult, and none is needed.
 
 ## The wheel keeps its own record of what it said
 
@@ -121,19 +119,19 @@ Authorship is therefore **stated by the sender**, never deduced by the reader. T
 
 | Face | Where | What it is for |
 |---|---|---|
-| The op | `POST /api/session`, `op: "rotate" \| "rotate_cancel"` | Loopback only, like every tugcast API. Parks the request; refuses a card already running a course; answers an unknown session as a 404 whose body the CLI's port loop reads as "not this instance". |
+| The op | `POST /api/session`, `op: "rotate" \| "rotate_cancel"` | Loopback only, like every tugcast API. Parks the request; refuses a card already running an arc; answers an unknown session as a 404 whose body the CLI's port loop reads as "not this instance". |
 | The verb | `tugtool session rotate` | What a model in a turn reaches for. `--prompt` is required; `--stage` defaults to `rotate`; `--cancel` withdraws. Prints a `TUG-ROTATION-RECEIPT:` line naming the stage, the model, when it will happen, and whether the card hands back; every refusal exits 1 with its reason on stderr. |
 | This document | `tuglaws/wheel.md` | The rules above. |
 
-The verb is spelled `session rotate` because it is the session that rotates, and the route follows the same reasoning rather than riding `/api/dash` — a rotation names no dash, and putting the wheel's parameter set inside a dash-shaped type would spell it in the wrong vocabulary.
+The verb is spelled `session rotate` because it is the session that rotates, and the route follows the same reasoning rather than riding `/api/arc` — a rotation names no arc, and putting the wheel's parameter set inside an arc-shaped type would spell it in the wrong vocabulary.
 
 **The stage label is the role.** With `--model` omitted, a `--stage` of `devise`, `review`, or `implement` resolves the model the project declared for that stage under `[tugtool.dash]`; any other label means the account default, and `--model` always wins. There is no separate roles table, because a second table mapping roles to models would be the same fact written twice. The resolution happens in the verb rather than the server: the CLI is where the project root is known from cwd.
 
-**`session rotate` still exposes no course flag, and that is deliberate.** `RotationRequest` carries a course and the arc runner fills it, but the rotation verb exposes none. The name is read by the stage skills as "a course is driving you" and by the arc runner as a dash name it will look up — so letting a caller set it to an arbitrary string would make those skills believe a course runs them and find no record behind the name. The course's own flag is `tugtool dash run --course`, which names a *kind* on a dash that exists, not a course out of nothing. The next non-dash course to need one adds it where the record it names is written.
+**`session rotate` still exposes no arc flag, and that is deliberate.** `RotationRequest` carries an arc name and the arc runner fills it, but the rotation verb exposes none. The name is read by the stage skills as "an arc is driving you" and by the arc runner as a name it will look up — so letting a caller set it to an arbitrary string would make those skills believe an arc runs them and find no record behind the name. The arc's own flag is `tugtool arc run --kind`, which names a *kind* on an arc that exists, not an arc out of nothing.
 
 ## One word that means something else
 
-- **`stage`.** [dash-lifecycle.md](dash-lifecycle.md) uses *stage* for one of the seven derived words describing a dash. A stage here is a rotation of a session. They are unrelated, and neither name is giving way.
+- **`stage`.** [arc-lifecycle.md](arc-lifecycle.md) uses *stage* for one of the seven derived words describing a dash. A stage here is a rotation of a session. They are unrelated, and neither name is giving way.
 
 ## The ask is visible where it is made
 
@@ -143,7 +141,7 @@ A pending-rotation note ahead of that divider would be a new action, a new store
 
 ## See also
 
-- [dash-lifecycle.md](dash-lifecycle.md) — what a dash is, and the other meaning of *stage*.
-- [dash-work-doctrine.md](dash-work-doctrine.md) — how an agent works on a dash worktree.
+- [arc-lifecycle.md](arc-lifecycle.md) — what a dash is, and the other meaning of *stage*.
+- [arc-work-doctrine.md](arc-work-doctrine.md) — how an agent works on a dash worktree.
 - [ledger-reliability.md](ledger-reliability.md) — `[LR9]` and the shutdown supervisor.
 - [turn-lifecycle.md](turn-lifecycle.md) — the turn whose end a rotation waits for.

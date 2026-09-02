@@ -1,11 +1,11 @@
 //! tugtool — the unified Tug developer CLI (changes & commits, dashes, host plumbing).
 
 mod apptest;
+mod arc;
+mod arc_turn;
 mod changes;
 mod cli;
 mod commands;
-mod dash;
-mod dash_course;
 mod draft;
 mod host;
 mod output;
@@ -111,8 +111,8 @@ fn main() -> ExitCode {
         // File lifecycle verbs — receipts are the attribution surface.
         Some(Commands::File(cmd)) => changes::finish(commands::run_file(cmd)),
 
-        // Dashes (tugdash_core) and host plumbing (command modules).
-        Some(Commands::Dash(cmd)) => dash::dispatch(cmd, json, quiet),
+        // Dashes (tugarc_core) and host plumbing (command modules).
+        Some(Commands::Arc(cmd)) => arc::dispatch(cmd, json, quiet),
         Some(Commands::Tripwire(cmd)) => tripwire::dispatch(cmd, json, quiet),
         Some(Commands::Plan(cmd)) => plan::dispatch(cmd, json),
         Some(Commands::Host(cmd)) => host::dispatch(cmd, json, quiet),

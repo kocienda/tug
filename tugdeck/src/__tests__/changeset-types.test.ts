@@ -14,7 +14,7 @@ import {
   isChangesetFile,
   isChangesetSnapshot,
   isOptionalChangesetDraft,
-  isDocumentDashEntry,
+  isDocumentArcEntry,
   isProjectChangeset,
   isWorkspacesChangesetSnapshot,
   type ChangesetSnapshot,
@@ -98,7 +98,7 @@ describe("changeset wire contract", () => {
     expect(
       isChangesetEntry({
         ...base,
-        documents: { plan: "/repo/.tug/dashes/x/plan.md", plan_title: "X" },
+        documents: { plan: "/repo/.tug/arcs/x/plan.md", plan_title: "X" },
       }),
     ).toBe(true);
     expect(isChangesetEntry({ ...base, documents: {} })).toBe(true);
@@ -239,27 +239,27 @@ describe("aggregate changeset wire contract", () => {
 
   test("a document-only dash rides the aggregate, guarded field for field", () => {
     const snapshot = aggregateGolden as WorkspacesChangesetSnapshot;
-    const planning = snapshot.projects[0]!.document_dashes;
+    const planning = snapshot.projects[0]!.document_arcs;
     expect(planning).toHaveLength(2);
     const first = planning![0]!;
     expect(first.display_name).toBe("dash-cockpit");
     // Absolute, because the deck composes nothing: it is handed the path.
-    expect(first.documents.plan).toBe("/repo/.tug/dashes/dash-cockpit/plan.md");
+    expect(first.documents.plan).toBe("/repo/.tug/arcs/dash-cockpit/plan.md");
     expect(first.documents.brief_title).toBe("The dash cockpit");
     expect(first.review).toBe("reviewed");
     expect([first.steps_done, first.steps_begun]).toEqual([1, 2]);
     // A project with none carries no key at all, so an older sender decodes.
-    expect(snapshot.projects[1]!.document_dashes).toBeUndefined();
+    expect(snapshot.projects[1]!.document_arcs).toBeUndefined();
 
-    expect(isDocumentDashEntry(first)).toBe(true);
+    expect(isDocumentArcEntry(first)).toBe(true);
     // The documents object is required — a row with no document is not a row.
     const { documents: _dropped, ...documentless } = first;
-    expect(isDocumentDashEntry(documentless)).toBe(false);
-    expect(isDocumentDashEntry({ ...first, step_total: "3" })).toBe(false);
-    expect(isDocumentDashEntry({ ...first, owner_id: 7 })).toBe(false);
+    expect(isDocumentArcEntry(documentless)).toBe(false);
+    expect(isDocumentArcEntry({ ...first, step_total: "3" })).toBe(false);
+    expect(isDocumentArcEntry({ ...first, owner_id: 7 })).toBe(false);
     // `review` is optional: a dash with a brief and no plan has none.
     const { review: _review, ...unreviewed } = first;
-    expect(isDocumentDashEntry(unreviewed)).toBe(true);
+    expect(isDocumentArcEntry(unreviewed)).toBe(true);
   });
 
   test("aggregate guards reject shape drift", () => {

@@ -467,19 +467,19 @@ export interface SessionSegment {
   forkPoint?: string;
   /**
    * The stage label. `devise` / `review` / `implement` are the arc's three;
-   * any other word is a rotation no course is driving. `rotation` only, and
+   * any other word is a rotation no arc is driving. `rotation` only, and
    * present on every one of them.
    */
   stage?: string;
   /** The model selector the rotation set, or empty for the account default. */
   model?: string;
   /**
-   * The document the course opened on, repo-relative. Absent on a courseless
-   * rotation. The bridge's parser requires only `parentSessionId`,
+   * The document the arc opened on, repo-relative. Absent on a rotation with
+   * no arc behind it. The bridge's parser requires only `parentSessionId`,
    * `newSessionId`, and `kind`; every other field is optional there.
    */
   document?: string;
-  /** The dash name the course is keyed by. Absent on a courseless rotation. */
+  /** The arc this rotation belongs to. Absent on a rotation with no arc behind it. */
   arc?: string;
   /**
    * The stage's opening prompt, echoed from the command so the deck opens the

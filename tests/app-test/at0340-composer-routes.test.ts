@@ -41,7 +41,7 @@
  * @covers tugdeck/src/lib/slash-commands.ts
  * @covers tugdeck/src/components/tugways/action-vocabulary.ts
  * @covers tugdeck/src/components/tugways/cards/session-card.tsx
- * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-dash-lane.tsx
+ * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-arc-lane.tsx
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
@@ -400,7 +400,7 @@ describe.skipIf(!SHOULD_RUN)("AT0340: the composer's two routes", () => {
         );
         // A *spawned* session, not a bound one: spawning registers the scratch
         // repo as a workspace (so the dash reaches the aggregate) and writes
-        // the live ledger row `/dash-bind`'s CONTROL frame resolves the
+        // the live ledger row `/arc-bind`'s CONTROL frame resolves the
         // calling session through.
         await app.spawnSessionResume("A", {
           tugSessionId: BOUND_SID,
@@ -409,19 +409,19 @@ describe.skipIf(!SHOULD_RUN)("AT0340: the composer's two routes", () => {
         await app.awaitEngineReady("A", { timeoutMs: 15000 });
 
         // Wait for the dash to reach the aggregate before binding: before the
-        // first compose `/dash-bind <name>` misses every snapshot match and
+        // first compose `/arc-bind <name>` misses every snapshot match and
         // falls through to the create path.
-        await app.dispatchControlAction("toggle-dashes");
+        await app.dispatchControlAction("toggle-arcs");
         await app.waitForCondition<boolean>(
           `document.querySelector('${DASHES_CARD} [data-slot="dashes-row"][data-dash="${DASH}"]') !== null`,
           { timeoutMs: 30000 },
         );
-        await app.dispatchControlAction("toggle-dashes");
+        await app.dispatchControlAction("toggle-arcs");
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(DASHES_CARD)}) === null`,
           { timeoutMs: 8000 },
         );
-        await runCommand(app, `/dash-bind ${DASH}`);
+        await runCommand(app, `/arc-bind ${DASH}`);
         await app.waitForCondition<boolean>(
           `document.querySelector('[data-slot="session-masthead"] [data-slot="session-identity-dash"]')?.textContent.trim() === ${JSON.stringify(`^${DASH}`)}`,
           { timeoutMs: 20000 },

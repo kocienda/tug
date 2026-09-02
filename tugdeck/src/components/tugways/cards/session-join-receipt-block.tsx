@@ -1,6 +1,6 @@
 /**
  * `SessionJoinReceiptBlock` / `SessionDiscardReceiptBlock` — the bespoke
- * `/dash-join` and `/dash-discard` command-block renderers ([P06]).
+ * `/arc-join` and `/dash-discard` command-block renderers ([P06]).
  *
  * A landed join and a discarded dash each leave one shell-exchange row whose
  * `output` is the server-formatted summary (Specs S01 / S02). These renderers
@@ -30,7 +30,7 @@ import { CommitMessage } from "@/components/tugways/commit-presentation";
 import { markdownTextParts } from "@/components/tugways/tug-markdown-text";
 import { useCommitIdentityMenu } from "@/components/tugways/commit-identity-menu";
 import { CommitChangesList } from "@/components/tugways/tug-changes-list";
-import { DashJoinRegister } from "@/components/tugways/dash-join-register";
+import { ArcJoinRegister } from "@/components/tugways/arc-join-register";
 import { useAnnotatedElement } from "@/components/tugways/annotation-scope";
 import { BlockChrome } from "../blocks/block-chrome";
 import { ToolBlockHistoryCollapse } from "../blocks/collapse-context";
@@ -103,7 +103,7 @@ const HISTORICAL_DISCARD_HEAD_RE =
   /^released (\S+) · discarded (\d+) round\(s\)(?:, (\d+) file\(s\))?$/;
 
 /**
- * Parse a `/dash-join` receipt from its `output` string, or `null` when the
+ * Parse a `/arc-join` receipt from its `output` string, or `null` when the
  * output is not an S01 summary — a truncated row, or one written before the
  * format existed. The caller then renders the raw output rather than nothing.
  *
@@ -188,9 +188,9 @@ export function SessionJoinReceiptBlock(props: CommandBlockProps): React.ReactEl
           Derived rather than written down: `dash` and `base` come off the
           receipt the ledger already carries, so the row costs no ink of its
           own and reads identically live and on restore. It goes through
-          `DashJoinRegister` so its sentence is the same derivation the live
+          `ArcJoinRegister` so its sentence is the same derivation the live
           register runs ([D111] parity, one vocabulary). */}
-      <DashJoinRegister
+      <ArcJoinRegister
         dash={parsed.dash}
         base={parsed.base}
         stage="ready"
@@ -426,7 +426,7 @@ export function discardReceiptFindParts(
 // Registration is a side effect of importing this module (the import sits
 // beside the commit block's in `session-card-transcript.tsx`, so both are
 // registered before the first resolve).
-registerCommandBlock("dash-join-receipt", matchesJoinReceipt, SessionJoinReceiptBlock, {
+registerCommandBlock("arc-join-receipt", matchesJoinReceipt, SessionJoinReceiptBlock, {
   // A join squashes the dash onto the base and commits it. That is the same
   // act `/commit` performs, differently started, so it wears the same
   // attribution — the discard below deletes a branch and commits nothing, so

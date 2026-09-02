@@ -34,7 +34,7 @@
  * mid-run, with their uncommitted work in the index. Pointing the card at a
  * scratch repository instead does not help: the changeset aggregate composes
  * exactly one project, this checkout (at0332 records the same constraint), so
- * a dash in `/tmp` never reaches the card for `/dash-join` to resolve.
+ * a dash in `/tmp` never reaches the card for `/arc-join` to resolve.
  *
  * A **discard** has no such cost — it destroys a fixture dash and nothing
  * else — so the end-to-end path that this file cannot walk (card → server →
@@ -231,7 +231,7 @@ describe.skipIf(!SHOULD_RUN)("AT0419: the join and discard receipts", () => {
         });
 
         // ── The join receipt, on the commit skeleton ──────────────────────
-        await receiptRow(app, "join-1", "/dash-join", JOIN_SUMMARY);
+        await receiptRow(app, "join-1", "/arc-join", JOIN_SUMMARY);
         await app.waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(JOIN_RECEIPT)}).length === 1`,
           { timeoutMs: 20000 },
@@ -275,7 +275,7 @@ describe.skipIf(!SHOULD_RUN)("AT0419: the join and discard receipts", () => {
              const block = document.querySelector(${JSON.stringify(JOIN_RECEIPT)});
              const kids = Array.from(block.parentElement.children);
              return {
-               register: kids.findIndex((k) => k.matches('[data-slot="dash-join-register"]')),
+               register: kids.findIndex((k) => k.matches('[data-slot="arc-join-register"]')),
                receipt: kids.indexOf(block),
              };
            })()`,
@@ -298,7 +298,7 @@ describe.skipIf(!SHOULD_RUN)("AT0419: the join and discard receipts", () => {
         // `diff-tree` for a sha that exists, resolved at the row's
         // ledger-persisted cwd.
         expect(realAddedLine.length).toBeGreaterThan(0);
-        await receiptRow(app, "join-real", "/dash-join", realJoinSummary, realRepoRoot);
+        await receiptRow(app, "join-real", "/arc-join", realJoinSummary, realRepoRoot);
         await app.waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(JOIN_RECEIPT)}).length === 2`,
           { timeoutMs: 20000 },
@@ -334,7 +334,7 @@ describe.skipIf(!SHOULD_RUN)("AT0419: the join and discard receipts", () => {
         // The parse-forever contract: a transcript replays from JSONL on every
         // reload, so a format change that orphaned these would turn every join
         // already recorded back into a raw shell row.
-        await receiptRow(app, "join-historical", "/dash-join", HISTORICAL_JOIN_SUMMARY);
+        await receiptRow(app, "join-historical", "/arc-join", HISTORICAL_JOIN_SUMMARY);
         await app.waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(JOIN_RECEIPT)}).length === 3`,
           { timeoutMs: 20000 },
@@ -385,7 +385,7 @@ describe.skipIf(!SHOULD_RUN)("AT0419: the join and discard receipts", () => {
         // ── A row the parser does not claim renders raw ───────────────────
         // The fallback is the whole reason a parse miss returns null: the
         // reader sees the output rather than an empty block.
-        await receiptRow(app, "join-legacy", "/dash-join", LEGACY_OUTPUT);
+        await receiptRow(app, "join-legacy", "/arc-join", LEGACY_OUTPUT);
         await app.waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(SHELL_ROWS)}).length === 5`,
           { timeoutMs: 20000 },

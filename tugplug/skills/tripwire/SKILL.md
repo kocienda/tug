@@ -17,7 +17,7 @@ Your job here is to turn a sentence into a tripwire that will still be right in 
 
 **Two things a tripwire never does, and they are not preferences.**
 
-- **A tripwire never joins.** It may author work on a dash and it may say so. Landing that work is the user's act, always. `dash join --resolve` is never a tripwire's to run, and never yours on a tripwire's behalf.
+- **A tripwire never joins.** It may author work on a dash and it may say so. Landing that work is the user's act, always. `arc join --resolve` is never a tripwire's to run, and never yours on a tripwire's behalf.
 - **A tripwire never widens its own scope.** Where a tripwire watches is a decision somebody made, and quietly extending it is how a tripwire starts firing on landings nobody meant it to see.
 
 ## The shape of a tripwire

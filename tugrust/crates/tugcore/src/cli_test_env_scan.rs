@@ -6,12 +6,12 @@
 //! past a chokepoint. This one stops a *test* handing a real binary the
 //! developer's live environment.
 //!
-//! The incident: `tripwire_cli.rs` ran `tugtool dash create` in a temp repo
+//! The incident: `tripwire_cli.rs` ran `tugtool arc create` in a temp repo
 //! with neither `TUG_SESSION_ID` nor the instance registry scrubbed. On a
 //! machine where the suite runs from inside a Session card — which is most of
 //! them — the spawned binary reached the *real* registry and posted a bind
 //! naming a scratch dash in a directory that would be gone a second later.
-//! That is precisely the hazard `dash_api::bind`'s same-project guard was
+//! That is precisely the hazard `arc_api::bind`'s same-project guard was
 //! added for, met from the one side the guard cannot inspect.
 //!
 //! It was fixed by hand, in one file. Two other CLI test files had reached the

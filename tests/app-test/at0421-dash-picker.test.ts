@@ -1,5 +1,5 @@
 /**
- * at0421-dash-picker.test.ts — bare `/dash-bind`'s picker sheet, over three
+ * at0421-dash-picker.test.ts — bare `/arc-bind`'s picker sheet, over three
  * real dashes.
  *
  * Picking a dash is a UI-concept act with no turn and no durable consequence,
@@ -23,12 +23,12 @@
  * and nothing another run can add — and would be a fixture per case. Until then
  * the branch is three lines in `session-card.tsx`'s `dash-bind` handler.
  *
- * @covers tugdeck/src/components/tugways/cards/dash-picker-sheet.tsx
+ * @covers tugdeck/src/components/tugways/cards/arc-picker-sheet.tsx
  * @covers tugdeck/src/components/tugways/cards/session-card.tsx
  * @covers tugdeck/src/lib/card-session-binding-store.ts
  * @covers tugdeck/src/components/tugways/tug-session-identity.tsx
- * @covers tugdeck/src/components/tugways/tug-dash-atom.tsx
- * @covers tugdeck/src/components/tugways/dash-lifecycle-block.tsx
+ * @covers tugdeck/src/components/tugways/tug-arc-atom.tsx
+ * @covers tugdeck/src/components/tugways/arc-lifecycle-block.tsx
  * @covers tugdeck/src/components/tugways/tug-meta-run.tsx
  */
 
@@ -141,15 +141,15 @@ async function openCard(app: App): Promise<void> {
   await app.awaitEngineReady("A", { timeoutMs: 15000 });
   // The picker lists what the snapshot holds, so wait until it holds the
   // fixtures — before the first compose the bare form would caution instead.
-  // The Dashes card reads the same `ChangesetAllStore` the card's
+  // The Arcs card reads the same `ChangesetAllStore` the card's
   // controller does, so a row there is the proof, and it is observable from
   // outside the card.
-  await app.dispatchControlAction("toggle-dashes");
+  await app.dispatchControlAction("toggle-arcs");
   await app.waitForCondition<boolean>(
     `document.querySelector('${DASHES_CARD} [data-slot="dashes-row"][data-dash="${DASHES[2]}"]') !== null`,
     { timeoutMs: 30000 },
   );
-  await app.dispatchControlAction("toggle-dashes");
+  await app.dispatchControlAction("toggle-arcs");
   await app.waitForCondition<boolean>(
     `document.querySelector(${JSON.stringify(DASHES_CARD)}) === null`,
     { timeoutMs: 8000 },
@@ -162,9 +162,9 @@ const namesIn = (app: App): Promise<string[]> =>
        .map((el) => el.getAttribute("data-dash"))`,
   );
 
-describe.skipIf(!SHOULD_RUN)("AT0421: the /dash-bind picker", () => {
+describe.skipIf(!SHOULD_RUN)("AT0421: the /arc-bind picker", () => {
   test(
-    "bare /dash-bind lists the project's dashes, and arrow-then-Return binds the highlighted one",
+    "bare /arc-bind lists the project's dashes, and arrow-then-Return binds the highlighted one",
     async () => {
       const tugbankPath = mkTempTugbank();
       seedTugbankForLaunch(tugbankPath, { sourceTreePath: CHECKOUT });
@@ -176,7 +176,7 @@ describe.skipIf(!SHOULD_RUN)("AT0421: the /dash-bind picker", () => {
         await openCard(app);
 
         // ── The sheet lists the project's dashes ──────────────────────────
-        await runCommand(app, "/dash-bind");
+        await runCommand(app, "/arc-bind");
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(PICKER)}) !== null`,
           { timeoutMs: 10000 },
@@ -220,7 +220,7 @@ describe.skipIf(!SHOULD_RUN)("AT0421: the /dash-bind picker", () => {
         // ── Arrow to a row, Return binds it ───────────────────────────────
         // The seeded cursor is the card's own dash — there is none here, so it
         // rests on the first row, and one Down moves to the second.
-        await runCommand(app, "/dash-bind");
+        await runCommand(app, "/arc-bind");
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(PICKER)}) !== null`,
           { timeoutMs: 10000 },
@@ -244,9 +244,9 @@ describe.skipIf(!SHOULD_RUN)("AT0421: the /dash-bind picker", () => {
         expect(bound).not.toBe(chipText(rows[0]));
 
         // ── Re-opened, the bound row wears its worker ─────────────────────
-        // The same eyebrow grammar the Dashes card and the shade lead with, which is
+        // The same eyebrow grammar the Arcs card and the shade lead with, which is
         // the fact this picker exists to weigh: somebody is on that one.
-        await runCommand(app, "/dash-bind");
+        await runCommand(app, "/arc-bind");
         await app.waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(`${PICKER_ROWS} [data-slot="tug-dash-lifecycle-worker"]`)}).length === 1`,
           { timeoutMs: 15000 },

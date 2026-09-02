@@ -192,7 +192,7 @@ const SWIFT_WIRES: Readonly<Record<string, WireKind>> = {
   reload: "command",
   "toggle-jots": "command",
   "toggle-tripwires": "command",
-  "toggle-dashes": "command",
+  "toggle-arcs": "command",
   "toggle-cards": "command",
   "toggle-layout": "command",
   "toggle-overview": "command",

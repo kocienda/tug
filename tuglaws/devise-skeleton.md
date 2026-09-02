@@ -1,10 +1,10 @@
 <!-- devise-skeleton v6 -->
 
 <!--
-  This is the format contract for plans authored by `/tugplug:dash-devise` and walked
-  by `/tugplug:dash-implement`. Its mechanical half is checked by `tugtool plan lint`;
-  its judgment half is `/tugplug:dash-review`'s, against
-  `tuglaws/dash-review-rubric.md`.
+  This is the format contract for plans authored by `/tugplug:arc-devise` and walked
+  by `/tugplug:arc-implement`. Its mechanical half is checked by `tugtool plan lint`;
+  its judgment half is `/tugplug:arc-review`'s, against
+  `tuglaws/plan-review-rubric.md`.
   The devise skill's output is a plan written against this skeleton.
 
   Prefix reservation: plan-local design decisions use `[P01]` (NOT `[D01]`).
@@ -52,7 +52,7 @@
 ### Review Record {#review-record}
 
 <!--
-  One paragraph per review round, appended by `/tugplug:dash-review` — never
+  One paragraph per review round, appended by `/tugplug:arc-review` — never
   rewritten, since the point is the history. It sits here, before the body, so a
   cold reader learns whether this plan has been reviewed and what the review
   found before investing in the rest.
@@ -384,15 +384,15 @@ Table T05, (#op-rename, #fundamental-wall)
 >
 > **Patterns:**
 > - If a step is large, split the work into multiple **flat steps** (`Step N`, `Step N+1`, …) with separate commits and checkpoints, each with explicit `**Depends on:**` lines.
-> - End the plan with an **Integration Checkpoint step** that verifies the **fit** — not the work. Its subject is the one tree nothing else in the run ever tested: the dash replayed onto the live base, which is what a join will actually land. Give it an ordinary `**Commit:**` message like any other step: closing a step writes its ledger row, that write dirties the tree, and the round commits it — so the step lands a commit whatever the plan says, and a message reading "no separate commit" describes a state that never occurs.
+> - End the plan with an **Integration Checkpoint step** that verifies the **fit** — not the work. Its subject is the one tree nothing else in the run ever tested: the arc replayed onto the live base, which is what a join will actually land. Give it an ordinary `**Commit:**` message like any other step: closing a step writes its ledger row, that write dirties the tree, and the round commits it — so the step lands a commit whatever the plan says, and a message reading "no separate commit" describes a state that never occurs.
 >
-> **The run declares where it ends, and that declaration arms the join.** `dash step start <n> --through <m>` names `m` as the last step of the run; when step `m` goes `done`, the dash is finished, the join arms itself, and the offer reaches the user without anybody remembering to raise it. A run that never declared its last step can only ever look like a run still in progress. So a plan's step list is also a promise about where the arc ends — which is why a step folded into a neighbour, or abandoned outright, is still *declared*: `dash step withdraw <n>` closes it, arming the join exactly as a `done` does, without claiming work nobody did. Never quietly drop one.
+> **The run declares where it ends, and that declaration arms the join.** `arc step start <n> --through <m>` names `m` as the last step of the run; when step `m` goes `done`, the arc is finished, the join arms itself, and the offer reaches the user without anybody remembering to raise it. A run that never declared its last step can only ever look like a run still in progress. So a plan's step list is also a promise about where the arc ends — which is why a step folded into a neighbour, or abandoned outright, is still *declared*: `arc step withdraw <n>` closes it, arming the join exactly as a `done` does, without claiming work nobody did. Never quietly drop one.
 >
 > **The Integration Checkpoint is a procedure, and it is not a second sweep.** A checkpoint that passed is spent: every command in the per-step checkpoints already ran, against these bytes, inside the step that changed them. Re-listing them at the end costs minutes and can only re-prove what is already proven — and it proves it about the **sandbox**, frozen at branch time, rather than about the deliverable. So the ending is:
 >
-> 1. `tugtool dash replay <name>` — replays the rounds onto the live base, moving the branch and the worktree together.
-> 2. On **`Replayed`** or **`Recorded`** the tree moved, so verify it: `tugtool dash verify <name>`, run in the warm worktree. It resolves every path the replay moved to a surface the project declared and runs what those surfaces declare — nothing is substituted by hand. A **refusal** names paths no surface claims and runs no check at all; declare a surface for them. **A project that declares no surfaces says so and exits 0 — then verify with the plan's own checkpoint commands over what the replay moved, the commands the plan already names, never an invented one, and say so.**
-> 3. On **`Current`** the base has not moved, so the tree the run's last checkpoint verified *is* the deliverable, byte for byte. **Nothing re-runs.** The ending costs one `dash replay` and seconds.
+> 1. `tugtool arc replay <name>` — replays the rounds onto the live base, moving the branch and the worktree together.
+> 2. On **`Replayed`** or **`Recorded`** the tree moved, so verify it: `tugtool arc verify <name>`, run in the warm worktree. It resolves every path the replay moved to a surface the project declared and runs what those surfaces declare — nothing is substituted by hand. A **refusal** names paths no surface claims and runs no check at all; declare a surface for them. **A project that declares no surfaces says so and exits 0 — then verify with the plan's own checkpoint commands over what the replay moved, the commands the plan already names, never an invented one, and say so.**
+> 3. On **`Current`** the base has not moved, so the tree the run's last checkpoint verified *is* the deliverable, byte for byte. **Nothing re-runs.** The ending costs one `arc replay` and seconds.
 > 4. On **`Conflicted`** the replay names the round it could not apply. That is work arriving at the right desk — the model is present, the worktree is warm, and the conflict is resolved there as normal work, then verified as in (2).
 >
 > **A verify that comes back red is ordinary work, not a new state.** Fix it in the warm worktree, commit the fix as a round, and run it again — the same aftermath the `Conflicted` arm already teaches. Nothing about a red verify reaches the join: the join gate is reconcile-clean alone ([D149]), and a run stopped at a red verify has simply not finished its ending.
@@ -405,7 +405,7 @@ Table T05, (#op-rename, #fundamental-wall)
 
 #### Step Status Ledger {#step-status-ledger}
 
-> A single at-a-glance table of every step and its current state. `/tugplug:dash-implement`
+> A single at-a-glance table of every step and its current state. `/tugplug:arc-implement`
 > reads this to know where to resume (the first row that is neither `done` nor `withdrawn`), to scope a
 > step range, and to mark progress. The run keeps it in sync through the step verbs, which flip `pending` →
 > `in progress` → `done` (recording the commit), or → `withdrawn` for a step the run decided not to walk
@@ -415,7 +415,7 @@ Table T05, (#op-rename, #fundamental-wall)
 > run's to write, never an author's.
 
 > **Every step gets a row, and every row names a step.** The linter checks this in
-> both directions (PL016): a step with no row is a step `dash step` cannot start or
+> both directions (PL016): a step with no row is a step `arc step` cannot start or
 > finish, and a row naming no step is a row the run will never close. The rows below
 > match the five steps this template goes on to show.
 
@@ -530,8 +530,8 @@ Table T05, (#op-rename, #fundamental-wall)
 **References:** [P04] <decision>, [P05] <decision>, (#success-criteria)
 
 **Tasks:**
-- [ ] `tugtool dash replay <name>` — put the rounds on the live base, so what gets verified is what would land.
-- [ ] `Replayed` / `Recorded`: verify the replayed tree with `tugtool dash verify <name>`; a refusal names paths no surface claims and is fixed by declaring one, and a project that declares no surfaces falls back to the plan's own checkpoint commands over what the replay moved, said plainly.
+- [ ] `tugtool arc replay <name>` — put the rounds on the live base, so what gets verified is what would land.
+- [ ] `Replayed` / `Recorded`: verify the replayed tree with `tugtool arc verify <name>`; a refusal names paths no surface claims and is fixed by declaring one, and a project that declares no surfaces falls back to the plan's own checkpoint commands over what the replay moved, said plainly.
 - [ ] `Current`: the base never moved, so the last step's checkpoint already verified these exact bytes — re-run nothing and say so.
 - [ ] `Conflicted`: resolve the named round in the worktree, then verify as above.
 

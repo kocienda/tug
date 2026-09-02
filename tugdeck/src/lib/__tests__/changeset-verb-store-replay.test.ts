@@ -15,7 +15,7 @@
 import { describe, test, expect, beforeEach } from "bun:test";
 
 import { ChangesetVerbStore } from "../changeset-verb-store";
-import { dashReplayOutcomeStore } from "../dash-replay-outcome-store";
+import { arcReplayOutcomeStore } from "../arc-replay-outcome-store";
 
 const ENTRY = "session:s1";
 const PROJECT = "/proj";
@@ -54,7 +54,7 @@ function harness(): {
 let h: ReturnType<typeof harness>;
 beforeEach(() => {
   h = harness();
-  dashReplayOutcomeStore.clear(SESSION);
+  arcReplayOutcomeStore.clear(SESSION);
 });
 
 describe("the replay round trip", () => {
@@ -108,7 +108,7 @@ describe("the replay round trip", () => {
     expect(state.outcome).toBe("deferred");
     expect(state.detail).toBe("dash 'replay-lane' has uncommitted changes");
 
-    const posted = dashReplayOutcomeStore.outcomeFor(SESSION);
+    const posted = arcReplayOutcomeStore.outcomeFor(SESSION);
     expect(posted?.outcome).toBe("deferred");
     expect(posted?.detail).toBe("dash 'replay-lane' has uncommitted changes");
   });
@@ -125,7 +125,7 @@ describe("the replay round trip", () => {
       round_subject: "teach the row to speak",
       paths: ["src/a.ts", "src/b.ts"],
     });
-    const posted = dashReplayOutcomeStore.outcomeFor(SESSION);
+    const posted = arcReplayOutcomeStore.outcomeFor(SESSION);
     expect(posted?.outcome).toBe("conflicted");
     expect(posted?.roundSubject).toBe("teach the row to speak");
     expect(posted?.paths).toEqual(["src/a.ts", "src/b.ts"]);
@@ -143,7 +143,7 @@ describe("the replay round trip", () => {
     const state = h.store.replayState(ENTRY);
     expect(state.phase).toBe("error");
     expect(state.error).toBe("not a git repository");
-    expect(dashReplayOutcomeStore.outcomeFor(SESSION)?.outcome).toBe("error");
+    expect(arcReplayOutcomeStore.outcomeFor(SESSION)?.outcome).toBe("error");
   });
 
   test("a reply for a replay this card never sent is ignored", () => {
@@ -160,7 +160,7 @@ describe("the replay round trip", () => {
 describe("the outcome notice store", () => {
   test("two identical outcomes in a row both notify", () => {
     let woken = 0;
-    const unsubscribe = dashReplayOutcomeStore.subscribe(() => {
+    const unsubscribe = arcReplayOutcomeStore.subscribe(() => {
       woken += 1;
     });
 
@@ -175,9 +175,9 @@ describe("the outcome notice store", () => {
       });
     };
     post();
-    const first = dashReplayOutcomeStore.outcomeFor(SESSION);
+    const first = arcReplayOutcomeStore.outcomeFor(SESSION);
     post();
-    const second = dashReplayOutcomeStore.outcomeFor(SESSION);
+    const second = arcReplayOutcomeStore.outcomeFor(SESSION);
 
     unsubscribe();
     expect(woken).toBeGreaterThanOrEqual(2);
@@ -198,6 +198,6 @@ describe("the outcome notice store", () => {
       reason: "dirty-worktree",
       detail: "dash 'replay-lane' has uncommitted changes",
     });
-    expect(dashReplayOutcomeStore.outcomeFor(SESSION)).toBeNull();
+    expect(arcReplayOutcomeStore.outcomeFor(SESSION)).toBeNull();
   });
 });

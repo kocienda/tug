@@ -88,7 +88,7 @@ export function parseSlashCommandLine(text: string): ParsedSlashCommand | null {
 
 /**
  * Parse text as a project shell-command line. Returns the trimmed command
- * line (`just launch-debug`, `tugtool dash join --preview`) when it begins
+ * line (`just launch-debug`, `tugtool arc join --preview`) when it begins
  * with a known tool + subcommand, or `null` otherwise. The returned string
  * is what a click seeds into the Code route as `/shell <command>`.
  */

@@ -1,5 +1,5 @@
 /**
- * Changeset dash-join resolve overlay store — the `/btw`-style progress layer
+ * Changeset arc-join resolve overlay store — the `/btw`-style progress layer
  * over the resolution ladder's CONTROL frames (Spec S12, [P31]/[P32]).
  *
  * When the card asks tugcast to resolve a conflicted join, the ladder streams
@@ -687,7 +687,7 @@ const NO_LANDING_DASHES: ReadonlySet<string> = new Set<string>();
  * back if the join fails, because a failure is the one outcome that still
  * wants somebody.
  */
-export function useChangesetLandingDashes(workspaceKey: string): ReadonlySet<string> {
+export function useChangesetLandingArcs(workspaceKey: string): ReadonlySet<string> {
   return useSyncExternalStore(
     (listener) => {
       const store = _activeStore;

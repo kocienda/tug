@@ -3,7 +3,7 @@
  * `tugplug:dash` orchestrator skill, and gets there through the ordinary
  * three-tier classifier rather than through any special case.
  *
- * `dash` was a locally-registered retired spelling of `/dash-bind`, so a typed
+ * `dash` was a locally-registered retired spelling of `/arc-bind`, so a typed
  * `/dash` never reached Claude at all. Surrendering the name only works
  * because every hop after the local miss resolves: not hidden, not unknown,
  * and canonicalized to the qualified form on the wire. Each hop is pinned
@@ -32,12 +32,12 @@ import {
  */
 const PLUGIN_CATALOG = [
   "tugplug:dash",
-  "tugplug:dash-implement",
-  "tugplug:dash-plan",
+  "tugplug:arc-implement",
+  "tugplug:trek",
   "tugplug:draft",
-  "tugplug:dash-devise",
-  "tugplug:dash-review",
-  "tugplug:dash-audit",
+  "tugplug:arc-devise",
+  "tugplug:arc-review",
+  "tugplug:arc-audit",
   "tugplug:tripwire",
 ] as const;
 
@@ -57,7 +57,7 @@ describe("the bare /dash reaches the orchestrator skill", () => {
   });
 
   test("the dash-family verbs it was an alias for are untouched", () => {
-    for (const name of ["dash-bind", "dash-join"]) {
+    for (const name of ["arc-bind", "arc-join"]) {
       expect(LOCAL_SLASH_COMMANDS.some((c) => c.name === name)).toBe(true);
     }
   });

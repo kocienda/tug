@@ -343,10 +343,10 @@ describe("classifyInlineCode — a bare plugin-skill name is a chip", () => {
 
   test("the qualified form a skill may still print is a chip too", () => {
     expect(
-      classifyInlineCode("/tugplug:dash-review plan.md", gate("tugplug:dash-review"), noPaths),
+      classifyInlineCode("/tugplug:arc-review plan.md", gate("tugplug:arc-review"), noPaths),
     ).toEqual({
       kind: "slash-command",
-      name: "tugplug:dash-review",
+      name: "tugplug:arc-review",
       args: "plan.md",
     });
   });
@@ -361,9 +361,9 @@ describe("classifyInlineCode — a bare plugin-skill name is a chip", () => {
   });
 
   test("a local command needs no catalog at all", () => {
-    expect(classifyInlineCode("/dash-bind fix-join", gate(), noPaths)).toEqual({
+    expect(classifyInlineCode("/arc-bind fix-join", gate(), noPaths)).toEqual({
       kind: "slash-command",
-      name: "dash-bind",
+      name: "arc-bind",
       args: "fix-join",
     });
   });

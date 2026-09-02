@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-Tug is a developer tool suite. Its centerpiece is the **Session card** — a graphical surface where shell commands and AI interactions coexist in one UI, replacing the terminal. The suite includes tugcast (WebSocket multiplexer), tugcode (Claude Code bridge), tugtool (the unified developer CLI — changes & commits, dashes, host plumbing), tugdeck (browser frontend), tugplug (agentless skills), and Tug.app (macOS host).
+Tug is a developer tool suite. Its centerpiece is the **Session card** — a graphical surface where shell commands and AI interactions coexist in one UI, replacing the terminal. The suite includes tugcast (WebSocket multiplexer), tugcode (Claude Code bridge), tugtool (the unified developer CLI — changes & commits, arcs, host plumbing), tugdeck (browser frontend), tugplug (agentless skills), and Tug.app (macOS host).
 
 ## Git Policy
 
@@ -10,9 +10,9 @@ Tug is a developer tool suite. Its centerpiece is the **Session card** — a gra
 
 **Exceptions:**
 - Autonomous implementation: when the user explicitly authorizes autonomous sub-step execution (e.g., "go on your own"), commit after each sub-step using the `/tugplug:draft` skill's message style. Report each commit hash and message.
-- The `dash` and `dash-implement` skills commit on their **dash worktree** (never on `main`) via `tugtool dash commit`, as part of running a recipe / dash. `main` is only updated by the user's landing gestures.
+- The `dash` and `trek` doors' arcs commit on their **arc worktree** (never on `main`) via `tugtool arc commit`, as part of walking an arc's steps. `main` is only updated by the user's landing gestures.
 
-The `/tugplug:draft` skill **never commits** — it authors the session's landing draft via `tugtool draft set`. Landing is the user's act: `/commit` (main lane) and `/dash-join <name>` (dash lane) in the Session card are the landing gestures.
+The `/tugplug:draft` skill **never commits** — it authors the session's landing draft via `tugtool draft set`. Landing is the user's act: `/commit` (main lane) and `/arc-join <name>` (arc lane) in the Session card are the landing gestures.
 
 ## Writing prose the Session card renders
 
@@ -22,18 +22,18 @@ Clickability is not what backticks are for: the resolver confirms a path and rul
 
 ## The standalone contract
 
-Tug is distributed as `Tug.app` to people whose projects have nothing to do with this checkout: no `tuglaws/`, no `justfile`, no `CLAUDE.md` of ours, no `~/.local/bin` symlinks, possibly no `jq` or `bun`. Everything the AI needs to drive Tug on such a project must be inside the bundle — the binaries in `Contents/MacOS/` and the plugin at `Contents/Resources/tugplug/`. The contract and its guards are in [tugplug/CLAUDE.md](tugplug/CLAUDE.md#the-standalone-contract): `just tugplug-lint` (in `just lint`) refuses checkout-only shapes under `tugplug/`, and `just test-standalone` (in `just test`) drives the real hook script and dash verbs from a scratch project with an empty PATH. Anything Tug-specific a skill would like to say — which recipe builds, which tests are green — belongs in `.tugtool/config.toml` or in this file, never in the plugin.
+Tug is distributed as `Tug.app` to people whose projects have nothing to do with this checkout: no `tuglaws/`, no `justfile`, no `CLAUDE.md` of ours, no `~/.local/bin` symlinks, possibly no `jq` or `bun`. Everything the AI needs to drive Tug on such a project must be inside the bundle — the binaries in `Contents/MacOS/` and the plugin at `Contents/Resources/tugplug/`. The contract and its guards are in [tugplug/CLAUDE.md](tugplug/CLAUDE.md#the-standalone-contract): `just tugplug-lint` (in `just lint`) refuses checkout-only shapes under `tugplug/`, and `just test-standalone` (in `just test`) drives the real hook script and arc verbs from a scratch project with an empty PATH. Anything Tug-specific a skill would like to say — which recipe builds, which tests are green — belongs in `.tugtool/config.toml` or in this file, never in the plugin.
 
 ## Repository Structure
 
 | Directory | Description |
 |-----------|-------------|
-| `tugrust/` | Rust crates (tugcast, tug, tugexec, tugbank, tugcore, the `*-core` libraries — tugtool-core/tugdash-core/tugchanges-core — and supporting libraries) |
+| `tugrust/` | Rust crates (tugcast, tug, tugexec, tugbank, tugcore, the `*-core` libraries — tugtool-core/tugarc-core/tugchanges-core — and supporting libraries) |
 | `tugproto/` | Shared protocol / message types (TypeScript) |
 | `tugcode/` | Claude Code bridge (stream-json IPC); bun-compiled binary |
 | `tugdeck/` | Web frontend (the Session card lives here) |
 | `tugapp/` | Swift macOS app (Tug.app host) |
-| `tugplug/` | Claude Code plugin (agentless skills: dash/dash-plan/dash-devise/dash-review/dash-implement/dash-audit/draft/tripwire). A dash's documents live at `.tug/dashes/<name>/` and are never tracked. |
+| `tugplug/` | Claude Code plugin (agentless skills: dash/trek/arc-devise/arc-review/arc-implement/arc-audit/draft/tripwire). An arc's documents live at `.tug/arcs/<name>/` and are never tracked. |
 | `tuglaws/` | Architecture laws + design decisions — the curated durable doc surface |
 | `tests/` | App-test harness that drives the real Tug.app |
 
@@ -86,7 +86,7 @@ The doctrine is in [tuglaws/app-test-harness.md](tuglaws/app-test-harness.md#sel
 
 Never point the `sqlite3` CLI (or any non-Tug SQLite build) at the live databases under `~/Library/Application Support/Tug/` — a foreign SQLite participating in WAL recovery/checkpointing on a live ledger is a corruption vector (the 2026-07-27 incident). Use `just db-inspect <name|path> ["SQL"]`, which copies the db + WAL/shm to a temp dir and inspects the copy. In Rust, every writable ledger open goes through `tugcore::ledger_db` (enforced by the `no_ad_hoc_ledger_opens` test); shared `changes.db` schema changes require bumping `CHANGES_SCHEMA_VERSION` with a registered migration — never edit the DDL alone.
 
-`apptest_results.db` is the machine-global record of every app-test run — one row per run, one per file in it — keyed by the **resolved base checkout**, so a dash worktree and the checkout it forked from share one history. It exists to answer one question cheaply: every red file in a `Failures:` section arrives with a `history:` line saying whether it was green before you touched it, when it last was, or that it has been red for the last N recorded runs — and, in every case, how big a batch each of those runs was, which is what tells a defect from contention (green alone and red only in batches means re-run it alone before concluding anything). The same object rides `TUG_APPTEST_JSON`. Write and read it only through `tugtool apptest record|history` (`just db-inspect apptest_results "SELECT …"` to look); recording is telemetry that never gates a run, and retention is the most recent 500 runs per checkout, pruned at record time. `TUG_APPTEST_RESULTS_DB` redirects it for test isolation.
+`apptest_results.db` is the machine-global record of every app-test run — one row per run, one per file in it — keyed by the **resolved base checkout**, so an arc worktree and the checkout it forked from share one history. It exists to answer one question cheaply: every red file in a `Failures:` section arrives with a `history:` line saying whether it was green before you touched it, when it last was, or that it has been red for the last N recorded runs — and, in every case, how big a batch each of those runs was, which is what tells a defect from contention (green alone and red only in batches means re-run it alone before concluding anything). The same object rides `TUG_APPTEST_JSON`. Write and read it only through `tugtool apptest record|history` (`just db-inspect apptest_results "SELECT …"` to look); recording is telemetry that never gates a run, and retention is the most recent 500 runs per checkout, pruned at record time. `TUG_APPTEST_RESULTS_DB` redirects it for test isolation.
 
 `prompt_history.db` is the machine-global, append-only record of every prompt the user has submitted — shared top-level like `changes.db`, deliberately not per-instance, because the corpus belongs to the user rather than to an instance. Inspect it the same way (`just db-inspect prompt_history "SELECT …"`). It is the one ledger with no retention policy at all: nothing trims it, and any change that would drop, cap, or expire a row is a bug in the feature, not a tuning knob. Its schema is gated on `PRAGMA user_version` with a registered migration list in `prompt_ledger.rs` — the same regime as the other shared ledgers.
 

@@ -3,7 +3,7 @@
  *
  * The face used to also yield the standing readiness line and the ready
  * boolean; both left with the standing line itself ([D142]). The sentence is
- * the register's — `dash-join-register.test.ts` walks that table, state by
+ * the register's — `arc-join-register.test.ts` walks that table, state by
  * state — and a refusal rides the control that refuses, which
  * `REFUSAL_REACHABILITY` below pins to the composer or to a named wait. What
  * this file still owns is the pair the report section dispatches on: the
@@ -29,19 +29,19 @@ import {
   deriveJoinFace,
   joinQuestionAsParsed,
   type JoinFace,
-} from "@/components/tugways/cards/session-changes/session-changes-dash-join";
+} from "@/components/tugways/cards/session-changes/session-changes-arc-join";
 import {
   REFUSAL_REACHABILITY,
   joinDisabledReason,
   type JoinGateReason,
 } from "../join-mode-controller";
-import type { DashJoinStateWire } from "@/lib/changeset-types";
+import type { ArcJoinStateWire } from "@/lib/changeset-types";
 
 const fakeConn = { onFrame: () => () => {} } as never;
 const K = { project_dir: "/u/src/tugtool", dash: "demo" };
 
-const CONFLICTED: DashJoinStateWire = { phase: "conflicted", conflicts: ["a.rs"] };
-const RESOLVED: DashJoinStateWire = {
+const CONFLICTED: ArcJoinStateWire = { phase: "conflicted", conflicts: ["a.rs"] };
+const RESOLVED: ArcJoinStateWire = {
   phase: "resolved",
   conflicts: ["a.rs"],
   candidate: "cafe1234",
@@ -50,7 +50,7 @@ const RESOLVED: DashJoinStateWire = {
 
 /** The face for a feed state, with everything else at rest. */
 function face(
-  join: DashJoinStateWire | null,
+  join: ArcJoinStateWire | null,
   over: Partial<Parameters<typeof deriveJoinFace>[0]> = {},
 ): JoinFace {
   return deriveJoinFace({

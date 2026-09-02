@@ -707,7 +707,7 @@ export const TUG_ACTIONS = {
   //                         the RAIL (TOGGLE_RAIL), not the cards on it.
   // TOGGLE_TRIPWIRES:       payload — none. Show/hide the Tripwires rail. As
   //                         above.
-  // TOGGLE_DASHES:          payload — none. Show/hide the Dashes rail. As
+  // TOGGLE_ARCS:            payload — none. Show/hide the Arcs rail. As
   //                         above.
   // TOGGLE_CARDS:           payload — none. Show/hide the Cards rail. As
   //                         above.
@@ -890,7 +890,7 @@ export const TUG_ACTIONS = {
   SHOW_DEVTOOLS:          "show-devtools",
   TOGGLE_JOTS:            "toggle-jots",
   TOGGLE_TRIPWIRES:       "toggle-tripwires",
-  TOGGLE_DASHES:          "toggle-dashes",
+  TOGGLE_ARCS:            "toggle-arcs",
   TOGGLE_CARDS:           "toggle-cards",
   TOGGLE_LAYOUT:          "toggle-layout",
   TOGGLE_OVERVIEW:         "toggle-overview",
@@ -1072,7 +1072,7 @@ export const TUG_ACTIONS = {
   // ---- The dash row's rare verbs ----
   //
   // Menu-only over a sampled target — "the dash this row is" — and handled by
-  // the row's own responder ({@link useDashRowMenu}). None is a chord: a
+  // the row's own responder ({@link useArcRowMenu}). None is a chord: a
   // discard is not a thing to reach by typing, and a bind is a decision about
   // which dash a card works on, made by pointing at the dash.
   //
@@ -1085,7 +1085,7 @@ export const TUG_ACTIONS = {
   //                         REQUEST_TRASH_SESSION: the item arms the lane's
   //                         one confirm popover rather than discarding, and
   //                         the popover names what the discard destroys.
-  // REQUEST_REPLAY_DASH:    payload — none. Replay the dash's rounds onto its
+  // REQUEST_REPLAY_ARC:     payload — none. Replay the arc's rounds onto its
   //                         base branch's current tip. "Request" because the
   //                         act is the server's: the item sends
   //                         `changeset_replay` and the outcome comes back on
@@ -1094,7 +1094,7 @@ export const TUG_ACTIONS = {
   BIND_DASH:              "bind-dash",
   UNBIND_DASH:            "unbind-dash",
   REQUEST_DISCARD_DASH:   "request-discard-dash",
-  REQUEST_REPLAY_DASH:    "request-replay-dash",
+  REQUEST_REPLAY_ARC:     "request-replay-arc",
 
   // ---- Meta ----
   //

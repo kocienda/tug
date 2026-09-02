@@ -216,24 +216,24 @@ export const LOCAL_SLASH_COMMANDS = [
     takesArgs: true,
   },
   // An operation is spelled the same on every surface a user can see it, and
-  // that spelling is its `tugtool` verb path ([P08]): `tugtool dash bind` ⇒
-  // `/dash-bind`, `tugtool dash join` ⇒ `/dash-join`. `/commit` above keeps its
-  // bare name because it rides `tugtool commit` — and `/dash-commit` is
-  // reserved for `tugtool dash commit`, the round verb, which ships no card
+  // that spelling is its `tugtool` verb path ([P08]): `tugtool arc bind` ⇒
+  // `/arc-bind`, `tugtool arc join` ⇒ `/arc-join`. `/commit` above keeps its
+  // bare name because it rides `tugtool commit` — and `/arc-commit` is
+  // reserved for `tugtool arc commit`, the round verb, which ships no card
   // verb yet. The bare `/dash` is not a local command at all: it belongs to the
-  // `tugplug:dash` orchestrator skill, and reaches it as a pass-through.
+  // `tugplug:dash` door skill, and reaches it as a pass-through.
   {
-    name: "dash-bind",
-    description: "Work on a dash — bind this card to it, creating it if needed",
+    name: "arc-bind",
+    description: "Work on an arc — bind this card to it, creating it if needed",
     takesArgs: true,
   },
   {
-    name: "dash-join",
-    description: "Land a dash — opens the join editor over a previewed merge",
+    name: "arc-join",
+    description: "Land an arc — opens the join editor over a previewed merge",
     takesArgs: true,
   },
   {
-    name: "dash-review",
+    name: "arc-review",
     description: "Review a plan on the review model — bare resolves to the last one reviewed",
     takesArgs: true,
   },

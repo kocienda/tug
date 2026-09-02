@@ -1,5 +1,5 @@
 /**
- * at0408-dash-gesture.test.ts — `/dash-bind`, all four ways it can go.
+ * at0408-dash-gesture.test.ts — `/arc-bind`, all four ways it can go.
  *
  * The command means "work on this dash, making it if needed", and it takes
  * each of its two paths for what that path is. A name the card's snapshot
@@ -10,19 +10,19 @@
  * `dash create`'s own auto-bind is what ends the card bound.
  *
  * The other two ways are the ones that must not mutate anything: bare
- * `/dash-bind` opens the picker sheet (the full picking behavior is at0421's;
+ * `/arc-bind` opens the picker sheet (the full picking behavior is at0421's;
  * what this file pins is that the bare form no longer shows the shade), and a
  * name that could not be passed through a shell unquoted is refused with a
  * caution naming the constraint rather than turned into a quoting adventure.
  *
  * The run waits for the aggregate to answer before typing anything. That is
  * not politeness: before the first compose every name misses the snapshot
- * match, and `/dash-bind <known-name>` would fall through to the create path and
+ * match, and `/arc-bind <known-name>` would fall through to the create path and
  * cut a second branch for a dash that already exists.
  *
  * @covers tugdeck/src/lib/slash-commands.ts
- * @covers tugdeck/src/lib/dash-name.ts
- * @covers tugdeck/src/lib/dash-bind-error-store.ts
+ * @covers tugdeck/src/lib/arc-name.ts
+ * @covers tugdeck/src/lib/arc-bind-error-store.ts
  * @covers tugdeck/src/components/tugways/cards/session-card.tsx
  * @covers tugdeck/src/components/tugways/tug-session-identity.tsx
  */
@@ -74,7 +74,7 @@ let fixtureDir = "";
 const projectDir = (): string => scratch?.repo ?? "";
 /** Already there when the gesture runs — the bind path. */
 const KNOWN_DASH = "at0408-known";
-/** Does not exist until `/dash-bind` makes it — the create path. */
+/** Does not exist until `/arc-bind` makes it — the create path. */
 const MADE_DASH = "at0408-made";
 
 beforeAll(() => {
@@ -126,7 +126,7 @@ async function runCommand(app: App, line: string): Promise<void> {
 const count = (selector: string): string =>
   `document.querySelectorAll(${JSON.stringify(selector)}).length`;
 
-describe.skipIf(!SHOULD_RUN)("AT0408: the /dash-bind gesture", () => {
+describe.skipIf(!SHOULD_RUN)("AT0408: the /arc-bind gesture", () => {
   test(
     "a known name binds silently, an unknown one is created through the shell, bare opens the picker, and a shell-unsafe name is refused",
     async () => {
@@ -149,23 +149,23 @@ describe.skipIf(!SHOULD_RUN)("AT0408: the /dash-bind gesture", () => {
         await app.awaitEngineReady("A", { timeoutMs: 15000 });
 
         // ── Wait for the aggregate to answer ──────────────────────────────
-        // The Dashes card reads the same `ChangesetAllStore` the
+        // The Arcs card reads the same `ChangesetAllStore` the
         // card's controller does, so a row for the fixture dash there is proof
         // the snapshot has composed this project's dashes. Typing before that
-        // would send `/dash-bind <known>` down the CREATE path.
-        await app.dispatchControlAction("toggle-dashes");
+        // would send `/arc-bind <known>` down the CREATE path.
+        await app.dispatchControlAction("toggle-arcs");
         await app.waitForCondition<boolean>(
           `document.querySelector('${DASHES_CARD} [data-slot="dashes-row"][data-dash="${KNOWN_DASH}"]') !== null`,
           { timeoutMs: 30000 },
         );
-        await app.dispatchControlAction("toggle-dashes");
+        await app.dispatchControlAction("toggle-arcs");
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(DASHES_CARD)}) === null`,
           { timeoutMs: 8000 },
         );
 
         // ── A known name binds, with no shell row behind it ───────────────
-        await runCommand(app, `/dash-bind ${KNOWN_DASH}`);
+        await runCommand(app, `/arc-bind ${KNOWN_DASH}`);
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(CHIP)})?.textContent.trim() === ${JSON.stringify(chipText(KNOWN_DASH))}`,
           { timeoutMs: 15000 },
@@ -174,7 +174,7 @@ describe.skipIf(!SHOULD_RUN)("AT0408: the /dash-bind gesture", () => {
         expect(await app.evalJS<number>(count(SHELL_ROWS))).toBe(0);
 
         // ── An unknown name is created, with a receipt ────────────────────
-        await runCommand(app, `/dash-bind ${MADE_DASH}`);
+        await runCommand(app, `/arc-bind ${MADE_DASH}`);
         await app.waitForCondition<boolean>(
           `(function(){
              var rows = document.querySelectorAll(${JSON.stringify(SHELL_ROWS)});
@@ -187,7 +187,7 @@ describe.skipIf(!SHOULD_RUN)("AT0408: the /dash-bind gesture", () => {
         const receipt = await app.evalJS<string>(
           `(document.querySelectorAll(${JSON.stringify(SHELL_ROWS)})[0]?.textContent ?? "").trim()`,
         );
-        expect(receipt).toContain(`tugtool dash create ${MADE_DASH}`);
+        expect(receipt).toContain(`tugtool arc create ${MADE_DASH}`);
         // `dash create`'s unconditional auto-bind is what ends the card bound —
         // this handler never sends a second bind of its own.
         await app.waitForCondition<boolean>(
@@ -196,7 +196,7 @@ describe.skipIf(!SHOULD_RUN)("AT0408: the /dash-bind gesture", () => {
         );
 
         // ── A shell-unsafe name is refused, and nothing is made ───────────
-        await runCommand(app, "/dash-bind two words");
+        await runCommand(app, "/arc-bind two words");
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(BULLETIN)}) !== null`,
           { timeoutMs: 8000 },
@@ -208,12 +208,12 @@ describe.skipIf(!SHOULD_RUN)("AT0408: the /dash-bind gesture", () => {
         // Still exactly the one create; the refusal ran no command.
         expect(await app.evalJS<number>(count(SHELL_ROWS))).toBe(1);
 
-        // ── Bare `/dash-bind` picks, and does not open the shade ──────────
+        // ── Bare `/arc-bind` picks, and does not open the shade ──────────
         // Showing every dash and offering no way to choose one was the old
         // answer; with more than one dash in the project the bare form is a
         // picker now, and the shade stays where it was.
         expect(await app.evalJS<number>(count(PICKER))).toBe(0);
-        await runCommand(app, "/dash-bind");
+        await runCommand(app, "/arc-bind");
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(PICKER)}) !== null`,
           { timeoutMs: 8000 },

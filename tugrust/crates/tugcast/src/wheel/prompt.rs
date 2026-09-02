@@ -1,7 +1,7 @@
-//! What a course hands a stage: a part, not a title.
+//! What an arc hands a stage: a part, not a title.
 //!
 //! A stage opens on a prompt, and every character of that prompt is composed
-//! from documents — the ask the course is making, the paths the document's own
+//! from documents — the ask the arc is making, the paths the document's own
 //! findings cite, and what git says has moved in those paths since the document
 //! was written. Nothing here is a sentence a model wrote about the work; a
 //! summary would be a claim nobody could check, and it would drift from the
@@ -110,32 +110,32 @@ fn looks_like_a_path(token: &str) -> bool {
 /// verbs say it again at the moment they move a row, and the PreToolUse
 /// gate refuses a repo write or a `dash step start` from a turn that has
 /// already closed a step. A stage rolled through the old sentence and the
-/// skill's on the course machinery's first live run, which is what the
+/// skill's on the wheel machinery's first live run, which is what the
 /// machinery is for.
 fn implement_ask(dash: &str, steps: Option<&str>) -> String {
     let Some(steps) = steps else {
         // No selector on the first implement stage: the whole plan, and
-        // `dash-implement`'s own setup declares `--through`.
-        return format!("/tugplug:dash-implement {dash} implement one step and end your turn");
+        // `arc-implement`'s own setup declares `--through`.
+        return format!("/tugplug:arc-implement {dash} implement one step and end your turn");
     };
     let next = steps.split('-').next().unwrap_or(steps);
     let last = steps.rsplit('-').next().unwrap_or(steps);
     if next == last {
         format!(
-            "/tugplug:dash-implement {dash} implement Step {next} and end your turn; it is the run's last step"
+            "/tugplug:arc-implement {dash} implement Step {next} and end your turn; it is the run's last step"
         )
     } else {
         format!(
-            "/tugplug:dash-implement {dash} implement Step {next} and end your turn; Steps {steps} remain on this run"
+            "/tugplug:arc-implement {dash} implement Step {next} and end your turn; Steps {steps} remain on this run"
         )
     }
 }
 
-/// The ask a course is making of a stage — the first clause of its prompt.
+/// The ask an arc is making of a stage — the first clause of its prompt.
 ///
 /// One line per stage, and the wording is the contract: each is a slash
 /// command the stage's skill answers to, with the document it is about. A
-/// stage whose facts are not all in hand has no ask, and the course stops
+/// stage whose facts are not all in hand has no ask, and the arc stops
 /// rather than opening on half a sentence.
 pub fn stage_ask(
     stage: &str,
@@ -148,14 +148,14 @@ pub fn stage_ask(
         // stage opens; the *target* is the dash name, so the skill resolves
         // where to write rather than being told and cannot write anywhere else.
         "devise" => Some(format!(
-            "/tugplug:dash-devise a plan for {}, honoring every [B##] decision it records 🢂 {dash}",
+            "/tugplug:arc-devise a plan for {}, honoring every [B##] decision it records 🢂 {dash}",
             document?
         )),
-        "review" => Some(format!("/tugplug:dash-review {dash}")),
+        "review" => Some(format!("/tugplug:arc-review {dash}")),
         // The audit opens on the dash, and resolves the plan and the branch's
         // diff from it — the same one-name rule every stage after devise
         // follows ([P10]).
-        "audit" => Some(format!("/tugplug:dash-audit {dash}")),
+        "audit" => Some(format!("/tugplug:arc-audit {dash}")),
         // Both forms carry the one-step ask: every act the wheel takes on
         // this session — a compaction, a rotation — happens between turns, so
         // a step boundary has to be one. Only the model can end a turn, so the
@@ -169,7 +169,7 @@ pub fn stage_ask(
 ///
 /// Four clauses, each dropped when its fact is absent: the ask, the paths the
 /// document cites, what moved in those files since the document was written,
-/// and — for a course that stopped and is resuming — where it stopped and
+/// and — for an arc that stopped and is resuming — where it stopped and
 /// why. A call with only an ask returns exactly that ask, which is what makes
 /// this a safe replacement for a bare one.
 ///
@@ -204,7 +204,7 @@ pub fn compose(
 mod tests {
     use super::*;
 
-    const ASK: &str = "/tugplug:dash-review dash/foo.md";
+    const ASK: &str = "/tugplug:arc-review dash/foo.md";
 
     #[test]
     fn an_ask_with_nothing_to_add_is_exactly_the_ask() {
@@ -290,15 +290,15 @@ mod tests {
     fn the_implement_ask_tells_a_seated_stage_to_stop_at_one_step() {
         assert_eq!(
             stage_ask("implement", None, "foo", Some("2-4")).expect("an implement ask"),
-            "/tugplug:dash-implement foo implement Step 2 and end your turn; Steps 2-4 remain on this run"
+            "/tugplug:arc-implement foo implement Step 2 and end your turn; Steps 2-4 remain on this run"
         );
         assert_eq!(
             stage_ask("implement", None, "foo", Some("4-4")).expect("an implement ask"),
-            "/tugplug:dash-implement foo implement Step 4 and end your turn; it is the run's last step"
+            "/tugplug:arc-implement foo implement Step 4 and end your turn; it is the run's last step"
         );
         assert_eq!(
             stage_ask("implement", None, "foo", None).expect("an implement ask"),
-            "/tugplug:dash-implement foo implement one step and end your turn"
+            "/tugplug:arc-implement foo implement one step and end your turn"
         );
         for stage in ["devise", "review"] {
             let ask = stage_ask(stage, Some("dash/idea.md"), "foo", None).expect("an ask");

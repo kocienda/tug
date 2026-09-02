@@ -1,8 +1,8 @@
 //! The resolver: the agent that finishes a join ([P02], Specs S01/S02/S04).
 //!
-//! The resolution ladder ([`tugdash_core::resolve`]) works a conflict three
+//! The resolution ladder ([`tugarc_core::resolve`]) works a conflict three
 //! blobs at a time and stops where blob arithmetic stops. The resolver picks up
-//! there, in the workshop ([`tugdash_core::workshop`]) where the merge is a
+//! there, in the workshop ([`tugarc_core::workshop`]) where the merge is a
 //! real tree: it finishes what the rungs left, **audits what the rungs
 //! decided** ([P10]), asks at most one intent question when the two sides
 //! genuinely disagree, and ends with a report that accounts for every path in
@@ -40,7 +40,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::{mpsc, oneshot};
-use tugdash_core::ResolvedBy;
+use tugarc_core::ResolvedBy;
 
 /// The tools the resolver may use: read the tree, edit the tree. **No Bash** —
 /// verification is the orchestrator's job ([P05]), and a resolver that could
@@ -413,7 +413,7 @@ pub fn spawner_for(
     repo: &Path,
     production: Option<Arc<dyn JoinResolverSpawner>>,
 ) -> Result<Arc<dyn JoinResolverSpawner>, String> {
-    if let Some(command) = tugdash_core::resolver_program(repo) {
+    if let Some(command) = tugarc_core::resolver_program(repo) {
         return Ok(Arc::new(StubJoinResolverSpawner {
             command,
             turn_timeout: RESOLVER_TURN_TIMEOUT,
@@ -687,7 +687,7 @@ pub const RESOLVER_TURN_TIMEOUT: Duration = Duration::from_secs(20 * 60);
 /// chain: a resolve that has not advanced its chain in this long has either
 /// died here or lost the process running it, so a second process may take the
 /// dash. Defined once so the ceiling and the window cannot drift apart.
-pub const RESOLVE_DEADLINE: Duration = tugdash_core::resolve::RESOLVE_LEASE;
+pub const RESOLVE_DEADLINE: Duration = tugarc_core::resolve::RESOLVE_LEASE;
 
 /// What a turn that went silent is reported as.
 fn silent_turn(bound: Duration) -> String {
@@ -802,7 +802,7 @@ struct WorkshopState {
 /// the one state the face cannot render.
 pub async fn finish_join(
     ctx: &ResolverContext,
-    outcome: &tugdash_core::ResolveOutcome,
+    outcome: &tugarc_core::ResolveOutcome,
 ) -> Result<(), String> {
     let phase: Phase = Arc::new(Mutex::new("opening the workshop"));
     let result =
@@ -824,7 +824,7 @@ pub async fn finish_join(
         let repo = ctx.repo.clone();
         let dash = ctx.dash.clone();
         let _ = tokio::task::spawn_blocking(move || {
-            if let Err(e) = tugdash_core::resolve::mark_resolve_ended(&repo, &dash) {
+            if let Err(e) = tugarc_core::resolve::mark_resolve_ended(&repo, &dash) {
                 tracing::warn!(dash = %dash, error = %e, "could not mark the resolve ended");
             }
         })
@@ -843,7 +843,7 @@ pub async fn finish_join(
         let repo = ctx.repo.clone();
         let dash = ctx.dash.clone();
         let _ = tokio::task::spawn_blocking(move || {
-            if let Ok(ws) = tugdash_core::workshop::Workshop::open_existing(&repo, &dash) {
+            if let Ok(ws) = tugarc_core::workshop::Workshop::open_existing(&repo, &dash) {
                 ws.release();
             }
         })
@@ -870,7 +870,7 @@ fn read_phase(phase: &Phase) -> &'static str {
 
 async fn finish_join_inner(
     ctx: &ResolverContext,
-    outcome: &tugdash_core::ResolveOutcome,
+    outcome: &tugarc_core::ResolveOutcome,
     phase: &Phase,
 ) -> Result<(), String> {
     let state = open_workshop(ctx, outcome).await?;
@@ -898,7 +898,7 @@ async fn finish_join_inner(
         let repo = ctx.repo.clone();
         let dash = ctx.dash.clone();
         let _ = tokio::task::spawn_blocking(move || {
-            tugdash_core::resolve::clear_lastask(&repo, &dash);
+            tugarc_core::resolve::clear_lastask(&repo, &dash);
         })
         .await;
     }
@@ -970,12 +970,12 @@ async fn checkpoint_turn(ctx: &ResolverContext) {
     let repo = ctx.repo.clone();
     let dash = ctx.dash.clone();
     let _ = tokio::task::spawn_blocking(move || {
-        let Ok(workshop) = tugdash_core::Workshop::open_existing(&repo, &dash) else {
+        let Ok(workshop) = tugarc_core::Workshop::open_existing(&repo, &dash) else {
             return;
         };
         let message = format!(
             "{}{dash}): checkpoint",
-            tugdash_core::resolve::RESOLVE_SUBJECT_PREFIX
+            tugarc_core::resolve::RESOLVE_SUBJECT_PREFIX
         );
         let _ = workshop.checkpoint(&message);
     })
@@ -1015,8 +1015,8 @@ async fn escalate(ctx: &ResolverContext, ask: &ResolverAsk) -> Result<String, St
         let json = serde_json::to_string(&question).map_err(|e| e.to_string())?;
         tokio::task::spawn_blocking(move || {
             let branch = format!("tugdash/{dash}");
-            if let Ok(head) = tugdash_core::ops::rev_parse(&repo, &branch) {
-                tugdash_core::resolve::write_question(&repo, &dash, &head, &json);
+            if let Ok(head) = tugarc_core::ops::rev_parse(&repo, &branch) {
+                tugarc_core::resolve::write_question(&repo, &dash, &head, &json);
             }
         })
         .await
@@ -1061,11 +1061,11 @@ async fn escalate(ctx: &ResolverContext, ask: &ResolverAsk) -> Result<String, St
             // than aspirational — the conversation cannot resume, but the
             // question can be asked again by a resolver that knows to.
             if !answered {
-                if let Ok(head) = tugdash_core::ops::rev_parse(&repo, &format!("tugdash/{dash}")) {
-                    tugdash_core::resolve::write_lastask(&repo, &dash, &head, &asked);
+                if let Ok(head) = tugarc_core::ops::rev_parse(&repo, &format!("tugdash/{dash}")) {
+                    tugarc_core::resolve::write_lastask(&repo, &dash, &head, &asked);
                 }
             }
-            tugdash_core::resolve::clear_question(&repo, &dash);
+            tugarc_core::resolve::clear_question(&repo, &dash);
         })
         .await;
     }
@@ -1094,7 +1094,7 @@ async fn escalate(ctx: &ResolverContext, ask: &ResolverAsk) -> Result<String, St
 /// builds green.
 ///
 /// Empty means nothing was decided, which is the honest no-audit case.
-pub fn audit_set(outcome: &tugdash_core::ResolveOutcome) -> Vec<String> {
+pub fn audit_set(outcome: &tugarc_core::ResolveOutcome) -> Vec<String> {
     let mut set: Vec<String> = outcome
         .preview_conflicts
         .iter()
@@ -1110,7 +1110,7 @@ pub fn audit_set(outcome: &tugdash_core::ResolveOutcome) -> Vec<String> {
 /// Materialize the conflict the ladder recorded, or the candidate it built.
 async fn open_workshop(
     ctx: &ResolverContext,
-    outcome: &tugdash_core::ResolveOutcome,
+    outcome: &tugarc_core::ResolveOutcome,
 ) -> Result<WorkshopState, String> {
     let repo = ctx.repo.clone();
     let dash = ctx.dash.clone();
@@ -1127,32 +1127,32 @@ async fn open_workshop(
     // and ask it to redo, by hand, work the machine already did — and throw
     // away the replay's per-round history in the process.
     let inherited_candidate = match outcome.shape {
-        tugdash_core::JoinShape::Replay => outcome.candidate_commit.clone(),
-        tugdash_core::JoinShape::Squash => None,
+        tugarc_core::JoinShape::Replay => outcome.candidate_commit.clone(),
+        tugarc_core::JoinShape::Squash => None,
     };
     // A squash-shaped candidate is not *inherited* — the workshop must not
     // treat it as a tree to audit in place — but it is still the resolved tree
     // when the ladder left no conflict behind.
     let squash_candidate = match outcome.shape {
-        tugdash_core::JoinShape::Squash => outcome.candidate_commit.clone(),
-        tugdash_core::JoinShape::Replay => None,
+        tugarc_core::JoinShape::Squash => outcome.candidate_commit.clone(),
+        tugarc_core::JoinShape::Replay => None,
     };
 
     tokio::task::spawn_blocking(move || {
         let workshop = match &inherited_candidate {
-            Some(sha) => tugdash_core::Workshop::open_candidate(&repo, &dash, sha)?,
-            None => match tugdash_core::resolve::valid_conflict(&repo, &dash) {
+            Some(sha) => tugarc_core::Workshop::open_candidate(&repo, &dash, sha)?,
+            None => match tugarc_core::resolve::valid_conflict(&repo, &dash) {
                 // Something is still unresolved, so the ladder parked a
                 // conflict. Its tree already carries the rungs' own
                 // resolutions, so opening it is the whole of the setup.
                 Some(_) => {
-                    let ws = tugdash_core::Workshop::open_conflict(&repo, &dash)?;
+                    let ws = tugarc_core::Workshop::open_conflict(&repo, &dash)?;
                     // The chain is this resolve's own operation log, and the
                     // begin marker is what makes "a resolver opened this at T"
                     // a git fact a second process can read. Best-effort: a
                     // marker that fails degrades the lease to the aged-out
                     // case, never to a destroyed resolve.
-                    if let Err(e) = tugdash_core::resolve::mark_resolve_begun(&repo, &dash) {
+                    if let Err(e) = tugarc_core::resolve::mark_resolve_begun(&repo, &dash) {
                         tracing::warn!(dash = %dash, error = %e, "could not mark the resolve begun");
                     }
                     ws
@@ -1162,7 +1162,7 @@ async fn open_workshop(
                 // edge case: a squash the machines finish completely reaches
                 // the resolver as an audit with nothing left to merge.
                 None => match &squash_candidate {
-                    Some(sha) => tugdash_core::Workshop::open_candidate(&repo, &dash, sha)?,
+                    Some(sha) => tugarc_core::Workshop::open_candidate(&repo, &dash, sha)?,
                     None => {
                         return Err(format!(
                             "the ladder left neither a conflict nor a candidate for '{dash}'"
@@ -1190,7 +1190,7 @@ async fn open_workshop(
             unresolved,
             rung_resolved: ladder_resolved,
             resolution_set,
-            intent: tugdash_core::resolve_intent(&repo, &base_branch, &branch),
+            intent: tugarc_core::resolve_intent(&repo, &base_branch, &branch),
             base_branch,
             inherited_candidate,
             ladder_tree,
@@ -1225,7 +1225,7 @@ async fn commit_candidate(
     let report_for_validation = report.clone();
 
     tokio::task::spawn_blocking(move || {
-        let workshop = tugdash_core::Workshop::open_existing(&repo, &dash)?;
+        let workshop = tugarc_core::Workshop::open_existing(&repo, &dash)?;
         // What the resolver changed can only be read from the tree it left, so
         // the report is validated here rather than before the task — against
         // the machine's decisions *and* the resolver's own edits.
@@ -1234,7 +1234,7 @@ async fn commit_candidate(
         let branch = format!("tugdash/{}", dash);
         // The candidate is an intermediate — the join composes the message the
         // base actually keeps — so it names no session of its own.
-        let message = tugdash_core::ops::integrate_message(&repo, &dash, &branch, None, None);
+        let message = tugarc_core::ops::integrate_message(&repo, &dash, &branch, None, None);
         // An audit that changed nothing keeps the candidate it audited.
         // Committing an identical tree anyway would reparent it onto the base
         // head, turning a replay join into a squash without anybody asking.
@@ -1242,8 +1242,8 @@ async fn commit_candidate(
             Some(sha) if workshop.matches(sha)? => sha.clone(),
             _ => workshop.commit(&format!("{message}\n\nResolved for the join."))?,
         };
-        let dash_head = tugdash_core::ops::rev_parse(&repo, &branch)?;
-        tugdash_core::resolve::anchor_candidate(&repo, &dash, &candidate, &dash_head)?;
+        let dash_head = tugarc_core::ops::rev_parse(&repo, &branch)?;
+        tugarc_core::resolve::anchor_candidate(&repo, &dash, &candidate, &dash_head)?;
 
         // Which rung a path ends up credited to: the resolver for anything it
         // finished or redid, the original machine rung for a resolution it
@@ -1261,7 +1261,7 @@ async fn commit_candidate(
                     .unwrap_or(ResolvedBy::Resolver),
                 _ => ResolvedBy::Resolver,
             };
-            tugdash_core::resolve::record_resolved_rung(&repo, &dash, path, rung);
+            tugarc_core::resolve::record_resolved_rung(&repo, &dash, path, rung);
         }
         Ok(candidate)
     })
@@ -1280,7 +1280,7 @@ async fn record_report(
     let dash = ctx.dash.clone();
     let candidate = candidate.to_string();
     tokio::task::spawn_blocking(move || {
-        tugdash_core::resolve::write_report(&repo, &dash, &candidate, &json)
+        tugarc_core::resolve::write_report(&repo, &dash, &candidate, &json)
     })
     .await
     .map_err(|e| format!("report task failed: {e}"))?
@@ -1593,7 +1593,7 @@ mod tests {
 
     /// The subject the dash's conflict chain tip wears right now.
     fn chain_subject(repo: &Path) -> String {
-        let tip = tugdash_core::resolve::read_conflict(repo, "demo")
+        let tip = tugarc_core::resolve::read_conflict(repo, "demo")
             .expect("a chain stands")
             .tip;
         let out = std::process::Command::new("git")
@@ -1632,7 +1632,7 @@ mod tests {
         let repo = temp.path();
         let before_base = std::fs::read_to_string(repo.join("f.txt")).unwrap();
 
-        let outcome = tugdash_core::resolve_conflicts(repo, "demo", None).unwrap();
+        let outcome = tugarc_core::resolve_conflicts(repo, "demo", None).unwrap();
         assert!(
             outcome.candidate_commit.is_none(),
             "the ladder alone cannot settle this conflict"
@@ -1642,8 +1642,8 @@ mod tests {
         finish_join(&ctx, &outcome).await.expect("the resolve runs");
 
         // A candidate stands, and it is the resolver's tree.
-        let candidate = match tugdash_core::resolve::candidate_status(repo, "demo", "main") {
-            tugdash_core::resolve::CandidateStatus::Valid(sha) => sha,
+        let candidate = match tugarc_core::resolve::candidate_status(repo, "demo", "main") {
+            tugarc_core::resolve::CandidateStatus::Valid(sha) => sha,
             other => panic!("expected a valid candidate, got {other:?}"),
         };
         let merged = std::process::Command::new("git")
@@ -1655,8 +1655,7 @@ mod tests {
         assert_eq!(String::from_utf8_lossy(&merged.stdout), "SENTINEL\n");
 
         // The report is stored against the candidate and accounts for the path.
-        let report =
-            tugdash_core::resolve::read_report(repo, "demo", &candidate).expect("a report");
+        let report = tugarc_core::resolve::read_report(repo, "demo", &candidate).expect("a report");
         assert!(report.contains("f.txt"), "{report}");
 
         // Risk R01: the base checkout was never a party to any of this.
@@ -1670,7 +1669,7 @@ mod tests {
         // this one is not refused by a resolve that has already finished.
         assert_eq!(chain_subject(repo), "tugresolve(demo): end");
         assert!(
-            tugdash_core::resolve::resolve_lease(repo, "demo", std::time::SystemTime::now())
+            tugarc_core::resolve::resolve_lease(repo, "demo", std::time::SystemTime::now())
                 .is_none()
         );
     }
@@ -1692,7 +1691,7 @@ mod tests {
             &["config", "tugdash.mergedriver", &driver.to_string_lossy()],
         );
 
-        let outcome = tugdash_core::resolve_conflicts(repo, "demo", None).unwrap();
+        let outcome = tugarc_core::resolve_conflicts(repo, "demo", None).unwrap();
         assert!(
             outcome.candidate_commit.is_some(),
             "the driver rung settles it"
@@ -1701,11 +1700,11 @@ mod tests {
         let ctx = context(repo);
         finish_join(&ctx, &outcome).await.expect("the audit runs");
 
-        let candidate = match tugdash_core::resolve::candidate_status(repo, "demo", "main") {
-            tugdash_core::resolve::CandidateStatus::Valid(sha) => sha,
+        let candidate = match tugarc_core::resolve::candidate_status(repo, "demo", "main") {
+            tugarc_core::resolve::CandidateStatus::Valid(sha) => sha,
             other => panic!("expected a valid candidate, got {other:?}"),
         };
-        let report = tugdash_core::resolve::read_report(repo, "demo", &candidate)
+        let report = tugarc_core::resolve::read_report(repo, "demo", &candidate)
             .expect("the audit pass leaves a report even with nothing left to finish");
         assert!(report.contains("\"audit\":\"kept\""), "{report}");
     }
@@ -1769,10 +1768,10 @@ mod tests {
         let temp = replay_shaped_repo(auditing_stub);
         let repo = temp.path();
 
-        let outcome = tugdash_core::resolve_conflicts(repo, "demo", None).unwrap();
+        let outcome = tugarc_core::resolve_conflicts(repo, "demo", None).unwrap();
         assert_eq!(
             outcome.shape,
-            tugdash_core::JoinShape::Replay,
+            tugarc_core::JoinShape::Replay,
             "precondition: the rounds replay clean"
         );
         assert_eq!(
@@ -1786,15 +1785,15 @@ mod tests {
         let ctx = context(repo);
         finish_join(&ctx, &outcome).await.expect("the audit runs");
 
-        let candidate = match tugdash_core::resolve::candidate_status(repo, "demo", "main") {
-            tugdash_core::resolve::CandidateStatus::Valid(sha) => sha,
+        let candidate = match tugarc_core::resolve::candidate_status(repo, "demo", "main") {
+            tugarc_core::resolve::CandidateStatus::Valid(sha) => sha,
             other => panic!("expected a valid candidate, got {other:?}"),
         };
         assert_eq!(
             candidate, replayed,
             "an audit that changed nothing keeps the replayed candidate"
         );
-        let report = tugdash_core::resolve::read_report(repo, "demo", &candidate)
+        let report = tugarc_core::resolve::read_report(repo, "demo", &candidate)
             .expect("the replay pass leaves a report");
         assert!(report.contains("f.txt"), "{report}");
         assert!(report.contains("\"audit\":\"kept\""), "{report}");
@@ -1807,7 +1806,7 @@ mod tests {
         let temp = replay_shaped_repo(silent_stub);
         let repo = temp.path();
 
-        let outcome = tugdash_core::resolve_conflicts(repo, "demo", None).unwrap();
+        let outcome = tugarc_core::resolve_conflicts(repo, "demo", None).unwrap();
         let ctx = context(repo);
         let err = finish_join(&ctx, &outcome)
             .await
@@ -1825,7 +1824,7 @@ mod tests {
         // merges cleanly.
         git(repo, &["revert", "--no-edit", "HEAD"]);
 
-        let outcome = tugdash_core::resolve_conflicts(repo, "demo", None).unwrap();
+        let outcome = tugarc_core::resolve_conflicts(repo, "demo", None).unwrap();
         assert!(outcome.candidate_commit.is_some());
         assert!(
             audit_set(&outcome).is_empty(),
@@ -1849,7 +1848,7 @@ mod tests {
         let temp = conflicted_repo(smuggler);
         let repo = temp.path();
 
-        let outcome = tugdash_core::resolve_conflicts(repo, "demo", None).unwrap();
+        let outcome = tugarc_core::resolve_conflicts(repo, "demo", None).unwrap();
         let ctx = context(repo);
         let err = finish_join(&ctx, &outcome)
             .await
@@ -1860,7 +1859,7 @@ mod tests {
         let honest = "#!/bin/sh\nws=\"$1\"\nread -r _charter\nprintf 'SENTINEL\\n' > \"$ws/f.txt\"\nprintf 'x\\n' > \"$ws/invented.txt\"\nprintf '%s\\n' '{\"files\":[{\"path\":\"f.txt\",\"resolved_by\":\"resolver\",\"what_each_side_did\":\"both rewrote it\",\"reconciliation\":\"kept both\"},{\"path\":\"invented.txt\",\"resolved_by\":\"resolver\",\"what_each_side_did\":\"neither had it\",\"reconciliation\":\"added, the merged code needs it\"}],\"notes\":\"done\"}'\n";
         let temp = conflicted_repo(honest);
         let repo = temp.path();
-        let outcome = tugdash_core::resolve_conflicts(repo, "demo", None).unwrap();
+        let outcome = tugarc_core::resolve_conflicts(repo, "demo", None).unwrap();
         let ctx = context(repo);
         finish_join(&ctx, &outcome)
             .await
@@ -1878,16 +1877,16 @@ mod tests {
     async fn an_expired_ask_reaches_the_next_charter_and_is_consumed() {
         let temp = conflicted_repo("#!/bin/sh\nexit 1\n");
         let repo = temp.path();
-        let head = tugdash_core::ops::rev_parse(repo, "tugdash/demo").unwrap();
+        let head = tugarc_core::ops::rev_parse(repo, "tugdash/demo").unwrap();
 
-        tugdash_core::resolve::write_lastask(
+        tugarc_core::resolve::write_lastask(
             repo,
             "demo",
             &head,
             "Which side owns the retry budget?",
         );
 
-        let intent = tugdash_core::resolve_intent(repo, "main", "tugdash/demo");
+        let intent = tugarc_core::resolve_intent(repo, "main", "tugdash/demo");
         assert!(
             intent.contains("Which side owns the retry budget?"),
             "the expired ask rides the next charter's corpus: {intent}"
@@ -1897,13 +1896,13 @@ mod tests {
         // A resolve consumes it, so the one after does not re-ask on its behalf.
         let auditing = "#!/bin/sh\nws=\"$1\"\nread -r _charter\nprintf 'SENTINEL\\n' > \"$ws/f.txt\"\nprintf '%s\\n' '{\"files\":[{\"path\":\"f.txt\",\"resolved_by\":\"resolver\",\"what_each_side_did\":\"x\",\"reconciliation\":\"y\"}],\"notes\":\"\"}'\n";
         write_exec(&repo.join("stub-resolver.sh"), auditing);
-        let outcome = tugdash_core::resolve_conflicts(repo, "demo", None).unwrap();
+        let outcome = tugarc_core::resolve_conflicts(repo, "demo", None).unwrap();
         finish_join(&context(repo), &outcome)
             .await
             .expect("the resolve runs");
 
         assert!(
-            tugdash_core::resolve::read_lastask(repo, "demo", &head).is_none(),
+            tugarc_core::resolve::read_lastask(repo, "demo", &head).is_none(),
             "the ask was consumed by the charter that carried it"
         );
     }
@@ -1916,7 +1915,7 @@ mod tests {
         let temp = conflicted_repo(touch_nothing);
         let repo = temp.path();
 
-        let outcome = tugdash_core::resolve_conflicts(repo, "demo", None).unwrap();
+        let outcome = tugarc_core::resolve_conflicts(repo, "demo", None).unwrap();
         let ctx = context(repo);
         let err = finish_join(&ctx, &outcome)
             .await
@@ -1924,15 +1923,15 @@ mod tests {
         assert!(err.contains("conflict markers remain"), "{err}");
         assert!(
             matches!(
-                tugdash_core::resolve::candidate_status(repo, "demo", "main"),
-                tugdash_core::resolve::CandidateStatus::None
+                tugarc_core::resolve::candidate_status(repo, "demo", "main"),
+                tugarc_core::resolve::CandidateStatus::None
             ),
             "a refused resolve anchors no candidate"
         );
         // A refused resolve is still an exit, so its lease is released too.
         assert_eq!(chain_subject(repo), "tugresolve(demo): end");
         assert!(
-            tugdash_core::resolve::resolve_lease(repo, "demo", std::time::SystemTime::now())
+            tugarc_core::resolve::resolve_lease(repo, "demo", std::time::SystemTime::now())
                 .is_none()
         );
     }
@@ -1954,9 +1953,9 @@ mod tests {
             ),
         );
 
-        let outcome = tugdash_core::resolve_conflicts(&repo, "demo", None).unwrap();
+        let outcome = tugarc_core::resolve_conflicts(&repo, "demo", None).unwrap();
         assert!(
-            tugdash_core::resolve::resolve_lease(&repo, "demo", std::time::SystemTime::now())
+            tugarc_core::resolve::resolve_lease(&repo, "demo", std::time::SystemTime::now())
                 .is_none(),
             "the ladder parked a conflict; nobody is working it yet"
         );
@@ -1967,7 +1966,7 @@ mod tests {
         let mut held = None;
         for _ in 0..600 {
             if let Some(lease) =
-                tugdash_core::resolve::resolve_lease(&repo, "demo", std::time::SystemTime::now())
+                tugarc_core::resolve::resolve_lease(&repo, "demo", std::time::SystemTime::now())
             {
                 held = Some(lease);
                 break;
@@ -1982,7 +1981,7 @@ mod tests {
         running.await.unwrap().expect("the resolve runs");
 
         assert!(
-            tugdash_core::resolve::resolve_lease(&repo, "demo", std::time::SystemTime::now())
+            tugarc_core::resolve::resolve_lease(&repo, "demo", std::time::SystemTime::now())
                 .is_none(),
             "the lease is released the moment the resolve is over"
         );
@@ -2015,9 +2014,9 @@ mod tests {
         git(repo, &["add", "g.txt"]);
         git(repo, &["commit", "-m", "the base adds g"]);
 
-        let outcome = tugdash_core::resolve_conflicts(repo, "demo", None).unwrap();
+        let outcome = tugarc_core::resolve_conflicts(repo, "demo", None).unwrap();
         assert_eq!(outcome.unresolved.len(), 2, "both files conflict");
-        let root = tugdash_core::resolve::read_conflict(repo, "demo")
+        let root = tugarc_core::resolve::read_conflict(repo, "demo")
             .unwrap()
             .tip;
 
@@ -2027,7 +2026,7 @@ mod tests {
             .expect_err("the report omits f.txt");
 
         // The turn's work was checkpointed before the report was judged.
-        let chain = tugdash_core::resolve::read_conflict(repo, "demo")
+        let chain = tugarc_core::resolve::read_conflict(repo, "demo")
             .expect("the chain outlives the failed resolve");
         assert_ne!(chain.tip, root, "the chain advanced past its root");
         let settled = std::process::Command::new("git")
@@ -2042,7 +2041,7 @@ mod tests {
         );
 
         // What a later resolve would be asked to do is only the remainder.
-        let workshop = tugdash_core::Workshop::open_conflict(repo, "demo").unwrap();
+        let workshop = tugarc_core::Workshop::open_conflict(repo, "demo").unwrap();
         assert_eq!(
             workshop.unresolved().unwrap(),
             vec!["f.txt".to_string()],
@@ -2068,13 +2067,13 @@ mod tests {
         let temp = conflicted_repo(touch_nothing);
         let repo = temp.path();
 
-        let outcome = tugdash_core::resolve_conflicts(repo, "demo", None).unwrap();
+        let outcome = tugarc_core::resolve_conflicts(repo, "demo", None).unwrap();
         let ctx = context(repo);
         finish_join(&ctx, &outcome)
             .await
             .expect_err("the resolver touched nothing");
 
-        let workshop = tugdash_core::workshop::workshop_path(repo, "demo");
+        let workshop = tugarc_core::workshop::workshop_path(repo, "demo");
         assert!(workshop.exists(), "the workshop itself survives its warmth");
         assert!(
             !workshop.join(".git/MERGE_HEAD").exists()
@@ -2088,7 +2087,7 @@ mod tests {
             contents.contains("<<<<<<<"),
             "the unresolved conflict is still there to be resumed: {contents}"
         );
-        let chain = tugdash_core::resolve::read_conflict(repo, "demo")
+        let chain = tugarc_core::resolve::read_conflict(repo, "demo")
             .expect("the chain outlives the failed resolve");
         let head = std::process::Command::new("git")
             .current_dir(&workshop)
@@ -2123,20 +2122,20 @@ mod tests {
         let temp = conflicted_repo("#!/bin/sh\nexit 0\n");
         let repo = temp.path();
 
-        tugdash_core::workshop::Workshop::open_existing(repo, "demo")
+        tugarc_core::workshop::Workshop::open_existing(repo, "demo")
             .expect("a live dash has a workshop");
 
         let mut warnings = Vec::new();
-        tugdash_core::workshop::remove(repo, "demo", &mut warnings);
+        tugarc_core::workshop::remove(repo, "demo", &mut warnings);
         git(repo, &["branch", "-D", "tugdash/demo"]);
 
-        let err = match tugdash_core::workshop::Workshop::open_existing(repo, "demo") {
+        let err = match tugarc_core::workshop::Workshop::open_existing(repo, "demo") {
             Err(e) => e,
             Ok(_) => panic!("a gone dash refuses"),
         };
         assert!(err.contains("is gone"), "{err}");
         assert!(
-            !tugdash_core::workshop::workshop_path(repo, "demo").exists(),
+            !tugarc_core::workshop::workshop_path(repo, "demo").exists(),
             "and nothing was created on the way to refusing"
         );
     }
@@ -2149,7 +2148,7 @@ mod tests {
         let temp = conflicted_repo(omitting);
         let repo = temp.path();
 
-        let outcome = tugdash_core::resolve_conflicts(repo, "demo", None).unwrap();
+        let outcome = tugarc_core::resolve_conflicts(repo, "demo", None).unwrap();
         let ctx = context(repo);
         let err = finish_join(&ctx, &outcome)
             .await
@@ -2167,7 +2166,7 @@ mod tests {
         let temp = conflicted_repo(asking);
         let repo = temp.path();
 
-        let outcome = tugdash_core::resolve_conflicts(repo, "demo", None).unwrap();
+        let outcome = tugarc_core::resolve_conflicts(repo, "demo", None).unwrap();
         let ctx = context(repo);
         let mut frames = ctx.control_tx.subscribe();
         let resolve = tokio::spawn(async move { finish_join(&ctx, &outcome).await });
@@ -2189,9 +2188,9 @@ mod tests {
 
         // …and as a durable fact, so a reload re-renders it rather than losing
         // it and leaving the resolver waiting on nobody.
-        let head = tugdash_core::ops::rev_parse(repo, "tugdash/demo").unwrap();
+        let head = tugarc_core::ops::rev_parse(repo, "tugdash/demo").unwrap();
         let stored =
-            tugdash_core::resolve::read_question(repo, "demo", &head).expect("a durable question");
+            tugarc_core::resolve::read_question(repo, "demo", &head).expect("a durable question");
         assert!(stored.contains("Which name wins?"), "{stored}");
 
         assert!(
@@ -2207,17 +2206,16 @@ mod tests {
 
         // Answered, so the question stops standing.
         assert!(
-            tugdash_core::resolve::read_question(repo, "demo", &head).is_none(),
+            tugarc_core::resolve::read_question(repo, "demo", &head).is_none(),
             "an answered question does not keep standing"
         );
 
         // The report keeps the escalation — the question survives the dialog.
-        let candidate = match tugdash_core::resolve::candidate_status(repo, "demo", "main") {
-            tugdash_core::resolve::CandidateStatus::Valid(sha) => sha,
+        let candidate = match tugarc_core::resolve::candidate_status(repo, "demo", "main") {
+            tugarc_core::resolve::CandidateStatus::Valid(sha) => sha,
             other => panic!("expected a valid candidate, got {other:?}"),
         };
-        let report =
-            tugdash_core::resolve::read_report(repo, "demo", &candidate).expect("a report");
+        let report = tugarc_core::resolve::read_report(repo, "demo", &candidate).expect("a report");
         assert!(report.contains("Which name wins?"), "{report}");
         assert!(report.contains("the dash"), "{report}");
     }
@@ -2241,18 +2239,17 @@ mod tests {
         let temp = conflicted_repo(&resolving_stub("NOTHING\n"));
         let repo = temp.path();
 
-        let outcome = tugdash_core::resolve_conflicts(repo, "demo", None).unwrap();
+        let outcome = tugarc_core::resolve_conflicts(repo, "demo", None).unwrap();
         let ctx = context(repo);
         finish_join(&ctx, &outcome)
             .await
             .expect("the resolve finishes on its own terms");
 
-        let candidate = match tugdash_core::resolve::candidate_status(repo, "demo", "main") {
-            tugdash_core::resolve::CandidateStatus::Valid(sha) => sha,
+        let candidate = match tugarc_core::resolve::candidate_status(repo, "demo", "main") {
+            tugarc_core::resolve::CandidateStatus::Valid(sha) => sha,
             other => panic!("expected a valid candidate, got {other:?}"),
         };
-        let report =
-            tugdash_core::resolve::read_report(repo, "demo", &candidate).expect("a report");
+        let report = tugarc_core::resolve::read_report(repo, "demo", &candidate).expect("a report");
         assert!(report.contains("f.txt"), "{report}");
     }
 
@@ -2276,7 +2273,7 @@ mod tests {
             turn_timeout: Duration::from_millis(400),
         }));
 
-        let outcome = tugdash_core::resolve_conflicts(repo, "demo", None).unwrap();
+        let outcome = tugarc_core::resolve_conflicts(repo, "demo", None).unwrap();
         let err = finish_join(&ctx, &outcome)
             .await
             .expect_err("a silent resolver cannot finish the join");

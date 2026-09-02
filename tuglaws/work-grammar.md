@@ -83,9 +83,3 @@ Per the retirement doctrine, the designs go and the spellings stay findable — 
 - **proposal** — once the name for the in-conversation converged shape; retired for its formality inversion (a proposal outranks a brief in common usage, but this artifact ranks below one). Now: **a sketch**, and a sketch is never a file.
 - **roadmap/** — the old document directory, deleted; its successor is `notes/` under the inertness charter above.
 - **arc** (old sense) — briefly named the stage sequence in the machinery (`TUG_DASH_ARC`, `ArcStage`). The word is promoted, not retired: it now names the work unit whole, which is what its value (the dash's name) always pointed at anyway.
-
----
-
-## Spellings in transition
-
-*This section describes the gap between this grammar and the tree, and is deleted when the rename campaign closes it.* The machinery still speaks the old lexicon: the `tugtool dash` verb family, the `tugdash-core` crate, `.tug/dashes/`, `/dash-join`, `TUG_DASH_COURSE`/`TUG_DASH_ARC`, the `dash-plan` door and `dash-*` stage skills, and the `tuglaws/dash-*.md` doctrine. The campaign that brings the spellings to this grammar is chartered in `notes/arc-lexicon-brief.md`.

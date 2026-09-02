@@ -14,7 +14,7 @@
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use tugdash_core::DocumentArgument;
+use tugarc_core::DocumentArgument;
 
 use serde::Serialize;
 use tugtool_core::plan::{self, Severity};
@@ -63,10 +63,10 @@ fn resolve_document_argument(arg: &str) -> Result<PathBuf, AppError> {
             // `/dash` door's task list otherwise. A task list is a document
             // these verbs can read — `status` reports its ledger — and holding
             // it to the skeleton is `lint`'s business, not this resolver's.
-            tugdash_core::ledger_file(&root, &name).ok_or_else(|| {
+            tugarc_core::ledger_file(&root, &name).ok_or_else(|| {
                 AppError::Exit2(format!(
                     "dash '{name}' has no plan at {}",
-                    tugdash_core::plan_file(&root, &name).display()
+                    tugarc_core::plan_file(&root, &name).display()
                 ))
             })
         }

@@ -1,5 +1,5 @@
 /**
- * at0407-dashes-card.test.ts — the marks the Dashes card paints, over real
+ * at0407-dashes-card.test.ts — the marks the Arcs card paints, over real
  * dashes.
  *
  * The card holds EVERY dash in every state ([D141]), and every row is one
@@ -24,18 +24,18 @@
  * The stage ordering rides along, because it needs two dashes at different
  * stages and this is the file that has them.
  *
- * @covers tugdeck/src/components/dashes/dashes-card.tsx
- * @covers tugdeck/src/components/dashes/dashes-card.css
- * @covers tugdeck/src/components/tugways/dash-lifecycle-block.tsx
- * @covers tugdeck/src/components/tugways/dash-lifecycle-block.css
- * @covers tugdeck/src/components/tugways/dash-lifecycle-line.tsx
- * @covers tugdeck/src/components/tugways/dash-lifecycle-line.css
- * @covers tugdeck/src/components/tugways/tug-dash-track.tsx
- * @covers tugdeck/src/components/tugways/tug-dash-track.css
+ * @covers tugdeck/src/components/arcs/arcs-card.tsx
+ * @covers tugdeck/src/components/arcs/arcs-card.css
+ * @covers tugdeck/src/components/tugways/arc-lifecycle-block.tsx
+ * @covers tugdeck/src/components/tugways/arc-lifecycle-block.css
+ * @covers tugdeck/src/components/tugways/arc-lifecycle-line.tsx
+ * @covers tugdeck/src/components/tugways/arc-lifecycle-line.css
+ * @covers tugdeck/src/components/tugways/tug-arc-track.tsx
+ * @covers tugdeck/src/components/tugways/tug-arc-track.css
  * @covers tugdeck/src/components/tugways/tug-step-fraction.tsx
  * @covers tugdeck/src/lib/changeset-all-store.ts
  * @covers tugdeck/src/lib/changeset-types.ts
- * @covers tugdeck/src/lib/dash-review.ts
+ * @covers tugdeck/src/lib/arc-review.ts
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
@@ -112,21 +112,24 @@ beforeAll(() => {
   // narrowing this function body sits inside does not reach into a callback.
   const cli = scratch.cli;
   const step = (...args: string[]): void => {
-    tugtool(["dash", "step", SKIPPED_DASH, ...args], {
+    tugtool(["arc", "step", SKIPPED_DASH, ...args], {
       cwd: projectDir(),
       binaryRoot: cli.binaryRoot,
       env: cli.env,
     });
   };
   // `recordStampedPlan` already opened step 1 and declared the selection.
-  step("done", "1", "--commit", "a4477d5");
+  // The commit cell is the branch tip, taken by omitting `--commit`: the verb
+  // refuses a sha that resolves to nothing in the dash worktree, and a fixture
+  // that makes no round has no sha of its own to name.
+  step("done", "1");
   for (const n of [2, 3, 4, 5, 6]) {
     step("start", String(n), "--through", "8");
-    step("done", String(n), "--commit", "a4477d5");
+    step("done", String(n));
   }
   step("withdraw", "7");
   step("start", "8", "--through", "8");
-  step("done", "8", "--commit", "a4477d5");
+  step("done", "8");
 
   fixtureDir = seedScratchSession(projectDir(), SID);
 });
@@ -156,7 +159,7 @@ function deckShape() {
   };
 }
 
-describe.skipIf(!SHOULD_RUN)("AT0407: the Dashes card", () => {
+describe.skipIf(!SHOULD_RUN)("AT0407: the Arcs card", () => {
   test(
     "an unbound dash wears the eyebrow's verbs and never a dot",
     async () => {
@@ -178,7 +181,7 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Dashes card", () => {
         await app.awaitEngineReady("A", { timeoutMs: 15000 });
 
         // ── The section is there, and the dash's row is in it ─────────────
-        await app.dispatchControlAction("toggle-dashes");
+        await app.dispatchControlAction("toggle-arcs");
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(SECTION)}) !== null`,
           { timeoutMs: 15000 },
@@ -271,7 +274,7 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Dashes card", () => {
         // workspace, and spawning a session on it is what registers it.
         await app.spawnSessionResume("A", { tugSessionId: SID, projectDir: projectDir() });
         await app.awaitEngineReady("A", { timeoutMs: 15000 });
-        await app.dispatchControlAction("toggle-dashes");
+        await app.dispatchControlAction("toggle-arcs");
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(PLAN_ROW)}) !== null`,
           { timeoutMs: 30000 },

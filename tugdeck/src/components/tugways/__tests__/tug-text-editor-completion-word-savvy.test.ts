@@ -459,12 +459,12 @@ describe("promotion — a trigger arriving at a token start engages completion",
 
 describe("a slash command typed in front of a message already written", () => {
   // The reported flow: the composer holds "Yes, (C) is the way to go." and the
-  // user puts the caret at 0 and types "/dash". The command and the prose are
-  // one unbroken token — "dashYes" matches nothing — so the popup the user is
+  // user puts the caret at 0 and types "/arc". The command and the prose are
+  // one unbroken token — "arcYes" matches nothing — so the popup the user is
   // typing into went dark, and the only way to finish the command was to walk
   // to the end of the run and edit it there.
-  const dashProvider: CompletionProvider = (query) =>
-    ["dash", "dash-join"].filter((name) => name.startsWith(query)).map((name) =>
+  const arcProvider: CompletionProvider = (query) =>
+    ["arc", "arc-join"].filter((name) => name.startsWith(query)).map((name) =>
       item(name, "command"),
     );
 
@@ -475,7 +475,7 @@ describe("a slash command typed in front of a message already written", () => {
     let state = EditorState.create({
       doc: MESSAGE,
       selection: EditorSelection.cursor(0),
-      extensions: [tugCompletionExt(() => ({ "/": dashProvider }))],
+      extensions: [tugCompletionExt(() => ({ "/": arcProvider }))],
     });
     for (let i = 0; i < text.length; i++) {
       state = state.update({
@@ -488,15 +488,15 @@ describe("a slash command typed in front of a message already written", () => {
   }
 
   test("the query is what was typed, not the glued run", () => {
-    const field = typeAtZero("/dash").field(completionField);
+    const field = typeAtZero("/arc").field(completionField);
     expect(field.active).toBe(true);
-    expect(field.query).toBe("dash");
+    expect(field.query).toBe("arc");
     expect(field.caretBounded).toBe(true);
-    expect(field.filtered.map((f) => f.label)).toEqual(["dash", "dash-join"]);
+    expect(field.filtered.map((f) => f.label)).toEqual(["arc", "arc-join"]);
   });
 
   test("it filters on every keystroke, never going dark mid-word", () => {
-    for (const prefix of ["/d", "/da", "/das", "/dash"]) {
+    for (const prefix of ["/a", "/ar", "/arc"]) {
       const field = typeAtZero(prefix).field(completionField);
       expect(field.query).toBe(prefix.slice(1));
       expect(field.filtered.length).toBeGreaterThan(0);
@@ -507,7 +507,7 @@ describe("a slash command typed in front of a message already written", () => {
     const state = EditorState.create({
       doc: "",
       selection: EditorSelection.cursor(0),
-      extensions: [tugCompletionExt(() => ({ "/": dashProvider }))],
+      extensions: [tugCompletionExt(() => ({ "/": arcProvider }))],
     })
       .update({
         changes: { from: 0, insert: "/" },
@@ -515,34 +515,34 @@ describe("a slash command typed in front of a message already written", () => {
         userEvent: "input.type",
       })
       .state.update({
-        changes: { from: 1, insert: "dash" },
-        selection: EditorSelection.cursor(5),
+        changes: { from: 1, insert: "arc" },
+        selection: EditorSelection.cursor(4),
         userEvent: "input.type",
       }).state;
     const field = state.field(completionField);
-    expect(field.query).toBe("dash");
+    expect(field.query).toBe("arc");
     expect(field.caretBounded).toBe(false);
   });
 
   test("editing inside a command that still matches keeps its tail", () => {
-    // "/dsh-join" with "a" inserted after "/d": the whole token "dash-join"
+    // "/ac-join" with "r" inserted after "/a": the whole token "arc-join"
     // is a real command, so the tail is the token's, not a neighbor's.
     const edited = EditorState.create({
-      doc: "/dsh-join",
+      doc: "/ac-join",
       selection: EditorSelection.cursor(2),
-      extensions: [tugCompletionExt(() => ({ "/": dashProvider }))],
+      extensions: [tugCompletionExt(() => ({ "/": arcProvider }))],
     }).update({
-      changes: { from: 2, insert: "a" },
+      changes: { from: 2, insert: "r" },
       selection: EditorSelection.cursor(3),
       userEvent: "input.type",
     }).state;
     const field = edited.field(completionField);
-    expect(field.query).toBe("dash-join");
+    expect(field.query).toBe("arc-join");
     expect(field.caretBounded).toBe(false);
   });
 
   test("accepting leaves the message intact behind a separating space", () => {
-    const accepted = acceptOn(typeAtZero("/dash"));
+    const accepted = acceptOn(typeAtZero("/arc"));
     expect(accepted.doc.toString()).toBe(`${TUG_ATOM_CHAR} ${MESSAGE}`);
     // Caret past the atom and its space, on the message's first character.
     expect(accepted.selection.main.head).toBe(2);
@@ -550,7 +550,7 @@ describe("a slash command typed in front of a message already written", () => {
   });
 
   test("a terminator accepts with itself as the separator", () => {
-    const accepted = acceptOn(typeAtZero("/dash"), ",");
+    const accepted = acceptOn(typeAtZero("/arc"), ",");
     expect(accepted.doc.toString()).toBe(`${TUG_ATOM_CHAR},${MESSAGE}`);
   });
 });

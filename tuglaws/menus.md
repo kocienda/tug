@@ -297,8 +297,8 @@ Every command has several doors: a chord, a menu item, the palette, a control fr
 | `file.saveACopy` | `save-a-copy` | first responder | registry gate |
 | `file.saveAs` | `save-as` | first responder | registry gate |
 | `help.shortcuts` | `run-slash-command:help` | key card | registry gate |
+| `maker.arcs` | `toggle-arcs` | registered handler | host tier |
 | `maker.cards` | `toggle-cards` | registered handler | host tier |
-| `maker.dashes` | `toggle-dashes` | registered handler | host tier |
 | `maker.devTools` | `show-devtools` | first responder | registry gate |
 | `maker.galleryCard` | `show-component-gallery` | first responder | host tier |
 | `maker.jots` | `toggle-jots` | registered handler | host tier |

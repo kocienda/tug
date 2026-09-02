@@ -13,7 +13,7 @@
 //!
 //! # Finished is derived, never declared
 //!
-//! The trigger is `DashDetail.join_ready` — a fact `tugdash_core` derives from
+//! The trigger is `DashDetail.join_ready` — a fact `tugarc_core` derives from
 //! the dash's own recorded telemetry: a declared step selection reaching its
 //! final step, a plan-less round landing on a clean worktree, or a `built` /
 //! `audited` mark ([D147]). It was once the `built` mark alone, and that made
@@ -56,7 +56,7 @@
 //! "this reconcile has not been attempted". Keyed on the dash head alone the
 //! pilot would never re-run after the base moved, and a dash cut days ago
 //! would sit unreconciled against a base it had never met. It lives in
-//! `tugdash_core::verify`, and it is now the only mark on this arc: the
+//! `tugarc_core::verify`, and it is now the only mark on this arc: the
 //! dismissal mark that once sat beside it was a record of a dialog having been
 //! declined, and nothing raises a dialog here any more.
 
@@ -164,7 +164,7 @@ async fn run_dispatch(
     dash: String,
     action: PilotAction,
 ) {
-    let owner_key = tugdash_core::ops::dash_owner_key(&repo_root, &dash);
+    let owner_key = tugarc_core::ops::dash_owner_key(&repo_root, &dash);
     let kind = match action {
         PilotAction::Reconcile => JoinRunKind::Resolve,
     };
@@ -190,13 +190,13 @@ async fn run_dispatch(
     let mark_dash = dash.clone();
     let mark_pair = head_pair.clone();
     let claimed = tokio::task::spawn_blocking(move || {
-        if tugdash_core::verify::read_pilot_mark(&mark_root, &mark_dash).as_deref()
+        if tugarc_core::verify::read_pilot_mark(&mark_root, &mark_dash).as_deref()
             == Some(mark_pair.as_str())
         {
             return false;
         }
         // Written before the run, deliberately (Risk R01).
-        let _ = tugdash_core::verify::write_pilot_mark(&mark_root, &mark_dash, &mark_pair);
+        let _ = tugarc_core::verify::write_pilot_mark(&mark_root, &mark_dash, &mark_pair);
         true
     })
     .await;
@@ -220,9 +220,9 @@ async fn run_dispatch(
 /// `(<base_sha>:<dash_head>, dash_head)` for a dash, or `None` when either side
 /// will not resolve.
 fn head_pair(repo_root: &Path, dash: &str) -> Option<(String, String)> {
-    let detail = tugdash_core::ops::dash_detail_entry_in(repo_root, dash)?;
-    let base = tugdash_core::ops::rev_parse(repo_root, &detail.base).ok()?;
-    let head = tugdash_core::ops::rev_parse(repo_root, &detail.branch).ok()?;
+    let detail = tugarc_core::ops::dash_detail_entry_in(repo_root, dash)?;
+    let base = tugarc_core::ops::rev_parse(repo_root, &detail.base).ok()?;
+    let head = tugarc_core::ops::rev_parse(repo_root, &detail.branch).ok()?;
     Some((format!("{base}:{head}"), head))
 }
 
@@ -439,7 +439,7 @@ mod tests {
         let (_dir, root) = repo_with_dash("busy");
         let (runner, reconciles) = counting();
 
-        let owner_key = tugdash_core::ops::dash_owner_key(&root, "busy");
+        let owner_key = tugarc_core::ops::dash_owner_key(&root, "busy");
         let held = join_occupancy::acquire(&owner_key, JoinRunKind::Resolve, None).unwrap();
 
         run_dispatch(
@@ -451,7 +451,7 @@ mod tests {
         .await;
         assert_eq!(reconciles.load(Ordering::SeqCst), 0);
         assert!(
-            tugdash_core::verify::read_pilot_mark(&root, "busy").is_none(),
+            tugarc_core::verify::read_pilot_mark(&root, "busy").is_none(),
             "a dispatch that never ran must not claim the pair"
         );
 
@@ -485,7 +485,7 @@ mod tests {
                 // What the mark says *while the run is in flight* is the fact
                 // under test.
                 *self.saw_mark.lock().unwrap() =
-                    tugdash_core::verify::read_pilot_mark(&self.root, dash);
+                    tugarc_core::verify::read_pilot_mark(&self.root, dash);
                 drop(occupancy);
             }
         }

@@ -141,7 +141,7 @@ export interface SessionChangesetEntry {
  * commit cell; both belong to the Changes shade rather than to a placard, and a
  * list that shows a title and a state needs a title and a state.
  */
-export interface DashStep {
+export interface ArcStep {
   /** The step's title, as the ledger table spells it. */
   title: string;
   /**
@@ -152,7 +152,7 @@ export interface DashStep {
   status: string;
 }
 
-export function isDashStep(value: unknown): value is DashStep {
+export function isArcStep(value: unknown): value is ArcStep {
   return (
     isRecord(value) &&
     typeof value.title === "string" &&
@@ -264,7 +264,7 @@ export interface DashChangesetEntry {
    *  from, so a dash's fraction and its step list cannot come from two readings
    *  of two different bytes. Absent when the dash records no plan, or when the
    *  file cannot be read or parsed — the same silence `review` keeps. */
-  steps?: DashStep[];
+  steps?: ArcStep[];
   /** The base branch the dash was created from. */
   base: string;
   /** Number of commits on the dash branch past its base. */
@@ -303,11 +303,11 @@ export interface DashChangesetEntry {
    * progress and the draft message, both genuinely ephemeral. Absent from an
    * older server, which reads as *nothing to say*.
    */
-  join?: DashJoinStateWire;
+  join?: ArcJoinStateWire;
 }
 
 /** One reason a join would be refused right now. */
-export interface DashJoinBlockerWire {
+export interface ArcJoinBlockerWire {
   /** `off-base` | `base-dirt` | `stale-journal` | `empty`. */
   kind: string;
   /** The situation as a short phrase — the dialog's title row. */
@@ -324,11 +324,11 @@ export interface DashJoinBlockerWire {
    * the same reason `detail` is: a second copy here would be free to disagree
    * with the act the server actually performs.
    */
-  remedy?: DashJoinRemedyWire;
+  remedy?: ArcJoinRemedyWire;
 }
 
 /** The one way out of a blocker, and the sentence that explains it. */
-export interface DashJoinRemedyWire {
+export interface ArcJoinRemedyWire {
   /** What Resolve will do, as one sentence the reader weighs before pressing. */
   explain: string;
 }
@@ -373,11 +373,11 @@ export interface DashResolvedFileWire {
  * a client-held accumulation, which is what makes two cards on one dash, a
  * reloaded deck, and a relaunched app agree by construction.
  */
-export interface DashJoinStateWire {
+export interface ArcJoinStateWire {
   /** `blocked` | `previewed` | `conflicted` | `resolved`. Derived, never stored. */
   phase: string;
   /** Non-empty means `phase` is `blocked`. */
-  blockers?: DashJoinBlockerWire[];
+  blockers?: ArcJoinBlockerWire[];
   /** Conflicted paths from the in-memory merge probe. */
   conflicts?: string[];
   /** What the base did to each conflicted path. */
@@ -403,7 +403,7 @@ export interface DashJoinStateWire {
    * the candidate sha server-side, so it never outlives the resolution it
    * describes.
    */
-  report?: DashJoinReportWire;
+  report?: ArcJoinReportWire;
   /**
    * Why the resolve stopped short, when it did. A join that will not proceed
    * and cannot say why is the one state the face must never render.
@@ -414,7 +414,7 @@ export interface DashJoinStateWire {
    * a live frame, so a reload re-renders the question instead of losing it and
    * leaving the resolver blocked on an answer nobody can give.
    */
-  question?: DashJoinQuestionWire;
+  question?: ArcJoinQuestionWire;
   /**
    * What is running on this dash right now — `resolve` or `verify` — absent
    * when nothing is.
@@ -432,7 +432,7 @@ export interface DashJoinStateWire {
    * the ordinary case — a dash still being worked, and one with nothing
    * reconciled yet.
    */
-  offer?: DashJoinOfferWire;
+  offer?: ArcJoinOfferWire;
 }
 
 /**
@@ -441,7 +441,7 @@ export interface DashJoinStateWire {
  * The decision surface is the Changes shade, so this carries what the shade
  * shows and what summons it — nothing that belongs to a dialog.
  */
-export interface DashJoinOfferWire {
+export interface ArcJoinOfferWire {
   /**
    * `<dash>:<base_sha>:<dash_head>` — stable across recomputes, and different
    * the moment any of those three facts moves. A surface reveals itself once
@@ -463,28 +463,28 @@ export interface DashJoinOfferWire {
 }
 
 /** An escalation from the resolver, phrased as intent — never as a diff. */
-export interface DashJoinQuestionWire {
+export interface ArcJoinQuestionWire {
   /** Identifies this ask, so an answer cannot resolve a different one. */
   request_id: string;
   question: string;
-  options: DashJoinQuestionOptionWire[];
+  options: ArcJoinQuestionOptionWire[];
 }
 
 /** One concrete resolution offered on an escalation. */
-export interface DashJoinQuestionOptionWire {
+export interface ArcJoinQuestionOptionWire {
   label: string;
   description?: string;
 }
 
 /** The resolver's account of a candidate — what the review panel's space now shows. */
-export interface DashJoinReportWire {
-  files: DashJoinReportFileWire[];
-  question?: DashJoinReportQuestionWire;
+export interface ArcJoinReportWire {
+  files: ArcJoinReportFileWire[];
+  question?: ArcJoinReportQuestionWire;
   notes?: string;
 }
 
 /** One file's account in the resolver's report. */
-export interface DashJoinReportFileWire {
+export interface ArcJoinReportFileWire {
   path: string;
   resolved_by?: string;
   what_each_side_did?: string;
@@ -497,7 +497,7 @@ export interface DashJoinReportFileWire {
 }
 
 /** The escalation the resolver raised and the answer it was given. */
-export interface DashJoinReportQuestionWire {
+export interface ArcJoinReportQuestionWire {
   question: string;
   answer?: string;
 }
@@ -609,9 +609,9 @@ function isOptionalDashFit(
   );
 }
 
-function isOptionalDashJoinState(
+function isOptionalArcJoinState(
   value: unknown,
-): value is DashJoinStateWire | undefined {
+): value is ArcJoinStateWire | undefined {
   if (value === undefined) return true;
   if (!isRecord(value)) return false;
   if (typeof value.phase !== "string") return false;
@@ -791,7 +791,7 @@ export function isChangesetEntry(value: unknown): value is ChangesetEntry {
         typeof value.last_activity === "string") &&
       isOptionalDashDocuments(value.documents) &&
       (value.steps === undefined ||
-        (Array.isArray(value.steps) && value.steps.every(isDashStep))) &&
+        (Array.isArray(value.steps) && value.steps.every(isArcStep))) &&
       (value.base_ahead === undefined ||
         typeof value.base_ahead === "number") &&
       isOptionalStringArray(value.base_overlap) &&
@@ -799,7 +799,7 @@ export function isChangesetEntry(value: unknown): value is ChangesetEntry {
         typeof value.last_replay === "string") &&
       isOptionalDashFit(value.fit) &&
       isOptionalStringArray(value.replay_conflict_paths) &&
-      isOptionalDashJoinState(value.join)
+      isOptionalArcJoinState(value.join)
     );
   }
   return false;
@@ -843,10 +843,10 @@ export interface ProjectChangeset extends ChangesetSnapshot {
   /** The maintained draft for this project's unattributed bucket (Spec S10). */
   unattributed_draft?: ChangesetDraft;
   /**
-   * Dashes that exist only as documents — a `.tug/dashes/<name>/` with no
+   * Dashes that exist only as documents — a `.tug/arcs/<name>/` with no
    * branch yet — sorted by name. Absent when there are none.
    */
-  document_dashes?: DocumentDashEntry[];
+  document_arcs?: DocumentArcEntry[];
 }
 
 /**
@@ -888,14 +888,14 @@ function isOptionalDashDocuments(value: unknown): boolean {
 }
 
 /**
- * A dash that exists only as documents: a `.tug/dashes/<name>/` with no
+ * A dash that exists only as documents: a `.tug/arcs/<name>/` with no
  * `tugdash/<name>` branch yet — the planning phase in flight.
  *
  * Deliberately not a `DashChangesetEntry`: that carries a worktree, a base,
  * rounds, and files, none of which a branchless dash has. Creating the dash
  * turns this row into a live one rather than adding a second.
  */
-export interface DocumentDashEntry {
+export interface DocumentArcEntry {
   /** The dash's owner key — the same identity a live dash wears. */
   owner_id: string;
   /** The dash name, which is also its display identity. */
@@ -923,9 +923,9 @@ export interface DocumentDashEntry {
   bound_sessions?: string[];
 }
 
-export function isDocumentDashEntry(
+export function isDocumentArcEntry(
   value: unknown,
-): value is DocumentDashEntry {
+): value is DocumentArcEntry {
   return (
     isRecord(value) &&
     typeof value.owner_id === "string" &&
@@ -959,9 +959,9 @@ export function isProjectChangeset(value: unknown): value is ProjectChangeset {
     typeof value.display_name === "string" &&
     typeof value.no_repo === "boolean" &&
     isOptionalChangesetDraft(value.unattributed_draft) &&
-    (value.document_dashes === undefined ||
-      (Array.isArray(value.document_dashes) &&
-        value.document_dashes.every(isDocumentDashEntry))) &&
+    (value.document_arcs === undefined ||
+      (Array.isArray(value.document_arcs) &&
+        value.document_arcs.every(isDocumentArcEntry))) &&
     isChangesetSnapshot(value)
   );
 }

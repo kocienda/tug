@@ -71,7 +71,7 @@ import {
 import { useCommitIdentityMenu } from "@/components/tugways/commit-identity-menu";
 import { renderFilterHighlight } from "@/components/tugways/filter-highlight";
 import { TugSessionCitation } from "@/components/tugways/tug-session-identity";
-import { TugDashAtom } from "@/components/tugways/tug-dash-atom";
+import { TugArcAtom } from "@/components/tugways/tug-arc-atom";
 import { dashNameFromTrailer } from "@/lib/landing-receipt";
 import { resolveCitedSession } from "@/lib/session-identity";
 import {
@@ -470,11 +470,11 @@ function CommitRow({
                     className="tug-history-list-join-badge"
                     data-testid="session-history-join-badge"
                   >
-                    <TugDashAtom
+                    <TugArcAtom
                       name={dashName}
                       register="prose"
                       slot="session-history-join-dash"
-                      title={`Joined from dash ${dashName}`}
+                      title={`Joined from arc ${dashName}`}
                       nameContent={renderFilterHighlight(
                         dashName,
                         scopedQuery(filterQuery, filterScope, "message"),

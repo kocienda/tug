@@ -338,7 +338,7 @@ fn status_counts_the_ledger_by_status() {
     assert_eq!(value["data"]["lint"]["errors"], 0, "{value}");
 }
 
-/// The two fields `dash-implement`'s gate message quotes have to be populated
+/// The two fields `arc-implement`'s gate message quotes have to be populated
 /// together: a stale verdict is only actionable next to what has already landed.
 #[test]
 fn a_stale_plan_still_reports_its_step_counts() {

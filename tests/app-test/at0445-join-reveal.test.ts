@@ -74,13 +74,13 @@
  * reconcile-clean alone, so the arc runs at git speed.
  *
  * @covers tugdeck/src/components/tugways/cards/session-card.tsx
- * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-dash-lane.tsx
+ * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-arc-lane.tsx
  * @covers tugdeck/src/components/tugways/tug-prompt-entry.tsx
  * @covers tugdeck/src/lib/shade-view-controller.ts
  * @covers tugdeck/src/lib/changeset-types.ts
- * @covers tugdeck/src/lib/dash-join-register.ts
- * @covers tugrust/crates/tugdash-core/src/dash.rs
- * @covers tugrust/crates/tugdash-core/src/ops.rs
+ * @covers tugdeck/src/lib/arc-join-register.ts
+ * @covers tugrust/crates/tugarc-core/src/log.rs
+ * @covers tugrust/crates/tugarc-core/src/ops.rs
  * @covers tugrust/crates/tugcast/src/feeds/join_board.rs
  * @covers tugrust/crates/tugcast/src/feeds/join_pilot.rs
  * @covers tugrust/crates/tugcast-core/src/types.rs
@@ -140,7 +140,7 @@ const DASHES_CARD = '.dashes-section';
 const dashRow = (dash: string): string =>
   `${DASHES_CARD} [data-slot="dashes-row"][data-dash="${dash}"]`;
 const dashRegister = (dash: string): string =>
-  `${dashRow(dash)} [data-slot="dash-join-register"]`;
+  `${dashRow(dash)} [data-slot="arc-join-register"]`;
 
 /** The checkout whose built binaries the fixture drives. */
 const CHECKOUT = realpathSync(resolve(import.meta.dir, "..", ".."));
@@ -229,7 +229,7 @@ async function shadeAppearsWithin(app: App, ms: number): Promise<boolean> {
   return false;
 }
 
-/** A dash's register word on the Dashes card right now, or null if it has none. */
+/** A dash's register word on the Arcs card right now, or null if it has none. */
 function registerWord(app: App, dash: string): Promise<string | null> {
   return app.evalJS<string | null>(
     `document.querySelector(${JSON.stringify(dashRegister(dash))})?.getAttribute("data-word") ?? null`,
@@ -295,10 +295,10 @@ describe.skipIf(!SHOULD_RUN)("AT0445: a ready dash summons the shade", () => {
         await app.spawnSessionResume("A", { tugSessionId: SID, projectDir: scratch });
         await app.awaitEngineReady("A", { timeoutMs: 15000 });
 
-        // The Dashes card stays up for the whole run: it is where the arc is read
+        // The Arcs card stays up for the whole run: it is where the arc is read
         // from without touching either dash. The shade is a view swap inside
         // the card, so the two do not contend.
-        await app.dispatchControlAction("toggle-dashes");
+        await app.dispatchControlAction("toggle-arcs");
         await app.waitForCondition<boolean>(
           `document.querySelector('${DASHES_CARD} [data-slot="dashes-row"][data-dash="${DASH}"]') !== null`,
           { timeoutMs: 40000 },
@@ -319,12 +319,12 @@ describe.skipIf(!SHOULD_RUN)("AT0445: a ready dash summons the shade", () => {
         // broadcast moves the deck's store without writing a row. Faking it
         // here would leave the server thinking nobody holds this dash, and
         // nothing downstream would ever run.
-        tugtool(["dash", "bind", DASH], {
+        tugtool(["arc", "bind", DASH], {
           cwd: scratch,
           binaryRoot: cli.binaryRoot,
           env: { ...(cli.env ?? {}), TUG_SESSION_ID: SID },
         });
-        // Read from the Dashes card rather than from the verb's own exit: the row
+        // Read from the Arcs card rather than from the verb's own exit: the row
         // grows the bound worker's atom, which is the deck seeing the ledger
         // row the pilot will read. The atom is the positive signal — an absent
         // Bind would also be true of a row that never rendered.

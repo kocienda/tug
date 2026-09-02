@@ -49,9 +49,9 @@
  * @covers tugdeck/src/components/tugways/cards/session-card-telemetry-renderers.tsx
  * @covers tugdeck/src/components/tugways/tug-status-cell.tsx
  * @covers tugdeck/src/components/tugways/tug-status-cell.css
- * @covers tugdeck/src/components/tugways/dash-lifecycle-mark.tsx
- * @covers tugdeck/src/components/tugways/tug-dash-track.tsx
- * @covers tugdeck/src/lib/dash-meta-facts.ts
+ * @covers tugdeck/src/components/tugways/arc-lifecycle-mark.tsx
+ * @covers tugdeck/src/components/tugways/tug-arc-track.tsx
+ * @covers tugdeck/src/lib/arc-meta-facts.ts
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
@@ -403,25 +403,25 @@ describe.skipIf(!SHOULD_RUN)("AT0484: the Z2 DASH instrument", () => {
         // ── A declared run wins over the plan's own pair ──────────────────
         await shellAndSettle(
           app,
-          `${tugtoolPath(CHECKOUT)} dash step ${PLAN_DASH} start 1 --through 2`,
+          `${tugtoolPath(CHECKOUT)} arc step ${PLAN_DASH} start 1 --through 2`,
         );
         await awaitReading(app, "1/2");
         note("at0484 declared run", await readingText(app));
 
         // ── A dash with only a brief says the PHASE, not the git stage ────
-        await shellAndSettle(app, `${tugtoolPath(CHECKOUT)} dash bind ${BRIEF_DASH}`, 1);
+        await shellAndSettle(app, `${tugtoolPath(CHECKOUT)} arc bind ${BRIEF_DASH}`, 1);
         await awaitReading(app, "Brief");
 
         // ── A dash with no documents at all says Working ──────────────────
         // The word is the last resort: a direct dash that wrote a task list
         // has a fraction to show, so only a dash with nothing to count — this
         // one, freshly created — ever reaches it.
-        await shellAndSettle(app, `${tugtoolPath(CHECKOUT)} dash bind ${LISTLESS_DASH}`, 2);
+        await shellAndSettle(app, `${tugtoolPath(CHECKOUT)} arc bind ${LISTLESS_DASH}`, 2);
         await awaitReading(app, "Working");
         note("at0484 z2 at the listless reading", (await app.screenshot()).path);
 
         // ── Unbinding gives the width back ───────────────────────────────
-        await shellAndSettle(app, `${tugtoolPath(CHECKOUT)} dash unbind`, 3);
+        await shellAndSettle(app, `${tugtoolPath(CHECKOUT)} arc unbind`, 3);
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(VALUE)}) === null`,
           { timeoutMs: 30000 },

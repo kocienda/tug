@@ -11,12 +11,12 @@
 //! so. Nothing is lost — a request is a promise about a turn's end, and there
 //! is always a next turn.
 
+use crate::arc::{calling_session_id, post_instance_api};
 use crate::cli::SessionCommands;
-use crate::dash::{calling_session_id, post_instance_api};
 use crate::output::print_ok;
 use serde::Serialize;
 use std::process::ExitCode;
-use tugdash_core::arc::{ArcStage, stage_model};
+use tugarc_core::arc::{ArcStage, stage_model};
 
 /// The `session` command group. Every refusal exits 1 with its reason on
 /// stderr, so the asking turn shows what stopped it rather than nothing.
@@ -195,7 +195,7 @@ fn run_rotate(
         .and_then(|r| r.as_bool())
         .unwrap_or(false);
     // A rotation naming a model pins the card there until somebody restores the
-    // deck's own selector, and no course's ending will — so the wheel hands
+    // deck's own selector, and no arc's ending will — so the wheel hands
     // it back one turn later, and the ask says so.
     let hands_back = model.is_some();
 

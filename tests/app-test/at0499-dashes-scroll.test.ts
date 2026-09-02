@@ -1,5 +1,5 @@
 /**
- * at0499-dashes-scroll.test.ts — the Dashes card hands its overflow to its own
+ * at0499-dashes-scroll.test.ts — the Arcs card hands its overflow to its own
  * list's scroller rather than growing past its rail.
  *
  * A rail card takes its pane's height and its list carries the overflow. The
@@ -10,7 +10,7 @@
  * show simply ran the last ones off the bottom with no way to reach them.
  *
  * The fixture makes that real rather than arguing it: forty dashes, each a
- * document-only dash (a directory under `.tug/dashes/` holding a brief), which
+ * document-only dash (a directory under `.tug/arcs/` holding a brief), which
  * is the cheapest real dash there is — no branch, no worktree, and the card
  * renders every one as a row. Forty two-line rows are taller than any rail
  * this harness opens, so the card genuinely overflows.
@@ -24,8 +24,8 @@
  *   - the bottom row is reachable — scrolled to the end, the last row sits
  *     inside the list's own viewport.
  *
- * @covers tugdeck/src/components/dashes/dashes-card.css
- * @covers tugdeck/src/components/dashes/dashes-card.tsx
+ * @covers tugdeck/src/components/arcs/arcs-card.css
+ * @covers tugdeck/src/components/arcs/arcs-card.tsx
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
@@ -73,13 +73,13 @@ let fixtureDir = "";
 const projectDir = (): string => scratch?.repo ?? "";
 
 /**
- * A document-only dash: a directory under `.tug/dashes/` holding a brief and
- * nothing else. `tugdash_core::document_dashes` lists exactly this shape, so
+ * A document-only dash: a directory under `.tug/arcs/` holding a brief and
+ * nothing else. `tugarc_core::document_arcs` lists exactly this shape, so
  * the row the section renders is a real dash the aggregate reported — there is
  * no fixture path into that list other than the files themselves.
  */
 function seedDocumentDash(repo: string, name: string): void {
-  const dir = join(repo, ".tug", "dashes", name);
+  const dir = join(repo, ".tug", "arcs", name);
   mkdirSync(dir, { recursive: true });
   writeFileSync(
     join(dir, "brief.md"),
@@ -119,7 +119,7 @@ function deckShape() {
   };
 }
 
-describe.skipIf(!SHOULD_RUN)("AT0499: the Dashes card scrolls its own rows", () => {
+describe.skipIf(!SHOULD_RUN)("AT0499: the Arcs card scrolls its own rows", () => {
   test(
     "an overflowing card keeps its bottom row reachable",
     async () => {
@@ -140,7 +140,7 @@ describe.skipIf(!SHOULD_RUN)("AT0499: the Dashes card scrolls its own rows", () 
         await app.spawnSessionResume("A", { tugSessionId: SID, projectDir: projectDir() });
         await app.awaitEngineReady("A", { timeoutMs: 15000 });
 
-        await app.dispatchControlAction("toggle-dashes");
+        await app.dispatchControlAction("toggle-arcs");
         await app.waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(ROWS)}).length === ${DASH_COUNT}`,
           { timeoutMs: 30000 },
@@ -186,7 +186,7 @@ describe.skipIf(!SHOULD_RUN)("AT0499: the Dashes card scrolls its own rows", () 
         // And the list stays inside the card instead of running past its foot.
         expect(geometry.listBottom).toBeLessThanOrEqual(geometry.cardBottom + 1);
 
-        note("at0499 the Dashes card overflowing", (await app.screenshot()).path);
+        note("at0499 the Arcs card overflowing", (await app.screenshot()).path);
 
         // Scrolled to the end, the last dash sits inside the list's viewport —
         // the whole point of the scroller, and the thing a person could not do

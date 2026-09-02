@@ -1,4 +1,4 @@
-/* SessionJoinReceiptBlock — the `/dash-join` and `/dash-discard` receipt
+/* SessionJoinReceiptBlock — the `/arc-join` and `/dash-discard` receipt
    headers ([P06]). Deliberately the commit receipt's skeleton: a landing is a
    commit on the base, and a reader should not have to learn a second shape for
    it. Appearance only ([L06]). */

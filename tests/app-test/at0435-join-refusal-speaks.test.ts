@@ -3,7 +3,7 @@
  * screen, in the real app ([L31]).
  *
  * The corpus had never pressed a land button. Nothing walked
- * submit → gate → refusal, which is precisely where the dash-join dead press
+ * submit → gate → refusal, which is precisely where the arc-join dead press
  * lived. The refusal was computed, discarded, and shown nowhere, so days
  * of investigation had nothing to read.
  *
@@ -77,11 +77,11 @@ let dashId = "";
 const row = (dash: string): string =>
   `${LANE} [data-slot="session-changes-dash-row"][data-dash="${dash}"]`;
 const landing = (dash: string): string =>
-  `${row(dash)} [data-slot="session-changes-dash-join"]`;
+  `${row(dash)} [data-slot="session-changes-arc-join"]`;
 // Card-scoped, not row-scoped: the register that reports a join in progress is
 // the composer's live-edge one, not a copy inside the lane row. One dash is
 // bound here, so the card's register is this dash's.
-const CANDIDATE = `${CARD} [data-slot="dash-join-register"][data-word="ready"]`;
+const CANDIDATE = `${CARD} [data-slot="arc-join-register"][data-word="ready"]`;
 const landsAs = (dash: string): string =>
   `${row(dash)} [data-slot="session-changes-dash-lands-as"]`;
 
@@ -241,7 +241,7 @@ describe.skipIf(!SHOULD_RUN)("AT0435: a refused land press speaks", () => {
         // landing — so commit has to go before the join can have the document.
         // Escape is that exit, and it is the whole gesture: a bound dash with
         // work ready to join enters join mode BY ITSELF once the composer is
-        // free. Nothing types `/dash-join`, which would only open by name a
+        // free. Nothing types `/arc-join`, which would only open by name a
         // mode the binding opens on its own.
         await app.nativeClickAtElement(EDITOR);
         await settle();

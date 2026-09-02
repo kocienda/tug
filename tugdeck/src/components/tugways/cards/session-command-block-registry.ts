@@ -70,7 +70,7 @@ export type CommandBlockMatcher = (command: string) => boolean;
  * `shell` is the default and the literal truth for a `$`-route row: the user
  * typed a command and this is its output. `git` is for the rows that ride the
  * shell ledger without anybody having typed a shell command — the landings,
- * `/commit` and `/dash-join`, whose subject is a commit on the base branch.
+ * `/commit` and `/arc-join`, whose subject is a commit on the base branch.
  * Attributing those to the shell that carried them names the transport instead
  * of the act.
  *
@@ -83,7 +83,7 @@ export type CommandBlockMatcher = (command: string) => boolean;
  *
  * **It lives on the registration** because a bespoke receipt already knows what
  * it is, and the alternative is a second enumeration of the same commands
- * somewhere else — which is exactly how `/dash-join` came to render its own
+ * somewhere else — which is exactly how `/arc-join` came to render its own
  * commit block under a `Shell` header while `/commit` rendered the identical
  * kind of block under a git one.
  */

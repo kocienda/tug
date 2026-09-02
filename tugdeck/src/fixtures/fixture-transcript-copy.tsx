@@ -98,7 +98,7 @@ const SOURCE_RICH = [
 // the command pass actually runs, giving at0237 real command spans to
 // right-click.
 const SOURCE_CMD =
-  "Run `just launch-debug` to start, `tugtool dash join --preview` to preview, and `/diff HEAD` to inspect.";
+  "Run `just launch-debug` to start, `tugtool arc join --preview` to preview, and `/diff HEAD` to inspect.";
 
 /**
  * Annotation context for cell D. Only `diff` is a known slash command (so

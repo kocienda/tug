@@ -41,7 +41,7 @@ import { sessionLineStore } from "./session-line-store";
 import type {
   ChangesetDraftSelection,
   DashChangesetEntry,
-  DocumentDashEntry,
+  DocumentArcEntry,
   OrphanedFile,
   ProjectChangeset,
   SessionChangesetEntry,
@@ -77,7 +77,7 @@ export interface ChangesRouteSnapshot {
    * written, no branch cut yet. A card can be bound to one of these, so they
    * are a peer of `dashes` rather than a detail of it.
    */
-  documentDashes: DocumentDashEntry[];
+  documentArcs: DocumentArcEntry[];
   /** Dirty files no owner claims. */
   unattributed: UnattributedFile[];
   /** Dirty files owned only by non-live sessions — claimable orphans ([D120]). */
@@ -184,7 +184,7 @@ export function deriveChangesRouteSnapshot(
   return {
     entry,
     dashes,
-    documentDashes: project.document_dashes ?? [],
+    documentArcs: project.document_arcs ?? [],
     unattributed: project.unattributed,
     orphaned: project.orphaned ?? [],
     project,

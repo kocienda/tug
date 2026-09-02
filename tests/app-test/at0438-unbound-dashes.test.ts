@@ -1,5 +1,5 @@
 /**
- * at0438-unbound-dashes.test.ts — the Dashes card is always on, and
+ * at0438-unbound-dashes.test.ts — the Arcs card is always on, and
  * binding flips a row's register instead of removing it.
  *
  * The card used to hold only unbound dashes and to vanish entirely at zero
@@ -22,20 +22,20 @@
  * moved in the account-global aggregate, not because the click did anything
  * local.
  *
- * Everything is real. `tugtool dash bind` / `unbind` run through the card's
+ * Everything is real. `tugtool arc bind` / `unbind` run through the card's
  * own `$` shell route — the route that stamps `TUG_SESSION_ID`.
  *
  * The dash lives in a scratch repository this file owns — a dash is for
  * implementing a plan, not for running a test, so no fixture ever cuts one in
  * the checkout somebody is working in.
  *
- * @covers tugdeck/src/components/dashes/dashes-card.tsx
- * @covers tugdeck/src/components/dashes/dashes-card.css
- * @covers tugdeck/src/components/dashes/dashes-card-registration.tsx
+ * @covers tugdeck/src/components/arcs/arcs-card.tsx
+ * @covers tugdeck/src/components/arcs/arcs-card.css
+ * @covers tugdeck/src/components/arcs/arcs-card-registration.tsx
  * @covers tugdeck/src/components/tugways/followed-card.ts
- * @covers tugdeck/src/components/tugways/dash-sigil.tsx
- * @covers tugdeck/src/components/tugways/dash-lifecycle-block.tsx
- * @covers tugdeck/src/components/tugways/cards/session-changes/dash-row-menu.tsx
+ * @covers tugdeck/src/components/tugways/arc-sigil.tsx
+ * @covers tugdeck/src/components/tugways/arc-lifecycle-block.tsx
+ * @covers tugdeck/src/components/tugways/cards/session-changes/arc-row-menu.tsx
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
@@ -155,7 +155,7 @@ async function pressUntil(
   throw new Error(`at0438: ${expected} never appeared after pressing Bind`);
 }
 
-describe.skipIf(!SHOULD_RUN)("AT0438: the always-on Dashes card", () => {
+describe.skipIf(!SHOULD_RUN)("AT0438: the always-on Arcs card", () => {
   test(
     "binding flips the eyebrow's register; the card never leaves",
     async () => {
@@ -183,7 +183,7 @@ describe.skipIf(!SHOULD_RUN)("AT0438: the always-on Dashes card", () => {
         // DOM behind it, while every press this file makes lands on a dash
         // row. Then A is raised, which is the gesture that gives the Dashes
         // card a followed card — without it Bind correctly refuses ([L31]).
-        await app.dispatchControlAction("toggle-dashes");
+        await app.dispatchControlAction("toggle-arcs");
         await app.evalJS<null>(`(window.__tug.activateCard("A"), null)`);
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(SESSION_ROW)}) !== null`,
@@ -241,7 +241,7 @@ describe.skipIf(!SHOULD_RUN)("AT0438: the always-on Dashes card", () => {
         note("at0438 dashes card, unbound register", (await app.screenshot()).path);
 
         // ── Bind: the row STAYS and the worker's atom takes the eyebrow ───
-        await shellAndSettle(app, `${tugtoolPath(CHECKOUT)} dash bind ${DASH_NAME}`);
+        await shellAndSettle(app, `${tugtoolPath(CHECKOUT)} arc bind ${DASH_NAME}`);
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(WORKER)}) !== null`,
           { timeoutMs: 30000 },
@@ -308,7 +308,7 @@ describe.skipIf(!SHOULD_RUN)("AT0438: the always-on Dashes card", () => {
         note("at0438 dashes card, bound register", (await app.screenshot()).path);
 
         // ── Unbind: the worker's atom leaves the eyebrow ──────────────────
-        await shellAndSettle(app, `${tugtoolPath(CHECKOUT)} dash unbind`, 1);
+        await shellAndSettle(app, `${tugtoolPath(CHECKOUT)} arc unbind`, 1);
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(WORKER)}) === null`,
           { timeoutMs: 30000 },

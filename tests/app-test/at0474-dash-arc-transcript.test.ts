@@ -51,18 +51,18 @@ const DIVIDER = '[data-slot="stage-divider"]';
 const USER_ROW = '[data-testid="session-card-transcript-user-body"]';
 const WHEEL_ROW = '.tug-transcript-entry[data-participant="wheel"]';
 const STAGE_PROMPT =
-  "/tugplug:dash-devise a plan for .tug/dashes/foo/brief.md";
+  "/tugplug:arc-devise a plan for .tug/arcs/foo/brief.md";
 /** What the transcript paints as prose once the command becomes a chip. */
-const STAGE_PROMPT_ARGS = "a plan for .tug/dashes/foo/brief.md";
+const STAGE_PROMPT_ARGS = "a plan for .tug/arcs/foo/brief.md";
 // Every stage after devise names the dash, never a path.
-const REVIEW_PROMPT = "/tugplug:dash-review foo";
+const REVIEW_PROMPT = "/tugplug:arc-review foo";
 /**
  * A prompt the arc sends MID-session — a continued implement range. It does
  * not rotate anything, so it arrives as a bare `tug_notice` rather than
  * behind a `session_segment`.
  */
 const CONTINUE_PROMPT =
-  "/tugplug:dash-implement foo implement Step 4 and end your turn; Steps 4-13 remain on this run";
+  "/tugplug:arc-implement foo implement Step 4 and end your turn; Steps 4-13 remain on this run";
 const CONTINUE_PROMPT_ARGS = "implement Step 4 and end your turn; Steps 4-13 remain on this run";
 /** The quiet-line row a nameless subsystem's notice gets. The wheel has a name. */
 const NOTICE_ROW = '[data-slot="tug-notice"]';
@@ -167,7 +167,7 @@ describe.skipIf(!SHOULD_RUN)(
               newSessionId: "claude-devise",
               stage: "devise",
               model: "opus",
-              document: ".tug/dashes/foo/brief.md",
+              document: ".tug/arcs/foo/brief.md",
               arc: "foo",
               prompt: STAGE_PROMPT,
               ipc_version: 2,
@@ -197,7 +197,7 @@ describe.skipIf(!SHOULD_RUN)(
               `${WHEEL_ROW} [data-atom-label]`,
             )})||{ getAttribute: () => "" }).getAttribute("data-atom-label")`,
           );
-          expect(chipLabel).toBe("tugplug:dash-devise");
+          expect(chipLabel).toBe("tugplug:arc-devise");
           expect(wheelRow).toContain(STAGE_PROMPT_ARGS);
           expect(wheelRow).toContain("Wheel");
           expect(wheelRow).not.toContain("You");
@@ -206,7 +206,7 @@ describe.skipIf(!SHOULD_RUN)(
           );
           expect(label).toContain("devise");
           expect(label).toContain("opus");
-          expect(label).toContain(".tug/dashes/foo/brief.md");
+          expect(label).toContain(".tug/arcs/foo/brief.md");
 
           await app.driveSession("A", {
             op: "ingestFrame",
@@ -336,7 +336,7 @@ describe.skipIf(!SHOULD_RUN)(
               `${WHEEL_ROW} [data-atom-label]`,
             )})||{ getAttribute: () => "" }).getAttribute("data-atom-label")`,
           );
-          expect(chipLabel).toBe("tugplug:dash-implement");
+          expect(chipLabel).toBe("tugplug:arc-implement");
 
           // The claim: no quote anywhere. The wheel speaks; it is not quoted.
           const quoted = await app.evalJS<number>(
@@ -367,7 +367,7 @@ describe.skipIf(!SHOULD_RUN)(
     );
 
     test(
-      "a rotation with no course behind it draws its divider and leaves the transcript alone",
+      "a rotation with no arc behind it draws its divider and leaves the transcript alone",
       async () => {
         // The wheel's primitive is not the arc's. A rotation nobody is
         // scoring carries no `arc` and no `document`, and the boundary must
@@ -425,7 +425,7 @@ describe.skipIf(!SHOULD_RUN)(
           );
           expect(label).toContain("review");
           expect(label).toContain("opus");
-          // No course opened it on anything, so the divider names nothing it
+          // No arc opened it on anything, so the divider names nothing it
           // was not given: the text ends at the model, with no trailing
           // separator and no blank where a document would be.
           expect(label.trim().endsWith("review · opus")).toBe(true);
@@ -511,7 +511,7 @@ describe.skipIf(!SHOULD_RUN)(
             type: "replay_stage",
             stage: "devise",
             model: "opus",
-            document: ".tug/dashes/foo/brief.md",
+            document: ".tug/arcs/foo/brief.md",
             arc: "foo",
           });
           await replayTurn("r2", "write the plan");
@@ -588,7 +588,7 @@ describe.skipIf(!SHOULD_RUN)(
             newSessionId: "claude-implement",
             stage: "implement",
             model: "opus",
-            document: ".tug/dashes/foo/plan.md",
+            document: ".tug/arcs/foo/plan.md",
             arc: "foo",
             prompt: STAGE_PROMPT,
           });

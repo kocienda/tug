@@ -736,7 +736,7 @@ fn discard_tripwire_dash(
                 tripwire.name
             )
         })?;
-    tugdash_core::ops::discard_agent_dash_in(std::path::Path::new(&root), dash, Some("tripwire"))
+    tugarc_core::ops::discard_agent_dash_in(std::path::Path::new(&root), dash, Some("tripwire"))
         .map(|_| ())
 }
 

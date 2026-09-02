@@ -67,8 +67,8 @@ card. `enumeratePluginCommands()` (`capabilities.ts`) walks the bundled plugin's
 `skills/*/SKILL.md` and `commands/*.md` and `mergePluginCommands()` folds them
 into the catalog in qualified `<plugin>:<name>` form, dropping claude's bare twin.
 
-**Namespace resolution.** A user types `/dash-devise`; the catalog holds
-`tugplug:dash-devise`. `resolveRemoteCommand()` and `canonicalizeBareCommandLine()`
+**Namespace resolution.** A user types `/arc-devise`; the catalog holds
+`tugplug:arc-devise`. `resolveRemoteCommand()` and `canonicalizeBareCommandLine()`
 (consumed in `tug-prompt-entry.tsx`) resolve bare names against namespaced catalog
 entries so both forms work and neither trips the unknown-command alert.
 
@@ -161,12 +161,12 @@ prevent — classify on evidence, not on guesswork (see the probe discipline bel
    and update the mirror doc.
 
 **Name a command**: an operation is spelled the same on every user-visible
-surface, and that spelling is its `tugtool` verb path, hyphenated. `tugtool dash
-join` is `/dash-join`; `tugtool dash bind` is `/dash-bind`. The rule exists
+surface, and that spelling is its `tugtool` verb path, hyphenated. `tugtool arc
+join` is `/arc-join`; `tugtool arc bind` is `/arc-bind`. The rule exists
 because a card verb and a CLI verb that do the same thing under two names make
 the pair unlearnable, and because it decides collisions without argument:
-`/commit` is `tugtool commit` (the base branch's landing), so `tugtool dash
-commit` can only ever be `/dash-commit` — reserved, and deliberately unshipped.
+`/commit` is `tugtool commit` (the base branch's landing), so `tugtool arc
+commit` can only ever be `/arc-commit` — reserved, and deliberately unshipped.
 
 **Retire a spelling**: delete the old name. Two deletions do it — the descriptor
 in `LOCAL_SLASH_COMMANDS` and its `slashCommandSurfaces` handler, which the
@@ -179,7 +179,7 @@ paid once by whoever's fingers remember.
 **Reclaim a bare name for a catalogued command**: the one case where deleting a
 local entry is right, because falling through to claude is the *intent* rather
 than the accident the rule above guards against. `/dash` is the worked example.
-It was a local alias for `/dash-bind`, so a typed `/dash` was intercepted at
+It was a local alias for `/arc-bind`, so a typed `/dash` was intercepted at
 tier 1 and never left the client; the bare name is now the `tugplug:dash`
 orchestrator skill's.
 

@@ -171,7 +171,7 @@ const STATIC_ITEMS: ReadonlyArray<{ id: string; key?: string; mods?: number }> =
   // table still ships a default chord for them.
   { id: "maker.jots", key: "" },
   { id: "maker.tripwires", key: "" },
-  { id: "maker.dashes", key: "" },
+  { id: "maker.arcs", key: "" },
   { id: "maker.cards", key: "" },
   { id: "maker.layout", key: "" },
   { id: "maker.overview", key: "" },

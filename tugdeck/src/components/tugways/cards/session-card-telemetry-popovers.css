@@ -311,7 +311,7 @@
    Dash — the cockpit detail's header block
    ========================================================================= */
 
-/* The dash as one `DashLifecycleBlock`, above the checklist. A block rather
+/* The dash as one `ArcLifecycleBlock`, above the checklist. A block rather
    than a popup-list item: it is the placard's subject, not one of its rows,
    and the items beneath it are the run's steps. Everything inside it — the
    atom, the workers, the track, the note — is the block's own; the head only

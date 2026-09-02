@@ -72,7 +72,7 @@ const ROUTE_GROUP = `${CARD} .tug-prompt-entry-route-group`;
 
 const DASHES_CARD = '.dashes-section';
 const dashRegister = (dash: string): string =>
-  `${DASHES_CARD} [data-slot="dashes-row"][data-dash="${dash}"] [data-slot="dash-join-register"]`;
+  `${DASHES_CARD} [data-slot="dashes-row"][data-dash="${dash}"] [data-slot="arc-join-register"]`;
 
 /** The checkout whose built binaries the fixture drives. */
 const CHECKOUT = realpathSync(resolve(import.meta.dir, "..", ".."));
@@ -165,10 +165,10 @@ describe.skipIf(!SHOULD_RUN)("AT0471: a deferred fronting re-arms", () => {
         await app.spawnSessionResume("A", { tugSessionId: SID, projectDir: scratch });
         await app.awaitEngineReady("A", { timeoutMs: 15000 });
 
-        // The Dashes card is how the arc is read without touching the dash — the
+        // The Arcs card is how the arc is read without touching the dash — the
         // register reaching `ready` is the offer standing, independent of
         // whether the card did anything about it.
-        await app.dispatchControlAction("toggle-dashes");
+        await app.dispatchControlAction("toggle-arcs");
         await app.waitForCondition<boolean>(
           `document.querySelector('${DASHES_CARD} [data-slot="dashes-row"][data-dash="${DASH}"]') !== null`,
           { timeoutMs: 40000 },
@@ -187,7 +187,7 @@ describe.skipIf(!SHOULD_RUN)("AT0471: a deferred fronting re-arms", () => {
         note("at0471 composer holds a character — the quiet gate is shut");
 
         // ── The dash goes ready, and nothing happens ─────────────────────
-        tugtool(["dash", "bind", DASH], {
+        tugtool(["arc", "bind", DASH], {
           cwd: scratch,
           binaryRoot: cli.binaryRoot,
           env: { ...(cli.env ?? {}), TUG_SESSION_ID: SID },

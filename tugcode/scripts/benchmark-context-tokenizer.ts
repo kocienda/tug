@@ -52,8 +52,8 @@ async function gatherSamples(): Promise<Sample[]> {
   const projectClaudeMd = await readFile(path.join(REPO_ROOT, "CLAUDE.md"));
 
   const skillPaths = [
-    "tugplug/skills/dash-devise/SKILL.md",
-    "tugplug/skills/dash-implement/SKILL.md",
+    "tugplug/skills/arc-devise/SKILL.md",
+    "tugplug/skills/arc-implement/SKILL.md",
     "tugplug/skills/dash/SKILL.md",
   ].map((p) => path.join(REPO_ROOT, p));
   const skillsConcatenated = await readAll(skillPaths);

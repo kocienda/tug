@@ -17,14 +17,18 @@ pub struct Config {
 /// Core tug settings
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct TugConfig {
-    /// Dash settings
+    /// Arc settings.
     #[serde(default)]
-    pub dash: DashConfig,
+    pub dash: ArcConfig,
 }
 
-/// Dash configuration
+/// Arc configuration.
+///
+/// The TOML table it deserializes from stays `[tugtool.dash]` — a key every
+/// project's own `.tugtool/config.toml` has already written down, so renaming
+/// it would be a migration rather than a rename ([P05]).
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct DashConfig {
+pub struct ArcConfig {
     /// Shell commands run from the new worktree root immediately after
     /// `dash create` adds it — e.g. `bun install --cwd tugdeck`. A git
     /// worktree never inherits gitignored files, so deps are always absent in
@@ -42,7 +46,7 @@ pub struct DashConfig {
     pub retired_verify: Option<String>,
 
     /// The surfaces this project is made of: what each claims, and what
-    /// checking it means. `tugtool dash verify` resolves every path a dash
+    /// checking it means. `tugtool arc verify` resolves every path a dash
     /// would land to exactly one of these, refuses when a path resolves to
     /// none, and runs what the matched surfaces declare. An empty table is the
     /// declared-none state, not an error.
@@ -79,13 +83,13 @@ pub struct DashConfig {
     /// The context size, in tokens, above which a seated implement stage is
     /// compacted at a step boundary. Absent means
     /// [`IMPLEMENT_COMPACT_TOKENS_DEFAULT`], which
-    /// [`DashConfig::compact_tokens`] applies.
+    /// [`ArcConfig::compact_tokens`] applies.
     #[serde(default)]
     pub implement_compact_tokens: Option<u64>,
 
     /// How long an arc may go without motion of any kind before it stops and
     /// hands the card back — the arc's clock, in seconds. Absent means
-    /// [`ARC_STALL_SECS_DEFAULT`], which [`DashConfig::stall_timeout`]
+    /// [`ARC_STALL_SECS_DEFAULT`], which [`ArcConfig::stall_timeout`]
     /// applies; `0` turns the clock off.
     ///
     /// Every other thing the arc decides is decided on an edge: a turn
@@ -150,7 +154,7 @@ pub const IMPLEMENT_COMPACT_TOKENS_DEFAULT: u64 = 300_000;
 /// pacing device: it exists so an arc that has genuinely gone silent says so.
 pub const ARC_STALL_SECS_DEFAULT: u64 = 1_800;
 
-impl DashConfig {
+impl ArcConfig {
     /// The compaction threshold to actually use: the declaration, or the
     /// default. The default lives at the consumer rather than in the parse so
     /// `dash config` can still report honestly that nothing was declared.
@@ -180,7 +184,7 @@ pub const DEFAULT_CONFIG: &str = r#"[tugtool.dash]
 post_create = []
 # post_create = ["npm install"]
 
-# The surfaces this project is made of. `tugtool dash verify <dash>` resolves
+# The surfaces this project is made of. `tugtool arc verify <dash>` resolves
 # every path the dash would land to the surface declaring the longest matching
 # path, and refuses — naming the paths — when one resolves to no surface. An
 # empty table declares none: the ending falls back to the plan's own checkpoint
@@ -257,7 +261,7 @@ impl std::fmt::Display for ConfigRefusal {
             Self::RetiredVerify(value) => write!(
                 f,
                 "[tugtool.dash].verify is retired (declared as {value:?}) — declare \
-                 [[tugtool.dash.surface]] entries instead, and run `tugtool dash verify <dash>`"
+                 [[tugtool.dash.surface]] entries instead, and run `tugtool arc verify <dash>`"
             ),
             Self::EmptyName => f.write_str("a [[tugtool.dash.surface]] declares an empty name"),
             Self::DuplicateName(name) => {
@@ -297,7 +301,7 @@ impl std::fmt::Display for ConfigRefusal {
     }
 }
 
-impl DashConfig {
+impl ArcConfig {
     /// Check everything this table declares, before anything believes it.
     ///
     /// Runs after the parse, on a config that was actually read from a file.

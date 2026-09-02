@@ -11,9 +11,9 @@ build:
     cd ..
     bun build --compile tugcode/src/main.ts --outfile tugrust/target/debug/tugcode
     bun build --compile tugcode/src/pulse/main-pulse.ts --outfile tugrust/target/debug/tugpulse
-    # Only the main checkout owns ~/.local/bin. A linked worktree (a dash under
+    # Only the main checkout owns ~/.local/bin. A linked worktree (an arc under
     # .tug/worktrees/) builds its own ephemeral binaries; pointing the global
-    # symlinks at them would dangle every tug* tool the moment the dash is torn
+    # symlinks at them would dangle every tug* tool the moment the arc is torn
     # down. A linked worktree's --git-dir differs from its --git-common-dir.
     if [ "$(git rev-parse --git-dir)" = "$(git rev-parse --git-common-dir)" ]; then
         mkdir -p ~/.local/bin
@@ -55,7 +55,7 @@ fetch-fonts *ARGS:
 test: test-rust test-ts test-standalone
 
 # Drive the shipped plugin the way a user's machine would: the real hook
-# script and the real `tugtool dash` verbs, from a scratch project with no
+# script and the real `tugtool arc` verbs, from a scratch project with no
 # tuglaws/, no CLAUDE.md, no .tugtool/, an empty PATH, and a fresh HOME —
 # only a bundle-shaped directory holding tugtool and the plugin.
 test-standalone:
@@ -595,7 +595,7 @@ tail-replay:
 
 # Remedial resource cleanup — release the runtime debris crashed runs and
 # out-of-band worktree deletion leave behind (`git worktree remove` /
-# `rm -rf` instead of `tugtool dash join|release` / `instance remove`).
+# `rm -rf` instead of `tugtool arc join|release` / `instance remove`).
 #
 # A thin front end over `tugtool host sweep`, which is the one janitor:
 # tugcast calls the same `tugcore::janitor` code at startup, so there is
@@ -1006,12 +1006,12 @@ app-test *FILES:
     # Repo universe. Names the checkout that owns this run's repo universe,
     # which is always the one the recipe was invoked from — worktree or main.
     #
-    # Every `tugtool dash` verb resolves a repo root before it does anything
-    # (tugdash-core::ops::main_repo_root, via tugtool-core's
+    # Every `tugtool arc` verb resolves a repo root before it does anything
+    # (tugarc-core::ops::main_repo_root, via tugtool-core's
     # find_repo_root_from), and that resolution hops from a linked worktree to
-    # the checkout that owns its common dir. Unscoped, a fixture dash made from
+    # the checkout that owns its common dir. Unscoped, a fixture arc made from
     # a worktree is therefore created against the base checkout while the app
-    # under test has the WORKTREE open — the lane can never list the dash its
+    # under test has the WORKTREE open — the lane can never list the arc its
     # own fixture just made, and the run leaves branches, worktrees and
     # dash-log lines in someone else's checkout.
     #
@@ -1265,7 +1265,7 @@ app-test *FILES:
 
     # Sweep the scratch-fixture namespace a previous run left behind.
     #
-    # No app-test cuts a dash in this checkout — `dash-fixture.ts` refuses
+    # No app-test cuts an arc in this checkout — `dash-fixture.ts` refuses
     # the very attempt — so there are no stranded fixture branches here to
     # janitor anymore. What a killed run *can* leave is its scratch
     # repositories (`tug-scratch-*` under the system temp dir) and the
@@ -1767,7 +1767,7 @@ app-test *FILES:
     # the question only exists where there is a red file to ask it about.
     #
     # `tugtool` here is the workspace's own build, not whatever a PATH symlink
-    # resolves to: run from a dash worktree, a PATH `tugtool` is the base
+    # resolves to: run from an arc worktree, a PATH `tugtool` is the base
     # checkout's binary, which is exactly the wrong one to trust about a
     # feature under development.
     TUGTOOL_BIN="{{justfile_directory()}}/tugrust/target/debug/tugtool"

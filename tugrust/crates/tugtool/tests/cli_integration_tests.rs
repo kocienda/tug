@@ -280,17 +280,17 @@ fn test_dash_config_reports_declarations() {
     .expect("failed to write config");
 
     let output = Command::new(tug_binary())
-        .arg("dash")
+        .arg("arc")
         .arg("config")
         .arg("--json")
         .current_dir(temp.path())
         .output()
-        .expect("failed to run tugtool dash config");
+        .expect("failed to run tugtool arc config");
 
     assert!(output.status.success(), "dash config should succeed");
     let json: serde_json::Value =
         serde_json::from_str(&String::from_utf8_lossy(&output.stdout)).expect("valid JSON");
-    assert_eq!(json["command"], "dash config");
+    assert_eq!(json["command"], "arc config");
     assert_eq!(json["data"]["surfaces"][0]["name"], "src");
     assert_eq!(json["data"]["surfaces"][0]["paths"][0], "src/");
     assert_eq!(json["data"]["surfaces"][0]["check"][0], "make check");
@@ -314,12 +314,12 @@ fn test_dash_config_missing_file_is_undeclared_not_an_error() {
     std::fs::create_dir(temp.path().join(".tugtool")).expect("failed to create .tugtool");
 
     let output = Command::new(tug_binary())
-        .arg("dash")
+        .arg("arc")
         .arg("config")
         .arg("--json")
         .current_dir(temp.path())
         .output()
-        .expect("failed to run tugtool dash config");
+        .expect("failed to run tugtool arc config");
 
     assert!(
         output.status.success(),
@@ -391,7 +391,7 @@ fn git_project() -> tempfile::TempDir {
 #[test]
 fn test_plan_status_accepts_a_dash_name() {
     let temp = git_project();
-    let plan_dir = temp.path().join(".tug").join("dashes").join("named");
+    let plan_dir = temp.path().join(".tug").join("arcs").join("named");
     std::fs::create_dir_all(&plan_dir).expect("documents dir");
     std::fs::write(
         plan_dir.join("plan.md"),
@@ -435,10 +435,10 @@ fn test_dash_documents_reports_a_state_not_an_error() {
     let temp = git_project();
 
     let output = Command::new(tug_binary())
-        .args(["dash", "documents", "unwritten", "--json"])
+        .args(["arc", "documents", "unwritten", "--json"])
         .current_dir(temp.path())
         .output()
-        .expect("failed to run tugtool dash documents");
+        .expect("failed to run tugtool arc documents");
 
     assert!(
         output.status.success(),
@@ -453,19 +453,19 @@ fn test_dash_documents_reports_a_state_not_an_error() {
         json["data"]["dir"]
             .as_str()
             .expect("the directory is named even when absent")
-            .ends_with(".tug/dashes/unwritten")
+            .ends_with(".tug/arcs/unwritten")
     );
-    assert!(!temp.path().join(".tug/dashes/unwritten").exists());
+    assert!(!temp.path().join(".tug/arcs/unwritten").exists());
 
     // `--ensure` is what makes it writable in one call, and it keeps `.tug/`
     // out of git on a project that never declared it.
     let output = Command::new(tug_binary())
-        .args(["dash", "documents", "unwritten", "--ensure", "--json"])
+        .args(["arc", "documents", "unwritten", "--ensure", "--json"])
         .current_dir(temp.path())
         .output()
-        .expect("failed to run tugtool dash documents --ensure");
+        .expect("failed to run tugtool arc documents --ensure");
     assert!(output.status.success());
-    assert!(temp.path().join(".tug/dashes/unwritten").is_dir());
+    assert!(temp.path().join(".tug/arcs/unwritten").is_dir());
 
     let porcelain = Command::new("git")
         .arg("-C")

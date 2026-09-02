@@ -867,7 +867,7 @@ describe.skipIf(!SHOULD_RUN)("AT0494: a counted match is a paintable match", () 
         await app.awaitEngineReady("A", { timeoutMs: 20_000 });
 
         for (const [i, pair] of [
-          ["/dash-join", JOIN_SUMMARY],
+          ["/arc-join", JOIN_SUMMARY],
           ["/commit", COMMIT_SUMMARY],
         ].entries()) {
           await app.driveSession("A", {

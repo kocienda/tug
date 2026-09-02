@@ -118,7 +118,7 @@ import type {
   WakeTrigger,
 } from "./types";
 import { isInkOrigin } from "./types";
-import { dashNoteSentence, matchesDashNote } from "../dash-note-command";
+import { arcNoteSentence, matchesArcNote } from "../arc-note-command";
 import { compactionNoteText, isCompactionSubmission } from "./compaction";
 import { stageNoteText } from "./stages";
 import {
@@ -6021,7 +6021,7 @@ export function absorbDashNotes(
       row.messages.length !== 1 ||
       msg === undefined ||
       msg.kind !== "shell_exchange" ||
-      !matchesDashNote(msg.command)
+      !matchesArcNote(msg.command)
     ) {
       continue;
     }
@@ -6031,7 +6031,7 @@ export function absorbDashNotes(
       if (isInkOrigin(turn.origin)) continue;
       if (ts < turnSortTs(turn) || ts > turn.endedAt) continue;
       const key = `dash-note-${msg.exchangeId}`;
-      const text = dashNoteSentence(msg);
+      const text = arcNoteSentence(msg);
       const duplicate = turn.messages.some(
         (m) =>
           m.messageKey === key ||

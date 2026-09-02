@@ -9,7 +9,7 @@
 //!
 //! That hazard has now been answered four times, once per caller, and each
 //! answer left the next caller exposed: `draft`, `ask`, and `changes claim`
-//! survived the round of fixes that closed the `/api/dash` door precisely
+//! survived the round of fixes that closed the `/api/arc` door precisely
 //! because nothing structural said they must not. This test is that
 //! structure. A new `std::env::var("TUG_SESSION_ID")` fails the build until
 //! it is either routed through `tugtool::session_identity` or added below
@@ -30,7 +30,7 @@ const ALLOWED_READS: &[(&str, usize, &str)] = &[
         "the chokepoint itself — the one read every verb goes through",
     ),
     (
-        "tugdash-core/src/ops.rs",
+        "tugarc-core/src/ops.rs",
         1,
         "`session_citation_for`'s fallback, whose citation resolves the id to \
          its line before writing a trailer ([P13])",

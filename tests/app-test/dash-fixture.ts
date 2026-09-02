@@ -28,7 +28,7 @@
  * git-touching verb retries through it rather than failing the file that lost.
  * A failure that is *not* transient fails immediately and carries the whole
  * corpse — exit code, signal, both streams. The alternative is what actually
- * happened: `tugtool dash create … failed:` with nothing after the colon,
+ * happened: `tugtool arc create … failed:` with nothing after the colon,
  * because the message quoted only stderr and the process died before writing
  * any.
  *
@@ -463,7 +463,7 @@ export function createDash(
   const branch = currentBranch(projectDir);
   const base = branch === "" ? [] : ["--base", branch];
   const out = JSON.parse(
-    tugtool(["dash", "create", name, "--description", description, ...base, "--json"], {
+    tugtool(["arc", "create", name, "--description", description, ...base, "--json"], {
       cwd: projectDir,
       binaryRoot: opts.binaryRoot,
       env: opts.env,
@@ -481,7 +481,7 @@ export function commitRound(
   opts: DashFixtureOpts = {},
 ): void {
   refuseCheckout(projectDir, "commit a round");
-  tugtool(["dash", "commit", name, "--message", subject, "--json"], {
+  tugtool(["arc", "commit", name, "--message", subject, "--json"], {
     cwd: projectDir,
     binaryRoot: opts.binaryRoot,
     env: opts.env,
@@ -504,7 +504,7 @@ export function markDashBuilt(
   opts: DashFixtureOpts = {},
 ): void {
   refuseCheckout(projectDir, "mark a dash built");
-  tugtool(["dash", "mark", name, "built"], {
+  tugtool(["arc", "mark", name, "built"], {
     cwd: projectDir,
     binaryRoot: opts.binaryRoot,
     env: opts.env,
@@ -555,12 +555,12 @@ function fixturePlan(rows: number, statuses: readonly string[] = []): string {
 }
 
 /**
- * The dash's documents home — `<project>/.tug/dashes/<name>/` — created on
+ * The dash's documents home — `<project>/.tug/arcs/<name>/` — created on
  * demand. Every dash document lives here and nothing is tracked, so a fixture
  * writes a brief or a plan by writing a file and nothing else.
  */
 export function dashDocumentsDir(projectDir: string, name: string): string {
-  const dir = join(projectDir, ".tug", "dashes", name);
+  const dir = join(projectDir, ".tug", "arcs", name);
   mkdirSync(dir, { recursive: true });
   return dir;
 }
@@ -578,9 +578,9 @@ export function dashBriefPath(projectDir: string, name: string): string {
 /**
  * The dash's `tasks.md`, with its directory in place.
  *
- * The task list is the dash course's ledger — the document `/dash` leaves and
+ * The task list is a dash's ledger — the document `/dash` leaves and
  * the one implement walks when there is no plan. `plan.md` outranks it, so a
- * fixture that writes both has written a plan-course dash whatever it meant.
+ * fixture that writes both has written a trek whatever it meant.
  */
 export function dashTasksPath(projectDir: string, name: string): string {
   return join(dashDocumentsDir(projectDir, name), "tasks.md");
@@ -644,7 +644,7 @@ export function fixturePlanDocument(
   return fixturePlan(rows, statuses);
 }
 
-/** Titles for a generated plan's rows. A run's step title reaches the Dashes card and
+/** Titles for a generated plan's rows. A run's step title reaches the Arcs card and
  *  the shade as the metadata line's note, so they have to differ to be worth
  *  asserting on. Long enough for any row count a fixture asks for. */
 const STEP_TITLES = [
@@ -719,7 +719,7 @@ export function recordStampedPlan(
   // the case they diverge: a partial selection out of a longer document.
   tugtool(
     [
-      "dash",
+      "arc",
       "step",
       name,
       "start",
@@ -775,7 +775,7 @@ export function bindDash(
   // throws with the server's own sentence.
   const deadline = Date.now() + 20_000;
   for (;;) {
-    const out = Bun.spawnSync([tugtoolPath(opts.binaryRoot ?? projectDir), "dash", "bind", name], {
+    const out = Bun.spawnSync([tugtoolPath(opts.binaryRoot ?? projectDir), "arc", "bind", name], {
       cwd: projectDir,
       env: { ...process.env, ...(opts.env ?? {}), TUG_SESSION_ID: tugSessionId },
     });
@@ -851,7 +851,7 @@ export function discardDash(
   // checkout could tear down a dash the developer actually made, on nothing
   // more than a name collision.
   refuseCheckout(projectDir, "discard a dash");
-  tugtool(["dash", "discard", name, "--json"], {
+  tugtool(["arc", "discard", name, "--json"], {
     cwd: projectDir,
     binaryRoot: opts.binaryRoot,
     env: opts.env,
@@ -1065,7 +1065,7 @@ export function rmScratchSession(dir: string): void {
  * Run `command` through the card's `$` shell route and wait for its exit.
  *
  * This is how a dash test binds and unbinds for real: the shell child is what
- * carries `TUG_SESSION_ID`, so `tugtool dash bind` run through it resolves the
+ * carries `TUG_SESSION_ID`, so `tugtool arc bind` run through it resolves the
  * session the card actually holds. One copy here because four files had grown
  * their own, differing only in a default parameter.
  */

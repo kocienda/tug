@@ -46,9 +46,9 @@
  *
  * @covers tugdeck/src/lib/changeset-join-store.ts
  * @covers tugdeck/src/lib/join-mode-controller.ts
- * @covers tugdeck/src/lib/dash-join-register.ts
- * @covers tugdeck/src/components/tugways/dash-join-register.tsx
- * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-dash-join.tsx
+ * @covers tugdeck/src/lib/arc-join-register.ts
+ * @covers tugdeck/src/components/tugways/arc-join-register.tsx
+ * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-arc-join.tsx
  * @covers tugrust/crates/tugcast/src/feeds/join_resolver.rs
  * @covers tugrust/crates/tugcast/src/feeds/join_occupancy.rs
  * @covers tugrust/crates/tugcast/src/feeds/join_pilot.rs
@@ -87,9 +87,9 @@ const LANE = `${SHEET} [data-slot="session-changes-dash-lane"]`;
 
 const DASH = "at0444-slow";
 const ROW = `${LANE} [data-slot="session-changes-dash-row"][data-dash="${DASH}"]`;
-const REGISTER = `${ROW} [data-slot="dash-join-register"]`;
-const RESOLVE_ERROR = `${ROW} [data-slot="session-changes-dash-join-resolve-error"]`;
-const STUCK = `${ROW} [data-slot="session-changes-dash-join-stuck"]`;
+const REGISTER = `${ROW} [data-slot="arc-join-register"]`;
+const RESOLVE_ERROR = `${ROW} [data-slot="session-changes-arc-join-resolve-error"]`;
+const STUCK = `${ROW} [data-slot="session-changes-arc-join-stuck"]`;
 /**
  * Every control the join face used to be able to mount ([P08]).
  *
@@ -99,12 +99,12 @@ const STUCK = `${ROW} [data-slot="session-changes-dash-join-stuck"]`;
  */
 const ANY_CONTROL =
   `${ROW} [data-slot="session-changes-dash-resolve"], ` +
-  `${ROW} [data-slot="session-changes-dash-join-verify"], ` +
-  `${ROW} [data-slot="session-changes-dash-join-override"], ` +
+  `${ROW} [data-slot="session-changes-arc-join-verify"], ` +
+  `${ROW} [data-slot="session-changes-arc-join-override"], ` +
   `${ROW} [data-slot="session-changes-dash-resume"]`;
 
 const DASHES_CARD = '.dashes-section';
-const DASH_REGISTER = `${DASHES_CARD} [data-slot="dashes-row"][data-dash="${DASH}"] [data-slot="dash-join-register"]`;
+const DASH_REGISTER = `${DASHES_CARD} [data-slot="dashes-row"][data-dash="${DASH}"] [data-slot="arc-join-register"]`;
 
 /** The checkout whose built binaries the fixture drives. */
 const CHECKOUT = realpathSync(resolve(import.meta.dir, "..", ".."));
@@ -251,15 +251,15 @@ describe.skipIf(!SHOULD_RUN)("AT0444: a slow resolver is not a dead one", () => 
         bindDash(repo, DASH, SID, scratch?.cli ?? {});
         silenceJoinPrompt(repo, DASH);
 
-        // The aggregate has composed the dash once the Dashes card lists it.
-        await app.dispatchControlAction("toggle-dashes");
+        // The aggregate has composed the dash once the Arcs card lists it.
+        await app.dispatchControlAction("toggle-arcs");
         await app.waitForCondition<boolean>(
           `document.querySelector('${DASHES_CARD} [data-slot="dashes-row"][data-dash="${DASH}"]') !== null`,
           { timeoutMs: 30000 },
         );
 
         // ── The run starts, and nothing started it ────────────────────────
-        // Read from the Dashes card first, because the shade is not up yet: the run
+        // Read from the Arcs card first, because the shade is not up yet: the run
         // is the pilot's, and this file must not be the thing that began it.
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(DASH_REGISTER)})?.getAttribute("data-word") === "reconciling"`,
@@ -267,7 +267,7 @@ describe.skipIf(!SHOULD_RUN)("AT0444: a slow resolver is not a dead one", () => 
         );
         const startedAt = Date.now();
         note("at0444: the pilot started the run with nothing pressed");
-        await app.dispatchControlAction("toggle-dashes");
+        await app.dispatchControlAction("toggle-arcs");
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(DASHES_CARD)}) === null`,
           { timeoutMs: 8000 },

@@ -33,9 +33,9 @@
  *
  * @covers tugrust/crates/tugcast/src/feeds/join_resolver.rs
  * @covers tugrust/crates/tugcast/src/feeds/agent_supervisor.rs
- * @covers tugrust/crates/tugdash-core/src/resolve.rs
- * @covers tugrust/crates/tugdash-core/src/workshop.rs
- * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-dash-join.tsx
+ * @covers tugrust/crates/tugarc-core/src/resolve.rs
+ * @covers tugrust/crates/tugarc-core/src/workshop.rs
+ * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-arc-join.tsx
  * @covers tugdeck/src/lib/join-mode-controller.ts
  */
 
@@ -182,17 +182,17 @@ async function resolveArc(app: App, arc: Arc): Promise<string> {
   bindDash(arc.scratch.repo, arc.dash, arc.sid, arc.scratch.cli);
   silenceJoinPrompt(arc.scratch.repo, arc.dash);
 
-  await app.dispatchControlAction("toggle-dashes");
+  await app.dispatchControlAction("toggle-arcs");
   await app.waitForCondition<boolean>(
     `document.querySelector('${DASHES_CARD} [data-slot="dashes-row"][data-dash="${arc.dash}"]') !== null`,
     { timeoutMs: 30000 },
   );
-  await app.dispatchControlAction("toggle-dashes");
+  await app.dispatchControlAction("toggle-arcs");
 
   // The dash is `built`, so the pilot reconciles it with nothing pressed.
-  // `/dash-join` fronts the row so the audit's own surfaces render; it does
+  // `/arc-join` fronts the row so the audit's own surfaces render; it does
   // not start the run, and on a conflicted dash it never did.
-  await runCommand(app, `/dash-join ${arc.dash}`);
+  await runCommand(app, `/arc-join ${arc.dash}`);
   await app.waitForCondition<boolean>(
     `document.querySelector(${JSON.stringify(row)}) !== null`,
     { timeoutMs: 40000 },
@@ -219,11 +219,11 @@ describe.skipIf(!SHOULD_RUN)("AT0426: the resolver audits what the machines deci
         // the audit exists to catch, so it is a contract violation rather than
         // an empty report — and the refusal names the path.
         await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(`${row} [data-slot="session-changes-dash-join-stuck"]`)}) !== null`,
+          `document.querySelector(${JSON.stringify(`${row} [data-slot="session-changes-arc-join-stuck"]`)}) !== null`,
           { timeoutMs: 180000 },
         );
         const stuck = await app.evalJS<string>(
-          `(document.querySelector(${JSON.stringify(`${row} [data-slot="session-changes-dash-join-stuck"]`)})?.textContent || "")`,
+          `(document.querySelector(${JSON.stringify(`${row} [data-slot="session-changes-arc-join-stuck"]`)})?.textContent || "")`,
         );
         expect(stuck, "the refusal names what went unaccounted for").toContain(FILE);
         expect(stuck, "in the contract's own words").toContain("does not account for");

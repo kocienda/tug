@@ -25,14 +25,14 @@
  * will do, and `Resolve` itself, live because the server said it may be. The
  * remedy is in the sentence, never in the button, and the retired advice
  * ("stash") appears nowhere. What the press *does* is pinned in
- * `tugdash-core` instead; the comment at that point in the test says why the
+ * `tugarc-core` instead; the comment at that point in the test says why the
  * harness cannot drive it.
  *
  * The third case — an edit another *live* session holds, where the same frame
  * renders with the same live Resolve and a sentence naming whose work the
  * fold takes — is not driven here. Seeding a second live session that owns a
  * base path is a fixture about attribution rather than about this control,
- * and both halves are already pinned in `tugdash-core`:
+ * and both halves are already pinned in `tugarc-core`:
  * `a_foreign_hand_on_the_overlap_names_its_holder` for the sentence and the
  * remedy, and `resolve_base_folds_another_sessions_edit_and_names_it` for
  * what the press does with it.
@@ -45,9 +45,9 @@
  * when the server says it may be, and that pressing it clears the reading the
  * user was looking at.
  *
- * @covers tugrust/crates/tugdash-core/src/ops.rs
+ * @covers tugrust/crates/tugarc-core/src/ops.rs
  * @covers tugrust/crates/tugcast/src/feeds/join_board.rs
- * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-dash-join.tsx
+ * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-arc-join.tsx
  * @covers tugdeck/src/lib/changeset-join-store.ts
  */
 
@@ -81,11 +81,11 @@ const LANE = `${SHEET} [data-slot="session-changes-dash-lane"]`;
 const DASH_NAME = "at0486-resolve";
 const ROW = `${LANE} [data-slot="session-changes-dash-row"][data-dash="${DASH_NAME}"]`;
 const ROW_FOLD = `${ROW} [data-slot="session-changes-dash-fold"]`;
-const BLOCKERS = `${SHEET} [data-slot="session-changes-dash-join-blockers"]`;
+const BLOCKERS = `${SHEET} [data-slot="session-changes-arc-join-blockers"]`;
 const BASE_DIRT = `${BLOCKERS} [data-blocker="base-dirt"]`;
-const RESOLVE = `${BASE_DIRT} [data-slot="session-changes-dash-join-resolve-base"]`;
+const RESOLVE = `${BASE_DIRT} [data-slot="session-changes-arc-join-resolve-base"]`;
 /** The row's own line — where the refusal is stated, once. */
-const REGISTER = `${ROW} [data-slot="dash-join-register"]`;
+const REGISTER = `${ROW} [data-slot="arc-join-register"]`;
 
 /** This checkout — the build under test, and never the tree a dash is cut in. */
 const CHECKOUT = realpathSync(resolve(import.meta.dir, "..", ".."));
@@ -224,7 +224,7 @@ describe.skipIf(!SHOULD_RUN)("at0486: a blocked join reads what is wrong and off
         expect(line).not.toContain("stash");
         // The report below it does not repeat that sentence.
         const echoed = await app.evalJS<number>(
-          `document.querySelectorAll('${BASE_DIRT} .session-changes-dash-join-detail').length`,
+          `document.querySelectorAll('${BASE_DIRT} .session-changes-arc-join-detail').length`,
         );
         expect(echoed).toBe(0);
 
@@ -235,7 +235,7 @@ describe.skipIf(!SHOULD_RUN)("at0486: a blocked join reads what is wrong and off
         expect(dialogTitle).toBe("Base work in the way");
 
         const explain = await app.evalJS<string>(
-          `document.querySelector('${BASE_DIRT} .session-changes-dash-join-act')?.textContent ?? ""`,
+          `document.querySelector('${BASE_DIRT} .session-changes-arc-join-act')?.textContent ?? ""`,
         );
         // The remedy is in the sentence, not in the button.
         expect(explain).toContain("Resolve");
@@ -259,7 +259,7 @@ describe.skipIf(!SHOULD_RUN)("at0486: a blocked join reads what is wrong and off
         // directory, in debug builds, which is every app-test build. So what
         // the press does is pinned where it is decided, over a real repo with
         // a real op log: `resolve_base_folds_the_users_own_edit_onto_the_base`
-        // in `tugdash-core`, which also asserts the undo puts the work back
+        // in `tugarc-core`, which also asserts the undo puts the work back
         // uncommitted.
         note(
           "divergent base copy: the refusal once on the register, the act and a live Resolve below it",

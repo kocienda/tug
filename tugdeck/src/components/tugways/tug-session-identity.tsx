@@ -83,7 +83,7 @@ import React, { useSyncExternalStore } from "react";
 import { EyeOff } from "lucide-react";
 
 import { dispatchCommand } from "@/command-dispatch";
-import { DashSigil } from "@/components/tugways/dash-sigil";
+import { ArcSigil } from "@/components/tugways/arc-sigil";
 import { renderFilterHighlight } from "@/components/tugways/filter-highlight";
 import { SessionPhaseDot } from "@/components/tugways/session-phase-dot";
 import {
@@ -94,8 +94,8 @@ import { sessionTip } from "@/components/tugways/entity-tips";
 import { TugTooltip } from "@/components/tugways/tug-tooltip";
 import { useSessionIdentityMenu } from "@/components/tugways/session-identity-menu";
 import { useCardIdForSession } from "@/lib/card-session-binding-store";
-import { dashReviewPaints, dashReviewTooltip } from "@/lib/dash-review";
-import { useDashForSession } from "@/lib/dash-session-index";
+import { arcReviewPaints, arcReviewTooltip } from "@/lib/arc-review";
+import { useArcForSession } from "@/lib/arc-session-index";
 import { sessionSessionPhaseVisual } from "@/lib/code-session-store/session-phase-visual";
 import { useCitedSession } from "@/lib/session-citation-store";
 import {
@@ -222,7 +222,7 @@ export interface TugSessionIdentityProps
    * section's eyebrow), where the worker's atom saying it again would state
    * the pairing twice on one line.
    *
-   * The handed-in shape is `DashSessionFact`-compatible by construction rather
+   * The handed-in shape is `ArcSessionFact`-compatible by construction rather
    * than through an adapter: `review` is the fact's own `string | null`, and
    * {@link dashMarkerTitle} builds the hover sentence for both branches.
    */
@@ -281,25 +281,25 @@ function SessionDashMarker({
 }: {
   sessionId: string;
 }): React.ReactElement | null {
-  const dash = useDashForSession(sessionId);
+  const dash = useArcForSession(sessionId);
   if (dash === null) return null;
   // The session lookup and the sentence are this component's; the run itself is
   // shared, so the sigil is spelled once for every surface that names a dash.
   return (
-    <DashSigil
+    <ArcSigil
       name={dash.name}
       slot="session-identity-dash"
       title={dashMarkerTitle(dash)}
-      ariaLabel={`On dash ${dash.name}`}
+      ariaLabel={`On arc ${dash.name}`}
     />
   );
 }
 
 /** One sentence for the dash marker, review state folded in when it paints. */
 function dashMarkerTitle(dash: { name: string; review?: string | null }): string {
-  const lead = `Working on dash ${dash.name}`;
-  return dashReviewPaints(dash.review)
-    ? `${lead} — ${dashReviewTooltip(dash.review!, null)}`
+  const lead = `Working on arc ${dash.name}`;
+  return arcReviewPaints(dash.review)
+    ? `${lead} — ${arcReviewTooltip(dash.review!, null)}`
     : lead;
 }
 
@@ -316,7 +316,7 @@ function SessionDashTipLine({
 }: {
   sessionId: string;
 }): React.ReactElement | null {
-  const dash = useDashForSession(sessionId);
+  const dash = useArcForSession(sessionId);
   if (dash === null) return null;
   return <span className="tugx-tip-meta">{dashMarkerTitle(dash)}</span>;
 }
@@ -471,11 +471,11 @@ export const TugSessionIdentity = React.forwardRef<
             opt-out is `dash={false}`, for a surface whose row already names
             the dash as its own subject. */}
         {isMissing || dash === false ? null : dash !== undefined ? (
-          <DashSigil
+          <ArcSigil
             name={dash.name}
             slot="session-identity-dash"
             title={dashMarkerTitle(dash)}
-            ariaLabel={`On dash ${dash.name}`}
+            ariaLabel={`On arc ${dash.name}`}
           />
         ) : (
           <SessionDashMarker sessionId={identity.id} />

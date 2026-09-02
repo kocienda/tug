@@ -44,7 +44,7 @@ import type { ChangesRouteController } from "@/lib/changes-route-controller";
 import type { CodeSessionStore } from "@/lib/code-session-store";
 import type { Message } from "@/lib/code-session-store/types";
 import type { CommitModeController } from "@/lib/commit-mode-controller";
-import type { DashChangesetEntry, DashJoinStateWire } from "@/lib/changeset-types";
+import type { DashChangesetEntry, ArcJoinStateWire } from "@/lib/changeset-types";
 
 /**
  * A dash whose merge is clean and whose candidate stands — the state a join
@@ -55,13 +55,13 @@ import type { DashChangesetEntry, DashJoinStateWire } from "@/lib/changeset-type
  * produces. A bare `{ phase: "previewed" }` is the window before the candidate
  * anchors — see {@link UNRECONCILED_CLEAN}.
  */
-const CLEAN_JOIN: DashJoinStateWire = {
+const CLEAN_JOIN: ArcJoinStateWire = {
   phase: "previewed",
   candidate: "cafe1234",
 };
 
 /** Clean, and nothing reconciled yet — the auto-resolve window. */
-const UNRECONCILED_CLEAN: DashJoinStateWire = { phase: "previewed" };
+const UNRECONCILED_CLEAN: ArcJoinStateWire = { phase: "previewed" };
 
 describe("joinDisabledReason", () => {
   // The regression this pins: a real `base-dirt` blocker derives `blocked`,
@@ -134,7 +134,7 @@ describe("evaluateJoinGate", () => {
   });
 
   it("names the dash, not the turn, when the holder is busy", () => {
-    expect(joinDisabledReason("holder", "clean")).toBe("Wait for the dash to finish its work");
+    expect(joinDisabledReason("holder", "clean")).toBe("Wait for the arc to finish its work");
   });
 
   it("puts the holder above the round trip and the outcome", () => {
@@ -241,7 +241,7 @@ describe("evaluateJoinGate", () => {
 });
 
 describe("deriveJoinOutcome", () => {
-  const base: DashJoinStateWire = { phase: "previewed" };
+  const base: ArcJoinStateWire = { phase: "previewed" };
   const blocker = (kind: string) => ({
     kind,
     title: `${kind} title`,
@@ -353,8 +353,8 @@ const RAW_DIR = "/Users/dev/Mounts/u/src/tugtool";
 const WORKSPACE_KEY = "/u/src/tugtool";
 
 function fakeChangesController(
-  join: DashJoinStateWire | undefined = CLEAN_JOIN,
-): ChangesRouteController & { _setJoin: (next: DashJoinStateWire | undefined) => void } {
+  join: ArcJoinStateWire | undefined = CLEAN_JOIN,
+): ChangesRouteController & { _setJoin: (next: ArcJoinStateWire | undefined) => void } {
   let notify: (() => void) | null = null;
   let entry: DashChangesetEntry = { ...DASH_ENTRY, join };
   const controller = {
@@ -381,13 +381,13 @@ function fakeChangesController(
     /** Test hook: fire the subscription without changing anything. */
     _notify: () => notify?.(),
     /** Test hook: republish the dash with a different server-owned join state. */
-    _setJoin: (next: DashJoinStateWire | undefined): void => {
+    _setJoin: (next: ArcJoinStateWire | undefined): void => {
       entry = { ...DASH_ENTRY, join: next };
       notify?.();
     },
   };
   return controller as unknown as ChangesRouteController & {
-    _setJoin: (next: DashJoinStateWire | undefined) => void;
+    _setJoin: (next: ArcJoinStateWire | undefined) => void;
   };
 }
 
@@ -396,7 +396,7 @@ function fakeCodeSessionStore(canInterrupt: boolean): CodeSessionStore & {
   _landJoinReceipt: (exchangeId: string) => void;
 } {
   let running = canInterrupt;
-  // The controller reads the transcript to find the durable `/dash-join` row a
+  // The controller reads the transcript to find the durable `/arc-join` row a
   // landed join writes, so the fake carries a real one rather than a stub —
   // the rows below are the shape the reducer builds from the wire.
   const messages: Message[] = [];
@@ -415,12 +415,12 @@ function fakeCodeSessionStore(canInterrupt: boolean): CodeSessionStore & {
     _setTurn: (next: boolean): void => {
       running = next;
     },
-    /** Test hook: append the settled `/dash-join` row a landed join writes. */
+    /** Test hook: append the settled `/arc-join` row a landed join writes. */
     _landJoinReceipt: (exchangeId: string): void => {
       messages.push({
         kind: "shell_exchange",
         exchangeId,
-        command: "/dash-join join-lane",
+        command: "/arc-join join-lane",
         output: "joined abc1234 · join-lane → main · 2 round(s)\nsubject",
         exitCode: 0,
         cwd: RAW_DIR,

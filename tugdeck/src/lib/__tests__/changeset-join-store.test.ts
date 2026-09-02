@@ -1,5 +1,5 @@
 /**
- * changeset-join-store — the dash-join resolve overlay over the ladder's
+ * changeset-join-store — the arc-join resolve overlay over the ladder's
  * CONTROL frames (Spec S12): resolving → per-file deltas → out of the way,
  * keyed by (workspace_key, dash).
  *

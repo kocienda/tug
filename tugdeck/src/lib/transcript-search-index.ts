@@ -394,7 +394,7 @@ function userBodyParts(
  * either way; only the output — unmounted with the body — is gated. Shell
  * rows default expanded.
  *
- * A row a BESPOKE command block claims (a `/commit` or `/dash-join` receipt)
+ * A row a BESPOKE command block claims (a `/commit` or `/arc-join` receipt)
  * renders none of that: it parses the output and shows its own arrangement
  * of it. Those rows project what their registration declares — the same text
  * their renderer marks findable — because projecting the raw output would

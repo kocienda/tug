@@ -46,9 +46,9 @@ import { findSidebarPanes } from "@/deck-store-selectors";
 import type { CardSessionBinding } from "@/lib/card-session-binding-store";
 import type { WorkspacesChangesetSnapshot } from "@/lib/changeset-types";
 import {
-  dashSessionIndex,
-  type DashSessionFact,
-} from "@/lib/dash-session-index";
+  arcSessionIndex,
+  type ArcSessionFact,
+} from "@/lib/arc-session-index";
 import { getDeckStore } from "@/lib/deck-store-registry";
 import {
   countedFileType,
@@ -362,7 +362,7 @@ export interface LensCardsInputs {
    *
    * A whole snapshot rather than a version token because the match needs the
    * dash's facts, not just notice that something moved; it is memoized per
-   * snapshot identity ({@link dashSessionIndex}), so a recompute costs one map
+   * snapshot identity ({@link arcSessionIndex}), so a recompute costs one map
    * lookup per session row.
    */
   readonly changesets: WorkspacesChangesetSnapshot | null;
@@ -542,8 +542,8 @@ export function buildCardsRows(
   const dashes =
     inputs.changesets === null
       ? null
-      : dashSessionIndex(inputs.changesets);
-  const dashFor = (identity: CardIdentity): DashSessionFact | null =>
+      : arcSessionIndex(inputs.changesets);
+  const dashFor = (identity: CardIdentity): ArcSessionFact | null =>
     dashes === null || identity.tugSessionId === null
       ? null
       : dashes.get(identity.tugSessionId) ?? null;

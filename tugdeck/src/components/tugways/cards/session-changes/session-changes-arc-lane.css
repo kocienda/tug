@@ -1,0 +1,103 @@
+/* SessionChangesArcLane — the dash lane's own grammar.
+
+   Deliberately not the file list's look: a dash is a different species, and
+   the reader must be able to tell at a glance that these rows answer a
+   different question. Appearance only ([L06]); tokens scoped to this
+   component's slots ([L20]). */
+
+.session-changes-dash-lane {
+  display: flex;
+  flex-direction: column;
+  /* The air between one dash and the next — the same step the Arcs card gives its
+     blocks. A dash is two lines, and at 2px the blocks touched: the second
+     line of one sat as close to the eyebrow of the next as to its own. */
+  gap: var(--tug-space-xl);
+}
+
+/* The lane's group headers are `TugSectionLabel`, the same component the file
+   buckets above render — which is now true by construction rather than by two
+   sets of metrics kept equal by hand. A reader scanning the shade cannot tell
+   that two components drew them, because in the part that shows, one did. */
+
+/* The identities and the metadata line are `ArcLifecycleBlock`'s — the atom,
+   the hairline, the worker atoms, the track, and the indent between the
+   block's own two lines all live there, so every dash surface cannot drift
+   apart on any of them. Nothing about them is authored here. */
+
+/* ---- The row ---- */
+
+.session-changes-dash-row {
+  display: flex;
+  flex-direction: column;
+  /* Air between the block's three lines. At zero the `sm`-scale lines touched:
+     the marks' 16px boxes sat flush against the atom above and the register
+     below, and a block you came to read had no room to be read. */
+  gap: var(--tug-space-sm);
+}
+
+.session-changes-dash-row-trailing {
+  display: flex;
+  align-items: center;
+  gap: var(--tug-space-2xs);
+}
+
+/* Where the lines OUTSIDE the block start.
+
+   The join register and the fold's detail are siblings of the list row, not
+   children of it, so they begin at the row's BORDER box while the block inside
+   it begins at the row's content box — and the block's atom then holds its
+   name one text inset further in. Three offsets, none of which a space token
+   knows about: before this the lines took `--tug-space-sm` and landed nine
+   pixels left of the name they hang under, which is what made the shade's dash
+   read as lines that missed each other.
+
+   So the indent is the arithmetic itself, in the terms each part is authored
+   in. Change the row's density or the atom's padding and this follows; a
+   literal would be right until the first of those moved. */
+body {
+  --tugx-dash-stack-indent: calc(
+    var(--tugx-list-row-padding-inline-compact) +
+      var(--tugx-list-row-indicator-gutter) +
+      var(--tugx-session-atom-text-inset)
+  );
+}
+
+/* The join register sits under the block, on the same indent: line 1
+   is who, line 2 is what the dash is doing, line 3 is what its join is doing.
+   Empty until there is a join — the register returns null before then, so
+   this box collapses rather than reserving a blank row. */
+.session-changes-dash-register {
+  display: flex;
+  min-width: 0;
+  padding-inline-start: var(--tugx-dash-stack-indent);
+}
+
+/* The register SPANS the block. Shrink-to-fit made the strip a floating pill
+   sitting in the middle of a row — a widget that had landed on the block
+   rather than the block's own third line — and that, more than its type, is
+   what made the join read as a different species from the facts above it.
+   Full width gives it the same left and right edges as the lines it belongs
+   to. */
+.session-changes-dash-register > * {
+  flex: 1 1 auto;
+}
+
+.session-changes-dash-register:empty {
+  display: none;
+}
+
+/* ---- The fold ---- */
+
+/* The fold hangs on the block's own left margin — the stacked lines' indent —
+   so the disclosure reads as more of the same block rather than as a panel
+   that arrived from somewhere else. Its sections (report · rounds · draft)
+   are separated by the same step the lane puts between blocks: each is a
+   labeled unit, and at a hairline of padding the last line of one sat as
+   close to the eyebrow of the next as to its own. */
+.session-changes-dash-detail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tug-space-xl);
+  padding: var(--tug-space-sm) var(--tug-space-sm) var(--tug-space-sm)
+    var(--tugx-dash-stack-indent);
+}

@@ -146,20 +146,20 @@ instance ids whose cleanup sweeps match only that worktree's prefix.
 
 ### Running from a worktree
 
-The corpus runs from whatever checkout you invoke it in — a dash
+The corpus runs from whatever checkout you invoke it in — an arc
 worktree included. Nothing to set: the recipe exports
 `TUG_REPO_UNIVERSE="$(pwd -P)"`, which is the boundary
-`tugtool_core::find_repo_root_from` resolves dash verbs inside, so a
-fixture dash is born, listed, joined and torn down in the checkout under
+`tugtool_core::find_repo_root_from` resolves arc verbs inside, so a
+fixture arc is born, listed, joined and torn down in the checkout under
 test rather than in the one that owns the shared `.git`. The doctrine is
 in [tuglaws/app-test-harness.md](../../tuglaws/app-test-harness.md#the-repo-universe-fixtures-stay-in-the-checkout-under-test).
 
-### A fixture dash lives in a scratch repository, never in your checkout
+### A fixture arc lives in a scratch repository, never in your checkout
 
-**A dash is for implementing a plan, not for running a test.** A fixture
+**An arc is for doing the work, not for running a test.** A fixture
 never cuts one in the checkout you are working in — `createDash`,
 `commitRound`, and `discardDash` all refuse the attempt with a message
-naming this rule. Every dash fixture builds a repository of its own:
+naming this rule. Every arc fixture builds a repository of its own:
 
 ```ts
 scratch = makeDashScratchRepo({ prefix: "at0999", checkout: CHECKOUT });
@@ -174,7 +174,7 @@ Four things to know:
 
 - **Spread `scratch.cli` into every fixture call.** It carries
   `binaryRoot` (the CLI comes from the checkout under test, which is the
-  only tree with a build) and the `TUG_DATA_DIR` redirect (dash state,
+  only tree with a build) and the `TUG_DATA_DIR` redirect (arc state,
   journals and drafts land beside the scratch repo, not in your live data
   root).
 - **A scratch repo is invisible until a session is spawned on it.**
@@ -190,13 +190,13 @@ Four things to know:
   else, and the failure surfaces far from its cause (the composer's
   selector matches no element, because the card fell back to the
   picker). `seedScratchSession` refuses a non-UUID up front.
-- **An app-test instance never sees the checkout's dashes.** The feed
-  hides them (`dashes_hidden_for` in `feeds/changeset.rs`), so a test can
+- **An app-test instance never sees the checkout's arcs.** The feed
+  hides them (`arcs_hidden_for` in `feeds/changeset.rs`), so a test can
   assert on a lane's exact contents instead of on whatever you happen to
   have open. Session entries are untouched — the changes-attribution
   tests really do compose the checkout's dirt.
 
-`--base` still comes from the project the dash is cut in, not from
+`--base` still comes from the project the arc is cut in, not from
 `main`: `createDash` derives it from the branch that project has out.
 
 Everything a scratch fixture makes carries the `tug-scratch-` prefix — the
@@ -204,7 +204,7 @@ repo, its data root, its stub scripts, and the transcript directory under
 `~/.claude/projects` — and the recipe sweeps that namespace at the start
 of every run, so a test killed before its teardown leaves nothing behind.
 `at0426` is the worked example for a join; `at0421` for a plain
-dash-UI one.
+arc-UI one.
 
 ## Environment variables
 
@@ -221,7 +221,7 @@ dash-UI one.
 | `TUG_APPTEST_JSON=<path>` | Also write the run's results as a JSON document to `<path>`. Stdout is byte-identical either way. |
 | `TUG_APPTEST_SELECTION`   | How the run was selected (`changed` \| `all` \| `core` \| `explicit`), recorded in the results ledger. Exported by the delegating recipes; absent, the runner records what the invocation looks like. |
 | `TUG_APPTEST_RESULTS_DB`  | Point the results ledger at another file. Test-isolation only — the real record is machine-global under `~/Library/Application Support/Tug/`. |
-| `TUG_REPO_UNIVERSE`       | The checkout dash verbs resolve inside. Exported by the recipe as the invoking checkout; a test should read it through `universeRoot()` rather than setting it. |
+| `TUG_REPO_UNIVERSE`       | The checkout arc verbs resolve inside. Exported by the recipe as the invoking checkout; a test should read it through `universeRoot()` rather than setting it. |
 
 ### Reading the output
 
@@ -262,7 +262,7 @@ test passes `testName` to `launchTugApp`; the directory is gitignored.
 
 Every run leaves a record: one row for the run — its bounds, the checkout it ran in, the `HEAD` it ran against and whether that tree was dirty, how it was selected, its wall time and verdict — and one row per file, with that file's status, counts, seconds, and whether it took the screen. It lands in `apptest_results.db`, machine-global beside `changes.db`, and it is written and read only through `tugtool apptest record|history`; the recipe never opens SQLite itself.
 
-The record is keyed by the **resolved base checkout**, not by the directory the run executed in. A dash worktree and the checkout it forked from are one project, so a run on a dash answers a question asked from `main` and the reverse — which is the whole point, since a red file on a dash is exactly when you want to know what `main` last saw.
+The record is keyed by the **resolved base checkout**, not by the directory the run executed in. An arc worktree and the checkout it forked from are one project, so a run on an arc answers a question asked from `main` and the reverse — which is the whole point, since a red file on an arc is exactly when you want to know what `main` last saw.
 
 **Where you meet it:** every red file in a `Failures:` section arrives with one line under its name, in one of four shapes:
 
@@ -318,7 +318,7 @@ stderr.
 
 ## The join fixtures, and why none of them runs a model
 
-A conflicted dash join is finished by an agent: it reconciles the merge in a
+A conflicted arc join is finished by an agent: it reconciles the merge in a
 workshop worktree, audits what the algorithmic rungs decided, may ask one
 intent question, and reports. Three fixtures press that arc — `at0426` (the
 audit), `at0436` (a join pressed for real), `at0442` (the escalation) — and
@@ -337,7 +337,7 @@ it refuses**, which is what keeps a stray fixture from quietly spending a
 minute of API time.
 
 **Nothing is built or tested at join time.** A join gates on reconcile-clean
-alone: the run's ending replays the dash onto the live base and verifies the
+alone: the run's ending replays the arc onto the live base and verifies the
 tree that will actually land, so by the time a join is offered the bytes have
 been checked once, warm, where a failure could still be fixed. A fixture join
 therefore runs at git speed and needs no toolchain — and cannot deadlock on the
@@ -346,7 +346,7 @@ could.
 
 **The repository is the fixture's own.** `makeJoinScratchRepo` in
 `dash-fixture.ts` builds one — on top of `makeDashScratchRepo`, the same
-constructor every dash fixture uses, so there is one implementation of "a repo
+constructor every arc fixture uses, so there is one implementation of "a repo
 Tug can open" — adding one genuine conflict and the stub scripts to the base
 repo's `git init`, `.tugtool/` marker and redirected
 `TUG_DATA_DIR`. Owning the repository is what lets these arcs run all the way
@@ -355,7 +355,7 @@ branch's live working tree**, which for the checkout would be the developer's
 own `main`. `rmJoinScratchRepo` deletes the lot.
 
 Owning it is also what makes a fixture *safe*, and that is the newer half. Every
-join rides a candidate, so **opening join mode resolves the dash** — a clean one
+join rides a candidate, so **opening join mode resolves the arc** — a clean one
 included. Aimed at the developer's checkout, that is a reconcile on the way to
 a button press. Any test that enters join mode belongs on a scratch repo, which
 is why `at0435` and `at0436` moved onto one.

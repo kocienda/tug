@@ -599,7 +599,7 @@ async fn git_log_subjects(repo_dir: &Path, n: usize) -> Vec<String> {
 /// Read the dash's per-round instruction lines from the well-known
 /// project-state-dir `dash-log.md` ([P23]), filtered to `dash_name`.
 ///
-/// The grammar is `tugdash_core`'s and is borrowed rather than re-derived: the
+/// The grammar is `tugarc_core`'s and is borrowed rather than re-derived: the
 /// same splitter and the same terminal-line test, so a dash name reused after
 /// a join or a discard starts its draft from an empty slate instead of
 /// inheriting the previous incarnation's instructions.
@@ -615,13 +615,13 @@ fn read_dash_log(repo_dir: &Path, dash_name: &str) -> Vec<String> {
     };
     let mut lines = Vec::new();
     for line in content.lines() {
-        let Some((_iso, dash, marker, note)) = tugdash_core::split_log_line(line) else {
+        let Some((_iso, dash, marker, note)) = tugarc_core::split_log_line(line) else {
             continue;
         };
         if dash != dash_name {
             continue;
         }
-        if tugdash_core::is_terminal(marker, note) {
+        if tugarc_core::is_terminal(marker, note) {
             lines.clear();
             continue;
         }
@@ -877,7 +877,7 @@ mod tests {
                     orphaned: vec![],
                 },
                 unattributed_draft: None,
-                document_dashes: vec![],
+                document_arcs: vec![],
             }],
         }
     }
@@ -909,7 +909,7 @@ mod tests {
                     orphaned: vec![],
                 },
                 unattributed_draft: None,
-                document_dashes: vec![],
+                document_arcs: vec![],
             }],
         }
     }

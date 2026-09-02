@@ -40,7 +40,7 @@ struct Owner {
     kind: String,
     id: String,
     /// The dash's name when `kind` is `dash` — carried rather than re-parsed
-    /// out of `id`, because it is what [`tugdash_core::ops::dash_draft_key`]
+    /// out of `id`, because it is what [`tugarc_core::ops::dash_draft_key`]
     /// takes and the key must come from that resolver ([P07]).
     dash_name: Option<String>,
     /// The pre-id key the same owner's rows were written under before dashes
@@ -82,7 +82,7 @@ impl Owner {
 /// older build created — resolves to its legacy branch-ref key with no
 /// legacy sibling to chase.
 fn dash_owner(name: &str, project_dir: &str) -> (String, Option<String>) {
-    let key = tugdash_core::ops::dash_owner_key(std::path::Path::new(project_dir), name);
+    let key = tugarc_core::ops::dash_owner_key(std::path::Path::new(project_dir), name);
     let legacy = format!("tugdash/{name}");
     let legacy = (key != legacy).then_some(legacy);
     (key, legacy)
@@ -305,10 +305,10 @@ fn dash_base_root(project_dir: &str) -> Option<PathBuf> {
 /// directory the command actually ran in ([P01], [P07]).
 ///
 /// A dash draft describes a landing **on the base**, and the join reads it with
-/// the base root in hand. `dash-implement` runs `tugtool draft set` from inside
+/// the base root in hand. `arc-implement` runs `tugtool draft set` from inside
 /// the worktree, so keying by cwd put every planned run's authored draft
 /// somewhere the join could never look. This is where that ends: the key comes
-/// from `tugdash_core::ops::dash_draft_key` verbatim — owner *and* project —
+/// from `tugarc_core::ops::dash_draft_key` verbatim — owner *and* project —
 /// and the worktree spellings ride along as superseded so one authored write
 /// retires the old rows.
 ///
@@ -321,7 +321,7 @@ fn apply_dash_project_key(owner: &mut Owner, project: Project) -> Project {
     let Some(base) = dash_base_root(&project.primary) else {
         return project;
     };
-    let key = tugdash_core::ops::dash_draft_key(&base, name);
+    let key = tugarc_core::ops::dash_draft_key(&base, name);
     owner.id = key.owner_id;
     owner.legacy_id = key.legacy_owner_id;
     let mut rekeyed = Project::at(&key.project);

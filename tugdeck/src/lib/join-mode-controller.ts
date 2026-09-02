@@ -2,7 +2,7 @@
  * join-mode-controller — per-card state + join path for join mode ([P01],
  * [P04], [P05]).
  *
- * Join mode is commit mode's twin in the dash lane: `/dash-join` (or the Z4A
+ * Join mode is commit mode's twin in the dash lane: `/arc-join` (or the Z4A
  * Join segment, or the lane's Join affordance) turns the composer into the
  * join-message editor over the dash the feed describes, and Z5 swaps to cancel /
  * auto-message / join. Everything structural is `CommitModeController`'s shape
@@ -28,8 +28,8 @@ import type { CodeSessionStore } from "@/lib/code-session-store";
 import type { CommitModeController } from "@/lib/commit-mode-controller";
 import type {
   DashChangesetEntry,
-  DashJoinBlockerWire,
-  DashJoinStateWire,
+  ArcJoinBlockerWire,
+  ArcJoinStateWire,
 } from "@/lib/changeset-types";
 import type { JoinPhase } from "@/lib/changeset-verb-store";
 import type {
@@ -49,16 +49,16 @@ import { sendLandingReceipt } from "@/lib/landing-press-receipt";
 import { getChangesetDraftStore, type DraftOverlayPhase } from "@/lib/changeset-draft-store";
 import { getChangesetJoinStore } from "@/lib/changeset-join-store";
 import {
-  dashJoinRegister,
+  arcJoinRegister,
   SETTLED_REST_MS,
-  type DashJoinRegister,
-} from "@/lib/dash-join-register";
+  type ArcJoinRegister,
+} from "@/lib/arc-join-register";
 
 /** The dash a join mode is aimed at — the identity plus what the face reads. */
 export interface JoinTarget {
   /** The dash's owner key: its identity, and its draft row's `owner_id`. */
   ownerId: string;
-  /** The short display name (`tugtool dash join <name>`). */
+  /** The short display name (`tugtool arc join <name>`). */
   name: string;
   /** The base branch this dash joins onto. */
   base: string;
@@ -161,7 +161,7 @@ export function joinDisabledReason(
   // Named for the dash rather than "the turn", because the two are usually
   // different cards — and because a background test sweep outlives the turn
   // that started it, so "the turn is finished" would be true and useless.
-  if (reason === "holder") return "Wait for the dash to finish its work";
+  if (reason === "holder") return "Wait for the arc to finish its work";
   // `pending` is the execute round trip and nothing else now that the card
   // never previews, so the sentence says the only thing it can mean.
   if (reason === "pending") return "Joining…";
@@ -269,7 +269,7 @@ export interface JoinModeSnapshot extends LandingSnapshot {
   /** Conflicting paths, as the server's merge probe reports them. */
   conflicts: readonly string[];
   /** What would refuse this join, from the server's preflight. */
-  blockers: readonly DashJoinBlockerWire[];
+  blockers: readonly ArcJoinBlockerWire[];
   /** A candidate commit from the resolution ladder, if one still verifies. */
   candidateCommit: string | null;
   /** The server's sentence for a candidate that no longer describes the heads. */
@@ -312,14 +312,14 @@ export class JoinModeController implements LandingMode {
    * {@link SETTLED_REST_MS} ([P03]). It used to rest until something replaced
    * it, which was right when the register was the only surface that could
    * report a landed join. It no longer is: the join lands a durable
-   * `/dash-join` receipt row in the transcript, and the inline surface says so
+   * `/arc-join` receipt row in the transcript, and the inline surface says so
    * where the decision was made. A third copy of the same sentence resting
    * forever on an input surface is furniture, not news. A **failed** narration
    * still rests — it is the outcome the user has something to do about.
    */
   private narration: JoinTarget | null = null;
   /**
-   * The newest `/dash-join` receipt already in the transcript when the current
+   * The newest `/arc-join` receipt already in the transcript when the current
    * narration began, or `null` when there was none — the mark that tells this
    * join's receipt from a past one.
    */
@@ -448,7 +448,7 @@ export class JoinModeController implements LandingMode {
       message: "x", // ignore message emptiness here (CSS-gated on data-commit-empty)
     });
     // The same sentence the fronted row's join face shows, carried to the
-    // composer's button — which is where somebody who typed `/dash-join` is
+    // composer's button — which is where somebody who typed `/arc-join` is
     // actually looking, and which otherwise reports a constant.
     const landBlockedReason = gate.ok
       ? null
@@ -467,13 +467,13 @@ export class JoinModeController implements LandingMode {
       seedMessage: this.seedMessage,
       canLandIgnoringMessage: gate.ok,
       landBlockedReason,
-      // The same reading the Dashes card row and the shade row show, because all
+      // The same reading the Arcs card row and the shade row show, because all
       // three call one derivation ([P04]). The composer is where somebody who
-      // typed `/dash-join` is actually looking.
+      // typed `/arc-join` is actually looking.
       register:
         registerTarget === null
           ? null
-          : dashJoinRegister({
+          : arcJoinRegister({
               dash: registerTarget.name,
               base: registerTarget.base,
               stage: entry?.stage ?? null,
@@ -516,7 +516,7 @@ export class JoinModeController implements LandingMode {
   }
 
   /**
-   * The exchange id of the newest `/dash-join` receipt in the transcript, or
+   * The exchange id of the newest `/arc-join` receipt in the transcript, or
    * `null` when there is none.
    *
    * Scanned backwards, from the live edge, because the row this looks for is
@@ -554,7 +554,7 @@ export class JoinModeController implements LandingMode {
    * timer can never clear a sentence about a different join.
    *
    * **The receipt is what the narration was narrating toward.** A landed join
-   * writes a `/dash-join` row into the transcript, and that row carries the
+   * writes a `/arc-join` row into the transcript, and that row carries the
    * settled sentence itself — so from the moment it arrives, a live register
    * still resting is a second copy of a sentence the ledger now holds, two
    * rows apart and identical. The rest exists so a success cannot vanish on
@@ -606,7 +606,7 @@ export class JoinModeController implements LandingMode {
   // ── Triggers ───────────────────────────────────────────────────────────
 
   /**
-   * Enter join mode on `target`. A `/dash-join <name> <message>` seed is
+   * Enter join mode on `target`. A `/arc-join <name> <message>` seed is
    * written into the dash's draft as an edited draft, so the composer seeds
    * from it exactly as commit mode does. Commit mode exits — one composer, one
    * document ([P01]). Nothing is asked of the server: the dash's feed entry
@@ -773,7 +773,7 @@ export class JoinModeController implements LandingMode {
     if (target === null) {
       return this.refuse(
         "fault",
-        "No dash is aimed for this join — reopen the dash row",
+        "No arc is aimed for this join — reopen the arc row",
         "no-target",
         null,
       );
@@ -975,7 +975,7 @@ export class JoinModeController implements LandingMode {
  * deck is one nothing can say is joinable, and refusing is the only answer
  * that cannot be wrong.
  */
-export function deriveJoinOutcome(join: DashJoinStateWire | null | undefined): JoinOutcome {
+export function deriveJoinOutcome(join: ArcJoinStateWire | null | undefined): JoinOutcome {
   if (join === null || join === undefined) return "blocked";
   const blockers = join.blockers ?? [];
   if (blockers.some((b) => b.kind === "empty")) return "empty";
@@ -1034,7 +1034,7 @@ function snapshotsEqual(a: JoinModeSnapshot, b: JoinModeSnapshot): boolean {
  * equality check that skipped it would leave the composer's register frozen on
  * the first beat of a join it is narrating.
  */
-function sameRegister(a: DashJoinRegister | null, b: DashJoinRegister | null): boolean {
+function sameRegister(a: ArcJoinRegister | null, b: ArcJoinRegister | null): boolean {
   if (a === null || b === null) return a === b;
   return a.phase === b.phase && a.line === b.line && a.word === b.word;
 }
@@ -1055,8 +1055,8 @@ function sameStrings(a: readonly string[], b: readonly string[]): boolean {
 }
 
 function sameBlockers(
-  a: readonly DashJoinBlockerWire[],
-  b: readonly DashJoinBlockerWire[],
+  a: readonly ArcJoinBlockerWire[],
+  b: readonly ArcJoinBlockerWire[],
 ): boolean {
   return (
     a.length === b.length &&

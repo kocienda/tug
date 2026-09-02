@@ -1,7 +1,7 @@
 //! `tugchanges-core` — the print-free library that owns "git changes & commits".
 //!
 //! A synchronous library over `std::process::Command` git, mirroring
-//! `tugdash-core`'s shape: the `tugtool` CLI is a thin `--json` shell over it,
+//! `tugarc-core`'s shape: the `tugtool` CLI is a thin `--json` shell over it,
 //! and tugcast links it directly in-process (via `spawn_blocking`) to retire
 //! its duplicate commit/parse code. All real logic lives here; the binary only
 //! parses args, calls the library, and formats output.

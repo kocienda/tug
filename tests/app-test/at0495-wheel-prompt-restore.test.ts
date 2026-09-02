@@ -32,7 +32,7 @@
  * @covers tugcode/src/session.ts
  * @covers tugrust/crates/tugcast/src/session_ledger.rs
  * @covers tugrust/crates/tugcast/src/wheel/mod.rs
- * @covers tugrust/crates/tugcast/src/feeds/dash_arc_runner.rs
+ * @covers tugrust/crates/tugcast/src/feeds/arc_runner.rs
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
@@ -49,7 +49,7 @@ const SESSION = "c1a0d1ea-0000-4000-8000-000000000495";
 const LINE = "c1a0d1ea-0000-4000-8000-000000000496";
 
 /** The prompt the Wheel put on the wire — the raw text, not claude's envelope. */
-const WHEEL_COMMAND = "/tugplug:dash-implement";
+const WHEEL_COMMAND = "/tugplug:arc-implement";
 const WHEEL_ARGS = "demo implement Step 4 and end your turn; Steps 4-13 remain on this run";
 const WHEEL_SENT = `${WHEEL_COMMAND} ${WHEEL_ARGS}`;
 

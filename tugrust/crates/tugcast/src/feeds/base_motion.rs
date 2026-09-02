@@ -3,7 +3,7 @@
 //! The doctrine is that a landing problem should surface when it becomes true,
 //! not when someone tries to land. So this watches for the base moving and, when
 //! it is safe, moves the dash's rounds onto the new tip; the library half
-//! (`tugdash_core::replay_onto`) does the moving and this decides *whether*.
+//! (`tugarc_core::replay_onto`) does the moving and this decides *whether*.
 //!
 //! ## What wakes it
 //!
@@ -208,7 +208,7 @@ pub struct ConflictMessage<'a> {
     pub round: &'a str,
     pub round_subject: &'a str,
     pub paths: &'a [String],
-    /// `tugdash_core::resolve_intent` — the dash's maintained draft and round
+    /// `tugarc_core::resolve_intent` — the dash's maintained draft and round
     /// subjects, so the agent knows what the work it is rescuing is for.
     pub intent: &'a str,
     pub worktree_abs: &'a str,
@@ -243,12 +243,12 @@ pub fn compose_conflict_message(m: &ConflictMessage<'_>) -> String {
         "\nResolve it on the dash's own worktree:\n  \
          git -C {} rebase {}\n\
          Fix each conflict with both sides in view, then `git rebase --continue`. When the\n\
-         rebase is done, run `tugtool dash replay {} --json` to record the moved rounds.\n",
+         rebase is done, run `tugtool arc replay {} --json` to record the moved rounds.\n",
         m.worktree_abs, m.base_branch, m.dash,
     ));
     out.push_str(&format!(
         "After the replay records, verify the fit:\n  \
-         tugtool dash verify {}\n\
+         tugtool arc verify {}\n\
          It resolves every path the dash would land to a declared surface and runs what\n\
          those surfaces declare. A refusal names paths no surface claims — declare one for\n\
          them in .tugtool/config.toml rather than working around it. Red is ordinary work:\n\
@@ -495,11 +495,11 @@ async fn evaluate_workspace(
     let dir = repo_dir.clone();
     let Ok((autoreplay, dashes)) = tokio::task::spawn_blocking(move || {
         let autoreplay = read_autoreplay(&dir);
-        let dashes: Vec<DashReading> = tugdash_core::dash_detail_entries_in(&dir)
+        let dashes: Vec<DashReading> = tugarc_core::dash_detail_entries_in(&dir)
             .into_iter()
             .map(|detail| DashReading {
                 base_tip: rev_parse(&dir, &detail.base),
-                join_journal: tugdash_core::join_in_flight(&dir, &detail.name),
+                join_journal: tugarc_core::join_in_flight(&dir, &detail.name),
                 dash_autoreplay: read_dash_autoreplay(&dir, &detail.name),
                 detail,
             })
@@ -600,7 +600,7 @@ async fn evaluate_workspace(
 /// One dash as a wake reads it: the shared composition, plus the two facts the
 /// decision needs that it does not carry.
 struct DashReading {
-    detail: tugdash_core::DashDetail,
+    detail: tugarc_core::DashDetail,
     base_tip: String,
     join_journal: bool,
     dash_autoreplay: bool,
@@ -654,7 +654,7 @@ fn spawn_replay(
         let outcome = {
             let repo = job.repo_dir.clone();
             let name = job.name.clone();
-            tokio::task::spawn_blocking(move || tugdash_core::replay_onto(&repo, &name)).await
+            tokio::task::spawn_blocking(move || tugarc_core::replay_onto(&repo, &name)).await
         };
 
         // What to say, decided under the lock; saying it happens after, because
@@ -666,7 +666,7 @@ fn spawn_replay(
             entry.in_flight = false;
 
             match outcome {
-                Ok(Ok(tugdash_core::ReplayOutcome::Replayed {
+                Ok(Ok(tugarc_core::ReplayOutcome::Replayed {
                     base_head, mapping, ..
                 })) => {
                     info!(dash = %dash, base = %short(&base_head), "base-motion: replayed");
@@ -686,13 +686,13 @@ fn spawn_replay(
                     }
                     true
                 }
-                Ok(Ok(tugdash_core::ReplayOutcome::Recorded { .. })) => {
+                Ok(Ok(tugarc_core::ReplayOutcome::Recorded { .. })) => {
                     entry.conflict = None;
                     entry.notified_tip = None;
                     board.set(&job.owner_key, Vec::new());
                     true
                 }
-                Ok(Ok(tugdash_core::ReplayOutcome::Conflicted {
+                Ok(Ok(tugarc_core::ReplayOutcome::Conflicted {
                     base_head,
                     round,
                     round_subject,
@@ -720,13 +720,13 @@ fn spawn_replay(
                     });
                     true
                 }
-                Ok(Ok(tugdash_core::ReplayOutcome::Current)) => {
+                Ok(Ok(tugarc_core::ReplayOutcome::Current)) => {
                     entry.conflict = None;
                     entry.notified_tip = None;
                     board.set(&job.owner_key, Vec::new());
                     false
                 }
-                Ok(Ok(tugdash_core::ReplayOutcome::Deferred { reason, detail })) => {
+                Ok(Ok(tugarc_core::ReplayOutcome::Deferred { reason, detail })) => {
                     debug!(dash = %dash, reason = %reason, detail = %detail, "base-motion: deferred");
                     false
                 }
@@ -788,7 +788,7 @@ fn compose_for(
                 // speak and composing, which the lock ordering prevents.
                 return String::new();
             };
-            let intent = tugdash_core::resolve_intent(&job.repo_dir, &job.base_branch, &job.branch);
+            let intent = tugarc_core::resolve_intent(&job.repo_dir, &job.base_branch, &job.branch);
             compose_conflict_message(&ConflictMessage {
                 dash: &job.name,
                 base_branch: &job.base_branch,
@@ -1202,7 +1202,7 @@ mod tests {
             "the rebase is worktree-absolute, not relative to wherever the agent stands",
         );
         assert!(
-            text.contains("tugtool dash replay demo"),
+            text.contains("tugtool arc replay demo"),
             "the bookkeeping verb finishes the contract",
         );
         assert!(
@@ -1214,7 +1214,7 @@ mod tests {
             "the intent rides along"
         );
         assert!(
-            text.contains("tugtool dash verify demo"),
+            text.contains("tugtool arc verify demo"),
             "the turn names the verb, which knows what this project is made of",
         );
         assert!(
@@ -1229,7 +1229,7 @@ mod tests {
             text.contains("Red is ordinary work"),
             "a red verify is ordinary work, and the turn says so",
         );
-        let replay_at = text.find("tugtool dash replay demo").expect("replay named");
+        let replay_at = text.find("tugtool arc replay demo").expect("replay named");
         let verify_at = text.find("verify the fit").expect("verify named");
         assert!(
             replay_at < verify_at,
@@ -1253,9 +1253,9 @@ mod tests {
             intent: "   ",
             worktree_abs: "/repo/wt",
         });
-        assert!(text.contains("tugtool dash verify demo"));
+        assert!(text.contains("tugtool arc verify demo"));
         assert!(
-            text.contains("tugtool dash replay demo"),
+            text.contains("tugtool arc replay demo"),
             "the bookkeeping verb stands with or without a declaration",
         );
         assert!(text.contains("git rebase --abort"));
@@ -1274,7 +1274,7 @@ mod tests {
             worktree_abs: "/repo/wt",
         });
         assert!(!text.contains("This dash's intent"));
-        assert!(text.contains("tugtool dash replay demo"));
+        assert!(text.contains("tugtool arc replay demo"));
     }
 
     #[test]
@@ -1755,7 +1755,7 @@ mod tests {
             text.contains("f.txt"),
             "the turn names the conflicting path"
         );
-        assert!(text.contains("tugtool dash replay demo"));
+        assert!(text.contains("tugtool arc replay demo"));
 
         // The opener rode out with it — the turn is not invisible.
         let opener = out_rx.try_recv().expect("an opener");

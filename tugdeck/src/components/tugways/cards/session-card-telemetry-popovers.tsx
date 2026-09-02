@@ -130,12 +130,12 @@ import {
   type GoalState,
 } from "@/lib/code-session-store/select-goal";
 import { composeJobsCellSummary } from "@/lib/code-session-store/select-work";
-import { DashLifecycleBlock } from "@/components/tugways/dash-lifecycle-block";
-import { dashLifecycleNote } from "@/components/tugways/dash-lifecycle-line";
-import { dashTrackModelFromEntry } from "@/components/tugways/tug-dash-track";
-import { dashMetaFacts } from "@/lib/dash-meta-facts";
-import type { DashStep } from "@/lib/changeset-types";
-import type { DashSessionFact } from "@/lib/dash-session-index";
+import { ArcLifecycleBlock } from "@/components/tugways/arc-lifecycle-block";
+import { arcLifecycleNote } from "@/components/tugways/arc-lifecycle-line";
+import { arcTrackModelFromEntry } from "@/components/tugways/tug-arc-track";
+import { arcMetaFacts } from "@/lib/arc-meta-facts";
+import type { ArcStep } from "@/lib/changeset-types";
+import type { ArcSessionFact } from "@/lib/arc-session-index";
 
 // ---------------------------------------------------------------------------
 // Cross-popover callback contract
@@ -1283,11 +1283,11 @@ export function JobsPopoverContent({
  * is derived: the title is the ledger's spelling of the title, and the state is
  * the status cell put through {@link ledgerRowState}.
  */
-export function DashStepItems({
+export function ArcStepItems({
   steps,
   idle,
 }: {
-  steps: ReadonlyArray<DashStep>;
+  steps: ReadonlyArray<ArcStep>;
   idle: boolean;
 }): React.ReactElement {
   return (
@@ -1329,8 +1329,8 @@ export function DashStepItems({
  * `DASH` popup — opened from the status row's fourth cell while the session is
  * driving a dash, in place of the `TASKS` reading.
  *
- * The cockpit detail for one dash, in the vocabulary the Dashes card and the Changes
- * shade already speak: `DashLifecycleBlock` at the reading scale — the atom
+ * The cockpit detail for one dash, in the vocabulary the Arcs card and the Changes
+ * shade already speak: `ArcLifecycleBlock` at the reading scale — the atom
  * and the workers over the track, the phase glyph, the fraction, the phase in
  * a word, and every divergence fact the dash carries — then **the plan's
  * ledger**, the dash's own step list, which is where a reader reads step
@@ -1370,13 +1370,13 @@ export function DashPopoverContent({
   idle,
   onShowInChanges,
 }: {
-  fact: DashSessionFact;
+  fact: ArcSessionFact;
   tasks: TaskListState["tasks"];
   idle: boolean;
   onShowInChanges: () => void;
 }): React.ReactElement {
   const steps = fact.entry.steps ?? [];
-  const model = dashTrackModelFromEntry(fact.entry);
+  const model = arcTrackModelFromEntry(fact.entry);
   return (
     <TugPopupListFrame
       kind="item"
@@ -1389,7 +1389,7 @@ export function DashPopoverContent({
           <TugPushButton
             size="2xs"
             emphasis="ghost"
-            aria-label="Show this dash in Changes"
+            aria-label="Show this arc in Changes"
             onClick={onShowInChanges}
           >
             Show in Changes
@@ -1403,18 +1403,18 @@ export function DashPopoverContent({
             over the track, the fraction, the note and the divergence facts.
             The steps below are the plan's rows; this is the dash. */}
         <div className="session-dash-popover-head">
-          <DashLifecycleBlock
+          <ArcLifecycleBlock
             name={fact.name}
             workers={fact.entry.bound_sessions ?? []}
             model={model}
-            note={dashLifecycleNote(model)}
+            note={arcLifecycleNote(model)}
             stepTitle={fact.stepTitle}
-            facts={dashMetaFacts(fact.entry)}
+            facts={arcMetaFacts(fact.entry)}
             size="read"
           />
         </div>
         {steps.length > 0 ? (
-          <DashStepItems steps={steps} idle={idle} />
+          <ArcStepItems steps={steps} idle={idle} />
         ) : tasks.length > 0 ? (
           <TaskListItems tasks={tasks} idle={idle} />
         ) : null}

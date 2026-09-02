@@ -24,7 +24,7 @@
 //! try-each-instance POST the binding verbs use, at `POST /api/session`
 //! `{op: "resolve"}`.
 
-use crate::dash::post_instance_api;
+use crate::arc::post_instance_api;
 
 /// A resolved calling session: what was posted, what it resolved to, and
 /// enough of the ledger's answer to write a sentence about either.
@@ -176,9 +176,9 @@ pub(crate) fn resolve_soft(session: Option<&str>) -> Option<Resolved> {
 ///
 /// The chokepoint's one narrow opening, and what makes it safe: no caller ever
 /// receives the raw id, and every op reached this way expands it server-side
-/// exactly as `/api/dash` does. What it buys is a single round trip instead of
+/// exactly as `/api/arc` does. What it buys is a single round trip instead of
 /// a resolve followed by the real question — which matters on the hot path,
-/// where the PreToolUse gate asks on every write-shaped tool call a course
+/// where the PreToolUse gate asks on every write-shaped tool call an arc
 /// stage makes.
 ///
 /// The outer `None` is "this process has no calling session at all" — a plain
@@ -215,7 +215,7 @@ fn ask_instance(posted: &str) -> Result<Resolved, String> {
         // An instance older than the chokepoint answers `unknown op
         // 'resolve'`. Refusing there would break every session-addressed verb
         // the moment a new `tugtool` met a tugcast that had not restarted —
-        // and it is not necessary: `/api/dash` resolves at its own door, so a
+        // and it is not necessary: `/api/arc` resolves at its own door, so a
         // bind still lands on the live segment. What is lost is this side's
         // ability to *name* the resolution, which is a receipt, not a write.
         Err(message) if message.contains("unknown op") => {

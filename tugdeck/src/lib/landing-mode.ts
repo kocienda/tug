@@ -17,7 +17,7 @@
  * @module lib/landing-mode
  */
 
-import type { DashJoinRegister } from "@/lib/dash-join-register";
+import type { ArcJoinRegister } from "@/lib/arc-join-register";
 import type { DraftOverlayPhase } from "@/lib/changeset-draft-store";
 import type { CommitPhase, JoinPhase } from "@/lib/changeset-verb-store";
 
@@ -80,7 +80,7 @@ export interface LandingRefusal {
 export type LandingPhase = CommitPhase | JoinPhase;
 
 /**
- * Claims a `/dash-join` transcript row, with or without the argument form the
+ * Claims a `/arc-join` transcript row, with or without the argument form the
  * verb accepts.
  *
  * It lives here rather than beside the block that renders it because two
@@ -89,7 +89,7 @@ export type LandingPhase = CommitPhase | JoinPhase;
  * narration has been replaced by a durable one.
  */
 export function matchesJoinReceipt(command: string): boolean {
-  return command === "/dash-join" || command.startsWith("/dash-join ");
+  return command === "/arc-join" || command.startsWith("/arc-join ");
 }
 
 /**
@@ -116,7 +116,7 @@ export interface LandingSnapshot {
    * genuinely becomes active supersedes it.
    */
   narrating: boolean;
-  /** The `/commit <message>` or `/dash-join … <message>` seed, or null. */
+  /** The `/commit <message>` or `/arc-join … <message>` seed, or null. */
   seedMessage: string | null;
   /**
    * The land gate ignoring message emptiness. The land button's JS-disabled
@@ -167,10 +167,10 @@ export interface LandingSnapshot {
    *
    * Derived by the mode rather than by the composer, which is what keeps the
    * entry ignorant of which landing it is hosting: commit mode has no dash and
-   * always returns null, join mode returns the same reading the Dashes card row and
+   * always returns null, join mode returns the same reading the Arcs card row and
    * the shade row show, because all three call one derivation.
    */
-  register: DashJoinRegister | null;
+  register: ArcJoinRegister | null;
 }
 
 /**

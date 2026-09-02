@@ -629,10 +629,10 @@ fn a_dismissal_discards_the_dash_in_the_repository_the_landing_named() {
     // claims the dash for its calling session, and this fixture runs from
     // inside a Session card as often as not — an unscrubbed run reaches the
     // developer's own live instance and posts a bind naming a scratch dash in
-    // a temp repo. That is the hazard `dash_api::bind`'s same-project guard
+    // a temp repo. That is the hazard `arc_api::bind`'s same-project guard
     // was added for, met here from the other side.
     let created = tugtool()
-        .args(["dash", "create", dash, "--json"])
+        .args(["arc", "create", dash, "--json"])
         .current_dir(&root)
         .env("TUG_DATA_DIR", data.path())
         .env("TMPDIR", data.path())

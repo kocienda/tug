@@ -5,7 +5,7 @@
  * Two claims, in the order a project actually meets them.
  *
  * The refusal first, because it is the half a table test cannot prove: the
- * resolver's `Unclaimed` is covered in `tugdash-core`, but that a real dash,
+ * resolver's `Unclaimed` is covered in `tugarc-core`, but that a real dash,
  * over a real diff, against a real committed `.tugtool/config.toml`, exits 2
  * and names the path is a property of the verb over a tree. A project's table
  * is complete exactly when the verb stops refusing, and the first incomplete
@@ -26,11 +26,11 @@
  * `~/.local/bin/tugtool` is a symlink into the *main* checkout's build, which
  * would run a `tugtool` with no `verify` subcommand at all.
  *
- * @covers tugdeck/src/components/tugways/dash-lifecycle-line.tsx
- * @covers tugdeck/src/lib/dash-meta-facts.ts
+ * @covers tugdeck/src/components/tugways/arc-lifecycle-line.tsx
+ * @covers tugdeck/src/lib/arc-meta-facts.ts
  * @covers tugdeck/src/lib/changeset-types.ts
- * @covers tugrust/crates/tugdash-core/src/ops.rs
- * @covers tugrust/crates/tugdash-core/src/surfaces.rs
+ * @covers tugrust/crates/tugarc-core/src/ops.rs
+ * @covers tugrust/crates/tugarc-core/src/surfaces.rs
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
@@ -111,7 +111,7 @@ const COMPLETE_TABLE = [
 
 /** Run `dash verify` for its exit code, which the throwing helper cannot give. */
 function verifyExit(): { code: number; out: string } {
-  const run = Bun.spawnSync([tugtoolPath(CHECKOUT), "dash", "verify", DASH_NAME], {
+  const run = Bun.spawnSync([tugtoolPath(CHECKOUT), "arc", "verify", DASH_NAME], {
     cwd: projectDir(),
     env: { ...process.env, ...(scratch?.cli.env ?? {}) },
   });
@@ -209,7 +209,7 @@ describe.skipIf(!SHOULD_RUN)("AT0478: the fit a dash was verified at", () => {
 
       // The fact is recorded where the faces read it.
       const status = JSON.parse(
-        tugtool(["dash", "status", DASH_NAME, "--json"], {
+        tugtool(["arc", "status", DASH_NAME, "--json"], {
           cwd: projectDir(),
           ...(scratch?.cli ?? {}),
         }),

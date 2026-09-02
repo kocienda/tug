@@ -163,32 +163,22 @@ export interface AddDirectory {
 export interface SessionStageSpec {
   /**
    * The stage label. `devise` / `review` / `implement` are the arc's three;
-   * any other word is a rotation no score is driving, and the transcript's
+   * any other word is a rotation no arc is driving, and the transcript's
    * divider renders whatever it is given.
    */
   name: string;
   /**
-   * The document the score opened on, repo-relative. Absent on a rotation with
-   * no score behind it, and the divider omits it rather than showing a blank.
+   * The document the arc opened on, repo-relative. Absent on a rotation with
+   * no arc behind it, and the divider omits it rather than showing a blank.
    */
   document?: string;
   /** The plan the stage drives, once one exists. */
   plan?: string;
   /**
-   * The dash name the course is keyed by — what the stage's claude reads as
-   * `TUG_DASH_COURSE`. **Absent is what clears it**: a rotation carrying
-   * neither `course` nor `arc` spawns claude with no course variable at all,
-   * which is how a courseless rotation tells the stage skills that nothing is
-   * driving them.
-   */
-  course?: string;
-  /**
-   * The old spelling of {@link course}, sent alongside it for one release.
-   *
-   * A tugcast older than the rename sends only this; a tugcode older than it
-   * reads only this. Either way the pair degrades to keeping the course
-   * rather than dropping it, which is the direction every skew rule in the
-   * tree takes. Read `course ?? arc`, never `arc` alone.
+   * The arc this rotation belongs to — what the stage's claude reads as
+   * `TUG_ARC`. **Absent is what clears it**: a rotation carrying no `arc`
+   * spawns claude with no arc variable at all, which is how a rotation with
+   * no arc behind it tells the stage skills that nothing is driving them.
    */
   arc?: string;
   /**

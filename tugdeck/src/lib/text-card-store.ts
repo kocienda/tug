@@ -261,8 +261,8 @@ const EMPTY_SNAPSHOT: TextCardSnapshot = {
 /**
  * Where a file inside a dash worktree ends up once the dash is joined.
  *
- * A dash worktree lives at `<repo>/.tug/worktrees/<name>/` (`worktree_path` in
- * `tugdash-core/src/ops.rs`), and joining removes it — so a card bound inside
+ * An arc worktree lives at `<repo>/.tug/worktrees/<name>/` (`worktree_path` in
+ * `tugarc-core/src/ops.rs`), and joining removes it — so a card bound inside
  * one is left holding a path that is genuinely gone. The successor is knowable
  * from shape alone: the same relative path under the repo root.
  *

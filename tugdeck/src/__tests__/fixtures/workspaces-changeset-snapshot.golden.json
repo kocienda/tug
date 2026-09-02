@@ -112,7 +112,7 @@
             "reviewed": false
           },
           "documents": {
-            "plan": "/repo/.tug/dashes/fix-join/plan.md",
+            "plan": "/repo/.tug/arcs/fix-join/plan.md",
             "plan_title": "Fix the join"
           }
         }
@@ -142,14 +142,14 @@
         "message": "Add scratch notes",
         "updated_at": 1752264090000
       },
-      "document_dashes": [
+      "document_arcs": [
         {
           "owner_id": "tugdash/dash-cockpit",
           "display_name": "dash-cockpit",
           "documents": {
-            "brief": "/repo/.tug/dashes/dash-cockpit/brief.md",
+            "brief": "/repo/.tug/arcs/dash-cockpit/brief.md",
             "brief_title": "The dash cockpit",
-            "plan": "/repo/.tug/dashes/dash-cockpit/plan.md",
+            "plan": "/repo/.tug/arcs/dash-cockpit/plan.md",
             "plan_title": "Dash cockpit"
           },
           "review": "reviewed",
@@ -161,7 +161,7 @@
           "owner_id": "tugdash/dash-hardening",
           "display_name": "dash-hardening",
           "documents": {
-            "plan": "/repo/.tug/dashes/dash-hardening/plan.md",
+            "plan": "/repo/.tug/arcs/dash-hardening/plan.md",
             "plan_title": "Dash hardening"
           },
           "review": "never-reviewed",

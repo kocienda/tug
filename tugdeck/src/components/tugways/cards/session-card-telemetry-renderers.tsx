@@ -93,13 +93,13 @@ import {
   TimePopoverContent,
   type ScrollToRowHandler,
 } from "./session-card-telemetry-popovers";
-import { dashGlanceFraction } from "@/lib/dash-meta-facts";
-import { dashMarkFraction } from "@/components/tugways/dash-lifecycle-mark";
+import { arcGlanceFraction } from "@/lib/arc-meta-facts";
+import { arcMarkFraction } from "@/components/tugways/arc-lifecycle-mark";
 import {
-  DASH_PHASE_LABELS,
-  dashTrackModelFromEntry,
-} from "@/components/tugways/tug-dash-track";
-import { useDashForSession } from "@/lib/dash-session-index";
+  ARC_PHASE_LABELS,
+  arcTrackModelFromEntry,
+} from "@/components/tugways/tug-arc-track";
+import { useArcForSession } from "@/lib/arc-session-index";
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 import { useResponderChain } from "@/components/tugways/responder-chain-provider";
 import { useTaskListState } from "@/lib/code-session-store/hooks/use-task-list-state";
@@ -393,7 +393,7 @@ const PLACARD_TITLES: Record<PlacardKind, string> = {
   tasks: "Tasks",
   // The dash's own name rides inside the body: these are static strings, and
   // the placard header is the surface's legend rather than its subject.
-  dash: "Dash",
+  dash: "Arc",
   jobs: "Jobs",
   btw: "/btw",
 };
@@ -820,13 +820,13 @@ export const SessionTelemetryStatusRow = React.forwardRef<
   // run the checklist the TASKS reading showed *is* the dash's step list, so
   // nothing is lost by promoting the dash to the label. The cell keeps its box
   // and its `data-priority`, so the row's geometry is untouched.
-  const dashFact = useDashForSession(snap.tugSessionId);
+  const dashFact = useArcForSession(snap.tugSessionId);
   // The same call, in the same argument order, the masthead's identity row
   // already makes — so Z1 and Z2 cannot disagree about the numerals. Null for
   // a dash that declared no counters, which reads as the stage glyph alone.
   const dashGlance =
     dashFact !== null
-      ? dashGlanceFraction(
+      ? arcGlanceFraction(
           dashFact.runPosition,
           dashFact.runLength,
           dashFact.stepCurrent,
@@ -842,16 +842,16 @@ export const SessionTelemetryStatusRow = React.forwardRef<
     dashFact?.arc == null
       ? ""
       : dashFact.arc.stopped !== undefined
-        ? `, arc stopped in ${dashFact.arc.stopped_stage ?? dashFact.arc.stage ?? "an unnamed stage"}: ${dashFact.arc.stopped}`
+        ? `, stopped in ${dashFact.arc.stopped_stage ?? dashFact.arc.stage ?? "an unnamed stage"}: ${dashFact.arc.stopped}`
         : dashFact.arc.stage !== undefined && dashFact.arc.done !== true
-          ? `, arc in ${dashFact.arc.stage}`
+          ? `, in ${dashFact.arc.stage}`
           : "";
   const dashCellLabel =
     dashFact === null
       ? ""
       : dashGlance === null
-        ? `dash ${dashFact.name}${dashArcLabel}`
-        : `dash ${dashFact.name}, step ${dashGlance.current} of ${dashGlance.total}${dashArcLabel}`;
+        ? `arc ${dashFact.name}${dashArcLabel}`
+        : `arc ${dashFact.name}, step ${dashGlance.current} of ${dashGlance.total}${dashArcLabel}`;
   // The placard's one exit: this card's own Changes shade, where every decision
   // about a dash already lives ([D152]). The content scope, not the bare card
   // id — `sendToTarget` walks upward from its target and the session card's
@@ -1022,9 +1022,9 @@ export const SessionTelemetryStatusRow = React.forwardRef<
   // says `Working` rather than `Implement`: nothing is driving it through a
   // lifecycle, so a phase word would be naming a stage it does not have. A
   // direct dash that wrote one has a fraction, and never reaches the word.
-  const dashModel = dashFact === null ? null : dashTrackModelFromEntry(dashFact.entry);
+  const dashModel = dashFact === null ? null : arcTrackModelFromEntry(dashFact.entry);
   const dashFraction =
-    dashModel === null ? null : (dashGlance ?? dashMarkFraction(dashModel));
+    dashModel === null ? null : (dashGlance ?? arcMarkFraction(dashModel));
   const dashReading =
     dashModel === null
       ? ""
@@ -1034,7 +1034,7 @@ export const SessionTelemetryStatusRow = React.forwardRef<
           ? "Stopped"
           : dashModel.direct
             ? "Working"
-            : DASH_PHASE_LABELS[dashModel.phase];
+            : ARC_PHASE_LABELS[dashModel.phase];
 
   const jobsRecent = jobsRecentlyDone(jobsLedger, nowMs, WORK_LINGER_MS);
   const jobsActiveCount = jobsCellActiveCount(jobCounts, goal);
@@ -1269,7 +1269,7 @@ export const SessionTelemetryStatusRow = React.forwardRef<
       </TugStatusCell>
       <TugStatusCell
         priority="tasks"
-        label={dashFact === null ? "TASKS" : "DASH"}
+        label={dashFact === null ? "TASKS" : "ARC"}
         onActivate={() => togglePlacard(dashFact === null ? "tasks" : "dash")}
         valueEmpty={dashFact === null && !hasTasks}
         focusGroup={focusGroup}
@@ -1300,7 +1300,7 @@ export const SessionTelemetryStatusRow = React.forwardRef<
           // one thing that changes while somebody watches — the position in
           // the run — and before any step is declared it says where in the
           // lifecycle the dash is, in a word. The strip is on the surfaces
-          // whose subject IS the dash: the Dashes card, the shade, and this cell's
+          // whose subject IS the dash: the Arcs card, the shade, and this cell's
           // own placard, one press away.
           //
           // **Authored exactly as STATE is.** Three siblings inside the value

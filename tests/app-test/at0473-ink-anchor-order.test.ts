@@ -2,7 +2,7 @@
  * at0473-ink-anchor-order.test.ts — a receipt comes back where it was written.
  *
  * The sixth vanished-receipt incident was the first in which nothing was
- * actually lost. The `/dash-join` receipt was in the ledger under the exact id
+ * actually lost. The `/arc-join` receipt was in the ledger under the exact id
  * the deck resumes, the restore census read complete, and the row was painted
  * in the DOM — five thousand pixels above the transcript's end, behind the
  * final assistant turn. The user, landed at the bottom, saw nothing.

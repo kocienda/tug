@@ -3,7 +3,7 @@
  *
  * The shade names six buckets, and until now each string was spelled at its own
  * call site: three in `session-changes-view.tsx`, two composed inside
- * `session-changes-dash-lane.tsx`. A gallery fixture claiming to hold the full
+ * `session-changes-arc-lane.tsx`. A gallery fixture claiming to hold the full
  * inventory would have been a seventh spelling, free to drift from all six.
  *
  * **A label is a name and an optional qualifier**, not one string with an em
@@ -15,7 +15,7 @@
  *
  * **No possessives.** A bucket is named by where its files live, not by what
  * owns them: "changes in this session", never "this session's changes"; "the
- * dash on this card", never "this card's dash". The apostrophe-s reads as
+ * arc on this card", never "this card's arc". The apostrophe-s reads as
  * ownership language in a surface whose whole subject is contested ownership,
  * where "claimed", "unattributed", and "orphaned" already carry that meaning
  * precisely.
@@ -52,28 +52,28 @@ export const ORPHANED_LABEL: SectionLabel = {
  * The fronted row's header, which is two headers because fronting is two
  * situations.
  *
- * Usually the fronted dash is the one this session is mated to, and the label
+ * Usually the fronted arc is the one this session is mated to, and the label
  * says so: the binding is the fact a reader acts on — it is what Unbind ends
  * and what the card is working.
  *
- * But a join aimed by name (`/dash-join <name>`) fronts its target so the
- * landing face has somewhere to mount, and that dash may be one this card never
+ * But a join aimed by name (`/arc-join <name>`) fronts its target so the
+ * landing face has somewhere to mount, and that arc may be one this card never
  * bound. Fronting is about what is being landed; the binding is about what the
  * card works. One label covering both would claim a binding that does not exist
  * — on precisely the row that offers **Adopt** to create it.
  */
-export function dashFrontedLabel(bound: boolean): SectionLabel {
+export function arcFrontedLabel(bound: boolean): SectionLabel {
   return bound
-    ? { name: "dash bound to this session" }
-    : { name: "dash this landing is aimed at" };
+    ? { name: "arc bound to this session" }
+    : { name: "arc this landing is aimed at" };
 }
 
 /**
- * The rest of the project's dashes. The count is the qualifier, because it is
- * the part that changes — "dashes" is what the reader is scanning for.
+ * The rest of the project's arcs. The count is the qualifier, because it is
+ * the part that changes — "arcs" is what the reader is scanning for.
  */
-export function dashRestLabel(count: number, hasFronted: boolean): SectionLabel {
-  const noun = count === 1 ? "dash" : "dashes";
+export function arcRestLabel(count: number, hasFronted: boolean): SectionLabel {
+  const noun = count === 1 ? "arc" : "arcs";
   return hasFronted
     ? { name: "also on this project", qualifier: `${count} ${noun}` }
     : { name: `${noun} on this project`, qualifier: String(count) };

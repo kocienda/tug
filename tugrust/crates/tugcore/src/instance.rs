@@ -117,7 +117,7 @@ pub fn tmux_bin() -> String {
 /// outlives it. tmux's "no server"/"no session" errors when the instance never
 /// launched an app are expected and ignored.
 ///
-/// Shared home for the reaper so both `tugtool host instance` and `tugtool dash`'s
+/// Shared home for the reaper so both `tugtool host instance` and `tugtool arc`'s
 /// worktree teardown drive the exact same identity math.
 pub fn reap_instance_tmux(instance_id: &str) {
     let label = tmux_socket_label_for(instance_id);

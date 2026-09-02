@@ -1,7 +1,7 @@
 //! The AI file-merge rung ([P32]) of the join resolution ladder, plus the
 //! `changeset_join_resolve` progress deltas (Spec S12).
 //!
-//! `tugdash-core`'s ladder is provider-agnostic — it takes a [`FileMerger`]
+//! `tugarc-core`'s ladder is provider-agnostic — it takes a [`FileMerger`]
 //! seam for its last rung. Here tugcast plugs the scribe sidecar into that seam:
 //! each conflicted file the algorithmic rungs couldn't resolve gets a headless
 //! `claude -p` three-way merge, streamed to the card as
@@ -13,8 +13,8 @@ use std::sync::Arc;
 
 use tokio::runtime::Handle;
 use tokio::sync::{broadcast, mpsc};
+use tugarc_core::{FileMergeRequest, FileMerger};
 use tugcast_core::protocol::{FeedId, Frame};
-use tugdash_core::{FileMergeRequest, FileMerger};
 
 use crate::scribe::{self, ScribeSpawner};
 

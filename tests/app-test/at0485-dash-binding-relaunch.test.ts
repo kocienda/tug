@@ -28,7 +28,7 @@
  * @covers tugrust/crates/tugcast/src/session_ledger.rs
  * @covers tugrust/crates/tugcast/src/main.rs
  * @covers tugrust/crates/tugcast/src/feeds/agent_supervisor.rs
- * @covers tugdeck/src/lib/dash-session-index.ts
+ * @covers tugdeck/src/lib/arc-session-index.ts
  * @covers tugdeck/src/lib/card-session-binding-store.ts
  */
 

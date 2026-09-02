@@ -317,7 +317,7 @@ pub(crate) async fn compose_aggregate(
             no_repo,
             snapshot,
             unattributed_draft,
-            document_dashes: Vec::new(),
+            document_arcs: Vec::new(),
         });
     }
 
@@ -408,7 +408,7 @@ async fn attach_dashes_per_repo(
             )
             .await;
         }
-        projects[index].document_dashes =
+        projects[index].document_arcs =
             super::changeset::document_dash_entries(project_dir, ledger).await;
     }
 }
@@ -515,7 +515,7 @@ mod tests {
             no_repo: false,
             snapshot: empty_snapshot("wk".to_owned()),
             unattributed_draft: None,
-            document_dashes: Vec::new(),
+            document_arcs: Vec::new(),
         }
     }
 
@@ -561,7 +561,7 @@ mod tests {
         assert_eq!(dash_count(base_project), 1, "the base carries the list");
         assert_eq!(dash_count(wt_project), 0, "the worktree does not repeat it");
         assert!(
-            wt_project.document_dashes.is_empty(),
+            wt_project.document_arcs.is_empty(),
             "document dashes stay with the owner too"
         );
     }

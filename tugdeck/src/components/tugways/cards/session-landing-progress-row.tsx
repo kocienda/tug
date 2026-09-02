@@ -32,10 +32,10 @@
  * somebody who was not watching.
  *
  * Laws: [L02] the register arrives through `useSyncExternalStore` over the
- * controller; [L19]/[L20] this composes {@link DashJoinRegisterView} and adds
+ * controller; [L19]/[L20] this composes {@link ArcJoinRegisterView} and adds
  * no rule reaching inside its chrome; [L13] the pulse is the register's own.
  *
- * @tug-pairings DashJoinRegisterView
+ * @tug-pairings ArcJoinRegisterView
  *
  * @module components/tugways/cards/session-landing-progress-row
  */
@@ -44,7 +44,7 @@ import "./session-landing-progress-row.css";
 
 import React, { useSyncExternalStore } from "react";
 
-import { DashJoinRegisterView } from "../dash-join-register";
+import { ArcJoinRegisterView } from "../arc-join-register";
 import type { JoinModeController } from "@/lib/join-mode-controller";
 
 export interface SessionLandingProgressRowProps {
@@ -66,7 +66,7 @@ export function SessionLandingProgressRow({
   if (register === null) return null;
   return (
     <div className="session-landing-progress-row" data-slot="session-landing-progress-row">
-      <DashJoinRegisterView register={register} />
+      <ArcJoinRegisterView register={register} />
     </div>
   );
 }

@@ -10,7 +10,7 @@
  *
  * Only the overlap mark is driven here. The other three need the *base branch*
  * to move, and branch motion is already covered at the Rust layer in tempdir
- * repos (`tugdash-core`'s replay tests and `tugcast`'s base-motion engine
+ * repos (`tugarc-core`'s replay tests and `tugcast`'s base-motion engine
  * tests); what those cannot cover is that the composed entry reaches the lane
  * and paints, which is this file's whole job. Now that the fixture owns its
  * repository outright, the other three marks are reachable here too — moving
@@ -20,9 +20,9 @@
  * file, and the same file left uncommitted in the base checkout — which is a
  * scratch repository this file owns, not the developer's tree.
  *
- * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-dash-lane.tsx
+ * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-arc-lane.tsx
  * @covers tugdeck/src/lib/changeset-types.ts
- * @covers tugrust/crates/tugdash-core/src/ops.rs
+ * @covers tugrust/crates/tugarc-core/src/ops.rs
  * @covers tugrust/crates/tugcast/src/feeds/base_motion.rs
  */
 

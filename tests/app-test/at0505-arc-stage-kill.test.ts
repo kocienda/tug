@@ -35,9 +35,9 @@
  * ## What is driven
  *
  * A real rotation — `at0504`'s finding, that the *opening* rotation of a dash
- * course is a fresh segment seated by the wheel and lands about a second after
+ * is a fresh segment seated by the wheel and lands about a second after
  * the door is opened, so a rotation costs seconds rather than the twenty
- * minutes a plan course through two real step boundaries costs. Then the
+ * minutes a trek through two real step boundaries costs. Then the
  * stage's own subprocess tree is killed from outside the app, by pid, and the
  * assertion is that the arc **decides**: `arc-stop <stage> session gone` in the
  * record, within a sweep rather than never.
@@ -47,10 +47,10 @@
  * fallen back to its session picker by the time the arc decides — the DOM
  * under `[data-card-id="A"]` holds `session-card-picker` and no transcript at
  * all — because a card whose session died unbinds. So the receipt has nowhere
- * to paint, exactly as `dash-lifecycle.md`'s **card closed** row already says
+ * to paint, exactly as `arc-lifecycle.md`'s **card closed** row already says
  * of its own case: there is no card left to paint one on, and the only surface
- * missing is one that does not exist. The record, `tugtool dash arc`, and the
- * Dashes card carry it, and the assertion below states the picker outright so the
+ * missing is one that does not exist. The record, `tugtool arc arc`, and the
+ * Arcs card carry it, and the assertion below states the picker outright so the
  * absence is a claim this file makes rather than a check it quietly dropped.
  *
  * The kill is by pid because that is the gesture — a process dying is not a
@@ -87,13 +87,13 @@
  * clock's time, and `arc_stall_secs` on the floor still costs a poll interval
  * per reading. The clock's arithmetic is pinned where it is pure — the runner's
  * `clock_ran_out` table — and its coverage of a factless arc is pinned in
- * `dash_arc_runner`'s own tests. This file asserts the *decision*, which is the
+ * `arc_runner`'s own tests. This file asserts the *decision*, which is the
  * half a unit test cannot reach.
  *
- * @covers tugrust/crates/tugcast/src/feeds/dash_arc_runner.rs
+ * @covers tugrust/crates/tugcast/src/feeds/arc_runner.rs
  * @covers tugrust/crates/tugcast/src/feeds/agent_supervisor.rs
  * @covers tugrust/crates/tugcast/src/feeds/agent_bridge.rs
- * @covers tugrust/crates/tugdash-core/src/arc.rs
+ * @covers tugrust/crates/tugarc-core/src/arc.rs
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
@@ -131,7 +131,7 @@ const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 // mid-assertion, which reads as a defect and is not one.
 const TEST_TIMEOUT_MS = 420_000;
 
-/** The card the dash course runs on, and whose subprocess tree is killed. */
+/** The card the dash runs on, and whose subprocess tree is killed. */
 const SID = "a7c0d1ea-0000-4000-8000-000000000506";
 
 const CARD = '[data-card-id="A"]';
@@ -151,7 +151,7 @@ beforeAll(() => {
   if (!SHOULD_RUN) return;
   scratch = makeDashScratchRepo({ prefix: "at0505", checkout: CHECKOUT });
   // A brief and a task list — the shape `/dash` leaves, and the shape whose
-  // recorded `dash` course opens straight at implement. One rotation is all
+  // recorded `dash` kind opens straight at implement. One rotation is all
   // this file needs and the opening one is the cheapest there is.
   createDash(projectDir(), DASH, `at0505 ${DASH}`, scratch.cli);
   writeFileSync(dashBriefPath(projectDir(), DASH), "# A brief\n\nOne small thing.\n");
@@ -212,10 +212,10 @@ interface ArcReading {
   done: boolean;
 }
 
-/** What `tugtool dash arc --json` says about the dash right now. */
+/** What `tugtool arc record --json` says about the dash right now. */
 function arcReport(): ArcReading {
   const out = JSON.parse(
-    tugtool(["dash", "arc", DASH, "--json"], {
+    tugtool(["arc", "record", DASH, "--json"], {
       cwd: projectDir(),
       binaryRoot: CHECKOUT,
       env: scratch?.cli.env,
@@ -301,7 +301,7 @@ function killTheStage(): number[] {
  */
 function ledgerState(): unknown {
   const out = JSON.parse(
-    tugtool(["dash", "bind", DASH, "--dry-run", "--json"], {
+    tugtool(["arc", "bind", DASH, "--dry-run", "--json"], {
       cwd: projectDir(),
       binaryRoot: CHECKOUT,
       env: { ...scratch?.cli.env, TUG_SESSION_ID: SID },
@@ -326,10 +326,10 @@ describe.skipIf(!SHOULD_RUN)("AT0505: a stage whose claude dies", () => {
 
         // The door. Its first act is the rotation, and the rotation is what
         // seats the claude this test is about to kill.
-        await shell(app, `${cli} dash run ${DASH} --course dash`);
+        await shell(app, `${cli} arc run ${DASH} --kind dash`);
         const seated = await waitForRotation();
         note(`at0505 the seated stage: ${JSON.stringify(seated)}`);
-        expect(seated.stages[0]?.stage, "the dash course opens at implement").toBe(
+        expect(seated.stages[0]?.stage, "a dash opens at implement").toBe(
           "implement",
         );
 

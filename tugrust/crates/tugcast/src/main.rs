@@ -1,11 +1,11 @@
 mod actions;
+mod arc_api;
 mod attachments;
 mod auth;
 mod changes_journal;
 mod changes_writer;
 mod cli;
 mod control;
-mod dash_api;
 mod dead_branch;
 mod defaults;
 mod dev;
@@ -1913,8 +1913,8 @@ async fn main() {
 
     let (arc_tick_tx, arc_tick_rx) = mpsc::channel::<String>(64);
     let _ = supervisor.arc_tick_tx.set(arc_tick_tx);
-    tokio::spawn(feeds::dash_arc_runner::run_arc_engine(
-        feeds::dash_arc_runner::ArcContext {
+    tokio::spawn(feeds::arc_runner::run_arc_engine(
+        feeds::arc_runner::ArcContext {
             supervisor: Arc::clone(&supervisor),
             session_ledger: Arc::clone(&ledger),
             wheel: Arc::clone(&wheel_state),
@@ -1938,8 +1938,8 @@ async fn main() {
     // The run's quiet lines. A derived view of the dash-log rather than an act
     // any caller performs, so the announcement is skippable only by not
     // writing the record — at which point the mutation did not happen (W8).
-    tokio::spawn(feeds::dash_notes::run_dash_notes(
-        feeds::dash_notes::DashNotesContext {
+    tokio::spawn(feeds::arc_notes::run_arc_notes(
+        feeds::arc_notes::ArcNotesContext {
             registry: Arc::clone(&registry),
             supervisor: Arc::clone(&supervisor),
             sessions: Arc::clone(&ledger),

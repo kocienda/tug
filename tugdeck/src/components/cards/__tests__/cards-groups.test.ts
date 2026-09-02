@@ -33,7 +33,7 @@ import { registerDevtoolsCard } from "@/components/devtools/devtools-card";
 import { registerJotsCard } from "@/components/jots/jots-card-registration";
 import { registerOverviewCard } from "@/components/overview/overview-card-registration";
 import { registerTripwiresCard } from "@/components/tripwires/tripwires-card-registration";
-import { registerDashesCard } from "@/components/dashes/dashes-card-registration";
+import { registerArcsCard } from "@/components/arcs/arcs-card-registration";
 import { registerCardsCard } from "@/components/cards/cards-card-registration";
 import { registerLayoutCard } from "@/components/layout/layout-card-registration";
 import { registerTextCard } from "@/components/tugways/cards/text-card-registration";
@@ -62,7 +62,7 @@ beforeAll(() => {
   registerJotsCard();
   registerOverviewCard();
   registerTripwiresCard();
-  registerDashesCard();
+  registerArcsCard();
   registerCardsCard();
   registerLayoutCard();
   registerTextCard();

@@ -30,16 +30,16 @@
  * rebind runs through the card's own `$` shell route, and the stopped arc is
  * three real dash-log lines the feed folds into `entry.arc` on its next beat.
  *
- * @covers tugdeck/src/components/tugways/dash-lifecycle-mark.tsx
- * @covers tugdeck/src/components/tugways/dash-lifecycle-mark.css
- * @covers tugdeck/src/components/tugways/dash-phase-mark.tsx
- * @covers tugdeck/src/components/tugways/dash-phase-mark.css
+ * @covers tugdeck/src/components/tugways/arc-lifecycle-mark.tsx
+ * @covers tugdeck/src/components/tugways/arc-lifecycle-mark.css
+ * @covers tugdeck/src/components/tugways/arc-phase-mark.tsx
+ * @covers tugdeck/src/components/tugways/arc-phase-mark.css
  * @covers tugdeck/src/components/tugways/tug-step-fraction.tsx
  * @covers tugdeck/src/components/tugways/session-identity-row.tsx
  * @covers tugdeck/src/components/tugways/session-identity-row.css
  * @covers tugdeck/src/components/tugways/tug-session-identity.tsx
- * @covers tugdeck/src/lib/dash-session-index.ts
- * @covers tugdeck/src/lib/dash-meta-facts.ts
+ * @covers tugdeck/src/lib/arc-session-index.ts
+ * @covers tugdeck/src/lib/arc-meta-facts.ts
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
@@ -266,7 +266,7 @@ describe.skipIf(!SHOULD_RUN)("AT0483: the compact dash register", () => {
         note("at0483 masthead at the implement reading", (await app.screenshot()).path);
 
         // ── A dash that is only a brief ───────────────────────────────────
-        await shellAndSettle(app, `${tugtoolPath(CHECKOUT)} dash bind ${BRIEF_DASH}`);
+        await shellAndSettle(app, `${tugtoolPath(CHECKOUT)} arc bind ${BRIEF_DASH}`);
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(MASTHEAD_MARK)})
              ?.getAttribute("data-phase") === "brief"`,
@@ -315,7 +315,7 @@ describe.skipIf(!SHOULD_RUN)("AT0483: the compact dash register", () => {
         note("at0483 masthead at the stopped reading", (await app.screenshot()).path);
 
         // ── Unbind takes both marks away ──────────────────────────────────
-        await shellAndSettle(app, `${tugtoolPath(CHECKOUT)} dash unbind`, 1);
+        await shellAndSettle(app, `${tugtoolPath(CHECKOUT)} arc unbind`, 1);
         await app.waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(MASTHEAD_MARK)}).length === 0 &&
            document.querySelectorAll(${JSON.stringify(CARDS_MARK)}).length === 0`,

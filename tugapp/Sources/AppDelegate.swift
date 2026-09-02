@@ -1321,7 +1321,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         // the menu is hidden then, and a hidden menu's key equivalents fall
         // through to the web view.
         mMenu.addItem(NSMenuItem(title: "Show DevTools", action: #selector(showDevTools(_:)), keyEquivalent: "").identified("maker.devTools"))
-        // Show Jots, Show Tripwires, Show Dashes, Show Cards, Show
+        // Show Jots, Show Tripwires, Show Arcs, Show Cards, Show
         // Layout, Show Overview — the per-card sidebar toggles.
         // They carry no default chord: the keyboard addresses the RAILS
         // (Show Left/Right Rail below), and a per-card letter grammar cannot
@@ -1332,7 +1332,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         // mode, so any chord falls through to the web view there.
         mMenu.addItem(NSMenuItem(title: "Show Jots", action: #selector(showJots(_:)), keyEquivalent: "").identified("maker.jots"))
         mMenu.addItem(NSMenuItem(title: "Show Tripwires", action: #selector(showTripwires(_:)), keyEquivalent: "").identified("maker.tripwires"))
-        mMenu.addItem(NSMenuItem(title: "Show Dashes", action: #selector(showDashes(_:)), keyEquivalent: "").identified("maker.dashes"))
+        mMenu.addItem(NSMenuItem(title: "Show Arcs", action: #selector(showArcs(_:)), keyEquivalent: "").identified("maker.arcs"))
         mMenu.addItem(NSMenuItem(title: "Show Cards", action: #selector(showCards(_:)), keyEquivalent: "").identified("maker.cards"))
         mMenu.addItem(NSMenuItem(title: "Show Layout", action: #selector(showLayout(_:)), keyEquivalent: "").identified("maker.layout"))
         mMenu.addItem(NSMenuItem(title: "Show Overview", action: #selector(showOverview(_:)), keyEquivalent: "").identified("maker.overview"))
@@ -1488,9 +1488,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         sendControl("toggle-tripwires")
     }
 
-    /// Show or hide the Dashes rail — another of the sidebar toggles.
-    @objc private func showDashes(_ sender: Any) {
-        sendControl("toggle-dashes")
+    /// Show or hide the Arcs rail — another of the sidebar toggles.
+    @objc private func showArcs(_ sender: Any) {
+        sendControl("toggle-arcs")
     }
 
     /// Show or hide the Cards rail — another of the sidebar toggles.

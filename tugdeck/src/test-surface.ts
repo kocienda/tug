@@ -496,7 +496,7 @@ export interface SeedDeckStateArgs {
  *    is a different store from the one `ingestFrame` reaches, so a shell row
  *    — and the command blocks that claim one, like the `/commit` receipt —
  *    is otherwise only reachable by executing a real command.
- *  - `dashNote` — deliver a live dash gesture's quiet line
+ *  - `arcNote` — deliver a live dash gesture's quiet line
  *    (`store.ingestDashNote`, [P12]). Live notes arrive off the changeset
  *    verb store, which a harness test has no server to feed, so this is the
  *    one way to observe the reducer's seating: inside the open turn when one
@@ -519,7 +519,7 @@ export type SessionDriveAction =
       startedAtMs?: number;
     }
   | {
-      op: "dashNote";
+      op: "arcNote";
       exchangeId: string;
       command: string;
       text: string;
@@ -2754,7 +2754,7 @@ export function createTugTestSurface(deck: DeckManager): TugTestSurface {
           });
           return;
         }
-        case "dashNote":
+        case "arcNote":
           // The live dash-note path ([P12]): the reducer seats the sentence
           // inside the open turn when one is streaming, or as its own quiet
           // ink row when none is — which seat is exactly what a test drives

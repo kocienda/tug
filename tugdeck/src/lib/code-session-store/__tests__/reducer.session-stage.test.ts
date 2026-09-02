@@ -76,28 +76,28 @@ describe("stageNoteText", () => {
     expect(stageNoteText("review", "", "")).toBe("review");
   });
 
-  it("names a rotation with no course behind it by its stage and its model", () => {
+  it("names a rotation with no arc behind it by its stage and its model", () => {
     // A wheel rotation nobody is scoring carries no document, because
-    // there is no course for it to have opened on. The divider is the label
+    // there is no arc for it to have opened on. The divider is the label
     // and the model, and reads as a boundary all the same.
     expect(stageNoteText("review", "opus", "")).toBe("review · opus");
   });
 });
 
-describe("reducer — a rotation with no course behind it", () => {
-  const courseless = (name: string, model: string): CodeSessionEvent =>
+describe("reducer — a rotation with no arc behind it", () => {
+  const arcless = (name: string, model: string): CodeSessionEvent =>
     ({
       type: "session_stage",
       stage: name,
       model,
       document: "",
       arc: "",
-      prompt: "/tugplug:dash-review dash/foo.md",
+      prompt: "/tugplug:arc-review dash/foo.md",
       turnKey: "rot-k1",
     }) as CodeSessionEvent;
 
-  it("folds into a divider and a wheel-origin turn, with no course anywhere in the path", () => {
-    const { state: after, effects } = reduce(fresh(), courseless("review", "opus"));
+  it("folds into a divider and a wheel-origin turn, with no arc anywhere in the path", () => {
+    const { state: after, effects } = reduce(fresh(), arcless("review", "opus"));
 
     const note = effects.find((e) => e.kind === "append-stage-note");
     expect(note).toBeDefined();
@@ -114,7 +114,7 @@ describe("reducer — a stage that carries its prompt", () => {
     const before = fresh();
     const { state: after, effects } = reduce(before, {
       ...stage("devise", "opus", "dash/foo-brief.md"),
-      prompt: "/tugplug:dash-devise dash/foo-brief.md",
+      prompt: "/tugplug:arc-devise dash/foo-brief.md",
       turnKey: "arc-k1",
     } as CodeSessionEvent);
 
@@ -142,8 +142,8 @@ describe("reducer — a stage that carries its prompt", () => {
       {
         kind: "atom",
         type: "command",
-        label: "tugplug:dash-devise",
-        value: "tugplug:dash-devise",
+        label: "tugplug:arc-devise",
+        value: "tugplug:arc-devise",
       },
     ]);
   });
@@ -152,7 +152,7 @@ describe("reducer — a stage that carries its prompt", () => {
     const sent = reduce(fresh(), SEND).state;
     const { state: after, effects } = reduce(sent, {
       ...stage("review", "opus", "dash/foo.md"),
-      prompt: "/tugplug:dash-review dash/foo.md",
+      prompt: "/tugplug:arc-review dash/foo.md",
       turnKey: "arc-k2",
     } as CodeSessionEvent);
     expect(effects.length).toBe(0);
@@ -187,7 +187,7 @@ describe("reducer — a replayed opener says who wrote it", () => {
     const replaying = { ...fresh(), phase: "replaying" } as CodeSessionState;
     const opened = reduce(
       replaying,
-      addUser("r1", "/tugplug:dash-devise dash/foo-brief.md", "wheel"),
+      addUser("r1", "/tugplug:arc-devise dash/foo-brief.md", "wheel"),
     ).state;
     expect(opened.pendingTurn?.origin).toBe("wheel");
   });
@@ -304,7 +304,7 @@ describe("reducer — handleSessionStage", () => {
 describe("reducer — attribution rides the message, not the turn", () => {
   const STAGE_PROMPT: CodeSessionEvent = {
     ...(stage("implement", "opus", "dash/foo.md") as Record<string, unknown>),
-    prompt: "/tugplug:dash-implement foo",
+    prompt: "/tugplug:arc-implement foo",
     turnKey: "arc-1",
   } as CodeSessionEvent;
 

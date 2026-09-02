@@ -2166,7 +2166,7 @@ Some context.
     }
 
     /// The rules must stay honest against the documents people actually write.
-    /// The corpus is every dash's own `plan.md` under `.tug/dashes/`, walked
+    /// The corpus is every dash's own `plan.md` under `.tug/arcs/`, walked
     /// directly rather than through a declaration — there is no home to
     /// declare — and skipped cleanly on a checkout that holds no dashes.
     #[test]
@@ -2177,7 +2177,7 @@ Some context.
         else {
             return;
         };
-        let Ok(entries) = std::fs::read_dir(project_root.join(".tug").join("dashes")) else {
+        let Ok(entries) = std::fs::read_dir(project_root.join(".tug").join("arcs")) else {
             return;
         };
         let mut linted = 0usize;

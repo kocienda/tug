@@ -3,7 +3,7 @@
  *
  * A user's machine has Tug.app and nothing of ours: no source checkout, no
  * tuglaws/, no CLAUDE.md, no .tugtool/, no ~/.claude, no jq, no ~/.local/bin
- * symlinks. This drives the real hook script and the real `tugtool dash` verbs
+ * symlinks. This drives the real hook script and the real `tugtool arc` verbs
  * under exactly those conditions — a bundle-shaped directory holding the built
  * tugtool and this plugin, a scratch git project, an empty PATH, and a fresh
  * HOME — so a dependence on this checkout fails here before it fails there.
@@ -187,26 +187,26 @@ describe("the hook script, from the bundle alone", () => {
 
 describe("the dash verbs on a project that declares nothing", () => {
   test("create → config → documents → verify → discard, with no .tugtool/", () => {
-    const created = tugtool(["--json", "dash", "create", "smoke"]);
+    const created = tugtool(["--json", "arc", "create", "smoke"]);
     expect(created.code, created.err).toBe(0);
     const worktree = JSON.parse(created.out).data.worktree as string;
     expect(existsSync(worktree)).toBe(true);
 
-    const config = tugtool(["--json", "dash", "config"]);
+    const config = tugtool(["--json", "arc", "config"]);
     expect(config.code, config.err).toBe(0);
     const data = JSON.parse(config.out).data;
     expect(data.build).toBeNull();
     expect(data.surfaces).toEqual([]);
     expect(data.post_create).toEqual([]);
 
-    const documents = tugtool(["dash", "documents", "smoke", "--ensure"]);
+    const documents = tugtool(["arc", "documents", "smoke", "--ensure"]);
     expect(documents.code, documents.err).toBe(0);
-    expect(existsSync(join(project, ".tug/dashes/smoke"))).toBe(true);
+    expect(existsSync(join(project, ".tug/arcs/smoke"))).toBe(true);
 
-    const verify = tugtool(["dash", "verify", "smoke"], { });
+    const verify = tugtool(["arc", "verify", "smoke"], { });
     expect(verify.code, verify.err).toBe(0);
 
-    const discard = tugtool(["dash", "discard", "smoke"]);
+    const discard = tugtool(["arc", "discard", "smoke"]);
     expect(discard.code, discard.err).toBe(0);
     expect(existsSync(worktree)).toBe(false);
   });
@@ -217,7 +217,7 @@ describe("the dash verbs on a project that declares nothing", () => {
 });
 
 describe("every verb a skill names is one the shipped binary has", () => {
-  const namespaces = ["dash", "plan", "draft", "file", "host", "hook", "changes", "session"] as const;
+  const namespaces = ["arc", "plan", "draft", "file", "host", "hook", "changes", "session"] as const;
 
   test("tugtool <namespace> <verb> mentions resolve against --help", () => {
     const help = new Map<string, string>();

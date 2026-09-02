@@ -27,7 +27,7 @@
  * at the exact moment somebody needs to see it.
  *
  * Driven against the real feed, on a real dash in a scratch repository, with
- * the arc's own dash-log lines written in the grammar `tugdash_core::arc`
+ * the arc's own dash-log lines written in the grammar `tugarc_core::arc`
  * writes them — the runner's writers are not reachable from a test process, but
  * the record is a file, and reading it back through the whole stack (dash-log →
  * `read_arc` → `DashDetail` → `CHANGESET_ALL` → the session index → the cell)
@@ -35,13 +35,13 @@
  *
  * Gating: `describe.skipIf(!SHOULD_RUN)`.
  *
- * @covers tugrust/crates/tugdash-core/src/ops.rs
+ * @covers tugrust/crates/tugarc-core/src/ops.rs
  * @covers tugrust/crates/tugcast/src/feeds/changeset.rs
  * @covers tugrust/crates/tugcast-core/src/types.rs
  * @covers tugdeck/src/lib/changeset-types.ts
- * @covers tugdeck/src/lib/dash-session-index.ts
- * @covers tugdeck/src/components/tugways/dash-lifecycle-line.tsx
- * @covers tugdeck/src/components/tugways/tug-dash-track.tsx
+ * @covers tugdeck/src/lib/arc-session-index.ts
+ * @covers tugdeck/src/components/tugways/arc-lifecycle-line.tsx
+ * @covers tugdeck/src/components/tugways/tug-arc-track.tsx
  * @covers tugdeck/src/components/tugways/cards/session-card-telemetry-renderers.tsx
  */
 

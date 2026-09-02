@@ -22,7 +22,7 @@
  *     a turn is streaming seats as a `source: "dash"` system_note IN that
  *     turn — the `dash-note` quiet line renders within the turn's transcript
  *     entry, between the work it narrates and the turn's end, and no new
- *     between-turns quiet row appears. This is what makes a course read as
+ *     between-turns quiet row appears. This is what makes an arc read as
  *     one conversation instead of a pile of misfiled rows.
  *  3. **After the turn commits** (the relaunch order): the same gesture
  *     re-arriving as a shell-ledger row whose wall-clock falls inside a
@@ -33,7 +33,7 @@
  *     exchangeId) dedups instead of doubling.
  *
  * @covers tugdeck/src/components/tugways/cards/session-card-transcript.tsx
- * @covers tugdeck/src/components/tugways/cards/session-dash-note-block.tsx
+ * @covers tugdeck/src/components/tugways/cards/session-arc-note-block.tsx
  * @covers tugdeck/src/components/tugways/cards/session-command-block-registry.ts
  * @covers tugdeck/src/lib/code-session-store/reducer.ts
  * Gating: `describe.skipIf(!SHOULD_RUN)`.

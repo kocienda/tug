@@ -48,7 +48,7 @@ import {
 } from "@/lib/layout-imposer";
 import { JOTS_CARD_ID } from "@/lib/jots-card-id";
 import { TRIPWIRES_CARD_ID } from "@/lib/tripwires-card-id";
-import { DASHES_CARD_ID } from "@/lib/dashes-card-id";
+import { ARCS_CARD_ID } from "@/lib/arcs-card-id";
 import { CARDS_CARD_ID } from "@/lib/cards-card-id";
 import { LAYOUT_CARD_ID } from "@/lib/layout-card-id";
 import { OVERVIEW_CARD_ID } from "@/lib/overview-card-id";
@@ -58,7 +58,7 @@ import {
   cardIdForSession,
   cardSessionBindingStore,
 } from "./lib/card-session-binding-store";
-import { dashBindErrorStore } from "./lib/dash-bind-error-store";
+import { arcBindErrorStore } from "./lib/arc-bind-error-store";
 import { sessionNameStore } from "./lib/session-name-store";
 import {
   identityKeyForSession,
@@ -531,8 +531,8 @@ export function initActionDispatch(
     toggleSidebarCard(deckManager, TRIPWIRES_CARD_ID);
   });
 
-  registerAction("toggle-dashes", () => {
-    toggleSidebarCard(deckManager, DASHES_CARD_ID);
+  registerAction("toggle-arcs", () => {
+    toggleSidebarCard(deckManager, ARCS_CARD_ID);
   });
 
   registerAction("toggle-cards", () => {
@@ -561,13 +561,13 @@ export function initActionDispatch(
     dispatchCommand(`${TUG_ACTIONS.TOGGLE_RAIL}:${side}`);
   });
 
-  // reveal-dashes: show the Dashes rail and bring the keyboard to it, never
+  // reveal-arcs: show the Arcs rail and bring the keyboard to it, never
   // hide it.
-  // What a link means, as distinct from what a shortcut means — a dash chip
-  // on an Overview post promises to reveal the dash, and a toggle would take
+  // What a link means, as distinct from what a shortcut means — an arc chip
+  // on an Overview post promises to reveal the arc, and a toggle would take
   // the rail away from a reader who already had it open.
-  registerAction("reveal-dashes", () => {
-    revealSidebarCard(deckManager, DASHES_CARD_ID);
+  registerAction("reveal-arcs", () => {
+    revealSidebarCard(deckManager, ARCS_CARD_ID);
   });
 
   // next/previous-keyboard-focus: move the keyboard focus ring one stop, the
@@ -1222,7 +1222,7 @@ export function initActionDispatch(
   });
 
   // bind_dash_ok / unbind_dash_ok: a session's dash mating changed while the
-  // card is open — a skill running `tugtool dash bind`, the `dash bind` that
+  // card is open — a skill running `tugtool arc bind`, the `dash bind` that
   // follows a `dash create`, or the rotation seat carrying a mid-arc binding
   // onto a freshly minted segment. The store's record already exists (the
   // spawn ack made it), so this merges the dash half in rather than replacing
@@ -1267,7 +1267,7 @@ export function initActionDispatch(
     if (sentLineId !== null) sessionLineStore.seat(sessionId, sentLineId);
     // A binding that landed is not still a failure — clear any parked refusal
     // before the notice's next read.
-    dashBindErrorStore.clear(sessionId);
+    arcBindErrorStore.clear(sessionId);
     const cardId =
       (sentCardId !== null && cardSessionBindingStore.getBinding(sentCardId)
         ? sentCardId
@@ -1290,12 +1290,12 @@ export function initActionDispatch(
   // bind_dash_err: the mating did not happen. Nothing optimistic was raised —
   // the chip and the lane both wait for `bind_dash_ok` — so a refusal has
   // nothing to put back and would otherwise land in silence. Park it for the
-  // card's `DashBindErrorNoticeController` to surface as a bulletin.
+  // card's `ArcBindErrorNoticeController` to surface as a bulletin.
   registerAction("bind_dash_err", (payload) => {
     console.warn("bind_dash failed", payload);
     const sessionId = payload.tug_session_id;
     if (typeof sessionId !== "string" || sessionId.length === 0) return;
-    dashBindErrorStore.fail(
+    arcBindErrorStore.fail(
       sessionId,
       typeof payload.reason === "string" ? payload.reason : "unknown",
     );

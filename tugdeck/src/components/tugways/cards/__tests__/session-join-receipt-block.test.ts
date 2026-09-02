@@ -32,8 +32,8 @@ describe("what the shipped receipts are attributed to", () => {
     // git one. A join squashes its rounds and commits them onto the base — the
     // same act, differently started — so it reads the same way.
     expect(resolveCommandAttribution("/commit")).toBe("git");
-    expect(resolveCommandAttribution("/dash-join")).toBe("git");
-    expect(resolveCommandAttribution("/dash-join lifecycle-fixup")).toBe("git");
+    expect(resolveCommandAttribution("/arc-join")).toBe("git");
+    expect(resolveCommandAttribution("/arc-join lifecycle-fixup")).toBe("git");
     // A discard deletes a branch and commits nothing, so it is not a landing
     // and keeps the shell default.
     expect(resolveCommandAttribution("/dash-discard")).toBe("shell");
@@ -45,9 +45,9 @@ describe("what the shipped receipts are attributed to", () => {
 
 describe("matchesJoinReceipt / matchesDiscardReceipt", () => {
   it("claims the two verbs and nothing that merely starts like them", () => {
-    expect(matchesJoinReceipt("/dash-join")).toBe(true);
-    expect(matchesJoinReceipt("/dash-join spike")).toBe(true);
-    expect(matchesJoinReceipt("/dash-joins")).toBe(false);
+    expect(matchesJoinReceipt("/arc-join")).toBe(true);
+    expect(matchesJoinReceipt("/arc-join spike")).toBe(true);
+    expect(matchesJoinReceipt("/arc-joins")).toBe(false);
     expect(matchesJoinReceipt("/join")).toBe(false);
     expect(matchesDiscardReceipt("/dash-discard")).toBe(true);
     expect(matchesDiscardReceipt("/dash-discard spike")).toBe(true);

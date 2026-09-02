@@ -192,14 +192,14 @@ import {
   resolveCommandPresentation,
 } from "./session-command-block-registry";
 // Side-effect imports: each bespoke receipt renderer joins the command-block
-// registry before the first resolve ([P08], and [P06] for the dash lane's
+// registry before the first resolve ([P08], and [P06] for the arc lane's
 // landings). Nothing is named here on purpose — a row's attribution comes from
 // the same registration its renderer does, so the header and the block cannot
 // disagree about what a command is.
 import "./session-commit-receipt-block";
 import "./session-join-receipt-block";
 import "./session-arc-receipt-block";
-import "./session-dash-note-block";
+import "./session-arc-note-block";
 import { composeShellShareText } from "./shell-exchange-view";
 import { RefsResultBlock } from "./refs-result-block";
 import { composeRefsShareText, refsShareLabel } from "./refs-result-view";
@@ -286,7 +286,7 @@ const SHELL_IDENTIFIER = "Shell";
  *  the command itself is right there in the block header. */
 const REFS_IDENTIFIER = "Refs";
 /** Identifier for a git-attributed row — a landing receipt, `/commit` on the
- *  main lane or `/dash-join` on the dash lane. Both ride the shell ledger, and
+ *  main lane or `/arc-join` on the arc lane. Both ride the shell ledger, and
  *  neither ran a shell command the user typed, so the row is attributed to git
  *  rather than to the shell that carried it. Both spell the same word because
  *  both perform the same act: a join squashes its rounds and commits them onto
@@ -782,7 +782,7 @@ const ShellTurnCell = React.memo(function ShellTurnCell({
   // command family it understands; everything else renders through
   // the generic exchange block. Resolution is total.
   const CommandBlock = resolveCommandBlock(message.command);
-  // A landing — `/commit` on the main lane, `/dash-join` on the dash lane —
+  // A landing — `/commit` on the main lane, `/arc-join` on the arc lane —
   // lands in the shell ledger like any other exchange, but the user typed no
   // shell command. So it reads as a git operation, not a shell one: the git
   // participant + icon, and no `exit N · duration` end-state (a landing's
@@ -1339,7 +1339,7 @@ const CodeRowBody: React.FC<CodeRowBodyProps> = ({
       if (message.source === "dash") {
         // A dash gesture's quiet line ([P12]), seated inside the turn it
         // narrates — "step 1/3 started" above the work, "step 1/3 closed"
-        // below it — so a course reads as one conversation. The wheel's
+        // below it — so an arc reads as one conversation. The wheel's
         // glyph says whose record is speaking; the sentence is server-
         // derived and rendered verbatim. Same quiet-line substrate as the
         // notice row; the marked span is what the search index projects.

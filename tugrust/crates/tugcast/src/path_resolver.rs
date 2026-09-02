@@ -34,7 +34,7 @@ pub struct PathResolver {
 }
 
 /// The canonicalization gateway ([L29]) lives in [`tugcore::pathform`], below
-/// this crate, so `tugdash-core` and every other consumer keys on the same
+/// this crate, so `tugarc-core` and every other consumer keys on the same
 /// spelling. Re-exported here because `PathResolver`'s `primary` selection is
 /// the gateway's twin and every call site in this crate names it through
 /// `path_resolver`.

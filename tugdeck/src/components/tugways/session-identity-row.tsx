@@ -89,9 +89,9 @@ import React, {
 } from "react";
 
 import { renderFilterHighlight } from "@/components/tugways/filter-highlight";
-import { DashLifecycleMark } from "@/components/tugways/dash-lifecycle-mark";
-import { dashTrackModelFromEntry } from "@/components/tugways/tug-dash-track";
-import { dashGlanceFraction } from "@/lib/dash-meta-facts";
+import { ArcLifecycleMark } from "@/components/tugways/arc-lifecycle-mark";
+import { arcTrackModelFromEntry } from "@/components/tugways/tug-arc-track";
+import { arcGlanceFraction } from "@/lib/arc-meta-facts";
 import { PulseBeatText } from "@/components/tugways/pulse-beat-text";
 import { SessionActivitySparkline } from "@/components/tugways/session-activity-sparkline";
 import { SessionPhaseDot } from "@/components/tugways/session-phase-dot";
@@ -117,7 +117,7 @@ import {
   sessionActivityBeat,
   sessionActivityRestLine,
 } from "@/lib/session-activity-line";
-import { useDashForSession, type DashSessionFact } from "@/lib/dash-session-index";
+import { useArcForSession, type ArcSessionFact } from "@/lib/arc-session-index";
 import { useSessionCreatedAtMs } from "@/lib/session-created-at";
 import {
   useSessionIdentity,
@@ -489,7 +489,7 @@ export interface SessionIdentityRowProps
    * `null` states that this session is on no dash, which is different from
    * omitting the prop and letting the store answer.
    */
-  dash?: DashSessionFact | null;
+  dash?: ArcSessionFact | null;
   /** A list surface's filter query, painted over the runs that can carry it. */
   highlight?: string;
   /**
@@ -615,7 +615,7 @@ export function SessionIdentityRow({
   // including nothing, is handed down to the identity so the marker beneath
   // never asks the store the same question a beat later and answers it
   // differently.
-  const storeDash = useDashForSession(dashOverride === undefined ? sessionId : null);
+  const storeDash = useArcForSession(dashOverride === undefined ? sessionId : null);
   const dashFact = dashOverride ?? storeDash;
   // The numerals count the declared RUN — the selection somebody asked for,
   // which is what the task list mirrors and the invocation named. The plan's
@@ -623,7 +623,7 @@ export function SessionIdentityRow({
   // derives it a second time.
   const dashGlance =
     dashFact !== null
-      ? dashGlanceFraction(
+      ? arcGlanceFraction(
           dashFact.runPosition,
           dashFact.runLength,
           dashFact.stepCurrent,
@@ -772,7 +772,7 @@ export function SessionIdentityRow({
   // that grew with the plan drove the name and the strip into each other. The
   // mark says the same three things in a box that cannot grow — where the dash
   // is, that it is alive, and how far along. The track itself belongs to the
-  // surfaces whose subject IS the dash: the Cards card's Dashes section, the Changes
+  // surfaces whose subject IS the dash: the Cards card's Arcs section, the Changes
   // shade's dash lane, and the DASH placard.
   //
   // The glyph is keyed on the lifecycle PHASE, not the git stage — a card
@@ -784,15 +784,15 @@ export function SessionIdentityRow({
   // RUN somebody asked for, which is a different pair from the plan's own
   // whenever a run is a slice of a plan.
   //
-  // The step's TITLE stays off this line — it lives in the Dashes section.
+  // The step's TITLE stays off this line — it lives in the Arcs section.
   const progress =
     dashFact !== null ? (
       <span
         className="session-identity-row-progress"
         data-slot="session-identity-row-progress"
       >
-        <DashLifecycleMark
-          model={dashTrackModelFromEntry(dashFact.entry)}
+        <ArcLifecycleMark
+          model={arcTrackModelFromEntry(dashFact.entry)}
           size="read"
           name={dashFact.name}
           fraction={dashGlance}

@@ -80,7 +80,7 @@ const SHEET = `${CARD} .session-view-pane[data-view="changes"] [data-slot="tug-s
 const LANE = `${SHEET} [data-slot="session-changes-dash-lane"]`;
 const ROUTE_GROUP = `${CARD} .tug-prompt-entry-toolbar .tug-prompt-entry-route-group`;
 const JOIN_BUTTON = `${CARD} .tug-prompt-entry-commit-button[aria-label="Join"]`;
-// The bespoke `/dash-join` receipt block — the generic shell fallback carries a
+// The bespoke `/arc-join` receipt block — the generic shell fallback carries a
 // different slot, so this selector is also the assertion that it parsed.
 const JOIN_RECEIPT = `${CARD} [data-slot="join-receipt-block"]`;
 
@@ -102,11 +102,11 @@ let dashId = "";
 const row = (dash: string): string =>
   `${LANE} [data-slot="session-changes-dash-row"][data-dash="${dash}"]`;
 const landing = (dash: string): string =>
-  `${row(dash)} [data-slot="session-changes-dash-join"]`;
+  `${row(dash)} [data-slot="session-changes-arc-join"]`;
 // Card-scoped, not row-scoped: the register that reports a join in progress is
 // the composer's live-edge one, not a copy inside the lane row. One dash is
 // bound here, so the card's register is this dash's.
-const CANDIDATE = `${CARD} [data-slot="dash-join-register"][data-word="ready"]`;
+const CANDIDATE = `${CARD} [data-slot="arc-join-register"][data-word="ready"]`;
 const landsAs = (dash: string): string =>
   `${row(dash)} [data-slot="session-changes-dash-lands-as"]`;
 
@@ -277,7 +277,7 @@ describe.skipIf(!SHOULD_RUN)("AT0436: the Join press reaches the wire", () => {
         // Escape is that exit, and it is the whole gesture: the BINDING opens
         // the join, which is this file's point ([the header]). A bound dash
         // with work ready to join enters join mode BY ITSELF once the composer
-        // is free, so nothing here types `/dash-join` — reaching the dash by
+        // is free, so nothing here types `/arc-join` — reaching the dash by
         // name is at0441's route, and it would open by name the very mode the
         // binding is supposed to be proving it can open.
         await app.nativeClickAtElement(EDITOR);
@@ -369,7 +369,7 @@ describe.skipIf(!SHOULD_RUN)("AT0436: the Join press reaches the wire", () => {
         );
         note(`at0436 ink after restore refresh: ${JSON.stringify(facts)}`);
         expect(
-          facts.commands.filter((c) => c === "/dash-join").length,
+          facts.commands.filter((c) => c === "/arc-join").length,
           "one landing, one ink turn — the live row and the restored row are the same turn",
         ).toBe(1);
         expect(

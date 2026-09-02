@@ -160,7 +160,7 @@ An app-test launch, a live interactive instance (`just app-debug`, `just app-rel
 
 ### The repo universe: fixtures stay in the checkout under test
 
-A dash verb does not act on the directory you hand it. It resolves a repo root first (`tugdash_core::ops::main_repo_root` → `tugtool_core::find_repo_root_from`), and from a linked worktree that resolution *hops* to the checkout owning the shared `.git` — because a dash's meaning is "a worktree of the checkout that owns it."
+An arc verb does not act on the directory you hand it. It resolves a repo root first (`tugarc_core::ops::main_repo_root` → `tugtool_core::find_repo_root_from`), and from a linked worktree that resolution *hops* to the checkout owning the shared `.git` — because an arc's meaning is "a worktree of the checkout that owns it."
 
 Unscoped, that hop puts a run's fixtures in the wrong universe. A fixture dash created from a worktree is created against the base checkout, while the app under test has the worktree open as its project: the lane can never list the dash its own fixture just made, and the run leaves branches, worktrees and dash-log lines in somebody else's checkout. That is why the corpus used to refuse to run from a worktree at all.
 
