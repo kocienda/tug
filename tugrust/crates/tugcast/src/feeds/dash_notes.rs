@@ -301,8 +301,20 @@ async fn announce_line(ctx: &DashNotesContext, root: &Path, line: &str) {
 /// `refactor` — so the record's own tree is what decides which cards hear
 /// about it. Containment rather than equality, because a dash's stage session
 /// works the **worktree** (`<root>/.tug/worktrees/<dash>`) and never the root.
+///
+/// **Both sides pass through [`canonical_repo_root`] first**, because the two
+/// spellings arrive from different writers: `root` is the registry's original
+/// pre-canonicalized project path (`/u/src/tug`, say — the spelling the
+/// workspace was opened by), while `project_dir` is what the binding row
+/// recorded (`/Users/…/Mounts/u/src/tug`). A raw `starts_with` across those
+/// filtered every line of the course machinery's first fully-instrumented run
+/// — silently, because a non-member is not an error — and with it the gate's
+/// record-side backstop. One repo, one spelling, is the state dir's own rule
+/// ([`project_state_dir`]); the membership test follows it.
 pub(crate) fn session_works_in(project_dir: &str, root: &Path) -> bool {
-    Path::new(project_dir).starts_with(root)
+    let session = tugtool_core::paths::canonical_repo_root(Path::new(project_dir));
+    let root = tugtool_core::paths::canonical_repo_root(root);
+    session.starts_with(&root)
 }
 
 /// The step a line closed, when it closed one.
@@ -595,6 +607,31 @@ mod tests {
         assert!(!session_works_in("/checkouts/other", root));
         // And a prefix that is not a path component is not containment.
         assert!(!session_works_in("/checkouts/tug-site", root));
+    }
+
+    /// The registry keeps the spelling a workspace was opened by; the binding
+    /// row keeps the spelling the verb ran under. One repo, two names — the
+    /// field case is a `/u/src/tug` symlink over `/Users/…/Mounts/u/src/tug`,
+    /// and a raw prefix compare across them silenced every quiet line of the
+    /// first fully-instrumented run. Membership resolves both spellings first.
+    #[cfg(unix)]
+    #[test]
+    fn membership_survives_an_alias_spelling_of_the_root() {
+        let dir = tempfile::tempdir().unwrap();
+        let real = dir.path().join("repo");
+        std::fs::create_dir_all(real.join(".tug/worktrees/demo")).unwrap();
+        let alias = dir.path().join("alias");
+        std::os::unix::fs::symlink(&real, &alias).unwrap();
+
+        // The registry says the alias; the binding row says the real path.
+        let worktree = real.join(".tug/worktrees/demo");
+        assert!(session_works_in(worktree.to_str().unwrap(), &alias));
+        assert!(session_works_in(real.to_str().unwrap(), &alias));
+        // And the reverse arrival order resolves the same way.
+        let alias_worktree = alias.join(".tug/worktrees/demo");
+        assert!(session_works_in(alias_worktree.to_str().unwrap(), &real));
+        // A different tree is still not a member under any spelling.
+        assert!(!session_works_in("/checkouts/other", &alias));
     }
 
     #[test]
