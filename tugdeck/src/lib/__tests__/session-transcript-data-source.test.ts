@@ -22,6 +22,7 @@ import {
   assistantRowIndexForTurn,
   buildRowLayout,
   userRowIndexForTurn,
+  sameTranscriptRowData,
 } from "@/lib/session-transcript-data-source";
 import type { CodeSessionStore } from "@/lib/code-session-store";
 import type {
@@ -86,7 +87,7 @@ function mergedTurn(hostKey: string, steerKey: string): TurnEntry {
  * `startedAt` is the exchange's start, which is also the turn's sort key against
  * pending submissions.
  */
-function shellTurn(turnKey: string, command: string, startedAt = 0): TurnEntry {
+function shellTurn(turnKey: string, command: string, startedAt = 0, output = ""): TurnEntry {
   return turnEntry({
     turnKey,
     msgId: `msg-${turnKey}`,
@@ -98,7 +99,7 @@ function shellTurn(turnKey: string, command: string, startedAt = 0): TurnEntry {
         createdAt: startedAt,
         exchangeId: turnKey,
         command,
-        output: "",
+        output,
         exitCode: 0,
         cwd: "/tmp",
         cwdAfter: "/tmp",
@@ -751,5 +752,142 @@ describe("turnDepthFromEnd / rowIndexForTurnDepthFromEnd", () => {
     const ds = new SessionTranscriptDataSource(storeWith(snapshotWith({})));
     expect(ds.turnDepthFromEnd(0)).toBeUndefined();
     expect(ds.rowIndexForTurnDepthFromEnd(1)).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Spec S04 — a stop receipt a later row has answered
+// ---------------------------------------------------------------------------
+
+/**
+ * The demotion pass, and the reason it is a pass at all.
+ *
+ * A stop receipt is frozen text — `resume with tugtool dash run <name>`, true
+ * when the server wrote it and replayed forever afterwards. What answers it is
+ * a fact the same transcript already carries, so the classification is pinned
+ * here over the exact receipt headers the server writes; the shapes below are
+ * the ones read out of a real `shell_exchanges.db`, not invented for the test.
+ */
+const stopReceipt = (dash: string): string =>
+  `arc stopped · ${dash} · in audit — it went silent — no turn ended and no step closed before the arc's clock ran out\nresume with tugtool dash run ${dash}`;
+
+const joinReceipt = (dash: string): string =>
+  `joined fa1e96b414 · ${dash} → main · 18 round(s)\n${dash} landed`;
+
+const completeReceipt = (dash: string): string =>
+  `arc complete · ${dash}\nopened on .tug/arcs/${dash}/brief.md`;
+
+/** The `arcStopSuperseded` flag of every shell slot, in flat-row order. */
+function supersededFlags(transcript: TurnEntry[]): boolean[] {
+  const layout = buildRowLayout(snapshotWith({ transcript }));
+  return layout.slots
+    .filter((s) => s.cellKind === "shell")
+    .map((s) => s.arcStopSuperseded);
+}
+
+describe("superseded arc stop receipts (Spec S04)", () => {
+  test("a join for the same dash supersedes an earlier stop", () => {
+    expect(
+      supersededFlags([
+        shellTurn("s1", "/dash-arc", 1, stopReceipt("alpha")),
+        shellTurn("s2", "/arc-join", 2, joinReceipt("alpha")),
+      ]),
+    ).toEqual([true, false]);
+  });
+
+  test("the retired join spelling supersedes too — every one already in a ledger", () => {
+    expect(
+      supersededFlags([
+        shellTurn("s1", "/dash-arc", 1, stopReceipt("alpha")),
+        shellTurn("s2", "/dash-join", 2, joinReceipt("alpha")),
+      ]),
+    ).toEqual([true, false]);
+  });
+
+  test("a join for a different dash supersedes nothing (R02)", () => {
+    expect(
+      supersededFlags([
+        shellTurn("s1", "/dash-arc", 1, stopReceipt("alpha")),
+        shellTurn("s2", "/arc-join", 2, joinReceipt("beta")),
+      ]),
+    ).toEqual([false, false]);
+  });
+
+  test("a stop with nothing after it keeps its live instruction", () => {
+    expect(supersededFlags([shellTurn("s1", "/dash-arc", 1, stopReceipt("alpha"))])).toEqual([
+      false,
+    ]);
+  });
+
+  test("a later stop supersedes the earlier one and stays live itself", () => {
+    expect(
+      supersededFlags([
+        shellTurn("s1", "/dash-arc", 1, stopReceipt("alpha")),
+        shellTurn("s2", "/dash-arc", 2, stopReceipt("alpha")),
+      ]),
+    ).toEqual([true, false]);
+  });
+
+  test("a completed arc answers the stop that came before it", () => {
+    expect(
+      supersededFlags([
+        shellTurn("s1", "/dash-arc", 1, stopReceipt("alpha")),
+        shellTurn("s2", "/dash-arc", 2, completeReceipt("alpha")),
+      ]),
+    ).toEqual([true, false]);
+  });
+
+  test("a stop AFTER the join is not superseded — order is the whole claim", () => {
+    expect(
+      supersededFlags([
+        shellTurn("s1", "/arc-join", 1, joinReceipt("alpha")),
+        shellTurn("s2", "/dash-arc", 2, stopReceipt("alpha")),
+      ]),
+    ).toEqual([false, false]);
+  });
+
+  test("an unparseable row is neither candidate nor superseder", () => {
+    // The safe direction: a join whose output cannot be read contributes no
+    // name, so the stop it should have answered keeps its instruction rather
+    // than losing one.
+    expect(
+      supersededFlags([
+        shellTurn("s1", "/dash-arc", 1, "arc gibberish · alpha"),
+        shellTurn("s2", "/arc-join", 2, "not a receipt at all"),
+        shellTurn("s3", "/dash-arc", 3, stopReceipt("alpha")),
+      ]),
+    ).toEqual([false, false, false]);
+  });
+
+  test("a plain shell command between the two changes nothing", () => {
+    expect(
+      supersededFlags([
+        shellTurn("s1", "/dash-arc", 1, stopReceipt("alpha")),
+        shellTurn("s2", "git status", 2, "clean"),
+        shellTurn("s3", "/arc-join", 3, joinReceipt("alpha")),
+      ]),
+    ).toEqual([true, false, false]);
+  });
+
+  test("rowAt carries the flag onto the descriptor the cell reads", () => {
+    const transcript = [
+      shellTurn("s1", "/dash-arc", 1, stopReceipt("alpha")),
+      shellTurn("s2", "/arc-join", 2, joinReceipt("alpha")),
+    ];
+    const ds = new SessionTranscriptDataSource(storeWith(snapshotWith({ transcript })));
+    expect(ds.rowAt(0).arcStopSuperseded).toBe(true);
+    expect(ds.rowAt(1).arcStopSuperseded).toBe(false);
+  });
+
+  test("the memo gate compares the flag — without this the demotion never paints", () => {
+    // Every other field in `sameTranscriptRowData` is reference-stable because
+    // a finalized row is immutable. This one is not: a join arriving later
+    // flips an earlier row's value while its `turn` never moves. Drop it from
+    // the comparison and this is the only test in the file that fails.
+    const turn = shellTurn("s1", "/dash-arc", 1, stopReceipt("alpha"));
+    const live = { kind: "shell" as const, turn, turnKey: "s1", arcStopSuperseded: false };
+    const demoted = { ...live, arcStopSuperseded: true };
+    expect(sameTranscriptRowData(live, live)).toBe(true);
+    expect(sameTranscriptRowData(live, demoted)).toBe(false);
   });
 });

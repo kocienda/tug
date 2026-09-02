@@ -38,7 +38,7 @@ use super::attribution::{
 };
 use super::code::{parse_code_input, splice_tug_session_id};
 use crate::path_resolver::CanonicalPath;
-use tugarc_core::arc::{ArcStage, append_arc_stage};
+use tugarc_core::arc::{ArcStage, append_arc_owner, append_arc_stage};
 use tugchanges_core::shell_ops::DeclaredKind;
 
 // ---------------------------------------------------------------------------
@@ -1569,6 +1569,27 @@ pub async fn relay_session_io(
                                         segment.arc.as_deref(),
                                         segment.stage.as_deref().and_then(ArcStage::parse),
                                     ) {
+                                        // The owner goes down first, so no
+                                        // gap leaves a seat unattributed. A
+                                        // launch with no instance id writes
+                                        // nothing — an unowned arc is every
+                                        // runner's to judge, as it always was.
+                                        if let Some(instance) =
+                                            tugcore::instance::instance_id()
+                                        {
+                                            if let Err(err) = append_arc_owner(
+                                                Path::new(project_dir),
+                                                arc_name,
+                                                &instance,
+                                            ) {
+                                                warn!(
+                                                    session = %tug_session_id,
+                                                    arc = %arc_name,
+                                                    error = %err,
+                                                    "arc owner line write failed"
+                                                );
+                                            }
+                                        }
                                         if let Err(err) = append_arc_stage(
                                             Path::new(project_dir),
                                             arc_name,

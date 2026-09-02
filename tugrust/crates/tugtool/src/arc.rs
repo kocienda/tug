@@ -1428,6 +1428,10 @@ fn print_arc(arc: &ArcRecord) {
         arc.document.as_deref().unwrap_or(undeclared)
     );
     println!("plan:      {}", arc.plan.as_deref().unwrap_or(undeclared));
+    // "(unowned)" rather than "(not recorded)": an arc with no owner is not a
+    // record with a gap in it, it is an arc every runner may judge — which is
+    // what a standalone launch and every pre-owner log read as.
+    println!("owner:     {}", arc.owner.as_deref().unwrap_or("(unowned)"));
     let stage = match (&arc.stopped, arc.current_stage()) {
         (Some((stage, reason)), _) => format!("{} (stopped: {})", stage.as_str(), reason),
         (None, Some(stage)) if arc.done => format!("{} (done)", stage.as_str()),

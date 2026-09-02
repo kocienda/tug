@@ -864,7 +864,7 @@ pub enum ArcCommands {
         #[arg(long)]
         ensure: bool,
     },
-    /// Report one arc's record — document, plan, kind, stages, stopped
+    /// Report one arc's record — document, plan, kind, owner, stages, stopped
     /// reason, done.
     ///
     /// An arc with no record is a state, not an error: the verb exits 0 and

@@ -34,6 +34,11 @@ describe("what the shipped receipts are attributed to", () => {
     expect(resolveCommandAttribution("/commit")).toBe("git");
     expect(resolveCommandAttribution("/arc-join")).toBe("git");
     expect(resolveCommandAttribution("/arc-join lifecycle-fixup")).toBe("git");
+    // And under the name the join verb wrote before it was renamed — those
+    // rows replay, and a receipt that loses its attribution reverts to a raw
+    // shell row.
+    expect(resolveCommandAttribution("/dash-join")).toBe("git");
+    expect(resolveCommandAttribution("/dash-join lifecycle-fixup")).toBe("git");
     // A discard deletes a branch and commits nothing, so it is not a landing
     // and keeps the shell default.
     expect(resolveCommandAttribution("/dash-discard")).toBe("shell");
@@ -57,6 +62,9 @@ describe("matchesJoinReceipt / matchesDiscardReceipt", () => {
   it("still claims the command name the verb wrote before it was renamed", () => {
     // These rows are in session JSONL and replay on every card reload. Drop
     // them and every discard already recorded reverts to a raw shell row.
+    expect(matchesJoinReceipt("/dash-join")).toBe(true);
+    expect(matchesJoinReceipt("/dash-join spike")).toBe(true);
+    expect(matchesJoinReceipt("/dash-joinery")).toBe(false);
     expect(matchesDiscardReceipt("/dash-release")).toBe(true);
     expect(matchesDiscardReceipt("/dash-release spike")).toBe(true);
     expect(matchesDiscardReceipt("/dash-released")).toBe(false);

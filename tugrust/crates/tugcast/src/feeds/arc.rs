@@ -676,6 +676,7 @@ mod tests {
             stopped: None,
             resume: None,
             dispatched: None,
+            owner: None,
             done: false,
             last_activity: Some("2026-08-24T00:00:00Z".to_string()),
         }

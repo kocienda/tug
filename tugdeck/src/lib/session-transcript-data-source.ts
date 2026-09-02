@@ -105,6 +105,12 @@ import { isInkOrigin } from "@/lib/code-session-store/types";
 import { deriveContextWindows } from "@/lib/code-session-store/end-state";
 import type { ContextWindowStep } from "@/lib/code-session-store/end-state";
 import { agentTokensForTurn } from "@/lib/code-session-store/select-jobs";
+import {
+  matchesArcReceipt,
+  parseArcReceipt,
+} from "@/components/tugways/cards/session-arc-receipt-block";
+import { parseJoinReceipt } from "@/components/tugways/cards/session-join-receipt-block";
+import { matchesJoinReceipt } from "@/lib/landing-mode";
 import type { TugListViewDataSource } from "@/components/tugways/tug-list-view";
 
 // ---------------------------------------------------------------------------
@@ -214,6 +220,19 @@ export interface SessionRowDescriptor {
   isLastAssistantOfTurn?: boolean;
   /** Set for a `ghost` row only — the queued send it paints. */
   queued?: QueuedSend;
+  /**
+   * Set on a `shell` row: whether this row's `arc stopped` receipt has been
+   * answered by a later row (Spec S04). `false` on every other shell row and
+   * absent on every other kind.
+   *
+   * It rides the descriptor rather than an accessor beside
+   * {@link SessionTranscriptDataSource.shellOrdinalForRow} because it is the
+   * one row fact that changes **retroactively**: a join receipt arriving now
+   * demotes a stop row from twenty turns ago. An accessor read inside the cell
+   * is invisible to the `React.memo` gate; the descriptor is what the gate
+   * compares.
+   */
+  arcStopSuperseded?: boolean;
   /**
    * Stable per-turn React-key seed. Present on every row (committed,
    * in-flight, or ghost). The unified `AssistantTurnCell` derives its
@@ -355,6 +374,18 @@ export interface RowSlot {
    * always loaded.
    */
   refsRowOrdinal: number;
+  /**
+   * True on a `shell` row carrying an `arc stopped` receipt that a **later**
+   * row in the same session has answered — a join receipt for the same dash,
+   * or a later arc receipt for it (Spec S04). `false` everywhere else.
+   *
+   * Derived, never written: a stop receipt's bytes are a frozen record of what
+   * the server said at that moment, and this says only that the transcript
+   * itself went on to contradict its instruction. The last stop for a dash is
+   * never superseded, so an arc that stopped and stayed stopped keeps its live
+   * red sentence — which is what makes the demotion mean something.
+   */
+  arcStopSuperseded: boolean;
 }
 
 /**
@@ -417,6 +448,10 @@ function pushTurnSlots(
       // shell rows); `0` until then and for non-shell rows.
       shellRowOrdinal: 0,
       refsRowOrdinal: 0,
+      // Set by the supersession pass in `buildCommittedLayout` for the same
+      // reason: it needs the rows that come *after* this one, which a per-turn
+      // walk cannot see.
+      arcStopSuperseded: false,
     });
     if (isAssistant) assistantOrdinal += 1;
     if (isUser) userOrdinal += 1;
@@ -468,7 +503,65 @@ function buildCommittedLayout(
       slot.refsRowOrdinal = refsCount;
     }
   }
+  // Then, in a second walk, demote the stop receipts a later row has answered
+  // (Spec S04). It reads the rows *after* each candidate, so it cannot ride
+  // the forward pass above.
+  markSupersededArcStops(slots, transcript);
   return { slots, turnStartRow, turnRowCount };
+}
+
+/**
+ * Spec S04 — mark every `arc stopped` receipt a later row has answered.
+ *
+ * A stop receipt is frozen text: the server wrote `resume with tugtool dash run
+ * <name>` at a moment when that was the truth, and a transcript replays its
+ * rows from the record forever. So the arc that stopped, was resumed, and
+ * joined leaves a red instruction standing over work that has already landed.
+ * What supersedes it is a fact the same transcript already carries — a join
+ * receipt for that dash, or a later arc receipt for it — and this pass reads it
+ * rather than rewriting anything.
+ *
+ * One backward walk, carrying the dash names already seen as a superseder, so
+ * the whole thing is O(rows) beside the ordinal pass it follows. The **last**
+ * stop for a dash is never superseded, because nothing later answers it: an arc
+ * that stopped and stayed stopped keeps its live sentence, which is the only
+ * reason the demotion carries information.
+ *
+ * A row whose output does not parse contributes nothing in either direction. A
+ * join receipt that fails to parse therefore leaves a stop it should have
+ * answered still live — the safe direction, since a stale instruction is a
+ * nuisance and a demoted live one is a lost instruction ([R02]).
+ */
+function markSupersededArcStops(
+  slots: ReadonlyArray<RowSlot>,
+  transcript: ReadonlyArray<TurnEntry>,
+): void {
+  const answered = new Set<string>();
+  for (let i = slots.length - 1; i >= 0; i--) {
+    const slot = slots[i];
+    if (slot.cellKind !== "shell") continue;
+    const group = slot.group;
+    if (group === undefined) continue;
+    // The same access `ShellTurnCell` makes: a shell row is one message, the
+    // whole turn.
+    const message = transcript[slot.turnIndex]?.messages[group.start];
+    if (message === undefined || message.kind !== "shell_exchange") continue;
+
+    if (matchesJoinReceipt(message.command)) {
+      const join = parseJoinReceipt(message.output);
+      if (join !== null) answered.add(join.dash);
+      continue;
+    }
+    if (!matchesArcReceipt(message.command)) continue;
+    const arc = parseArcReceipt(message.output);
+    if (arc === null) continue;
+    if (arc.outcome === "stopped") {
+      if (answered.has(arc.dash)) slot.arcStopSuperseded = true;
+    }
+    // A complete arc answers an earlier stop, and so does a later stop: both
+    // say the run went on past the sentence the earlier row is still giving.
+    answered.add(arc.dash);
+  }
 }
 
 /**
@@ -606,6 +699,8 @@ function composeRowLayout(
       isLastAssistantOfTurn: false,
       shellRowOrdinal: 0,
       refsRowOrdinal: 0,
+      // A ghost row is a queued send, never a receipt.
+      arcStopSuperseded: false,
     });
   }
   // Anything left is newer than every pending submission — it sits at the foot.
@@ -1054,7 +1149,12 @@ export class SessionTranscriptDataSource implements TugListViewDataSource {
     // Shell exchange ([P06]) — one row, the whole turn; the cell reads the
     // single `shell_exchange` Message off `turn.messages[0]`.
     if (slot.cellKind === "shell") {
-      return { kind: "shell", turn, turnKey: turn.turnKey };
+      return {
+        kind: "shell",
+        turn,
+        turnKey: turn.turnKey,
+        arcStopSuperseded: slot.arcStopSuperseded,
+      };
     }
     // Refs run — one row, the whole turn; the cell reads the single
     // `refs_result` Message off `turn.messages[0]`.
@@ -1149,7 +1249,14 @@ export function sameTranscriptRowData(
     a.isLastAssistantOfTurn === b.isLastAssistantOfTurn &&
     a.queued === b.queued &&
     a.perTurnTokens === b.perTurnTokens &&
-    a.agentTokens === b.agentTokens
+    a.agentTokens === b.agentTokens &&
+    // The exception that proves this function's rule. Every field above is
+    // reference-stable *because a finalized row is immutable* — but this one
+    // is derived across rows, so a join receipt landing later flips an earlier
+    // stop row's value while its `turn` never moves. Without this line
+    // `transcriptCellPropsEqual` returns true and the demoted receipt keeps
+    // its red pose until the card reloads ([L26]).
+    a.arcStopSuperseded === b.arcStopSuperseded
   );
 }
 

@@ -8,6 +8,7 @@ pub mod agent_bridge;
 pub mod agent_supervisor;
 pub mod arc;
 pub mod arc_notes;
+pub mod arc_ownership;
 pub mod arc_runner;
 pub mod attribution;
 pub mod base_motion;

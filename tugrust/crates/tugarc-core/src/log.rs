@@ -643,8 +643,26 @@ pub fn read_declarations(repo_root: &Path, dash: &str) -> DashDeclarations {
 ///
 /// The whole point is that no chore stands between finishing and being offered:
 /// the inputs are facts the dash already recorded, so a run that narrates
-/// nothing still arms the arc. Three ways to be *armed*, one for each way work
-/// is asked for:
+/// nothing still arms the arc.
+///
+/// **Under a live wheel there is exactly one way to be armed: `audited`.**
+/// Every arc — dash and trek alike — ends in an audit, and the audit is by
+/// design a stage that commits fixup rounds. So an offer made before it is an
+/// offer to land work a stage is still changing, and the Changes shade read
+/// **Ready to join** through the whole of one on 2026-09-02. `run_complete`
+/// and `built` are not retired, only deferred: a run whose last step closed
+/// still records `run_complete`, it simply is not *offered* yet.
+///
+/// `wheel_live` is the caller's reading of the arc record — a record exists,
+/// it is not `done`, and no stop stands. All three of its falses matter. No
+/// record is every hand-driven dash, untouched. `arc-done` is an arc that
+/// reached its terminal line. And a standing `arc-stop` is the escape that
+/// keeps a **broken** audit from holding the landing hostage; `arc-resume`
+/// clears it and re-arms the gate, which is correct, because the wheel is
+/// running again.
+///
+/// With the wheel stopped, done, or absent, the three original ways to be
+/// armed are restored verbatim, one for each way work is asked for:
 ///
 /// 1. the declared selection finished — `done(m)` against the run's
 ///    `--through <m>` ([P01]);
@@ -681,9 +699,16 @@ pub fn join_ready(
     joining: bool,
     decls: &DashDeclarations,
     has_plan: bool,
+    wheel_live: bool,
 ) -> bool {
     if joining || rounds < 1 || worktree_dirty_tracked {
         return false;
+    }
+    if wheel_live {
+        // The audit's own declaration, and nothing else. Not `run_complete`,
+        // not `built` — the implement stage declares `built` itself, and the
+        // stage that may still change the code runs after it.
+        return matches!(decls.latest, Some(DashDeclaration::Audited));
     }
     decls.run_complete
         || matches!(
@@ -1482,5 +1507,107 @@ mod tests {
 
         // Starts with digit
         assert!(validate_arc_name("1login").is_err());
+    }
+
+    // ── the audit's gate on the join ─────────────────────────────────────
+
+    /// One set of declarations that arms three different ways with the wheel
+    /// stopped, so each assertion below is about the gate rather than about
+    /// the fixture.
+    fn armed_three_ways(latest: Option<DashDeclaration>) -> DashDeclarations {
+        DashDeclarations {
+            latest,
+            step: Some((8, 15)),
+            run_through: Some(8),
+            run_complete: true,
+            ..DashDeclarations::default()
+        }
+    }
+
+    /// **A live wheel arms on `audited` and on nothing else.** The implement
+    /// stage declares `built` itself, and the audit — a stage that commits
+    /// fixup rounds by design — runs after it. An offer standing over that
+    /// window is an offer to land work a stage is still changing, which is
+    /// what the Changes shade did for the length of one audit.
+    #[test]
+    fn a_live_wheel_arms_the_join_only_on_audited() {
+        assert!(
+            !join_ready(3, false, false, &armed_three_ways(None), true, true),
+            "a finished run is recorded but not yet offered"
+        );
+        assert!(
+            !join_ready(
+                3,
+                false,
+                false,
+                &armed_three_ways(Some(DashDeclaration::Built)),
+                true,
+                true
+            ),
+            "and neither is `built`, which the implement stage declares itself"
+        );
+        assert!(join_ready(
+            3,
+            false,
+            false,
+            &armed_three_ways(Some(DashDeclaration::Audited)),
+            true,
+            true
+        ));
+    }
+
+    /// **A stopped wheel restores every arm, verbatim.** This is the escape
+    /// that keeps a broken audit from holding the landing hostage: the same
+    /// declarations the gate refuses above answer exactly as they did before
+    /// the gate existed. The plan-less arm is included because it is the one
+    /// that does not go through `latest` at all.
+    #[test]
+    fn a_stopped_wheel_restores_every_arm() {
+        for latest in [
+            None,
+            Some(DashDeclaration::Built),
+            Some(DashDeclaration::Audited),
+        ] {
+            assert!(
+                join_ready(3, false, false, &armed_three_ways(latest), true, false),
+                "{latest:?} arms with no live wheel over it"
+            );
+        }
+        // The plan-less arm: every committed round is itself the unit of work.
+        assert!(join_ready(
+            1,
+            false,
+            false,
+            &DashDeclarations::default(),
+            false,
+            false
+        ));
+        // And under a live wheel it is refused like everything else.
+        assert!(!join_ready(
+            1,
+            false,
+            false,
+            &DashDeclarations::default(),
+            false,
+            true
+        ));
+    }
+
+    /// **A hand-driven dash is untouched.** It has no arc record, so its
+    /// callers derive `wheel_live == false` and it never meets the gate. This
+    /// is the arm that would make the fix a worse regression than the defect
+    /// if it ever drifted.
+    #[test]
+    fn a_hand_driven_dash_is_untouched() {
+        let marked = DashDeclarations {
+            latest: Some(DashDeclaration::Built),
+            step: Some((8, 15)),
+            ..DashDeclarations::default()
+        };
+        assert!(join_ready(3, false, false, &marked, true, false));
+        // The three early refusals still come first, wheel or no wheel.
+        assert!(!join_ready(0, false, false, &marked, true, false));
+        assert!(!join_ready(3, true, false, &marked, true, false));
+        assert!(!join_ready(3, false, true, &marked, true, false));
     }
 }

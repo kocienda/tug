@@ -44,7 +44,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 use tugarc_core::arc::{
     ArcRecord, ArcStage, ArcStopReason, append_arc_dispatch, append_arc_done, append_arc_note,
-    append_arc_plan, append_arc_stop, read_arc, stage_model,
+    append_arc_owner, append_arc_plan, append_arc_stop, read_arc, stage_model,
 };
 use tugarc_core::log::append_dash_log;
 use tugcast_core::protocol::{FeedId, Frame, TugSessionId};
@@ -56,6 +56,7 @@ use super::arc::{
     ArcAction, ArcFacts, PromptKind, PromptWhy, QUIET_TURN_HORIZON, Rotation, StepLedgerFacts,
     arc_action, step_range,
 };
+use super::arc_ownership;
 use crate::wheel::{self, RotationRequest};
 
 use crate::session_ledger::SessionLedger;
@@ -68,6 +69,15 @@ pub struct ArcContext {
     /// than sending one, because the stage may be mid-turn.
     pub wheel: Arc<wheel::WheelState>,
     pub cancel: CancellationToken,
+    /// Is the instance that seated an arc still running?
+    ///
+    /// Production passes [`tugcore::instance::instance_tmux_live`], which asks
+    /// the owner's own `tug-<token>` tmux server whether its session exists.
+    /// It is a field rather than a direct call so the runner's own tests can
+    /// drive both foreign verdicts without a real second instance — the same
+    /// injection [`crate::feeds::arc_ownership::verdict`] takes, lifted one
+    /// level to where the runner reaches for it.
+    pub live_owner: fn(&str) -> bool,
 }
 
 /// Per-arc memory the documents cannot hold.
@@ -379,6 +389,41 @@ async fn evaluate(ctx: &ArcContext, state: &Arc<Mutex<HashMap<String, ArcState>>
     };
     let mut reading = reading;
 
+    // The same ownership gate as `watch_the_clock_unseated`'s, and for the same
+    // reason — placed here rather than at this function's top, which has no
+    // record to read: the record arrives from the blocking read just above, as
+    // `reading.record`. It goes before the `state.lock()` below, which is where
+    // `turns_seen`, `quiet_turns` and `last_motion_at` are updated: stand down
+    // before touching the state map, never after.
+    //
+    // In practice this arm should be unreachable. `session_snapshot` returning
+    // `Some` already implies this process's supervisor holds the session, so a
+    // foreign-owned arc reaches the unseated path instead. It is gated anyway,
+    // because a structural guarantee is worth more than an argument about which
+    // path a foreign runner can reach.
+    let verdict = arc_ownership::verdict(
+        reading.record.owner.as_deref(),
+        tugcore::instance::instance_id().as_deref(),
+        ctx.live_owner,
+    );
+    if verdict.stands_down() {
+        info!(
+            target: "dev::session-lifecycle",
+            event = "arc.foreign",
+            dash = %arc.dash,
+            session = %arc.session,
+            owner = reading.record.owner.as_deref().unwrap_or("-"),
+            stage = reading
+                .record
+                .current_stage()
+                .map(|stage| stage.as_str())
+                .unwrap_or("-"),
+            verdict = verdict.as_str(),
+            seated = true,
+        );
+        return;
+    }
+
     let quiet_turns;
     let stalled;
     {
@@ -565,6 +610,37 @@ async fn watch_the_clock_unseated(
     if record.done || record.stopped.is_some() {
         return;
     }
+    // **Whose arc is this?** The dash-log is shared across every instance over
+    // one checkout, so this runner reads arcs it did not seat — and cannot get
+    // a session snapshot for a seat living in another tugcast's process, which
+    // is exactly why this path was reached. Before the owner marker that
+    // blindness had one reading, *gone silent*, and a debug instance spent it
+    // on a healthy arc twenty-seven minutes into an audit.
+    //
+    // The stand-down returns **before** the state map is touched below.
+    // Seeding `last_motion_at` here would start a clock this runner must never
+    // read, and would backdate the deadline if ownership later changed hands.
+    // Leaving it unseeded is what makes the stand-down total.
+    let verdict = arc_ownership::verdict(
+        record.owner.as_deref(),
+        tugcore::instance::instance_id().as_deref(),
+        ctx.live_owner,
+    );
+    if verdict.stands_down() {
+        info!(
+            target: "dev::session-lifecycle",
+            event = "arc.foreign",
+            dash = %arc.dash,
+            session = %arc.session,
+            owner = record.owner.as_deref().unwrap_or("-"),
+            stage = record
+                .current_stage()
+                .map(|stage| stage.as_str())
+                .unwrap_or("-"),
+            verdict = verdict.as_str(),
+        );
+        return;
+    }
     let stalled = {
         let mut map = state.lock().await;
         let entry = map.entry(key.to_owned()).or_default();
@@ -585,6 +661,9 @@ async fn watch_the_clock_unseated(
             .current_stage()
             .map(|stage| stage.as_str())
             .unwrap_or("-"),
+        // The absence of exactly this field is what made the false stop take a
+        // cross-log investigation to root-cause.
+        owner = record.owner.as_deref().unwrap_or("-"),
         stalled,
     );
     if !stalled {
@@ -1209,6 +1288,23 @@ async fn rotate(
         );
 
     let dispatched_at = reading.record.stages.len();
+    // **The seat's owner, before the seat exists.** The dash-log is shared
+    // across every instance over one checkout, so a second tugcast reads this
+    // arc and — unable to snapshot a session living in this process — cannot
+    // tell "not mine to watch" from "gone silent". The owner line is what
+    // makes those two different readings. It goes down before the dispatch for
+    // the same reason the dispatch goes down before the rotation: a crash in
+    // the gap must not leave a seat nobody can attribute. No instance id
+    // (a standalone launch, a `cargo`-driven test) writes nothing at all —
+    // an unowned arc is every runner's to judge, which is today's behavior.
+    if let Some(instance) = tugcore::instance::instance_id() {
+        let outcome = tokio::task::spawn_blocking({
+            let (project, dash) = (project.clone(), dash.clone());
+            move || append_arc_owner(&project, &dash, &instance)
+        })
+        .await;
+        report_append(&project, &dash, "arc-owner", outcome);
+    }
     // **Intent before the act.** A crash between the wheel firing and the
     // bridge's `arc-stage` line leaves a seat the record cannot explain, and
     // the restarted runner read it as a taken card — a wrong stop, and one
@@ -1420,6 +1516,7 @@ pub(crate) async fn stop_arc_for_session(
                 stopped: None,
                 resume: None,
                 dispatched: None,
+                owner: None,
                 done: false,
                 last_activity: None,
             });
@@ -2242,6 +2339,10 @@ Some context.
                 session_ledger: ledger,
                 wheel: Arc::new(wheel::WheelState::default()),
                 cancel: CancellationToken::new(),
+                // Dead by default: the harness's arcs are this runner's, and
+                // the two tests that need a live foreign owner say so by
+                // overriding the field.
+                live_owner: |_| false,
             },
             entry,
             register_rx,
@@ -2508,6 +2609,181 @@ Some context.
                 .map(|(stage, reason)| (*stage, reason.as_str())),
             Some((ArcStage::Devise, ArcStopReason::Stalled.as_str())),
             "a factless arc degrades to late, never to forever",
+        );
+    }
+
+    /// Seed a project whose arc is owned by another instance, with the stall
+    /// deadline at one second — the shape `[F01]` arrived in.
+    fn foreign_owned_project(root: &Path, owner: &str) {
+        project_with_document(root, ".tug/arcs/demo/brief.md");
+        std::fs::write(
+            root.join(".tugtool/config.toml"),
+            "[tugtool.dash]\narc_stall_secs = 1\n",
+        )
+        .unwrap();
+        tugarc_core::arc::append_arc_start(root, "demo", ".tug/arcs/demo/brief.md").unwrap();
+        tugarc_core::arc::append_arc_owner(root, "demo", owner).unwrap();
+        tugarc_core::arc::append_arc_stage(root, "demo", ArcStage::Devise, "claude-1", None)
+            .unwrap();
+    }
+
+    /// **The incident, made a test.** A second instance over one checkout reads
+    /// an arc it did not seat, cannot snapshot a session living in the other
+    /// tugcast's process, and lands on the unseated path — which is exactly
+    /// where the false `Stalled` receipt came from. With the owner alive, this
+    /// runner writes nothing however long it watches.
+    #[tokio::test]
+    async fn a_foreign_live_owner_is_never_clocked() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        foreign_owned_project(root, "release-main");
+
+        let (mut ctx, _entry, _register_rx) = harness(root).await;
+        ctx.live_owner = |owner| {
+            assert_eq!(owner, "release-main", "the probe asks about the owner");
+            true
+        };
+        ctx.supervisor
+            .ledger
+            .lock()
+            .await
+            .remove(&TugSessionId::new("claude-1".to_string()));
+        let state = Arc::new(Mutex::new(HashMap::new()));
+
+        // Two sweeps with the clock aged past the deadline in between — the
+        // sequence that stops an unowned arc — and the arc is untouched.
+        sweep(&ctx, &state).await;
+        {
+            let mut map = state.lock().await;
+            for entry in map.values_mut() {
+                entry.last_motion_at = Some(Instant::now() - Duration::from_secs(5));
+            }
+        }
+        sweep(&ctx, &state).await;
+
+        assert!(
+            read_arc(root, "demo").unwrap().stopped.is_none(),
+            "a live owner's arc is not this runner's to stop"
+        );
+    }
+
+    /// **A crashed tugcast must not orphan an arc forever.** The owner is named
+    /// and gone, so somebody has to be able to clock it — and the only instance
+    /// that could is the one that died. `ForeignDead` proceeds exactly as an
+    /// unowned arc does.
+    #[tokio::test]
+    async fn a_foreign_dead_owner_is_clocked_like_any_other() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        foreign_owned_project(root, "release-main");
+
+        let (ctx, _entry, _register_rx) = harness(root).await;
+        // The harness's default probe already answers `false`; naming it here
+        // is what makes this test's arm the one it says it is.
+        assert!(!(ctx.live_owner)("release-main"));
+        ctx.supervisor
+            .ledger
+            .lock()
+            .await
+            .remove(&TugSessionId::new("claude-1".to_string()));
+        let state = Arc::new(Mutex::new(HashMap::new()));
+
+        sweep(&ctx, &state).await;
+        {
+            let mut map = state.lock().await;
+            for entry in map.values_mut() {
+                entry.last_motion_at = Some(Instant::now() - Duration::from_secs(5));
+            }
+        }
+        sweep(&ctx, &state).await;
+
+        let record = read_arc(root, "demo").unwrap();
+        assert_eq!(
+            record
+                .stopped
+                .as_ref()
+                .map(|(stage, reason)| (*stage, reason.as_str())),
+            Some((ArcStage::Devise, ArcStopReason::Stalled.as_str())),
+            "a dead owner's arc is reachable, or it is stuck forever",
+        );
+    }
+
+    /// **An unowned arc is every runner's to judge.** No `arc-owner` line at
+    /// all — every pre-owner arc, every standalone launch, every `cargo`-driven
+    /// test — behaves exactly as it did before ownership existed. This is the
+    /// arm that would turn a fix into a far worse regression if it drifted.
+    #[tokio::test]
+    async fn an_unowned_arc_is_this_runners_to_judge() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        project_with_document(root, ".tug/arcs/demo/brief.md");
+        std::fs::write(
+            root.join(".tugtool/config.toml"),
+            "[tugtool.dash]\narc_stall_secs = 1\n",
+        )
+        .unwrap();
+        tugarc_core::arc::append_arc_start(root, "demo", ".tug/arcs/demo/brief.md").unwrap();
+        tugarc_core::arc::append_arc_stage(root, "demo", ArcStage::Devise, "claude-1", None)
+            .unwrap();
+
+        let (mut ctx, _entry, _register_rx) = harness(root).await;
+        // Even with every instance in the world alive, an unowned arc never
+        // probes — so this predicate must not be reached.
+        ctx.live_owner = |_| panic!("an unowned arc probed liveness");
+        ctx.supervisor
+            .ledger
+            .lock()
+            .await
+            .remove(&TugSessionId::new("claude-1".to_string()));
+        let state = Arc::new(Mutex::new(HashMap::new()));
+
+        sweep(&ctx, &state).await;
+        {
+            let mut map = state.lock().await;
+            for entry in map.values_mut() {
+                entry.last_motion_at = Some(Instant::now() - Duration::from_secs(5));
+            }
+        }
+        sweep(&ctx, &state).await;
+
+        assert_eq!(
+            read_arc(root, "demo")
+                .unwrap()
+                .stopped
+                .as_ref()
+                .map(|(stage, reason)| (*stage, reason.as_str())),
+            Some((ArcStage::Devise, ArcStopReason::Stalled.as_str())),
+            "byte-identical to the no-owner behavior this preserves",
+        );
+    }
+
+    /// **The stand-down is total, not merely quiet.** Returning after seeding
+    /// `last_motion_at` would start a clock this runner must never read — and
+    /// would backdate the deadline if the arc later became this runner's, so
+    /// the first tick after an ownership change could stop it outright. The
+    /// state map must hold no stamp for an arc that was stood down.
+    #[tokio::test]
+    async fn standing_down_does_not_seed_the_clock() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        foreign_owned_project(root, "release-main");
+
+        let (mut ctx, _entry, _register_rx) = harness(root).await;
+        ctx.live_owner = |_| true;
+        ctx.supervisor
+            .ledger
+            .lock()
+            .await
+            .remove(&TugSessionId::new("claude-1".to_string()));
+        let state = Arc::new(Mutex::new(HashMap::new()));
+
+        sweep(&ctx, &state).await;
+
+        let map = state.lock().await;
+        assert!(
+            map.values().all(|entry| entry.last_motion_at.is_none()),
+            "a stood-down arc leaves no stamp, so a later ownership change \
+             starts the clock fresh rather than already expired"
         );
     }
 
@@ -3050,6 +3326,7 @@ Some context.
             stopped: None,
             resume: None,
             dispatched: None,
+            owner: None,
             done: true,
             last_activity: Some("2026-08-25T00:00:00Z".to_owned()),
         }

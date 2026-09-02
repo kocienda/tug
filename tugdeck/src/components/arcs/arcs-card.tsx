@@ -721,6 +721,9 @@ function ArcJoinRow({ row }: { row: ArcRow }): React.ReactElement | null {
         // The Arcs card is the one surface that renders dashes nobody is holding,
         // so it is the one that has to hand the register that fact ([D147]).
         bound={(entry.bound_sessions ?? []).length > 0}
+        // A live wheel outranks the offer: the section shows the stage that is
+        // running rather than a readiness the audit has not signed off on.
+        arc={entry.arc ?? null}
         altitude="section"
       />
     </span>

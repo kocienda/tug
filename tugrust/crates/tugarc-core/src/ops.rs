@@ -1722,7 +1722,14 @@ pub fn dash_detail_entries_in(repo_root: &Path) -> Vec<DashDetail> {
         // own typed reader. No plan markdown is read here ([P01]): the
         // declarations are the record this path derives from.
         let declarations = read_declarations(repo_root, name);
-        let arc = crate::arc::read_arc(repo_root, name).map(|record| DashArcState {
+        let arc_record = crate::arc::read_arc(repo_root, name);
+        // A record that exists, has not reached its terminal line, and carries
+        // no standing stop. Derived from the read this block already performs,
+        // so the gate costs the recompute's hot path nothing ([P04]).
+        let wheel_live = arc_record
+            .as_ref()
+            .is_some_and(|record| !record.done && record.stopped.is_none());
+        let arc = arc_record.map(|record| DashArcState {
             stage: record.current_stage().map(|s| s.as_str().to_owned()),
             stopped_stage: record
                 .stopped
@@ -1748,6 +1755,7 @@ pub fn dash_detail_entries_in(repo_root: &Path) -> Vec<DashDetail> {
             joining,
             &declarations,
             documents.plan.is_some(),
+            wheel_live,
         );
 
         entries.push(DashDetail {
@@ -2037,12 +2045,19 @@ pub fn status_in(repo_root: &Path, name: &str) -> Result<DashStatus, String> {
     let declarations = read_declarations(repo_root, name);
     let run_span = crate::log::run_fraction(&declarations);
     let fit = fit_fact(repo_root, &branch, &base_branch, &declarations);
+    // The read this path does not otherwise make. `dash status` must not
+    // disagree with the feed about the same dash, and the feed derives this
+    // from the record — so this path reads the record too. It is the CLI, not
+    // the recompute, so one more fold of a small append-only file is free.
+    let wheel_live = crate::arc::read_arc(repo_root, name)
+        .is_some_and(|record| !record.done && record.stopped.is_none());
     let join_ready = crate::log::join_ready(
         rounds.max(0) as u32,
         crate::log::unfinished_tracked_dirt(&worktree_dirt_tracked),
         join_journal_phase.is_some(),
         &declarations,
         documents.plan.is_some(),
+        wheel_live,
     );
 
     Ok(DashStatus {
@@ -5965,7 +5980,8 @@ Some context.
             false,
             false,
             &decls,
-            true
+            true,
+            false
         ));
     }
 
@@ -6221,6 +6237,147 @@ Some context.
         let detail = dash_detail_entry_in(&root, "reopen-dash").unwrap();
         assert!(detail.run_complete);
         assert!(detail.join_ready);
+    }
+
+    // ── the audit's gate, over a real dash-log ───────────────────────────
+
+    /// A finished one-step run with an arc record over it — a live wheel
+    /// seated in `implement`, which is where an arc is when its run ends and
+    /// its audit has not started.
+    fn wheeled_dash(name: &str) -> (TempDir, std::path::PathBuf) {
+        let (temp, root) = stepped_dash(name);
+        crate::arc::append_arc_start(&root, name, &format!(".tug/arcs/{name}/plan.md")).unwrap();
+        crate::arc::append_arc_stage(&root, name, crate::arc::ArcStage::Implement, "sess-1", None)
+            .unwrap();
+        step_start(name, 1, 1).unwrap();
+        fs::write(worktree_path(&root, name).join("one.txt"), "first\n").unwrap();
+        commit(name, "r1", None).unwrap();
+        step_done(name, 1, None).unwrap();
+        (temp, root)
+    }
+
+    /// **The offer waits for the audit, and a broken audit does not hold the
+    /// landing hostage.** A finished run under a live wheel is recorded and
+    /// not yet offered; `audited` offers it; and so does an `arc-stop`, which
+    /// is the escape [B03] names.
+    #[serial]
+    #[test]
+    fn a_live_wheel_holds_the_offer_until_the_audit_or_a_stop() {
+        let (_temp, root) = wheeled_dash("audit-gate-dash");
+        let detail = dash_detail_entry_in(&root, "audit-gate-dash").unwrap();
+        assert!(
+            detail.run_complete,
+            "the run finished, and the record says so"
+        );
+        assert!(
+            !detail.join_ready,
+            "but the audit may still commit rounds, so nothing is offered yet"
+        );
+
+        mark("audit-gate-dash", MarkStage::Built, None).unwrap();
+        assert!(
+            !dash_detail_entry_in(&root, "audit-gate-dash")
+                .unwrap()
+                .join_ready,
+            "`built` is the implement stage's own word and does not arm the join"
+        );
+
+        mark("audit-gate-dash", MarkStage::Audited, None).unwrap();
+        assert!(
+            dash_detail_entry_in(&root, "audit-gate-dash")
+                .unwrap()
+                .join_ready,
+            "the audit's declaration is the one that arms it"
+        );
+    }
+
+    /// The other half of the escape: an arc stopped mid-audit falls back to
+    /// every arm it had before the gate, so a wheel that broke cannot leave
+    /// finished work unlandable.
+    #[serial]
+    #[test]
+    fn a_stopped_wheel_releases_the_offer_over_a_real_log() {
+        let (_temp, root) = wheeled_dash("audit-stop-dash");
+        mark("audit-stop-dash", MarkStage::Built, None).unwrap();
+        assert!(
+            !dash_detail_entry_in(&root, "audit-stop-dash")
+                .unwrap()
+                .join_ready
+        );
+
+        crate::arc::append_arc_stop(
+            &root,
+            "audit-stop-dash",
+            crate::arc::ArcStage::Audit,
+            crate::arc::ArcStopReason::Stalled,
+        )
+        .unwrap();
+        assert!(
+            dash_detail_entry_in(&root, "audit-stop-dash")
+                .unwrap()
+                .join_ready,
+            "a broken audit must not hold the landing hostage"
+        );
+    }
+
+    /// **`dash status` and the feed answer the same question the same way.**
+    /// The two paths derive `wheel_live` separately — the feed from a record it
+    /// already holds, the CLI from a read it makes for this — and a divergence
+    /// would mean the card and the terminal disagree about one dash.
+    ///
+    /// `DashStatus` carries no `join_ready` field, so readiness reaches a user
+    /// through the derived stage word alone — which makes that word the whole
+    /// of the observable disagreement [R03] is about. The undeclared run is
+    /// the case that discriminates: a `status_in` that skipped the gate would
+    /// say `ready` here while the feed said `implementing`.
+    #[serial]
+    #[test]
+    fn status_and_the_feed_agree_mid_audit() {
+        let (_temp, root) = wheeled_dash("audit-agree-dash");
+        let feed = dash_detail_entry_in(&root, "audit-agree-dash").unwrap();
+        let cli = status_in(&root, "audit-agree-dash").unwrap();
+        assert_eq!(
+            cli.stage, feed.stage,
+            "the CLI and the feed read one dash the same way"
+        );
+        assert_eq!(cli.stage, "implementing", "and both are behind the gate");
+
+        // And both move together when the audit declares.
+        mark("audit-agree-dash", MarkStage::Audited, None).unwrap();
+        let feed = dash_detail_entry_in(&root, "audit-agree-dash").unwrap();
+        let cli = status_in(&root, "audit-agree-dash").unwrap();
+        assert!(feed.join_ready);
+        assert_eq!(cli.stage, feed.stage);
+        assert_eq!(cli.stage, "audited");
+    }
+
+    /// **The gate reaches the derived word, and only for an undeclared run.**
+    /// `derive_stage` consumes `join_ready` and spends it on the `ready` arm,
+    /// so an arc armed only by `run_complete` now derives `implementing` mid-
+    /// audit where it derived `ready` before. That is the truer word — a stage
+    /// is still running — but it must be pinned rather than discovered,
+    /// because `implementing` is not in the deck's `JOINABLE_STAGES`.
+    #[serial]
+    #[test]
+    fn the_gate_moves_the_derived_word_only_for_an_undeclared_run() {
+        let (_temp, root) = wheeled_dash("audit-word-dash");
+        assert_eq!(
+            dash_detail_entry_in(&root, "audit-word-dash")
+                .unwrap()
+                .stage,
+            "implementing",
+            "a run armed only by `run_complete` reads as the stage still running"
+        );
+
+        // A declared `built` outranks the `join_ready` arm, so the word a
+        // wheel's own implement stage produces is unchanged by the gate.
+        mark("audit-word-dash", MarkStage::Built, None).unwrap();
+        assert_eq!(
+            dash_detail_entry_in(&root, "audit-word-dash")
+                .unwrap()
+                .stage,
+            "built"
+        );
     }
 
     /// **Reopening a step in the *middle* of a finished run re-arms the join
@@ -8546,9 +8703,23 @@ Some context.
             step: Some((8, 15)),
             ..DashDeclarations::default()
         };
+        // Every row of this matrix is the **wheel-absent** case — a
+        // hand-driven dash, or an arc that reached its terminal line or is
+        // stopped. That is what the last argument says, and it is why these
+        // answers are unchanged by the audit gate: the gate applies only
+        // while a wheel is live, and the live-wheel matrix is `log.rs`'s.
+        fn stopped_wheel(
+            rounds: u32,
+            dirty: bool,
+            joining: bool,
+            decls: &DashDeclarations,
+            has_plan: bool,
+        ) -> bool {
+            join_ready(rounds, dirty, joining, decls, has_plan, false)
+        }
 
         // A declared selection that finished.
-        assert!(join_ready(
+        assert!(stopped_wheel(
             3,
             false,
             false,
@@ -8556,7 +8727,7 @@ Some context.
             true
         ));
         // …and one that stopped short of its declared end.
-        assert!(!join_ready(
+        assert!(!stopped_wheel(
             3,
             false,
             false,
@@ -8564,7 +8735,7 @@ Some context.
             true
         ));
         // A step still open is never ready, whatever the arithmetic says.
-        assert!(!join_ready(
+        assert!(!stopped_wheel(
             3,
             false,
             false,
@@ -8572,14 +8743,14 @@ Some context.
             true
         ));
         // A mark arms on its own — the manual and legacy path ([P03]).
-        assert!(join_ready(
+        assert!(stopped_wheel(
             3,
             false,
             false,
             &marked(DashDeclaration::Built),
             true
         ));
-        assert!(join_ready(
+        assert!(stopped_wheel(
             3,
             false,
             false,
@@ -8587,7 +8758,7 @@ Some context.
             true
         ));
         // A plan-less generation arms on every round ([P02])…
-        assert!(join_ready(
+        assert!(stopped_wheel(
             1,
             false,
             false,
@@ -8595,7 +8766,7 @@ Some context.
             false
         ));
         // …but not while its tracked work is uncommitted.
-        assert!(!join_ready(
+        assert!(!stopped_wheel(
             1,
             true,
             false,
@@ -8605,7 +8776,7 @@ Some context.
         // A dash that adopted a plan and has declared no step is a run that
         // has not started: its one round is the adoption, and the arc that
         // cancelled here must not read as ready to join.
-        assert!(!join_ready(
+        assert!(!stopped_wheel(
             1,
             false,
             false,
@@ -8613,7 +8784,7 @@ Some context.
             true
         ));
         // A legacy plan dash — steps declared, no run — stays dark until marked.
-        assert!(!join_ready(
+        assert!(!stopped_wheel(
             3,
             false,
             false,
@@ -8622,14 +8793,14 @@ Some context.
         ));
         // A join in flight is landing, not ready; and nothing to join is not
         // ready either.
-        assert!(!join_ready(
+        assert!(!stopped_wheel(
             1,
             false,
             true,
             &DashDeclarations::default(),
             false
         ));
-        assert!(!join_ready(
+        assert!(!stopped_wheel(
             0,
             false,
             false,

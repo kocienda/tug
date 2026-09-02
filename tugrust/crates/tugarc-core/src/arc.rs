@@ -368,6 +368,20 @@ pub struct ArcRecord {
     /// the `arc-stage` line it was the intent to produce. A record still
     /// carrying one says "re-rotate this stage", not "the card was taken".
     pub dispatched: Option<ArcStage>,
+    /// The instance whose tugcast seated this arc's stages — the raw
+    /// `TUG_INSTANCE_ID` value, an opaque token this crate never parses.
+    ///
+    /// `None` is an **unowned** arc: a pre-owner log, or a launch with no
+    /// instance id to name (a standalone build, a `cargo`-driven test). An
+    /// unowned arc is every runner's to judge, which is what preserves
+    /// single-instance behavior exactly as it was.
+    ///
+    /// It exists because the dash-log is shared across every instance over one
+    /// checkout, so a second tugcast reads a first tugcast's arcs and cannot
+    /// get a session snapshot for a seat living in the other process. Without
+    /// a name on the seat, "not mine to watch" and "gone silent" are the same
+    /// reading — and the second one writes a stop receipt over healthy work.
+    pub owner: Option<String>,
     pub done: bool,
     /// The newest surviving arc line's timestamp.
     pub last_activity: Option<String>,
@@ -423,6 +437,7 @@ pub fn read_arc(repo_root: &Path, dash: &str) -> Option<ArcRecord> {
             stopped: None,
             resume: None,
             dispatched: None,
+            owner: None,
             done: false,
             last_activity: None,
         });
@@ -468,6 +483,15 @@ pub fn read_arc(repo_root: &Path, dash: &str) -> Option<ArcRecord> {
             // `CardTaken` it already had, and never invents a stop it did not
             // have before.
             "arc-dispatch" => record.dispatched = ArcStage::parse(note.trim()),
+            // **Skew.** Same arm, same reasoning: a reader older than this
+            // marker dates the dash from the line and declares nothing from
+            // it, so its degradation is exactly today's — every arc reads as
+            // unowned and every runner owns it, which is what every runner did
+            // before ownership existed. A newer reader over a pre-owner log
+            // finds no marker and reads `None`, which the verdict defines as
+            // unowned. Neither direction can invent an owner the other did not
+            // intend.
+            "arc-owner" => record.owner = Some(note.trim().to_owned()),
             "arc-done" => record.done = true,
             _ => {}
         }
@@ -515,6 +539,27 @@ pub fn append_arc_start(repo_root: &Path, dash: &str, document: &str) -> Result<
 /// old reader does not know is skipped; a note it misreads is not.
 pub fn append_arc_kind(repo_root: &Path, dash: &str, kind: ArcKind) -> Result<(), TugError> {
     append_dash_log(repo_root, dash, "arc-kind", kind.as_str())
+}
+
+/// Append `arc-owner` — the instance whose tugcast is seating this arc.
+///
+/// A marker of its own rather than a field on `arc-stage` or `arc-dispatch`,
+/// and the `arc-dispatch` half of that is not a style preference: `read_arc`
+/// parses that note with `ArcStage::parse(note.trim())` over the **whole**
+/// note, so `"implement release-main"` would fail to parse and the dispatch
+/// intent would be silently lost — reintroducing the false `CardTaken` the
+/// `arc-dispatch` marker was added to prevent. `arc-stage` would tolerate a
+/// fourth field (`read_stage_line` takes three and drops the rest), but it
+/// welds an ownership fact onto a positional grammar that already carries an
+/// optional field spelled `-`. One line per rotation reads unambiguously.
+///
+/// `instance_id` is passed in and never resolved here. `arc.rs` is a grammar
+/// over the log, and a grammar that reads the process environment stops being
+/// one — so the caller resolves `tugcore::instance::instance_id()` and simply
+/// does not call this when it is `None`. A record with no owner is unowned;
+/// there is no placeholder to write.
+pub fn append_arc_owner(repo_root: &Path, dash: &str, instance_id: &str) -> Result<(), TugError> {
+    append_dash_log(repo_root, dash, "arc-owner", instance_id.trim())
 }
 
 /// Append `arc-stage` — a stage was rotated onto `session_id`.
@@ -809,6 +854,127 @@ mod tests {
     fn a_log_with_no_arc_lines_has_no_arc() {
         let fixture = log_repo(&log_line("d", "step-start", "1/3 Step 1: First"));
         assert_eq!(read_arc(fixture.root(), "d"), None);
+    }
+
+    /// **The owner is the last one written, within the generation.** A seat
+    /// can be re-owned — an instance restarts, or a second one legitimately
+    /// takes over an arc the first abandoned — and the record must name the
+    /// instance whose tugcast is seating it *now*, not the first one that ever
+    /// did.
+    #[serial]
+    #[test]
+    fn an_owner_line_is_read_back_and_the_last_one_wins() {
+        let fixture = log_repo(
+            &[
+                log_line("d", "arc-start", "dash/idea.md"),
+                log_line("d", "arc-owner", "release-main"),
+                log_line("d", "arc-stage", "implement sess-1 -"),
+                log_line("d", "arc-owner", "debug-spike"),
+                log_line("d", "arc-stage", "implement sess-2 -"),
+            ]
+            .concat(),
+        );
+        assert_eq!(
+            read_arc(fixture.root(), "d").unwrap().owner.as_deref(),
+            Some("debug-spike")
+        );
+    }
+
+    /// **The owner does not outlive its generation.** `read_arc` rebuilds the
+    /// record from scratch after each terminal line, and ownership is a fact
+    /// about a live seat rather than about the dash's name — an arc joined by
+    /// one instance and re-opened by another must not read as the first one's.
+    #[serial]
+    #[test]
+    fn an_owner_does_not_survive_the_generation_reset() {
+        let fixture = log_repo(
+            &[
+                log_line_at("2026-08-24T10:00:00Z", "d", "arc-start", "dash/idea.md"),
+                log_line_at("2026-08-24T10:01:00Z", "d", "arc-owner", "release-main"),
+                log_line_at("2026-08-24T11:00:00Z", "d", "landed", "joined abc1234"),
+                log_line_at("2026-08-24T12:00:00Z", "d", "arc-start", "dash/idea.md"),
+            ]
+            .concat(),
+        );
+        let record = read_arc(fixture.root(), "d").unwrap();
+        assert_eq!(
+            record.owner, None,
+            "the owner belongs to the generation that recorded it"
+        );
+    }
+
+    /// **A pre-owner log reads as unowned, which is today's behavior exactly.**
+    /// `None` is not a degraded reading to be repaired: the verdict defines an
+    /// unowned arc as every runner's to judge, which is what every runner did
+    /// before ownership existed. This is what keeps single-instance and
+    /// standalone launches unchanged.
+    #[serial]
+    #[test]
+    fn a_pre_owner_log_reads_as_unowned() {
+        let fixture = log_repo(
+            &[
+                log_line("d", "arc-start", "dash/idea.md"),
+                log_line("d", "arc-kind", "dash"),
+                log_line("d", "arc-stage", "implement sess-1 -"),
+            ]
+            .concat(),
+        );
+        let record = read_arc(fixture.root(), "d").unwrap();
+        assert_eq!(record.owner, None);
+        assert_eq!(
+            record.stages.len(),
+            1,
+            "and the rest reads as it always did"
+        );
+    }
+
+    /// **The skew claim, made falsifiable.** The marker's whole case is that it
+    /// is a line of its own rather than a field on `arc-stage` or
+    /// `arc-dispatch` — so an owner line interleaved among both must leave
+    /// their readings byte-identical. The `arc-dispatch` half is the sharp one:
+    /// `read_arc` parses that note whole with `ArcStage::parse`, so a second
+    /// field there would lose the dispatch intent and reintroduce the false
+    /// `CardTaken` the marker exists to prevent.
+    #[serial]
+    #[test]
+    fn an_owner_line_does_not_disturb_the_stage_or_dispatch_readers() {
+        let without = [
+            log_line_at("2026-08-24T10:00:00Z", "d", "arc-start", "dash/idea.md"),
+            log_line_at(
+                "2026-08-24T10:01:00Z",
+                "d",
+                "arc-stage",
+                "devise sess-1 opus",
+            ),
+            log_line_at("2026-08-24T10:03:00Z", "d", "arc-dispatch", "implement"),
+        ]
+        .concat();
+        let with = [
+            log_line_at("2026-08-24T10:00:00Z", "d", "arc-start", "dash/idea.md"),
+            log_line_at("2026-08-24T10:01:00Z", "d", "arc-owner", "release-main"),
+            log_line_at(
+                "2026-08-24T10:01:00Z",
+                "d",
+                "arc-stage",
+                "devise sess-1 opus",
+            ),
+            log_line_at("2026-08-24T10:02:00Z", "d", "arc-owner", "release-main"),
+            log_line_at("2026-08-24T10:03:00Z", "d", "arc-dispatch", "implement"),
+        ]
+        .concat();
+
+        let bare = read_arc(log_repo(&without).root(), "d").unwrap();
+        let owned = read_arc(log_repo(&with).root(), "d").unwrap();
+
+        assert_eq!(owned.stages, bare.stages);
+        assert_eq!(
+            owned.dispatched,
+            Some(ArcStage::Implement),
+            "the dispatch intent survives an owner line beside it"
+        );
+        assert_eq!(owned.dispatched, bare.dispatched);
+        assert_eq!(owned.document, bare.document);
+        assert_eq!(owned.owner.as_deref(), Some("release-main"));
     }
 
     #[test]

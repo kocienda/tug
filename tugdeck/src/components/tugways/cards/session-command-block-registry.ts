@@ -57,6 +57,19 @@ export interface CommandBlockProps {
   onSendAsMessage?: () => void;
   /** Whether this exchange is currently staged (drives the toggle's pose). */
   staged?: boolean;
+  /**
+   * Whether a later row in this same transcript has answered what this receipt
+   * says — a join receipt for the dash an `arc stopped` row named, or a later
+   * arc receipt for it (Spec S04).
+   *
+   * **A fact derived from the session's own rows, never live feed state.** The
+   * prop boundary this header describes is exactly what keeps a receipt a
+   * frozen record: a renderer that subscribed to a store to ask whether the arc
+   * had since joined would be reading the present into a row that reports a
+   * past. The transcript already carries the later receipt, so the answer is in
+   * the record — and what it changes is the row's pose, never its text.
+   */
+  superseded?: boolean;
 }
 
 export type CommandBlockRenderer = React.ComponentType<CommandBlockProps>;

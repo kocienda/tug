@@ -809,7 +809,7 @@ const ShellTurnCell = React.memo(function ShellTurnCell({
         className="session-card-transcript-quiet-row"
         data-slot="session-transcript-quiet-row"
       >
-        <CommandBlock message={message} />
+        <CommandBlock message={message} superseded={row.arcStopSuperseded === true} />
       </div>
       {menu}
       </AnnotationScope>
@@ -872,6 +872,11 @@ const ShellTurnCell = React.memo(function ShellTurnCell({
           <ShellBlockFrame collapsible={!isReceiptRow} toolUseId={message.exchangeId}>
             <CommandBlock
               message={message}
+              // A stop receipt a later row has answered renders as history
+              // rather than instruction. `row` is the descriptor the memo gate
+              // compares, which is what makes the retroactive change appear
+              // without a reload.
+              superseded={row.arcStopSuperseded === true}
               // Add-to-context ([P08]): stage / un-stage the fenced text on
               // the pending-context queue so it rides the next `❯` submission
               // as attributed `#s{n}` context. The one path into Claude's

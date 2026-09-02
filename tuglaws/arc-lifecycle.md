@@ -91,7 +91,7 @@ Two things hold across every row, so they are said once rather than per row. **T
 | A stage meeting a **decision that is the user's** | stops as `needs a decision`, and the question it stopped over is written as the arc's last `arc-note` | `arc stopped · <dash> · in <stage> — it met a decision that is yours to make, so it stopped rather than asking`, with the question on the line beneath | answer it, then `tugtool arc run <name>` — the stage rotates again knowing what you said |
 | A **`/compact` the arc sent** ending in an API error | stops as `compact failed`; the arc never walks on with a context the compaction did not reduce | `arc stopped · <dash> · in implement — its /compact turn ended in an API error, so the context was never reduced` | `tugtool arc run <name>` — `a_compact_turn_that_ended_in_an_api_error_stops_as_compact_failed` |
 | An **implement stage ending two turns closing no step** | stops as `implement idle`; a stage that has twice declined to close a step is handed back, not asked a third time | `arc stopped · <dash> · in implement — the implement stage ended two turns without closing a step` | `tugtool arc run <name>` — `one_quiet_implement_turn_waits_and_the_horizon_stops` |
-| A **stage that goes silent** — one quiet turn then nothing, or a turn that never ends | stops as `stalled` once the arc's idle deadline (`[tugtool.dash].arc_stall_secs`, half an hour by default) runs out. The only stop measured against a wall clock, because these are the only two shapes that produce no edge to decide on | `arc stopped · <dash> · in <stage> — it went silent — no turn ended and no step closed before the arc's clock ran out` | `tugtool arc run <name>` — `a_hung_turn_stops_when_the_clock_runs_out`, `the_clock_runs_out_on_a_stamp_that_stops_moving` |
+| A **stage that goes silent** — one quiet turn then nothing, or a turn that never ends | stops as `stalled` once the arc's idle deadline (`[tugtool.dash].arc_stall_secs`, half an hour by default) runs out. The only stop measured against a wall clock, because these are the only two shapes that produce no edge to decide on. **The clock runs only for the instance that owns the seat** — see [Ownership](#ownership--whose-arc-is-this-to-judge) | `arc stopped · <dash> · in <stage> — it went silent — no turn ended and no step closed before the arc's clock ran out` | `tugtool arc run <name>` — `a_hung_turn_stops_when_the_clock_runs_out`, `the_clock_runs_out_on_a_stamp_that_stops_moving`, `a_foreign_live_owner_is_never_clocked` |
 
 The side-question row is the **only** one whose middle cell is not a receipt, and that is what the row is for: nothing happens, and the table says so rather than leaving a reader to wonder whether it was forgotten. It used to name an `AskUserQuestion` beside the `/btw`, and that was the row hiding the defect: a dialog inside a stage is not "nothing happens", it is an arc paused where no record can see it. The row after it is where that case went.
 
@@ -183,6 +183,33 @@ The refusal is an ordinary named blocker, `live-resolve`, in the same vocabulary
 The in-process registry stays as the fast path and is not weakened: every tugcast path takes it first, and a run it holds suppresses the lease blocker, because the exact answer beats the derived one wherever it exists. The lease is the backstop for the process that has no registry to ask. The model is jj's op-heads lock, which exists only to avoid duplicated work and never carries correctness — here too, a lease that is wrong costs one turn, and the op log is what makes that turn recoverable.
 
 The CLI's `join --resolve` is guarded at the CLI rather than inside the ladder. The ladder clears the chain on both its arms, so a check in `join` would fire long after the checkpoints were gone; and a check in the ladder's core would also refuse the join pilot for the whole window after any resolver crash, wedging the one actor whose job is to clear the wreckage.
+
+## Ownership — whose arc is this to judge?
+
+The lease above is about one actor at a time inside a workshop. This is the same shape one level up: **an arc's clock belongs to the instance that seated the stage, and to nobody else.**
+
+The dash-log is a per-project file that every instance over one checkout reads. A second `Tug.app` therefore sees a first one's arcs — but it cannot get a session snapshot for a seat that lives in the other tugcast's process, and before ownership existed that blindness had exactly one reading: *the stage went silent*. On 2026-09-02 a debug instance launched by an unrelated acceptance test spent thirty minutes on that reading and then wrote a healthy arc a durable `Stalled` stop receipt, twenty-seven minutes into an audit that was working.
+
+So the seat is named. `arc-owner <instance-id>` goes into the dash-log immediately before each act it describes — before the dispatch, and before the `arc-stage` line the bridge writes — and `ArcRecord::owner` reads it back, last one winning within the generation. The identity is the raw `TUG_INSTANCE_ID`, opaque to every reader; a launch with no instance id writes no line at all rather than a placeholder.
+
+**Liveness is probed, not leased.** `instance_tmux_live` asks the owner's own `tug-<token>` tmux server whether its session exists — the same question already trusted to decide whether it is safe to touch a worktree an instance's app might hold. A lease here would need a heartbeat, because an arc mid-stage legitimately writes nothing for minutes, and a heartbeat in an append-only per-project file grows that file forever. That is precisely the cost `resolve_lease` avoids by riding checkpoints the resolve already writes; there is no equivalent write to ride here, so the question is asked of the process instead of inferred from the file.
+
+The verdict has four values and only one of them gates:
+
+| verdict | what the runner does |
+|---|---|
+| `mine` | proceeds — it is this runner's work |
+| `unowned` | proceeds — no owner line in this generation |
+| `foreign-live` | **stands down**: no clock, no stop, no receipt |
+| `foreign-dead` | proceeds — the owner is gone, and somebody must be able to clock it |
+
+`unowned` meaning *proceed* is load-bearing. Every arc opened by a build predating the marker, every standalone launch, and every `cargo`-driven test reads as unowned, and turning those into un-judgeable arcs would be a far worse regression than the false stop this closes. `foreign-dead` proceeding is the other half: a crashed tugcast must not orphan an arc forever, and the only instance that could clock it is the one that died.
+
+The stand-down happens **before** the state map is touched. Seeding a motion stamp and then returning would start a clock this runner must never read, and would backdate the deadline if the arc later became its own — so the first tick after an ownership change could stop it outright. Leaving the stamp unset is what makes the stand-down total rather than merely quiet.
+
+**Display is untouched: a foreign arc is visible, never judged.** `DashArcState` is composed from `read_arc` alone — stage, stopped, stopped stage, done, and the last note all come off the record, and no session snapshot is consulted — so a foreign-owned arc keeps its stage in the Changes shade and on the Arcs card. Hiding it would make a shared checkout look like it has fewer arcs than it does, which is a worse lie than showing one nobody local is driving.
+
+The gate sits in the runner's own two clock paths and **not** inside `stop_arc_for_session`. That function is shared with the explicit gestures — `tugtool arc stop`, a closing card, an unbind, a user taking the card — and a user pressing Stop on a card bound to a foreign-owned arc is making a decision, not a judgment. Gating it would refuse the one actor whose authority is not in question.
 
 ## Joining — by reference
 

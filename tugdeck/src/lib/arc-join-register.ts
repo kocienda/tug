@@ -25,7 +25,7 @@
  */
 
 import type { ToolCallPhase } from "@/lib/code-session-store/tool-call-phase-visual";
-import type { ArcJoinStateWire } from "@/lib/changeset-types";
+import type { ArcJoinStateWire, DashArcState } from "@/lib/changeset-types";
 
 /** What one dash's join reads as right now. */
 export interface ArcJoinRegister {
@@ -88,6 +88,15 @@ export interface ArcJoinRegisterInput {
    * for the callers that only ever render a dash they are holding.
    */
   bound?: boolean;
+  /**
+   * The arc driving this dash, when one is — the wheel's own record of which
+   * stage is seated and whether it has finished ([P06]).
+   *
+   * Optional, and absent is not "there is no arc": two of the five call sites
+   * pass nothing on purpose, and the arm that reads this does not fire on
+   * `undefined`, so those two keep today's behavior exactly.
+   */
+  arc?: DashArcState | null;
 }
 
 /**
@@ -151,6 +160,10 @@ export const BEAT_WORDS: Record<string, string> = {
  *    has not stopped is not being offered, but a join already in flight, a
  *    blocker, a question and a stated refusal all outrank it: each reports
  *    something that has already happened, and none of them is an offer.
+ * 7b. **the arc is still running** — beside 7a and for the same reason: the
+ *    work is not finished. A live wheel means a stage is seated, and the audit
+ *    is the one that most often is; it commits fixup rounds, so the tree the
+ *    join would land is still moving.
  * 8. **nothing** — a dash still being worked has no join yet, and `null`
  *    is how that is said. A register with nothing to report does not mount.
  */
@@ -260,6 +273,53 @@ export function arcJoinRegister(
       line: `${dash} is still working — the join waits for it to finish`,
       word: "working",
     };
+  }
+
+  // A live wheel is the same category as a busy holder: the work is not
+  // finished, so the join is not offered. It sits here rather than below the
+  // candidate because everything above this line reports something in motion
+  // and everything below it makes an offer.
+  //
+  // Without it, [P05]'s gate produces a worse sentence than the one it fixes.
+  // `JOINABLE_STAGES` still contains `built` and `derive_stage` still says
+  // `built` mid-audit, so with `join_ready` false there is no candidate and the
+  // fall-through would paint `Reconciling with <base>` — a sentence promising
+  // something imminent — for the whole length of an audit.
+  //
+  // This also speaks for an **unbound** dash, where the `Reconciling`
+  // fall-through below is silent by design. That difference is intended: the
+  // fall-through is silent because the *pilot* never runs for a dash nobody
+  // holds, which is a statement about a promise, whereas a running audit is a
+  // fact about the work and is true whoever is holding it.
+  //
+  // **Two things it does not speak over.** A dash whose derived stage is
+  // already `audited` has had the audit sign off — `derive_stage` returns that
+  // word only for a declared `audited`, which is the same declaration [P05]'s
+  // gate arms the join on — so holding the offer shut there would deny an
+  // offer the server has already made, for as long as `arc-done` takes to
+  // land. And a record carrying no rotated stage has no seat to name: there is
+  // nothing running to wait for, and the sentence below would interpolate the
+  // absence into the user's face.
+  const arc = input.arc ?? null;
+  const arcStage = arc?.stage ?? "";
+  if (
+    arc !== null &&
+    arc.done !== true &&
+    (arc.stopped ?? "") === "" &&
+    arcStage !== "" &&
+    input.stage !== "audited"
+  ) {
+    return arc.stage === "audit"
+      ? {
+          phase: "in_flight",
+          line: `${dash} is being audited — the join waits for it`,
+          word: "auditing",
+        }
+      : {
+          phase: "in_flight",
+          line: `${dash} is in ${arc.stage} — the join waits for the audit`,
+          word: "arc-running",
+        };
   }
 
   // A candidate that stands is the whole readiness fact now. Nothing is built

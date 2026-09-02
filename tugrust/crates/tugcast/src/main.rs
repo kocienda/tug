@@ -1919,6 +1919,7 @@ async fn main() {
             session_ledger: Arc::clone(&ledger),
             wheel: Arc::clone(&wheel_state),
             cancel: cancel.clone(),
+            live_owner: tugcore::instance::instance_tmux_live,
         },
         arc_tick_rx,
         changeset_all_rx.clone(),

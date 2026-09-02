@@ -396,3 +396,91 @@ describe("the register a landed receipt reproduces", () => {
     expect(settled?.word).toBe("joined");
   });
 });
+
+/**
+ * The arc's own word — what the register says while a wheel is still seated.
+ *
+ * The arm sits immediately above the candidate arm, and that position is the
+ * whole of it: a running audit commits fixup rounds, so a candidate that stands
+ * is describing a tree that is still moving. The tests below make the position
+ * falsifiable rather than leaving it to be read off the `if`s.
+ */
+describe("a live arc holds the offer", () => {
+  test("an audit in flight outranks a standing candidate", () => {
+    const auditing = reg(reconciled(), { arc: { stage: "audit" } });
+    expect(auditing?.phase).toBe("in_flight");
+    expect(auditing?.line).toBe("imposer2 is being audited — the join waits for it");
+    expect(auditing?.word).toBe("auditing");
+  });
+
+  test("another live stage names itself and still waits for the audit", () => {
+    const implementing = reg(reconciled(), { arc: { stage: "implement" } });
+    expect(implementing?.phase).toBe("in_flight");
+    expect(implementing?.line).toBe("imposer2 is in implement — the join waits for the audit");
+  });
+
+  test("a stopped wheel does not hold the surface hostage", () => {
+    const stopped = reg(reconciled(), {
+      arc: { stage: "audit", stopped: "stalled", stopped_stage: "audit" },
+    });
+    expect(stopped?.line).toBe("Ready to join");
+    expect(stopped?.word).toBe("ready");
+  });
+
+  test("a finished wheel reads ready, which is what the audit signing off means", () => {
+    const done = reg(reconciled(), { arc: { stage: "audit", done: true } });
+    expect(done?.line).toBe("Ready to join");
+  });
+
+  test("an unbound dash under a live wheel says so, where today it says nothing", () => {
+    // The `Reconciling` fall-through is silent for an unbound dash because the
+    // pilot never runs for one. A running audit is a fact about the work, not a
+    // promise about the pilot, so it speaks whoever is holding the dash.
+    expect(reg(null, { bound: false })).toBeNull();
+    const auditing = reg(null, { bound: false, arc: { stage: "audit" } });
+    expect(auditing?.word).toBe("auditing");
+  });
+
+  test("no arc at all leaves every other reading exactly as it was", () => {
+    expect(reg(reconciled())?.line).toBe("Ready to join");
+    expect(reg(reconciled(), { arc: null })?.line).toBe("Ready to join");
+    expect(reg(reconciled(), { arc: undefined })?.line).toBe("Ready to join");
+  });
+
+  test("an audit that has signed off does not go on holding its own offer", () => {
+    // `derive_stage` returns `audited` for a declared `audited` and nothing
+    // else, and that is the same declaration [P05]'s gate arms the join on. So
+    // the record is still live here — `arc-done` lands a tick or more later,
+    // and on a run whose arc was stopped and resumed it may never land — while
+    // the server has already made the offer. Holding it shut over that window
+    // would be this arm telling the user to wait for a stage that is finished.
+    const signed = reg(reconciled(), { stage: "audited", arc: { stage: "audit" } });
+    expect(signed?.line).toBe("Ready to join");
+    expect(signed?.word).toBe("ready");
+  });
+
+  test("a record with no rotated stage names nothing, because nothing is seated", () => {
+    // The window between `arc-start` and the first `arc-stage` line: the record
+    // is live and has no seat. The arm must not fire, or the sentence
+    // interpolates the absent stage into the user's face.
+    const unseated = reg(reconciled(), { arc: { done: false } });
+    expect(unseated?.line).toBe("Ready to join");
+    expect(reg(reconciled(), { arc: { stage: "" } })?.line).toBe("Ready to join");
+  });
+
+  test("a busy holder still outranks the arc, and a blocker outranks both", () => {
+    const busy = reg(reconciled(), { arc: { stage: "audit" }, holdersBusy: true });
+    expect(busy?.word).toBe("working");
+
+    const blocked = reg(
+      {
+        phase: "blocked",
+        blockers: [
+          { kind: "base_dirty", title: "Base is dirty", detail: "main has uncommitted src/x.ts" },
+        ],
+      },
+      { arc: { stage: "audit" } },
+    );
+    expect(blocked?.word).toBe("blocked");
+  });
+});

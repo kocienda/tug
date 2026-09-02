@@ -159,6 +159,13 @@ function trackModelFor(parsed: ParsedArcReceipt): ReturnType<typeof arcTrackMode
 export function SessionArcReceiptBlock(props: CommandBlockProps): React.ReactElement {
   const parsed = parseArcReceipt(props.message.output);
   if (parsed === null) return <ShellExchangeBlock {...props} />;
+  // A stop a later row in this transcript has already answered ([P08]). The
+  // row is **demoted, never rewritten**: `copyText`, the stage list, the
+  // document lines and the resume sentence are byte-identical to what the
+  // server wrote, sitting in a body that arrives folded. A receipt is a frozen
+  // record of that moment, so what changes is how loudly it is offered —
+  // `error` says *do something about this*, and there is nothing left to do.
+  const demoted = props.superseded === true && parsed.outcome === "stopped";
   const identity = (
     <span className="arc-receipt-identity">
       <TugArcAtom name={parsed.dash} />
@@ -176,13 +183,13 @@ export function SessionArcReceiptBlock(props: CommandBlockProps): React.ReactEle
   return (
     <ToolBlockHistoryCollapse
       toolUseId={props.message.exchangeId}
-      defaultCollapsed={false}
+      defaultCollapsed={demoted}
     >
       <BlockChrome
         rootSlot="arc-receipt-block"
         variant="receipt"
         identity={identity}
-        phase={parsed.outcome === "complete" ? "success" : "error"}
+        phase={demoted ? "idle" : parsed.outcome === "complete" ? "success" : "error"}
         status="ready"
         copyText={props.message.output}
       >

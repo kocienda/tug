@@ -479,6 +479,9 @@ export class JoinModeController implements LandingMode {
               stage: entry?.stage ?? null,
               join,
               holdersBusy: entry?.holders_busy === true,
+              // The composer says the same thing the two rows do, so a live
+              // wheel holds this surface's offer shut too.
+              arc: entry?.arc ?? null,
               resolvePhase: getChangesetJoinStore()?.state(
                 changesController.workspaceKey,
                 registerTarget.name,

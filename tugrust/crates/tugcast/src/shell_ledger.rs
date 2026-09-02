@@ -41,7 +41,25 @@ pub const MAX_EXCHANGES_PER_SESSION: usize = 500;
 /// ink was merged from a fork could otherwise cross the cap on its next `$`
 /// command and evict, oldest-first, exactly the historical receipts that merge
 /// existed to rescue.
-pub const LANDING_RECEIPT_COMMANDS: [&str; 3] = ["/commit", "/arc-join", "/dash-discard"];
+///
+/// The exemption is matched by **exact equality** against the recorded
+/// command, and the writers record the bare verb — `use-landing-receipts.ts`
+/// appends `"/arc-join"`, `agent_supervisor.rs` records `"/arc-join"` — so no
+/// prefix form belongs here.
+///
+/// The last two entries are **read-only** spellings nothing writes any more:
+/// `/dash-join` before the join's rename and `/dash-release` before the
+/// discard's. Rows carrying them are already on disk, and a receipt that loses
+/// its exemption is a receipt the next `$` command can evict. A spelling that
+/// ever reached a durable ledger stays a read spelling for life; see
+/// `tuglaws/work-grammar.md`'s "Retired names".
+pub const LANDING_RECEIPT_COMMANDS: [&str; 5] = [
+    "/commit",
+    "/arc-join",
+    "/dash-discard",
+    "/dash-join",
+    "/dash-release",
+];
 
 /// `LANDING_RECEIPT_COMMANDS` as a SQL value list, so the eviction predicate
 /// and the constant above cannot drift apart.
@@ -745,6 +763,28 @@ mod tests {
             led.record_exchange(&ex("s1", command, Some(0))).unwrap();
         }
         assert_eq!(led.list_exchanges_since("s1", None).unwrap().len(), total);
+    }
+
+    #[test]
+    fn the_exemption_list_still_names_both_retired_landing_spellings() {
+        // `the_cap_never_evicts_a_landing_receipt` iterates the constant, so it
+        // covers whatever the constant happens to hold and would pass unchanged
+        // over one that had silently lost a spelling. This is the assertion a
+        // rename can fail: `/dash-join` and `/dash-release` are read-only
+        // spellings whose rows are already on disk, and dropping either turns
+        // every landing receipt already recorded under it back into evictable
+        // chatter.
+        assert!(LANDING_RECEIPT_COMMANDS.contains(&"/dash-join"));
+        assert!(LANDING_RECEIPT_COMMANDS.contains(&"/dash-release"));
+        // And the eviction predicate derives from the constant rather than
+        // repeating it — the drift this checks for is a second edit site, not a
+        // second value.
+        for command in LANDING_RECEIPT_COMMANDS {
+            assert!(
+                RECEIPT_COMMANDS_SQL.contains(&format!("'{command}'")),
+                "eviction predicate does not name {command}"
+            );
+        }
     }
 
     // ── the anchor column ────────────────────────────────────────────────────

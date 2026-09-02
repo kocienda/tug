@@ -496,6 +496,9 @@ function ArcRow({
           // works one ([D147]) — so this is the difference between "the check
           // is a beat away" and a promise nothing will ever keep.
           bound={(entry.bound_sessions ?? []).length > 0}
+          // The shade is where the offer is actually pressed, so a stage the
+          // wheel still has seated is named here rather than read around.
+          arc={entry.arc ?? null}
           altitude="entry"
         />
       </span>

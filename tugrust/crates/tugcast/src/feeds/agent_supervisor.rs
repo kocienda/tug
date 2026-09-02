@@ -11311,7 +11311,12 @@ mod tests {
         // The control: with no rename on the line, the `aiTitle` is the best
         // name there is, and it is not a user-set one.
         let scan = crate::external_sessions::ScanOutcome {
-            metas: vec![scanned("abc123", "line-anon", Some("Some auto title"), None)],
+            metas: vec![scanned(
+                "abc123",
+                "line-anon",
+                Some("Some auto title"),
+                None,
+            )],
             canonical_project_dir: "/proj".to_string(),
             ..Default::default()
         };

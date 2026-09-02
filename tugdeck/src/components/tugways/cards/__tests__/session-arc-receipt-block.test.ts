@@ -158,3 +158,28 @@ describe("the session atom's label", () => {
     );
   });
 });
+
+/**
+ * The frozen-text claim, asserted rather than asserted about.
+ *
+ * A superseded stop is demoted — folded, muted — and that is the whole of it.
+ * The parser is the one thing every rendered word and `copyText` comes from, so
+ * a parse that is byte-identical either way is what proves the receipt still
+ * says what the server said. Nothing in the demotion is allowed to reach the
+ * text; a row that rewrote its own record would stop being a record.
+ */
+describe("a demoted stop receipt is still the same receipt", () => {
+  it("parses byte-identically whether or not the row is superseded", () => {
+    // `parseArcReceipt` reads the output alone — there is no supersession
+    // parameter to pass, and that is the design. The demotion lives entirely in
+    // the block's pose, so the same output cannot parse two ways.
+    const a = parseArcReceipt(STOPPED);
+    const b = parseArcReceipt(STOPPED);
+    expect(JSON.stringify(a)).toBe(JSON.stringify(b));
+    expect(a?.stop?.reason).toBe("the review ended without stamping the plan");
+    expect(STOPPED).toContain("resume with tugtool arc run foo");
+    // And the copy text a demoted block hands `BlockChrome` is the message
+    // output verbatim — the same string, folded or not.
+    expect(message(STOPPED).output).toBe(STOPPED);
+  });
+});

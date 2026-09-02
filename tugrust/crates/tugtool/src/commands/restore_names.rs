@@ -193,13 +193,17 @@ pub fn run_restore_names(db: Option<PathBuf>, dry_run: bool) -> Result<i32, Stri
     let mut skipped = 0usize;
 
     for path in &paths {
-        let conn = tugcore::ledger_db::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
+        let conn =
+            tugcore::ledger_db::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
         // A ledger from before names moved onto their own table has nothing
         // this verb could repair. Skipping is the right answer, and failing
         // on it would make the whole run depend on the oldest instance on the
         // machine.
         if !has_table(&conn, "lines") {
-            println!("{}: no `lines` table (pre-migration) — skipped", path.display());
+            println!(
+                "{}: no `lines` table (pre-migration) — skipped",
+                path.display()
+            );
             continue;
         }
         let candidates = survey(&conn, &projects_root)?;

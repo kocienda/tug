@@ -5612,9 +5612,8 @@ impl SessionLedger {
         let mut conn = self.db.lock().expect("ledger mutex");
         let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         let doomed: Vec<String> = {
-            let mut stmt = tx.prepare(sparing_named_lines!(
-                "project_dir = ?1 AND state != 'live'"
-            ))?;
+            let mut stmt =
+                tx.prepare(sparing_named_lines!("project_dir = ?1 AND state != 'live'"))?;
             stmt.query_map(params![project_dir], |row| row.get::<_, String>(0))?
                 .collect::<Result<Vec<_>, _>>()?
         };
@@ -13486,10 +13485,7 @@ mod tests {
         // The stranded arm must not double a line that is listing perfectly
         // well through its own segment.
         let listed = l.list_for_project_dir("/proj").unwrap();
-        let mine: Vec<_> = listed
-            .iter()
-            .filter(|r| r.line_id == "line-kept")
-            .collect();
+        let mine: Vec<_> = listed.iter().filter(|r| r.line_id == "line-kept").collect();
         assert_eq!(mine.len(), 1);
         assert_eq!(mine[0].session_id, "kept");
         assert_eq!(mine[0].name.as_deref(), Some("layout-xp"));

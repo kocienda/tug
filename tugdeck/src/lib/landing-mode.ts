@@ -81,15 +81,29 @@ export type LandingPhase = CommitPhase | JoinPhase;
 
 /**
  * Claims a `/arc-join` transcript row, with or without the argument form the
- * verb accepts.
+ * verb accepts — and `/dash-join`, the command the verb wrote under its old
+ * name.
  *
  * It lives here rather than beside the block that renders it because two
  * things read it: the receipt block, which turns the row into a receipt, and
  * `JoinModeController`, which watches for that row's arrival to know its live
  * narration has been replaced by a durable one.
+ *
+ * The second spelling is **read and never written**, on the same terms as
+ * `matchesDiscardReceipt`'s `/dash-release`. Replay re-derives a designed
+ * block by matching the recorded `command` string, so those rows — already on
+ * disk, replayed on every card reload — revert to raw shell rows the moment
+ * this function stops claiming them. A spelling that ever reached a durable
+ * ledger stays a read spelling for life; see `tuglaws/work-grammar.md`'s
+ * "Retired names".
  */
 export function matchesJoinReceipt(command: string): boolean {
-  return command === "/arc-join" || command.startsWith("/arc-join ");
+  return (
+    command === "/arc-join" ||
+    command.startsWith("/arc-join ") ||
+    command === "/dash-join" ||
+    command.startsWith("/dash-join ")
+  );
 }
 
 /**
