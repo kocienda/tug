@@ -5664,17 +5664,6 @@ impl AgentSupervisor {
         }
     }
 
-    /// Handle a `changeset_draft_request` CONTROL request ([P03], Spec S01): an
-    /// explicit, on-demand commit-message draft for one changeset entry.
-    ///
-    /// Resolves the entry against the latest CHANGESET_ALL aggregate frame (the
-    /// stored watch receiver) and spawns its generation on a detached task —
-    /// this method NEVER awaits the scribe run, so the router's per-client
-    /// socket loop stays live to deliver the streamed deltas (R02). No-op when
-    /// the scribe, the read-side ledger, or the aggregate watch isn't wired
-    /// (tests without the draft path). When no eligible entry matches, replies
-    /// `changeset_draft_state { state: "error", detail: "nothing to generate" }`
-    /// ([Q02]).
     /// A `tug_session_id` → `claude_session_id` lookup over the in-memory
     /// ledger, for anything that needs to find a session's JSONL.
     ///
@@ -5691,26 +5680,73 @@ impl AgentSupervisor {
         })
     }
 
+    /// Handle a `changeset_draft_request` CONTROL request ([P03], Spec S01): an
+    /// explicit, on-demand commit-message draft for one changeset entry.
+    ///
+    /// Resolves the entry against the latest CHANGESET_ALL aggregate frame (the
+    /// stored watch receiver) and spawns its generation on a detached task —
+    /// this method NEVER awaits the scribe run, so the router's per-client
+    /// socket loop stays live to deliver the streamed deltas (R02). It does
+    /// nothing when the scribe, the read-side ledger, or the aggregate watch
+    /// isn't wired (tests without the draft path) — but never *silently*:
+    /// every exit from this method broadcasts a `changeset_draft_state
+    /// { state: "error" }` naming what went wrong ([Q02], [L31]). The
+    /// unmatched-owner case is the engine's own answer, which names the owner
+    /// it could not place ([B04]).
     fn do_changeset_draft_request(&self, request: &ChangesetDraftRequestPayload) {
+        // Every guard below answers before it returns ([L31]). A draft request
+        // that falls out of this function in silence leaves the shade's
+        // Auto-Message button idle forever with nothing anywhere saying why —
+        // no frame for the deck, no line in the log — which is the failure
+        // this arc exists to close, and the four bare `return`s that used to
+        // stand here were the likeliest source of it.
         let Some(scribe) = self.scribe.clone() else {
+            warn!("changeset draft request: no scribe configured");
+            Self::send_changeset_draft_error(
+                &self.control_tx,
+                request,
+                "Couldn't reach the scribe: this instance has none configured.",
+            );
             return;
         };
         let Some(ledger) = self.session_ledger.clone() else {
+            warn!("changeset draft request: no session ledger");
+            Self::send_changeset_draft_error(
+                &self.control_tx,
+                request,
+                "Couldn't reach the scribe: this instance has no session ledger.",
+            );
             return;
         };
         let Some(watch_rx) = self.changeset_watch.get() else {
+            warn!("changeset draft request: changeset watch not yet armed");
+            Self::send_changeset_draft_error(
+                &self.control_tx,
+                request,
+                "The changeset hasn't been composed yet — try again in a moment.",
+            );
             return;
         };
         let frame = watch_rx.borrow().clone();
         let Ok(snapshot) = serde_json::from_slice::<tugcast_core::types::WorkspacesChangesetSnapshot>(
             &frame.payload,
         ) else {
-            return; // the initial empty frame, or a decode miss
+            // The initial empty frame, or a decode miss.
+            warn!("changeset draft request: changeset snapshot did not decode");
+            Self::send_changeset_draft_error(
+                &self.control_tx,
+                request,
+                "The changeset hasn't been composed yet — try again in a moment.",
+            );
+            return;
         };
 
         let resolver = self.session_resolver();
 
-        let matched = crate::feeds::draft_engine::spawn_on_demand_draft(
+        // The engine answers its own miss, naming the owner it could not place
+        // ([B04]) — so there is nothing to add here and a second frame would
+        // only overwrite the better sentence with a vaguer one.
+        crate::feeds::draft_engine::spawn_on_demand_draft(
             self.control_tx.clone(),
             ledger,
             Arc::clone(&self.registry),
@@ -5723,9 +5759,6 @@ impl AgentSupervisor {
             &request.owner_id,
             request.force,
         );
-        if !matched {
-            Self::send_changeset_draft_error(&self.control_tx, request, "nothing to generate");
-        }
     }
 
     /// Handle a `changeset_draft_cancel` CONTROL request ([P06]): the user
@@ -13506,7 +13539,13 @@ mod tests {
         let body: serde_json::Value = serde_json::from_slice(&frame.payload).unwrap();
         assert_eq!(body["action"], "changeset_draft_state");
         assert_eq!(body["state"], "error");
-        assert_eq!(body["detail"], "nothing to generate");
+        // The detail names the owner that could not be placed, which is the
+        // whole of what a rotated card needs to see ([B04]).
+        assert_eq!(
+            body["detail"],
+            crate::feeds::draft_engine::unmatched_owner_detail("s1")
+        );
+        assert_eq!(body["owner_id"], "s1");
     }
 
     /// A cancel with no in-flight generation still broadcasts the terminal

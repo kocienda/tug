@@ -12,9 +12,12 @@ import { describe, it, expect } from "bun:test";
 import {
   deriveChangesRouteSnapshot,
   draftDrifted,
+  ChangesRouteController,
   type ChangesRouteBinding,
 } from "@/lib/changes-route-controller";
+import type { ChangesetAllStore } from "@/lib/changeset-all-store";
 import type { WorkspacesChangesetSnapshot } from "@/lib/changeset-types";
+import { sessionLineStore } from "@/lib/session-line-store";
 import golden from "@/__tests__/fixtures/workspaces-changeset-snapshot.golden.json";
 
 const DATA = golden as WorkspacesChangesetSnapshot;
@@ -139,5 +142,142 @@ describe("draftDrifted", () => {
     // No draft, no drift.
     expect(draftDrifted({ ...entry!, draft: undefined })).toBe(false);
     expect(draftDrifted(null)).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The request identity ([B01], [B02])
+// ---------------------------------------------------------------------------
+
+/**
+ * The card's binding id after a rotation: a demoted segment of the line the
+ * server now seats elsewhere. This is the shape of the incident — the display
+ * resolved through the line, and the requests did not.
+ */
+const RETIRED_SEGMENT = "sess-0197a2b4-c8d1-7e02-9f3a-000000000000";
+const LINE = "line-8530e2a8-ba99-4151-99bf-84fc9fe5b7ca";
+const SEAT = "sess-0197a2b4-c8d1-7e02-9f3a-b5c6d7e8f901";
+
+/** The fixture with the session entry seated on `SEAT` and carrying `LINE`. */
+function rotatedData(): WorkspacesChangesetSnapshot {
+  return {
+    ...DATA,
+    projects: DATA.projects.map((project) =>
+      project.workspace_key !== BINDING.workspaceKey
+        ? project
+        : {
+            ...project,
+            changesets: project.changesets.map((changeset) =>
+              changeset.kind === "session"
+                ? { ...changeset, owner_id: SEAT, line_id: LINE }
+                : changeset,
+            ),
+          },
+    ),
+  };
+}
+
+/**
+ * A minimal stand-in for the app-level aggregate store. `publish` swaps the
+ * snapshot and fires the listeners, which is the same path a CHANGESET_ALL
+ * frame takes — so a test that moves the seat exercises the controller's real
+ * recompute rather than a hook that exists only for tests.
+ */
+function stubAllStore(initial: WorkspacesChangesetSnapshot): {
+  store: ChangesetAllStore;
+  publish: (next: WorkspacesChangesetSnapshot) => void;
+} {
+  let data = initial;
+  const listeners = new Set<() => void>();
+  const store = {
+    getSnapshot: () => data,
+    subscribe: (listener: () => void) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+  } as unknown as ChangesetAllStore;
+  return {
+    store,
+    publish: (next) => {
+      data = next;
+      for (const listener of [...listeners]) listener();
+    },
+  };
+}
+
+describe("ChangesRouteController.requestOwnerId", () => {
+  it("is the displayed entry's owner_id when that differs from the binding", () => {
+    // The card is bound to a segment the line has demoted; the server keys the
+    // entry by the line's current seat. `lineOf` is what lets the display find
+    // it, and the request identity must land on the same entry.
+    sessionLineStore.bind(RETIRED_SEGMENT, LINE);
+    const controller = new ChangesRouteController(
+      { ...BINDING, tugSessionId: RETIRED_SEGMENT },
+      stubAllStore(rotatedData()).store,
+    );
+
+    expect(controller.getSnapshot().entry?.owner_id).toBe(SEAT);
+    expect(controller.requestOwnerId()).toBe(SEAT);
+    // The binding id is still what the card was constructed with — the fix is
+    // that it is no longer what gets sent.
+    expect(controller.tugSessionId).toBe(RETIRED_SEGMENT);
+    expect(controller.requestOwnerId()).not.toBe(controller.tugSessionId);
+
+    controller.dispose();
+  });
+
+  it("falls back to the binding id when no entry resolved", () => {
+    // Nothing in the aggregate belongs to this card, so there is no entry to
+    // read an owner off — the binding id is all there is, and sending it is
+    // strictly better than sending nothing ([B01]).
+    const controller = new ChangesRouteController(
+      { ...BINDING, tugSessionId: "sess-nobody-knows-me" },
+      stubAllStore(DATA).store,
+    );
+
+    expect(controller.getSnapshot().entry).toBeNull();
+    expect(controller.requestOwnerId()).toBe("sess-nobody-knows-me");
+
+    controller.dispose();
+  });
+
+  it("is the binding id when the card is seated on its own entry", () => {
+    // The unrotated case must be unchanged: one reading of identity means the
+    // same answer display and request alike, not a different one.
+    const controller = new ChangesRouteController(
+      BINDING,
+      stubAllStore(DATA).store,
+    );
+
+    expect(controller.requestOwnerId()).toBe(BINDING.tugSessionId);
+
+    controller.dispose();
+  });
+
+  it("is a derivation, not a value frozen at construction ([B02])", () => {
+    // The seat can move while the card is alive — that is what a rotation is.
+    // A request identity read once in the constructor would be the same defect
+    // one rotation along, so the store's snapshot is what it reads, every time.
+    // Its own segment id, so the module-scope line store carries nothing from
+    // the case above into this one.
+    const segment = "sess-0197a2b4-c8d1-7e02-9f3a-111111111111";
+    const all = stubAllStore(DATA);
+    const controller = new ChangesRouteController(
+      { ...BINDING, tugSessionId: segment },
+      all.store,
+    );
+
+    // Before the line is known, nothing resolves and the binding id stands.
+    expect(controller.requestOwnerId()).toBe(segment);
+
+    // The rotation lands: the aggregate re-keys the entry and the line pair
+    // arrives. The controller recomputes and the request identity moves with
+    // the display, without the card being rebuilt.
+    sessionLineStore.bind(segment, LINE);
+    all.publish(rotatedData());
+
+    expect(controller.requestOwnerId()).toBe(SEAT);
+
+    controller.dispose();
   });
 });

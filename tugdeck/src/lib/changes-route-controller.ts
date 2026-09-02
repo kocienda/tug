@@ -22,11 +22,21 @@
  * entries, and the unattributed bucket.
  *
  * The commit and draft triggers are pass-throughs to the shipping app-level
- * verb / draft stores keyed by one identity (`entryKey` /
- * `(workspaceKey, "session", tugSessionId)`), so the view and the entry read
- * the same round-trip state. Draft addressing uses `workspaceKey` — the
- * registry's canonical spelling ([L29]) — never `projectDir`, which is the
- * raw path the card was bound with and is for display and file links only.
+ * verb / draft stores, and the two keys they use are different in kind.
+ *
+ * `entryKey` is a **client-local** correlation key and never leaves the deck:
+ * the verb store holds it as the *value* of in-flight maps keyed by
+ * `project_dir`, and every frame it sends addresses the server by
+ * `project_dir` plus a separate `session_id`. It must therefore stay stable
+ * for the card's whole life — a key that moved mid-flight would strand a
+ * pending round trip under the old one while the notice controllers watched
+ * the new, which is a silence in the same class as the one below.
+ *
+ * The identity that *does* reach the server is {@link
+ * ChangesRouteController.requestOwnerId}, derived at call time from the
+ * resolved entry. Draft addressing uses `workspaceKey` — the registry's
+ * canonical spelling ([L29]) — never `projectDir`, which is the raw path the
+ * card was bound with and is for display and file links only.
  *
  * @module lib/changes-route-controller
  */
@@ -205,7 +215,13 @@ export class ChangesRouteController {
   readonly tugSessionId: string;
   readonly workspaceKey: string;
   readonly projectDir: string;
-  /** Verb-store commit key ([P07]) — also the draft/commit correlation id. */
+  /**
+   * Verb-store correlation key ([P07]) — **client-local, and deliberately
+   * frozen at construction**. It is never serialized: the verb store files it
+   * as the value of a `project_dir`-keyed in-flight map, so its only job is to
+   * be the same string on the send and on the reply. The identity the server
+   * is addressed by is {@link requestOwnerId}, which is a different question.
+   */
   readonly entryKey: string;
   /** Draft-store owner kind for this entry. */
   readonly draftOwnerKind = "session";
@@ -265,6 +281,27 @@ export class ChangesRouteController {
   }
 
   /**
+   * The identity every **server-bound** request from this card carries: the
+   * resolved entry's `owner_id`, falling back to the binding id only when no
+   * entry resolved ([B01]).
+   *
+   * The card's `tugSessionId` is frozen at bind time, but a session id rotates
+   * — compaction, rewind, respawn — and the server keys a changeset entry by
+   * the line's current **seat**. `deriveChangesRouteSnapshot` already resolves
+   * the entry line-first, so the entry in hand is the one the server knows
+   * about; its `owner_id` is the id the server will match. Sending the binding
+   * id instead addresses a demoted segment, and the server's answer to an
+   * owner it cannot place is to do nothing at all — a draft request that never
+   * runs, a draft row written where nothing reads it.
+   *
+   * **Derived at call time, never cached.** A value read once in the
+   * constructor is the same defect one rotation along ([B02]).
+   */
+  requestOwnerId(): string {
+    return this._snapshot.entry?.owner_id ?? this.tugSessionId;
+  }
+
+  /**
    * Commit the current selection with `message` via the app-level verb store
    * ([P07]). No-op when the selection is empty or no store is attached.
    */
@@ -298,13 +335,15 @@ export class ChangesRouteController {
     // `Tug-Session:` trailer ([P08], Spec S01). Sourced from the CHANGESET
     // entry; absent an entry (an unattributed-only commit), the id still
     // resolves from the binding and the backend simply omits the trailer.
-    const entry = this._snapshot.entry;
     getChangesetVerbStore()?.commit(
       this.entryKey,
       this.workspaceKey,
       files,
       message,
-      { name: entry?.display_name, id: entry?.owner_id ?? this.tugSessionId },
+      {
+        name: this._snapshot.entry?.display_name,
+        id: this.requestOwnerId(),
+      },
       Object.keys(hunks).length > 0 ? hunks : undefined,
     );
   }
@@ -363,7 +402,7 @@ export class ChangesRouteController {
     getChangesetDraftStore()?.setDraft(
       this.workspaceKey,
       this.draftOwnerKind,
-      this.tugSessionId,
+      this.requestOwnerId(),
       { selection },
     );
   }
@@ -381,7 +420,7 @@ export class ChangesRouteController {
     getChangesetVerbStore()?.claim(
       this.entryKey,
       this.workspaceKey,
-      this.tugSessionId,
+      this.requestOwnerId(),
       paths,
     );
   }
@@ -399,7 +438,7 @@ export class ChangesRouteController {
     getChangesetVerbStore()?.disclaim(
       this.entryKey,
       this.workspaceKey,
-      this.tugSessionId,
+      this.requestOwnerId(),
       paths,
     );
   }
@@ -421,7 +460,7 @@ export class ChangesRouteController {
     getChangesetDraftStore()?.requestDraft(
       this.workspaceKey,
       this.draftOwnerKind,
-      this.tugSessionId,
+      this.requestOwnerId(),
       force,
     );
   }

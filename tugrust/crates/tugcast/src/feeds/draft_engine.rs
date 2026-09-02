@@ -124,8 +124,22 @@ struct EngineDeps {
 /// eligible entry matches, spawn its generation on a detached task
 /// (regenerating unconditionally — no fingerprint gate). Returns IMMEDIATELY:
 /// `true` when a generation was spawned, `false` when no eligible entry matched
-/// (nothing to draft). Does NOT await the scribe run — the caller is the
+/// — and on that miss it has already answered the client, so the caller adds
+/// nothing. Does NOT await the scribe run — the caller is the
 /// router's per-client socket loop, which must not park (R02, [P03]).
+///
+/// **An owner this snapshot has no entry for is answered, never dropped**
+/// ([L31], [B04]). `owner_id` is the deck's addressing, and a session id
+/// rotates — compaction, rewind, respawn — while the aggregate keys a
+/// changeset entry by the line's current seat. A card that addressed a
+/// demoted segment used to get a bare `false` from here: no state, no log,
+/// and an Auto-Message button that did nothing at all, forever, over a
+/// changeset the same card was displaying correctly. So the miss now
+/// broadcasts the `error` state the engine already sends for every other
+/// failure and `warn!`s the owner it could not place. `error` is deliberately
+/// not a new state word: a deck that predates this change renders it exactly
+/// as it renders any other draft failure, which is a degrade rather than a
+/// refusal.
 ///
 /// [P03] edited gate: once a human has touched the draft (`edited=1`), a
 /// non-`force` request never overwrites it — the entry replies `ready`
@@ -160,6 +174,21 @@ pub fn spawn_on_demand_draft(
             && p.key.owner_id == owner_id
             && p.key.workspace_key == workspace_key
     }) else {
+        warn!(
+            workspace_key,
+            owner_kind, owner_id, "changeset draft request: no eligible entry for this owner"
+        );
+        // Echo the owner the client asked under — that is the key its overlay
+        // is filed against, and an answer addressed anywhere else is the same
+        // silence in a different costume. `project_dir` is unused by
+        // `send_state`, which puts only the three identity fields on the wire.
+        let key = EntryKey {
+            workspace_key: workspace_key.to_string(),
+            project_dir: String::new(),
+            owner_kind: owner_kind.to_string(),
+            owner_id: owner_id.to_string(),
+        };
+        send_state(&deps, &key, "error", Some(&unmatched_owner_detail(owner_id)));
         return false;
     };
     let key = entry.key;
@@ -646,6 +675,15 @@ async fn git_output(dir: &Path, args: &[&str]) -> Option<String> {
     } else {
         None
     }
+}
+
+/// The sentence the shade shows when a draft request named an owner the
+/// aggregate has no entry for. It says the scribe was never reached — the
+/// generation did not fail, it never started — and it names the id, because
+/// the id is the whole of what went wrong and a reader with it in hand can
+/// tell a rotated card from a genuinely empty changeset.
+pub(crate) fn unmatched_owner_detail(owner_id: &str) -> String {
+    format!("Couldn't reach the scribe: no changeset is filed under this card's session ({owner_id}).")
 }
 
 fn send_state(deps: &EngineDeps, key: &EntryKey, state: &str, detail: Option<&str>) {

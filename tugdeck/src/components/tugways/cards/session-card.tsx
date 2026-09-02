@@ -199,6 +199,7 @@ import { tugDevLogStore } from "@/lib/tug-dev-log-store/tug-dev-log-store";
 import { createStagedLanding, type StagedLanding } from "./staged-landing";
 import { LandingNoticeController } from "./landing-notice-controller";
 import { DiscardErrorNoticeController } from "./discard-error-notice-controller";
+import { DraftErrorNoticeController } from "./draft-error-notice-controller";
 import { ArcBindErrorNoticeController } from "./arc-bind-error-notice-controller";
 import { ArcReplayNoticeController } from "./arc-replay-notice-controller";
 import { deriveColdRestoreActive } from "./session-card-restore-gate";
@@ -5128,6 +5129,7 @@ export function SessionCardBody({
               entryKey={changesController.entryKey}
             />
             <ClaimErrorNoticeController entryKey={changesController.entryKey} />
+            <DraftErrorNoticeController changesController={changesController} />
             {boundSessionId !== null ? (
               <ArcBindErrorNoticeController tugSessionId={boundSessionId} />
             ) : null}

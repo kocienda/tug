@@ -202,11 +202,17 @@ export class CommitModeController implements LandingMode {
     // draft frame ([L29]). `changesController.projectDir` is the raw path the
     // card was bound with and can be any spelling of the same directory; it is
     // not an identity and is never used as one here.
+    //
+    // The owner half is `requestOwnerId()` for the same reason the writes use
+    // it: the server stamps every `changeset_draft_state` / `_delta` frame
+    // with the owner it matched, and this store files the overlay under that
+    // echoed id. Reading under the card's frozen binding id would look up a
+    // key no frame will ever land on, so a draft would stream to nowhere.
     const overlay =
       draftStore?.overlay(
         changesController.workspaceKey,
         "session",
-        changesController.tugSessionId,
+        changesController.requestOwnerId(),
       ) ?? null;
     const draftPhase: DraftOverlayPhase = overlay?.phase ?? "idle";
     const persistedMessage = changes.entry?.draft?.message ?? "";
@@ -284,7 +290,7 @@ export class CommitModeController implements LandingMode {
       getChangesetDraftStore()?.setDraft(
         this.deps.changesController.workspaceKey,
         "session",
-        this.deps.changesController.tugSessionId,
+        this.deps.changesController.requestOwnerId(),
         { message: seed, edited: true },
       );
     }
@@ -344,7 +350,7 @@ export class CommitModeController implements LandingMode {
     getChangesetDraftStore()?.setDraft(
       this.deps.changesController.workspaceKey,
       "session",
-      this.deps.changesController.tugSessionId,
+      this.deps.changesController.requestOwnerId(),
       { message: text, edited: true },
     );
   }
@@ -364,7 +370,10 @@ export class CommitModeController implements LandingMode {
     getChangesetDraftStore()?.cancelDraft(
       changesController.workspaceKey,
       "session",
-      changesController.tugSessionId,
+      // The same derivation the request went out under. The engine registers
+      // a generation by the owner it matched, so a cancel naming any other id
+      // aborts nothing and the scribe streams on through the user's Escape.
+      changesController.requestOwnerId(),
     );
   }
 
@@ -471,7 +480,7 @@ export class CommitModeController implements LandingMode {
         getChangesetDraftStore()?.setDraft(
           changesController.workspaceKey,
           "session",
-          changesController.tugSessionId,
+          changesController.requestOwnerId(),
           { clear: true },
         );
         this.exit();
