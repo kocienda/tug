@@ -945,3 +945,152 @@ disagrees with the code you just read, measure the machine.** One
 `elementFromPoint` settled the `tug-sheet` red; one `strings` would have
 settled W6's false red; one `ps` settled the stage kill after two runs of
 inference had not.
+
+---
+
+## Part XII — W8 as landed, and six things the brief did not anticipate
+
+**W8 landed 2026-09-01** from a main-lane session, as the turn-boundary
+workstream: make the course's most load-bearing discipline structural rather
+than prose. The incident it answers is the course machinery's first live run
+(`lens-retirement`), where the implement stage walked the first boundary
+perfectly — `step start 1`, work, `tugtool dash commit` (`999353ca1`),
+`step done 1` — and then, instead of ending its turn, kept working straight
+into step 2. Both the skill and the wheel's opening prompt command the
+boundary; the stage rolled through both.
+
+All four tasks are landed. Six facts did not survive contact with the code, and
+two of them are limits a later reader should know before trusting this part's
+wording.
+
+**1. The quiet-line mechanism already existed, and it is the shell-exchange
+ink row rather than anything named "quiet line".** Task 3 asks to look for one
+first. There is no small-system-line renderer in the transcript and no generic
+notice frame; what there is, is the mechanism `/commit`, `/dash-join`,
+`/dash-discard` and `/dash-arc` all land their receipts through — a durable
+`shell_exchanges` row written by `record_landing_receipt`, keyed to the
+**line** so a rotation carries it, plus one unsolicited CONTROL frame so the
+card paints its live copy now instead of at the next restore ([D111], [P12]).
+A dash gesture is exactly that shape, so `dash_note` is `arc_receipt`'s
+sibling, and the row's command is the verb **as it was typed**
+(`dash step demo done 1`) with the sentence as its output — which makes the row
+read as the `$` ink of somebody having run it, because that is what happened.
+
+**One difference, and it is the whole of the deck-side work.** `arc_receipt` is
+a single value per session: an arc ends once. A run's gestures are a
+*sequence*, dozens of them, every one meant to be read. So the store
+accumulates them under its own monotonic `seq` — not under `receipt_id`, which
+is `null` whenever no shell ledger is configured — and each card seeds its
+watermark at mount, so a card that opens mid-run appends only what arrives from
+there and lets its restore supply the rest.
+
+**2. The gate could not be built out of the existing hook alone, for two
+reasons the brief names as one.** The plugin's `PreToolUse` hook matched only
+`Skill` and `Bash`, so `Edit`/`Write` reached no gate at all; `hooks.json`
+grows a third matcher. And `tugtool` is *auto-approved by prefix* in that hook
+— which is right for a CLI whose every verb prints its own receipt, and wrong
+for `dash step start` after a boundary. The boundary check therefore runs
+**before** the whole existing match, and is the one rule here that outranks the
+prefix approval and the change grammar alike. A command the grammar already
+refuses now earns the boundary's refusal instead, because ending the turn
+settles both and the other sentence would send the reader to `tugtool file
+edit`.
+
+**3. "Repo write" is placed relative to the call's own `cwd`, and the obvious
+spelling is wrong on this platform.** The first cut listed scratch roots —
+`/tmp`, `/var/folders` — and that fails immediately in the test suite, because
+macOS puts every `tempfile::tempdir()` under `/var/folders`, which is also
+where a fixture's whole checkout lives. What the boundary means by "the work"
+is "inside the tree this call is being made in", which is one comparison
+against `cwd` with nothing to keep current, plus a `target/` component check.
+A path that cannot be placed at all — relative, with no `cwd` — is not a repo
+write, which is the open direction.
+
+**4. The gate needed a cheap pre-filter, or every card in the app pays for the
+course.** The ask is a localhost round trip, and without a filter it happens on
+every `Edit` in every Session card to be told that nothing is being paced. A
+course stage's claude is spawned with `TUG_DASH_COURSE` and a hook is claude's
+own child, so the variable's absence is a free "not a course stage". It is
+explicitly a filter and not the answer — the variable is frozen at spawn like
+every other and can outlive the course it names, so the server is still asked
+and its `on_course` still decides. **The general shape, and it is [P01]'s in a
+second key:** a spawn-time variable may cheapen a question, never answer one.
+
+**5. A unit test of the gate would have asked the developer's own card about
+the developer's own turn.** Part V item 5 records the CLI-test version of this
+hazard — a spawned `tugtool` reaching the real registry — and `common::tugtool`
+closes it for spawns. This is the same hazard met *in process*: `pre_tool_use`
+called from `cargo nextest` reads the ambient `TUG_SESSION_ID` and walks the
+real instance registry. The fix is that the boundary's one I/O call is a
+parameter (`pre_tool_use_with`), the units hand in an answer, and the round
+trip is driven only from `tests/turn_boundary_cli.rs` against a stand-in
+tugcast. **A source-scan guard for in-process reads does not exist and would be
+the class-closure**, exactly as W2 item 5's CLI-spawn guard still would be.
+
+**6. `at0168`'s `maker.lens` red was never Lens residue reappearing — the
+previous green was a stale bundle.** The `history:` line reads *last green
+`ea9abd3cc`*, the commit immediately before this workstream, which reads as a
+regression W8 caused. It is not: `maker.lens` occurs in exactly one place in
+the repository, `at0168-menu-structure.test.ts:172`'s contract list, and
+nowhere in `tugdeck/` or `tugapp/` at all. The bundle that produced the last
+green predated the Lens breakout; `app-test-build` rebuilt it, and the test met
+the app as it now is. **Part IX item 11's rule wants a companion clause:**
+check the build before diagnosing the machine — *and* before believing a
+`history:` line's last green, which dates a recorded run rather than a
+verified binary.
+
+### The gate's behaviour, in full
+
+| calling session | course | step closed this turn | server | verdict |
+|---|---|---|---|---|
+| a course stage | live | yes | new | **deny**, naming the step and the gesture |
+| a course stage | live | no | new | allow (no opinion) |
+| a course stage | live | yes | old (`unknown op`) | allow, one `systemMessage`, once per boot |
+| an ordinary card | none | — | any | allow — and **not asked**: no `TUG_DASH_COURSE` |
+| a course stage | stopped/done | — | new | allow — the server's `on_course` is `false` |
+| no `TUG_SESSION_ID` | — | — | any | allow — and **no socket opened** |
+| any | any | any | none running | allow |
+
+Read-only tools, `dash status`, `dash doctor`, `dash commit` and the draft verb
+are never gestures, so no row above can refuse them: the report of the step you
+just closed is not the next step's work.
+
+### What each gesture now shows on the card
+
+One `$`-route row per gesture, written by the verb, keyed to the caller's line:
+
+| gesture | row |
+|---|---|
+| `dash create` | `$ dash create <n>` — `<n>: dash created on tugdash/<n>` |
+| the run's declaration | `$ dash step <n> start i --through m` — `<n>: run declared through step m of N` |
+| `step start` | `$ dash step <n> start i` — `<n>: step i/N started` |
+| `step done` | `$ dash step <n> done i` — `<n>: step i/N closed (<sha>)` |
+| `step withdraw` | `$ dash step <n> withdraw i` — `<n>: step i/N withdrawn` |
+| `step reset` | `$ dash step <n> reset i` — `<n>: step i/N reset to pending` |
+| `step reopen` | `$ dash step <n> reopen i` — `<n>: step i/N reopened` |
+| `dash mark` | `$ dash mark <n> <stage>` — `<n>: marked <stage>` |
+| `dash commit` | `$ dash commit <n>` — `<n>: committed (<sha>)` |
+
+The run's declaration announces **once**, from the `step start` that actually
+wrote the `run-through` line — which is why `StepOutcome` grows `declared_run`
+beside `through`: the first answers "did this call declare a run", the second
+"which selection is in force", and only the first should draw a row.
+
+### What W8 deliberately left
+
+- **No app-test drives the note channel end to end.** The CLI test asserts the
+  `note` op is posted, the deck test asserts the frame becomes a row, and
+  nothing joins them through a real tugcast — the same "nothing joins them"
+  Part IX item 12 found was the whole finding, one channel over. The surfaces
+  are there for it (`at0216` covers shell-exchange ink, `at0482` covers ink by
+  line); the test is not written.
+- **An in-process source-scan guard for ambient-session reads** (item 5).
+- **A `dash doctor` reading of the boundary.** The doctor compares four
+  records; the turn's closed step is a fifth fact, in memory, and it has no
+  reader but the gate.
+- **The single-turn wedge** (Part VII item 3) is untouched and is *not* what
+  this workstream closes. The gate refuses a stage that closes a step and keeps
+  working; it cannot make a stage that has stopped working end its turn, because
+  only a model can end a turn. The clock is still the answer there.
+- **`at0168`'s `maker.lens` row** — pre-existing, item 6 above, and still the
+  Lens arc's call rather than the harness's.
