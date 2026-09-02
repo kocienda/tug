@@ -48,7 +48,7 @@ What the key buys is that two incarnations of a reused name are distinct: discar
 
 ### The card's quiet lines are the same rule, one layer up
 
-Every manipulation of the step list draws one line on the card bound to the dash — created, run declared, step started, closed, withdrawn, parked, reopened, `mark`, each round. **That line is a derived view of the dash-log, not an act any caller performs.** `tugcast` tails each open project's log and paints what it reads (`feeds/dash_notes.rs`), through the same server-authored channel the arc's own receipt uses.
+Every manipulation of the step list draws one line on the card bound to the dash — created, run declared, step started, closed, withdrawn, parked, reopened, `mark`, each round. **That line is a derived view of the dash-log, not an act any caller performs.** `tugcast` watches each project's log and paints what it reads (`feeds/dash_notes.rs`), through the same server-authored channel the arc's own receipt uses. Watches, not polls: the log lives under the data dir where no workspace watcher reaches it, so the observer arms one of its own, and a watch that cannot be armed logs loudly rather than falling back to a timer.
 
 The alternative — each verb posting its own announcement — was tried and is wrong twice. A post is a **second fallible write**, which is exactly the shape of Part II's "verbs succeed while achieving nothing": a row that moved and an announcement that did not is a gesture nothing anywhere knows was missed. And a post is an **act a caller performs**, so a caller can omit it — every new call site and every hand-run verb another chance to forget, which is the shape of the incident these lines exist because of.
 

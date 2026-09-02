@@ -1008,15 +1008,21 @@ must be written, never announced beside it.**
 Three consequences worth naming, because each is a cost the derived shape pays
 and the post did not:
 
-- **Observation is polled**, once a second per open project. The dash-log lives
-  under the data dir rather than a workspace root, so it reaches no watcher
-  this process runs — the same relationship `changeset_all`'s own dash-log
-  probe already has to the same file, and its docblock already says it: *the
-  event is real, only its observation is polled.*
-- **A restart paints nothing retroactively.** The byte cursor is seeded at the
-  file's current end, so the card's view of a run begins where the process did.
-  A persisted cursor that backfilled would paint a three-day-old gesture onto
-  whatever card is bound today, which is a worse wrong than a missing line.
+- **The observer arms its own watch, and there is no poll anywhere in it.** The
+  first cut ticked once a second per open project, on the grounds that
+  `changeset_all` already stats the same file on a timer — which was reasoning
+  from a neighbour rather than from the need. That neighbour wants a *bump*, and
+  a second of latency costs a bump nothing; a line on the card is the thing the
+  user is watching for. It is a `notify` watch on the projects directory now,
+  recursive, and a watch that cannot be armed logs at `error` and stops. There
+  is deliberately **no poll fallback**, because a fallback is how a poll becomes
+  permanent.
+- **A restart paints nothing retroactively**, and that falls out of a fact
+  rather than a trick. Each line carries a fixed-width UTC timestamp, so the
+  filter is a string compare against the moment the observer started; the byte
+  cursor is only what makes a line paint *once*. Seeding the cursor at the
+  file's end instead — the first cut again — would have swallowed the first
+  line of any project that opened after the process did.
 - **The sentence is rendered from the record, not echoed from an invocation.**
   The log does not keep which flags a verb carried, so the row's `$` command is
   a faithful rendering (`dash step demo done`) rather than a transcript. What
@@ -1137,10 +1143,10 @@ not visibility.
   that is not written. It is the same "nothing joins them" Part IX item 12
   found was the whole finding, one channel over, and the surfaces for it exist
   (`at0216` covers shell-exchange ink, `at0482` covers ink by line).
-- **The observation is polled, and a restart does not backfill.** Both are
-  named in item 1b as costs the derived shape pays. A persisted cursor would
-  close the second and open a worse hole — a stale gesture painted on today's
-  card — so it is a decision rather than a gap.
+- **A restart does not backfill**, per item 1b: a line written before the
+  observer started is not news. Backfilling would paint a three-day-old gesture
+  onto whatever card is bound today, which is a worse wrong than a missing
+  line, so it is a decision rather than a gap.
 - **An in-process source-scan guard for ambient-session reads** (item 5).
 - **A `dash doctor` reading of the boundary.** The doctor compares four
   records; the turn's closed step is a fifth fact, in memory, and it has no
@@ -1153,7 +1159,7 @@ not visibility.
   and deliberately: which *turn* a close happened in is not in the record and
   cannot be derived from it. The observer marks the same fact from the log as a
   **backstop**, so a report that never landed still reaches the gate a tick
-  late — late being the right failure, since the alternative is a gate open for
-  the whole turn.
+  late — one watch event, not one poll — and late is the right failure, since
+  the alternative is a gate open for the whole turn.
 - **`at0168`'s `maker.lens` row** — pre-existing, item 6 above, and still the
   Lens arc's call rather than the harness's.

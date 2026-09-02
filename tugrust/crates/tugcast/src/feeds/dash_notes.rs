@@ -30,18 +30,35 @@
 //!
 //! # How it observes
 //!
-//! By polling, and the poll is the same relationship `changeset_all`'s
-//! drafts-and-dash-log probe already has to the same file: **the event is
-//! real, only its observation is polled.** The dash-log lives under the data
-//! dir rather than under a workspace root, so it reaches no file watcher this
-//! process runs; a stat per open project per second is what stands in for one.
+//! **By watching, never by polling.** The dash-log lives under the data dir
+//! rather than under a workspace root, so no watcher this process already runs
+//! reaches it — `changeset_all`'s docblock says exactly that, and stats the
+//! file on a timer because a *bump* is all it needs. A line on the card is not
+//! a bump: it is the thing the user is watching for, and a second of latency
+//! bought by burning a syscall a second on every open project is a bad trade
+//! twice over.
 //!
-//! Each project's log carries a byte cursor, **seeded at the file's current
-//! end** the first time it is seen. So a restart paints nothing retroactively:
-//! the card's view of a run begins where this process did. The alternative —
-//! a persisted cursor that backfills — would paint a three-day-old gesture
-//! onto whatever card is bound today, which is a worse wrong than a missing
-//! line.
+//! So this arms its own `notify` watch on the projects directory, recursively,
+//! and the kernel says when a log grew. A watch that cannot be armed logs at
+//! `error` and the observer stops; there is deliberately **no poll fallback**,
+//! because a fallback is how a poll becomes permanent.
+//!
+//! # Which lines are news
+//!
+//! Two filters, and each closes a hole the other leaves open.
+//!
+//! A **byte cursor** per log, starting at zero, is what makes a line paint
+//! *once*: every wake reads only what was appended since the last one, and a
+//! line caught mid-write waits for its newline rather than arriving in halves.
+//!
+//! A **timestamp floor** at the observer's own start is what keeps the first
+//! wake from painting a project's entire history. The dash-log's own first
+//! field is a fixed-width UTC timestamp, so the comparison is a string compare
+//! against the moment this process began. That is also the whole of the
+//! restart story, and it falls out of a fact rather than a trick: a line
+//! written before this process started is not news, so a restart paints
+//! nothing retroactively and a project opened an hour later is on exactly the
+//! same footing as one open at boot.
 //!
 //! # What it paints on
 //!
@@ -55,21 +72,24 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use notify::Watcher;
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, warn};
+use tracing::{debug, error, info, warn};
 
 use super::agent_supervisor::AgentSupervisor;
 use super::workspace_registry::WorkspaceRegistry;
 use crate::session_ledger::SessionLedger;
 
-/// How often each open project's dash-log is stat-ed for growth.
-///
-/// A second, because the point is to watch a run *move*: a step opening and a
-/// round landing should reach the card while the reader is still looking at
-/// where they came from. The cost is one `metadata` call per open project per
-/// second, plus a short read only when the length actually grew — the same
-/// order as the 2-second probe `changeset_all` already runs over this file.
-const POLL: std::time::Duration = std::time::Duration::from_secs(1);
+/// The record every project keeps, and the one file name this watches for.
+const DASH_LOG: &str = "dash-log.md";
+
+/// The directory every project's dash-log lives under, created if absent so
+/// the watch has something to attach to before the first dash exists.
+fn logs_root() -> PathBuf {
+    let root = tugcore::instance::base_data_dir().join("projects");
+    let _ = std::fs::create_dir_all(&root);
+    root
+}
 
 /// What the observer needs to run.
 pub struct DashNotesContext {
@@ -79,44 +99,110 @@ pub struct DashNotesContext {
     pub cancel: CancellationToken,
 }
 
-/// Watch every open project's dash-log and paint each announceable line.
+/// Watch every project's dash-log and paint each announceable line.
 pub async fn run_dash_notes(ctx: DashNotesContext) {
+    let root = logs_root();
+    let (wake_tx, mut wake_rx) = tokio::sync::mpsc::channel::<()>(1);
+    // The callback runs on notify's own thread and must not block. `try_send`
+    // on a depth-1 channel is exactly the coalescing this wants: a burst of
+    // FSEvents leaves one pending wake, and a wake already pending is a wake
+    // this event is covered by.
+    let watcher = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
+        let Ok(event) = event else { return };
+        if event
+            .paths
+            .iter()
+            .any(|path| path.file_name().is_some_and(|name| name == DASH_LOG))
+        {
+            let _ = wake_tx.try_send(());
+        }
+    });
+    let mut watcher = match watcher {
+        Ok(watcher) => watcher,
+        Err(err) => {
+            error!(error = %err, "the dash-note observer could not create a watcher — the card will show no run progress");
+            return;
+        }
+    };
+    if let Err(err) = watcher.watch(&root, notify::RecursiveMode::Recursive) {
+        error!(dir = %root.display(), error = %err, "the dash-note observer could not watch the project state dirs — the card will show no run progress");
+        return;
+    }
+    info!(dir = %root.display(), "dash-note observer watching");
+
+    // `watcher` is held for the whole loop deliberately: dropping it
+    // unregisters the OS watch, and a watcher bound only long enough to call
+    // `watch` is the classic way to end up with no events and no error.
+    //
+    // Every line already on disk belongs to a run this process did not watch.
+    let floor = tugtool_core::session::now_iso8601();
     let mut cursors: HashMap<PathBuf, u64> = HashMap::new();
-    let mut ticker = tokio::time::interval(POLL);
-    ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+
     loop {
         tokio::select! {
             _ = ctx.cancel.cancelled() => {
                 debug!("dash-note observer shutting down");
                 return;
             }
-            _ = ticker.tick() => {}
-        }
-        for (root, _key) in ctx.registry.project_dirs() {
-            let path = tugtool_core::project_state_dir(&root).join("dash-log.md");
-            let fresh = match read_fresh_lines(&path, &mut cursors) {
-                Ok(lines) => lines,
-                Err(err) => {
-                    // A log that cannot be read is a log with nothing to say.
-                    // The cursor is left where it was, so a transient error
-                    // costs a tick rather than a run's worth of lines.
-                    debug!(path = %path.display(), error = %err, "dash-log unreadable");
-                    continue;
+            received = wake_rx.recv() => {
+                if received.is_none() {
+                    return;
                 }
-            };
-            for line in fresh {
-                announce_line(&ctx, &root, &line).await;
             }
         }
+        sweep(&ctx, &floor, &mut cursors).await;
     }
+}
+
+/// Read what every open project's log has grown by, and paint it.
+///
+/// The registry is enumerated per wake rather than watched, because a wake
+/// already means a log moved and the set of open projects is a handful of
+/// entries behind a mutex. A project the registry does not hold has no card to
+/// paint on, so its log is not read at all.
+async fn sweep(ctx: &DashNotesContext, floor: &str, cursors: &mut HashMap<PathBuf, u64>) {
+    for (root, _key) in ctx.registry.project_dirs() {
+        let path = tugtool_core::project_state_dir(&root).join(DASH_LOG);
+        let fresh = match read_fresh_lines(&path, cursors) {
+            Ok(lines) => lines,
+            Err(err) => {
+                // A log that cannot be read is a log with nothing to say. The
+                // cursor is left where it was, so a transient error costs a
+                // wake rather than a run's worth of lines.
+                debug!(path = %path.display(), error = %err, "dash-log unreadable");
+                continue;
+            }
+        };
+        for line in fresh {
+            if !is_news(&line, floor) {
+                continue;
+            }
+            announce_line(ctx, &root, &line).await;
+        }
+    }
+}
+
+/// Whether a dash-log line was written after this observer started.
+///
+/// The log's first field is a fixed-width UTC timestamp, so "after" is a
+/// string compare. A line whose shape this cannot read is **not** news: an
+/// unparseable line is one nothing else in the machine reads either, and
+/// painting it would be guessing.
+fn is_news(line: &str, floor: &str) -> bool {
+    tugdash_core::dash::split_log_line(line).is_some_and(|(timestamp, _, _, _)| timestamp >= floor)
 }
 
 /// The complete lines appended to `path` since this process last looked.
 ///
 /// The cursor advances only past bytes that ended in a newline, so a line
-/// caught mid-write is read whole on the next tick rather than split in two.
+/// caught mid-write is read whole on the next wake rather than split in two.
 /// A file that shrank was replaced rather than appended to — the cursor is
-/// reset to its end, which is the same answer as seeing it for the first time.
+/// reset to its end, because there is no telling which bytes moved.
+///
+/// A log seen for the first time reads from **zero**, and what keeps that from
+/// painting a whole history is the timestamp floor rather than a seeded
+/// cursor: a seed would swallow the first line of any project that opened
+/// after this process did.
 fn read_fresh_lines(
     path: &Path,
     cursors: &mut HashMap<PathBuf, u64>,
@@ -125,16 +211,12 @@ fn read_fresh_lines(
 
     let length = match std::fs::metadata(path) {
         Ok(meta) => meta.len(),
-        // No log yet. Nothing to seed and nothing to read: the first append
-        // creates it, and this arm sees it on the tick after.
+        // No log yet. The first append creates it, and creating it is itself
+        // an event this observer is watching for.
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
         Err(err) => return Err(err),
     };
-    let Some(&cursor) = cursors.get(path) else {
-        // Seeded at the end, never at zero — see the module docblock.
-        cursors.insert(path.to_path_buf(), length);
-        return Ok(Vec::new());
-    };
+    let cursor = cursors.get(path).copied().unwrap_or(0);
     if length < cursor {
         cursors.insert(path.to_path_buf(), length);
         return Ok(Vec::new());
@@ -201,8 +283,9 @@ async fn announce_line(ctx: &DashNotesContext, root: &Path, line: &str) {
         // **The record is the gate's backstop.** The close's own report to the
         // server (`POST /api/session {op:"step_closed"}`) is the timely path
         // and this is the one that cannot be skipped: a report that never
-        // landed still reaches the boundary here, a tick late. Late is the
-        // right failure — the gate would otherwise be open for the whole turn.
+        // landed still reaches the boundary here, one watch event late. Late
+        // is the right failure — the gate would otherwise be open for the
+        // whole turn.
         if let Some(step) = closed_step(marker, note) {
             ctx.supervisor
                 .mark_step_closed_this_turn(&session, step)
@@ -406,19 +489,22 @@ mod tests {
     }
 
     #[test]
-    fn the_cursor_seeds_at_the_end_and_then_reads_only_what_arrives() {
+    fn the_cursor_reads_from_zero_and_then_only_what_arrives() {
         let dir = tempfile::tempdir().expect("temp");
         let path = dir.path().join("dash-log.md");
-        std::fs::write(&path, "2026-09-01T00:00:00Z  demo  created  \n").expect("write");
+        std::fs::write(&path, "2026-09-01T00:00:00.000Z  demo  created  \n").expect("write");
         let mut cursors = HashMap::new();
 
-        // Seeded at the end: a restart paints nothing retroactively.
-        assert!(read_fresh_lines(&path, &mut cursors).unwrap().is_empty());
+        // A log seen for the first time is read whole. What keeps its history
+        // off the card is the timestamp floor, not the cursor — a seeded
+        // cursor would swallow the first line of a project opened later.
+        let first = read_fresh_lines(&path, &mut cursors).unwrap();
+        assert_eq!(first.len(), 1);
 
         std::fs::write(
             &path,
-            "2026-09-01T00:00:00Z  demo  created  \n\
-             2026-09-01T00:00:01Z  demo  step-start  1/7 The first step\n",
+            "2026-09-01T00:00:00.000Z  demo  created  \n\
+             2026-09-01T00:00:01.000Z  demo  step-start  1/7 The first step\n",
         )
         .expect("append");
         let fresh = read_fresh_lines(&path, &mut cursors).unwrap();
@@ -430,14 +516,34 @@ mod tests {
     }
 
     #[test]
-    fn a_line_caught_mid_write_is_read_whole_on_the_next_tick() {
+    fn only_lines_written_since_the_observer_started_are_news() {
+        let floor = "2026-09-01T12:00:00.000Z";
+        assert!(!is_news(
+            "2026-09-01T11:59:59.999Z  demo  step-done  1/7 abc1234",
+            floor
+        ));
+        assert!(is_news(
+            "2026-09-01T12:00:00.001Z  demo  step-done  1/7 abc1234",
+            floor
+        ));
+        // A restart reads the whole log and paints none of it, which is the
+        // whole of the restart story — a fact rather than a seeded cursor.
+        assert!(is_news("2026-09-01T12:00:00.000Z  demo  created  ", floor));
+        // A line whose shape cannot be read is not news: nothing else in the
+        // machine reads it either, and painting it would be guessing.
+        assert!(!is_news("not a dash-log line", floor));
+        assert!(!is_news("", floor));
+    }
+
+    #[test]
+    fn a_line_caught_mid_write_is_read_whole_on_the_next_wake() {
         let dir = tempfile::tempdir().expect("temp");
         let path = dir.path().join("dash-log.md");
         std::fs::write(&path, "").expect("write");
         let mut cursors = HashMap::new();
         assert!(read_fresh_lines(&path, &mut cursors).unwrap().is_empty());
 
-        std::fs::write(&path, "2026-09-01T00:00:01Z  demo  step-done  1/7").expect("half");
+        std::fs::write(&path, "2026-09-01T00:00:01.000Z  demo  step-done  1/7").expect("half");
         assert!(
             read_fresh_lines(&path, &mut cursors).unwrap().is_empty(),
             "bytes with no newline in them are half a line"
@@ -445,7 +551,7 @@ mod tests {
 
         std::fs::write(
             &path,
-            "2026-09-01T00:00:01Z  demo  step-done  1/7 abc1234\n",
+            "2026-09-01T00:00:01.000Z  demo  step-done  1/7 abc1234\n",
         )
         .expect("whole");
         let fresh = read_fresh_lines(&path, &mut cursors).unwrap();
@@ -454,12 +560,12 @@ mod tests {
     }
 
     #[test]
-    fn a_log_that_shrank_was_replaced_and_is_reseeded() {
+    fn a_log_that_shrank_was_replaced_and_the_cursor_follows_it() {
         let dir = tempfile::tempdir().expect("temp");
         let path = dir.path().join("dash-log.md");
-        std::fs::write(&path, "2026-09-01T00:00:00Z  demo  created  \n").expect("write");
+        std::fs::write(&path, "2026-09-01T00:00:00.000Z  demo  created  \n").expect("write");
         let mut cursors = HashMap::new();
-        assert!(read_fresh_lines(&path, &mut cursors).unwrap().is_empty());
+        assert_eq!(read_fresh_lines(&path, &mut cursors).unwrap().len(), 1);
 
         std::fs::write(&path, "").expect("truncate");
         assert!(read_fresh_lines(&path, &mut cursors).unwrap().is_empty());
@@ -467,14 +573,14 @@ mod tests {
     }
 
     #[test]
-    fn an_absent_log_is_neither_an_error_nor_a_seed() {
+    fn an_absent_log_is_not_an_error() {
         let dir = tempfile::tempdir().expect("temp");
         let path = dir.path().join("dash-log.md");
         let mut cursors = HashMap::new();
         assert!(read_fresh_lines(&path, &mut cursors).unwrap().is_empty());
         assert!(
             cursors.is_empty(),
-            "the first append creates the file, and is read on the tick after"
+            "the first append creates the file, and creating it is itself an event"
         );
     }
 

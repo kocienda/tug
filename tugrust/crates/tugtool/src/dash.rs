@@ -630,7 +630,7 @@ fn run_step(name: &str, action: StepAction, json: bool, quiet: bool) -> Result<(
     // The boundary fact the PreToolUse gate asks about, told to the server at
     // the moment it becomes true (W8 Task 2). Advisory: a report that does not
     // land leaves the gate where it was, and the dash-log observer marks the
-    // same fact a tick later from the record itself.
+    // same fact from the record itself, one watch event later.
     if mv.closed_a_step() {
         dash_course::report_step_closed(data.step);
     }
