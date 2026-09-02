@@ -9,7 +9,7 @@
       "status": "passed"
     },
     {
-      "event_count": 22,
+      "event_count": 21,
       "name": "test-02-longer-response-streaming",
       "runtime_ms": "{{i64}}",
       "status": "passed"
@@ -63,7 +63,7 @@
       "status": "passed"
     },
     {
-      "event_count": 27,
+      "event_count": 28,
       "name": "test-11-permission-deny-roundtrip",
       "runtime_ms": "{{i64}}",
       "status": "passed"
@@ -126,7 +126,7 @@
       "status": "skipped"
     },
     {
-      "event_count": 39,
+      "event_count": 52,
       "name": "test-21-glob-tool",
       "runtime_ms": "{{i64}}",
       "status": "passed"
@@ -144,7 +144,7 @@
       "status": "passed"
     },
     {
-      "event_count": 19,
+      "event_count": 18,
       "name": "test-24-at-file-references",
       "runtime_ms": "{{i64}}",
       "status": "passed"
@@ -157,7 +157,7 @@
       "status": "skipped"
     },
     {
-      "event_count": 31,
+      "event_count": 33,
       "name": "test-26-slash-dash",
       "runtime_ms": "{{i64}}",
       "status": "passed"
