@@ -237,7 +237,7 @@ describe.skipIf(!SHOULD_RUN)("AT0476: an interrupted arc says so on the card", (
         // recognized, which is the opposite of the claim. So the claim is
         // that it was recognized — the wheel-attributed identifier is the one
         // word only the arc-receipt block puts on a row.
-        expect(receipt).toContain("Dash Arc");
+        expect(receipt).toContain("Wheel");
         expect(receipt).toContain(DASH_NAME);
         // The receipt says how to pick the work back up — that is the third
         // column of every row of the doctrine table.

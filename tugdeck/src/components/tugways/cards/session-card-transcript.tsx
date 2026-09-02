@@ -197,6 +197,7 @@ import {
 import "./session-commit-receipt-block";
 import "./session-join-receipt-block";
 import "./session-arc-receipt-block";
+import "./session-dash-note-block";
 import { composeShellShareText } from "./shell-exchange-view";
 import { RefsResultBlock } from "./refs-result-block";
 import { composeRefsShareText, refsShareLabel } from "./refs-result-view";
@@ -290,9 +291,12 @@ const REFS_IDENTIFIER = "Refs";
  *  the base. The operation is named here, in the attribution, which frees the
  *  block header's verb slot for the sha (the commit's real name). */
 const GIT_IDENTIFIER = "Git Commit";
-/** Identifier for a wheel-attributed row — a dash arc's terminal receipt. The
- *  wheel is who ended it: no shell ran, and nothing landed on the base. */
-const ARC_IDENTIFIER = "Dash Arc";
+/** Identifier for a wheel-attributed row — an arc's terminal receipt or a
+ *  run's quiet line. The wheel is the actor both record: no shell ran, and
+ *  nothing landed on the base. Spelled as the actor's own name so the wheel
+ *  speaks with one voice — its prompts, its receipts, and the run's gestures
+ *  all carry the same identifier. */
+const ARC_IDENTIFIER = "Wheel";
 
 /**
  * Claude Code's canned replies to a `/compact` dispatch. Both are

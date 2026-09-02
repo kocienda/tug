@@ -763,11 +763,16 @@ export function bindDash(
   opts: DashFixtureOpts = {},
 ): void {
   // **The ledger row lags the engine.** `awaitEngineReady` answers for the
-  // engine, not for the row `record_spawn` writes, and a bind for a session
-  // no instance holds yet answers `unknown_session` — which is the CLI's
-  // "not mine, keep looking" and arrives as a hard failure once every
-  // instance has said it. So poll: the row is coming, it is simply not here
-  // on the first millisecond.
+  // engine, not for the row `record_spawn` writes, and the lag has two
+  // spellings. A bind for a session no instance holds yet answers
+  // `unknown_session` — the CLI's "not mine, keep looking", arriving as a
+  // hard failure once every instance has said it. And a bind that lands in
+  // the beat between the row being written and the row going live answers
+  // the corpse refusal — "no segment of its line is live" — which is a true
+  // sentence about a moment that is about to pass. Both are the same race,
+  // so poll on both: the live row is coming, it is simply not here on the
+  // first millisecond. Past the deadline either one is a real refusal and
+  // throws with the server's own sentence.
   const deadline = Date.now() + 20_000;
   for (;;) {
     const out = Bun.spawnSync([tugtoolPath(opts.binaryRoot ?? projectDir), "dash", "bind", name], {
@@ -776,7 +781,10 @@ export function bindDash(
     });
     if (out.exitCode === 0) return;
     const stderr = out.stderr.toString();
-    if (!stderr.includes("unknown_session") || Date.now() >= deadline) {
+    const transient =
+      stderr.includes("unknown_session") ||
+      stderr.includes("no segment of its line is live");
+    if (!transient || Date.now() >= deadline) {
       throw new Error(
         `dash bind ${name} failed\n  exit ${out.exitCode}\n  stderr: ${stderr.trim()}`,
       );
