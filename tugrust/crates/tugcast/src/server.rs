@@ -1068,7 +1068,9 @@ async fn session_handler(
                     .filter(|p| !p.is_empty())
                     .or(row_project)
                     .unwrap_or_default();
-                supervisor.record_dash_note(&live, &project_dir, &command, &note).await;
+                supervisor
+                    .record_dash_note(&live, &project_dir, &command, &note)
+                    .await;
                 (
                     StatusCode::OK,
                     axum::Json(serde_json::json!({ "status": "ok", "session_id": live })),
@@ -1077,7 +1079,10 @@ async fn session_handler(
             }
             "step_closed" => {
                 let Some(step) = req.step else {
-                    return err(StatusCode::BAD_REQUEST, "step_closed names the step it closed");
+                    return err(
+                        StatusCode::BAD_REQUEST,
+                        "step_closed names the step it closed",
+                    );
                 };
                 let recorded = supervisor.mark_step_closed_this_turn(&live, step).await;
                 (

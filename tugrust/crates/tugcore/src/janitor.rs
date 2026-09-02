@@ -168,6 +168,11 @@ pub const TMP_PREFIXES: &[TmpPrefix] = &[
     file("tugcast-prompt-cache-"),
     file("drift-differ-test-"),
     file("tuggram-files-positional-"),
+    // The PreToolUse gate's "the running instance predates the turn-boundary
+    // op" notice, said once per boot rather than on every edit. Sweeping it is
+    // correct: the notice returning after a sweep costs a line and points at
+    // the restart that would fix the skew for good.
+    file("tug-turn-boundary-skew-warned"),
     // Directories.
     dir("tug-probe-"),
     // `testTmpDir()` in the app-test harness.

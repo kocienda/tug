@@ -260,9 +260,7 @@ pub(crate) fn tug_gesture(command: &str) -> Option<Gesture> {
     // Skip the global flags a verb may be reached through.
     let mut rest = words[1..].iter().copied().filter(|w| !w.starts_with('-'));
     match (rest.next(), rest.next(), rest.next(), rest.next()) {
-        (Some("file"), Some(verb), _, _)
-            if matches!(verb, "edit" | "run" | "rm" | "mv" | "cp" | "probe") =>
-        {
+        (Some("file"), Some("edit" | "run" | "rm" | "mv" | "cp" | "probe"), _, _) => {
             (!words.contains(&"--preview")).then_some(Gesture::TugWrite)
         }
         // `dash step <name> start` — the dash's name is the address, and it
@@ -482,7 +480,9 @@ mod tests {
     fn the_refusal_names_the_step_the_gesture_and_the_way_out() {
         let refusal = boundary_refusal(Gesture::ToolWrite, 3);
         assert!(
-            refusal.contains("step 3 closed this turn — end the turn; the course prompts the next step"),
+            refusal.contains(
+                "step 3 closed this turn — end the turn; the course prompts the next step"
+            ),
             "{refusal}"
         );
         assert!(refusal.contains("This edit"), "{refusal}");
@@ -502,7 +502,10 @@ mod tests {
             })
         };
         assert_eq!(gesture_of(&write("src/main.rs")), Some(Gesture::ToolWrite));
-        assert_eq!(gesture_of(&write("/proj/src/main.rs")), Some(Gesture::ToolWrite));
+        assert_eq!(
+            gesture_of(&write("/proj/src/main.rs")),
+            Some(Gesture::ToolWrite)
+        );
         // Staging and building are not the next step's work.
         assert_eq!(gesture_of(&write("/elsewhere/scratch.txt")), None);
         assert_eq!(gesture_of(&write("target/debug/x")), None);
@@ -534,7 +537,10 @@ mod tests {
 
     #[test]
     fn the_cli_verbs_that_write_are_gestures_despite_the_prefix_approval() {
-        assert_eq!(gesture_of(&bash("tugtool file edit")), Some(Gesture::TugWrite));
+        assert_eq!(
+            gesture_of(&bash("tugtool file edit")),
+            Some(Gesture::TugWrite)
+        );
         assert_eq!(
             gesture_of(&bash("tugtool file run -- cargo fmt")),
             Some(Gesture::TugWrite)

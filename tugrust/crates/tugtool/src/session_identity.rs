@@ -171,7 +171,6 @@ pub(crate) fn resolve_soft(session: Option<&str>) -> Option<Resolved> {
     Some(ask_instance(&posted).unwrap_or_else(|_| Resolved::unresolved(posted)))
 }
 
-
 /// Ask the owning instance a session-addressed question **whose op resolves at
 /// its own door**, with the posted id filled in from this process's identity.
 ///

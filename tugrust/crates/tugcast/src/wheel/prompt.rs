@@ -96,6 +96,13 @@ fn looks_like_a_path(token: &str) -> bool {
 }
 
 /// What every implement ask tells a seated stage about its own pacing.
+///
+/// The clause is deliberately short, and it is no longer the only thing
+/// holding the boundary up: the step verbs say it again at the moment they
+/// move a row, and the PreToolUse gate refuses a repo write or a
+/// `dash step start` from a turn that has already closed a step. A stage
+/// rolled through this sentence and the skill's on the course machinery's
+/// first live run, which is what the machinery is for.
 const IMPLEMENT_ARC_CLAUSE: &str =
     " — under this arc, close one step and end your turn; the arc prompts you with the next";
 

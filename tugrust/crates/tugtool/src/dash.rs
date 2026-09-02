@@ -658,7 +658,10 @@ fn run_step(name: &str, action: StepAction, json: bool, quiet: bool) -> Result<(
         // The run is declared exactly once, inside the `step start` that opens
         // it, so its announcement rides that call and precedes the step's own.
         dash_course::announce(
-            &format!("dash step {} start {} --through {through}", data.dash, data.step),
+            &format!(
+                "dash step {} start {} --through {through}",
+                data.dash, data.step
+            ),
             &format!(
                 "{}: run declared through step {through} of {}",
                 data.dash, data.total
@@ -703,7 +706,10 @@ fn run_step(name: &str, action: StepAction, json: bool, quiet: bool) -> Result<(
         // where the turn boundary is enforced in words. Off a course the lines
         // stay plain: a person at a terminal needs no marching orders.
         if dash_course::under_a_course(name) {
-            println!("{}", dash_course::step_directive(data.step, mv, data.through));
+            println!(
+                "{}",
+                dash_course::step_directive(data.step, mv, data.through)
+            );
         }
     }
     // The row moved either way; what may not have happened is the claim.

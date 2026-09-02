@@ -7063,8 +7063,7 @@ impl AgentSupervisor {
     /// PreToolUse gate's one question.
     pub async fn step_closed_this_turn(&self, segment: &str) -> Option<u32> {
         let (_, entry) = self.card_entry_for_segment(segment).await?;
-        let closed = entry.lock().await.step_closed_this_turn;
-        closed
+        entry.lock().await.step_closed_this_turn
     }
 
     /// Announce one dash ledger gesture on `session`'s card as durable ink.
@@ -15686,9 +15685,6 @@ mod tests {
         assert!(entry.lock().await.is_quiet());
     }
 
-    /// A replayed transcript's historical `task_started` frames describe jobs
-    /// that died with the session that ran them. Folding them in would open
-    /// jobs nothing can ever close, leaving the dash permanently unjoinable.
     // ── the course's turn boundary (W8) ──────────────────────────────────────
 
     /// The one fact the PreToolUse hook cannot have: which turn a step was
@@ -15713,7 +15709,10 @@ mod tests {
         // no longer this turn's business, and the gate opens again.
         let entry = {
             let ledger = sup.ledger.lock().await;
-            ledger.get(&TugSessionId::new("sess-bound")).unwrap().clone()
+            ledger
+                .get(&TugSessionId::new("sess-bound"))
+                .unwrap()
+                .clone()
         };
         entry.lock().await.step_closed_this_turn = None;
         assert_eq!(sup.step_closed_this_turn("sess-bound").await, None);
@@ -15725,13 +15724,9 @@ mod tests {
     #[tokio::test]
     async fn a_rotated_segment_still_finds_the_card_it_runs_on() {
         let (sup, _state_rx, _meta_rx, _control_rx) = make_supervisor_with_store();
-        sup.handle_control(
-            "spawn_session",
-            &spawn_payload("card-rot", "sess-rot"),
-            10,
-        )
-        .await
-        .expect_handled();
+        sup.handle_control("spawn_session", &spawn_payload("card-rot", "sess-rot"), 10)
+            .await
+            .expect_handled();
         {
             let ledger = sup.ledger.lock().await;
             let entry = ledger.get(&TugSessionId::new("sess-rot")).unwrap().clone();
@@ -15751,6 +15746,9 @@ mod tests {
         assert_eq!(sup.step_closed_this_turn("nobody").await, None);
     }
 
+    /// A replayed transcript's historical `task_started` frames describe jobs
+    /// that died with the session that ran them. Folding them in would open
+    /// jobs nothing can ever close, leaving the dash permanently unjoinable.
     #[tokio::test]
     async fn a_wake_closes_the_job_whose_notification_woke_the_turn() {
         let (sup, _state_rx, _meta_rx, _control_rx) = make_supervisor_with_store();

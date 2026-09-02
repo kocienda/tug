@@ -124,7 +124,10 @@ pub(crate) fn step_directive(step: u32, mv: StepMove, through: Option<u32>) -> S
             } else {
                 format!("Step {step} closed.")
             };
-            format!("{what} End your turn now — {}", course_prompts(step, through))
+            format!(
+                "{what} End your turn now — {}",
+                course_prompts(step, through)
+            )
         }
     }
 }
@@ -273,7 +276,10 @@ mod tests {
         let line = step_directive(2, StepMove::Reset, Some(4));
         assert!(line.contains("parked back to pending"), "{line}");
         assert!(line.contains("End your turn now"), "{line}");
-        assert!(!line.contains("Steps 3"), "a park moves no frontier: {line}");
+        assert!(
+            !line.contains("Steps 3"),
+            "a park moves no frontier: {line}"
+        );
     }
 
     #[test]

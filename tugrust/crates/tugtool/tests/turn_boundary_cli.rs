@@ -332,7 +332,9 @@ fn an_old_server_degrades_open_and_is_not_even_asked_twice() {
         Some("deny"),
         "{stdout}"
     );
-    let asked = requests.recv_timeout(std::time::Duration::from_secs(10)).unwrap();
+    let asked = requests
+        .recv_timeout(std::time::Duration::from_secs(10))
+        .unwrap();
     assert_eq!(asked["op"], "turn_facts");
 }
 
@@ -463,7 +465,10 @@ fn a_step_verb_speaks_the_boundary_only_under_a_course() {
     let (ok, out) = run(&mut tug(&tmp, &root), &["dash", "run", "demo"]);
     assert!(ok, "{out}");
 
-    let (ok, out) = run(&mut tug(&tmp, &root), &["dash", "step", "demo", "done", "1"]);
+    let (ok, out) = run(
+        &mut tug(&tmp, &root),
+        &["dash", "step", "demo", "done", "1"],
+    );
     assert!(ok, "{out}");
     assert!(
         out.contains("Step 1 closed. End your turn now — the course prompts Step 2."),
@@ -480,7 +485,10 @@ fn a_step_verb_speaks_the_boundary_only_under_a_course() {
         "and an open says what the turn is for: {out}"
     );
 
-    let (ok, out) = run(&mut tug(&tmp, &root), &["dash", "step", "demo", "done", "2"]);
+    let (ok, out) = run(
+        &mut tug(&tmp, &root),
+        &["dash", "step", "demo", "done", "2"],
+    );
     assert!(ok, "{out}");
     assert!(
         out.contains("Step 2 closed. End your turn now — the course takes the run from here."),
@@ -502,7 +510,10 @@ fn a_step_verb_speaks_the_boundary_only_under_a_course() {
         }
     }
     assert!(
-        notes.contains(&("dash create demo".into(), "demo: dash created on tugdash/demo".into())),
+        notes.contains(&(
+            "dash create demo".into(),
+            "demo: dash created on tugdash/demo".into()
+        )),
         "{notes:?}"
     );
     assert!(
@@ -513,12 +524,17 @@ fn a_step_verb_speaks_the_boundary_only_under_a_course() {
         "the run is declared once, by the start that declared it: {notes:?}"
     );
     assert!(
-        notes.contains(&("dash step demo start 1".into(), "demo: step 1/2 started".into())),
+        notes.contains(&(
+            "dash step demo start 1".into(),
+            "demo: step 1/2 started".into()
+        )),
         "{notes:?}"
     );
     assert!(
-        notes.iter().any(|(command, note)| command == "dash step demo done 1"
-            && note.starts_with("demo: step 1/2 closed (")),
+        notes
+            .iter()
+            .any(|(command, note)| command == "dash step demo done 1"
+                && note.starts_with("demo: step 1/2 closed (")),
         "a close names the round it recorded: {notes:?}"
     );
     assert!(
