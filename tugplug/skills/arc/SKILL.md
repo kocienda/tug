@@ -32,7 +32,7 @@ Everything downstream of the ledger is identical in the two: one step per turn, 
 
 `<name>` is alphanumeric + hyphens, 2+ chars, and everything after it is the instruction. There are no sub-verbs: joining is the `/arc-join` card verb, the readouts are `tugtool arc status|show|list`, and discard is a bare CLI call the user makes.
 
-**A bare `/arc <name>` that names an existing arc is a continuation.** Read what the arc already knows — `tugtool arc documents <name> --json` for its documents, `tugtool arc record <name> --json` for where it stands — say where it is, and offer to resume it with `tugtool arc run <name>`. Guessing "new idea" here starts a second arc beside the one they meant.
+**A bare `/arc <name>` that names an existing arc is a continuation.** Read what the arc already knows — `tugtool arc documents <name> --json` for its documents, `tugtool arc record <name> --json` for where it stands — and say where it is. Guessing "new idea" here starts a second arc beside the one they meant.
 
 ## The door
 
@@ -48,7 +48,9 @@ tugtool arc documents <name> --json   # which documents an arc has
 
 An arc with no documents directory is a **state, not an error**: the verb exits 0 saying every document is absent, which is where every new arc starts.
 
-**A stopped arc is the one thing that will never announce itself.** `tugtool arc record <name> --json` reports it; `data.arc.stopped` names the stage and the reason. Say both and offer the resume, which is the same verb — `tugtool arc run <name>` — because the documents hold the progress and a stage never re-runs work that landed.
+**A stopped arc is the one thing that will never announce itself.** `tugtool arc record <name> --json` reports it; `data.arc.stopped` names the stage and the reason. Say both, and stop there — the documents hold the progress and a stage never re-runs work that landed, so there is nothing to warn about.
+
+**Never offer the resume by naming a command.** A stopped arc's receipt carries its own **Resume** button, and a CLI verb typed into the transcript beside it is the implementation the button exists to hide. `tugtool arc run <name>` is the machine's way in and stays exactly that.
 
 **A lone argument that names an existing arc is a continuation, not a new idea.** Check a short argument against `tugtool arc list` before reading it as an instruction.
 

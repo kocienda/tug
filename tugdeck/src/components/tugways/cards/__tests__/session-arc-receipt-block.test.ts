@@ -13,6 +13,7 @@ import {
   arcReceiptFindParts,
   matchesArcReceipt,
   parseArcReceipt,
+  shouldOfferResume,
 } from "@/components/tugways/cards/session-arc-receipt-block";
 import { resolveCommandAttribution } from "@/components/tugways/cards/session-command-block-registry";
 import { sessionAtomLabel } from "@/components/tugways/tug-atom-ref";
@@ -29,10 +30,35 @@ const COMPLETE = [
 
 const STOPPED = [
   "arc stopped · foo · in review — the review ended without stamping the plan",
-  "resume with tugtool arc run foo",
   "opened on arc/foo-brief.md",
   "devise · opus · claude-a",
   "review · opus · claude-b",
+].join("\n");
+
+/** A stop that ends the arc: the one shape that still writes a tail. */
+const TERMINAL = [
+  "arc stopped · foo · in review — the arc was discarded",
+  "there is nothing to resume",
+].join("\n");
+
+/**
+ * A `NeedsDecision` stop: the stage's own question, written as the record's
+ * last note and read back beneath the header. It is the row's tail, and it is
+ * why that stop needs no answer affordance of its own.
+ */
+const ASKED = [
+  "arc stopped · foo · in implement — it met a decision that is yours to make, so it stopped rather than asking",
+  "Should the cache key include the locale?",
+].join("\n");
+
+/**
+ * A receipt already in a shell ledger, from before the resume became a
+ * button. These rows replay on every card reload and nothing rewrites them.
+ */
+const LEGACY = [
+  "arc stopped · foo · in review — the review ended without stamping the plan",
+  "resume with tugtool arc run foo",
+  "opened on arc/foo-brief.md",
 ].join("\n");
 
 function message(output: string): ShellExchangeMessage {
@@ -90,24 +116,100 @@ describe("parsing a completed arc", () => {
 });
 
 describe("parsing a stopped arc", () => {
-  it("reads the stage it stopped in, the reason, and what resumes it", () => {
+  it("reads the stage it stopped in and the reason, and names no command", () => {
     const parsed = parseArcReceipt(STOPPED);
     expect(parsed?.outcome).toBe("stopped");
     expect(parsed?.stop).toEqual({
       stage: "review",
       reason: "the review ended without stamping the plan",
-      next: "resume with tugtool arc run foo",
+      said: null,
+      terminal: false,
     });
     // The stages it did walk are still the record, and still parsed.
     expect(parsed?.stages).toHaveLength(2);
   });
 
-  it("takes the resume sentence and not the document line", () => {
-    // The resume line carries no marker of its own — it is simply whatever
-    // followed the header — so the two marked lines must not be eligible.
+  it("never reads a marked line as the stage's own words", () => {
+    // A stop's tail carries no marker of its own — it is simply whatever
+    // followed the header — so the marked lines must not be eligible.
     const parsed = parseArcReceipt(STOPPED);
-    expect(parsed?.stop?.next).not.toContain("opened on");
+    expect(parsed?.stop?.said).toBeNull();
     expect(parsed?.document).toBe("arc/foo-brief.md");
+  });
+
+  it("reads terminality off the frozen sentence, and off nothing else", () => {
+    // The one marker a restored transcript has: no wire field carries this.
+    expect(parseArcReceipt(TERMINAL)?.stop?.terminal).toBe(true);
+    expect(parseArcReceipt(TERMINAL)?.stop?.said).toBeNull();
+    expect(parseArcReceipt(STOPPED)?.stop?.terminal).toBe(false);
+  });
+
+  it("keeps the question a stage stopped over as the row's tail", () => {
+    const parsed = parseArcReceipt(ASKED);
+    expect(parsed?.stop?.said).toBe("Should the cache key include the locale?");
+    expect(parsed?.stop?.terminal).toBe(false);
+  });
+
+  it("drops the command an older receipt still carries", () => {
+    // The rows that predate the button replay forever, and the whole point of
+    // the change is that the user never sees the verb — so the line is
+    // recognized and spent, never mistaken for something the stage said.
+    const parsed = parseArcReceipt(LEGACY);
+    expect(parsed?.stop?.said).toBeNull();
+    expect(parsed?.document).toBe("arc/foo-brief.md");
+    expect(arcReceiptFindParts(message(LEGACY))).not.toContain(
+      "resume with tugtool arc run foo",
+    );
+  });
+});
+
+/**
+ * The gate, which is the whole of the offer's logic.
+ *
+ * Every fact it reads comes off the row: the parse, and the supersession the
+ * transcript derived from its own later rows. There is deliberately no fact
+ * about whether the arc is *still* stopped, because asking would mean reading
+ * the present into a row that reports a past — and the server is what makes
+ * that safe, since a resume on an arc carrying no stop binds and writes
+ * nothing.
+ *
+ * The press itself is driven in `at0476-arc-interruptions.test.ts`, against a
+ * real stopped arc on a real card: the deck has no React render harness, and a
+ * unit test of the button would be a test of a mock.
+ */
+describe("offering the resume", () => {
+  it("offers on a live, resumable stop", () => {
+    const parsed = parseArcReceipt(STOPPED);
+    expect(parsed).not.toBeNull();
+    expect(shouldOfferResume(parsed!, undefined)).toBe(true);
+    expect(shouldOfferResume(parsed!, false)).toBe(true);
+  });
+
+  it("does not offer on a stop a later row has answered", () => {
+    // The arc stopped, was resumed, and joined: the row is still the record,
+    // and a button on it would offer a way back into work that has landed.
+    const parsed = parseArcReceipt(STOPPED);
+    expect(shouldOfferResume(parsed!, true)).toBe(false);
+  });
+
+  it("does not offer on a stop that ended the arc", () => {
+    // A discard and a join leave nothing to pick up, and the frozen sentence
+    // is the only marker of that a restored transcript has.
+    const parsed = parseArcReceipt(TERMINAL);
+    expect(parsed?.stop?.terminal).toBe(true);
+    expect(shouldOfferResume(parsed!, undefined)).toBe(false);
+  });
+
+  it("does not offer on a completed arc", () => {
+    const parsed = parseArcReceipt(COMPLETE);
+    expect(shouldOfferResume(parsed!, undefined)).toBe(false);
+  });
+
+  it("still offers on an older receipt that carried the command", () => {
+    // The rows that predate the button are still live stops, and the line the
+    // parser now spends does not change what they are.
+    const parsed = parseArcReceipt(LEGACY);
+    expect(shouldOfferResume(parsed!, undefined)).toBe(true);
   });
 });
 
@@ -185,7 +287,6 @@ describe("a demoted stop receipt is still the same receipt", () => {
     const b = parseArcReceipt(STOPPED);
     expect(JSON.stringify(a)).toBe(JSON.stringify(b));
     expect(a?.stop?.reason).toBe("the review ended without stamping the plan");
-    expect(STOPPED).toContain("resume with tugtool arc run foo");
     // And the copy text a demoted block hands `BlockChrome` is the message
     // output verbatim — the same string, folded or not.
     expect(message(STOPPED).output).toBe(STOPPED);

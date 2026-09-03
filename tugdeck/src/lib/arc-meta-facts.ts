@@ -76,7 +76,10 @@ export function arcMetaFacts(entry: ArcChangesetEntry): ArcMetaFact[] {
     facts.push({
       key: "arc-stopped",
       label: stage !== undefined ? `arc stopped · ${stage}` : "arc stopped",
-      tooltip: `The arc stopped${stage !== undefined ? ` in its ${stage} stage` : ""}: ${arc.stopped}\nResume it with \`tugtool arc run ${entry.display_name}\`.`,
+      // The fact, and only the fact. It used to end by naming the CLI verb,
+      // which is implementation leaking into something the user reads — the
+      // resume is the **Resume** button on the stop's own receipt ([B09]).
+      tooltip: `The arc stopped${stage !== undefined ? ` in its ${stage} stage` : ""}: ${arc.stopped}`,
       tone: "danger",
     });
   }

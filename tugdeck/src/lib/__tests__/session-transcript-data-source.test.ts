@@ -762,14 +762,15 @@ describe("turnDepthFromEnd / rowIndexForTurnDepthFromEnd", () => {
 /**
  * The demotion pass, and the reason it is a pass at all.
  *
- * A stop receipt is frozen text — `resume with tugtool arc run <name>`, true
- * when the server wrote it and replayed forever afterwards. What answers it is
- * a fact the same transcript already carries, so the classification is pinned
- * here over the exact receipt headers the server writes; the shapes below are
- * the ones read out of a real `shell_exchanges.db`, not invented for the test.
+ * A stop receipt is frozen text — true when the server wrote it and replayed
+ * forever afterwards, offering a way back into work that may already have
+ * landed. What answers it is a fact the same transcript already carries, so
+ * the classification is pinned here over the exact receipt headers the server
+ * writes; the shapes below are the ones read out of a real
+ * `shell_exchanges.db`, not invented for the test.
  */
 const stopReceipt = (arc: string): string =>
-  `arc stopped · ${arc} · in audit — it went silent — no turn ended and no step closed before the arc's clock ran out\nresume with tugtool arc run ${arc}`;
+  `arc stopped · ${arc} · in audit — it went silent — no turn ended and no step closed before the arc's clock ran out`;
 
 const joinReceipt = (arc: string): string =>
   `joined fa1e96b414 · ${arc} → main · 18 round(s)\n${arc} landed`;

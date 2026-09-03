@@ -3970,6 +3970,16 @@ impl AgentSupervisor {
                 }
                 Err(e) => return ControlOutcome::Error(e),
             },
+            // Same payload as `bind_arc`, deliberately: a resume *is* a bind
+            // with the stop cleared first, so a second shape would be a
+            // second spelling of one fact.
+            "arc_resume" => match parse_bind_arc_payload(payload) {
+                Ok(parsed) => {
+                    self.do_arc_resume(&parsed).await;
+                    Ok(())
+                }
+                Err(e) => return ControlOutcome::Error(e),
+            },
             "unbind_arc" => match parse_tug_session_id_payload(payload) {
                 Ok(session_id) => {
                     self.do_unbind_arc(session_id.as_str()).await;
@@ -5905,6 +5915,83 @@ impl AgentSupervisor {
         }
     }
 
+    /// Handle an `arc_resume` CONTROL request: pick a stopped arc back up on
+    /// the card that sent it — the Resume button in a stop receipt's own row.
+    ///
+    /// Broadcasts **two** frames on success, because two things happened.
+    /// `bind_arc_ok` is the mating, and it is the same fact through either
+    /// door — a deck that learned about a bind from one door and not the
+    /// other wears a chip that disagrees with the ledger. `arc_resume_ok` is
+    /// the answer to the press, which is what lets the button stop being
+    /// pending. A refusal sends `arc_resume_err` only: nothing was mated, so
+    /// there is no mating to announce.
+    async fn do_arc_resume(&self, request: &BindArcPayload) {
+        let Some(ledger) = self.session_ledger.clone() else {
+            Self::send_arc_resume_err(
+                &self.control_tx,
+                &request.tug_session_id,
+                &request.arc,
+                "no_ledger",
+            );
+            return;
+        };
+        // The gateway ([L29]) — the same resolution `bind_arc` and
+        // `/api/arc` apply, so all three open the same repo for one spelling.
+        let project = crate::path_resolver::resolve_to_claude_form(std::path::Path::new(
+            &request.project_dir,
+        ));
+        let session = request.tug_session_id.clone();
+        let arc = request.arc.clone();
+        let outcome = tokio::task::spawn_blocking(move || {
+            crate::arc_api::arc_resume(&ledger, &project, &session, &arc)
+        })
+        .await;
+
+        match outcome {
+            Ok(crate::arc_api::ArcApiOutcome::Bound {
+                session_id,
+                arc_id,
+                arc_name,
+            }) => {
+                self.registry.changeset_all_bump().notify_one();
+                broadcast_bind_arc_ok(
+                    &self.control_tx,
+                    &session_id,
+                    &arc_id,
+                    &arc_name,
+                    None,
+                    None,
+                );
+                Self::send_arc_resume_ok(&self.control_tx, &session_id, &arc_name);
+            }
+            Ok(crate::arc_api::ArcApiOutcome::UnknownSession) => {
+                Self::send_arc_resume_err(
+                    &self.control_tx,
+                    &request.tug_session_id,
+                    &request.arc,
+                    "unknown_session",
+                );
+            }
+            Ok(crate::arc_api::ArcApiOutcome::Error(detail)) => {
+                Self::send_arc_resume_err(
+                    &self.control_tx,
+                    &request.tug_session_id,
+                    &request.arc,
+                    &detail,
+                );
+            }
+            Ok(_) => {}
+            Err(join_err) => {
+                Self::send_arc_resume_err(
+                    &self.control_tx,
+                    &request.tug_session_id,
+                    &request.arc,
+                    &format!("resume task failed: {join_err}"),
+                );
+            }
+        }
+    }
+
     /// Handle an `unbind_arc` CONTROL request (Spec S03): drop the calling
     /// session's binding. Broadcasts `unbind_arc_ok {tug_session_id}`.
     async fn do_unbind_arc(&self, tug_session_id: &str) {
@@ -5936,6 +6023,43 @@ impl AgentSupervisor {
                 );
             }
         }
+    }
+
+    /// The press was answered. Named from the outcome's session, never the
+    /// request's: the door expands a frozen id to its line's live segment,
+    /// and a frame naming the posted id reaches no card.
+    fn send_arc_resume_ok(control_tx: &broadcast::Sender<Frame>, tug_session_id: &str, arc: &str) {
+        let body = serde_json::json!({
+            "action": "arc_resume_ok",
+            "tug_session_id": tug_session_id,
+            "arc": arc,
+        });
+        let _ = control_tx.send(Frame::new(
+            FeedId::CONTROL,
+            serde_json::to_vec(&body).expect("arc_resume_ok serializes"),
+        ));
+    }
+
+    /// The press was refused, and `reason` is what the deck speaks through
+    /// the pane bulletin ([B08]). It names the arc as well as the session,
+    /// because a card can hold several stop receipts and only one of them
+    /// was pressed.
+    fn send_arc_resume_err(
+        control_tx: &broadcast::Sender<Frame>,
+        tug_session_id: &str,
+        arc: &str,
+        reason: &str,
+    ) {
+        let body = serde_json::json!({
+            "action": "arc_resume_err",
+            "tug_session_id": tug_session_id,
+            "arc": arc,
+            "reason": reason,
+        });
+        let _ = control_tx.send(Frame::new(
+            FeedId::CONTROL,
+            serde_json::to_vec(&body).expect("arc_resume_err serializes"),
+        ));
     }
 
     fn send_bind_arc_err(

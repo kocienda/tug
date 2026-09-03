@@ -20,7 +20,9 @@
  * resume:
  *
  *   - **`tugtool arc stop`** — the verb that means *stop the arc, keep the
- *     arc*, and the receipt that says so.
+ *     arc*, the receipt that says so, and the **Resume** button that receipt
+ *     carries. The button is the user's resume ([B01]); the CLI verb is the
+ *     machine's, and the receipt names no command at all.
  *   - **A second `/arc` naming another arc** — refused by name, with the
  *     first arc's binding untouched and its record still live.
  *
@@ -37,7 +39,10 @@
  * @covers tugrust/crates/tugcast/src/feeds/arc.rs
  * @covers tugrust/crates/tugcast/src/feeds/arc_runner.rs
  * @covers tugrust/crates/tugcast/src/arc_api.rs
+ * @covers tugrust/crates/tugcast/src/feeds/agent_supervisor.rs
  * @covers tugrust/crates/tugtool/src/arc.rs
+ * @covers tugdeck/src/components/tugways/cards/session-arc-receipt-block.tsx
+ * @covers tugdeck/src/lib/arc-resume-store.ts
  * @covers tugcode/src/session.ts
  */
 
@@ -70,6 +75,12 @@ const TEST_TIMEOUT_MS = 180_000;
 const SID = "a7c0d1ea-0000-4000-8000-000000000476";
 const CARD = '[data-card-id="A"]';
 const SHELL_ROWS = `${CARD} [data-slot="session-transcript-shell-row"]`;
+/**
+ * The Resume button inside the stop receipt's own block. Addressed through the
+ * block's own class rather than the dialog primitive's slot, so a second
+ * inline dialog appearing anywhere on the card cannot be pressed by accident.
+ */
+const RESUME_BUTTON = `${CARD} .arc-receipt-resume [data-slot="tug-push-button"]`;
 
 const ARC_NAME = "at0476-stop";
 const OTHER_ARC = "at0476-other";
@@ -160,6 +171,8 @@ function arcReport(name: string): {
   stopped: [string, string] | null;
   resume: string | null;
   done: boolean;
+  dispatched: string | null;
+  stages: string[];
 } {
   const out = JSON.parse(
     tugtool(["arc", "record", name, "--json"], {
@@ -169,12 +182,47 @@ function arcReport(name: string): {
     }),
   ) as {
     data: {
-      arc: { stopped: [string, string] | null; resume: string | null; done: boolean } | null;
+      arc: {
+        stopped: [string, string] | null;
+        resume: string | null;
+        done: boolean;
+        dispatched: string | null;
+        stages: Array<{ stage: string }>;
+      } | null;
     };
   };
   const arc = out.data.arc;
-  if (arc === null) return { stopped: null, resume: null, done: false };
-  return { stopped: arc.stopped, resume: arc.resume, done: arc.done };
+  if (arc === null) {
+    return { stopped: null, resume: null, done: false, dispatched: null, stages: [] };
+  }
+  return {
+    stopped: arc.stopped,
+    resume: arc.resume,
+    done: arc.done,
+    dispatched: arc.dispatched,
+    stages: arc.stages.map((line) => line.stage),
+  };
+}
+
+/**
+ * Read `probe` until `settled` accepts what it returns, or give up.
+ *
+ * Not `waitForCondition`: that evaluates JavaScript inside the app, and what
+ * is being waited on here is a record on disk that a short-lived `tugtool`
+ * process reads back. The app has no view of it.
+ */
+async function pollUntil<T>(
+  probe: () => T,
+  settled: (value: T) => boolean,
+  timeoutMs = 30_000,
+): Promise<T> {
+  const deadline = Date.now() + timeoutMs;
+  let last = probe();
+  while (!settled(last) && Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 250));
+    last = probe();
+  }
+  return last;
 }
 
 async function openCard(app: App): Promise<void> {
@@ -231,34 +279,51 @@ describe.skipIf(!SHOULD_RUN)("AT0476: an interrupted arc says so on the card", (
         // **The header is a parse key, not display text.** The receipt's
         // first line — `arc stopped · <arc> · in <stage> — <reason>` — is
         // what `parseArcReceipt` matches on, and the block's whole purpose is
-        // to spend it: it renders the arc as an atom, the reason as the
-        // lifecycle strip's note, and the resume sentence as its own line.
+        // to spend it: it renders the arc as an atom and the reason as the
+        // lifecycle strip's note.
         // Asserting the raw prefix would pin the row to *not* having been
         // recognized, which is the opposite of the claim. So the claim is
         // that it was recognized — the wheel-attributed identifier is the one
         // word only the arc-receipt block puts on a row.
         expect(receipt).toContain("Wheel");
         expect(receipt).toContain(ARC_NAME);
-        // The receipt says how to pick the work back up — that is the third
-        // column of every row of the doctrine table.
-        expect(receipt).toContain(`tugtool arc run ${ARC_NAME}`);
+        // And it names no command. The resume is a button in this row's own
+        // block; a CLI verb in the transcript is the implementation leaking
+        // into something the user reads.
+        expect(receipt).not.toContain("tugtool arc run");
         note("at0476 card with the stop receipt", (await app.screenshot()).path);
 
-        // ── And the work is still there ───────────────────────────────────
+        // ── And the way back into the work is a button ────────────────────
         //
-        // The verb's own `--json` is the reading, not a later look at the log:
-        // once the arc is resumed the runner is free to rotate it again, so
-        // the record is a moving target and the CLI's statement is not.
-        const resumed = JSON.parse(
-          tugtool(["arc", "run", ARC_NAME, "--json"], {
-            cwd: projectDir(),
-            binaryRoot: CHECKOUT,
-            env: { ...scratch?.cli.env, TUG_SESSION_ID: SID },
-          }),
-        ) as { data: { resumed: boolean; arc: { resume: string | null } | null } };
-        note("at0476 resume", JSON.stringify(resumed.data));
-        expect(resumed.data.resumed).toBe(true);
-        expect(resumed.data.arc?.resume).toBe("devise");
+        // The whole of the claim: the row the user is looking at carries the
+        // resume itself, and pressing it is the only gesture required. No CLI
+        // verb is typed here, because the point of the change is that the
+        // user never has to.
+        await app.waitForCondition<boolean>(
+          `document.querySelector(${JSON.stringify(RESUME_BUTTON)}) !== null`,
+          { timeoutMs: 30_000 },
+        );
+        note("at0476 card with the Resume button", (await app.screenshot()).path);
+        await app.nativeClickAtElement(RESUME_BUTTON);
+
+        // The record is the reading, and it is a **moving target**: the press
+        // clears the stop and asks for the stopped stage again, and the runner
+        // is then free to rotate it. So the poll takes the first snapshot in
+        // which the stop is gone, and the claim about *which* stage was asked
+        // for accepts any of the three shapes that fact wears as the rotation
+        // proceeds — the standing request, the dispatch, or the stage line the
+        // dispatch produced. Pinning only the first would be pinning a race.
+        const after = await pollUntil(
+          () => arcReport(ARC_NAME),
+          (report) => report.stopped === null,
+        );
+        note("at0476 resume", JSON.stringify(after));
+        expect(after.stopped).toBeNull();
+        const askedForDevise =
+          after.resume === "devise" ||
+          after.dispatched === "devise" ||
+          after.stages.includes("devise");
+        expect(askedForDevise).toBe(true);
       } finally {
         await app.close();
         rmTempTugbank(tugbankPath);

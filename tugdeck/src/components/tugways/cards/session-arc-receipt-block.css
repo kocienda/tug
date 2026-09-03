@@ -49,7 +49,7 @@
 
 /* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
 .arc-receipt-doc,
-.arc-receipt-next {
+.arc-receipt-tail {
   margin: 0;
   font-size: var(--tug-font-size-xs);
   color: var(--tug7-element-global-text-normal-muted-rest);

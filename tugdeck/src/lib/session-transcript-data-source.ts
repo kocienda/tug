@@ -513,24 +513,24 @@ function buildCommittedLayout(
 /**
  * Spec S04 — mark every `arc stopped` receipt a later row has answered.
  *
- * A stop receipt is frozen text: the server wrote `resume with tugtool arc run
- * <name>` at a moment when that was the truth, and a transcript replays its
- * rows from the record forever. So the arc that stopped, was resumed, and
- * joined leaves a red instruction standing over work that has already landed.
- * What supersedes it is a fact the same transcript already carries — a join
- * receipt for that arc, or a later arc receipt for it — and this pass reads it
- * rather than rewriting anything.
+ * A stop receipt is frozen text: the server wrote it at a moment when it was
+ * the truth, and a transcript replays its rows from the record forever. So the
+ * arc that stopped, was resumed, and joined leaves a red row — and, in the
+ * block, a live **Resume** button — standing over work that has already
+ * landed. What supersedes it is a fact the same transcript already carries —
+ * a join receipt for that arc, or a later arc receipt for it — and this pass
+ * reads it rather than rewriting anything.
  *
  * One backward walk, carrying the arc names already seen as a superseder, so
  * the whole thing is O(rows) beside the ordinal pass it follows. The **last**
  * stop for an arc is never superseded, because nothing later answers it: an arc
- * that stopped and stayed stopped keeps its live sentence, which is the only
+ * that stopped and stayed stopped keeps its live offer, which is the only
  * reason the demotion carries information.
  *
  * A row whose output does not parse contributes nothing in either direction. A
  * join receipt that fails to parse therefore leaves a stop it should have
- * answered still live — the safe direction, since a stale instruction is a
- * nuisance and a demoted live one is a lost instruction ([R02]).
+ * answered still live — the safe direction, since a stale offer is a nuisance
+ * and a demoted live one is a lost way back into the work ([R02]).
  */
 function markSupersededArcStops(
   slots: ReadonlyArray<RowSlot>,

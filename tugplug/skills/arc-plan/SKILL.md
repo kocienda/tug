@@ -54,17 +54,13 @@ Then look for an arc mid-flight. For each name `arc list` reports, and each dire
 tugtool arc record <name> --json     # per arc from `arc list`; no arc exits 0 with `arc: null`
 ```
 
-`data.arc.stopped` names the stage and the reason. Say both, and offer the resume — which is the *same verb*, because the documents hold the progress:
+`data.arc.stopped` names the stage and the reason. Say both, and stop there — the resume re-rotates the stopped stage and nothing earlier ([P11]), a stage never re-runs work that already landed, and the plan's own ledger is what it picks up against. There is nothing to warn about.
 
-```bash
-tugtool arc run <name>
-```
-
-That re-rotates the stopped stage and nothing earlier ([P11]). A stage never re-runs work that already landed; the plan's own ledger is what it resumes against.
+**Never offer the resume by naming a command.** A stopped arc's receipt carries its own **Resume** button, and a CLI verb typed into the transcript beside it is the implementation the button exists to hide. `tugtool arc run <name>` is the machine's way in and stays exactly that.
 
 **Find what is already written.** The wheel opens on *documents*, so before asking the user for anything, find out which exist. Documents are not tracked and so never appear in `tugtool changes` — the filesystem is the record, and `tugtool arc documents <name>` reads it: the brief, the plan, and the task list, each with its own address. Run it for each name `arc list` reports and each directory under `.tug/arcs/`. An arc already carrying a brief is this door's input and naming it is usually the entire Orient stage: *"`foo` already has a brief — hand it to the wheel?"* An arc carrying a **plan** is one the devise stage already ran on; it resumes at review or implement, not at devise.
 
-**A lone argument that names an existing arc is a continuation, not a new idea.** What a user types there — a bare slug, no verb, no sentence — is exactly what an existing arc is called. So before reading a short argument as an idea, check it against `tugtool arc list`. On a hit, say which arc it is and offer to continue it: `tugtool arc run <name>` resumes it, and does the binding on the way. Guessing "new idea" here starts a second arc beside the one they meant.
+**A lone argument that names an existing arc is a continuation, not a new idea.** What a user types there — a bare slug, no verb, no sentence — is exactly what an existing arc is called. So before reading a short argument as an idea, check it against `tugtool arc list`. On a hit, say which arc it is and offer to continue it. Guessing "new idea" here starts a second arc beside the one they meant.
 
 **When an arc looks bound to the wrong thing, diagnose before you re-bind.** `tugtool arc doctor <name>` compares all four of an arc's records — the ledger table, the arc log, the sqlite binding, and the arc record — and names each disagreement in a sentence, offering the reconciling append where one exists. `/arc-bind` writes one of those four and answers nothing about the other three, so a bind that exits 0 over a stopped arc or a desynced ledger is a success that changed nothing. Reach for the doctor first, and for `/arc-bind` only when the doctor says the binding is the thing that is wrong.
 

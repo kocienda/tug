@@ -501,7 +501,8 @@ fn apply_draft_request(
 /// terminal join fires). Spec S04, [P04].
 #[derive(serde::Deserialize)]
 struct ArcApiRequest {
-    /// `bind` | `arc_run` | `unbind` | `arc_stop` | `arc_ask` | `arc_gone`.
+    /// `bind` | `arc_run` | `arc_resume` | `unbind` | `arc_stop` | `arc_ask` |
+    /// `arc_gone`.
     op: String,
     #[serde(default)]
     tug_session_id: Option<String>,
@@ -784,6 +785,23 @@ fn apply_arc_request(
                 );
             };
             crate::arc_api::bind(ledger, &project, session, arc)
+        }
+        // Pick a stopped arc back up: clear the stop by naming the stage it
+        // stopped in, then bind — `arc_run`'s pair of acts made reachable
+        // from the Resume button in the stop's own receipt ([B07]). It binds
+        // and returns for the same reason `arc_run` does: the rotation is the
+        // card's own next idle ([P05]).
+        "arc_resume" => {
+            let (Some(session), Some(project), Some(arc)) = (
+                req.tug_session_id.as_deref(),
+                resolved_project(),
+                req.arc.as_deref(),
+            ) else {
+                return ArcApiOutcome::Error(
+                    "arc_resume needs tug_session_id, project_dir, and arc".to_string(),
+                );
+            };
+            crate::arc_api::arc_resume(ledger, &project, session, arc)
         }
         "unbind" => {
             let Some(session) = req.tug_session_id.as_deref() else {

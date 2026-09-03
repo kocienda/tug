@@ -53,7 +53,9 @@ describe("the run on the arc metadata line", () => {
     expect(facts[0]?.tone).toBe("danger");
     expect(facts[0]?.label).toBe("arc stopped · review");
     expect(facts[0]?.tooltip).toContain("lint failed");
-    expect(facts[0]?.tooltip).toContain("tugtool arc run foo");
+    // The fact, and only the fact. The tooltip used to close by naming the
+    // CLI verb; the resume is the Resume button on the stop's own receipt.
+    expect(facts[0]?.tooltip).not.toContain("tugtool arc run");
   });
 
   test("it outranks a replay conflict — nothing else here is unattended", () => {

@@ -1404,16 +1404,25 @@ fn format_arc_receipt(record: &ArcRecord) -> String {
 /// The receipt a stop leaves in the transcript. A stop is not a completion,
 /// so it does not read as one — but it happened on this card, and
 /// the card is where the user is watching, so it says which stage stopped,
-/// why, and what resumes it.
+/// why, and — for the two stops that end the arc — that there is nothing to
+/// resume.
 ///
 /// The reason is an [`ArcStopReason`] rather than a word, so the sentence is
 /// the type's own and there is no arm for a reason nobody wrote a sentence for.
 /// A stop the receipt could not explain is a stop the arc must not write.
+///
+/// **A resumable stop names no command.** It used to close with `resume with
+/// tugtool arc run <name>`, which is implementation leaking into a transcript
+/// the user reads: the resume is a **Resume** button in this row's own block
+/// ([B01]), and the CLI verb stays what it is — the machine's way in. What
+/// survives is the terminal sentence, and it survives because it is a *fact*
+/// rather than an instruction: it is the one marker of terminality a restored
+/// transcript can still read, where no wire frame is available to ask ([B05]).
 fn format_arc_stop_receipt(record: &ArcRecord, stage: ArcStage, reason: ArcStopReason) -> String {
-    let next = if reason.is_resumable() {
-        format!("resume with tugtool arc run {}", record.arc)
+    let terminal = if reason.is_resumable() {
+        String::new()
     } else {
-        "there is nothing to resume".to_string()
+        "\nthere is nothing to resume".to_string()
     };
     // The one reason whose sentence is not the whole story. `NeedsDecision` is
     // a stage saying it met a question it had no authority to answer, and a
@@ -1426,7 +1435,7 @@ fn format_arc_stop_receipt(record: &ArcRecord, stage: ArcStage, reason: ArcStopR
         _ => String::new(),
     };
     format!(
-        "arc stopped · {} · in {} — {}\n{next}",
+        "arc stopped · {} · in {} — {}{terminal}",
         record.arc,
         stage.as_str(),
         format_args!("{}{asked}", reason.sentence()),
@@ -3144,8 +3153,8 @@ Some context.
         assert_eq!(said.len(), 1, "got {said:?}");
         assert!(said[0].contains("you stopped it"), "{said:?}");
         assert!(
-            said[0].contains("resume with tugtool arc run demo"),
-            "and the receipt says how to pick it back up: {said:?}",
+            !said[0].contains("tugtool arc run"),
+            "and it names no command — the resume is the receipt's own button: {said:?}",
         );
         assert_eq!(
             read_arc(root, "demo").unwrap().stopped,
@@ -3460,10 +3469,13 @@ Some context.
     }
 
     #[test]
-    fn the_stop_receipt_says_what_stopped_it_and_how_to_resume() {
+    fn the_stop_receipt_says_what_stopped_it_and_never_a_command() {
         let record = done_record(vec![stage_line(ArcStage::Review, Some("opus"), "claude-b")]);
-        // Every reason renders its own sentence, and every resumable one ends
-        // with the gesture that picks the work back up.
+        // Every reason renders its own sentence. A resumable stop ends there —
+        // the resume is a button in the row's own block, not a verb in the
+        // text ([B01]) — and only the two endings add the terminal sentence,
+        // which is the marker a restored transcript reads terminality off
+        // ([B05]).
         for reason in ArcStopReason::ALL {
             let receipt = format_arc_stop_receipt(&record, ArcStage::Review, *reason);
             assert!(
@@ -3471,11 +3483,12 @@ Some context.
                 "got {receipt}"
             );
             assert!(receipt.contains(reason.sentence()), "got {receipt}");
+            assert!(
+                !receipt.contains("tugtool arc run"),
+                "no stop names a command: got {receipt}"
+            );
             if reason.is_resumable() {
-                assert!(
-                    receipt.ends_with("\nresume with tugtool arc run foo"),
-                    "got {receipt}"
-                );
+                assert!(receipt.ends_with(reason.sentence()), "got {receipt}");
             } else {
                 assert!(
                     receipt.ends_with("\nthere is nothing to resume"),
@@ -3486,8 +3499,7 @@ Some context.
 
         assert_eq!(
             format_arc_stop_receipt(&record, ArcStage::Devise, ArcStopReason::Lint),
-            "arc stopped · foo · in devise — the plan does not lint\n\
-             resume with tugtool arc run foo"
+            "arc stopped · foo · in devise — the plan does not lint"
         );
         assert_eq!(
             format_arc_stop_receipt(&record, ArcStage::Review, ArcStopReason::Discarded),
@@ -3496,8 +3508,7 @@ Some context.
         );
         assert_eq!(
             format_arc_stop_receipt(&record, ArcStage::Implement, ArcStopReason::CardTaken),
-            "arc stopped · foo · in implement — you took the card back\n\
-             resume with tugtool arc run foo"
+            "arc stopped · foo · in implement — you took the card back"
         );
     }
 

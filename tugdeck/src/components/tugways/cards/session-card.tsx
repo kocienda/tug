@@ -202,6 +202,7 @@ import { DiscardErrorNoticeController } from "./discard-error-notice-controller"
 import { DraftErrorNoticeController } from "./draft-error-notice-controller";
 import { ArcBindErrorNoticeController } from "./arc-bind-error-notice-controller";
 import { ArcReplayNoticeController } from "./arc-replay-notice-controller";
+import { ArcResumeNoticeController } from "./arc-resume-notice-controller";
 import { deriveColdRestoreActive } from "./session-card-restore-gate";
 import { REPLAY_SOFT_BUDGET_MS } from "@/lib/code-session-store";
 import { PromptHistoryStore } from "@/lib/prompt-history-store";
@@ -5134,6 +5135,9 @@ export function SessionCardBody({
             ) : null}
             {boundSessionId !== null ? (
               <ArcReplayNoticeController tugSessionId={boundSessionId} />
+            ) : null}
+            {boundSessionId !== null ? (
+              <ArcResumeNoticeController tugSessionId={boundSessionId} />
             ) : null}
             <TugPaneBulletinProvider
               placement="bottom"

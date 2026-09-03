@@ -218,6 +218,45 @@ pub(crate) fn bind(
     }
 }
 
+/// Pick a stopped arc back up on the calling card: the same two acts
+/// `tugtool arc run` performs on a stopped arc, made reachable from a button
+/// ([F02], [B07]). `append_arc_resume` names the stage the record stopped in,
+/// which is what clears the stop and tells the runner where to pick up; the
+/// bind is what seats the arc on this card, and the first rotation is that
+/// card's own next idle ([P05]) — never this call.
+///
+/// **An arc carrying no stop is bound and otherwise left alone**, and that is
+/// the whole of what makes the button safe to press twice ([B06]). The
+/// receipt block cannot subscribe to live state to know whether its stop is
+/// still standing ([F05]), so a second press — or a press on a row whose arc
+/// something else already resumed — has to be a no-op here rather than a
+/// refusal there. The two terminal reasons need no guard: `read_arc` resets
+/// at a discard's or a join's own line, so a torn-down arc reaches this with
+/// no record at all and is refused by the read below.
+///
+/// The session is resolved **before** the record is written. A resume that
+/// appended its line and then failed to bind would leave the arc reading
+/// live with nothing seated on it — the shape a stop exists to avoid.
+pub(crate) fn arc_resume(
+    ledger: &SessionLedger,
+    project_dir: &std::path::Path,
+    tug_session_id: &str,
+    arc: &str,
+) -> ArcApiOutcome {
+    if let Err(outcome) = calling_segment(ledger, tug_session_id) {
+        return outcome;
+    }
+    let Some(record) = tugarc_core::arc::read_arc(project_dir, arc) else {
+        return ArcApiOutcome::Error(format!("{arc} has no arc to resume"));
+    };
+    if let Some((stage, _)) = record.stopped {
+        if let Err(e) = tugarc_core::arc::append_arc_resume(project_dir, arc, stage) {
+            return ArcApiOutcome::Error(e.to_string());
+        }
+    }
+    bind(ledger, project_dir, tug_session_id, arc)
+}
+
 /// Clear one session's binding.
 pub(crate) fn unbind(ledger: &SessionLedger, tug_session_id: &str) -> ArcApiOutcome {
     // The line's live segment, not the posted id — a rotated card unbinding
@@ -1176,6 +1215,159 @@ mod tests {
             );
             assert_eq!(bound_arc(&ledger).as_deref(), Some("beta"));
         }
+    }
+
+    /// Every `arc-resume` line standing in the arc log, read raw. The record
+    /// says only *whether* an arc is stopped, and the unstopped case below
+    /// is about a line that must not have been written at all.
+    fn resume_lines(root: &std::path::Path) -> usize {
+        let path = tugtool_core::paths::arc_log_path(root);
+        std::fs::read_to_string(path)
+            .unwrap_or_default()
+            .lines()
+            .filter(|line| line.contains("arc-resume"))
+            .count()
+    }
+
+    /// A resume is the two acts `tugtool arc run` performs on a stopped arc
+    /// ([F02]): the stop is cleared by naming the stage to rotate again, and
+    /// the calling card is seated on the arc.
+    #[test]
+    #[serial_test::serial]
+    fn a_resume_clears_the_stop_and_seats_the_card() {
+        let home = tempdir().unwrap();
+        // SAFETY: `#[serial]`; no other thread reads the environment here.
+        unsafe {
+            std::env::set_var("TUG_DATA_DIR", home.path());
+        }
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+        let ledger = on_arc_card(root);
+        tugarc_core::arc::append_arc_stage(
+            root,
+            "alpha",
+            tugarc_core::arc::ArcStage::Implement,
+            "claude-1",
+            None,
+        )
+        .unwrap();
+        tugarc_core::arc::append_arc_stop(
+            root,
+            "alpha",
+            tugarc_core::arc::ArcStage::Implement,
+            tugarc_core::arc::ArcStopReason::StoppedByUser,
+        )
+        .unwrap();
+
+        assert!(matches!(
+            arc_resume(&ledger, root, "claude-1", "alpha"),
+            ArcApiOutcome::Bound { .. }
+        ));
+        let record = tugarc_core::arc::read_arc(root, "alpha").expect("the arc is still there");
+        assert!(
+            record.stopped.is_none(),
+            "the stop is cleared, which is what tells the runner to pick up",
+        );
+        assert_eq!(
+            record.current_stage(),
+            Some(tugarc_core::arc::ArcStage::Implement),
+            "and it picks up in the stage it stopped in, not at the top",
+        );
+        assert_eq!(bound_arc(&ledger).as_deref(), Some("alpha"));
+    }
+
+    /// [B06]: pressing Resume on an arc that carries no stop binds and writes
+    /// nothing. The receipt block may not read live state to know whether its
+    /// stop is still standing ([F05]), so the second press has to be harmless
+    /// here rather than refused there.
+    #[test]
+    #[serial_test::serial]
+    fn a_resume_of_an_unstopped_arc_writes_no_line() {
+        let home = tempdir().unwrap();
+        // SAFETY: `#[serial]`; no other thread reads the environment here.
+        unsafe {
+            std::env::set_var("TUG_DATA_DIR", home.path());
+        }
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+        let ledger = on_arc_card(root);
+
+        assert!(matches!(
+            arc_resume(&ledger, root, "claude-1", "alpha"),
+            ArcApiOutcome::Bound { .. }
+        ));
+        assert_eq!(
+            resume_lines(root),
+            0,
+            "an arc with nothing to resume gains no resume line",
+        );
+        assert_eq!(bound_arc(&ledger).as_deref(), Some("alpha"));
+    }
+
+    /// A session this instance does not own keeps the CLI's
+    /// try-each-instance loop walking ([P04]) — and, because the session is
+    /// resolved before anything is written, leaves the record alone.
+    #[test]
+    #[serial_test::serial]
+    fn a_resume_from_an_unknown_session_is_refused_before_it_writes() {
+        let home = tempdir().unwrap();
+        // SAFETY: `#[serial]`; no other thread reads the environment here.
+        unsafe {
+            std::env::set_var("TUG_DATA_DIR", home.path());
+        }
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+        let ledger = on_arc_card(root);
+        tugarc_core::arc::append_arc_stop(
+            root,
+            "alpha",
+            tugarc_core::arc::ArcStage::Devise,
+            tugarc_core::arc::ArcStopReason::StoppedByUser,
+        )
+        .unwrap();
+
+        assert!(matches!(
+            arc_resume(&ledger, root, "nobody", "alpha"),
+            ArcApiOutcome::UnknownSession
+        ));
+        assert_eq!(
+            resume_lines(root),
+            0,
+            "a refused resume appends nothing — an arc reading live with no \
+             card seated on it is the shape a stop exists to avoid",
+        );
+        assert!(
+            tugarc_core::arc::read_arc(root, "alpha")
+                .expect("the arc is still there")
+                .stopped
+                .is_some(),
+            "and the arc is still stopped",
+        );
+    }
+
+    /// An arc name with no record is named in the refusal rather than guessed
+    /// at — the button is only ever drawn on a receipt that names one.
+    #[test]
+    #[serial_test::serial]
+    fn a_resume_of_an_arc_with_no_record_is_refused() {
+        let home = tempdir().unwrap();
+        // SAFETY: `#[serial]`; no other thread reads the environment here.
+        unsafe {
+            std::env::set_var("TUG_DATA_DIR", home.path());
+        }
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+        let ledger = on_arc_card(root);
+
+        let ArcApiOutcome::Error(message) = arc_resume(&ledger, root, "claude-1", "beta") else {
+            panic!("an arc with no record is an error, not a binding");
+        };
+        assert!(message.contains("beta"), "the refusal names it: {message}");
+        assert_eq!(
+            bound_arc(&ledger).as_deref(),
+            Some("alpha"),
+            "and the card keeps the arc it had",
+        );
     }
 
     /// Builds a real checkout with a real linked worktree and returns both
