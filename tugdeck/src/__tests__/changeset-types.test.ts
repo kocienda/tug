@@ -411,4 +411,64 @@ describe("aggregate changeset wire contract", () => {
   test("CHANGESET_ALL feed id is registered at 0x24", () => {
     expect(FeedId.CHANGESET_ALL).toBe(0x24);
   });
+
+  test("the fixture's arc carries its resolve receipt, field for field", () => {
+    const aggregate = aggregateGolden as WorkspacesChangesetSnapshot;
+    const arc = aggregate.projects[0].changesets.find((e) => e.kind === "arc");
+    if (arc?.kind !== "arc") throw new Error("expected an arc entry");
+    const receipt = arc.join?.resolved_base;
+    expect(receipt).toBeDefined();
+    expect(receipt?.seq).toBe(12);
+    expect(receipt?.commit).toBe(
+      "0123456789abcdef0123456789abcdef01234567",
+    );
+    expect(receipt?.base).toBe("main");
+    expect(receipt?.folded).toEqual([
+      "tugrust/crates/tugtool/src/commands/arc.rs",
+    ]);
+    expect(receipt?.dropped).toEqual([]);
+    expect(receipt?.folded_from).toEqual({
+      "tugrust/crates/tugtool/src/commands/arc.rs": "other-session",
+    });
+  });
+
+  test("the join guard rejects a resolve receipt with a non-numeric seq", () => {
+    const withJoin = (join: unknown) => ({
+      kind: "arc",
+      owner_id: "tugarc/x",
+      display_name: "x",
+      base: "main",
+      rounds: 0,
+      worktree: "/repo/.tug/worktrees/x",
+      worktree_dirty: false,
+      files: [],
+      join,
+    });
+
+    const receipt = { seq: 3, base: "main", folded: ["a.ts"] };
+    expect(
+      isChangesetEntry(withJoin({ phase: "blocked", resolved_base: receipt })),
+    ).toBe(true);
+    // The seq is what an Undo names, so a receipt carrying a string there
+    // would offer a control that cannot address anything.
+    expect(
+      isChangesetEntry(
+        withJoin({
+          phase: "blocked",
+          resolved_base: { ...receipt, seq: "3" },
+        }),
+      ),
+    ).toBe(false);
+    // …and a holder map whose values are not names is not a holder map.
+    expect(
+      isChangesetEntry(
+        withJoin({
+          phase: "blocked",
+          resolved_base: { ...receipt, folded_from: { "a.ts": 7 } },
+        }),
+      ),
+    ).toBe(false);
+    // Absent is the ordinary case — most arcs have had no fold.
+    expect(isChangesetEntry(withJoin({ phase: "blocked" }))).toBe(true);
+  });
 });

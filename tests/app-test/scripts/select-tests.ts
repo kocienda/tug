@@ -196,6 +196,16 @@ const ACCEPTED_FANOUT: Record<string, number> = {
     // and the alternative was leaving the new row shape covered by nothing.
     "tugdeck/src/components/tugways/cards/session-card-transcript.tsx": 21,
 
+    // The agent supervisor. Every CONTROL verb the deck sends lands in this one
+    // file, so a test that drives a button and asserts what the server did has
+    // nowhere narrower to name. It sat at exactly 20 until at0486 began driving
+    // the Resolve press rather than stopping in front of it: the outcome frame
+    // that press turns on is built here, and that frame carrying the arc it
+    // names is the whole of what the test now proves on screen. The declaration
+    // is honest and the alternative was leaving the frame builder covered by no
+    // app-test at all.
+    "tugrust/crates/tugcast/src/feeds/agent_supervisor.rs": 21,
+
     // The composer. It is the single field every route types into — the plain
     // prompt, the `$` shell route, the `/` command route, commit mode and the
     // landing draft — so a test that drives the app the way a user does has to

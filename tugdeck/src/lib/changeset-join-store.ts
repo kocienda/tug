@@ -33,6 +33,21 @@
  * and turns into a stated failure. A state left in `resolving` forever would be
  * an arc with a spinner and no way back, so that arm stays.
  *
+ * **A press, though, is bounded** ([P03]). Every press arms one timer of
+ * {@link PRESS_ACKNOWLEDGEMENT_MS}, cleared by the first frame naming the cell
+ * or the first feed snapshot whose `join.run` names the act. It measures
+ * whether the *press was heard*, not whether the run is alive — the server
+ * takes its occupancy hold before any git work, so acknowledgement arrives
+ * seconds after the press however long the act itself runs. That is the whole
+ * of the difference from the clock above, and the reason this one may exist
+ * while that one may not: a resolve that goes quiet for ten minutes is still
+ * working and is left alone, while a press nothing ever answered has no other
+ * ending than the spinner this surface may never show.
+ *
+ * **And the ending comes from the feed** ([P02]). {@link
+ * ChangesetJoinStore.observeFeed} settles a run from the arc's own entry, so
+ * an outcome frame that never arrives costs the detail and not the outcome.
+ *
  * **The join narrates itself too** ([P03]). `changeset_join_land_delta` frames
  * arrive as the join moves through squash → teardown → release → record, and
  * this store holds the latest beat per arc beside the resolve progress. Same
@@ -48,6 +63,7 @@
 import { useSyncExternalStore } from "react";
 
 import type { TugConnection } from "../connection";
+import type { WorkspacesChangesetSnapshot } from "./changeset-types";
 import { FeedId } from "../protocol";
 import { getConnectionLifecycle } from "./connection-lifecycle";
 
@@ -97,6 +113,17 @@ export interface ResolveState {
    * do is vanish ([L31]).
    */
   error: string | null;
+  /**
+   * Which press opened this run ([P02], Spec S05) — absent when none is open.
+   *
+   * The two acts share the resolving phase because the card shows one
+   * register, but they do not share a terminal condition: a `resolve-base` is
+   * over when the base-dirt blocker is gone, a `resolve` when the run the feed
+   * was showing is no longer there. {@link ChangesetJoinStore.observeFeed}
+   * needs to know which of the two it is watching for, and this is the only
+   * place that fact exists.
+   */
+  act?: "resolve" | "resolve-base";
 }
 
 const IDLE: ResolveState = Object.freeze({
@@ -104,6 +131,26 @@ const IDLE: ResolveState = Object.freeze({
   progress: Object.freeze([]) as readonly FileProgress[],
   error: null,
 });
+
+/**
+ * How long a press may go unacknowledged before it becomes a sentence ([P03]).
+ *
+ * **It bounds acknowledgement, not the run.** The server takes its occupancy
+ * hold before any git work, so `join.run` names the act on the recompute that
+ * follows the press — seconds later, whatever the act itself goes on to cost.
+ * That is why this is not the silence clock the docblock above says was
+ * removed and stays removed: a resolve is allowed to take minutes in silence,
+ * and nothing here will call it dead for doing so. What this catches is the
+ * press nothing ever heard, whose only other ending is a spinner forever.
+ */
+export const PRESS_ACKNOWLEDGEMENT_MS = 60_000;
+
+let _pressAcknowledgementMs: number = PRESS_ACKNOWLEDGEMENT_MS;
+
+/** Shorten the deadline so a test can reach it (the `settle(ms)` idiom). */
+export function _setPressAcknowledgementMsForTest(ms: number): void {
+  _pressAcknowledgementMs = ms;
+}
 
 /** One beat of a join in flight ([P03], Spec S02). */
 export interface LandProgress {
@@ -170,6 +217,29 @@ export class ChangesetJoinStore {
    * a `useSyncExternalStore` reader needs of a derived snapshot.
    */
   private readonly _landingArcs = new Map<string, ReadonlySet<string>>();
+  /**
+   * The unacknowledged-press timer per cell ([P03]), armed at the press and
+   * cleared by the first thing that proves somebody heard it.
+   */
+  private readonly _deadlines = new Map<
+    string,
+    ReturnType<typeof setTimeout>
+  >();
+  /**
+   * The cells whose run the feed has actually shown, which the ladder's settle
+   * rule needs ([P02]): `join.run` absent on the first snapshot after a press
+   * is the server not having recomputed yet, and reading it as "the run ended"
+   * would put the overlay away before the run began.
+   *
+   * **Only the feed writes here.** A CONTROL frame is proof the press was
+   * heard, which is a different fact and stands the deadline down on its own;
+   * it is *not* proof the server has published the hold. Counting a delta as
+   * the seen half would let a recompute that was already in flight when the
+   * press went out — one that predates the hold, so `run` is absent on it —
+   * read as "seen, then gone" and put the overlay away over a ladder with
+   * minutes left to run.
+   */
+  private readonly _runSeenOnFeed = new Set<string>();
 
   constructor(connection: TugConnection) {
     this._connection = connection;
@@ -223,6 +293,45 @@ export class ChangesetJoinStore {
     this._set(k, { ...prev, phase: "error", error: reason });
   }
 
+  /**
+   * The feed named this cell's act as running: stand the deadline down, and
+   * remember that the run was *seen*.
+   *
+   * Both facts at once, and only from the feed. A CONTROL frame acknowledges
+   * the press too — it calls {@link ChangesetJoinStore._clearDeadline}
+   * directly — but it says nothing about whether the server has published the
+   * hold, which is what the ladder's settle rule reads.
+   */
+  private _sawRunOnFeed(k: string): void {
+    this._clearDeadline(k);
+    this._runSeenOnFeed.add(k);
+  }
+
+  private _clearDeadline(k: string): void {
+    const timer = this._deadlines.get(k);
+    if (timer === undefined) return;
+    clearTimeout(timer);
+    this._deadlines.delete(k);
+  }
+
+  /** Arm the acknowledgement deadline for a press just sent. */
+  private _armDeadline(k: string, act: "resolve" | "resolve-base"): void {
+    this._clearDeadline(k);
+    this._deadlines.set(
+      k,
+      setTimeout(() => {
+        this._deadlines.delete(k);
+        if ((this._states.get(k) ?? IDLE).phase !== "resolving") return;
+        this._fail(
+          k,
+          act === "resolve-base"
+            ? "Resolve got no answer in 60 seconds — the fold may still have run; this row updates when the feed does."
+            : "The resolve got no answer in 60 seconds — it may still be running; this row updates when the feed does.",
+        );
+      }, _pressAcknowledgementMs),
+    );
+  }
+
   private _onControl(payload: Uint8Array): void {
     let body: unknown;
     try {
@@ -236,6 +345,8 @@ export class ChangesetJoinStore {
       action !== "changeset_join_resolve_delta" &&
       action !== "changeset_join_resolve_ok" &&
       action !== "changeset_join_resolve_base_ok" &&
+      action !== "changeset_join_resolve_base_undo_ok" &&
+      action !== "changeset_join_resolve_base_undo_err" &&
       action !== "changeset_join_resolve_err" &&
       action !== "changeset_join_question_answer_err" &&
       action !== "changeset_join_land_delta" &&
@@ -253,6 +364,12 @@ export class ChangesetJoinStore {
     if (workspaceKey === null || arc === null) return;
     const k = key(workspaceKey, arc);
     const prev = this._states.get(k) ?? IDLE;
+    // Any frame naming this cell is proof the press was heard ([P03]) — a
+    // delta, an error, or the result itself. What it says is the next
+    // paragraphs' business; that it exists is this one's. It stands the
+    // deadline down and stops there: whether the *run* has been seen is the
+    // feed's word alone ({@link ChangesetJoinStore._runSeenOnFeed}).
+    this._clearDeadline(k);
 
     // The join's own narration ([P03]). A hint and nothing more: the feed
     // recompute stays the carrier of truth, so a beat that never arrives costs
@@ -331,6 +448,22 @@ export class ChangesetJoinStore {
       return;
     }
 
+    // The undo's two endings. Neither touches the phase: an undo is a press
+    // beside a receipt, not a run, and whatever the cell is doing — usually
+    // nothing — is unharmed either way. The receipt it retires is read off
+    // the arc's entry, so the recompute the server bumped is what takes it
+    // down; there is nothing here for the overlay to clear.
+    if (action === "changeset_join_resolve_base_undo_ok") {
+      this._note(k, null);
+      return;
+    }
+    if (action === "changeset_join_resolve_base_undo_err") {
+      const detail =
+        typeof body.detail === "string" ? body.detail : "undo failed";
+      this._note(k, detail);
+      return;
+    }
+
     if (action === "changeset_join_resolve_ok") {
       // A late answer still counts. Nothing here ever cancelled anything — the
       // ladder ran to completion server-side whatever this client believed —
@@ -384,13 +517,37 @@ export class ChangesetJoinStore {
   }
 
   private _set(k: string, state: ResolveState): void {
+    let next = state;
+    // Leaving `resolving` ends the run, whichever way it ended: the deadline
+    // has nothing left to catch and the acknowledgement belonged to the run
+    // rather than to the cell. Doing it here rather than at each of the six
+    // exits is what keeps a settle nobody thought of from leaving a timer
+    // running under an idle row.
+    //
+    // The act goes with it, for the same reason and with more force. `act`
+    // says *which* act is in flight, and the register and the report face
+    // both read it beside the phase rather than under it — so left standing
+    // on a cell that failed, it painted `Committing base work` over a stated
+    // error: the two-voices defect this round exists to remove, arriving
+    // through the other door.
+    if (next.phase !== "resolving") {
+      this._clearDeadline(k);
+      this._runSeenOnFeed.delete(k);
+      if (next.act !== undefined) {
+        next = {
+          phase: next.phase,
+          progress: next.progress,
+          error: next.error,
+        };
+      }
+    }
     // Idle is the absence of a run, but a stated reason is not absence: a
     // refusal recorded on an arc with nothing running is exactly the case
     // where dropping the cell would swallow the sentence.
-    if (state.phase === "idle" && state.error === null) {
+    if (next.phase === "idle" && next.error === null) {
       this._states.delete(k);
     } else {
-      this._states.set(k, state);
+      this._states.set(k, next);
     }
     this._emit();
   }
@@ -412,7 +569,13 @@ export class ChangesetJoinStore {
    */
   resolve(workspaceKey: string, arc: string): void {
     const k = key(workspaceKey, arc);
-    this._set(k, { phase: "resolving", progress: [], error: null });
+    this._set(k, {
+      phase: "resolving",
+      progress: [],
+      error: null,
+      act: "resolve",
+    });
+    this._armDeadline(k, "resolve");
     this._connection.sendControlFrame("changeset_join_resolve", {
       project_dir: workspaceKey,
       arc: arc,
@@ -433,11 +596,95 @@ export class ChangesetJoinStore {
    */
   resolveBase(workspaceKey: string, arc: string): void {
     const k = key(workspaceKey, arc);
-    this._set(k, { phase: "resolving", progress: [], error: null });
+    this._set(k, {
+      phase: "resolving",
+      progress: [],
+      error: null,
+      act: "resolve-base",
+    });
+    this._armDeadline(k, "resolve-base");
     this._connection.sendControlFrame("changeset_join_resolve_base", {
       project_dir: workspaceKey,
       arc: arc,
     });
+  }
+
+  /**
+   * Send `changeset_join_resolve_base_undo`: put back the uncommitted base
+   * work a fold committed.
+   *
+   * **It does not touch the phase, and arms no deadline.** A fold is a run —
+   * it streams, it has a face, and the overlay is how the card says it is
+   * working. An undo is a press beside a durable receipt: what it reverses is
+   * in git, what retires the receipt is the recompute, and there is no run
+   * here for a face to show. So the only thing it can say back is a refusal,
+   * which lands as a stated reason on a cell that carries on as it was.
+   */
+  undoResolveBase(workspaceKey: string, arc: string): void {
+    this._connection.sendControlFrame("changeset_join_resolve_base_undo", {
+      project_dir: workspaceKey,
+      arc: arc,
+    });
+  }
+
+  /**
+   * Read the aggregate feed and settle any run it says is over ([P02]).
+   *
+   * **The feed is the terminal fact; a frame only hurries it.** Everything
+   * either act does lands in git and comes back on the arc's entry, and the
+   * blockers are never cached server-side — so the recompute that follows the
+   * work is the whole truth, and the reply frame's only job is to deliver
+   * detail sooner. That ordering is what makes a dropped frame cost nothing:
+   * the overlay comes down on the next recompute either way, which is the rule
+   * `changeset_join_land_delta` already follows.
+   *
+   * Each act has its own ending, which is why the cell records which one it is.
+   * A `resolve-base` is over when no `base-dirt` blocker remains and no fold
+   * still holds the arc — the blocker's absence *is* the outcome. A `resolve`
+   * has no such fact to read, so it ends when the run the feed was showing is
+   * no longer showing: seen, then gone. The seen half is not optional, because
+   * the snapshot in hand at the moment of a press predates the server's hold,
+   * and `run` absent on it means "not yet" rather than "finished".
+   *
+   * Wired from `main.tsx` on every `ChangesetAllStore` notification and once at
+   * attach, mirroring that store's own initial drain.
+   */
+  observeFeed(snapshot: WorkspacesChangesetSnapshot): void {
+    if (this._states.size === 0) return;
+    for (const project of snapshot.projects) {
+      for (const entry of project.changesets) {
+        if (entry.kind !== "arc") continue;
+        const k = key(project.workspace_key, entry.display_name);
+        const state = this._states.get(k);
+        if (state === undefined || state.phase !== "resolving") continue;
+        const act = state.act;
+        if (act === undefined) continue;
+
+        const join = entry.join;
+        if (join?.run === act) {
+          this._sawRunOnFeed(k);
+          continue;
+        }
+
+        // A run the server declares stuck has said why, durably, on the entry
+        // the face renders. The overlay has nothing to add and every reason to
+        // get out of the way of a sentence better than any it could invent.
+        if (typeof join?.stuck === "string" && join.stuck !== "") {
+          this._set(k, IDLE);
+          continue;
+        }
+
+        if (act === "resolve-base") {
+          const blocked = (join?.blockers ?? []).some(
+            (blocker) => blocker.kind === "base-dirt",
+          );
+          if (!blocked) this._set(k, IDLE);
+          continue;
+        }
+
+        if (this._runSeenOnFeed.has(k)) this._set(k, IDLE);
+      }
+    }
   }
 
   state(workspaceKey: string, arc: string): ResolveState {
@@ -576,6 +823,9 @@ export class ChangesetJoinStore {
   dispose(): void {
     this._unsubscribe();
     this._unobserveClose();
+    for (const timer of this._deadlines.values()) clearTimeout(timer);
+    this._deadlines.clear();
+    this._runSeenOnFeed.clear();
     this._land.clear();
     this._listeners.clear();
   }

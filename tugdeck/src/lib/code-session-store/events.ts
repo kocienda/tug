@@ -1227,6 +1227,15 @@ export interface TugNoticeEvent {
   origin?: string;
   /** The notice body, the same text the injected submission carried. */
   text?: string;
+  /**
+   * Tug telling this session something, with **no turn behind it** (Spec S04).
+   *
+   * Absent or `false` is the original shape: the notice is an injected turn's
+   * opener, so it opens one. `true` says nothing follows, and a turn opened
+   * there would never end — the session would sit at `waking` over work
+   * nobody is doing.
+   */
+  standalone?: boolean;
   timestamp?: number;
   tug_session_id?: string;
   /** Same mint contract as {@link AssistantOpenerEvent.turnKey}. */

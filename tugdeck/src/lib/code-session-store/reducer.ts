@@ -5169,9 +5169,105 @@ function handleTugNotice(
   state: CodeSessionState,
   event: TugNoticeEvent,
 ): { state: CodeSessionState; effects: Effect[] } {
+  // A bulletin, before anything else: it is Tug telling this session
+  // something, and there is no turn behind it to open or to wait for. That
+  // makes the idle check below wrong for it twice over — it would drop the
+  // notice whenever the session happened to be working, and the seat it
+  // guards would open a turn nothing ever finishes.
+  if (event.standalone === true) {
+    return handleStandaloneNotice(state, event);
+  }
   if (state.phase !== "idle") {
     return { state, effects: [] };
   }
+  return handleTurnOpeningNotice(state, event);
+}
+
+/**
+ * A notice with nothing behind it — Tug speaking, seated wherever the session
+ * happens to be ([P08]).
+ *
+ * Two seats, one row. Mid-turn it joins the open turn's scratch as a
+ * `source: "notice"` system note, the seat {@link handleArcNote} already uses
+ * for the same reason: a thing that happened *during* this turn belongs inside
+ * it, and hoisting it out would put it after work it preceded. At idle there
+ * is no turn to join, so it is ingested as an ink turn of its own — a
+ * synthetic `tug notice <origin>` shell exchange the command-block registry
+ * claims and renders quietly.
+ *
+ * **The phase is never touched.** That is the whole distinction from the
+ * turn-opening notice above: this one is not the head of anything, so a
+ * session that was idle stays idle and one that was working keeps working.
+ *
+ * `cwd` is `""` deliberately. `CodeSessionState` carries no project dir — the
+ * arc-note path gets one from `useLandingReceipts`, which holds the binding,
+ * while a `tug_notice` is a wire event and carries none — and the `quiet`
+ * presentation renders no shell chrome, so the field has no reader on this row.
+ */
+function handleStandaloneNotice(
+  state: CodeSessionState,
+  event: TugNoticeEvent,
+): { state: CodeSessionState; effects: Effect[] } {
+  const text = typeof event.text === "string" ? event.text : "";
+  if (text.length === 0) {
+    return { state, effects: [] };
+  }
+  const origin =
+    typeof event.origin === "string" && event.origin.length > 0
+      ? event.origin
+      : "tug";
+  const at = event.timestamp ?? Date.now();
+
+  const turnKey = state.pendingTurn?.turnKey;
+  const entry = turnKey !== undefined ? state.scratch.get(turnKey) : undefined;
+  if (turnKey !== undefined && entry !== undefined) {
+    const note: SystemNote = {
+      kind: "system_note",
+      messageKey: systemNoteKey(turnKey, entry.systemNoteSeq),
+      createdAt: at,
+      text,
+      source: "notice",
+      noticeOrigin: origin,
+    };
+    return {
+      state: {
+        ...state,
+        scratch: withScratchEntry(state.scratch, turnKey, {
+          ...entry,
+          messages: [...entry.messages, note],
+          systemNoteSeq: entry.systemNoteSeq + 1,
+        }),
+      },
+      effects: [],
+    };
+  }
+
+  const row = buildShellTurnEntry(
+    shellMessage({
+      type: "shell_exchange_complete",
+      exchangeId: `tug-notice-${event.turnKey}`,
+      command: `tug notice ${origin}`,
+      output: text,
+      exitCode: 0,
+      cwd: "",
+      cwdAfter: null,
+      startedAtMs: at,
+      settledAtMs: at,
+    }),
+  );
+  return { state, effects: [{ kind: "ingest-ink-turn", entry: row }] };
+}
+
+/**
+ * The turn-opening half: a notice that heads an injected submission.
+ *
+ * Reached only from `idle`, and only when the notice is not a bulletin — the
+ * two facts {@link handleTugNotice} checks before delegating here.
+ */
+function handleTurnOpeningNotice(
+  state: CodeSessionState,
+  event: TugNoticeEvent,
+): { state: CodeSessionState; effects: Effect[] } {
   const text = typeof event.text === "string" ? event.text : "";
   if (text.length === 0) {
     return { state, effects: [] };

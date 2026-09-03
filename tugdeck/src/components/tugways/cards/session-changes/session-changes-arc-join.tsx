@@ -30,8 +30,12 @@
  * Every value here is read from the arc's server-owned join block, so the
  * face and the join gate answer the same question from the same bytes.
  *
- * The face belongs to the **fronted** row only — joining is a gesture on this
- * card's own arc, and the composer it routes to is this card's own.
+ * The face rides **every** row, which is what makes [P08]'s "Undo is in your
+ * Changes shade" a true sentence to tell the holder of folded work: their own
+ * deck shows the receipt and its Undo, on the row for an arc they never
+ * pressed anything on. What stays the fronted row's alone is `aim` — joining
+ * is a gesture on this card's own arc — and the join verb's own `error`,
+ * which belongs to the hand that made the press.
  *
  * Laws: [L02] every value here arrives as a prop from the view's store reads;
  * [L06] tone paints through `data-outcome` and CSS; [L19] the section
@@ -100,6 +104,14 @@ export interface ArcJoinActions {
    * always the same word.
    */
   resolveBase: (entry: ArcChangesetEntry) => void;
+  /**
+   * Put back the base work a fold committed ([P06]).
+   *
+   * It can only ever reverse a fold: the server refuses the press by name
+   * when the arc's newest operation is anything else, so the control beside
+   * a receipt cannot un-land a join the receipt has already outlived.
+   */
+  undoResolveBase: (entry: ArcChangesetEntry) => void;
 }
 
 /**
@@ -108,11 +120,20 @@ export interface ArcJoinActions {
  *
  * - `offer` — conflicted and untried: the ladder is the act that clears it.
  * - `progress` — running, streaming per file.
+ * - `folding` — the base-work fold is running. Its own face rather than a
+ *   second `progress`, because the two acts say different things: the ladder
+ *   streams per-file rungs, and a fold has paths and nothing to stream.
  * - `resolved` — a candidate exists; the join is joinable after all.
  * - `error` / `none` — the ladder refused or reached its dead end, or has
  *   nothing to say here.
  */
-export type ResolveFace = "none" | "offer" | "progress" | "resolved" | "error";
+export type ResolveFace =
+  | "none"
+  | "offer"
+  | "progress"
+  | "folding"
+  | "resolved"
+  | "error";
 
 /**
  * The candidate outranks the progress phase, and that ordering is what makes a
@@ -126,7 +147,13 @@ export function deriveResolveFace(
   phase: ResolvePhase,
   candidateCommit: string | null,
   run?: string | null,
+  act?: "resolve" | "resolve-base",
 ): ResolveFace {
+  // Above the ladder's own face, because the two share the resolving phase:
+  // read only `phase`, a fold would wear the ladder's face and narrate rungs
+  // it has none of. The client's act stands in until the recompute that puts
+  // `run` on the entry arrives.
+  if (run === "resolve-base" || act === "resolve-base") return "folding";
   if (phase === "resolving") return "progress";
   // The server's own account of what it is doing right now ([P09]). The phase
   // above it is a client overlay that dies with the page, so without this a
@@ -158,6 +185,7 @@ export interface JoinFace {
 export function deriveJoinFace(input: {
   join: ArcJoinStateWire | null;
   resolvePhase: ResolvePhase;
+  resolveAct?: "resolve" | "resolve-base";
 }): JoinFace {
   const { join, resolvePhase } = input;
   const outcome = deriveJoinOutcome(join);
@@ -170,6 +198,7 @@ export function deriveJoinFace(input: {
     resolvePhase,
     candidate,
     join?.run ?? null,
+    input.resolveAct,
   );
   return { outcome, resolve };
 }
@@ -290,6 +319,9 @@ function BlockerDialog({
   actions: ArcJoinActions;
 }): React.ReactElement {
   const remedy = blocker.remedy;
+  // `paths` is optional on the wire — an off-base checkout or a stale
+  // teardown names none — so the absent case and the empty case are one.
+  const paths = blocker.paths ?? [];
   return (
     <TugInlineDialog
       className="session-changes-arc-join-blocker"
@@ -298,6 +330,21 @@ function BlockerDialog({
       title={blocker.title}
       description={
         <>
+          {/* The files themselves, above the sentence that counts them
+              ([P10]). The sentence can say "these 3 files" only because they
+              are named right here; a count with nothing to check it against
+              is a number the reader has to take on trust, which is not what a
+              fact sheet is for. */}
+          {paths.length > 0 ? (
+            <ul
+              className="session-changes-arc-join-paths"
+              data-slot="session-changes-arc-join-paths"
+            >
+              {paths.map((path) => (
+                <li key={path}>{path}</li>
+              ))}
+            </ul>
+          ) : null}
           {detailIsElsewhere ? null : (
             <span className="session-changes-arc-join-detail">
               {blocker.detail}
@@ -353,9 +400,17 @@ export function SessionChangesArcJoin({
   const stuck =
     typeof join?.stuck === "string" && join.stuck !== "" ? join.stuck : null;
   const report = join?.report ?? null;
+  // The fold that stands over this arc, if one does. Durable — read off the
+  // entry rather than out of the overlay — so a reload and a second deck show
+  // the same receipt as the deck that pressed.
+  const resolvedBase = join?.resolved_base ?? null;
   const reported = reportedBlockers(blockers);
   // One decision, made once ({@link deriveJoinFace}) and rendered here.
-  const face = deriveJoinFace({ join, resolvePhase: resolve.phase });
+  const face = deriveJoinFace({
+    join,
+    resolvePhase: resolve.phase,
+    resolveAct: resolve.act,
+  });
   const { outcome, resolve: resolveFace } = face;
 
   // What the resolved face actually has to show. `resolved` is the face every
@@ -379,6 +434,8 @@ export function SessionChangesArcJoin({
     outcome === "empty" ||
     reported.length > 0 ||
     resolveFace === "progress" ||
+    resolveFace === "folding" ||
+    resolvedBase !== null ||
     resolvedRows ||
     account ||
     question !== null ||
@@ -434,6 +491,80 @@ export function SessionChangesArcJoin({
             </div>
           ))}
         </div>
+      ) : null}
+      {/* What a fold did, once it has done it. Read off the arc's entry rather
+          than out of the overlay that pressed, which is what makes it survive a
+          reload and reach a second deck — it names a commit made on the user's
+          own base out of their uncommitted work, so "you had to be watching" is
+          not an acceptable way to learn about it. It retires by itself: a join
+          lands the arc and the fold stops being the newest thing that happened,
+          an undo marks the op reversed. */}
+      {resolvedBase !== null ? (
+        <div
+          className="session-changes-arc-join-note"
+          data-slot="session-changes-arc-join-resolve-receipt"
+        >
+          {resolvedBase.commit !== undefined
+            ? `Committed base work as ${resolvedBase.commit.slice(0, 7)} · ${
+                (resolvedBase.folded ?? []).length
+              } ${(resolvedBase.folded ?? []).length === 1 ? "file" : "files"}`
+            : `Dropped ${(resolvedBase.dropped ?? []).length} identical ${
+                (resolvedBase.dropped ?? []).length === 1 ? "file" : "files"
+              }`}
+          {Object.entries(resolvedBase.folded_from ?? {}).map(
+            ([path, holder]) => (
+              <div
+                key={path}
+                className="session-changes-arc-join-detail"
+                data-slot="session-changes-arc-join-resolve-holder"
+              >
+                {path} — work in progress from {holder}
+              </div>
+            ),
+          )}
+          {/* The one act on this face ([P08] is what buys the exception to
+              [D142]'s no-acts rule): a receipt that reports a commit made out
+              of somebody's uncommitted work has to carry the way back, or the
+              report is a notification and not a remedy.
+
+              It is disabled while a FOLD is running — the op it would reverse
+              is the one being written — and the act is what the guard reads,
+              not the phase. The two acts share `resolving`, and the ladder is
+              the one that runs *after* a fold: the fold puts the base and the
+              arc on divergent history, which is the collision the resolver
+              exists for. A guard on the phase alone therefore switched the
+              Undo off for the whole of the run that a successful fold
+              provokes, which is precisely when a reader has just been told
+              their work was committed and wants it back. */}
+          <TugPushButton
+            size="xs"
+            emphasis="ghost"
+            role="action"
+            data-slot="session-changes-arc-join-undo-resolve-base"
+            disabled={resolve.phase === "resolving" && resolve.act === "resolve-base"}
+            onClick={() => actions.undoResolveBase(entry)}
+          >
+            Undo
+          </TugPushButton>
+        </div>
+      ) : null}
+      {/* A fold in flight, and no second sentence about it. The register is
+          already saying `Committing base work · N files` above this row, so
+          what belongs here is the detail that line cannot carry: which paths
+          the fold is taking. Two lines with two words for one act is the whole
+          defect the register exists to prevent. */}
+      {resolveFace === "folding" ? (
+        <ul
+          className="session-changes-arc-join-rungs"
+          data-slot="session-changes-arc-join-folding"
+        >
+          {blockers
+            .filter((blocker) => blocker.kind === "base-dirt")
+            .flatMap((blocker) => blocker.paths ?? [])
+            .map((path) => (
+              <li key={path}>{path}</li>
+            ))}
+        </ul>
       ) : null}
       {/* A ladder run says so for its whole duration, whether or not it has
           anything to stream yet. The rungs below the AI one resolve without

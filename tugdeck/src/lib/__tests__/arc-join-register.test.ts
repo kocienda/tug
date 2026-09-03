@@ -484,3 +484,85 @@ describe("a live arc holds the offer", () => {
     expect(blocked?.word).toBe("blocked");
   });
 });
+
+describe("the fold has its own sentence ([P07])", () => {
+  const dirt = (paths: string[]) => ({
+    kind: "base-dirt",
+    title: "Base work in the way",
+    detail: `main has uncommitted ${paths.join(", ")}`,
+    paths,
+  });
+
+  test("a fold in flight reads as committing base work, above the blocker", () => {
+    // The blocker is still on the entry — the recompute that removes it is the
+    // one that ends the fold — and the refusal must not paint over the act
+    // clearing it. Same precedence a live join has, for the same reason.
+    const folding = reg({
+      phase: "blocked",
+      run: "resolve-base",
+      blockers: [dirt(["a.ts", "b.ts", "c.ts"])],
+    });
+    expect(folding?.phase).toBe("in_flight");
+    expect(folding?.line).toBe("Committing base work · 3 files");
+    expect(folding?.word).toBe("committing");
+
+    // One file is one file.
+    const single = reg({
+      phase: "blocked",
+      run: "resolve-base",
+      blockers: [dirt(["a.ts"])],
+    });
+    expect(single?.line).toBe("Committing base work · 1 file");
+
+    // And a fold with no paths to count says what it is doing rather than
+    // claiming a count it does not have.
+    const countless = reg({ phase: "blocked", run: "resolve-base" });
+    expect(countless?.line).toBe("Committing base work");
+  });
+
+  test("the client's own act stands in before the feed shows the hold", () => {
+    // The press goes out, the server takes the hold, the recompute follows.
+    // Between the first and the third the entry says nothing is running, and a
+    // register that waited for it would leave the blocker's refusal standing
+    // over an act already under way.
+    const pressed = reg(
+      { phase: "blocked", blockers: [dirt(["a.ts", "b.ts"])] },
+      { resolveAct: "resolve-base", resolvePhase: "resolving" },
+    );
+    expect(pressed?.line).toBe("Committing base work · 2 files");
+    expect(pressed?.word).toBe("committing");
+  });
+
+  test("a fold speaks on an arc whose stage would not have spoken at all", () => {
+    // `acted` is what lets a not-yet-joinable arc say anything, and a press is
+    // somebody acting. Without the act in that predicate the register returns
+    // null and the fold runs behind a silent row.
+    const working = arcJoinRegister({
+      arc: "imposer2",
+      base: "main",
+      stage: "implementing",
+      join: { phase: "blocked", blockers: [dirt(["a.ts"])] },
+      resolveAct: "resolve-base",
+      resolvePhase: "resolving",
+    });
+    expect(working?.word).toBe("committing");
+  });
+
+  test("a fold outranks the blocker but not a dropped wire", () => {
+    const offline = reg(
+      { phase: "blocked", run: "resolve-base", blockers: [dirt(["a.ts"])] },
+      { connected: false },
+    );
+    expect(offline?.word).toBe("offline");
+  });
+
+  test("the ladder's resolve still reads as reconciling", () => {
+    const ladder = reg({
+      phase: "conflicted",
+      run: "resolve",
+      conflicts: ["a.rs"],
+    });
+    expect(ladder?.word).toBe("reconciling");
+    expect(ladder?.line).toBe("Reconciling with main — resolving 1 file");
+  });
+});

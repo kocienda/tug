@@ -29,7 +29,10 @@ import { attachSessionStateChangesStore } from "./lib/session-state-changes-stor
 import { attachPulseStore } from "./lib/pulse-store";
 import { attachOverviewStore } from "./lib/overview-store";
 import { attachSessionActivityStore } from "./lib/session-activity-store";
-import { attachChangesetAllStore } from "./lib/changeset-all-store";
+import {
+  attachChangesetAllStore,
+  getChangesetAllStore,
+} from "./lib/changeset-all-store";
 import { attachChangesetVerbStore } from "./lib/changeset-verb-store";
 import { attachChangesetDraftStore } from "./lib/changeset-draft-store";
 import { attachChangesetJoinStore } from "./lib/changeset-join-store";
@@ -592,7 +595,19 @@ if (!container) {
   attachChangesetDraftStore(connection);
   // Wire the arc-join resolve overlay store (Spec S12, [P31]/[P32]): the
   // /btw-style resolution progress + result, read via `useChangesetJoinResolve`.
-  attachChangesetJoinStore(connection);
+  const joinStore = attachChangesetJoinStore(connection);
+  // …and let the aggregate feed settle it ([P02]). The overlay holds a run;
+  // what the run produced comes back on the arc's entry, so the recompute is
+  // what ends it — a reply frame only ends it sooner. Drained once here for the
+  // snapshot the store already holds, the way `ChangesetAllStore` drains its
+  // own feed at attach.
+  const changesetAll = getChangesetAllStore();
+  if (changesetAll !== null) {
+    changesetAll.subscribe(() =>
+      joinStore.observeFeed(changesetAll.getSnapshot()),
+    );
+    joinStore.observeFeed(changesetAll.getSnapshot());
+  }
 
   // Re-assert session bindings for dev cards that were alive before
   // this page reload. The deck layout is materialized;

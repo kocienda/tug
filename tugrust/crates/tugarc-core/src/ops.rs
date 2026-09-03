@@ -3844,6 +3844,10 @@ pub fn join_preflight_in(repo_root: &Path, name: &str) -> Result<Vec<JoinBlocker
 #[derive(Debug, Clone, Serialize)]
 pub struct ResolveBaseOutcome {
     pub name: String,
+    /// The branch the fold committed onto — carried rather than re-derived,
+    /// because the caller that tells a holder what happened needs to name it
+    /// and the fold is the half that already read it.
+    pub base_branch: String,
     /// The commit the fold made on the base, when there was divergent work to
     /// fold. Absent when every overlapping path was the arc's own bytes and
     /// dropping them was the whole of the job.
@@ -3978,18 +3982,32 @@ pub fn resolve_base_in(
         op_seq,
         crate::oplog::OpAfter {
             base_tip: Some(git_stdout(&repo_root, &["rev-parse", &base_branch])?),
+            // The receipt, written where it survives: a reload and a second
+            // deck both read the fold from here, and the frame that announced
+            // it reaches neither.
+            folded: folded.clone(),
+            dropped: dropped.clone(),
+            folded_from: folded_from.clone(),
             ..Default::default()
         },
     )?;
 
     Ok(ResolveBaseOutcome {
         name: name.to_string(),
+        base_branch,
         committed,
         folded,
         dropped,
         folded_from,
         warnings,
     })
+}
+
+/// The subject line the fold's commit carries — shared with the remedy
+/// sentence, so the thing the button promises and the thing the log records
+/// are one string rather than two that agree today.
+fn fold_commit_subject(arc: &str) -> String {
+    format!("Commit base work in progress to unblock the join of {arc}")
 }
 
 /// The message the fold's commit carries.
@@ -4005,8 +4023,8 @@ fn fold_commit_message(
     folded_from: &BTreeMap<String, String>,
 ) -> String {
     format!(
-        "Commit base work in progress to unblock the join of {}\n\n{}\n\nThis commit was made by `tugtool arc resolve-base` to clear a join blocked by uncommitted work on these paths. `tugtool arc undo` reverses it and leaves the same content uncommitted.\n",
-        arc,
+        "{}\n\n{}\n\nThis commit was made by `tugtool arc resolve-base` to clear a join blocked by uncommitted work on these paths. `tugtool arc undo` reverses it and leaves the same content uncommitted.\n",
+        fold_commit_subject(arc),
         paths
             .iter()
             .map(|p| match folded_from.get(p) {
@@ -4043,9 +4061,46 @@ fn attach_holders(
         .collect()
 }
 
+/// The remedy sentence, composed from the blocker's own facts ([P10]).
+///
+/// It is a **fact sheet**, not a slogan: how many files, whose they are, where
+/// they are going, under what subject, that nothing on disk moves, and that
+/// the way back is right here. That is the same set the discard preflight
+/// already states, and it is stated for the same reason — the act commits
+/// somebody's uncommitted work, so weighing it needs the facts before the
+/// press rather than a receipt after it.
+///
+/// No CLI verb appears in it. Every fact it names is reachable from the
+/// surface the sentence is rendered on, and naming a command the reader would
+/// have to leave for is what the whole seam was built to stop.
+fn remedy_explain(arc: &str, base: &str, count: usize, holder: Option<&str>) -> String {
+    // "these 1 file" is what a format string with a bare plural produces, and
+    // it is the first thing the sentence says — a fact sheet that cannot count
+    // is read as one that cannot be trusted about the rest either.
+    let files = if count == 1 {
+        format!("this {count} file")
+    } else {
+        format!("these {count} files")
+    };
+    let subject = fold_commit_subject(arc);
+    match holder {
+        None => format!(
+            "Resolve commits {files} — yours — onto {base} as one commit, “{subject}”. Nothing changes on disk, and Undo here puts them back uncommitted."
+        ),
+        Some(holder) => format!(
+            "Resolve commits {files} — {holder}'s work in progress — onto {base} as one commit, “{subject}”. Nothing changes on disk, their session is told, and Undo here puts them back uncommitted."
+        ),
+    }
+}
+
 /// Split what still blocks into the user's own and somebody else's, each
 /// carrying the sentence its case earns.
-fn base_dirt_blockers(blocking: Vec<BaseOverlapPath>, untracked: bool) -> Vec<JoinBlocker> {
+fn base_dirt_blockers(
+    arc: &str,
+    base: &str,
+    blocking: Vec<BaseOverlapPath>,
+    untracked: bool,
+) -> Vec<JoinBlocker> {
     let (foreign, mine): (Vec<_>, Vec<_>) = blocking.into_iter().partition(|o| o.holder.is_some());
     let mut out = Vec::new();
     if !mine.is_empty() {
@@ -4063,7 +4118,7 @@ fn base_dirt_blockers(blocking: Vec<BaseOverlapPath>, untracked: bool) -> Vec<Jo
             },
             paths: overlap_paths(&mine),
             remedy: Some(JoinRemedy {
-                explain: "Resolve commits that work onto the base as its own commit, so the join can reconcile the two versions. Undo puts it back uncommitted.".to_string(),
+                explain: remedy_explain(arc, base, mine.len(), None),
             }),
             overlap: mine,
         });
@@ -4084,9 +4139,7 @@ fn base_dirt_blockers(blocking: Vec<BaseOverlapPath>, untracked: bool) -> Vec<Jo
             detail: foreign_dirt_detail(&holder, &overlap_paths(&entries)),
             paths: overlap_paths(&entries),
             remedy: Some(JoinRemedy {
-                explain: format!(
-                    "Resolve commits {holder}'s in-progress edit onto the base as its own commit — the work is kept, their files do not change on disk, and their session is told. Undo puts it back uncommitted."
-                ),
+                explain: remedy_explain(arc, base, entries.len(), Some(&holder)),
             }),
             overlap: entries,
         });
@@ -4182,10 +4235,14 @@ pub fn join_blockers_from_detail(
         .collect();
 
     blockers.extend(base_dirt_blockers(
+        name,
+        base_branch,
         attach_holders(&tracked_blocking, live_dirt),
         false,
     ));
     blockers.extend(base_dirt_blockers(
+        name,
+        base_branch,
         attach_holders(&untracked_blocking, live_dirt),
         true,
     ));
@@ -12959,6 +13016,23 @@ Some context.
         let dirt = mine.iter().find(|b| b.kind == "base-dirt").expect("dirt");
         assert!(dirt.detail.contains("your uncommitted edit"), "{dirt:?}");
         assert!(dirt.overlap[0].holder.is_none());
+        // And the act's own sentence is the fact sheet ([P10]): the count, the
+        // base it lands on, the subject the commit will carry, that nothing on
+        // disk moves, and that the way back is on this same surface.
+        let remedy = dirt.remedy.as_ref().expect("their own work has an act");
+        for fact in [
+            "this 1 file",
+            "— yours —",
+            "onto main",
+            "“Commit base work in progress to unblock the join of contended”",
+            "Nothing changes on disk",
+            "Undo here",
+        ] {
+            assert!(
+                remedy.explain.contains(fact),
+                "the sentence is missing {fact:?}: {remedy:?}"
+            );
+        }
 
         // With one, the sentence names the hand that is on it.
         let held = BTreeMap::from([("shared.txt".to_string(), "^ink-anchor".to_string())]);
@@ -12971,9 +13045,22 @@ Some context.
             .as_ref()
             .expect("a foreign hand still has an act");
         assert!(
-            remedy.explain.contains("^ink-anchor"),
+            remedy.explain.contains("^ink-anchor's work in progress"),
             "the act says whose work it folds: {remedy:?}"
         );
+        for fact in [
+            "this 1 file",
+            "onto main",
+            "“Commit base work in progress to unblock the join of contended”",
+            "Nothing changes on disk",
+            "their session is told",
+            "Undo here",
+        ] {
+            assert!(
+                remedy.explain.contains(fact),
+                "the sentence is missing {fact:?}: {remedy:?}"
+            );
+        }
 
         // And an identical copy is still nobody's problem, held or not.
         fs::write(repo.join("shared.txt"), "base\narc change\n").unwrap();
@@ -12983,6 +13070,28 @@ Some context.
                 .iter()
                 .all(|b| b.kind != "base-dirt"),
             "the arc's own bytes refuse nothing, whoever last wrote them"
+        );
+    }
+
+    /// One file is a file. The count is the first thing the sentence says, so
+    /// getting it wrong is the first thing a reader sees — and a fact sheet
+    /// that cannot count is not one.
+    #[test]
+    fn the_remedy_counts_one_file_in_the_singular() {
+        assert!(
+            remedy_explain("a", "main", 1, None).contains("this 1 file —"),
+            "{}",
+            remedy_explain("a", "main", 1, None)
+        );
+        assert!(
+            remedy_explain("a", "main", 5, None).contains("these 5 files —"),
+            "{}",
+            remedy_explain("a", "main", 5, None)
+        );
+        assert!(
+            remedy_explain("a", "main", 1, Some("^ink")).contains("this 1 file —"),
+            "{}",
+            remedy_explain("a", "main", 1, Some("^ink"))
         );
     }
 
@@ -13030,6 +13139,18 @@ Some context.
             git_stdout(repo, &["rev-parse", "HEAD"]).unwrap(),
             before_tip
         );
+
+        // The op records what it folded, which is what makes the receipt
+        // durable: every surface that reports the act reads it back from here
+        // rather than from the frame that announced it.
+        let recorded = crate::oplog::list_ops(repo)
+            .into_iter()
+            .find(|op| op.verb == crate::oplog::OpVerb::ResolveBase)
+            .expect("the fold recorded an op");
+        let after = recorded.after.expect("it completed");
+        assert_eq!(after.folded, vec!["shared.txt".to_string()]);
+        assert!(after.dropped.is_empty());
+        assert!(after.folded_from.is_empty(), "nobody else held it");
 
         // Undo puts it back the way they had it: same content, uncommitted.
         crate::oplog::undo_in(repo, Some("fold")).expect("undo");
@@ -13099,6 +13220,84 @@ Some context.
         assert!(outcome.folded.is_empty());
         assert!(outcome.committed.is_none(), "nothing to commit");
         assert!(dirty_tracked_paths(repo).is_empty());
+    }
+
+    /// Undo beside the receipt puts the edit back where it was: the base at
+    /// its pre-fold tip and the file dirty again, which is the whole of what
+    /// the button promises.
+    ///
+    /// These two live here rather than in `oplog.rs` because a real fold needs
+    /// a real arc, and `seed_arc_with_a_round` is the fixture that builds one.
+    #[serial]
+    #[test]
+    fn undo_resolve_base_in_reverses_a_standing_fold() {
+        let temp = TempDir::new().unwrap();
+        seed_arc_with_a_round(&temp, "undofold");
+        let repo = temp.path();
+        fs::write(repo.join("shared.txt"), "base\nmy own edit\n").unwrap();
+
+        let before_tip = git_stdout(repo, &["rev-parse", "HEAD"]).unwrap();
+        resolve_base_in(repo, "undofold", &BTreeMap::new()).expect("folds");
+        assert!(dirty_tracked_paths(repo).is_empty(), "the fold cleared it");
+
+        crate::oplog::undo_resolve_base_in(repo, "undofold").expect("undoes");
+
+        assert_eq!(
+            git_stdout(repo, &["rev-parse", "HEAD"]).unwrap(),
+            before_tip,
+            "the base is back where the fold found it"
+        );
+        assert_eq!(
+            dirty_tracked_paths(repo),
+            vec!["shared.txt".to_string()],
+            "and the edit is uncommitted again"
+        );
+        assert_eq!(
+            fs::read_to_string(repo.join("shared.txt")).unwrap(),
+            "base\nmy own edit\n",
+            "byte for byte their own"
+        );
+    }
+
+    /// The narrowing is the point: once the arc has joined, the newest
+    /// operation is that join, the receipt has retired itself, and a press
+    /// that reached the general `undo_in` would un-land the join under a
+    /// reader who thought they were putting one file back.
+    #[serial]
+    #[test]
+    fn undo_resolve_base_in_refuses_when_the_newest_op_is_a_join() {
+        let temp = TempDir::new().unwrap();
+        let repo = temp.path();
+        // The fixture is inline rather than `seed_arc_with_a_round` because
+        // this one needs the join to *land*: the helper's arc and its base
+        // dirt are the same line of a two-line file, so the join that follows
+        // the fold conflicts, aborts, and records no operation at all. Here
+        // the arc edits the top and the base edits the bottom, which is the
+        // ordinary history the fold exists to produce.
+        init_git_repo(repo);
+        redirect_state_dir(&temp.path().join("state"));
+        std::env::set_current_dir(repo).unwrap();
+        fs::write(repo.join("shared.txt"), "1\n2\n3\n4\n5\n6\n7\n8\n").unwrap();
+        git_output(repo, &["add", "."]).unwrap();
+        git_output(repo, &["commit", "-m", "seed"]).unwrap();
+        create("foldjoin", None, false, None).unwrap();
+        let worktree = repo.join(".tug/worktrees/foldjoin");
+        fs::write(worktree.join("shared.txt"), "TOP\n2\n3\n4\n5\n6\n7\n8\n").unwrap();
+        commit("foldjoin", "touch the top", None).unwrap();
+        fs::write(repo.join("shared.txt"), "1\n2\n3\n4\n5\n6\n7\nBOTTOM\n").unwrap();
+
+        resolve_base_in(repo, "foldjoin", &BTreeMap::new()).expect("folds");
+        let joined = join_in(repo, "foldjoin", mechanics()).expect("joins");
+        assert!(joined.commit_hash.is_some(), "the join landed: {joined:?}");
+        let joined_tip = git_stdout(repo, &["rev-parse", "HEAD"]).unwrap();
+
+        let err = crate::oplog::undo_resolve_base_in(repo, "foldjoin").unwrap_err();
+        assert!(err.contains("not a resolve"), "got {err}");
+        assert_eq!(
+            git_stdout(repo, &["rev-parse", "HEAD"]).unwrap(),
+            joined_tip,
+            "and it moved nothing saying so"
+        );
     }
 
     /// The arc's uncommitted work counts toward the overlap, because the

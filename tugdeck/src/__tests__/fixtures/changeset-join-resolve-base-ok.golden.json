@@ -1,0 +1,10 @@
+{
+  "action": "changeset_join_resolve_base_ok",
+  "project_dir": "/p",
+  "arc": "demo",
+  "committed": "0123456789abcdef0123456789abcdef01234567",
+  "folded": ["shared.txt"],
+  "dropped": ["same.txt"],
+  "folded_from": { "shared.txt": "other-session" },
+  "warnings": []
+}

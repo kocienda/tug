@@ -109,7 +109,19 @@
                 "removed": 1
               }
             ],
-            "reviewed": false
+            "reviewed": false,
+            "resolved_base": {
+              "seq": 12,
+              "commit": "0123456789abcdef0123456789abcdef01234567",
+              "base": "main",
+              "folded": [
+                "tugrust/crates/tugtool/src/commands/arc.rs"
+              ],
+              "dropped": [],
+              "folded_from": {
+                "tugrust/crates/tugtool/src/commands/arc.rs": "other-session"
+              }
+            }
           },
           "documents": {
             "plan": "/repo/.tug/arcs/fix-join/plan.md",

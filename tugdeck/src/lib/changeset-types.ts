@@ -426,8 +426,8 @@ export interface ArcJoinStateWire {
    */
   question?: ArcJoinQuestionWire;
   /**
-   * What is running on this arc right now — `resolve` or `verify` — absent
-   * when nothing is.
+   * What is running on this arc right now — `resolve`, `resolve-base` or
+   * `verify` — absent when nothing is.
    *
    * The one join fact that is not durable: occupancy is the server's
    * in-process state, so a restart clears it. It is on the wire because a
@@ -443,6 +443,32 @@ export interface ArcJoinStateWire {
    * reconciled yet.
    */
   offer?: ArcJoinOfferWire;
+  /**
+   * The fold that stands over this arc — the base work committed to clear its
+   * join, when one has been and has not been undone or superseded.
+   *
+   * Durable and read from the op log, so a reload and a second deck see the
+   * same receipt as the deck that pressed. Present on the blocked and
+   * unblocked arms alike: a fold is a thing that happened, not a state the arc
+   * is in.
+   */
+  resolved_base?: ArcResolvedBaseWire;
+}
+
+/** What a fold did, for the receipt the report renders (Spec S02). */
+export interface ArcResolvedBaseWire {
+  /** The op's sequence number — what an Undo names when it reverses it. */
+  seq: number;
+  /** The commit made on the base. Absent when the fold only dropped copies. */
+  commit?: string;
+  /** The base branch the fold committed onto. */
+  base: string;
+  /** Paths folded into that commit. */
+  folded?: string[];
+  /** Paths dropped as the arc's own bytes. */
+  dropped?: string[];
+  /** Folded paths that were another live session's work, by holder name. */
+  folded_from?: Record<string, string>;
 }
 
 /**
@@ -685,6 +711,25 @@ function isOptionalArcJoinState(
           (r.added === undefined || typeof r.added === "number") &&
           (r.removed === undefined || typeof r.removed === "number"),
       )
+    )
+  ) {
+    return false;
+  }
+  if (
+    value.resolved_base !== undefined &&
+    !(
+      isRecord(value.resolved_base) &&
+      typeof value.resolved_base.seq === "number" &&
+      typeof value.resolved_base.base === "string" &&
+      (value.resolved_base.commit === undefined ||
+        typeof value.resolved_base.commit === "string") &&
+      isOptionalStringArray(value.resolved_base.folded) &&
+      isOptionalStringArray(value.resolved_base.dropped) &&
+      (value.resolved_base.folded_from === undefined ||
+        (isRecord(value.resolved_base.folded_from) &&
+          Object.values(value.resolved_base.folded_from).every(
+            (holder) => typeof holder === "string",
+          )))
     )
   ) {
     return false;

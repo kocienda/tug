@@ -4868,6 +4868,14 @@ export function SessionCardBody({
           changesController.workspaceKey,
           entry.display_name,
         ),
+      // And its reversal, which rides beside the fold's own receipt. The
+      // receipt is durable and the undo is the one act that retires it early,
+      // so the gesture belongs wherever the receipt is read.
+      undoResolveBase: (entry) =>
+        getChangesetJoinStore()?.undoResolveBase(
+          changesController.workspaceKey,
+          entry.display_name,
+        ),
       // Discard is deliberately absent here. It reaches past the fronted row —
       // any arc no live session holds is releasable from this shade — so it
       // rides the lane's own release bundle, which the view builds, rather than

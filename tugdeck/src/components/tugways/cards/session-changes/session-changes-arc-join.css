@@ -95,6 +95,30 @@
   margin-block-start: var(--tug-space-2xs);
 }
 
+/* The blocker's own files, listed above its two sentences. Monospace and
+   subtle, the same treatment the ladder's per-file lane gives a path — a path
+   is a path wherever this section shows one, and a second look for the same
+   kind of thing would be a second vocabulary. */
+.session-changes-arc-join-paths {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin: 0 0 var(--tug-space-2xs);
+  padding: 0;
+  list-style: none;
+  font-size: var(--tug-font-size-sm);
+  line-height: 1.5;
+  font-family: var(--tug-font-family-mono);
+  color: var(--tug7-element-global-text-normal-subtle-rest);
+}
+
+.session-changes-arc-join-paths > li {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
 /* A blocker's own sentence, for the blockers past the first — the first one's
    is the register's line, one line above this section, and is not said twice.
    Server-composed, the same bytes the execute path would refuse with, so the

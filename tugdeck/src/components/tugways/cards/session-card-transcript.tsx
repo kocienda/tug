@@ -83,7 +83,6 @@ import React, {
 } from "react";
 import {
   AlarmClock,
-  Megaphone,
   Milestone,
   Bell,
   CircleDashed,
@@ -200,6 +199,8 @@ import "./session-commit-receipt-block";
 import "./session-join-receipt-block";
 import "./session-arc-receipt-block";
 import "./session-arc-note-block";
+import "./session-notice-block";
+import { SessionNoticeLine } from "./session-notice-line";
 import { composeShellShareText } from "./shell-exchange-view";
 import { RefsResultBlock } from "./refs-result-block";
 import { composeRefsShareText, refsShareLabel } from "./refs-result-view";
@@ -791,8 +792,11 @@ const ShellTurnCell = React.memo(function ShellTurnCell({
   const attribution = resolveCommandAttribution(message.command);
   const isGitRow = attribution === "git";
   const isArcRow = attribution === "wheel";
+  // Tug's own voice — a notice about an act the app performed. Nothing ran on
+  // this card, so it wants the shell chrome gone on the same terms.
+  const isTugRow = attribution === "tug";
   // A row nobody typed: both receipts alike want the shell's chrome gone.
-  const isReceiptRow = isGitRow || isArcRow;
+  const isReceiptRow = isGitRow || isArcRow || isTugRow;
   // A quiet row ([P12]) is one derived sentence, and it renders as one: the
   // claimed block owns the whole row — no participant header, no `#s{n}`
   // address, no cwd, no end-state, no collapse. The entry scaffolding all
@@ -1376,26 +1380,11 @@ const CodeRowBody: React.FC<CodeRowBodyProps> = ({
         // line would have made the thing steering the arc read as something
         // the session was quoting.
         elements.push(
-          <div
+          <SessionNoticeLine
             key={message.messageKey}
-            className="session-card-transcript-notice"
-            data-slot="tug-notice"
-            data-notice-origin={message.noticeOrigin ?? "tug"}
-          >
-            <TugQuietLine
-              icon={<Megaphone size={16} aria-hidden="true" />}
-              label={message.noticeOrigin ?? "tug"}
-              subject={
-                <TugMarkdownBlock
-                  key={`md-${message.text.length}`}
-                  initialText={message.text}
-                  className="session-card-transcript-notice-md"
-                  findable
-                />
-              }
-              tone="quiet"
-            />
-          </div>,
+            origin={message.noticeOrigin ?? "tug"}
+            text={message.text}
+          />,
         );
         continue;
       }

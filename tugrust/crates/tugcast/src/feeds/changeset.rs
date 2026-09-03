@@ -1625,6 +1625,10 @@ async fn arc_entries(
         // repository, not of an arc, so it is read once for the whole recompute
         // and handed to each arc's composition rather than re-read per arc.
         let current_branch = tugarc_core::ops::current_branch(&root).unwrap_or_default();
+        // And the standing fold receipts, for the same reason and with more
+        // force: reading them is one eager walk of the whole op log, so per-arc
+        // it would be that walk once per arc in the loop below.
+        let resolve_receipts = crate::feeds::join_board::standing_resolve_receipts(&root);
         let live: Vec<String> = details.iter().map(|d| d.owner_key.clone()).collect();
         crate::feeds::join_board::sweep(&live);
         // The same idea one level down: a workshop is a real checkout on disk,
@@ -1654,6 +1658,7 @@ async fn arc_entries(
                     &detail,
                     &current_branch,
                     &held_by_others,
+                    &resolve_receipts,
                 );
                 (detail, review, steps, task_list, join)
             })

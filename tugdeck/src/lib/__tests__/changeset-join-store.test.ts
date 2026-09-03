@@ -21,13 +21,23 @@ import {
   attachChangesetJoinStore,
   _resetChangesetJoinStoreForTest,
   _ingestJoinFrameForTest,
+  _setPressAcknowledgementMsForTest,
+  PRESS_ACKNOWLEDGEMENT_MS,
 } from "../changeset-join-store";
+import okFrame from "@/__tests__/fixtures/changeset-join-resolve-base-ok.golden.json";
+
+import type { WorkspacesChangesetSnapshot } from "../changeset-types";
 
 const fakeConn = { onFrame: () => () => {}, sendControlFrame: () => {} } as never;
 
 const K = { project_dir: "/p", arc: "demo" };
 
-beforeEach(() => _resetChangesetJoinStoreForTest());
+beforeEach(() => {
+  _resetChangesetJoinStoreForTest();
+  // The deadline is a module-level number a test may shorten, so every case
+  // starts from the shipped one rather than from whatever the last one left.
+  _setPressAcknowledgementMsForTest(PRESS_ACKNOWLEDGEMENT_MS);
+});
 
 describe("changeset join resolve overlay", () => {
   test("deltas accumulate per file, then ok puts the overlay away", () => {
@@ -652,5 +662,250 @@ describe("an admission refusal does not kill the run it was refused for ([P01])"
     const after = store.state("/p", "demo");
     expect(after.phase).toBe("idle");
     expect(after.error).toBeNull();
+  });
+
+  test("the resolve-base ok frame settles the overlay it was sent for", () => {
+    // The frame the server actually builds, read from the fixture the Rust
+    // side asserts it against — so a server that stops carrying `arc` fails
+    // here as well as there. Correlation by `arc` is the whole of this case:
+    // a frame without one is dropped in silence, which is what left a real
+    // press spinning under a fold that had already finished.
+    const store = attachChangesetJoinStore(fakeConn);
+    store.resolveBase("/p", "demo");
+    expect(store.state("/p", "demo").phase).toBe("resolving");
+
+    _ingestJoinFrameForTest(okFrame);
+
+    expect(store.state("/p", "demo").phase).toBe("idle");
+  });
+
+  test("a resolve-base ok frame for another arc leaves this cell alone", () => {
+    const store = attachChangesetJoinStore(fakeConn);
+    store.resolveBase("/p", "demo");
+
+    _ingestJoinFrameForTest({ ...okFrame, arc: "other" });
+
+    expect(store.state("/p", "demo").phase).toBe("resolving");
+  });
+
+  test("an undo refusal reaches the face without failing anything", () => {
+    // The refusal the narrowed verb exists to produce — the arc has joined,
+    // so its newest operation is not a fold. It is a statement about the
+    // press and about nothing else, so the cell keeps whatever it was doing.
+    const store = attachChangesetJoinStore(fakeConn);
+    store.resolveBase("/p", "demo");
+    expect(store.state("/p", "demo").phase).toBe("resolving");
+
+    _ingestJoinFrameForTest({
+      action: "changeset_join_resolve_base_undo_err",
+      ...K,
+      detail: "the newest operation on 'demo' is a join, not a resolve",
+    });
+
+    const after = store.state("/p", "demo");
+    expect(after.phase).toBe("resolving");
+    expect(after.error).toBe(
+      "the newest operation on 'demo' is a join, not a resolve",
+    );
+  });
+
+  test("an undo ok clears the stated reason", () => {
+    const store = attachChangesetJoinStore(fakeConn);
+    _ingestJoinFrameForTest({
+      action: "changeset_join_resolve_base_undo_err",
+      ...K,
+      detail: "nothing to undo on 'demo'",
+    });
+    expect(store.state("/p", "demo").error).toBe("nothing to undo on 'demo'");
+
+    _ingestJoinFrameForTest({
+      action: "changeset_join_resolve_base_undo_ok",
+      ...K,
+      base_tip: "0".repeat(40),
+    });
+
+    expect(store.state("/p", "demo").error).toBeNull();
+  });
+});
+
+describe("the feed settles the overlay ([P02], [P03])", () => {
+  const settle = (ms: number): Promise<void> =>
+    new Promise((done) => setTimeout(done, ms));
+
+  /** One recompute, carrying whatever the arc's join state is said to be. */
+  const feed = (join?: Record<string, unknown>): WorkspacesChangesetSnapshot =>
+    ({
+      projects: [
+        {
+          workspace_key: "/p",
+          changesets: [
+            {
+              kind: "arc",
+              display_name: "demo",
+              ...(join === undefined ? {} : { join }),
+            },
+          ],
+        },
+      ],
+    }) as unknown as WorkspacesChangesetSnapshot;
+
+  const baseDirt = { kind: "base-dirt", title: "t", detail: "d", paths: ["a"] };
+
+  test("resolve-base settles from the feed when no ok frame ever arrives", () => {
+    // The defect this whole round is about: the fold ran, the blocker went
+    // away, and the deck sat under a spinner because the one frame that could
+    // have taken it down was dropped on arrival. The blocker's absence is the
+    // outcome, so the recompute alone is enough.
+    const store = attachChangesetJoinStore(fakeConn);
+    store.resolveBase("/p", "demo");
+    expect(store.state("/p", "demo").phase).toBe("resolving");
+
+    store.observeFeed(feed({ phase: "resolved", blockers: [] }));
+
+    expect(store.state("/p", "demo").phase).toBe("idle");
+  });
+
+  test("resolve-base stays resolving while the feed still shows the blocker", async () => {
+    _setPressAcknowledgementMsForTest(20);
+    const store = attachChangesetJoinStore(fakeConn);
+    store.resolveBase("/p", "demo");
+
+    store.observeFeed(
+      feed({ phase: "blocked", blockers: [baseDirt], run: "resolve-base" }),
+    );
+    expect(store.state("/p", "demo").phase).toBe("resolving");
+
+    // And the run named on the feed is acknowledgement, so the deadline has
+    // nothing left to catch — a fold slower than the deadline is still a fold.
+    await settle(40);
+    expect(store.state("/p", "demo").phase).toBe("resolving");
+  });
+
+  test("a press nothing acknowledges becomes a stated error at the deadline", async () => {
+    _setPressAcknowledgementMsForTest(20);
+    const store = attachChangesetJoinStore(fakeConn);
+    store.resolveBase("/p", "demo");
+
+    await settle(40);
+
+    const state = store.state("/p", "demo");
+    expect(state.phase).toBe("error");
+    expect(state.error).toContain("got no answer");
+  });
+
+  test("the ladder's run seen on the feed and then gone settles the overlay", () => {
+    const store = attachChangesetJoinStore(fakeConn);
+    store.resolve("/p", "demo");
+
+    store.observeFeed(feed({ phase: "conflicted", run: "resolve" }));
+    expect(store.state("/p", "demo").phase).toBe("resolving");
+
+    store.observeFeed(feed({ phase: "resolved" }));
+    expect(store.state("/p", "demo").phase).toBe("idle");
+  });
+
+  test("a resolve not yet seen on the feed is not a resolve that ended", () => {
+    // The mirror, and the reason the seen half is not optional: the snapshot in
+    // hand when the press goes out predates the server's hold, so `run` absent
+    // on it means *not yet* rather than *finished*. Reading it the other way
+    // would put the overlay away before the run began.
+    const store = attachChangesetJoinStore(fakeConn);
+    store.resolve("/p", "demo");
+
+    store.observeFeed(feed({ phase: "conflicted" }));
+
+    expect(store.state("/p", "demo").phase).toBe("resolving");
+  });
+
+  test("a stuck run is the server's own account, and the overlay yields to it", () => {
+    const store = attachChangesetJoinStore(fakeConn);
+    store.resolve("/p", "demo");
+
+    store.observeFeed(
+      feed({ phase: "conflicted", stuck: "the resolver ran out of turns" }),
+    );
+
+    expect(store.state("/p", "demo").phase).toBe("idle");
+  });
+
+  test("a frame for the cell acknowledges the press on its own", async () => {
+    _setPressAcknowledgementMsForTest(20);
+    const store = attachChangesetJoinStore(fakeConn);
+    store.resolve("/p", "demo");
+
+    _ingestJoinFrameForTest({
+      action: "changeset_join_resolve_delta",
+      ...K,
+      path: "a.rs",
+      rung: "ai",
+      status: "trying",
+    });
+
+    await settle(40);
+    expect(store.state("/p", "demo").phase).toBe("resolving");
+  });
+
+  test("a settled cell is left alone by later recomputes", () => {
+    const store = attachChangesetJoinStore(fakeConn);
+    store.resolveBase("/p", "demo");
+    _ingestJoinFrameForTest(okFrame);
+    expect(store.state("/p", "demo").phase).toBe("idle");
+
+    // A recompute that still carries the blocker — the one that raced the
+    // frame — must not reopen a run that is over.
+    store.observeFeed(feed({ phase: "blocked", blockers: [baseDirt] }));
+
+    expect(store.state("/p", "demo").phase).toBe("idle");
+  });
+
+  test("a frame is not the feed having shown the run", async () => {
+    // A delta says the press was heard; it says nothing about whether the
+    // server has published its hold. A recompute already in flight when the
+    // press went out predates that hold, so `run` is absent on it — and read
+    // as the seen half, it would settle the overlay over a ladder with
+    // minutes left to run.
+    _setPressAcknowledgementMsForTest(20);
+    const store = attachChangesetJoinStore(fakeConn);
+    store.resolve("/p", "demo");
+
+    _ingestJoinFrameForTest({
+      action: "changeset_join_resolve_delta",
+      ...K,
+      path: "a.rs",
+      rung: "ai",
+      status: "trying",
+    });
+    store.observeFeed(feed({ phase: "conflicted" }));
+
+    expect(store.state("/p", "demo").phase).toBe("resolving");
+    // …and the frame still stood the deadline down, which is the other half.
+    await settle(40);
+    expect(store.state("/p", "demo").phase).toBe("resolving");
+  });
+
+  test("a run that ended names no act, whichever way it ended", async () => {
+    // `act` is what the register and the report face read to say WHICH act is
+    // in flight, and both read it beside the phase. A press that failed and
+    // kept its act painted `Committing base work` over its own stated error.
+    _setPressAcknowledgementMsForTest(20);
+    const store = attachChangesetJoinStore(fakeConn);
+    store.resolveBase("/p", "demo");
+    expect(store.state("/p", "demo").act).toBe("resolve-base");
+
+    await settle(40);
+
+    const stated = store.state("/p", "demo");
+    expect(stated.phase).toBe("error");
+    expect(stated.act, "nothing is in flight to name").toBeUndefined();
+
+    // The server's own refusal is the same story.
+    store.resolveBase("/p", "demo");
+    _ingestJoinFrameForTest({
+      action: "changeset_join_resolve_err",
+      ...K,
+      detail: "not an open project",
+    });
+    expect(store.state("/p", "demo").phase).toBe("error");
+    expect(store.state("/p", "demo").act).toBeUndefined();
   });
 });

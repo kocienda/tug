@@ -225,7 +225,7 @@ pub struct ConflictMessage<'a> {
 pub fn compose_conflict_message(m: &ConflictMessage<'_>) -> String {
     let mut out = String::new();
     out.push_str(&format!(
-        "[base-motion replay] The base branch {} moved to {} under arc \"{}\",\n\
+        "The base branch {} moved to {} under arc \"{}\",\n\
          and replaying its rounds stopped at {} \"{}\" with conflicts in:\n",
         m.base_branch,
         short(m.base_head),
@@ -274,7 +274,7 @@ pub fn compose_replay_notice(
     paths: &[String],
 ) -> String {
     let mut out = format!(
-        "[base-motion replay] Arc \"{}\" was replayed onto {} at {} while you were between turns.\n\
+        "Arc \"{}\" was replayed onto {} at {} while you were between turns.\n\
          Your working tree moved under you. No action is required — but re-read any of these\n\
          files before editing them, because what you have in context predates the move:\n",
         arc,
@@ -318,6 +318,26 @@ pub(crate) fn notice_payload(session: &str, origin: &str, text: &str) -> Vec<u8>
         "type": "tug_notice",
         "origin": origin,
         "text": text,
+    }))
+    .expect("a json object of strings serializes")
+}
+
+/// A notice with **no turn behind it** — Tug telling somebody something, rather
+/// than the opener of work about to happen ([P08]).
+///
+/// The two are the same frame apart from `standalone`, and the flag is what
+/// tells them apart on the deck. `notice_payload`'s notice precedes an injected
+/// submission, so opening a turn is exactly right: the turn is coming. A
+/// bulletin has nothing following it, and opening one there leaves a turn that
+/// never ends — the session sits at `waking` over work nobody is doing, which
+/// is what the holder of a folded file saw on 2026-09-03.
+pub(crate) fn bulletin_payload(session: &str, origin: &str, text: &str) -> Vec<u8> {
+    serde_json::to_vec(&serde_json::json!({
+        "tug_session_id": session,
+        "type": "tug_notice",
+        "origin": origin,
+        "text": text,
+        "standalone": true,
     }))
     .expect("a json object of strings serializes")
 }
@@ -881,11 +901,24 @@ impl InjectHandles {
         input_tx
             .send(Frame::new(
                 FeedId::CODE_INPUT,
-                user_message_payload(session, text),
+                user_message_payload(session, &submission_text(text)),
             ))
             .await
             .is_ok()
     }
+}
+
+/// The same words, marked for the reader who gets no row.
+///
+/// One text serves two audiences: the transcript row, where the origin is the
+/// line's own label and repeating it in the sentence would be the label said
+/// twice; and the **submission**, which arrives at the agent as an ordinary
+/// user message with no label anywhere. Unmarked there, base-motion's words
+/// read as the user's own — so the marker is put back on that side only,
+/// which is the one place it is carrying information rather than repeating a
+/// glyph.
+fn submission_text(text: &str) -> String {
+    format!("[base-motion replay] {text}")
 }
 
 /// `git rev-parse <rev>`, empty when it does not resolve.
@@ -1288,6 +1321,10 @@ mod tests {
         assert!(text.contains("src/moved.rs"));
         assert!(text.contains("No action is required"));
         assert!(
+            !text.starts_with("[base-motion replay]"),
+            "the row's own origin label says which feed this is; the text does not say it twice"
+        );
+        assert!(
             !text.contains("rebase"),
             "a clean replay asks for no git work"
         );
@@ -1297,6 +1334,28 @@ mod tests {
     fn a_replay_notice_with_no_delta_says_so_rather_than_listing_nothing() {
         let text = compose_replay_notice("demo", "main", "abcdef0123456789", &[]);
         assert!(text.contains("no file changes"));
+    }
+
+    /// The one field that separates a bulletin from a turn's opener.
+    ///
+    /// A frame that lost it would open a turn nothing ever finishes, so the
+    /// flag is pinned here rather than trusted to the two builders staying in
+    /// step by eye.
+    #[test]
+    fn bulletin_payload_marks_standalone() {
+        let bulletin: serde_json::Value =
+            serde_json::from_slice(&bulletin_payload("s1", "arc-resolve", "hello")).unwrap();
+        assert_eq!(bulletin["type"], "tug_notice");
+        assert_eq!(bulletin["origin"], "arc-resolve");
+        assert_eq!(bulletin["text"], "hello");
+        assert_eq!(bulletin["standalone"], true);
+
+        let opener: serde_json::Value =
+            serde_json::from_slice(&notice_payload("s1", "base-motion", "hello")).unwrap();
+        assert!(
+            opener.get("standalone").is_none(),
+            "an opener carries no flag at all — a turn is coming behind it: {opener}"
+        );
     }
 
     // MARK: - Injection
@@ -1334,7 +1393,14 @@ mod tests {
         assert_eq!(submitted.feed_id, FeedId::CODE_INPUT);
         let body: serde_json::Value = serde_json::from_slice(&submitted.payload).unwrap();
         assert_eq!(body["type"], "user_message");
-        assert_eq!(body["content"][0]["text"], text);
+        // The same words, marked: the submission arrives at the agent as an
+        // ordinary user message with no row and no origin label, so unmarked
+        // there base-motion's words would read as the user's own. The row has
+        // the label and needs no prefix; this side has neither and does.
+        assert_eq!(
+            body["content"][0]["text"],
+            format!("[base-motion replay] {text}")
+        );
     }
 
     #[tokio::test]
@@ -1756,7 +1822,13 @@ mod tests {
         let opener = out_rx.try_recv().expect("an opener");
         let opener: serde_json::Value = serde_json::from_slice(&opener.payload).unwrap();
         assert_eq!(opener["type"], "tug_notice");
-        assert_eq!(opener["text"], text);
+        // The same words, and only the submission wears the origin marker:
+        // the row has an origin label of its own, and the submission has
+        // nowhere else to say where it came from.
+        assert_eq!(
+            format!("[base-motion replay] {}", opener["text"].as_str().unwrap()),
+            text
+        );
 
         // A second wake at the same base tip says nothing more.
         spawn_replay(&ctx, &board, &state, job());

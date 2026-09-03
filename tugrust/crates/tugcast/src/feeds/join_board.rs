@@ -32,7 +32,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use tugarc_core::ops::{self, ArcDetail};
 use tugcast_core::types::{
     ArcConflictCommit, ArcConflictHistory, ArcJoinBlocker, ArcJoinOffer, ArcJoinQuestion,
-    ArcJoinReport, ArcJoinState, ArcResolvedFile,
+    ArcJoinReport, ArcJoinState, ArcResolvedBase, ArcResolvedFile,
 };
 
 use tugarc_core::resolve::{self, CandidateStatus};
@@ -132,11 +132,16 @@ pub fn sweep_workshops(repo_root: &Path, live_arcs: &[String]) {
 /// `current_branch` is read once per recompute by the caller and passed in,
 /// rather than read once per arc: it is a property of the repository, not of
 /// the arc, and the feed may be holding many.
+///
+/// `receipts` follows the same rule for the same reason — see
+/// [`standing_resolve_receipts`], which is one eager walk of the op log and so
+/// belongs to the recompute rather than to the arc.
 pub fn join_state_for(
     repo_root: &Path,
     detail: &ArcDetail,
     current_branch: &str,
     live_dirt: &std::collections::BTreeMap<String, String>,
+    receipts: &std::collections::BTreeMap<String, ArcResolvedBase>,
 ) -> ArcJoinState {
     // Uncached and uncacheable: what is running on this arc right now. The
     // registry is in-process, so this is the one fact here that answers to the
@@ -221,6 +226,10 @@ pub fn join_state_for(
             // A blocked arc has nothing to offer — it is waiting on an act,
             // elsewhere, that each blocker names.
             offer: None,
+            // Reported on this arm too: a fold that cleared one blocker and
+            // left another standing still happened, and the receipt is how the
+            // user checks what it did to their base.
+            resolved_base: receipts.get(name).cloned(),
         };
     }
 
@@ -267,7 +276,69 @@ pub fn join_state_for(
         question,
         run,
         offer,
+        resolved_base: receipts.get(name).cloned(),
     }
+}
+
+/// Every arc's standing fold receipt, from one walk of the op log.
+///
+/// **One walk per recompute, not one per arc.** `list_ops` is eager — a git
+/// subprocess for the refs, then every payload under `.tug/ops/` read and
+/// parsed before it returns a `Vec` — so taking `.next()` off it saves
+/// nothing, and `arc_entries` composes every arc in a loop. This is the same
+/// rule [`join_state_for`]'s own docblock states for `current_branch`: a fact
+/// that is a property of the repository rather than of the arc is read once by
+/// the caller and handed in.
+///
+/// **The newest op an arc has wins, whatever it is.** Not the newest *fold* —
+/// that would keep answering with a fold a later join or discard has already
+/// made irrelevant, and a receipt naming a commit on a base the arc has since
+/// landed onto is worse than no receipt at all. So the walk records each arc's
+/// newest op once and never looks further back for it, keeping the entry only
+/// when that op is a completed, un-undone `ResolveBase`.
+pub fn standing_resolve_receipts(
+    repo_root: &Path,
+) -> std::collections::BTreeMap<String, ArcResolvedBase> {
+    let mut seen: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    let mut receipts = std::collections::BTreeMap::new();
+    // Newest first, which is what makes "the first op for an arc" its newest.
+    for op in tugarc_core::oplog::list_ops(repo_root) {
+        // An undo and a redo are records *about* another op rather than acts on
+        // the arc's own account, and the `undone_by` link they set is what this
+        // reads instead — so they are stepped over rather than taken for the
+        // arc's newest word.
+        if matches!(
+            op.verb,
+            tugarc_core::oplog::OpVerb::Undo | tugarc_core::oplog::OpVerb::Redo
+        ) {
+            continue;
+        }
+        if !seen.insert(op.arc.clone()) {
+            continue;
+        }
+        if op.verb != tugarc_core::oplog::OpVerb::ResolveBase || op.undone_by.is_some() {
+            continue;
+        }
+        let Some(after) = op.after else { continue };
+        receipts.insert(
+            op.arc,
+            ArcResolvedBase {
+                seq: op.seq,
+                // A fold that only dropped copies the arc already carried made
+                // no commit, and says so by having none.
+                commit: if after.folded.is_empty() {
+                    None
+                } else {
+                    after.base_tip.clone()
+                },
+                base: op.before.base_branch.clone(),
+                folded: after.folded,
+                dropped: after.dropped,
+                folded_from: after.folded_from,
+            },
+        );
+    }
+    receipts
 }
 
 /// The join this arc is ready for, if it is ready for one.
@@ -546,7 +617,13 @@ mod tests {
     fn compose(repo: &Path) -> ArcJoinState {
         let detail = detail_for(repo);
         let branch = ops::current_branch(repo).unwrap();
-        join_state_for(repo, &detail, &branch, &std::collections::BTreeMap::new())
+        join_state_for(
+            repo,
+            &detail,
+            &branch,
+            &std::collections::BTreeMap::new(),
+            &standing_resolve_receipts(repo),
+        )
     }
 
     #[test]
@@ -989,6 +1066,143 @@ mod tests {
         );
         drop(held);
         assert!(compose(repo).offer.is_some(), "and offers again once it is");
+    }
+
+    /// Redirect the arc state dir at a scratch path, so a tempdir repo's ops
+    /// are never written into the developer's own data directory.
+    ///
+    /// nextest runs one process per test, which is what makes the process-wide
+    /// set safe.
+    fn redirect_state(temp: &tempfile::TempDir) {
+        // SAFETY: single-threaded setup, and this process runs one test.
+        unsafe {
+            std::env::set_var("TUG_DATA_DIR", temp.path().join("state"));
+        }
+    }
+
+    /// A fold stands as a receipt until something retires it.
+    ///
+    /// The receipt is durable by construction — it *is* the op — so what this
+    /// pins is the reading: the entry carries what the fold did, and the entry
+    /// stops carrying it the moment the op is reversed. Nothing has to remember
+    /// to take it down, which is the property a receipt on a live surface has
+    /// to have.
+    #[test]
+    fn a_fold_stands_as_a_receipt_until_it_is_undone() {
+        let temp = fixture();
+        let repo = temp.path();
+        redirect_state(&temp);
+        // The overlap a fold exists to clear: the user's own divergent work on
+        // a path the arc also changed.
+        std::fs::write(repo.join("f.txt"), "C\nmy own edit\n").unwrap();
+        assert!(
+            compose(repo).resolved_base.is_none(),
+            "precondition: no fold has happened"
+        );
+
+        let outcome = ops::resolve_base_in(repo, "demo", &std::collections::BTreeMap::new())
+            .expect("the fold runs");
+        assert_eq!(outcome.folded, vec!["f.txt".to_string()]);
+
+        let receipt = compose(repo).resolved_base.expect("the receipt stands");
+        assert_eq!(
+            receipt.commit.as_deref(),
+            Some(ops::rev_parse(repo, "main").unwrap().as_str()),
+            "it names the commit the fold made"
+        );
+        assert_eq!(receipt.base, "main");
+        assert_eq!(receipt.folded, vec!["f.txt".to_string()]);
+
+        tugarc_core::oplog::undo_in(repo, Some("demo")).expect("undo");
+        assert!(
+            compose(repo).resolved_base.is_none(),
+            "a reversed fold is not a standing receipt"
+        );
+    }
+
+    /// A join lands the arc, and the fold beneath it stops being news.
+    ///
+    /// This is the case the newest-op rule exists for. Looking for the newest
+    /// *fold* would walk straight past the join to the fold under it and keep
+    /// reporting a commit on a base the arc has since landed onto — a receipt
+    /// that is worse than none, because it invites an Undo of an act the join
+    /// has already built on.
+    #[test]
+    fn a_join_after_a_fold_retires_the_receipt() {
+        let temp = fixture();
+        let repo = temp.path();
+        redirect_state(&temp);
+        std::fs::write(repo.join("f.txt"), "C\nmy own edit\n").unwrap();
+        ops::resolve_base_in(repo, "demo", &std::collections::BTreeMap::new())
+            .expect("the fold runs");
+        assert!(
+            standing_resolve_receipts(repo).contains_key("demo"),
+            "precondition: the fold is the newest thing that happened"
+        );
+
+        // The arc lands. Its fold is still in the log, and still un-undone.
+        let candidate = tugarc_core::resolve::resolve_conflicts(repo, "demo", None)
+            .expect("reconciled")
+            .candidate_commit;
+        let joined = ops::join_in(
+            repo,
+            "demo",
+            ops::JoinOptions {
+                preview: false,
+                candidate,
+                ..Default::default()
+            },
+        )
+        .expect("joined");
+        assert!(
+            joined.blockers.is_empty(),
+            "precondition: the join actually landed: {:?}",
+            joined.blockers
+        );
+
+        assert!(
+            !standing_resolve_receipts(repo).contains_key("demo"),
+            "the newest op is the join, so the fold is no longer the arc's word"
+        );
+    }
+
+    /// A fold in flight reads as `resolve-base` on the feed, beside the blocker
+    /// it is clearing.
+    ///
+    /// Pinned where the entry is composed, because that is the one place the
+    /// two facts meet: the register's fold sentence and the join store's
+    /// acknowledgement both key on `run` naming the act while `blockers` still
+    /// carries the `base-dirt` row. A hold nobody composes into the entry is a
+    /// hold no surface can see.
+    #[test]
+    fn a_held_fold_reads_as_resolve_base_on_the_feed() {
+        let temp = fixture();
+        let repo = temp.path();
+        // Dirty the base over a path the arc also changes — the situation a
+        // fold exists to clear, and the one the press is made from.
+        std::fs::write(repo.join("f.txt"), "C\nlocal edit\n").unwrap();
+        let before = compose(repo);
+        assert_eq!(before.phase, "blocked");
+        assert_eq!(before.run, None, "precondition: nothing running");
+
+        let owner_key = ops::arc_owner_key(repo, "demo");
+        let held = crate::feeds::join_occupancy::acquire(
+            &owner_key,
+            crate::feeds::join_occupancy::JoinRunKind::ResolveBase,
+            None,
+        )
+        .expect("the arc is free");
+
+        let running = compose(repo);
+        assert_eq!(running.run.as_deref(), Some("resolve-base"));
+        assert!(
+            running.blockers.iter().any(|b| b.kind == "base-dirt"),
+            "the blocker stands while the fold clearing it runs: {:?}",
+            running.blockers
+        );
+
+        drop(held);
+        assert_eq!(compose(repo).run, None, "and the fact goes with the hold");
     }
 
     /// The offer carries the words it would land, and says where they came

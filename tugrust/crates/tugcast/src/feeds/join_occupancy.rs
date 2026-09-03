@@ -1,8 +1,9 @@
 //! One arc admits one run (Spec S01).
 //!
-//! Every act that touches an arc's workshop — a resolve, a verification, a
-//! non-preview join — takes the arc first, and is refused by name while
-//! somebody else holds it. Before this, two of them could share one worktree:
+//! Every act that touches an arc's workshop — a resolve, a fold of the base
+//! work refusing its join, a verification, a non-preview join — takes the arc
+//! first, and is refused by name while somebody else holds it. Before this,
+//! two of them could share one worktree:
 //! a second resolve `reset --hard`ing under the first one's live resolver, a
 //! verification resetting the tree a resolve was mid-edit in, a join tearing
 //! the workshop down and a straggling task creating it again as an orphan.
@@ -33,6 +34,12 @@ use std::sync::{Mutex, OnceLock};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum JoinRunKind {
     Resolve,
+    /// The fold that commits the base-side work refusing this arc's join.
+    ///
+    /// Spelled apart from [`JoinRunKind::Resolve`] rather than folded into it
+    /// because the word reaches the screen: the register gives each act its own
+    /// sentence, and the face keys on this string to decide which one to say.
+    ResolveBase,
     Join,
 }
 
@@ -41,6 +48,7 @@ impl JoinRunKind {
     pub fn as_str(self) -> &'static str {
         match self {
             JoinRunKind::Resolve => "resolve",
+            JoinRunKind::ResolveBase => "resolve-base",
             JoinRunKind::Join => "join",
         }
     }
@@ -142,6 +150,27 @@ mod tests {
         drop(held);
         assert_eq!(run_kind(&k), None);
         acquire(&k, JoinRunKind::Join, None).expect("the arc is free again");
+    }
+
+    /// A fold holds the arc under its own word, and refuses by that word.
+    ///
+    /// The spelling is not cosmetic: the register reads this string to decide
+    /// which sentence to say, so a fold that announced itself as `resolve`
+    /// would put the ladder's sentence over an act that is not the ladder.
+    #[test]
+    fn a_fold_holds_the_arc_as_resolve_base() {
+        let k = key("fold-run");
+        let held = acquire(&k, JoinRunKind::ResolveBase, None).expect("the arc is free");
+        assert_eq!(run_kind(&k), Some("resolve-base"));
+
+        let refused = acquire(&k, JoinRunKind::ResolveBase, None).expect_err("the arc is held");
+        assert_eq!(refused, "a resolve-base is already running for this arc");
+        // And it refuses the other acts too — one arc admits one run, whatever
+        // the second one wanted to be.
+        assert!(acquire(&k, JoinRunKind::Join, None).is_err());
+
+        drop(held);
+        assert_eq!(run_kind(&k), None);
     }
 
     /// Two arcs are two holds — the registry gates an arc, not the machine.

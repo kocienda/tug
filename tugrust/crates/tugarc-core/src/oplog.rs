@@ -38,6 +38,7 @@
 //! what finally lets `git gc` collect the commits — which is the honest meaning
 //! of "this operation is no longer undoable".
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -173,6 +174,21 @@ pub struct OpAfter {
     /// Paths copied back to the base checkout — discard only.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub handed_back: Vec<String>,
+    /// Paths folded into the base commit — resolve-base only.
+    ///
+    /// The three fields below are what makes a fold's receipt durable. The
+    /// surfaces that report one read it back from here rather than from the
+    /// frame that announced it, so a reload, a second deck, and the deck that
+    /// pressed all read the same act from the same bytes.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub folded: Vec<String>,
+    /// Paths dropped as the arc's own bytes — resolve-base only.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub dropped: Vec<String>,
+    /// Folded paths that were another live session's work in progress, mapped
+    /// to that session's display name — resolve-base only.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub folded_from: BTreeMap<String, String>,
 }
 
 /// How far a join's teardown has got.
@@ -891,6 +907,32 @@ pub fn undo_in(repo: &Path, arc: Option<&str>) -> Result<UndoOutcome, String> {
         restored_unbound: matches!(op.verb, OpVerb::Join | OpVerb::Discard),
         warnings,
     })
+}
+
+/// Reverse a standing base-work fold on `arc`, and nothing else.
+///
+/// This is [`undo_in`] narrowed to one verb, and the narrowing is the whole
+/// point. `undo_in` reverses whatever the newest undoable operation on an arc
+/// happens to be — which is right for a general Undo the user typed, and wrong
+/// for the Undo button that sits beside a fold's receipt. That button says one
+/// thing, so it must be able to do only that thing: an arc folded and then
+/// *joined* has a join as its newest operation, the receipt has already retired
+/// itself, and a press that reached `undo_in` there would un-land the join
+/// under a reader who thought they were putting five uncommitted files back.
+///
+/// So the verb reads the newest undoable operation, refuses by name unless it
+/// is a `resolve-base`, and only then delegates. The refusal is a sentence
+/// rather than a silence because the face has somewhere to put it ([L31]).
+pub fn undo_resolve_base_in(repo: &Path, arc: &str) -> Result<UndoOutcome, String> {
+    let repo = crate::ops::main_repo_root(repo);
+    match newest_undoable(&repo, Some(arc)) {
+        None => Err(format!("nothing to undo on '{arc}'")),
+        Some(op) if op.verb != OpVerb::ResolveBase => Err(format!(
+            "the newest operation on '{arc}' is a {}, not a resolve — nothing here to undo",
+            op.verb.as_str()
+        )),
+        Some(_) => undo_in(&repo, Some(arc)),
+    }
 }
 
 /// What a redo did.

@@ -493,6 +493,12 @@ export class JoinModeController implements LandingMode {
                 changesController.workspaceKey,
                 registerTarget.name,
               ).phase,
+              // …and which act it is. The composer says the same thing the two
+              // rows do, so it reads the same pair they do.
+              resolveAct: getChangesetJoinStore()?.state(
+                changesController.workspaceKey,
+                registerTarget.name,
+              ).act,
               landBeat: getChangesetJoinStore()?.landProgress(
                 changesController.workspaceKey,
                 registerTarget.name,

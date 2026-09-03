@@ -60,7 +60,7 @@ pub use log::{
 };
 pub use oplog::{
     JoinPhase, JoinProgress, OpAfter, OpBefore, OpConfig, OpPayload, OpVerb, RedoOutcome,
-    UndoOutcome, list_ops, redo_in, undo_in,
+    UndoOutcome, list_ops, redo_in, undo_in, undo_resolve_base_in,
 };
 pub use ops::{
     ArcDetail, ArcDetailFile, ArcDocuments, ArcDraftKey, ArcListItem, ArcStatus, BaseDirtPath,

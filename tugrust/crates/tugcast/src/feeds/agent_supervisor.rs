@@ -4109,6 +4109,18 @@ impl AgentSupervisor {
                 }
                 Err(e) => return ControlOutcome::Error(e),
             },
+            // And its reversal, offered beside the fold's own receipt. It
+            // shares the payload shape for the same reason: one act, one arc,
+            // named the same way.
+            "changeset_join_resolve_base_undo" => {
+                match parse_changeset_join_resolve_payload(payload) {
+                    Ok(parsed) => {
+                        self.do_changeset_join_resolve_base_undo(&parsed).await;
+                        Ok(())
+                    }
+                    Err(e) => return ControlOutcome::Error(e),
+                }
+            }
             "changeset_join_question_answer" => {
                 match parse_changeset_join_question_answer_payload(payload) {
                     Ok(parsed) => {
@@ -7684,6 +7696,47 @@ impl AgentSupervisor {
             return;
         }
 
+        if !crate::feeds::git::is_within_git_worktree(dir).await {
+            Self::send_changeset_join_resolve_err(
+                &self.control_tx,
+                project_dir,
+                &request.arc,
+                "not a git repository",
+            );
+            return;
+        }
+
+        // Take the arc before anything git-shaped happens (Spec S01). The fold
+        // commits on the base and rewrites the paths it folded; a second press
+        // landing under the first would fold a tree mid-commit.
+        let owner_key = tugarc_core::ops::arc_owner_key(dir, &request.arc);
+        let occupancy = match crate::feeds::join_occupancy::acquire(
+            &owner_key,
+            crate::feeds::join_occupancy::JoinRunKind::ResolveBase,
+            None,
+        ) {
+            Ok(guard) => guard,
+            Err(detail) => {
+                Self::send_changeset_join_admission_err(
+                    &self.control_tx,
+                    project_dir,
+                    &request.arc,
+                    &detail,
+                );
+                return;
+            }
+        };
+
+        // A hold nobody samples is a hold nobody has. `run_kind` is an
+        // in-process registry read that only a recompute reaches, and this
+        // handler's own bump fires *after* the fold — so with nothing here
+        // `join.run` would go from absent to absent and no surface would ever
+        // see `resolve-base`. `run_resolve_ladder` says it for its own hold and
+        // it is the same reason: the `run` fact is what makes a reload mid-act
+        // land on a face that still says the act is running, so it goes out
+        // before the work.
+        self.registry.changeset_all_bump().notify_one();
+
         // The attribution the blockers were composed from, read again here
         // rather than trusted from the press: the card's copy is as old as its
         // last recompute, and a session that has since put its hand on the
@@ -7702,6 +7755,13 @@ impl AgentSupervisor {
         let dir_owned = dir.to_path_buf();
         let arc = request.arc.clone();
         let result = tokio::task::spawn_blocking(move || {
+            // The hold travels with the work and is released when the fold
+            // returns, whichever way it returns — including a panic, which is
+            // why it is a guard rather than a pair of calls. It has to be gone
+            // before the bump below: that recompute is the one that removes the
+            // blocker, and a run still held at that moment would put
+            // `run: "resolve-base"` on an entry with nothing running (R02).
+            let _held = occupancy;
             tugarc_core::ops::resolve_base_in(&dir_owned, &arc, &live_dirt)
         })
         .await;
@@ -7728,28 +7788,19 @@ impl AgentSupervisor {
                     }
                 }
                 for (session, paths) in by_session {
-                    let text = format!(
-                        "Your in-progress edit to {} was committed onto the base as its own commit, to clear the join of arc '{}'. The files are unchanged on disk; `tugtool arc undo` puts the edit back uncommitted.",
-                        paths.join(", "),
-                        outcome.name,
+                    let text = Self::resolve_base_notice_text(
+                        &outcome.name,
+                        &outcome.base_branch,
+                        paths.len(),
+                        outcome.committed.as_deref(),
                     );
                     self.code_output.publish_tagged(Frame::new(
                         FeedId::CODE_OUTPUT,
-                        crate::feeds::base_motion::notice_payload(session, "arc-resolve", &text),
+                        crate::feeds::base_motion::bulletin_payload(session, "arc-resolve", &text),
                     ));
                 }
-                let mut body =
-                    serde_json::to_value(&outcome).unwrap_or_else(|_| serde_json::json!({}));
-                if let Some(map) = body.as_object_mut() {
-                    map.insert(
-                        "action".into(),
-                        serde_json::Value::String("changeset_join_resolve_base_ok".into()),
-                    );
-                    map.insert(
-                        "project_dir".into(),
-                        serde_json::Value::String(project_dir.to_string()),
-                    );
-                }
+                let body =
+                    Self::changeset_join_resolve_base_ok_body(project_dir, &outcome.name, &outcome);
                 let _ = self.control_tx.send(Frame::new(
                     FeedId::CONTROL,
                     serde_json::to_vec(&body).expect("changeset_join_resolve_base_ok serializes"),
@@ -7774,6 +7825,73 @@ impl AgentSupervisor {
         }
     }
 
+    /// What the holder of a folded file is told (Spec S04).
+    ///
+    /// **Tug speaking as Tug**, so it names no command: the act happened on a
+    /// surface the reader has, and the way back is a control on that same
+    /// surface. The old sentence pointed at `tugtool arc undo` from inside a
+    /// row wearing the model's avatar, which got the voice and the remedy
+    /// wrong in one line.
+    ///
+    /// It says the four facts a reader needs to stop worrying: which arc, how
+    /// many of *their* files, where they went, and that the disk is untouched.
+    /// The count is per-session — the paths this holder owned, not the fold's
+    /// whole set — because the sentence says "your".
+    fn resolve_base_notice_text(
+        arc: &str,
+        base: &str,
+        files: usize,
+        commit: Option<&str>,
+    ) -> String {
+        let noun = if files == 1 { "file" } else { "files" };
+        match commit {
+            Some(sha) => format!(
+                "Resolve on arc `{arc}` committed your uncommitted edits to {files} {noun} onto {base} as `{}`. Nothing changed on disk. Undo is in your Changes shade.",
+                &sha[..sha.len().min(9)]
+            ),
+            // Nothing was committed, so there is no sha to name and no undo to
+            // offer: the paths were the arc's own bytes and dropping them took
+            // nothing away.
+            None => format!(
+                "Resolve on arc `{arc}` dropped your {files} identical {noun} from the base checkout — the arc already carries them. Nothing changed on disk."
+            ),
+        }
+    }
+
+    /// The `changeset_join_resolve_base_ok` frame, built key by key.
+    ///
+    /// Every field is written by name rather than serialized off
+    /// [`ResolveBaseOutcome`], because the outcome's arc field is spelled
+    /// `name` while the deck correlates a reply to its cell by `arc` — a frame
+    /// serialized whole carried no `arc` at all, and the deck dropped it in
+    /// silence on arrival (the 2026-09-03 incident). Naming each key is what
+    /// makes the wire contract something a test can read, and the fixture the
+    /// test reads it against is shared with the tugdeck suite, so drift on
+    /// either side of the mirror fails one of the two.
+    ///
+    /// `committed` is present only when the fold made a commit. `folded`,
+    /// `dropped` and `folded_from` are always present, empty when empty, so
+    /// the deck reads counts without guards.
+    fn changeset_join_resolve_base_ok_body(
+        project_dir: &str,
+        arc: &str,
+        outcome: &tugarc_core::ops::ResolveBaseOutcome,
+    ) -> serde_json::Value {
+        let mut body = serde_json::json!({
+            "action": "changeset_join_resolve_base_ok",
+            "project_dir": project_dir,
+            "arc": arc,
+            "folded": outcome.folded,
+            "dropped": outcome.dropped,
+            "folded_from": outcome.folded_from,
+            "warnings": outcome.warnings,
+        });
+        if let Some(commit) = outcome.committed.as_deref() {
+            body["committed"] = serde_json::Value::String(commit.to_string());
+        }
+        body
+    }
+
     fn send_changeset_join_resolve_err(
         control_tx: &broadcast::Sender<Frame>,
         project_dir: &str,
@@ -7789,6 +7907,108 @@ impl AgentSupervisor {
         let _ = control_tx.send(Frame::new(
             FeedId::CONTROL,
             serde_json::to_vec(&body).expect("changeset_join_resolve_err serializes"),
+        ));
+    }
+
+    /// Handle a `changeset_join_resolve_base_undo` CONTROL request: put back
+    /// the uncommitted base work a fold committed, via
+    /// [`tugarc_core::undo_resolve_base_in`].
+    ///
+    /// It takes no occupancy hold, and that is deliberate rather than an
+    /// omission. The fold is a run — it streams, it has a face, and a second
+    /// press landing under it would fold a tree mid-commit. An undo is a
+    /// compare-and-swap against tips the operation recorded: a second one
+    /// finds the op already reversed and refuses by name, which is the same
+    /// answer a hold would have produced and one fewer thing to release.
+    ///
+    /// What it does share with the fold is the bump. Everything it moved is in
+    /// git, the blockers are never cached, and the receipt it retires is read
+    /// off the op log by the recompute — so the recompute is the whole of the
+    /// update, and it fires on the refusal too, since a refusal is proof the
+    /// caller's copy of the world was stale.
+    async fn do_changeset_join_resolve_base_undo(&self, request: &ChangesetJoinResolvePayload) {
+        let project_dir = request.project_dir.as_str();
+        let dir = std::path::Path::new(project_dir);
+
+        if self.registry.find_entry_by_path(dir).is_none() {
+            Self::send_changeset_join_resolve_base_undo_err(
+                &self.control_tx,
+                project_dir,
+                &request.arc,
+                "not an open project",
+            );
+            return;
+        }
+
+        let dir_owned = dir.to_path_buf();
+        let arc = request.arc.clone();
+        let result = tokio::task::spawn_blocking(move || {
+            tugarc_core::undo_resolve_base_in(&dir_owned, &arc)
+        })
+        .await;
+
+        match result {
+            Ok(Ok(outcome)) => {
+                tracing::info!(
+                    arc = %outcome.arc,
+                    reversed = outcome.seq,
+                    "arc-resolve-base: undone"
+                );
+                self.registry.changeset_all_bump().notify_one();
+                let mut body = serde_json::json!({
+                    "action": "changeset_join_resolve_base_undo_ok",
+                    "project_dir": project_dir,
+                    "arc": outcome.arc,
+                });
+                if let Some(tip) = outcome.base_tip.as_deref() {
+                    body["base_tip"] = serde_json::Value::String(tip.to_string());
+                }
+                let _ = self.control_tx.send(Frame::new(
+                    FeedId::CONTROL,
+                    serde_json::to_vec(&body)
+                        .expect("changeset_join_resolve_base_undo_ok serializes"),
+                ));
+            }
+            Ok(Err(detail)) => {
+                self.registry.changeset_all_bump().notify_one();
+                Self::send_changeset_join_resolve_base_undo_err(
+                    &self.control_tx,
+                    project_dir,
+                    &request.arc,
+                    &detail,
+                );
+            }
+            Err(e) => {
+                Self::send_changeset_join_resolve_base_undo_err(
+                    &self.control_tx,
+                    project_dir,
+                    &request.arc,
+                    &format!("the undo did not run: {e}"),
+                );
+            }
+        }
+    }
+
+    /// The undo's own refusal frame, separate from
+    /// `changeset_join_resolve_err` because the two say different things about
+    /// the same arc: that one reports a resolve that failed and fails the
+    /// cell, this one reports a press that changed nothing while whatever the
+    /// cell is doing carries on untouched.
+    fn send_changeset_join_resolve_base_undo_err(
+        control_tx: &broadcast::Sender<Frame>,
+        project_dir: &str,
+        arc: &str,
+        detail: &str,
+    ) {
+        let body = serde_json::json!({
+            "action": "changeset_join_resolve_base_undo_err",
+            "project_dir": project_dir,
+            "arc": arc,
+            "detail": detail,
+        });
+        let _ = control_tx.send(Frame::new(
+            FeedId::CONTROL,
+            serde_json::to_vec(&body).expect("changeset_join_resolve_base_undo_err serializes"),
         ));
     }
 
@@ -10855,6 +11075,97 @@ mod tests {
 
     use super::super::agent_bridge::{RelayOutcome, SessionChild, SpawnFuture, relay_session_io};
 
+    /// The shared `changeset_join_resolve_base_ok` wire fixture, also read by
+    /// the tugdeck bun suite — drift on either side of the mirror fails one of
+    /// the two. Declared against `CARGO_MANIFEST_DIR` because a bare relative
+    /// `include_str!` resolves against this source file rather than the crate.
+    const RESOLVE_BASE_OK_GOLDEN: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../../tugdeck/src/__tests__/fixtures/changeset-join-resolve-base-ok.golden.json"
+    ));
+
+    /// The frame the deck correlates by `arc` carries one, and every other key
+    /// Spec S01 names.
+    #[test]
+    fn changeset_join_resolve_base_ok_body_matches_the_shared_fixture() {
+        let outcome = tugarc_core::ops::ResolveBaseOutcome {
+            name: "demo".to_owned(),
+            base_branch: "main".to_owned(),
+            committed: Some("0123456789abcdef0123456789abcdef01234567".to_owned()),
+            folded: vec!["shared.txt".to_owned()],
+            dropped: vec!["same.txt".to_owned()],
+            folded_from: [("shared.txt".to_owned(), "other-session".to_owned())]
+                .into_iter()
+                .collect(),
+            warnings: vec![],
+        };
+
+        let body =
+            AgentSupervisor::changeset_join_resolve_base_ok_body("/p", &outcome.name, &outcome);
+        let expected: serde_json::Value =
+            serde_json::from_str(RESOLVE_BASE_OK_GOLDEN).expect("the shared fixture is valid JSON");
+        assert_eq!(body, expected);
+    }
+
+    /// A fold that only dropped the arc's own copies committed nothing, and
+    /// the frame says so by leaving the key out rather than by carrying null.
+    #[test]
+    fn changeset_join_resolve_base_ok_body_omits_committed_when_nothing_was() {
+        let outcome = tugarc_core::ops::ResolveBaseOutcome {
+            name: "demo".to_owned(),
+            base_branch: "main".to_owned(),
+            committed: None,
+            folded: vec![],
+            dropped: vec!["same.txt".to_owned()],
+            folded_from: Default::default(),
+            warnings: vec![],
+        };
+
+        let body =
+            AgentSupervisor::changeset_join_resolve_base_ok_body("/p", &outcome.name, &outcome);
+        assert!(body.get("committed").is_none(), "no commit, no key");
+        // Everything else stays present-and-empty, so the deck reads counts
+        // without guarding each one.
+        assert_eq!(body["folded"], serde_json::json!([]));
+        assert_eq!(body["folded_from"], serde_json::json!({}));
+        assert_eq!(body["warnings"], serde_json::json!([]));
+        assert_eq!(body["arc"], "demo");
+    }
+
+    /// What the holder reads, and what it must not contain.
+    ///
+    /// The count, the base and the short sha are the facts; the absence of a
+    /// CLI verb is the voice ([P08]). A sentence from Tug that tells somebody
+    /// to go type something has already conceded that the surface they are
+    /// looking at cannot do the thing.
+    #[test]
+    fn resolve_base_notice_text_names_the_count_the_sha_and_no_verb() {
+        let text = AgentSupervisor::resolve_base_notice_text(
+            "demo",
+            "main",
+            2,
+            Some("0123456789abcdef0123456789abcdef01234567"),
+        );
+        assert!(text.contains("2 files"), "{text}");
+        assert!(text.contains("onto main"), "{text}");
+        assert!(text.contains("`012345678`"), "the short sha: {text}");
+        assert!(text.contains("Nothing changed on disk"), "{text}");
+        assert!(text.contains("Undo is in your Changes shade"), "{text}");
+        assert!(!text.contains("tugtool"), "Tug names no CLI verb: {text}");
+
+        // One file is a file, and the drop case has no sha to name and no
+        // undo to offer — nothing was taken away.
+        let one = AgentSupervisor::resolve_base_notice_text("demo", "main", 1, Some("abcdef012"));
+        assert!(one.contains("1 file onto"), "{one}");
+        let dropped = AgentSupervisor::resolve_base_notice_text("demo", "main", 3, None);
+        assert!(
+            dropped.contains("dropped your 3 identical files"),
+            "{dropped}"
+        );
+        assert!(!dropped.contains("Undo"), "nothing to undo: {dropped}");
+        assert!(!dropped.contains("tugtool"), "{dropped}");
+    }
+
     // ── session tag on the wire: inbound parse + outbound frame ───────────────
 
     /// A job opens on `task_started` and closes only on a terminal status.
@@ -12871,6 +13182,244 @@ mod tests {
         cancel.cancel();
     }
 
+    /// A repo on `main` with an arc that changed a shared path, and the base
+    /// dirty over that same path — the overlap a fold exists to clear.
+    fn base_dirt_repo() -> (tempfile::TempDir, std::path::PathBuf) {
+        use std::process::Command;
+
+        fn git(dir: &std::path::Path, args: &[&str]) {
+            let ok = Command::new("git")
+                .current_dir(dir)
+                .args(args)
+                .status()
+                .unwrap()
+                .success();
+            assert!(ok, "git {args:?} failed");
+        }
+
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        git(&root, &["init", "-b", "main"]);
+        git(&root, &["config", "user.name", "t"]);
+        git(&root, &["config", "user.email", "t@t"]);
+        std::fs::write(root.join("f.txt"), "A\n").unwrap();
+        git(&root, &["add", "-A"]);
+        git(&root, &["commit", "-m", "base"]);
+        git(&root, &["branch", "tugarc/demo"]);
+        git(&root, &["config", "branch.tugarc/demo.tugbase", "main"]);
+        git(&root, &["switch", "-q", "tugarc/demo"]);
+        std::fs::write(root.join("f.txt"), "B\n").unwrap();
+        git(&root, &["commit", "-am", "r1"]);
+        git(&root, &["switch", "-q", "main"]);
+        // Uncommitted, and over the path the arc changed: a `base-dirt`
+        // blocker, and the user's own divergent work rather than a copy of
+        // the arc's.
+        std::fs::write(root.join("f.txt"), "A\nmy own edit\n").unwrap();
+        (dir, root)
+    }
+
+    /// A second press lands on a held arc and is refused by name, without
+    /// touching git.
+    ///
+    /// The refusal carries `admission: true`, which is what keeps the running
+    /// overlay up rather than painting the healthy first fold as failed: the
+    /// press was refused, the run was not.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn changeset_join_resolve_base_refuses_a_second_press_by_name() {
+        let (sup, _state_rx, _meta_rx, mut control_rx) = make_supervisor_with_store();
+        let (_dir, root) = base_dirt_repo();
+
+        let cancel = CancellationToken::new();
+        let _entry = sup.registry.get_or_create(&root, cancel.clone()).unwrap();
+        let root_str = root.to_string_lossy().to_string();
+
+        let owner_key = tugarc_core::ops::arc_owner_key(&root, "demo");
+        let held = crate::feeds::join_occupancy::acquire(
+            &owner_key,
+            crate::feeds::join_occupancy::JoinRunKind::ResolveBase,
+            None,
+        )
+        .expect("the arc is free");
+
+        let payload = serde_json::to_vec(&serde_json::json!({
+            "action": "changeset_join_resolve_base",
+            "project_dir": root_str,
+            "arc": "demo",
+        }))
+        .unwrap();
+        sup.handle_control("changeset_join_resolve_base", &payload, 1)
+            .await;
+
+        let frame = tokio::time::timeout(std::time::Duration::from_secs(10), control_rx.recv())
+            .await
+            .expect("a control frame")
+            .expect("sender alive");
+        let body: serde_json::Value = serde_json::from_slice(&frame.payload).unwrap();
+        assert_eq!(body["action"], "changeset_join_resolve_err", "{body}");
+        assert_eq!(body["admission"], true, "{body}");
+        assert_eq!(
+            body["detail"], "a resolve-base is already running for this arc",
+            "{body}"
+        );
+        // And the refused press did nothing to the base.
+        assert_eq!(
+            std::fs::read_to_string(root.join("f.txt")).unwrap(),
+            "A\nmy own edit\n"
+        );
+
+        drop(held);
+        cancel.cancel();
+    }
+
+    /// The fold's hold is gone by the time the recompute that clears the
+    /// blocker runs.
+    ///
+    /// The two facts have to move together: that recompute is what takes the
+    /// `base-dirt` row off the entry, and a hold still standing at that moment
+    /// would leave `run: "resolve-base"` on an arc with nothing running — a
+    /// register saying an act is in flight over a surface that has already
+    /// settled (Risk R02).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn changeset_join_resolve_base_releases_the_hold_before_the_bump() {
+        let (sup, _state_rx, _meta_rx, mut control_rx) = make_supervisor_with_store();
+        let (dir, root) = base_dirt_repo();
+
+        // The fold records an op so `arc undo` can reverse it, and a debug
+        // build refuses to write a tempdir repo's arc state into the live data
+        // directory. Redirect it at the fixture's own scratch path.
+        // SAFETY: single-threaded setup, and nextest runs one test per process.
+        unsafe {
+            std::env::set_var(tugcore::instance::ENV_DATA_DIR, dir.path().join("state"));
+        }
+
+        let cancel = CancellationToken::new();
+        let _entry = sup.registry.get_or_create(&root, cancel.clone()).unwrap();
+        let root_str = root.to_string_lossy().to_string();
+        let owner_key = tugarc_core::ops::arc_owner_key(&root, "demo");
+        assert_eq!(
+            crate::feeds::join_occupancy::run_kind(&owner_key),
+            None,
+            "precondition: nothing holds the arc"
+        );
+
+        let payload = serde_json::to_vec(&serde_json::json!({
+            "action": "changeset_join_resolve_base",
+            "project_dir": root_str,
+            "arc": "demo",
+        }))
+        .unwrap();
+        sup.handle_control("changeset_join_resolve_base", &payload, 1)
+            .await;
+
+        let frame = tokio::time::timeout(std::time::Duration::from_secs(30), control_rx.recv())
+            .await
+            .expect("a control frame")
+            .expect("sender alive");
+        let body: serde_json::Value = serde_json::from_slice(&frame.payload).unwrap();
+        assert_eq!(body["action"], "changeset_join_resolve_base_ok", "{body}");
+        assert_eq!(
+            body["arc"], "demo",
+            "the frame the deck correlates by: {body}"
+        );
+        assert_eq!(body["folded"], serde_json::json!(["f.txt"]), "{body}");
+
+        assert_eq!(
+            crate::feeds::join_occupancy::run_kind(&owner_key),
+            None,
+            "the hold is released with the work, before the ok frame goes out"
+        );
+
+        cancel.cancel();
+    }
+
+    /// The undo verb, end to end: a real fold through `handle_control`, then
+    /// the reversal, and the file is uncommitted again in the base checkout.
+    ///
+    /// The frame is asserted for the two fields the deck reads — `arc`, which
+    /// correlates the reply to its cell, and `base_tip`, which says where the
+    /// base was put back — because a frame the deck cannot correlate is a
+    /// frame it drops in silence, which is the incident this whole arc is
+    /// about.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn changeset_join_resolve_base_undo_reverts_the_fold_and_bumps() {
+        let (sup, _state_rx, _meta_rx, mut control_rx) = make_supervisor_with_store();
+        let (dir, root) = base_dirt_repo();
+
+        // SAFETY: single-threaded setup, and nextest runs one test per process.
+        unsafe {
+            std::env::set_var(tugcore::instance::ENV_DATA_DIR, dir.path().join("state"));
+        }
+
+        let cancel = CancellationToken::new();
+        let _entry = sup.registry.get_or_create(&root, cancel.clone()).unwrap();
+        let root_str = root.to_string_lossy().to_string();
+        let payload = serde_json::to_vec(&serde_json::json!({
+            "action": "changeset_join_resolve_base",
+            "project_dir": root_str,
+            "arc": "demo",
+        }))
+        .unwrap();
+        sup.handle_control("changeset_join_resolve_base", &payload, 1)
+            .await;
+
+        let frame = tokio::time::timeout(std::time::Duration::from_secs(30), control_rx.recv())
+            .await
+            .expect("a control frame")
+            .expect("sender alive");
+        let body: serde_json::Value = serde_json::from_slice(&frame.payload).unwrap();
+        assert_eq!(body["action"], "changeset_join_resolve_base_ok", "{body}");
+
+        let porcelain = std::process::Command::new("git")
+            .current_dir(&root)
+            .args(["status", "--porcelain", "--", "f.txt"])
+            .output()
+            .unwrap();
+        assert!(
+            String::from_utf8_lossy(&porcelain.stdout).trim().is_empty(),
+            "precondition: the fold cleared the path it folded"
+        );
+
+        let undo = serde_json::to_vec(&serde_json::json!({
+            "action": "changeset_join_resolve_base_undo",
+            "project_dir": root_str,
+            "arc": "demo",
+        }))
+        .unwrap();
+        sup.handle_control("changeset_join_resolve_base_undo", &undo, 2)
+            .await;
+
+        let frame = tokio::time::timeout(std::time::Duration::from_secs(30), control_rx.recv())
+            .await
+            .expect("a control frame")
+            .expect("sender alive");
+        let body: serde_json::Value = serde_json::from_slice(&frame.payload).unwrap();
+        assert_eq!(
+            body["action"], "changeset_join_resolve_base_undo_ok",
+            "{body}"
+        );
+        assert_eq!(
+            body["arc"], "demo",
+            "the frame the deck correlates by: {body}"
+        );
+        assert!(
+            body["base_tip"].as_str().is_some_and(|s| s.len() == 40),
+            "and where the base was put back: {body}"
+        );
+
+        let porcelain = std::process::Command::new("git")
+            .current_dir(&root)
+            .args(["status", "--porcelain", "--", "f.txt"])
+            .output()
+            .unwrap();
+        assert!(
+            String::from_utf8_lossy(&porcelain.stdout).contains("f.txt"),
+            "the edit is uncommitted again: {}",
+            String::from_utf8_lossy(&porcelain.stdout)
+        );
+
+        cancel.cancel();
+    }
+
     /// While a resolve holds an arc, every act that would touch its workshop is
     /// refused by name — and a preview, which touches nothing, is not.
     ///
@@ -13474,6 +14023,7 @@ mod tests {
             &detail,
             &branch,
             &std::collections::BTreeMap::new(),
+            &crate::feeds::join_board::standing_resolve_receipts(&root),
         );
         assert_eq!(state.phase, "resolved", "{state:?}");
         assert!(

@@ -247,6 +247,7 @@ mod tests {
             question: None,
             run: None,
             offer: None,
+            resolved_base: None,
         }
     }
 

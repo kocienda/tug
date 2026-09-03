@@ -491,6 +491,9 @@ function ArcRow({
           // finished, whatever its committed rounds say.
           holdersBusy={entry.holders_busy === true}
           resolvePhase={resolve.phase}
+          // Which act, not only that one is running: a fold and a ladder run
+          // share the phase and say different sentences.
+          {...(resolve.act !== undefined ? { resolveAct: resolve.act } : {})}
           landBeat={landBeat}
           // The lane shows unfronted, unheld arcs too, and the pilot never
           // works one ([D147]) — so this is the difference between "the check

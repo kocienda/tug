@@ -94,13 +94,20 @@ export type CommandBlockMatcher = (command: string) => boolean;
  * it — and the row that says `Shell · exit 0 · 0ms` over a four-stage arc is
  * announcing a process that never ran.
  *
+ * `tug` is the app itself speaking — neither the user, nor the model, nor the
+ * wheel. A notice from tugcast reporting an act it performed on somebody's
+ * files is Tug's own voice, and it wore the model's name and avatar until it
+ * had a word of its own (the 2026-09-03 incident). Nothing was shelled and
+ * nothing was committed by the reader, so the same chrome suppression `wheel`
+ * earns applies for the same reason.
+ *
  * **It lives on the registration** because a bespoke receipt already knows what
  * it is, and the alternative is a second enumeration of the same commands
  * somewhere else — which is exactly how `/arc-join` came to render its own
  * commit block under a `Shell` header while `/commit` rendered the identical
  * kind of block under a git one.
  */
-export type CommandBlockAttribution = "shell" | "git" | "wheel";
+export type CommandBlockAttribution = "shell" | "git" | "wheel" | "tug";
 
 /**
  * How a claimed row occupies the transcript.
@@ -157,7 +164,30 @@ interface CommandBlockRegistration {
   findParts: ((message: ShellExchangeMessage) => string[] | null) | undefined;
 }
 
-const COMMAND_BLOCK_REGISTRY: CommandBlockRegistration[] = [];
+/**
+ * The registrations, held in a `var` and created on first touch.
+ *
+ * **This is deliberate, and a `const` array literal here is a live defect.**
+ * Registration is a module-load side effect, and the modules that register are
+ * reachable from this module's own import of {@link ShellExchangeBlock} — so
+ * entering the graph here evaluates a block module *before* this body runs,
+ * and that block calls {@link registerCommandBlock} on the way past. The
+ * function is a hoisted declaration and is callable at that moment; a `const`
+ * binding is not yet initialized, so the call died in the temporal dead zone
+ * with a `ReferenceError` naming whichever block happened to be first. A `var`
+ * hoists to `undefined` instead, and the first-touch `??=` is what makes the
+ * array exist for the caller that arrives early.
+ *
+ * The failure was worth the ugliness: which module entered the graph first
+ * depended on a test file's import order, so the same suites passed
+ * individually and threw when run together.
+ */
+// biome-ignore lint/style/noVar: hoisting is the point — see above.
+var COMMAND_BLOCK_REGISTRY: CommandBlockRegistration[] | undefined;
+
+function registry(): CommandBlockRegistration[] {
+  return (COMMAND_BLOCK_REGISTRY ??= []);
+}
 
 /**
  * Register a bespoke command block. Called by renderer modules at
@@ -175,10 +205,10 @@ export function registerCommandBlock(
   renderer: CommandBlockRenderer,
   options: CommandBlockOptions = {},
 ): void {
-  if (COMMAND_BLOCK_REGISTRY.some((r) => r.name === name)) {
+  if (registry().some((r) => r.name === name)) {
     throw new Error(`Command block "${name}" is already registered`);
   }
-  COMMAND_BLOCK_REGISTRY.push({
+  registry().push({
     name,
     matcher,
     renderer,
@@ -195,7 +225,7 @@ export function registerCommandBlock(
  */
 export function resolveCommandBlock(command: string): CommandBlockRenderer {
   const trimmed = command.trim();
-  for (const registration of COMMAND_BLOCK_REGISTRY) {
+  for (const registration of registry()) {
     if (registration.matcher(trimmed)) return registration.renderer;
   }
   return ShellExchangeBlock;
@@ -209,7 +239,7 @@ export function resolveCommandBlock(command: string): CommandBlockRenderer {
  */
 export function resolveCommandAttribution(command: string): CommandBlockAttribution {
   const trimmed = command.trim();
-  for (const registration of COMMAND_BLOCK_REGISTRY) {
+  for (const registration of registry()) {
     if (registration.matcher(trimmed)) return registration.attribution;
   }
   return "shell";
@@ -223,7 +253,7 @@ export function resolveCommandAttribution(command: string): CommandBlockAttribut
  */
 export function resolveCommandPresentation(command: string): CommandBlockPresentation {
   const trimmed = command.trim();
-  for (const registration of COMMAND_BLOCK_REGISTRY) {
+  for (const registration of registry()) {
     if (registration.matcher(trimmed)) return registration.presentation;
   }
   return "entry";
@@ -244,7 +274,7 @@ export function resolveCommandBlockSearchParts(
   message: ShellExchangeMessage,
 ): string[] | null {
   const trimmed = message.command.trim();
-  for (const registration of COMMAND_BLOCK_REGISTRY) {
+  for (const registration of registry()) {
     if (!registration.matcher(trimmed)) continue;
     const parts =
       registration.findParts !== undefined
@@ -258,7 +288,7 @@ export function resolveCommandBlockSearchParts(
 
 /** Enumerate registered names, in registration (= resolution) order. */
 export function registeredCommandBlocks(): ReadonlyArray<string> {
-  return COMMAND_BLOCK_REGISTRY.map((r) => r.name);
+  return registry().map((r) => r.name);
 }
 
 /**
@@ -266,7 +296,7 @@ export function registeredCommandBlocks(): ReadonlyArray<string> {
  * (empty) state. Production code never calls this.
  */
 export function _resetCommandBlockRegistryForTests(): void {
-  COMMAND_BLOCK_REGISTRY.length = 0;
+  registry().length = 0;
 }
 
 /**
@@ -285,11 +315,11 @@ export function _resetCommandBlockRegistryForTests(): void {
  * the registration in the first place.
  */
 export function _takeCommandBlockRegistryForTests(): unknown[] {
-  return COMMAND_BLOCK_REGISTRY.splice(0, COMMAND_BLOCK_REGISTRY.length);
+  return registry().splice(0, registry().length);
 }
 
 /** Test-only: put back what {@link _takeCommandBlockRegistryForTests} took. */
 export function _putCommandBlockRegistryForTests(saved: unknown[]): void {
-  COMMAND_BLOCK_REGISTRY.length = 0;
-  COMMAND_BLOCK_REGISTRY.push(...(saved as CommandBlockRegistration[]));
+  registry().length = 0;
+  registry().push(...(saved as CommandBlockRegistration[]));
 }

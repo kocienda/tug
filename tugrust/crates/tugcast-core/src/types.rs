@@ -782,8 +782,8 @@ pub struct ArcJoinState {
     /// nobody can give.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub question: Option<ArcJoinQuestion>,
-    /// What is running on this arc right now — `"resolve"` or `"verify"` —
-    /// and absent when nothing is (Spec S01).
+    /// What is running on this arc right now — `"resolve"`, `"resolve-base"`
+    /// or `"verify"` — and absent when nothing is (Spec S01).
     ///
     /// The one fact here that is not durable, deliberately: occupancy is
     /// in-process state, so a restart clears it by construction. It is on the
@@ -800,6 +800,45 @@ pub struct ArcJoinState {
     /// unmentioned.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub offer: Option<ArcJoinOffer>,
+    /// The fold that stands over this arc — the base work committed to clear
+    /// its join, when one has been and has not been undone or superseded.
+    ///
+    /// Durable, and read from the op log rather than pushed, for the reason
+    /// [`ArcJoinQuestion`] is: a receipt a reload can lose is a receipt the
+    /// user cannot check the act against, and this one names a commit made on
+    /// *their* base out of *their* uncommitted work. Reported on the blocked
+    /// and unblocked arms alike, because the fold is a thing that happened
+    /// rather than a state the arc is in.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resolved_base: Option<ArcResolvedBase>,
+}
+
+/// What a fold did, read back from the op it recorded.
+///
+/// It retires by itself: a join lands the arc and the fold beneath it stops
+/// being the newest thing that happened, an undo marks the op reversed. So
+/// nothing has to remember to take the receipt down, which is what a receipt
+/// on a live surface has to get right.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ArcResolvedBase {
+    /// The op's sequence number — what an Undo names when it reverses it.
+    pub seq: u64,
+    /// The commit the fold made on the base. Absent when the fold only dropped
+    /// copies the arc already carried, which makes no commit.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub commit: Option<String>,
+    /// The base branch the fold committed onto.
+    pub base: String,
+    /// Paths folded into that commit.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub folded: Vec<String>,
+    /// Paths dropped as the arc's own bytes.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub dropped: Vec<String>,
+    /// Folded paths that were another live session's work in progress, mapped
+    /// to that session's display name.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub folded_from: std::collections::BTreeMap<String, String>,
 }
 
 /// The join an arc is ready for, as a fact rather than an ask.

@@ -11,6 +11,7 @@ import { describe, expect, it } from "bun:test";
 import {
   reportedBlockers,
   discardPreflightLine,
+  deriveResolveFace,
 } from "@/components/tugways/cards/session-changes/session-changes-arc-join";
 import { joinDisabledReason } from "@/lib/join-mode-controller";
 import type {
@@ -101,5 +102,37 @@ describe("joinDisabledReason", () => {
       "Clear what blocks this join first",
     );
     expect(joinDisabledReason("outcome", "empty")).toBe("Nothing to join");
+  });
+});
+
+describe("deriveResolveFace", () => {
+  it("gives the fold its own face, from the feed and from the press alike", () => {
+    // The two acts share the resolving phase, so a face read off the phase
+    // alone would dress a fold as the ladder and narrate rungs it has none of.
+    expect(deriveResolveFace("blocked", "resolving", null, "resolve-base")).toBe(
+      "folding",
+    );
+    // And the client's own act stands in for the window before the recompute
+    // that puts the hold on the entry.
+    expect(
+      deriveResolveFace("blocked", "resolving", null, null, "resolve-base"),
+    ).toBe("folding");
+  });
+
+  it("leaves the ladder's face alone", () => {
+    expect(deriveResolveFace("conflicted", "resolving", null, null)).toBe(
+      "progress",
+    );
+    expect(deriveResolveFace("conflicted", "idle", null, "resolve")).toBe(
+      "progress",
+    );
+  });
+
+  it("keeps the candidate above the running phase", () => {
+    // What makes a resolution survive a reload: the phase is a client overlay
+    // that dies with the page, the candidate is a ref the server re-reports.
+    expect(deriveResolveFace("conflicted", "idle", "cafe1234", null)).toBe(
+      "resolved",
+    );
   });
 });

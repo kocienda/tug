@@ -62,6 +62,15 @@ export interface ArcJoinRegisterInput {
   /** The client's resolve overlay phase for this arc. */
   resolvePhase?: "idle" | "resolving" | "error";
   /**
+   * Which act the client's overlay is running, when one is.
+   *
+   * The two acts share the resolving phase and do not share a sentence: a
+   * ladder run reconciles, a fold commits base work. Read beside `join.run` so
+   * the register speaks from the press rather than waiting for the recompute
+   * that confirms it.
+   */
+  resolveAct?: "resolve" | "resolve-base";
+  /**
    * What a join last reported ([P03]) — a beat while it runs, its result once
    * it is over (`terminal`).
    */
@@ -148,6 +157,11 @@ export const BEAT_WORDS: Record<string, string> = {
  *    answers *may this arc be joined*; a join in flight is past that question,
  *    so a refusal painted over a running join reports a decision that has
  *    already been made.
+ * 2a. **folding** — the fold that commits the base-side work refusing this
+ *    join, from the feed's `run` fact or the client's own act. It sits here
+ *    for the same reason a join does: the fold is past the question the
+ *    blocker it is clearing asks, so the blocker's refusal must not paint over
+ *    the act clearing it.
  * 3. **blocked** — an act somebody must take elsewhere, which outranks a green
  *    verdict: a tree that builds still cannot land onto a dirty base.
  * 4. **question** — a person is being waited on. Louder than a run, because a
@@ -189,6 +203,7 @@ export function arcJoinRegister(
     (landBeat !== null && landBeat !== undefined) ||
     (join?.run ?? null) !== null ||
     input.resolvePhase === "resolving" ||
+    input.resolveAct === "resolve-base" ||
     (join?.question ?? null) !== null ||
     (typeof join?.stuck === "string" && join.stuck !== "");
   if (!JOINABLE_STAGES.has(input.stage ?? "") && !acted) return null;
@@ -216,6 +231,25 @@ export function arcJoinRegister(
   }
 
   const blockers = join?.blockers ?? [];
+  // The fold, above the blocker it is clearing (2a). Its own act is read
+  // beside the feed's, because the recompute that puts `run` on the entry
+  // lands a moment after the press and the register may not go quiet in
+  // between — a sentence that arrives late is the seam this whole round is
+  // about.
+  if (join?.run === "resolve-base" || input.resolveAct === "resolve-base") {
+    const files = blockers
+      .filter((blocker) => blocker.kind === "base-dirt")
+      .reduce((sum, blocker) => sum + (blocker.paths?.length ?? 0), 0);
+    return {
+      phase: "in_flight",
+      line:
+        files > 0
+          ? `Committing base work · ${files} ${files === 1 ? "file" : "files"}`
+          : "Committing base work",
+      word: "committing",
+    };
+  }
+
   if (blockers.length > 0) {
     return {
       phase: "error",

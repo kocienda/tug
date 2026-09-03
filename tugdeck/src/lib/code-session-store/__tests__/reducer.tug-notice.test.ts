@@ -28,7 +28,7 @@ import { FeedId } from "@/protocol";
 
 const TUG = FIXTURE_IDS.TUG_SESSION_ID;
 const BODY =
-  "[base-motion replay] The base branch main moved to abcdef012 under arc \"demo\".";
+  "The base branch main moved to abcdef012 under arc \"demo\".";
 const WHEEL_PROMPT =
   "/tugplug:arc-implement tripwire Steps 4-13 — under this arc, close one step and end your turn; the arc prompts you with the next";
 
@@ -198,5 +198,73 @@ describe("tug_notice — the opener that makes an injected turn visible", () => 
         (m) => m.kind === "system_note" && m.source === "notice",
       ),
     ).toBe(false);
+  });
+});
+
+// A STANDALONE notice is Tug telling this session something, with no turn
+// behind it. Everything above is the opposite case — a notice that heads an
+// injected submission — and the flag is the whole of what tells them apart.
+//
+// Getting it wrong is what the holder of a folded file saw on 2026-09-03: an
+// assistant-origin turn opened over a bulletin, the session moved to `waking`,
+// and nothing was ever coming to finish it.
+describe("a standalone tug_notice — Tug speaking, with no turn behind it", () => {
+  const NOTICE =
+    "Resolve on arc `demo` committed your uncommitted edits to 2 files onto main as `0123456`. Nothing changed on disk. Undo is in your Changes shade.";
+
+  it("a standalone notice at idle lands as its own row and opens no turn", () => {
+    const { store, conn } = makeStore();
+    emit(conn, {
+      type: "tug_notice",
+      origin: "arc-resolve",
+      standalone: true,
+      text: NOTICE,
+    });
+
+    const { transcript, activeTurn, phase } = store.getSnapshot();
+    expect(activeTurn, "no turn was opened").toBeNull();
+    expect(phase, "and the session did not leave idle").toBe("idle");
+    expect(transcript).toHaveLength(1);
+    expect(transcript[0].origin).toBe("shell");
+    const shell = transcript[0].messages.find(
+      (m) => m.kind === "shell_exchange",
+    );
+    expect(shell).toBeDefined();
+    expect(shell).toMatchObject({
+      command: "tug notice arc-resolve",
+      output: NOTICE,
+    });
+  });
+
+  it("a standalone notice mid-turn seats inside the open turn", () => {
+    const { store, conn } = makeStore();
+    // A turn the user opened, still running.
+    emit(conn, { type: "tug_notice", origin: "base-motion", text: BODY });
+    const opened = store.getSnapshot().activeTurn;
+    expect(opened).not.toBeNull();
+    const turnKey = opened!.turnKey;
+
+    emit(conn, {
+      type: "tug_notice",
+      origin: "arc-resolve",
+      standalone: true,
+      text: NOTICE,
+    });
+
+    const active = store.getSnapshot().activeTurn;
+    expect(active).not.toBeNull();
+    expect(active!.turnKey, "the same turn, not a new one").toBe(turnKey);
+    const seated = active!.messages.find(
+      (m) => m.kind === "system_note" && m.text === NOTICE,
+    );
+    expect(seated).toBeDefined();
+    expect(seated).toMatchObject({
+      source: "notice",
+      noticeOrigin: "arc-resolve",
+    });
+    expect(
+      store.getSnapshot().transcript,
+      "and no row of its own was ingested",
+    ).toHaveLength(0);
   });
 });

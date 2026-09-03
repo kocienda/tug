@@ -423,7 +423,7 @@ const BLOCKED_CASES: readonly BlockedCase[] = [
     key: "divergent-mine",
     title: "B · your own live work on main",
     caption:
-      "This session edited the file on main while the arc ran, and the two versions differ. Resolve commits that edit onto the base as one commit of its own — from there the two sides are ordinary git history, so the collision reaches the same resolution ladder every join conflict already reaches. No new merge machinery, and `tugtool arc undo` puts the work back uncommitted",
+      "This session edited the file on main while the arc ran, and the two versions differ. Resolve commits that edit onto the base as one commit of its own — from there the two sides are ordinary git history, so the collision reaches the same resolution ladder every join conflict already reaches. No new merge machinery, and Undo beside the receipt puts the work back uncommitted",
     blocker: {
       kind: "base-dirt",
       title: "Base work in the way",
@@ -431,7 +431,7 @@ const BLOCKED_CASES: readonly BlockedCase[] = [
       paths: [BLOCKED_PATH],
       remedy: {
         explain:
-          "Resolve commits that work onto the base as its own commit, so the join can reconcile the two versions. Undo puts it back uncommitted.",
+          "Resolve commits this 1 file — yours — onto main as one commit, “Commit base work in progress to unblock the join of durable-commits”. Nothing changes on disk, and Undo here puts them back uncommitted.",
       },
     },
   },
@@ -447,7 +447,7 @@ const BLOCKED_CASES: readonly BlockedCase[] = [
       paths: [BLOCKED_PATH],
       remedy: {
         explain:
-          "Resolve commits ^ink-anchor's in-progress edit onto the base as its own commit — the work is kept, their files do not change on disk, and their session is told. Undo puts it back uncommitted.",
+          "Resolve commits this 1 file — ^ink-anchor's work in progress — onto main as one commit, “Commit base work in progress to unblock the join of durable-commits”. Nothing changes on disk, their session is told, and Undo here puts them back uncommitted.",
       },
     },
   },
@@ -682,6 +682,7 @@ const NO_JOIN_ACTIONS = {
   aim: () => {},
   answerQuestion: () => {},
   resolveBase: () => {},
+  undoResolveBase: () => {},
 };
 
 export function GalleryArcLifecycle(): React.ReactElement {
@@ -1066,8 +1067,7 @@ export function GalleryArcLifecycle(): React.ReactElement {
           this deck has never heard of is shown rather than swallowed.
         </p>
         <p className="cg-arc-prose">
-          Resolve is one server verb,{" "}
-          <code>tugtool arc resolve-base &lt;name&gt;</code>, and it{" "}
+          Resolve is one act, and it{" "}
           <strong>clears the block and stops</strong> — landing stays the
           composer's send, which is why the button does not read "Resolve and
           join". Behind it: identical copies dropped, the user's own divergent
@@ -1075,8 +1075,11 @@ export function GalleryArcLifecycle(): React.ReactElement {
           is, and a path another live session holds folded with the rest —
           committing work preserves it — with the holder named in the commit's
           message and told by a quiet notice in their own transcript. It is
-          op-logged as its own verb, so <code>arc undo</code> resets the base
-          and leaves the same content uncommitted. When the block clears, the
+          op-logged as its own verb, so the <strong>Undo</strong> beside the
+          receipt it leaves resets the base and leaves the same content
+          uncommitted — and only ever that, since the press is refused by name
+          once the arc's newest operation is anything but a fold. When the
+          block clears, the
           card's quiet-moment reveal raises the shade on the now-ready arc —
           the reveal memory is keyed on the arc head, and a resolve moves the
           base, so the blocked-to-ready edge is what forgets the spent head.
