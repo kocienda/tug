@@ -1,16 +1,38 @@
 # `dev.tugtool` → `dev.tugapp` — the app's reverse-DNS identity
 
-**Status:** sketch, unbuilt. Census + proposed shape + the two decisions that
-have to be made before a line is written.
+**Status:** settled, unbuilt. Every decision below is answered; this is ready to
+hand to `/arc` once its one precondition is met.
 
 Tug's reverse-DNS prefix is `dev.tugtool`. It names two very different things:
 the **bundle identity** macOS knows the app by, and the **tugbank domains** every
-persisted preference is filed under. Both should read `dev.tugapp`, the domain
-the project actually owns. This is the survey of what carries the old name, what
+persisted preference is filed under. Both become `dev.tugapp`, the domain the
+project actually owns. This is the survey of what carries the old name, what
 breaks when it changes, and the order to change it in.
 
 Out of scope: the `tugtool` **CLI** keeps its name. This is about the app's
 identity string, not the binary.
+
+## Decisions
+
+- **[B1] Take the stutter: `dev.tugapp.app`.** One substitution rule, and
+  `assign-bundle-id.sh`'s `<prefix>.<profile>-<slug>` grammar is untouched.
+- **[B2] Every installed copy re-downloads by hand.** Sparkle cannot carry an
+  identifier change; this is accepted, and it is the reason to do it now.
+- **[B3] `dev.tug.prompt-atoms` moves too**, to `dev.tugapp.prompt-atoms`, in
+  this same change.
+- **[B4] `gazette` is a retired name and leaves the tree with the identifier.**
+  The domain is `dev.tugapp.overview`; the Gazette-era compatibility shims go
+  with it. See [The gazette sweep](#the-gazette-sweep).
+
+## The precondition
+
+**Grant Accessibility to `dev.tugapp.app.apptest` before the arc starts.** The
+change rewrites the `Justfile`'s `TUG_FORCE_BUNDLE_ID` default, so the implement
+stage builds in its worktree under a brand-new identity with a brand-new
+designated requirement and no AX grant — and `launchTugApp`'s preflight throws
+`AccessibilityPermissionMissingError` in a session where nobody can answer the
+system dialog. Build one bundle at the new id, launch it interactively, answer
+the prompt. Then the arc runs clean.
 
 ## The census
 
@@ -32,7 +54,7 @@ domain; then `deck.cardstate`, `deck.layout`, `deck.state`, `deck.theme`,
 `deck.focused`, `layout`, `cards`, `dev`, `dev.diff-view`, `dev.shade-height`,
 `keymap`, `models`, `model`, `effort`, `permission-mode`, `text-card`,
 `image-card`, `pdf-card`, `editor`, `transcript`, `find`, `lens`, `overview`,
-`gazette` (already a legacy alias), `pulse`, `shared-agent`, `changeset`,
+`gazette` (a retired alias — deleted, not renamed), `pulse`, `shared-agent`, `changeset`,
 `prompt.history`, `settings-card`, `side-questions`, `pending-context`,
 `slot-window`, `tugways.split-pane`, `tugways.pinned-panel`, `dev-panel`,
 `ai-config`, `tuglog`, `test`/`test.bloat`. Referenced from `tugdeck/src`
@@ -63,22 +85,7 @@ of them need a second step after the substitution, and that is all:
   sentence needs the exception this change introduces, and no substitution
   writes it.
 
-## Decision 1 — does `.app` survive?
-
-The mechanical rewrite is `dev.tugtool.` → `dev.tugapp.`, which yields
-**`dev.tugapp.app`**. It stutters, and `dev.tugapp.deck.cardstate` reads fine
-while `dev.tugapp.app/theme` does not.
-
-The alternative is `dev.tugapp.Tug` for the bundle and `dev.tugapp.app` kept only
-as the preferences domain — but then the bundle family and the domain family stop
-sharing a shape, and `assign-bundle-id.sh`'s `<prefix>.<profile>-<slug>` grammar
-needs a second rule.
-
-**Recommendation: take the stutter.** One rule, one sed, `dev.tugapp.app.debug`
-parses exactly as `dev.tugtool.app.debug` did, and the branch-slug grammar is
-untouched. The name is read by the OS far more often than by a person.
-
-## Decision 2 — what happens to installed copies
+## What happens to installed copies
 
 Changing `CFBundleIdentifier` is not a rename to macOS; it is a **different app**.
 Three consequences, in descending order of pain:
@@ -142,7 +149,8 @@ no reader will ever see the old names again.
 
 1. **Grant the new app-test identity first.** Build one throwaway bundle at
    `dev.tugapp.app.apptest`, launch it interactively, answer the AX prompt. Until
-   this is done, step 5 cannot be verified and no unattended arc can run tests.
+   this is done, nothing after step 6 can be verified and no unattended arc can
+   run app-tests at all. See [The precondition](#the-precondition).
 2. **Tugbank schema v2** — the prefix migration plus its unit tests (a seeded v1
    database with entries across several domains, migrated, read back). Ships
    alone, ahead of any constant change: an old build reading a migrated database
@@ -153,44 +161,85 @@ no reader will ever see the old names again.
    `cli.rs`), `TugConfig.swift`, `tugcode/src/session.ts`. Mechanical; every one
    is a literal `dev.tugtool.` prefix. `tugtool file edit` with
    `sub /dev\.tugtoo(l)?/ 'dev.tugapp' all` across the whole file list.
-4. **Bundle identity** — `Info.plist`, `project.pbxproj`, the three
+4. **The gazette deletions** — `overview_agent.rs`'s legacy domain and
+   carry-forward, `session_ledger.rs`'s `gazette_posts` migration and its two
+   seeded-schema tests. Lands with step 3, because the prefix substitution is
+   what would otherwise rename the legacy domain into `dev.tugapp.gazette`.
+5. **The pasteboard type** — `dev.tug.prompt-atoms` → `dev.tugapp.prompt-atoms`
+   in `MainWindow.swift`, `tug-text-editor.tsx`, `tug-session-identity.tsx`, the
+   spike, and the four app-tests that name it (`at0043`, `at0376`, `at0474`,
+   `at0477`).
+6. **Bundle identity** — `Info.plist`, `project.pbxproj`, the three
    `tugrust/scripts/*bundle-id*.sh`, `UpdateController.swift`'s
    `stableBundleIdentifier`, `registry.rs`, `tell.rs`, the `Justfile`'s
    `TUG_FORCE_BUNDLE_ID` defaults, and `tests/build-info/`.
-5. **Tests and fixtures** — 61 app-tests carry domain literals, mostly through
+7. **Tests and fixtures** — 61 app-tests carry domain literals, mostly through
    `setTugbankValue`; `_harness/tugbank-helpers.ts` is the one shared file.
    `at0387` asserts the printed bundle-id banner verbatim. The `stacked_rename`
    fixture and its `note.md`; the `model-eval` corpus and its regenerated
    digests. Then the core tier, then a targeted `just app-test` selection over
    the persistence tests (`at0010`, `at0024`–`at0027`, `at0037`, `at0042`,
    `at0279`, `at0413`).
-6. **Prose** — the seven `tuglaws/` files, swept and then read. Two passages in
+8. **Prose** — the seven `tuglaws/` files, swept and then read. Two passages in
    `code-signing-mac.md` need a hand: the promise that one app-test AX grant
    carries across every worktree forever, which now has an exception, and
    `design-decisions.md` [D129]'s record of the deleted `stackChord` key, whose
    sentence should say the key is gone rather than name it under a prefix it
    never wore.
-7. **Cleanup note** — a short section in `code-signing-mac.md` giving the
+9. **Cleanup note** — a short section in `code-signing-mac.md` giving the
    `tccutil reset` / cache-removal incantations. This is the one place the old
    string is *typed fresh* rather than left behind: the whole point of the
    section is naming the identities being cleared.
 
-## Two loose ends
+## The pasteboard type
 
-**`dev.tug.prompt-atoms`** — the private pasteboard type in `MainWindow.swift`,
-`tug-text-editor.tsx`, and `tug-session-identity.tsx` — is a third reverse-DNS
-name under a *fourth* prefix (`dev.tug`). It is ephemeral (a clipboard type, not
-durable data), so renaming it costs nothing but a same-version constraint on
-Tug-to-Tug paste during a mixed-version window. Either rename it to
-`dev.tugapp.prompt-atoms` in the same change or deliberately leave it; the one
-bad outcome is renaming it later and forgetting the mixed-version window exists.
+`dev.tug.prompt-atoms` — the private pasteboard type in
+`tugapp/Sources/MainWindow.swift`, `tugdeck/src/components/tugways/tug-text-editor.tsx`,
+and `tugdeck/src/components/tugways/tug-session-identity.tsx` — is a third
+reverse-DNS name under a *fourth* prefix. It becomes `dev.tugapp.prompt-atoms`
+[B3]. The type is ephemeral, so the whole cost is that an atom copied from an
+old build does not paste as a chip into a new one; a plain-text paste is the
+fallback and already works. The spike copy at
+`tugdeck/src/spikes/spike-session-identity.tsx` carries the literal too.
 
-**`dev.tugtool.gazette`** — already dead weight. `LEGACY_OVERVIEW_DOMAIN` and
-`carry_legacy_defaults_forward` exist to carry the Gazette→Overview rename
-forward, and its own doc comment says "deletable once no installation predates
-the rename." The prefix migration would faithfully rename it to
-`dev.tugapp.gazette`, which is a legacy alias wearing a new name. Delete the
-carry-forward in this change instead, and let the migration skip the domain.
+## The gazette sweep
+
+`gazette` is the retired name for **Overview**, and it leaves with the identifier
+[B4]. Four sites, and they are not all the same kind of thing.
+
+**Delete — Gazette-era shims whose own comments say they are deletable.**
+
+- `tugrust/crates/tugcast/src/feeds/overview_agent.rs` — `LEGACY_OVERVIEW_DOMAIN`
+  (`dev.tugtool.gazette`) and `carry_legacy_defaults_forward`, which the prefix
+  substitution would otherwise turn into a legacy alias wearing a new name. Its
+  doc comment already says "deletable once no installation predates the rename."
+  The live domain is untouched and becomes `dev.tugapp.overview`.
+- `tugrust/crates/tugcast/src/session_ledger.rs` — `migrate_gazette_posts_to_overview_posts`,
+  `rename_gazette_posts_within_transaction`, its call site in the open path, and
+  the two tests that seed a pre-rename schema (the `gazette_posts` table, its FTS
+  shadow, and its three triggers). The guard returns early on any database opened
+  once since the rename, so on a live machine this code has been a no-op for a
+  while.
+
+**Keep — `tugdeck/src/serialization.ts`'s `RENAMED_COMPONENT_IDS`.** Its
+`gazette: "overview"` entry is not a shim with an end condition; the table's own
+doc says it "only grows," and unlike a data migration there is no point at which
+an old layout blob stops being a valid layout blob. Dropping the entry does not
+leave a stale name behind — it silently *deletes* the Overview card from any
+layout somebody arranged before the rename, taking any pane it was alone in.
+`tugdeck/src/__tests__/overview-card-rename.test.ts` stays with it. Flip this at
+the door in one word if you want it gone anyway.
+
+**Leave — `tests/app-test/at0422-filter-forward.test.ts:71`.** The word appears
+in a comment explaining why the fixture says `gazebo`: a past global rename ate
+the literal substring the per-keystroke assertion depends on. It is a warning
+against exactly this kind of sweep, not a use of the retired name.
+
+The one consequence worth stating: a machine that has not opened Tug since the
+Overview rename loses its Gazette-era overview posts and that domain's defaults.
+Given [B2] that is coherent — but note that a re-download does not clear
+`~/Library/Application Support/Tug/`, so "predates the rename" is about last
+launch, not about install date.
 
 ## What this does not do
 
