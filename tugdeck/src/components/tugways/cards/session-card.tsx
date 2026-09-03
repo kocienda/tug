@@ -3317,8 +3317,7 @@ export function SessionCardBody({
       // framework-axis targets like the find input ([L05]
       // timing-derived ordering violation; [L23] single-channel
       // violation). See `tuglaws/state-preservation.md`
-      // [Focus dispatch model] and
-      // `docs/notes/focus-gesture-lock-investigation.md`.
+      // [Focus dispatch model].
       //
       // `cardDidMove` / `cardDidResize` keep their delegate focus
       // claims — those handlers fire on gestures that already

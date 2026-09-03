@@ -121,7 +121,7 @@ impl ArcGoneReason {
 /// Read raw, a bind then moves a column on that corpse and returns
 /// `affected > 0`: a truthful success about the wrong session, while the live
 /// card shows no arc and the documented repair gesture reports success too
-/// (`notes/wheel-rotation-strands-the-arc.md`).
+/// ([D167]).
 ///
 /// The two neighbours that had already met this — `tugchanges_core`'s
 /// `line_segments` and `tugarc_core`'s `session_citation_for` — each solved

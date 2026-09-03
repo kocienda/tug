@@ -1258,7 +1258,7 @@ export function initActionDispatch(
   // An unroutable announcement **warns**. The card it was meant for reads
   // "unbound" for the rest of its arc and no gesture from inside that session
   // can repair it, so a silent `return` here spends a real failure on nothing
-  // (`notes/wheel-rotation-strands-the-arc.md`).
+  // ([D167]).
   registerAction("bind_arc_ok", (payload) => {
     const sessionId = payload.tug_session_id;
     const arcId = payload.arc_id;

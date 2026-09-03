@@ -453,11 +453,10 @@ pub struct LedgerEntry {
     /// The turn boundary is the single most load-bearing discipline in an
     /// arc: the Wheel acts only between turns, so a stage that closes a
     /// step and keeps working locks it out of pacing, `/compact`, rotation and
-    /// the idle clock alike (`notes/dash-hardening-audit.md`, W8). Enforcing
-    /// that needs one fact the PreToolUse hook cannot have — the hook is a
-    /// fresh process with no notion of a turn, and turns are tugcast's. So the
-    /// verb reports the close here, the gate asks, and this clears at the same
-    /// edge that increments `turns_ended`.
+    /// the idle clock alike. Enforcing that needs one fact the PreToolUse hook
+    /// cannot have — the hook is a fresh process with no notion of a turn, and
+    /// turns are tugcast's. So the verb reports the close here, the gate asks,
+    /// and this clears at the same edge that increments `turns_ended`.
     ///
     /// In memory, like `deck_model` and `context_window_tokens`: a restart
     /// drops it, and dropping it degrades the gate **open**, which is the only
@@ -1077,7 +1076,7 @@ impl SessionsRecorder for LedgerSessionsRecorder {
         // and announce the mating so the card wears it — the deck's binding
         // store has no other mover, and the surface a rotation blanked could
         // not be repaired by any gesture from inside the seated session
-        // (`notes/wheel-rotation-strands-the-arc.md`).
+        // ([D167]).
         //
         // The row push goes **before** the `bind_arc_ok`, because the deck
         // routes that announcement by walking segment → line → card and this

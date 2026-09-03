@@ -1115,7 +1115,7 @@ async fn session_handler(
                     // from inside a stage names the segment that stage began
                     // on, not the one seated now. Park against the live
                     // segment or the promise is made to a corpse and never
-                    // fires (`notes/wheel-rotation-strands-the-arc.md`).
+                    // fires ([D167]).
                     let seated = ledger.live_segment_of(&session_id).ok().flatten();
                     let on_arc = seated
                         .as_deref()
