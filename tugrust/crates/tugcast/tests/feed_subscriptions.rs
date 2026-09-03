@@ -195,6 +195,11 @@ async fn feed_stats_is_answered_rather_than_dispatched() {
 /// subscribed client is given to *not* receive something.
 const SETTLE: Duration = Duration::from_millis(1500);
 
+/// How long the wire must be silent before a server counts as settled, and how
+/// long that silence is waited for.
+const QUIET: Duration = Duration::from_millis(300);
+const QUIET_BUDGET: Duration = Duration::from_secs(10);
+
 #[tokio::test]
 async fn two_silent_clients_receive_the_same_thing() {
     // The wire-compatibility proof. Neither client sends subscribe_feeds, so
@@ -206,20 +211,34 @@ async fn two_silent_clients_receive_the_same_thing() {
     drop(temp_bank);
     let tc = TestTugcast::spawn(repo.path(), bank_path).await;
 
-    let mut a = TestWs::connect(tc.port).await;
-    let mut b = TestWs::connect(tc.port).await;
+    // A scout connects first and waits for the server to settle. Not every
+    // plane replays for a late joiner — the terminal plane is a live
+    // broadcast, and tugcast puts a frame on it as the first client arrives —
+    // so two clients connected into a *waking* server are not comparable
+    // however tightly they are connected: the first sees that frame and the
+    // second cannot. The scout absorbs the waking, and stays connected, since
+    // dropping it would be one more event for the pair to race.
+    let mut scout = TestWs::connect(tc.port).await;
+    assert!(
+        scout.quiesce(QUIET, QUIET_BUDGET).await,
+        "the server never went quiet, so nothing after this compares two \
+         clients rather than two arrival times"
+    );
+
+    // Connected together rather than one after the other, so there is no
+    // ordered gap for an ambient frame to fall into.
+    let (mut a, mut b) = tokio::join!(TestWs::connect(tc.port), TestWs::connect(tc.port));
 
     // One window covering both, rather than two windows in a row: the feeds
     // are broadcasts, and back-to-back windows would ask the two clients
     // about two different stretches of server time.
     let (census_a, census_b) = tokio::join!(a.census_over(SETTLE), b.census_over(SETTLE));
 
-    // Compared over the gated planes only. `CONTROL` and `HEARTBEAT` never
-    // pass the subscription filter — they are exempt by construction — and
-    // they are not this proof's subject: `CONTROL` is a bus as much as a
-    // reply channel, so a push the server made in the gap between the two
-    // connects reached `a` and could not have reached `b`, however tightly
-    // the two censuses are run. What must match is what the filter would
+    // Compared over the gated planes only. `CONTROL` and `HEARTBEAT` are
+    // exempt from the subscription filter by construction, so they are not
+    // what this proves, and a heartbeat is on its own clock rather than on
+    // the window's — counting it would put a periodic timer on the knife
+    // edge of the census deadline. What must match is what the filter would
     // have touched.
     let gated = |census: &HashMap<u8, usize>| -> HashMap<u8, usize> {
         census

@@ -1175,6 +1175,37 @@ impl TestWs {
         census
     }
 
+    /// Read and discard until the wire has been silent for `quiet`, or until
+    /// `budget` is spent. Answers whether the silence was reached.
+    ///
+    /// Nothing read here is buffered: this is for a client whose only job is
+    /// to let the server finish waking up. Some of what tugcast sends is a
+    /// live broadcast with no replay — the terminal plane above all — so a
+    /// client that connects while the server is still coming up sees frames a
+    /// client connecting a moment later never will. A scout that quiesces
+    /// first turns that difference into something the test controls.
+    pub async fn quiesce(&mut self, quiet: Duration, budget: Duration) -> bool {
+        let deadline = Instant::now() + budget;
+        loop {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return false;
+            }
+            let window = quiet.min(remaining);
+            match tokio::time::timeout(window, self.stream.next()).await {
+                // Nothing came for the whole window: quiet if the window was
+                // the silence being asked for, and merely out of budget if it
+                // was the budget's own tail.
+                Err(_) => return window == quiet,
+                // A frame, discarded — the silence has to start over.
+                Ok(Some(Ok(_))) => continue,
+                // The socket is gone; nothing more can arrive, which is as
+                // quiet as it gets.
+                Ok(Some(Err(_)) | None) => return true,
+            }
+        }
+    }
+
     /// Pump until a `CONTROL` frame whose payload `type` is `ty` arrives.
     ///
     /// Returns that payload together with a per-feed census of every frame
