@@ -1486,6 +1486,11 @@ fn document_arc_entries_in(
                 .map(|plan| arc_plan_reading(Path::new(plan)))
                 .unwrap_or((None, Vec::new(), false));
             let owner_id = tugarc_core::ops::arc_owner_key(root, &name);
+            // The arc record, read once: the run state below and the recorded
+            // kind are two facts off the same read, exactly as the live arc's
+            // composition takes them. The kind is what the branchless row was
+            // missing, and it is the row every plain arc starts on.
+            let record = tugarc_core::read_arc(root, &name);
             DocumentArcEntry {
                 bound_sessions: bound_by_arc.get(&owner_id).cloned().unwrap_or_default(),
                 owner_id,
@@ -1500,17 +1505,19 @@ fn document_arc_entries_in(
                     .count() as u32,
                 steps_begun: steps.iter().filter(|s| s.status != "pending").count() as u32,
                 review,
-                arc: tugarc_core::read_arc(root, &name).map(|record| {
-                    tugcast_core::types::ArcRunState {
-                        stage: record.current_stage().map(|s| s.as_str().to_owned()),
-                        stopped: record.stopped.as_ref().map(|(_, why)| why.clone()),
-                        stopped_stage: record
-                            .stopped
-                            .as_ref()
-                            .map(|(stage, _)| stage.as_str().to_owned()),
-                        done: record.done,
-                        note: record.notes.last().cloned(),
-                    }
+                arc_kind: record
+                    .as_ref()
+                    .and_then(|r| r.kind)
+                    .map(|k| k.as_str().to_owned()),
+                arc: record.map(|record| tugcast_core::types::ArcRunState {
+                    stage: record.current_stage().map(|s| s.as_str().to_owned()),
+                    stopped: record.stopped.as_ref().map(|(_, why)| why.clone()),
+                    stopped_stage: record
+                        .stopped
+                        .as_ref()
+                        .map(|(stage, _)| stage.as_str().to_owned()),
+                    done: record.done,
+                    note: record.notes.last().cloned(),
                 }),
                 documents: arc_documents(documents),
                 display_name: name,
@@ -1703,6 +1710,9 @@ async fn arc_entries(
                 owner_id: detail.owner_key,
                 display_name: detail.name,
                 branch: Some(detail.branch),
+                // The recorded kind, spelled as the log spells it. `None`
+                // stays `None`: the wire never invents a kind ([B01]).
+                arc_kind: detail.kind.map(|k| k.as_str().to_owned()),
                 stage: Some(detail.stage),
                 step_current: detail.step_current,
                 step_total: detail.step_total,
@@ -3260,6 +3270,41 @@ Some context.
         assert!(document_entries(&root).is_empty());
     }
 
+    /// The recorded kind rides the branchless row too, and that row is where
+    /// every plain arc begins: its door writes the documents, records the
+    /// kind, and creates no worktree. Read off the arc record this
+    /// composition already reads and never sniffed from the documents — a
+    /// plain arc's brief and task list are exactly the shape the old sniff
+    /// read as planned.
+    #[test]
+    fn a_document_only_arc_carries_its_recorded_kind() {
+        // The arc log lives under the data dir; nextest runs one process per
+        // test, so redirecting it here cannot reach another test.
+        let data = tempfile::tempdir().unwrap();
+        // SAFETY: single-threaded setup, and this process runs one test.
+        unsafe {
+            std::env::set_var("TUG_DATA_DIR", data.path());
+        }
+        let (_dir, root) = init_repo();
+        write_arc_brief(&root, "plain-arc", "The plain brief");
+        write_arc_task_list(&root, "plain-arc", &["pending", "pending"]);
+        tugarc_core::append_arc_start(&root, "plain-arc", ".tug/arcs/plain-arc/tasks.md").unwrap();
+        tugarc_core::append_arc_kind(&root, "plain-arc", tugarc_core::ArcKind::Plain).unwrap();
+        // And one whose log never said, beside it.
+        write_arc_brief(&root, "pre-kind", "The pre-kind brief");
+
+        let entries = document_entries(&root);
+        let by_name: std::collections::HashMap<&str, &DocumentArcEntry> = entries
+            .iter()
+            .map(|e| (e.display_name.as_str(), e))
+            .collect();
+        assert_eq!(by_name["plain-arc"].arc_kind.as_deref(), Some("plain"));
+        // The record spoke, so the run state is there beside it — the two are
+        // one read, and this is what says the hoist kept both.
+        assert!(by_name["plain-arc"].arc.is_some());
+        assert_eq!(by_name["pre-kind"].arc_kind, None);
+    }
+
     /// A document-only arc reads its plan's review state and ledger the same
     /// way a live arc does — the facts a next-gesture is chosen from.
     #[test]
@@ -3773,6 +3818,7 @@ Some context.
             owner_id: owner_id.to_owned(),
             display_name: name.to_owned(),
             branch: Some(format!("tugarc/{name}")),
+            arc_kind: None,
             stage: None,
             task_list: false,
             bound_sessions: Vec::new(),
@@ -3862,6 +3908,7 @@ Some context.
                     owner_id: "tugarc/demo".to_owned(),
                     display_name: "demo".to_owned(),
                     branch: Some("tugarc/demo".to_owned()),
+                    arc_kind: None,
                     stage: Some("working".to_owned()),
                     task_list: false,
                     bound_sessions: Vec::new(),

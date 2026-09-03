@@ -56,6 +56,12 @@ function pathList(paths: ReadonlyArray<string>): string {
  * worth a quiet word; being behind is usually transient (the engine is
  * probably replaying as you read); a settled replay is the quiet receipt that
  * history moved under this arc and nothing asked you about it.
+ *
+ * The recorded kind comes last, quietest of all: it is a standing property of
+ * the arc rather than anything about its present state, so it yields to every
+ * fact that describes what is happening now. Only `planned` is said. Plain is
+ * the unmarked kind, in prose and here alike, and an absent kind means the
+ * record does not say — never that it is plain.
  */
 export function arcMetaFacts(entry: ArcChangesetEntry): ArcMetaFact[] {
   const facts: ArcMetaFact[] = [];
@@ -148,6 +154,15 @@ export function arcMetaFacts(entry: ArcChangesetEntry): ArcMetaFact[] {
         `This arc is running; its ${arc.stage} stage is in flight.` +
         (arc.note !== undefined ? `\nLatest: ${arc.note}` : ""),
       tone: "subtle",
+    });
+  }
+  if (entry.arc_kind === "planned") {
+    facts.push({
+      key: "kind",
+      label: "planned",
+      tooltip:
+        "Devised a plan and had it reviewed cold before the first step was walked.",
+      tone: "muted",
     });
   }
   return facts;

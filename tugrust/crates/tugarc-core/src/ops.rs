@@ -1610,6 +1610,10 @@ pub struct ArcDetail {
     /// The run driving this arc ([P01]), when one is. See [`ArcRunState`] for
     /// why it sits beside [`Self::stage`] rather than inside it.
     pub arc: Option<ArcRunState>,
+    /// The arc's *recorded* kind ([B01]) — plain or planned, as the arc log
+    /// wrote it when the arc opened. `None` is a pre-kind arc: the record does
+    /// not say, and nothing here guesses. No document sniff runs on this side.
+    pub kind: Option<crate::arc::ArcKind>,
 }
 
 /// Parse `git diff --name-status` output. Rename and copy lines
@@ -1780,6 +1784,10 @@ pub fn arc_detail_entries_in(repo_root: &Path) -> Vec<ArcDetail> {
         // declarations are the record this path derives from.
         let declarations = read_declarations(repo_root, name);
         let arc_record = crate::arc::read_arc(repo_root, name);
+        // The recorded kind, taken from the read this block already performs
+        // ([F01]) — it used to be dropped here, which is why the deck had
+        // nothing to read and the track sniffed documents instead.
+        let arc_kind = arc_record.as_ref().and_then(|record| record.kind);
         // A record that exists, has not reached its terminal line, and carries
         // no standing stop. Derived from the read this block already performs,
         // so the gate costs the recompute's hot path nothing ([P04]).
@@ -1845,6 +1853,7 @@ pub fn arc_detail_entries_in(repo_root: &Path) -> Vec<ArcDetail> {
             fit: fit_fact(repo_root, branch, &base, &declarations),
             last_activity: declarations.last_activity.clone(),
             arc,
+            kind: arc_kind,
             base,
             rounds,
             worktree_rel,

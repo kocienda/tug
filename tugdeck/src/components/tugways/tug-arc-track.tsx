@@ -88,10 +88,17 @@ export type ArcTickState = ArcCellState | "withdrawn";
 
 /** What the feed says about an arc, as the derivation reads it. */
 export interface ArcTrackInput {
-  /** Which documents exist. A brief is the planned route's own artifact. */
+  /** Which documents exist. */
   documents?: { brief?: string; plan?: string } | undefined;
   /** Whether the plan above is a task list rather than a devised plan. */
   taskList?: boolean | undefined;
+  /**
+   * The arc's **recorded** kind, as its log wrote it when it opened. This is
+   * what decides the cell set: `planned` draws the six, `plain` draws the
+   * four, whatever the documents happen to say. Absent means the record does
+   * not say — a pre-kind arc — and only then is the cell set derived.
+   */
+  arcKind?: "plain" | "planned" | undefined;
   arc?: ArcRunState | null | undefined;
   /** The plan's ledger, in source order. */
   steps?: readonly ArcStep[] | undefined;
@@ -144,11 +151,24 @@ export interface ArcTrackModel {
    * No arc is driving this arc: the work is being done in the user's own
    * conversation, against the task list that session wrote.
    *
-   * A direct arc has a plan document like any other — its task list is one —
-   * so the presence of a plan cannot tell the two apart. What can is the
-   * **brief**, which only the planned route writes, and the arc itself.
+   * This is the *hand-worked* axis, and it is not the kind: it decides which
+   * phase an arc reads as, never how many cells the strip draws. See
+   * {@link planned} for the cell set, which the record answers directly.
    */
   direct: boolean;
+  /**
+   * Whether the strip draws the devise and review cells — the only two the
+   * kinds differ by.
+   *
+   * Taken from the arc's recorded kind, which is the fact itself rather than
+   * a reading of one. It used to be inferred from `direct`, on the premise
+   * that a brief was the planned route's own artifact; both doors write a
+   * brief now, and a wheel-driven arc always has a run record, so that
+   * inference marked every arc planned and drew a plain one two cells it
+   * never had. An arc whose log predates the record still falls back to it,
+   * which is the only place the old derivation survives.
+   */
+  planned: boolean;
   phase: ArcPhase;
   /** Why the arc stopped, when it did. */
   stopped: string | null;
@@ -194,15 +214,20 @@ export function arcTrackSteps(steps: readonly ArcStep[] | undefined): ArcTrackSt
 export function arcTrackModel(input: ArcTrackInput): ArcTrackModel {
   const documents = input.documents ?? {};
   const arc = input.arc ?? null;
-  // Direct means no arc is driving, and neither document says otherwise: a
-  // brief is the planned route's own artifact, and a plan devised against the
-  // skeleton is a plan however it came to be recorded. A task list is not —
-  // it is what the working session wrote for itself, and the server tells the
-  // two apart by the document's own shape rather than by guessing.
+  // Direct means no arc is driving and neither document says otherwise: a
+  // plan devised against the skeleton is a plan however it came to be
+  // recorded, while a task list is what a working session wrote for itself,
+  // and the server tells the two apart by the document's own shape. This
+  // decides the phase arm below and nothing else — the cell set reads the
+  // recorded kind, because a brief no longer distinguishes the routes.
   const direct =
     arc === null &&
     documents.brief === undefined &&
     (documents.plan === undefined || input.taskList === true);
+  // The recorded kind answers the cell set outright. Only an arc whose log
+  // never wrote one falls through to `direct`, which is the pre-kind arc's
+  // fallback and the last place that inference is trusted.
+  const planned = input.arcKind !== undefined ? input.arcKind === "planned" : !direct;
   const steps = arcTrackSteps(input.steps);
   const stage = input.stage ?? null;
   const stopped = arc?.stopped ?? null;
@@ -237,7 +262,7 @@ export function arcTrackModel(input: ArcTrackInput): ArcTrackModel {
   } else {
     phase = "brief";
   }
-  return { direct, phase, stopped, steps };
+  return { direct, planned, phase, stopped, steps };
 }
 
 function arcPhase(stage: string): ArcPhase {
@@ -254,6 +279,7 @@ export function arcTrackModelFromEntry(entry: ArcChangesetEntry): ArcTrackModel 
     documents: entry.documents,
     arc: entry.arc,
     taskList: entry.task_list,
+    arcKind: entry.arc_kind,
     steps: entry.steps,
     stage: entry.stage,
     holdersBusy: entry.holders_busy,
@@ -300,10 +326,10 @@ export function TugArcTrack({
   size = "rail",
   "aria-label": ariaLabel,
 }: TugArcTrackProps): React.ReactElement {
-  // The track draws the phases the arc has, never the five with two struck
-  // out: a direct arc did not skip devise and review, it never had them. It
+  // The track draws the phases the arc has, never the six with two struck
+  // out: a plain arc did not skip devise and review, it never had them. It
   // did have a brief, so it draws one.
-  const phases: readonly ArcPhase[] = model.direct ? DIRECT_PHASES : ARC_PHASES;
+  const phases: readonly ArcPhase[] = model.planned ? ARC_PHASES : DIRECT_PHASES;
   return (
     <span
       className="tug-arc-track"

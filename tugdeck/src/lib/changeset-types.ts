@@ -203,6 +203,16 @@ export interface ArcChangesetEntry {
   /** The arc branch ref name (e.g. `tugarc/fix-join`). Absent from an older
    *  sender, where `tugarc/${display_name}` is the fallback. */
   branch?: string;
+  /**
+   * The arc's *recorded* kind — what its log wrote when it opened, never a
+   * sniff of what documents happen to be on disk. Absent means the record
+   * does not say (a pre-kind arc, or an older sender); absent is never
+   * `"plain"`.
+   *
+   * `arc_kind` rather than `kind` because `kind` is this union's own
+   * discriminant, which the server's internally-tagged enum writes.
+   */
+  arc_kind?: "plain" | "planned";
   /** Derived lifecycle stage: `created` | `working` | `draft-ready` |
    *  `landing`. */
   stage?: string;
@@ -917,6 +927,13 @@ export interface DocumentArcEntry {
    * finished has begun, and Resume is what it wants.
    */
   steps_begun: number;
+  /**
+   * The arc's *recorded* kind — the same fact the branch-bearing entry carries
+   * as `arc_kind`, on the row an arc wears before its branch exists. That row
+   * is where every plain arc begins, since its door creates no worktree.
+   * Absent means the log does not say, never that the arc is plain.
+   */
+  arc_kind?: "plain" | "planned";
   /** The run driving this arc, when one is open. */
   arc?: ArcRunState;
   /** Sessions bound to this arc. */

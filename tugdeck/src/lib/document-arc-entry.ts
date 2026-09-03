@@ -44,6 +44,7 @@ export function documentArcAsEntry(
     display_name: entry.display_name,
     documents: entry.documents,
     ...(entry.review !== undefined ? { review: entry.review } : {}),
+    ...(entry.arc_kind !== undefined ? { arc_kind: entry.arc_kind } : {}),
     ...(entry.arc !== undefined ? { arc: entry.arc } : {}),
     ...(entry.bound_sessions !== undefined
       ? { bound_sessions: entry.bound_sessions }
@@ -70,11 +71,21 @@ export function documentArcAsEntry(
  *
  * An arc's own stage still outranks the counts, exactly as the shared ladder
  * has it: it only falls through to the counted rungs when no arc has spoken.
+ *
+ * The recorded kind goes through untouched, because the cell set is its to
+ * decide here exactly as it is on a live arc: a plain arc's row is branchless
+ * for the whole span between its door and the worktree its implement stage
+ * takes, and that is the span where the old document sniff drew it devise and
+ * review cells it never had.
  */
 export function documentArcTrackModel(
   entry: DocumentArcEntry,
 ): ArcTrackModel {
-  const base = arcTrackModel({ documents: entry.documents, arc: entry.arc });
+  const base = arcTrackModel({
+    documents: entry.documents,
+    arc: entry.arc,
+    arcKind: entry.arc_kind,
+  });
   const steps =
     entry.step_total === 0
       ? null

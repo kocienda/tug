@@ -35,11 +35,12 @@
  * @covers tugdeck/src/components/tugways/tug-step-fraction.tsx
  * @covers tugdeck/src/lib/changeset-all-store.ts
  * @covers tugdeck/src/lib/changeset-types.ts
+ * @covers tugdeck/src/lib/arc-meta-facts.ts
  * @covers tugdeck/src/lib/arc-review.ts
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { realpathSync } from "node:fs";
+import { realpathSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { launchTugApp, note } from "./_harness";
@@ -50,6 +51,11 @@ import {
 } from "./_harness/tugbank-helpers";
 import {
   createArc,
+  appendArcLogLine,
+  arcBriefPath,
+  arcLogPath,
+  arcTasksPath,
+  fixturePlanDocument,
   makeArcScratchRepo,
   recordStampedPlan,
   rmArcScratchRepo,
@@ -77,6 +83,21 @@ const PLAN_ROW = `${SECTION} [data-slot="arcs-row"][data-arc="${PLAN_ARC}"]`;
  *  withdrew — the one shape where the closed rows are not a prefix. */
 const SKIPPED_ARC = "at0407-skipped";
 const SKIPPED_ROW = `${SECTION} [data-slot="arcs-row"][data-arc="${SKIPPED_ARC}"]`;
+
+/**
+ * Two more, differing only in the kind their logs recorded.
+ *
+ * Both wear the shape their door actually leaves behind — a brief, a ledger,
+ * and a run record — because that shape is the whole point. It used to be
+ * read for the kind, on the premise that only the planned route wrote a
+ * brief; both doors write one now, so the reading marked every arc planned
+ * and drew a plain one the two cells it never had. The recorded kind is the
+ * fact, and these two rows are where the card is asked to prove it reads it.
+ */
+const PLANNED_ARC = "at0407-planned";
+const PLANNED_ROW = `${SECTION} [data-slot="arcs-row"][data-arc="${PLANNED_ARC}"]`;
+const PLAIN_ARC = "at0407-plain";
+const PLAIN_ROW = `${SECTION} [data-slot="arcs-row"][data-arc="${PLAIN_ARC}"]`;
 
 /** This checkout — the build under test, and never the tree an arc is cut in. */
 const CHECKOUT = realpathSync(resolve(import.meta.dir, "..", ".."));
@@ -130,6 +151,33 @@ beforeAll(() => {
   step("withdraw", "7");
   step("start", "8", "--through", "8");
   step("done", "8");
+
+  // ── The two kinds, each as its own door leaves it ──────────────────────
+  // The log line is appended rather than driven through `arc run`, which is
+  // what writes it in life: the runner would seat a stage and start rotating
+  // this arc, and the fixture wants the record without the machinery. It is
+  // the same route `at0503` and `at0510` take, for the same reason.
+  const log = arcLogPath(scratch.dataRoot);
+
+  const planned2 = createArc(projectDir(), PLANNED_ARC, "at0407 planned fixture", cli);
+  writeFileSync(arcBriefPath(projectDir(), PLANNED_ARC), "# at0407 planned brief\n");
+  recordStampedPlan(projectDir(), PLANNED_ARC, planned2.worktree, {
+    ...cli,
+    rows: 2,
+    through: 2,
+  });
+  appendArcLogLine(log, PLANNED_ARC, "arc-start", `.tug/arcs/${PLANNED_ARC}/plan.md`);
+  appendArcLogLine(log, PLANNED_ARC, "arc-kind", "planned");
+
+  // The plain arc carries a brief AND a run record — every clause the old
+  // derivation read for `direct` is false here, so before the kind was on the
+  // wire this row drew six cells. Its ledger is a task list, which is what
+  // the plain door writes.
+  createArc(projectDir(), PLAIN_ARC, "at0407 plain fixture", cli);
+  writeFileSync(arcBriefPath(projectDir(), PLAIN_ARC), "# at0407 plain brief\n");
+  writeFileSync(arcTasksPath(projectDir(), PLAIN_ARC), fixturePlanDocument(2));
+  appendArcLogLine(log, PLAIN_ARC, "arc-start", `.tug/arcs/${PLAIN_ARC}/tasks.md`);
+  appendArcLogLine(log, PLAIN_ARC, "arc-kind", "plain");
 
   fixtureDir = seedScratchSession(projectDir(), SID);
 });
@@ -495,6 +543,94 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Arcs card", () => {
         // told 7 of 8 beside eight filled ticks. This is [P03]'s whole promise
         // and the one thing no pure test can see.
         expect(closedTip).toContain("8 of 8 steps closed");
+      } finally {
+        await app.close();
+        rmTempTugbank(tugbankPath);
+      }
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  test(
+    "the recorded kind says `planned` on the line and picks the track's cells",
+    async () => {
+      const tugbankPath = mkTempTugbank();
+      seedTugbankForLaunch(tugbankPath, { sourceTreePath: CHECKOUT });
+      const app = await launchTugApp({
+        testName: "at0407-arcs-kind",
+        env: { TUGBANK_PATH: tugbankPath, TUG_DATA_DIR: scratch?.dataRoot ?? "" },
+      });
+      try {
+        await app.enableDeckTrace(true);
+        await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
+        await app.waitForCondition<boolean>(
+          `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
+        );
+        await app.spawnSessionResume("A", { tugSessionId: SID, projectDir: projectDir() });
+        await app.awaitEngineReady("A", { timeoutMs: 15000 });
+        await app.dispatchControlAction("toggle-arcs");
+        await app.waitForCondition<boolean>(
+          `document.querySelector(${JSON.stringify(PLANNED_ROW)}) !== null &&
+           document.querySelector(${JSON.stringify(PLAIN_ROW)}) !== null`,
+          { timeoutMs: 30000 },
+        );
+
+        // One reader over both rows, so the two are compared rather than
+        // asserted apart: what matters is the DIFFERENCE the kind makes, and
+        // a claim read off one row alone cannot show it.
+        const read = (selector: string): string =>
+          `(() => {
+             const row = document.querySelector(${JSON.stringify(selector)});
+             const track = row.querySelector('[data-slot="tug-arc-track"]');
+             return {
+               phases: Array.from(
+                 track.querySelectorAll('[data-slot="tug-arc-track-cell"]'),
+               ).map((el) => el.getAttribute("data-phase")),
+               facts: Array.from(
+                 row.querySelectorAll('[data-slot="tug-arc-lifecycle-fact"]'),
+               ).map((el) => ({
+                 key: el.getAttribute("data-fact"),
+                 tone: el.getAttribute("data-tone"),
+                 label: (el.textContent ?? "").trim(),
+               })),
+             };
+           })()`;
+        type Row = {
+          phases: string[];
+          facts: Array<{ key: string; tone: string; label: string }>;
+        };
+        const planned = await app.evalJS<Row>(read(PLANNED_ROW));
+        const plain = await app.evalJS<Row>(read(PLAIN_ROW));
+        note("at0407 planned row", JSON.stringify(planned));
+        note("at0407 plain row", JSON.stringify(plain));
+
+        // ── The word ──────────────────────────────────────────────────────
+        const kindFact = (row: Row) => row.facts.find((f) => f.key === "kind");
+        expect(kindFact(planned)?.label).toBe("planned");
+        expect(kindFact(planned)?.tone).toBe("muted");
+        // Plain is the unmarked kind: the row gains no word for it. Asserted
+        // over the whole fact list rather than over one absent key, so a
+        // "plain" label appearing under any other spelling is caught too.
+        expect(plain.facts.map((f) => f.label)).not.toContain("plain");
+        expect(kindFact(plain)).toBeUndefined();
+
+        // ── The cells ─────────────────────────────────────────────────────
+        // The two sets differ by devise and review alone, and the plain row is
+        // the one that moved: it carries a brief and a run record, so every
+        // clause of the old derivation was false and it drew all six.
+        expect(planned.phases).toEqual([
+          "brief",
+          "devise",
+          "review",
+          "implement",
+          "check",
+          "join",
+        ]);
+        expect(plain.phases).toEqual(["brief", "implement", "check", "join"]);
+        // The check cell is drawn on both routes deliberately — what a run
+        // does after its last commit is the same work whoever asked for it.
+        expect(plain.phases).toContain("check");
+        note("at0407 kind rows", await app.screenshot().then((s) => s.path));
       } finally {
         await app.close();
         rmTempTugbank(tugbankPath);

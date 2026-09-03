@@ -52,6 +52,7 @@ describe("documentArcAsEntry", () => {
   test("absent optional fields stay absent rather than becoming empty ones", () => {
     const entry = documentArcAsEntry(arc());
     expect("review" in entry).toBe(false);
+    expect("arc_kind" in entry).toBe(false);
     expect("arc" in entry).toBe(false);
     expect("bound_sessions" in entry).toBe(false);
     expect(entry.steps).toBeUndefined();
@@ -67,6 +68,17 @@ describe("documentArcAsEntry", () => {
     expect(entry.review).toBe("stale");
     expect(entry.arc).toEqual(run);
     expect(entry.bound_sessions).toEqual(["sess-a"]);
+  });
+
+  test("the recorded kind passes through, so the line can say `planned`", () => {
+    // The fact reaches the metadata line through this entry and nowhere else,
+    // so a kind dropped here is a kind no branchless row can ever say.
+    expect(documentArcAsEntry(arc({ arc_kind: "planned" })).arc_kind).toBe(
+      "planned",
+    );
+    expect(documentArcAsEntry(arc({ arc_kind: "plain" })).arc_kind).toBe(
+      "plain",
+    );
   });
 });
 
@@ -213,5 +225,54 @@ describe("documentArcTrackModel", () => {
     );
     expect(model.phase).toBe("devise");
     expect(model.stopped).toBe("the plan lints red");
+  });
+});
+
+/**
+ * The cell set on a branchless row, and why it is the row that needed this.
+ *
+ * A plain arc is branchless from its door until the worktree its implement
+ * stage takes, and over that whole span the card draws it from this model. The
+ * old derivation read `direct` — no run record, no brief, no devised plan — and
+ * a plain arc off its door has all three of the things that clause denies, so
+ * it drew devise and review cells the arc never had. The recorded kind is the
+ * fact, and it decides the cells here exactly as it does on a live arc.
+ */
+describe("the recorded kind on a branchless row", () => {
+  const doorShape = {
+    documents: {
+      brief: "/repo/.tug/arcs/planning/brief.md",
+      plan: "/repo/.tug/arcs/planning/tasks.md",
+    },
+    task_list: true,
+    arc: { stage: "implement" } as ArcRunState,
+    step_total: 2,
+    steps_done: 0,
+    steps_begun: 1,
+  };
+
+  test("a plain arc in the shape its door leaves draws four cells", () => {
+    const model = documentArcTrackModel(
+      arc({ ...doorShape, arc_kind: "plain" }),
+    );
+    expect(model.planned).toBe(false);
+    // The axis that did not move: nothing is driving this row's cell set from
+    // `direct` any more, and `direct` still reads what it always read.
+    expect(model.direct).toBe(false);
+  });
+
+  test("a planned arc draws six, whatever its documents are", () => {
+    const model = documentArcTrackModel(
+      arc({
+        arc_kind: "planned",
+        documents: { plan: "/repo/p.md" },
+        task_list: true,
+      }),
+    );
+    expect(model.planned).toBe(true);
+  });
+
+  test("a pre-kind row falls back to the derivation, unchanged", () => {
+    expect(documentArcTrackModel(arc(doorShape)).planned).toBe(true);
   });
 });

@@ -84,6 +84,55 @@ describe("arcTrackModel", () => {
 });
 
 /**
+ * Which cells the strip draws, and what decides it.
+ *
+ * The two sets differ by devise and review alone, and an arc's kind is a
+ * recorded fact its log wrote when it opened. It used to be inferred from
+ * `direct` — no run record, no brief, no devised plan — on the premise that
+ * only the planned route wrote a brief. Both doors write one now, and a
+ * wheel-driven arc always has a run record, so that inference read every arc
+ * as planned and drew a plain one two cells it never had.
+ *
+ * So the recorded kind is taken at its word over any document reading, and
+ * the old derivation survives only where there is no record to read.
+ */
+describe("the cell set the recorded kind chooses", () => {
+  const cases: Array<[string, ArcTrackInput, boolean]> = [
+    // The kind is taken at its word, against documents that say otherwise.
+    ["planned with no brief and no plan still draws six", { arcKind: "planned", stage: "working" }, true],
+    ["planned over a task list still draws six", { arcKind: "planned", documents: { plan: "/p" }, taskList: true, stage: "working" }, true],
+    ["plain with a brief and a devised plan still draws four", { arcKind: "plain", documents: PLAN, stage: "working" }, false],
+    // [F04]'s consequence, at the shape that produced it: an arc off the plain
+    // door has a brief AND a run record, so every clause of `direct` is false.
+    ["plain with the brief and run record its door writes draws four", { arcKind: "plain", documents: { brief: "/b", plan: "/p" }, taskList: true, arc: { stage: "implement" }, steps: steps(1, 2, 3), stage: "implementing" }, false],
+    // And with no record, the derivation is exactly what it always was.
+    ["a pre-kind arc with a brief and a devised plan falls back to six", { documents: PLAN, stage: "working" }, true],
+    ["a pre-kind arc with nothing falls back to four", { stage: "working" }, false],
+    ["a pre-kind arc on a task list falls back to four", { documents: { plan: "/p" }, taskList: true, stage: "working" }, false],
+  ];
+  for (const [name, input, planned] of cases) {
+    test(name, () => {
+      expect(arcTrackModel(input).planned).toBe(planned);
+    });
+  }
+
+  test("the kind moves the cell set without moving `direct`", () => {
+    // The two axes are independent, and this is the pair that proves it: the
+    // same hand-worked input reads `direct` both times, and only the recorded
+    // kind decides whether devise and review are drawn.
+    const hand: ArcTrackInput = { documents: { plan: "/p" }, taskList: true, stage: "working" };
+    const plain = arcTrackModel({ ...hand, arcKind: "plain" });
+    const planned = arcTrackModel({ ...hand, arcKind: "planned" });
+    expect(plain.direct).toBe(true);
+    expect(planned.direct).toBe(true);
+    expect(plain.planned).toBe(false);
+    expect(planned.planned).toBe(true);
+    // The phase arm still reads off `direct`, so it is unmoved by the kind.
+    expect(plain.phase).toBe(planned.phase);
+  });
+});
+
+/**
  * A withdrawn step is closed but not worked, and closed rows are no longer a
  * prefix — so the count and the positions are two separate facts.
  */

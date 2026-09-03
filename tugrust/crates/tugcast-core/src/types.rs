@@ -526,6 +526,15 @@ pub enum ChangesetEntry {
         /// absent means fall back to `tugarc/<display_name>`.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         branch: Option<String>,
+        /// The arc's *recorded* kind ([B01]): `"plain"` | `"planned"`. Absent
+        /// means the arc log never said — a pre-kind arc, or an older sender —
+        /// and never means plain. Nothing on this side derives it from what
+        /// documents happen to be on disk.
+        ///
+        /// **`arc_kind`, not `kind`** ([F07]): this enum is internally tagged
+        /// on `kind`, which carries the `"session"` / `"arc"` discriminant.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        arc_kind: Option<String>,
         /// Derived lifecycle stage ([P06]): `created` | `working` |
         /// `draft-ready` | `landing`.
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1062,6 +1071,13 @@ pub struct DocumentArcEntry {
     /// Two facts, two fields: a plan whose first row is `in progress` with
     /// nothing finished is begun rather than unstarted.
     pub steps_begun: u32,
+    /// The arc's *recorded* kind ([B01]): `"plain"` | `"planned"`. The same
+    /// fact [`ChangesetEntry::Arc`] carries, on the row an arc wears *before*
+    /// its branch exists — which is where every plain arc begins, since its
+    /// door writes the documents, records the kind, and creates no worktree.
+    /// Absent means the log never said, and never means plain.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub arc_kind: Option<String>,
     /// The run driving this arc, when one is open.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub arc: Option<ArcRunState>,
@@ -1860,6 +1876,7 @@ mod tests {
             owner_id: "tugarc/x#1723500000000-a1b2c3".to_string(),
             display_name: "x".to_string(),
             branch: Some("tugarc/x".to_string()),
+            arc_kind: None,
             stage: Some("working".to_string()),
             task_list: false,
             bound_sessions: vec!["sess-1".to_string()],
@@ -1919,6 +1936,9 @@ mod tests {
         assert!(!json.contains("review"));
         // An arc whose generation has logged nothing has no date to send.
         assert!(!json.contains("last_activity"));
+        // A pre-kind arc spends no bytes saying so — absence is "the record
+        // does not say", and the deck reads it as exactly that.
+        assert!(!json.contains("arc_kind"));
 
         // And one that has been touched sends when.
         let mut dated = arc;
@@ -1930,6 +1950,17 @@ mod tests {
                 .unwrap()
                 .contains(r#""last_activity":"2026-08-14T12:00:00Z""#)
         );
+
+        // A recorded kind rides as `arc_kind`, and the variant tag `kind`
+        // still reads `"arc"` beside it ([F07]) — the two names are one
+        // collision apart and this is what proves they did not collide.
+        let mut planned = dated;
+        if let ChangesetEntry::Arc { arc_kind, .. } = &mut planned {
+            *arc_kind = Some("planned".to_string());
+        }
+        let planned_json = serde_json::to_string(&planned).unwrap();
+        assert!(planned_json.contains(r#""arc_kind":"planned""#));
+        assert!(planned_json.contains(r#""kind":"arc""#));
 
         // An older sender's entry — no new fields at all — still decodes.
         let legacy = r#"{"kind":"arc","owner_id":"tugarc/y","display_name":"y",
