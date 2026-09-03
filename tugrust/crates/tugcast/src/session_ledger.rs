@@ -1819,9 +1819,10 @@ impl SessionLedger {
                 -- (`mark_closed`) and a spawn both clear it: closed-by-hand
                 -- stays closed, and a spawned row is live on its own terms.
                 demoted           INTEGER NOT NULL DEFAULT 0,
-                -- The card owes a hand-back: a courseless rotation put it on
-                -- a named model, and nothing but the restore will take it
-                -- off. `1` while owed, cleared when the restore goes out.
+                -- The card owes a hand-back: a rotation the user did not ask
+                -- for put it on a named model, and nothing but the restore
+                -- will take it off. `1` while owed, cleared when the restore
+                -- goes out.
                 --
                 -- On disk rather than in the wheel's memory alone, because
                 -- the debt outlives the process that took it on: a tugcast
@@ -4959,11 +4960,11 @@ impl SessionLedger {
     ///
     /// The wheel keeps the armed set in memory because that is where it is
     /// read from, on a hot path, once per turn end. This is the copy that
-    /// survives the process: a courseless rotation onto a named model pins the
-    /// card until the restore goes out, tugcode reuses its manager's selector
-    /// for every later spawn, and a tugcast restart in between used to drop
-    /// the arming and leave the card on a stage model through the user's own
-    /// `/new`.
+    /// survives the process: a rotation the user did not ask for onto a named
+    /// model pins the card until the restore goes out, tugcode reuses its
+    /// manager's selector for every later spawn, and a tugcast restart in
+    /// between used to drop the arming and leave the card on a stage model
+    /// through the user's own `/new`.
     ///
     /// No `NotFound`: a session with no row is a session with no card, and a
     /// debt against it is nobody's to settle. Silent by design, and paired

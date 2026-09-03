@@ -198,7 +198,7 @@ pub struct LandingEvent {
     /// see it.
     pub sha: String,
     pub kind: LandingKind,
-    /// The arc a join landed, and the whole of the own-dash guard ([P06]):
+    /// The arc a join landed, and the whole of the own-arc guard ([P06]):
     /// a wire never fires on the join of an arc it created itself.
     pub arc: Option<String>,
     /// The lineage behind the landing — the drafting session for a commit,
@@ -732,7 +732,7 @@ pub fn evaluate(
 /// The claim comes before the guards for the reason it always has — a refusal
 /// written by the loser of a race between two instances would name the wrong
 /// reason for the right outcome — and the *evaluation* comes after them
-/// because a `busy` or `own-dash` skip must advance no mark ([P05]). That is
+/// because a `busy` or `own-arc` skip must advance no mark ([P05]). That is
 /// what makes [P06]'s promise true: the next landing after a resolve genuinely
 /// re-reads the facts the skip passed over.
 fn consider(
@@ -883,7 +883,7 @@ fn lineage_facts(
 }
 
 /// The prefix every arc this wire creates carries, and the whole of what the
-/// own-dash guard compares against ([P06]).
+/// own-arc guard compares against ([P06]).
 fn tripwire_arc_prefix(tripwire: &str) -> String {
     format!("tripwire-{tripwire}-")
 }
@@ -2238,7 +2238,7 @@ mod tests {
         assert_eq!(
             ledger::fact_mark(&h.conn, tripwire.id, "sess-a").unwrap(),
             None,
-            "an own-dash skip spends nothing either"
+            "an own-arc skip spends nothing either"
         );
 
         // Somebody else's arc is an ordinary join, and fires it.

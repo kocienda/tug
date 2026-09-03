@@ -455,7 +455,7 @@ pub fn tasks_file(repo: &Path, name: &str) -> PathBuf {
 /// neither has no ledger and returns `None`, which every caller reports as the
 /// refusal it is rather than inventing a path.
 ///
-/// This is the whole of the discrimination between the two courses: the
+/// This is the whole of the discrimination between plain and planned: the
 /// documents on disk, at their own addresses, read the same way by the runner,
 /// the step verb, and the feed.
 pub fn ledger_file(repo: &Path, name: &str) -> Option<PathBuf> {
@@ -5302,30 +5302,30 @@ mod tests {
         assert!(tasks_file(root, "foo-bar").ends_with(".tug/arcs/foo-bar/tasks.md"));
     }
 
-    /// The whole of the discrimination between the two courses: which document
-    /// is on disk. A plan outranks a task list, so an arc that grew a plan
-    /// walks the plan and the vestigial task list is never consulted.
+    /// The whole of the discrimination between plain and planned: which
+    /// document is on disk. A plan outranks a task list, so an arc that grew a
+    /// plan walks the plan and the vestigial task list is never consulted.
     #[test]
     fn the_ledger_is_the_plan_when_there_is_one_and_the_task_list_otherwise() {
         let temp = TempDir::new().unwrap();
         let root = temp.path();
-        let dir = documents_dir(root, "courses");
+        let dir = documents_dir(root, "ledgered");
         fs::create_dir_all(&dir).unwrap();
 
         // Neither document: no ledger, and no invented path.
-        assert_eq!(ledger_file(root, "courses"), None);
+        assert_eq!(ledger_file(root, "ledgered"), None);
 
         // A task list alone is an arc's ledger.
         fs::write(dir.join("tasks.md"), "# tasks\n").unwrap();
-        assert_eq!(ledger_file(root, "courses"), Some(dir.join("tasks.md")));
+        assert_eq!(ledger_file(root, "ledgered"), Some(dir.join("tasks.md")));
 
         // A plan beside it outranks it.
         fs::write(dir.join("plan.md"), "# plan\n").unwrap();
-        assert_eq!(ledger_file(root, "courses"), Some(dir.join("plan.md")));
+        assert_eq!(ledger_file(root, "ledgered"), Some(dir.join("plan.md")));
 
         // A plan alone is a planned arc's ledger, as it always was.
         fs::remove_file(dir.join("tasks.md")).unwrap();
-        assert_eq!(ledger_file(root, "courses"), Some(dir.join("plan.md")));
+        assert_eq!(ledger_file(root, "ledgered"), Some(dir.join("plan.md")));
     }
 
     /// The property [P01] and [P02] both rest on: a validated name is one safe

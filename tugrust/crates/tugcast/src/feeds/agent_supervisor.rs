@@ -11019,7 +11019,7 @@ mod tests {
 
     #[tokio::test]
     #[serial_test::serial]
-    async fn a_model_switch_on_a_courseless_card_writes_no_note() {
+    async fn a_model_switch_on_a_card_off_an_arc_writes_no_note() {
         let home = tempfile::tempdir().unwrap();
         // SAFETY: `#[serial]`; no other thread reads the environment here.
         unsafe {

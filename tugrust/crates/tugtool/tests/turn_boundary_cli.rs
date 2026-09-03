@@ -462,7 +462,7 @@ fn run(cmd: &mut Command, args: &[&str]) -> (bool, String) {
 }
 
 #[test]
-fn a_step_verb_speaks_the_boundary_only_under_a_course() {
+fn a_step_verb_speaks_the_boundary_only_under_an_arc() {
     let tmp = tempfile::tempdir().unwrap();
     let tmp = tmp.path().canonicalize().unwrap();
     let repo = tempfile::tempdir().unwrap();

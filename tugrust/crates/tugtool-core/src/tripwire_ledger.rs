@@ -952,7 +952,7 @@ pub fn set_fact_mark(
 /// Attach the evidence a claimed trip was evaluated against.
 ///
 /// Written after the claim rather than with it, because the evidence is what
-/// the wire's guards let it look at: a landing refused as `busy` or `own-dash`
+/// the wire's guards let it look at: a landing refused as `busy` or `own-arc`
 /// looked at nothing, and a row carrying a fact set it never read would be a
 /// record of an evaluation that did not happen.
 pub fn record_event_payload(
