@@ -26,6 +26,14 @@
  * the items, which the harness cannot do. The menu is still what is read, so
  * everything downstream of the dispatch is under test.
  *
+ *   3. The same three rungs driven by the CHORD (⌃⌘J) instead of the frame.
+ *      The chord is `menuEligible`, so AppKit resolves it against the key
+ *      equivalent the sweep wrote onto the toggle — an item two levels into a
+ *      submenu — and fires that item's action. The leg proves the chord
+ *      reaches the same three-rung ladder its row shows rather than a toggle
+ *      of its own ([D172]); the middle rung is the one a plain open/close
+ *      chord could not produce at all.
+ *
  * @covers tugapp/Sources/AppDelegate.swift
  * @covers tugdeck/src/lib/host-menu-state.ts
  * @covers tugdeck/src/components/tugways/command-registry.ts
@@ -240,6 +248,55 @@ describe.skipIf(!SHOULD_RUN)("at0511 — the Window menu's sidebar rows", () => 
           expect(movedLeft.state, `${LEFT} checked after the move`).toBe(ON);
           const movedRight = await waitMenuMark(app, RIGHT, OFF);
           expect(movedRight.state, `${RIGHT} unchecked after the move`).toBe(OFF);
+        } finally {
+          await app.close();
+        }
+      } finally {
+        rmTempTugbank(tugbankPath);
+      }
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  test(
+    "the chord walks the same three rungs as the row it is written on",
+    async () => {
+      const tugbankPath = mkTempTugbank();
+      try {
+        seedTugbankForLaunch(tugbankPath);
+        const app = await launchTugApp({
+          testName: "at0511-sidebar-chord",
+          env: { TUGBANK_PATH: tugbankPath },
+          persistInTestMode: true,
+        });
+        try {
+          await app.seedDeckState({ state: priorCardDeck(), focusCardId: "A" });
+          await app.waitForCondition<boolean>(
+            `window.__tug.assertHostRootRegistered("A")`,
+            { timeoutMs: 5_000 },
+          );
+
+          await expectRung(app, OFF, "Show Jots");
+
+          // ⌃⌘J. Nothing dispatches a frame here: AppKit matches the key
+          // equivalent `applyCommandChords` wrote onto the toggle two levels
+          // into the Window menu, and fires that item. A chord the sweep had
+          // not reached would leave the mark exactly where it was.
+          await app.nativeKey("j", ["cmd", "ctrl"]);
+          await expectRung(app, MIXED, "Hide Jots");
+
+          // The middle rung, which is the whole reason this is a ladder and
+          // not a toggle: the keyboard goes elsewhere, and the SAME chord
+          // brings it back rather than taking the card away.
+          await app.dispatchControlAction("focus-session-card", { cardId: "A" });
+          await expectRung(app, ON, "Activate Jots");
+
+          await app.nativeKey("j", ["cmd", "ctrl"]);
+          await expectRung(app, MIXED, "Hide Jots");
+
+          // And only from the top rung does it hide.
+          await app.nativeKey("j", ["cmd", "ctrl"]);
+          await expectRung(app, OFF, "Show Jots");
         } finally {
           await app.close();
         }

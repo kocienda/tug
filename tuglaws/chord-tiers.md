@@ -26,7 +26,7 @@ The algebra was already half-latent in shipped bindings — ⌘V → ⌥⌘V →
 
 Each operator adds one modifier and keeps the key.
 
-**⇧ — the counterpart.** Reverse, widen, or undo the base command: ⌘Z → ⇧⌘Z Redo, ⌘G → ⇧⌘G Find Previous, ⌘S → ⇧⌘S Save As, ⌃⌘A Claim All → ⌃⇧⌘A Disclaim All.
+**⇧ — the counterpart.** Reverse, widen, or undo the base command: ⌘Z → ⇧⌘Z Redo, ⌘G → ⇧⌘G Find Previous, ⌘S → ⇧⌘S Save As.
 
 **⌥ — the variant.** Same verb, altered object or form: ⌘W Close → ⌥⌘W Close All, ⌘V Paste → ⌥⌘V Paste as Quote, ⌘N New Session → ⌥⌘N New Text File, ⌘H Hide → ⌥⌘H Hide Others.
 
@@ -37,8 +37,8 @@ Composed sets are never assigned fresh — each one *means* its composition, and
 | Set | Reading |
 |---|---|
 | ⌥⇧⌘ | Both twists at once. "…as Plain Text" is always ⌥⇧⌘ (⌥⇧⌘C, ⌥⇧⌘V — the latter matching macOS "Paste and Match Style" exactly). First/Last Turn ⌥⇧⌘↑/↓ are the ⇧-extremes of Previous/Next Turn ⌥⌘↑/↓. |
-| ⌃⇧⌘ | The counterpart of a Tug-tier command. Debut resident: Disclaim All ⌃⇧⌘A, the counterpart of Claim All ⌃⌘A. |
-| ⌃⌥⌘ | The variant or advanced form of a Tug-tier command — the "super-advanced" tier. Debut resident: Cycle Permission Mode ⌃⌥⌘P, since permission modes govern agent autonomy, the quintessential expert feature. |
+| ⌃⇧⌘ | The counterpart of a Tug-tier command. Currently vacant. |
+| ⌃⌥⌘ | The variant or advanced form of a Tug-tier command — the "super-advanced" tier. Cycle Permission Mode ⌃⌥⌘P, since permission modes govern agent autonomy, the quintessential expert feature; and the Changes shade's two bulk verbs, ⌃⌥⌘A Claim All and ⌃⌥⌘D Disclaim All. |
 
 ## The digit row
 
@@ -112,12 +112,12 @@ The algebra's first application. Each row's rationale is a derivation, not a pre
 | `toggle-changes-view` | ⇧⌘C | **⌃⌘C** | A shade toggle is Tug machinery. |
 | `toggle-history-view` | ⇧⌘H | **⌃⌘H** | The twin of Changes; it moves with it. |
 | `commit-auto-message` | ⇧⌘M | **⌃⌘M** | Joins the Changes cluster on one tier: ⌃⌘C the shade, ⌃⌘M the message, ⌃⌘A the claim. Stays composer-scoped. |
-| `claim-all-changes` | — | **⌃⌘A** | New. One mnemonic neighborhood with ⌃⌘C and ⌃⌘M. |
-| `disclaim-all-changes` | — | **⌃⇧⌘A** | New. R1: the ⇧-counterpart of ⌃⌘A, sharing its key, one finger from its pair. |
-| `next-theme` | ⌥⌘T | **⌃⌘T** | Themes are Tug machinery. ⌥ was carrying nothing — there is no ⌘T base of which Next Theme is a variant. |
+| `claim-all-changes` | — | **⌃⌘A** | New. One mnemonic neighborhood with ⌃⌘C and ⌃⌘M. *Now ⌃⌥⌘A.* |
+| `disclaim-all-changes` | — | **⌃⇧⌘A** | New. R1: the ⇧-counterpart of ⌃⌘A, sharing its key, one finger from its pair. *Now ⌃⌥⌘D.* |
+| `next-theme` | ⌥⌘T | **⌃⌘T** | Themes are Tug machinery. ⌥ was carrying nothing — there is no ⌘T base of which Next Theme is a variant. *Now ⇧⌘T.* |
 | `insert-file` | ⌘I | **⌃⌘I** | Inserting a file reference into the composer is Tug machinery, not a many-times-an-hour universal verb (R3), and the move frees ⌘I from its italic baggage. |
 
-**⌃⌘A and ⌃⇧⌘A are not an inverse on one set.** ⌃⌘A acts on what is *not yet* this session's — the unattributed and orphaned buckets together — and ⌃⇧⌘A on what *is*. ⇧-as-counterpart is carrying "the opposite bulk verb of this shade", not "the same set, reversed". R1 promises a shared key and an opposite sense; it does not promise set inversion, and this pair is the reason to say so out loud.
+**Claim All and Disclaim All are not an inverse on one set.** Claim acts on what is *not yet* this session's — the unattributed and orphaned buckets together — and Disclaim on what *is*. ⇧-as-counterpart was carrying "the opposite bulk verb of this shade", not "the same set, reversed". R1 promises a shared key and an opposite sense; it does not promise set inversion, and this pair is the reason to say so out loud.
 
 **Ratified unchanged:** ⌥⌘/ Show DevTools against ⌘/ Command Picker; the ⌥⌘↑/↓ + ⌥⇧⌘↑/↓ turn family (R2).
 
@@ -129,7 +129,7 @@ The algebra's first application. Each row's rationale is a derivation, not a pre
 
 This widens an earlier wording that named the tier's letters as the sidebar-toggle grammar outright. That was the same mistake "digits are places" made on the digit row ([D130]): true of the family that happened to be there first, and stated flatly it made the next honest grant underivable — bullseye is a card's posture on the deck, unmistakably Tug's own layout machinery, and under the narrow reading it would have had to be either a sidebar toggle (which it is not) or an unexplainable exception. The wider reading is what the promotion below then rested on: a rail toggle is layout vocabulary whatever key it takes, so it could leave the letters entirely and stay on this tier.
 
-### The rail pair, and the sidebar-toggle family it replaced
+### The rail pair and the sidebar letters
 
 **The keyboard addresses the RAIL, not the card standing on it.**
 
@@ -137,17 +137,26 @@ This widens an earlier wording that named the tier's letters as the sidebar-togg
 |---|---|---|
 | `toggle-rail:left` | **⌃⌘←** | Tug tier: a rail is layout vocabulary, alongside ⌃⌘↑/↓ `move-in-column`, whose vertical axis these complete horizontally. Arrows are R1-exempt under R2, and the mnemonic is the geometry itself — the chord points at the edge it opens. |
 | `toggle-rail:right` | **⌃⌘→** | As above, the other edge. |
-| `new-jot` | **⌘J** | Plain-⌘ under R3: capture is reached mid-thought, many times a day, and a jot you must open a card to write is a jot you don't write. Claims ⌘J out of the free pool — an honest use, though not the jump/go-to one the pool's annotation anticipated. Untouched by the promotion below: a capture verb is not a toggle. |
+| `new-jot` | **⌘J** | Plain-⌘ under R3: capture is reached mid-thought, many times a day, and a jot you must open a card to write is a jot you don't write. Claims ⌘J out of the free pool — an honest use, though not the jump/go-to one the pool's annotation anticipated. A capture verb is not a toggle, which is what leaves ⌃⌘J free for the Jots card. |
 
 ⌃⌘ arrows are neither bound in Tug nor on the macOS never-bind list, which reserves **plain** ⌃-arrows for Spaces and Mission Control rather than the ⌘ composition — the argument `move-in-column` already made on the vertical pair. Both are `menuEligible` with **empty** Swift key equivalents, so `applyCommandChords` writes them and both stay rebindable; see the shade-toggle anomaly below for what the alternative costs.
 
-**The family this replaced died of arithmetic.** ⌃⌘⟨letter⟩ named a *sidebar card*, and toggling one showed or hid its rail: ⌃⌘L Show Cards (moved off ⌥⌘L to join the grammar), ⌃⌘J Show Jots, ⌃⌘O Show Overview, plus ⌘L Focus Cards beside them. The grammar was said to be the point — a pair makes each chord teach the other, and it leaves room for a third card to arrive already knowing its chord — and that reasoning held exactly as far as three. The sidebar then grew from three cards toward six, and the letters the new cards want are spent (⌃⌘C is the Changes shade, ⌃⌘T is Next Theme) or forbidden (⌃⌘D is the system Dictionary, on the never-bind list above). A grammar whose next honest grant is underivable is not a grammar; it is three chords and a coincidence.
+**⌃⌘⟨letter⟩ names a sidebar card, one letter per card.** The two families do not compete: **the pair addresses a SIDE of the deck, a letter addresses a CARD.** The letters are a complete set rather than an open-ended one — the sidebar holds six cards and registration is a boot step, so every card has a letter and there is no seventh to derive a grant for.
 
-A chord per SIDE does not grow at all. Six sidebar cards need the same two keys three do, and the two are a closed set because the deck has two edges — which is the property the letter row could never have.
+| Card | Chord | Derivation |
+|---|---|---|
+| Arcs | **⌃⌘A** | Its own initial. |
+| Cards | **⌃⌘W** | Not its initial — C is the Changes shade. W is taken against this card's coming rename to **Workspaces**, so the letter is right slightly before its noun is. |
+| Jots | **⌃⌘J** | Its own initial, and a pair with ⌘J New Jot read through the tiers rather than through R1: plain-⌘ *captures* a jot (R3 — reached mid-thought, many times a day), ⌃⌘ *shows the card* that holds them. |
+| Layout | **⌃⌘L** | Its own initial. |
+| Overview | **⌃⌘O** | Its own initial. |
+| Tripwires | **⌃⌘T** | Its own initial. Next Theme sits on ⇧⌘T so this letter is free: of the two claims on T the card's is the stronger, since the six cards must be spelled consistently while Next Theme has no ⌘T base to be a variant of and can sit anywhere. |
 
-**So the per-card toggles took the demotion the card widths took** ("The card widths gave the digits up", below): `toggle-cards`, `toggle-jots`, `toggle-overview` and their siblings keep their menu rows with `bindings: []` — a command with no *default* chord, not one that refuses a chord, so the keymap pane can still bind any of them — and ⌃⌘L, ⌃⌘J, ⌃⌘O and ⌘L return to their pools. The rate argument is the same one the widths rested on: the user does not reach for these. The focus-out companion went entirely with the card it named; the toggles stand chord-less, one per registered sidebar card.
+**⌃⌘A is why the Changes shade's bulk verbs are on ⌃⌥⌘.** A `menuEligible` chord becomes an AppKit key equivalent, and AppKit resolves those before the web view ever sees the keydown — so a promoted ⌃⌘A leaves a composer-scoped ⌃⌘A dead even inside the composer. That is the preemption R6's half of a menu grant is entitled to: *a deck-level verb is not a surface's to decline.* Claim All takes **⌃⌥⌘A**, the advanced form of a Tug-tier command, and Disclaim All takes **⌃⌥⌘D** — a letter of its own rather than a ⇧-counterpart, because the two were never a set-inverse and D says *Disclaim* as plainly with one fewer modifier. ⌃⌥⌘D is distinct from the reserved ⌃⌘D; the system dictionary is the ⌥-less chord.
 
-**The three-state ladder survives the promotion, addressed one place up.** A rail that is not showing opens and takes the keyboard; a rail showing but not holding it takes it; a rail that holds it goes away. The member the keyboard lands on is the side's **z-frontmost**, which is the one answer well defined in both arrangements — stacked it is the member you can see, split it is the one the stack badge's picker checkmarks. Showing a rail brings back the members that were standing when it was hidden, recorded at the hide; the side's stored order and shares are untouched throughout, so nothing about the arrangement is spent by the round trip ([L23]).
+**A chord per side does not grow at all**, which is the pair's own argument: six sidebar cards need the same two keys three do, and two is closed because the deck has two edges. The letters are closed for a contingent reason — the card set is six — where the pair's is structural, so **a seventh sidebar card is the letter family's to answer for.**
+
+**Both families run the same three-state ladder**, the pair addressing it one place up. A rail that is not showing opens and takes the keyboard; a rail showing but not holding it takes it; a rail that holds it goes away. The member the keyboard lands on is the side's **z-frontmost**, which is the one answer well defined in both arrangements — stacked it is the member you can see, split it is the one the stack badge's picker checkmarks. Showing a rail brings back the members that were standing when it was hidden, recorded at the hide; the side's stored order and shares are untouched throughout, so nothing about the arrangement is spent by the round trip ([L23]).
 
 ---
 
@@ -161,7 +170,7 @@ A chord per SIDE does not grow at all. Six sidebar cards need the same two keys 
 
 | Command | Chord | Derivation |
 |---|---|---|
-| `go-to-slot:1` | **⌃⌘1** | Tug tier: where the reader stands in the arrangement is Tug's own layout vocabulary, alongside ⌃⌘←/→ and ⌃⌘T. The digit is the slot's own number. |
+| `go-to-slot:1` | **⌃⌘1** | Tug tier: where the reader stands in the arrangement is Tug's own layout vocabulary, alongside ⌃⌘←/→ and the sidebar letters. The digit is the slot's own number. |
 | `go-to-slot:2` … `go-to-slot:6` | **⌃⌘2**–**⌃⌘6** | As above. Six because six-up is the largest arrangement. |
 
 **This is the digit-row rule at its tightest.** ⌘*n* and ⌃⌘*n* index the *same* ordered set — the deck's slots — and the tier alone says which reading: ⌘*n* sends the CARD to a place, ⌃⌘*n* sends the READER there. Same set, same digits, one modifier of difference.
@@ -217,7 +226,7 @@ Recorded so a reader takes them as debt rather than as precedent.
 
 | Command | Chord | Derivation |
 |---|---|---|
-| `toggle-bullseye` | **⌃⌘B** | Tug tier: a card's *posture* on the deck is Tug's own layout machinery, alongside the Go to Slot row above and ⌃⌘←/→ / ⌃⌘T. |
+| `toggle-bullseye` | **⌃⌘B** | Tug tier: a card's *posture* on the deck is Tug's own layout machinery, alongside the Go to Slot row above and ⌃⌘←/→. |
 
 **Why not plain ⌘.** R3. Bullseye is a deliberate posture change — you enter it to read or write for a while — not a verb hit many times an hour, so it has no claim on a finite plain-⌘ slot.
 
@@ -283,7 +292,7 @@ A slot holds a run of vertical space, and the cards standing in it either take t
 
 | Command | Chord | Derivation |
 |---|---|---|
-| `toggle-column-split` | **⌃⌘S** | Tug tier: dividing a slot is Tug's own layout vocabulary, alongside the Go to Slot row, ⌃⌘B Bullseye, the ⌃⌘←/→ rail pair and ⌃⌘T Next Theme. Letter S is unoccupied on the tier — only ⌘S and ⇧⌘S exist on that key — and is the obvious mnemonic. |
+| `toggle-column-split` | **⌃⌘S** | Tug tier: dividing a slot is Tug's own layout vocabulary, alongside the Go to Slot row, ⌃⌘B Bullseye and the ⌃⌘←/→ rail pair. Letter S is unoccupied on the tier — only ⌘S and ⇧⌘S exist on that key — and is the obvious mnemonic. |
 | `move-in-column:up` / `:down` | **⌃⌘↑ / ⌃⌘↓** | R1's base pair on the vertical axis, in the tier that owns the slot. Arrows are R1-exempt under R2. |
 | `move-in-column:top` / `:bottom` | **⌃⇧⌘↑ / ⌃⇧⌘↓** | The counterpart set of the ⌃⌘ base: top and bottom are the ⇧-extreme of up and down, exactly the shape ⌥⇧⌘↑/↓ First/Last Turn has one tier over. |
 

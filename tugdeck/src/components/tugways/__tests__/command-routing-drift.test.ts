@@ -385,6 +385,9 @@ const SHIPPED_CHORDS: ReadonlyArray<readonly [chord: string, commandId: string]>
  */
 const MOVED_SINCE_THE_MAP: ReadonlyMap<string, string> = new Map([
   [TUG_ACTIONS.INSERT_FILE, "⇧⌘I"],
+  // ⌃⌘T is the Tripwires sidebar row's; a theme has no ⌘T base to be a
+  // variant of, so it is the one of the two free to sit anywhere.
+  ["next-theme", "⇧⌘T"],
 ]);
 
 /**
@@ -403,30 +406,20 @@ const RETIRED_SINCE_THE_MAP: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * Commands that still exist and still have menu rows, but no longer carry a
- * DEFAULT chord — the sidebar-toggle family, demoted when the rails were
- * promoted to keyboard entities.
- *
- * Distinct from `RETIRED_SINCE_THE_MAP` on purpose. A retired command is gone
- * and its chord reaches nothing; these are reachable from the Maker menu and
- * bindable from the keymap pane, and what changed is only that the table ships
- * no chord for them. ⌃⌘J and ⌃⌘O returned to their pools with them.
- *
- * The letter grammar died of arithmetic rather than of taste: a sidebar growing
- * past three cards wants letters that are spent (⌃⌘C, ⌃⌘T) or forbidden (⌃⌘D),
- * and one chord per side does not grow at all. See chord-tiers.md.
- */
-const UNBOUND_SINCE_THE_MAP: ReadonlySet<string> = new Set([
-  TUG_ACTIONS.TOGGLE_JOTS,
-  TUG_ACTIONS.TOGGLE_OVERVIEW,
-]);
-
-/**
  * Chords added after the map, which by construction it cannot record: their
- * commands did not exist when it was written.
+ * commands did not exist when it was written — plus the six sidebar-toggle
+ * chords ([D172]), which are here rather than in the transcription because
+ * two of them sit on letters the map never gave them: Cards on W, against its
+ * coming rename to Workspaces, and Layout on L.
  */
 const ADDED_SINCE_THE_MAP: ReadonlyArray<readonly [chord: string, commandId: string]> = [
   ["⌘J", TUG_ACTIONS.NEW_JOT],
+  ["⌃⌘A", TUG_ACTIONS.TOGGLE_ARCS],
+  ["⌃⌘W", TUG_ACTIONS.TOGGLE_CARDS],
+  ["⌃⌘J", TUG_ACTIONS.TOGGLE_JOTS],
+  ["⌃⌘L", TUG_ACTIONS.TOGGLE_LAYOUT],
+  ["⌃⌘O", TUG_ACTIONS.TOGGLE_OVERVIEW],
+  ["⌃⌘T", TUG_ACTIONS.TOGGLE_TRIPWIRES],
   ["⌥⌘[", TUG_ACTIONS.PREVIOUS_STACK_CARD],
   ["⌥⌘]", TUG_ACTIONS.NEXT_STACK_CARD],
   // The slash bridges that earned a chord. The family is reachable by typing
@@ -489,8 +482,7 @@ const ADDED_SINCE_THE_MAP: ReadonlyArray<readonly [chord: string, commandId: str
 const EXPECTED_CHORDS: ReadonlyArray<readonly [chord: string, commandId: string]> = [
   ...SHIPPED_CHORDS.filter(
     ([, commandId]) =>
-      !RETIRED_SINCE_THE_MAP.has(commandId) &&
-      !UNBOUND_SINCE_THE_MAP.has(commandId),
+      !RETIRED_SINCE_THE_MAP.has(commandId),
   ).map(
     ([rendering, commandId]) =>
       [MOVED_SINCE_THE_MAP.get(commandId) ?? rendering, commandId] as const,

@@ -158,8 +158,8 @@ An untabled code throws in dev and publishes `null` in production, so a bad bind
 | ⇧⌘G | `find-previous` | Find Previous | JS, global |
 | ⇧⌘I | `insert-file` | Insert File… | menu bar (swept) |
 | ⇧⌘S | `save-as` | Save As… | menu bar (swept) |
+| ⇧⌘T | `next-theme` | Next Theme | menu bar (swept) |
 | ⇧⌘Z | `redo` | Redo | JS, global |
-| ⌃⇧⌘A | `disclaim-all-changes` | Disclaim All Changes | JS, responder |
 | ⌃⇧⌘↑ | `move-in-column:top` | Move Card to Top of Column | menu bar (swept) |
 | ⌃⇧⌘↓ | `move-in-column:bottom` | Move Card to Bottom of Column | menu bar (swept) |
 | ⌃⌘1 | `go-to-slot:1` | Go to Slot 1 | menu bar (swept) |
@@ -168,22 +168,28 @@ An untabled code throws in dev and publishes `null` in production, so a bad bind
 | ⌃⌘4 | `go-to-slot:4` | Go to Slot 4 | menu bar (swept) |
 | ⌃⌘5 | `go-to-slot:5` | Go to Slot 5 | menu bar (swept) |
 | ⌃⌘6 | `go-to-slot:6` | Go to Slot 6 | menu bar (swept) |
-| ⌃⌘A | `claim-all-changes` | Claim All Changes | JS, responder |
+| ⌃⌘A | `toggle-arcs` | Show Arcs | menu bar (swept) |
 | ⌃⌘B | `toggle-bullseye` | Bullseye | menu bar (swept) |
 | ⌃⌘C | `toggle-changes-view` | Show Session Changes | JS, global |
 | ⌃⌘F | `toggle-full-screen` | Enter Full Screen | menu bar (AppKit's own) |
 | ⌃⌘H | `toggle-history-view` | Show Commit History | JS, global |
 | ⌃⌘I | `run-slash-command:ai` | AI… | menu bar (swept) |
+| ⌃⌘J | `toggle-jots` | Show Jots | menu bar (swept) |
 | ⌃⌘K | `show-keyboard-shortcuts` | Keyboard Shortcuts… | menu bar (swept) |
+| ⌃⌘L | `toggle-layout` | Show Layout | menu bar (swept) |
 | ⌃⌘M | `commit-auto-message` | Generate a Commit Message | JS, responder |
+| ⌃⌘O | `toggle-overview` | Show Overview | menu bar (swept) |
 | ⌃⌘P | `select-composer-route:prompt` | Prompt Route | JS, global |
 | ⌃⌘S | `toggle-column-split` | Split or Stack Column | menu bar (swept) |
-| ⌃⌘T | `next-theme` | Next Theme | menu bar (swept) |
+| ⌃⌘T | `toggle-tripwires` | Show Tripwires | menu bar (swept) |
 | ⌃⌘U | `run-slash-command:usage` | Show Usage | menu bar (swept) |
+| ⌃⌘W | `toggle-cards` | Show Cards | menu bar (swept) |
 | ⌃⌘← | `toggle-rail:left` | Show Left Rail | menu bar (swept) |
 | ⌃⌘↑ | `move-in-column:up` | Move Card Up in Column | menu bar (swept) |
 | ⌃⌘→ | `toggle-rail:right` | Show Right Rail | menu bar (swept) |
 | ⌃⌘↓ | `move-in-column:down` | Move Card Down in Column | menu bar (swept) |
+| ⌃⌥⌘A | `claim-all-changes` | Claim All Changes | JS, responder |
+| ⌃⌥⌘D | `disclaim-all-changes` | Disclaim All Changes | JS, responder |
 | ⌃⌥⌘P | `cycle-permission-mode` | Cycle Permission Mode | JS, global |
 | ⌘+ | `zoom-in` | Zoom In | menu bar (swept) |
 | ⌘, | `show-settings` | Settings… | JS, global |

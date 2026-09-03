@@ -1,6 +1,7 @@
 /**
  * sidebar-toggle.ts — what a rail's shortcut means (⌃⌘← left, ⌃⌘→ right), and
- * what a sidebar card's own menu row means.
+ * what a sidebar card's own chord and menu row mean (⌃⌘A Arcs, ⌃⌘W Cards,
+ * ⌃⌘J Jots, ⌃⌘L Layout, ⌃⌘O Overview, ⌃⌘T Tripwires).
  *
  * One key, three states, read off the deck:
  *
@@ -18,9 +19,13 @@
  * one takes the keyboard, what "already holding it" means — and the shared part
  * is the shape of the decision rather than any of its steps.
  *
- * Both doors run these performers: the Swift Maker-menu items dispatching
- * through `action-dispatch`, and the deck-canvas key handlers. A tier sited at
- * one door is a gesture that means something different from the other one.
+ * Every door runs these performers: the Swift menu items dispatching through
+ * `action-dispatch` — Window ▸ ⟨Card⟩ ▸ Show for the cards, Maker for the rail
+ * pair — the chords those items carry, which AppKit resolves at the menu layer
+ * so they arrive by the same route, and the deck-canvas key handlers. A tier
+ * sited at one door is a gesture that means something different from the other
+ * one, which is the whole reason the card rows' chords reach the SAME command
+ * id their rows send rather than a ladder of their own.
  *
  * Activation goes through `transferFocusForActivation` with keyboard modality,
  * the contract ⌘J (NEW_JOT) already holds: a keyboard gesture lands visibly

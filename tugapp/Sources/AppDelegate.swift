@@ -105,18 +105,28 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// them.
     ///
     /// AppKit's own mixed mark is a dash, which reads as "some of these" and
-    /// says nothing here; `checkmark.square` reads as a window, which is what
-    /// the third rung actually means. It is configured at the menu font's own
-    /// point size and semibold so it weighs the same as the plain check it
-    /// alternates with — two marks in one column that disagreed about weight
-    /// would read as two different columns.
+    /// says nothing here. `checkmark.square` was tried and read backwards:
+    /// the top rung is the emphatic one, but a checked square draws SMALLER
+    /// than the plain check it alternates with, so weight and attention
+    /// pointed opposite ways. A filled disc is unambiguously the heavier of
+    /// the two marks, which is what the rung means.
+    ///
+    /// **Point size is the whole configuration here.** `circle.fill` has no
+    /// stroke, so a weight does nothing to it; the disc is sized well under
+    /// the menu font's own point size, because at full size it is a blob
+    /// beside a check rather than a mark in the same column. The fraction is
+    /// a look-at-it number, not a derived one.
+    ///
+    /// The Window menu's tail still uses AppKit's diamond for a minimized
+    /// window. A disc is adjacent to it in weight and distinct in shape,
+    /// which is the reading the diamond was rejected for not having.
     private static let mixedStateGlyph: NSImage? = {
         let configuration = NSImage.SymbolConfiguration(
-            pointSize: NSFont.menuFont(ofSize: 0).pointSize,
-            weight: .semibold
+            pointSize: NSFont.menuFont(ofSize: 0).pointSize * 0.5,
+            weight: .regular
         )
         let glyph = NSImage(
-            systemSymbolName: "checkmark.square",
+            systemSymbolName: "circle.fill",
             accessibilityDescription: "Showing and holding the keyboard"
         )?.withSymbolConfiguration(configuration)
         glyph?.isTemplate = true
@@ -1330,16 +1340,18 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         //
         // Key equivalents left EMPTY, as everywhere in this file:
         // `applyCommandChords` recurses into submenus and writes whatever the
-        // frontend's keymap says, so the toggles stay rebindable in their new
-        // home. The Arcs card's component id is `dashes` — the persistence
-        // key [D141], not a stale name.
+        // frontend's keymap says — the table gives each toggle a ⌃⌘⟨letter⟩
+        // and every one of them stays rebindable. The Arcs card's component
+        // id is `dashes` — the persistence key [D141], not a stale name,
+        // which is also why this list is ordered by the NOUN it displays:
+        // sorting by id would put Cards before Arcs and look alphabetical.
         for (noun, componentId, toggleAction) in [
-            ("Jots", "jots", #selector(showJots(_:))),
-            ("Tripwires", "tripwires", #selector(showTripwires(_:))),
             ("Arcs", "dashes", #selector(showArcs(_:))),
             ("Cards", "cards", #selector(showCards(_:))),
+            ("Jots", "jots", #selector(showJots(_:))),
             ("Layout", "layout", #selector(showLayout(_:))),
             ("Overview", "overview", #selector(showOverview(_:))),
+            ("Tripwires", "tripwires", #selector(showTripwires(_:))),
         ] as [(String, String, Selector)] {
             let parent = NSMenuItem(title: noun, action: nil, keyEquivalent: "")
                 .identified("window.sidebar.\(componentId)")
@@ -1396,12 +1408,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         // the menu is hidden then, and a hidden menu's key equivalents fall
         // through to the web view.
         mMenu.addItem(NSMenuItem(title: "Show DevTools", action: #selector(showDevTools(_:)), keyEquivalent: "").identified("maker.devTools"))
-        // The six per-card sidebar toggles used to sit here; they are now
-        // Window ▸ ⟨Card⟩, one row per card with a submenu. A release build
-        // hides this menu, and the only menu route to a sidebar card should
-        // not be one most users never see. The rail pair below stays: it
-        // addresses the deck's SIDES rather than its cards, which is a
-        // maker's reading of the same geometry.
+        // The per-card sidebar rows live under Window ▸ ⟨Card⟩, not here: a
+        // release build hides this menu, and the only menu route to a sidebar
+        // card must not be one most users never see. The rail pair below
+        // belongs here — it addresses the deck's SIDES rather than its cards,
+        // which is a maker's reading of the same geometry.
         // Show Left Rail (⌃⌘←) and Show Right Rail (⌃⌘→) — the deck's two
         // sides as keyboard entities, three-state like the card rows in the
         // Window menu:
@@ -2616,7 +2627,11 @@ extension AppDelegate: NSMenuDelegate {
 
         // Separator + Next Theme
         menu.addItem(NSMenuItem.separator())
-        let nextItem = NSMenuItem(title: "Next Theme", action: #selector(nextTheme(_:)), keyEquivalent: "t", modifierMask: [.command, .control]).identified("view.nextTheme")
+        // ⇧⌘T — moved off ⌃⌘T, which the Window menu's Tripwires row holds
+        // now. A pre-first-push default only, but this constructor re-runs on
+        // every View menu open, so a stale literal here would put the old
+        // chord back on the item until the next sweep.
+        let nextItem = NSMenuItem(title: "Next Theme", action: #selector(nextTheme(_:)), keyEquivalent: "t", modifierMask: [.command, .shift]).identified("view.nextTheme")
         menu.addItem(nextItem)
 
         applyCommandChords(in: menu)

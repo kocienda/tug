@@ -722,7 +722,7 @@ const NUDGE_SLOT_COMMANDS: readonly CommandEntry[] = [
  * stands in, and move a card within it.
  *
  * **The tier, derived** (tuglaws/chord-tiers.md): ⌃⌘ is Tug's own layout
- * vocabulary — ⌃⌘←/→ Show Rail, ⌃⌘T Next Theme, ⌃⌘1/2/3 card width — and a slot
+ * vocabulary — ⌃⌘←/→ Show Rail, ⌃⌘B Bullseye, ⌃⌘1/2/3 card width — and a slot
  * dividing is a layout act, so it belongs there rather than on plain ⌘, which
  * R3 reserves for verbs hit many times an hour. Letter S is unoccupied in the
  * tier (only ⌘S and ⇧⌘S exist on KeyS) and is the obvious mnemonic.
@@ -941,11 +941,10 @@ const GO_TO_SLOT_COMMANDS: readonly CommandEntry[] = Array.from(
  * ⌃⌘← / ⌃⌘→ — show or hide a whole SIDE of the deck.
  *
  * **The rail is the entity, not the card standing on it.** Every sidebar card
- * used to carry its own ⌃⌘⟨letter⟩ toggle, and that grammar could not survive
- * the sidebar growing: the letters the next cards want are spent (⌃⌘C is the
- * Changes shade, ⌃⌘T is Next Theme) or forbidden (⌃⌘D is the system
- * dictionary). A pair of chords addressing the two sides is a set that does not
- * grow at all — six sidebar cards need the same two keys three do.
+ * also carries its own ⌃⌘⟨letter⟩ toggle, and the two families are different
+ * questions rather than rivals: this pair addresses a SIDE of the deck, which
+ * is geometry, while a letter addresses a CARD. The pair is also the set that
+ * does not grow at all — six sidebar cards need the same two keys three do.
  *
  * **The tier, derived** (tuglaws/chord-tiers.md): a rail is layout vocabulary,
  * which is what ⌃⌘ carries, alongside ⌃⌘↑/↓ `move-in-column` — whose vertical
@@ -986,36 +985,66 @@ const RAIL_TOGGLE_COMMANDS: readonly CommandEntry[] = (
 
 /**
  * The six sidebar cards, in the order the Window menu lists them: the
- * component id the deck knows them by, the noun the rows name them with, and
- * the toggle command each row sends.
+ * component id the deck knows them by, the noun the rows name them with, the
+ * toggle command each row sends, and the chord that runs it.
  *
  * The component ids come from their own leaf modules rather than as literals,
  * because they are persistence keys — the Arcs card's is still `"dashes"`
  * ([D141]) — and a menu that spelled one by hand would be a second copy free
  * to drift from the one the deck reads.
+ *
+ * **Alphabetical by the NOUN, which is not the same as by the id.** The Arcs
+ * card's id is `dashes`, so ordering by id would put Cards first and read as
+ * alphabetical while being wrong. The menu shows nouns, so the nouns order it.
+ *
+ * **⌃⌘⟨letter⟩ names a sidebar card, one letter per card** ([D172]). The set is
+ * closed at six — registration is a boot step — so the grammar is complete
+ * rather than open-ended. Five letters are initials; Cards takes W against its
+ * coming rename to Workspaces, because C is the Changes shade. Jots reads as a
+ * pair with ⌘J New Jot: plain-⌘ captures, ⌃⌘ shows the card that holds them.
  */
 const SIDEBAR_MENU_CARDS = [
-  { componentId: JOTS_CARD_ID, noun: "Jots", toggle: TUG_ACTIONS.TOGGLE_JOTS },
   {
-    componentId: TRIPWIRES_CARD_ID,
-    noun: "Tripwires",
-    toggle: TUG_ACTIONS.TOGGLE_TRIPWIRES,
+    componentId: ARCS_CARD_ID,
+    noun: "Arcs",
+    toggle: TUG_ACTIONS.TOGGLE_ARCS,
+    key: "KeyA",
+    label: "a",
   },
-  { componentId: ARCS_CARD_ID, noun: "Arcs", toggle: TUG_ACTIONS.TOGGLE_ARCS },
   {
     componentId: CARDS_CARD_ID,
     noun: "Cards",
     toggle: TUG_ACTIONS.TOGGLE_CARDS,
+    key: "KeyW",
+    label: "w",
+  },
+  {
+    componentId: JOTS_CARD_ID,
+    noun: "Jots",
+    toggle: TUG_ACTIONS.TOGGLE_JOTS,
+    key: "KeyJ",
+    label: "j",
   },
   {
     componentId: LAYOUT_CARD_ID,
     noun: "Layout",
     toggle: TUG_ACTIONS.TOGGLE_LAYOUT,
+    key: "KeyL",
+    label: "l",
   },
   {
     componentId: OVERVIEW_CARD_ID,
     noun: "Overview",
     toggle: TUG_ACTIONS.TOGGLE_OVERVIEW,
+    key: "KeyO",
+    label: "o",
+  },
+  {
+    componentId: TRIPWIRES_CARD_ID,
+    noun: "Tripwires",
+    toggle: TUG_ACTIONS.TOGGLE_TRIPWIRES,
+    key: "KeyT",
+    label: "t",
   },
 ] as const;
 
@@ -1051,10 +1080,12 @@ function sidebarFact(
  * does.
  *
  * The toggle keeps the `toggle-<card>` command id it has always had, and only
- * its item moves — so a chord a user bound in the keymap pane still fires the
- * same verb, and the title the row draws still says what that verb will do.
- * It is always enabled: a card with no instance has one to show, and a
- * showing one has somewhere for the ladder to go.
+ * its item moves — so the chord fires the same verb whether it comes from this
+ * table or from a user's keymap override, and the title the row draws says
+ * what that verb will do. **The chord needs no ladder of its own**: it reaches
+ * `toggle-<card>`, which IS the ladder, so what the row displays and what the
+ * chord does cannot come apart. It is always enabled: a card with no instance
+ * has one to show, and a showing one has somewhere for the ladder to go.
  *
  * The side pair sends the `set-sidebar-side` the Layout card's own controls
  * send, so the two surfaces drive one store and cannot disagree. It is live
@@ -1062,17 +1093,23 @@ function sidebarFact(
  * is for a picker that offers a hidden card a side, and these rows do not.
  */
 const SIDEBAR_CARD_COMMANDS: readonly CommandEntry[] =
-  SIDEBAR_MENU_CARDS.flatMap(({ componentId, noun, toggle }): CommandEntry[] => [
+  SIDEBAR_MENU_CARDS.flatMap(({ componentId, noun, toggle, key, label }): CommandEntry[] => [
     {
-      // Chord-less, like every sidebar row — the rail toggles above carry the
-      // chords. `bindings: []` is a command with no DEFAULT chord rather than
-      // one that refuses a bound one.
       id: toggle,
       title: `Show ${noun}`,
       routing: "registry",
       menuItemId: `window.sidebar.${componentId}.show`,
       mirrored: true,
-      bindings: [],
+      // ⌃⌘⟨letter⟩, one per card. `menuEligible` with an EMPTY Swift key
+      // equivalent, the discipline every row in this menu follows:
+      // `applyCommandChords` writes it from this table — recursing into the
+      // card's submenu to reach it — so the chord stays rebindable end to end.
+      bindings: [
+        chord({ key, meta: true, ctrl: true, label }, {
+          preventDefault: true,
+          menuEligible: true,
+        }),
+      ],
       validate: () => true,
       state: (chain: CommandValidationSource) => {
         const fact = sidebarFact(chain, componentId);
@@ -1618,19 +1655,25 @@ export const COMMANDS: readonly CommandEntry[] = [
     parameterized: true,
   },
   {
-    // ⌃⌘T — the Tug tier, because themes are Tug's own machinery
-    // (chord-tiers.md). Menu-eligible, so the chord resolves at the native
-    // menu layer where the item already lives; the binding is what makes it
-    // visible to the keymap pane and rebindable at all. `menuChords()`
-    // claims a menu item for a non-`mirrored` entry too, so no gate work is
-    // needed to publish it.
+    // ⇧⌘T. The Tripwires card holds ⌃⌘T, and a theme is the weaker claim on
+    // that letter: the sidebar cards are a closed set with a mnemonic each,
+    // while Next Theme has no ⌘T base to be a variant of and so is free to sit
+    // anywhere (chord-tiers.md). ⇧⌘T is free of AppKit's Show Tab Bar only
+    // because Tug sets `allowsAutomaticWindowTabbing = false`.
+    //
+    // Menu-eligible, so the chord resolves at the native menu layer where the
+    // item already lives; the binding is what makes it visible to the keymap
+    // pane and rebindable at all. `menuChords()` claims a menu item for a
+    // non-`mirrored` entry too, so no gate work is needed to publish it. The
+    // Swift construction literal moves with this, because `rebuildViewMenu`
+    // re-runs that constructor on every View menu open.
     id: "next-theme",
     title: "Next Theme",
     routing: "registry",
     menuItemId: "view.nextTheme",
     bindings: [
       chord(
-        { key: "KeyT", ctrl: true, meta: true, label: "t" },
+        { key: "KeyT", shift: true, meta: true, label: "t" },
         { preventDefault: true, menuEligible: true },
       ),
     ],
@@ -2160,8 +2203,15 @@ export const COMMANDS: readonly CommandEntry[] = [
     ],
   },
   {
-    // ⌃⌘A — Claim All, one finger from ⌃⌘C (the shade) and ⌃⌘M (the message);
-    // live only while the composer is in commit mode, which is what raising
+    // ⌃⌥⌘A — Claim All, on the advanced tier ⌃⌥⌘P debuted. It cannot sit on
+    // ⌃⌘A, which the Arcs card's Window row holds: a menu-eligible chord
+    // becomes an AppKit key equivalent and AppKit resolves it before the web
+    // view sees the keydown, so a scoped binding underneath one reaches
+    // nothing even inside its own surface ([D172]). The key is kept, so the
+    // neighbourhood with ⌃⌘C (the shade) and ⌃⌘M (the message) survives one
+    // modifier away.
+    //
+    // Live only while the composer is in commit mode, which is what raising
     // the Changes shade means. Composite on purpose: the shade wires the
     // unattributed and orphaned buckets as two buttons, and the chord claims
     // both at once. The buttons remain the granular path.
@@ -2175,7 +2225,7 @@ export const COMMANDS: readonly CommandEntry[] = [
     routing: "first-responder",
     bindings: [
       {
-        chord: { key: "KeyA", ctrl: true, meta: true, label: "a" },
+        chord: { key: "KeyA", ctrl: true, alt: true, meta: true, label: "a" },
         scope: { kind: "responder", responderId: COMPOSER_RESPONDER_SCOPE },
         source: "default",
         preventDefault: true,
@@ -2183,15 +2233,18 @@ export const COMMANDS: readonly CommandEntry[] = [
     ],
   },
   {
-    // ⌃⇧⌘A — the ⇧-counterpart of Claim All, sharing its key. Counterpart,
-    // not set-inverse: ⌃⌘A acts on what is not yet this session's, ⌃⇧⌘A on
-    // this session's own entry.
+    // ⌃⌥⌘D — Disclaim All. A letter of its own rather than the ⇧-counterpart
+    // of its pair: the two were never a set-inverse (⌃⌥⌘A acts on what is not
+    // yet this session's, this one on what is), so ⇧ was carrying "the
+    // opposite bulk verb of this shade" and a D for Disclaim says that as
+    // plainly with one fewer modifier. Distinct from the reserved ⌃⌘D — the
+    // system dictionary is the ⌥-less chord.
     id: TUG_ACTIONS.DISCLAIM_ALL_CHANGES,
     title: "Disclaim All Changes",
     routing: "first-responder",
     bindings: [
       {
-        chord: { key: "KeyA", ctrl: true, meta: true, shift: true, label: "a" },
+        chord: { key: "KeyD", ctrl: true, alt: true, meta: true, label: "d" },
         scope: { kind: "responder", responderId: COMPOSER_RESPONDER_SCOPE },
         source: "default",
         preventDefault: true,

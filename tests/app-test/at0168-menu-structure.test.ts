@@ -63,16 +63,20 @@ const MOD = {
 /**
  * The six sidebar cards, by the component id their Window rows are addressed
  * with. The Arcs card's is `dashes` — a persistence key ([D141]), not a stale
- * name. One list, read by the contract table below and by the depth check
- * that says those rows are a submenu.
+ * name. Each carries the ⌃⌘⟨letter⟩ its toggle answers to. One list, read by
+ * the contract table below and by the depth check that says those rows are a
+ * submenu.
+ *
+ * Alphabetical by the NOUN the menu displays, which is the order the menu is
+ * built in — not by id, which would put Cards before Arcs.
  */
 const SIDEBAR_CARD_IDS = [
-  "jots",
-  "tripwires",
-  "dashes",
-  "cards",
-  "layout",
-  "overview",
+  { card: "dashes", key: "a" },
+  { card: "cards", key: "w" },
+  { card: "jots", key: "j" },
+  { card: "layout", key: "l" },
+  { card: "overview", key: "o" },
+  { card: "tripwires", key: "t" },
 ] as const;
 
 /**
@@ -148,6 +152,12 @@ const STATIC_ITEMS: ReadonlyArray<{ id: string; key?: string; mods?: number }> =
   { id: "session.agents" },
   { id: "session.hooks" },
   { id: "session.memory" },
+  // View. The theme LIST is filesystem-derived and stays unasserted, but
+  // Next Theme is a fixed row after it and its chord is a Swift construction
+  // literal — one of the few in the file — so this is the only place the
+  // literal and the registry table can be caught disagreeing. ⇧⌘T, moved off
+  // ⌃⌘T when the Tripwires row took it.
+  { id: "view.nextTheme", key: "t", mods: MOD.command | MOD.shift },
   // Window (static slice; window.pane.* is dynamic)
   { id: "window.minimize", key: "m", mods: MOD.command },
   { id: "window.zoom" },
@@ -176,11 +186,17 @@ const STATIC_ITEMS: ReadonlyArray<{ id: string; key?: string; mods?: number }> =
   // One parent row per sidebar card, each holding a toggle and a Left /
   // Right pair — the depths are what makes them a submenu rather than six
   // flat groups, and the walk below flattens the tree so all three read here.
-  // The toggles stay chord-less: an empty key is the assertion, since a sweep
-  // that wrote one would mean the table still ships a default chord for them.
-  ...SIDEBAR_CARD_IDS.flatMap((card) => [
+  // Each toggle carries its ⌃⌘⟨letter⟩, written by the sweep onto an item the
+  // Swift constructs EMPTY — so the chord asserted here is one
+  // `applyCommandChords` reached inside a submenu to write. The side rows
+  // stay chord-less, and an empty key is that assertion.
+  ...SIDEBAR_CARD_IDS.flatMap(({ card, key }) => [
     { id: `window.sidebar.${card}` },
-    { id: `window.sidebar.${card}.show`, key: "" },
+    {
+      id: `window.sidebar.${card}.show`,
+      key,
+      mods: MOD.command | MOD.control,
+    },
     { id: `window.sidebar.${card}.left`, key: "" },
     { id: `window.sidebar.${card}.right`, key: "" },
   ]),
@@ -191,8 +207,8 @@ const STATIC_ITEMS: ReadonlyArray<{ id: string; key?: string; mods?: number }> =
   // the app-test bundle's profile is "apptest", so they are absent here
   // and not asserted.
   { id: "maker.reload", key: "r", mods: MOD.command | MOD.shift },
-  // The rail pair, both swept: ⌃⌘← and ⌃⌘→. The six per-card toggles that
-  // used to stand beside them are Window ▸ ⟨Card⟩ now, asserted above.
+  // The rail pair, both swept: ⌃⌘← and ⌃⌘→. The per-card toggles are Window ▸
+  // ⟨Card⟩ rows, asserted above.
   { id: "maker.leftRail", key: ARROW_LEFT, mods: MOD.command | MOD.control },
   { id: "maker.rightRail", key: ARROW_RIGHT, mods: MOD.command | MOD.control },
   { id: "maker.sourceTree" },
@@ -274,7 +290,7 @@ describe.skipIf(!SHOULD_RUN)("AT0168: menu structure contract", () => {
         // — AppKit opens a submenu instead of firing its parent's action.
         // Depth is what says so: the parent sits in the Window menu, its
         // three rows one level further in.
-        for (const card of SIDEBAR_CARD_IDS) {
+        for (const { card } of SIDEBAR_CARD_IDS) {
           expect(
             byId.get(`window.sidebar.${card}`)!.depth,
             `window.sidebar.${card} sits in the Window menu`,
