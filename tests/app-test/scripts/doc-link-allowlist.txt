@@ -20,7 +20,6 @@
 tugcode/src/__tests__/fixtures/compact-native/0967f3f0-013d-4849-b967-4b66dc702146.jsonl references/palette.md
 tugcode/src/__tests__/fixtures/subagent-foreground/main.jsonl references/palette.md
 tugcode/src/context-breakdown.ts cwd/CLAUDE.md
-tugcode/src/pulse/__tests__/voice.test.ts notes/pulse.md
 tugdeck/src/__tests__/session-wake-fixture-replay.test.ts arc/tugplan-session-wake.md
 tugdeck/src/components/chrome/deck-canvas.tsx arc/jul30-perf-brief.md
 tugdeck/src/components/chrome/tug-pane.tsx arc/layout-imposer-polish.md
@@ -34,7 +33,6 @@ tugdeck/src/components/tugways/cards/gallery-tug-dialog-button.tsx arc/session-a
 tugdeck/src/components/tugways/cards/gallery-tug-linear-gauge.tsx arc/session-assistant-rendering.md
 tugdeck/src/components/tugways/cards/session-card-transcript.tsx arc/archive/dev-interactive-dialogs.md
 tugdeck/src/components/tugways/cards/session-card.tsx arc/tugplan-session-init-orchestration.md
-tugdeck/src/components/tugways/cards/session-card.tsx docs/notes/focus-gesture-lock-investigation.md
 tugdeck/src/components/tugways/cards/session-tool-visibility-policy.ts arc/session-assistant-rendering.md
 tugdeck/src/components/tugways/chrome/session-caution-badge.tsx arc/session-assistant-rendering.md
 tugdeck/src/components/tugways/chrome/session-permission-dialog.tsx arc/archive/dev-interactive-dialogs.md

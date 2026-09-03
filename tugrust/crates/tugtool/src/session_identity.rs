@@ -9,8 +9,7 @@
 //! names a segment that closed and was demoted two rotations ago. A verb that
 //! uses it raw writes onto a corpse and reports success: a truthful sentence
 //! about the wrong session, which is exactly how an arc came to be stranded
-//! while every gesture said it had worked
-//! (`notes/wheel-rotation-strands-the-arc.md`).
+//! while every gesture said it had worked ([D167]).
 //!
 //! The answer is not "expand it at each door" — that was tried, once per
 //! caller, and each fix left the next caller exposed. The answer is that the

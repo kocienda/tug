@@ -41,7 +41,7 @@
             "edited": true,
             "selection": {
               "include": [
-                "notes/scratch.md"
+                "docs/scratch.md"
               ],
               "exclude": [
                 "tugrust/crates/tugcast/src/feeds/changeset.rs"
@@ -119,7 +119,7 @@
       ],
       "unattributed": [
         {
-          "path": "notes/scratch.md",
+          "path": "docs/scratch.md",
           "git_status": "??",
           "hinted_by": [
             "sess-0197a2b4-c8d1-7e02-9f3a-b5c6d7e8f901"
@@ -128,7 +128,7 @@
       ],
       "orphaned": [
         {
-          "path": "notes/orphan.md",
+          "path": "docs/orphan.md",
           "git_status": "??",
           "op": "write",
           "origin": "exact",

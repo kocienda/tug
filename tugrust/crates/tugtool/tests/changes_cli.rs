@@ -661,7 +661,7 @@ fn draft_set_show_round_trip_with_selection() {
         "--message",
         "Land the feature\n\n- add feature.rs",
         "--include",
-        "notes/scratch.md",
+        "docs/scratch.md",
         "--exclude",
         "shared.rs",
     ]);
@@ -686,7 +686,7 @@ fn draft_set_show_round_trip_with_selection() {
     );
     // A CLI-authored draft is an authored draft — always edited.
     assert_eq!(data["edited"], true);
-    assert_eq!(data["selection"]["include"][0], "notes/scratch.md");
+    assert_eq!(data["selection"]["include"][0], "docs/scratch.md");
     assert_eq!(data["selection"]["exclude"][0], "shared.rs");
 
     // Plain show prints the message directly (no glue needed).
@@ -696,7 +696,7 @@ fn draft_set_show_round_trip_with_selection() {
     let (code, stdout, _) = run(plain);
     assert_eq!(code, 0);
     assert!(stdout.contains("Land the feature"), "{stdout}");
-    assert!(stdout.contains("include: notes/scratch.md"), "{stdout}");
+    assert!(stdout.contains("include: docs/scratch.md"), "{stdout}");
 
     // Clear deletes; a second show errors.
     let mut clear = tug(ledger.path());

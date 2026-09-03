@@ -4,8 +4,8 @@
  *
  * ## What this is
  *
- * `notes/wheel-rotation-strands-the-arc.md` records one incident: a stage
- * rotated, and the arc was stranded. The card's arc face went blank, a
+ * One incident sits behind this file: a stage rotated, and the arc was
+ * stranded ([D167]). The card's arc face went blank, a
  * `tugtool arc` verb run from a shell born before the rotation was refused
  * because that shell still held the session id it started with, and the run
  * did not walk on. Six workstreams of hardening followed. Every one of them is

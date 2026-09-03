@@ -1642,10 +1642,10 @@ mod tests {
     #[test]
     fn redirection_declares_its_target() {
         assert_eq!(
-            ops("cat > notes/out.txt <<'EOF'\nrm everything\nEOF"),
+            ops("cat > docs/out.txt <<'EOF'\nrm everything\nEOF"),
             vec![DeclaredOp {
                 kind: DeclaredKind::WriteTarget,
-                path: PathBuf::from("/repo/notes/out.txt")
+                path: PathBuf::from("/repo/docs/out.txt")
             }]
         );
         assert_eq!(

@@ -4,8 +4,8 @@
  *
  * ## What this is
  *
- * `notes/draft-request-stale-segment.md` records one incident. On a card whose
- * session had rotated, the Changes shade *displayed* its changeset perfectly —
+ * One incident sits behind this file ([D167]). On a card whose session had
+ * rotated, the Changes shade *displayed* its changeset perfectly —
  * eighteen files, the right counts, the gate reading green on everything but
  * the message — and could not write a commit message at all. Auto-Message did
  * nothing whatsoever, leaving no trace in any log. A typed message vanished

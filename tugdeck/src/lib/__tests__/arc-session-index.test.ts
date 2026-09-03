@@ -326,7 +326,7 @@ describe("the documents-only half of an arc's life", () => {
  * address, a citation's cited id. The direct lookup answers those two only
  * while they are the same string, which is until the first rotation, and the
  * incident is what a blank masthead sigil and a blank Z2 ARC cell look like
- * when they are not (`notes/wheel-rotation-strands-the-arc.md`).
+ * when they are not ([D167]).
  *
  * Over the binding-store singleton, because the walk is segment → card → the
  * card's announced seat: a line's seat is inferred from whichever frame moved

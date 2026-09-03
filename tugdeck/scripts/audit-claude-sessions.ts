@@ -9,10 +9,9 @@
  * ~2 GB), parses each line as JSON, and emits frequency / distribution
  * summaries. Output is written as both:
  *
- *   - JSON at `notes/dev-assistant-rendering-session-audit.json` (machine readable,
- *     useful as a future drift baseline)
- *   - A markdown digest written by hand into
- *     `notes/dev-assistant-rendering-session-audit.md`
+ *   - JSON at the path given by `--json` (machine readable, useful as a
+ *     future drift baseline)
+ *   - A markdown digest written by hand beside it
  *
  * Note on data shape:
  *   This script reads Claude Code's *session-log* format (JSONL files written by

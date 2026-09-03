@@ -11,8 +11,8 @@
  * Sending the binding id instead is the silent kind of wrong. The server has
  * no entry under a demoted segment, so it matches nothing; the display goes on
  * being correct because it resolves line-first; and the failure is a button
- * that does nothing and a row written where nothing reads it
- * (`notes/draft-request-stale-segment.md`). The class was already closed on
+ * that does nothing and a row written where nothing reads it ([D167]). The
+ * class was already closed on
  * the server side by `no_raw_session_id_reads` and `no_ad_hoc_binding_writes`;
  * this is the deck's half of the same fence.
  *

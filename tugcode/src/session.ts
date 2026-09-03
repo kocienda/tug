@@ -184,8 +184,8 @@ const CANONICAL_PERMISSION_DENY_MESSAGE =
  * the tugcode spawn. A Wheel rotation does not respawn tugcode: `newSession`
  * mints a fresh session id and respawns only claude, inside this same
  * process. Inherited, the variable would name the segment the card was born
- * on for the whole life of the card — the stranding
- * `notes/wheel-rotation-strands-the-arc.md` describes. Stamping it from the
+ * on for the whole life of the card — the stranding a rotation is capable of
+ * ([D167]). Stamping it from the
  * manager's own id keeps it current, though a shell already running when the
  * rotation lands still holds the old value; `tugtool`'s resolver, not this
  * function, is what makes a stale id harmless.

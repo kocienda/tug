@@ -179,7 +179,7 @@ export function arcSessionIndex(
  *
  * That the incident blanked the masthead sigil and the Z2 ARC cell together
  * is this one lookup failing twice: both are `useArcForSession` over an id the
- * rotation had left behind (`notes/wheel-rotation-strands-the-arc.md`).
+ * rotation had left behind ([D167]).
  */
 export function arcForSession(
   snapshot: WorkspacesChangesetSnapshot,

@@ -14,11 +14,11 @@ describe("resolveAtomFilePath", () => {
 
   test("falls back to the session cwd when the card has no project binding", () => {
     expect(
-      resolveAtomFilePath("notes/plan.md", {
+      resolveAtomFilePath("docs/plan.md", {
         projectDir: null,
         cwd: "/Users/tester/work",
       }),
-    ).toBe("/Users/tester/work/notes/plan.md");
+    ).toBe("/Users/tester/work/docs/plan.md");
   });
 
   test("normalizes an absolute value and leaves its target alone", () => {
@@ -32,7 +32,7 @@ describe("resolveAtomFilePath", () => {
 
   test("returns the value as written when there is no root to join onto", () => {
     expect(
-      resolveAtomFilePath("notes/plan.md", { projectDir: null, cwd: null }),
-    ).toBe("notes/plan.md");
+      resolveAtomFilePath("docs/plan.md", { projectDir: null, cwd: null }),
+    ).toBe("docs/plan.md");
   });
 });

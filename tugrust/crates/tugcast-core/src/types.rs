@@ -2041,7 +2041,7 @@ mod tests {
         assert_eq!(repo.snapshot.changesets.len(), 2);
         assert_eq!(repo.snapshot.unattributed.len(), 1);
         assert_eq!(repo.snapshot.orphaned.len(), 1);
-        assert_eq!(repo.snapshot.orphaned[0].path, "notes/orphan.md");
+        assert_eq!(repo.snapshot.orphaned[0].path, "docs/orphan.md");
         assert_eq!(repo.snapshot.orphaned[0].prior_owner_name, "ghost work");
 
         let non_repo = &snapshot.projects[1];

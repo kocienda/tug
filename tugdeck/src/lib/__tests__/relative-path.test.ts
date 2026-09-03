@@ -23,9 +23,9 @@ describe("pathRelativeTo", () => {
   });
 
   it("does not treat a sibling with a shared prefix as inside", () => {
-    // `/project-notes` starts with `/proj`, and is not under it.
-    expect(pathRelativeTo("/project-notes/a.ts", "/proj")).toBe(
-      "/project-notes/a.ts",
+    // `/project-papers` starts with `/proj`, and is not under it.
+    expect(pathRelativeTo("/project-papers/a.ts", "/proj")).toBe(
+      "/project-papers/a.ts",
     );
   });
 

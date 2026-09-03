@@ -65,15 +65,15 @@ describe("deriveChangesRouteSnapshot", () => {
 
   it("passes the unattributed bucket through", () => {
     const snap = deriveChangesRouteSnapshot(DATA, BINDING);
-    expect(snap.unattributed.map((f) => f.path)).toEqual(["notes/scratch.md"]);
+    expect(snap.unattributed.map((f) => f.path)).toEqual(["docs/scratch.md"]);
   });
 
   it("passes the orphaned bucket through, never into the commit set", () => {
     const snap = deriveChangesRouteSnapshot(DATA, BINDING);
-    expect(snap.orphaned.map((f) => f.path)).toEqual(["notes/orphan.md"]);
+    expect(snap.orphaned.map((f) => f.path)).toEqual(["docs/orphan.md"]);
     expect(snap.orphaned[0]?.prior_owner_name).toBe("ghost work");
     // An orphan is claimable, never silently committed by this session.
-    expect(snap.committedPaths.has("notes/orphan.md")).toBe(false);
+    expect(snap.committedPaths.has("docs/orphan.md")).toBe(false);
   });
 
   it("commits the session's full attributed set, including shared files", () => {
@@ -87,9 +87,9 @@ describe("deriveChangesRouteSnapshot", () => {
 
   it("never commits unattributed files", () => {
     const snap = deriveChangesRouteSnapshot(DATA, BINDING);
-    // notes/scratch.md is unattributed — shown for awareness, never in this
+    // docs/scratch.md is unattributed — shown for awareness, never in this
     // session's commit.
-    expect(snap.committedPaths.has("notes/scratch.md")).toBe(false);
+    expect(snap.committedPaths.has("docs/scratch.md")).toBe(false);
   });
 
   it("arc files never enter the committed set", () => {

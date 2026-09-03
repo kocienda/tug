@@ -11,8 +11,7 @@
  * So the contract under test is routing, in three doors, plus the one thing a
  * handler on this path must never do again: drop the frame in silence. The
  * card it was meant for reads "unbound" for the rest of its arc, and no
- * gesture from inside that session can repair it
- * (`notes/wheel-rotation-strands-the-arc.md`).
+ * gesture from inside that session can repair it ([D167]).
  *
  * The harness is the real `initActionDispatch` over a mock connection, so the
  * frames arrive the way tugcast sends them — through `dispatchAction`, not by
