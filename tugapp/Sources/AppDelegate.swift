@@ -105,28 +105,30 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// them.
     ///
     /// AppKit's own mixed mark is a dash, which reads as "some of these" and
-    /// says nothing here. `checkmark.square` was tried and read backwards:
-    /// the top rung is the emphatic one, but a checked square draws SMALLER
-    /// than the plain check it alternates with, so weight and attention
-    /// pointed opposite ways. A filled disc is unambiguously the heavier of
-    /// the two marks, which is what the rung means.
+    /// says nothing here. An empty square does: it is a mark in the same
+    /// column as the plain check it alternates with, at the same footprint,
+    /// without competing with it for ink. Not `checkmark.square`, whose
+    /// inset check draws SMALLER than the plain check — the top rung is the
+    /// emphatic one, so a mark that shrinks there points attention the wrong
+    /// way.
     ///
-    /// **Point size is the whole configuration here.** `circle.fill` has no
-    /// stroke, so a weight does nothing to it; the disc is sized well under
-    /// the menu font's own point size, because at full size it is a blob
-    /// beside a check rather than a mark in the same column. The fraction is
-    /// a look-at-it number, not a derived one.
+    /// **A square is a stroke, so both halves of the configuration matter.**
+    /// The point size is the menu font's own, which is the box footprint
+    /// `checkmark.square` already sat at; the weight is `.regular`, because a
+    /// heavier stroke — or a filled shape — reads as a blob beside a check
+    /// rather than a mark in the same column. Both are look-at-it numbers,
+    /// not derived ones.
     ///
     /// The Window menu's tail still uses AppKit's diamond for a minimized
-    /// window. A disc is adjacent to it in weight and distinct in shape,
+    /// window. A square is adjacent to it in weight and distinct in shape,
     /// which is the reading the diamond was rejected for not having.
     private static let mixedStateGlyph: NSImage? = {
         let configuration = NSImage.SymbolConfiguration(
-            pointSize: NSFont.menuFont(ofSize: 0).pointSize * 0.5,
+            pointSize: NSFont.menuFont(ofSize: 0).pointSize,
             weight: .regular
         )
         let glyph = NSImage(
-            systemSymbolName: "circle.fill",
+            systemSymbolName: "square",
             accessibilityDescription: "Showing and holding the keyboard"
         )?.withSymbolConfiguration(configuration)
         glyph?.isTemplate = true
