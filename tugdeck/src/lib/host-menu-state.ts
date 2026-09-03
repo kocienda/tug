@@ -34,10 +34,11 @@ import { cardTitleStore } from "./card-title-store";
 import { TUG_ACTIONS } from "../components/tugways/action-vocabulary";
 import { cardSessionBindingStore } from "./card-session-binding-store";
 import { visibleCardCount } from "./card-ring";
-import { isSidebarCard } from "../card-registry";
+import { getAllRegistrations, isSidebarCard } from "../card-registry";
 import {
   impositionLayout,
   slotCount,
+  sidebarSide,
   type ContentWidth,
 } from "./layout-imposer";
 import { BASE_THEME_NAME } from "../theme-constants";
@@ -47,6 +48,7 @@ import {
   queryCommandState,
   validateCommand,
 } from "../components/tugways/command-registry";
+import type { SidebarMenuFact } from "../components/tugways/command-registry";
 import { keymapRegistry } from "../components/tugways/keymap-registry";
 import { tugDevLogStore } from "./tug-dev-log-store/tug-dev-log-store";
 import { chordCaptureState } from "../components/tugways/chord-capture-state";
@@ -212,8 +214,16 @@ export interface MenuCommandGate {
    * enablement rather than guessing at it.
    */
   readonly enabled?: boolean;
-  /** Checkmark; absent means "this item does not participate in the check column". */
-  readonly state?: boolean;
+  /**
+   * Checkmark; absent means "this item does not participate in the check
+   * column".
+   *
+   * Three readings rather than two, because a row that stands for a card
+   * has three things to say and a checkbox has two: `false` is the empty
+   * mark, `true` is the plain check, and `"mixed"` is the intermediate one
+   * the host draws for the card that shows AND holds the keyboard.
+   */
+  readonly state?: boolean | "mixed";
   /** Dynamic title; absent means "keep the title the host constructed". */
   readonly title?: string;
   /**
@@ -292,9 +302,10 @@ function chordField(
  * is asked of the object that would perform, which is the idiom the chain
  * already implements and the registry defers to rather than duplicates.
  *
- * State narrows to a boolean here because a per-value entry turns "the
- * current value is X" into "this item is checked"; the hook keeps the wider
- * return type for the off-menu readers that want the value itself.
+ * State narrows to the wire's three marks here — a boolean or the literal
+ * `"mixed"` — because a per-value entry turns "the current value is X" into
+ * "this item is checked"; the hook keeps the wider return type for the
+ * off-menu readers that want the value itself.
  *
  * An entry that is not mirrored still gets a gate when the keymap has
  * claimed its item's chord, carrying the chord alone: enablement and chord
@@ -325,7 +336,9 @@ export function computeCommandCapabilities(
       const title = mirrored ? entry.dynamicTitle?.(chain) : undefined;
       gates[menuItemId] = {
         ...(enabled !== undefined ? { enabled } : {}),
-        ...(typeof rawState === "boolean" ? { state: rawState } : {}),
+        ...(typeof rawState === "boolean" || rawState === "mixed"
+          ? { state: rawState }
+          : {}),
         ...(title !== undefined ? { title } : {}),
         ...chordField(entry, chain, enabled, chords, menuItemId),
       };
@@ -570,6 +583,12 @@ export interface MenuStateDeckProjection {
    * mirror carries the gates, so this never rides the wire.
    */
   reachableSlots: number;
+  /**
+   * Every registered sidebar card, keyed by component id. Gates and marks the
+   * Window menu's per-card rows. Module-internal: the mirror carries the
+   * gates, so this never rides the wire.
+   */
+  sidebars: Record<string, SidebarMenuFact>;
 }
 
 /** The full wire payload posted to `webkit.messageHandlers.menuState`. */
@@ -718,6 +737,32 @@ export function projectDeckState(state: DeckState): MenuStateDeckProjection {
       ? null
       : { on: bullseyePaneIdOf(state) === focusedStack.id };
 
+  // Every registered sidebar card, open or not. The set comes from the
+  // registry rather than from the deck, because a hidden card's row still
+  // has to draw itself and say "hidden"; registration is a boot step, so the
+  // keys are the same on every flush.
+  //
+  // `focused` IS the first responder, taking the same `activePaneId` guard
+  // the three facts above take, because the mark is the ladder read back and
+  // the ladder's own top rung is `getFirstResponderCardId()`. A deselected
+  // deck is exactly the state where the z-frontmost pane and the first
+  // responder part — the array still has a last element and no pane holds
+  // the keyboard — and reading the z-frontmost there would draw the mixed
+  // mark and promise Hide over a click that activates.
+  const sidebars: Record<string, SidebarMenuFact> = {};
+  for (const [componentId, registration] of getAllRegistrations()) {
+    if (registration.layoutRole !== "sidebar") continue;
+    const instance = state.cards.find((c) => c.componentId === componentId);
+    sidebars[componentId] = {
+      showing: instance !== undefined,
+      side: sidebarSide(state.imposition, componentId),
+      focused:
+        instance !== undefined &&
+        state.activePaneId !== undefined &&
+        instance.id === focusedActiveCard?.id,
+    };
+  }
+
   // Centering is a fact about the ARRANGEMENT, not about the selection, so it
   // takes none of the gates above: it moves the band, and the band is the
   // deck's. Under fit the strip does not exist and no slot has anywhere to
@@ -738,6 +783,7 @@ export function projectDeckState(state: DeckState): MenuStateDeckProjection {
     cardWidth,
     bullseye,
     reachableSlots,
+    sidebars,
   };
 }
 
@@ -761,6 +807,7 @@ export class HostMenuStatePublisher {
     cardWidth: null,
     bullseye: null,
     reachableSlots: 0,
+    sidebars: {},
   };
   /**
    * Per-card dev blocks. Every mounted session card publishes its own
@@ -955,6 +1002,7 @@ export class HostMenuStatePublisher {
       cardWidth,
       bullseye,
       reachableSlots,
+      sidebars,
     } = this.deckProjection;
     const session =
       activeCard?.component === "session" && focusedActiveCardId !== null
@@ -1010,6 +1058,7 @@ export class HostMenuStatePublisher {
       cardWidth,
       bullseye,
       reachableSlots,
+      sidebars,
       column: this.columnFactSource?.() ?? null,
     };
     this.lastFacts = facts;

@@ -253,6 +253,11 @@ const SWIFT_WIRES: Readonly<Record<string, WireKind>> = {
   "toggle-column-split": "command",
   "move-in-column": { bridgeFor: TUG_ACTIONS.MOVE_IN_COLUMN },
   "toggle-rail": { bridgeFor: TUG_ACTIONS.TOGGLE_RAIL },
+  // A command in its own right rather than a bridge, though the Window
+  // menu's per-card rows do carry per-value entries: the wire's handler
+  // takes the card and the side out of one payload, and the Layout card's
+  // own controls send exactly the same frame.
+  "set-sidebar-side": "command",
 };
 
 describe("SWIFT_WIRES is derived, not remembered", () => {

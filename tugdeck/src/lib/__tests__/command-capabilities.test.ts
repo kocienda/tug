@@ -414,6 +414,50 @@ describe("computeCommandCapabilities", () => {
     expect(custom["window.cardWidth.wide"].state).toBe(false);
   });
 
+  test("a sidebar row's mark is the toggle's three-rung ladder, read back", () => {
+    const chain = new ResponderChainManager();
+    const jots = (facts: Parameters<typeof source>[1]) =>
+      computeCommandCapabilities(source(chain, facts));
+
+    // Hidden: the empty mark, the row still live (it has a card to show),
+    // and the side pair dark, because there is nothing standing to move.
+    const hidden = jots({
+      sidebars: { jots: { showing: false, side: "right", focused: false } },
+    });
+    expect(hidden["window.sidebar.jots.show"].enabled).toBe(true);
+    expect(hidden["window.sidebar.jots.show"].state).toBe(false);
+    expect(hidden["window.sidebar.jots.show"].title).toBe("Show Jots");
+    expect(hidden["window.sidebar.jots.left"].enabled).toBe(false);
+    expect(hidden["window.sidebar.jots.right"].enabled).toBe(false);
+
+    // Showing without the keyboard: the plain check, and the next click
+    // brings the keyboard rather than taking the card away.
+    const showing = jots({
+      sidebars: { jots: { showing: true, side: "right", focused: false } },
+    });
+    expect(showing["window.sidebar.jots.show"].state).toBe(true);
+    expect(showing["window.sidebar.jots.show"].title).toBe("Activate Jots");
+    expect(showing["window.sidebar.jots.left"].enabled).toBe(true);
+    expect(showing["window.sidebar.jots.left"].state).toBe(false);
+    expect(showing["window.sidebar.jots.right"].state).toBe(true);
+
+    // Showing and holding it: the mixed mark — the reading a two-state check
+    // could not tell from the one above, and the rung where a click hides.
+    const focused = jots({
+      sidebars: { jots: { showing: true, side: "left", focused: true } },
+    });
+    expect(focused["window.sidebar.jots.show"].state).toBe("mixed");
+    expect(focused["window.sidebar.jots.show"].title).toBe("Hide Jots");
+    expect(focused["window.sidebar.jots.left"].state).toBe(true);
+    expect(focused["window.sidebar.jots.right"].state).toBe(false);
+
+    // A fact that names no sidebar card at all reads as hidden rather than
+    // throwing, so a row is never left with no answer.
+    const unknown = computeCommandCapabilities(source(chain));
+    expect(unknown["window.sidebar.overview.show"].state).toBe(false);
+    expect(unknown["window.sidebar.overview.left"].enabled).toBe(false);
+  });
+
   test("the Go to Slot row lights for the arrangement, not for the selection", () => {
     const chain = new ResponderChainManager();
 

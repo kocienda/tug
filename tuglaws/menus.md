@@ -297,18 +297,12 @@ Every command has several doors: a chord, a menu item, the palette, a control fr
 | `file.saveACopy` | `save-a-copy` | first responder | registry gate |
 | `file.saveAs` | `save-as` | first responder | registry gate |
 | `help.shortcuts` | `run-slash-command:help` | key card | registry gate |
-| `maker.arcs` | `toggle-arcs` | registered handler | host tier |
-| `maker.cards` | `toggle-cards` | registered handler | host tier |
 | `maker.devTools` | `show-devtools` | first responder | registry gate |
 | `maker.galleryCard` | `show-component-gallery` | first responder | host tier |
-| `maker.jots` | `toggle-jots` | registered handler | host tier |
-| `maker.layout` | `toggle-layout` | registered handler | host tier |
 | `maker.leftRail` | `toggle-rail:left` | first responder | registry gate |
 | `maker.newCardInPane` | `add-card-to-active-pane` | first responder | registry gate |
-| `maker.overview` | `toggle-overview` | registered handler | host tier |
 | `maker.reload` | `reload` | registered handler | host tier |
 | `maker.rightRail` | `toggle-rail:right` | first responder | registry gate |
-| `maker.tripwires` | `toggle-tripwires` | registered handler | host tier |
 | `session.addDir` | `run-slash-command:add-dir` | key card | registry gate |
 | `session.agents` | `run-slash-command:agents` | key card | registry gate |
 | `session.ai` | `run-slash-command:ai` | key card | registry gate |
@@ -366,6 +360,24 @@ Every command has several doors: a chord, a menu item, the palette, a control fr
 | `window.previousCard` | `previous-tab` | first responder | registry gate |
 | `window.previousCardInStack` | `previous-stack-card` | first responder | registry gate |
 | `window.revealStack` | `reveal-stack` | first responder | registry gate |
+| `window.sidebar.cards.left` | `set-sidebar-side:cards:left` | registered handler | registry gate |
+| `window.sidebar.cards.right` | `set-sidebar-side:cards:right` | registered handler | registry gate |
+| `window.sidebar.cards.show` | `toggle-cards` | registered handler | registry gate |
+| `window.sidebar.dashes.left` | `set-sidebar-side:dashes:left` | registered handler | registry gate |
+| `window.sidebar.dashes.right` | `set-sidebar-side:dashes:right` | registered handler | registry gate |
+| `window.sidebar.dashes.show` | `toggle-arcs` | registered handler | registry gate |
+| `window.sidebar.jots.left` | `set-sidebar-side:jots:left` | registered handler | registry gate |
+| `window.sidebar.jots.right` | `set-sidebar-side:jots:right` | registered handler | registry gate |
+| `window.sidebar.jots.show` | `toggle-jots` | registered handler | registry gate |
+| `window.sidebar.layout.left` | `set-sidebar-side:layout:left` | registered handler | registry gate |
+| `window.sidebar.layout.right` | `set-sidebar-side:layout:right` | registered handler | registry gate |
+| `window.sidebar.layout.show` | `toggle-layout` | registered handler | registry gate |
+| `window.sidebar.overview.left` | `set-sidebar-side:overview:left` | registered handler | registry gate |
+| `window.sidebar.overview.right` | `set-sidebar-side:overview:right` | registered handler | registry gate |
+| `window.sidebar.overview.show` | `toggle-overview` | registered handler | registry gate |
+| `window.sidebar.tripwires.left` | `set-sidebar-side:tripwires:left` | registered handler | registry gate |
+| `window.sidebar.tripwires.right` | `set-sidebar-side:tripwires:right` | registered handler | registry gate |
+| `window.sidebar.tripwires.show` | `toggle-tripwires` | registered handler | registry gate |
 | `window.zoom` | `zoom-window` | AppKit performs it | host tier |
 <!-- /generated:catalog -->
 

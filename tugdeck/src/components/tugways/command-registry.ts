@@ -28,13 +28,20 @@
 
 import type { TugAction } from "./action-vocabulary";
 import { TUG_ACTIONS } from "./action-vocabulary";
-import type { ContentWidth } from "@/lib/layout-imposer";
+import type { ContentWidth, SidebarSide } from "@/lib/layout-imposer";
 import {
   CONTENT_WIDTH_LABELS,
   CONTENT_WIDTH_PRESETS,
+  DEFAULT_SIDEBAR_SIDE,
   IMPOSITION_KINDS,
   slotCount,
 } from "@/lib/layout-imposer";
+import { ARCS_CARD_ID } from "@/lib/arcs-card-id";
+import { CARDS_CARD_ID } from "@/lib/cards-card-id";
+import { JOTS_CARD_ID } from "@/lib/jots-card-id";
+import { LAYOUT_CARD_ID } from "@/lib/layout-card-id";
+import { OVERVIEW_CARD_ID } from "@/lib/overview-card-id";
+import { TRIPWIRES_CARD_ID } from "@/lib/tripwires-card-id";
 
 /* ---------------------------------------------------------------------------
  * Chords and bindings (Spec S02)
@@ -212,6 +219,32 @@ export interface CommandMenuFacts {
     readonly canMoveUp: boolean;
     readonly canMoveDown: boolean;
   } | null;
+  /**
+   * Every registered sidebar card, keyed by component id — the registry's
+   * set rather than whatever is open, so a hidden card still has an entry
+   * and its row still has something to say. A component id absent from the
+   * map is not a sidebar card, and its row's predicates read it as hidden.
+   */
+  readonly sidebars: Readonly<Record<string, SidebarMenuFact>>;
+}
+
+/**
+ * One sidebar card's standing, as the Window menu's rows need to read it.
+ *
+ * The three fields are the three rungs of the ladder `sidebar-toggle.ts`
+ * runs, taken apart: `showing` is presence (which IS the open state, [P02]),
+ * `focused` narrows that to "and it holds the keyboard", and `side` is where
+ * it stands. The toggle row's mark reads the first two together — hidden,
+ * showing, showing-and-focused — and the Left / Right pair reads all three.
+ *
+ * `side` is answered for a hidden card too, because `sidebarSide` is total:
+ * it is where the card WOULD stand, which is what the radios would check if
+ * they were live.
+ */
+export interface SidebarMenuFact {
+  readonly showing: boolean;
+  readonly side: SidebarSide;
+  readonly focused: boolean;
 }
 
 /** Nothing focused, nothing open — the answer before the first push. */
@@ -230,6 +263,7 @@ export const EMPTY_MENU_FACTS: CommandMenuFacts = {
   bullseye: null,
   reachableSlots: 0,
   column: null,
+  sidebars: {},
 };
 
 /**
@@ -949,6 +983,125 @@ const RAIL_TOGGLE_COMMANDS: readonly CommandEntry[] = (
     }),
   ],
 }));
+
+/**
+ * The six sidebar cards, in the order the Window menu lists them: the
+ * component id the deck knows them by, the noun the rows name them with, and
+ * the toggle command each row sends.
+ *
+ * The component ids come from their own leaf modules rather than as literals,
+ * because they are persistence keys — the Arcs card's is still `"dashes"`
+ * ([D141]) — and a menu that spelled one by hand would be a second copy free
+ * to drift from the one the deck reads.
+ */
+const SIDEBAR_MENU_CARDS = [
+  { componentId: JOTS_CARD_ID, noun: "Jots", toggle: TUG_ACTIONS.TOGGLE_JOTS },
+  {
+    componentId: TRIPWIRES_CARD_ID,
+    noun: "Tripwires",
+    toggle: TUG_ACTIONS.TOGGLE_TRIPWIRES,
+  },
+  { componentId: ARCS_CARD_ID, noun: "Arcs", toggle: TUG_ACTIONS.TOGGLE_ARCS },
+  {
+    componentId: CARDS_CARD_ID,
+    noun: "Cards",
+    toggle: TUG_ACTIONS.TOGGLE_CARDS,
+  },
+  {
+    componentId: LAYOUT_CARD_ID,
+    noun: "Layout",
+    toggle: TUG_ACTIONS.TOGGLE_LAYOUT,
+  },
+  {
+    componentId: OVERVIEW_CARD_ID,
+    noun: "Overview",
+    toggle: TUG_ACTIONS.TOGGLE_OVERVIEW,
+  },
+] as const;
+
+/**
+ * One card's standing, with an absent key reading as hidden.
+ *
+ * The map is keyed by the registry's sidebar cards, so a miss means the id
+ * names no sidebar card at all — which is a hidden card as far as a row is
+ * concerned, and the reading that leaves the predicates total.
+ */
+function sidebarFact(
+  chain: CommandValidationSource,
+  componentId: string,
+): SidebarMenuFact {
+  return (
+    chain.menu.sidebars[componentId] ?? {
+      showing: false,
+      side: DEFAULT_SIDEBAR_SIDE,
+      focused: false,
+    }
+  );
+}
+
+/**
+ * Window ▸ ⟨Card⟩ — the toggle row and the Left / Right pair, per sidebar card.
+ *
+ * **The mark is the ladder read back** ([P07]). `sidebar-toggle.ts` runs three
+ * rungs on one gesture, and the row shows which rung the next click is on: off
+ * for a card with no instance, on for one that shows without holding the
+ * keyboard, and `"mixed"` for the one that shows and IS the first-responder
+ * card. A two-state check could not tell the last two apart, which is the
+ * whole reason a visible card's row would otherwise lie about what a click
+ * does.
+ *
+ * The toggle keeps the `toggle-<card>` command id it has always had, and only
+ * its item moves — so a chord a user bound in the keymap pane still fires the
+ * same verb, and the title the row draws still says what that verb will do.
+ * It is always enabled: a card with no instance has one to show, and a
+ * showing one has somewhere for the ladder to go.
+ *
+ * The side pair sends the `set-sidebar-side` the Layout card's own controls
+ * send, so the two surfaces drive one store and cannot disagree. It is live
+ * only while the card shows — the Layout card's set-the-side-then-show dance
+ * is for a picker that offers a hidden card a side, and these rows do not.
+ */
+const SIDEBAR_CARD_COMMANDS: readonly CommandEntry[] =
+  SIDEBAR_MENU_CARDS.flatMap(({ componentId, noun, toggle }): CommandEntry[] => [
+    {
+      // Chord-less, like every sidebar row — the rail toggles above carry the
+      // chords. `bindings: []` is a command with no DEFAULT chord rather than
+      // one that refuses a bound one.
+      id: toggle,
+      title: `Show ${noun}`,
+      routing: "registry",
+      menuItemId: `window.sidebar.${componentId}.show`,
+      mirrored: true,
+      bindings: [],
+      validate: () => true,
+      state: (chain: CommandValidationSource) => {
+        const fact = sidebarFact(chain, componentId);
+        if (!fact.showing) return false;
+        return fact.focused ? "mixed" : true;
+      },
+      // What the NEXT click does, which is the only honest title for a row
+      // whose one gesture means three things.
+      dynamicTitle: (chain: CommandValidationSource) => {
+        const fact = sidebarFact(chain, componentId);
+        if (!fact.showing) return `Show ${noun}`;
+        return fact.focused ? `Hide ${noun}` : `Activate ${noun}`;
+      },
+    },
+    ...(["left", "right"] as const).map((side): CommandEntry => ({
+      id: `${TUG_ACTIONS.SET_SIDEBAR_SIDE}:${componentId}:${side}`,
+      title: side === "left" ? "Left" : "Right",
+      routing: "registry",
+      action: TUG_ACTIONS.SET_SIDEBAR_SIDE,
+      payload: { componentId, side },
+      menuItemId: `window.sidebar.${componentId}.${side}`,
+      mirrored: true,
+      bindings: [],
+      validate: (chain: CommandValidationSource) =>
+        sidebarFact(chain, componentId).showing,
+      state: (chain: CommandValidationSource) =>
+        sidebarFact(chain, componentId).side === side,
+    })),
+  ]);
 
 export const COMMANDS: readonly CommandEntry[] = [
   // ---- File ----
@@ -1790,64 +1943,10 @@ export const COMMANDS: readonly CommandEntry[] = [
       ),
     ],
   },
-  {
-    // Chord-less, like every sidebar row — the rail toggles above carry the chords.
-    id: TUG_ACTIONS.TOGGLE_JOTS,
-    title: "Show Jots",
-    routing: "registry",
-    menuItemId: "maker.jots",
-    bindings: [],
-  },
-
-  // ---- Tripwires ----
-  {
-    // Chord-less, like every sidebar row — the rail toggles above carry the chords.
-    id: TUG_ACTIONS.TOGGLE_TRIPWIRES,
-    title: "Show Tripwires",
-    routing: "registry",
-    menuItemId: "maker.tripwires",
-    bindings: [],
-  },
-
-  // ---- Arcs ----
-  {
-    // Chord-less, like every sidebar row — the rail toggles above carry the chords.
-    id: TUG_ACTIONS.TOGGLE_ARCS,
-    title: "Show Arcs",
-    routing: "registry",
-    menuItemId: "maker.arcs",
-    bindings: [],
-  },
-
-  // ---- Cards ----
-  {
-    // Chord-less, like every sidebar row — the rail toggles above carry the chords.
-    id: TUG_ACTIONS.TOGGLE_CARDS,
-    title: "Show Cards",
-    routing: "registry",
-    menuItemId: "maker.cards",
-    bindings: [],
-  },
-
-  // ---- Layout ----
-  {
-    // Chord-less, like every sidebar row — the rail toggles above carry the chords.
-    id: TUG_ACTIONS.TOGGLE_LAYOUT,
-    title: "Show Layout",
-    routing: "registry",
-    menuItemId: "maker.layout",
-    bindings: [],
-  },
-
-  // ---- Overview ----
-  {
-    // Chord-less, like every sidebar row — the rail toggles above carry the chords.
-    id: TUG_ACTIONS.TOGGLE_OVERVIEW,
-    title: "Show Overview",
-    routing: "registry",
-    menuItemId: "maker.overview",
-    bindings: [],
-  },
+  // ---- Sidebar cards ----
+  // The six toggles and their side pairs, generated together because one
+  // fact answers all three rows of a card.
+  ...SIDEBAR_CARD_COMMANDS,
 
   // ---- App level ----
   {

@@ -284,6 +284,71 @@ describe("projectDeckState", () => {
     };
     expect(projectDeckState(state).bullseye).toEqual({ on: false });
   });
+
+  test("sidebars carry the three readings of one card, and its side", () => {
+    // Hidden. The side is answered anyway, because `sidebarSide` is total:
+    // it is where the card WOULD stand if the row's radios were live.
+    expect(projectDeckState(deck([], [])).sidebars["menu-state-rail"]).toEqual({
+      showing: false,
+      side: "right",
+      focused: false,
+    });
+
+    // Showing without holding the keyboard: the rail's pane is not the
+    // focused one, which is the middle rung a plain check could not say.
+    const showing: DeckState = {
+      ...deck(
+        [card("s", { componentId: "menu-state-rail" }), card("a")],
+        [pane("p1", ["s"]), pane("p2", ["a"])],
+      ),
+      activePaneId: "p2",
+    };
+    expect(projectDeckState(showing).sidebars["menu-state-rail"]).toEqual({
+      showing: true,
+      side: "right",
+      focused: false,
+    });
+
+    // Showing AND holding it — the same deck with the rail's pane last in
+    // z-order, which is the projection's own reading of "focused".
+    const focused: DeckState = {
+      ...deck(
+        [card("a"), card("s", { componentId: "menu-state-rail" })],
+        [pane("p2", ["a"]), pane("p1", ["s"])],
+      ),
+      activePaneId: "p1",
+    };
+    expect(projectDeckState(focused).sidebars["menu-state-rail"]).toEqual({
+      showing: true,
+      side: "right",
+      focused: true,
+    });
+
+    // The side is the imposition's, not a constant.
+    const left: DeckState = {
+      ...focused,
+      imposition: { sidebars: { "menu-state-rail": { side: "left" } } },
+    };
+    expect(projectDeckState(left).sidebars["menu-state-rail"].side).toBe("left");
+  });
+
+  test("a deselected deck holds no sidebar card's keyboard", () => {
+    // The one state where the z-frontmost pane and the FIRST RESPONDER part:
+    // the array still has a last element, and `activePaneId` is unset, so
+    // `getFirstResponderCardId()` — the ladder's own top-rung test — answers
+    // null. Read off the z-frontmost instead, the row would draw the mixed
+    // mark and say "Hide", over a click that shows and activates.
+    const deselected: DeckState = deck(
+      [card("s", { componentId: "menu-state-rail" })],
+      [pane("p1", ["s"])],
+    );
+    expect(deselected.activePaneId).toBeUndefined();
+    expect(projectDeckState(deselected).sidebars["menu-state-rail"]).toEqual({
+      showing: true,
+      side: "right",
+      focused: false,
+    });
+  });
 });
 
 describe("HostMenuStatePublisher", () => {

@@ -100,6 +100,29 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var windowMenu: NSMenu!
     private var windowPaneListAnchor: NSMenuItem?
 
+    /// The glyph AppKit draws for `.mixed`, shared by every row that can
+    /// reach that state — the six sidebar parents and the six toggles inside
+    /// them.
+    ///
+    /// AppKit's own mixed mark is a dash, which reads as "some of these" and
+    /// says nothing here; `checkmark.square` reads as a window, which is what
+    /// the third rung actually means. It is configured at the menu font's own
+    /// point size and semibold so it weighs the same as the plain check it
+    /// alternates with — two marks in one column that disagreed about weight
+    /// would read as two different columns.
+    private static let mixedStateGlyph: NSImage? = {
+        let configuration = NSImage.SymbolConfiguration(
+            pointSize: NSFont.menuFont(ofSize: 0).pointSize,
+            weight: .semibold
+        )
+        let glyph = NSImage(
+            systemSymbolName: "checkmark.square",
+            accessibilityDescription: "Showing and holding the keyboard"
+        )?.withSymbolConfiguration(configuration)
+        glyph?.isTemplate = true
+        return glyph
+    }()
+
     /// File ▸ Open Recent submenu — rebuilt on open by the NSMenuDelegate
     /// from `menuState.recentDocuments`, filtered to still-existing files.
     private var openRecentMenu: NSMenu!
@@ -1291,6 +1314,58 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             item.representedObject = preset
             wMenu.addItem(item)
         }
+        wMenu.addItem(NSMenuItem.separator())
+        // The sidebar cards — one parent row each, in the panel-list manner
+        // every drawing app uses: the row stands for the card, its mark says
+        // where the card stands, and its submenu holds the verbs.
+        //
+        // Three marks rather than two, because the toggle is a three-rung
+        // ladder: empty for a card with no instance, a check for one that
+        // shows without holding the keyboard, and the mixed mark for the one
+        // that shows and has it. The toggle cannot be the parent's own click
+        // — an item that owns a submenu opens it — so the toggle is the
+        // submenu's first row and the parent only carries the mark, copied
+        // across in `refreshSidebarParentMarks` because AppKit never asks the
+        // validator about a submenu's parent.
+        //
+        // Key equivalents left EMPTY, as everywhere in this file:
+        // `applyCommandChords` recurses into submenus and writes whatever the
+        // frontend's keymap says, so the toggles stay rebindable in their new
+        // home. The Arcs card's component id is `dashes` — the persistence
+        // key [D141], not a stale name.
+        for (noun, componentId, toggleAction) in [
+            ("Jots", "jots", #selector(showJots(_:))),
+            ("Tripwires", "tripwires", #selector(showTripwires(_:))),
+            ("Arcs", "dashes", #selector(showArcs(_:))),
+            ("Cards", "cards", #selector(showCards(_:))),
+            ("Layout", "layout", #selector(showLayout(_:))),
+            ("Overview", "overview", #selector(showOverview(_:))),
+        ] as [(String, String, Selector)] {
+            let parent = NSMenuItem(title: noun, action: nil, keyEquivalent: "")
+                .identified("window.sidebar.\(componentId)")
+            parent.mixedStateImage = Self.mixedStateGlyph
+            let cardMenu = NSMenu(title: noun)
+            // The toggle's title is dynamic — Show / Activate / Hide — and
+            // arrives with the gate, so the construction literal is only what
+            // the row reads before the first push.
+            let toggle = NSMenuItem(title: "Show \(noun)", action: toggleAction, keyEquivalent: "")
+                .identified("window.sidebar.\(componentId).show")
+            toggle.mixedStateImage = Self.mixedStateGlyph
+            cardMenu.addItem(toggle)
+            cardMenu.addItem(NSMenuItem.separator())
+            // Left / Right — a radio pair, dark while the card is hidden.
+            // Both halves of the address ride `representedObject` together,
+            // the shape the column-move rows use with one value instead of
+            // two.
+            for (label, side) in [("Left", "left"), ("Right", "right")] {
+                let item = NSMenuItem(title: label, action: #selector(setSidebarSideFromMenu(_:)), keyEquivalent: "")
+                    .identified("window.sidebar.\(componentId).\(side)")
+                item.representedObject = ["componentId": componentId, "side": side]
+                cardMenu.addItem(item)
+            }
+            parent.submenu = cardMenu
+            wMenu.addItem(parent)
+        }
         // Anchor separator for the dynamic pane-list slice: pane items are
         // inserted directly after it (and removed by identifier prefix) on
         // every menu open. macOS hides the redundant separator pair when
@@ -1321,23 +1396,15 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         // the menu is hidden then, and a hidden menu's key equivalents fall
         // through to the web view.
         mMenu.addItem(NSMenuItem(title: "Show DevTools", action: #selector(showDevTools(_:)), keyEquivalent: "").identified("maker.devTools"))
-        // Show Jots, Show Tripwires, Show Arcs, Show Cards, Show
-        // Layout, Show Overview — the per-card sidebar toggles.
-        // They carry no default chord: the keyboard addresses the RAILS
-        // (Show Left/Right Rail below), and a per-card letter grammar cannot
-        // scale past the letters it has already spent. Built without key
-        // equivalents so the registry's sweep supplies whatever the keymap pane
-        // has been asked to bind, and each stays rebindable. Same Maker-menu
-        // placement reasoning as Show DevTools above: hidden outside maker
-        // mode, so any chord falls through to the web view there.
-        mMenu.addItem(NSMenuItem(title: "Show Jots", action: #selector(showJots(_:)), keyEquivalent: "").identified("maker.jots"))
-        mMenu.addItem(NSMenuItem(title: "Show Tripwires", action: #selector(showTripwires(_:)), keyEquivalent: "").identified("maker.tripwires"))
-        mMenu.addItem(NSMenuItem(title: "Show Arcs", action: #selector(showArcs(_:)), keyEquivalent: "").identified("maker.arcs"))
-        mMenu.addItem(NSMenuItem(title: "Show Cards", action: #selector(showCards(_:)), keyEquivalent: "").identified("maker.cards"))
-        mMenu.addItem(NSMenuItem(title: "Show Layout", action: #selector(showLayout(_:)), keyEquivalent: "").identified("maker.layout"))
-        mMenu.addItem(NSMenuItem(title: "Show Overview", action: #selector(showOverview(_:)), keyEquivalent: "").identified("maker.overview"))
+        // The six per-card sidebar toggles used to sit here; they are now
+        // Window ▸ ⟨Card⟩, one row per card with a submenu. A release build
+        // hides this menu, and the only menu route to a sidebar card should
+        // not be one most users never see. The rail pair below stays: it
+        // addresses the deck's SIDES rather than its cards, which is a
+        // maker's reading of the same geometry.
         // Show Left Rail (⌃⌘←) and Show Right Rail (⌃⌘→) — the deck's two
-        // sides as keyboard entities, three-state like the card rows above:
+        // sides as keyboard entities, three-state like the card rows in the
+        // Window menu:
         // show and focus, focus, hide. The side rides `representedObject`, the
         // shape the column-move rows use. Key equivalents left EMPTY for the
         // reason every row here leaves them empty — `applyCommandChords` writes
@@ -1893,6 +1960,21 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         sendControl("go-to-slot", params: ["value": slot])
     }
 
+    /// Window ▸ ⟨Card⟩ ▸ Left / Right. Both halves of the address ride
+    /// `representedObject` together, the shape the column-move rows use with
+    /// one value instead of two. Enablement and the radio mark ride each
+    /// item's registry gate on the menuState push: the pair is dark while the
+    /// card is hidden, and the side the card stands on carries the check.
+    ///
+    /// It sends the same `set-sidebar-side` the Layout card's own controls
+    /// send, so the two surfaces drive one store and cannot disagree.
+    @objc private func setSidebarSideFromMenu(_ sender: NSMenuItem) {
+        guard let address = sender.representedObject as? [String: String],
+              let componentId = address["componentId"],
+              let side = address["side"] else { return }
+        sendControl("set-sidebar-side", params: ["componentId": componentId, "side": side])
+    }
+
     /// Window ▸ Bullseye. No payload — the command is selection-relative, and
     /// the frontend's deck canvas is the one responder that can name which
     /// pane the selection is in. The check mark and the enablement both ride
@@ -2172,7 +2254,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         // below still owns its enablement.
         if let gate = menuState.commands[id] {
             if let title = gate.title { menuItem.title = title }
-            if let on = gate.state { menuItem.state = on ? .on : .off }
+            if let mark = gate.state { menuItem.state = mark }
             if let enabled = gate.enabled { return enabled }
         }
 
@@ -2454,6 +2536,7 @@ extension AppDelegate: NSMenuDelegate {
             return
         }
         if menu === windowMenu {
+            refreshSidebarParentMarks(menu)
             rebuildWindowPaneList(menu)
             return
         }
@@ -2634,6 +2717,24 @@ extension AppDelegate: NSMenuDelegate {
         menu.addItem(NSMenuItem(title: "Clear Menu", action: #selector(clearRecentDocuments(_:)), keyEquivalent: "").identified("file.openRecent.clear"))
     }
 
+    /// Copy each sidebar toggle's mark onto the row that owns its submenu.
+    ///
+    /// AppKit never asks the validator about an item that owns a submenu —
+    /// it has no action to validate — so the parent would draw an empty mark
+    /// forever while the toggle one level down drew the right one. The gate is
+    /// already published per item, so there is nothing to derive here: read
+    /// the `.show` row's state and put it on the parent. An item with no gate
+    /// yet (before the first push) reads as off, which is what a deck with no
+    /// cards showing looks like anyway.
+    private func refreshSidebarParentMarks(_ menu: NSMenu) {
+        for item in menu.items {
+            guard item.submenu != nil,
+                  let id = item.identifier?.rawValue,
+                  id.hasPrefix("window.sidebar.") else { continue }
+            item.state = menuState.commands["\(id).show"]?.state ?? .off
+        }
+    }
+
     /// Refresh the Window menu's dynamic pane-list slice in place: remove
     /// exactly the `window.pane.*` items, then re-insert the current panes
     /// (checkmark on the focused one) directly after the anchor separator.
@@ -2799,7 +2900,12 @@ struct MenuState {
         let enabled: Bool?
         /// Checkmark; nil means the item does not participate in the check
         /// column, and its state is left as constructed.
-        let state: Bool?
+        ///
+        /// Three marks rather than two: the wire's `false` and `true` are the
+        /// empty box and the plain check, and its `"mixed"` is the
+        /// intermediate mark a row draws for a card that is showing AND
+        /// holding the keyboard.
+        let state: NSControl.StateValue?
         /// Dynamic title; nil means keep the title the menu was built with.
         let title: String?
 
@@ -2915,9 +3021,21 @@ struct MenuState {
                 } else {
                     chordField = .absent
                 }
+                // The mark's three readings arrive as two JSON types — the
+                // booleans as numbers, `"mixed"` as a string — so they are
+                // read apart. Anything else states no opinion and leaves the
+                // item's constructed state standing.
+                let stateField: NSControl.StateValue?
+                if let on = gate["state"] as? Bool {
+                    stateField = on ? .on : .off
+                } else if gate["state"] as? String == "mixed" {
+                    stateField = .mixed
+                } else {
+                    stateField = nil
+                }
                 commands[itemId] = CommandGate(
                     enabled: gate["enabled"] as? Bool,
-                    state: gate["state"] as? Bool,
+                    state: stateField,
                     title: gate["title"] as? String,
                     chord: chordField
                 )

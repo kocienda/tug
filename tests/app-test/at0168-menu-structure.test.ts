@@ -61,6 +61,21 @@ const MOD = {
 } as const;
 
 /**
+ * The six sidebar cards, by the component id their Window rows are addressed
+ * with. The Arcs card's is `dashes` — a persistence key ([D141]), not a stale
+ * name. One list, read by the contract table below and by the depth check
+ * that says those rows are a submenu.
+ */
+const SIDEBAR_CARD_IDS = [
+  "jots",
+  "tripwires",
+  "dashes",
+  "cards",
+  "layout",
+  "overview",
+] as const;
+
+/**
  * The static structure contract: identifier → expected key equivalent
  * (+ exact modifier mask where the item carries a promoted chord).
  * Items with `key: ""` are mouse-only; their default mask is not
@@ -158,6 +173,17 @@ const STATIC_ITEMS: ReadonlyArray<{ id: string; key?: string; mods?: number }> =
   { id: "window.columnMoveDown", key: ARROW_DOWN, mods: MOD.command | MOD.control },
   { id: "window.columnMoveTop", key: ARROW_UP, mods: MOD.command | MOD.control | MOD.shift },
   { id: "window.columnMoveBottom", key: ARROW_DOWN, mods: MOD.command | MOD.control | MOD.shift },
+  // One parent row per sidebar card, each holding a toggle and a Left /
+  // Right pair — the depths are what makes them a submenu rather than six
+  // flat groups, and the walk below flattens the tree so all three read here.
+  // The toggles stay chord-less: an empty key is the assertion, since a sweep
+  // that wrote one would mean the table still ships a default chord for them.
+  ...SIDEBAR_CARD_IDS.flatMap((card) => [
+    { id: `window.sidebar.${card}` },
+    { id: `window.sidebar.${card}.show`, key: "" },
+    { id: `window.sidebar.${card}.left`, key: "" },
+    { id: `window.sidebar.${card}.right`, key: "" },
+  ]),
   { id: "window.enterFullScreen", key: "f", mods: MOD.command | MOD.control },
   { id: "window.bringAllToFront" },
   // Maker (items exist in the hidden menu). The gallery / hello-world
@@ -165,17 +191,8 @@ const STATIC_ITEMS: ReadonlyArray<{ id: string; key?: string; mods?: number }> =
   // the app-test bundle's profile is "apptest", so they are absent here
   // and not asserted.
   { id: "maker.reload", key: "r", mods: MOD.command | MOD.shift },
-  // The six per-card sidebar toggles, chord-less: the keyboard addresses the
-  // rails now, and these rows kept their place in the menu and nothing else.
-  // An empty key here is the assertion — a sweep that wrote one would mean the
-  // table still ships a default chord for them.
-  { id: "maker.jots", key: "" },
-  { id: "maker.tripwires", key: "" },
-  { id: "maker.arcs", key: "" },
-  { id: "maker.cards", key: "" },
-  { id: "maker.layout", key: "" },
-  { id: "maker.overview", key: "" },
-  // And the rail pair that replaced them, both swept: ⌃⌘← and ⌃⌘→.
+  // The rail pair, both swept: ⌃⌘← and ⌃⌘→. The six per-card toggles that
+  // used to stand beside them are Window ▸ ⟨Card⟩ now, asserted above.
   { id: "maker.leftRail", key: ARROW_LEFT, mods: MOD.command | MOD.control },
   { id: "maker.rightRail", key: ARROW_RIGHT, mods: MOD.command | MOD.control },
   { id: "maker.sourceTree" },
@@ -251,6 +268,24 @@ describe.skipIf(!SHOULD_RUN)("AT0168: menu structure contract", () => {
         // menu (bar item depth 0 → menu item depth 1), not behind a
         // New submenu shell.
         expect(byId.get("file.newSessionCard")!.depth, "File menu is flattened").toBe(1);
+
+        // The sidebar rows are a submenu per card and not six flat groups,
+        // which is the whole reason the toggle is not the parent's own click
+        // — AppKit opens a submenu instead of firing its parent's action.
+        // Depth is what says so: the parent sits in the Window menu, its
+        // three rows one level further in.
+        for (const card of SIDEBAR_CARD_IDS) {
+          expect(
+            byId.get(`window.sidebar.${card}`)!.depth,
+            `window.sidebar.${card} sits in the Window menu`,
+          ).toBe(1);
+          for (const row of ["show", "left", "right"]) {
+            expect(
+              byId.get(`window.sidebar.${card}.${row}`)!.depth,
+              `window.sidebar.${card}.${row} sits in its card's submenu`,
+            ).toBe(2);
+          }
+        }
 
         // Maker is hidden under the app-test harness, which pins maker
         // mode off regardless of build profile. The gate lives on the
