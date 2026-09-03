@@ -15,6 +15,8 @@ import {
   claudeInstalledCopy,
   compareVersions,
   isLoginOnlyWizard,
+  hostToolsCopy,
+  COMMAND_LINE_TOOLS_SIZE,
 } from "../configure-tug-copy";
 
 describe("subscriptionLabel", () => {
@@ -133,5 +135,102 @@ describe("pendingOpenStepCopy", () => {
       label: "Continue working",
       detail: "You'll return to your 3 open cards.",
     });
+  });
+});
+
+describe("hostToolsCopy", () => {
+  // Every machine that runs this corpus has git, so five of the six readings
+  // are unreachable live. They are pinned here instead.
+  const probed = {
+    gitVersion: null as string | null,
+    gitPath: null as string | null,
+    developerDir: null as string | null,
+    gitFloor: "2.23",
+    usable: false,
+    probed: true,
+    offering: false,
+    offerError: null as string | null,
+  };
+
+  test("says it is looking before the probe has answered", () => {
+    const copy = hostToolsCopy({ ...probed, probed: false });
+    expect(copy.status).toBe("busy");
+    expect(copy.cta).toBeUndefined();
+    expect(copy.secondaryCta).toBeUndefined();
+  });
+
+  test("a machine with no git gets the offer, its size, and a skip", () => {
+    const copy = hostToolsCopy(probed);
+    expect(copy.status).toBe("active");
+    expect(copy.label).toBe("Install git");
+    // The number is the point: an Install button that does not say what it
+    // costs is an ambush.
+    expect(copy.detail).toContain(COMMAND_LINE_TOOLS_SIZE);
+    expect(copy.cta).toBe("Install");
+    expect(copy.secondaryCta).toBe("Skip for now");
+  });
+
+  test("a git at the floor is settled and asks nothing", () => {
+    const copy = hostToolsCopy({
+      ...probed,
+      gitVersion: "2.39.5",
+      gitPath: "/usr/bin/git",
+      developerDir: "/Library/Developer/CommandLineTools",
+      usable: true,
+    });
+    expect(copy.status).toBe("done");
+    expect(copy.detail).toBe("Version 2.39.5");
+    expect(copy.cta).toBeUndefined();
+  });
+
+  test("an old Apple git is offered the same install, and names the floor", () => {
+    const copy = hostToolsCopy({
+      ...probed,
+      gitVersion: "2.19.1",
+      gitPath: "/usr/bin/git",
+      developerDir: "/Library/Developer/CommandLineTools",
+    });
+    expect(copy.status).toBe("error");
+    expect(copy.label).toBe("Update git");
+    expect(copy.detail).toContain("2.23");
+    expect(copy.cta).toBe("Install");
+  });
+
+  test("an old third-party git is named, not offered a button that cannot work", () => {
+    // Installing Apple's tools would leave the older git first on PATH and
+    // change nothing, so the row points at the path instead of pretending.
+    const copy = hostToolsCopy({
+      ...probed,
+      gitVersion: "2.19.1",
+      gitPath: "/opt/homebrew/bin/git",
+    });
+    expect(copy.status).toBe("error");
+    expect(copy.detail).toContain("/opt/homebrew/bin/git");
+    expect(copy.cta).toBeUndefined();
+  });
+
+  test("an accepted offer waits with Apple's installer and offers a recheck", () => {
+    const copy = hostToolsCopy({ ...probed, offering: true });
+    expect(copy.status).toBe("busy");
+    expect(copy.detail).toContain(COMMAND_LINE_TOOLS_SIZE);
+    expect(copy.secondaryCta).toBe("Recheck");
+  });
+
+  test("an offer that genuinely failed says so and offers a retry", () => {
+    const copy = hostToolsCopy({ ...probed, offerError: "no network" });
+    expect(copy.status).toBe("error");
+    expect(copy.detail).toContain("no network");
+    expect(copy.cta).toBe("Retry");
+  });
+
+  test("the floor named is the one the wire carried, not a local constant", () => {
+    const copy = hostToolsCopy({
+      ...probed,
+      gitVersion: "2.19.1",
+      gitPath: "/usr/bin/git",
+      developerDir: "/Library/Developer/CommandLineTools",
+      gitFloor: "2.30",
+    });
+    expect(copy.detail).toContain("2.30");
   });
 });

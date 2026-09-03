@@ -216,6 +216,7 @@ registerConnectionLifecycle(connectionLifecycle);
 connectionLifecycle.observeConnectionDidReconnect(() => {
   connection.sendControlFrame("check_auth");
   connection.sendControlFrame("check_claude_version");
+  connection.sendControlFrame("check_host_tools");
 });
 
 // Feed the app-wide transport-state store from the same lifecycle pipe. This is
@@ -450,6 +451,11 @@ if (!container) {
   // (installed here vs newest on the stable channel). Same timing rule as the
   // auth probe: sent after `initActionDispatch` registered its handler.
   connection.sendControlFrame("check_claude_version");
+
+  // …and whether this machine carries a git Tug can use. Silent by
+  // construction — see `host_tools`'s probe order — so it is safe to fire
+  // before the user has seen anything. Same timing rule as the probes above.
+  connection.sendControlFrame("check_host_tools");
 
   // The seating report: tugcast learns which sessions this deck has seated
   // on open Session cards, so the changeset never orphans an open card's

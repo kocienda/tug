@@ -134,3 +134,125 @@ export function pendingOpenStepCopy(cardCount: number): {
   }
   return { label: "Start a session" };
 }
+
+/**
+ * The size of Apple's Command Line Tools, said out loud. An Install button that
+ * does not say what it costs is an ambush: a user on a metered connection or a
+ * nearly-full disk deserves the number before they press it, not after.
+ */
+export const COMMAND_LINE_TOOLS_SIZE = "about 3 GB";
+
+/** The lifecycle a ConfigureTug row's dot encodes ([D106]). */
+export type HostToolsStepStatus = "active" | "busy" | "error" | "done";
+
+/** What the git row says and offers, in whichever state the probe left it. */
+export interface HostToolsCopy {
+  status: HostToolsStepStatus;
+  label: string;
+  detail: string;
+  /** Primary CTA label, or `undefined` when the row asks for nothing. */
+  cta?: string;
+  /** Quieter alternative — declining the offer, or re-checking. */
+  secondaryCta?: string;
+}
+
+/**
+ * The git row's copy, from the probe's answer and the offer's state.
+ *
+ * The six readings, in the order they are decided:
+ *
+ *   - **probing** — the frame has not landed. The row says so rather than
+ *     guessing, because the guess it would otherwise make ("no git") is the one
+ *     that puts a 3 GB ask in front of a machine that already has git.
+ *   - **offer failed** — `xcode-select --install` genuinely could not run, and
+ *     the row offers a retry. Note that "already installed" is *not* a failure:
+ *     tugcast folds that exit into success, since it is the normal answer on a
+ *     configured machine.
+ *   - **present** — a git at or above the floor. Settled, and asks nothing.
+ *   - **offer accepted, waiting** — Apple's installer is running in its own UI,
+ *     which the backend cannot await. The row waits with it and carries
+ *     **Recheck** for the user whose install finished without the watch seeing
+ *     it, or who took the manual route.
+ *   - **below the floor** — a git that answered but is too old. Where that git
+ *     is Apple's, the same Command Line Tools install is the fix and the row
+ *     offers it. Where it is a third-party git the user installed themselves,
+ *     it is not: installing Apple's tools would leave the older git first on
+ *     `PATH` and change nothing, so the row names the path and lets its owner
+ *     deal with it rather than offering a button that cannot work.
+ *   - **absent** — no git at all, and the offer proper, with the size said out
+ *     loud and a skip beside it.
+ *
+ * Pure, so every branch is pinned without launching the app — which matters
+ * more here than usual, because the machine running the tests always has git
+ * and could otherwise only ever reach one of the six.
+ */
+export function hostToolsCopy(tools: {
+  gitVersion: string | null;
+  gitPath: string | null;
+  developerDir: string | null;
+  gitFloor: string | null;
+  usable: boolean;
+  probed: boolean;
+  offering: boolean;
+  offerError: string | null;
+}): HostToolsCopy {
+  const floor = tools.gitFloor ?? "2.23";
+
+  if (!tools.probed) {
+    return {
+      status: "busy",
+      label: "Check for git",
+      detail: "Looking for git on this machine…",
+    };
+  }
+
+  if (tools.offerError !== null) {
+    return {
+      status: "error",
+      label: "Install git",
+      detail: `Install failed: ${tools.offerError}`,
+      cta: "Retry",
+    };
+  }
+
+  if (tools.usable) {
+    return {
+      status: "done",
+      label: "git installed",
+      detail:
+        tools.gitVersion !== null ? `Version ${tools.gitVersion}` : "git is ready.",
+    };
+  }
+
+  if (tools.offering) {
+    return {
+      status: "busy",
+      label: "Install git",
+      detail: `Apple's installer is running — ${COMMAND_LINE_TOOLS_SIZE} to download.`,
+      cta: "Installing…",
+      secondaryCta: "Recheck",
+    };
+  }
+
+  if (tools.gitVersion !== null) {
+    // A git that answered, and is too old. `developerDir` is set only when the
+    // probe had to ask about it, which is exactly the Apple-git case.
+    const applesGit = tools.developerDir !== null;
+    return {
+      status: "error",
+      label: "Update git",
+      detail: applesGit
+        ? `Version ${tools.gitVersion} — Tug needs git ${floor} or newer.`
+        : `Version ${tools.gitVersion} at ${tools.gitPath ?? "an unknown path"} — Tug needs git ${floor} or newer.`,
+      ...(applesGit ? { cta: "Install" } : {}),
+    };
+  }
+
+  return {
+    status: "active",
+    label: "Install git",
+    detail: `Tug uses git for changes, commits, and arcs. Apple's Command Line Tools carry it — ${COMMAND_LINE_TOOLS_SIZE}.`,
+    cta: "Install",
+    secondaryCta: "Skip for now",
+  };
+}

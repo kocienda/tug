@@ -73,6 +73,10 @@ import {
   applyVersionResultPayload,
   applyUpdateResultPayload,
 } from "./lib/claude-version-store";
+import {
+  applyHostToolsResultPayload,
+  applyHostToolsOfferResultPayload,
+} from "./lib/host-tools-store";
 import { requestLogout } from "./lib/logout-store";
 import { requestConfigureTug } from "./lib/configure-tug-request-store";
 import { sessionSpawnErrorStore } from "./lib/session-spawn-error-store";
@@ -437,6 +441,20 @@ export function initActionDispatch(
   // re-probe arrives separately as claude_version_result).
   registerAction("claude_update_result", (payload) => {
     applyUpdateResultPayload(payload);
+  });
+
+  // host_tools_result: tugcast's answer to `check_host_tools` — whether this
+  // machine carries a git Tug can use. Also re-broadcast after an offer, and
+  // again when the Command Line Tools actually land on disk, so the row settles
+  // on what is really there rather than on what was asked for.
+  registerAction("host_tools_result", (payload) => {
+    applyHostToolsResultPayload(payload);
+  });
+
+  // host_tools_offer_result: outcome of `offer_host_tools`. Success only means
+  // Apple's installer started — the re-probe is what says git arrived.
+  registerAction("host_tools_offer_result", (payload) => {
+    applyHostToolsOfferResultPayload(payload);
   });
 
   // claude_logout_result: outcome of `claude_logout` (the re-probe arrives

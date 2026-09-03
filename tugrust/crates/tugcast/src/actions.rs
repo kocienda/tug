@@ -67,6 +67,29 @@ async fn broadcast_version_result(cat: Option<broadcast::Sender<Frame>>) {
     }
 }
 
+/// Broadcast a `host_tools_result` CONTROL frame from a probed host.
+///
+/// The floor rides along rather than being restated in the deck, so the one
+/// place that decides whether a git is old enough is `host_tools::meets_floor`
+/// and the row only renders the answer.
+fn broadcast_host_tools_result(
+    cat: Option<broadcast::Sender<Frame>>,
+    tools: crate::feeds::host_tools::HostTools,
+) {
+    let Some(cat) = cat else { return };
+    let body = serde_json::json!({
+        "action": "host_tools_result",
+        "gitVersion": tools.git_version,
+        "gitPath": tools.git_path,
+        "developerDir": tools.developer_dir,
+        "gitFloor": crate::feeds::host_tools::GIT_VERSION_FLOOR,
+        "usable": tools.is_usable(),
+    });
+    if let Ok(bytes) = serde_json::to_vec(&body) {
+        let _ = cat.send(Frame::new(FeedId::CONTROL, bytes));
+    }
+}
+
 /// The router-owned state every ingress path hands to [`dispatch_action`].
 ///
 /// Borrowed as a group so the three call sites (HTTP tell, WebSocket control
@@ -162,6 +185,59 @@ pub async fn dispatch_action(action: &str, raw_payload: &[u8], ctx: &ActionConte
             tokio::spawn(async move {
                 let state = crate::feeds::claude_auth::probe().await;
                 broadcast_auth_result(cat, state, None);
+            });
+        }
+        "check_host_tools" => {
+            // The host-tools probe: does this machine carry a git Tug can use?
+            // Silent by construction — see `host_tools`'s module docs for why
+            // the order matters — so it is safe to fire at launch, before the
+            // wizard has said anything.
+            info!("dispatch_action: host tools check requested");
+            let cat = stream_outputs
+                .get(&FeedId::CONTROL)
+                .map(|(tx, _)| tx.clone());
+            tokio::spawn(async move {
+                let tools = crate::feeds::host_tools::probe().await;
+                broadcast_host_tools_result(cat, tools);
+            });
+        }
+        "offer_host_tools" => {
+            // Ask macOS to install the Command Line Tools. `xcode-select
+            // --install` returns as soon as Apple's panel is up, so its success
+            // means the offer was made rather than that git has arrived — the
+            // re-probe right after is what says whether it had already been
+            // there all along (the "already installed" case), and the watch is
+            // what settles the row when the user actually goes through with the
+            // ~3 GB download. No timer asks "is git here yet?".
+            info!("dispatch_action: host tools offer requested");
+            let cat = stream_outputs
+                .get(&FeedId::CONTROL)
+                .map(|(tx, _)| tx.clone());
+            tokio::spawn(async move {
+                let (ok, error) = crate::feeds::host_tools::offer_developer_tools().await;
+                if let Some(cat) = &cat {
+                    let body = serde_json::json!({
+                        "action": "host_tools_offer_result",
+                        "ok": ok,
+                        "error": error,
+                    });
+                    if let Ok(bytes) = serde_json::to_vec(&body) {
+                        let _ = cat.send(Frame::new(FeedId::CONTROL, bytes));
+                    }
+                }
+                let tools = crate::feeds::host_tools::probe().await;
+                let settled = tools.is_usable();
+                broadcast_host_tools_result(cat.clone(), tools);
+                if ok && !settled {
+                    // The install is running in Apple's own UI. Wait on the
+                    // tools appearing, then say so once; a horizon that runs
+                    // out simply drops the watch, and the row's Recheck covers
+                    // the user who took longer or installed by hand.
+                    if crate::feeds::host_tools::await_command_line_tools().await {
+                        let tools = crate::feeds::host_tools::probe().await;
+                        broadcast_host_tools_result(cat, tools);
+                    }
+                }
             });
         }
         "install_claude" => {

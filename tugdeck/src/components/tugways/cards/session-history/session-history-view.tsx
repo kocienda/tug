@@ -77,6 +77,11 @@ import {
   commitFilterFields,
 } from "@/components/tugways/tug-history-list";
 import { TugNonRepoNotice } from "@/components/tugways/tug-non-repo-notice";
+import {
+  TugNoGitNotice,
+  shouldShowNoGitNotice,
+} from "@/components/tugways/tug-no-git-notice";
+import { useHostTools } from "@/lib/host-tools-store";
 import { BlockStrip } from "@/components/tugways/blocks/block-strip";
 import { TugFilterField } from "@/components/tugways/tug-filter-field";
 import type { TugFilterFieldDelegate } from "@/components/tugways/tug-filter-field";
@@ -155,6 +160,9 @@ export function SessionHistoryView({
   onClose,
 }: SessionHistoryViewProps): React.ReactElement {
   const snapshot = useGitLogSnapshot();
+  // Whether this machine carries a git at all ([L02]). There is no history
+  // without one, and no way to make one from here.
+  const hostTools = useHostTools();
 
   // Which metadata the rows carry — the reader's standing choice, persisted
   // deck-wide through tugbank ([D07]). `TugOptionGroup` emits `setValue` with
@@ -464,6 +472,12 @@ export function SessionHistoryView({
     );
   }
 
+  // No git means no history to read and no `git init` that could produce one,
+  // so this reading precedes the non-repo offer here exactly as it does in the
+  // Changes shade — the two shades say the same thing on the same machine.
+  if (shouldShowNoGitNotice(hostTools)) {
+    return shell(<TugNoGitNotice />);
+  }
   if (payload?.no_repo) {
     return shell(<TugNonRepoNotice projectDir={projectDir} />);
   }

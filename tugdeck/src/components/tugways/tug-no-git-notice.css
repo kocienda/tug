@@ -1,0 +1,45 @@
+/* TugNoGitNotice — the shared "no usable git" block. Deliberately identical to
+   `tug-non-repo-notice.css`: the two are siblings on the same ConfigureTug step
+   plinth ([D106]), and one replacing the other must not move anything on
+   screen. Appearance only ([L06]). */
+
+.tug-no-git-notice {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 10px;
+}
+
+.tug-no-git-notice-block {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  min-height: 60px;
+  padding: 0 var(--tug-space-xl);
+  background: var(--tugx-block-surface);
+  border-radius: var(--tugx-block-chrome-radius);
+}
+
+.tug-no-git-notice-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.tug-no-git-notice-title {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.tug-no-git-notice-detail {
+  font-size: 13px;
+  line-height: 1.45;
+  opacity: 0.8;
+}
+
+.tug-no-git-notice-action {
+  flex: 0 0 auto;
+}

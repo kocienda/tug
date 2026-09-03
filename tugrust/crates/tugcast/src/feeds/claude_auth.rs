@@ -12,6 +12,8 @@
 
 use tokio::process::Command;
 
+use tugcore::version::parse_leading_version as parse_version;
+
 /// Resolved Claude Code login state.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AuthState {
@@ -179,25 +181,6 @@ pub async fn latest_version() -> Option<String> {
     parse_version(&response.text().await.ok()?)
 }
 
-/// Take the leading `MAJOR.MINOR.PATCH[-pre]` token out of a line, so both
-/// `claude --version`'s suffixed output and the channel file's bare version parse
-/// through one path. Anything else (an HTML error page, a usage message)
-/// resolves to `None` rather than being shown to the user as a version.
-fn parse_version(text: &str) -> Option<String> {
-    let token = text.trim().lines().next()?.split_whitespace().next()?;
-    let mut parts = token.splitn(3, '.');
-    let major = parts.next()?;
-    let minor = parts.next()?;
-    let patch = parts.next()?;
-    let numeric = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
-    let patch_numeric = patch.split(['-', '+']).next().unwrap_or_default();
-    if numeric(major) && numeric(minor) && numeric(patch_numeric) {
-        Some(token.to_string())
-    } else {
-        None
-    }
-}
-
 /// Run the official Claude Code installer (`curl -fsSL https://claude.ai/
 /// install.sh | bash`) and return `(ok, error_message)`. The native installer
 /// drops `claude` in `~/.local/bin` without editing the shell PATH; Tug finds
@@ -261,32 +244,5 @@ mod tests {
     #[test]
     fn logged_out_when_unparseable() {
         assert_eq!(parse_status("not json at all"), AuthState::LoggedOut);
-    }
-
-    #[test]
-    fn parses_the_cli_version_line() {
-        assert_eq!(
-            parse_version("2.1.222 (Claude Code)\n"),
-            Some("2.1.222".to_string())
-        );
-    }
-
-    #[test]
-    fn parses_a_bare_channel_version() {
-        assert_eq!(parse_version("2.1.226\n"), Some("2.1.226".to_string()));
-        assert_eq!(
-            parse_version("2.2.0-rc.1\n"),
-            Some("2.2.0-rc.1".to_string())
-        );
-    }
-
-    #[test]
-    fn rejects_content_that_is_not_a_version() {
-        // An HTML error page from the channel URL, or a CLI that answered with
-        // usage text, must read as "unknown" rather than land in the UI.
-        assert_eq!(parse_version("<!doctype html>"), None);
-        assert_eq!(parse_version(""), None);
-        assert_eq!(parse_version("Usage: claude [options]"), None);
-        assert_eq!(parse_version("2.1"), None);
     }
 }

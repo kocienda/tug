@@ -10,6 +10,7 @@
 
 #[cfg(test)]
 mod cli_test_env_scan;
+pub mod host_tools;
 pub mod instance;
 pub mod janitor;
 pub mod ledger_db;
@@ -21,6 +22,7 @@ pub mod registry;
 mod session_identity_scan;
 #[cfg(test)]
 mod source_scan;
+pub mod version;
 
 /// Resolve the per-instance data directory for `instance_id` without
 /// consulting the environment. Mirrors `instance::data_dir` but with

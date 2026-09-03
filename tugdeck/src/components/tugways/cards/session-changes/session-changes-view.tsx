@@ -36,6 +36,11 @@ import { GitCommitHorizontal, LoaderCircle, X } from "lucide-react";
 
 import { TugNonRepoNotice } from "@/components/tugways/tug-non-repo-notice";
 import {
+  TugNoGitNotice,
+  shouldShowNoGitNotice,
+} from "@/components/tugways/tug-no-git-notice";
+import { useHostTools } from "@/lib/host-tools-store";
+import {
   ORPHANED_LABEL,
   SESSION_LABEL,
   UNATTRIBUTED_DEGRADED_LABEL,
@@ -143,6 +148,10 @@ export function SessionChangesView({
     changesController.getSnapshot,
   );
   const project = snap.project;
+  // Whether this machine carries a git at all ([L02]). Everything below this
+  // shade renders — the changeset, the commit surface, the non-repo offer —
+  // rests on there being one.
+  const hostTools = useHostTools();
   // The card's own dash, by owner key ([L02]). A string snapshot is
   // reference-stable by construction, so the store's every-binding-changed
   // notification only re-renders when this card's dash actually moved.
@@ -305,6 +314,13 @@ export function SessionChangesView({
       </div>
     </>
   );
+
+  // A machine with no usable git has no changeset at all, and cannot `git
+  // init` its way out either — so this reading comes before the non-repo one,
+  // which would otherwise offer an Initialize button that cannot work.
+  if (shouldShowNoGitNotice(hostTools)) {
+    return shell(<TugNoGitNotice />);
+  }
 
   if (project.no_repo) {
     return shell(

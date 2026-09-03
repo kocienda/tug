@@ -9,6 +9,17 @@
  * The steps, driven by the app-level {@link authStore} (one `claude auth
  * status` probe surfaced via `check_auth`), the {@link claudeVersionStore}
  * version pair, and the deck's card count:
+ *   0. git — above the Claude row, gated on nothing and blocking nothing. Tug
+ *      shells out to `git` everywhere and ships none of its own (git is
+ *      GPLv2-only and Tug takes on no GPL obligations), so the row reads
+ *      {@link hostToolsStore} and offers Apple's Command Line Tools — about
+ *      3 GB, said out loud — where the machine has no usable git. **Skip for
+ *      now** persists under `dev.tugtool.app` and the row does not return;
+ *      the Changes and History shades and the `tugtool arc` verbs carry the
+ *      same offer, which is what makes the skip a deferral rather than a dead
+ *      end. The probe order behind it is load-bearing and must not be
+ *      collapsed into a bare `git --version` — see [D171] and
+ *      `tugcore::host_tools`.
  *   1. Claude Code — Tug-managed install + recheck, then the version it landed
  *      against the newest stable release, with an Update offer when it's
  *      behind. The updater IS the installer (the official installer always
@@ -62,8 +73,9 @@
  *     auth banner safety net.
  *
  * Pure read of the stores ([L02]/[L24]) — `authStore`, `claudeVersionStore`,
- * the deck, the transport and version-gate stores; the `check_auth` and
- * `check_claude_version` probes are fired imperatively from `main.tsx`. The sign-in timeout is the one imperative effect (it schedules a
+ * `hostToolsStore`, the deck, the transport and version-gate stores; the
+ * `check_auth`, `check_claude_version` and `check_host_tools` probes are fired
+ * imperatively from `main.tsx`. The sign-in timeout is the one imperative effect (it schedules a
  * store call, it does not mirror state).
  */
 
@@ -82,6 +94,9 @@ import {
   readSetupSuppressed,
   putSetupSeen,
   putDefaultProjectPath,
+  putHostToolsSkipped,
+  HOST_TOOLS_SKIP_DOMAIN,
+  HOST_TOOLS_SKIP_KEY,
   DEFAULT_PROJECT_PATH_DOMAIN,
   DEFAULT_PROJECT_PATH_KEY,
   DEFAULT_PROJECT_DIR_LEAF,
@@ -100,11 +115,13 @@ import {
   claudeVersionStore,
   useClaudeVersion,
 } from "@/lib/claude-version-store";
+import { hostToolsStore, useHostTools } from "@/lib/host-tools-store";
 import {
   subscriptionLabel,
   pendingOpenStepCopy,
   claudeInstalledCopy,
   isLoginOnlyWizard,
+  hostToolsCopy,
 } from "./configure-tug-copy";
 import { TugPushButton } from "./tug-push-button";
 import { TugFileChooser } from "./tug-file-chooser";
@@ -254,6 +271,7 @@ export function ConfigureTug(): ReactElement {
   // is already set up. ConfigureTugRequest has already stopped any live turns by
   // the time this flips.
   const onDemand = useConfigureTugOnDemand();
+  const hostTools = useHostTools();
   // The projects-folder step. The stored path is external state [L02]; the
   // chooser's in-flight text is a draft that exists only until the user
   // confirms, and `null` means "showing the resolved default".
@@ -326,6 +344,19 @@ export function ConfigureTug(): ReactElement {
     return client ? readSetupSuppressed(client) : false;
   });
 
+  // The git row's deferral, in two halves for one reason: the persisted flag is
+  // what keeps the row from returning on later launches, and the latch is
+  // what retires it the instant Skip is pressed rather than a tugbank
+  // round-trip later. Same pairing as `firstRunComplete`.
+  const hostToolsSkipPersisted = useTugbankValue(
+    HOST_TOOLS_SKIP_DOMAIN,
+    HOST_TOOLS_SKIP_KEY,
+    (entry) => entry?.kind === "bool" && entry.value === true,
+    false,
+  );
+  const [hostToolsSkippedNow, setHostToolsSkippedNow] = useState(false);
+  const hostToolsSkipped = hostToolsSkipPersisted || hostToolsSkippedNow;
+
   // Each on-demand visit starts fresh: the wizard is the gesture for changing
   // an answer, so nothing latched in a previous visit outlives it.
   useEffect(() => {
@@ -394,6 +425,26 @@ export function ConfigureTug(): ReactElement {
     authStore.setInstalling(true);
     getConnection()?.sendControlFrame("install_claude");
   };
+  // Ask macOS to install the Command Line Tools. The offer's own result only
+  // says Apple's panel came up; the probe that follows — and the one the
+  // /Library watch fires when the download finishes — is what settles the row.
+  const handleOfferHostTools = (): void => {
+    hostToolsStore.setOffering(true);
+    getConnection()?.sendControlFrame("offer_host_tools");
+  };
+  // The manual answer, for the user whose install finished without the watch
+  // seeing it, or who installed git some other way entirely.
+  const handleRecheckHostTools = (): void => {
+    getConnection()?.sendControlFrame("check_host_tools");
+  };
+  // Deferring the 3 GB. The flag is persisted so the row does not return, and
+  // the local latch retires it for the rest of this launch — the same pairing
+  // `firstRunComplete` uses, since a tugbank write round-trips and the row
+  // should go the instant it is pressed.
+  const handleSkipHostTools = (): void => {
+    setHostToolsSkippedNow(true);
+    putHostToolsSkipped(true);
+  };
   // The installer is the updater: it always lands the newest stable build, so
   // the same shell-out serves both rows. tugcast re-probes the version pair
   // afterward, and that re-probe is what settles the row.
@@ -459,7 +510,43 @@ export function ConfigureTug(): ReactElement {
     secondaryCta?: { label: string; onClick: () => void };
   };
 
-  // Row one carries the whole life of the Claude Code install: getting it,
+  // The row above the Claude one, because a machine with no git has no Changes
+  // shade, no commit surface, and no arcs — and today nothing anywhere says so.
+  // Tug ships no git of its own (git is GPLv2-only and Tug takes on no GPL
+  // obligations), so the offer points at Apple's Command Line Tools and the
+  // user installs them from Apple. It never blocks the wizard: plenty of first
+  // sessions are a chat in a scratch directory, and the surfaces that genuinely
+  // need git carry the same offer, so deferring here is a deferral rather than
+  // a dead end.
+  const toolsCopy = hostToolsCopy(hostTools);
+  const toolsStep: Step = {
+    key: "host-tools",
+    status: toolsCopy.status,
+    label: toolsCopy.label,
+    detail: toolsCopy.detail,
+    ...(toolsCopy.cta
+      ? { cta: { label: toolsCopy.cta, onClick: handleOfferHostTools } }
+      : {}),
+    ...(toolsCopy.secondaryCta
+      ? {
+          secondaryCta: {
+            label: toolsCopy.secondaryCta,
+            onClick:
+              toolsCopy.secondaryCta === "Recheck"
+                ? handleRecheckHostTools
+                : handleSkipHostTools,
+          },
+        }
+      : {}),
+  };
+
+  // A skip silences the ask, not the fact: every state that wants something
+  // from the user is retired, while a settled "git installed" row stays, so a
+  // user who skipped and then installed git by hand still sees that it took.
+  const toolsSteps: Step[] =
+    !hostToolsSkipped || toolsCopy.status === "done" ? [toolsStep] : [];
+
+  // The Claude row carries the whole life of that install: getting it,
   // knowing which version is here, and keeping it current. The update path
   // shares the installer with the first install (the official installer always
   // lands the newest stable build), so the two differ only in what the row says.
@@ -686,8 +773,9 @@ export function ConfigureTug(): ReactElement {
     : probing
       ? probingSteps
       : loginOnly
-        ? [claudeStep, signInStep]
+        ? [...toolsSteps, claudeStep, signInStep]
         : [
+            ...toolsSteps,
             claudeStep,
             signInStep,
             projectDirStep,

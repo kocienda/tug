@@ -45,6 +45,10 @@ Tug is distributed as `Tug.app` to people whose projects have nothing to do with
 - `cargo nextest run` will fail if tests have any warnings
 - Fix warnings immediately; do not leave them for later
 
+## Host tools — never probe git by running it
+
+Tug ships no git ([D171]): git is GPLv2-only and Tug takes on no GPL obligations, so the offer points at Apple's Command Line Tools and the user installs them from Apple. Detection lives in `tugcore::host_tools` and **the order it takes is load-bearing**: resolve `git` on `PATH` first and version anything that is not `/usr/bin/git` — only the shim, or an empty `PATH`, reaches the silent `xcode-select -p`, and only its exit 0 makes `git --version` safe. On a machine with no active developer directory `/usr/bin/git` is Apple's shim, byte-identical to `/usr/bin/clang`, and running it pops a system modal. So never add a bare `git --version` probe anywhere, and never collapse the order into one; the wizard row, the shades' `TugNoGitNotice`, and the `tugtool arc` preflight all read the one implementation.
+
 ## Testing
 
 Run Rust tests with:

@@ -388,6 +388,42 @@ export function putSetupSeen(seen: boolean): void {
   });
 }
 
+/** tugbank domain/key holding the deferred git-install offer. */
+export const HOST_TOOLS_SKIP_DOMAIN = "dev.tugtool.app";
+export const HOST_TOOLS_SKIP_KEY = "host-tools-skipped";
+
+/**
+ * Read the deferred-git flag from the TugbankClient cache. `true` once the user
+ * has pressed **Skip for now** on ConfigureTug's git row, which retires that
+ * row on every later launch: the Command Line Tools are about 3 GB, and
+ * demanding them before a user has seen the app work once is too much to ask of
+ * a first session that may well be a chat in a scratch directory.
+ *
+ * A remembered skip is only honest because the offer comes back where the need
+ * is real — the Changes and History shades carry the same offer, and the
+ * `tugtool arc` verbs refuse by name — so this defers the question rather than
+ * answering it. Stored under `dev.tugtool.app` / `host-tools-skipped`
+ * (Value::Bool).
+ */
+export function readHostToolsSkipped(client: TugbankClient): boolean {
+  const entry = client.get(HOST_TOOLS_SKIP_DOMAIN, HOST_TOOLS_SKIP_KEY);
+  return entry?.kind === "bool" && entry.value === true;
+}
+
+/**
+ * Persist the deferred-git flag to tugbank under `dev.tugtool.app` /
+ * `host-tools-skipped`. Fire-and-forget, mirroring `putSetupSeen`.
+ */
+export function putHostToolsSkipped(skipped: boolean): void {
+  fetch(`/api/defaults/${HOST_TOOLS_SKIP_DOMAIN}/${HOST_TOOLS_SKIP_KEY}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ kind: "bool", value: skipped }),
+  }).catch((err) => {
+    console.warn("[settings] PUT host-tools-skipped failed:", err);
+  });
+}
+
 /** tugbank domain/key holding the app-wide default project directory. */
 export const DEFAULT_PROJECT_PATH_DOMAIN = "dev.tugtool.app";
 export const DEFAULT_PROJECT_PATH_KEY = "default-project-path";

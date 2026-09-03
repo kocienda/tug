@@ -20,6 +20,10 @@ use crate::output::print_ok;
 /// Dispatch a `dash` subcommand, mapping a `Result<(), String>` to an exit code
 /// (exit 1 on any error, matching the former standalone tugdash binary).
 pub fn dispatch(cmd: ArcCommands, json: bool, quiet: bool) -> ExitCode {
+    if let Some(refusal) = git_preflight(&cmd) {
+        eprintln!("error: {refusal}");
+        return ExitCode::from(1);
+    }
     let result: Result<(), String> = match cmd {
         ArcCommands::Create {
             name,
@@ -124,6 +128,31 @@ pub fn dispatch(cmd: ArcCommands, json: bool, quiet: bool) -> ExitCode {
             ExitCode::from(1)
         }
     }
+}
+
+/// Refuse an arc verb the machine's git cannot carry out, by name and up front.
+///
+/// An arc *is* a git branch plus a worktree, so without a usable git every verb
+/// below either fails partway through a worktree operation or, worse, half
+/// succeeds. The failure the user then sees is phrased as whatever internal
+/// step reached for git first, which tells them nothing. Saying it here costs
+/// one `git --version` and answers the question at the door.
+///
+/// The two verbs that pass are the two that genuinely never touch git:
+/// `arc config` reads the project's declared commands, and `arc documents`
+/// reports paths under `.tug/arcs/`. Both still work on a machine that cannot
+/// run an arc, and refusing them would be refusing to explain the situation.
+///
+/// The probe is the same one the wizard's row and the shades' notice use, in
+/// the same order — resolve `git` on `PATH` first, and only a resolution that
+/// lands on Apple's shim consults `xcode-select`, which is what keeps a machine
+/// with no developer tools from being shown Apple's install dialog by a bare
+/// `git --version`. See `tugcore::host_tools`.
+fn git_preflight(cmd: &ArcCommands) -> Option<String> {
+    if matches!(cmd, ArcCommands::Config | ArcCommands::Documents { .. }) {
+        return None;
+    }
+    tugcore::host_tools::refusal(&tugcore::host_tools::probe())
 }
 
 fn run_create(
