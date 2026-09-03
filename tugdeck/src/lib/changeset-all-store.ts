@@ -140,40 +140,40 @@ export function useSessionBranch(projectDir: string | null): string | null {
 }
 
 /**
- * One dash's plan review state in the aggregate, or null when there is nothing
- * to say — no project, no dash, no plan, or a plan the server could not read.
+ * One arc's plan review state in the aggregate, or null when there is nothing
+ * to say — no project, no arc, no plan, or a plan the server could not read.
  *
- * The dash is matched on its **owner key**, never on its name: a stale binding
- * to a dead incarnation of a reused name must not paint the wrong dash's mark.
+ * The arc is matched on its **owner key**, never on its name: a stale binding
+ * to a dead incarnation of a reused name must not paint the wrong arc's mark.
  * This is the same rule the shade lane's `orderArcLane` states for choosing
  * its fronted row.
  */
 export function arcReviewForProject(
   data: WorkspacesChangesetSnapshot,
   projectDir: string | null,
-  dashOwnerId: string | null,
+  arcOwnerId: string | null,
 ): string | null {
-  if (projectDir === null || dashOwnerId === null) return null;
+  if (projectDir === null || arcOwnerId === null) return null;
   const project = data.projects.find((p) => p.project_dir === projectDir);
-  const dash = project?.changesets.find(
-    (entry) => entry.kind === "dash" && entry.owner_id === dashOwnerId,
+  const arc = project?.changesets.find(
+    (entry) => entry.kind === "arc" && entry.owner_id === arcOwnerId,
   );
-  if (dash === undefined || dash.kind !== "dash") return null;
-  return dash.review ?? null;
+  if (arc === undefined || arc.kind !== "arc") return null;
+  return arc.review ?? null;
 }
 
 /**
- * React hook: a bound dash's plan review state, read from the account-global
+ * React hook: a bound arc's plan review state, read from the account-global
  * aggregate ([L02]) rather than threaded down as a prop. Memoized to the state
  * string, so a consumer repaints only when the state itself moves.
  */
-export function useDashReviewState(
+export function useArcReviewState(
   projectDir: string | null,
-  dashOwnerId: string | null,
+  arcOwnerId: string | null,
 ): string | null {
   const data = useChangesetAll();
   return useMemo(
-    () => arcReviewForProject(data, projectDir, dashOwnerId),
-    [data, projectDir, dashOwnerId],
+    () => arcReviewForProject(data, projectDir, arcOwnerId),
+    [data, projectDir, arcOwnerId],
   );
 }

@@ -1,6 +1,6 @@
 /**
  * at0212-text-card-manual-save.test.ts — Text card manual save mode
- * ([AT0212], dash/file-editing-enhancements.md). Manual is the shipping
+ * ([AT0212], arc/file-editing-enhancements.md). Manual is the shipping
  * default; this drives the classic document contract on real files through
  * real code paths — no mocks.
  *

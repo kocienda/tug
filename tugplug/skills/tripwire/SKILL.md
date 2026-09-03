@@ -9,7 +9,7 @@ disallowed-tools: Task
 
 ## What this is
 
-A **tripwire** is a post-commit inspector. It sits on the machine doing nothing until a **landing gesture** — the commit gesture in the Session card, or a dash join — puts a commit on the branch the tripwire names. Then it fires: a **trip**. The trip runs the tripwire's probe if it has one, asks an AI only about what the probe could not settle, and either goes quiet or raises its hand with one line the user should read.
+A **tripwire** is a post-commit inspector. It sits on the machine doing nothing until a **landing gesture** — the commit gesture in the Session card, or an arc join — puts a commit on the branch the tripwire names. Then it fires: a **trip**. The trip runs the tripwire's probe if it has one, asks an AI only about what the probe could not settle, and either goes quiet or raises its hand with one line the user should read.
 
 **Only Tug's own landing gestures fire a tripwire.** A `git commit` typed in a terminal, or a commit made by any tool outside Tug, is invisible to the whole facility — not an oversight but the design: the landing gesture is the one place that knows the branch, the commit, and the sessions whose work went into it, so it is the one place a firing can be built from without guessing.
 
@@ -17,7 +17,7 @@ Your job here is to turn a sentence into a tripwire that will still be right in 
 
 **Two things a tripwire never does, and they are not preferences.**
 
-- **A tripwire never joins.** It may author work on a dash and it may say so. Landing that work is the user's act, always. `arc join --resolve` is never a tripwire's to run, and never yours on a tripwire's behalf.
+- **A tripwire never joins.** It may author work on an arc and it may say so. Landing that work is the user's act, always. `arc join --resolve` is never a tripwire's to run, and never yours on a tripwire's behalf.
 - **A tripwire never widens its own scope.** Where a tripwire watches is a decision somebody made, and quietly extending it is how a tripwire starts firing on landings nobody meant it to see.
 
 ## The shape of a tripwire
@@ -42,7 +42,7 @@ If the change is worth making, the brief can say so — the session has a verb f
 
 **`--scope`** confines the tripwire to landings in one checkout, and it is where the trip's disposable copy of the commit is cut from. Unscoped, it watches the whole machine — and a hand-fired trip on an unscoped tripwire has no repository to stand in, so a tripwire you intend to shake down wants a scope.
 
-**`--probe`** is a command run before any model is summoned. **Exit 0 settles the trip for free** — no tokens, no session, nothing said. This is the single most valuable field on a tripwire: a probe turns "ask an AI every time" into "ask an AI about the residue", and an armed tripwire with a good probe is cheap enough to leave armed forever. It runs in a **disposable checkout of the commit that just landed**, not in the user's working checkout and not in a dash worktree, so it sees exactly the tree that landed and can touch nothing that outlives the trip.
+**`--probe`** is a command run before any model is summoned. **Exit 0 settles the trip for free** — no tokens, no session, nothing said. This is the single most valuable field on a tripwire: a probe turns "ask an AI every time" into "ask an AI about the residue", and an armed tripwire with a good probe is cheap enough to leave armed forever. It runs in a **disposable checkout of the commit that just landed**, not in the user's working checkout and not in an arc worktree, so it sees exactly the tree that landed and can touch nothing that outlives the trip.
 
 **`--model`** is the model a trip runs on; absent, the session default. **`--permission-mode`** is the mode for the *authoring* session only — the diagnosing one is read-only whatever you pass, enforced by the runtime rather than asked for in prose.
 
@@ -52,7 +52,7 @@ Worth knowing, because a brief is written against it:
 
 1. **The probe**, in a disposable checkout of the landed commit. Green settles the trip and nothing else happens.
 2. **Diagnosis** — one session in that same disposable checkout, read-only, handed everything it needs: the landing and its diff stat, the probe's output when the probe failed, the matching facts, and the transcripts of the sessions whose work landed. It answers the brief and ends by resolving.
-3. **Authoring**, only if the diagnosis asked for it — a second session on a dash worktree of its own, with the tripwire's permission mode, which can write and commit. The user joins that dash or discards it; the tripwire never does.
+3. **Authoring**, only if the diagnosis asked for it — a second session on an arc worktree of its own, with the tripwire's permission mode, which can write and commit. The user joins that arc or discards it; the tripwire never does.
 
 The trip settles one of two ways, through a verb the session runs:
 
@@ -62,15 +62,15 @@ tugtool tripwire resolve <name> --awaiting --headline "<one line>" [--author "<w
 tugtool tripwire dismiss <name>
 ```
 
-`--quiet` is "nothing here anybody needs to see" and is the ordinary outcome — a tripwire fires on a pattern, and the pattern occurring is usually not news. `--awaiting` is the tripwire raising its hand: the headline is the one line the Tripwires row shows, and the trip **holds** — it keeps the tripwire's one-run slot and stays on the surface — until the user has seen it. `dismiss` settles an awaiting trip by hand and discards the dash it was holding.
+`--quiet` is "nothing here anybody needs to see" and is the ordinary outcome — a tripwire fires on a pattern, and the pattern occurring is usually not news. `--awaiting` is the tripwire raising its hand: the headline is the one line the Tripwires row shows, and the trip **holds** — it keeps the tripwire's one-run slot and stays on the surface — until the user has seen it. `dismiss` settles an awaiting trip by hand and discards the arc it was holding.
 
-An awaiting trip is also resolved by the dash disappearing: joining or discarding it answers the question the tripwire asked. There is no timeout, on purpose — a question that evaporates overnight is a question nobody was asked.
+An awaiting trip is also resolved by the arc disappearing: joining or discarding it answers the question the tripwire asked. There is no timeout, on purpose — a question that evaporates overnight is a question nobody was asked.
 
 **Raising a hand posts once, and quiet posts nothing.** An awaiting resolution drops a single pointer post in the Overview naming the tripwire and its headline; a quiet one says nothing anywhere except in the trip log. There is no knob for this and no "post everything while I shake it down" mode — the log is where a tripwire under test is read.
 
 ## The scope rule
 
-**A tripwire never fires on the landing of its own dash.** The join that lands a tripwire's authored work is a landing like any other, and the tripwire that authored it is skipped for that landing by name — exactly, not heuristically, and the skip is written into the trip log so it is visible rather than mysterious. That plus **one live run per tripwire** — a tripwire with a trip running or awaiting is not evaluated, and the skip is a row saying `busy` — is the whole anti-loop defense.
+**A tripwire never fires on the landing of its own arc.** The join that lands a tripwire's authored work is a landing like any other, and the tripwire that authored it is skipped for that landing by name — exactly, not heuristically, and the skip is written into the trip log so it is visible rather than mysterious. That plus **one live run per tripwire** — a tripwire with a trip running or awaiting is not evaluated, and the skip is a row saying `busy` — is the whole anti-loop defense.
 
 So the scope is a decision about coverage, not a defense: it says which checkout's landings this tripwire watches. Say what a scope covers and what it does not, and let the user choose it. Never widen one to make something fire.
 
@@ -144,4 +144,4 @@ The **Tripwires card** shows the same things — the roster with each tripwire's
 
 ## What this skill does not do
 
-It does not join, land, merge, or resolve anything — a tripwire's authored work is the user's to accept or discard through the ordinary dash gestures. It does not author project configuration. It does not decide that a tripwire ought to exist: the user asked for one, or they did not.
+It does not join, land, merge, or resolve anything — a tripwire's authored work is the user's to accept or discard through the ordinary arc gestures. It does not author project configuration. It does not decide that a tripwire ought to exist: the user asked for one, or they did not.

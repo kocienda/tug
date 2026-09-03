@@ -72,9 +72,9 @@ export interface GitLogCommit {
   /** Committer date, strict ISO 8601 (`%cI`) — the complete timestamp the
    *  expanded row formats for display. */
   committer_date?: string;
-  /** The `Tug-Dash:` trailer value when the commit landed as a dash join —
+  /** The `Tug-Arc:` trailer value when the commit landed as an arc join —
    *  drives the History join badge ([P09]). */
-  tug_dash?: string;
+  tug_arc?: string;
   /** The `Tug-Session:` trailer value — the human citation, raw ([P10]).
    *  New-form commits carry `<tag> (<shortid8>)`; legacy commits carry
    *  `<display> (<full-uuid>)`, and both must render, since legacy commits
@@ -187,7 +187,7 @@ export function parseGitHeadSignal(payload: unknown): GitHeadSignal | null {
 /**
  * Format a log payload into the section's text blob, one line per commit in
  * wire order: `<sha9>  <date>  <author> — <subject>` (two-space column gaps, an
- * em-dash before the subject). No trailing newline; `""` for zero commits.
+ * em-arc before the subject). No trailing newline; `""` for zero commits.
  */
 export function formatGitLog(payload: GitLogPayload): string {
   return payload.commits

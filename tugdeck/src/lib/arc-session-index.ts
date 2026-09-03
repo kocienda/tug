@@ -1,23 +1,23 @@
 /**
- * dash-session-index — "what dash is this session on?", keyed by session.
+ * arc-session-index — "what arc is this session on?", keyed by session.
  *
- * Two reads answered a dash question before this one and neither fits an
- * identity surface. `cardSessionBindingStore.getBinding(cardId)?.dash` is
- * keyed by *card*; `DashChangesetEntry.bound_sessions` is keyed by *dash*. A
+ * Two reads answered an arc question before this one and neither fits an
+ * identity surface. `cardSessionBindingStore.getBinding(cardId)?.arc` is
+ * keyed by *card*; `ArcChangesetEntry.bound_sessions` is keyed by *arc*. A
  * session atom, a Overview citation, or a Cards card row holds a session id and
- * nothing else, so it needs the inverse: session → dash.
+ * nothing else, so it needs the inverse: session → arc.
  *
  * The inverse is derived, never stored ([D138]). The account-global
- * `CHANGESET_ALL` aggregate already carries every dash and its bound
+ * `CHANGESET_ALL` aggregate already carries every arc and its bound
  * sessions, so this module projects that snapshot into a map on read and
  * memoizes the result on snapshot identity — one build per snapshot, shared
  * by every reader. A bind or unbind moves the aggregate, the map rebuilds,
  * and every surface repaints at once.
  *
- * Both of the aggregate's dash lists are projected. A card can be bound to a
- * dash before its branch exists — the brief/devise/review half of a dash's
+ * Both of the aggregate's arc lists are projected. A card can be bound to a
+ * arc before its branch exists — the brief/devise/review half of an arc's
  * life — and a session whose binding only appeared once a worktree did would
- * have no dash to show for the half it spent planning.
+ * have no arc to show for the half it spent planning.
  */
 
 import { useMemo, useSyncExternalStore } from "react";
@@ -28,23 +28,23 @@ import {
   seatedSegmentForSession,
 } from "./card-session-binding-store";
 import type {
-  DashArcState,
-  DashChangesetEntry,
+  ArcRunState,
+  ArcChangesetEntry,
   WorkspacesChangesetSnapshot,
 } from "./changeset-types";
 import { documentArcAsEntry } from "./document-arc-entry";
 
-/** What one session's dash binding looks like to an identity surface. */
+/** What one session's arc binding looks like to an identity surface. */
 export interface ArcSessionFact {
-  /** The dash's owner key — unique per incarnation of a reused name. */
+  /** The arc's owner key — unique per incarnation of a reused name. */
   readonly ownerId: string;
-  /** The dash's display name. */
+  /** The arc's display name. */
   readonly name: string;
   /** Derived lifecycle stage, or null from a sender that sends none. */
   readonly stage: string | null;
-  /** The arc driving this dash, or null when none is — which is every dash
+  /** The run driving this arc, or null when none is — which is every arc
    *  somebody started by hand. Beside {@link stage}, never folded into it. */
-  readonly arc: DashArcState | null;
+  readonly arc: ArcRunState | null;
   /** `reviewed` | `stale` | `never-reviewed`, or null when unknown / no plan. */
   readonly review: string | null;
   /** The owning project's directory (`project_dir` from the snapshot). */
@@ -61,7 +61,7 @@ export interface ArcSessionFact {
   readonly runLength: number | null;
   /** What the current step *is* — the latest declaration's title, or null. */
   readonly stepTitle: string | null;
-  /** Whether the dash drives a plan at all — what makes a missing step loud. */
+  /** Whether the arc drives a plan at all — what makes a missing step loud. */
   readonly hasPlan: boolean;
   /**
    * The whole wire entry this fact was projected from.
@@ -70,15 +70,15 @@ export interface ArcSessionFact {
    * base, the join — reads the same object the row surfaces read rather
    * than a second projection that could disagree with this one. Reference
    * identity comes from the snapshot, so exposing it costs no stability: a
-   * beat that does not move this dash hands back the same entry.
+   * beat that does not move this arc hands back the same entry.
    */
-  readonly entry: DashChangesetEntry;
+  readonly entry: ArcChangesetEntry;
 }
 
 /**
- * Build the session → dash map from a snapshot. Pure; exported for tests.
+ * Build the session → arc map from a snapshot. Pure; exported for tests.
  *
- * A session is bound to at most one dash, so the first dash claiming a session
+ * A session is bound to at most one arc, so the first arc claiming a session
  * wins. "First" is snapshot order — projects in the order the aggregate lists
  * them, entries in the order the project lists them — which makes the tie
  * deterministic rather than merely arbitrary.
@@ -89,7 +89,7 @@ export function buildArcSessionIndex(
   const index = new Map<string, ArcSessionFact>();
   for (const project of snapshot.projects) {
     for (const entry of project.changesets) {
-      if (entry.kind !== "dash") continue;
+      if (entry.kind !== "arc") continue;
       const sessions = entry.bound_sessions ?? [];
       if (sessions.length === 0) continue;
       const fact: ArcSessionFact = {
@@ -112,28 +112,28 @@ export function buildArcSessionIndex(
         index.set(sessionId, fact);
       }
     }
-    // The documents-only dashes of the same project, after its live entries so
+    // The documents-only arcs of the same project, after its live entries so
     // the first-claim rule keeps the live reading for a session that somehow
-    // appears on both. `stepTotal` is the one counter a branchless dash really
+    // appears on both. `stepTotal` is the one counter a branchless arc really
     // has; the run counters are positions within a declared run, which it has
     // none of.
-    for (const dash of project.document_arcs ?? []) {
-      const sessions = dash.bound_sessions ?? [];
+    for (const arc of project.document_arcs ?? []) {
+      const sessions = arc.bound_sessions ?? [];
       if (sessions.length === 0) continue;
       const fact: ArcSessionFact = {
-        ownerId: dash.owner_id,
-        name: dash.display_name,
+        ownerId: arc.owner_id,
+        name: arc.display_name,
         stage: null,
-        arc: dash.arc ?? null,
-        review: dash.review ?? null,
+        arc: arc.arc ?? null,
+        review: arc.review ?? null,
         projectDir: project.project_dir,
         stepCurrent: null,
-        stepTotal: dash.step_total,
+        stepTotal: arc.step_total,
         runPosition: null,
         runLength: null,
         stepTitle: null,
-        hasPlan: dash.documents.plan !== undefined,
-        entry: documentArcAsEntry(dash),
+        hasPlan: arc.documents.plan !== undefined,
+        entry: documentArcAsEntry(arc),
       };
       for (const sessionId of sessions) {
         if (index.has(sessionId)) continue;
@@ -165,7 +165,7 @@ export function arcSessionIndex(
 }
 
 /**
- * The dash a session is working on, or null.
+ * The arc a session is working on, or null.
  *
  * **Asked of the segment, answered for the line** ([P01]/[P02]). The
  * aggregate's `bound_sessions` names whichever segment holds the binding right
@@ -177,7 +177,7 @@ export function arcSessionIndex(
  * walks segment → card → the card's announced seat and asks again, which is
  * `cardIdForSession`'s walk followed by the seat that walk's card wears.
  *
- * That the incident blanked the masthead sigil and the Z2 DASH cell together
+ * That the incident blanked the masthead sigil and the Z2 ARC cell together
  * is this one lookup failing twice: both are `useArcForSession` over an id the
  * rotation had left behind (`notes/wheel-rotation-strands-the-arc.md`).
  */
@@ -195,9 +195,9 @@ export function arcForSession(
 }
 
 /**
- * React hook: the dash a session is working on, read from the account-global
+ * React hook: the arc a session is working on, read from the account-global
  * aggregate ([L02]). The fact is reference-stable across beats that do not
- * touch this session's dash, so a subscriber repaints only when its own
+ * touch this session's arc, so a subscriber repaints only when its own
  * binding moves.
  */
 export function useArcForSession(

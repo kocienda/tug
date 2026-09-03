@@ -1188,12 +1188,12 @@ export function initActionDispatch(
       project_dir: projectDirResolved,
       session_mode: sessionModeResolved,
     });
-    // The dash this session is working on rides the ack beside
-    // `workspace_key`, and the server has already nulled it when the dash's
+    // The arc this session is working on rides the ack beside
+    // `workspace_key`, and the server has already nulled it when the arc's
     // branch is gone — so an absent pair is simply "not mated".
-    const ackDashId = typeof payload.dash_id === "string" ? payload.dash_id : null;
-    const ackDashName =
-      typeof payload.dash_name === "string" ? payload.dash_name : null;
+    const ackArcId = typeof payload.arc_id === "string" ? payload.arc_id : null;
+    const ackArcName =
+      typeof payload.arc_name === "string" ? payload.arc_name : null;
     // The line the ledger settled this card on ([P03]). A fresh spawn sent one
     // and gets it back verbatim; a resume learns the binding's. The store is
     // seeded first so every identity write below — and every later frame that
@@ -1209,9 +1209,9 @@ export function initActionDispatch(
       workspaceKey,
       projectDir: projectDirResolved,
       sessionMode: sessionModeResolved,
-      dash:
-        ackDashId && ackDashName
-          ? { id: ackDashId, name: ackDashName }
+      arc:
+        ackArcId && ackArcName
+          ? { id: ackArcId, name: ackArcName }
           : undefined,
     });
     // Seed the chip's name/tag caches straight off the bind ack so a bound
@@ -1239,11 +1239,11 @@ export function initActionDispatch(
     sessionPrivateStore.setPrivate(tugSessionId, payload.private === true);
   });
 
-  // bind_dash_ok / unbind_dash_ok: a session's dash mating changed while the
-  // card is open — a skill running `tugtool arc bind`, the `dash bind` that
-  // follows a `dash create`, or the rotation seat carrying a mid-arc binding
+  // bind_arc_ok / unbind_arc_ok: a session's arc mating changed while the
+  // card is open — a skill running `tugtool arc bind`, the `arc bind` that
+  // follows a `arc create`, or the rotation seat carrying a mid-arc binding
   // onto a freshly minted segment. The store's record already exists (the
-  // spawn ack made it), so this merges the dash half in rather than replacing
+  // spawn ack made it), so this merges the arc half in rather than replacing
   // it: a `setBinding` here would clobber the `workspaceKey` the pane's feed
   // filter is built from.
   //
@@ -1259,16 +1259,16 @@ export function initActionDispatch(
   // "unbound" for the rest of its arc and no gesture from inside that session
   // can repair it, so a silent `return` here spends a real failure on nothing
   // (`notes/wheel-rotation-strands-the-arc.md`).
-  registerAction("bind_dash_ok", (payload) => {
+  registerAction("bind_arc_ok", (payload) => {
     const sessionId = payload.tug_session_id;
-    const dashId = payload.dash_id;
-    const dashName = payload.dash_name;
+    const arcId = payload.arc_id;
+    const arcName = payload.arc_name;
     if (
       typeof sessionId !== "string" ||
-      typeof dashId !== "string" ||
-      typeof dashName !== "string"
+      typeof arcId !== "string" ||
+      typeof arcName !== "string"
     ) {
-      console.warn("bind_dash_ok: missing or invalid field", payload);
+      console.warn("bind_arc_ok: missing or invalid field", payload);
       return;
     }
     // Pre-routing servers send neither field; absent is not a shape error.
@@ -1294,23 +1294,23 @@ export function initActionDispatch(
       cardIdForSession(sessionId);
     if (cardId === null) {
       console.warn(
-        "bind_dash_ok: no card holds this session; the dash chip will not paint",
+        "bind_arc_ok: no card holds this session; the arc chip will not paint",
         payload,
       );
       return;
     }
-    cardSessionBindingStore.setDashBinding(cardId, {
-      id: dashId,
-      name: dashName,
+    cardSessionBindingStore.setArcBinding(cardId, {
+      id: arcId,
+      name: arcName,
     });
   });
 
-  // bind_dash_err: the mating did not happen. Nothing optimistic was raised —
-  // the chip and the lane both wait for `bind_dash_ok` — so a refusal has
+  // bind_arc_err: the mating did not happen. Nothing optimistic was raised —
+  // the chip and the lane both wait for `bind_arc_ok` — so a refusal has
   // nothing to put back and would otherwise land in silence. Park it for the
   // card's `ArcBindErrorNoticeController` to surface as a bulletin.
-  registerAction("bind_dash_err", (payload) => {
-    console.warn("bind_dash failed", payload);
+  registerAction("bind_arc_err", (payload) => {
+    console.warn("bind_arc failed", payload);
     const sessionId = payload.tug_session_id;
     if (typeof sessionId !== "string" || sessionId.length === 0) return;
     arcBindErrorStore.fail(
@@ -1319,18 +1319,18 @@ export function initActionDispatch(
     );
   });
 
-  registerAction("unbind_dash_ok", (payload) => {
+  registerAction("unbind_arc_ok", (payload) => {
     const sessionId = payload.tug_session_id;
     if (typeof sessionId !== "string") return;
     const cardId = cardIdForSession(sessionId);
     if (cardId === null) {
       console.warn(
-        "unbind_dash_ok: no card holds this session; the dash chip will not clear",
+        "unbind_arc_ok: no card holds this session; the arc chip will not clear",
         payload,
       );
       return;
     }
-    cardSessionBindingStore.setDashBinding(cardId, null);
+    cardSessionBindingStore.setArcBinding(cardId, null);
   });
 
   // session_updated: tugcast supervisor broadcasts these on every
@@ -1653,7 +1653,7 @@ export function initActionDispatch(
       console.warn("session_line_seated: missing or invalid fields", payload);
       return;
     }
-    // Recorded whether or not a card holds it, exactly as `bind_dash_ok` does:
+    // Recorded whether or not a card holds it, exactly as `bind_arc_ok` does:
     // every later frame naming this segment resolves for free afterwards.
     sessionLineStore.seat(sessionId, lineId);
     cardSessionBindingStore.setSeatedSegment(cardId, sessionId, lineId);

@@ -45,6 +45,7 @@ export const DEFAULT_MODEL_SELECTOR = "default";
  * a review runs on whatever the user has selected, and choosing it is their act.
  */
 // The domain string stays `dev.dash-review-last` for the reason `ARCS_CARD_ID`
-// stays `"dashes"`: it is a tugbank persistence key, and renaming it would
-// orphan every card's stored value. State, not vocabulary.
+// stays `"dashes"`: it is a tugbank persistence key, and the work grammar's
+// read-for-life rule holds it — renaming it would orphan every card's stored
+// value. State, not vocabulary. See `tuglaws/work-grammar.md`.
 export const PLAN_REVIEW_LAST_DOMAIN = "dev.dash-review-last";

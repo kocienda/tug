@@ -5,7 +5,7 @@
 # keychain.
 #
 # Under the multi-instance signing model (see [D11] in
-# dash/tug-multi-instance.md), every Tug build signs with the
+# the multi-instance design record), every Tug build signs with the
 # user's Apple Developer ID Application certificate. The cert has a
 # designated requirement that is stable across rebuilds — so TCC
 # Accessibility grants persist instead of being invalidated on every

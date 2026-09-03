@@ -46,7 +46,7 @@ const PROJECT_DIR = "/Users/tester/src/tugtool";
 const COMPOSER = '[data-card-id="A"] [data-slot="tug-text-editor"] .cm-content';
 
 /** The pasted run: a local slash command followed by ordinary argument text. */
-const ARGUMENT = "Formalize the dash paperwork formats.";
+const ARGUMENT = "Formalize the arc paperwork formats.";
 const PASTED = `/commit ${ARGUMENT}`;
 
 /** What a Tug copy of that prose puts on the pasteboard: text + provenance. */

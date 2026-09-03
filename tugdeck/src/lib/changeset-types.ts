@@ -18,11 +18,11 @@
 export interface ChangesetFile {
   /** Path relative to the repository root. */
   path: string;
-  /** Porcelain-v2 XY status (working tree) or name-status letter (dash). */
+  /** Porcelain-v2 XY status (working tree) or name-status letter (arc). */
   git_status: string;
   /** Attribution operation: write | edit | notebook | created | modified | deleted | renamed. */
   op: string;
-  /** Attribution origin: exact | bash | turn | replay | dash. */
+  /** Attribution origin: exact | bash | turn | replay | arc. */
   origin: string;
   /** True when more than one changeset owns this file **and** their claimed
    *  regions overlap ([P12]). Two sessions editing disjoint parts of one file
@@ -39,7 +39,7 @@ export interface ChangesetFile {
   /** Who else is claiming this file, when `shared` ([P06]). Absent on
    *  non-shared files and from pre-plan servers. */
   shared_with?: SharedOwner[];
-  /** Lines added over the dash's `base...branch` range. Only a dash row
+  /** Lines added over the arc's `base...branch` range. Only an arc row
    *  carries it; absent for a binary file and from older servers. */
   added?: number;
   /** Lines deleted, on the same terms. */
@@ -135,7 +135,7 @@ export interface SessionChangesetEntry {
 }
 
 /**
- * One row of a dash's plan ledger — the step list a surface renders.
+ * One row of an arc's plan ledger — the step list a surface renders.
  *
  * Two fields on purpose. The ledger row on disk also carries an anchor and a
  * commit cell; both belong to the Changes shade rather than to a placard, and a
@@ -161,15 +161,15 @@ export function isArcStep(value: unknown): value is ArcStep {
 }
 
 /**
- * What a server-driven arc is doing on one dash, when one is running it.
+ * What a server-driven arc is doing on one arc, when one is running it.
  *
- * Absent for every hand-driven dash — which is most of them — and from a
- * server that predates arcs. Read **beside** {@link DashChangesetEntry.stage},
- * never instead of it: `stage` says what the dash is doing in git, this says
+ * Absent for every hand-driven arc — which is most of them — and from a
+ * server that predates arcs. Read **beside** {@link ArcChangesetEntry.stage},
+ * never instead of it: `stage` says what the arc is doing in git, this says
  * which stage of the arc is driving it, and a stopped arc is precisely the
  * state where both have to be sayable at once.
  */
-export interface DashArcState {
+export interface ArcRunState {
   /** The stage last rotated: `devise` | `review` | `implement` | `audit`. */
   stage?: string;
   /** Why the arc stopped, when it did. Cleared by the next rotation, because
@@ -185,12 +185,12 @@ export interface DashArcState {
   note?: string;
 }
 
-/** A dash worktree branch and its accumulated base..branch changes. */
-export interface DashChangesetEntry {
-  kind: "dash";
+/** An arc worktree branch and its accumulated base..branch changes. */
+export interface ArcChangesetEntry {
+  kind: "arc";
   /**
-   * The dash's **owner key** and its identity: `tugdash/<name>#<tugid>`, or
-   * the bare branch ref for a dash created before ids existed.
+   * The arc's **owner key** and its identity: `tugarc/<name>#<tugid>`, or
+   * the bare branch ref for an arc created before ids existed.
    *
    * Opaque — never a git ref, never displayed. Draft rows, session bindings,
    * and this entry's `(workspace_key, owner_kind, owner_id)` draft-overlay key
@@ -198,23 +198,23 @@ export interface DashChangesetEntry {
    * ref reads `branch`.
    */
   owner_id: string;
-  /** The dash's short name (branch name without the `tugdash/` prefix). */
+  /** The arc's short name (branch name without the `tugarc/` prefix). */
   display_name: string;
-  /** The dash branch ref name (e.g. `tugdash/fix-join`). Absent from an older
-   *  sender, where `tugdash/${display_name}` is the fallback. */
+  /** The arc branch ref name (e.g. `tugarc/fix-join`). Absent from an older
+   *  sender, where `tugarc/${display_name}` is the fallback. */
   branch?: string;
   /** Derived lifecycle stage: `created` | `working` | `draft-ready` |
    *  `landing`. */
   stage?: string;
-  /** The arc driving this dash, when one is — see {@link DashArcState}. */
-  arc?: DashArcState;
-  /** Live sessions mated to this dash. Empty is how *unbound* reads. */
+  /** The run driving this arc, when one is — see {@link ArcRunState}. */
+  arc?: ArcRunState;
+  /** Live sessions mated to this arc. Empty is how *unbound* reads. */
   bound_sessions?: string[];
   /**
-   * Whether any session holding this dash is still working — mid-turn, or
+   * Whether any session holding this arc is still working — mid-turn, or
    * waiting on a background job it launched (a test sweep, an agent).
    *
-   * Read beside `stage`, never folded into it. A dash whose last step is
+   * Read beside `stage`, never folded into it. An arc whose last step is
    * committed on a clean worktree genuinely reads `ready` by its own git
    * facts; this says whether the session that built it has actually stopped.
    * Every surface that offers a join holds it shut while this is true, so a
@@ -235,68 +235,68 @@ export interface DashChangesetEntry {
   run_length?: number;
   /** What `step_current` *is* — the latest `step-start` declaration's title. */
   step_title?: string;
-  /** When the dash was last touched — the newest dash-log line's timestamp for
-   *  its current generation, as an ISO-8601 UTC instant. Absent for a dash
+  /** When the arc was last touched — the newest arc-log line's timestamp for
+   *  its current generation, as an ISO-8601 UTC instant. Absent for an arc
    *  whose generation has logged nothing, which for one created before
    *  creation wrote a birth record is the ordinary case; a surface shows no
    *  age rather than guessing one. */
   last_activity?: string;
-  /** Which of this dash's documents exist, as **absolute** paths. The server
+  /** Which of this arc's documents exist, as **absolute** paths. The server
    *  resolves them where the main repository root is known and hands them over
-   *  whole; nothing here composes a path. Absent when the dash has neither. */
-  documents?: DashDocuments;
+   *  whole; nothing here composes a path. Absent when the arc has neither. */
+  documents?: ArcDocuments;
   /** What that plan's Review Record says about the document on disk now — one
    *  of `reviewed` | `stale` | `never-reviewed`, the same spellings
-   *  `tugtool plan status` reports. Absent when the dash records no plan, or
+   *  `tugtool plan status` reports. Absent when the arc records no plan, or
    *  when the file cannot be read or parsed: absence means *nothing to say*,
    *  and a surface paints nothing for it. */
   review?: string;
   /** True when that plan is a **task list** — the steps and the ledger and
    *  nothing else — rather than a document devised against the skeleton. A
-   *  dash worked directly writes one for itself before its first round, and
+   *  arc worked directly writes one for itself before its first round, and
    *  the two documents are otherwise identical here, so this is what tells
-   *  the faces which phases the dash actually has. Absent means false. */
+   *  the faces which phases the arc actually has. Absent means false. */
   task_list?: boolean;
   /** That plan's ledger, in source order — one entry per declared step.
    *
    *  The counters above say *where* the run is; this says what the walk *is*,
    *  and it is the only source for that. Read off the same parse `review` comes
-   *  from, so a dash's fraction and its step list cannot come from two readings
-   *  of two different bytes. Absent when the dash records no plan, or when the
+   *  from, so an arc's fraction and its step list cannot come from two readings
+   *  of two different bytes. Absent when the arc records no plan, or when the
    *  file cannot be read or parsed — the same silence `review` keeps. */
   steps?: ArcStep[];
-  /** The base branch the dash was created from. */
+  /** The base branch the arc was created from. */
   base: string;
-  /** Number of commits on the dash branch past its base. */
+  /** Number of commits on the arc branch past its base. */
   rounds: number;
-  /** The dash worktree's **absolute** path, resolved on the server against the
+  /** The arc worktree's **absolute** path, resolved on the server against the
    *  main repository root — which is not necessarily this card's project root,
    *  since a project directory may itself be a linked worktree. Never compose
    *  it with `projectDir`; use it as it arrives. */
   worktree: string;
-  /** True when the dash worktree has uncommitted changes. */
+  /** True when the arc worktree has uncommitted changes. */
   worktree_dirty: boolean;
   files: ChangesetFile[];
   /** Round commit subjects, newest first — the lane's expanded row lists them. */
   round_subjects?: string[];
-  /** The maintained draft — the dash's eventual join message ([P23]). */
+  /** The maintained draft — the arc's eventual join message ([P23]). */
   draft?: ChangesetDraft;
-  /** Commits the base branch has gained past this dash's merge-base. Absent
-   *  means the dash already contains the base tip. */
+  /** Commits the base branch has gained past this arc's merge-base. Absent
+   *  means the arc already contains the base tip. */
   base_ahead?: number;
-  /** Base-checkout uncommitted paths this dash also changes — the landing's
+  /** Base-checkout uncommitted paths this arc also changes — the landing's
    *  `base-dirt` refusal, said the moment it becomes true. */
   base_overlap?: string[];
-  /** Where this dash's rounds went the last time its base moved under it. */
+  /** Where this arc's rounds went the last time its base moved under it. */
   last_replay?: string;
   /** What the last green verify said about the tree a join would land: the
    *  head, the base it was verified onto, and whether both still stand.
-   *  Absent when nothing has verified this dash. It says; it gates nothing. */
+   *  Absent when nothing has verified this arc. It says; it gates nothing. */
   fit?: { head: string; base: string; current: boolean };
   /** Paths the last replay attempt stopped on, when it conflicted. */
   replay_conflict_paths?: string[];
   /**
-   * The join pipeline's entire durable state for this dash.
+   * The join pipeline's entire durable state for this arc.
    *
    * This is the join's single source of truth. The client keeps no durable
    * copy of any of it — what remains client-side is the in-flight resolve's
@@ -334,21 +334,21 @@ export interface ArcJoinRemedyWire {
 }
 
 /** One base commit behind a conflicted path. */
-export interface DashConflictCommitWire {
+export interface ArcConflictCommitWire {
   sha: string;
   subject: string;
 }
 
 /** What the base did to one conflicted path since the two sides parted. */
-export interface DashConflictHistoryWire {
+export interface ArcConflictHistoryWire {
   path: string;
-  commits?: DashConflictCommitWire[];
+  commits?: ArcConflictCommitWire[];
   /** How many commits touched it in total — more than `commits` when capped. */
   total: number;
 }
 
 /** One file the resolution ladder resolved, as the review panel reads it. */
-export interface DashResolvedFileWire {
+export interface ArcResolvedFileWire {
   path: string;
   /**
    * Which rung decided it: `replay` | `rerere` | `merge-file` | `driver` |
@@ -367,10 +367,10 @@ export interface DashResolvedFileWire {
 }
 
 /**
- * The join pipeline's server-owned state for one dash.
+ * The join pipeline's server-owned state for one arc.
  *
  * Every field is computed fresh server-side on each recompute; nothing here is
- * a client-held accumulation, which is what makes two cards on one dash, a
+ * a client-held accumulation, which is what makes two cards on one arc, a
  * reloaded deck, and a relaunched app agree by construction.
  */
 export interface ArcJoinStateWire {
@@ -381,15 +381,15 @@ export interface ArcJoinStateWire {
   /** Conflicted paths from the in-memory merge probe. */
   conflicts?: string[];
   /** What the base did to each conflicted path. */
-  archaeology?: DashConflictHistoryWire[];
+  archaeology?: ArcConflictHistoryWire[];
   /**
    * The resolved candidate commit, present only while it still verifies
-   * against the current base and dash heads. Present means `phase` is
+   * against the current base and arc heads. Present means `phase` is
    * `resolved`.
    */
   candidate?: string;
   /** The ladder's per-file results, for the review panel. */
-  resolved?: DashResolvedFileWire[];
+  resolved?: ArcResolvedFileWire[];
   /** Whether the user has read what the ladder decided **for this candidate**. */
   reviewed?: boolean;
   /**
@@ -416,7 +416,7 @@ export interface ArcJoinStateWire {
    */
   question?: ArcJoinQuestionWire;
   /**
-   * What is running on this dash right now — `resolve` or `verify` — absent
+   * What is running on this arc right now — `resolve` or `verify` — absent
    * when nothing is.
    *
    * The one join fact that is not durable: occupancy is the server's
@@ -425,32 +425,32 @@ export interface ArcJoinStateWire {
    */
   run?: string;
   /**
-   * The join this dash is ready for, standing until it is taken or the work
+   * The join this arc is ready for, standing until it is taken or the work
    * moves on.
    *
    * Raised once the machine's work is done and a candidate stands. Absent is
-   * the ordinary case — a dash still being worked, and one with nothing
+   * the ordinary case — an arc still being worked, and one with nothing
    * reconciled yet.
    */
   offer?: ArcJoinOfferWire;
 }
 
 /**
- * The join a dash is ready for, as a fact rather than an ask.
+ * The join an arc is ready for, as a fact rather than an ask.
  *
  * The decision surface is the Changes shade, so this carries what the shade
  * shows and what summons it — nothing that belongs to a dialog.
  */
 export interface ArcJoinOfferWire {
   /**
-   * `<dash>:<base_sha>:<dash_head>` — stable across recomputes, and different
+   * `<arc>:<base_sha>:<arc_head>` — stable across recomputes, and different
    * the moment any of those three facts moves. A surface reveals itself once
    * per id, so stability is what keeps it from re-revealing on every recompute
    * and motion is what makes new work summon it again.
    */
   request_id: string;
   base_sha: string;
-  dash_head: string;
+  arc_head: string;
   /**
    * The message this join would land with, composed server-side by the same
    * code the landing itself uses, so the preview cannot drift from the act.
@@ -502,7 +502,7 @@ export interface ArcJoinReportQuestionWire {
   answer?: string;
 }
 
-export type ChangesetEntry = SessionChangesetEntry | DashChangesetEntry;
+export type ChangesetEntry = SessionChangesetEntry | ArcChangesetEntry;
 
 /** The workspace-scoped changeset snapshot (CHANGESET feed, 0x23). */
 export interface ChangesetSnapshot {
@@ -518,7 +518,7 @@ export interface ChangesetSnapshot {
   head_sha: string;
   /** Subject line of HEAD commit. */
   head_message: string;
-  /** One entry per owner (session or dash) with attributed files. */
+  /** One entry per owner (session or arc) with attributed files. */
   changesets: ChangesetEntry[];
   /** Dirty files no owner claims. */
   unattributed: UnattributedFile[];
@@ -576,9 +576,9 @@ function isOptionalStringArray(value: unknown): value is string[] | undefined {
  * — the common case, since the wire skips empty collections — passes, and so
  * does an older server that sends none at all.
  */
-function isOptionalDashArcState(
+function isOptionalArcRunState(
   value: unknown,
-): value is DashArcState | undefined {
+): value is ArcRunState | undefined {
   if (value === undefined) return true;
   if (!isRecord(value)) return false;
   if (value.stage !== undefined && typeof value.stage !== "string")
@@ -597,7 +597,7 @@ function isOptionalDashArcState(
 
 /** The fit fact, whose three fields travel together or not at all — a head
  *  without the base it was verified onto cannot name a tree. */
-function isOptionalDashFit(
+function isOptionalArcFit(
   value: unknown,
 ): value is { head: string; base: string; current: boolean } | undefined {
   if (value === undefined) return true;
@@ -762,7 +762,7 @@ export function isChangesetEntry(value: unknown): value is ChangesetEntry {
         typeof value.line_id === "string")
     );
   }
-  if (value.kind === "dash") {
+  if (value.kind === "arc") {
     // The added fields are all optional, so an entry from a sender that
     // predates them still passes.
     return (
@@ -773,7 +773,7 @@ export function isChangesetEntry(value: unknown): value is ChangesetEntry {
       isOptionalStringArray(value.round_subjects) &&
       (value.branch === undefined || typeof value.branch === "string") &&
       (value.stage === undefined || typeof value.stage === "string") &&
-      isOptionalDashArcState(value.arc) &&
+      isOptionalArcRunState(value.arc) &&
       isOptionalStringArray(value.bound_sessions) &&
       (value.holders_busy === undefined ||
         typeof value.holders_busy === "boolean") &&
@@ -789,7 +789,7 @@ export function isChangesetEntry(value: unknown): value is ChangesetEntry {
         typeof value.step_title === "string") &&
       (value.last_activity === undefined ||
         typeof value.last_activity === "string") &&
-      isOptionalDashDocuments(value.documents) &&
+      isOptionalArcDocuments(value.documents) &&
       (value.steps === undefined ||
         (Array.isArray(value.steps) && value.steps.every(isArcStep))) &&
       (value.base_ahead === undefined ||
@@ -797,7 +797,7 @@ export function isChangesetEntry(value: unknown): value is ChangesetEntry {
       isOptionalStringArray(value.base_overlap) &&
       (value.last_replay === undefined ||
         typeof value.last_replay === "string") &&
-      isOptionalDashFit(value.fit) &&
+      isOptionalArcFit(value.fit) &&
       isOptionalStringArray(value.replay_conflict_paths) &&
       isOptionalArcJoinState(value.join)
     );
@@ -843,19 +843,19 @@ export interface ProjectChangeset extends ChangesetSnapshot {
   /** The maintained draft for this project's unattributed bucket (Spec S10). */
   unattributed_draft?: ChangesetDraft;
   /**
-   * Dashes that exist only as documents — a `.tug/arcs/<name>/` with no
+   * Arcs that exist only as documents — a `.tug/arcs/<name>/` with no
    * branch yet — sorted by name. Absent when there are none.
    */
   document_arcs?: DocumentArcEntry[];
 }
 
 /**
- * Which of a dash's documents exist, with the first heading of each.
+ * Which of an arc's documents exist, with the first heading of each.
  *
  * Absolute paths. The title rides along because the deck has no filesystem: a
  * surface that wants to name a document cannot open it to find out.
  */
-export interface DashDocuments {
+export interface ArcDocuments {
   /** Absolute path of `brief.md`, when it exists. */
   brief?: string;
   /** Its first heading's text. */
@@ -864,13 +864,13 @@ export interface DashDocuments {
   plan?: string;
   /** Its first heading's text. */
   plan_title?: string;
-  /** Absolute path of `tasks.md` — the `/dash` door's task list — when it exists. */
+  /** Absolute path of `tasks.md` — the `/arc` door's task list — when it exists. */
   tasks?: string;
   /** Its first heading's text. */
   tasks_title?: string;
 }
 
-export function isDashDocuments(value: unknown): value is DashDocuments {
+export function isArcDocuments(value: unknown): value is ArcDocuments {
   return (
     isRecord(value) &&
     (value.brief === undefined || typeof value.brief === "string") &&
@@ -883,25 +883,25 @@ export function isDashDocuments(value: unknown): value is DashDocuments {
   );
 }
 
-function isOptionalDashDocuments(value: unknown): boolean {
-  return value === undefined || isDashDocuments(value);
+function isOptionalArcDocuments(value: unknown): boolean {
+  return value === undefined || isArcDocuments(value);
 }
 
 /**
- * A dash that exists only as documents: a `.tug/arcs/<name>/` with no
- * `tugdash/<name>` branch yet — the planning phase in flight.
+ * An arc that exists only as documents: a `.tug/arcs/<name>/` with no
+ * `tugarc/<name>` branch yet — the planning phase in flight.
  *
- * Deliberately not a `DashChangesetEntry`: that carries a worktree, a base,
- * rounds, and files, none of which a branchless dash has. Creating the dash
+ * Deliberately not an `ArcChangesetEntry`: that carries a worktree, a base,
+ * rounds, and files, none of which a branchless arc has. Creating the arc
  * turns this row into a live one rather than adding a second.
  */
 export interface DocumentArcEntry {
-  /** The dash's owner key — the same identity a live dash wears. */
+  /** The arc's owner key — the same identity a live arc wears. */
   owner_id: string;
-  /** The dash name, which is also its display identity. */
+  /** The arc name, which is also its display identity. */
   display_name: string;
   /** The documents themselves. Never empty. */
-  documents: DashDocuments;
+  documents: ArcDocuments;
   /** `reviewed` | `stale` | `never-reviewed` for the plan, when there is one. */
   review?: string;
   /** True when that plan is a task list rather than a devised document — the
@@ -917,9 +917,9 @@ export interface DocumentArcEntry {
    * finished has begun, and Resume is what it wants.
    */
   steps_begun: number;
-  /** The arc driving this dash, when one is open. */
-  arc?: DashArcState;
-  /** Sessions bound to this dash. */
+  /** The run driving this arc, when one is open. */
+  arc?: ArcRunState;
+  /** Sessions bound to this arc. */
   bound_sessions?: string[];
 }
 
@@ -930,7 +930,7 @@ export function isDocumentArcEntry(
     isRecord(value) &&
     typeof value.owner_id === "string" &&
     typeof value.display_name === "string" &&
-    isDashDocuments(value.documents) &&
+    isArcDocuments(value.documents) &&
     (value.review === undefined || typeof value.review === "string") &&
     typeof value.step_total === "number" &&
     typeof value.steps_done === "number" &&

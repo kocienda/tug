@@ -113,9 +113,9 @@
   color: var(--tug7-element-global-text-normal-muted-rest);
 }
 
-/* The two marks a commit's subject can carry: the dash atom naming the dash it
+/* The two marks a commit's subject can carry: the arc atom naming the arc it
    joined from ([P09]), and the citation chip naming the session that made it
-   ([P10]). Each brings its own shape, its own ink and — for the dash — its own
+   ([P10]). Each brings its own shape, its own ink and — for the arc — its own
    `^` sigil, the same mark the Cards card and the Session card show; nothing here may
    restate any of them ([L20]). Both get a seat and nothing else.
 

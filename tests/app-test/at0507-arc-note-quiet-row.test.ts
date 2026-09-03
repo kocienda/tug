@@ -1,9 +1,9 @@
 /**
- * at0507-dash-note-quiet-row.test.ts — a dash gesture's derived line renders
+ * at0507-arc-note-quiet-row.test.ts — an arc gesture's derived line renders
  * as a quiet line, not as an exchange entry.
  *
- * The dash-note rows ([P12]) are `$`-route exchanges the server derives from
- * the dash-log — nobody typed them and no process ran. Their first
+ * The arc-note rows ([P12]) are `$`-route exchanges the server derives from
+ * the arc log — nobody typed them and no process ran. Their first
  * fully-instrumented run rendered each one as a full transcript entry: a
  * `Wheel` participant header with timestamp • cwd, a `#s{n}` address, a
  * command block, and an output panel — three stacked exchange blocks
@@ -13,20 +13,20 @@
  *
  * Assertions, in the order the two seats are exercised:
  *
- *  1. **Between turns** (the restore path's shape): a dash-note exchange
+ *  1. **Between turns** (the restore path's shape): an arc-note exchange
  *     paints the quiet row (`session-transcript-quiet-row`) carrying the
  *     sentence, with none of the entry scaffolding (no participant header,
  *     no address badge, no exit end-state); an ordinary shell exchange
  *     beside it keeps its full entry row.
- *  2. **Inside the open turn** (the live path): a `dashNote` delivered while
- *     a turn is streaming seats as a `source: "dash"` system_note IN that
- *     turn — the `dash-note` quiet line renders within the turn's transcript
+ *  2. **Inside the open turn** (the live path): an `arcNote` delivered while
+ *     a turn is streaming seats as a `source: "arc"` system_note IN that
+ *     turn — the `arc-note` quiet line renders within the turn's transcript
  *     entry, between the work it narrates and the turn's end, and no new
  *     between-turns quiet row appears. This is what makes an arc read as
  *     one conversation instead of a pile of misfiled rows.
  *  3. **After the turn commits** (the relaunch order): the same gesture
  *     re-arriving as a shell-ledger row whose wall-clock falls inside a
- *     committed turn's span is ABSORBED into that turn (`absorbDashNotes`)
+ *     committed turn's span is ABSORBED into that turn (`absorbArcNotes`)
  *     rather than seated as a row of its own — a reopened session reads
  *     exactly as the live one did. The live seat from (2) survives the
  *     turn's commit, and the ledger replay of that same note (same
@@ -64,7 +64,7 @@ let projectDir = "";
 
 beforeAll(() => {
   if (!SHOULD_RUN) return;
-  projectDir = mkdtempSync(join(tmpdir(), "at0507-dash-note-"));
+  projectDir = mkdtempSync(join(tmpdir(), "at0507-arc-note-"));
 });
 afterAll(() => {
   if (projectDir !== "" && existsSync(projectDir)) {
@@ -91,11 +91,11 @@ function deckShape() {
   };
 }
 
-describe.skipIf(!SHOULD_RUN)("AT0507: a dash-note row is a quiet line, not an entry", () => {
+describe.skipIf(!SHOULD_RUN)("AT0507: an arc-note row is a quiet line, not an entry", () => {
   test(
     "the derived gesture paints one sentence; a real exchange keeps its entry",
     async () => {
-      const app = await launchTugApp({ testName: "at0507-dash-note-quiet-row" });
+      const app = await launchTugApp({ testName: "at0507-arc-note-quiet-row" });
       try {
         await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
         await app.waitForCondition<boolean>(
@@ -121,12 +121,12 @@ describe.skipIf(!SHOULD_RUN)("AT0507: a dash-note row is a quiet line, not an en
           startedAtMs: 1_700_000_000_000,
         });
 
-        // The derived gesture: the synthetic `dash` head is the tell, the
-        // sentence is the output — exactly what `record_dash_note` writes.
+        // The derived gesture: the synthetic `arc` head is the tell, the
+        // sentence is the output — exactly what `record_arc_note` writes.
         await app.driveSession("A", {
           op: "shellExchange",
           exchangeId: "note-1",
-          command: "dash step demo start",
+          command: "arc step demo start",
           output: SENTENCE,
           cwd: projectDir,
           exitCode: 0,
@@ -168,18 +168,18 @@ describe.skipIf(!SHOULD_RUN)("AT0507: a dash-note row is a quiet line, not an en
 
         // ---- seat 2: a live note lands INSIDE the streaming turn ----
         // Open a turn (no backend answers, so it stays open), then deliver
-        // a live dash note the way the verb store would.
+        // a live arc note the way the verb store would.
         await app.driveSession("A", { op: "send", text: "work the step" });
         await app.driveSession("A", {
-          op: "dashNote",
+          op: "arcNote",
           exchangeId: "live-note-1",
-          command: "dash step demo done",
+          command: "arc step demo done",
           text: MID_TURN_SENTENCE,
           cwd: projectDir,
         });
 
         await app.waitForCondition<boolean>(
-          `document.querySelectorAll('${CARD} [data-slot="dash-note"]').length === 1`,
+          `document.querySelectorAll('${CARD} [data-slot="arc-note"]').length === 1`,
           { timeoutMs: 20_000 },
         );
 
@@ -188,7 +188,7 @@ describe.skipIf(!SHOULD_RUN)("AT0507: a dash-note row is a quiet line, not an en
           insideEntry: boolean;
           quietRows: number;
         }>(`(function(){
-          var inTurn = document.querySelector('${CARD} [data-slot="dash-note"]');
+          var inTurn = document.querySelector('${CARD} [data-slot="arc-note"]');
           return {
             text: inTurn === null ? "" : (inTurn.textContent || "").trim(),
             // The note sits INSIDE the open turn's transcript entry — the
@@ -234,7 +234,7 @@ describe.skipIf(!SHOULD_RUN)("AT0507: a dash-note row is a quiet line, not an en
 
         // The live seat survives the commit.
         await app.waitForCondition<boolean>(
-          `document.querySelectorAll('${CARD} [data-slot="dash-note"]').length === 1`,
+          `document.querySelectorAll('${CARD} [data-slot="arc-note"]').length === 1`,
           { timeoutMs: 20_000 },
         );
 
@@ -243,7 +243,7 @@ describe.skipIf(!SHOULD_RUN)("AT0507: a dash-note row is a quiet line, not an en
         await app.driveSession("A", {
           op: "shellExchange",
           exchangeId: "restored-42",
-          command: "dash commit demo",
+          command: "arc commit demo",
           output: RESTORED_SENTENCE,
           cwd: projectDir,
           exitCode: 0,
@@ -254,7 +254,7 @@ describe.skipIf(!SHOULD_RUN)("AT0507: a dash-note row is a quiet line, not an en
         await app.driveSession("A", {
           op: "shellExchange",
           exchangeId: "live-note-1",
-          command: "dash step demo done",
+          command: "arc step demo done",
           output: MID_TURN_SENTENCE,
           cwd: projectDir,
           exitCode: 0,
@@ -262,7 +262,7 @@ describe.skipIf(!SHOULD_RUN)("AT0507: a dash-note row is a quiet line, not an en
         });
 
         await app.waitForCondition<boolean>(
-          `document.querySelectorAll('${CARD} [data-slot="dash-note"]').length === 2`,
+          `document.querySelectorAll('${CARD} [data-slot="arc-note"]').length === 2`,
           { timeoutMs: 20_000 },
         );
 
@@ -271,7 +271,7 @@ describe.skipIf(!SHOULD_RUN)("AT0507: a dash-note row is a quiet line, not an en
           quietRows: number;
           restoredText: boolean;
         }>(`(function(){
-          var seats = Array.from(document.querySelectorAll('${CARD} [data-slot="dash-note"]'));
+          var seats = Array.from(document.querySelectorAll('${CARD} [data-slot="arc-note"]'));
           return {
             insideEntries: seats.filter(function(el){
               return el.closest('[data-slot="tug-transcript-entry"]') !== null;

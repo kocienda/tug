@@ -46,10 +46,10 @@ Every arc opens on a **brief**. One handed in with the invocation is used as-is;
 
 There are two kinds of arc, and the axis between them is **settling time** — whether the work earns a written, cold-reviewed plan before a step is walked. The axis is not size; size is a symptom, settling is the decision.
 
-- A **dash** is the short arc: brief → implement → audit. You just go. Small, concrete work whose decisions are already made belongs here.
-- A **trek** is the long arc: brief → devise → review → implement → audit. Nobody dashes up a mountain — you trek it, provisioned, with a plan, in stages. Work with enough parts that their order is itself a problem, or whose decisions are the hard part, belongs here.
+- An **arc** — a plain one, and the default — is brief → implement → audit. You just go. Small, concrete work whose decisions are already made belongs here.
+- A **planned arc** is brief → devise → review → implement → audit. Work with enough parts that their order is itself a problem, or whose decisions are the hard part, belongs here: the plan is written, then read cold by a session that did not write it, before a step is walked.
 
-The sentence that defines them: **a dash is a short arc, a trek is a long arc.** Everything downstream of the opening is identical — one step per turn, compaction between steps, an audit of the whole diff by a session that never saw the run, the join offered through the Changes shade. A dash is not a lesser arc; it is the same arc entered by a door that has already answered what devise and review would have asked.
+The sentence that defines them: **a planned arc is an arc that earns a plan before a step is walked.** Everything downstream of the opening is identical — one step per turn, compaction between steps, an audit of the whole diff by a session that never saw the run, the join offered through the Changes shade. A plain arc is not a lesser arc; it is the same arc entered by a door that has already answered what devise and review would have asked.
 
 ---
 
@@ -59,8 +59,8 @@ The **wheel** drives every arc. It rotates the **stages** — devise, review, im
 
 The **doors** are the two skills that open the arc lane, and a door's whole job is to settle what the work is and hand it over: sharpen the conversation into a brief, hand the brief to the wheel, end the turn. A door creates no worktree, commits nothing, implements nothing, joins nothing.
 
-- **`/dash`** — the door onto a dash.
-- **`/trek`** — the door onto a trek.
+- **`/arc`** — the door onto an arc.
+- **`/arc-plan`** — the door onto a planned arc.
 
 Which door the user typed **is** the routing decision. The stage skills are internal machinery — stages of an arc that refuse to run outside one — not doors, and not vocabulary anyone speaks.
 
@@ -78,11 +78,17 @@ Which door the user typed **is** the routing decision. The stage skills are inte
 
 Per the retirement doctrine, the designs go and the spellings stay findable — here, with what replaced them:
 
-- **course** — once named the stage-sequence variant ("dash course" / "plan course"), and before that "arc" named the same thing. Retired totally: the variant axis is now the **kind** (dash | trek), and the stage sequence needs no proper noun — say "a trek's stages."
-- **planned dash** / **`/dash-plan`** — the old marked kind and its door. Now: **a trek**, entered by `/trek`.
+- **course** — once named the stage-sequence variant ("dash course" / "plan course"), and before that "arc" named the same thing. Retired totally: the variant axis is now the **kind** (plain | planned), and the stage sequence needs no proper noun — say "a planned arc's stages."
+- **dash** — the old name for the short arc, and one of the three words this lexicon's own rule could not keep. Now: **an arc**, entered by `/arc`.
+- **trek** — the old name for the long arc. Now: **a planned arc**, entered by `/arc-plan`.
+- **planned dash** / **`/dash-plan`** — the old marked kind and its door. It went to `/trek`, and `/trek` goes to `/arc-plan`; the collision that retired the first spelling was in *dash*, never in *plan*.
+- **`tugdash/`** — the old branch prefix, with its four `branch.tugdash/<name>.*` config keys. Now: **`tugarc/`**, migrated at the top of every arc verb.
+- **`Tug-Dash:`** — the old join trailer. Now: **`Tug-Arc:`**; landed trailers are read for life.
+- **`dash-log`** — the old per-project record file. Now: **the arc log** (`arc-log.md`), renamed once on first read.
+- **`/dash-discard`** — the discard receipt's old spelling. Now: **`/arc-discard`**, with the old one read for life below.
 - **proposal** — once the name for the in-conversation converged shape; retired for its formality inversion (a proposal outranks a brief in common usage, but this artifact ranks below one). Now: **a sketch**, and a sketch is never a file.
 - **roadmap/** — the old document directory, deleted; its successor is `notes/` under the inertness charter above.
-- **arc** (old sense) — briefly named the stage sequence in the machinery (`TUG_DASH_ARC`, `ArcStage`). The word is promoted, not retired: it now names the work unit whole, which is what its value (the dash's name) always pointed at anyway.
+- **arc** (old sense) — briefly named the stage sequence in the machinery (`TUG_DASH_ARC`, `ArcStage`). The word is promoted, not retired: it now names the work unit whole, which is what its value (the unit's name) always pointed at anyway.
 
 **A spelling that ever reached a durable ledger stays a *read* spelling for life.** The list above is about prose; this is about the two places a rename touches code that reads the past. Replay re-derives a designed transcript block by matching the ledger row's recorded `command` string, so a row written under the old verb renders as the designed receipt only for as long as something still claims that string. Drop it and every act already recorded reverts to a raw shell row — retroactively, on the next card reload, for work the user did months ago.
 
@@ -91,4 +97,4 @@ So a rename of a verb that writes a receipt must touch two things beyond the ver
 - **The deck's matcher** — `matchesJoinReceipt` (`tugdeck/src/lib/landing-mode.ts`) and `matchesDiscardReceipt` (`tugdeck/src/components/tugways/cards/session-join-receipt-block.tsx`) claim both spellings, the new one written and the old one read.
 - **The ledger's eviction exemption** — `LANDING_RECEIPT_COMMANDS` (`tugrust/crates/tugcast/src/shell_ledger.rs`) names both, or the historical receipt loses the exemption that keeps the per-session cap from evicting it. That is the quieter half: the row does not merely render wrong, it goes away.
 
-Two renames have run this course. `/dash-join` → `/arc-join` (the arc rename) and `/dash-release` → `/dash-discard` (the discard rename). Both old spellings are read and never written, in both places named above.
+Five renames have run this course. `/dash-join` → `/arc-join` (the arc rename), `/dash-release` → `/dash-discard` (the discard rename), and this arc's three: `/dash-discard` → `/arc-discard`, the `Tug-Dash:` trailer → `Tug-Arc:`, and the shell-ledger quiet row's `dash <verb>` → `arc <verb>`. Every old spelling is read and never written, in the places named above.

@@ -109,7 +109,7 @@ describe("reducer — reload reconstruction of the carry-forward (legacy)", () =
   it("an add_user_message carrying compactionSummary re-marks the carry-forward and shows only the residual bubble", () => {
     const r = reduce(replaying(), {
       type: "add_user_message",
-      text: "start the dash",
+      text: "start the arc",
       atoms: [],
       turnKey: "u1",
       compactionSummary: "recap body",
@@ -120,7 +120,7 @@ describe("reducer — reload reconstruction of the carry-forward (legacy)", () =
     });
     expect(r.state.scratch.get("u1")?.messages[0]).toMatchObject({
       kind: "user_message",
-      text: "start the dash",
+      text: "start the arc",
     });
   });
 

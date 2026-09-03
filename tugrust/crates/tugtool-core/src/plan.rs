@@ -130,7 +130,7 @@ pub struct LedgerRow {
     pub title: String,
     /// The status cell, lowercased and trimmed.
     pub status: String,
-    /// The commit cell, `None` when it is a placeholder dash.
+    /// The commit cell, `None` when it is a placeholder arc.
     pub commit: Option<String>,
     /// 1-indexed source line.
     pub line: usize,
@@ -253,7 +253,7 @@ const LABEL_LETTERS: &[char] = &['P', 'Q', 'S', 'T', 'L', 'R', 'M'];
 /// Parse a plan document.
 ///
 /// Detection is positive: a document is a plan when it declares an
-/// `{#execution-steps}` section. `dash/` also holds briefs, notes, and a
+/// `{#execution-steps}` section. `arc/` also holds briefs, notes, and a
 /// program plan that carries ratified decisions and phases but no steps —
 /// none of those are plans, and none of them should be linted as one.
 pub fn parse(source: &str) -> Result<PlanDoc, NotAPlan> {
@@ -509,7 +509,7 @@ pub fn lint(doc: &PlanDoc) -> Vec<Diagnostic> {
     }
 
     // PL027 — a stepped plan with no ledger at all. Step identity is
-    // load-bearing: the step verbs, the dash-log, and every display key a
+    // load-bearing: the step verbs, the arc log, and every display key a
     // run's progress by ledger row, so a plan that has steps but no ledger is
     // one the machinery cannot drive.
     if !doc.steps.is_empty() && doc.ledger_line.is_none() && doc.ledger_rows.is_empty() {
@@ -1160,7 +1160,7 @@ fn untick(line: &str) -> String {
 
 /// The sections a devised plan carries beside the execution machinery.
 ///
-/// A **task list** — what a dash worked directly writes for itself — is the
+/// A **task list** — what an arc worked directly writes for itself — is the
 /// steps and the ledger and nothing else. A **devised plan** carries the
 /// skeleton's frame, which is what `plan lint` checks for and what the devise
 /// stage exists to produce. The two are otherwise the same document, so this
@@ -1327,7 +1327,7 @@ impl fmt::Display for LedgerEditError {
             LedgerEditError::BadTransition { anchor, from, to } => {
                 write!(f, "#{anchor} is '{from}'; it cannot become '{to}'")?;
                 if from == "pending" && to == "done" {
-                    f.write_str(" — open it with `dash step <name> start` first")?;
+                    f.write_str(" — open it with `arc step <name> start` first")?;
                 }
                 Ok(())
             }
@@ -1365,7 +1365,7 @@ impl std::error::Error for LedgerEditError {}
 /// step takes.
 ///
 /// `pending` is reachable from every *open* status — `pending`, `in progress`,
-/// `withdrawn` — and from none other. That is `dash step reset`: the row goes
+/// `withdrawn` — and from none other. That is `arc step reset`: the row goes
 /// back to never-walked, which is the park a real run needs and which withdraw
 /// was being pressed into meaning. A `done` row is still terminal here on
 /// purpose; walking one back is [`reopen_ledger_row`]'s job, and it is a
@@ -1425,7 +1425,7 @@ pub fn reset_ledger_row(source: &str, anchor: &str) -> Result<String, LedgerEdit
 ///
 /// The audit-rejected case, and the reason `done` stopped being terminal. The
 /// gate is deliberately *not* [`transition_allowed`]: `done` → `in progress`
-/// is legal only through this verb, so an ordinary `dash step start` on a
+/// is legal only through this verb, so an ordinary `arc step start` on a
 /// finished row still refuses and the walk-back stays a deliberate act with
 /// its own record.
 ///
@@ -1539,7 +1539,7 @@ pub fn set_ledger_status(
 /// Point one Step Status Ledger row's commit cell at a different commit,
 /// leaving its status exactly as it stands.
 ///
-/// This is the repair a rewritten history needs: after a dash's rounds are
+/// This is the repair a rewritten history needs: after an arc's rounds are
 /// replayed onto a moved base, a `done` row's recorded sha names a commit that
 /// is no longer on the branch. Status is untouched on purpose — `done` is
 /// terminal, and the row did not become less done by having its commit moved.
@@ -1669,11 +1669,11 @@ Some context.
         lint(&parse(source).expect("fixture parses as a plan"))
     }
 
-    /// What a dash worked directly writes for itself: steps, a ledger, and
+    /// What an arc worked directly writes for itself: steps, a ledger, and
     /// none of the skeleton's frame.
-    const TASK_LIST: &str = r#"## Centre the Dashes empty reading {#dash-empty-none}
+    const TASK_LIST: &str = r#"## Centre the Arcs empty reading {#arc-empty-none}
 
-The Dashes card's empty state reads None, centred in its own row.
+The Arcs card's empty state reads None, centred in its own row.
 
 ### Execution Steps {#execution-steps}
 
@@ -1710,7 +1710,7 @@ One assertion on the centred box.
     fn any_part_of_the_frame_makes_it_a_plan() {
         // A half-written plan is a plan: one section of the frame is enough,
         // so a devise stage interrupted mid-document is never read as a task
-        // list and quietly given the direct dash's two-cell face.
+        // list and quietly given the direct arc's two-cell face.
         for section in [
             "Plan Metadata {#plan-metadata}",
             "Phase Overview {#phase-overview}",
@@ -2166,9 +2166,9 @@ Some context.
     }
 
     /// The rules must stay honest against the documents people actually write.
-    /// The corpus is every dash's own `plan.md` under `.tug/arcs/`, walked
+    /// The corpus is every arc's own `plan.md` under `.tug/arcs/`, walked
     /// directly rather than through a declaration — there is no home to
-    /// declare — and skipped cleanly on a checkout that holds no dashes.
+    /// declare — and skipped cleanly on a checkout that holds no arcs.
     #[test]
     fn the_real_corpus_carries_no_errors() {
         let Ok(project_root) = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -2203,7 +2203,7 @@ Some context.
                 continue;
             };
             linted += 1;
-            // A task list is not held to the skeleton's contract. A dash worked
+            // A task list is not held to the skeleton's contract. An arc worked
             // directly writes one for itself — the steps and the ledger and
             // nothing else — and `plan lint` is the devise stage's check, never
             // run against it. It must PARSE, which is what `linted` counts, and
@@ -2363,7 +2363,7 @@ Some context.
         }
     }
 
-    /// `dash step start` is not a back door onto a finished row: the extra
+    /// `arc step start` is not a back door onto a finished row: the extra
     /// edge lives on `reopen` alone, so the ordinary verb still refuses.
     #[test]
     fn ledger_start_still_refuses_a_done_row() {

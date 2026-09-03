@@ -1,6 +1,6 @@
 ---
 name: arc-review
-description: A trek's review stage — read a devised plan cold against the real code, fix what it finds, append a Review Record, and stamp it
+description: A planned arc's review stage — read a devised plan cold against the real code, fix what it finds, append a Review Record, and stamp it
 argument-hint: "[plan-path]"
 disable-model-invocation: true
 allowed-tools: Bash, Read, Edit, Glob, Grep, WebFetch, WebSearch
@@ -9,7 +9,7 @@ disallowed-tools: Task, Write, AskUserQuestion
 
 ## What this is
 
-`arc-review` is the **review stage** of a trek, and the pre-implementation pass: read the plan the devise stage wrote, judge it against the real code, and **fix what you find**. It is not a report — the old `vet` skill was read-only by construction, so the only thing it could do with a finding was hand it back, and the answer was invariably "do the fixups". This does the fixups.
+`arc-review` is the **review stage** of a planned arc, and the pre-implementation pass: read the plan the devise stage wrote, judge it against the real code, and **fix what you find**. It is not a report — the old `vet` skill was read-only by construction, so the only thing it could do with a finding was hand it back, and the answer was invariably "do the fixups". This does the fixups.
 
 **It is a stage of an arc, not a standalone command.** The wheel seats it on a fresh session, on the model the project declared for the review, reading the plan cold — and that coldness is the whole of what the stage buys. The devise stage before it ends by asking the wheel to seat this one rather than by handing the user a chip, and the stamp this stage writes is what rotates the arc onward. So [the arc check](#0-confirm-the-arc-that-runs-you) is the first thing this skill does.
 
@@ -31,7 +31,7 @@ printenv TUG_ARC
 
 It names the arc you are the review stage of.
 
-**With it absent from the environment, stop and say so.** This skill is a stage of a trek rather than a standalone command, and `/trek` is the door into it: it sharpens the idea with the user, writes the brief, and opens the arc that devises the plan and hands it here. (The other door, `/dash`, settles its steps as a task list and opens an arc with no devise stage and no review stage at all.) There is no path from here that ends anywhere else — the stamp this stage writes is read by a runner, and with no runner watching it there is nothing behind the gesture.
+**With it absent from the environment, stop and say so.** This skill is a stage of a planned arc rather than a standalone command, and `/arc-plan` is the door into it: it sharpens the idea with the user, writes the brief, and opens the arc that devises the plan and hands it here. (The other door, `/arc`, settles its steps as a task list and opens an arc with no devise stage and no review stage at all.) There is no path from here that ends anywhere else — the stamp this stage writes is read by a runner, and with no runner watching it there is nothing behind the gesture.
 
 **Then confirm the arc can still find you.**
 
@@ -42,7 +42,7 @@ tugtool arc status <name> --json
 
 The dry run writes nothing; it resolves which session this shell actually belongs to and says `(this shell holds …, which has rotated)` when the shell's own id has gone stale — which is ordinary under an arc and is not a problem. What is a problem is a resolved session missing from `arc status --json`'s `bound_sessions`: the binding did not ride the rotation, and nothing downstream will find this run.
 
-**The repair is `tugtool arc doctor <name>`**, which compares all four of an arc's records and names each disagreement in a sentence. Not `/dash-bind`, which writes one of the four and answers nothing about the other three.
+**The repair is `tugtool arc doctor <name>`**, which compares all four of an arc's records and names each disagreement in a sentence. Not `/arc-bind`, which writes one of the four and answers nothing about the other three.
 
 ### 1. Read the plan's review state, then lint it
 
@@ -87,7 +87,7 @@ What to fix versus what to raise:
 
 **A judgment call is raised first and an Open Question second.** A call you could have put in front of somebody and instead deferred costs them a round trip they never agreed to. Only a call the user *declines to settle* becomes `[Q##]` — with its rationale and its plan to resolve. That makes the notation mean something precise: **a `[Q##]` in a finished plan was raised and deferred, never never-raised.**
 
-**No dialog, and the tools say so rather than only the prose.** `AskUserQuestion` is refused in this skill: under an arc there is nobody in front of the stage, and a stage parked on a dialog is an arc that has stopped without saying so — nothing in the dash-log, no receipt on the card, and the question lost the moment the wheel rotates the card, which it may do because a dialog is not a turn.
+**No dialog, and the tools say so rather than only the prose.** `AskUserQuestion` is refused in this skill: under an arc there is nobody in front of the stage, and a stage parked on a dialog is an arc that has stopped without saying so — nothing in the arc log, no receipt on the card, and the question lost the moment the wheel rotates the card, which it may do because a dialog is not a turn.
 
 Raise the design, never the process. Never raise whether to apply a fixup, whether to keep going, or anything else with a conventional default — the never-ask boundary is in [`tuglaws/arc-work-doctrine.md`](../../../tuglaws/arc-work-doctrine.md#what-never-gets-asked). Where that document is absent, the preceding sentence is the boundary, and say so. Stopping an arc over something the code could have settled is the same cost, spent by the machine instead of the user.
 

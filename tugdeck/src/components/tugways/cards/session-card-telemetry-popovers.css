@@ -308,10 +308,10 @@
 }
 
 /* ============================================================================
-   Dash — the cockpit detail's header block
+   Arc — the cockpit detail's header block
    ========================================================================= */
 
-/* The dash as one `ArcLifecycleBlock`, above the checklist. A block rather
+/* The arc as one `ArcLifecycleBlock`, above the checklist. A block rather
    than a popup-list item: it is the placard's subject, not one of its rows,
    and the items beneath it are the run's steps. Everything inside it — the
    atom, the workers, the track, the note — is the block's own; the head only
@@ -322,15 +322,15 @@
    rather than a mark, and a strip forced into a 16px box would be clipped —
    so the box stays with the rows, which are the only things still lining a
    mark up. */
-[data-slot="session-dash-popover-body"] {
-  --tugx-dash-popover-lead-width: 22px;
+[data-slot="session-arc-popover-body"] {
+  --tugx-arc-popover-lead-width: 22px;
 }
 
-/* The DASH placard is set in the ambient SANS, not the frame's mono.
+/* The ARC placard is set in the ambient SANS, not the frame's mono.
 
    `TugPopupList` puts mono on everything below its title bar, and that is
    right for what a popup list usually holds: tabular data, where a column of
-   figures has to line up. This one holds none. It holds a dash's name, its
+   figures has to line up. This one holds none. It holds an arc's name, its
    phase, and a plan's step titles — prose, written by a person, read as
    sentences — and mono set those at a width that pushed the titles into an
    ellipsis three words early. The one thing here with columns to keep is the
@@ -338,16 +338,16 @@
 
    Scoped to this placard rather than lifted off the frame: every other popup
    list in the app is the tabular kind the frame's rule was written for. */
-.session-dash-popover > :not(.tug-popup-list-title) {
+.session-arc-popover > :not(.tug-popup-list-title) {
   font-family: var(--tug-font-family-sans);
 }
 
-/* The DASH placard is set one step larger than the other placards. Its rows
+/* The ARC placard is set one step larger than the other placards. Its rows
    are a plan's step titles — the thing a reader opens this popup to read —
    and at the frame's tabular 11px they were set smaller than the sentences
    they are. The wider caps buy back the characters the larger type spends,
    so a title still ellipsizes no earlier than it did. */
-.tug-popup-list.session-dash-popover {
+.tug-popup-list.session-arc-popover {
   --tugx-popup-list-row-h: 30px;
   min-width: 420px;
   max-width: 640px;
@@ -356,11 +356,11 @@
 /* Step rows at the reading size. Set on the row rather than on its primary
    line so the lead column's `calc(1lh)` box grows with the text and keeps the
    dot centred on line one. */
-[data-slot="session-dash-popover-body"] .tug-popup-list-item {
+[data-slot="session-arc-popover-body"] .tug-popup-list-item {
   font-size: var(--tug-font-size-sm);
 }
 
-.session-dash-popover-head {
+.session-arc-popover-head {
   display: flex;
   flex-direction: column;
   gap: var(--tug-space-xs);
@@ -369,7 +369,7 @@
 }
 
 
-[data-slot="session-dash-popover-body"] .tug-popup-list-item-lead {
+[data-slot="session-arc-popover-body"] .tug-popup-list-item-lead {
   justify-content: center;
-  inline-size: var(--tugx-dash-popover-lead-width);
+  inline-size: var(--tugx-arc-popover-lead-width);
 }

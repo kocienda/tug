@@ -226,7 +226,7 @@ function Masthead({ focused }: { focused: boolean }): React.ReactElement {
             indicatorSize={DOT_SIZE}
             name={
               <>
-                dash+join-xp
+                arc+join-xp
                 <span className="sp-lc-callsign">^join-base-resolve</span>
               </>
             }

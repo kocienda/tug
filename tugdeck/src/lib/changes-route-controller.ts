@@ -18,7 +18,7 @@
  * is retired. Instead it subscribes to the app-level `ChangesetAllStore`
  * singleton (`CHANGESET_ALL`, 0x24 — the same store the rail reads) and
  * derives its slice as a filtered projection: this card's project by
- * `workspace_key`, its session entry by `owner_id`, the project's dash
+ * `workspace_key`, its session entry by `owner_id`, the project's arc
  * entries, and the unattributed bucket.
  *
  * The commit and draft triggers are pass-throughs to the shipping app-level
@@ -50,7 +50,7 @@ import { getChangesetVerbStore } from "./changeset-verb-store";
 import { sessionLineStore } from "./session-line-store";
 import type {
   ChangesetDraftSelection,
-  DashChangesetEntry,
+  ArcChangesetEntry,
   DocumentArcEntry,
   OrphanedFile,
   ProjectChangeset,
@@ -80,12 +80,12 @@ export interface ChangesRouteBinding {
 export interface ChangesRouteSnapshot {
   /** This card session's changeset entry, or null when the feed has none yet. */
   entry: SessionChangesetEntry | null;
-  /** Dash worktree entries in this workspace (their own Join affordance). */
-  dashes: DashChangesetEntry[];
+  /** Arc worktree entries in this workspace (their own Join affordance). */
+  arcs: ArcChangesetEntry[];
   /**
-   * Dashes in this workspace that exist only as documents — a brief or a plan
+   * Arcs in this workspace that exist only as documents — a brief or a plan
    * written, no branch cut yet. A card can be bound to one of these, so they
-   * are a peer of `dashes` rather than a detail of it.
+   * are a peer of `arcs` rather than a detail of it.
    */
   documentArcs: DocumentArcEntry[];
   /** Dirty files no owner claims. */
@@ -171,10 +171,10 @@ export function deriveChangesRouteSnapshot(
   const bindingLine = sessionLineStore.lineOf(binding.tugSessionId);
   let entry: SessionChangesetEntry | null = null;
   let lineEntry: SessionChangesetEntry | null = null;
-  const dashes: DashChangesetEntry[] = [];
+  const arcs: ArcChangesetEntry[] = [];
   for (const changeset of project.changesets) {
-    if (changeset.kind === "dash") {
-      dashes.push(changeset);
+    if (changeset.kind === "arc") {
+      arcs.push(changeset);
     } else if (changeset.owner_id === binding.tugSessionId) {
       entry = changeset;
     } else if (
@@ -193,7 +193,7 @@ export function deriveChangesRouteSnapshot(
 
   return {
     entry,
-    dashes,
+    arcs,
     documentArcs: project.document_arcs ?? [],
     unattributed: project.unattributed,
     orphaned: project.orphaned ?? [],

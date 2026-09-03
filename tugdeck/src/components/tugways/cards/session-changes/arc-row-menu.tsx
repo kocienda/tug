@@ -1,9 +1,9 @@
 /**
- * `useArcRowMenu` — the rare verbs a dash row offers, behind one opener.
+ * `useArcRowMenu` — the rare verbs an arc row offers, behind one opener.
  *
  * Bind/Unbind, Discard, and Replay. The first two used to stand on the row as
  * text buttons, beside the pop-out and the fold cue. Standing there they read as peers of the acts a
- * reader performs constantly, which they are not: a card binds a dash once and
+ * reader performs constantly, which they are not: a card binds an arc once and
  * discards one almost never, and the row's whole job in between is to be read.
  * So they move behind a `⋯`, which is where a suite puts a verb that is real,
  * reachable, and rare.
@@ -12,11 +12,11 @@
  * decision made in the composer, on Z5, so a menu here offering it would be a
  * second door to a gesture that has one. What is left is exactly the set that
  * has nowhere else to live — none is a chord, because none names a target a
- * chord could reach ("the dash this row is").
+ * chord could reach ("the arc this row is").
  *
  * Replay joined them last, and it is the one verb here the machine usually
- * performs by itself: the base-motion engine replays a dash whenever the base
- * moves and its gates allow. The item is for the dashes those gates skip —
+ * performs by itself: the base-motion engine replays an arc whenever the base
+ * moves and its gates allow. The item is for the arcs those gates skip —
  * autoreplay turned off, or a replay that already stopped conflicted — which
  * have divergence facts on the row and, without this, no gesture anywhere that
  * acts on them.
@@ -26,7 +26,7 @@
  * ([L31] — a refusal that cannot be read is a silent one). The reason
  * therefore rides the item's own label: `Unbind — a turn is running`. The item
  * stays present rather than vanishing, so the menu's height does not change
- * with the dash's state and the reader is told what is blocked rather than
+ * with the arc's state and the reader is told what is blocked rather than
  * left to notice an absence.
  *
  * `TugEditorContextMenu` rather than the Radix-backed `TugContextMenu`, for the
@@ -83,13 +83,13 @@ export interface ArcRowMenuOptions {
   binding: (ArcRowMenuVerb & { bound: boolean }) | null;
   /**
    * Discard, on the rows the reach rule allows. Null renders no item: a shade
-   * with no business discarding this dash will never have one, and a
+   * with no business discarding this arc will never have one, and a
    * permanently dead row is not information.
    */
   discard: ArcRowMenuVerb | null;
   /**
-   * Replay the dash's rounds onto its base's current tip. Present on both
-   * dash-row surfaces on the same terms — see {@link replayDisabledReason} for
+   * Replay the arc's rounds onto its base's current tip. Present on both
+   * arc-row surfaces on the same terms — see {@link replayDisabledReason} for
    * what those terms are and why boundness is not among them.
    */
   replay: ArcRowMenuVerb | null;
@@ -102,7 +102,7 @@ export interface ArcRowMenuResult {
   openMenu: (anchor: HTMLElement | null) => void;
   /**
    * Open the menu at a viewport point — the right-click path, for a surface
-   * that carries no opener of its own. The Arcs card's Dashes rows are that
+   * that carries no opener of its own. The Arcs card's Arcs rows are that
    * surface: the verbs are the same set, reached by the gesture every other
    * list row in the app answers.
    */
@@ -115,19 +115,19 @@ export function arcRowMenuLabel(verb: string, disabledReason: string | null): st
 }
 
 /**
- * Why Replay is unavailable for this dash, or null when it is available.
+ * Why Replay is unavailable for this arc, or null when it is available.
  *
- * Available whenever the dash is **diverged** — the base has moved past it, or
+ * Available whenever the arc is **diverged** — the base has moved past it, or
  * a previous replay stopped conflicted. Two no-ops the row's own facts prove
- * are disabled with their reason rather than hidden ([L31]): a dash already
- * current with its base has nothing to replay, and a dash with a dirty worktree
+ * are disabled with their reason rather than hidden ([L31]): an arc already
+ * current with its base has nothing to replay, and an arc with a dirty worktree
  * would have its replay declined server-side, since the move is a
  * `git reset --keep` that refuses over uncommitted work.
  *
- * **Boundness is not consulted.** `decide_for_dash` in the base-motion engine
+ * **Boundness is not consulted.** `decide_for_arc` in the base-motion engine
  * gates the automatic replay on the autoreplay flags, an in-flight replay, the
- * join journal, and worktree dirt — never on whether a session holds the dash.
- * So "unbound" never meant "untended", and a bound diverged dash whose
+ * join journal, and worktree dirt — never on whether a session holds the arc.
+ * So "unbound" never meant "untended", and a bound diverged arc whose
  * repository has autoreplay off is precisely the population with no other
  * recourse. Neither autoreplay flag is on the wire and neither is put there:
  * a client predicting whether the engine is about to act would be
@@ -164,9 +164,9 @@ export function useArcRowMenu({
     actions: {
       // Bind and Unbind are one verb wearing two words, so both names reach
       // the same callback — the row already decided which word it carries.
-      [TUG_ACTIONS.BIND_DASH]: () => bind?.(),
-      [TUG_ACTIONS.UNBIND_DASH]: () => bind?.(),
-      [TUG_ACTIONS.REQUEST_DISCARD_DASH]: () => discardPerform?.(),
+      [TUG_ACTIONS.BIND_ARC]: () => bind?.(),
+      [TUG_ACTIONS.UNBIND_ARC]: () => bind?.(),
+      [TUG_ACTIONS.REQUEST_DISCARD_ARC]: () => discardPerform?.(),
       [TUG_ACTIONS.REQUEST_REPLAY_ARC]: () => replayPerform?.(),
     },
   });
@@ -194,7 +194,7 @@ export function useArcRowMenu({
     const entries: TugEditorContextMenuEntry[] = [];
     if (binding !== null) {
       entries.push({
-        action: binding.bound ? TUG_ACTIONS.UNBIND_DASH : TUG_ACTIONS.BIND_DASH,
+        action: binding.bound ? TUG_ACTIONS.UNBIND_ARC : TUG_ACTIONS.BIND_ARC,
         label: arcRowMenuLabel(
           binding.bound ? "Unbind" : "Bind",
           binding.disabledReason,
@@ -204,7 +204,7 @@ export function useArcRowMenu({
     }
     if (discard !== null) {
       entries.push({
-        action: TUG_ACTIONS.REQUEST_DISCARD_DASH,
+        action: TUG_ACTIONS.REQUEST_DISCARD_ARC,
         label: arcRowMenuLabel("Discard", discard.disabledReason),
         disabled: discard.disabledReason !== null,
       });
@@ -225,7 +225,7 @@ export function useArcRowMenu({
   const menu =
     manager !== null && items.length > 0 ? (
       <ResponderScope>
-        <span ref={responderRef} data-slot="session-changes-dash-row-menu">
+        <span ref={responderRef} data-slot="session-changes-arc-row-menu">
           <TugEditorContextMenu
             open={openAt !== null}
             x={openAt?.x ?? 0}

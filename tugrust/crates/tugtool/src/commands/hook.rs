@@ -112,7 +112,7 @@ pub(crate) fn pre_tool_use_with(
     let tool = payload.get("tool_name")?.as_str()?;
     let input = payload.get("tool_input")?;
     // **The turn boundary comes first.** It is the only rule here that denies
-    // what every other rule would allow — a repo write, or `dash step start`,
+    // what every other rule would allow — a repo write, or `arc step start`,
     // from an arc stage whose turn has already closed a step. Everything
     // else a stage may do at any time reaches this and is not a gesture, so
     // the server is not even asked (`gesture_of` answers `None` before any
@@ -263,7 +263,7 @@ pub(crate) fn tug_gesture(command: &str) -> Option<Gesture> {
         (Some("file"), Some("edit" | "run" | "rm" | "mv" | "cp" | "probe"), _, _) => {
             (!words.contains(&"--preview")).then_some(Gesture::TugWrite)
         }
-        // `dash step <name> start` — the dash's name is the address, and it
+        // `arc step <name> start` — the arc's name is the address, and it
         // sits between the noun and the verb.
         (Some("arc"), Some("step"), Some(_), Some("start")) => Some(Gesture::StepStart),
         _ => None,
@@ -271,7 +271,7 @@ pub(crate) fn tug_gesture(command: &str) -> Option<Gesture> {
 }
 
 /// What this tool call would do, or `None` for a call the boundary has no
-/// opinion about — every read, every status verb, `dash doctor`, the draft
+/// opinion about — every read, every status verb, `arc doctor`, the draft
 /// verb, and anything the change grammar reads as touching no files.
 pub(crate) fn gesture_of(payload: &Value) -> Option<Gesture> {
     let tool = payload.get("tool_name")?.as_str()?;
@@ -449,7 +449,7 @@ mod tests {
 
     #[test]
     fn plugin_skills_are_approved_and_foreign_ones_are_not() {
-        let mine = json!({ "tool_name": "Skill", "tool_input": { "skill": "tugplug:dash" } });
+        let mine = json!({ "tool_name": "Skill", "tool_input": { "skill": "tugplug:arc" } });
         assert_eq!(pre_tool_use(&mine), Some(Decision::Allow("tugplug skill")));
         let theirs = json!({ "tool_name": "Skill", "tool_input": { "skill": "other:thing" } });
         assert_eq!(pre_tool_use(&theirs), None);
@@ -497,11 +497,10 @@ mod tests {
     // real fake tugcast in `tests/turn_boundary_cli.rs`, which is the only
     // place the degrade-open rules can actually be observed.
 
-    /// **The pre-filter reads one variable, and the retired one is not it.**
-    /// `TUG_ARC` is what a stage's spawn carries; a shell holding only the
-    /// spelling this campaign retired is a shell from a build that no longer
-    /// exists, and the filter going quiet over it is the open direction — the
-    /// only one this gate is allowed to fail in.
+    /// **The pre-filter reads one variable.** `TUG_ARC` is what a stage's
+    /// spawn carries, and a shell holding no variable at all is a shell the
+    /// filter goes quiet over — the open direction, and the only one this
+    /// gate is allowed to fail in.
     #[serial_test::serial]
     #[test]
     fn the_pre_filter_reads_tug_arc_and_nothing_else() {
@@ -509,22 +508,14 @@ mod tests {
         // binary, which is what `serial` is for.
         unsafe {
             std::env::remove_var("TUG_ARC");
-            std::env::remove_var("TUG_DASH_COURSE");
         }
         assert!(!spawned_into_an_arc(), "no variable is no arc");
-
-        unsafe { std::env::set_var("TUG_DASH_COURSE", "demo") };
-        assert!(
-            !spawned_into_an_arc(),
-            "the retired spelling is not read, so the gate degrades open"
-        );
 
         unsafe { std::env::set_var("TUG_ARC", "demo") };
         assert!(spawned_into_an_arc(), "TUG_ARC is the one the filter reads");
 
         unsafe {
             std::env::remove_var("TUG_ARC");
-            std::env::remove_var("TUG_DASH_COURSE");
         }
     }
 
@@ -600,13 +591,6 @@ mod tests {
         assert_eq!(
             gesture_of(&bash("tugtool arc step demo start 2 --through 5")),
             Some(Gesture::StepStart)
-        );
-        // The retired verb name is not a second spelling of the gesture: the
-        // grammar reads one noun, and a command naming the old one is an
-        // ordinary `tugtool` invocation the allowlist auto-approves.
-        assert_eq!(
-            gesture_of(&bash("tugtool dash step demo start 2 --through 5")),
-            None
         );
         // The global flags a verb may be reached through do not hide it.
         assert_eq!(

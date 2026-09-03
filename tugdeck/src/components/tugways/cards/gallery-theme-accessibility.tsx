@@ -226,15 +226,15 @@ export function GalleryThemeAccessibility() {
 
       <div className="cg-section">
         <TugLabel className="cg-section-title">Contrast Dashboard</TugLabel>
-        <div className="gta-dash-summary" data-testid="gta-dash-summary">
-          <span className="gta-dash-summary-count" data-testid="gta-dash-summary-count">{passCount}/{checkedCount}</span>
+        <div className="gta-contrast-summary" data-testid="gta-contrast-summary">
+          <span className="gta-contrast-summary-count" data-testid="gta-contrast-summary-count">{passCount}/{checkedCount}</span>
           <span>pairs pass contrast</span>
           <span style={{ color: "var(--tug7-element-global-text-normal-muted-rest)", marginLeft: "4px" }}>
             ({contrastResults.length} total pairs)
           </span>
         </div>
-        <div className="gta-dash-grid" data-testid="gta-dash-grid">
-          <div className="gta-dash-col-header">
+        <div className="gta-contrast-grid" data-testid="gta-contrast-grid">
+          <div className="gta-contrast-col-header">
             <span>FG</span>
             <span>BG</span>
             <span>Foreground token</span>
@@ -251,13 +251,13 @@ export function GalleryThemeAccessibility() {
             const contrastThreshold = CONTRAST_THRESHOLDS[result.role] ?? 15;
             return (
               <React.Fragment key={`${result.fg}-${result.bg}-${idx}`}>
-                <div className="gta-dash-swatch" style={{ backgroundColor: swatchHex(fg ?? null) }} />
-                <div className="gta-dash-swatch" style={{ backgroundColor: swatchHex(bg ?? null) }} />
-                <span className="gta-dash-token-name" title={result.fg}>{result.fg}</span>
-                <span className="gta-dash-token-name" title={result.bg}>{result.bg}</span>
-                <span className="gta-dash-ratio" title={`Threshold: ${threshold}:1`}>{result.wcagRatio.toFixed(2)}:1</span>
-                <span className="gta-dash-ratio" title={`Contrast threshold: ${contrastThreshold}`}>{result.contrast.toFixed(1)}</span>
-                <span className={`gta-dash-badge gta-dash-badge--${variant}`}>{variant}</span>
+                <div className="gta-contrast-swatch" style={{ backgroundColor: swatchHex(fg ?? null) }} />
+                <div className="gta-contrast-swatch" style={{ backgroundColor: swatchHex(bg ?? null) }} />
+                <span className="gta-contrast-token-name" title={result.fg}>{result.fg}</span>
+                <span className="gta-contrast-token-name" title={result.bg}>{result.bg}</span>
+                <span className="gta-contrast-ratio" title={`Threshold: ${threshold}:1`}>{result.wcagRatio.toFixed(2)}:1</span>
+                <span className="gta-contrast-ratio" title={`Contrast threshold: ${contrastThreshold}`}>{result.contrast.toFixed(1)}</span>
+                <span className={`gta-contrast-badge gta-contrast-badge--${variant}`}>{variant}</span>
               </React.Fragment>
             );
           })}

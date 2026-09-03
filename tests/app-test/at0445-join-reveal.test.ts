@@ -1,5 +1,5 @@
 /**
- * AT0445 — the shade summons itself when a dash is ready to join.
+ * AT0445 — the shade summons itself when an arc is ready to join.
  *
  * ## Why this exists
  *
@@ -9,10 +9,10 @@
  * than a dialog it mounts.
  *
  * That replaced an inline prompt, and the reason is a live incident. A reflex
- * Escape answered "Not yet"; the dismissal was durable, keyed on the dash
+ * Escape answered "Not yet"; the dismissal was durable, keyed on the arc
  * head, and suppressed every re-ask; recovery took a hand-run `git config
  * --unset-all`. A transient surface has no reopen gesture by construction. A
- * standing one does: closing the shade discards nothing, because the dash row
+ * standing one does: closing the shade discards nothing, because the arc row
  * is still in there. So the whole dismissal apparatus — the mark, its re-ask
  * policy, the answer frame — is gone, and this file's negatives changed shape
  * with it: the claim is no longer "a dismissal holds" but "closing costs
@@ -20,8 +20,8 @@
  *
  * Six claims:
  *
- * - A reconciled dash **bound to this card's session** reveals the shade, with
- *   no gesture and **no mark anywhere** ([D147]). Both fixture dashes are
+ * - A reconciled arc **bound to this card's session** reveals the shade, with
+ *   no gesture and **no mark anywhere** ([D147]). Both fixture arcs are
  *   plan-less, so a committed round on a clean worktree is the whole of what
  *   arms them. This is the negative that matters most: the arc used to sit
  *   dark behind a declaration a skill had to remember to make, and a `mark
@@ -52,22 +52,22 @@
  * - **New work summons it again.** A round the user has never seen mints a new
  *   offer id, and the shade comes back up.
  *
- * And one about reach: an **unbound** dash, with facts identical to the bound
+ * And one about reach: an **unbound** arc, with facts identical to the bound
  * one's in the same repository at the same moment, is left alone entirely. Not
- * merely unrevealed — unworked: the pilot reconciles only dashes bound to a
- * live session, so the quiet dash's register never even reaches `ready`. With
+ * merely unrevealed — unworked: the pilot reconciles only arcs bound to a
+ * live session, so the quiet arc's register never even reaches `ready`. With
  * readiness derived rather than declared, an unbounded pilot would turn a
- * single commit on the base into one reconcile per dash, every one spent on
+ * single commit on the base into one reconcile per arc, every one spent on
  * nobody.
  *
  * The join **press** is not this file's subject — at0436 drives it, at the
  * composer's ⬆ where it lives. The offer's disappearance after a landing is
  * structural rather than pinned here: the dot and the fold both derive from a
- * feed entry that `broadcast_dash_gone` removes.
+ * feed entry that `broadcast_arc_gone` removes.
  *
  * ## The fixture
  *
- * One scratch repository, two dashes, neither conflicting with the base and
+ * One scratch repository, two arcs, neither conflicting with the base and
  * neither ever marked. The bound one the pilot reconciles without being asked,
  * which is what makes the reveal the *only* thing this file drives; the
  * unbound one is the control. Nothing is built anywhere: the join gates on
@@ -98,35 +98,35 @@ import {
 } from "./_harness/tugbank-helpers";
 import {
   commitRound,
-  createDash,
+  createArc,
   gitRetry as git,
-  makeDashScratchRepo,
+  makeArcScratchRepo,
   rmScratchSession,
   seedScratchSession,
   tugtool,
-} from "./dash-fixture";
+} from "./arc-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 420_000;
 
 const SID = "a7c0d1ea-0000-4000-8000-000000000445";
 
-/** The bound dash — the one this card would join. */
-const DASH = "at0445-bound";
+/** The bound arc — the one this card would join. */
+const ARC = "at0445-bound";
 /** The other one, in the same repo, at the same stage, bound to nobody. */
-const QUIET_DASH = "at0445-quiet";
+const QUIET_ARC = "at0445-quiet";
 
 const CARD = '[data-card-id="A"]';
-/** The Changes shade — the arc's decision surface, and what a ready dash
+/** The Changes shade — the arc's decision surface, and what a ready arc
  *  summons. Its presence IS the reveal. */
 const SHEET = `${CARD} .session-view-pane[data-view="changes"] [data-slot="tug-sheet"]`;
-const LANE = `${SHEET} [data-slot="session-changes-dash-lane"]`;
-/** The bound dash's row and the fold that opens with it. */
-const ROW = `${LANE} [data-slot="session-changes-dash-row"][data-dash="${DASH}"]`;
+const LANE = `${SHEET} [data-slot="session-changes-arc-lane"]`;
+/** The bound arc's row and the fold that opens with it. */
+const ROW = `${LANE} [data-slot="session-changes-arc-row"][data-arc="${ARC}"]`;
 /** What this join would land, composed exactly as the landing composes it. */
-const LANDS_AS = `${ROW} [data-slot="session-changes-dash-lands-as"]`;
+const LANDS_AS = `${ROW} [data-slot="session-changes-arc-lands-as"]`;
 /** Where those words came from, when it is not somebody's draft. */
-const LANDS_AS_NOTE = `${ROW} [data-slot="session-changes-dash-lands-as-note"]`;
+const LANDS_AS_NOTE = `${ROW} [data-slot="session-changes-arc-lands-as-note"]`;
 /** The Z4A route group — invariant in shape and words, so the offer rides an
  *  attribute rather than a label or a third segment. */
 const ROUTE_GROUP = `${CARD} .tug-prompt-entry-route-group`;
@@ -136,11 +136,11 @@ const SUBMIT = `${CARD} [data-slot="tug-prompt-entry"] [data-mode]`;
 /** The Z5 the join wears: the control that actually lands, per at0436. */
 const JOIN_BUTTON = `${CARD} .tug-prompt-entry-commit-button[aria-label="Join"]`;
 
-const DASHES_CARD = '.dashes-section';
-const dashRow = (dash: string): string =>
-  `${DASHES_CARD} [data-slot="dashes-row"][data-dash="${dash}"]`;
-const dashRegister = (dash: string): string =>
-  `${dashRow(dash)} [data-slot="arc-join-register"]`;
+const ARCS_CARD = '.arcs-section';
+const arcRow = (arc: string): string =>
+  `${ARCS_CARD} [data-slot="arcs-row"][data-arc="${arc}"]`;
+const arcRegister = (arc: string): string =>
+  `${arcRow(arc)} [data-slot="arc-join-register"]`;
 
 /** The checkout whose built binaries the fixture drives. */
 const CHECKOUT = realpathSync(resolve(import.meta.dir, "..", ".."));
@@ -153,24 +153,24 @@ let cli: { binaryRoot?: string; env?: Record<string, string> } = {};
 
 beforeAll(() => {
   if (!SHOULD_RUN) return;
-  const base = makeDashScratchRepo({ prefix: "at0445", checkout: CHECKOUT });
+  const base = makeArcScratchRepo({ prefix: "at0445", checkout: CHECKOUT });
   scratch = base.repo;
   dataRoot = base.dataRoot;
   cli = base.cli;
 
-  // Two dashes, each touching a file of its own, so neither conflicts with the
+  // Two arcs, each touching a file of its own, so neither conflicts with the
   // base or with the other. The arc they walk is the quiet one — reconcile,
   // ready — which is exactly the state the offer stands on.
-  const bound = createDash(scratch, DASH, "at0445 bound-dash fixture", cli);
+  const bound = createArc(scratch, ARC, "at0445 bound-arc fixture", cli);
   boundWorktree = bound.worktree;
-  writeFileSync(join(bound.worktree, "bound.txt"), "at0445 the bound dash's file\n");
-  commitRound(scratch, DASH, "at0445(round): the bound dash's work", cli);
+  writeFileSync(join(bound.worktree, "bound.txt"), "at0445 the bound arc's file\n");
+  commitRound(scratch, ARC, "at0445(round): the bound arc's work", cli);
 
-  const quiet = createDash(scratch, QUIET_DASH, "at0445 unbound-dash fixture", cli);
-  writeFileSync(join(quiet.worktree, "quiet.txt"), "at0445 the unbound dash's file\n");
-  commitRound(scratch, QUIET_DASH, "at0445(round): the unbound dash's work", cli);
+  const quiet = createArc(scratch, QUIET_ARC, "at0445 unbound-arc fixture", cli);
+  writeFileSync(join(quiet.worktree, "quiet.txt"), "at0445 the unbound arc's file\n");
+  commitRound(scratch, QUIET_ARC, "at0445(round): the unbound arc's work", cli);
 
-  // No `dash mark built` anywhere, deliberately ([D147]). Both dashes are
+  // No `arc mark built` anywhere, deliberately ([D147]). Both arcs are
   // plan-less, so a committed round on a clean worktree is the whole of what
   // arms them — which is the guarantee this file exists to hold: the arc must
   // not depend on a skill remembering to declare anything.
@@ -229,41 +229,41 @@ async function shadeAppearsWithin(app: App, ms: number): Promise<boolean> {
   return false;
 }
 
-/** A dash's register word on the Arcs card right now, or null if it has none. */
-function registerWord(app: App, dash: string): Promise<string | null> {
+/** An arc's register word on the Arcs card right now, or null if it has none. */
+function registerWord(app: App, arc: string): Promise<string | null> {
   return app.evalJS<string | null>(
-    `document.querySelector(${JSON.stringify(dashRegister(dash))})?.getAttribute("data-word") ?? null`,
+    `document.querySelector(${JSON.stringify(arcRegister(arc))})?.getAttribute("data-word") ?? null`,
   );
 }
 
 /**
- * Sample a dash's register across a window and answer whether it ever reached
+ * Sample an arc's register across a window and answer whether it ever reached
  * a word. Sampled rather than read once, so a value that appears and is
  * superseded still counts as having appeared.
  */
 async function registerEverReaches(
   app: App,
-  dash: string,
+  arc: string,
   word: string,
   ms: number,
 ): Promise<boolean> {
   const deadline = Date.now() + ms;
   while (Date.now() < deadline) {
-    if ((await registerWord(app, dash)) === word) return true;
+    if ((await registerWord(app, arc)) === word) return true;
     await settle(500);
   }
   return false;
 }
 
-/** Wait for a dash's Dashes-card register to reach a word — the arc, without a gesture. */
+/** Wait for an arc's Arcs-card register to reach a word — the arc, without a gesture. */
 async function registerReaches(
   app: App,
-  dash: string,
+  arc: string,
   word: string,
   timeoutMs: number,
 ): Promise<void> {
   await app.waitForCondition<boolean>(
-    `document.querySelector(${JSON.stringify(dashRegister(dash))})?.getAttribute("data-word") === ${JSON.stringify(word)}`,
+    `document.querySelector(${JSON.stringify(arcRegister(arc))})?.getAttribute("data-word") === ${JSON.stringify(word)}`,
     { timeoutMs },
   );
 }
@@ -275,9 +275,9 @@ function offerDot(app: App): Promise<boolean> {
   );
 }
 
-describe.skipIf(!SHOULD_RUN)("AT0445: a ready dash summons the shade", () => {
+describe.skipIf(!SHOULD_RUN)("AT0445: a ready arc summons the shade", () => {
   test(
-    "a bound reconciled dash puts the card on the Changes route with no mark and no gesture, the fold names what would land and repaints it live, the segment wears the offer while the room is closed, closing costs nothing across a base move, a new round summons it again, and an unbound dash is never piloted at all",
+    "a bound reconciled arc puts the card on the Changes route with no mark and no gesture, the fold names what would land and repaints it live, the segment wears the offer while the room is closed, closing costs nothing across a base move, a new round summons it again, and an unbound arc is never piloted at all",
     async () => {
       const tugbankPath = mkTempTugbank();
       seedTugbankForLaunch(tugbankPath, { sourceTreePath: CHECKOUT });
@@ -296,11 +296,11 @@ describe.skipIf(!SHOULD_RUN)("AT0445: a ready dash summons the shade", () => {
         await app.awaitEngineReady("A", { timeoutMs: 15000 });
 
         // The Arcs card stays up for the whole run: it is where the arc is read
-        // from without touching either dash. The shade is a view swap inside
+        // from without touching either arc. The shade is a view swap inside
         // the card, so the two do not contend.
         await app.dispatchControlAction("toggle-arcs");
         await app.waitForCondition<boolean>(
-          `document.querySelector('${DASHES_CARD} [data-slot="dashes-row"][data-dash="${DASH}"]') !== null`,
+          `document.querySelector('${ARCS_CARD} [data-slot="arcs-row"][data-arc="${ARC}"]') !== null`,
           { timeoutMs: 40000 },
         );
 
@@ -311,15 +311,15 @@ describe.skipIf(!SHOULD_RUN)("AT0445: a ready dash summons the shade", () => {
         expect(await offerDot(app), "and the segment wears nothing").toBe(false);
 
         // ── The bind, and the reveal it earns ─────────────────────────────
-        // Bound first, so the offer has a card to arrive on. Both dashes reach
+        // Bound first, so the offer has a card to arrive on. Both arcs reach
         // the same state; only this one is this card's.
         //
-        // The real `dash bind` verb, not a `bind_dash_ok` broadcast: the pilot
-        // works only for dashes bound in the **ledger**, and a client-side
+        // The real `arc bind` verb, not a `bind_arc_ok` broadcast: the pilot
+        // works only for arcs bound in the **ledger**, and a client-side
         // broadcast moves the deck's store without writing a row. Faking it
-        // here would leave the server thinking nobody holds this dash, and
+        // here would leave the server thinking nobody holds this arc, and
         // nothing downstream would ever run.
-        tugtool(["arc", "bind", DASH], {
+        tugtool(["arc", "bind", ARC], {
           cwd: scratch,
           binaryRoot: cli.binaryRoot,
           env: { ...(cli.env ?? {}), TUG_SESSION_ID: SID },
@@ -329,13 +329,13 @@ describe.skipIf(!SHOULD_RUN)("AT0445: a ready dash summons the shade", () => {
         // row the pilot will read. The atom is the positive signal — an absent
         // Bind would also be true of a row that never rendered.
         await app.waitForCondition<boolean>(
-          `document.querySelector('${dashRow(DASH)} [data-slot="tug-dash-lifecycle-worker"]') !== null`,
+          `document.querySelector('${arcRow(ARC)} [data-slot="tug-arc-lifecycle-worker"]') !== null`,
           { timeoutMs: 30000 },
         );
-        note("at0445 bound: the ledger row landed and the dash row saw it");
-        await registerReaches(app, DASH, "ready", 240000);
+        note("at0445 bound: the ledger row landed and the arc row saw it");
+        await registerReaches(app, ARC, "ready", 240000);
 
-        // The reveal. No gesture, no mark, no declaration — a reconciled dash
+        // The reveal. No gesture, no mark, no declaration — a reconciled arc
         // on a bound card, and the room it is waiting in opens itself.
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(SHEET)}) !== null`,
@@ -368,7 +368,7 @@ describe.skipIf(!SHOULD_RUN)("AT0445: a ready dash summons the shade", () => {
         ).toBe(true);
 
         // ── What it would land, and whose words those are ─────────────────
-        // Nobody wrote a draft on this dash, so the join would quietly land
+        // Nobody wrote a draft on this arc, so the join would quietly land
         // the branch description. The whole point of the provenance note is
         // that "quietly" stops here, at the one moment somebody is about to
         // agree to it.
@@ -383,7 +383,7 @@ describe.skipIf(!SHOULD_RUN)("AT0445: a ready dash summons the shade", () => {
         expect(
           landsAs,
           "the fold quotes the message the join would land, scope and all",
-        ).toContain(`tugdash(${DASH}): at0445 bound-dash fixture`);
+        ).toContain(`tugarc(${ARC}): at0445 bound-arc fixture`);
         expect(
           landsAs,
           "and says the words are the branch description, not an authored draft",
@@ -401,7 +401,7 @@ describe.skipIf(!SHOULD_RUN)("AT0445: a ready dash summons the shade", () => {
         // and its discovery finds whichever instance is registered — which,
         // on a developer's machine, is their **live** Tug. Without this the
         // draft lands in the real machine-global `changes.db` under a scratch
-        // dash's owner key, and this instance never sees it.
+        // arc's owner key, and this instance never sees it.
         tugtool(
           [
             "draft",
@@ -409,7 +409,7 @@ describe.skipIf(!SHOULD_RUN)("AT0445: a ready dash summons the shade", () => {
             "--instance",
             app.instanceId,
             "--owner",
-            `dash:${DASH}`,
+            `arc:${ARC}`,
             "--message",
             "at0445 the words the author chose",
           ],
@@ -474,17 +474,17 @@ describe.skipIf(!SHOULD_RUN)("AT0445: a ready dash summons the shade", () => {
 
         // ── The base moves, and the shade stays down ─────────────────────
         // A full re-run of the arc — not merely a quiet minute. The base sha
-        // moves, the dash is reconciled again, the candidate is rebuilt, and a
-        // new offer id is minted. The card has already shown this dash head's
+        // moves, the arc is reconciled again, the candidate is rebuilt, and a
+        // new offer id is minted. The card has already shown this arc head's
         // room, and a re-reveal on every base push would be the nagging the
         // old dialog was accused of.
         writeFileSync(join(scratch, "base-move.txt"), "at0445 the base moved\n");
         git(scratch, "add", "-A");
         git(scratch, "commit", "-m", "at0445: the base moves under a closed shade");
-        await registerReaches(app, DASH, "ready", 240000);
+        await registerReaches(app, ARC, "ready", 240000);
         expect(
           await shadeAppearsWithin(app, 15000),
-          "a base move under an unchanged dash head re-reconciles in silence",
+          "a base move under an unchanged arc head re-reconciles in silence",
         ).toBe(false);
         expect(
           await offerDot(app),
@@ -493,19 +493,19 @@ describe.skipIf(!SHOULD_RUN)("AT0445: a ready dash summons the shade", () => {
         note("at0445 quiet: the base moved, the arc re-ran, and nothing revealed");
 
         // ── A new round, and the shade comes back ────────────────────────
-        // The dash head moves. That is work the user has never seen, which is
+        // The arc head moves. That is work the user has never seen, which is
         // the case a standing surface must still announce — the failure the
         // old durable dismissal produced was a run that walked four milestones
         // and spoke at the first.
         //
-        // The draft written above survives — it is the dash's, not the
+        // The draft written above survives — it is the arc's, not the
         // surface's — so the new offer opens on the author's words.
         writeFileSync(
           join(boundWorktree, "bound.txt"),
-          "at0445 the bound dash keeps working\n",
+          "at0445 the bound arc keeps working\n",
         );
-        commitRound(scratch, DASH, "at0445(round): work the user has not been asked about", cli);
-        await registerReaches(app, DASH, "ready", 300000);
+        commitRound(scratch, ARC, "at0445(round): work the user has not been asked about", cli);
+        await registerReaches(app, ARC, "ready", 300000);
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(SHEET)}) !== null`,
           { timeoutMs: 90000 },
@@ -524,26 +524,26 @@ describe.skipIf(!SHOULD_RUN)("AT0445: a ready dash summons the shade", () => {
           "and it needs no apology — these words ARE somebody's",
         ).not.toContain("no draft was written");
 
-        // ── And the unbound dash was left alone entirely ─────────────────
-        // Not merely unrevealed: unworked. The pilot only reconciles dashes
-        // bound to a live session, because a reconcile on a dash nobody is
+        // ── And the unbound arc was left alone entirely ─────────────────
+        // Not merely unrevealed: unworked. The pilot only reconciles arcs
+        // bound to a live session, because a reconcile on an arc nobody is
         // working is spent on nobody — and one commit on the base would
-        // otherwise re-qualify every dash in the repository at once. So its
+        // otherwise re-qualify every arc in the repository at once. So its
         // register never reaches `ready`, even though its facts are identical
-        // to the bound dash's and the base has moved underneath it.
+        // to the bound arc's and the base has moved underneath it.
         expect(
-          await registerEverReaches(app, QUIET_DASH, "ready", 20000),
-          "an unbound dash is never piloted, so its arc never runs at all",
+          await registerEverReaches(app, QUIET_ARC, "ready", 20000),
+          "an unbound arc is never piloted, so its arc never runs at all",
         ).toBe(false);
         expect(
-          await registerWord(app, QUIET_DASH),
+          await registerWord(app, QUIET_ARC),
           "and its row promises no check it will never run",
         ).toBeNull();
         expect(
           await app.evalJS<boolean>(
-            `document.querySelector(${JSON.stringify(`${LANE} [data-slot="session-changes-dash-row"][data-dash="${QUIET_DASH}"] [data-slot="session-changes-dash-lands-as"]`)}) === null`,
+            `document.querySelector(${JSON.stringify(`${LANE} [data-slot="session-changes-arc-row"][data-arc="${QUIET_ARC}"] [data-slot="session-changes-arc-lands-as"]`)}) === null`,
           ),
-          "and no row in the revealed shade offers to land the dash nobody is working",
+          "and no row in the revealed shade offers to land the arc nobody is working",
         ).toBe(true);
         note("at0445 unbound: never piloted, and its row says nothing at all");
       } finally {

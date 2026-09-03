@@ -319,7 +319,7 @@ export function detectCommandEcho(
  * Re-synthesizing the optimistic substrate from that wire would render
  * plain `/name` text and then flip to a chip when claude's
  * `<command-name>` echo replays — a flicker. Worse, when an *argument
- * atom* follows (e.g. `/implement ⟨dash/x.md⟩`), the wire carries the
+ * atom* follows (e.g. `/implement ⟨arc/x.md⟩`), the wire carries the
  * bare `/name` next to the file's mention marker, so the resynthesis
  * recovers the file chip but leaves the command as plain text — the
  * command chip is lost outright, not merely flickered. When this returns

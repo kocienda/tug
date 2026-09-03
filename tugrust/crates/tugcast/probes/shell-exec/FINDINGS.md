@@ -1,6 +1,6 @@
 # Shell execution probe — FINDINGS
 
-Probe for `dash/route-enhancements.md` [Q01]–[Q04] — the block-oriented
+Probe for the route-enhancements design record, [Q01]–[Q04] — the block-oriented
 shell backend for the `$` route. Answers: which process architecture, how one
 exchange is captured, how the shell stays non-interactive, and what happens on
 restart.

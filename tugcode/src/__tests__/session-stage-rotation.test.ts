@@ -127,8 +127,8 @@ async function rotate(
 
 const STAGE: SessionStageSpec = {
   name: "devise",
-  document: "dash/some-brief.md",
-  arc: "some-dash",
+  document: ".tug/arcs/some/brief.md",
+  arc: "some-arc",
 };
 
 describe("a stage rotation announces lineage", () => {
@@ -150,8 +150,8 @@ describe("a stage rotation announces lineage", () => {
     expect(line.parentSessionId).toBe(parent);
     expect(line.newSessionId).toBe(m.sessionId);
     expect(line.stage).toBe("devise");
-    expect(line.document).toBe("dash/some-brief.md");
-    expect(line.arc).toBe("some-dash");
+    expect(line.document).toBe(".tug/arcs/some/brief.md");
+    expect(line.arc).toBe("some-arc");
     expect(line.ipc_version).toBe(2);
     // The stage's fresh id is genuinely fresh, not the parent's.
     expect(line.newSessionId).not.toBe(line.parentSessionId);
@@ -171,9 +171,9 @@ describe("a stage rotation announces lineage", () => {
 
   test("the stage line echoes the opening prompt the command carried", async () => {
     const m = manager();
-    await rotate(m, "new", { ...STAGE, prompt: "/tugplug:arc-devise dash/some-brief.md" });
+    await rotate(m, "new", { ...STAGE, prompt: "/tugplug:arc-devise .tug/arcs/some/brief.md" });
     expect(emitted.find((e) => e?.type === "session_segment").prompt).toBe(
-      "/tugplug:arc-devise dash/some-brief.md",
+      "/tugplug:arc-devise .tug/arcs/some/brief.md",
     );
 
     emitted = [];
@@ -187,7 +187,7 @@ describe("a stage rotation announces lineage", () => {
   test("the stage's spawn carries the arc name", async () => {
     const m = manager();
     await rotate(m, "new", STAGE);
-    expect(spawnEnvs.at(-1)?.TUG_ARC).toBe("some-dash");
+    expect(spawnEnvs.at(-1)?.TUG_ARC).toBe("some-arc");
   });
 
   // The outbound announcement — which tugcast turns into the `arc-stage`
@@ -196,8 +196,8 @@ describe("a stage rotation announces lineage", () => {
   test("the announcement names the same arc the spawn carries", async () => {
     const m = manager();
     await rotate(m, "new", STAGE);
-    expect(m.currentArc).toBe("some-dash");
-    expect(emitted.find((e) => e?.type === "session_segment").arc).toBe("some-dash");
+    expect(m.currentArc).toBe("some-arc");
+    expect(emitted.find((e) => e?.type === "session_segment").arc).toBe("some-arc");
   });
 
   test("the arc survives a later respawn tugcode makes for its own reasons", async () => {
@@ -209,7 +209,7 @@ describe("a stage rotation announces lineage", () => {
     const before = spawnEnvs.length;
     m.spawnClaude(m.sessionId, "resume");
     expect(spawnEnvs.length).toBe(before + 1);
-    expect(spawnEnvs.at(-1)?.TUG_ARC).toBe("some-dash");
+    expect(spawnEnvs.at(-1)?.TUG_ARC).toBe("some-arc");
   });
 });
 
@@ -242,7 +242,7 @@ describe("a rotation with no arc behind it", () => {
 
     const onArc = manager();
     await rotate(onArc, "new", STAGE);
-    expect(spawnEnvs.at(-1)?.TUG_ARC).toBe("some-dash");
+    expect(spawnEnvs.at(-1)?.TUG_ARC).toBe("some-arc");
   });
 
   test("a stage naming an effort spawns once, with the level applied", async () => {
@@ -298,7 +298,7 @@ describe("a prompt dispatched behind the rotation", () => {
     const rotation: Promise<void> = m.handleSessionCommand("new", STAGE);
     const prompt: Promise<void> = m.handleUserMessage({
       type: "user_message",
-      content: [{ type: "text", text: "/tugplug:arc-devise dash/some-brief.md" }],
+      content: [{ type: "text", text: "/tugplug:arc-devise .tug/arcs/some/brief.md" }],
     });
     await rotation;
     // The prompt's handler then waits on a turn no fake claude will end;
@@ -336,7 +336,7 @@ describe("a session with no stage announces itself as a new line", () => {
   test("a plain new after an arc clears it — the variable is per-arc, not per-card", async () => {
     const m = manager();
     await rotate(m, "new", STAGE);
-    expect(spawnEnvs.at(-1)?.TUG_ARC).toBe("some-dash");
+    expect(spawnEnvs.at(-1)?.TUG_ARC).toBe("some-arc");
 
     await rotate(m, "new");
     expect(spawnEnvs.at(-1)).not.toHaveProperty("TUG_ARC");

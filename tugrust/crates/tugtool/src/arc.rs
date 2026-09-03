@@ -1,4 +1,4 @@
-//! Dashes — worktree-isolated work units (`tugtool arc …`). A thin shell over
+//! Arcs — worktree-isolated work units (`tugtool arc …`). A thin shell over
 //! [`tugarc_core::ops`]: parse arguments, read commit round-metadata from stdin,
 //! call the typed library API, and format the outcome as `--json` (the shared
 //! envelope) or a plain human read-out.
@@ -9,7 +9,7 @@ use std::process::ExitCode;
 use serde::Serialize;
 
 use tugarc_core::{
-    ArcKind, ArcRecord, DashRoundMeta, JoinOptions, JoinStrategy, MarkStage, ReplayOutcome, ops,
+    ArcKind, ArcRecord, ArcRoundMeta, JoinOptions, JoinStrategy, MarkStage, ReplayOutcome, ops,
     replay, resolve,
 };
 
@@ -17,8 +17,8 @@ use crate::arc_turn::{self, StepMove};
 use crate::cli::{ArcCommands, StepAction};
 use crate::output::print_ok;
 
-/// Dispatch a `dash` subcommand, mapping a `Result<(), String>` to an exit code
-/// (exit 1 on any error, matching the former standalone tugdash binary).
+/// Dispatch a `arc` subcommand, mapping a `Result<(), String>` to an exit code
+/// (exit 1 on any error, matching the former standalone tugarc binary).
 pub fn dispatch(cmd: ArcCommands, json: bool, quiet: bool) -> ExitCode {
     if let Some(refusal) = git_preflight(&cmd) {
         eprintln!("error: {refusal}");
@@ -87,10 +87,10 @@ pub fn dispatch(cmd: ArcCommands, json: bool, quiet: bool) -> ExitCode {
         ArcCommands::Mark { name, stage, note } => run_mark(&name, stage.into(), note, json, quiet),
         ArcCommands::Run {
             name,
-            kind,
+            plan,
             project,
             session,
-        } => run_arc_run(&name, &kind, project, session, json, quiet),
+        } => run_arc_run(&name, plan, project, session, json, quiet),
         ArcCommands::Documents { name, ensure } => run_documents(&name, ensure, json, quiet),
         ArcCommands::Record { name, project } => run_arc_report(&name, project, json, quiet),
         ArcCommands::Bind {
@@ -164,14 +164,14 @@ fn run_create(
     quiet: bool,
 ) -> Result<(), String> {
     let data = ops::create(name, description, carry, base)?;
-    let claim = claim_dash(name);
+    let claim = claim_arc(name);
     if json {
         print_ok("arc create", merge_claim(&data, &claim)?);
     } else if !quiet {
         if data.created {
-            println!("Created dash '{}'", data.name);
+            println!("Created arc '{}'", data.name);
         } else {
-            println!("Dash '{}' already exists (active)", data.name);
+            println!("Arc '{}' already exists (active)", data.name);
         }
         println!("  Worktree: {}", data.worktree);
         println!("  Branch: {}", data.branch);
@@ -240,7 +240,7 @@ fn print_base_census(data: &ops::CreateOutcome) {
 fn run_commit(name: &str, message: &str, json: bool, quiet: bool) -> Result<(), String> {
     // Round metadata arrives on stdin (the one datum git lacks: the verbatim
     // instruction). A terminal stdin means none was piped.
-    let round_meta: Option<DashRoundMeta> = if !io::stdin().is_terminal() {
+    let round_meta: Option<ArcRoundMeta> = if !io::stdin().is_terminal() {
         let mut buf = String::new();
         io::stdin()
             .read_to_string(&mut buf)
@@ -258,9 +258,9 @@ fn run_commit(name: &str, message: &str, json: bool, quiet: bool) -> Result<(), 
     };
 
     let data = ops::commit(name, message, round_meta)?;
-    // Deliberately no `claim_dash` here. A round is the plainest statement
-    // that this session is working this dash, but the claim costs an HTTP walk
-    // over every live instance, and `commit` is the one dash verb that runs on
+    // Deliberately no `claim_arc` here. A round is the plainest statement
+    // that this session is working this arc, but the claim costs an HTTP walk
+    // over every live instance, and `commit` is the one arc verb that runs on
     // every round and from inside a Shell-route turn — paying that per round,
     // in front of the user, to re-assert a fact `create` and `step start`
     // already recorded is a cost with no reader.
@@ -268,26 +268,26 @@ fn run_commit(name: &str, message: &str, json: bool, quiet: bool) -> Result<(), 
         print_ok("arc commit", &data);
     } else if !quiet {
         if data.committed {
-            println!("Committed changes to dash '{}'", name);
+            println!("Committed changes to arc '{}'", name);
             if let Some(hash) = &data.commit_hash {
                 println!("  Commit: {}", hash);
             }
         } else {
-            println!("No changes to commit for dash '{}'", name);
+            println!("No changes to commit for arc '{}'", name);
         }
     }
     Ok(())
 }
 
-/// The dash's owner key and the repo it lives in, resolved for a landing.
+/// The arc's owner key and the repo it lives in, resolved for a landing.
 ///
 /// Called **before** the verb runs, always. `join`/`discard` end in
-/// `git branch -D`, which deletes `branch.tugdash/<name>.tugid` with the
+/// `git branch -D`, which deletes `branch.tugarc/<name>.tugid` with the
 /// branch — a key read afterwards is the legacy form and names none of the
-/// id-keyed rows the `dash_gone` sweep must reach ([L23], [P05], Risk R02).
+/// id-keyed rows the `arc_gone` sweep must reach ([L23], [P05], Risk R02).
 fn capture_owner_key(name: &str) -> Option<(std::path::PathBuf, String)> {
     let repo = tugtool_core::find_repo_root().ok()?;
-    let key = tugarc_core::ops::dash_owner_key(&repo, name);
+    let key = tugarc_core::ops::arc_owner_key(&repo, name);
     Some((repo, key))
 }
 
@@ -295,12 +295,12 @@ fn run_join(name: &str, opts: JoinOptions, json: bool, quiet: bool) -> Result<()
     let previewing = opts.preview;
     let captured = (!previewing).then(|| capture_owner_key(name)).flatten();
     let data = ops::join(name, opts)?;
-    // Only a real join that landed tore the dash down.
+    // Only a real join that landed tore the arc down.
     if !data.previewed
         && data.conflicts.is_empty()
         && let Some((repo, owner_key)) = captured
     {
-        broadcast_dash_gone(&repo, &owner_key, DashGone::Joined);
+        broadcast_arc_gone(&repo, &owner_key, ArcGone::Joined);
     }
     if json {
         print_ok("arc join", &data);
@@ -308,12 +308,12 @@ fn run_join(name: &str, opts: JoinOptions, json: bool, quiet: bool) -> Result<()
         if data.previewed {
             if data.conflicts.is_empty() {
                 println!(
-                    "Preview: dash '{}' joins cleanly into '{}'.",
+                    "Preview: arc '{}' joins cleanly into '{}'.",
                     data.name, data.base_branch
                 );
             } else {
                 println!(
-                    "Preview: joining dash '{}' into '{}' conflicts in {} file(s):",
+                    "Preview: joining arc '{}' into '{}' conflicts in {} file(s):",
                     data.name,
                     data.base_branch,
                     data.conflicts.len()
@@ -330,7 +330,7 @@ fn run_join(name: &str, opts: JoinOptions, json: bool, quiet: bool) -> Result<()
             }
         } else if data.conflicts.is_empty() {
             println!(
-                "Joined dash '{}' to branch '{}'",
+                "Joined arc '{}' to branch '{}'",
                 data.name, data.base_branch
             );
             if let Some(hash) = &data.commit_hash {
@@ -341,7 +341,7 @@ fn run_join(name: &str, opts: JoinOptions, json: bool, quiet: bool) -> Result<()
             }
         } else {
             println!(
-                "Join aborted: dash '{}' conflicts with '{}' in {} file(s) (working tree restored):",
+                "Join aborted: arc '{}' conflicts with '{}' in {} file(s) (working tree restored):",
                 data.name,
                 data.base_branch,
                 data.conflicts.len()
@@ -394,7 +394,7 @@ fn run_join_resolve(
             print_ok("arc join --resolve", &outcome);
         } else if !quiet {
             println!(
-                "Could not fully resolve dash '{}': {} file(s) still conflict:",
+                "Could not fully resolve arc '{}': {} file(s) still conflict:",
                 name,
                 outcome.unresolved.len()
             );
@@ -432,7 +432,7 @@ fn run_join_resolve(
     if landed.conflicts.is_empty()
         && let Some((repo, owner_key)) = captured
     {
-        broadcast_dash_gone(&repo, &owner_key, DashGone::Joined);
+        broadcast_arc_gone(&repo, &owner_key, ArcGone::Joined);
     }
 
     if json {
@@ -443,7 +443,7 @@ fn run_join_resolve(
         );
     } else if !quiet {
         println!(
-            "Resolved and joined dash '{}' into '{}' ({:?} shape)",
+            "Resolved and joined arc '{}' into '{}' ({:?} shape)",
             landed.name, landed.base_branch, outcome.shape
         );
         if let Some(hash) = &landed.commit_hash {
@@ -464,12 +464,12 @@ fn run_discard(name: &str, break_lease: bool, json: bool, quiet: bool) -> Result
     let captured = capture_owner_key(name);
     let data = ops::discard(name, Some("cli"), break_lease)?;
     if let Some((repo, owner_key)) = captured {
-        broadcast_dash_gone(&repo, &owner_key, DashGone::Discarded);
+        broadcast_arc_gone(&repo, &owner_key, ArcGone::Discarded);
     }
     if json {
         print_ok("arc discard", &data);
     } else if !quiet {
-        println!("Discarded dash '{}'", data.name);
+        println!("Discarded arc '{}'", data.name);
         if let Some(dir) = data.documents_kept.as_deref() {
             println!(
                 "  Documents kept at {dir} — tugtool arc run {} reopens on them",
@@ -494,7 +494,7 @@ fn run_status(name: &str, json: bool, quiet: bool) -> Result<(), String> {
     if json {
         print_ok("arc status", &data);
     } else if !quiet {
-        println!("Dash: {}", data.name);
+        println!("Arc: {}", data.name);
         println!("Id: {}", data.id);
         println!("Stage: {}", data.stage);
         if let (Some(current), Some(total)) = (data.step_current, data.step_total) {
@@ -552,12 +552,12 @@ fn run_status(name: &str, json: bool, quiet: bool) -> Result<(), String> {
     Ok(())
 }
 
-/// Compare a dash's four records and say where they disagree ([P04]).
+/// Compare an arc's four records and say where they disagree ([P04]).
 ///
 /// The exit code is the finding: 0 when the records agree, 1 when they do
 /// not, so a script can gate on it without parsing anything. A `--repair` run
 /// that reconciles every reconcilable finding still exits 1 if something was
-/// left for a person — the dash is not healthy just because the doctor did
+/// left for a person — the arc is not healthy just because the doctor did
 /// what it could.
 fn run_doctor(name: &str, repair: bool, json: bool, quiet: bool) -> Result<(), String> {
     let outcome = tugarc_core::doctor::doctor_here(name, repair)?;
@@ -572,7 +572,7 @@ fn run_doctor(name: &str, repair: bool, json: bool, quiet: bool) -> Result<(), S
             println!("The records agree.");
         } else {
             println!(
-                "{} disagreement(s) between this dash's records:",
+                "{} disagreement(s) between this arc's records:",
                 outcome.diagnosis.findings.len()
             );
             for finding in &outcome.diagnosis.findings {
@@ -588,11 +588,11 @@ fn run_doctor(name: &str, repair: bool, json: bool, quiet: bool) -> Result<(), S
             }
         }
         if !outcome.appended.is_empty() {
-            println!("\nAppended {} dash-log line(s).", outcome.appended.len());
+            println!("\nAppended {} arc log line(s).", outcome.appended.len());
         }
     }
 
-    // A repair that reconciled everything it could still reports the dash as
+    // A repair that reconciled everything it could still reports the arc as
     // unhealthy if anything is left — the verb answers "do the records agree",
     // not "did I try".
     if outcome.diagnosis.healthy() || (repair && outcome.left_for_a_person == 0) {
@@ -605,9 +605,9 @@ fn run_doctor(name: &str, repair: bool, json: bool, quiet: bool) -> Result<(), S
     }
 }
 
-/// Drive one ledger row and its dash-log line (Spec S02).
+/// Drive one ledger row and its arc log line (Spec S02).
 ///
-/// Every refusal — an unknown dash, a dash with no plan, a document that does
+/// Every refusal — an unknown arc, an arc with no plan, a document that does
 /// not parse, a row that cannot make the transition — exits 1 with the plan and
 /// the row named, and leaves the plan file untouched.
 fn run_step(name: &str, action: StepAction, json: bool, quiet: bool) -> Result<(), String> {
@@ -626,37 +626,37 @@ fn run_step(name: &str, action: StepAction, json: bool, quiet: bool) -> Result<(
                  (the machine arms the join from it)"
                     .to_string()
             })?;
-            // Opening a step is the resume path's "I am working this dash".
+            // Opening a step is the resume path's "I am working this arc".
             // A run that picks a plan up mid-way never calls `create`, so this
             // is the only place the claim can be made for it.
             let outcome = ops::step_start(name, step, through)?;
-            claim = Some(claim_dash(name));
+            claim = Some(claim_arc(name));
             outcome
         }
         StepAction::Done { step, commit } => ops::step_done(name, step, commit.as_deref())?,
         StepAction::Withdraw { step } => {
             // Withdrawing is a run act like opening a step, so it registers
             // the same claim: a run that picks a plan up mid-way to withdraw
-            // one step has still taken the dash.
+            // one step has still taken the arc.
             let outcome = ops::step_withdraw(name, step)?;
-            claim = Some(claim_dash(name));
+            claim = Some(claim_arc(name));
             outcome
         }
         // Parking and reopening are run acts too, on the same grounds.
         StepAction::Reset { step, why } => {
             let outcome = ops::step_reset(name, step, why.as_deref())?;
-            claim = Some(claim_dash(name));
+            claim = Some(claim_arc(name));
             outcome
         }
         StepAction::Reopen { step, why } => {
             let outcome = ops::step_reopen(name, step, &why)?;
-            claim = Some(claim_dash(name));
+            claim = Some(claim_arc(name));
             outcome
         }
     };
     // The boundary fact the PreToolUse gate asks about, told to the server at
     // the moment it becomes true (W8 Task 2). Advisory: a report that does not
-    // land leaves the gate where it was, and the dash-log observer marks the
+    // land leaves the gate where it was, and the arc log observer marks the
     // same fact from the record itself, one watch event later.
     if mv.closed_a_step() {
         arc_turn::report_step_closed(data.step);
@@ -694,7 +694,7 @@ fn run_step(name: &str, action: StepAction, json: bool, quiet: bool) -> Result<(
     }
 }
 
-/// Declare a stage git cannot see ([P09]) — one dash-log line, nothing else.
+/// Declare a stage git cannot see ([P09]) — one arc log line, nothing else.
 fn run_mark(
     name: &str,
     stage: MarkStage,
@@ -706,7 +706,7 @@ fn run_mark(
     if json {
         print_ok("arc mark", &data);
     } else if !quiet {
-        println!("{} is {}", data.dash, data.stage);
+        println!("{} is {}", data.arc, data.stage);
         print_open_steps(&data);
     } else if !data.open_steps.is_empty() {
         // Quiet suppresses the receipt, not the disagreement.
@@ -760,7 +760,7 @@ fn step_list(steps: &[u32]) -> String {
 /// anything went wrong. The JSON was the truthful one.
 ///
 /// A **conflict** is different in kind. The replay stopped mid-application and
-/// the dash cannot move until a person resolves the round it named, so the
+/// the arc cannot move until a person resolves the round it named, so the
 /// non-zero exit is a script's one cheap signal that work is required.
 ///
 /// Returns `u8` rather than `ExitCode` so a test can compare it:
@@ -799,7 +799,7 @@ fn run_resolve_base(name: &str, json: bool, quiet: bool) -> ExitCode {
         print_ok("arc resolve-base", &outcome);
     } else if !quiet {
         for path in &outcome.dropped {
-            println!("dropped  {path}  (the dash carries these bytes)");
+            println!("dropped  {path}  (the arc carries these bytes)");
         }
         for path in &outcome.folded {
             println!("committed  {path}");
@@ -815,7 +815,7 @@ fn run_resolve_base(name: &str, json: bool, quiet: bool) -> ExitCode {
     ExitCode::SUCCESS
 }
 
-/// `dash replay` owns its exit code rather than borrowing the dispatcher's;
+/// `arc replay` owns its exit code rather than borrowing the dispatcher's;
 /// [`replay_exit_status`] states which outcome means what.
 fn run_replay(name: &str, json: bool, quiet: bool) -> ExitCode {
     let outcome = match replay::replay(name) {
@@ -879,7 +879,7 @@ fn print_verify(report: &tugarc_core::surfaces::VerifyReport) {
             println!("  {}", path);
         }
         println!("\nDeclare a surface for them in .tugtool/config.toml:\n");
-        println!("  [[tugtool.dash.surface]]");
+        println!("  [[tugtool.arc.surface]]");
         println!("  name  = \"<name>\"");
         println!("  paths = [{}]", declaration_hint(&report.unclaimed));
         println!("  check = []");
@@ -966,7 +966,7 @@ fn run_undo(name: Option<&str>, list: bool, json: bool, quiet: bool) -> ExitCode
     if list {
         let ops: Vec<_> = tugarc_core::list_ops(&repo)
             .into_iter()
-            .filter(|op| name.is_none_or(|n| op.dash == n))
+            .filter(|op| name.is_none_or(|n| op.arc == n))
             .collect();
         if json {
             print_ok("arc undo", &ops);
@@ -1032,7 +1032,7 @@ fn print_oplog(ops: &[tugarc_core::OpPayload]) {
             "  {:>4}  {:<8} {:<20} {}  ({})",
             op.seq,
             op.verb.as_str(),
-            op.dash,
+            op.arc,
             op.recorded_at,
             state
         );
@@ -1053,7 +1053,7 @@ fn run_redo(name: Option<&str>, list: bool, json: bool, quiet: bool) -> ExitCode
     if list {
         let ops: Vec<_> = tugarc_core::list_ops(&repo)
             .into_iter()
-            .filter(|op| name.is_none_or(|n| op.dash == n))
+            .filter(|op| name.is_none_or(|n| op.arc == n))
             .collect();
         if json {
             print_ok("arc redo", &ops);
@@ -1082,14 +1082,14 @@ fn print_redo(outcome: &tugarc_core::RedoOutcome) {
     println!(
         "Redid the {} of {} (operation {})",
         outcome.verb.as_str(),
-        outcome.dash,
+        outcome.arc,
         outcome.original_seq
     );
     if let Some(base) = &outcome.base_tip {
         println!("  base back at {}", short(base));
     }
-    if let Some(tip) = &outcome.dash_tip {
-        println!("  {} at {}", outcome.dash, short(tip));
+    if let Some(tip) = &outcome.arc_tip {
+        println!("  {} at {}", outcome.arc, short(tip));
     }
     if !outcome.handed_back_left_in_place.is_empty() {
         println!(
@@ -1106,14 +1106,14 @@ fn print_undo(outcome: &tugarc_core::UndoOutcome) {
     println!(
         "Undid the {} of {} (operation {})",
         outcome.verb.as_str(),
-        outcome.dash,
+        outcome.arc,
         outcome.seq
     );
     if let Some(base) = &outcome.base_tip {
         println!("  base back at {}", short(base));
     }
-    if let Some(tip) = &outcome.dash_tip {
-        println!("  {} restored at {}", outcome.dash, short(tip));
+    if let Some(tip) = &outcome.arc_tip {
+        println!("  {} restored at {}", outcome.arc, short(tip));
     }
     if !outcome.handed_back_left_in_place.is_empty() {
         println!(
@@ -1181,7 +1181,7 @@ fn print_replay(name: &str, outcome: &ReplayOutcome) {
                 println!("  {}", path);
             }
             println!(
-                "Rebase it in the dash worktree (`git rebase <base>`), then run \
+                "Rebase it in the arc worktree (`git rebase <base>`), then run \
                  `tugtool arc replay {}` to record the moved rounds.",
                 name
             );
@@ -1194,10 +1194,11 @@ fn print_replay(name: &str, outcome: &ReplayOutcome) {
 
 // --- the arc ([P01], Spec S06, Spec S07) -----------------------------------
 
-/// What `dash run` did, and what the arc says afterwards.
+/// What `arc run` did, and what the arc says afterwards.
 #[derive(Serialize)]
 struct ArcRunPayload {
-    dash: String,
+    // `name`, not `arc`: the sibling `arc` key below is the record itself.
+    name: String,
     /// An `arc-start` line was written — a new arc opened.
     started: bool,
     /// A stopped arc was picked back up ([P11]).
@@ -1210,8 +1211,9 @@ struct ArcRunPayload {
 
 #[derive(Serialize)]
 struct ArcReportPayload {
-    dash: String,
-    /// `null` for a dash with no arc, which is every dash created by hand.
+    // `name`, not `arc`: the sibling `arc` key below is the record itself.
+    name: String,
+    /// `null` for an arc with no arc, which is every arc created by hand.
     arc: Option<ArcRecord>,
 }
 
@@ -1225,10 +1227,10 @@ fn arc_project_root(project: Option<std::path::PathBuf>) -> Result<std::path::Pa
     }
 }
 
-/// Open an arc on the dash's own documents, or resume one that stopped.
+/// Open an arc on its own documents, or resume one that stopped.
 ///
-/// The document is the dash's brief, or its plan when only that exists — the
-/// arc has no address to be given, because a dash's documents live at one
+/// The document is the arc's brief, or its plan when only that exists — the
+/// arc has no address to be given, because an arc's documents live at one
 /// place. An arc that already exists is resumed whatever its document, since
 /// the record is the arc's identity and a second `arc-start` would make one arc
 /// read as two.
@@ -1242,45 +1244,45 @@ fn arc_project_root(project: Option<std::path::PathBuf>) -> Result<std::path::Pa
 /// with no session and no instance.
 fn open_arc(
     root: &std::path::Path,
-    dash: &str,
+    arc: &str,
     kind: ArcKind,
 ) -> Result<(bool, bool, ArcRecord), String> {
-    tugarc_core::validate_arc_name(dash).map_err(|e| e.to_string())?;
-    if let Some(arc) = tugarc_core::read_arc(root, dash) {
-        return resume_arc(root, dash, arc);
+    tugarc_core::validate_arc_name(arc).map_err(|e| e.to_string())?;
+    if let Some(record) = tugarc_core::read_arc(root, arc) {
+        return resume_arc(root, arc, record);
     }
 
-    let file = if tugarc_core::brief_file(root, dash).is_file() {
+    let file = if tugarc_core::brief_file(root, arc).is_file() {
         "brief.md"
-    } else if tugarc_core::plan_file(root, dash).is_file() {
+    } else if tugarc_core::plan_file(root, arc).is_file() {
         "plan.md"
-    } else if tugarc_core::tasks_file(root, dash).is_file() {
-        // A task list with no brief beside it: unusual, since the `/dash`
+    } else if tugarc_core::tasks_file(root, arc).is_file() {
+        // A task list with no brief beside it: unusual, since the `/arc`
         // door writes both, but it is a document the wheel can open on and
         // refusing it would be a rule with no reason behind it.
         "tasks.md"
     } else {
         return Err(format!(
-            "arc '{dash}' has no brief, plan, or task list at {} — write one first",
-            tugarc_core::documents_dir(root, dash).display()
+            "arc '{arc}' has no brief, plan, or task list at {} — write one first",
+            tugarc_core::documents_dir(root, arc).display()
         ));
     };
     // Repo-relative in the record, which is what the stage divider shows and
     // what the runner resolves against the main root.
-    let relative = format!(".tug/arcs/{dash}/{file}");
+    let relative = format!(".tug/arcs/{arc}/{file}");
 
-    tugarc_core::append_arc_start(root, dash, &relative).map_err(|e| e.to_string())?;
+    tugarc_core::append_arc_start(root, arc, &relative).map_err(|e| e.to_string())?;
     // Written after `arc-start`, so a reader that stops at the first marker
     // still finds the document. Both lines are this opening's.
-    tugarc_core::append_arc_kind(root, dash, kind).map_err(|e| e.to_string())?;
-    let arc = tugarc_core::read_arc(root, dash)
-        .ok_or_else(|| format!("wrote the arc for '{dash}' but could not read it back"))?;
+    tugarc_core::append_arc_kind(root, arc, kind).map_err(|e| e.to_string())?;
+    let arc = tugarc_core::read_arc(root, arc)
+        .ok_or_else(|| format!("wrote the arc for '{arc}' but could not read it back"))?;
     Ok((true, false, arc))
 }
 
-/// Report where a dash's documents live and which of them exist ([P01]).
+/// Report where an arc's documents live and which of them exist ([P01]).
 ///
-/// A dash with no directory is a state rather than an error: exit 0, both
+/// An arc with no directory is a state rather than an error: exit 0, both
 /// absent. `--ensure` creates the directory and keeps `.tug/` out of git, so a
 /// skill that is about to write a brief needs one call, not three.
 fn run_documents(name: &str, ensure: bool, json: bool, quiet: bool) -> Result<(), String> {
@@ -1298,7 +1300,7 @@ fn run_documents(name: &str, ensure: bool, json: bool, quiet: bool) -> Result<()
     let plan = tugarc_core::plan_file(&root, name);
     let tasks = tugarc_core::tasks_file(&root, name);
     let payload = DocumentsPayload {
-        dash: name.to_string(),
+        arc: name.to_string(),
         dir: dir.display().to_string(),
         brief: brief.display().to_string(),
         plan: plan.display().to_string(),
@@ -1312,7 +1314,7 @@ fn run_documents(name: &str, ensure: bool, json: bool, quiet: bool) -> Result<()
         print_ok("arc documents", &payload);
     } else if !quiet {
         let mark = |there: bool| if there { "exists" } else { "absent" };
-        println!("dash:   {}", payload.dash);
+        println!("arc:    {}", payload.arc);
         println!("dir:    {}", payload.dir);
         println!("brief:  {} ({})", payload.brief, mark(payload.brief_exists));
         println!("plan:   {} ({})", payload.plan, mark(payload.plan_exists));
@@ -1321,10 +1323,11 @@ fn run_documents(name: &str, ensure: bool, json: bool, quiet: bool) -> Result<()
     Ok(())
 }
 
-/// `dash documents` — the directory and every document, with existence.
+/// `arc documents` — the directory and every document, with existence.
 #[derive(Debug, Serialize)]
 struct DocumentsPayload {
-    dash: String,
+    #[serde(rename = "arc")]
+    arc: String,
     dir: String,
     brief: String,
     plan: String,
@@ -1340,15 +1343,15 @@ struct DocumentsPayload {
 /// left as it is — its record is already what the runner reads.
 fn resume_arc(
     root: &std::path::Path,
-    dash: &str,
+    name: &str,
     arc: ArcRecord,
 ) -> Result<(bool, bool, ArcRecord), String> {
     let Some((stage, _)) = arc.stopped else {
         return Ok((false, false, arc));
     };
-    tugarc_core::append_arc_resume(root, dash, stage).map_err(|e| e.to_string())?;
-    let arc = tugarc_core::read_arc(root, dash)
-        .ok_or_else(|| format!("resumed the arc for '{dash}' but could not read it back"))?;
+    tugarc_core::append_arc_resume(root, name, stage).map_err(|e| e.to_string())?;
+    let arc = tugarc_core::read_arc(root, name)
+        .ok_or_else(|| format!("resumed the arc for '{name}' but could not read it back"))?;
     Ok((false, true, arc))
 }
 
@@ -1356,11 +1359,11 @@ fn resume_arc(
 ///
 /// Writes the record, then tells the instance that owns the calling session
 /// about it over the same `POST /api/arc` route the other session-addressed
-/// verbs use. The server binds the session to the dash and returns; the first
+/// verbs use. The server binds the session to the arc and returns; the first
 /// stage rotates on that session's own turn end ([P05]), never on arrival.
 fn run_arc_run(
     name: &str,
-    kind: &str,
+    plan: bool,
     project: Option<std::path::PathBuf>,
     session: Option<String>,
     json: bool,
@@ -1371,8 +1374,13 @@ fn run_arc_run(
     // stage to go, so this refuses rather than recording an arc nobody can run.
     let session = calling_session_id("an arc", session.as_deref())?;
     let root = arc_project_root(project.clone())?;
-    let kind = ArcKind::parse(kind)
-        .ok_or_else(|| format!("unknown kind '{kind}' — expected 'dash' or 'trek'"))?;
+    // The flag is the whole kind axis ([P01]): the door that passes `--plan`
+    // opens a planned arc, and the bare door opens a plain one.
+    let kind = if plan {
+        ArcKind::Planned
+    } else {
+        ArcKind::Plain
+    };
     let (started, resumed, arc) = open_arc(&root, name, kind)?;
 
     // The record is written before the kick, so a tugcast that never hears
@@ -1381,7 +1389,7 @@ fn run_arc_run(
         "op": "arc_run",
         "tug_session_id": session.session_id,
         "project_dir": binding_project(project)?.to_string_lossy(),
-        "dash": name,
+        "arc": name,
     }))
     .map_err(|e| refuse(&session, e))?;
     // The server resolves once more at its own door, so its answer is the
@@ -1393,7 +1401,7 @@ fn run_arc_run(
         print_ok(
             "arc run",
             ArcRunPayload {
-                dash: name.to_string(),
+                name: name.to_string(),
                 started,
                 resumed,
                 arc,
@@ -1422,7 +1430,7 @@ fn run_arc_run(
     Ok(())
 }
 
-/// Report the arc (Spec S07). No arc exits 0 with `arc: null`: a dash without
+/// Report the arc (Spec S07). No arc exits 0 with `arc: null`: an arc without
 /// an arc is a state, not an error.
 fn run_arc_report(
     name: &str,
@@ -1437,7 +1445,7 @@ fn run_arc_report(
         print_ok(
             "arc record",
             ArcReportPayload {
-                dash: name.to_string(),
+                name: name.to_string(),
                 arc,
             },
         );
@@ -1482,7 +1490,7 @@ fn print_arc(arc: &ArcRecord) {
     }
 }
 
-// --- session↔dash binding ([P04], Spec S04) --------------------------------
+// --- session↔arc binding ([P04], Spec S04) --------------------------------
 
 /// Resolve `--project` (default cwd) to an absolute path, as the user spelled
 /// it. The CLI never canonicalizes ([L29]) — `/api/arc` is the gateway.
@@ -1500,7 +1508,7 @@ fn binding_project(project: Option<std::path::PathBuf>) -> Result<std::path::Pat
 /// Unlike `/api/draft` — whose target is the machine-global changes ledger, so
 /// any live instance is a valid conduit — `sessions.db` is **per-instance**. A
 /// bind must land on the instance holding the session, so this tries the
-/// cwd-derived instance first (`find_for_cwd` reaches through a dash worktree
+/// cwd-derived instance first (`find_for_cwd` reaches through an arc worktree
 /// to its main checkout, so it is usually right on the first try) and then
 /// walks every live instance, taking `unknown_session` as "not this one" and
 /// moving on.
@@ -1516,7 +1524,7 @@ fn post_arc_api(body: serde_json::Value) -> Result<serde_json::Value, String> {
 ///
 /// `subject` is what the "no instance was found" failure names. It is a
 /// parameter rather than a literal because the text is read by whoever ran the
-/// verb, and a rotation must not report a dash binding it never asked for
+/// verb, and a rotation must not report an arc binding it never asked for
 /// ([P03]).
 pub(crate) fn post_instance_api(
     path: &str,
@@ -1595,7 +1603,7 @@ pub(crate) fn post_instance_api(
 /// The calling session, **resolved** to its line's live segment, or the
 /// actionable error naming what to do.
 ///
-/// Every session-addressed dash verb starts here. The raw `$TUG_SESSION_ID`
+/// Every session-addressed arc verb starts here. The raw `$TUG_SESSION_ID`
 /// is not an answer: it is frozen at spawn, and a card mid-arc rotates its
 /// session on purpose, so the id a stage's shell holds names a segment that
 /// closed rotations ago. Resolution happens once, here, before any use — see
@@ -1645,7 +1653,7 @@ fn print_rotation_note(resolved: &crate::session_identity::Resolved, landed: &st
 /// The old text said only what the caller had asked for, so a reader could
 /// not tell whether the verb had been aimed at a live card, at a segment two
 /// rotations dead, or at nothing at all — which is the whole of why the
-/// documented repair gesture read as a success. Every session-addressed dash
+/// documented repair gesture read as a success. Every session-addressed arc
 /// refusal now carries the **resolved** id and the ledger's word for it.
 fn refuse(resolved: &crate::session_identity::Resolved, message: String) -> String {
     let state = resolved
@@ -1676,7 +1684,7 @@ fn run_bind(
         "op": "bind",
         "tug_session_id": session.session_id,
         "project_dir": project.to_string_lossy(),
-        "dash": name,
+        "arc": name,
     }))
     .map_err(|e| refuse(&session, e))?;
     let bound = answered_session(&response, &session);
@@ -1684,19 +1692,19 @@ fn run_bind(
         print_ok(
             "arc bind",
             serde_json::json!({
-                "dash": name,
-                "dash_id": response.get("dash_id"),
+                "arc": name,
+                "arc_id": response.get("arc_id"),
                 "tug_session_id": bound,
             }),
         );
     } else if !quiet {
-        println!("Bound session {bound} to dash '{name}'");
+        println!("Bound session {bound} to arc '{name}'");
         print_rotation_note(&session, &bound);
     }
     Ok(())
 }
 
-/// Stop the arc running on this card, and keep the dash.
+/// Stop the arc running on this card, and keep the arc.
 ///
 /// It runs from a terminal, so it reaches the card through the server: the
 /// stop hands the card back, leaves the receipt every other stop leaves, and
@@ -1715,7 +1723,7 @@ fn run_arc_stop(
         "op": "arc_stop",
         "tug_session_id": session.session_id,
         "project_dir": project.to_string_lossy(),
-        "dash": name,
+        "arc": name,
     }))
     .map_err(|e| refuse(&session, e))?;
     let stage = response
@@ -1735,7 +1743,7 @@ fn run_arc_stop(
 
 /// Stop the arc because the stage met a decision that is not its to make.
 ///
-/// The verb that replaced a mid-arc `AskUserQuestion`, and it is `dash
+/// The verb that replaced a mid-arc `AskUserQuestion`, and it is `arc
 /// stop`'s twin on purpose: the same resolution, the same hand-back, the same
 /// receipt path. What differs is the reason — `needs a decision` — and the
 /// question, which becomes the arc's last note so the record and the card both
@@ -1755,7 +1763,7 @@ fn run_arc_ask(
         "op": "arc_ask",
         "tug_session_id": session.session_id,
         "project_dir": project.to_string_lossy(),
-        "dash": name,
+        "arc": name,
         "question": question,
     }))
     .map_err(|e| refuse(&session, e))?;
@@ -1786,8 +1794,8 @@ fn run_arc_ask(
 ///
 /// It resolves through the same chokepoint the real bind does, so the answer
 /// is the answer — not a second implementation that could drift from it. The
-/// dash name is echoed but never looked up: what would be written is a
-/// property of the session, and refusing here for an unknown dash would make
+/// arc name is echoed but never looked up: what would be written is a
+/// property of the session, and refusing here for an unknown arc would make
 /// the read fail where the write would have.
 fn run_bind_dry_run(
     name: &str,
@@ -1804,7 +1812,7 @@ fn run_bind_dry_run(
         print_ok(
             "arc bind",
             serde_json::json!({
-                "dash": name,
+                "arc": name,
                 "dry_run": true,
                 "posted_session_id": resolved.posted,
                 "tug_session_id": resolved.session_id,
@@ -1815,10 +1823,7 @@ fn run_bind_dry_run(
             }),
         );
     } else if !quiet {
-        println!(
-            "Would bind session {} to dash '{name}'",
-            resolved.session_id
-        );
+        println!("Would bind session {} to arc '{name}'", resolved.session_id);
         println!("  State: {state}");
         if let Some(line) = resolved.line_id.as_deref() {
             println!("  Line: {line}");
@@ -1839,7 +1844,7 @@ fn run_bind_dry_run(
     Ok(())
 }
 
-/// What became of a verb's attempt to claim the dash for its session.
+/// What became of a verb's attempt to claim the arc for its session.
 ///
 /// Three outcomes, and the whole point is that the third is not the other two.
 /// A run with no session and a run with no instance genuinely have nothing to
@@ -1853,10 +1858,10 @@ enum Claim {
     /// not in the worktree, so there is nowhere to put it.
     NoInstance,
     /// The calling session works a different checkout. A session may only bind
-    /// a dash in its own project (`arc_api::bind`), so this claim was never
+    /// an arc in its own project (`arc_api::bind`), so this claim was never
     /// this session's to make — the same kind of no-op as having no session at
     /// all, reached from the other direction. The ordinary shape is a CLI
-    /// fixture creating a scratch dash in a temp repo from inside a card.
+    /// fixture creating a scratch arc in a temp repo from inside a card.
     OtherProject,
     /// A refusal this side cannot classify, because the instance is older than
     /// the `project_dir` the resolve now answers with. Warned about, not
@@ -1903,13 +1908,13 @@ impl Claim {
     fn refusal(&self, name: &str) -> Option<String> {
         match self {
             Claim::Refused(detail) => Some(format!(
-                "could not bind this session to dash '{name}': {detail}. The dash is on disk and \
+                "could not bind this session to arc '{name}': {detail}. The arc is on disk and \
                  the work can go on, but nothing records who is doing it — `tugtool arc bind \
                  {name}` once the refusal above is dealt with, or `--dry-run` to see which \
                  session this shell resolves to"
             )),
             Claim::Unclassified(detail) => {
-                eprintln!("warning: could not bind this session to dash '{name}': {detail}");
+                eprintln!("warning: could not bind this session to arc '{name}': {detail}");
                 None
             }
             _ => None,
@@ -1917,22 +1922,22 @@ impl Claim {
     }
 }
 
-/// Say that the calling session is working this dash.
+/// Say that the calling session is working this arc.
 ///
-/// **The verbs that start or resume work on a dash call this** — `create` and
+/// **The verbs that start or resume work on an arc call this** — `create` and
 /// `step start` — because a run that resumes an existing plan never creates
-/// one, and leaving the claim to whoever remembered to type `dash bind` is the
+/// one, and leaving the claim to whoever remembered to type `arc bind` is the
 /// same mistake [D147] removed from the join's other end. `commit` is
-/// deliberately not among them: see the note there. A dash whose worker
-/// nobody recorded shows no worker on its Dashes card row, on the session masthead or
-/// in the shade, and — since the pilot works only for bound dashes — is never
+/// deliberately not among them: see the note there. An arc whose worker
+/// nobody recorded shows no worker on its Arcs card row, on the session masthead or
+/// in the shade, and — since the pilot works only for bound arcs — is never
 /// offered for joining at all.
 ///
 /// Two of the three no-ops are real and stay silent: there is nothing to claim
 /// without a calling session, and nowhere to put it without a live instance.
 /// A **refusal** is neither, and the caller is handed it rather than a warning
 /// on an otherwise-successful run.
-fn claim_dash(name: &str) -> Claim {
+fn claim_arc(name: &str) -> Claim {
     if !crate::session_identity::have_calling_session() {
         return Claim::NoSession;
     }
@@ -1948,7 +1953,7 @@ fn claim_dash(name: &str) -> Claim {
         Err(detail) => return Claim::Refused(detail),
     };
     // Skip a claim that was never this session's to make, before making it.
-    // A session may only bind a dash in its own checkout, and a mismatch here
+    // A session may only bind an arc in its own checkout, and a mismatch here
     // is not a claim that failed — it is one that never applied.
     match same_checkout(resolved.project_dir.as_deref(), &project) {
         Some(false) => return Claim::OtherProject,
@@ -1969,7 +1974,7 @@ fn claim_dash(name: &str) -> Claim {
     }
 }
 
-/// Whether the session's checkout and the dash's are the same one — or `None`
+/// Whether the session's checkout and the arc's are the same one — or `None`
 /// when there is no way to tell.
 ///
 /// The two spellings come from different processes and may differ by
@@ -1978,12 +1983,12 @@ fn claim_dash(name: &str) -> Claim {
 /// answers `None` rather than guessing: the caller downgrades an unknown to
 /// "attempt and warn", which is what it did before the field existed, so a bad
 /// guess here can only ever lose a refusal it never used to make.
-fn same_checkout(session_project: Option<&str>, dash_project: &std::path::Path) -> Option<bool> {
+fn same_checkout(session_project: Option<&str>, arc_project: &std::path::Path) -> Option<bool> {
     let session_project = session_project?;
     let canonical = |path: &std::path::Path| std::fs::canonicalize(path).ok();
     let session = canonical(std::path::Path::new(session_project))?;
-    let dash = canonical(dash_project)?;
-    Some(session == dash)
+    let arc = canonical(arc_project)?;
+    Some(session == arc)
 }
 
 /// Whether any Tug instance is running to hold a binding.
@@ -2016,7 +2021,7 @@ fn run_bind_reporting_as(
         "op": "bind",
         "tug_session_id": session.session_id,
         "project_dir": project.to_string_lossy(),
-        "dash": name,
+        "arc": name,
     }))
     .map_err(|e| refuse(session, e))?;
     Ok(answered_session(&response, session))
@@ -2042,64 +2047,64 @@ fn run_unbind(
             serde_json::json!({ "tug_session_id": unbound }),
         );
     } else if !quiet {
-        println!("Unbound session {unbound} from its dash");
+        println!("Unbound session {unbound} from its arc");
         print_rotation_note(&session, &unbound);
     }
     Ok(())
 }
 
-/// Which gesture ended a dash.
+/// Which gesture ended an arc.
 ///
-/// `dash_gone` is the teardown of *any* ending — a discard and both join paths
+/// `arc_gone` is the teardown of *any* ending — a discard and both join paths
 /// broadcast it — so the server is told which one happened and the card can
 /// say the truth rather than the discard's story about a join.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum DashGone {
+enum ArcGone {
     Discarded,
     Joined,
 }
 
-impl DashGone {
+impl ArcGone {
     fn as_str(&self) -> &'static str {
         match self {
-            DashGone::Discarded => "discarded",
-            DashGone::Joined => "joined",
+            ArcGone::Discarded => "discarded",
+            ArcGone::Joined => "joined",
         }
     }
 }
 
-/// The `dash_gone` request body, as one value the broadcast sends to every
+/// The `arc_gone` request body, as one value the broadcast sends to every
 /// live instance.
-fn dash_gone_body(project: &std::path::Path, dash_id: &str, reason: DashGone) -> serde_json::Value {
+fn arc_gone_body(project: &std::path::Path, arc_id: &str, reason: ArcGone) -> serde_json::Value {
     serde_json::json!({
-        "op": "dash_gone",
+        "op": "arc_gone",
         "project_dir": project.to_string_lossy(),
-        "dash_id": dash_id,
+        "arc_id": arc_id,
         "reason": reason.as_str(),
     })
 }
 
-/// Tell every live instance that a dash is gone, so its bindings and its
+/// Tell every live instance that an arc is gone, so its bindings and its
 /// authored draft are swept ([P05]).
 ///
 /// Best-effort by design: a landing must never fail because no instance was
 /// listening. Broadcast rather than try-until-owned — any instance may hold
-/// bindings to the dead dash.
+/// bindings to the dead arc.
 ///
-/// `reason` is the gesture that ended the dash. A typed one rather than a
+/// `reason` is the gesture that ended the arc. A typed one rather than a
 /// word, because there is exactly one way to get this wrong — naming the other
 /// gesture — and a `&str` would let a call site spell it.
 /// This is the teardown of *any* ending, not the discard's alone, and a card
-/// whose stage was seated on the dash is told which one happened. A card that
+/// whose stage was seated on the arc is told which one happened. A card that
 /// said "arc discarded" when the user had just joined their work would be
 /// worse than the silence it replaces.
 ///
-/// `dash_id` is the owner key the caller captured **before** the landing.
+/// `arc_id` is the owner key the caller captured **before** the landing.
 /// `git branch -D` takes the branch's config with it, so a key resolved after
 /// the verb returns is the legacy form and matches none of the id-keyed rows
 /// this sweep exists to remove ([L23], Risk R02).
-fn broadcast_dash_gone(project: &std::path::Path, dash_id: &str, reason: DashGone) {
-    let body = dash_gone_body(project, dash_id, reason);
+fn broadcast_arc_gone(project: &std::path::Path, arc_id: &str, reason: ArcGone) {
+    let body = arc_gone_body(project, arc_id, reason);
     let live = tugcore::registry::list_live().unwrap_or_default();
     if live.is_empty() {
         // Nothing is running, so nothing holds a binding to sweep — not a
@@ -2115,9 +2120,9 @@ fn broadcast_dash_gone(project: &std::path::Path, dash_id: &str, reason: DashGon
     }
     if !reached {
         eprintln!(
-            "warning: no running Tug instance was told that dash '{}' is gone; \
+            "warning: no running Tug instance was told that arc '{}' is gone; \
              its bindings clear lazily on the next read",
-            dash_id
+            arc_id
         );
     }
 }
@@ -2125,10 +2130,10 @@ fn broadcast_dash_gone(project: &std::path::Path, dash_id: &str, reason: DashGon
 /// The list `--json` payload — `{ "arcs": [...] }`.
 #[derive(Serialize)]
 struct ListPayload {
-    arcs: Vec<tugarc_core::DashListItem>,
+    arcs: Vec<tugarc_core::ArcListItem>,
 }
 
-/// The project's `[tugtool.dash]` declarations, as one payload.
+/// The project's `[tugtool.arc]` declarations, as one payload.
 ///
 /// Every key is `null` when undeclared rather than absent, so a consumer reads
 /// the same fields whatever the project says.
@@ -2154,16 +2159,16 @@ struct ConfigPayload {
 
 /// Read the declarations the run's ending and the build offer consume.
 ///
-/// The project root is the standard `.tugtool/` upward walk, so from a dash
+/// The project root is the standard `.tugtool/` upward walk, so from an arc
 /// worktree this reads the worktree's own committed copy — the copy the run is
 /// about. A missing config file is the all-undeclared state, not an error.
 fn run_config(json: bool, quiet: bool) -> Result<(), String> {
     let root = tugtool_core::config::find_project_root().map_err(|e| e.to_string())?;
     let config =
         tugtool_core::config::Config::load_from_project(&root).map_err(|e| e.to_string())?;
-    let dash = config.tugtool.dash;
+    let arc = config.tugtool.arc;
     let payload = ConfigPayload {
-        surfaces: dash
+        surfaces: arc
             .surfaces
             .into_iter()
             .map(|s| SurfacePayload {
@@ -2173,13 +2178,13 @@ fn run_config(json: bool, quiet: bool) -> Result<(), String> {
                 checked_by: s.checked_by,
             })
             .collect(),
-        build: dash.build,
-        post_create: dash.post_create,
-        devise_model: dash.devise_model,
-        review_model: dash.review_model,
-        implement_model: dash.implement_model,
-        audit_model: dash.audit_model,
-        implement_compact_tokens: dash.implement_compact_tokens,
+        build: arc.build,
+        post_create: arc.post_create,
+        devise_model: arc.devise_model,
+        review_model: arc.review_model,
+        implement_model: arc.implement_model,
+        audit_model: arc.audit_model,
+        implement_compact_tokens: arc.implement_compact_tokens,
     };
 
     if json {
@@ -2250,7 +2255,7 @@ fn run_list(json: bool, quiet: bool) -> Result<(), String> {
         print_ok("arc list", ListPayload { arcs: items });
     } else if !quiet {
         if items.is_empty() {
-            println!("No dashes found");
+            println!("No arcs found");
         } else {
             for item in &items {
                 println!("{} (active, {} rounds)", item.name, item.round_count);
@@ -2270,7 +2275,7 @@ fn run_show(name: &str, json: bool, quiet: bool) -> Result<(), String> {
     if json {
         print_ok("arc show", &data);
     } else if !quiet {
-        println!("Dash: {}", data.name);
+        println!("Arc: {}", data.name);
         if let Some(desc) = &data.description {
             println!("Description: {}", desc);
         }
@@ -2323,7 +2328,7 @@ mod tests {
         assert_eq!(
             replay_exit_status(&ReplayOutcome::Deferred {
                 reason: "worktree-dirty".into(),
-                detail: "the dash worktree has uncommitted changes".into(),
+                detail: "the arc worktree has uncommitted changes".into(),
             }),
             0,
             "a deferral is the command declining to act, not a failure"
@@ -2343,7 +2348,7 @@ mod tests {
     #[test]
     fn step_start_refuses_without_through() {
         let err = run_step(
-            "any-dash",
+            "any-arc",
             StepAction::Start {
                 step: 1,
                 through: None,
@@ -2366,7 +2371,7 @@ mod tests {
     /// this one takes its early return.
     #[test]
     fn step_withdraw_needs_no_through() {
-        let err = run_step("any-dash", StepAction::Withdraw { step: 1 }, false, true).unwrap_err();
+        let err = run_step("any-arc", StepAction::Withdraw { step: 1 }, false, true).unwrap_err();
         assert!(
             !err.contains("--through"),
             "a withdrawal inherits the run's selection rather than declaring one: {err}"
@@ -2375,7 +2380,7 @@ mod tests {
 
     // --- the arc record (Spec S06, Spec S07) -------------------------------
 
-    /// A scratch data dir plus the repo root whose dash-log it holds. Both
+    /// A scratch data dir plus the repo root whose arc log it holds. Both
     /// live as long as the fixture; the data dir is redirected off the user's
     /// real one, which is why every arc test here is `#[serial]`.
     struct ArcFixture {
@@ -2388,10 +2393,11 @@ mod tests {
             self.repo.path()
         }
 
-        /// The dash-log's lines, so a test can count what was written rather
+        /// The arc log's lines, so a test can count what was written rather
         /// than infer it from what was read back.
         fn log_lines(&self) -> Vec<String> {
-            let path = tugtool_core::paths::project_state_dir(self.root()).join("dash-log.md");
+            let path = tugtool_core::paths::project_state_dir(self.root())
+                .join(tugtool_core::paths::ARC_LOG);
             std::fs::read_to_string(path)
                 .unwrap_or_default()
                 .lines()
@@ -2399,18 +2405,18 @@ mod tests {
                 .collect()
         }
 
-        /// Write a brief into the dash's own documents home.
-        fn write_brief(&self, dash: &str) {
-            self.write_document(dash, "brief.md");
+        /// Write a brief into the arc's own documents home.
+        fn write_brief(&self, arc: &str) {
+            self.write_document(arc, "brief.md");
         }
 
         /// Write a plan there.
-        fn write_plan(&self, dash: &str) {
-            self.write_document(dash, "plan.md");
+        fn write_plan(&self, arc: &str) {
+            self.write_document(arc, "plan.md");
         }
 
-        fn write_document(&self, dash: &str, file: &str) {
-            let dir = self.root().join(".tug").join("arcs").join(dash);
+        fn write_document(&self, arc: &str, file: &str) {
+            let dir = self.root().join(".tug").join("arcs").join(arc);
             std::fs::create_dir_all(&dir).expect("documents dir");
             std::fs::write(dir.join(file), "# Fixture\n").expect("write document");
         }
@@ -2418,7 +2424,7 @@ mod tests {
         fn write_log(&self, lines: &str) {
             let state = tugtool_core::paths::project_state_dir(self.root());
             std::fs::create_dir_all(&state).expect("state dir");
-            std::fs::write(state.join("dash-log.md"), lines).expect("write log");
+            std::fs::write(state.join(tugtool_core::paths::ARC_LOG), lines).expect("write log");
         }
     }
 
@@ -2441,7 +2447,7 @@ mod tests {
         let fixture = arc_fixture();
         fixture.write_brief("demo");
         let (started, resumed, arc) =
-            open_arc(fixture.root(), "demo", ArcKind::Trek).expect("opened");
+            open_arc(fixture.root(), "demo", ArcKind::Planned).expect("opened");
         assert!(started);
         assert!(!resumed);
         assert_eq!(arc.document.as_deref(), Some(".tug/arcs/demo/brief.md"));
@@ -2455,12 +2461,12 @@ mod tests {
 
     #[test]
     #[serial_test::serial]
-    fn opening_the_same_dash_twice_is_one_arc() {
+    fn opening_the_same_arc_twice_is_one_arc() {
         let fixture = arc_fixture();
         fixture.write_brief("demo");
-        open_arc(fixture.root(), "demo", ArcKind::Trek).expect("opened");
-        let (started, _, _) = open_arc(fixture.root(), "demo", ArcKind::Trek).expect("reopened");
-        assert!(!started, "a second run on the same dash opens nothing");
+        open_arc(fixture.root(), "demo", ArcKind::Planned).expect("opened");
+        let (started, _, _) = open_arc(fixture.root(), "demo", ArcKind::Planned).expect("reopened");
+        assert!(!started, "a second run on the same arc opens nothing");
         let starts = fixture
             .log_lines()
             .iter()
@@ -2469,68 +2475,68 @@ mod tests {
         assert_eq!(starts, 1);
     }
 
-    /// The document is the dash's own, and the brief comes first — a dash that
+    /// The document is the arc's own, and the brief comes first — an arc that
     /// has reached devise opens on what it was briefed with, not on its output.
     #[test]
     #[serial_test::serial]
     fn open_arc_opens_on_the_brief_then_the_plan() {
         let fixture = arc_fixture();
         fixture.write_plan("plan-only");
-        let (_, _, arc) = open_arc(fixture.root(), "plan-only", ArcKind::Trek).expect("opened");
+        let (_, _, arc) = open_arc(fixture.root(), "plan-only", ArcKind::Planned).expect("opened");
         assert_eq!(arc.document.as_deref(), Some(".tug/arcs/plan-only/plan.md"));
 
         let fixture = arc_fixture();
         fixture.write_brief("both");
         fixture.write_plan("both");
-        let (_, _, arc) = open_arc(fixture.root(), "both", ArcKind::Trek).expect("opened");
+        let (_, _, arc) = open_arc(fixture.root(), "both", ArcKind::Planned).expect("opened");
         assert_eq!(arc.document.as_deref(), Some(".tug/arcs/both/brief.md"));
     }
 
-    /// The `/dash` door writes a brief and a task list, and the arc opens on
-    /// the brief — the task list is the ledger, not the document the stages
-    /// read for intent.
+    /// The bare door writes a brief and a task list, and the arc opens on the
+    /// brief — the task list is the ledger, not the document the stages read
+    /// for intent.
     #[test]
     #[serial_test::serial]
-    fn a_dash_opens_its_arc_on_the_brief() {
+    fn a_plain_arc_opens_on_the_brief() {
         let fixture = arc_fixture();
         fixture.write_document("both-docs", "brief.md");
         fixture.write_document("both-docs", "tasks.md");
-        let (_, _, arc) = open_arc(fixture.root(), "both-docs", ArcKind::Dash).unwrap();
+        let (_, _, arc) = open_arc(fixture.root(), "both-docs", ArcKind::Plain).unwrap();
         assert_eq!(
             arc.document.as_deref(),
             Some(".tug/arcs/both-docs/brief.md")
         );
     }
 
-    /// **The opening records the kind ([B08]).** `--kind` defaults to `trek`,
-    /// so an ordinary `dash run` writes the settled progression; asking for
-    /// `dash` writes the shorter one.
+    /// **The opening records the kind ([B08]).** `--plan` is absent by
+    /// default, so an ordinary `arc run` writes the shorter progression;
+    /// passing the flag writes the settled one.
     #[test]
     #[serial_test::serial]
     fn opening_an_arc_records_the_kind_it_was_asked_for() {
         let fixture = arc_fixture();
         fixture.write_document("shortcut", "brief.md");
-        let (_, _, arc) = open_arc(fixture.root(), "shortcut", ArcKind::Dash).unwrap();
-        assert_eq!(arc.kind, Some(ArcKind::Dash));
+        let (_, _, arc) = open_arc(fixture.root(), "shortcut", ArcKind::Plain).unwrap();
+        assert_eq!(arc.kind, Some(ArcKind::Plain));
 
         let fixture = arc_fixture();
         fixture.write_document("settled", "brief.md");
-        let (_, _, arc) = open_arc(fixture.root(), "settled", ArcKind::Trek).unwrap();
-        assert_eq!(arc.kind, Some(ArcKind::Trek));
+        let (_, _, arc) = open_arc(fixture.root(), "settled", ArcKind::Planned).unwrap();
+        assert_eq!(arc.kind, Some(ArcKind::Planned));
     }
 
     /// **A resume cannot change the kind.** The record is the arc's identity,
-    /// and a `dash run --kind dash` over an arc opened as a trek is a resume
-    /// of that arc, not a second one wearing a different progression.
+    /// and a bare `arc run` over an arc opened with `--plan` is a resume of
+    /// that arc, not a second one wearing a different progression.
     #[test]
     #[serial_test::serial]
     fn a_resume_keeps_the_kind_the_opening_recorded() {
         let fixture = arc_fixture();
         fixture.write_document("settled", "brief.md");
-        open_arc(fixture.root(), "settled", ArcKind::Trek).unwrap();
-        let (started, _, arc) = open_arc(fixture.root(), "settled", ArcKind::Dash).unwrap();
+        open_arc(fixture.root(), "settled", ArcKind::Planned).unwrap();
+        let (started, _, arc) = open_arc(fixture.root(), "settled", ArcKind::Plain).unwrap();
         assert!(!started);
-        assert_eq!(arc.kind, Some(ArcKind::Trek));
+        assert_eq!(arc.kind, Some(ArcKind::Planned));
     }
 
     /// A task list alone still opens an arc: the wheel has a document to read
@@ -2540,7 +2546,7 @@ mod tests {
     fn a_task_list_alone_opens_an_arc() {
         let fixture = arc_fixture();
         fixture.write_document("tasks-only", "tasks.md");
-        let (_, _, arc) = open_arc(fixture.root(), "tasks-only", ArcKind::Trek).unwrap();
+        let (_, _, arc) = open_arc(fixture.root(), "tasks-only", ArcKind::Planned).unwrap();
         assert_eq!(
             arc.document.as_deref(),
             Some(".tug/arcs/tasks-only/tasks.md")
@@ -2549,9 +2555,9 @@ mod tests {
 
     #[test]
     #[serial_test::serial]
-    fn a_dash_with_no_documents_says_to_write_one() {
+    fn a_arc_with_no_documents_says_to_write_one() {
         let fixture = arc_fixture();
-        let err = open_arc(fixture.root(), "empty", ArcKind::Trek).unwrap_err();
+        let err = open_arc(fixture.root(), "empty", ArcKind::Planned).unwrap_err();
         assert!(
             err.contains("has no brief, plan, or task list") && err.contains(".tug/arcs/empty"),
             "the refusal must name the address to write to: {err}"
@@ -2564,12 +2570,12 @@ mod tests {
         let fixture = arc_fixture();
         fixture.write_log(&format!(
             "{}{}",
-            "2026-08-24T10:00:00Z  demo  arc-start  dash/idea.md\n",
+            "2026-08-24T10:00:00Z  demo  arc-start  arc/idea.md\n",
             "2026-08-24T10:05:00Z  demo  arc-stop  review lint failed\n"
         ));
         let before = fixture.log_lines().len();
         let (started, resumed, arc) =
-            open_arc(fixture.root(), "demo", ArcKind::Trek).expect("resumed");
+            open_arc(fixture.root(), "demo", ArcKind::Planned).expect("resumed");
         assert!(!started);
         assert!(resumed);
         assert_eq!(arc.stopped, None, "the stop is cleared");
@@ -2587,14 +2593,15 @@ mod tests {
         // An arc that is not stopped has nothing to resume, and a second run
         // on it writes nothing.
         let after = fixture.log_lines().len();
-        let (_, resumed, _) = open_arc(fixture.root(), "demo", ArcKind::Trek).expect("still open");
+        let (_, resumed, _) =
+            open_arc(fixture.root(), "demo", ArcKind::Planned).expect("still open");
         assert!(!resumed);
         assert_eq!(fixture.log_lines().len(), after);
     }
 
     #[test]
     #[serial_test::serial]
-    fn an_unknown_dash_has_no_arc() {
+    fn an_unknown_arc_has_no_arc() {
         let fixture = arc_fixture();
         assert!(tugarc_core::read_arc(fixture.root(), "nonexistent").is_none());
     }
@@ -2604,19 +2611,19 @@ mod tests {
     fn a_synthesized_log_round_trips_into_the_reported_payload() {
         let fixture = arc_fixture();
         fixture.write_log(
-            "2026-08-24T10:00:00Z  demo  arc-start  dash/idea.md\n\
-             2026-08-24T10:01:00Z  demo  arc-plan  dash/d.md\n\
+            "2026-08-24T10:00:00Z  demo  arc-start  arc/idea.md\n\
+             2026-08-24T10:01:00Z  demo  arc-plan  arc/d.md\n\
              2026-08-24T10:02:00Z  demo  arc-stage  devise sess-1 opus\n\
              2026-08-24T11:00:00Z  demo  arc-stage  review sess-2 -\n",
         );
         let payload = ArcReportPayload {
-            dash: "demo".to_string(),
+            name: "demo".to_string(),
             arc: tugarc_core::read_arc(fixture.root(), "demo"),
         };
         let value = serde_json::to_value(&payload).expect("serialize");
-        assert_eq!(value["dash"], "demo");
-        assert_eq!(value["arc"]["document"], "dash/idea.md");
-        assert_eq!(value["arc"]["plan"], "dash/d.md");
+        assert_eq!(value["name"], "demo");
+        assert_eq!(value["arc"]["document"], "arc/idea.md");
+        assert_eq!(value["arc"]["plan"], "arc/d.md");
         assert_eq!(value["arc"]["stages"][0]["stage"], "devise");
         assert_eq!(value["arc"]["stages"][0]["model"], "opus");
         assert_eq!(value["arc"]["stages"][1]["stage"], "review");
@@ -2665,7 +2672,7 @@ mod tests {
         }
         let repo = tempfile::tempdir().unwrap();
         let root = repo.path();
-        tugarc_core::append_arc_start(root, "demo", "dash/demo-brief.md").unwrap();
+        tugarc_core::append_arc_start(root, "demo", "arc/demo-brief.md").unwrap();
         tugarc_core::append_arc_stage(
             root,
             "demo",
@@ -2682,7 +2689,7 @@ mod tests {
         )
         .unwrap();
 
-        let (opened, resumed, arc) = open_arc(root, "demo", ArcKind::Trek).expect("resume");
+        let (opened, resumed, arc) = open_arc(root, "demo", ArcKind::Planned).expect("resume");
         assert!(!opened, "the arc is the same one, not a second");
         assert!(
             resumed,
@@ -2697,21 +2704,17 @@ mod tests {
     }
 
     #[test]
-    fn an_endings_broadcast_names_the_gesture_that_ended_the_dash() {
-        let discard = dash_gone_body(
+    fn an_endings_broadcast_names_the_gesture_that_ended_the_arc() {
+        let discard = arc_gone_body(
             std::path::Path::new("/p"),
-            "tugdash/demo#1",
-            DashGone::Discarded,
+            "tugarc/demo#1",
+            ArcGone::Discarded,
         );
-        assert_eq!(discard["op"], "dash_gone");
+        assert_eq!(discard["op"], "arc_gone");
         assert_eq!(discard["reason"], "discarded");
-        assert_eq!(discard["dash_id"], "tugdash/demo#1");
+        assert_eq!(discard["arc_id"], "tugarc/demo#1");
 
-        let join = dash_gone_body(
-            std::path::Path::new("/p"),
-            "tugdash/demo#1",
-            DashGone::Joined,
-        );
+        let join = arc_gone_body(std::path::Path::new("/p"), "tugarc/demo#1", ArcGone::Joined);
         assert_eq!(join["reason"], "joined");
     }
 
@@ -2719,7 +2722,7 @@ mod tests {
     #[serial_test::serial]
     fn no_arc_serializes_as_null_rather_than_an_absent_key() {
         let payload = ArcReportPayload {
-            dash: "demo".to_string(),
+            name: "demo".to_string(),
             arc: None,
         };
         let value = serde_json::to_value(&payload).expect("serialize");

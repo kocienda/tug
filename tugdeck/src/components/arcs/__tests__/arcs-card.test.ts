@@ -1,8 +1,8 @@
 /**
  * The Arcs card's projection, over the shared golden snapshot.
  *
- * The fact worth pinning hardest is the **membership law**: every dash in
- * every state is a row. The card used to hold only unbound dashes and to
+ * The fact worth pinning hardest is the **membership law**: every arc in
+ * every state is a row. The card used to hold only unbound arcs and to
  * vanish at zero; now it is always on, and bound-vs-unbound is the eyebrow's
  * register (worker atom vs verbs), never a membership test.
  */
@@ -11,14 +11,14 @@ import { describe, expect, test } from "bun:test";
 
 import golden from "@/__tests__/fixtures/workspaces-changeset-snapshot.golden.json";
 import type {
-  DashChangesetEntry,
+  ArcChangesetEntry,
   ProjectChangeset,
   WorkspacesChangesetSnapshot,
 } from "@/lib/changeset-types";
 import {
-  DASH_STAGE_RANK,
+  ARC_STAGE_RANK,
   compareArcRows,
-  dashRowsFromSnapshot,
+  arcRowsFromSnapshot,
   compareDocumentArcRows,
   documentArcRowsFromSnapshot,
   resolveBindTarget,
@@ -34,30 +34,30 @@ function projectWith(entries: ProjectChangeset["changesets"]): ProjectChangeset 
   return { ...DATA.projects[0]!, changesets: entries };
 }
 
-const GOLDEN_DASH = DATA.projects
+const GOLDEN_ARC = DATA.projects
   .flatMap((project) => project.changesets)
-  .find((entry): entry is DashChangesetEntry => entry.kind === "dash")!;
+  .find((entry): entry is ArcChangesetEntry => entry.kind === "arc")!;
 
-/** The golden dash with nobody on it. */
-const UNBOUND: DashChangesetEntry = { ...GOLDEN_DASH, bound_sessions: [] };
+/** The golden arc with nobody on it. */
+const UNBOUND: ArcChangesetEntry = { ...GOLDEN_ARC, bound_sessions: [] };
 
-describe("dashRowsFromSnapshot — the membership law", () => {
-  test("a worked dash is a row — bound-ness is a register, not membership", () => {
-    // The golden dash carries a bound session, and it is here anyway: the
-    // section holds every dash in every state.
-    expect(GOLDEN_DASH.bound_sessions?.length).toBeGreaterThan(0);
-    const rows = dashRowsFromSnapshot(DATA);
-    expect(rows.map((r) => r.ownerId)).toContain(GOLDEN_DASH.owner_id);
+describe("arcRowsFromSnapshot — the membership law", () => {
+  test("a worked arc is a row — bound-ness is a register, not membership", () => {
+    // The golden arc carries a bound session, and it is here anyway: the
+    // section holds every arc in every state.
+    expect(GOLDEN_ARC.bound_sessions?.length).toBeGreaterThan(0);
+    const rows = arcRowsFromSnapshot(DATA);
+    expect(rows.map((r) => r.ownerId)).toContain(GOLDEN_ARC.owner_id);
   });
 
   test("bound and unbound sit in one list, in one order", () => {
-    const worked: DashChangesetEntry = { ...GOLDEN_DASH, display_name: "worked" };
-    const napping: DashChangesetEntry = {
+    const worked: ArcChangesetEntry = { ...GOLDEN_ARC, display_name: "worked" };
+    const napping: ArcChangesetEntry = {
       ...UNBOUND,
-      owner_id: "tugdash/napping#2",
+      owner_id: "tugarc/napping#2",
       display_name: "napping",
     };
-    const rows = dashRowsFromSnapshot({
+    const rows = arcRowsFromSnapshot({
       projects: [projectWith([worked, napping])],
     });
     expect(rows.map((r) => r.entry.display_name).sort()).toEqual([
@@ -67,10 +67,10 @@ describe("dashRowsFromSnapshot — the membership law", () => {
   });
 
   test("the row carries the whole wire entry, for the eyebrow and the meta line", () => {
-    const rows = dashRowsFromSnapshot({ projects: [projectWith([UNBOUND])] });
+    const rows = arcRowsFromSnapshot({ projects: [projectWith([UNBOUND])] });
     expect(rows.length).toBe(1);
     const row = rows[0]!;
-    expect(row.ownerId).toBe(GOLDEN_DASH.owner_id);
+    expect(row.ownerId).toBe(GOLDEN_ARC.owner_id);
     expect(row.entry.display_name).toBe("fix-join");
     expect(row.entry.stage).toBe("draft-ready");
   });
@@ -81,7 +81,7 @@ describe("dashRowsFromSnapshot — the membership law", () => {
       .filter((entry) => entry.kind === "session");
     expect(sessions.length).toBeGreaterThan(0);
     expect(
-      dashRowsFromSnapshot({
+      arcRowsFromSnapshot({
         projects: [projectWith([...sessions, UNBOUND])],
       }).length,
     ).toBe(1);
@@ -89,7 +89,7 @@ describe("dashRowsFromSnapshot — the membership law", () => {
 
   test("the row carries its project's dir and label, always", () => {
     // The dir is what a bind names; the label is Bind's refusal sentence.
-    const rows = dashRowsFromSnapshot({ projects: [projectWith([UNBOUND])] });
+    const rows = arcRowsFromSnapshot({ projects: [projectWith([UNBOUND])] });
     expect(rows[0]!.projectLabel).toBe(DATA.projects[0]!.display_name);
     expect(rows[0]!.projectDir).toBe(DATA.projects[0]!.project_dir);
   });
@@ -99,7 +99,7 @@ describe("dashRowsFromSnapshot — the membership law", () => {
       ...projectWith([
         {
           ...UNBOUND,
-          owner_id: "tugdash/landing#2",
+          owner_id: "tugarc/landing#2",
           display_name: "landing-one",
           stage: "joining",
         },
@@ -107,7 +107,7 @@ describe("dashRowsFromSnapshot — the membership law", () => {
       display_name: "other-project",
       project_dir: "/tmp/other-project",
     };
-    const rows = dashRowsFromSnapshot({
+    const rows = arcRowsFromSnapshot({
       projects: [
         projectWith([{ ...UNBOUND, display_name: "napping", stage: "created" }]),
         second,
@@ -123,15 +123,15 @@ describe("dashRowsFromSnapshot — the membership law", () => {
     ]);
   });
 
-  test("one dash under two projects is one row — first in snapshot order wins", () => {
-    // Two projects opening one repository both carry the repo's dashes; the
+  test("one arc under two projects is one row — first in snapshot order wins", () => {
+    // Two projects opening one repository both carry the repo's arcs; the
     // owner key is the identity that collapses them.
     const twin: ProjectChangeset = {
       ...projectWith([{ ...UNBOUND }]),
       display_name: "twin-spelling",
       project_dir: "/tmp/twin-spelling",
     };
-    const rows = dashRowsFromSnapshot({
+    const rows = arcRowsFromSnapshot({
       projects: [projectWith([UNBOUND]), twin],
     });
     expect(rows.length).toBe(1);
@@ -139,14 +139,14 @@ describe("dashRowsFromSnapshot — the membership law", () => {
   });
 
   test("a shared name with distinct owner keys is two rows", () => {
-    // Two unrelated repos may both call a dash `fix-join`; the owner key is
+    // Two unrelated repos may both call an arc `fix-join`; the owner key is
     // what tells them apart, and the name never dedupes.
     const other: ProjectChangeset = {
-      ...projectWith([{ ...UNBOUND, owner_id: "tugdash/fix-join#other" }]),
+      ...projectWith([{ ...UNBOUND, owner_id: "tugarc/fix-join#other" }]),
       display_name: "other-project",
       project_dir: "/tmp/other-project",
     };
-    const rows = dashRowsFromSnapshot({
+    const rows = arcRowsFromSnapshot({
       projects: [projectWith([UNBOUND]), other],
     });
     expect(rows.length).toBe(2);
@@ -158,7 +158,7 @@ describe("dashRowsFromSnapshot — the membership law", () => {
         { ...UNBOUND },
         {
           ...UNBOUND,
-          owner_id: "tugdash/landing#2",
+          owner_id: "tugarc/landing#2",
           display_name: "landing-one",
           stage: "joining",
         },
@@ -166,7 +166,7 @@ describe("dashRowsFromSnapshot — the membership law", () => {
       display_name: "twin-spelling",
       project_dir: "/tmp/twin-spelling",
     };
-    const rows = dashRowsFromSnapshot({
+    const rows = arcRowsFromSnapshot({
       projects: [projectWith([UNBOUND]), twin],
     });
     // `joining` outranks `draft-ready`, duplicate collapsed, order intact.
@@ -185,10 +185,10 @@ describe("compareArcRows", () => {
     lastActivity: string | null = null,
   ): ArcRow {
     return {
-      ownerId: `tugdash/${name}#1`,
+      ownerId: `tugarc/${name}#1`,
       entry: {
         ...UNBOUND,
-        owner_id: `tugdash/${name}#1`,
+        owner_id: `tugarc/${name}#1`,
         display_name: name,
         stage: stage ?? undefined,
         last_activity: lastActivity ?? undefined,
@@ -270,14 +270,14 @@ describe("compareArcRows", () => {
         row("known", "created"),
       ]),
     ).toEqual(["known", "mystery", "none"]);
-    expect(DASH_STAGE_RANK["from-the-future"]).toBeUndefined();
+    expect(ARC_STAGE_RANK["from-the-future"]).toBeUndefined();
   });
 });
 
 describe("resolveBindTarget", () => {
   const HOME = { projectDir: "/tmp/tugtool", projectLabel: "tugtool" };
 
-  test("the followed card's session, when its project owns the dash", () => {
+  test("the followed card's session, when its project owns the arc", () => {
     expect(
       resolveBindTarget({
         ...HOME,
@@ -342,7 +342,7 @@ describe("resolveBindTarget", () => {
 
 /**
  * Where activating a row goes — and, just as load-bearing, when it goes
- * nowhere. Null is the ordinary answer in a list of every dash in every open
+ * nowhere. Null is the ordinary answer in a list of every arc in every open
  * project, and it is what makes the row inert *and* what stops it presenting
  * as clickable, since both read this one value.
  */
@@ -352,11 +352,11 @@ describe("resolveWorkerCard", () => {
   ): ReadonlyMap<string, { tugSessionId: string }> =>
     new Map(entries.map(([cardId, tugSessionId]) => [cardId, { tugSessionId }]));
 
-  test("a dash nobody holds has no room to open", () => {
+  test("an arc nobody holds has no room to open", () => {
     expect(resolveWorkerCard([], bindings([["A", "sess-1"]]))).toBeNull();
   });
 
-  test("a held dash whose worker has no card open here is inert too", () => {
+  test("a held arc whose worker has no card open here is inert too", () => {
     // The session is live on the server; this instance simply has no card on
     // it. The row is still worth showing — it is just not a door.
     expect(resolveWorkerCard(["sess-9"], bindings([["A", "sess-1"]]))).toBeNull();
@@ -383,20 +383,20 @@ describe("resolveWorkerCard", () => {
 });
 
 describe("documentArcRowsFromSnapshot — the planning phase in flight", () => {
-  test("every project's document dashes are rows, keyed uniquely", () => {
+  test("every project's document arcs are rows, keyed uniquely", () => {
     const rows = documentArcRowsFromSnapshot(DATA);
     expect(rows.map((r) => r.entry.display_name)).toEqual([
-      "dash-cockpit",
-      "dash-hardening",
+      "arc-cockpit",
+      "arc-hardening",
     ]);
     // The key namespaces the name under its project: two projects may both
-    // carry a dash called `plan`, and they are different rows.
-    expect(rows[0]!.key).toBe(`${DATA.projects[0]!.project_dir}:dash-cockpit`);
+    // carry an arc called `plan`, and they are different rows.
+    expect(rows[0]!.key).toBe(`${DATA.projects[0]!.project_dir}:arc-cockpit`);
   });
 
-  test("a project with no document-only dash contributes nothing", () => {
+  test("a project with no document-only arc contributes nothing", () => {
     // The golden's second project carries no `document_arcs` key at all —
-    // the shape an older sender or a project with no dashes produces.
+    // the shape an older sender or a project with no arcs produces.
     expect(DATA.projects[1]!.document_arcs).toBeUndefined();
     const rows = documentArcRowsFromSnapshot({ projects: [DATA.projects[1]!] });
     expect(rows).toEqual([]);
@@ -454,7 +454,7 @@ describe("compareDocumentArcRows — nearest to starting work first", () => {
   ): DocumentArcRow => ({
     key: `/p:${name}`,
     entry: {
-      owner_id: `tugdash/${name}`,
+      owner_id: `tugarc/${name}`,
       display_name: name,
       documents: { plan: `/p/.tug/arcs/${name}/plan.md` },
       review,
@@ -465,9 +465,9 @@ describe("compareDocumentArcRows — nearest to starting work first", () => {
   });
 
   // Work in flight is nearer done than work not started — the same
-  // nearest-to-done principle the dash rows encode. A begun plan whose review
+  // nearest-to-done principle the arc rows encode. A begun plan whose review
   // went stale still outranks a freshly reviewed one nobody has touched.
-  test("a begun dash outranks every unstarted one", () => {
+  test("a begun arc outranks every unstarted one", () => {
     const rows = [
       row("reviewed", "a"),
       row("stale", "b", { done: 1, begun: 2 }),
@@ -476,7 +476,7 @@ describe("compareDocumentArcRows — nearest to starting work first", () => {
     expect(rows.map((r) => r.entry.display_name)).toEqual(["b", "a", "c"]);
   });
 
-  test("among begun dashes, review rank then name still decide", () => {
+  test("among begun arcs, review rank then name still decide", () => {
     const rows = [
       row("stale", "z", { done: 1, begun: 1 }),
       row("reviewed", "y", { done: 2, begun: 3 }),

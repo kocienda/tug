@@ -1,20 +1,20 @@
 //! `tugarc-core` — the arc engine, extracted from the `tugtool` grab bag.
 //!
-//! A dash *is* a git branch (`tugdash/<name>`) plus a worktree; its lifecycle
+//! An arc *is* a git branch (`tugarc/<name>`) plus a worktree; its lifecycle
 //! and status derive from git, not a database. This crate holds the shared
 //! helpers ([`log`]) and the verb orchestration ([`ops`]) — a typed library
-//! API that never prints. The `tugdash` CLI and the Changeset card (via
+//! API that never prints. The `tugarc` CLI and the Changeset card (via
 //! tugcast) are its two front ends.
 
-/// Dash helpers — name validation, default-branch detection, the append-only
+/// Arc helpers — name validation, default-branch detection, the append-only
 /// visibility log, and the stdin round-metadata shape.
 pub mod log;
 
 /// The arc record — the server-driven arc's stages, document, and plan, kept
-/// as dash-log lines keyed by name so the record exists before a branch does.
+/// as arc log lines keyed by name so the record exists before a branch does.
 pub mod arc;
 
-/// Dash verb orchestration — `create` / `commit` / `join` / `discard` /
+/// Arc verb orchestration — `create` / `commit` / `join` / `discard` /
 /// `list` / `show`, each returning a typed outcome.
 pub mod ops;
 
@@ -22,7 +22,7 @@ pub mod ops;
 /// keepalive refs that keep an undone operation's commits reachable.
 pub mod oplog;
 
-/// Base-motion replay — keeping a live dash current with a base that moved:
+/// Base-motion replay — keeping a live arc current with a base that moved:
 /// the preconditions, the branch move, and the record of where rounds went.
 pub mod replay;
 
@@ -30,11 +30,11 @@ pub mod replay;
 /// re-merge / structured-merge driver / AI seam, and the candidate builder.
 pub mod resolve;
 
-/// The workshop worktree — one stable checkout per dash where the merge is
+/// The workshop worktree — one stable checkout per arc where the merge is
 /// performed for real, so an agent has a tree and verification has a build.
 pub mod workshop;
 
-/// `dash doctor` — the four records a dash keeps, compared, with every
+/// `arc doctor` — the four records an arc keeps, compared, with every
 /// disagreement named in a sentence and a reconciling append offered where one
 /// record can be caught up to another without a judgment.
 pub mod doctor;
@@ -53,9 +53,9 @@ pub use arc::{
     append_arc_plan, append_arc_resume, append_arc_stage, append_arc_start, append_arc_stop,
     read_arc,
 };
-pub use doctor::{DashDiagnosis, DashFinding, DashRepair, DoctorOutcome, diagnose, doctor};
+pub use doctor::{ArcDiagnosis, ArcFinding, ArcRepair, DoctorOutcome, diagnose, doctor};
 pub use log::{
-    DashDeclaration, DashDeclarations, DashRoundMeta, MarkStage, StepPhase, append_dash_log,
+    ArcDeclaration, ArcDeclarations, ArcRoundMeta, MarkStage, StepPhase, append_arc_log,
     detect_default_branch, is_terminal, read_declarations, split_log_line, validate_arc_name,
 };
 pub use oplog::{
@@ -63,10 +63,10 @@ pub use oplog::{
     UndoOutcome, list_ops, redo_in, undo_in,
 };
 pub use ops::{
-    BaseDirtPath, CommitOutcome, CreateOutcome, DashDetail, DashDetailFile, DashDocuments,
-    DashDraftKey, DashListItem, DashStatus, DiscardOutcome, DocumentArgument, JoinBlocker,
-    JoinOptions, JoinOutcome, JoinStrategy, MarkOutcome, RoundItem, ShowOutcome, StepOutcome,
-    brief_file, commit, create, dash_detail_entries_in, dash_draft_key, derive_stage, discard,
+    ArcDetail, ArcDetailFile, ArcDocuments, ArcDraftKey, ArcListItem, ArcStatus, BaseDirtPath,
+    CommitOutcome, CreateOutcome, DiscardOutcome, DocumentArgument, JoinBlocker, JoinOptions,
+    JoinOutcome, JoinStrategy, MarkOutcome, RoundItem, ShowOutcome, StepOutcome,
+    arc_detail_entries_in, arc_draft_key, brief_file, commit, create, derive_stage, discard,
     discard_in, document_arcs, documents_dir, ensure_tug_excluded, join, join_in, join_in_flight,
     join_in_with_progress, join_preflight_in, ledger_file, list, mark, plan_file, show, status,
     status_in, step_done, step_start, tasks_file,

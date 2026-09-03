@@ -1,12 +1,12 @@
 /**
- * at0483-dash-lifecycle-mark.test.ts — the COMPACT register of the dash
+ * at0483-arc-lifecycle-mark.test.ts — the COMPACT register of the arc
  * lifecycle grammar, on both surfaces that wear it.
  *
- * One grammar has two registers. Where the dash is the SUBJECT — the Dashes
- * card, the Changes shade's dash lane, the DASH placard — it draws as the
- * track. Where the dash is one FACT ABOUT A SESSION it draws as the mark:
- * `DashPhaseMark` · one pill · `TugStepFraction`, riding the title run after
- * the identity's own `^<dash>` sigil. Both of the mark's hosts come from one
+ * One grammar has two registers. Where the arc is the SUBJECT — the Arcs
+ * card, the Changes shade's arc lane, the ARC placard — it draws as the
+ * track. Where the arc is one FACT ABOUT A SESSION it draws as the mark:
+ * `ArcPhaseMark` · one pill · `TugStepFraction`, riding the title run after
+ * the identity's own `^<arc>` sigil. Both of the mark's hosts come from one
  * component, `SessionIdentityRow`, so this file drives one session and reads
  * the masthead and the Cards card's session row from the same beat — a register
  * that disagreed with itself between two surfaces would be the drift that
@@ -14,21 +14,21 @@
  *
  * Three bindings, three facts the mark has to be able to say:
  *
- *  - A dash with a **declared run** over a longer plan reads `1/3`, not
+ *  - An arc with a **declared run** over a longer plan reads `1/3`, not
  *    `1/10`. The numerals count the run somebody asked for; the plan's own
  *    pair is the track's to draw ([D148]).
- *  - A dash with **only a brief** reads `brief` — the LIFECYCLE phase, in a
+ *  - An arc with **only a brief** reads `brief` — the LIFECYCLE phase, in a
  *    Title-Case-free `data-phase`, not the git stage. It has no branch and so
- *    no stage at all, which is the half of a dash's life the mark's
+ *    no stage at all, which is the half of an arc's life the mark's
  *    predecessor drew blank.
  *  - A **stopped arc** paints `data-stopped` on the mark and its glyph and
  *    turns the pill's state to `stopped`. That attribute is what the CSS keys
  *    the pill's breathing off, and it is asserted rather than the animation:
  *    a background app-test window runs no rAF.
  *
- * Everything is real. The dashes are real dashes in a scratch repository, the
+ * Everything is real. The arcs are real arcs in a scratch repository, the
  * rebind runs through the card's own `$` shell route, and the stopped arc is
- * three real dash-log lines the feed folds into `entry.arc` on its next beat.
+ * three real arc log lines the feed folds into `entry.arc` on its next beat.
  *
  * @covers tugdeck/src/components/tugways/arc-lifecycle-mark.tsx
  * @covers tugdeck/src/components/tugways/arc-lifecycle-mark.css
@@ -53,20 +53,20 @@ import {
   seedTugbankForLaunch,
 } from "./_harness/tugbank-helpers";
 import {
-  appendDashLogLine,
-  bindDash,
-  createDash,
-  dashBriefPath,
-  dashLogPath,
-  makeDashScratchRepo,
+  appendArcLogLine,
+  bindArc,
+  createArc,
+  arcBriefPath,
+  arcLogPath,
+  makeArcScratchRepo,
   recordStampedPlan,
-  rmDashScratchRepo,
+  rmArcScratchRepo,
   rmScratchSession,
   seedScratchSession,
   shellAndSettle,
   tugtoolPath,
-  type DashScratchRepo,
-} from "./dash-fixture";
+  type ArcScratchRepo,
+} from "./arc-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
@@ -74,9 +74,9 @@ const TEST_TIMEOUT_MS = 180_000;
 const SID = "a7c0d1ea-0000-4000-8000-000000000483";
 
 /** A ten-row plan with a run declared over its first three steps. */
-const RUN_DASH = "at0483-run";
-/** A dash that is only a brief: no plan, and no branch behind it. */
-const BRIEF_DASH = "at0483-brief";
+const RUN_ARC = "at0483-run";
+/** An arc that is only a brief: no plan, and no branch behind it. */
+const BRIEF_ARC = "at0483-brief";
 
 const CARDS = '.cards-card';
 const SESSION_ROW = `${CARDS} [data-session-id="${SID}"]`;
@@ -87,18 +87,18 @@ const SESSION_ROW = `${CARDS} [data-session-id="${SID}"]`;
 // holds one card, which is what makes that unambiguous.
 const MASTHEAD_MARK =
   `[data-slot="session-masthead"] [data-slot="session-identity-row-progress"]` +
-  ` [data-slot="tug-dash-lifecycle-mark"]`;
+  ` [data-slot="tug-arc-lifecycle-mark"]`;
 const CARDS_MARK =
   `${SESSION_ROW} [data-slot="session-identity-row-progress"]` +
-  ` [data-slot="tug-dash-lifecycle-mark"]`;
-/** The identity's own `^<dash>` run, inside the masthead's row. */
-const MASTHEAD_DASH_RUN =
-  `[data-slot="session-masthead"] [data-slot="session-identity-dash"]`;
+  ` [data-slot="tug-arc-lifecycle-mark"]`;
+/** The identity's own `^<arc>` run, inside the masthead's row. */
+const MASTHEAD_ARC_RUN =
+  `[data-slot="session-masthead"] [data-slot="session-identity-arc"]`;
 
-/** This checkout — the build under test, and never the tree a dash is cut in. */
+/** This checkout — the build under test, and never the tree an arc is cut in. */
 const CHECKOUT = realpathSync(resolve(import.meta.dir, "..", ".."));
 
-let scratch: DashScratchRepo | null = null;
+let scratch: ArcScratchRepo | null = null;
 let fixtureDir = "";
 let logPath = "";
 let briefPath = "";
@@ -106,29 +106,29 @@ const projectDir = (): string => scratch?.repo ?? "";
 
 beforeAll(() => {
   if (!SHOULD_RUN) return;
-  scratch = makeDashScratchRepo({ prefix: "at0483", checkout: CHECKOUT });
+  scratch = makeArcScratchRepo({ prefix: "at0483", checkout: CHECKOUT });
   // Ten rows with a run declared over the first three: the one shape where the
   // run's numerals and the plan's own pair answer different questions, so a
   // mark reading `1/10` would be reading the wrong one.
-  const run = createDash(projectDir(), RUN_DASH, "at0483 declared run", scratch.cli);
-  recordStampedPlan(projectDir(), RUN_DASH, run.worktree, {
+  const run = createArc(projectDir(), RUN_ARC, "at0483 declared run", scratch.cli);
+  recordStampedPlan(projectDir(), RUN_ARC, run.worktree, {
     ...scratch.cli,
     rows: 10,
     through: 3,
   });
-  // A dash that never got a branch: a brief at its own address and nothing
-  // else. Writing the file is the whole act — a dash HAS a brief when one is
+  // An arc that never got a branch: a brief at its own address and nothing
+  // else. Writing the file is the whole act — an arc HAS a brief when one is
   // at its address.
-  createDash(projectDir(), BRIEF_DASH, "at0483 brief only", scratch.cli);
-  briefPath = dashBriefPath(projectDir(), BRIEF_DASH);
+  createArc(projectDir(), BRIEF_ARC, "at0483 brief only", scratch.cli);
+  briefPath = arcBriefPath(projectDir(), BRIEF_ARC);
   writeFileSync(briefPath, "# at0483 brief\n\nThe idea, before there is a plan for it.\n");
-  logPath = dashLogPath(scratch.dataRoot);
+  logPath = arcLogPath(scratch.dataRoot);
   fixtureDir = seedScratchSession(projectDir(), SID);
 });
 
 afterAll(() => {
   if (!SHOULD_RUN) return;
-  rmDashScratchRepo(scratch);
+  rmArcScratchRepo(scratch);
   rmScratchSession(fixtureDir);
 });
 
@@ -175,8 +175,8 @@ const readMark = (app: App, selector: string): Promise<MarkReading> =>
            fraction: null, label: "",
          };
        }
-       const glyph = mark.querySelector('[data-slot="tug-dash-phase-mark"]');
-       const pill = mark.querySelector('[data-slot="tug-dash-lifecycle-mark-pill"]');
+       const glyph = mark.querySelector('[data-slot="tug-arc-phase-mark"]');
+       const pill = mark.querySelector('[data-slot="tug-arc-lifecycle-mark-pill"]');
        const fraction = mark.querySelector('[data-slot="tug-step-fraction"]');
        return {
          present: true,
@@ -205,14 +205,14 @@ const awaitBothMarks = (app: App): Promise<boolean> =>
     { timeoutMs: 30000 },
   );
 
-describe.skipIf(!SHOULD_RUN)("AT0483: the compact dash register", () => {
+describe.skipIf(!SHOULD_RUN)("AT0483: the compact arc register", () => {
   test(
     "one grammar on the masthead and the Cards row: the run's numerals, the phase word, and a stopped arc",
     async () => {
       const tugbankPath = mkTempTugbank();
       seedTugbankForLaunch(tugbankPath, { sourceTreePath: CHECKOUT });
       const app = await launchTugApp({
-        testName: "at0483-dash-lifecycle-mark",
+        testName: "at0483-arc-lifecycle-mark",
         env: { TUGBANK_PATH: tugbankPath, TUG_DATA_DIR: scratch?.dataRoot ?? "" },
       });
       try {
@@ -222,7 +222,7 @@ describe.skipIf(!SHOULD_RUN)("AT0483: the compact dash register", () => {
           `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
         );
         // A *spawned* session, not a bound one: spawning registers the scratch
-        // repo as a workspace, so its dashes reach the aggregate.
+        // repo as a workspace, so its arcs reach the aggregate.
         await app.spawnSessionResume("A", { tugSessionId: SID, projectDir: projectDir() });
         await app.awaitEngineReady("A", { timeoutMs: 15000 });
 
@@ -235,10 +235,10 @@ describe.skipIf(!SHOULD_RUN)("AT0483: the compact dash register", () => {
         // ── Before any binding, neither host draws anything ───────────────
         expect(await count(app, MASTHEAD_MARK)).toBe(0);
         expect(await count(app, CARDS_MARK)).toBe(0);
-        expect(await count(app, MASTHEAD_DASH_RUN)).toBe(0);
+        expect(await count(app, MASTHEAD_ARC_RUN)).toBe(0);
 
         // ── A declared run over a longer plan ─────────────────────────────
-        bindDash(projectDir(), RUN_DASH, SID, {
+        bindArc(projectDir(), RUN_ARC, SID, {
           binaryRoot: CHECKOUT,
           env: scratch?.cli.env,
         });
@@ -259,14 +259,14 @@ describe.skipIf(!SHOULD_RUN)("AT0483: the compact dash register", () => {
           expect(reading.fraction).toBe("1/3");
           expect(reading.stopped).toBeNull();
         }
-        // The row names the dash exactly once: one `^<dash>` run, one mark.
+        // The row names the arc exactly once: one `^<arc>` run, one mark.
         // The masthead's identity is HANDED the binding its row already read,
         // so a second subscription cannot draw a second run beneath it.
-        expect(await count(app, MASTHEAD_DASH_RUN)).toBe(1);
+        expect(await count(app, MASTHEAD_ARC_RUN)).toBe(1);
         note("at0483 masthead at the implement reading", (await app.screenshot()).path);
 
-        // ── A dash that is only a brief ───────────────────────────────────
-        await shellAndSettle(app, `${tugtoolPath(CHECKOUT)} arc bind ${BRIEF_DASH}`);
+        // ── An arc that is only a brief ───────────────────────────────────
+        await shellAndSettle(app, `${tugtoolPath(CHECKOUT)} arc bind ${BRIEF_ARC}`);
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(MASTHEAD_MARK)})
              ?.getAttribute("data-phase") === "brief"`,
@@ -278,8 +278,8 @@ describe.skipIf(!SHOULD_RUN)("AT0483: the compact dash register", () => {
         note("at0483 brief · masthead", JSON.stringify(briefMasthead));
         note("at0483 brief · cards row", JSON.stringify(briefCards));
         for (const reading of [briefMasthead, briefCards]) {
-          // The LIFECYCLE phase, which this dash has, and not the git stage,
-          // which it does not: `dash create` cut no rounds and the brief is
+          // The LIFECYCLE phase, which this arc has, and not the git stage,
+          // which it does not: `arc create` cut no rounds and the brief is
           // the whole of what exists.
           expect(reading.phase).toBe("brief");
           expect(reading.glyphPhase).toBe("brief");
@@ -288,9 +288,9 @@ describe.skipIf(!SHOULD_RUN)("AT0483: the compact dash register", () => {
         }
 
         // ── A stopped arc, written as the engine writes it ────────────────
-        appendDashLogLine(logPath, BRIEF_DASH, "arc-start", briefPath);
-        appendDashLogLine(logPath, BRIEF_DASH, "arc-stage", "devise claude-at0483 opus");
-        appendDashLogLine(logPath, BRIEF_DASH, "arc-stop", "devise you took the card back");
+        appendArcLogLine(logPath, BRIEF_ARC, "arc-start", briefPath);
+        appendArcLogLine(logPath, BRIEF_ARC, "arc-stage", "devise claude-at0483 opus");
+        appendArcLogLine(logPath, BRIEF_ARC, "arc-stop", "devise you took the card back");
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(MASTHEAD_MARK)})
              ?.getAttribute("data-stopped") === "true"`,
@@ -311,7 +311,7 @@ describe.skipIf(!SHOULD_RUN)("AT0483: the compact dash register", () => {
           expect(reading.pillState).toBe("stopped");
         }
         // The whole reading, in words, for a reader who cannot see the marks.
-        expect(stopped.label.startsWith(`dash ${BRIEF_DASH} — stopped ·`)).toBe(true);
+        expect(stopped.label.startsWith(`arc ${BRIEF_ARC} — stopped ·`)).toBe(true);
         note("at0483 masthead at the stopped reading", (await app.screenshot()).path);
 
         // ── Unbind takes both marks away ──────────────────────────────────
@@ -321,7 +321,7 @@ describe.skipIf(!SHOULD_RUN)("AT0483: the compact dash register", () => {
            document.querySelectorAll(${JSON.stringify(CARDS_MARK)}).length === 0`,
           { timeoutMs: 30000 },
         );
-        expect(await count(app, MASTHEAD_DASH_RUN)).toBe(0);
+        expect(await count(app, MASTHEAD_ARC_RUN)).toBe(0);
       } finally {
         await app.close();
         rmTempTugbank(tugbankPath);

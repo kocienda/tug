@@ -23,7 +23,7 @@
  * minted handle elides — the tooltip and every copy path still carry it whole.
  * On a title surface (the line tier) the same instinct now runs further: the
  * callsign gives way FIRST, and from the middle, so the project prefix and the
- * callsign's last word both survive; the user's name and the bound dash are
+ * callsign's last word both survive; the user's name and the bound arc are
  * what the reader keeps.
  * A session with no name renders the bare `<project>/<callsign>`, which may
  * then elide since it is the only run there is. The `project/` prefix rides
@@ -31,17 +31,17 @@
  * places it — and a session with no known project degrades to the callsign
  * alone.
  *
- * **A dash is a third run, not a badge beside the name.** A dash says where the
+ * **An arc is a third run, not a badge beside the name.** An arc says where the
  * session is working, which is the same *kind* of fact as the project already
  * riding the callsign — so it joins the grammar rather than competing with the
  * mount site's chrome for a slot. Its loudness inverts with the register for
  * the same reason the elision rules do: on the line tier there is room for the
- * `git-branch` glyph and the dash name, quiet, elided first under a squeeze; on
+ * `git-branch` glyph and the arc name, quiet, elided first under a squeeze; on
  * the atom the glyph alone marks it and the name rides the tooltip, because a
  * citation is compact by definition and the binding is temporary while the
- * citation is not. The dash never enters {@link sessionCitation} at all — the
+ * citation is not. The arc never enters {@link sessionCitation} at all — the
  * flat string outlives the binding in pastes and commits, and one carrying a
- * dash would rot.
+ * arc would rot.
  *
  * **The atom paints in text ink.** The pill's run and border take the ordinary
  * text color and a `currentcolor` mix; the dot is its only color channel,
@@ -205,28 +205,28 @@ export interface TugSessionIdentityProps
    */
   tooltip?: boolean;
   /**
-   * The dash this session is on, when the caller already holds it.
+   * The arc this session is on, when the caller already holds it.
    *
-   * {@link SessionDashMarker} otherwise finds it by searching the changeset
-   * snapshot for the dash that lists this session — the right shape for a
+   * {@link SessionArcMarker} otherwise finds it by searching the changeset
+   * snapshot for the arc that lists this session — the right shape for a
    * surface that knows only a session id. A surface rendering a specific
-   * dash's row already has the answer, and asking the store to re-derive it
+   * arc's row already has the answer, and asking the store to re-derive it
    * makes that row's atom depend on a feed having arrived in order to say
    * something the row was built from.
    *
    * `undefined` is "ask the store", which is the default — for a surface that
-   * knows only a session id. `false` says *this session is on no dash, and do
+   * knows only a session id. `false` says *this session is on no arc, and do
    * not ask*, so a row that read the binding and found none leaves no second
    * subscription standing beneath it. `false` is also the opt-out for the one
-   * surface whose row already names the dash as its own subject (the Dashes
+   * surface whose row already names the arc as its own subject (the Arcs
    * section's eyebrow), where the worker's atom saying it again would state
    * the pairing twice on one line.
    *
    * The handed-in shape is `ArcSessionFact`-compatible by construction rather
    * than through an adapter: `review` is the fact's own `string | null`, and
-   * {@link dashMarkerTitle} builds the hover sentence for both branches.
+   * {@link arcMarkerTitle} builds the hover sentence for both branches.
    */
-  dash?: { name: string; review?: string | null } | false;
+  arc?: { name: string; review?: string | null } | false;
 }
 
 /**
@@ -264,61 +264,61 @@ function SessionPrivacyMarker({
 }
 
 /**
- * The dash marker: a leaf subscription, like {@link SessionPrivacyMarker} and
- * for the same reason. A dash binding is a mode the session is in, not part of
+ * The arc marker: a leaf subscription, like {@link SessionPrivacyMarker} and
+ * for the same reason. An arc binding is a mode the session is in, not part of
  * its identity, so folding it into the identity record would wake every
  * identity surface in the app whenever any session bound or unbound.
  *
- * Both tiers render the same run — `^<dash-name>` — because the identity is one
- * format wherever it is met. The `^` is the grammar's dash sigil and is
+ * Both tiers render the same run — `^<arc-name>` — because the identity is one
+ * format wherever it is met. The `^` is the grammar's arc sigil and is
  * decorative to a screen reader, which hears the run's own label instead. The
  * name is only a name: the review state reaches the reader through the hover
  * sentence, where it is spelled out in words, and never as a tint on the run,
  * which carried no legend and so could not be decoded.
  */
-function SessionDashMarker({
+function SessionArcMarker({
   sessionId,
 }: {
   sessionId: string;
 }): React.ReactElement | null {
-  const dash = useArcForSession(sessionId);
-  if (dash === null) return null;
+  const arc = useArcForSession(sessionId);
+  if (arc === null) return null;
   // The session lookup and the sentence are this component's; the run itself is
-  // shared, so the sigil is spelled once for every surface that names a dash.
+  // shared, so the sigil is spelled once for every surface that names an arc.
   return (
     <ArcSigil
-      name={dash.name}
-      slot="session-identity-dash"
-      title={dashMarkerTitle(dash)}
-      ariaLabel={`On arc ${dash.name}`}
+      name={arc.name}
+      slot="session-identity-arc"
+      title={arcMarkerTitle(arc)}
+      ariaLabel={`On arc ${arc.name}`}
     />
   );
 }
 
-/** One sentence for the dash marker, review state folded in when it paints. */
-function dashMarkerTitle(dash: { name: string; review?: string | null }): string {
-  const lead = `Working on arc ${dash.name}`;
-  return arcReviewPaints(dash.review)
-    ? `${lead} — ${arcReviewTooltip(dash.review!, null)}`
+/** One sentence for the arc marker, review state folded in when it paints. */
+function arcMarkerTitle(arc: { name: string; review?: string | null }): string {
+  const lead = `Working on arc ${arc.name}`;
+  return arcReviewPaints(arc.review)
+    ? `${lead} — ${arcReviewTooltip(arc.review!, null)}`
     : lead;
 }
 
 /**
- * The hover's dash row — a leaf of its own rather than a value threaded in, so
+ * The hover's arc row — a leaf of its own rather than a value threaded in, so
  * the identity that mounts this does not subscribe to the changeset aggregate
  * just to describe itself. The same reason the marker beside the runs is one.
  *
  * It wears `entity-tips`' own meta class, because it is a row in that tip and
  * not a thing this component styles.
  */
-function SessionDashTipLine({
+function SessionArcTipLine({
   sessionId,
 }: {
   sessionId: string;
 }): React.ReactElement | null {
-  const dash = useArcForSession(sessionId);
-  if (dash === null) return null;
-  return <span className="tugx-tip-meta">{dashMarkerTitle(dash)}</span>;
+  const arc = useArcForSession(sessionId);
+  if (arc === null) return null;
+  return <span className="tugx-tip-meta">{arcMarkerTitle(arc)}</span>;
 }
 
 /**
@@ -339,7 +339,7 @@ function identityTooltip(identity: SessionIdentity): React.ReactNode {
     citation: sessionCitation(identity, { project: true }),
     // A leaf, so the surface holding this identity does not subscribe to the
     // changeset aggregate just to be able to describe itself.
-    extra: <SessionDashTipLine sessionId={identity.id} />,
+    extra: <SessionArcTipLine sessionId={identity.id} />,
   });
 }
 
@@ -357,7 +357,7 @@ export const TugSessionIdentity = React.forwardRef<
     onOpen,
     hostCardId,
     tooltip = true,
-    dash,
+    arc,
     className,
     style: restStyle,
     ...rest
@@ -448,14 +448,14 @@ export const TugSessionIdentity = React.forwardRef<
           )}
         </span>
       ) : null}
-      {/* One run holding the whole grammar — `name:project/callsign#dash`.
+      {/* One run holding the whole grammar — `name:project/callsign#arc`.
           The name and callsign are boxed together so the tier's truncation
           rule can pick which of the two elides, and so the box as a whole can
-          be clamped rather than shrunk beside the dash. The filter mark is
+          be clamped rather than shrunk beside the arc. The filter mark is
           painted inside each run, never across two.
 
           A citation that resolved to nothing has no live binding to report:
-          the ledger does not hold the session, so it holds no dash for it
+          the ledger does not hold the session, so it holds no arc for it
           either. Same rule as the privacy marker below. */}
       <span className="tug-session-identity-run">
         <span className="tug-session-identity-title">
@@ -466,19 +466,19 @@ export const TugSessionIdentity = React.forwardRef<
             {renderFilterHighlight(title.name, highlight)}
           </span>
         </span>
-        {/* The bound dash is part of the identity wherever the identity is
-            met — a session on a dash is never named without it. The one
-            opt-out is `dash={false}`, for a surface whose row already names
-            the dash as its own subject. */}
-        {isMissing || dash === false ? null : dash !== undefined ? (
+        {/* The bound arc is part of the identity wherever the identity is
+            met — a session on an arc is never named without it. The one
+            opt-out is `arc={false}`, for a surface whose row already names
+            the arc as its own subject. */}
+        {isMissing || arc === false ? null : arc !== undefined ? (
           <ArcSigil
-            name={dash.name}
-            slot="session-identity-dash"
-            title={dashMarkerTitle(dash)}
-            ariaLabel={`On arc ${dash.name}`}
+            name={arc.name}
+            slot="session-identity-arc"
+            title={arcMarkerTitle(arc)}
+            ariaLabel={`On arc ${arc.name}`}
           />
         ) : (
-          <SessionDashMarker sessionId={identity.id} />
+          <SessionArcMarker sessionId={identity.id} />
         )}
       </span>
       {isMissing ? null : <SessionPrivacyMarker sessionId={identity.id} />}

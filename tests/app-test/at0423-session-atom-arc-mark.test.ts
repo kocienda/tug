@@ -1,5 +1,5 @@
 /**
- * at0423-session-atom-dash-mark.test.ts — the session ATOM marks a dash-bound
+ * at0423-session-atom-arc-mark.test.ts — the session ATOM marks an arc-bound
  * session, and marks it in the citation register.
  *
  * at0406 pins the same grammar on the line tier. The atom wears it IDENTICALLY,
@@ -15,15 +15,15 @@
  *
  *   A. **The citation does not move.** The CITATION row is byte-identical
  *      bound and unbound. That string is the durable form a reader pastes
- *      elsewhere, and one carrying a dash would rot the moment the dash landed.
- *   B. **The displayed atom does.** Binding appends exactly `#<dash-name>` to
+ *      elsewhere, and one carrying an arc would rot the moment the arc landed.
+ *   B. **The displayed atom does.** Binding appends exactly `#<arc-name>` to
  *      the atom's own text and changes nothing else in it — the same run, the
  *      same sigil, the same ink as the line tier.
  *
  * The loop is real throughout: `tugtool arc bind` through the card's own `$`
  * shell route, which is what stamps `TUG_SESSION_ID` on the child, against a
  * real session resumed on a scratch repository this file owns. The mark appears
- * because the dash's `bound_sessions` moved in the account-global changeset
+ * because the arc's `bound_sessions` moved in the account-global changeset
  * aggregate and the atom reads it session-first — no card, no reload, no prop.
  *
  * @covers tugdeck/src/components/tugways/tug-session-identity.tsx
@@ -36,15 +36,15 @@ import { resolve } from "node:path";
 
 import { launchTugApp, note, type App } from "./_harness";
 import {
-  createDash,
-  makeDashScratchRepo,
-  rmDashScratchRepo,
+  createArc,
+  makeArcScratchRepo,
+  rmArcScratchRepo,
   rmScratchSession,
   seedScratchSession,
   shellAndSettle,
   tugtoolPath,
-  type DashScratchRepo,
-} from "./dash-fixture";
+  type ArcScratchRepo,
+} from "./arc-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
@@ -62,26 +62,26 @@ const WIDGET = '[data-slot="session-masthead-widget"]';
 const PANEL = '[data-slot="session-masthead-telemetry"]';
 /** The panel's chip-tier atom, and the flat citation two rows below it. */
 const ATOM = `${PANEL} .session-masthead-telemetry-atom`;
-const ATOM_DASH = `${ATOM} [data-slot="session-identity-dash"]`;
+const ATOM_ARC = `${ATOM} [data-slot="session-identity-arc"]`;
 
-/** This checkout — the build under test, and never the tree a dash is cut in. */
+/** This checkout — the build under test, and never the tree an arc is cut in. */
 const CHECKOUT = realpathSync(resolve(import.meta.dir, "..", ".."));
 /** The scratch repository this fixture owns, and the only tree it touches. */
-let scratch: DashScratchRepo | null = null;
+let scratch: ArcScratchRepo | null = null;
 let fixtureDir = "";
 const projectDir = (): string => scratch?.repo ?? "";
-const DASH_NAME = "at0423-atom";
+const ARC_NAME = "at0423-atom";
 
 beforeAll(() => {
   if (!SHOULD_RUN) return;
-  scratch = makeDashScratchRepo({ prefix: "at0423", checkout: CHECKOUT });
-  createDash(projectDir(), DASH_NAME, "at0423 fixture", scratch.cli);
+  scratch = makeArcScratchRepo({ prefix: "at0423", checkout: CHECKOUT });
+  createArc(projectDir(), ARC_NAME, "at0423 fixture", scratch.cli);
   fixtureDir = seedScratchSession(projectDir(), SID);
 });
 
 afterAll(() => {
   if (!SHOULD_RUN) return;
-  rmDashScratchRepo(scratch);
+  rmArcScratchRepo(scratch);
   rmScratchSession(fixtureDir);
 });
 
@@ -140,7 +140,7 @@ async function readPanel(
          atom: (document.querySelector(${JSON.stringify(ATOM)})?.textContent ?? "").trim(),
          citation: (row.querySelector(
            ".session-masthead-telemetry-value")?.textContent ?? "").trim(),
-         marks: document.querySelectorAll(${JSON.stringify(ATOM_DASH)}).length,
+         marks: document.querySelectorAll(${JSON.stringify(ATOM_ARC)}).length,
        };
      })()`,
   );
@@ -152,12 +152,12 @@ async function readPanel(
   return read;
 }
 
-describe.skipIf(!SHOULD_RUN)("AT0423: the atom's dash mark", () => {
+describe.skipIf(!SHOULD_RUN)("AT0423: the atom's arc mark", () => {
   test(
     "a bound session's atom wears the line tier's grammar, and the citation never moves",
     async () => {
       const app = await launchTugApp({
-        testName: "at0423-session-atom-dash-mark",
+        testName: "at0423-session-atom-arc-mark",
         env: { TUG_DATA_DIR: scratch?.dataRoot ?? "" },
       });
       try {
@@ -182,15 +182,15 @@ describe.skipIf(!SHOULD_RUN)("AT0423: the atom's dash mark", () => {
         expect(bare.citation.length).toBeGreaterThan(0);
 
         // ── Bind, for real ────────────────────────────────────────────────
-        await shellAndSettle(app, `${tugtoolPath(CHECKOUT)} arc bind ${DASH_NAME}`, 0);
+        await shellAndSettle(app, `${tugtoolPath(CHECKOUT)} arc bind ${ARC_NAME}`, 0);
         await app.waitForCondition<boolean>(
-          `document.querySelector('[data-slot="session-masthead"] [data-slot="session-identity-dash"]') !== null`,
+          `document.querySelector('[data-slot="session-masthead"] [data-slot="session-identity-arc"]') !== null`,
           { timeoutMs: 15000 },
         );
 
         await openWidget(app);
         await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(ATOM_DASH)}) !== null`,
+          `document.querySelector(${JSON.stringify(ATOM_ARC)}) !== null`,
           { timeoutMs: 10_000 },
         );
         const mark = await app.evalJS<{
@@ -201,11 +201,11 @@ describe.skipIf(!SHOULD_RUN)("AT0423: the atom's dash mark", () => {
           text: string;
         }>(
           `(() => {
-             const m = document.querySelector(${JSON.stringify(ATOM_DASH)});
+             const m = document.querySelector(${JSON.stringify(ATOM_ARC)});
              return {
                hasGlyph: m.querySelector("svg") !== null,
                hasName:
-                 m.querySelector(".tug-session-identity-dash-name") !== null,
+                 m.querySelector(".tug-session-identity-arc-name") !== null,
                title: m.getAttribute("title"),
                label: m.getAttribute("aria-label"),
                text: (m.textContent ?? "").trim(),
@@ -220,30 +220,30 @@ describe.skipIf(!SHOULD_RUN)("AT0423: the atom's dash mark", () => {
           { timeoutMs: 10_000 },
         );
 
-        // B. The atom names the dash in its own ink, in the line tier's
+        // B. The atom names the arc in its own ink, in the line tier's
         // spelling — the glyph left the grammar when the sigil replaced it.
         expect(mark.hasGlyph).toBe(false);
         expect(mark.hasName).toBe(true);
-        expect(mark.text).toBe(`^${DASH_NAME}`);
-        expect(mark.title).toBe(`Working on dash ${DASH_NAME}`);
-        expect(mark.label).toBe(`On dash ${DASH_NAME}`);
+        expect(mark.text).toBe(`^${ARC_NAME}`);
+        expect(mark.title).toBe(`Working on arc ${ARC_NAME}`);
+        expect(mark.label).toBe(`On arc ${ARC_NAME}`);
 
         // The atom grew by the run and by nothing else: same name, same
-        // callsign, same punctuation, with `#<dash>` appended. Asserting the
+        // callsign, same punctuation, with `#<arc>` appended. Asserting the
         // concatenation rather than a substring is what makes this a pin on
         // the FORMAT — a treatment that respelled the atom would fail here
-        // even if the dash name were somewhere in the string.
+        // even if the arc name were somewhere in the string.
         const bound = await readPanel(app);
         expect(bound.marks).toBe(1);
-        expect(bound.atom).toBe(`${bare.atom}^${DASH_NAME}`);
+        expect(bound.atom).toBe(`${bare.atom}^${ARC_NAME}`);
         // A. And the citation did not move.
         expect(bound.citation).toBe(bare.citation);
-        expect(bound.citation).not.toContain(DASH_NAME);
+        expect(bound.citation).not.toContain(ARC_NAME);
 
         // ── Unbind, for real ──────────────────────────────────────────────
         await shellAndSettle(app, `${tugtoolPath(CHECKOUT)} arc unbind`, 1);
         await app.waitForCondition<boolean>(
-          `document.querySelector('[data-slot="session-masthead"] [data-slot="session-identity-dash"]') === null`,
+          `document.querySelector('[data-slot="session-masthead"] [data-slot="session-identity-arc"]') === null`,
           { timeoutMs: 15000 },
         );
         const after = await readPanel(app);

@@ -7,7 +7,7 @@
  * beside this one, which every surface already shows, so the typeface carries
  * nothing.
  *
- * A cut is a dash to this atom. Both are work that left the base on a
+ * A cut is an arc to this atom. Both are work that left the base on a
  * worktree and come back through a join, and that is what the pill names; the
  * track beside it says how much of a life the work has.
  *
@@ -38,11 +38,11 @@ export function TugArcAtom({
   name,
   nameContent,
   register = DEFAULT_ATOM_REGISTER,
-  slot = "tug-dash-atom",
+  slot = "tug-arc-atom",
   title,
 }: TugArcAtomProps): React.ReactElement {
   return (
-    <span className="tug-dash-atom" data-slot="tug-dash-atom" data-register={register}>
+    <span className="tug-arc-atom" data-slot="tug-arc-atom" data-register={register}>
       <ArcSigil
         name={name}
         nameContent={nameContent}

@@ -374,7 +374,7 @@ export const FACTORY_RAIL_ORDER: readonly string[] = [
  *
  * The order is written explicitly rather than left absent because absent means
  * *registration* order to {@link effectiveRailOrder}, and `main.tsx` registers
- * jots, overview, tripwires, dashes, cards, layout — not the order the factory
+ * jots, overview, tripwires, arcs, cards, layout — not the order the factory
  * rail asks for. Pinning goes through {@link withSidebarPinned}, which resolves
  * each card's side through `sidebarSide` to {@link DEFAULT_SIDEBAR_SIDE}
  * (`"right"`) on a deck that has never placed it.

@@ -1,7 +1,7 @@
-/* tug-dash-atom.css — the atom's seat. The pill itself is
+/* tug-arc-atom.css — the atom's seat. The pill itself is
    `tug-session-identity.css`'s chip skin, reached through ArcSigil. */
 
-.tug-dash-atom {
+.tug-arc-atom {
   display: inline-flex;
   align-items: center;
   min-inline-size: 0;

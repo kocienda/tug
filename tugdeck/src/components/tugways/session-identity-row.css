@@ -2,8 +2,8 @@
  * session-identity-row.css — the title line's progress cluster.
  *
  * The row's shape and packing are `tug-session-row.css`'s; the one thing
- * authored here is the run that holds the identity and the dash progress
- * cluster on the title line. The identity ends with its flush `^<dash>` run;
+ * authored here is the run that holds the identity and the arc progress
+ * cluster on the title line. The identity ends with its flush `^<arc>` run;
  * only after it does the line breathe — a gap ahead of the stage glyph,
  * another ahead of the count.
  *
@@ -11,7 +11,7 @@
  * shrinkable run, so every pixel the cluster claims on either side is a pixel
  * the name elides earlier — which is the trade this file makes on purpose. A
  * name is a mark the reader recognizes from its first few characters; the
- * cluster beside it is three separate facts (where the dash is, that it is
+ * cluster beside it is three separate facts (where the arc is, that it is
  * alive, how far along) that read as one blob when the label runs into them
  * and the slots close from the other side.
  */
@@ -19,7 +19,7 @@
 .session-identity-row-title-run {
   display: inline-flex;
   align-items: center;
-  /* The step off the identity's last run — its `^<dash>` callsign, which sets
+  /* The step off the identity's last run — its `^<arc>` callsign, which sets
      flush by design — into the cluster. TUNE HERE. */
   gap: var(--tugx-session-identity-progress-lead, 8px);
   min-width: 0;
@@ -33,9 +33,9 @@
   flex: 0 0 auto;
   /* And the step on the far side, into the mount's trailing furniture — the
      Cards card's slot picker and column badge. Stated on the cluster itself rather
-     than on the slots, so it arrives and leaves exactly when the dash binding
+     than on the slots, so it arrives and leaves exactly when the arc binding
      does; a `:has()` keyed on this element's presence would paint once and
-     then quietly stop matching ([L06], the same argument the dash line carries
+     then quietly stop matching ([L06], the same argument the arc line carries
      in `tug-session-row.css`). Charged INSIDE the title box, so this side is
      taken from the name too rather than from the row. TUNE HERE. */
   margin-inline-end: var(--tugx-session-identity-progress-trail, 6px);

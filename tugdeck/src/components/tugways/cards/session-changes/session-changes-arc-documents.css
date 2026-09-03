@@ -1,7 +1,7 @@
 /**
- * The fronted dash's documents strip.
+ * The fronted arc's documents strip.
  *
- * Sits inside the dash row's fold, above the rounds, and borrows the fold's own
+ * Sits inside the arc row's fold, above the rounds, and borrows the fold's own
  * measurements — this is a face on facts that already live here, not a card of
  * its own. Role and review paint through data attributes ([L06]); nothing here
  * is set from React state.
@@ -14,28 +14,28 @@
  * section families with what surrounds it.
  */
 
-.session-changes-dash-documents {
+.session-changes-arc-documents {
   display: flex;
   flex-direction: column;
 }
 
-.session-changes-dash-document {
+.session-changes-arc-document {
   cursor: pointer;
 }
 
-.session-changes-dash-document-glyph {
+.session-changes-arc-document-glyph {
   color: var(--tug7-element-global-text-normal-muted-rest);
   flex: none;
 }
 
-.session-changes-dash-document-block {
+.session-changes-arc-document-block {
   display: flex;
   align-items: baseline;
   gap: var(--tug-space-sm);
   min-width: 0;
 }
 
-.session-changes-dash-document-title {
+.session-changes-arc-document-title {
   color: var(--tug7-element-global-text-normal-default-rest);
   font-size: var(--tug-font-size-sm);
   line-height: 1.5;
@@ -44,7 +44,7 @@
   white-space: nowrap;
 }
 
-.session-changes-dash-document-facts {
+.session-changes-arc-document-facts {
   color: var(--tug7-element-global-text-normal-muted-rest);
   font-size: var(--tug-font-size-xs);
   white-space: nowrap;
@@ -52,9 +52,9 @@
 
 /* A plan nothing has vouched for says so in the caution tone the rest of the
    shade uses for the same fact. */
-.session-changes-dash-document[data-review="never-reviewed"]
-  .session-changes-dash-document-facts,
-.session-changes-dash-document[data-review="stale"]
-  .session-changes-dash-document-facts {
+.session-changes-arc-document[data-review="never-reviewed"]
+  .session-changes-arc-document-facts,
+.session-changes-arc-document[data-review="stale"]
+  .session-changes-arc-document-facts {
   color: var(--tug7-element-tone-icon-normal-caution-rest);
 }

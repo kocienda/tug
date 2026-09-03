@@ -91,18 +91,18 @@ describe("enumeratePluginCommands", () => {
 
   // The rest of this describe block builds its own plugins in a temp dir. This
   // one reads the repository's real `tugplug/`, because the fact worth pinning
-  // is that the shipped skill is catalogued at all: the bare `/dash` a user
-  // types resolves to `tugplug:dash` by unique namespace-suffix match
+  // is that the shipped skill is catalogued at all: the bare `/arc` a user
+  // types resolves to `tugplug:arc` by unique namespace-suffix match
   // (`resolveRemoteCommand`, tugdeck), and a second catalog entry whose leaf is
-  // also `dash` would make that resolution ambiguous — which reads to the user
+  // also `arc` would make that resolution ambiguous — which reads to the user
   // as "Unknown command" rather than as anything nameable.
-  test("the repository's own plugin catalogues tugplug:dash and tugplug:trek, unambiguously", () => {
+  test("the repository's own plugin catalogues tugplug:arc and tugplug:arc-plan, unambiguously", () => {
     const pluginDir = join(import.meta.dir, "..", "..", "..", "tugplug");
     if (!existsSync(join(pluginDir, "skills"))) return; // not a full checkout.
 
     const cmds = enumeratePluginCommands(pluginDir);
-    const dash = cmds.find((c) => c.name === "tugplug:dash");
-    expect(dash).toBeDefined();
+    const arc = cmds.find((c) => c.name === "tugplug:arc");
+    expect(arc).toBeDefined();
     // The frontmatter's own words, so a fabricated entry could not pass —
     // but *which* words is not this test's business. Pinning a phrase made
     // this red the moment the skill's own sentence was rewritten, which is a
@@ -110,24 +110,26 @@ describe("enumeratePluginCommands", () => {
     // description was read out of the file: a non-empty string that occurs in
     // the shipped `SKILL.md` verbatim. A fabricated entry still cannot pass,
     // and a reworded one no longer has to.
-    expect(dash!.description.length).toBeGreaterThan(0);
-    const source = readFileSync(join(pluginDir, "skills", "dash", "SKILL.md"), "utf8");
-    expect(source).toContain(dash!.description);
-    expect(dash!.argumentHint).toBe("[name] [instruction…]");
+    const arcDescription = arc?.description ?? "";
+    expect(arcDescription.length).toBeGreaterThan(0);
+    const source = readFileSync(join(pluginDir, "skills", "arc", "SKILL.md"), "utf8");
+    expect(source).toContain(arcDescription);
+    expect(arc!.argumentHint).toBe("[name] [instruction…]");
 
-    const dashLeaves = cmds.filter((c) => c.name.split(":").pop() === "dash");
-    expect(dashLeaves.map((c) => c.name)).toEqual(["tugplug:dash"]);
+    const arcLeaves = cmds.filter((c) => c.name.split(":").pop() === "arc");
+    expect(arcLeaves.map((c) => c.name)).toEqual(["tugplug:arc"]);
 
     // The other door, on the same terms: a second catalog entry whose leaf is
-    // also `trek` is what would make a bare `/trek` ambiguous.
-    const trek = cmds.find((c) => c.name === "tugplug:trek");
-    expect(trek).toBeDefined();
-    expect(trek!.description.length).toBeGreaterThan(0);
-    const trekSource = readFileSync(join(pluginDir, "skills", "trek", "SKILL.md"), "utf8");
-    expect(trekSource).toContain(trek!.description);
+    // also `arc-plan` is what would make a bare `/arc-plan` ambiguous.
+    const arcPlan = cmds.find((c) => c.name === "tugplug:arc-plan");
+    expect(arcPlan).toBeDefined();
+    const arcPlanDescription = arcPlan?.description ?? "";
+    expect(arcPlanDescription.length).toBeGreaterThan(0);
+    const arcPlanSource = readFileSync(join(pluginDir, "skills", "arc-plan", "SKILL.md"), "utf8");
+    expect(arcPlanSource).toContain(arcPlanDescription);
 
-    const trekLeaves = cmds.filter((c) => c.name.split(":").pop() === "trek");
-    expect(trekLeaves.map((c) => c.name)).toEqual(["tugplug:trek"]);
+    const arcPlanLeaves = cmds.filter((c) => c.name.split(":").pop() === "arc-plan");
+    expect(arcPlanLeaves.map((c) => c.name)).toEqual(["tugplug:arc-plan"]);
   });
 });
 

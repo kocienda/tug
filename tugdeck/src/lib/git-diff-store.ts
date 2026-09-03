@@ -193,9 +193,9 @@ export interface GitDiffScope {
  *   (sessions / unattributed / the session card's `/diff`), untracked files
  *   included as synthesized new-file diffs. Equivalent to the legacy
  *   {@link GitDiffScope}.
- * - `range` — the dash view: committed rounds past `base` **plus** worktree
+ * - `range` — the arc view: committed rounds past `base` **plus** worktree
  *   dirt, resolved as `merge-base(base, branch)` diffed against the worktree
- *   working tree (see `feeds/git.rs::fetch_dash_diff`).
+ *   working tree (see `feeds/git.rs::fetch_arc_diff`).
  * - `commit` — one commit against its first parent (`git diff-tree --root`),
  *   the `/commit` receipt's expandable file rows ([P08]).
  */
@@ -242,7 +242,7 @@ export function isDiffDescriptor(value: unknown): value is DiffDescriptor {
   return false;
 }
 
-/** True when a request is the dash range flavor. */
+/** True when a request is the arc range flavor. */
 function isRangeDescriptor(
   request: DiffRequest,
 ): request is Extract<DiffDescriptor, { kind: "range" }> {
@@ -311,7 +311,7 @@ export class GitDiffStore {
    * `requestId`; the matching `GIT_DIFF` response resolves it to `ready`.
    * Passing a `request` adopts it — a legacy {@link GitDiffScope} (head
    * flavor), `{}` for the whole tree, or a {@link DiffDescriptor} of either
-   * flavor (the dash range flavor names `worktree`/`base`/`branch`, [P19]).
+   * flavor (the arc range flavor names `worktree`/`base`/`branch`, [P19]).
    * Omitting it repeats the last request — the in-sheet Refresh re-runs
    * whatever is showing.
    */
@@ -331,7 +331,7 @@ export class GitDiffStore {
     const requestId = `gd-${this._storeId}-${this._seq}`;
     const query: Record<string, unknown> = { requestId };
     if (isRangeDescriptor(this._scope)) {
-      // Dash range flavor: `root` still resolves the workspace; the dash
+      // Arc range flavor: `root` still resolves the workspace; the arc
       // fields select `<base>...<branch>` + worktree dirt server-side.
       const root = this._scope.root ?? this._projectDir;
       if (root !== undefined && root.length > 0) query.root = root;

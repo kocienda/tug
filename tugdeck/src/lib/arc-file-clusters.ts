@@ -1,5 +1,5 @@
 /**
- * dash-file-clusters — a dash's changed files as areas, not a list.
+ * arc-file-clusters — an arc's changed files as areas, not a list.
  *
  * Twenty-one paths in snapshot order say nothing until every one has been
  * read; six directories with counts say the shape of the change before any
@@ -13,7 +13,7 @@
 
 import type { ChangesetFile } from "@/lib/changeset-types";
 
-/** One area of the tree the dash touched, and what it did there. */
+/** One area of the tree the arc touched, and what it did there. */
 export interface ArcFileCluster {
   /** The directory the files share, `""` for files at the repository root. */
   dir: string;

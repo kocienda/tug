@@ -1,11 +1,11 @@
 /**
- * at0474-dash-arc-transcript.test.ts — a dash arc's stage rotation draws a
+ * at0474-arc-run-transcript.test.ts — an arc run's stage rotation draws a
  * divider, and the transcript survives it, so the whole arc is one scroll
  * ([AT0474]).
  *
  * ## Why this exists
  *
- * A dash arc rotates a card onto a fresh claude session between stages
+ * An arc run rotates a card onto a fresh claude session between stages
  * (devise → review → implement). tugcode announces each rotation with a
  * `session_segment` line of `kind: "rotation"` and follows it with the fresh
  * session's synthetic `session_init`. Two things have to be true for the arc to
@@ -54,7 +54,7 @@ const STAGE_PROMPT =
   "/tugplug:arc-devise a plan for .tug/arcs/foo/brief.md";
 /** What the transcript paints as prose once the command becomes a chip. */
 const STAGE_PROMPT_ARGS = "a plan for .tug/arcs/foo/brief.md";
-// Every stage after devise names the dash, never a path.
+// Every stage after devise names the arc, never a path.
 const REVIEW_PROMPT = "/tugplug:arc-review foo";
 /**
  * A prompt the arc sends MID-session — a continued implement range. It does
@@ -110,7 +110,7 @@ describe.skipIf(!SHOULD_RUN)(
     test(
       "a rotation session_segment draws the boundary and the rows above it survive the rotation",
       async () => {
-        const app = await launchTugApp({ testName: "at0474-dash-arc-transcript" });
+        const app = await launchTugApp({ testName: "at0474-arc-run-transcript" });
         try {
           await app.enableDeckTrace(true);
           await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
@@ -472,7 +472,7 @@ describe.skipIf(!SHOULD_RUN)(
         // and must not re-stage an identity transfer that already happened.
         // This drives that frame sequence through the store's real dispatch
         // and asserts what the card ends up showing.
-        const app = await launchTugApp({ testName: "at0474-dash-arc-restore" });
+        const app = await launchTugApp({ testName: "at0474-arc-run-restore" });
         try {
           await app.enableDeckTrace(true);
           await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
@@ -661,7 +661,7 @@ describe.skipIf(!SHOULD_RUN)(
         // turns into an origin-less `add_user_message` threaded into the open
         // bracket — while the stage's opening frame is the one the translator
         // marks. The reducer must keep those two apart on the replay path as
-        // well as on the live one, or every reopened dash relabels the words
+        // well as on the live one, or every reopened arc relabels the words
         // the user typed into it.
         const app = await launchTugApp({ testName: "at0474-wheel-interjection-replay" });
         try {

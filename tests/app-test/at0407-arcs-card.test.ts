@@ -1,27 +1,27 @@
 /**
- * at0407-dashes-card.test.ts — the marks the Arcs card paints, over real
- * dashes.
+ * at0407-arcs-card.test.ts — the marks the Arcs card paints, over real
+ * arcs.
  *
- * The card holds EVERY dash in every state ([D141]), and every row is one
- * `DashLifecycleBlock`. Its eyebrow carries the dash atom, the hairline, one
- * worker atom per bound session, and the row's menu opener — an unbound dash
- * shows no worker atom and no phase dot anywhere on the row, because a dash
+ * The card holds EVERY arc in every state ([D141]), and every row is one
+ * `ArcLifecycleBlock`. Its eyebrow carries the arc atom, the hairline, one
+ * worker atom per bound session, and the row's menu opener — an unbound arc
+ * shows no worker atom and no phase dot anywhere on the row, because an arc
  * with a phase to report has a session bound to it and that session's atom is
  * what would carry the dot.
  *
- * Beneath the eyebrow, the lifecycle line says what the dash is DOING: the
+ * Beneath the eyebrow, the lifecycle line says what the arc is DOING: the
  * track, the phase glyph, the fraction while a step is open, the phase in a
- * word, and the divergence facts. The track is the whole reading — a dash
+ * word, and the divergence facts. The track is the whole reading — an arc
  * driving a stepped plan stands at `implement` with one tick per plan row.
  * The step's TITLE is not on the line at all: it is the fraction's hover
  * sentence ([D168]).
  *
- * Two decisions of [D141] are pinned as absences: the dash pill wears no
- * review tint here (that yellow means WAITING, and a dash is not waiting for
+ * Two decisions of [D141] are pinned as absences: the arc pill wears no
+ * review tint here (that yellow means WAITING, and an arc is not waiting for
  * anyone), and the doc+clock review glyph is retired from these rows —
  * review speaks through the identity run's tint and the join gates instead.
  *
- * The stage ordering rides along, because it needs two dashes at different
+ * The stage ordering rides along, because it needs two arcs at different
  * stages and this is the file that has them.
  *
  * @covers tugdeck/src/components/arcs/arcs-card.tsx
@@ -49,50 +49,50 @@ import {
   seedTugbankForLaunch,
 } from "./_harness/tugbank-helpers";
 import {
-  createDash,
-  makeDashScratchRepo,
+  createArc,
+  makeArcScratchRepo,
   recordStampedPlan,
-  rmDashScratchRepo,
+  rmArcScratchRepo,
   rmScratchSession,
   seedScratchSession,
   tugtool,
-  type DashScratchRepo,
-} from "./dash-fixture";
+  type ArcScratchRepo,
+} from "./arc-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
 
 const SID = "a7c0d1ea-0000-4000-8000-000000000407";
 
-const SECTION = '.dashes-section';
-const DASH_NAME = "at0407-dash";
-const ROW = `${SECTION} [data-slot="dashes-row"][data-dash="${DASH_NAME}"]`;
+const SECTION = '.arcs-section';
+const ARC_NAME = "at0407-arc";
+const ROW = `${SECTION} [data-slot="arcs-row"][data-arc="${ARC_NAME}"]`;
 
-/** The stepped dash — a second one, so the bare-dash assertions above keep
- *  reading a dash with no plan at all. */
-const PLAN_DASH = "at0407-plan";
-const PLAN_ROW = `${SECTION} [data-slot="dashes-row"][data-dash="${PLAN_DASH}"]`;
+/** The stepped arc — a second one, so the bare-arc assertions above keep
+ *  reading an arc with no plan at all. */
+const PLAN_ARC = "at0407-plan";
+const PLAN_ROW = `${SECTION} [data-slot="arcs-row"][data-arc="${PLAN_ARC}"]`;
 
-/** A third dash, whose eight-row plan the run WALKED and whose seventh step it
+/** A third arc, whose eight-row plan the run WALKED and whose seventh step it
  *  withdrew — the one shape where the closed rows are not a prefix. */
-const SKIPPED_DASH = "at0407-skipped";
-const SKIPPED_ROW = `${SECTION} [data-slot="dashes-row"][data-dash="${SKIPPED_DASH}"]`;
+const SKIPPED_ARC = "at0407-skipped";
+const SKIPPED_ROW = `${SECTION} [data-slot="arcs-row"][data-arc="${SKIPPED_ARC}"]`;
 
-/** This checkout — the build under test, and never the tree a dash is cut in. */
+/** This checkout — the build under test, and never the tree an arc is cut in. */
 const CHECKOUT = realpathSync(resolve(import.meta.dir, "..", ".."));
 /** The scratch repository this fixture owns, and the only tree it touches. */
-let scratch: DashScratchRepo | null = null;
+let scratch: ArcScratchRepo | null = null;
 let fixtureDir = "";
 const projectDir = (): string => scratch?.repo ?? "";
 
 beforeAll(() => {
   if (!SHOULD_RUN) return;
-  scratch = makeDashScratchRepo({ prefix: "at0407", checkout: CHECKOUT });
-  createDash(projectDir(), DASH_NAME, "at0407 fixture", scratch.cli);
-  const planned = createDash(projectDir(), PLAN_DASH, "at0407 plan fixture", scratch.cli);
+  scratch = makeArcScratchRepo({ prefix: "at0407", checkout: CHECKOUT });
+  createArc(projectDir(), ARC_NAME, "at0407 fixture", scratch.cli);
+  const planned = createArc(projectDir(), PLAN_ARC, "at0407 plan fixture", scratch.cli);
   // A three-row plan whose declared run covers only the first two, so the
-  // Dashes row's numerals and its ring answer different questions.
-  recordStampedPlan(projectDir(), PLAN_DASH, planned.worktree, {
+  // Arcs row's numerals and its ring answer different questions.
+  recordStampedPlan(projectDir(), PLAN_ARC, planned.worktree, {
     ...scratch.cli,
     rows: 3,
     through: 2,
@@ -100,10 +100,10 @@ beforeAll(() => {
 
   // An eight-row plan walked to the end, with step 7 withdrawn. Driven through
   // the real verbs rather than written into the ledger's cells, so what the
-  // track paints is what `dash step withdraw` actually wrote — the whole chain
+  // track paints is what `arc step withdraw` actually wrote — the whole chain
   // from the verb through the feed to the tick, in one fixture.
-  const skipped = createDash(projectDir(), SKIPPED_DASH, "at0407 withdrawal fixture", scratch.cli);
-  recordStampedPlan(projectDir(), SKIPPED_DASH, skipped.worktree, {
+  const skipped = createArc(projectDir(), SKIPPED_ARC, "at0407 withdrawal fixture", scratch.cli);
+  recordStampedPlan(projectDir(), SKIPPED_ARC, skipped.worktree, {
     ...scratch.cli,
     rows: 8,
     through: 8,
@@ -112,7 +112,7 @@ beforeAll(() => {
   // narrowing this function body sits inside does not reach into a callback.
   const cli = scratch.cli;
   const step = (...args: string[]): void => {
-    tugtool(["arc", "step", SKIPPED_DASH, ...args], {
+    tugtool(["arc", "step", SKIPPED_ARC, ...args], {
       cwd: projectDir(),
       binaryRoot: cli.binaryRoot,
       env: cli.env,
@@ -120,7 +120,7 @@ beforeAll(() => {
   };
   // `recordStampedPlan` already opened step 1 and declared the selection.
   // The commit cell is the branch tip, taken by omitting `--commit`: the verb
-  // refuses a sha that resolves to nothing in the dash worktree, and a fixture
+  // refuses a sha that resolves to nothing in the arc worktree, and a fixture
   // that makes no round has no sha of its own to name.
   step("done", "1");
   for (const n of [2, 3, 4, 5, 6]) {
@@ -136,7 +136,7 @@ beforeAll(() => {
 
 afterAll(() => {
   if (!SHOULD_RUN) return;
-  rmDashScratchRepo(scratch);
+  rmArcScratchRepo(scratch);
   rmScratchSession(fixtureDir);
 });
 
@@ -161,12 +161,12 @@ function deckShape() {
 
 describe.skipIf(!SHOULD_RUN)("AT0407: the Arcs card", () => {
   test(
-    "an unbound dash wears the eyebrow's verbs and never a dot",
+    "an unbound arc wears the eyebrow's verbs and never a dot",
     async () => {
       const tugbankPath = mkTempTugbank();
       seedTugbankForLaunch(tugbankPath, { sourceTreePath: CHECKOUT });
       const app = await launchTugApp({
-        testName: "at0407-dashes-card",
+        testName: "at0407-arcs-card",
         env: { TUGBANK_PATH: tugbankPath, TUG_DATA_DIR: scratch?.dataRoot ?? "" },
       });
       try {
@@ -176,11 +176,11 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Arcs card", () => {
           `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
         );
         // A *spawned* session, not a bound one: spawning is what registers the
-        // scratch repo as a workspace, so its dashes reach the aggregate.
+        // scratch repo as a workspace, so its arcs reach the aggregate.
         await app.spawnSessionResume("A", { tugSessionId: SID, projectDir: projectDir() });
         await app.awaitEngineReady("A", { timeoutMs: 15000 });
 
-        // ── The section is there, and the dash's row is in it ─────────────
+        // ── The section is there, and the arc's row is in it ─────────────
         await app.dispatchControlAction("toggle-arcs");
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(SECTION)}) !== null`,
@@ -204,20 +204,20 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Arcs card", () => {
         }>(
           `(() => {
              const row = document.querySelector(${JSON.stringify(ROW)});
-             const atom = row.querySelector('[data-slot="tug-dash-lifecycle-name"]');
-             const track = row.querySelector('[data-slot="tug-dash-track"]');
-             const note = row.querySelector('[data-slot="tug-dash-lifecycle-note"]');
+             const atom = row.querySelector('[data-slot="tug-arc-lifecycle-name"]');
+             const track = row.querySelector('[data-slot="tug-arc-track"]');
+             const note = row.querySelector('[data-slot="tug-arc-lifecycle-note"]');
              return {
                atomText: (atom?.textContent ?? "").trim(),
                // The pill never wears the review tint here — that yellow
-               // means WAITING, and a dash is not waiting for anyone.
+               // means WAITING, and an arc is not waiting for anyone.
                reviewTinted: atom?.hasAttribute("data-review") === true,
-               reviewGlyphs: row.querySelectorAll('[data-slot="dashes-review"]').length,
-               glyphs: row.querySelectorAll('[data-slot="tug-dash-phase-mark"]').length,
+               reviewGlyphs: row.querySelectorAll('[data-slot="arcs-review"]').length,
+               glyphs: row.querySelectorAll('[data-slot="tug-arc-phase-mark"]').length,
                eyebrowGlyphs: row.querySelectorAll(
-                 '[data-slot="tug-dash-lifecycle-eyebrow"] [data-slot="tug-dash-phase-mark"]',
+                 '[data-slot="tug-arc-lifecycle-eyebrow"] [data-slot="tug-arc-phase-mark"]',
                ).length,
-               workers: row.querySelectorAll('[data-slot="tug-dash-lifecycle-worker"]').length,
+               workers: row.querySelectorAll('[data-slot="tug-arc-lifecycle-worker"]').length,
                dots: row.querySelectorAll('[data-slot="tug-progress-indicator"]').length,
                bound: row.getAttribute("data-bound"),
                phase: track?.getAttribute("data-phase") ?? null,
@@ -226,7 +226,7 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Arcs card", () => {
            })()`,
         );
         note("at0407 unbound row", JSON.stringify(unbound));
-        expect(unbound.atomText).toBe(`^${DASH_NAME}`);
+        expect(unbound.atomText).toBe(`^${ARC_NAME}`);
         expect(unbound.reviewTinted).toBe(false);
         expect(unbound.reviewGlyphs).toBe(0);
         // The phase glyph is on the LINE and only there: the eyebrow is the
@@ -235,11 +235,11 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Arcs card", () => {
         expect(unbound.glyphs).toBe(1);
         expect(unbound.eyebrowGlyphs).toBe(0);
         expect(unbound.workers).toBe(0);
-        // No phase dot on a row nobody works: a dash with a phase to report
+        // No phase dot on a row nobody works: an arc with a phase to report
         // has a session bound to it, and that session's atom carries the dot.
         expect(unbound.dots).toBe(0);
         expect(unbound.bound).toBeNull();
-        // A freshly created dash has no documents and no arc, so the track
+        // A freshly created arc has no documents and no arc, so the track
         // reads it as direct: nothing has happened to it yet but the work
         // itself. With no step open the note is the phase word and nothing
         // more — the line has no empty state.
@@ -261,7 +261,7 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Arcs card", () => {
       const tugbankPath = mkTempTugbank();
       seedTugbankForLaunch(tugbankPath, { sourceTreePath: CHECKOUT });
       const app = await launchTugApp({
-        testName: "at0407-dashes-meta",
+        testName: "at0407-arcs-meta",
         env: { TUGBANK_PATH: tugbankPath, TUG_DATA_DIR: scratch?.dataRoot ?? "" },
       });
       try {
@@ -289,18 +289,18 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Arcs card", () => {
         }>(
           `(() => {
              const row = document.querySelector(${JSON.stringify(PLAN_ROW)});
-             const track = row.querySelector('[data-slot="tug-dash-track"]');
+             const track = row.querySelector('[data-slot="tug-arc-track"]');
              const fraction = row.querySelector('[data-slot="tug-step-fraction"]');
-             const note = row.querySelector('[data-slot="tug-dash-lifecycle-note"]');
+             const note = row.querySelector('[data-slot="tug-arc-lifecycle-note"]');
              const cell = track?.querySelector(
-               '[data-slot="tug-dash-track-cell"][data-phase="implement"]',
+               '[data-slot="tug-arc-track-cell"][data-phase="implement"]',
              );
              return {
                phase: track?.getAttribute("data-phase") ?? null,
                fraction: (fraction?.textContent ?? "").trim(),
-               tracks: row.querySelectorAll('[data-slot="tug-dash-track"]').length,
+               tracks: row.querySelectorAll('[data-slot="tug-arc-track"]').length,
                ticks: cell
-                 ? Array.from(cell.querySelectorAll(".tug-dash-track-tick")).map(
+                 ? Array.from(cell.querySelectorAll(".tug-arc-track-tick")).map(
                      (el) => el.getAttribute("data-state"),
                    )
                  : [],
@@ -309,7 +309,7 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Arcs card", () => {
            })()`,
         );
         note("at0407 stepped meta line", JSON.stringify(meta));
-        // A step is open on this dash, so the strip stands at `implement`.
+        // A step is open on this arc, so the strip stands at `implement`.
         expect(meta.phase).toBe("implement");
         expect(meta.tracks).toBe(1);
         // The numerals count the PLAN — the step in progress over the rows the
@@ -336,10 +336,10 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Arcs card", () => {
           `(() => {
              const row = document.querySelector(${JSON.stringify(SKIPPED_ROW)});
              const cell = row
-               .querySelector('[data-slot="tug-dash-track"]')
-               ?.querySelector('[data-slot="tug-dash-track-cell"][data-phase="implement"]');
+               .querySelector('[data-slot="tug-arc-track"]')
+               ?.querySelector('[data-slot="tug-arc-track-cell"][data-phase="implement"]');
              return cell
-               ? Array.from(cell.querySelectorAll(".tug-dash-track-tick")).map(
+               ? Array.from(cell.querySelectorAll(".tug-arc-track-tick")).map(
                    (el) => el.getAttribute("data-state"),
                  )
                : [];
@@ -361,7 +361,7 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Arcs card", () => {
         // ── The block's two lines are related by their centre ─────────────
         // The eyebrow anchors an identity to each edge; the line under it
         // centres its whole run — track, then glyph, fraction, word, facts —
-        // as one unit. The line used to hang under the dash's NAME instead,
+        // as one unit. The line used to hang under the arc's NAME instead,
         // which was the right rule while it packed everything against its
         // leading edge.
         //
@@ -382,19 +382,19 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Arcs card", () => {
           blocks: number[][];
         }>(
           `(() => {
-             const rows = Array.from(document.querySelectorAll(${JSON.stringify(`${SECTION} [data-slot="dashes-row"]`)}));
+             const rows = Array.from(document.querySelectorAll(${JSON.stringify(`${SECTION} [data-slot="arcs-row"]`)}));
              const first = rows[0];
-             const line = first.querySelector('[data-slot="tug-dash-lifecycle-line"]');
+             const line = first.querySelector('[data-slot="tug-arc-lifecycle-line"]');
              const box = line.getBoundingClientRect();
-             const track = line.querySelector('[data-slot="tug-dash-track"]').getBoundingClientRect();
-             const read = line.querySelector('[data-slot="tug-dash-lifecycle-reading"]').getBoundingClientRect();
+             const track = line.querySelector('[data-slot="tug-arc-track"]').getBoundingClientRect();
+             const read = line.querySelector('[data-slot="tug-arc-lifecycle-reading"]').getBoundingClientRect();
              const rowBox = first.getBoundingClientRect();
-             const block = first.querySelector('[data-slot="tug-dash-lifecycle-block"]').getBoundingClientRect();
+             const block = first.querySelector('[data-slot="tug-arc-lifecycle-block"]').getBoundingClientRect();
              const R = (n) => Math.round(n * 10) / 10;
              return {
                lead: R(track.left - box.left),
                tail: R(box.right - read.right),
-               size: first.querySelector('[data-slot="tug-dash-lifecycle-block"]').dataset.size,
+               size: first.querySelector('[data-slot="tug-arc-lifecycle-block"]').dataset.size,
                fontSize: getComputedStyle(line).fontSize,
                readScale: getComputedStyle(document.body).getPropertyValue("--tug-font-size-sm").trim(),
                leadInset: R(block.left - rowBox.left),
@@ -408,10 +408,10 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Arcs card", () => {
            })()`,
         );
         note("at0407 stack", JSON.stringify(stack));
-        // The card shows a whole dash, so it shows it at the scale every other
-        // whole-dash surface uses — the placard's, the shade's. At `rail` the
+        // The card shows a whole arc, so it shows it at the scale every other
+        // whole-arc surface uses — the placard's, the shade's. At `rail` the
         // track was list ink and too small to read as a graphic.
-        expect(stack.size, "the dash block is set at the reading scale").toBe(
+        expect(stack.size, "the arc block is set at the reading scale").toBe(
           "read",
         );
         expect(
@@ -422,9 +422,9 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Arcs card", () => {
         // outside them has to be even: `TugListRow` reserves a leading focus
         // gutter the trailing edge does not, and the pair read as leaning
         // toward the row's right edge. The BLOCK's box is the measure, so the
-        // claim holds for an unbound dash too, whose eyebrow ends in the
+        // claim holds for an unbound arc too, whose eyebrow ends in the
         // hairline rather than in a worker atom. What the reader sees on a
-        // BOUND row — the dash pill's leading margin against the worker
+        // BOUND row — the arc pill's leading margin against the worker
         // atom's trailing one — is at0438's, which has one.
         expect(
           Math.abs(stack.leadInset - stack.tailInset),
@@ -445,9 +445,9 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Arcs card", () => {
           "and it is a centred run, not a line filled edge to edge",
         ).toBeGreaterThan(1);
 
-        // And one dash is separated from the next by a real step, not a
+        // And one arc is separated from the next by a real step, not a
         // hairline. At 2px of block padding the two-line blocks touched, and
-        // the second line of one dash sat as close to the eyebrow of the next
+        // the second line of one arc sat as close to the eyebrow of the next
         // as to its own — which is what makes a block stop reading as a unit.
         if (stack.blocks.length >= 2) {
           const gap = stack.blocks[1]![0]! - stack.blocks[0]![1]!;
@@ -460,16 +460,16 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Arcs card", () => {
         }
 
         // ── The ordering, in the DOM ──────────────────────────────────────
-        // Both fixtures are unbound, so the stage rank decides: this dash is
+        // Both fixtures are unbound, so the stage rank decides: this arc is
         // `implementing` (a step is open on it), the other is `created`.
         const order = await app.evalJS<string[]>(
           `Array.from(
-             document.querySelectorAll(${JSON.stringify(`${SECTION} [data-slot="dashes-row"]`)}),
-           ).map((el) => el.getAttribute("data-dash"))`,
+             document.querySelectorAll(${JSON.stringify(`${SECTION} [data-slot="arcs-row"]`)}),
+           ).map((el) => el.getAttribute("data-arc"))`,
         );
-        expect(order.indexOf(PLAN_DASH)).toBeGreaterThanOrEqual(0);
-        expect(order.indexOf(DASH_NAME)).toBeGreaterThanOrEqual(0);
-        expect(order.indexOf(PLAN_DASH)).toBeLessThan(order.indexOf(DASH_NAME));
+        expect(order.indexOf(PLAN_ARC)).toBeGreaterThanOrEqual(0);
+        expect(order.indexOf(ARC_NAME)).toBeGreaterThanOrEqual(0);
+        expect(order.indexOf(PLAN_ARC)).toBeLessThan(order.indexOf(ARC_NAME));
 
         // ── The fraction beside those ticks says `closed`, not `done` ─────
         // A tooltip, so it has to be hovered — and it is read last, because a
@@ -479,7 +479,7 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Arcs card", () => {
           `(function(){
              const cell = document
                .querySelector(${JSON.stringify(SKIPPED_ROW)})
-               .querySelector('[data-slot="tug-dash-track-cell"][data-phase="implement"]');
+               .querySelector('[data-slot="tug-arc-track-cell"][data-phase="implement"]');
              cell.dispatchEvent(new PointerEvent("pointerenter", { bubbles: false }));
              cell.dispatchEvent(new PointerEvent("pointermove", { bubbles: true }));
              return null;

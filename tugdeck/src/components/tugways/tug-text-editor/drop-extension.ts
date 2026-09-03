@@ -981,7 +981,7 @@ function setDropActive(host: HTMLElement | null, state: DropActiveState): void {
  * extension-based file→atom conversion.
  *
  * `getBytesStore` and `onAttachmentError` are the bytes-store-aware
- * additions (Step 2 of `dash/dev-atoms.md`). When `getBytesStore`
+ * additions (Step 2 of `arc/dev-atoms.md`). When `getBytesStore`
  * returns a live `AtomBytesStore`, the drop pipeline runs through
  * the `processAttachmentFiles` path: each image is preflighted
  * (downsampled) before insertion — valid images are given a stable

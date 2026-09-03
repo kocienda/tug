@@ -259,28 +259,28 @@ const EMPTY_SNAPSHOT: TextCardSnapshot = {
 };
 
 /**
- * Where a file inside a dash worktree ends up once the dash is joined.
+ * Where a file inside an arc worktree ends up once the arc is joined.
  *
  * An arc worktree lives at `<repo>/.tug/worktrees/<name>/` (`worktree_path` in
  * `tugarc-core/src/ops.rs`), and joining removes it — so a card bound inside
  * one is left holding a path that is genuinely gone. The successor is knowable
  * from shape alone: the same relative path under the repo root.
  *
- *   `/repo/.tug/worktrees/mydash/src/x.ts` → `/repo/src/x.ts`
+ *   `/repo/.tug/worktrees/myarc/src/x.ts` → `/repo/src/x.ts`
  *
  * Pure string logic and no filesystem access. What it returns is a **probe
  * input**, never a path to bind: [L29] requires the bound path be the
  * canonical one `/api/fs/read` returns. Null when the path is not inside a
- * dash worktree, or names the worktree root itself with nothing beneath it.
+ * arc worktree, or names the worktree root itself with nothing beneath it.
  *
  * Legacy `.tugtree/tugdash__<name>/` homes are deliberately not matched: they
- * are migrated on dash access (`migrate_worktrees`), so no live card binds
+ * are migrated on arc access (`migrate_worktrees`), so no live card binds
  * into one.
  */
-export function dashSuccessorPath(path: string): string | null {
+export function arcSuccessorPath(path: string): string | null {
   const marker = "/.tug/worktrees/";
-  // The LAST occurrence, not the first: worktrees nest. A dash cut inside
-  // another dash's worktree gives a path with two of these segments, and the
+  // The LAST occurrence, not the first: worktrees nest. An arc cut inside
+  // another arc's worktree gives a path with two of these segments, and the
   // one that encloses the file — the one a join would remove out from under
   // it — is the innermost.
   const at = path.lastIndexOf(marker);
@@ -288,7 +288,7 @@ export function dashSuccessorPath(path: string): string | null {
   const root = path.slice(0, at);
   const afterMarker = path.slice(at + marker.length);
   const slash = afterMarker.indexOf("/");
-  // Needs a dash name AND a relative path beneath it: `<name>` alone is the
+  // Needs an arc name AND a relative path beneath it: `<name>` alone is the
   // worktree root, which has no successor file.
   if (slash <= 0) return null;
   const relative = afterMarker.slice(slash + 1);
@@ -1334,7 +1334,7 @@ export class TextCardStore {
 
     // A `Removed` naming a DIRECTORY our file lives under takes our file with
     // it. Removing a directory tree is reported as the directory going away,
-    // not as an event per file inside it — so a card in a torn-down dash
+    // not as an event per file inside it — so a card in a torn-down arc
     // worktree would otherwise never hear that its path is gone, and would sit
     // on a dead binding until the next activation recheck.
     const ourPath = snap.path;
@@ -1478,7 +1478,7 @@ export class TextCardStore {
       if (this._snapshot.path !== path) return "pending";
     }
 
-    if (await this._tryAdoptDashSuccessor(path)) return "adopted";
+    if (await this._tryAdoptArcSuccessor(path)) return "adopted";
 
     if (opts?.afterSettle === true) {
       this._raiseMissingVerdict();
@@ -1489,7 +1489,7 @@ export class TextCardStore {
   }
 
   /**
-   * A file inside a dash worktree that a join has just torn down.
+   * A file inside an arc worktree that a join has just torn down.
    *
    * This is the one case where the path is *genuinely* gone and "missing" is
    * still the wrong answer: joining removes `.tug/worktrees/<name>/`, and the
@@ -1501,8 +1501,8 @@ export class TextCardStore {
    * buffer adopts the path and gets the hash conflict, which is the honest
    * question: the unsaved edits differ from what joined.
    */
-  private async _tryAdoptDashSuccessor(path: string): Promise<boolean> {
-    const successor = dashSuccessorPath(path);
+  private async _tryAdoptArcSuccessor(path: string): Promise<boolean> {
+    const successor = arcSuccessorPath(path);
     if (successor === null) return false;
     const probe = await readFileFromDisk(successor);
     if (this._disposed || this._snapshot.path !== path) return false;

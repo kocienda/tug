@@ -8,7 +8,7 @@
  * | Element                                        | Surface                                          | Role        | Context                                   |
  * |------------------------------------------------|--------------------------------------------------|-------------|-------------------------------------------|
  * | --tug7-element-global-text-normal-default-rest | --tug7-surface-global-primary-normal-default-rest| content     | both tiers (color)                        |
- * | --tug7-element-global-text-normal-muted-rest   | --tug7-surface-global-primary-normal-default-rest| informational | the missing chip, the dash marker (color) |
+ * | --tug7-element-global-text-normal-muted-rest   | --tug7-surface-global-primary-normal-default-rest| informational | the missing chip, the arc marker (color) |
  *
  * The theme's session-color tokens are deliberately absent: the atom paints in
  * text ink and the dot is its only color channel. The dot's own tones come from
@@ -21,7 +21,7 @@ body {
 
      Published because a surface that stacks a line UNDER an atom has to
      indent by exactly this to sit beneath the NAME rather than inside the
-     pill. Before this the dash surfaces indented by a space token that
+     pill. Before this the arc surfaces indented by a space token that
      happened to be close, which put their metadata line two pixels short of
      the name in the Cards card and nine short of it in the Changes shade — near
      enough to read as a misalignment rather than as a second column. The
@@ -83,8 +83,8 @@ body {
   height: 1em;
 }
 
-/* The dash run — `^<dash-name>`, in the same quieted ink as the callsign. A
-   dash says where the session is working, which is the kind of thing the
+/* The arc run — `^<arc-name>`, in the same quieted ink as the callsign. A
+   arc says where the session is working, which is the kind of thing the
    project already says, so it is spelled in the grammar rather than marked
    with a glyph beside it. The sigil abuts the name, which is why there is no
    gap here.
@@ -95,14 +95,14 @@ body {
    TITLE BOX's clamp, not a shrink factor here — see the note on
    `.tug-session-identity-title`. This run shrinks; the box beside it does not,
    so every pixel of a deficit lands here first. The sigil never shrinks, so an
-   ellipsized dash still says it is a dash.
+   ellipsized arc still says it is an arc.
 
-   On the LINE tier the order is reversed and the dash is the run that keeps
-   its width — a session on a dash is never named without it, and a row that
-   drops the dash to save a few characters of a minted callsign has thrown
+   On the LINE tier the order is reversed and the arc is the run that keeps
+   its width — a session on an arc is never named without it, and a row that
+   drops the arc to save a few characters of a minted callsign has thrown
    away the fact the reader was scanning for. See the line-tier block below. */
 /* @tug-renders-on var(--tug7-surface-global-primary-normal-default-rest) */
-.tug-session-identity-dash {
+.tug-session-identity-arc {
   display: inline-flex;
   align-items: baseline;
   flex: 0 1 auto;
@@ -110,21 +110,21 @@ body {
   color: var(--tug7-element-global-text-normal-muted-rest);
 }
 
-.tug-session-identity-dash-sigil {
+.tug-session-identity-arc-sigil {
   flex: none;
 }
 
 /* No width ceiling. A run elides when the container is out of room and never
    because of a number authored here — a name that fits is shown whole. */
-.tug-session-identity-dash-name {
+.tug-session-identity-arc-name {
   min-inline-size: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-/* The whole grammar on one line — `name:project/callsign#dash` — sharing a
-   baseline, so the quieter callsign and dash sit on the name's line rather
+/* The whole grammar on one line — `name:project/callsign#arc` — sharing a
+   baseline, so the quieter callsign and arc sit on the name's line rather
    than beside it. The parts abut: every separator is a character inside a run,
    so there is no gap to fight. */
 .tug-session-identity-run {
@@ -136,12 +136,12 @@ body {
 /* The name and callsign, boxed. The box is CLAMPED, not shrunk: it takes its
    natural width until the run cannot hold it and is then capped to the run.
 
-   That clamp is what makes the ATOM's "the dash gives way first" true rather
+   That clamp is what makes the ATOM's "the arc gives way first" true rather
    than merely intended. A shrink factor could not do it: flex splits a deficit in
    proportion to `shrink × basis`, so however lopsided the factors, this box
-   would always lose a sliver to the dash's squeeze — and a sliver is enough to
+   would always lose a sliver to the arc's squeeze — and a sliver is enough to
    paint an ellipsis on a name that fits. With the cap, every pixel of a
-   deficit lands on the dash until the dash has none left; only then is the box
+   deficit lands on the arc until the arc has none left; only then is the box
    capped and the tier's own rule below decides between the name and the
    callsign. The atom uses this same idiom one level in, for the same reason. */
 .tug-session-identity-title {
@@ -173,8 +173,8 @@ body {
    a shrink factor splits a deficit in proportion, so every run loses a sliver
    and a sliver is enough to paint an ellipsis on a run that fits.
 
-   Level 1, in the run: the title box shrinks, the dash box does not, so a
-   deficit lands entirely on the name+callsign box while the dash stays whole.
+   Level 1, in the run: the title box shrinks, the arc box does not, so a
+   deficit lands entirely on the name+callsign box while the arc stays whole.
    Level 2, in the title box: the callsign shrinks, the name is clamped, so
    the callsign pays until it has nothing left and only then is the name
    capped and elided. Level 3, in the callsign: the head shrinks and
@@ -184,10 +184,10 @@ body {
   flex: 0 1 auto;
 }
 
-/* The dash keeps its whole run while anything else can still pay — but it is
+/* The arc keeps its whole run while anything else can still pay — but it is
    capped, not incompressible: an incompressible run pushes its neighbors, and
    a row refusing to fit is a bug where losing a run is a rule. */
-.tug-session-identity[data-tier="line"] .tug-session-identity-dash {
+.tug-session-identity[data-tier="line"] .tug-session-identity-arc {
   flex: 0 0 auto;
   max-inline-size: 100%;
 }
@@ -307,7 +307,7 @@ body {
 
 /* ── The unresolvable citation ─────────────────────────────────────────
    The atom keeps its SHAPE — a reader still needs to know what kind of
-   thing is named — dashes its border and mutes its ink, so it reads as
+   thing is named — arcs its border and mutes its ink, so it reads as
    inert rather than as a link that happens to be broken. With no icon
    left to slash, shape alone states the failure; the tooltip carries the
    sentence. */

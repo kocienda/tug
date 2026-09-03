@@ -130,8 +130,8 @@ describe("extractDisplay", () => {
 
   test("markdown passes through raw — the deck renders it", () => {
     expect(
-      extractDisplay("Reading **the devise skeleton** first, then `dash/pulse.md` gets the fix."),
-    ).toBe("Reading **the devise skeleton** first, then `dash/pulse.md` gets the fix.");
+      extractDisplay("Reading **the devise skeleton** first, then `notes/pulse.md` gets the fix."),
+    ).toBe("Reading **the devise skeleton** first, then `notes/pulse.md` gets the fix.");
   });
 
   test("very long content clips at the raw budget, never inside math", () => {
@@ -268,21 +268,21 @@ describe("PulseVoice — the monologue", () => {
 
     // Tool-input progress takes over and keeps the strip alive — with the
     // superseded thought riding along as the intent.
-    voice.onFrame("s1", toolProgress({ filePath: `${ROOT}/dash/poem.txt`, lines: 12 }), 2_200);
+    voice.onFrame("s1", toolProgress({ filePath: `${ROOT}/notes/poem.txt`, lines: 12 }), 2_200);
     expect(voice.flush(2_300)).toEqual([
       {
         scope: "s1",
-        text: "Writing dash/poem.txt — 12 lines",
+        text: "Writing notes/poem.txt — 12 lines",
         intent: "I'll write the poem file now.",
       },
     ]);
 
     // It climbs as more content streams.
-    voice.onFrame("s1", toolProgress({ filePath: `${ROOT}/dash/poem.txt`, lines: 30 }), 3_400);
+    voice.onFrame("s1", toolProgress({ filePath: `${ROOT}/notes/poem.txt`, lines: 30 }), 3_400);
     expect(voice.flush(3_500)).toEqual([
       {
         scope: "s1",
-        text: "Writing dash/poem.txt — 30 lines",
+        text: "Writing notes/poem.txt — 30 lines",
         intent: "I'll write the poem file now.",
       },
     ]);

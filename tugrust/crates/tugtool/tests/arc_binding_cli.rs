@@ -1,7 +1,7 @@
-//! `tugtool arc bind|unbind` and the `dash_gone` broadcast a landing fires
+//! `tugtool arc bind|unbind` and the `arc_gone` broadcast a landing fires
 //! ([P04], [P05], Spec S04).
 //!
-//! The `dash_gone` test is the CLI-side face of the [L23] hazard: `git branch
+//! The `arc_gone` test is the CLI-side face of the [L23] hazard: `git branch
 //! -D` deletes the branch's `tugid` along with the branch, so the owner key
 //! must be resolved *before* the join and carried through. The test asserts
 //! the key in the request body the CLI actually sent, after the branch it came
@@ -234,8 +234,8 @@ fn tug(tmp: &Path) -> Command {
     cmd
 }
 
-/// A repo with a dash that has one round, and a known creation id.
-fn repo_with_dash(root: &Path, name: &str) -> String {
+/// A repo with an arc that has one round, and a known creation id.
+fn repo_with_arc(root: &Path, name: &str) -> String {
     git(root, &["init", "-b", "main"]);
     git(root, &["config", "user.name", "t"]);
     git(root, &["config", "user.email", "t@t"]);
@@ -253,7 +253,7 @@ fn repo_with_dash(root: &Path, name: &str) -> String {
             "add",
             "-q",
             "-b",
-            &format!("tugdash/{name}"),
+            &format!("tugarc/{name}"),
             worktree.to_str().unwrap(),
         ],
     );
@@ -263,36 +263,36 @@ fn repo_with_dash(root: &Path, name: &str) -> String {
 
     git(
         root,
-        &["config", &format!("branch.tugdash/{name}.tugbase"), "main"],
+        &["config", &format!("branch.tugarc/{name}.tugbase"), "main"],
     );
     git(
         root,
         &[
             "config",
-            &format!("branch.tugdash/{name}.tugid"),
+            &format!("branch.tugarc/{name}.tugid"),
             "1723500000000-a1b2c3",
         ],
     );
-    format!("tugdash/{name}#1723500000000-a1b2c3")
+    format!("tugarc/{name}#1723500000000-a1b2c3")
 }
 
-/// **The CLI-side [L23] pin.** A join broadcasts `dash_gone` with the
+/// **The CLI-side [L23] pin.** A join broadcasts `arc_gone` with the
 /// id-qualified owner key — resolved before the teardown, and therefore still
 /// nameable after `git branch -D` has taken the `tugid` with the branch.
 #[test]
-fn a_join_broadcasts_dash_gone_with_the_key_captured_before_teardown() {
+fn a_join_broadcasts_arc_gone_with_the_key_captured_before_teardown() {
     let tmp = tempfile::tempdir().unwrap();
     let tmp_path = tmp.path().canonicalize().unwrap();
     let repo_dir = tempfile::tempdir().unwrap();
     let root = repo_dir.path().canonicalize().unwrap();
-    let owner_key = repo_with_dash(&root, "demo");
+    let owner_key = repo_with_arc(&root, "demo");
 
     let (port, requests) = fake_tugcast();
     register_fake_instance(&tmp_path, port);
 
     let mut join = tug(&tmp_path);
     join.current_dir(&root);
-    // The subject is the dash-gone broadcast, not the join itself.
+    // The subject is the arc-gone broadcast, not the join itself.
     join.args(["arc", "join", "demo"]);
     let out = join.output().unwrap();
     assert!(
@@ -303,22 +303,22 @@ fn a_join_broadcasts_dash_gone_with_the_key_captured_before_teardown() {
 
     // The teardown really happened: nothing could re-derive the key now.
     assert_eq!(
-        git_stdout(&root, &["branch", "--list", "tugdash/demo"]),
+        git_stdout(&root, &["branch", "--list", "tugarc/demo"]),
         "",
         "the branch is gone"
     );
     assert_eq!(
-        git_stdout(&root, &["config", "--get", "branch.tugdash/demo.tugid"]),
+        git_stdout(&root, &["config", "--get", "branch.tugarc/demo.tugid"]),
         "",
         "and its config with it"
     );
 
     let body = requests
         .recv_timeout(std::time::Duration::from_secs(10))
-        .expect("the CLI broadcast dash_gone");
-    assert_eq!(body["op"], "dash_gone");
+        .expect("the CLI broadcast arc_gone");
+    assert_eq!(body["op"], "arc_gone");
     assert_eq!(
-        body["dash_id"], owner_key,
+        body["arc_id"], owner_key,
         "the broadcast carries the id-qualified key, not the legacy one a \
          post-teardown resolution would have produced"
     );
@@ -328,8 +328,8 @@ fn a_join_broadcasts_dash_gone_with_the_key_captured_before_teardown() {
 /// resolver in another process would have left it. Returns the marker commit.
 fn park_a_leased_conflict(root: &Path, name: &str) -> String {
     let worktree = root.join(".tug/worktrees").join(name);
-    std::fs::write(worktree.join("a.txt"), "dash side\n").unwrap();
-    git(&worktree, &["commit", "-am", "the dash edits a"]);
+    std::fs::write(worktree.join("a.txt"), "arc side\n").unwrap();
+    git(&worktree, &["commit", "-am", "the arc edits a"]);
     std::fs::write(root.join("a.txt"), "base side\n").unwrap();
     git(root, &["add", "-A"]);
     git(root, &["commit", "-m", "the base edits a"]);
@@ -349,12 +349,12 @@ fn conflict_tip(root: &Path, name: &str) -> Option<String> {
 /// The lease reaches every CLI door: the preview names it, the join refuses on
 /// it, and `--break-lease` proceeds with a receipt the op log holds.
 #[test]
-fn dash_join_names_a_live_resolve_and_break_lease_lands_it() {
+fn arc_join_names_a_live_resolve_and_break_lease_lands_it() {
     let tmp = tempfile::tempdir().unwrap();
     let tmp_path = tmp.path().canonicalize().unwrap();
     let repo_dir = tempfile::tempdir().unwrap();
     let root = repo_dir.path().canonicalize().unwrap();
-    repo_with_dash(&root, "demo");
+    repo_with_arc(&root, "demo");
     let marker = park_a_leased_conflict(&root, "demo");
 
     let mut preview = tug(&tmp_path);
@@ -384,7 +384,7 @@ fn dash_join_names_a_live_resolve_and_break_lease_lands_it() {
         Some(marker.as_str())
     );
 
-    // The base takes its own edit back, so the dash merges cleanly; the chain
+    // The base takes its own edit back, so the arc merges cleanly; the chain
     // is stale but the lease reads the tip, not validity.
     std::fs::write(root.join("a.txt"), "base\n").unwrap();
     git(&root, &["add", "-A"]);
@@ -421,12 +421,12 @@ fn dash_join_names_a_live_resolve_and_break_lease_lands_it() {
 /// `--resolve` is the third cross-process door: the ladder would clear the
 /// chain outright, so it is refused before it runs ([P06]).
 #[test]
-fn dash_join_resolve_refuses_over_a_live_chain_and_leaves_it_standing() {
+fn arc_join_resolve_refuses_over_a_live_chain_and_leaves_it_standing() {
     let tmp = tempfile::tempdir().unwrap();
     let tmp_path = tmp.path().canonicalize().unwrap();
     let repo_dir = tempfile::tempdir().unwrap();
     let root = repo_dir.path().canonicalize().unwrap();
-    repo_with_dash(&root, "demo");
+    repo_with_arc(&root, "demo");
     let marker = park_a_leased_conflict(&root, "demo");
 
     let mut resolve = tug(&tmp_path);
@@ -455,12 +455,12 @@ fn dash_join_resolve_refuses_over_a_live_chain_and_leaves_it_standing() {
 /// `bind` names the calling session, so without one it fails with an
 /// actionable message rather than binding something arbitrary.
 #[test]
-fn dash_bind_without_a_session_fails_with_an_actionable_message() {
+fn arc_bind_without_a_session_fails_with_an_actionable_message() {
     let tmp = tempfile::tempdir().unwrap();
     let tmp_path = tmp.path().canonicalize().unwrap();
     let repo_dir = tempfile::tempdir().unwrap();
     let root = repo_dir.path().canonicalize().unwrap();
-    repo_with_dash(&root, "demo");
+    repo_with_arc(&root, "demo");
 
     let mut bind = tug(&tmp_path);
     bind.current_dir(&root);
@@ -477,12 +477,12 @@ fn dash_bind_without_a_session_fails_with_an_actionable_message() {
 /// `bind` and `unbind` round-trip through `/api/arc`, and `--json` emits the
 /// shared envelope.
 #[test]
-fn dash_bind_and_unbind_post_to_the_instance_and_emit_envelopes() {
+fn arc_bind_and_unbind_post_to_the_instance_and_emit_envelopes() {
     let tmp = tempfile::tempdir().unwrap();
     let tmp_path = tmp.path().canonicalize().unwrap();
     let repo_dir = tempfile::tempdir().unwrap();
     let root = repo_dir.path().canonicalize().unwrap();
-    let owner_key = repo_with_dash(&root, "demo");
+    let owner_key = repo_with_arc(&root, "demo");
 
     let (port, requests) = fake_tugcast();
     register_fake_instance(&tmp_path, port);
@@ -516,10 +516,10 @@ fn dash_bind_and_unbind_post_to_the_instance_and_emit_envelopes() {
         .expect("a bind request");
     assert_eq!(body["op"], "bind");
     assert_eq!(body["tug_session_id"], "sess-1");
-    assert_eq!(body["dash"], "demo");
+    assert_eq!(body["arc"], "demo");
     // The CLI ships its own spelling — the server is the [L29] gateway.
     assert_eq!(body["project_dir"], root.to_string_lossy().as_ref());
-    // The key itself is the server's to mint ([P02]); the CLI names the dash.
+    // The key itself is the server's to mint ([P02]); the CLI names the arc.
     assert!(owner_key.contains('#'));
 
     let mut unbind = tug(&tmp_path);
@@ -553,12 +553,12 @@ fn dash_bind_and_unbind_post_to_the_instance_and_emit_envelopes() {
 /// the live segment. Only this side's ability to *name* the resolution is
 /// lost, and a receipt is not a write.
 #[test]
-fn dash_bind_survives_an_instance_that_does_not_know_the_resolve_op() {
+fn arc_bind_survives_an_instance_that_does_not_know_the_resolve_op() {
     let tmp = tempfile::tempdir().unwrap();
     let tmp_path = tmp.path().canonicalize().unwrap();
     let repo_dir = tempfile::tempdir().unwrap();
     let root = repo_dir.path().canonicalize().unwrap();
-    repo_with_dash(&root, "demo");
+    repo_with_arc(&root, "demo");
 
     let (port, requests) = fake_tugcast_predating_resolve();
     register_fake_instance(&tmp_path, port);
@@ -592,12 +592,12 @@ fn dash_bind_survives_an_instance_that_does_not_know_the_resolve_op() {
 /// join, a second one has nothing left, and `--list` reports the log the same
 /// way whichever verb asks for it.
 #[test]
-fn dash_redo_reverses_an_undo_and_then_says_there_is_nothing_left() {
+fn arc_redo_reverses_an_undo_and_then_says_there_is_nothing_left() {
     let tmp = tempfile::tempdir().unwrap();
     let tmp_path = tmp.path().canonicalize().unwrap();
     let repo_dir = tempfile::tempdir().unwrap();
     let root = repo_dir.path().canonicalize().unwrap();
-    repo_with_dash(&root, "cli");
+    repo_with_arc(&root, "cli");
 
     let run = |args: &[&str]| {
         let mut cmd = tug(&tmp_path);
@@ -763,7 +763,7 @@ fn assert_finished(tmp: &Path, root: &Path, name: &str) {
     let worktree = root.join(".tug/worktrees").join(name);
     assert!(!worktree.exists(), "worktree removed");
     assert!(
-        !branch_exists(root, &format!("tugdash/{name}")),
+        !branch_exists(root, &format!("tugarc/{name}")),
         "branch deleted"
     );
     let listing = oplog_list(tmp, root);
@@ -850,7 +850,7 @@ fn a_join_killed_before_its_worktree_goes_is_resumed_by_continue() {
     let tmp_path = tmp.path().canonicalize().unwrap();
     let repo_dir = tempfile::tempdir().unwrap();
     let root = repo_dir.path().canonicalize().unwrap();
-    repo_with_dash(&root, "demo");
+    repo_with_arc(&root, "demo");
 
     kill_join_at(&tmp_path, &root, "demo", "worktree remove");
 
@@ -858,7 +858,7 @@ fn a_join_killed_before_its_worktree_goes_is_resumed_by_continue() {
         root.join(".tug/worktrees/demo").exists(),
         "worktree still there"
     );
-    assert!(branch_exists(&root, "tugdash/demo"), "branch still there");
+    assert!(branch_exists(&root, "tugarc/demo"), "branch still there");
     let listing = oplog_list(&tmp_path, &root);
     assert!(
         listing.contains("incomplete (teardown at Integrated)"),
@@ -875,12 +875,12 @@ fn a_join_killed_before_its_branch_goes_is_resumed_by_continue() {
     let tmp_path = tmp.path().canonicalize().unwrap();
     let repo_dir = tempfile::tempdir().unwrap();
     let root = repo_dir.path().canonicalize().unwrap();
-    repo_with_dash(&root, "demo");
+    repo_with_arc(&root, "demo");
 
     kill_join_at(&tmp_path, &root, "demo", "branch -D");
 
     assert!(!root.join(".tug/worktrees/demo").exists(), "worktree gone");
-    assert!(branch_exists(&root, "tugdash/demo"), "branch still there");
+    assert!(branch_exists(&root, "tugarc/demo"), "branch still there");
     let listing = oplog_list(&tmp_path, &root);
     assert!(
         listing.contains("incomplete (teardown at WorktreeRemoved)"),
@@ -892,18 +892,18 @@ fn a_join_killed_before_its_branch_goes_is_resumed_by_continue() {
 }
 
 /// The boundary that had no resume at all before the fold: with the branch
-/// already deleted, a `--continue` used to be refused as `Dash not found`.
+/// already deleted, a `--continue` used to be refused as `Arc not found`.
 #[test]
 fn a_join_killed_after_its_branch_goes_is_resumed_by_continue() {
     let tmp = tempfile::tempdir().unwrap();
     let tmp_path = tmp.path().canonicalize().unwrap();
     let repo_dir = tempfile::tempdir().unwrap();
     let root = repo_dir.path().canonicalize().unwrap();
-    repo_with_dash(&root, "demo");
+    repo_with_arc(&root, "demo");
 
     kill_join_at(&tmp_path, &root, "demo", "after-branch-delete");
 
-    assert!(!branch_exists(&root, "tugdash/demo"), "branch gone");
+    assert!(!branch_exists(&root, "tugarc/demo"), "branch gone");
     let listing = oplog_list(&tmp_path, &root);
     assert!(
         listing.contains("incomplete (teardown at BranchDeleted)"),
@@ -923,7 +923,7 @@ fn a_legacy_journal_on_disk_is_folded_and_continued_by_the_binary() {
     let tmp_path = tmp.path().canonicalize().unwrap();
     let repo_dir = tempfile::tempdir().unwrap();
     let root = repo_dir.path().canonicalize().unwrap();
-    repo_with_dash(&root, "demo");
+    repo_with_arc(&root, "demo");
 
     // Reach the same state an old build would have been killed in, then
     // rewrite that state the way the old build recorded it: a journal file and
@@ -956,7 +956,7 @@ fn a_legacy_journal_on_disk_is_folded_and_continued_by_the_binary() {
     assert_finished(&tmp_path, &root, "demo");
 }
 
-/// `dash bind --dry-run` answers "which session am I, really" and writes
+/// `arc bind --dry-run` answers "which session am I, really" and writes
 /// nothing.
 ///
 /// Before it, a session whose `$TUG_SESSION_ID` was frozen at spawn had one
@@ -964,12 +964,12 @@ fn a_legacy_journal_on_disk_is_folded_and_continued_by_the_binary() {
 /// receipt. That is a write standing in for a question — and it is the gesture
 /// the postmortem found reporting success in both failure modes.
 #[test]
-fn dash_bind_dry_run_names_the_segment_and_writes_nothing() {
+fn arc_bind_dry_run_names_the_segment_and_writes_nothing() {
     let tmp = tempfile::tempdir().unwrap();
     let tmp_path = tmp.path().canonicalize().unwrap();
     let repo_dir = tempfile::tempdir().unwrap();
     let root = repo_dir.path().canonicalize().unwrap();
-    repo_with_dash(&root, "demo");
+    repo_with_arc(&root, "demo");
 
     let (port, requests) = fake_tugcast_resolving_to("seg-new", "live", "line-1");
     register_fake_instance(&tmp_path, port);
@@ -1011,12 +1011,12 @@ fn dash_bind_dry_run_names_the_segment_and_writes_nothing() {
 
 /// The plain-text half of the same read, for a person at a prompt.
 #[test]
-fn dash_bind_dry_run_says_it_wrote_nothing() {
+fn arc_bind_dry_run_says_it_wrote_nothing() {
     let tmp = tempfile::tempdir().unwrap();
     let tmp_path = tmp.path().canonicalize().unwrap();
     let repo_dir = tempfile::tempdir().unwrap();
     let root = repo_dir.path().canonicalize().unwrap();
-    repo_with_dash(&root, "demo");
+    repo_with_arc(&root, "demo");
 
     let (port, _requests) = fake_tugcast_resolving_to("seg-new", "live", "line-1");
     register_fake_instance(&tmp_path, port);
@@ -1036,14 +1036,14 @@ fn dash_bind_dry_run_says_it_wrote_nothing() {
 
 /// A refused claim fails the verb that made it.
 ///
-/// `dash create` mints a worktree *and* records who is working it. When the
+/// `arc create` mints a worktree *and* records who is working it. When the
 /// second half is refused by an instance that could have done it, the verb
 /// used to print a stderr warning and exit 0 — so a script, and a skill, read
 /// the run as wholly successful and went on. The worktree still exists and the
 /// receipt still says so; what changed is that the exit code and the JSON both
 /// carry the half that did not happen.
 #[test]
-fn a_refused_claim_fails_dash_create_and_says_so_in_the_json() {
+fn a_refused_claim_fails_arc_create_and_says_so_in_the_json() {
     let tmp = tempfile::tempdir().unwrap();
     let tmp_path = tmp.path().canonicalize().unwrap();
     let repo_dir = tempfile::tempdir().unwrap();
@@ -1057,7 +1057,7 @@ fn a_refused_claim_fails_dash_create_and_says_so_in_the_json() {
     git(&root, &["add", "-A"]);
     git(&root, &["commit", "-m", "base"]);
 
-    let (port, _requests) = fake_tugcast_refusing_bind(&root, "card runs another-dash");
+    let (port, _requests) = fake_tugcast_refusing_bind(&root, "card runs another-arc");
     register_fake_instance(&tmp_path, port);
 
     let mut create = tug(&tmp_path);
@@ -1072,7 +1072,7 @@ fn a_refused_claim_fails_dash_create_and_says_so_in_the_json() {
     );
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(
-        stderr.contains("card runs another-dash"),
+        stderr.contains("card runs another-arc"),
         "the refusal names the instance's own reason: {stderr}"
     );
 
@@ -1083,7 +1083,7 @@ fn a_refused_claim_fails_dash_create_and_says_so_in_the_json() {
         document["data"]["claim_error"]
             .as_str()
             .unwrap_or_default()
-            .contains("card runs another-dash"),
+            .contains("card runs another-arc"),
         "{}",
         document["data"]
     );
@@ -1136,8 +1136,8 @@ fn a_run_with_no_session_reports_the_claim_skipped_and_succeeds() {
 /// A claim the calling session was never entitled to make is skipped, not
 /// failed on.
 ///
-/// A session may only bind a dash in its own checkout. When a CLI fixture
-/// creates a scratch dash in a temp repo from inside a card — the everyday
+/// A session may only bind an arc in its own checkout. When a CLI fixture
+/// creates a scratch arc in a temp repo from inside a card — the everyday
 /// shape in this very test suite — the bind would be refused for a reason that
 /// says nothing about whether a claim was lost. It is a no-op of the same kind
 /// as having no session at all, and the JSON names it as one.
@@ -1158,8 +1158,8 @@ fn a_session_in_another_checkout_skips_the_claim_and_succeeds() {
     git(&root, &["add", "-A"]);
     git(&root, &["commit", "-m", "base"]);
 
-    // The session works `elsewhere`; the dash is being made in `root`.
-    let (port, requests) = fake_tugcast_refusing_bind(&elsewhere, "it cannot bind a dash in");
+    // The session works `elsewhere`; the arc is being made in `root`.
+    let (port, requests) = fake_tugcast_refusing_bind(&elsewhere, "it cannot bind an arc in");
     register_fake_instance(&tmp_path, port);
 
     let mut create = tug(&tmp_path);
@@ -1216,7 +1216,7 @@ fn a_refusal_from_an_instance_that_cannot_place_the_session_only_warns() {
     // A resolve answer with no `project_dir` — the older instance's shape.
     let (port, _requests) = fake_tugcast_with(ResolveAnswer::RefusingBind {
         resolve: r#"{"status":"ok","session_id":"seg-1","state":"live"}"#.to_string(),
-        refusal: r#"{"status":"error","message":"card runs another-dash"}"#.to_string(),
+        refusal: r#"{"status":"error","message":"card runs another-arc"}"#.to_string(),
     });
     register_fake_instance(&tmp_path, port);
 
@@ -1231,7 +1231,7 @@ fn a_refusal_from_an_instance_that_cannot_place_the_session_only_warns() {
         String::from_utf8_lossy(&out.stderr)
     );
     assert!(
-        String::from_utf8_lossy(&out.stderr).contains("card runs another-dash"),
+        String::from_utf8_lossy(&out.stderr).contains("card runs another-arc"),
         "but it is still said out loud",
     );
 
@@ -1246,10 +1246,10 @@ fn a_refusal_from_an_instance_that_cannot_place_the_session_only_warns() {
 ///
 /// A card's ledger row lands a moment after the card itself, so a bind issued
 /// in between is refused by a machine that will know the session in half a
-/// second. `tests/app-test/dash-fixture.ts`'s `bindDash` polls through exactly
+/// second. `tests/app-test/arc-fixture.ts`'s `bin` polls through exactly
 /// that window on the token. Turning the walk's raw message into prose without
 /// it broke that loop silently, and the breakage surfaced three workstreams
-/// later as `at0475` failing at `dash bind`. This test is what makes the next
+/// later as `at0475` failing at `arc bind`. This test is what makes the next
 /// rewrite of the sentence a red `cargo nextest` instead.
 #[test]
 fn the_unknown_session_refusal_keeps_its_branchable_token() {
@@ -1257,7 +1257,7 @@ fn the_unknown_session_refusal_keeps_its_branchable_token() {
     let tmp_path = tmp.path().canonicalize().unwrap();
     let repo_dir = tempfile::tempdir().unwrap();
     let root = repo_dir.path().canonicalize().unwrap();
-    repo_with_dash(&root, "demo");
+    repo_with_arc(&root, "demo");
 
     let (port, _requests) = fake_tugcast_with(ResolveAnswer::UnknownSession);
     register_fake_instance(&tmp_path, port);

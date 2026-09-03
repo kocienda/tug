@@ -125,7 +125,7 @@ body {
  *
  * It rides a pseudo-element so it costs the segment no layout: the group's
  * width is what keeps the centred Z4B cluster from shifting, and a dot that
- * took space would move it every time a dash went ready. Positioned against
+ * took space would move it every time an arc went ready. Positioned against
  * the segment's own box, which `tug-choice-group.css` already makes a
  * containing block. */
 .tug-prompt-entry-route-group[data-join-offer] button[data-choice-value="changes"] {

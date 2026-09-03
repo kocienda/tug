@@ -199,7 +199,7 @@ fn read_brief(brief: &str) -> Result<String, String> {
 
 /// A scope as the engine will compare it ([P12]): canonical, and deliberately
 /// **not** folded to its base checkout — an authoring trip commits on its own
-/// dash worktree, and folding worktrees into their base would make those
+/// arc worktree, and folding worktrees into their base would make those
 /// commits re-trip the tripwire that made them. A path that cannot be
 /// canonicalized keeps its literal form rather than failing the lay.
 fn canonical_scope(scope: &str) -> String {
@@ -657,11 +657,11 @@ fn run_resolve(
     Ok(())
 }
 
-/// Settle an awaiting trip by hand and discard the dash it was holding
+/// Settle an awaiting trip by hand and discard the arc it was holding
 /// ([P07], [P09]).
 ///
 /// The discard is the dismissal's other half rather than a courtesy: an
-/// awaiting trip holds a dash the user is being asked about, and settling the
+/// awaiting trip holds an arc the user is being asked about, and settling the
 /// row while leaving the worktree standing is exactly the leak this rebuild
 /// exists to close.
 fn run_dismiss(name: &str, json: bool, quiet: bool) -> Result<(), String> {
@@ -671,7 +671,7 @@ fn run_dismiss(name: &str, json: bool, quiet: bool) -> Result<(), String> {
         .ok_or_else(|| TripwireLedgerError::NoSuchTripwire(name.to_string()).to_string())?;
     let resolution =
         ledger::resolve_awaiting(&conn, tripwire.id, now_ms()).map_err(|e| e.to_string())?;
-    let Resolution::Resolved { trip_id, dash } = resolution else {
+    let Resolution::Resolved { trip_id, arc } = resolution else {
         let Resolution::NoLiveTrip { state } = resolution else {
             unreachable!("a resolution is one of two things")
         };
@@ -683,9 +683,9 @@ fn run_dismiss(name: &str, json: bool, quiet: bool) -> Result<(), String> {
         });
     };
 
-    let discarded = dash
+    let discarded = arc
         .as_deref()
-        .map(|dash| discard_tripwire_dash(&conn, &tripwire, trip_id, dash));
+        .map(|arc| discard_tripwire_arc(&conn, &tripwire, trip_id, arc));
     let discard_error = match &discarded {
         Some(Err(e)) => Some(e.clone()),
         _ => None,
@@ -693,7 +693,7 @@ fn run_dismiss(name: &str, json: bool, quiet: bool) -> Result<(), String> {
     let payload = DismissedPayload {
         tripwire: name.to_string(),
         trip_id,
-        dash,
+        arc,
         discarded: matches!(discarded, Some(Ok(()))),
         discard_error: discard_error.clone(),
         told: tell_live_instance(name),
@@ -704,39 +704,39 @@ fn run_dismiss(name: &str, json: bool, quiet: bool) -> Result<(), String> {
         println!("tripwire {name} dismissed trip {trip_id}");
     }
     // The settle is written whatever happened next, so a discard that could
-    // not run is reported rather than swallowed: a dash left standing is the
+    // not run is reported rather than swallowed: an arc left standing is the
     // leak this verb exists to close, and silence about it is how nobody
     // finds out.
     if let Some(e) = discard_error {
-        eprintln!("tripwire {name}: the dash it was holding was not discarded — {e}");
+        eprintln!("tripwire {name}: the arc it was holding was not discarded — {e}");
     }
     Ok(())
 }
 
-/// Remove a dismissed trip's dash, handing nothing back to the base checkout
+/// Remove a dismissed trip's arc, handing nothing back to the base checkout
 /// ([P09]).
 ///
 /// Addressed by the **landing's** repository rather than by the wire's scope,
-/// because that is where the engine cut the dash: a scope is a path prefix a
+/// because that is where the engine cut the arc: a scope is a path prefix a
 /// wire is confined to, which may be an ancestor of the checkout or absent
-/// altogether, and an unscoped wire's dash is still a dash. The scope is the
+/// altogether, and an unscoped wire's arc is still an arc. The scope is the
 /// fallback for a trip whose row carries no landing — a hand-fired one.
-fn discard_tripwire_dash(
+fn discard_tripwire_arc(
     conn: &rusqlite::Connection,
     tripwire: &Tripwire,
     trip_id: i64,
-    dash: &str,
+    arc: &str,
 ) -> Result<(), String> {
     let root = landing_repo_root(conn, trip_id)
         .or_else(|| tripwire.scope.clone())
         .ok_or_else(|| {
             format!(
                 "the trip names no repository and tripwire {} has no scope, so there is no \
-                 checkout to remove `{dash}` from",
+                 checkout to remove `{arc}` from",
                 tripwire.name
             )
         })?;
-    tugarc_core::ops::discard_agent_dash_in(std::path::Path::new(&root), dash, Some("tripwire"))
+    tugarc_core::ops::discard_agent_arc_in(std::path::Path::new(&root), arc, Some("tripwire"))
         .map(|_| ())
 }
 
@@ -899,15 +899,16 @@ struct ResolvedPayload {
     told: bool,
 }
 
-/// A dismissal as `--json` reports it. `discarded` is separate from `dash`
-/// because a dash that could not be removed is a fact worth reading.
+/// A dismissal as `--json` reports it. `discarded` is separate from `arc`
+/// because an arc that could not be removed is a fact worth reading.
 #[derive(Debug, Serialize)]
 struct DismissedPayload {
     tripwire: String,
     trip_id: i64,
-    dash: Option<String>,
+    #[serde(rename = "arc")]
+    arc: Option<String>,
     discarded: bool,
-    /// Why the dash it was holding is still standing, when it is. The settle
+    /// Why the arc it was holding is still standing, when it is. The settle
     /// happens either way, so the failure has to be reportable rather than
     /// inferred from `discarded: false`.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -928,7 +929,7 @@ struct TripPayload {
     swallow_reason: Option<String>,
     probe_exit: Option<i64>,
     session_id: Option<String>,
-    dash: Option<String>,
+    arc: Option<String>,
     headline: Option<String>,
     settled_at_ms: Option<i64>,
 }
@@ -944,7 +945,7 @@ impl TripPayload {
             swallow_reason: trip.swallow_reason.clone(),
             probe_exit: trip.probe_exit,
             session_id: trip.session_id.clone(),
-            dash: trip.dash.clone(),
+            arc: trip.arc.clone(),
             headline: trip.headline.clone(),
             settled_at_ms: trip.settled_at_ms,
         }
@@ -1058,7 +1059,7 @@ mod tests {
         assert!(read_brief("@/nonexistent/brief.md").is_err());
     }
 
-    /// A dash worktree is not its base checkout, and folding it into one would
+    /// An arc worktree is not its base checkout, and folding it into one would
     /// make a work-tier tripwire re-trip on its own commits.
     #[test]
     fn a_scope_is_canonicalized_and_never_folded_to_a_base_checkout() {

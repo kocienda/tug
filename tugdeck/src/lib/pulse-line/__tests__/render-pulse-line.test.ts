@@ -62,10 +62,10 @@ describe("renderPulseLine — the lines that broke previous approaches", () => {
 
   test("plain markdown renders: bold, italics, code", () => {
     const { html } = renderPulseLine(
-      "Reading **the devise skeleton** first, then `dash/pulse.md` gets *the fix*.",
+      "Reading **the devise skeleton** first, then `arc/pulse.md` gets *the fix*.",
     );
     expect(html).toContain("<strong>the devise skeleton</strong>");
-    expect(html).toContain("<code>dash/pulse.md</code>");
+    expect(html).toContain("<code>arc/pulse.md</code>");
     expect(html).toContain("<em>the fix</em>");
   });
 
@@ -129,7 +129,7 @@ describe("renderPulseLine — total-function fuzz", () => {
 
   test("real session corpus renders or falls back cleanly, end to end", () => {
     const file =
-      "/Users/kocienda/.claude/projects/-Users-kocienda-Mounts-u-src-tugtool--tugtree-tugdash--pulse-2/e0a7c4b3-6293-4202-b70c-7c44379626e2.jsonl";
+      "/Users/kocienda/.claude/projects/-Users-kocienda-Mounts-u-src-tugtool--tugtree-tugarc--pulse-2/e0a7c4b3-6293-4202-b70c-7c44379626e2.jsonl";
     let blocks: string[] = [];
     try {
       blocks = readFileSync(file, "utf-8")

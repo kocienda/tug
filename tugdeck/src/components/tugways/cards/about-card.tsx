@@ -5,7 +5,7 @@
  * build diagnostics (profile · branch, commit), and copyright. All
  * identity comes from {@link appInfoStore}, populated by the Swift
  * host's `show-card` payload; with no host (browser-only dev) every
- * field renders an em-dash placeholder.
+ * field renders an em-arc placeholder.
  *
  * Shown via the app menu's About Tug item, which routes through
  * `DeckManager.showSingletonCard("about")` — at most one About card

@@ -65,7 +65,7 @@ import {
   truncateTranscriptAtAnchor,
   upsertInkTurn,
   appendTurnInterleavingInk,
-  absorbDashNotes,
+  absorbArcNotes,
   systemNoteKey,
   type CodeSessionState,
 } from "./code-session-store/reducer";
@@ -281,8 +281,8 @@ const KNOWN_CODE_OUTPUT_TYPES: ReadonlySet<string> = new Set([
   // the carry-forward block restores; no phase change, no transcript ink.
   "compact_summary",
   // tugcode announced that the card's live claude session id changed, and
-  // how. Only `kind: "rotation"` — the server seating the next stage of a
-  // dash arc — reaches the reducer, as its `session_stage` event: a stage
+  // how. Only `kind: "rotation"` — the server seating the next stage of an
+  // arc — reaches the reducer, as its `session_stage` event: a stage
   // `system_note` divider so the arc reads as one scroll, and the wheel's
   // turn opened from the prompt the frame echoes. Every other kind is the
   // bridge's identity record and draws nothing; no phase change, and the
@@ -324,7 +324,7 @@ const KNOWN_CODE_OUTPUT_TYPES: ReadonlySet<string> = new Set([
   // (Monitor / CronCreate / ScheduleWakeup / …). The reducer
   // transitions `idle → waking` and accepts the wake's content
   // events; the bracket closes implicitly on the next `turn_complete`.
-  // See `dash/tugplan-session-wake.md` [D01].
+  // See `arc/tugplan-session-wake.md` [D01].
   "wake_started",
   // Neutral assistant-originated turn opener (`tuglaws/turn-metric.md`
   // S02): opens an assistant-only turn for orphan assistant content
@@ -333,7 +333,7 @@ const KNOWN_CODE_OUTPUT_TYPES: ReadonlySet<string> = new Set([
   "assistant_opener",
   // Server-originated turn opener, emitted by tugcast (not tugcode) beside
   // every turn Tug injects into a session — today the base-motion engine's,
-  // when a dash's base moves under it. Journaling an injection makes the turn
+  // when an arc's base moves under it. Journaling an injection makes the turn
   // real to the server, not visible on screen: the live user row comes from the
   // composer echoing its own submission, and an injection has no composer. This
   // is what keeps a server-initiated turn from arriving with no visible cause.
@@ -444,7 +444,7 @@ export class CodeSessionStore {
    * Exposed via {@link getAtomBytesStore} so non-React consumers
    * (the drop / paste extensions inside CodeMirror) can reach it
    * through a thunk read at fire time ([L07]). Per
-   * [D03](dash/dev-atoms.md#d03-atom-bytes-store).
+   * [D03](arc/dev-atoms.md#d03-atom-bytes-store).
    */
   private readonly atomBytesStore: AtomBytesStore;
 
@@ -546,7 +546,7 @@ export class CodeSessionStore {
     // at `clear()` on dispose. Snapshot rides
     // `useCardStatePreservation` so attachment bytes survive cold
     // boot and pane restore alongside the rest of the prompt-entry
-    // draft. Per [D03](dash/dev-atoms.md#d03-atom-bytes-store).
+    // draft. Per [D03](arc/dev-atoms.md#d03-atom-bytes-store).
     this.atomBytesStore = createAtomBytesStore();
 
     // The streaming document holds per-turn streaming paths only,
@@ -733,7 +733,7 @@ export class CodeSessionStore {
         (this.state.phase === "idle" || this.state.phase === "errored") &&
         this.state.transportState === "online",
       // `waking` is included per [Q03] resolution in
-      // `dash/tugplan-session-wake.md`: the user can stop a
+      // `arc/tugplan-session-wake.md`: the user can stop a
       // runaway wake turn just like a user-initiated one. The
       // interrupt frame uses the same wire shape regardless — the
       // server doesn't need to distinguish.
@@ -1011,16 +1011,16 @@ export class CodeSessionStore {
   }
 
   /**
-   * Seat a dash gesture's quiet line ([P12]). Called by `useLandingReceipts`
-   * for each fresh dash note the changeset verb store delivers. The reducer
+   * Seat an arc gesture's quiet line ([P12]). Called by `useLandingReceipts`
+   * for each fresh arc note the changeset verb store delivers. The reducer
    * decides the seat: inside the open turn's message stream when one is
    * streaming (the note narrates work this turn is doing, and renders between
    * the tool calls it arrived among), or as its own quiet ink row when none
-   * is. This is the ONLY live path for a dash note; the restore path replays
-   * the same ledger rows through `ingestShellExchange` as `dash …` commands,
+   * is. This is the ONLY live path for an arc note; the restore path replays
+   * the same ledger rows through `ingestShellExchange` as `arc …` commands,
    * which the quiet-row registration claims.
    */
-  ingestDashNote(event: {
+  ingestArcNote(event: {
     exchangeId: string;
     command: string;
     text: string;
@@ -1028,7 +1028,7 @@ export class CodeSessionStore {
     timestamp: number;
   }): void {
     if (this._disposed) return;
-    this.dispatch({ type: "dash_note", ...event });
+    this.dispatch({ type: "arc_note", ...event });
   }
 
   /**
@@ -1049,7 +1049,7 @@ export class CodeSessionStore {
    * wire-flattening at submit reads from it; the
    * `useCardStatePreservation` snapshot round-trips it across pane
    * restore and cold boot. See {@link AtomBytesStore} and
-   * [D03](dash/dev-atoms.md#d03-atom-bytes-store).
+   * [D03](arc/dev-atoms.md#d03-atom-bytes-store).
    *
    * Returns the live instance — callers should not snapshot or
    * memoize the reference across disposal. Survives until
@@ -1919,7 +1919,7 @@ export class CodeSessionStore {
         // tugcode does not mint it (tugcode is a Node subprocess; it
         // has no React); the store wrapper mints it on receipt and
         // threads it onto the dispatched event so the reducer stays
-        // pure. See `dash/tugplan-session-wake.md` [D02].
+        // pure. See `arc/tugplan-session-wake.md` [D02].
         return { ...ev, turnKey: mintTurnKey() } as unknown as CodeSessionEvent;
       }
       if (ev.type === "assistant_opener") {
@@ -2250,7 +2250,7 @@ export class CodeSessionStore {
    * outside it — measured 1809 walk samples for settle-plus-commits
    * against 343 and 654 for each alone, so 81% above what the two cost
    * added together, with median frame delivery going 17ms to 20ms
-   * (`dash/jul30-perf-brief.md#s5-imposer`). A commit during a
+   * (`arc/jul30-perf-brief.md#s5-imposer`). A commit during a
    * running transform animation dirties compositing while the
    * animation's extent is reserved, which forces exactly the recompute
    * the reservation exists to avoid.
@@ -2519,11 +2519,11 @@ export class CodeSessionStore {
             // JSONL replay, so a bare append would strand the replayed Claude
             // turn behind shell rows it chronologically precedes. The helper
             // only slides past trailing shell turns; non-shell order is intact.
-            // The arriving turn may be the one a restored dash-note row was
+            // The arriving turn may be the one a restored arc-note row was
             // waiting for — absorb it inside at its clock position ([P12]),
             // so the reload race converges on the live reading whichever
             // side landed first.
-            this._transcript = absorbDashNotes(
+            this._transcript = absorbArcNotes(
               appendTurnInterleavingInk(this._transcript, effect.entry),
             );
           }
@@ -2532,10 +2532,10 @@ export class CodeSessionStore {
           // Shell exchange ([P06]/[P12]): upsert the turn — settle in place
           // (same turnKey) or insert at its timestamp position (mint /
           // restore interleave). Copy-on-write, disjoint from the Claude
-          // turn lifecycle. A dash-note row whose turn is already committed
+          // turn lifecycle. An arc-note row whose turn is already committed
           // is then absorbed into it ([P12]) — the other side of the same
           // convergence the `append-transcript` case runs.
-          this._transcript = absorbDashNotes(
+          this._transcript = absorbArcNotes(
             upsertInkTurn(this._transcript, effect.entry),
           );
           break;
@@ -2545,10 +2545,10 @@ export class CodeSessionStore {
           // their `turnKey`s) are reused, so React preserves the
           // already-mounted rows' identity across the index shift ([L26]).
           if (this._prependStaging.length > 0) {
-            // The older bracket may hold the turns that restored dash-note
+            // The older bracket may hold the turns that restored arc-note
             // rows were waiting for — the same absorption the append path
             // runs ([P12]), on the block that just became visible.
-            this._transcript = absorbDashNotes([
+            this._transcript = absorbArcNotes([
               ...this._prependStaging,
               ...this._transcript,
             ]);

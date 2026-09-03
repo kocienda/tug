@@ -1,14 +1,14 @@
 /**
- * dash-fixture.ts — creating, rounding, and discarding a real dash from an
+ * arc-fixture.ts — creating, rounding, and discarding a real arc from an
  * app-test, by the real CLI, in a repository the fixture owns.
  *
- * **A dash is for implementing a plan, not for running a test.** A dash is a
+ * **An arc is for implementing a plan, not for running a test.** An arc is a
  * real branch and a real worktree, so a fixture that cuts one in the
  * developer's checkout leaves its litter in the tree somebody is working in —
  * and a test killed mid-file leaves it there for good. Fourteen files used to
  * do exactly that, which is why the app-test recipe once carried a janitor for
- * `tugdash/at04??-*` branches. Every fixture repository is a scratch repository
- * now ({@link makeDashScratchRepo}), and {@link createDash} refuses the
+ * `tugarc/at04??-*` branches. Every fixture repository is a scratch repository
+ * now ({@link makeArcScratchRepo}), and {@link createArc} refuses the
  * checkout outright so the rule cannot quietly lapse.
  *
  * Two things follow from a scratch repo that a test has to know:
@@ -18,8 +18,8 @@
  *   — and every other workspace comes from `spawn_session`. See
  *   {@link seedScratchSession}.
  * - **Its Tug state goes with it.** `TUG_DATA_DIR` is redirected per fixture,
- *   so dash state, journals, and drafts land beside the repo rather than in the
- *   developer's live data root. {@link DashScratchRepo.cli} carries that
+ *   so arc state, journals, and drafts land beside the repo rather than in the
+ *   developer's live data root. {@link ArcScratchRepo.cli} carries that
  *   redirect; spread it into every fixture call.
  *
  * The git-lock retry stays, and still earns its keep: every live tugcast
@@ -32,7 +32,7 @@
  * because the message quoted only stderr and the process died before writing
  * any.
  *
- * Everything else about a dash fixture is deliberately unclever: the dash is
+ * Everything else about an arc fixture is deliberately unclever: the arc is
  * real, the round is a real commit, and the teardown is the whole repository
  * going away.
  */
@@ -60,13 +60,19 @@ const LOCK_RETRIES = 12;
 const LOCK_BACKOFF_MS = 250;
 
 /**
+ * The ref namespace every arc branch lives under — the one place a fixture
+ * spells it, so a prefix that moves in the engine moves here once.
+ */
+export const ARC_BRANCH_PREFIX = "tugarc/";
+
+/**
  * The built CLI, by absolute path.
  *
  * `~/.local/bin/tugtool` is a symlink whose target is somebody else's build
  * decision, which is not a thing a test should inherit silently.
  *
  * `projectDir`'s **own** `tugrust/target` comes first, then the main
- * checkout's. That order matters on a dash worktree: a worktree builds into
+ * checkout's. That order matters on an arc worktree: a worktree builds into
  * its own target dir, so a test exercising a CLI verb this branch adds would
  * otherwise run the main checkout's older binary and fail with `unrecognized
  * subcommand` — a stale build reported as a broken feature. A worktree that
@@ -86,14 +92,14 @@ export function tugtoolPath(projectDir: string): string {
       if (existsSync(candidate)) return candidate;
     }
   }
-  throw new Error(`dash-fixture: no built tugtool under ${roots.join(" or ")}`);
+  throw new Error(`arc-fixture: no built tugtool under ${roots.join(" or ")}`);
 }
 
 /**
- * The checkout that owns `projectDir`'s dash state — the TypeScript mirror of
+ * The checkout that owns `projectDir`'s arc state — the TypeScript mirror of
  * `tugtool_core::find_repo_root_from`.
  *
- * Tests need this because dash state lives beside the resolved root: the
+ * Tests need this because arc state lives beside the resolved root: the
  * `project_state_dir` slug (and so the join journal's home) is derived from it.
  * A mirror that answered differently from the Rust would read the wrong
  * directory and find nothing, which looks exactly like a feature that did not
@@ -181,7 +187,7 @@ function describeFailure(f: SpawnFailure): string {
 }
 
 export interface TugtoolRun {
-  /** Where to run — the project the dash belongs to. */
+  /** Where to run — the project the arc belongs to. */
   cwd: string;
   /**
    * Which checkout's built CLI to run, when that is not `cwd`. A fixture on a
@@ -189,7 +195,7 @@ export interface TugtoolRun {
    * under test here and keeps `cwd` on the repo the verb should act upon.
    */
   binaryRoot?: string;
-  /** JSON handed to the command on stdin (`dash commit`'s round metadata). */
+  /** JSON handed to the command on stdin (`arc commit`'s round metadata). */
   stdin?: string;
   /** Extra environment, merged over the caller's. */
   env?: Record<string, string>;
@@ -246,7 +252,7 @@ export function gitRetry(cwd: string, ...args: string[]): string {
 
 /** A base commit and one small text file it modified — a conflict's subject. */
 export interface ConflictSubject {
-  /** The commit that modified `path`. A dash rewound to its parent diverges. */
+  /** The commit that modified `path`. An arc rewound to its parent diverges. */
   commit: string;
   /** Repo-relative path of the modified file. */
   path: string;
@@ -269,10 +275,10 @@ export interface ConflictSubject {
  * the history, and the rewind has to stay shallow so the divergence is minimal
  * and `merge-tree` stays cheap.
  *
- * A path the developer has uncommitted work on is skipped. The dash side of
- * the conflict is built in the dash's own worktree and never touches the
+ * A path the developer has uncommitted work on is skipped. The arc side of
+ * the conflict is built in the arc's own worktree and never touches the
  * checkout — but the landing preview reads the checkout too, and uncommitted
- * work on a file the dash also changes is `base_overlap`, a different outcome
+ * work on a file the arc also changes is `base_overlap`, a different outcome
  * than the `conflicted` these fixtures are staged to produce. That is the
  * preview answering correctly about the repository it was handed; the fixture
  * simply must not stage its conflict on a file the developer is mid-edit on.
@@ -280,7 +286,7 @@ export interface ConflictSubject {
  * which is the ordinary state of a checkout an hour after a commit.
  *
  * A path that no longer exists on `main` is skipped for the same reason from
- * the other direction: the dash side can stage its half against any path in
+ * the other direction: the arc side can stage its half against any path in
  * history, but the base side is `main` as it stands, and a file deleted or
  * renamed since has nothing left to conflict with. A rename is both traps at
  * once — the old path is gone from the tip, the new one is dirty while the
@@ -314,12 +320,12 @@ export function smallConflictSubject(
       continue;
     }
     if (commit === "") continue;
-    // The dash rewinds to the parent, so a root commit is no use here.
+    // The arc rewinds to the parent, so a root commit is no use here.
     if (!revExists(projectDir, `${commit}~1`)) continue;
     // Uncommitted work here would read as base overlap, not a conflict.
     if (dirty.has(line)) continue;
     // The commit modified it; a later commit may have deleted or renamed it.
-    // The dash side stages its half against the path, but the base side is
+    // The arc side stages its half against the path, but the base side is
     // `main` as it stands, where a vanished path has nothing to conflict with.
     if (!pathAtTip(projectDir, line)) continue;
     const blob = gitRetry(projectDir, "show", `${commit}:${line}`);
@@ -332,7 +338,7 @@ export function smallConflictSubject(
     };
   }
   throw new Error(
-    `dash-fixture: no commit in main's last ${maxCommits} first-parent commits ` +
+    `arc-fixture: no commit in main's last ${maxCommits} first-parent commits ` +
       `modified a text file of ${maxLines} lines or fewer that is clean in the ` +
       `working tree`,
   );
@@ -371,30 +377,30 @@ function revExists(projectDir: string, rev: string): boolean {
   );
 }
 
-export interface CreatedDash {
-  /** The dash's owner key — what `bind_dash_ok` carries and the lane fronts on. */
+export interface CreatedArc {
+  /** The arc's owner key — what `bind_arc_ok` carries and the lane fronts on. */
   id: string;
   /** Absolute worktree path. */
   worktree: string;
 }
 
 /**
- * Create a dash, returning its owner key and worktree.
+ * Create an arc, returning its owner key and worktree.
  *
- * The dash opts out of automatic base motion the moment it exists. Every
+ * The arc opts out of automatic base motion the moment it exists. Every
  * tugcast process watching this repository runs a base-motion engine — the
  * user's release instance and every other app-test instance included — and each
- * one treats any dash it can see as its own to keep current. One of them was
- * caught replaying a fixture dash mid-test, between its round commit and its
+ * one treats any arc it can see as its own to keep current. One of them was
+ * caught replaying a fixture arc mid-test, between its round commit and its
  * release. A fixture asserting on a tip sha, a round list, or a worktree state
  * cannot have the ground moving under it.
  */
-export interface DashFixtureOpts {
+export interface ArcFixtureOpts {
   /** Checkout whose built `tugtool` runs, when `projectDir` has none. */
   binaryRoot?: string;
   /**
    * Extra environment for the verb. A fixture on a scratch repo redirects
-   * `TUG_DATA_DIR` here, so the dash state the CLI writes lands in the same
+   * `TUG_DATA_DIR` here, so the arc state the CLI writes lands in the same
    * root the app under test reads.
    */
   env?: Record<string, string>;
@@ -416,7 +422,7 @@ export interface DashFixtureOpts {
 /**
  * The branch `projectDir` has out, or `""` when detached.
  *
- * A dash forks from — and lands back onto — the branch its project is actually
+ * An arc forks from — and lands back onto — the branch its project is actually
  * working on. Left to the default, a fixture created from a checkout parked off
  * `main` would fork from content nobody has out, and its landing preflight
  * would refuse over a base branch that is not the checked-out one.
@@ -431,10 +437,10 @@ const THIS_CHECKOUT = realpathSync(resolve(import.meta.dir, "..", ".."));
 /**
  * Refuse a fixture act aimed at the developer's checkout.
  *
- * A dash is for implementing a plan, not for running a test. A fixture dash in
+ * An arc is for implementing a plan, not for running a test. A fixture arc in
  * the checkout is a real branch and a real worktree in the tree somebody is
  * working in — and a test killed mid-file strands them there. Every fixture
- * repository is a scratch repository ({@link makeDashScratchRepo}); this guard
+ * repository is a scratch repository ({@link makeArcScratchRepo}); this guard
  * is what keeps that a law rather than a convention.
  */
 function refuseCheckout(projectDir: string, act: string): void {
@@ -446,20 +452,20 @@ function refuseCheckout(projectDir: string, act: string): void {
   }
   if (resolved === THIS_CHECKOUT) {
     throw new Error(
-      `dash-fixture: refusing to ${act} in the developer's checkout (${resolved}). ` +
-        "A dash is for implementing a plan, not for running a test — " +
-        "cut it in a scratch repository (makeDashScratchRepo).",
+      `arc-fixture: refusing to ${act} in the developer's checkout (${resolved}). ` +
+        "An arc is for implementing a plan, not for running a test — " +
+        "cut it in a scratch repository (makeArcScratchRepo).",
     );
   }
 }
 
-export function createDash(
+export function createArc(
   projectDir: string,
   name: string,
   description: string,
-  opts: DashFixtureOpts = {},
-): CreatedDash {
-  refuseCheckout(projectDir, "create a dash");
+  opts: ArcFixtureOpts = {},
+): CreatedArc {
+  refuseCheckout(projectDir, "create an arc");
   const branch = currentBranch(projectDir);
   const base = branch === "" ? [] : ["--base", branch];
   const out = JSON.parse(
@@ -469,16 +475,16 @@ export function createDash(
       env: opts.env,
     }),
   ) as { data: { id: string; worktree: string } };
-  gitRetry(projectDir, "config", `branch.tugdash/${name}.tugautoreplay`, "false");
+  gitRetry(projectDir, "config", `branch.${ARC_BRANCH_PREFIX}${name}.tugautoreplay`, "false");
   return { id: out.data.id, worktree: out.data.worktree };
 }
 
-/** Commit everything dirty in the dash's worktree as one round. */
+/** Commit everything dirty in the arc's worktree as one round. */
 export function commitRound(
   projectDir: string,
   name: string,
   subject: string,
-  opts: DashFixtureOpts = {},
+  opts: ArcFixtureOpts = {},
 ): void {
   refuseCheckout(projectDir, "commit a round");
   tugtool(["arc", "commit", name, "--message", subject, "--json"], {
@@ -490,20 +496,20 @@ export function commitRound(
 }
 
 /**
- * Declare a dash `built` — which is what starts the join.
+ * Declare an arc `built` — which is what starts the join.
  *
- * The pilot acts on a `built` dash and on nothing else: reconciling it with its
+ * The pilot acts on a `built` arc and on nothing else: reconciling it with its
  * base, unprompted. So a
  * fixture that wants the machine to do its work says so here, and then asserts
- * with no gesture at all. A fixture that wants a dash left alone simply does
+ * with no gesture at all. A fixture that wants an arc left alone simply does
  * not call this.
  */
-export function markDashBuilt(
+export function markArcBuilt(
   projectDir: string,
   name: string,
-  opts: DashFixtureOpts = {},
+  opts: ArcFixtureOpts = {},
 ): void {
-  refuseCheckout(projectDir, "mark a dash built");
+  refuseCheckout(projectDir, "mark an arc built");
   tugtool(["arc", "mark", name, "built"], {
     cwd: projectDir,
     binaryRoot: opts.binaryRoot,
@@ -515,8 +521,8 @@ export function markDashBuilt(
  * A document that parses as a plan, carrying one unstamped Review Record round
  * for `plan stamp` to write into.
  *
- * It has to be a *real* plan, not a stub: `dash step start` is the only writer
- * of the dash's recorded plan path, and it refuses unless the document parses
+ * It has to be a *real* plan, not a stub: `arc step start` is the only writer
+ * of the arc's recorded plan path, and it refuses unless the document parses
  * and carries a `#step-1` ledger row.
  */
 function fixturePlan(rows: number, statuses: readonly string[] = []): string {
@@ -555,82 +561,82 @@ function fixturePlan(rows: number, statuses: readonly string[] = []): string {
 }
 
 /**
- * The dash's documents home — `<project>/.tug/arcs/<name>/` — created on
- * demand. Every dash document lives here and nothing is tracked, so a fixture
+ * The arc's documents home — `<project>/.tug/arcs/<name>/` — created on
+ * demand. Every arc document lives here and nothing is tracked, so a fixture
  * writes a brief or a plan by writing a file and nothing else.
  */
-export function dashDocumentsDir(projectDir: string, name: string): string {
+export function arcDocumentsDir(projectDir: string, name: string): string {
   const dir = join(projectDir, ".tug", "arcs", name);
   mkdirSync(dir, { recursive: true });
   return dir;
 }
 
-/** The dash's `plan.md`, with its directory in place. */
-export function dashPlanPath(projectDir: string, name: string): string {
-  return join(dashDocumentsDir(projectDir, name), "plan.md");
+/** The arc's `plan.md`, with its directory in place. */
+export function arcPlanPath(projectDir: string, name: string): string {
+  return join(arcDocumentsDir(projectDir, name), "plan.md");
 }
 
-/** The dash's `brief.md`, with its directory in place. */
-export function dashBriefPath(projectDir: string, name: string): string {
-  return join(dashDocumentsDir(projectDir, name), "brief.md");
+/** The arc's `brief.md`, with its directory in place. */
+export function arcBriefPath(projectDir: string, name: string): string {
+  return join(arcDocumentsDir(projectDir, name), "brief.md");
 }
 
 /**
- * The dash's `tasks.md`, with its directory in place.
+ * The arc's `tasks.md`, with its directory in place.
  *
- * The task list is a dash's ledger — the document `/dash` leaves and
+ * The task list is an arc's ledger — the document `/arc` leaves and
  * the one implement walks when there is no plan. `plan.md` outranks it, so a
- * fixture that writes both has written a trek whatever it meant.
+ * fixture that writes both has written a planned arc whatever it meant.
  */
-export function dashTasksPath(projectDir: string, name: string): string {
-  return join(dashDocumentsDir(projectDir, name), "tasks.md");
+export function arcTasksPath(projectDir: string, name: string): string {
+  return join(arcDocumentsDir(projectDir, name), "tasks.md");
 }
 
 /**
- * The dash-log a scratch repository's state lives in, found rather than
+ * The arc log a scratch repository's state lives in, found rather than
  * composed.
  *
  * Its directory is keyed by a slug of the repository path that a test has no
  * business re-deriving — a second speller of one key is exactly the drift
- * [L29] exists to forbid. `dash create` has already written the file, so the
+ * [L29] exists to forbid. `arc create` has already written the file, so the
  * honest way to find it is to look for the one the tool made.
  */
-export function dashLogPath(dataRoot: string): string {
+export function arcLogPath(dataRoot: string): string {
   // `TUG_DATA_DIR` names the *parent* of the data root; the root itself is
   // `<TUG_DATA_DIR>/Tug`, which is what `base_data_dir` composes.
   const projects = join(dataRoot, "Tug", "projects");
   for (const entry of readdirSync(projects)) {
-    const candidate = join(projects, entry, "dash-log.md");
+    const candidate = join(projects, entry, "arc-log.md");
     try {
       if (statSync(candidate).isFile()) return candidate;
     } catch {
       // Not this one.
     }
   }
-  throw new Error(`no dash-log.md under ${projects}`);
+  throw new Error(`no arc-log.md under ${projects}`);
 }
 
 /**
- * One dash-log line, in the grammar `append_dash_log` writes.
+ * One arc-log line, in the grammar `append_arc_log` writes.
  *
- * The dash is named explicitly rather than closed over, because a fixture that
- * drives more than one dash through one log needs to say which line is whose —
- * and a helper that could only ever write about one dash is a helper that has
+ * The arc is named explicitly rather than closed over, because a fixture that
+ * drives more than one arc through one log needs to say which line is whose —
+ * and a helper that could only ever write about one arc is a helper that has
  * to be copied the first time a test grows a second.
  */
-export function appendDashLogLine(
+export function appendArcLogLine(
   logPath: string,
-  dash: string,
+  arc: string,
   marker: string,
   note: string,
 ): void {
   const at = new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
-  appendFileSync(logPath, `${at}  ${dash}  ${marker}  ${note}\n`);
+  appendFileSync(logPath, `${at}  ${arc}  ${marker}  ${note}\n`);
 }
 
 /**
  * A parseable plan document with `rows` execution steps — the same document
- * {@link recordStampedPlan} writes into a dash's documents home, for fixtures
+ * {@link recordStampedPlan} writes into an arc's documents home, for fixtures
  * that want one sitting somewhere else.
  *
  * `statuses` sets the ledger's status cells from the first row forward,
@@ -693,9 +699,9 @@ __STEPS__
 `;
 
 /**
- * Give a dash a plan it is driving, reviewed and stamped.
+ * Give an arc a plan it is driving, reviewed and stamped.
  *
- * The order is load-bearing in both directions. `dash step start` **mutates**
+ * The order is load-bearing in both directions. `arc step start` **mutates**
  * the plan — it flips the ledger row to `in progress` — so it must run before
  * the stamp, or the stamp would be invalidated by the very next verb. And
  * ledger status cells sit outside the hashed content, so that mutation does
@@ -706,11 +712,11 @@ export function recordStampedPlan(
   projectDir: string,
   name: string,
   worktree: string,
-  opts: DashFixtureOpts = {},
+  opts: ArcFixtureOpts = {},
 ): string {
   const rows = opts.rows ?? 1;
   const through = opts.through ?? rows;
-  const planPath = dashPlanPath(projectDir, name);
+  const planPath = arcPlanPath(projectDir, name);
   writeFileSync(planPath, fixturePlan(rows));
   // The run's selection must be declared: a run that does not say where it
   // ends cannot be told from one that stopped early ([D147]). By default it
@@ -742,25 +748,25 @@ export function recordStampedPlan(
 }
 
 /**
- * Record that a session is working this dash — a **ledger** binding, through
+ * Record that a session is working this arc — a **ledger** binding, through
  * the real verb.
  *
  * Not optional for any test whose arc the server has to drive: the join pilot
- * reconciles and Tier-0-checks only dashes bound to a live session ([D147]),
- * so an unbound fixture dash simply sits there and every wait on its register
- * times out. A `bind_dash_ok` control action is **not** a substitute — it moves
+ * reconciles and Tier-0-checks only arcs bound to a live session ([D147]),
+ * so an unbound fixture arc simply sits there and every wait on its register
+ * times out. A `bind_arc_ok` control action is **not** a substitute — it moves
  * the deck's own store and writes no row, so the server still believes nobody
- * holds the dash.
+ * holds the arc.
  *
  * `TUG_SESSION_ID` is passed explicitly because the scratch fixture clears it:
  * a fixture is not a session, and the only session it may claim for is the one
  * the test seeded.
  */
-export function bindDash(
+export function bindArc(
   projectDir: string,
   name: string,
   tugSessionId: string,
-  opts: DashFixtureOpts = {},
+  opts: ArcFixtureOpts = {},
 ): void {
   // **The ledger row lags the engine.** `awaitEngineReady` answers for the
   // engine, not for the row `record_spawn` writes, and the lag has two
@@ -786,7 +792,7 @@ export function bindDash(
       stderr.includes("no segment of its line is live");
     if (!transient || Date.now() >= deadline) {
       throw new Error(
-        `dash bind ${name} failed\n  exit ${out.exitCode}\n  stderr: ${stderr.trim()}`,
+        `arc bind ${name} failed\n  exit ${out.exitCode}\n  stderr: ${stderr.trim()}`,
       );
     }
     sleepSync(500);
@@ -796,15 +802,15 @@ export function bindDash(
 /**
  * Answer the join prompt in advance, so it never raises.
  *
- * Binding a dash for real ([D147]) hands it to the pilot, and a reconciled
- * dash raises the join modal on the bound card. That modal takes the card's
- * sheet host — so a test about the **shade** (the dash lane, the join face, a
+ * Binding an arc for real ([D147]) hands it to the pilot, and a reconciled
+ * arc raises the join modal on the bound card. That modal takes the card's
+ * sheet host — so a test about the **shade** (the arc lane, the join face, a
  * press in the composer) finds the host occupied and every wait on it times
  * out.
  *
  * This writes the same durable dismissal "Not yet" writes:
- * `branch.tugdash/<name>.tugjoinprompted`. The re-ask policy compares the
- * **dash head**, so the value is the head as it stands — which means a fixture
+ * `branch.tugarc/<name>.tugjoinprompted`. The re-ask policy compares the
+ * **arc head**, so the value is the head as it stands — which means a fixture
  * that lands another round after calling this will be asked again, correctly.
  * Call it after the last round, or call it again.
  *
@@ -812,25 +818,30 @@ export function bindDash(
  * interruption the fixture should have already answered.
  */
 export function silenceJoinPrompt(projectDir: string, name: string): void {
-  const head = gitRetry(projectDir, "rev-parse", `tugdash/${name}`).trim();
-  gitRetry(projectDir, "config", `branch.tugdash/${name}.tugjoinprompted`, head);
+  const head = gitRetry(projectDir, "rev-parse", `${ARC_BRANCH_PREFIX}${name}`).trim();
+  gitRetry(
+    projectDir,
+    "config",
+    `branch.${ARC_BRANCH_PREFIX}${name}.tugjoinprompted`,
+    head,
+  );
 }
 
 /**
- * Give a dash a plan it is driving with **no step started** — the state a
+ * Give an arc a plan it is driving with **no step started** — the state a
  * surface has to say something about rather than fall silent on.
  *
- * Writing the file is the whole act: a dash *has* a plan when one is at its own
- * address, so this leaves a dash carrying a plan and no step declaration, which
+ * Writing the file is the whole act: an arc *has* a plan when one is at its own
+ * address, so this leaves an arc carrying a plan and no step declaration, which
  * is exactly the split the missing-step fact exists to catch.
  */
 export function recordAdoptedPlan(
   projectDir: string,
   name: string,
   _worktree: string,
-  opts: DashFixtureOpts = {},
+  opts: ArcFixtureOpts = {},
 ): string {
-  const planPath = dashPlanPath(projectDir, name);
+  const planPath = arcPlanPath(projectDir, name);
   writeFileSync(planPath, fixturePlan(opts.rows ?? 1));
   return planPath;
 }
@@ -840,17 +851,17 @@ export function makePlanStale(planPath: string): void {
   writeFileSync(planPath, `${readFileSync(planPath, "utf8")}\nOne more line.\n`);
 }
 
-/** Discard the dash — branch and worktree, dirt included. Best effort: a
+/** Discard the arc — branch and worktree, dirt included. Best effort: a
  *  cleanup that throws would mask the failure the test was reporting. */
-export function discardDash(
+export function discardArc(
   projectDir: string,
   name: string,
-  opts: DashFixtureOpts = {},
+  opts: ArcFixtureOpts = {},
 ): void {
-  // Same law as `createDash`, and sharper here: a discard aimed at the
-  // checkout could tear down a dash the developer actually made, on nothing
+  // Same law as `createArc`, and sharper here: a discard aimed at the
+  // checkout could tear down an arc the developer actually made, on nothing
   // more than a name collision.
-  refuseCheckout(projectDir, "discard a dash");
+  refuseCheckout(projectDir, "discard an arc");
   tugtool(["arc", "discard", name, "--json"], {
     cwd: projectDir,
     binaryRoot: opts.binaryRoot,
@@ -864,22 +875,22 @@ export function discardDash(
 // ---------------------------------------------------------------------------
 
 /** A scratch repository a fixture owns outright, and its redirected data root. */
-export interface DashScratchRepo {
-  /** The repository the app opens — the only tree the fixture's dashes touch. */
+export interface ArcScratchRepo {
+  /** The repository the app opens — the only tree the fixture's arcs touch. */
   repo: string;
   /** Tug's data root for it, redirected away from the developer's own. */
   dataRoot: string;
   /**
-   * Spread into every dash-fixture call: run the checkout's built CLI, against
+   * Spread into every arc-fixture call: run the checkout's built CLI, against
    * this repo, writing into this data root. Threading the three by hand at each
-   * call site is how one of them gets forgotten and a dash lands in the
+   * call site is how one of them gets forgotten and an arc lands in the
    * developer's repository again.
    */
-  cli: DashFixtureOpts;
+  cli: ArcFixtureOpts;
 }
 
 /** How a scratch repo is shaped. */
-export interface DashScratchOpts {
+export interface ArcScratchOpts {
   /** Prefix for the temp directories, so a failed run is identifiable. */
   prefix: string;
   /** The checkout whose built `tugtool` drives the fixture. */
@@ -891,21 +902,21 @@ export interface DashScratchOpts {
    * `.tugtool/` is what marks a project root — `find_project_root` in
    * `tugtool-core/src/config.rs` walks up looking for exactly that — and a
    * scratch repo without one resolves its root somewhere above the temp dir
-   * instead, which is a fixture whose dashes exist and are never listed.
+   * instead, which is a fixture whose arcs exist and are never listed.
    */
   files?: Record<string, string>;
 }
 
 /**
- * Build an empty git repository for a fixture to cut its dashes in.
+ * Build an empty git repository for a fixture to cut its arcs in.
  *
- * **A dash is for implementing a plan, not for running a test.** A dash is a
+ * **An arc is for implementing a plan, not for running a test.** An arc is a
  * real branch and a real worktree, so a fixture that creates one in the
  * developer's checkout leaves its litter in the tree somebody is working in —
  * and a fixture killed mid-file leaves it there for good, which is why the
- * app-test recipe once had to carry a janitor for `tugdash/at04??-*`.
+ * app-test recipe once had to carry a janitor for `tugarc/at04??-*`.
  *
- * The dash a fixture needs is a *mechanism* under test, and a mechanism needs
+ * The arc a fixture needs is a *mechanism* under test, and a mechanism needs
  * no particular repository. So it gets one of its own: two commits deep, torn
  * down whole at the end, and invisible to every other process on the machine.
  */
@@ -921,7 +932,7 @@ export interface DashScratchOpts {
  */
 export const SCRATCH_NAMESPACE = "tug-scratch";
 
-export function makeDashScratchRepo(opts: DashScratchOpts): DashScratchRepo {
+export function makeArcScratchRepo(opts: ArcScratchOpts): ArcScratchRepo {
   const repo = realpathSync(
     mkdtempSync(join(tmpdir(), `${SCRATCH_NAMESPACE}-${opts.prefix}-`)),
   );
@@ -930,13 +941,13 @@ export function makeDashScratchRepo(opts: DashScratchOpts): DashScratchRepo {
   );
 
   // `-b main` is explicit: the machine's `init.defaultBranch` may be anything,
-  // and the dash's base has to be a branch this repo actually has out.
+  // and the arc's base has to be a branch this repo actually has out.
   gitRetry(repo, "init", "-b", "main");
   gitRetry(repo, "config", "user.email", "app-test@tugtool.dev");
   gitRetry(repo, "config", "user.name", opts.prefix);
   const files: Record<string, string> = {
     "README.md": `${opts.prefix} scratch repository\n`,
-    ".tugtool/config.toml": "[tugtool.dash]\n",
+    ".tugtool/config.toml": "[tugtool.arc]\n",
     ...(opts.files ?? {}),
   };
   for (const [path, body] of Object.entries(files)) {
@@ -957,8 +968,8 @@ export function makeDashScratchRepo(opts: DashScratchOpts): DashScratchRepo {
         // **A fixture is not a session.** `tugtool` spreads `process.env`, and
         // an app-test inherits the developer's shell — including the
         // `TUG_SESSION_ID` of the session running the test. Left in place,
-        // every dash verb that records a worker (`create`, `commit`,
-        // `step start`) claims this scratch dash *for the developer's live
+        // every arc verb that records a worker (`create`, `commit`,
+        // `step start`) claims this scratch arc *for the developer's live
         // session*, which is exactly how one came to be bound to a temp dir
         // that evaporated with the fixture. A test that genuinely wants a
         // session sets this itself, to its own seeded id.
@@ -968,8 +979,8 @@ export function makeDashScratchRepo(opts: DashScratchOpts): DashScratchRepo {
   };
 }
 
-/** Delete everything {@link makeDashScratchRepo} made. */
-export function rmDashScratchRepo(scratch: DashScratchRepo | null): void {
+/** Delete everything {@link makeArcScratchRepo} made. */
+export function rmArcScratchRepo(scratch: ArcScratchRepo | null): void {
   if (scratch === null) return;
   for (const dir of [scratch.repo, scratch.dataRoot]) {
     if (dir !== "") rmSync(dir, { recursive: true, force: true });
@@ -988,14 +999,14 @@ export const encodeProjectDir = (absDir: string): string =>
  * registers exactly one workspace at startup — the `--source-tree` bootstrap,
  * which is the checkout, because that is also where `tugdeck/dist` is served
  * from (`main.rs`'s `watch_dir`). Every other workspace is registered by
- * `spawn_session`. So a fixture that creates dashes in a scratch repo and then
+ * `spawn_session`. So a fixture that creates arcs in a scratch repo and then
  * binds a card with `App.bindSession` sees none of them: `bindSession` is a
  * client-side binding the ledger and the registry both know nothing about, and
  * the aggregate it reads is still composed over the checkout.
  *
  * The way in is a real session on the scratch repo — `App.spawnSessionResume`
  * against the transcript this writes. That is the whole reason these fixtures
- * ever cut their dashes in the developer's checkout: it was the one repository
+ * ever cut their arcs in the developer's checkout: it was the one repository
  * the app had open.
  */
 export function seedScratchSession(repo: string, sessionId: string): string {
@@ -1064,7 +1075,7 @@ export function rmScratchSession(dir: string): void {
 /**
  * Run `command` through the card's `$` shell route and wait for its exit.
  *
- * This is how a dash test binds and unbinds for real: the shell child is what
+ * This is how an arc test binds and unbinds for real: the shell child is what
  * carries `TUG_SESSION_ID`, so `tugtool arc bind` run through it resolves the
  * session the card actually holds. One copy here because four files had grown
  * their own, differing only in a default parameter.
@@ -1104,11 +1115,11 @@ export interface JoinScratchRepo {
   dataRoot: string;
   /** Where the stub scripts live. */
   stubDir: string;
-  /** The dash worktree the round was committed on. */
+  /** The arc worktree the round was committed on. */
   worktree: string;
-  /** The dash's creation id — what a bind gesture addresses it by. */
-  dashId: string;
-  /** CLI opts for verbs the test runs itself — notably {@link bindDash}. */
+  /** The arc's creation id — what a bind gesture addresses it by. */
+  arcId: string;
+  /** CLI opts for verbs the test runs itself — notably {@link bindArc}. */
   cli: { binaryRoot?: string; env?: Record<string, string> };
 }
 
@@ -1116,18 +1127,18 @@ export interface JoinScratchRepo {
 export interface JoinScratchOpts {
   /** Prefix for the temp directories, so a failed run is identifiable. */
   prefix: string;
-  /** The dash's name. */
-  dash: string;
-  /** The dash's one-line description. */
+  /** The arc's name. */
+  arc: string;
+  /** The arc's one-line description. */
   description: string;
   /** The checkout whose built `tugtool` drives the fixture. */
   checkout: string;
   /** The file both sides rewrite. */
   file: string;
-  /** Its body at the fork, then the base's rewrite, then the dash's. */
+  /** Its body at the fork, then the base's rewrite, then the arc's. */
   fork: string;
   base: string;
-  dashBody: string;
+  arcBody: string;
   /** The resolver stub's script body, with `$1` the workshop path. */
   resolver: string;
   /**
@@ -1136,18 +1147,18 @@ export interface JoinScratchOpts {
    *
    * The clean join is its own arc now, not the absence of one: entering join
    * mode resolves it and the one-shot squash anchors a candidate — so a
-   * fixture that wants a *joinable* dash without a conflict asks for one here
+   * fixture that wants a *joinable* arc without a conflict asks for one here
    * rather than skipping the pipeline.
    */
   cleanMerge?: boolean;
   /** An optional merge-driver stub body, for an arc that needs a ladder-clean candidate. */
   mergeDriver?: string;
   /**
-   * Declare the dash `built` once the round is in — which hands it to the
-   * pilot ({@link markDashBuilt}).
+   * Declare the arc `built` once the round is in — which hands it to the
+   * pilot ({@link markArcBuilt}).
    *
-   * A fixture asserting that the machine reconciles and checks a dash *with no
-   * gesture* sets this and then presses nothing. A fixture about a dash still
+   * A fixture asserting that the machine reconciles and checks an arc *with no
+   * gesture* sets this and then presses nothing. A fixture about an arc still
    * being worked leaves it off, and the pilot never looks at it.
    */
   built?: boolean;
@@ -1158,13 +1169,13 @@ export interface JoinScratchOpts {
  * resolver.
  *
  * A repository per fixture rather than the developer's checkout, and that is
- * safety rather than tidiness: a join that succeeds squashes its dash onto the
+ * safety rather than tidiness: a join that succeeds squashes its arc onto the
  * base branch **in that branch's live working tree**, which for the checkout
  * would be the developer's own `main`. Owning the repository is what lets these
  * arcs run to their end instead of stopping one beat short.
  */
 export function makeJoinScratchRepo(opts: JoinScratchOpts): JoinScratchRepo {
-  const base = makeDashScratchRepo({
+  const base = makeArcScratchRepo({
     prefix: opts.prefix,
     checkout: opts.checkout,
     files: { [opts.file]: opts.fork },
@@ -1174,7 +1185,7 @@ export function makeJoinScratchRepo(opts: JoinScratchOpts): JoinScratchRepo {
     join(tmpdir(), `${SCRATCH_NAMESPACE}-${opts.prefix}-stubs-`),
   );
 
-  const created = createDash(repo, opts.dash, opts.description, base.cli);
+  const created = createArc(repo, opts.arc, opts.description, base.cli);
 
   // Both sides move the same lines, after the fork: a genuine conflict — or,
   // when the fixture asked for a clean merge, two files that never meet.
@@ -1182,8 +1193,8 @@ export function makeJoinScratchRepo(opts: JoinScratchOpts): JoinScratchRepo {
   writeFileSync(join(repo, baseFile), opts.base);
   gitRetry(repo, "add", "-A");
   gitRetry(repo, "commit", "-m", `${opts.prefix}: the base rewrites it`);
-  writeFileSync(join(created.worktree, opts.file), opts.dashBody);
-  commitRound(repo, opts.dash, `${opts.prefix}(round): rewrite ${opts.file}`, base.cli);
+  writeFileSync(join(created.worktree, opts.file), opts.arcBody);
+  commitRound(repo, opts.arc, `${opts.prefix}(round): rewrite ${opts.file}`, base.cli);
 
   const script = (name: string, body: string): string => {
     const path = join(stubDir, name);
@@ -1191,24 +1202,24 @@ export function makeJoinScratchRepo(opts: JoinScratchOpts): JoinScratchRepo {
     chmodSync(path, 0o755);
     return path;
   };
-  gitRetry(repo, "config", "tugdash.joinresolver", script("stub-resolver.sh", opts.resolver));
+  gitRetry(repo, "config", "tugarc.joinresolver", script("stub-resolver.sh", opts.resolver));
   if (opts.mergeDriver !== undefined) {
-    gitRetry(repo, "config", "tugdash.mergedriver", script("stub-driver.sh", opts.mergeDriver));
+    gitRetry(repo, "config", "tugarc.mergedriver", script("stub-driver.sh", opts.mergeDriver));
   }
 
-  // Last, and after the resolver is configured: `built` is what hands the dash
+  // Last, and after the resolver is configured: `built` is what hands the arc
   // to the pilot, and the pilot may start reconciling the moment a tugcast
-  // process sees the stage move. A dash declared built before its resolver
-  // exists would be reconciled by whatever `tugdash.joinresolver` said then,
+  // process sees the stage move. An arc declared built before its resolver
+  // exists would be reconciled by whatever `tugarc.joinresolver` said then,
   // which is nothing.
-  if (opts.built === true) markDashBuilt(repo, opts.dash, base.cli);
+  if (opts.built === true) markArcBuilt(repo, opts.arc, base.cli);
 
   return {
     repo,
     dataRoot,
     stubDir,
     worktree: created.worktree,
-    dashId: created.id,
+    arcId: created.id,
     cli: base.cli,
   };
 }

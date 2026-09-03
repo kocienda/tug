@@ -1,6 +1,6 @@
 /**
  * gallery-attachment-strip.tsx — design-review gallery card for the
- * per-message thumbnail strip ([Step 6](dash/dev-atoms.md#step-6)).
+ * per-message thumbnail strip ([Step 6](arc/dev-atoms.md#step-6)).
  *
  * Fixtures: two static image atoms paired with a small in-memory
  * bytes-store carrying canned thumbnail data URLs. The body above

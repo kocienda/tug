@@ -180,7 +180,7 @@ export interface LandingSnapshot {
    * this landing has no arc to report ([P04]).
    *
    * Derived by the mode rather than by the composer, which is what keeps the
-   * entry ignorant of which landing it is hosting: commit mode has no dash and
+   * entry ignorant of which landing it is hosting: commit mode has no arc and
    * always returns null, join mode returns the same reading the Arcs card row and
    * the shade row show, because all three call one derivation.
    */

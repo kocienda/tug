@@ -1,13 +1,13 @@
-//! `dash doctor` — what the four records say, and where they disagree.
+//! `arc doctor` — what the four records say, and where they disagree.
 //!
-//! A dash keeps four records of itself, and no two of them are written by the
+//! An arc keeps four records of itself, and no two of them are written by the
 //! same act:
 //!
 //! | record | written by | read by |
 //! |---|---|---|
-//! | the plan's **Step Status Ledger** | `dash step …`, and a person's editor | the arc's resume pointer, the changeset feed's closed count |
-//! | the **dash-log**'s declarations | `dash step …`, `dash mark` | `dash status`, `run_fraction`, `derive_stage`, `join_ready` |
-//! | the **sqlite binding** | tugcast, at bind and at the rotation seat | which card a dash is showing in |
+//! | the plan's **Step Status Ledger** | `arc step …`, and a person's editor | the arc's resume pointer, the changeset feed's closed count |
+//! | the **arc log**'s declarations | `arc step …`, `arc mark` | `arc status`, `run_fraction`, `derive_stage`, `join_ready` |
+//! | the **sqlite binding** | tugcast, at bind and at the rotation seat | which card an arc is showing in |
 //! | the **arc record** (also the log) | the arc runner | which stage the Wheel rotates next |
 //!
 //! The split in the first two rows is the one that matters, and it is easy to
@@ -18,12 +18,12 @@
 //! for the Wheel to walk the right step, and until now nothing compared them.
 //!
 //! This module is that comparison. It is read-only and cheap enough that
-//! `dash status` runs it on every call, so an ordinary status says "the ledger
+//! `arc status` runs it on every call, so an ordinary status says "the ledger
 //! and the log disagree at step 4" instead of answering confidently from one
-//! side. Repair is opt-in (`dash doctor <name> --repair`) because detection is
+//! side. Repair is opt-in (`arc doctor <name> --repair`) because detection is
 //! always safe and a repair is a judgment about which record was right.
 //!
-//! **Every repair is an append.** The dash-log is append-only across
+//! **Every repair is an append.** The arc log is append-only across
 //! generations and is never rewritten — that property is load-bearing for
 //! `read_declarations`' generation reset — so a reconciling repair adds the
 //! declaration the table's own state implies. The table is the authored
@@ -35,26 +35,26 @@ use std::path::Path;
 
 use serde::Serialize;
 
-use crate::log::{DashDeclarations, StepPhase, read_declarations, step_declaration_note};
+use crate::log::{ArcDeclarations, StepPhase, read_declarations, step_declaration_note};
 use crate::ops;
 
-/// One disagreement between two of a dash's records.
+/// One disagreement between two of an arc's records.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct DashFinding {
+pub struct ArcFinding {
     /// A stable kebab-case code, for a machine that wants to switch on it.
     pub code: String,
     /// The disagreement in one sentence, naming both records and the step.
-    /// This is what `dash status` prints and what a person reads.
+    /// This is what `arc status` prints and what a person reads.
     pub sentence: String,
     /// The append that reconciles it, when one record can be caught up to the
     /// other without a judgment. `None` when the disagreement needs a person.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub repair: Option<DashRepair>,
+    pub repair: Option<ArcRepair>,
 }
 
-/// A dash-log line that would reconcile a finding.
+/// An arc log line that would reconcile a finding.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct DashRepair {
+pub struct ArcRepair {
     pub marker: String,
     pub note: String,
     /// What appending it would achieve, in one clause.
@@ -63,15 +63,16 @@ pub struct DashRepair {
 
 /// Everything the doctor found, and enough context to read it.
 #[derive(Debug, Clone, Serialize)]
-pub struct DashDiagnosis {
-    pub dash: String,
+pub struct ArcDiagnosis {
+    #[serde(rename = "arc")]
+    pub arc: String,
     /// The ledger document the table was read from, when there is one.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ledger: Option<String>,
-    pub findings: Vec<DashFinding>,
+    pub findings: Vec<ArcFinding>,
 }
 
-impl DashDiagnosis {
+impl ArcDiagnosis {
     /// Whether the four records agree.
     pub fn healthy(&self) -> bool {
         self.findings.is_empty()
@@ -91,7 +92,7 @@ struct Row {
     has_commit: bool,
 }
 
-/// Read the dash's Step Status Ledger, or `None` when it has no parseable one.
+/// Read the arc's Step Status Ledger, or `None` when it has no parseable one.
 fn read_table(repo_root: &Path, name: &str) -> Option<(String, Vec<Row>)> {
     let path = ops::ledger_file(repo_root, name)?;
     let source = std::fs::read_to_string(&path).ok()?;
@@ -126,7 +127,7 @@ fn phase_for(status: &str) -> Option<StepPhase> {
 }
 
 /// The repair that catches the log up to one table row.
-fn catch_log_up(row: &Row, total: u32) -> Option<DashRepair> {
+fn catch_log_up(row: &Row, total: u32) -> Option<ArcRepair> {
     let phase = phase_for(&row.status)?;
     // A `done` row's note tail is its sha; the doctor does not have one to
     // hand and will not invent a commit, so it writes the title instead. The
@@ -134,10 +135,10 @@ fn catch_log_up(row: &Row, total: u32) -> Option<DashRepair> {
     // would be reads as "reconciled, commit unknown" rather than as a lie
     // about which round closed the step.
     let tail = format!(
-        "Step {}: {} (reconciled by dash doctor)",
+        "Step {}: {} (reconciled by arc doctor)",
         row.step, row.title
     );
-    Some(DashRepair {
+    Some(ArcRepair {
         marker: phase.marker().to_string(),
         note: step_declaration_note(row.step, total, &tail),
         effect: format!(
@@ -147,13 +148,13 @@ fn catch_log_up(row: &Row, total: u32) -> Option<DashRepair> {
     })
 }
 
-/// Compare a dash's four records and name every disagreement.
+/// Compare an arc's four records and name every disagreement.
 ///
-/// Read-only: it opens no writable handle and takes no lock. A dash with no
-/// documents, no log, or no branch is not an error here — it is a dash with
+/// Read-only: it opens no writable handle and takes no lock. An arc with no
+/// documents, no log, or no branch is not an error here — it is an arc with
 /// fewer records to disagree, and the checks that need a record it lacks are
 /// simply not run.
-pub fn diagnose(repo_root: &Path, name: &str) -> DashDiagnosis {
+pub fn diagnose(repo_root: &Path, name: &str) -> ArcDiagnosis {
     let mut findings = Vec::new();
     let decls = read_declarations(repo_root, name);
     let table = read_table(repo_root, name);
@@ -167,8 +168,8 @@ pub fn diagnose(repo_root: &Path, name: &str) -> DashDiagnosis {
     check_commit_cells(&mut findings, rows);
     check_arc(&mut findings, rows, arc.as_ref(), repo_root, name);
 
-    DashDiagnosis {
-        dash: name.to_string(),
+    ArcDiagnosis {
+        arc: name.to_string(),
         ledger,
         findings,
     }
@@ -176,9 +177,9 @@ pub fn diagnose(repo_root: &Path, name: &str) -> DashDiagnosis {
 
 /// The table against the log: the split the doctor exists for.
 fn check_table_against_log(
-    findings: &mut Vec<DashFinding>,
+    findings: &mut Vec<ArcFinding>,
     rows: &[Row],
-    decls: &DashDeclarations,
+    decls: &ArcDeclarations,
     has_ledger: bool,
     name: &str,
 ) {
@@ -186,10 +187,10 @@ fn check_table_against_log(
     // gone. Nothing can be reconciled — the table is the missing record.
     if !has_ledger {
         if let Some((current, total)) = decls.step {
-            findings.push(DashFinding {
+            findings.push(ArcFinding {
                 code: "ledger-missing".into(),
                 sentence: format!(
-                    "the dash-log says '{name}' reached step {current} of {total}, but there is \
+                    "the arc log says '{name}' reached step {current} of {total}, but there is \
                      no plan or task list to read a Step Status Ledger from — the arc's resume \
                      pointer has nothing to point at."
                 ),
@@ -203,10 +204,10 @@ fn check_table_against_log(
     if let Some((_, declared_total)) = decls.step
         && declared_total != total
     {
-        findings.push(DashFinding {
+        findings.push(ArcFinding {
             code: "step-total".into(),
             sentence: format!(
-                "the dash-log's step declarations count {declared_total} steps and the table has \
+                "the arc log's step declarations count {declared_total} steps and the table has \
                  {total} rows — the plan gained or lost rows after a run began, so every \
                  declared i/N in this generation is against a different denominator."
             ),
@@ -219,10 +220,10 @@ fn check_table_against_log(
         && let Some((current, _)) = decls.step
     {
         match rows.iter().find(|r| r.step == current) {
-            Some(row) if row.status != "in progress" => findings.push(DashFinding {
+            Some(row) if row.status != "in progress" => findings.push(ArcFinding {
                 code: "open-step-status".into(),
                 sentence: format!(
-                    "the dash-log says step {current} is open while the table reads it \
+                    "the arc log says step {current} is open while the table reads it \
                      '{}' — status and join-arming derive from the log, the arc's resume \
                      pointer derives from the table, so the two would send a resumed run to \
                      different steps.",
@@ -230,10 +231,10 @@ fn check_table_against_log(
                 ),
                 repair: catch_log_up(row, total),
             }),
-            None => findings.push(DashFinding {
+            None => findings.push(ArcFinding {
                 code: "open-step-missing-row".into(),
                 sentence: format!(
-                    "the dash-log says step {current} is open and the table has no row for it."
+                    "the arc log says step {current} is open and the table has no row for it."
                 ),
                 repair: None,
             }),
@@ -249,10 +250,10 @@ fn check_table_against_log(
         if declared_open {
             continue;
         }
-        findings.push(DashFinding {
+        findings.push(ArcFinding {
             code: "undeclared-open-row".into(),
             sentence: format!(
-                "the table reads step {} 'in progress' and the dash-log never declared it \
+                "the table reads step {} 'in progress' and the arc log never declared it \
                  opened — the row moved and the declaration did not, which is what a crash \
                  between the two writes leaves behind.",
                 row.step
@@ -264,7 +265,7 @@ fn check_table_against_log(
 
 /// The audit's headline: the log arms the join while the table still has work
 /// inside the declared selection.
-fn check_run_arming(findings: &mut Vec<DashFinding>, rows: &[Row], decls: &DashDeclarations) {
+fn check_run_arming(findings: &mut Vec<ArcFinding>, rows: &[Row], decls: &ArcDeclarations) {
     if !decls.run_complete {
         return;
     }
@@ -284,22 +285,22 @@ fn check_run_arming(findings: &mut Vec<DashFinding>, rows: &[Row], decls: &DashD
         .map(u32::to_string)
         .collect::<Vec<_>>()
         .join(", ");
-    findings.push(DashFinding {
+    findings.push(ArcFinding {
         code: "armed-over-open-rows".into(),
         sentence: format!(
-            "the dash-log says the run through step {through} finished — so the join is armed — \
-             while the table still reads step(s) {list} as unclosed. Close them with `dash step \
-             done` or `dash step withdraw` if the run really finished, or reopen the run's last \
-             step with `dash step reopen` if it did not; the doctor will not guess which."
+            "the arc log says the run through step {through} finished — so the join is armed — \
+             while the table still reads step(s) {list} as unclosed. Close them with `arc step \
+             done` or `arc step withdraw` if the run really finished, or reopen the run's last \
+             step with `arc step reopen` if it did not; the doctor will not guess which."
         ),
         repair: None,
     });
 }
 
 /// A `done` row whose commit cell is empty claims a round nobody can follow.
-fn check_commit_cells(findings: &mut Vec<DashFinding>, rows: &[Row]) {
+fn check_commit_cells(findings: &mut Vec<ArcFinding>, rows: &[Row]) {
     for row in rows.iter().filter(|r| r.status == "done" && !r.has_commit) {
-        findings.push(DashFinding {
+        findings.push(ArcFinding {
             code: "done-without-commit".into(),
             sentence: format!(
                 "step {} reads 'done' with an empty commit cell — a later reader following the \
@@ -313,7 +314,7 @@ fn check_commit_cells(findings: &mut Vec<DashFinding>, rows: &[Row]) {
 
 /// The arc record against the table, the documents, and the binding.
 fn check_arc(
-    findings: &mut Vec<DashFinding>,
+    findings: &mut Vec<ArcFinding>,
     rows: &[Row],
     arc: Option<&crate::arc::ArcRecord>,
     repo_root: &Path,
@@ -331,11 +332,11 @@ fn check_arc(
             repo_root.join(plan)
         };
         if !candidate.exists() && ops::ledger_file(repo_root, name).is_none() {
-            findings.push(DashFinding {
+            findings.push(ArcFinding {
                 code: "arc-document-missing".into(),
                 sentence: format!(
                     "the arc record names `{plan}` as the document it is driving and no file \
-                     stands there, nor does the dash have a plan or task list anywhere else."
+                     stands there, nor does the arc have a plan or task list anywhere else."
                 ),
                 repair: None,
             });
@@ -349,7 +350,7 @@ fn check_arc(
             .map(|r| r.step.to_string())
             .collect();
         if !open.is_empty() {
-            findings.push(DashFinding {
+            findings.push(ArcFinding {
                 code: "arc-done-over-open-rows".into(),
                 sentence: format!(
                     "the arc record says the arc finished while the table still reads step(s) {} \
@@ -368,12 +369,12 @@ fn check_arc(
     // is *supposed* to be sitting there with nothing running.
     if arc.stopped.is_none()
         && arc.current_stage().is_some()
-        && ops::bound_sessions_for(&ops::dash_owner_key(repo_root, name)).is_empty()
+        && ops::bound_sessions_for(&ops::arc_owner_key(repo_root, name)).is_empty()
     {
-        findings.push(DashFinding {
+        findings.push(ArcFinding {
             code: "arc-unbound".into(),
             sentence: format!(
-                "the arc is in its {} stage and no live session is bound to this dash — the \
+                "the arc is in its {} stage and no live session is bound to this arc — the \
                  next rotation has no card to land on.",
                 arc.current_stage()
                     .map(|s| s.as_str().to_owned())
@@ -384,14 +385,14 @@ fn check_arc(
     }
 }
 
-/// What a `dash doctor` run did.
+/// What a `arc doctor` run did.
 #[derive(Debug, Clone, Serialize)]
 pub struct DoctorOutcome {
     #[serde(flatten)]
-    pub diagnosis: DashDiagnosis,
+    pub diagnosis: ArcDiagnosis,
     /// Whether `--repair` was asked for.
     pub repaired: bool,
-    /// The dash-log lines actually appended, in order.
+    /// The arc log lines actually appended, in order.
     pub appended: Vec<String>,
     /// Findings that carry no repair, so a `--repair` run still leaves them.
     pub left_for_a_person: usize,
@@ -401,7 +402,7 @@ pub struct DoctorOutcome {
 ///
 /// A repair run re-diagnoses first, so it never appends against a reading
 /// taken before something else moved. The appends go through
-/// [`crate::log::append_dash_log`], the same door every other declaration
+/// [`crate::log::append_arc_log`], the same door every other declaration
 /// uses, because a repair that wrote the log a second way would be the first
 /// thing a later reader had to learn about.
 pub fn doctor(repo_root: &Path, name: &str, repair: bool) -> Result<DoctorOutcome, String> {
@@ -412,7 +413,7 @@ pub fn doctor(repo_root: &Path, name: &str, repair: bool) -> Result<DoctorOutcom
             let Some(fix) = &finding.repair else {
                 continue;
             };
-            crate::log::append_dash_log(repo_root, name, &fix.marker, &fix.note)
+            crate::log::append_arc_log(repo_root, name, &fix.marker, &fix.note)
                 .map_err(|e| format!("the reconciling append failed: {e}"))?;
             appended.push(format!("{}  {}", fix.marker, fix.note));
         }
@@ -476,15 +477,15 @@ mod tests {
             .collect()
     }
 
-    fn decls(step: Option<(u32, u32)>, in_flight: bool) -> DashDeclarations {
-        DashDeclarations {
+    fn decls(step: Option<(u32, u32)>, in_flight: bool) -> ArcDeclarations {
+        ArcDeclarations {
             step,
             step_in_flight: in_flight,
-            ..DashDeclarations::default()
+            ..ArcDeclarations::default()
         }
     }
 
-    fn codes(findings: &[DashFinding]) -> Vec<&str> {
+    fn codes(findings: &[ArcFinding]) -> Vec<&str> {
         findings.iter().map(|f| f.code.as_str()).collect()
     }
 
@@ -552,10 +553,10 @@ mod tests {
             (2, "Second", "pending", "—"),
             (3, "Third", "done", "`def5678`"),
         ]);
-        let armed = DashDeclarations {
+        let armed = ArcDeclarations {
             run_through: Some(3),
             run_complete: true,
-            ..DashDeclarations::default()
+            ..ArcDeclarations::default()
         };
         let mut findings = Vec::new();
         check_run_arming(&mut findings, &rows, &armed);
@@ -576,10 +577,10 @@ mod tests {
             (1, "First", "done", "`abc1234`"),
             (2, "Second", "withdrawn", "—"),
         ]);
-        let armed = DashDeclarations {
+        let armed = ArcDeclarations {
             run_through: Some(2),
             run_complete: true,
-            ..DashDeclarations::default()
+            ..ArcDeclarations::default()
         };
         let mut findings = Vec::new();
         check_run_arming(&mut findings, &rows, &armed);

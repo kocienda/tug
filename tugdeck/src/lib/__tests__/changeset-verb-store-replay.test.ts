@@ -19,7 +19,7 @@ import { arcReplayOutcomeStore } from "../arc-replay-outcome-store";
 
 const ENTRY = "session:s1";
 const PROJECT = "/proj";
-const DASH = "replay-lane";
+const ARC = "replay-lane";
 const SESSION = "sess-1";
 
 interface Sent {
@@ -59,32 +59,32 @@ beforeEach(() => {
 
 describe("the replay round trip", () => {
   test("the frame is the discard's shape, session id and all", () => {
-    h.store.replay(ENTRY, PROJECT, DASH, SESSION);
+    h.store.replay(ENTRY, PROJECT, ARC, SESSION);
     expect(h.sent[0]).toEqual({
       action: "changeset_replay",
-      body: { project_dir: PROJECT, dash: DASH, session_id: SESSION },
+      body: { project_dir: PROJECT, arc: ARC, session_id: SESSION },
     });
 
     const bare = harness();
-    bare.store.replay(ENTRY, PROJECT, DASH);
+    bare.store.replay(ENTRY, PROJECT, ARC);
     expect(bare.sent[0]).toEqual({
       action: "changeset_replay",
-      body: { project_dir: PROJECT, dash: DASH },
+      body: { project_dir: PROJECT, arc: ARC },
     });
   });
 
   test("a send is pending until the answer arrives", () => {
     expect(h.store.replayState(ENTRY).phase).toBe("idle");
-    h.store.replay(ENTRY, PROJECT, DASH, SESSION);
+    h.store.replay(ENTRY, PROJECT, ARC, SESSION);
     expect(h.store.replayState(ENTRY).phase).toBe("pending");
   });
 
-  test("a replayed dash settles on done carrying the word", () => {
-    h.store.replay(ENTRY, PROJECT, DASH, SESSION);
+  test("a replayed arc settles on done carrying the word", () => {
+    h.store.replay(ENTRY, PROJECT, ARC, SESSION);
     h.reply({
       action: "changeset_replay_ok",
       project_dir: PROJECT,
-      dash: DASH,
+      arc: ARC,
       outcome: "replayed",
       base_head: "abc1234",
     });
@@ -94,31 +94,31 @@ describe("the replay round trip", () => {
   });
 
   test("a deferred replay keeps the detail that is its only voice", () => {
-    h.store.replay(ENTRY, PROJECT, DASH, SESSION);
+    h.store.replay(ENTRY, PROJECT, ARC, SESSION);
     h.reply({
       action: "changeset_replay_ok",
       project_dir: PROJECT,
-      dash: DASH,
+      arc: ARC,
       session_id: SESSION,
       outcome: "deferred",
       reason: "dirty-worktree",
-      detail: "dash 'replay-lane' has uncommitted changes",
+      detail: "arc 'replay-lane' has uncommitted changes",
     });
     const state = h.store.replayState(ENTRY);
     expect(state.outcome).toBe("deferred");
-    expect(state.detail).toBe("dash 'replay-lane' has uncommitted changes");
+    expect(state.detail).toBe("arc 'replay-lane' has uncommitted changes");
 
     const posted = arcReplayOutcomeStore.outcomeFor(SESSION);
     expect(posted?.outcome).toBe("deferred");
-    expect(posted?.detail).toBe("dash 'replay-lane' has uncommitted changes");
+    expect(posted?.detail).toBe("arc 'replay-lane' has uncommitted changes");
   });
 
   test("a conflicted replay carries its round and paths to the notice", () => {
-    h.store.replay(ENTRY, PROJECT, DASH, SESSION);
+    h.store.replay(ENTRY, PROJECT, ARC, SESSION);
     h.reply({
       action: "changeset_replay_ok",
       project_dir: PROJECT,
-      dash: DASH,
+      arc: ARC,
       session_id: SESSION,
       outcome: "conflicted",
       round: "def4567",
@@ -132,11 +132,11 @@ describe("the replay round trip", () => {
   });
 
   test("a refusal settles on error and reaches the notice too", () => {
-    h.store.replay(ENTRY, PROJECT, DASH, SESSION);
+    h.store.replay(ENTRY, PROJECT, ARC, SESSION);
     h.reply({
       action: "changeset_replay_err",
       project_dir: PROJECT,
-      dash: DASH,
+      arc: ARC,
       session_id: SESSION,
       detail: "not a git repository",
     });
@@ -150,7 +150,7 @@ describe("the replay round trip", () => {
     h.reply({
       action: "changeset_replay_ok",
       project_dir: PROJECT,
-      dash: DASH,
+      arc: ARC,
       outcome: "current",
     });
     expect(h.store.replayState(ENTRY).phase).toBe("idle");
@@ -165,11 +165,11 @@ describe("the outcome notice store", () => {
     });
 
     const post = (): void => {
-      h.store.replay(ENTRY, PROJECT, DASH, SESSION);
+      h.store.replay(ENTRY, PROJECT, ARC, SESSION);
       h.reply({
         action: "changeset_replay_ok",
         project_dir: PROJECT,
-        dash: DASH,
+        arc: ARC,
         session_id: SESSION,
         outcome: "current",
       });
@@ -189,14 +189,14 @@ describe("the outcome notice store", () => {
   });
 
   test("a replay with no session id says nothing", () => {
-    h.store.replay(ENTRY, PROJECT, DASH);
+    h.store.replay(ENTRY, PROJECT, ARC);
     h.reply({
       action: "changeset_replay_ok",
       project_dir: PROJECT,
-      dash: DASH,
+      arc: ARC,
       outcome: "deferred",
       reason: "dirty-worktree",
-      detail: "dash 'replay-lane' has uncommitted changes",
+      detail: "arc 'replay-lane' has uncommitted changes",
     });
     expect(arcReplayOutcomeStore.outcomeFor(SESSION)).toBeNull();
   });

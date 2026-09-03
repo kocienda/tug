@@ -786,7 +786,7 @@
 }
 
 /* Tug-notice row — the head of a turn Tug started itself (the base-motion
-   engine's, when a dash's base moved under it). Same quiet-line substrate as
+   engine's, when an arc's base moved under it). Same quiet-line substrate as
    the wake chip, with the accent rule marking it as spoken by the system
    rather than by the user: a turn that begins with no visible cause is worse
    than the ambush it replaces. */
@@ -813,7 +813,7 @@
 }
 
 
-/* Stage divider — a dash arc rotated the card onto a fresh claude session.
+/* Stage divider — an arc rotated the card onto a fresh claude session.
    Unlike the notice row (a turn Tug started, marked with an accent rule down
    its side) this marks a BOUNDARY between two stages, so the rule runs across
    the row above the bar. Soft and unaccented: the arc's stages are the

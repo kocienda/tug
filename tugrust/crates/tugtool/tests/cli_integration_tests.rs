@@ -69,6 +69,12 @@ fn test_init_default_config_is_project_neutral() {
     let config_path = temp.path().join(".tugtool").join("config.toml");
     let text = std::fs::read_to_string(&config_path).expect("config should be readable");
 
+    assert!(
+        text.starts_with("[tugtool.arc]"),
+        "a fresh init writes the arc table, not the retired one: {}",
+        text.lines().next().unwrap_or_default()
+    );
+
     for line in text.lines() {
         let line = line.trim();
         if line.starts_with('#') || line.is_empty() {
@@ -81,9 +87,9 @@ fn test_init_default_config_is_project_neutral() {
     }
 
     let config = tugtool_core::config::Config::load(&config_path).expect("default should parse");
-    assert!(config.tugtool.dash.post_create.is_empty());
-    assert!(config.tugtool.dash.surfaces.is_empty());
-    assert!(config.tugtool.dash.build.is_none());
+    assert!(config.tugtool.arc.post_create.is_empty());
+    assert!(config.tugtool.arc.surfaces.is_empty());
+    assert!(config.tugtool.arc.build.is_none());
 }
 
 #[test]
@@ -271,11 +277,11 @@ fn test_init_check_json_initialized() {
 
 /// The seam has one reader, and it reports what the project declared.
 #[test]
-fn test_dash_config_reports_declarations() {
+fn test_arc_config_reports_declarations() {
     let temp = setup_test_project();
     std::fs::write(
         temp.path().join(".tugtool").join("config.toml"),
-        "[tugtool.dash]\npost_create = [\"npm install\"]\nbuild = \"make app\"\n\n[[tugtool.dash.surface]]\nname = \"src\"\npaths = [\"src/\"]\ncheck = [\"make check\"]\n\n[[tugtool.dash.surface]]\nname = \"docs\"\npaths = [\"README.md\"]\ncheck = []\n",
+        "[tugtool.arc]\npost_create = [\"npm install\"]\nbuild = \"make app\"\n\n[[tugtool.arc.surface]]\nname = \"src\"\npaths = [\"src/\"]\ncheck = [\"make check\"]\n\n[[tugtool.arc.surface]]\nname = \"docs\"\npaths = [\"README.md\"]\ncheck = []\n",
     )
     .expect("failed to write config");
 
@@ -287,7 +293,7 @@ fn test_dash_config_reports_declarations() {
         .output()
         .expect("failed to run tugtool arc config");
 
-    assert!(output.status.success(), "dash config should succeed");
+    assert!(output.status.success(), "arc config should succeed");
     let json: serde_json::Value =
         serde_json::from_str(&String::from_utf8_lossy(&output.stdout)).expect("valid JSON");
     assert_eq!(json["command"], "arc config");
@@ -309,7 +315,7 @@ fn test_dash_config_reports_declarations() {
 /// A project that never wrote a config is the all-undeclared state, not a
 /// failure — the ending degrades rather than refusing to run.
 #[test]
-fn test_dash_config_missing_file_is_undeclared_not_an_error() {
+fn test_arc_config_missing_file_is_undeclared_not_an_error() {
     let temp = tempfile::tempdir().expect("failed to create temp dir");
     std::fs::create_dir(temp.path().join(".tugtool")).expect("failed to create .tugtool");
 
@@ -353,7 +359,7 @@ fn test_init_check_force_mutually_exclusive() {
     );
 }
 
-/// A git repository with a first commit, so the `dash`/`plan` verbs that
+/// A git repository with a first commit, so the `arc`/`plan` verbs that
 /// resolve a root from the cwd have one to find.
 fn git_project() -> tempfile::TempDir {
     let temp = tempfile::tempdir().expect("failed to create temp dir");
@@ -386,10 +392,10 @@ fn git_project() -> tempfile::TempDir {
     temp
 }
 
-/// The name is the address: a bare argument resolves to that dash's own
+/// The name is the address: a bare argument resolves to that arc's own
 /// `plan.md`, and the answer names the absolute file rather than the argument.
 #[test]
-fn test_plan_status_accepts_a_dash_name() {
+fn test_plan_status_accepts_a_arc_name() {
     let temp = git_project();
     let plan_dir = temp.path().join(".tug").join("arcs").join("named");
     std::fs::create_dir_all(&plan_dir).expect("documents dir");
@@ -411,7 +417,7 @@ fn test_plan_status_accepts_a_dash_name() {
 
     assert!(
         output.status.success(),
-        "a name that is a dash must resolve: {:?}",
+        "a name that is an arc must resolve: {:?}",
         String::from_utf8_lossy(&output.stderr)
     );
     let json: serde_json::Value =
@@ -428,10 +434,10 @@ fn test_plan_status_accepts_a_dash_name() {
     assert_eq!(json["data"]["steps"]["total"], 1);
 }
 
-/// A dash whose documents directory does not exist yet is a state, not an
-/// error — every `/dash` invocation starts there.
+/// An arc whose documents directory does not exist yet is a state, not an
+/// error — every `/arc` invocation starts there.
 #[test]
-fn test_dash_documents_reports_a_state_not_an_error() {
+fn test_arc_documents_reports_a_state_not_an_error() {
     let temp = git_project();
 
     let output = Command::new(tug_binary())

@@ -1,10 +1,10 @@
 /**
- * ArcJoinRegister — one dash's join, wearing the transcript's own chrome.
+ * ArcJoinRegister — one arc's join, wearing the transcript's own chrome.
  *
- * The register says what is happening between a dash reaching `built` and its
+ * The register says what is happening between an arc reaching `built` and its
  * join landing: reconciling, checking, ready, waiting on a decision, red,
  * joining. It mounts on three surfaces — the Arcs card row, the Changes
- * shade's dash row, and the transcript's live edge — and the whole point is
+ * shade's arc row, and the transcript's live edge — and the whole point is
  * that all three read the *same sentence*, because all three call the same
  * pure derivation ({@link arcJoinRegister}).
  *
@@ -45,7 +45,7 @@ import {
 export interface ArcJoinRegisterProps extends ArcJoinRegisterInput {
   /**
    * Altitude tier forwarded to the header. `leaf` (the default) is the
-   * transcript's own metrics; a Arcs card band or a card row passes its own.
+   * transcript's own metrics; an Arcs card band or a card row passes its own.
    */
   altitude?: BlockAltitude;
   /** Forwarded class name. */
@@ -55,7 +55,7 @@ export interface ArcJoinRegisterProps extends ArcJoinRegisterInput {
 /**
  * The register, or nothing at all.
  *
- * Returns `null` when the derivation has nothing to report — a dash still
+ * Returns `null` when the derivation has nothing to report — an arc still
  * being worked has no join yet, and a register that mounted empty would be
  * a row of chrome saying nothing.
  */

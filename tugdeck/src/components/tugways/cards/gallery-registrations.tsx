@@ -969,10 +969,10 @@ export function registerGalleryCards(): void {
     category: CATEGORIES.feedback,
   });
 
-  // The dash lifecycle grammar, whole: six components over one wire entry per
+  // The arc lifecycle grammar, whole: six components over one wire entry per
   // moment, and the real SessionIdentityRow reading a handed-in binding.
   registerCard({
-    componentId: "gallery-dash-lifecycle",
+    componentId: "gallery-arc-lifecycle",
     contentFactory: (_cardId) => <GalleryArcLifecycle />,
     defaultMeta: { title: "Arc Lifecycle", icon: "Route", closable: true },
     family: "maker",

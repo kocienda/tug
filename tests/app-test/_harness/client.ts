@@ -777,7 +777,7 @@ export function spawnSessionResume(
  *  - `shellExchange` — settle a completed `$`-route exchange row. The
  *    shell feed is a different store from the one `ingestFrame` reaches,
  *    so a shell row is otherwise only reachable by running a command.
- *  - `dashNote` — deliver a live dash gesture's quiet line ([P12]); the
+ *  - `arcNote` — deliver a live arc gesture's quiet line ([P12]); the
  *    reducer seats it inside the open turn when one is streaming, or as
  *    its own quiet ink row when none is.
  */
@@ -800,7 +800,7 @@ export type SessionDriveAction =
       startedAtMs?: number;
     }
   | {
-      op: "dashNote";
+      op: "arcNote";
       exchangeId: string;
       command: string;
       text: string;
@@ -1565,7 +1565,7 @@ export async function holdModifier(
  * the scrim and the gesture that follows it falls on the floor: the composer
  * never focuses, the typing goes nowhere, and the test times out much later
  * waiting for a surface the click was supposed to raise. That is the
- * `tug-sheet` mount red — three dash files whose only fault was clicking a
+ * `tug-sheet` mount red — three arc files whose only fault was clicking a
  * beat too early, and it is a race, which is why one of them was flaky and
  * the others were not.
  *

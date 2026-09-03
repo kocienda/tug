@@ -145,12 +145,12 @@ describe("diffDescriptorKey", () => {
       root: "/repo",
       worktree: ".tug/worktrees/demo",
       base: "main",
-      branch: "tugdash/demo",
+      branch: "tugarc/demo",
     };
     expect(diffDescriptorKey(a)).toBe(
-      "range:/repo:.tug/worktrees/demo:main:tugdash/demo",
+      "range:/repo:.tug/worktrees/demo:main:tugarc/demo",
     );
-    const b: DiffDescriptor = { ...a, branch: "tugdash/other" };
+    const b: DiffDescriptor = { ...a, branch: "tugarc/other" };
     expect(diffDescriptorKey(b)).not.toBe(diffDescriptorKey(a));
   });
 

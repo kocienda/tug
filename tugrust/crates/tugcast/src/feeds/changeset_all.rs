@@ -24,11 +24,11 @@
 //! moves — the event is real (a draft write), only its *observation* is
 //! polled, the same relationship `git_watch` has to git state.
 //!
-//! The same probe stats each open project's `dash-log.md` ([P06]). That file
+//! The same probe stats each open project's `arc-log.md` ([P06]). That file
 //! lives under the data dir rather than the workspace, so a log-only write
 //! reaches no watcher at all — and since the join now derives its
 //! readiness from what the log records, an unobserved append would leave a
-//! ready dash dark until something unrelated moved.
+//! ready arc dark until something unrelated moved.
 
 use std::sync::Arc;
 
@@ -100,7 +100,7 @@ impl SnapshotFeed for ChangesetAllFeed {
         let mut probe = tokio::time::interval(std::time::Duration::from_secs(2));
         probe.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         let mut last_drafts_version = drafts_version(self.ledger.as_deref());
-        let mut last_dash_log_stamps = dash_log_stamps(&self.registry);
+        let mut last_arc_log_stamps = arc_log_stamps(&self.registry);
 
         // Compose the initial snapshot immediately, then recompute only when the
         // bump fires — every recompute is driven by a real event (an attributed
@@ -157,7 +157,7 @@ impl SnapshotFeed for ChangesetAllFeed {
                         .await;
                         break 'wait;
                     }
-                    // Deliberately ungated: the dash-log half must run in a
+                    // Deliberately ungated: the arc-log half must run in a
                     // harness with no ledger too, and gating the whole tick on
                     // `ledger.is_some()` (as the drafts probe alone once did)
                     // would take the mark path down with it ([P06]).
@@ -167,9 +167,9 @@ impl SnapshotFeed for ChangesetAllFeed {
                             last_drafts_version = version;
                             self.bump.notify_one();
                         }
-                        let stamps = dash_log_stamps(&self.registry);
-                        if stamps != last_dash_log_stamps {
-                            last_dash_log_stamps = stamps;
+                        let stamps = arc_log_stamps(&self.registry);
+                        if stamps != last_arc_log_stamps {
+                            last_arc_log_stamps = stamps;
                             self.bump.notify_one();
                         }
                     }
@@ -185,20 +185,20 @@ fn drafts_version(ledger: Option<&SessionLedger>) -> Option<i64> {
     ledger.and_then(|l| l.changeset_drafts_version().ok().flatten())
 }
 
-/// Each open project's `dash-log.md` mtime, in registry order ([P06]).
+/// Each open project's `arc-log.md` mtime, in registry order ([P06]).
 ///
 /// The log lives under the data dir, outside every watched workspace root, so
-/// a write that touches nothing else — `dash mark`, a lone `run-through` line
+/// a write that touches nothing else — `arc mark`, a lone `run-through` line
 /// — reaches no watcher. The same relationship the drafts probe has to a
 /// draft write: the event is real, only its observation is polled. A missing
 /// log is `None`, which means creating the first one moves the vector and
 /// fires the bump exactly like a later append does.
-fn dash_log_stamps(registry: &WorkspaceRegistry) -> Vec<Option<std::time::SystemTime>> {
+fn arc_log_stamps(registry: &WorkspaceRegistry) -> Vec<Option<std::time::SystemTime>> {
     registry
         .project_dirs()
         .iter()
         .map(|(root, _key)| {
-            std::fs::metadata(tugtool_core::project_state_dir(root).join("dash-log.md"))
+            std::fs::metadata(tugtool_core::paths::arc_log_path(root))
                 .and_then(|meta| meta.modified())
                 .ok()
         })
@@ -231,7 +231,7 @@ pub(crate) async fn compose_aggregate(
     // `projects`: its dir, whether it is a repo, and whether this cycle's
     // `compose_snapshot` actually succeeded (a transient `git status`
     // failure degrades to an empty repo element, which must not be elected
-    // to carry the repo's dash list — a sibling that composed should).
+    // to carry the repo's arc list — a sibling that composed should).
     let mut compose_facts: Vec<(std::path::PathBuf, bool, bool)> =
         Vec::with_capacity(projects.capacity());
     // Entries whose directory is gone from disk: they compose nothing this
@@ -321,7 +321,7 @@ pub(crate) async fn compose_aggregate(
         });
     }
 
-    attach_dashes_per_repo(&mut projects, &compose_facts, ledger).await;
+    attach_arcs_per_repo(&mut projects, &compose_facts, ledger).await;
 
     if !gone.is_empty() {
         registry.sweep_missing(&gone);
@@ -333,11 +333,11 @@ pub(crate) async fn compose_aggregate(
     }
 }
 
-/// Attach each repo's dash composition to exactly one of its open projects.
+/// Attach each repo's arc composition to exactly one of its open projects.
 ///
-/// A dash list is a property of the repo — `git worktree list` answers
+/// An arc list is a property of the repo — `git worktree list` answers
 /// repo-wide from any worktree — so composing it per project duplicated every
-/// dash row whenever two open projects shared one repo: a linked worktree
+/// arc row whenever two open projects shared one repo: a linked worktree
 /// beside its base, or one checkout open under two spellings. Projects group
 /// by the `(device, inode)` of `git rev-parse --git-common-dir`, which is
 /// what actually identifies one directory across spellings; a resolved path
@@ -348,12 +348,12 @@ pub(crate) async fn compose_aggregate(
 /// successfully-composed projects — the base checkout (dir identity equal to
 /// the common dir's parent) when it is among them, else the first by
 /// `project_dir` order — so a transient `git status` failure on one project
-/// never takes the whole repo's dash list off the frame while a sibling could
+/// never takes the whole repo's arc list off the frame while a sibling could
 /// carry it. A project whose probe fails composes its own list, exactly as
 /// every project did before grouping existed. `join_board::sweep` and
-/// `sweep_workshops` ride inside `dash_entries`, so under this grouping they
+/// `sweep_workshops` ride inside `arc_entries`, so under this grouping they
 /// run once per repo, on the owner.
-async fn attach_dashes_per_repo(
+async fn attach_arcs_per_repo(
     projects: &mut [ProjectChangeset],
     compose_facts: &[(std::path::PathBuf, bool, bool)],
     ledger: Option<&SessionLedger>,
@@ -382,7 +382,7 @@ async fn attach_dashes_per_repo(
         if *no_repo {
             continue;
         }
-        let owns_dashes = match &identities[index] {
+        let owns_arcs = match &identities[index] {
             // Probe failed — the project composes its own list, as it always
             // did before grouping existed.
             None => true,
@@ -397,11 +397,11 @@ async fn attach_dashes_per_repo(
                 owner == Some(index)
             }
         };
-        if !owns_dashes {
+        if !owns_arcs {
             continue;
         }
         if *composed {
-            super::changeset::attach_dash_composition(
+            super::changeset::attach_arc_composition(
                 project_dir,
                 ledger,
                 &mut projects[index].snapshot,
@@ -409,7 +409,7 @@ async fn attach_dashes_per_repo(
             .await;
         }
         projects[index].document_arcs =
-            super::changeset::document_dash_entries(project_dir, ledger).await;
+            super::changeset::document_arc_entries(project_dir, ledger).await;
     }
 }
 
@@ -488,10 +488,10 @@ mod tests {
         git(dir, &["commit", "-q", "-m", "base commit"]);
     }
 
-    /// Mint a dash on the repo — a `tugdash/<name>` branch with its base
-    /// config, the shape `dash_detail_entries_in` composes from.
-    fn add_dash(dir: &Path, name: &str) {
-        let branch = format!("tugdash/{name}");
+    /// Mint an arc on the repo — a `tugarc/<name>` branch with its base
+    /// config, the shape `arc_detail_entries_in` composes from.
+    fn add_arc(dir: &Path, name: &str) {
+        let branch = format!("tugarc/{name}");
         git(dir, &["branch", &branch]);
         git(
             dir,
@@ -499,12 +499,12 @@ mod tests {
         );
     }
 
-    fn dash_count(project: &ProjectChangeset) -> usize {
+    fn arc_count(project: &ProjectChangeset) -> usize {
         project
             .snapshot
             .changesets
             .iter()
-            .filter(|e| matches!(e, tugcast_core::types::ChangesetEntry::Dash { .. }))
+            .filter(|e| matches!(e, tugcast_core::types::ChangesetEntry::Arc { .. }))
             .count()
     }
 
@@ -519,26 +519,20 @@ mod tests {
         }
     }
 
-    /// The aggregate carries a repo's dash list exactly once when the base
+    /// The aggregate carries a repo's arc list exactly once when the base
     /// checkout and one of its linked worktrees are open together — on the
     /// base's project, never duplicated onto the worktree's.
     #[tokio::test]
-    async fn one_repo_open_twice_composes_its_dashes_once() {
+    async fn one_repo_open_twice_composes_its_arcs_once() {
         let base_dir = tempfile::tempdir().unwrap();
         let base = base_dir.path().canonicalize().unwrap();
         init_repo(&base);
-        add_dash(&base, "demo");
+        add_arc(&base, "demo");
         let wt_parent = tempfile::tempdir().unwrap();
         let wt = wt_parent.path().canonicalize().unwrap().join("wt");
         git(
             &base,
-            &[
-                "worktree",
-                "add",
-                "-q",
-                wt.to_str().unwrap(),
-                "tugdash/demo",
-            ],
+            &["worktree", "add", "-q", wt.to_str().unwrap(), "tugarc/demo"],
         );
 
         let cancel = CancellationToken::new();
@@ -558,34 +552,28 @@ mod tests {
             .iter()
             .find(|p| Path::new(&p.project_dir) == wt)
             .expect("worktree project");
-        assert_eq!(dash_count(base_project), 1, "the base carries the list");
-        assert_eq!(dash_count(wt_project), 0, "the worktree does not repeat it");
+        assert_eq!(arc_count(base_project), 1, "the base carries the list");
+        assert_eq!(arc_count(wt_project), 0, "the worktree does not repeat it");
         assert!(
             wt_project.document_arcs.is_empty(),
-            "document dashes stay with the owner too"
+            "document arcs stay with the owner too"
         );
     }
 
-    /// A linked worktree open without its base still carries the repo's dash
+    /// A linked worktree open without its base still carries the repo's arc
     /// list — the owner fallback when the base checkout is not among the open
     /// projects.
     #[tokio::test]
-    async fn a_worktree_open_alone_carries_the_repo_dashes() {
+    async fn a_worktree_open_alone_carries_the_repo_arcs() {
         let base_dir = tempfile::tempdir().unwrap();
         let base = base_dir.path().canonicalize().unwrap();
         init_repo(&base);
-        add_dash(&base, "demo");
+        add_arc(&base, "demo");
         let wt_parent = tempfile::tempdir().unwrap();
         let wt = wt_parent.path().canonicalize().unwrap().join("wt");
         git(
             &base,
-            &[
-                "worktree",
-                "add",
-                "-q",
-                wt.to_str().unwrap(),
-                "tugdash/demo",
-            ],
+            &["worktree", "add", "-q", wt.to_str().unwrap(), "tugarc/demo"],
         );
 
         let cancel = CancellationToken::new();
@@ -595,7 +583,7 @@ mod tests {
         let snapshot = compose_aggregate(&registry, None).await;
         assert_eq!(snapshot.projects.len(), 1);
         assert_eq!(
-            dash_count(&snapshot.projects[0]),
+            arc_count(&snapshot.projects[0]),
             1,
             "with no base open, the worktree is the owner"
         );
@@ -604,15 +592,15 @@ mod tests {
     /// Two unrelated repos keep their own lists — grouping only collapses
     /// projects that share a git common dir.
     #[tokio::test]
-    async fn unrelated_repos_each_keep_their_dashes() {
+    async fn unrelated_repos_each_keep_their_arcs() {
         let a_dir = tempfile::tempdir().unwrap();
         let a = a_dir.path().canonicalize().unwrap();
         init_repo(&a);
-        add_dash(&a, "one");
+        add_arc(&a, "one");
         let b_dir = tempfile::tempdir().unwrap();
         let b = b_dir.path().canonicalize().unwrap();
         init_repo(&b);
-        add_dash(&b, "two");
+        add_arc(&b, "two");
 
         let cancel = CancellationToken::new();
         let registry = Arc::new(WorkspaceRegistry::new_for_test());
@@ -623,9 +611,9 @@ mod tests {
         assert_eq!(snapshot.projects.len(), 2);
         for project in &snapshot.projects {
             assert_eq!(
-                dash_count(project),
+                arc_count(project),
                 1,
-                "{} carries exactly its own dash",
+                "{} carries exactly its own arc",
                 project.project_dir
             );
         }
@@ -641,17 +629,17 @@ mod tests {
         let base_dir = tempfile::tempdir().unwrap();
         let base = base_dir.path().canonicalize().unwrap();
         init_repo(&base);
-        add_dash(&base, "demo");
+        add_arc(&base, "demo");
         let link_parent = tempfile::tempdir().unwrap();
         let link = link_parent.path().join("spelled-differently");
         std::os::unix::fs::symlink(&base, &link).unwrap();
 
         let mut projects = vec![bare_project(&base), bare_project(&link)];
         let facts = vec![(base.clone(), false, true), (link.clone(), false, true)];
-        attach_dashes_per_repo(&mut projects, &facts, None).await;
+        attach_arcs_per_repo(&mut projects, &facts, None).await;
 
         assert_eq!(
-            dash_count(&projects[0]) + dash_count(&projects[1]),
+            arc_count(&projects[0]) + arc_count(&projects[1]),
             1,
             "one directory, however spelled, is one repo"
         );
@@ -661,31 +649,25 @@ mod tests {
     /// checkout's compose failed this cycle, a sibling carries the repo's
     /// list rather than nobody.
     #[tokio::test]
-    async fn a_failed_base_compose_hands_the_dashes_to_a_sibling() {
+    async fn a_failed_base_compose_hands_the_arcs_to_a_sibling() {
         let base_dir = tempfile::tempdir().unwrap();
         let base = base_dir.path().canonicalize().unwrap();
         init_repo(&base);
-        add_dash(&base, "demo");
+        add_arc(&base, "demo");
         let wt_parent = tempfile::tempdir().unwrap();
         let wt = wt_parent.path().canonicalize().unwrap().join("wt");
         git(
             &base,
-            &[
-                "worktree",
-                "add",
-                "-q",
-                wt.to_str().unwrap(),
-                "tugdash/demo",
-            ],
+            &["worktree", "add", "-q", wt.to_str().unwrap(), "tugarc/demo"],
         );
 
         let mut projects = vec![bare_project(&base), bare_project(&wt)];
         // The base is open but its `compose_snapshot` failed this cycle.
         let facts = vec![(base.clone(), false, false), (wt.clone(), false, true)];
-        attach_dashes_per_repo(&mut projects, &facts, None).await;
+        attach_arcs_per_repo(&mut projects, &facts, None).await;
 
-        assert_eq!(dash_count(&projects[0]), 0, "a failed compose cannot own");
-        assert_eq!(dash_count(&projects[1]), 1, "the sibling carries the list");
+        assert_eq!(arc_count(&projects[0]), 0, "a failed compose cannot own");
+        assert_eq!(arc_count(&projects[1]), 1, "the sibling carries the list");
     }
 
     /// An entry whose directory has been deleted contributes nothing to the
@@ -945,13 +927,13 @@ mod tests {
         let repo_dir = tempfile::tempdir().unwrap();
         let root = repo_dir.path().canonicalize().unwrap();
         init_repo(&root);
-        // Track dash/x.md, then modify it — git then reports the individual
-        // file (a wholly-untracked dir would collapse to `dash/`).
-        std::fs::create_dir(root.join("dash")).unwrap();
-        std::fs::write(root.join("dash/x.md"), "base\n").unwrap();
+        // Track arc/x.md, then modify it — git then reports the individual
+        // file (a wholly-untracked dir would collapse to `arc/`).
+        std::fs::create_dir(root.join("arc")).unwrap();
+        std::fs::write(root.join("arc/x.md"), "base\n").unwrap();
         git(&root, &["add", "."]);
-        git(&root, &["commit", "-q", "-m", "add dash"]);
-        std::fs::write(root.join("dash/x.md"), "edited\n").unwrap();
+        git(&root, &["commit", "-q", "-m", "add arc"]);
+        std::fs::write(root.join("arc/x.md"), "edited\n").unwrap();
 
         // A symlink to the repo — the "other spelling" the session opens under.
         let link_home = tempfile::tempdir().unwrap();
@@ -985,7 +967,7 @@ mod tests {
         );
         let pending = PendingCall {
             tool_name: "Write".to_owned(),
-            file_path: link.join("dash/x.md").to_string_lossy().into_owned(),
+            file_path: link.join("arc/x.md").to_string_lossy().into_owned(),
             op: "write",
             parent_tool_use_id: None,
             timestamp: None,
@@ -1003,7 +985,7 @@ mod tests {
             )
             .expect("the symlink-spelled path canonicalizes into the repo");
         assert_eq!(
-            row.file_path, "dash/x.md",
+            row.file_path, "arc/x.md",
             "recorded repo-relative despite the split"
         );
         ledger.record_file_event(&row).unwrap();
@@ -1027,7 +1009,7 @@ mod tests {
             .collect();
         assert_eq!(
             owned,
-            ["dash/x.md"],
+            ["arc/x.md"],
             "the split edit is owned, not unattributed"
         );
         assert!(

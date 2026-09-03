@@ -41,7 +41,7 @@ export type { CardSessionMode } from "../card-session-binding-store";
  * by the `handleTextDelta` / `handleTurnComplete` guards. The bracket
  * mirrors the replay pattern but uses claude's existing `turn_complete`
  * as the implicit close (no `wake_complete` frame on the wire).
- * See `dash/tugplan-session-wake.md` [D01].
+ * See `arc/tugplan-session-wake.md` [D01].
  */
 export type CodeSessionPhase =
   | "idle"
@@ -182,24 +182,24 @@ export interface AssistantThinking extends MessageBase {
  * (`compact_boundary` / `wake_summary`) extend the `source` union
  * without changing the substrate shape.
  *
- * `stage` is the dash arc's boundary divider: the server rotated this card
+ * `stage` is the arc's boundary divider: the server rotated this card
  * onto a fresh claude session for the next stage of an arc, and the row
  * marks where one stage ended and the next began. Its text is composed by
  * `stageNoteText` in `stages.ts`.
  *
- * `dash` is a dash gesture's quiet line ([P12]): the server derived one
- * sentence from the dash-log — created, run declared, step started, closed,
+ * `arc` is an arc gesture's quiet line ([P12]): the server derived one
+ * sentence from the arc-log — created, run declared, step started, closed,
  * a round — and it arrived while this turn was streaming, so it belongs
  * INSIDE the turn, between the tool calls it happened among. That is what
  * makes an arc read as a conversation: "step 1/3 started" above the work,
  * "step 1/3 closed" below it, the wheel's next ask after. A note arriving
  * with no turn open falls back to its own quiet ink row instead
- * (`handleDashNote`).
+ * (`handleArcNote`).
  */
 export interface SystemNote extends MessageBase {
   kind: "system_note";
   text: string;
-  source: "scheduled" | "compact" | "notice" | "stage" | "dash" | "other";
+  source: "scheduled" | "compact" | "notice" | "stage" | "arc" | "other";
   /**
    * On a `notice`, which subsystem spoke (e.g. `"base-motion"`) — the row's
    * attribution label. Tug started this turn, and the row says so rather than
@@ -378,7 +378,7 @@ export type Message =
  * `shell` it records what the user did, carries exactly one message, and is
  * not part of Claude's context.
  *
- * `wheel` — a turn the wheel opened on the user's behalf: a dash
+ * `wheel` — a turn the wheel opened on the user's behalf: an arc
  * arc's stage prompt, seated by tugcast rather than typed. It lays out
  * exactly as a `user` turn (a `#u` row and an `#a` row) and is part of
  * Claude's context; what differs is who speaks in the `#u` row, which the
@@ -683,7 +683,7 @@ export interface ControlRequestForward {
    * forwards), and `extractForward` keeps it on the stored record. The
    * tool-call header id-joins this against a `ToolUseMessage.toolUseId`
    * to paint that row's lifecycle dot `awaiting` ([Q01] of
-   * dash/block-header.md). Typed here (previously reachable only
+   * arc/block-header.md). Typed here (previously reachable only
    * via the index signature).
    */
   tool_use_id?: string;

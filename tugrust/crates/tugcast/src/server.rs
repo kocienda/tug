@@ -269,7 +269,7 @@ struct DraftApiRequest {
     op: String,
     owner_kind: String,
     owner_id: String,
-    /// The key the same owner's rows were written under before dashes had
+    /// The key the same owner's rows were written under before arcs had
     /// creation ids ([P01]) — the exact mirror of `raw_project_dir` on the
     /// owner-key axis: read as a fallback, superseded on set, swept on clear
     /// ([P03]). Without it the name→id migration would exist only on the
@@ -299,7 +299,7 @@ struct DraftApiRequest {
     raw_project_dir: Option<String>,
     /// Directories a caller is *migrating off* — not other spellings of
     /// `project_dir` but a different directory entirely, whose rows this write
-    /// retires. A dash draft written from inside the dash worktree sends the
+    /// retires. An arc draft written from inside the arc worktree sends the
     /// worktree here while keying on the base repository root, which is where
     /// the join reads. `project_dir` and `raw_project_dir` are both spoken for
     /// by the base root, so a third slot is what the sweep needs to reach the
@@ -358,7 +358,7 @@ async fn draft_handler(
             }
         };
     // A draft the changesets feed derives from just moved, so the feed
-    // recomputes — the same bump the dash bind handler fires. Without it a
+    // recomputes — the same bump the arc bind handler fires. Without it a
     // standing join prompt keeps composing its "lands as" from the draft that
     // existed when it was raised, and announces "no draft was written" while
     // the join it offers would land with one. Unconditional on owner kind: a
@@ -496,12 +496,12 @@ fn apply_draft_request(
     }
 }
 
-/// Request payload for POST /api/arc — the CLI's session↔dash binding
-/// write path (`tugtool arc bind|unbind`, and the `dash_gone` broadcast a
+/// Request payload for POST /api/arc — the CLI's session↔arc binding
+/// write path (`tugtool arc bind|unbind`, and the `arc_gone` broadcast a
 /// terminal join fires). Spec S04, [P04].
 #[derive(serde::Deserialize)]
-struct DashApiRequest {
-    /// `bind` | `arc_run` | `unbind` | `arc_stop` | `arc_ask` | `dash_gone`.
+struct ArcApiRequest {
+    /// `bind` | `arc_run` | `unbind` | `arc_stop` | `arc_ask` | `arc_gone`.
     op: String,
     #[serde(default)]
     tug_session_id: Option<String>,
@@ -510,14 +510,14 @@ struct DashApiRequest {
     /// `unbind`, which names only a session.
     #[serde(default)]
     project_dir: Option<String>,
-    /// The dash name, for `bind`.
+    /// The arc name, for `bind`.
     #[serde(default)]
-    dash: Option<String>,
-    /// For `dash_gone`: the owner key captured **before** the teardown that
-    /// deleted the dash's branch ([P05]).
+    arc: Option<String>,
+    /// For `arc_gone`: the owner key captured **before** the teardown that
+    /// deleted the arc's branch ([P05]).
     #[serde(default)]
-    dash_id: Option<String>,
-    /// For `dash_gone`: which gesture ended the dash — `"discarded"` or
+    arc_id: Option<String>,
+    /// For `arc_gone`: which gesture ended the arc — `"discarded"` or
     /// `"joined"`. Absent reads as a discard, which is what every caller
     /// before this field existed was, so an older `tugtool` still works.
     #[serde(default)]
@@ -561,57 +561,57 @@ async fn arc_handler(
     };
     let registry = supervisor.registry.clone();
     let control_tx = supervisor.control_tx.clone();
-    let req: DashApiRequest = match serde_json::from_slice(&body) {
+    let req: ArcApiRequest = match serde_json::from_slice(&body) {
         Ok(r) => r,
         Err(e) => return err(StatusCode::BAD_REQUEST, &format!("invalid JSON: {e}")),
     };
     // Kept out of the moved request: the ending's receipt is worded from it
     // after the blocking half returns.
     let reason = req.reason.clone();
-    let outcome = match tokio::task::spawn_blocking(move || apply_dash_request(&ledger, &req)).await
+    let outcome = match tokio::task::spawn_blocking(move || apply_arc_request(&ledger, &req)).await
     {
         Ok(outcome) => outcome,
         Err(e) => {
             return err(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                &format!("dash task failed: {e}"),
+                &format!("arc task failed: {e}"),
             );
         }
     };
     match outcome {
         crate::arc_api::ArcApiOutcome::Bound {
             session_id,
-            dash_id,
-            dash_name,
+            arc_id,
+            arc_name,
         } => {
             registry.changeset_all_bump().notify_one();
-            // The same announcement the `bind_dash` CONTROL verb makes: a bind
-            // is one fact, and the card wearing the dash must not depend on
+            // The same announcement the `bind_arc` CONTROL verb makes: a bind
+            // is one fact, and the card wearing the arc must not depend on
             // which door it came through.
             //
             // Named from the outcome, never from the request: the door
             // expands a frozen `$TUG_SESSION_ID` to its line's live segment,
             // and a broadcast still naming the id that was posted would
             // announce the mating to a card that closed two rotations ago.
-            crate::feeds::agent_supervisor::broadcast_bind_dash_ok(
+            crate::feeds::agent_supervisor::broadcast_bind_arc_ok(
                 &control_tx,
                 &session_id,
-                &dash_id,
-                &dash_name,
+                &arc_id,
+                &arc_name,
                 None,
                 None,
             );
             (
                 StatusCode::OK,
                 axum::Json(
-                    serde_json::json!({ "status": "ok", "dash_id": dash_id, "dash_name": dash_name }),
+                    serde_json::json!({ "status": "ok", "arc_id": arc_id, "arc_name": arc_name }),
                 ),
             )
                 .into_response()
         }
         crate::arc_api::ArcApiOutcome::Unbound { session_id } => {
             registry.changeset_all_bump().notify_one();
-            crate::feeds::agent_supervisor::broadcast_unbind_dash_ok(&control_tx, &session_id);
+            crate::feeds::agent_supervisor::broadcast_unbind_arc_ok(&control_tx, &session_id);
             (
                 StatusCode::OK,
                 axum::Json(serde_json::json!({ "status": "ok" })),
@@ -622,22 +622,22 @@ async fn arc_handler(
             if cleared > 0 {
                 registry.changeset_all_bump().notify_one();
             }
-            // A card whose stage this dash's arc was seated on is told the
-            // dash ended, and gets its model back at that stage's turn end.
+            // A card whose stage this arc's run was seated on is told the
+            // arc ended, and gets its model back at that stage's turn end.
             //
             // The hand-back is **armed**, never sent: the stage may be
             // mid-turn, and nothing retires a claude mid-sentence. And no
             // `arc-stop` is written on this path at all — the ending's own
-            // terminal dash-log line has already closed the arc's generation,
+            // terminal arc log line has already closed the arc's generation,
             // so a line appended after it would become the first line of a
-            // phantom next generation that a dash reusing the name would be
+            // phantom next generation that an arc reusing the name would be
             // born carrying. The receipt on the card is the whole record,
-            // which is the right outcome for a dash that no longer exists.
+            // which is the right outcome for an arc that no longer exists.
             let gesture = crate::arc_api::ArcGoneReason::parse(reason.as_deref());
             if let Some(wheel) = router.wheel.as_ref() {
                 for stage in &seated {
                     info!(
-                        dash = %stage.dash_name,
+                        arc = %stage.arc_name,
                         stage = stage.stage.as_str(),
                         gesture = gesture.as_str(),
                         "an ending retires a seated stage at its turn's end",
@@ -647,7 +647,7 @@ async fn arc_handler(
                         wheel,
                         &tugcast_core::protocol::TugSessionId::new(stage.session_id.clone()),
                         std::path::Path::new(&stage.project_dir),
-                        &stage.dash_name,
+                        &stage.arc_name,
                         stage.stage,
                         gesture.stop_reason(),
                         crate::feeds::arc_runner::StopDelivery {
@@ -665,7 +665,7 @@ async fn arc_handler(
                 .into_response()
         }
         crate::arc_api::ArcApiOutcome::ArcStopped {
-            dash,
+            arc,
             stage,
             session_id,
             project_dir,
@@ -685,11 +685,11 @@ async fn arc_handler(
             if let Some(question) = question.as_deref() {
                 if let Err(e) = tugarc_core::arc::append_arc_note(
                     std::path::Path::new(&project_dir),
-                    &dash,
+                    &arc,
                     question,
                 ) {
                     tracing::warn!(
-                        dash = %dash,
+                        arc = %arc,
                         error = %e,
                         "could not record the question a stage stopped over",
                     );
@@ -700,7 +700,7 @@ async fn arc_handler(
                 wheel,
                 &tugcast_core::protocol::TugSessionId::new(session_id),
                 std::path::Path::new(&project_dir),
-                &dash,
+                &arc,
                 stage,
                 reason,
                 crate::feeds::arc_runner::StopDelivery {
@@ -714,7 +714,7 @@ async fn arc_handler(
                 StatusCode::OK,
                 axum::Json(serde_json::json!({
                     "status": "ok",
-                    "dash": dash,
+                    "arc": arc,
                     "stage": stage.as_str(),
                     "reason": reason.as_str(),
                     "question": question,
@@ -736,9 +736,9 @@ async fn arc_handler(
 /// The ledger half of [`arc_handler`], run on the blocking pool. Every
 /// `project_dir` passes through the [L29] gateway before it opens a repo or
 /// is compared against anything persisted.
-fn apply_dash_request(
+fn apply_arc_request(
     ledger: &crate::session_ledger::SessionLedger,
-    req: &DashApiRequest,
+    req: &ArcApiRequest,
 ) -> crate::arc_api::ArcApiOutcome {
     use crate::arc_api::ArcApiOutcome;
     let resolved_project = || {
@@ -748,23 +748,23 @@ fn apply_dash_request(
     };
     match req.op.as_str() {
         "bind" => {
-            let (Some(session), Some(project), Some(dash)) = (
+            let (Some(session), Some(project), Some(arc)) = (
                 req.tug_session_id.as_deref(),
                 resolved_project(),
-                req.dash.as_deref(),
+                req.arc.as_deref(),
             ) else {
                 return ArcApiOutcome::Error(
-                    "bind needs tug_session_id, project_dir, and dash".to_string(),
+                    "bind needs tug_session_id, project_dir, and arc".to_string(),
                 );
             };
-            crate::arc_api::bind(ledger, &project, session, dash)
+            crate::arc_api::bind(ledger, &project, session, arc)
         }
         // The arc runs on the calling card, so arriving is a binding: the tick
         // resolves "which arc does this session own" through it, and a tugcast
         // restart resumes by walking the bindings rather than guessing which
-        // projects have logs ([P01]). `ensure_dash_id` mints the owner key as
+        // projects have logs ([P01]). `ensure_arc_id` mints the owner key as
         // a git config entry and needs no branch, so a pre-branch arc binds
-        // exactly as a created dash does — and `dash create` later finds the
+        // exactly as a created arc does — and `arc create` later finds the
         // same id.
         //
         // It binds and returns; it never rotates. The request arrives from
@@ -774,16 +774,16 @@ fn apply_dash_request(
         // asked for the arc. The first rotation is that session's own idle
         // transition ([P05]).
         "arc_run" => {
-            let (Some(session), Some(project), Some(dash)) = (
+            let (Some(session), Some(project), Some(arc)) = (
                 req.tug_session_id.as_deref(),
                 resolved_project(),
-                req.dash.as_deref(),
+                req.arc.as_deref(),
             ) else {
                 return ArcApiOutcome::Error(
-                    "arc_run needs tug_session_id, project_dir, and dash".to_string(),
+                    "arc_run needs tug_session_id, project_dir, and arc".to_string(),
                 );
             };
-            crate::arc_api::bind(ledger, &project, session, dash)
+            crate::arc_api::bind(ledger, &project, session, arc)
         }
         "unbind" => {
             let Some(session) = req.tug_session_id.as_deref() else {
@@ -791,44 +791,43 @@ fn apply_dash_request(
             };
             crate::arc_api::unbind(ledger, session)
         }
-        // Stop the arc and keep the dash. The blocking half names the stage;
+        // Stop the arc and keep the arc. The blocking half names the stage;
         // the async half below performs the stop, because it is the half that
         // holds the supervisor the hand-back and the receipt go through.
         "arc_stop" => {
-            let (Some(session), Some(project), Some(dash)) = (
+            let (Some(session), Some(project), Some(arc)) = (
                 req.tug_session_id.as_deref(),
                 resolved_project(),
-                req.dash.as_deref(),
+                req.arc.as_deref(),
             ) else {
                 return ArcApiOutcome::Error(
-                    "arc_stop needs tug_session_id, project_dir, and dash".to_string(),
+                    "arc_stop needs tug_session_id, project_dir, and arc".to_string(),
                 );
             };
-            crate::arc_api::arc_stop(ledger, &project, session, dash)
+            crate::arc_api::arc_stop(ledger, &project, session, arc)
         }
         // A stage saying it has met a decision that is not its to make. The
         // same act `arc_stop` performs, under the stage's own reason and
         // carrying the question — see `ArcStopReason::NeedsDecision` for why an
         // arc's stage stops rather than raising an `AskUserQuestion`.
         "arc_ask" => {
-            let (Some(session), Some(project), Some(dash), Some(question)) = (
+            let (Some(session), Some(project), Some(arc), Some(question)) = (
                 req.tug_session_id.as_deref(),
                 resolved_project(),
-                req.dash.as_deref(),
+                req.arc.as_deref(),
                 req.question.as_deref(),
             ) else {
                 return ArcApiOutcome::Error(
-                    "arc_ask needs tug_session_id, project_dir, dash, and question".to_string(),
+                    "arc_ask needs tug_session_id, project_dir, arc, and question".to_string(),
                 );
             };
-            crate::arc_api::arc_ask(ledger, &project, session, dash, question)
+            crate::arc_api::arc_ask(ledger, &project, session, arc, question)
         }
-        "dash_gone" => {
-            let (Some(project), Some(dash_id)) = (resolved_project(), req.dash_id.as_deref())
-            else {
-                return ArcApiOutcome::Error("dash_gone needs project_dir and dash_id".to_string());
+        "arc_gone" => {
+            let (Some(project), Some(arc_id)) = (resolved_project(), req.arc_id.as_deref()) else {
+                return ArcApiOutcome::Error("arc_gone needs project_dir and arc_id".to_string());
             };
-            crate::arc_api::dash_gone(ledger, &project, dash_id)
+            crate::arc_api::arc_gone(ledger, &project, arc_id)
         }
         other => ArcApiOutcome::Error(format!("unknown op '{other}'")),
     }
@@ -836,9 +835,9 @@ fn apply_dash_request(
 
 /// Request payload for POST /api/session — the wheel's door ([S03]).
 ///
-/// A rotation names no dash, so it does not ride `DashApiRequest`: putting
+/// A rotation names no arc, so it does not ride `ArcApiRequest`: putting
 /// `model`, `prompt`, `stage`, and `effort` on a type whose name says it is
-/// about dashes would spell the wheel's whole parameter set in the wrong
+/// about arcs would spell the wheel's whole parameter set in the wrong
 /// vocabulary ([P03]).
 #[derive(serde::Deserialize)]
 struct SessionApiRequest {
@@ -847,7 +846,7 @@ struct SessionApiRequest {
     #[serde(default)]
     tug_session_id: Option<String>,
     /// Project path as the caller spelled it — resolved through the [L29]
-    /// gateway here, exactly as `apply_dash_request` does.
+    /// gateway here, exactly as `apply_arc_request` does.
     #[serde(default)]
     project_dir: Option<String>,
     /// The stage label the divider renders. Free text.
@@ -931,8 +930,8 @@ fn resolve_session_identity(
         "line_id": line_id,
         "segments": segments,
         "rotated": live != posted,
-        // **Which checkout this session works.** A session may only bind a
-        // dash in its own project (`arc_api::bind`), so a caller can tell
+        // **Which checkout this session works.** A session may only bind an
+        // arc in its own project (`arc_api::bind`), so a caller can tell
         // "the bind was refused" from "this session had no standing to make
         // it" — and skip the attempt rather than reporting a failure about a
         // claim that was never its to make. An instance that predates the
@@ -1012,7 +1011,7 @@ async fn session_handler(
     // **The card's quiet lines are not here**, and the reason is the whole
     // shape of W8 Task 3: an announcement a caller *posts* is a second
     // fallible write and an act a caller can omit. They are derived from the
-    // dash-log instead, by `feeds/arc_notes.rs`, so the announcement is
+    // arc log instead, by `feeds/arc_notes.rs`, so the announcement is
     // skippable only by not writing the record.
     //
     // **Skew.** An instance older than W8 answers `unknown op '…'`, and every
@@ -1991,8 +1990,8 @@ mod tests {
 
     // --- /api/draft: the owner-key migration axis ([P03], Spec S02) --------
 
-    const ID_KEY: &str = "tugdash/demo#1723500000000-a1b2c3";
-    const LEGACY_KEY: &str = "tugdash/demo";
+    const ID_KEY: &str = "tugarc/demo#1723500000000-a1b2c3";
+    const LEGACY_KEY: &str = "tugarc/demo";
 
     /// The row key the handler will write for `project_dir` — the [L29]
     /// gateway's answer, computed the same way the handler computes it.
@@ -2005,7 +2004,7 @@ mod tests {
     fn draft_request(op: &str, message: Option<&str>) -> DraftApiRequest {
         DraftApiRequest {
             op: op.to_string(),
-            owner_kind: "dash".to_string(),
+            owner_kind: "arc".to_string(),
             owner_id: ID_KEY.to_string(),
             legacy_owner_id: Some(LEGACY_KEY.to_string()),
             legacy_owner_ids: Vec::new(),
@@ -2024,7 +2023,7 @@ mod tests {
     ) {
         ledger
             .upsert_changeset_draft(&crate::session_ledger::ChangesetDraftRow {
-                owner_kind: "dash".to_string(),
+                owner_kind: "arc".to_string(),
                 owner_id: LEGACY_KEY.to_string(),
                 project_dir: project_key.to_string(),
                 fingerprint: "fp".to_string(),
@@ -2048,21 +2047,21 @@ mod tests {
 
         assert_eq!(
             ledger
-                .changeset_draft("dash", ID_KEY, &project)
+                .changeset_draft("arc", ID_KEY, &project)
                 .unwrap()
                 .map(|r| r.message),
             Some("New message".to_string())
         );
         assert!(
             ledger
-                .changeset_draft("dash", LEGACY_KEY, &project)
+                .changeset_draft("arc", LEGACY_KEY, &project)
                 .unwrap()
                 .is_none(),
             "the legacy-keyed row is superseded by the write"
         );
     }
 
-    /// A dash draft written from inside the dash worktree keys on the base
+    /// An arc draft written from inside the arc worktree keys on the base
     /// repository root and names the worktree as superseded. Both request
     /// spelling slots are spoken for by the base root, so without the third
     /// slot the sweep could not reach the worktree row at all — and it is the
@@ -2075,7 +2074,7 @@ mod tests {
         let worktree = draft_project_key("/proj/.tug/worktrees/demo");
         ledger
             .upsert_changeset_draft(&crate::session_ledger::ChangesetDraftRow {
-                owner_kind: "dash".to_string(),
+                owner_kind: "arc".to_string(),
                 owner_id: ID_KEY.to_string(),
                 project_dir: worktree.clone(),
                 fingerprint: "fp".to_string(),
@@ -2095,14 +2094,14 @@ mod tests {
         // survives — under the base root, where the join looks.
         assert_eq!(
             ledger
-                .changeset_draft("dash", ID_KEY, &base)
+                .changeset_draft("arc", ID_KEY, &base)
                 .unwrap()
                 .map(|r| r.message),
             Some("The invisible draft".to_string())
         );
         assert!(
             ledger
-                .changeset_draft("dash", ID_KEY, &worktree)
+                .changeset_draft("arc", ID_KEY, &worktree)
                 .unwrap()
                 .is_none(),
             "the worktree-keyed row is superseded by the write"
@@ -2123,14 +2122,14 @@ mod tests {
 
         assert_eq!(
             ledger
-                .changeset_draft("dash", ID_KEY, &project)
+                .changeset_draft("arc", ID_KEY, &project)
                 .unwrap()
                 .map(|r| r.message),
             Some("Carried forward".to_string())
         );
     }
 
-    /// A `clear` sweeps both keys, so a reused dash name inherits nothing.
+    /// A `clear` sweeps both keys, so a reused arc name inherits nothing.
     #[test]
     fn draft_clear_sweeps_both_owner_keys() {
         let ledger = crate::session_ledger::SessionLedger::open_in_memory().unwrap();
@@ -2145,7 +2144,7 @@ mod tests {
         for key in [ID_KEY, LEGACY_KEY] {
             assert!(
                 ledger
-                    .changeset_draft("dash", key, &project)
+                    .changeset_draft("arc", key, &project)
                     .unwrap()
                     .is_none(),
                 "row under {key} survived the clear"

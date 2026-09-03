@@ -189,10 +189,14 @@ pub struct GitLogCommit {
     /// expanded row formats for display. Independent of the `--date` flag.
     #[serde(default)]
     pub committer_date: String,
-    /// The `Tug-Dash:` trailer value (`tugdash/<name> onto <base>`) when the
-    /// commit landed as a dash join — the History join badge ([P09]).
+    /// The `Tug-Dash:` trailer value (`tugarc/<name> onto <base>`) when the
+    /// commit landed as an arc join — the History join badge ([P09]).
+    ///
+    /// The trailer's own key is a **read for life**: every commit already on
+    /// a base spells it `Tug-Dash:`, and history is never rewritten. Only the
+    /// field carrying it moved.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub tug_dash: Option<String>,
+    pub tug_arc: Option<String>,
     /// The `Tug-Session:` trailer value — the human citation, raw ([P10],
     /// Spec S03). New-form commits carry `<tag> (<shortid8>)`; legacy commits
     /// carry `<display> (<full-uuid>)`, and both must parse, since legacy
@@ -321,7 +325,7 @@ pub struct GitCommitFilesSnapshot {
 /// One file inside a changeset entry on the CHANGESET feed (0x23).
 ///
 /// `git_status` is the porcelain-v2 XY pair for working-tree files, or the
-/// name-status letter for a dash's `base..branch` files. `op` / `origin`
+/// name-status letter for an arc's `base..branch` files. `op` / `origin`
 /// carry the attribution provenance recorded in `file_events`; `shared`
 /// marks files owned by more than one changeset (per-file contention, the
 /// only cross-session signal) — excluded from the card's default commit
@@ -330,12 +334,12 @@ pub struct GitCommitFilesSnapshot {
 pub struct ChangesetFile {
     /// Path relative to the repository root.
     pub path: String,
-    /// Porcelain-v2 XY status (working tree) or name-status letter (dash).
+    /// Porcelain-v2 XY status (working tree) or name-status letter (arc).
     pub git_status: String,
     /// Attribution operation: write | edit | notebook | created | modified |
     /// deleted | renamed.
     pub op: String,
-    /// Attribution origin: exact | bash | turn | replay | dash.
+    /// Attribution origin: exact | bash | turn | replay | arc.
     pub origin: String,
     /// True when more than one changeset owns this file **and** their claimed
     /// regions overlap ([P12]). Two sessions editing disjoint parts of one
@@ -359,7 +363,7 @@ pub struct ChangesetFile {
     /// from pre-plan servers — an older deck ignores it.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub shared_with: Vec<SharedOwner>,
-    /// Lines added over the dash's `base...branch` range. Only a dash row
+    /// Lines added over the arc's `base...branch` range. Only an arc row
     /// carries it — a working-tree row has no committed range to count — and
     /// a binary file carries none. Additive: an older deck ignores it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -369,11 +373,11 @@ pub struct ChangesetFile {
     pub deleted: Option<u32>,
 }
 
-/// One row of a dash's plan ledger — the step list a surface can render.
+/// One row of an arc's plan ledger — the step list a surface can render.
 ///
 /// The counters beside it (`step_current` / `step_total`) say *where* a run
 /// is; this says *what the walk is*. It is projected from the same parse
-/// `review` comes from, so a dash's fraction and its step list are one reading
+/// `review` comes from, so an arc's fraction and its step list are one reading
 /// of one document rather than two readings that can disagree.
 ///
 /// Deliberately two fields. The ledger row also carries an anchor and a commit
@@ -472,11 +476,11 @@ pub struct ChangesetDraft {
 
 /// One owner's slice of the workspace's dirty state on the CHANGESET feed.
 ///
-/// Internally tagged on `kind` (`"session"` | `"dash"`) so the client can
+/// Internally tagged on `kind` (`"session"` | `"arc"`) so the client can
 /// discriminate without a separate field check.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "kind", rename_all = "snake_case")]
-// `Dash` carries more fields than `Session`, so the variants differ in size.
+// `Arc` carries more fields than `Session`, so the variants differ in size.
 // Boxing would put the wire shape behind an indirection for a type that is
 // built once per owner per snapshot and immediately serialized.
 #[allow(clippy::large_enum_variant)]
@@ -503,11 +507,11 @@ pub enum ChangesetEntry {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         draft: Option<ChangesetDraft>,
     },
-    /// A dash worktree branch (`refs/heads/tugdash/…`) and its accumulated
+    /// An arc worktree branch (`refs/heads/tugarc/…`) and its accumulated
     /// `base..branch` changes.
-    Dash {
-        /// The dash's **owner key** ([P01]) and its identity:
-        /// `tugdash/<name>#<tugid>`, or the bare branch ref for a dash created
+    Arc {
+        /// The arc's **owner key** ([P01]) and its identity:
+        /// `tugarc/<name>#<tugid>`, or the bare branch ref for an arc created
         /// before ids existed. Draft rows, session binding rows, and the deck's
         /// `(workspace_key, owner_kind, owner_id)` draft-overlay key are all
         /// this string, so entry, row, and overlay agree by construction.
@@ -515,31 +519,31 @@ pub enum ChangesetEntry {
         /// **Opaque — never a git ref.** Display uses `display_name`; anything
         /// that needs a ref reads `branch` ([P09]).
         owner_id: String,
-        /// The dash's short name (branch name without the `tugdash/` prefix).
+        /// The arc's short name (branch name without the `tugarc/` prefix).
         display_name: String,
-        /// The git ref (`tugdash/<name>`) — the one field a consumer may hand
+        /// The git ref (`tugarc/<name>`) — the one field a consumer may hand
         /// to git ([P09]). Optional for wire compatibility with older senders;
-        /// absent means fall back to `tugdash/<display_name>`.
+        /// absent means fall back to `tugarc/<display_name>`.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         branch: Option<String>,
         /// Derived lifecycle stage ([P06]): `created` | `working` |
         /// `draft-ready` | `landing`.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         stage: Option<String>,
-        /// Live sessions mated to this dash ([P08]) — this instance's view
+        /// Live sessions mated to this arc ([P08]) — this instance's view
         /// ([Q02]). Empty is how *unbound* reads.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         bound_sessions: Vec<String>,
-        /// Whether any session holding this dash is still working — mid-turn,
+        /// Whether any session holding this arc is still working — mid-turn,
         /// or waiting on a background job it launched (a test sweep, an agent).
         ///
-        /// Beside `stage`, never folded into it. `stage` says what the dash's
-        /// own git and ledger facts make of it, and a dash whose last step is
+        /// Beside `stage`, never folded into it. `stage` says what the arc's
+        /// own git and ledger facts make of it, and an arc whose last step is
         /// committed on a clean worktree genuinely reads `ready` by those
         /// facts. This says whether the person who built it has stopped: a turn
         /// ends when the model stops speaking, and the tests it backgrounded
         /// are still deciding whether the work is any good. Every surface that
-        /// offers a join holds it shut while this is true, so a dash is never
+        /// offers a join holds it shut while this is true, so an arc is never
         /// presented for landing before it is finished.
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         holders_busy: bool,
@@ -564,50 +568,50 @@ pub enum ChangesetEntry {
         /// title, so a display can say more than a counter.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         step_title: Option<String>,
-        /// When the dash was last touched: the newest dash-log line's timestamp
-        /// for its current generation, ISO-8601 UTC. Absent for a dash whose
-        /// generation has logged nothing — which for a dash created before
+        /// When the arc was last touched: the newest arc log line's timestamp
+        /// for its current generation, ISO-8601 UTC. Absent for an arc whose
+        /// generation has logged nothing — which for an arc created before
         /// creation wrote a birth record is the ordinary case.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         last_activity: Option<String>,
-        /// Which of this dash's documents exist, as **absolute** paths ([D138]).
+        /// Which of this arc's documents exist, as **absolute** paths ([D138]).
         /// The deck composes nothing: the server resolves them where the main
         /// root is known and hands them over whole.
-        #[serde(default, skip_serializing_if = "DashDocuments::is_empty")]
-        documents: DashDocuments,
+        #[serde(default, skip_serializing_if = "ArcDocuments::is_empty")]
+        documents: ArcDocuments,
         /// What that plan's Review Record says about the document on disk now:
         /// `reviewed` | `stale` | `never-reviewed`, `tugtool_core::plan::
-        /// ReviewState::as_str` verbatim. Absent when the dash records no plan,
+        /// ReviewState::as_str` verbatim. Absent when the arc records no plan,
         /// when the file cannot be read, or when it does not parse as a plan —
         /// absence is "nothing to say", never an accusation.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         review: Option<String>,
         /// True when that plan is a **task list** — the steps and the ledger
         /// and nothing else — rather than a document devised against the
-        /// skeleton. A dash worked directly writes one for itself before its
+        /// skeleton. An arc worked directly writes one for itself before its
         /// first round; the two documents are otherwise identical here, so
-        /// this is what lets a face draw the phases the dash actually has.
-        /// False when the dash records no plan, or when it cannot be read.
+        /// this is what lets a face draw the phases the arc actually has.
+        /// False when the arc records no plan, or when it cannot be read.
         #[serde(default, skip_serializing_if = "is_false")]
         task_list: bool,
         /// That plan's ledger, in source order — one entry per declared step.
         ///
         /// Sent for the same reason `review` is, and read off the same parse:
-        /// a surface asking what this dash's walk *is* has no other source.
-        /// Empty when the dash records no plan, when the file cannot be read,
+        /// a surface asking what this arc's walk *is* has no other source.
+        /// Empty when the arc records no plan, when the file cannot be read,
         /// or when it does not parse — the same silence `review` keeps.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         steps: Vec<ArcStep>,
-        /// The base branch the dash was created from.
+        /// The base branch the arc was created from.
         base: String,
-        /// Number of commits on the dash branch past its base.
+        /// Number of commits on the arc branch past its base.
         rounds: u32,
-        /// The dash worktree's **absolute** path, resolved against the main
+        /// The arc worktree's **absolute** path, resolved against the main
         /// repository root — which the sender knows and the receiver does not,
         /// since a project directory may itself be a linked worktree. No
         /// consumer composes it with anything.
         worktree: String,
-        /// True when the dash worktree has uncommitted changes.
+        /// True when the arc worktree has uncommitted changes.
         worktree_dirty: bool,
         /// `base..branch` name-status files.
         files: Vec<ChangesetFile>,
@@ -615,57 +619,57 @@ pub enum ChangesetEntry {
         /// what the release discard preflight lists ([P14]).
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         round_subjects: Vec<String>,
-        /// The maintained draft — the dash's eventual squash/join message
+        /// The maintained draft — the arc's eventual squash/join message
         /// ([P23], Spec S10) — when one exists.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         draft: Option<ChangesetDraft>,
-        /// Commits the base branch has gained past this dash's merge-base.
-        /// Absent (0) means the dash already contains the base tip.
+        /// Commits the base branch has gained past this arc's merge-base.
+        /// Absent (0) means the arc already contains the base tip.
         #[serde(default, skip_serializing_if = "is_zero")]
         base_ahead: u32,
-        /// Base-checkout uncommitted paths this dash also changes — the
+        /// Base-checkout uncommitted paths this arc also changes — the
         /// landing's `base-dirt` refusal, said the moment it becomes true
         /// rather than at the join.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         base_overlap: Vec<String>,
-        /// Where this dash's rounds went the last time its base moved under it
-        /// — the settled mark's text, from the dash-log's `replayed` line.
+        /// Where this arc's rounds went the last time its base moved under it
+        /// — the settled mark's text, from the arc log's `replayed` line.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         last_replay: Option<String>,
         /// What the last green verify said about the tree a join would land:
         /// the head, the base it was verified onto, and whether both still
-        /// stand. Absent when nothing has verified this dash. It says; it
+        /// stand. Absent when nothing has verified this arc. It says; it
         /// gates nothing ([D149]).
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        fit: Option<DashFit>,
+        fit: Option<ArcFit>,
         /// Paths a replay stopped on, when the last attempt conflicted. Held by
         /// the engine rather than derived from git, because the answer is about
         /// an attempt rather than about a state.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         replay_conflict_paths: Vec<String>,
-        /// The join pipeline's entire durable state for this dash — blockers,
+        /// The join pipeline's entire durable state for this arc — blockers,
         /// conflicts, the resolved candidate, and what verification said of it.
         ///
         /// This is the join's single source of truth ([P01]); the client
         /// holds no durable copy of any of it. Absent from an older server,
         /// which reads as "nothing to say" and leaves the face where it was.
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        join: Option<DashJoinState>,
-        /// The server-driven arc running this dash, when one is ([P01]).
+        join: Option<ArcJoinState>,
+        /// The server-driven run working this arc, when one is ([P01]).
         ///
-        /// Beside `stage`, never folded into it: `stage` says what the dash is
-        /// doing in git, this says which stage of the arc is driving it, and a
-        /// stopped arc is exactly the state where the two must both be sayable.
-        /// Absent for every hand-driven dash, and from an older server.
+        /// Beside `stage`, never folded into it: `stage` says what the arc is
+        /// doing in git, this says which stage of the run is driving it, and a
+        /// stopped run is exactly the state where the two must both be sayable.
+        /// Absent for every hand-driven arc, and from an older server.
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        arc: Option<DashArcState>,
+        arc: Option<ArcRunState>,
     },
 }
 
-/// What an arc is doing on one dash — the wire spelling of
-/// `tugarc_core::ops::DashArcState`.
+/// What a run is doing on one arc — the wire spelling of
+/// `tugarc_core::ops::ArcRunState`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct DashArcState {
+pub struct ArcRunState {
     /// The stage last rotated: `devise` | `review` | `implement`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stage: Option<String>,
@@ -688,11 +692,11 @@ pub struct DashArcState {
 
 /// What the last green verify said about the tree a join would land.
 ///
-/// Both endpoints, because the fit is the dash replayed onto the live base: a
+/// Both endpoints, because the fit is the arc replayed onto the live base: a
 /// base that moved after a green verify leaves the recorded head untouched
 /// while making the verified tree no longer the tree a join would land.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct DashFit {
+pub struct ArcFit {
     /// The head the fit was verified at, full sha.
     pub head: String,
     /// The base tip that head was verified onto, full sha.
@@ -702,7 +706,7 @@ pub struct DashFit {
     pub current: bool,
 }
 
-/// The join pipeline's state for one dash — the single durable source every
+/// The join pipeline's state for one arc — the single durable source every
 /// client reads ([P01] of the join-pipeline plan).
 ///
 /// Before this block existed, the join's truth was assembled at render time
@@ -714,7 +718,7 @@ pub struct DashFit {
 /// Additive on the wire: an older deck ignores the block and behaves exactly as
 /// it did, and an older server sends none, which parses as "nothing to say".
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct DashJoinState {
+pub struct ArcJoinState {
     /// `blocked` | `previewed` | `conflicted` | `resolved`.
     ///
     /// **Derived on every recompute, never stored.** The board reads git and
@@ -727,21 +731,21 @@ pub struct DashJoinState {
     /// Never cached server-side: every one of these answers to working-tree
     /// state, which moves without moving a commit.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub blockers: Vec<DashJoinBlocker>,
+    pub blockers: Vec<ArcJoinBlocker>,
     /// Conflicted paths from the in-memory merge probe.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub conflicts: Vec<String>,
     /// What the base did to each conflicted path since the two sides parted.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub archaeology: Vec<DashConflictHistory>,
+    pub archaeology: Vec<ArcConflictHistory>,
     /// The resolved candidate commit, present only when it still verifies
-    /// against the current base and dash heads. Present means `phase` is
+    /// against the current base and arc heads. Present means `phase` is
     /// `resolved`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub candidate: Option<String>,
     /// The ladder's per-file results — the resolver report's citation layer.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub resolved: Vec<DashResolvedFile>,
+    pub resolved: Vec<ArcResolvedFile>,
     /// A candidate existed but no longer describes the current heads: the
     /// sentence names which side moved. The board drops the stale candidate
     /// when it says this, so the state demotes itself rather than lying.
@@ -752,7 +756,7 @@ pub struct DashJoinState {
     /// Anchored to the candidate sha the same way the verdict is, so a report
     /// never outlives the resolution it describes.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub report: Option<DashJoinReport>,
+    pub report: Option<ArcJoinReport>,
     /// Why the resolve stopped short, when it did.
     ///
     /// A resolve that fails must say so in a sentence somebody can act on — a
@@ -768,8 +772,8 @@ pub struct DashJoinState {
     /// the question, not lose it and leave the resolver waiting on an answer
     /// nobody can give.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub question: Option<DashJoinQuestion>,
-    /// What is running on this dash right now — `"resolve"` or `"verify"` —
+    pub question: Option<ArcJoinQuestion>,
+    /// What is running on this arc right now — `"resolve"` or `"verify"` —
     /// and absent when nothing is (Spec S01).
     ///
     /// The one fact here that is not durable, deliberately: occupancy is
@@ -778,18 +782,18 @@ pub struct DashJoinState {
     /// absence — the server knows, so the wire should say.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub run: Option<String>,
-    /// The join this dash is ready for, standing until it is taken or the work
+    /// The join this arc is ready for, standing until it is taken or the work
     /// moves on.
     ///
     /// Raised once the pilot's work is done and a candidate stands. Durable and
-    /// derived rather than pushed, for the same reason [`DashJoinQuestion`] is:
-    /// a fact that a reload can lose is a fact that leaves a built dash sitting
+    /// derived rather than pushed, for the same reason [`ArcJoinQuestion`] is:
+    /// a fact that a reload can lose is a fact that leaves a built arc sitting
     /// unmentioned.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub offer: Option<DashJoinOffer>,
+    pub offer: Option<ArcJoinOffer>,
 }
 
-/// The join a dash is ready for, as a fact rather than an ask.
+/// The join an arc is ready for, as a fact rather than an ask.
 ///
 /// Everything before it is the machine's: the reconcile and the candidate it
 /// produced. This is where that work stops and a person decides. The decision
@@ -797,17 +801,17 @@ pub struct DashJoinState {
 /// summons it, so this carries what a person needs to see and nothing that
 /// belongs to a dialog.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct DashJoinOffer {
+pub struct ArcJoinOffer {
     /// Identifies this offer, so a surface can tell one from the next.
     ///
-    /// Derived rather than random: `<dash>:<base_sha>:<dash_head>`. The
+    /// Derived rather than random: `<arc>:<base_sha>:<arc_head>`. The
     /// derivation is what makes it stable across recomputes — the offer is
     /// re-derived from durable state on every one, so an id that changed each
     /// time would re-summon the shade endlessly — and what makes it change the
     /// moment any of those three facts does, so new work summons it again.
     pub request_id: String,
     pub base_sha: String,
-    pub dash_head: String,
+    pub arc_head: String,
     /// The message this join would land with, composed exactly as the landing
     /// itself would compose it.
     ///
@@ -827,16 +831,16 @@ pub struct DashJoinOffer {
 /// What each side was trying to do, and 2–4 concrete resolutions — never a
 /// diff. A diff shown as a question is the workflow this whole round retired.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct DashJoinQuestion {
+pub struct ArcJoinQuestion {
     /// Identifies this ask, so an answer cannot resolve a different one.
     pub request_id: String,
     pub question: String,
-    pub options: Vec<DashJoinQuestionOption>,
+    pub options: Vec<ArcJoinQuestionOption>,
 }
 
 /// One concrete resolution offered on an escalation.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct DashJoinQuestionOption {
+pub struct ArcJoinQuestionOption {
     pub label: String,
     #[serde(default)]
     pub description: String,
@@ -849,17 +853,17 @@ pub struct DashJoinQuestionOption {
 /// who read the resolutions: the human was being asked to; the resolver has,
 /// and this is the reading.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct DashJoinReport {
-    pub files: Vec<DashJoinReportFile>,
+pub struct ArcJoinReport {
+    pub files: Vec<ArcJoinReportFile>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub question: Option<DashJoinReportQuestion>,
+    pub question: Option<ArcJoinReportQuestion>,
     #[serde(default)]
     pub notes: String,
 }
 
 /// One file's account in the resolver's report.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct DashJoinReportFile {
+pub struct ArcJoinReportFile {
     pub path: String,
     #[serde(default)]
     pub resolved_by: String,
@@ -876,7 +880,7 @@ pub struct DashJoinReportFile {
 /// The escalation the resolver raised and the answer it was given, kept so the
 /// question survives past the dialog that answered it.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct DashJoinReportQuestion {
+pub struct ArcJoinReportQuestion {
     pub question: String,
     #[serde(default)]
     pub answer: String,
@@ -884,7 +888,7 @@ pub struct DashJoinReportQuestion {
 
 /// One reason a landing would be refused.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct DashJoinBlocker {
+pub struct ArcJoinBlocker {
     /// `off-base` | `base-dirt` | `stale-journal` | `empty`.
     pub kind: String,
     /// The situation as a short phrase — the dialog's title row.
@@ -897,7 +901,7 @@ pub struct DashJoinBlocker {
     /// What a `Resolve` on this blocker would do, when one can. Absent on the
     /// kinds nothing at the card can clear, which are reported all the same.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub remedy: Option<DashJoinRemedy>,
+    pub remedy: Option<ArcJoinRemedy>,
 }
 
 /// The one way out of a blocker, and the sentence that explains it. The
@@ -905,32 +909,32 @@ pub struct DashJoinBlocker {
 /// always `Resolve` — and it is always pressable ([L31]): a blocker either
 /// carries an act or carries no remedy at all.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct DashJoinRemedy {
+pub struct ArcJoinRemedy {
     /// What Resolve will do, as one sentence.
     pub explain: String,
 }
 
 /// What the base did to one conflicted path since the two sides parted.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct DashConflictHistory {
+pub struct ArcConflictHistory {
     pub path: String,
     /// The most recent base commits that touched it, newest first, capped.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub commits: Vec<DashConflictCommit>,
+    pub commits: Vec<ArcConflictCommit>,
     /// How many touched it in total — `commits.len()` unless the cap bit.
     pub total: u32,
 }
 
 /// One base commit behind a conflicted path.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct DashConflictCommit {
+pub struct ArcConflictCommit {
     pub sha: String,
     pub subject: String,
 }
 
 /// One file the resolution ladder resolved, as the review panel reads it.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct DashResolvedFile {
+pub struct ArcResolvedFile {
     pub path: String,
     /// Which rung decided it: `replay` | `rerere` | `merge-file` | `driver` |
     /// `ai`, or `unknown` when the provenance could not be read back.
@@ -982,7 +986,7 @@ pub struct ChangesetSnapshot {
     pub head_sha: String,
     /// Subject line of HEAD commit.
     pub head_message: String,
-    /// One entry per owner (session or dash) with attributed files.
+    /// One entry per owner (session or arc) with attributed files.
     pub changesets: Vec<ChangesetEntry>,
     /// Dirty files no owner claims.
     pub unattributed: Vec<UnattributedFile>,
@@ -993,13 +997,13 @@ pub struct ChangesetSnapshot {
     pub orphaned: Vec<OrphanedFile>,
 }
 
-/// Which of a dash's documents exist, with the first heading of each.
+/// Which of an arc's documents exist, with the first heading of each.
 ///
 /// Absolute paths, present only when the file is on disk. The title rides along
 /// because the deck has no filesystem: a surface that wants to name a document
 /// cannot open it ([F07]).
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
-pub struct DashDocuments {
+pub struct ArcDocuments {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub brief: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1014,39 +1018,39 @@ pub struct DashDocuments {
     pub tasks_title: Option<String>,
 }
 
-impl DashDocuments {
-    /// True when the dash has no document at all — the shape that is omitted
+impl ArcDocuments {
+    /// True when the arc has no document at all — the shape that is omitted
     /// from the wire rather than sent empty.
     pub fn is_empty(&self) -> bool {
         self.brief.is_none() && self.plan.is_none() && self.tasks.is_none()
     }
 }
 
-/// A dash that exists only as documents: `.tug/arcs/<name>/` with no
-/// `tugdash/<name>` branch yet ([P04]).
+/// An arc that exists only as documents: `.tug/arcs/<name>/` with no
+/// `tugarc/<name>` branch yet ([P04]).
 ///
 /// This is the planning phase in flight — a brief written, a plan being
-/// devised — made visible as a dash rather than as loose paperwork. It is
-/// deliberately *not* a `ChangesetEntry::Dash`: that entry carries a worktree,
-/// a base, rounds, and files, none of which a branchless dash has. A
-/// `dash create` turns this row into a live one rather than adding a second.
+/// devised — made visible as an arc rather than as loose paperwork. It is
+/// deliberately *not* a `ChangesetEntry::Arc`: that entry carries a worktree,
+/// a base, rounds, and files, none of which a branchless arc has. A
+/// `arc create` turns this row into a live one rather than adding a second.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct DocumentArcEntry {
-    /// `dash_owner_key(repo, name)` — the same identity a live dash wears, so
+    /// `arc_owner_key(repo, name)` — the same identity a live arc wears, so
     /// a card bound before the branch exists still finds its own row (R01).
     pub owner_id: String,
-    /// The dash name, which is also its display identity.
+    /// The arc name, which is also its display identity.
     pub display_name: String,
     /// The documents themselves. Never empty — a directory holding neither is
     /// not listed.
-    pub documents: DashDocuments,
+    pub documents: ArcDocuments,
     /// `reviewed` | `stale` | `never-reviewed` for the plan, when there is one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub review: Option<String>,
     /// True when that plan is a **task list** rather than a document devised
-    /// against the skeleton — the same bit `ChangesetEntry::Dash` carries, and
+    /// against the skeleton — the same bit `ChangesetEntry::Arc` carries, and
     /// read off the same parse. A surface pairs it with `review`: a task list
-    /// has no review stage, so `never-reviewed` on one is a phase the dash
+    /// has no review stage, so `never-reviewed` on one is a phase the arc
     /// does not have rather than an obligation it is behind on.
     #[serde(default, skip_serializing_if = "is_false")]
     pub task_list: bool,
@@ -1058,10 +1062,10 @@ pub struct DocumentArcEntry {
     /// Two facts, two fields: a plan whose first row is `in progress` with
     /// nothing finished is begun rather than unstarted.
     pub steps_begun: u32,
-    /// The arc driving this dash, when one is open.
+    /// The run driving this arc, when one is open.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub arc: Option<DashArcState>,
-    /// Sessions bound to this dash.
+    pub arc: Option<ArcRunState>,
+    /// Sessions bound to this arc.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub bound_sessions: Vec<String>,
 }
@@ -1094,7 +1098,7 @@ pub struct ProjectChangeset {
     /// S10), when one exists.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub unattributed_draft: Option<ChangesetDraft>,
-    /// Dashes that exist only as documents — no branch yet — sorted by name.
+    /// Arcs that exist only as documents — no branch yet — sorted by name.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub document_arcs: Vec<DocumentArcEntry>,
 }
@@ -1231,8 +1235,13 @@ pub enum OverviewRefKind {
     Plan,
     /// A brief document under the roadmap.
     Brief,
-    /// A dash by name — reveals it on the Dashes card, where its join is offered.
-    Dash,
+    /// An arc by name — reveals it on the Arcs card, where its join is offered.
+    ///
+    /// `overview_posts.refs` is stored JSON, so every ref written before the
+    /// word moved spells `"dash"` and is read for life ([F19]). New ones
+    /// serialize as `"arc"`.
+    #[serde(alias = "dash")]
+    Arc,
 }
 
 impl OverviewRefKind {
@@ -1245,7 +1254,7 @@ impl OverviewRefKind {
             Self::Commit => "commit",
             Self::Plan => "plan",
             Self::Brief => "brief",
-            Self::Dash => "dash",
+            Self::Arc => "arc",
         }
     }
 }
@@ -1370,7 +1379,7 @@ mod tests {
             OverviewRefKind::Commit,
             OverviewRefKind::Plan,
             OverviewRefKind::Brief,
-            OverviewRefKind::Dash,
+            OverviewRefKind::Arc,
         ] {
             let json = serde_json::to_string(&kind).unwrap();
             assert_eq!(json, format!("\"{}\"", kind.as_str()));
@@ -1380,6 +1389,18 @@ mod tests {
             );
         }
         assert!(serde_json::from_str::<OverviewRefKind>("\"portent\"").is_err());
+
+        // Read for life ([F19]): `overview_posts.refs` is stored JSON, so a
+        // ref written before the word moved still resolves to the arc kind —
+        // while a new one is written as `"arc"`.
+        assert_eq!(
+            serde_json::from_str::<OverviewRefKind>("\"arc\"").unwrap(),
+            OverviewRefKind::Arc
+        );
+        assert_eq!(
+            serde_json::to_string(&OverviewRefKind::Arc).unwrap(),
+            "\"arc\""
+        );
     }
 
     #[test]
@@ -1549,7 +1570,7 @@ mod tests {
                     committer: "Ada Lovelace".to_string(),
                     committer_email: "ada@example.com".to_string(),
                     committer_date: "2026-07-15T09:30:00-07:00".to_string(),
-                    tug_dash: Some("tugdash/feature onto main".to_string()),
+                    tug_arc: Some("tugarc/feature onto main".to_string()),
                     tug_session: Some("stocky-pixie (f6e43925)".to_string()),
                     tug_session_id: Some("f6e43925-1a2b-4c3d-8e9f-0a1b2c3d4e5f".to_string()),
                     files: vec!["src/lib.rs".to_string(), "src/main.rs".to_string()],
@@ -1563,7 +1584,7 @@ mod tests {
                     committer: "Grace Hopper".to_string(),
                     committer_email: "grace@example.com".to_string(),
                     committer_date: "2026-07-14T12:00:00-07:00".to_string(),
-                    tug_dash: None,
+                    tug_arc: None,
                     tug_session: None,
                     tug_session_id: None,
                     files: Vec::new(),
@@ -1781,7 +1802,7 @@ mod tests {
             other => panic!("expected session entry, got {other:?}"),
         }
         match &snapshot.changesets[1] {
-            ChangesetEntry::Dash {
+            ChangesetEntry::Arc {
                 owner_id,
                 base,
                 rounds,
@@ -1790,7 +1811,12 @@ mod tests {
                 join,
                 ..
             } => {
-                assert_eq!(owner_id, "tugdash/fix-join");
+                // The owner key is opaque payload rather than a tag, and this
+                // fixture is shared byte-for-byte with the tugdeck bun suite,
+                // so both sides read the same string or one of them fails.
+                // The retired `tugdash/` spelling is exercised where it is
+                // actually read — `session_ledger.rs`'s migration tests.
+                assert_eq!(owner_id, "tugarc/fix-join");
                 assert_eq!(base, "main");
                 assert_eq!(*rounds, 3);
                 assert!(!worktree_dirty);
@@ -1803,7 +1829,7 @@ mod tests {
                     Some("9f1c2d3e4b5a60718293a4b5c6d7e8f901234567")
                 );
             }
-            other => panic!("expected dash entry, got {other:?}"),
+            other => panic!("expected arc entry, got {other:?}"),
         }
     }
 
@@ -1830,10 +1856,10 @@ mod tests {
         // An absent draft is skipped on the wire.
         assert!(!json.contains("draft"));
 
-        let dash = ChangesetEntry::Dash {
-            owner_id: "tugdash/x#1723500000000-a1b2c3".to_string(),
+        let arc = ChangesetEntry::Arc {
+            owner_id: "tugarc/x#1723500000000-a1b2c3".to_string(),
             display_name: "x".to_string(),
-            branch: Some("tugdash/x".to_string()),
+            branch: Some("tugarc/x".to_string()),
             stage: Some("working".to_string()),
             task_list: false,
             bound_sessions: vec!["sess-1".to_string()],
@@ -1844,7 +1870,7 @@ mod tests {
             run_length: None,
             step_title: None,
             last_activity: None,
-            documents: DashDocuments::default(),
+            documents: ArcDocuments::default(),
             review: None,
             steps: vec![],
             base: "main".to_string(),
@@ -1868,18 +1894,18 @@ mod tests {
             join: None,
             arc: None,
         };
-        let json = serde_json::to_string(&dash).unwrap();
-        assert!(json.contains(r#""kind":"dash""#));
-        // A dash with nothing to say about joining spends no bytes on it.
+        let json = serde_json::to_string(&arc).unwrap();
+        assert!(json.contains(r#""kind":"arc""#));
+        // An arc with nothing to say about joining spends no bytes on it.
         assert!(!json.contains("\"join\""));
-        // A current dash spends no wire bytes on its divergence fields.
+        // A current arc spends no wire bytes on its divergence fields.
         assert!(!json.contains("base_ahead"));
         assert!(!json.contains("base_overlap"));
         // A present draft rides the wire.
         assert!(json.contains(r#""message":"Do the thing""#));
         // The identity is the owner key; the ref travels separately ([P09]).
-        assert!(json.contains(r#""owner_id":"tugdash/x#1723500000000-a1b2c3""#));
-        assert!(json.contains(r#""branch":"tugdash/x""#));
+        assert!(json.contains(r#""owner_id":"tugarc/x#1723500000000-a1b2c3""#));
+        assert!(json.contains(r#""branch":"tugarc/x""#));
         assert!(json.contains(r#""stage":"working""#));
         assert!(json.contains(r#""bound_sessions":["sess-1"]"#));
         // Phase 3's slots stay off the wire while they are empty — the run's
@@ -1887,16 +1913,16 @@ mod tests {
         assert!(!json.contains("step_current"));
         assert!(!json.contains("run_position"));
         assert!(!json.contains("run_length"));
-        // …and so do the plan path and its review state, which most dashes
+        // …and so do the plan path and its review state, which most arcs
         // never record. Absence is "nothing to say" on both.
         assert!(!json.contains("plan_path"));
         assert!(!json.contains("review"));
-        // A dash whose generation has logged nothing has no date to send.
+        // An arc whose generation has logged nothing has no date to send.
         assert!(!json.contains("last_activity"));
 
         // And one that has been touched sends when.
-        let mut dated = dash;
-        if let ChangesetEntry::Dash { last_activity, .. } = &mut dated {
+        let mut dated = arc;
+        if let ChangesetEntry::Arc { last_activity, .. } = &mut dated {
             *last_activity = Some("2026-08-14T12:00:00Z".to_string());
         }
         assert!(
@@ -1906,23 +1932,23 @@ mod tests {
         );
 
         // An older sender's entry — no new fields at all — still decodes.
-        let legacy = r#"{"kind":"dash","owner_id":"tugdash/y","display_name":"y",
+        let legacy = r#"{"kind":"arc","owner_id":"tugarc/y","display_name":"y",
             "base":"main","rounds":0,"worktree":".tug/worktrees/y",
             "worktree_dirty":false,"files":[]}"#;
         let decoded: ChangesetEntry = serde_json::from_str(legacy).unwrap();
         match decoded {
-            ChangesetEntry::Dash {
+            ChangesetEntry::Arc {
                 owner_id,
                 branch,
                 stage,
                 bound_sessions,
                 ..
             } => {
-                assert_eq!(owner_id, "tugdash/y");
+                assert_eq!(owner_id, "tugarc/y");
                 assert!(branch.is_none() && stage.is_none());
                 assert!(bound_sessions.is_empty());
             }
-            _ => panic!("expected a dash entry"),
+            _ => panic!("expected an arc entry"),
         }
     }
 
@@ -2033,27 +2059,27 @@ mod tests {
         assert!(json.contains(r#""branch":"main""#));
         // Exactly one workspace_key in the flattened output.
         assert_eq!(json.matches("workspace_key").count(), 1);
-        // A project with no document-only dash carries no `document_arcs`
+        // A project with no document-only arc carries no `document_arcs`
         // key at all, so older readers see the payload they already understand.
         assert!(!json.contains("document_arcs"));
     }
 
     #[test]
-    fn test_project_changeset_carries_document_dashes() {
+    fn test_project_changeset_carries_document_arcs() {
         let snapshot: WorkspacesChangesetSnapshot =
             serde_json::from_str(WORKSPACES_CHANGESET_GOLDEN).unwrap();
         let repo = &snapshot.projects[0];
         assert_eq!(repo.document_arcs.len(), 2);
         let first = &repo.document_arcs[0];
-        assert_eq!(first.display_name, "dash-cockpit");
+        assert_eq!(first.display_name, "arc-cockpit");
         // Absolute, and composed nowhere but the server ([D138]).
         assert_eq!(
             first.documents.plan.as_deref(),
-            Some("/repo/.tug/arcs/dash-cockpit/plan.md")
+            Some("/repo/.tug/arcs/arc-cockpit/plan.md")
         );
         assert_eq!(
             first.documents.brief_title.as_deref(),
-            Some("The dash cockpit")
+            Some("The arc cockpit")
         );
         assert_eq!(first.review.as_deref(), Some("reviewed"));
         assert_eq!(first.step_total, 5);
@@ -2061,18 +2087,18 @@ mod tests {
         // trigger are separate fields, so a row can read "1 of 5 done" while
         // two rows have been opened.
         assert_eq!((first.steps_done, first.steps_begun), (1, 2));
-        // A dash whose devise stage has not run has a plan and no brief.
+        // An arc whose devise stage has not run has a plan and no brief.
         let second = &repo.document_arcs[1];
         assert_eq!(second.review.as_deref(), Some("never-reviewed"));
         assert!(second.documents.brief.is_none());
-        // The non-repo project has no dashes at all, so the key is absent and
+        // The non-repo project has no arcs at all, so the key is absent and
         // decodes as empty rather than as missing data.
         assert!(snapshot.projects[1].document_arcs.is_empty());
     }
 
-    /// The live dash carries its documents on the same object, absolute.
+    /// The live arc carries its documents on the same object, absolute.
     #[test]
-    fn test_dash_entry_carries_absolute_document_paths() {
+    fn test_arc_entry_carries_absolute_document_paths() {
         let snapshot: WorkspacesChangesetSnapshot =
             serde_json::from_str(WORKSPACES_CHANGESET_GOLDEN).unwrap();
         let documents = snapshot.projects[0]
@@ -2080,10 +2106,10 @@ mod tests {
             .changesets
             .iter()
             .find_map(|entry| match entry {
-                ChangesetEntry::Dash { documents, .. } => Some(documents),
+                ChangesetEntry::Arc { documents, .. } => Some(documents),
                 _ => None,
             })
-            .expect("the golden carries one dash");
+            .expect("the golden carries one arc");
         assert_eq!(
             documents.plan.as_deref(),
             Some("/repo/.tug/arcs/fix-join/plan.md")

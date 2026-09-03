@@ -14,14 +14,14 @@
  *    explicitly allows `div`).
  *
  * Smart-punctuation Unicode reference:
- *   `--`     → U+2013 EN DASH       (–)
- *   `---`    → U+2014 EM DASH       (—)
+ *   `--`     → U+2013 EN ARC       (–)
+ *   `---`    → U+2014 EM ARC       (—)
  *   `...`    → U+2026 HORIZONTAL …  (…)
  *   `"x"`    → U+201C / U+201D      (“ ”)
  *   `'x'`    → U+2018 / U+2019      (‘ ’)
  *
  * The exact characters are the test's contract: a future change that
- * (say) rewrites em-dash to a different glyph would surface here
+ * (say) rewrites em-arc to a different glyph would surface here
  * instead of silently shipping different prose to users.
  */
 
@@ -119,11 +119,11 @@ describe("pulldown-cmark — footnotes", () => {
 // ---------------------------------------------------------------------------
 
 describe("pulldown-cmark — smart-punctuation", () => {
-  test("`--` becomes EN DASH", () => {
+  test("`--` becomes EN ARC", () => {
     expect(renderAll("range a -- b\n")).toContain("a – b");
   });
 
-  test("`---` becomes EM DASH", () => {
+  test("`---` becomes EM ARC", () => {
     expect(renderAll("aside a --- b\n")).toContain("a — b");
   });
 

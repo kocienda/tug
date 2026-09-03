@@ -28,7 +28,7 @@ EDIT
 
 ## What the corpus says
 
-The language is shaped by evidence, not taste. Every Claude Code session transcript for this checkout and its dash worktrees (613 files, ~140,000 Bash calls as of 2026-08-26) was mined for commands that mutate a repo file from Bash through something other than the attributable edit verb. The tally, and what each family was doing:
+The language is shaped by evidence, not taste. Every Claude Code session transcript for this checkout and its arc worktrees (613 files, ~140,000 Bash calls as of 2026-08-26) was mined for commands that mutate a repo file from Bash through something other than the attributable edit verb. The tally, and what each family was doing:
 
 | Family | Repo-file edits | Attributed today? | What the edits actually were |
 |--------|----------------:|-------------------|------------------------------|
@@ -75,7 +75,7 @@ block      := ('file' path | 'files' path+) NEWLINE (op NEWLINE)+
 op         := replace | sub | patch | insert | append | delete | lines | move | create | write
 ```
 
-Paths are relative to the working directory (the checkout or dash worktree the session runs in), or absolute. A path is a literal — no globs, no variables. The same file may open more than one block; the blocks concatenate. In a `files` block, `expect` counts are checked **per file**: `files a.rs b.rs` + `sub /\bnew_frames\b/ 'new_beats' all` requires at least one hit in each.
+Paths are relative to the working directory (the checkout or arc worktree the session runs in), or absolute. A path is a literal — no globs, no variables. The same file may open more than one block; the blocks concatenate. In a `files` block, `expect` counts are checked **per file**: `files a.rs b.rs` + `sub /\bnew_frames\b/ 'new_beats' all` requires at least one hit in each.
 
 ### Ops
 
@@ -254,7 +254,7 @@ The attributable path for both is *compute, then write the result as an edit pro
 | Spelling | Role |
 |----------|------|
 | `tugtool file edit [--preview] [FILE.edit]` | The entry point, and the whole of file editing: an edit program from the named file or stdin, or a unified diff via `--patch` (`-` for stdin), both honoring `--preview`. This is the spelling the gate's steer and `CLAUDE.md` use. |
-| `tugedit [--preview] [FILE.edit]` | A thin second `[[bin]]` target in the `tugtool` crate that runs the program shape of the same verb. Ships in the app bundle beside `tugtool` and is symlinked into `~/.local/bin` like the rest — and carries the same gotcha: the symlink points at `main`'s build, so a dash-worktree session that changed the interpreter must call it by absolute path. |
+| `tugedit [--preview] [FILE.edit]` | A thin second `[[bin]]` target in the `tugtool` crate that runs the program shape of the same verb. Ships in the app bundle beside `tugtool` and is symlinked into `~/.local/bin` like the rest — and carries the same gotcha: the symlink points at `main`'s build, so an arc-worktree session that changed the interpreter must call it by absolute path. |
 | `tugedit-core` | The language crate under `tugrust/crates/`: lexer, parser, resolver, applier, diff rendering. No I/O policy — it takes a `FileSource` trait so tests drive it against in-memory content and the CLI drives it against the tree. |
 
 `.edit` is the language's file extension, and "an edit program" is its name in prose. `tugedit` is the tool. There is exactly one editing verb: the flag-mode single substitution the verb once carried (`--path`/`--replace`/`--with`) is retired, because a one-op program covers it with the same count guard and a better refusal, and two grammars for one act was the review/rev-class ambiguity this naming exists to avoid. (The tool was originally named `tugrev` and the program "a rev"; the name read too easily as *review* and was retired whole.)
@@ -275,7 +275,7 @@ Whether the levers worked is measurable two ways: the size of the UNATTRIBUTED b
 
 ## Decisions
 
-Settled before the dash; a step that wants to reopen one updates this page first.
+Settled before the arc; a step that wants to reopen one updates this page first.
 
 | # | Decision |
 |---|----------|

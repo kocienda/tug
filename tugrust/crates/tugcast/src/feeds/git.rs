@@ -393,7 +393,7 @@ pub async fn build_commit_files_snapshot(
 /// (`%s` strips newlines), or a body, so the field split is unambiguous.
 const LOG_FIELD_SEP: char = '\u{1f}';
 
-/// The record-separator byte (`%x1e`) git joins repeated `Tug-Dash:` trailer
+/// The record-separator byte (`%x1e`) git joins repeated `Tug-Arc:` trailer
 /// values with — chosen so it survives the `-z` NUL record terminator.
 const LOG_TRAILER_SEP: char = '\u{1e}';
 
@@ -449,18 +449,24 @@ pub async fn build_git_log_snapshot(
             &limit_arg,
             // Fields are `%x1f`-delimited: sha, author name, author date
             // (short), committer name, committer email, committer date (strict
-            // ISO), subject, the three Tug trailers (`Tug-Dash` for the
+            // ISO), subject, the three Tug trailers (the arc trailer for the
             // History join badge [P09]; `Tug-Session` / `Tug-Session-Id` for
             // the session citation [P10]) — each empty when absent — then the
             // multi-line body (`%b`). A trailer's own multi-value separator is
             // `%x1e` (RS) — NOT `%x00`, which `-z` owns as the record
             // terminator.
             //
+            // The arc trailer is read under **both** keys, and git accepts a
+            // repeated `key=` for exactly this: `Tug-Arc:` is what this build
+            // writes, and `Tug-Dash:` is what every commit already on the base
+            // wears. A landed commit is never rewritten, so the retired key is
+            // a read for life rather than a transition.
+            //
             // Adding a trailer field here REQUIRES widening `parse_git_log`'s
             // `splitn` cap in the same edit, or the new values glue themselves
             // to the front of every body.
             "--format=%H%x1f%an%x1f%ad%x1f%cn%x1f%ce%x1f%cI%x1f%s\
-             %x1f%(trailers:key=Tug-Dash,valueonly,separator=%x1e)\
+             %x1f%(trailers:key=Tug-Arc,key=Tug-Dash,valueonly,separator=%x1e)\
              %x1f%(trailers:key=Tug-Session,valueonly,separator=%x1e)\
              %x1f%(trailers:key=Tug-Session-Id,valueonly,separator=%x1e)\
              %x1f%b",
@@ -494,7 +500,7 @@ pub async fn build_git_log_snapshot(
 /// are machine plumbing, and every one of them is already a typed field on
 /// [`GitLogCommit`]. Stripped together so the History card carries no Tug
 /// trailer ink at all rather than some of it.
-const TUG_TRAILER_KEYS: &[&str] = &["Tug-Session:", "Tug-Session-Id:", "Tug-Dash:"];
+const TUG_TRAILER_KEYS: &[&str] = &["Tug-Session:", "Tug-Session-Id:", "Tug-Arc:", "Tug-Dash:"];
 
 /// Remove Tug trailer lines from a `%b` body and trim the trailing whitespace
 /// they leave behind.
@@ -528,7 +534,7 @@ fn strip_tug_trailers(body: &str) -> String {
 /// files (a merge, an empty commit) simply collects none.
 ///
 /// Record fields, 0-indexed: 0 sha, 1 author, 2 author date, 3 committer,
-/// 4 committer email, 5 committer date, 6 subject, **7 `Tug-Dash`,
+/// 4 committer email, 5 committer date, 6 subject, **7 the arc trailer,
 /// 8 `Tug-Session`, 9 `Tug-Session-Id`**, 10 the multi-line body with trailing
 /// whitespace trimmed. A trailer field is empty when absent; a repeated
 /// trailer's values are `%x1e`-joined and only the first is kept.
@@ -576,7 +582,7 @@ fn parse_git_log(output: &str) -> Vec<GitLogCommit> {
                 .filter(|v| !v.is_empty())
                 .map(str::to_owned)
         };
-        let tug_dash = trailer(7);
+        let tug_arc = trailer(7);
         let tug_session = trailer(8);
         let tug_session_id = trailer(9);
         // `%b` retains trailer lines — git does not remove them — which is why
@@ -595,7 +601,7 @@ fn parse_git_log(output: &str) -> Vec<GitLogCommit> {
             committer_date: fields[5].to_string(),
             subject: fields[6].to_string(),
             body,
-            tug_dash,
+            tug_arc,
             tug_session,
             tug_session_id,
             files: Vec::new(),
@@ -605,20 +611,20 @@ fn parse_git_log(output: &str) -> Vec<GitLogCommit> {
     commits
 }
 
-/// Assemble a single-shot [`GitDiffSnapshot`] for a **dash range** diff — the
-/// "everything this dash has done past its base" view: committed rounds plus
+/// Assemble a single-shot [`GitDiffSnapshot`] for a **arc range** diff — the
+/// "everything this arc has done past its base" view: committed rounds plus
 /// uncommitted worktree dirt ([P19], #diff-descriptor-resolution).
 ///
 /// `repo_dir` is the checkout root (the workspace), used only to decide whether
-/// there is a repository here at all; `worktree_abs` is the dash worktree's
-/// **absolute** path, resolved by `dash_detail_entries_in` against the main
+/// there is a repository here at all; `worktree_abs` is the arc worktree's
+/// **absolute** path, resolved by `arc_detail_entries_in` against the main
 /// repository root and carried whole. The two are never composed: `repo_dir`
-/// may itself be a linked worktree, which is not the root the dash path is
-/// relative to. The diff itself is resolved by [`fetch_dash_diff`]: working
+/// may itself be a linked worktree, which is not the root the arc path is
+/// relative to. The diff itself is resolved by [`fetch_arc_diff`]: working
 /// tree vs. merge-base when the worktree exists (rounds + dirt), else committed
 /// rounds only. The snapshot's `base` field carries the human-readable range
 /// `<base>...<branch>` so the document header reads correctly.
-pub async fn build_dash_diff_snapshot(
+pub async fn build_arc_diff_snapshot(
     repo_dir: &Path,
     request_id: String,
     workspace_key: &str,
@@ -639,7 +645,7 @@ pub async fn build_dash_diff_snapshot(
             files: Vec::new(),
         };
     }
-    let files = match fetch_dash_diff(repo_dir, worktree_abs, base, branch).await {
+    let files = match fetch_arc_diff(repo_dir, worktree_abs, base, branch).await {
         Some(output) => parse_git_diff(&output),
         None => Vec::new(),
     };
@@ -657,14 +663,14 @@ pub async fn build_dash_diff_snapshot(
     }
 }
 
-/// Fetch a dash's "rounds + worktree dirt" diff ([P19]).
+/// Fetch an arc's "rounds + worktree dirt" diff ([P19]).
 ///
-/// When the dash worktree exists, resolve `merge-base(<base>, <branch>)` in it
+/// When the arc worktree exists, resolve `merge-base(<base>, <branch>)` in it
 /// and diff the working tree against that base — this captures both committed
 /// rounds and uncommitted dirt in one pass, while keeping upstream drift on
 /// `base` out (the same committed-part semantics as `<base>...<branch>`).
 /// Three-dot syntax can't include a dirty working tree, hence the two-step
-/// merge-base resolution. When the worktree is absent (a dash branch without a
+/// merge-base resolution. When the worktree is absent (an arc branch without a
 /// checkout), fall back to `git diff <base>...<branch>` in the repo root —
 /// committed rounds only, which is then the whole truth. Returns `None` (and
 /// logs) on a non-zero exit or spawn failure.
@@ -672,8 +678,8 @@ pub async fn build_dash_diff_snapshot(
 /// `worktree_abs` arrives absolute and is used as given; `repo_dir` is only the
 /// fallback's working directory. Joining the two was the old shape and it
 /// degraded silently — a missed join yields a path that is not a directory,
-/// which reads as "this dash has no worktree" and quietly drops its dirt.
-pub(crate) async fn fetch_dash_diff(
+/// which reads as "this arc has no worktree" and quietly drops its dirt.
+pub(crate) async fn fetch_arc_diff(
     repo_dir: &Path,
     worktree_abs: &str,
     base: &str,
@@ -704,11 +710,11 @@ async fn run_git_diff_against(dir: &Path, target: &str) -> Option<String> {
         Ok(o) if o.status.success() => Some(String::from_utf8_lossy(&o.stdout).into_owned()),
         Ok(o) => {
             let stderr = String::from_utf8_lossy(&o.stderr);
-            warn!(stderr = %stderr.trim_end(), target, "git diff (dash range) failed");
+            warn!(stderr = %stderr.trim_end(), target, "git diff (arc range) failed");
             None
         }
         Err(e) => {
-            warn!(error = %e, "failed to execute git diff (dash range)");
+            warn!(error = %e, "failed to execute git diff (arc range)");
             None
         }
     }
@@ -921,13 +927,7 @@ mod tests {
     /// One `git log -z` record. Field order mirrors the `--format` string:
     /// sha, author, date, committer, email, committer date, subject, then the
     /// three Tug trailers, then the body.
-    fn log_record(
-        subject: &str,
-        dash: &str,
-        session: &str,
-        session_id: &str,
-        body: &str,
-    ) -> String {
+    fn log_record(subject: &str, arc: &str, session: &str, session_id: &str, body: &str) -> String {
         [
             "0123456789abcdef0123456789abcdef01234567",
             "Ada",
@@ -936,7 +936,7 @@ mod tests {
             "ada@example.com",
             "2026-08-08T09:30:00-07:00",
             subject,
-            dash,
+            arc,
             session,
             session_id,
             body,
@@ -1002,7 +1002,7 @@ mod tests {
         let commits = parse_git_log(&format!("{record}\0"));
         assert_eq!(commits[0].body, "First line.\n\nSecond paragraph.");
         assert_eq!(
-            commits[0].tug_dash.as_deref(),
+            commits[0].tug_arc.as_deref(),
             Some("tugdash/x onto main"),
             "Tug-Dash still lands as a typed field; only its body ink goes"
         );
@@ -1633,14 +1633,14 @@ index 1111111..2222222 100644
         assert!(snapshot.files.is_empty());
     }
 
-    /// A repo on `main` with a base commit, a `tugdash/demo` branch that adds
+    /// A repo on `main` with a base commit, a `tugarc/demo` branch that adds
     /// `round.txt` in a checked-out worktree under `.tug/worktrees/`, tracked worktree
     /// dirt on `keep.txt`, and a later main-only commit that must stay out of
-    /// the dash range (merge-base semantics).
+    /// the arc range (merge-base semantics).
     ///
-    /// Returns the dash worktree's **absolute** path, which is what the wire
-    /// carries and what `build_dash_diff_snapshot` takes.
-    async fn init_dash_fixture_repo() -> (TempDir, String) {
+    /// Returns the arc worktree's **absolute** path, which is what the wire
+    /// carries and what `build_arc_diff_snapshot` takes.
+    async fn init_arc_fixture_repo() -> (TempDir, String) {
         let temp = TempDir::new().unwrap();
         let repo = temp.path().to_path_buf();
         git_in(&repo, &["init", "-b", "main"]).await;
@@ -1650,11 +1650,11 @@ index 1111111..2222222 100644
         git_in(&repo, &["add", "-A"]).await;
         git_in(&repo, &["commit", "-m", "base"]).await;
 
-        // The dash branch + its worktree under `.tug/worktrees/`.
-        git_in(&repo, &["branch", "tugdash/demo"]).await;
-        git_in(&repo, &["config", "branch.tugdash/demo.tugbase", "main"]).await;
+        // The arc branch + its worktree under `.tug/worktrees/`.
+        git_in(&repo, &["branch", "tugarc/demo"]).await;
+        git_in(&repo, &["config", "branch.tugarc/demo.tugbase", "main"]).await;
         let worktree_rel = ".tug/worktrees/demo";
-        git_in(&repo, &["worktree", "add", worktree_rel, "tugdash/demo"]).await;
+        git_in(&repo, &["worktree", "add", worktree_rel, "tugarc/demo"]).await;
         let worktree_abs = repo.join(worktree_rel);
 
         // One committed round in the worktree: add round.txt.
@@ -1665,7 +1665,7 @@ index 1111111..2222222 100644
         // Tracked worktree dirt: modify keep.txt (uncommitted).
         fs::write(worktree_abs.join("keep.txt"), "base\ndirt\n").unwrap();
 
-        // A later commit on main only — must NOT appear in the dash range.
+        // A later commit on main only — must NOT appear in the arc range.
         fs::write(repo.join("mainonly.txt"), "upstream\n").unwrap();
         git_in(&repo, &["add", "-A"]).await;
         git_in(&repo, &["commit", "-m", "main drift"]).await;
@@ -1674,22 +1674,22 @@ index 1111111..2222222 100644
     }
 
     #[tokio::test]
-    async fn test_build_dash_diff_snapshot_rounds_plus_dirt() {
-        let (temp, worktree_abs) = init_dash_fixture_repo().await;
-        let snapshot = build_dash_diff_snapshot(
+    async fn test_build_arc_diff_snapshot_rounds_plus_dirt() {
+        let (temp, worktree_abs) = init_arc_fixture_repo().await;
+        let snapshot = build_arc_diff_snapshot(
             temp.path(),
-            "req-dash".to_string(),
+            "req-arc".to_string(),
             "ws-key",
             &worktree_abs,
             "main",
-            "tugdash/demo",
+            "tugarc/demo",
         )
         .await;
 
         assert!(!snapshot.no_repo);
-        assert_eq!(snapshot.request_id, "req-dash");
+        assert_eq!(snapshot.request_id, "req-arc");
         assert_eq!(
-            snapshot.base, "main...tugdash/demo",
+            snapshot.base, "main...tugarc/demo",
             "header carries the range"
         );
         let paths: Vec<&str> = snapshot.files.iter().map(|f| f.path.as_str()).collect();
@@ -1702,16 +1702,16 @@ index 1111111..2222222 100644
     }
 
     #[tokio::test]
-    async fn test_build_dash_diff_snapshot_no_worktree_falls_back_to_committed_rounds() {
-        let (temp, _worktree_abs) = init_dash_fixture_repo().await;
+    async fn test_build_arc_diff_snapshot_no_worktree_falls_back_to_committed_rounds() {
+        let (temp, _worktree_abs) = init_arc_fixture_repo().await;
         // A worktree path that does not exist forces the committed-only fallback.
-        let snapshot = build_dash_diff_snapshot(
+        let snapshot = build_arc_diff_snapshot(
             temp.path(),
-            "req-dash-2".to_string(),
+            "req-arc-2".to_string(),
             "ws-key",
             "/nonexistent/tugtree/does-not-exist",
             "main",
-            "tugdash/demo",
+            "tugarc/demo",
         )
         .await;
 
@@ -1724,13 +1724,13 @@ index 1111111..2222222 100644
     }
 
     /// Asked from a *linked worktree* — the configuration `just app-debug`
-    /// produces and every dash build is vetted on. The old shape joined the
+    /// produces and every arc build is vetted on. The old shape joined the
     /// caller's root with a relative tail, which from here resolved to a path
     /// that does not exist and degraded silently to committed rounds. Worktree
     /// dirt in the file list is what falsifies that regression.
     #[tokio::test]
-    async fn test_build_dash_diff_snapshot_from_a_linked_worktree_keeps_the_dirt() {
-        let (temp, worktree_abs) = init_dash_fixture_repo().await;
+    async fn test_build_arc_diff_snapshot_from_a_linked_worktree_keeps_the_dirt() {
+        let (temp, worktree_abs) = init_arc_fixture_repo().await;
         let repo = temp.path().to_path_buf();
         git_in(&repo, &["branch", "sidecar"]).await;
         git_in(
@@ -1740,13 +1740,13 @@ index 1111111..2222222 100644
         .await;
         let asked_from = repo.join(".tug/worktrees/sidecar");
 
-        let snapshot = build_dash_diff_snapshot(
+        let snapshot = build_arc_diff_snapshot(
             &asked_from,
-            "req-dash-3".to_string(),
+            "req-arc-3".to_string(),
             "ws-key",
             &worktree_abs,
             "main",
-            "tugdash/demo",
+            "tugarc/demo",
         )
         .await;
 
@@ -1774,6 +1774,49 @@ index 1111111..2222222 100644
             git_in(&repo, &["commit", "-m", subject]).await;
         }
         temp
+    }
+
+    /// **Both arc trailer keys land in the one typed field.** `Tug-Arc:` is
+    /// what this build writes; `Tug-Dash:` is what every join already on a
+    /// base wears, and landed history is never rewritten — so the retired key
+    /// is a read for life rather than a transition. The `%(trailers:key=…)`
+    /// format string carries both, which is the only place the two are ever
+    /// reconciled: by the time `parse_git_log` sees a record, git has already
+    /// resolved whichever key the commit actually had into the same field.
+    #[tokio::test]
+    async fn test_git_log_reads_both_arc_trailer_keys() {
+        let temp = TempDir::new().unwrap();
+        let repo = temp.path().to_path_buf();
+        git_in(&repo, &["init", "-b", "main"]).await;
+        git_in(&repo, &["config", "user.name", "Test Author"]).await;
+        git_in(&repo, &["config", "user.email", "test@test.com"]).await;
+        for (file, trailer) in [
+            ("legacy.txt", "Tug-Dash: tugdash/old onto main"),
+            ("current.txt", "Tug-Arc: tugarc/new onto main"),
+        ] {
+            fs::write(repo.join(file), "x\n").unwrap();
+            git_in(&repo, &["add", "-A"]).await;
+            git_in(&repo, &["commit", "-m", &format!("subject\n\n{trailer}")]).await;
+        }
+
+        let snapshot = build_git_log_snapshot(&repo, "gl-t".to_string(), "ws", 0, 20).await;
+        let values: Vec<Option<&str>> = snapshot
+            .commits
+            .iter()
+            .map(|c| c.tug_arc.as_deref())
+            .collect();
+        assert_eq!(
+            values,
+            vec![Some("tugarc/new onto main"), Some("tugdash/old onto main"),],
+            "each key reaches the field, newest commit first"
+        );
+        for commit in &snapshot.commits {
+            assert!(
+                !commit.body.contains("Tug-Arc:") && !commit.body.contains("Tug-Dash:"),
+                "and neither key is left as body ink: {}",
+                commit.body
+            );
+        }
     }
 
     #[tokio::test]

@@ -31,19 +31,19 @@
       ]
     },
     {
-      "kind": "dash",
-      "owner_id": "tugdash/fix-join",
+      "kind": "arc",
+      "owner_id": "tugarc/fix-join",
       "display_name": "fix-join",
       "base": "main",
       "rounds": 3,
-      "worktree": "/Users/dev/src/tugtool/.tug/worktrees/tugdash__fix-join",
+      "worktree": "/Users/dev/src/tugtool/.tug/worktrees/tugarc__fix-join",
       "worktree_dirty": false,
       "files": [
         {
-          "path": "tugrust/crates/tugtool/src/commands/dash.rs",
+          "path": "tugrust/crates/tugtool/src/commands/arc.rs",
           "git_status": "M",
           "op": "modified",
-          "origin": "dash",
+          "origin": "arc",
           "shared": false,
           "last_touched": 0
         }
@@ -51,11 +51,11 @@
       "join": {
         "phase": "resolved",
         "conflicts": [
-          "tugrust/crates/tugtool/src/commands/dash.rs"
+          "tugrust/crates/tugtool/src/commands/arc.rs"
         ],
         "archaeology": [
           {
-            "path": "tugrust/crates/tugtool/src/commands/dash.rs",
+            "path": "tugrust/crates/tugtool/src/commands/arc.rs",
             "commits": [
               {
                 "sha": "3722f24",
@@ -68,7 +68,7 @@
         "candidate": "9f1c2d3e4b5a60718293a4b5c6d7e8f901234567",
         "resolved": [
           {
-            "path": "tugrust/crates/tugtool/src/commands/dash.rs",
+            "path": "tugrust/crates/tugtool/src/commands/arc.rs",
             "resolved_by": "driver",
             "diff": "@@ -1,3 +1,3 @@\n-old\n+new\n",
             "added": 1,

@@ -5,7 +5,7 @@ use thiserror::Error;
 /// Core error type for tug operations.
 ///
 /// Only the variants the surviving surface actually constructs remain — config,
-/// resolution, git/worktree, and dash. The plan-parser/validator and the dash
+/// resolution, git/worktree, and arc. The plan-parser/validator and the arc
 /// state-machine were retired, and their error variants with them.
 #[derive(Error, Debug)]
 pub enum TugError {
@@ -33,9 +33,9 @@ pub enum TugError {
     #[error("worktree creation failed: {reason}")]
     WorktreeCreationFailed { reason: String },
 
-    /// Dash name invalid
-    #[error("invalid dash name '{name}': {reason}")]
-    DashNameInvalid { name: String, reason: String },
+    /// Arc name invalid
+    #[error("invalid arc name '{name}': {reason}")]
+    ArcNameInvalid { name: String, reason: String },
 
     /// The repo-universe boundary variable names something that is not a checkout
     #[error("TUG_REPO_UNIVERSE='{value}' {reason}")]
@@ -48,13 +48,13 @@ mod tests {
 
     #[test]
     fn test_error_display() {
-        let err = TugError::DashNameInvalid {
+        let err = TugError::ArcNameInvalid {
             name: "Bad Name".to_string(),
             reason: "name must start with a lowercase letter".to_string(),
         };
         assert_eq!(
             err.to_string(),
-            "invalid dash name 'Bad Name': name must start with a lowercase letter"
+            "invalid arc name 'Bad Name': name must start with a lowercase letter"
         );
     }
 

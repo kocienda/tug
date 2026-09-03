@@ -19,7 +19,7 @@
  * when the server actually sent a summary, so a landing this card merely
  * watched leaves no ink here.
  *
- * A dash arc's ending rides it too ([P12]), and is the one row here nobody
+ * An arc's ending rides it too ([P12]), and is the one row here nobody
  * asked for: the other three settle a round-trip this card started, while an
  * arc finishes on a server tick with the user reading something else. So its
  * edge is not a phase but the ledger row's identity appearing, and it is
@@ -130,11 +130,11 @@ export function useLandingReceipts(
       }
       prevJoin = joined.phase;
 
-      // Discard: a discard is a landing too — it is the other way a dash stops
+      // Discard: a discard is a landing too — it is the other way an arc stops
       // existing, and the receipt is the only record of what it took.
       const discarded = verbStore.discardState(commitKey);
       if (discarded.phase === "done" && prevDiscard !== "done" && discarded.summary !== null) {
-        append("/dash-discard", discarded.summary, discarded.receiptId);
+        append("/arc-discard", discarded.summary, discarded.receiptId);
       }
       prevDiscard = discarded.phase;
 
@@ -142,19 +142,19 @@ export function useLandingReceipts(
       // the join offer is the shade's to raise ([D147], [D152]).
       const arc = verbStore.arcReceipt(tugSessionId);
       if (arc !== null && arc.receiptId !== prevArcReceipt) {
-        append("/dash-arc", arc.summary, arc.receiptId);
+        append("/arc-run", arc.summary, arc.receiptId);
       }
       prevArcReceipt = arc?.receiptId ?? prevArcReceipt;
 
-      // Every manipulation of a dash's step list, announced by the verb that
+      // Every manipulation of an arc's step list, announced by the verb that
       // made it (W8). The user watches a run from the card, and before these
       // the only sign of progression was a stuck indicator. Not `append`: a
       // note is not a landing row, it is one sentence the reducer seats
       // conversationally — inside the open turn when one is streaming,
-      // between turns otherwise (`handleDashNote`).
+      // between turns otherwise (`handleArcNote`).
       for (const arcNote of verbStore.arcNotes(tugSessionId)) {
         if (arcNote.seq <= prevNoteSeq) continue;
-        codeSessionStore.ingestDashNote({
+        codeSessionStore.ingestArcNote({
           exchangeId: landingExchangeId(arcNote.receiptId),
           command: arcNote.command,
           text: arcNote.note,

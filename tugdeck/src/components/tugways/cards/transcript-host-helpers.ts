@@ -89,8 +89,8 @@ export function useSessionModelName(
  * known-list gate, not a loose regex.
  *
  * The membership test is {@link isKnownSlashCommandName}, which resolves a
- * bare name against the catalog **namespace-aware** — so `` `/dash` `` written
- * in prose is a chip even though the catalog entry is `tugplug:dash`. It is
+ * bare name against the catalog **namespace-aware** — so `` `/arc` `` written
+ * in prose is a chip even though the catalog entry is `tugplug:arc`. It is
  * the same resolver the submit path runs, so clickable and sendable agree by
  * construction.
  *

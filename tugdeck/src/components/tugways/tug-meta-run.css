@@ -1,8 +1,8 @@
 /* tug-meta-run.css — `TugMetaRun`, the small facts after a row's name.
 
    Every value arrived unchanged from the two runs that used to spell it: the
-   Changes shade's file metadata cluster (`tug-changes-list.css`) and the dash
-   lane's fact run (`session-changes-dash-lane.css`). The extraction is a move.
+   Changes shade's file metadata cluster (`tug-changes-list.css`) and the arc
+   lane's fact run (`session-changes-arc-lane.css`). The extraction is a move.
 
    Laws: [L20] owns `--tugx-meta-run-*`; [L17] every alias resolves to a base
    token in one hop. */

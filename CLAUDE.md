@@ -10,7 +10,7 @@ Tug is a developer tool suite. Its centerpiece is the **Session card** — a gra
 
 **Exceptions:**
 - Autonomous implementation: when the user explicitly authorizes autonomous sub-step execution (e.g., "go on your own"), commit after each sub-step using the `/tugplug:draft` skill's message style. Report each commit hash and message.
-- The `dash` and `trek` doors' arcs commit on their **arc worktree** (never on `main`) via `tugtool arc commit`, as part of walking an arc's steps. `main` is only updated by the user's landing gestures.
+- The `/arc` and `/arc-plan` doors' arcs commit on their **arc worktree** (never on `main`) via `tugtool arc commit`, as part of walking an arc's steps. `main` is only updated by the user's landing gestures.
 
 The `/tugplug:draft` skill **never commits** — it authors the session's landing draft via `tugtool draft set`. Landing is the user's act: `/commit` (main lane) and `/arc-join <name>` (arc lane) in the Session card are the landing gestures.
 
@@ -33,7 +33,7 @@ Tug is distributed as `Tug.app` to people whose projects have nothing to do with
 | `tugcode/` | Claude Code bridge (stream-json IPC); bun-compiled binary |
 | `tugdeck/` | Web frontend (the Session card lives here) |
 | `tugapp/` | Swift macOS app (Tug.app host) |
-| `tugplug/` | Claude Code plugin (agentless skills: dash/trek/arc-devise/arc-review/arc-implement/arc-audit/draft/tripwire). An arc's documents live at `.tug/arcs/<name>/` and are never tracked. |
+| `tugplug/` | Claude Code plugin (agentless skills: arc/arc-plan/arc-devise/arc-review/arc-implement/arc-audit/draft/tripwire). An arc's documents live at `.tug/arcs/<name>/` and are never tracked. |
 | `tuglaws/` | Architecture laws + design decisions — the curated durable doc surface |
 | `tests/` | App-test harness that drives the real Tug.app |
 

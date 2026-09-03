@@ -443,8 +443,8 @@ export interface SessionIdentityRowProps
    * share one, and the marks centre in it whatever size their ink is.
    *
    * It is also what makes a tier hold still: a session that joins a counted
-   * dash swaps its dot for a step ring, which packs at the column already — so
-   * under `"ink"` the title moves several pixels sideways when a dash starts.
+   * arc swaps its dot for a step ring, which packs at the column already — so
+   * under `"ink"` the title moves several pixels sideways when an arc starts.
    * @default "ink"
    */
   indicatorPacking?: "ink" | "column";
@@ -481,15 +481,15 @@ export interface SessionIdentityRowProps
    */
   row?: SessionRow | null;
   /**
-   * The dash binding the caller is ALREADY holding, the same way {@link row}
+   * The arc binding the caller is ALREADY holding, the same way {@link row}
    * is the ledger row it holds. Given, it is the source for the step ring and
    * for the track riding the title run; omitted, the binding is read from the
    * changeset aggregate by session id.
    *
-   * `null` states that this session is on no dash, which is different from
+   * `null` states that this session is on no arc, which is different from
    * omitting the prop and letting the store answer.
    */
-  dash?: ArcSessionFact | null;
+  arc?: ArcSessionFact | null;
   /** A list surface's filter query, painted over the runs that can carry it. */
   highlight?: string;
   /**
@@ -570,7 +570,7 @@ export function SessionIdentityRow({
   renderTape,
   identityContext,
   row: rowOverride,
-  dash: dashOverride,
+  arc: arcOverride,
   highlight = "",
   descriptionMaxChars,
   activityOverride = null,
@@ -603,10 +603,10 @@ export function SessionIdentityRow({
   // them, and `??` on the way out would have left it doing exactly that.
   const facts = useSessionLedgerRow(sessionId, projectDir, rowOverride);
 
-  // The dash this session is on, for the step ring and the title's progress
-  // cluster. The same aggregate read the identity's own dash marker makes —
+  // The arc this session is on, for the step ring and the title's progress
+  // cluster. The same aggregate read the identity's own arc marker makes —
   // the fact is reference-stable across beats that do not move this session's
-  // binding, so the row repaints only when its own dash does.
+  // binding, so the row repaints only when its own arc does.
   // A caller holding the binding hands it over — the same argument `row`
   // makes — and the store read is skipped by asking it about no session at all
   // rather than by branching on a hook.
@@ -615,19 +615,19 @@ export function SessionIdentityRow({
   // including nothing, is handed down to the identity so the marker beneath
   // never asks the store the same question a beat later and answers it
   // differently.
-  const storeDash = useArcForSession(dashOverride === undefined ? sessionId : null);
-  const dashFact = dashOverride ?? storeDash;
+  const storeArc = useArcForSession(arcOverride === undefined ? sessionId : null);
+  const arcFact = arcOverride ?? storeArc;
   // The numerals count the declared RUN — the selection somebody asked for,
   // which is what the task list mirrors and the invocation named. The plan's
   // own pair is the track's, drawn as one tick per plan step, so nothing here
   // derives it a second time.
-  const dashGlance =
-    dashFact !== null
+  const arcGlance =
+    arcFact !== null
       ? arcGlanceFraction(
-          dashFact.runPosition,
-          dashFact.runLength,
-          dashFact.stepCurrent,
-          dashFact.stepTotal,
+          arcFact.runPosition,
+          arcFact.runLength,
+          arcFact.stepCurrent,
+          arcFact.stepTotal,
         )
       : null;
 
@@ -753,9 +753,9 @@ export function SessionIdentityRow({
       highlight={highlight}
       // The row already holds the binding, so the identity's own marker is
       // handed the answer rather than subscribing for it. `false` when the row
-      // read no dash — that is the prop's "on no dash, and do not ask" arm,
+      // read no arc — that is the prop's "on no arc, and do not ask" arm,
       // and it is the case a second subscription most often disagreed about.
-      dash={dashFact ?? false}
+      arc={arcFact ?? false}
       // Where the row answers a right-click, the hover says nothing. Both were
       // showing the session's name and description over a row already showing
       // both, and only one of them can be acted on.
@@ -763,21 +763,21 @@ export function SessionIdentityRow({
     />
   );
 
-  // The dash's whole life, riding the title line after the identity's own
-  // `^<dash>` run — in the COMPACT register: the phase glyph, one pill, and
+  // The arc's whole life, riding the title line after the identity's own
+  // `^<arc>` run — in the COMPACT register: the phase glyph, one pill, and
   // the count of the declared run.
   //
   // The whole track stood here once, and this line is one of the two places it
   // could not fit: a session row leads with a name that elides, and a graphic
   // that grew with the plan drove the name and the strip into each other. The
-  // mark says the same three things in a box that cannot grow — where the dash
+  // mark says the same three things in a box that cannot grow — where the arc
   // is, that it is alive, and how far along. The track itself belongs to the
-  // surfaces whose subject IS the dash: the Cards card's Arcs section, the Changes
-  // shade's dash lane, and the DASH placard.
+  // surfaces whose subject IS the arc: the Cards card's Arcs section, the Changes
+  // shade's arc lane, and the ARC placard.
   //
   // The glyph is keyed on the lifecycle PHASE, not the git stage — a card
   // devising or reviewing a plan has no stage at all, and that is the half of
-  // a dash's life the surface most likely to be watching it most needs a word
+  // an arc's life the surface most likely to be watching it most needs a word
   // for. The guard is the binding itself for the same reason.
   //
   // The fraction is handed over rather than derived: the numerals count the
@@ -786,16 +786,16 @@ export function SessionIdentityRow({
   //
   // The step's TITLE stays off this line — it lives in the Arcs section.
   const progress =
-    dashFact !== null ? (
+    arcFact !== null ? (
       <span
         className="session-identity-row-progress"
         data-slot="session-identity-row-progress"
       >
         <ArcLifecycleMark
-          model={arcTrackModelFromEntry(dashFact.entry)}
+          model={arcTrackModelFromEntry(arcFact.entry)}
           size="read"
-          name={dashFact.name}
-          fraction={dashGlance}
+          name={arcFact.name}
+          fraction={arcGlance}
         />
       </span>
     ) : null;
@@ -826,15 +826,15 @@ export function SessionIdentityRow({
       // ONE mark, whatever the session is doing: the phase dot, saying whether
       // this session is working. It never becomes a step ring.
       //
-      // It used to. A session on a counted dash wore the segmented ring, and
+      // It used to. A session on a counted arc wore the segmented ring, and
       // once the track arrived on the title line beside it that was two marks
       // drawing the same step count in two geometries, disagreeing whenever
-      // one of them lagged. The track is the dash's whole life and the better
-      // reading of it, so the ring yields the subject entirely: a dash says
+      // one of them lagged. The track is the arc's whole life and the better
+      // reading of it, so the ring yields the subject entirely: an arc says
       // its progress in the track and nowhere else on this row.
       //
       // The segmented ring is not retired — it is what a task list that is NOT
-      // a dash still wears, which is the case it now uniquely means.
+      // an arc still wears, which is the case it now uniquely means.
       indicator={<SessionPhaseDot sessionId={sessionId} size={dotSize} drift={drift} />}
       // No size, no ink correction under column packing: the row falls back to
       // packing at the stylesheet's own advance, which a masthead asks for

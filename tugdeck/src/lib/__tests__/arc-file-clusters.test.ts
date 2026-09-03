@@ -21,7 +21,7 @@ function file(
     path,
     git_status,
     op: "modified",
-    origin: "dash",
+    origin: "arc",
     shared: false,
     last_touched: 0,
     ...(counts ?? {}),
@@ -55,7 +55,7 @@ describe("clusterArcFiles", () => {
     const clusters = clusterArcFiles([
       file("tugdeck/src/a.ts"),
       file("tugdeck/src/b.ts"),
-      file("tuglaws/dash.md"),
+      file("tuglaws/arc.md"),
     ]);
     expect(clusters.map((c) => c.dir).sort()).toEqual(["tugdeck/src", "tuglaws"]);
   });

@@ -1,4 +1,4 @@
-// Lineage-aware restore ([P10]). A dash arc spreads one line of work across a
+// Lineage-aware restore ([P10]). An arc spreads one line of work across a
 // JSONL per stage, so a card that replays only the session it resumed shows a
 // transcript beginning in the middle. `request_replay` may carry an ordered
 // lineage; `runReplay` translates every ancestor in turn, emitting a
@@ -185,7 +185,7 @@ const LINEAGE: ReplayLineageEntry[] = [
     sessionId: STAGE_ID,
     stage: "devise",
     model: "opus",
-    document: "dash/foo-brief.md",
+    document: ".tug/arcs/foo/brief.md",
     arc: "foo",
   },
 ];
@@ -212,7 +212,7 @@ describe("runReplay — lineage", () => {
     expect(divider).toBeDefined();
     if (divider && divider.type === "replay_stage") {
       expect(divider.model).toBe("opus");
-      expect(divider.document).toBe("dash/foo-brief.md");
+      expect(divider.document).toBe(".tug/arcs/foo/brief.md");
       expect(divider.arc).toBe("foo");
     }
   });
@@ -257,7 +257,7 @@ describe("runReplay — lineage", () => {
           sessionId: PARENT_ID,
           stage: "devise",
           model: "opus",
-          document: "dash/foo-brief.md",
+          document: ".tug/arcs/foo/brief.md",
           arc: "foo",
         },
         { sessionId: STAGE_ID },

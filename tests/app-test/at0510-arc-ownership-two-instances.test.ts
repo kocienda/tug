@@ -15,7 +15,7 @@
  * The ownership gate is unit-tested in `arc_ownership.rs` and in
  * `arc_runner.rs`. What a unit test cannot reach is the thing that actually
  * failed: two real tugcast processes, two real tmux servers, one shared
- * dash-log. This file drives that.
+ * arc log. This file drives that.
  *
  * ## The two premises, proved before anything is asserted
  *
@@ -42,16 +42,16 @@
  * simply means A's runner never sweeps the arc.
  *
  * What makes A the owner is what ownership *is*: the `arc-owner` line naming
- * A in the shared dash-log, and A's own tmux server answering. That is
+ * A in the shared arc log, and A's own tmux server answering. That is
  * exactly the pair the gate reads, and it is what `[F01]` was about — the
  * claim under test is about what the **foreign** runner does.
  *
- * ## What is asserted through the dash-log rather than the shell ledger
+ * ## What is asserted through the arc log rather than the shell ledger
  *
- * A stop writes two things: an `arc-stop` line in the dash-log and a receipt
+ * A stop writes two things: an `arc-stop` line in the arc log and a receipt
  * row in the instance's shell ledger. Only the first is read here. There is
  * no harness affordance for the shell ledger, and pointing a foreign sqlite
- * at a live per-instance ledger is forbidden by house rule. The dash-log is
+ * at a live per-instance ledger is forbidden by house rule. The arc log is
  * the same event's durable record, it is plain text, and — the part that
  * matters — the same read turning **positive** in the last phase is what
  * proves this test can fail.
@@ -67,8 +67,8 @@
  * spawning under two instances rather than about ownership, and chasing it
  * here would trade the claim this file uniquely proves for one already
  * covered elsewhere: the composition is verified in `arc-lifecycle.md`'s
- * ownership section (`DashArcState` is built from `read_arc` alone and
- * consults no session snapshot), and the card's rendering of a dash row is
+ * ownership section (`ArcRunState` is built from `read_arc` alone and
+ * consults no session snapshot), and the card's rendering of an arc row is
  * `at0499`'s.
  *
  * @covers tugrust/crates/tugcast/src/feeds/arc_ownership.rs
@@ -88,25 +88,25 @@ import {
   seedTugbankForLaunch,
 } from "./_harness/tugbank-helpers";
 import {
-  appendDashLogLine,
-  createDash,
-  dashLogPath,
-  dashPlanPath,
+  appendArcLogLine,
+  createArc,
+  arcLogPath,
+  arcPlanPath,
   fixturePlanDocument,
-  makeDashScratchRepo,
-  rmDashScratchRepo,
+  makeArcScratchRepo,
+  rmArcScratchRepo,
   rmScratchSession,
   seedScratchSession,
   tugtool,
-  type DashScratchRepo,
-} from "./dash-fixture";
+  type ArcScratchRepo,
+} from "./arc-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 300_000;
 
 const CHECKOUT = realpathSync(resolve(import.meta.dir, "..", ".."));
 
-const DASH = "at0510-owned";
+const ARC = "at0510-owned";
 /** B's card session — the one the binding is written against. */
 const SID_B = "a7c0d1ea-0000-4000-8000-000000000510";
 /**
@@ -144,31 +144,31 @@ function reapTmux(instanceId: string): void {
   Bun.spawnSync(["tmux", "-L", `tug-${shortToken(instanceId)}`, "kill-server"]);
 }
 
-let scratch: DashScratchRepo | null = null;
-let dashId = "";
+let scratch: ArcScratchRepo | null = null;
+let arcId = "";
 const fixtureDirs: string[] = [];
 const projectDir = (): string => scratch?.repo ?? "";
 
 beforeAll(() => {
   if (!SHOULD_RUN) return;
-  scratch = makeDashScratchRepo({
+  scratch = makeArcScratchRepo({
     prefix: "at0510",
     checkout: CHECKOUT,
     // A second, not half an hour. `CLOCK_POLL` is a minute precisely so a
     // lowered `arc_stall_secs` is testable — the comment on that constant
     // names this test's shape.
-    files: { ".tugtool/config.toml": "[tugtool.dash]\narc_stall_secs = 1\n" },
+    files: { ".tugtool/config.toml": "[tugtool.arc]\narc_stall_secs = 1\n" },
   });
-  dashId = createDash(projectDir(), DASH, "at0510 owned arc", scratch.cli).id;
+  arcId = createArc(projectDir(), ARC, "at0510 owned arc", scratch.cli).id;
   // A plan with somewhere left to go, so "the arc was not stopped" is a claim
   // about restraint rather than about an arc that had nothing to do anyway.
-  writeFileSync(dashPlanPath(projectDir(), DASH), fixturePlanDocument(3, ["done"]));
+  writeFileSync(arcPlanPath(projectDir(), ARC), fixturePlanDocument(3, ["done"]));
   fixtureDirs.push(seedScratchSession(projectDir(), SID_B));
 });
 
 afterAll(() => {
   if (!SHOULD_RUN) return;
-  rmDashScratchRepo(scratch);
+  rmArcScratchRepo(scratch);
   for (const dir of fixtureDirs) rmScratchSession(dir);
 });
 
@@ -200,29 +200,29 @@ async function awaitDeck(app: App): Promise<void> {
 }
 
 /**
- * The arc generation, written straight into the shared dash-log — the same
+ * The arc generation, written straight into the shared arc log — the same
  * route `at0503` takes, and for the same reason: the verb that writes these
  * lines is the runner, and the runner is what this file is interrupting.
  */
 function seedTheArc(ownerInstanceId: string): void {
-  const log = dashLogPath(scratch?.dataRoot ?? "");
-  appendDashLogLine(log, DASH, "arc-start", `.tug/arcs/${DASH}/plan.md`);
-  appendDashLogLine(log, DASH, "arc-kind", "trek");
-  appendDashLogLine(log, DASH, "arc-owner", ownerInstanceId);
-  appendDashLogLine(log, DASH, "arc-stage", `implement ${STAGE} opus`);
+  const log = arcLogPath(scratch?.dataRoot ?? "");
+  appendArcLogLine(log, ARC, "arc-start", `.tug/arcs/${ARC}/plan.md`);
+  appendArcLogLine(log, ARC, "arc-kind", "planned");
+  appendArcLogLine(log, ARC, "arc-owner", ownerInstanceId);
+  appendArcLogLine(log, ARC, "arc-stage", `implement ${STAGE} opus`);
 }
 
-/** Every `arc-stop` line this dash carries, as the log actually holds them. */
+/** Every `arc-stop` line this arc carries, as the log actually holds them. */
 function arcStopLines(): string[] {
-  const log = dashLogPath(scratch?.dataRoot ?? "");
+  const log = arcLogPath(scratch?.dataRoot ?? "");
   return readFileSync(log, "utf8")
     .split("\n")
-    .filter((line) => line.includes(`  ${DASH}  `) && line.includes("arc-stop"));
+    .filter((line) => line.includes(`  ${ARC}  `) && line.includes("arc-stop"));
 }
 
 function arcReport(): { stopped: [string, string] | null; stages: number } {
   const out = JSON.parse(
-    tugtool(["arc", "record", DASH, "--json"], {
+    tugtool(["arc", "record", ARC, "--json"], {
       cwd: projectDir(),
       binaryRoot: CHECKOUT,
       env: scratch?.cli.env,
@@ -305,8 +305,8 @@ describe.skipIf(!SHOULD_RUN)("AT0510: an arc is judged only by the instance that
               project_dir: projectDir(),
               card_id: "A",
               line_id: SID_B,
-              dash_id: dashId,
-              dash_name: DASH,
+              arc_id: arcId,
+              arc_name: ARC,
             },
           ],
         });

@@ -4,7 +4,7 @@
  *
  * ## Why this exists
  *
- * Joining a dash ran `git merge --squash` on the worktree a Text card had a
+ * Joining an arc ran `git merge --squash` on the worktree a Text card had a
  * file open in. Git replaces a file by unlinking and recreating it, which
  * FSEvents delivers as a same-path `Remove` + `Create` in one batch, and the
  * card read that pair as "the file was deleted by another application" — a
@@ -33,7 +33,7 @@
  *   2. **Dirty buffer, manual mode.** The same merge with unsaved edits: the
  *      hash-conflict sheet ("was changed by another application"), never the
  *      "was deleted" one, and the merged bytes survive on disk.
- *   3. **A joined dash worktree.** The worktree a card is bound inside is
+ *   3. **A joined arc worktree.** The worktree a card is bound inside is
  *      removed whole; the card re-anchors to the repo-root successor.
  *   4. **A real delete.** Still verdicts after the settle window — as the
  *      non-modal banner, because nothing was at risk — and the verdict clears
@@ -64,7 +64,7 @@ import {
   rmTempTugbank,
   seedTugbankForLaunch,
 } from "./_harness/tugbank-helpers";
-import { gitRetry } from "./dash-fixture";
+import { gitRetry } from "./arc-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 240_000;
@@ -97,7 +97,7 @@ interface Fixture {
  * fixture has to live inside it to be watched at all.
  *
  * `.tug/` is the one place that is both inside the watched root and invisible
- * to git (it is gitignored — it is where dash worktrees live), so a repository
+ * to git (it is gitignored — it is where arc worktrees live), so a repository
  * here leaves the checkout clean. The watcher does not gitignore-filter, so its
  * events flow regardless; only `FileTreeFeed`'s index walk respects gitignore.
  */
@@ -372,20 +372,20 @@ describe.skipIf(!SHOULD_RUN)("AT0460: a join replaces a card's file in place", (
   );
 
   test(
-    "a card inside a joined dash worktree re-anchors to the repo-root successor",
+    "a card inside a joined arc worktree re-anchors to the repo-root successor",
     async () => {
-      // What a join does to a dash's own worktree is remove it whole
-      // (`remove_dash_worktree`), which leaves a card bound inside it holding a
+      // What a join does to an arc's own worktree is remove it whole
+      // (`remove_arc_worktree`), which leaves a card bound inside it holding a
       // path that is genuinely gone. This drives that teardown directly rather
       // than through `tugtool arc join`: the join pipeline — resolver, tier
       // checks, candidate — is a different subject, and none of it is what the
       // card reacts to. The directory removal is the real event either way.
-      const fixture = mkFixture("at0460-dash");
+      const fixture = mkFixture("at0460-arc");
       openFixture = fixture;
-      const worktree = join(fixture.repo, ".tug", "worktrees", "somedash");
+      const worktree = join(fixture.repo, ".tug", "worktrees", "somearc");
       mkdirSync(join(worktree, "src"), { recursive: true });
-      const inDash = join(worktree, "src", "work.txt");
-      writeFileSync(inDash, "dash line one\ndash line two\n");
+      const inArc = join(worktree, "src", "work.txt");
+      writeFileSync(inArc, "arc line one\narc line two\n");
       // The successor: the same relative path under the repo root, holding the
       // joined content.
       mkdirSync(join(fixture.repo, "src"), { recursive: true });
@@ -394,11 +394,11 @@ describe.skipIf(!SHOULD_RUN)("AT0460: a join replaces a card's file in place", (
 
       const { app, tugbankPath } = await launchOnFixture(
         fixture,
-        "at0460-dash-successor",
+        "at0460-arc-successor",
         {
-          openFile: inDash,
-          sentinel: "dash line one",
-          body: "dash line one\ndash line two\n",
+          openFile: inArc,
+          sentinel: "arc line one",
+          body: "arc line one\narc line two\n",
         },
       );
       openTugbank = tugbankPath;

@@ -29,7 +29,7 @@ import {
 } from "@/lib/inline-command-ghost";
 import { resolveArgumentHint } from "@/lib/slash-argument-hint";
 import { LOCAL_SLASH_COMMANDS, type LocalSlashCommandSpec } from "@/lib/slash-commands";
-import { isHiddenSlashCommand } from "@/lib/slash-supported";
+import { isHiddenSlashCommand, isUnlistedSlashCommand } from "@/lib/slash-supported";
 import { isCompactionLowEffect } from "@/lib/code-session-store/telemetry";
 import { wrapPositionZero } from "./completion-providers/position-zero";
 import {
@@ -111,7 +111,7 @@ export function useSessionCardServices(cardId: string): SessionCardServices | nu
       }),
       filterCommandProvider(
         services.sessionMetadataStore.getCommandCompletionProvider(),
-        (name) => !isHiddenSlashCommand(name),
+        (name) => !isHiddenSlashCommand(name) && !isUnlistedSlashCommand(name),
       ),
     );
   }, [services]);

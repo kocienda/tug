@@ -326,20 +326,20 @@ describe("planLeadingCommandPaste", () => {
 
   it("chips a full-name command and keeps the rest as argument text", () => {
     const plan = planLeadingCommandPaste(
-      "/tugplug:implement dash/foo.md",
+      "/tugplug:implement arc/foo.md",
       0,
       resolve,
     );
     expect(plan).not.toBeNull();
-    expect(plan!.insert).toBe(`${TUG_ATOM_CHAR} dash/foo.md`);
+    expect(plan!.insert).toBe(`${TUG_ATOM_CHAR} arc/foo.md`);
     expect(plan!.segment).toEqual(atomFor("tugplug:implement"));
   });
 
   it("resolves an unqualified leaf to the full command atom", () => {
-    const plan = planLeadingCommandPaste("/implement dash/foo.md", 0, resolve);
+    const plan = planLeadingCommandPaste("/implement arc/foo.md", 0, resolve);
     expect(plan).not.toBeNull();
     expect(plan!.segment).toEqual(atomFor("tugplug:implement"));
-    expect(plan!.insert).toBe(`${TUG_ATOM_CHAR} dash/foo.md`);
+    expect(plan!.insert).toBe(`${TUG_ATOM_CHAR} arc/foo.md`);
   });
 
   it("inserts a separating space when the command stands alone", () => {
@@ -372,7 +372,7 @@ describe("planLeadingCommandPaste", () => {
       const plan = planLeadingCommandSidecar(
         {
           version: 1,
-          text: "/tugplug:implement dash/foo.md",
+          text: "/tugplug:implement arc/foo.md",
           atoms: [],
           origins: ["/repo"],
         },
@@ -380,7 +380,7 @@ describe("planLeadingCommandPaste", () => {
         resolve,
       );
       expect(plan).not.toBeNull();
-      expect(plan!.insert).toBe(`${TUG_ATOM_CHAR} dash/foo.md`);
+      expect(plan!.insert).toBe(`${TUG_ATOM_CHAR} arc/foo.md`);
       expect(plan!.atoms).toEqual([
         { position: 0, segment: atomFor("tugplug:implement") },
       ]);
@@ -391,7 +391,7 @@ describe("planLeadingCommandPaste", () => {
         kind: "atom",
         type: "file",
         label: "foo.md",
-        value: "dash/foo.md",
+        value: "arc/foo.md",
       };
       // "/implement " is 11 chars; the chip + separator is 2, so the atom at
       // 11 lands at 2 and the trailing text keeps its distance from the end.

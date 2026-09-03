@@ -86,7 +86,7 @@ describe("changeset draft overlay", () => {
   test("unrelated entries stay idle", () => {
     const store = attachChangesetDraftStore(fakeConn);
     _ingestDraftFrameForTest({ action: "changeset_draft_state", ...KEY, state: "drafting" });
-    expect(store.overlay("/other", "dash", "tugdash/x").phase).toBe("idle");
+    expect(store.overlay("/other", "arc", "tugarc/x").phase).toBe("idle");
   });
 
   test("a stalled drafting overlay folds to a recoverable error", () => {
@@ -117,21 +117,21 @@ describe("changeset draft overlay", () => {
     _ingestDraftFrameForTest({
       action: "changeset_draft_state",
       workspace_key: "/p",
-      owner_kind: "dash",
-      owner_id: "tugdash/x",
+      owner_kind: "arc",
+      owner_id: "tugarc/x",
       state: "drafting",
     });
     _ingestDraftFrameForTest({
       action: "changeset_draft_state",
       workspace_key: "/p",
-      owner_kind: "dash",
-      owner_id: "tugdash/x",
+      owner_kind: "arc",
+      owner_id: "tugarc/x",
       state: "ready",
     });
 
     disconnect();
     expect(store.overlay("/p", "session", "s1").phase).toBe("idle");
-    expect(store.overlay("/p", "dash", "tugdash/x").phase).toBe("ready");
+    expect(store.overlay("/p", "arc", "tugarc/x").phase).toBe("ready");
   });
 });
 
@@ -204,13 +204,13 @@ describe("durable draft writes", () => {
     close();
     store.setDraft("/p", "session", "s1", { message: "first draft", edited: true });
     store.setDraft("/p", "session", "s1", { message: "second draft", edited: true });
-    store.setDraft("/p", "dash", "tugdash/x", { message: "the dash message", edited: true });
+    store.setDraft("/p", "arc", "tugarc/x", { message: "the arc message", edited: true });
 
     reopen();
     expect(sent.length).toBe(2);
     const bySession = sent.find((s) => s.body.owner_kind === "session");
-    const byDash = sent.find((s) => s.body.owner_kind === "dash");
+    const byArc = sent.find((s) => s.body.owner_kind === "arc");
     expect(bySession?.body.message).toBe("second draft");
-    expect(byDash?.body.message).toBe("the dash message");
+    expect(byArc?.body.message).toBe("the arc message");
   });
 });

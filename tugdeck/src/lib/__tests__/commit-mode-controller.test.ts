@@ -80,7 +80,7 @@ function fakeChangesController(
     subscribe: () => () => {},
     getSnapshot: () => ({
       entry: null,
-      dashes: [],
+      arcs: [],
       unattributed: mk(claimable?.unattributed ?? 0, "u"),
       orphaned: mk(claimable?.orphaned ?? 0, "o"),
       project: { project_dir: "/p" },

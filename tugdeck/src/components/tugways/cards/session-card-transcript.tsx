@@ -325,7 +325,7 @@ function isCompactAcknowledgement(text: string): boolean {
 const EMPTY_ATOMS: ReadonlyArray<AtomSegment> = [];
 
 /**
- * A dash arc's stage boundary — the server rotated this card onto a fresh
+ * An arc's stage boundary — the server rotated this card onto a fresh
  * claude session, and the row marks where one stage ended and the next began.
  * The transcript above it is the previous stage's and stays exactly where it
  * is, which is what makes an arc one scroll. A rule across the row, then the
@@ -1341,8 +1341,8 @@ const CodeRowBody: React.FC<CodeRowBodyProps> = ({
         );
         continue;
       }
-      if (message.source === "dash") {
-        // A dash gesture's quiet line ([P12]), seated inside the turn it
+      if (message.source === "arc") {
+        // An arc gesture's quiet line ([P12]), seated inside the turn it
         // narrates — "step 1/3 started" above the work, "step 1/3 closed"
         // below it — so an arc reads as one conversation. The wheel's
         // glyph says whose record is speaking; the sentence is server-
@@ -1351,8 +1351,8 @@ const CodeRowBody: React.FC<CodeRowBodyProps> = ({
         elements.push(
           <div
             key={message.messageKey}
-            className="session-card-transcript-dash-note"
-            data-slot="dash-note"
+            className="session-card-transcript-arc-note"
+            data-slot="arc-note"
           >
             <TugQuietLine
               icon={<ShipWheel size={16} aria-hidden="true" />}
@@ -1699,7 +1699,7 @@ const AssistantTurnCell = React.memo(function AssistantTurnCell({
   // Permission + question slots — both are *pending-only* live input
   // forms rendered at the body foot. Permissions leave no committed
   // record (Step 3.5 removed the recorded chrome — see
-  // `#step-3-5` in `dash/archive/dev-interactive-dialogs.md` — because
+  // `#step-3-5` in `arc/archive/dev-interactive-dialogs.md` — because
   // JSONL has no durable artifact to reconstruct one from); questions
   // round-trip through tool_use/tool_result so their recorded state
   // lives in the `AskUserQuestionToolBlock` at the tool_use position,

@@ -33,7 +33,7 @@ use tracing::warn;
 pub const MAX_EXCHANGES_PER_SESSION: usize = 500;
 
 /// The `command` values a landing writes: a `/commit`, `/arc-join`, or
-/// `/dash-discard` receipt.
+/// `/arc-discard` receipt.
 ///
 /// A receipt is the user's act rather than session chatter ([D111]), and it is
 /// the only record of that act the transcript will ever hold — Claude's JSONL
@@ -47,15 +47,17 @@ pub const MAX_EXCHANGES_PER_SESSION: usize = 500;
 /// appends `"/arc-join"`, `agent_supervisor.rs` records `"/arc-join"` — so no
 /// prefix form belongs here.
 ///
-/// The last two entries are **read-only** spellings nothing writes any more:
-/// `/dash-join` before the join's rename and `/dash-release` before the
-/// discard's. Rows carrying them are already on disk, and a receipt that loses
+/// The last three entries are **read-only** spellings nothing writes any more:
+/// `/dash-join` before the join's rename, and `/dash-discard` and
+/// `/dash-release` before the discard's two renames. Rows carrying them are
+/// already on disk, and a receipt that loses
 /// its exemption is a receipt the next `$` command can evict. A spelling that
 /// ever reached a durable ledger stays a read spelling for life; see
 /// `tuglaws/work-grammar.md`'s "Retired names".
-pub const LANDING_RECEIPT_COMMANDS: [&str; 5] = [
+pub const LANDING_RECEIPT_COMMANDS: [&str; 6] = [
     "/commit",
     "/arc-join",
+    "/arc-discard",
     "/dash-discard",
     "/dash-join",
     "/dash-release",
@@ -766,16 +768,19 @@ mod tests {
     }
 
     #[test]
-    fn the_exemption_list_still_names_both_retired_landing_spellings() {
+    fn the_exemption_list_still_names_every_retired_landing_spelling() {
         // `the_cap_never_evicts_a_landing_receipt` iterates the constant, so it
         // covers whatever the constant happens to hold and would pass unchanged
         // over one that had silently lost a spelling. This is the assertion a
-        // rename can fail: `/dash-join` and `/dash-release` are read-only
-        // spellings whose rows are already on disk, and dropping either turns
-        // every landing receipt already recorded under it back into evictable
-        // chatter.
+        // rename can fail: `/dash-join`, `/dash-discard`, and `/dash-release`
+        // are read-only spellings whose rows are already on disk, and dropping
+        // any of them turns every landing receipt already recorded under it
+        // back into evictable chatter.
         assert!(LANDING_RECEIPT_COMMANDS.contains(&"/dash-join"));
+        assert!(LANDING_RECEIPT_COMMANDS.contains(&"/dash-discard"));
         assert!(LANDING_RECEIPT_COMMANDS.contains(&"/dash-release"));
+        // And the spelling the discard writes today.
+        assert!(LANDING_RECEIPT_COMMANDS.contains(&"/arc-discard"));
         // And the eviction predicate derives from the constant rather than
         // repeating it — the drift this checks for is a second edit site, not a
         // second value.

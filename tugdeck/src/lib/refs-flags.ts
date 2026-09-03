@@ -126,7 +126,7 @@ export function tokenizeRefsArgs(args: string): string[] {
  * its token (`-c32`, `-c=32`) or, when the token ends at the letter, the
  * next token (`-c 32`) — so it can still ride at the end of a cluster
  * (`-ic 32`). A bare `--` ends flag parsing, so a needle that genuinely
- * starts with a dash is still reachable. An unknown flag — or a valued one
+ * starts with an arc is still reachable. An unknown flag — or a valued one
  * with no number after it — is collected rather than guessed at: the caller
  * surfaces it as a subdued notice and runs the rest of the line, because
  * dropping the whole command over one typo is worse than running the search

@@ -86,7 +86,7 @@ import { useSessionStateChanges } from "@/lib/session-state-changes-store";
 
 import {
   ContextPopoverContent,
-  DashPopoverContent,
+  ArcPopoverContent,
   JobsPopoverContent,
   StateChangeLogPopoverContent,
   TasksPopoverContent,
@@ -113,7 +113,7 @@ import { goalIsActive } from "@/lib/code-session-store/select-goal";
 import {
   cellDisplayCount,
   composeJobsCellSummary,
-  dashCellPose,
+  arcCellPose,
   formatCellCount,
   formatTaskFraction,
   jobsCellActiveCount,
@@ -367,7 +367,7 @@ export type PlacardKind =
   | "time"
   | "context"
   | "tasks"
-  | "dash"
+  | "arc"
   | "jobs"
   | "btw";
 
@@ -375,13 +375,13 @@ export type PlacardKind =
  * The cell a placard anchors under, when that is not the cell its own key
  * names.
  *
- * `dash` is the one entry: the DASH reading is the TASKS cell wearing a
+ * `arc` is the one entry: the ARC reading is the TASKS cell wearing a
  * different label, so it keeps `data-priority="tasks"` — the width table and
  * the anchor query are both keyed on that attribute, and moving it would cost
  * the cell its measured box as well as its anchor.
  */
 const PLACARD_ANCHOR_PRIORITY: Partial<Record<PlacardKind, string>> = {
-  dash: "tasks",
+  arc: "tasks",
 };
 
 /** Placard header title per surface — the placard header carries these now
@@ -391,9 +391,9 @@ const PLACARD_TITLES: Record<PlacardKind, string> = {
   time: "Time",
   context: "Context",
   tasks: "Tasks",
-  // The dash's own name rides inside the body: these are static strings, and
+  // The arc's own name rides inside the body: these are static strings, and
   // the placard header is the surface's legend rather than its subject.
-  dash: "Arc",
+  arc: "Arc",
   jobs: "Jobs",
   btw: "/btw",
 };
@@ -814,46 +814,46 @@ export const SessionTelemetryStatusRow = React.forwardRef<
   // cheap even before the popover opens.
   const stateChangeSnap = useSessionStateChanges(snap.tugSessionId);
 
-  // ── The DASH reading ──────────────────────────────────────────────────
-  // While the bound session is driving a dash, the fourth cell reads DASH
-  // instead of TASKS: the dash is what the session IS doing, and during a plan
-  // run the checklist the TASKS reading showed *is* the dash's step list, so
-  // nothing is lost by promoting the dash to the label. The cell keeps its box
+  // ── The ARC reading ──────────────────────────────────────────────────
+  // While the bound session is driving an arc, the fourth cell reads ARC
+  // instead of TASKS: the arc is what the session IS doing, and during a plan
+  // run the checklist the TASKS reading showed *is* the arc's step list, so
+  // nothing is lost by promoting the arc to the label. The cell keeps its box
   // and its `data-priority`, so the row's geometry is untouched.
-  const dashFact = useArcForSession(snap.tugSessionId);
+  const arcFact = useArcForSession(snap.tugSessionId);
   // The same call, in the same argument order, the masthead's identity row
   // already makes — so Z1 and Z2 cannot disagree about the numerals. Null for
-  // a dash that declared no counters, which reads as the stage glyph alone.
-  const dashGlance =
-    dashFact !== null
+  // an arc that declared no counters, which reads as the stage glyph alone.
+  const arcGlance =
+    arcFact !== null
       ? arcGlanceFraction(
-          dashFact.runPosition,
-          dashFact.runLength,
-          dashFact.stepCurrent,
-          dashFact.stepTotal,
+          arcFact.runPosition,
+          arcFact.runLength,
+          arcFact.stepCurrent,
+          arcFact.stepTotal,
         )
       : null;
   // The cell shows no name at all; the label carries the whole identity, so a
-  // screen reader hears which dash the glyph and the fraction belong to.
+  // screen reader hears which arc the glyph and the fraction belong to.
   // The tint the cell paints for an arc is invisible to a screen reader, so
   // the arc is spelled out here in full — a stopped one first, because that is
   // the reading nobody should have to open the placard to discover.
-  const dashArcLabel =
-    dashFact?.arc == null
+  const arcRunLabel =
+    arcFact?.arc == null
       ? ""
-      : dashFact.arc.stopped !== undefined
-        ? `, stopped in ${dashFact.arc.stopped_stage ?? dashFact.arc.stage ?? "an unnamed stage"}: ${dashFact.arc.stopped}`
-        : dashFact.arc.stage !== undefined && dashFact.arc.done !== true
-          ? `, in ${dashFact.arc.stage}`
+      : arcFact.arc.stopped !== undefined
+        ? `, stopped in ${arcFact.arc.stopped_stage ?? arcFact.arc.stage ?? "an unnamed stage"}: ${arcFact.arc.stopped}`
+        : arcFact.arc.stage !== undefined && arcFact.arc.done !== true
+          ? `, in ${arcFact.arc.stage}`
           : "";
-  const dashCellLabel =
-    dashFact === null
+  const arcCellLabel =
+    arcFact === null
       ? ""
-      : dashGlance === null
-        ? `arc ${dashFact.name}${dashArcLabel}`
-        : `arc ${dashFact.name}, step ${dashGlance.current} of ${dashGlance.total}${dashArcLabel}`;
+      : arcGlance === null
+        ? `arc ${arcFact.name}${arcRunLabel}`
+        : `arc ${arcFact.name}, step ${arcGlance.current} of ${arcGlance.total}${arcRunLabel}`;
   // The placard's one exit: this card's own Changes shade, where every decision
-  // about a dash already lives ([D152]). The content scope, not the bare card
+  // about an arc already lives ([D152]). The content scope, not the bare card
   // id — `sendToTarget` walks upward from its target and the session card's
   // handlers live one scope beneath `card-host`.
   const chain = useResponderChain();
@@ -933,7 +933,7 @@ export const SessionTelemetryStatusRow = React.forwardRef<
   // history, every value-oriented cell would otherwise flip wildly as
   // replayed turns fold through the telemetry derivations — readings
   // of HISTORY, not of anything happening now. The value cells render
-  // an inert em-dash for the duration (and the row's
+  // an inert em-arc for the duration (and the row's
   // `data-replay-inert` attribute dims them + drops pointer events via
   // CSS, [L06]); only STATE stays live, reading "Restoring".
   const replayInert =
@@ -995,46 +995,46 @@ export const SessionTelemetryStatusRow = React.forwardRef<
     tasksRecent > 0,
   );
   const tasksSummary = composeTaskSummary(taskCounts);
-  // The DASH reading's flanking dots take the dash's stage, under the
+  // The ARC reading's flanking dots take the arc's stage, under the
   // same idle demotion the TASKS pose uses — except a stopped arc, which
   // outranks every other reading and paints danger.
-  const dashIndicatorState: TugProgressIndicatorState =
-    dashFact?.arc?.stopped !== undefined
+  const arcIndicatorState: TugProgressIndicatorState =
+    arcFact?.arc?.stopped !== undefined
       ? "aborted"
-      : dashCellPose(
+      : arcCellPose(
           {
-            stage: dashFact?.stage ?? null,
-            arcStage: dashFact?.arc?.stage ?? null,
+            stage: arcFact?.stage ?? null,
+            arcStage: arcFact?.arc?.stage ?? null,
           },
           isIdle,
         );
   // **Numbers whenever there are numbers.** The declared RUN first — the
   // selection somebody asked for — and the PLAN's own pair when no run was
   // declared, which is what makes a reviewed-but-unstarted plan read `0/10`
-  // rather than falling back to a word for a dash that plainly has steps to
-  // count. The word is only for a dash with no plan at all.
+  // rather than falling back to a word for an arc that plainly has steps to
+  // count. The word is only for an arc with no plan at all.
   //
   // That word is the lifecycle PHASE, the same vocabulary the track's cells
   // and the placard's note use, Title Case like every other named state in
-  // this row. Not the git stage: a dash devising or reviewing a plan has no
+  // this row. Not the git stage: an arc devising or reviewing a plan has no
   // stage at all, which is how this cell came to show a fallback glyph for the
-  // whole first half of a dash's life. A direct dash with no task list at all
+  // whole first half of an arc's life. A direct arc with no task list at all
   // says `Working` rather than `Implement`: nothing is driving it through a
   // lifecycle, so a phase word would be naming a stage it does not have. A
-  // direct dash that wrote one has a fraction, and never reaches the word.
-  const dashModel = dashFact === null ? null : arcTrackModelFromEntry(dashFact.entry);
-  const dashFraction =
-    dashModel === null ? null : (dashGlance ?? arcMarkFraction(dashModel));
-  const dashReading =
-    dashModel === null
+  // direct arc that wrote one has a fraction, and never reaches the word.
+  const arcModel = arcFact === null ? null : arcTrackModelFromEntry(arcFact.entry);
+  const arcFraction =
+    arcModel === null ? null : (arcGlance ?? arcMarkFraction(arcModel));
+  const arcReading =
+    arcModel === null
       ? ""
-      : dashFraction !== null
-        ? `${dashFraction.current}/${dashFraction.total}`
-        : dashModel.stopped !== null
+      : arcFraction !== null
+        ? `${arcFraction.current}/${arcFraction.total}`
+        : arcModel.stopped !== null
           ? "Stopped"
-          : dashModel.direct
+          : arcModel.direct
             ? "Working"
-            : ARC_PHASE_LABELS[dashModel.phase];
+            : ARC_PHASE_LABELS[arcModel.phase];
 
   const jobsRecent = jobsRecentlyDone(jobsLedger, nowMs, WORK_LINGER_MS);
   const jobsActiveCount = jobsCellActiveCount(jobCounts, goal);
@@ -1124,10 +1124,10 @@ export const SessionTelemetryStatusRow = React.forwardRef<
   const tasksPopover = (
     <TasksPopoverContent state={taskListState} idle={isIdle} />
   );
-  const dashPopover =
-    dashFact === null ? null : (
-      <DashPopoverContent
-        fact={dashFact}
+  const arcPopover =
+    arcFact === null ? null : (
+      <ArcPopoverContent
+        fact={arcFact}
         tasks={taskListState.tasks}
         idle={isIdle}
         onShowInChanges={revealChanges}
@@ -1164,8 +1164,8 @@ export const SessionTelemetryStatusRow = React.forwardRef<
             ? contextPopover
             : placard.key === "tasks"
               ? tasksPopover
-              : placard.key === "dash"
-                ? dashPopover
+              : placard.key === "arc"
+                ? arcPopover
                 : placard.key === "jobs"
                 ? jobsPopover
                 : sideQuestionStore !== undefined
@@ -1186,7 +1186,7 @@ export const SessionTelemetryStatusRow = React.forwardRef<
       // The fourth cell's reading. It widens for a word, and JOBS gives back
       // exactly what it takes, so the row's total is the same 80ch either way
       // and every `@container` rung below keeps its measured value.
-      data-dash={dashFact !== null ? "true" : undefined}
+      data-arc={arcFact !== null ? "true" : undefined}
       data-replay-inert={replayInert ? "true" : undefined}
     >
       {/* One card-scoped placard over whichever Z2 surface is open — auto-
@@ -1269,28 +1269,28 @@ export const SessionTelemetryStatusRow = React.forwardRef<
       </TugStatusCell>
       <TugStatusCell
         priority="tasks"
-        label={dashFact === null ? "TASKS" : "ARC"}
-        onActivate={() => togglePlacard(dashFact === null ? "tasks" : "dash")}
-        valueEmpty={dashFact === null && !hasTasks}
+        label={arcFact === null ? "TASKS" : "ARC"}
+        onActivate={() => togglePlacard(arcFact === null ? "tasks" : "arc")}
+        valueEmpty={arcFact === null && !hasTasks}
         focusGroup={focusGroup}
         focusOrder={cellOrder(3)}
         focusPolicy={focusPolicy}
       >
         {replayInert ? (
           <span className="session-telemetry-status-value">—</span>
-        ) : dashFact !== null ? (
-          // The dash's reading, in the box TASKS holds when no dash is up:
+        ) : arcFact !== null ? (
+          // The arc's reading, in the box TASKS holds when no arc is up:
           // `data-priority` is unchanged, so the placard's anchor query keeps
-          // working. The box itself widens for the word — see `data-dash` on
+          // working. The box itself widens for the word — see `data-arc` on
           // the row, where JOBS gives back exactly what this cell takes.
           //
           // **No name.** The cell is ~110px, and a name is the one fact here
           // that can be arbitrarily long — so it ate the box and elided, which
           // spent every pixel on the thing the reader already knows (they
-          // picked the dash) and pushed out the two that change while they
+          // picked the arc) and pushed out the two that change while they
           // watch. Nothing in the cell can be truncated now, because nothing in
           // it would still be true truncated. The name is on the cell's own
-          // `DASH` label as a reading, in the accessible label in full, and on
+          // `ARC` label as a reading, in the accessible label in full, and on
           // the placard one click away.
           //
           // **The fraction, or the phase's word.** The whole track lived here
@@ -1299,8 +1299,8 @@ export const SessionTelemetryStatusRow = React.forwardRef<
           // that cannot be read at the size it is drawn. So the cell says the
           // one thing that changes while somebody watches — the position in
           // the run — and before any step is declared it says where in the
-          // lifecycle the dash is, in a word. The strip is on the surfaces
-          // whose subject IS the dash: the Arcs card, the shade, and this cell's
+          // lifecycle the arc is, in a word. The strip is on the surfaces
+          // whose subject IS the arc: the Arcs card, the shade, and this cell's
           // own placard, one press away.
           //
           // **Authored exactly as STATE is.** Three siblings inside the value
@@ -1309,7 +1309,7 @@ export const SessionTelemetryStatusRow = React.forwardRef<
           // row: TASKS and JOBS put their glyphs and their count inside one
           // indicator that stretches to the cell; STATE pins two glyphs to the
           // wrap's edges with `space-between` and centres a WORD between them.
-          // The dash reading is a word, so it is STATE's shape, from STATE's
+          // The arc reading is a word, so it is STATE's shape, from STATE's
           // markup, under rules that say so.
           //
           // A stopped arc turns both dots danger and holds them still.
@@ -1325,24 +1325,24 @@ export const SessionTelemetryStatusRow = React.forwardRef<
           // TIME (`tug-progress-pulsing-dot.tsx`), and the only way this pair
           // gets one is by mounting in the same commit — which distinct keys
           // on the two branches are what guarantee.
-          <React.Fragment key="dash">
+          <React.Fragment key="arc">
             <TugProgressIndicator
               variant="pulsing-dot"
               size={12}
-              state={dashIndicatorState}
+              state={arcIndicatorState}
               aria-hidden
             />
             <span
               className="session-telemetry-status-value"
-              data-slot="session-telemetry-dash-value"
-              aria-label={dashCellLabel}
+              data-slot="session-telemetry-arc-value"
+              aria-label={arcCellLabel}
             >
-              {dashReading}
+              {arcReading}
             </span>
             <TugProgressIndicator
               variant="pulsing-dot"
               size={12}
-              state={dashIndicatorState}
+              state={arcIndicatorState}
               aria-hidden
             />
           </React.Fragment>

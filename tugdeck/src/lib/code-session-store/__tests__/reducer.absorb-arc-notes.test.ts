@@ -1,28 +1,28 @@
 /**
- * Tests for `absorbDashNotes` — the restore-side re-thread that keeps a dash
+ * Tests for `absorbArcNotes` — the restore-side re-thread that keeps an arc
  * run reading identically live and after a relaunch ([P12]).
  *
- * Live, a dash note seats INSIDE the streaming turn (`handleDashNote`).
+ * Live, an arc note seats INSIDE the streaming turn (`handleArcNote`).
  * Restored, the same note re-arrives as a shell-ledger ink row; this pass
- * re-seats every dash-note row whose timestamp falls within a committed
- * Claude turn's span into that turn, as a `source: "dash"` system_note at
+ * re-seats every arc-note row whose timestamp falls within a committed
+ * Claude turn's span into that turn, as a `source: "arc"` system_note at
  * its clock position — and runs at every site that can complete the pair,
  * so both orders of the reload race converge.
  *
  * Pins:
- *   - a dash-note ink row inside a turn's span moves into the turn at its
+ *   - an arc-note ink row inside a turn's span moves into the turn at its
  *     clock position among the messages, and the ink row disappears,
  *   - a row outside every span (a between-turns gesture) stays put, and the
  *     unchanged transcript comes back as the SAME reference,
- *   - a turn already carrying the note (same `dash-note-<exchangeId>` key —
+ *   - a turn already carrying the note (same `arc-note-<exchangeId>` key —
  *     the live seat) absorbs the row by dropping it, no duplicate,
- *   - a non-dash shell row inside a span is never absorbed,
+ *   - a non-arc shell row inside a span is never absorbed,
  *   - idempotence: absorbing twice equals absorbing once.
  */
 
 import { describe, it, expect } from "bun:test";
 
-import { absorbDashNotes } from "@/lib/code-session-store/reducer";
+import { absorbArcNotes } from "@/lib/code-session-store/reducer";
 import type {
   Message,
   ShellExchangeMessage,
@@ -129,8 +129,8 @@ function inkRow(opts: {
 
 const T0 = 1_700_000_000_000;
 
-describe("absorbDashNotes", () => {
-  it("re-seats a spanned dash-note row inside its turn at clock position", () => {
+describe("absorbArcNotes", () => {
+  it("re-seats a spanned arc-note row inside its turn at clock position", () => {
     const turn = claudeTurn({
       turnKey: "k1",
       start: T0,
@@ -143,19 +143,19 @@ describe("absorbDashNotes", () => {
     });
     const note = inkRow({
       exchangeId: "restored-7",
-      command: "dash step demo start",
+      command: "arc step demo start",
       output: "demo: step 1/3 started — carve",
       at: T0 + 5_000,
     });
-    const out = absorbDashNotes([turn, note]);
+    const out = absorbArcNotes([turn, note]);
     expect(out.length).toBe(1);
     const messages = out[0]!.messages;
     expect(messages.length).toBe(4);
     // After t1 (T0+2s), before t2 (T0+8s).
     expect(messages[2]!.kind).toBe("system_note");
-    expect(messages[2]!.messageKey).toBe("dash-note-restored-7");
+    expect(messages[2]!.messageKey).toBe("arc-note-restored-7");
     if (messages[2]!.kind === "system_note") {
-      expect(messages[2]!.source).toBe("dash");
+      expect(messages[2]!.source).toBe("arc");
       expect(messages[2]!.text).toBe("demo: step 1/3 started — carve");
     }
   });
@@ -169,22 +169,22 @@ describe("absorbDashNotes", () => {
     });
     const note = inkRow({
       exchangeId: "restored-8",
-      command: "dash create demo",
-      output: "demo: dash created",
+      command: "arc create demo",
+      output: "demo: arc created",
       at: T0 + 60_000,
     });
     const input = [turn, note];
-    const out = absorbDashNotes(input);
+    const out = absorbArcNotes(input);
     expect(out).toBe(input);
   });
 
   it("drops a row whose note already lives in the turn (the live seat)", () => {
     const liveSeat: Message = {
       kind: "system_note",
-      messageKey: "dash-note-restored-9",
+      messageKey: "arc-note-restored-9",
       createdAt: T0 + 500,
       text: "demo: step 2/3 closed (abc123def)",
-      source: "dash",
+      source: "arc",
     } as Message;
     const turn = claudeTurn({
       turnKey: "k1",
@@ -194,17 +194,17 @@ describe("absorbDashNotes", () => {
     });
     const row = inkRow({
       exchangeId: "restored-9",
-      command: "dash step demo done",
+      command: "arc step demo done",
       output: "demo: step 2/3 closed (abc123def)",
       at: T0 + 500,
     });
-    const out = absorbDashNotes([turn, row]);
+    const out = absorbArcNotes([turn, row]);
     expect(out.length).toBe(1);
     const notes = out[0]!.messages.filter((m) => m.kind === "system_note");
     expect(notes.length).toBe(1);
   });
 
-  it("never absorbs a non-dash shell row, even inside a span", () => {
+  it("never absorbs a non-arc shell row, even inside a span", () => {
     const turn = claudeTurn({
       turnKey: "k1",
       start: T0,
@@ -218,7 +218,7 @@ describe("absorbDashNotes", () => {
       at: T0 + 5_000,
     });
     const input = [turn, plain];
-    expect(absorbDashNotes(input)).toBe(input);
+    expect(absorbArcNotes(input)).toBe(input);
   });
 
   it("is idempotent", () => {
@@ -230,12 +230,12 @@ describe("absorbDashNotes", () => {
     });
     const note = inkRow({
       exchangeId: "restored-11",
-      command: "dash commit demo",
+      command: "arc commit demo",
       output: "demo: round 9969b1e81 — carve the slice",
       at: T0 + 3_000,
     });
-    const once = absorbDashNotes([turn, note]);
-    const twice = absorbDashNotes(once);
+    const once = absorbArcNotes([turn, note]);
+    const twice = absorbArcNotes(once);
     expect(twice).toBe(once);
   });
 });

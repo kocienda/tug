@@ -143,7 +143,7 @@ describe("formatGitLog", () => {
     ],
   });
 
-  test("one line per commit in wire order, sha shortened to 9, em-dash subject", () => {
+  test("one line per commit in wire order, sha shortened to 9, em-arc subject", () => {
     const lines = formatGitLog(p).split("\n");
     expect(lines).toHaveLength(2);
     expect(lines[0]).toBe("012345678  2026-07-15  Ada Lovelace — add feature");

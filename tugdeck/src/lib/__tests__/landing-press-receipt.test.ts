@@ -65,7 +65,7 @@ function changesController(fileCount: number): ChangesRouteController {
     subscribe: () => () => {},
     getSnapshot: () => ({
       entry: null,
-      dashes: [],
+      arcs: [],
       unattributed: [],
       orphaned: [],
       project: { project_dir: "/p" },

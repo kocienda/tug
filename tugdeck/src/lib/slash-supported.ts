@@ -26,6 +26,15 @@
  *   `tuglaws/session-card-unsupported-slash-commands.md`, kept in sync with
  *   {@link HIDDEN_SLASH_COMMANDS} below.
  *
+ * Beside those three tiers, and orthogonal to them, is the **unlisted** set
+ * ({@link UNLISTED_SLASH_COMMANDS}): the arc's four stage skills. Unlisted is
+ * *presentation only* — it is not a {@link SlashSupport} member and it changes
+ * no classification, no submit behavior, and no catalog membership. It says one
+ * thing: do not offer this name in the popup. A stage skill is machinery an arc
+ * seats rather than vocabulary anyone speaks, so a user scrolling the popup for
+ * a door should not have to read past four names that refuse to run outside an
+ * arc. Typed anyway, one still reaches claude exactly as before.
+ *
  * Two consumers read this module: the session-card completion layer filters
  * claude's reported commands through it (drop the `hidden` tier — see
  * `filterCommandProvider` in `completion-providers/local-commands.ts`), and
@@ -187,6 +196,38 @@ export function isHiddenSlashCommand(name: string): boolean {
 }
 
 /**
+ * The arc's stage skills, by leaf name. Each refuses to run outside an arc, so
+ * none is a door and none belongs in the popup's vocabulary.
+ *
+ * Held as leaves rather than as `tugplug:`-qualified names because the catalog
+ * reports a plugin skill namespaced and the user types it bare, and the tier is
+ * the same fact either way.
+ */
+export const UNLISTED_SLASH_COMMANDS: ReadonlySet<string> = new Set<string>([
+  "arc-devise",
+  "arc-review",
+  "arc-implement",
+  "arc-audit",
+]);
+
+/**
+ * Whether a command name is unlisted — absent from the popup, and nothing else.
+ *
+ * Matches on the part after the last `:`, so `tugplug:arc-devise` and the bare
+ * `arc-devise` answer alike. A name that is *also* a local command is exempt:
+ * `/arc-review` is both a stage skill's leaf and a card verb ({@link
+ * LOCAL_SLASH_COMMANDS}), and the card verb is a door the user does speak. The
+ * local provider is not run through the filter today, so the exemption changes
+ * nothing now — it is here so the predicate is honest on its own terms, whatever
+ * provider it is someday applied to.
+ */
+export function isUnlistedSlashCommand(name: string): boolean {
+  if (SUPPORTED_LOCAL.has(name)) return false;
+  const leaf = name.slice(name.lastIndexOf(":") + 1);
+  return UNLISTED_SLASH_COMMANDS.has(leaf);
+}
+
+/**
  * Resolve a typed `/name` to its canonical entry in claude's command catalog,
  * accounting for namespacing. Claude reports plugin skills and agents
  * namespaced — `tugplug:devise`, not `devise` — but the user types the bare
@@ -252,8 +293,8 @@ export function canonicalizeBareCommandLine(
  * command chips.
  *
  * True for a local command, and for any name that resolves against claude's
- * catalog **namespace-aware** ({@link resolveRemoteCommand}): a bare `/dash`
- * is known because the catalog holds `tugplug:dash`. Testing the catalog for
+ * catalog **namespace-aware** ({@link resolveRemoteCommand}): a bare `/arc`
+ * is known because the catalog holds `tugplug:arc`. Testing the catalog for
  * literal membership instead would answer no to every bare plugin-skill name,
  * which is why skills historically printed the qualified `/tugplug:<leaf>`
  * form in their own prose.

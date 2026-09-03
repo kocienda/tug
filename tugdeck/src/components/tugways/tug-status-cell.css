@@ -37,7 +37,7 @@
    budget is each row's `min-width` and the rows STRETCH to the cell, rather
    than each row being set to a fixed `width`: two boxes sized independently to
    the same number cannot overflow the same way, and a reading wider than its
-   budget — `None` between two dots in the 10ch JOBS wears while a dash is up —
+   budget — `None` between two dots in the 10ch JOBS wears while an arc is up —
    spilled out of a fixed value row while the label rule above it stayed at the
    budget, which is exactly the "off centre" that made the pair look broken.
    Under the stretch the cell sizes to its widest row and the other row follows,
@@ -142,9 +142,9 @@
   --tugx-session-status-cell-width: 14ch;
 }
 
-/* The DASH reading needs STATE's box, because it wears STATE's shape.
+/* The ARC reading needs STATE's box, because it wears STATE's shape.
 
-   The fourth cell reads DASH while the bound session drives one, and before
+   The fourth cell reads ARC while the bound session drives one, and before
    any step is declared its reading is a WORD — `Brief`, `Devise`, `Review`,
    `Implement`, `Join` — flanked by the same pair of dots STATE carries, under
    STATE's own `space-between` layout. A fraction fits 14ch; `Implement` with
@@ -152,20 +152,20 @@
    needs what `Disconnected` needs, so it is given the same 18ch rather than a
    number arrived at separately for the same shape.
 
-   JOBS gives back exactly what DASH takes, so the row's total is 80ch either
+   JOBS gives back exactly what ARC takes, so the row's total is 80ch either
    way and every `@container` rung below keeps the value it was measured at.
    JOBS can afford it: its widest face is the label `JOBS` at 36px, so 10ch
    still leaves it more surplus for endcap wings than any other cell has.
 
-   The row's outer edges therefore do not move when a session picks a dash up;
+   The row's outer edges therefore do not move when a session picks an arc up;
    one internal boundary does. That is the least motion the widening can cost,
    and the alternative — a permanent 18ch for a reading most rows never show —
-   would spend the surplus on nothing for every card with no dash on it. */
-.session-telemetry-status-row[data-dash="true"]
+   would spend the surplus on nothing for every card with no arc on it. */
+.session-telemetry-status-row[data-arc="true"]
   .session-telemetry-status-cell[data-priority="tasks"] {
   --tugx-session-status-cell-width: 18ch;
 }
-.session-telemetry-status-row[data-dash="true"]
+.session-telemetry-status-row[data-arc="true"]
   .session-telemetry-status-cell[data-priority="jobs"] {
   --tugx-session-status-cell-width: 10ch;
 }
@@ -244,9 +244,9 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* The DASH reading of the work cell — the same apparatus, a different subject.
+/* The ARC reading of the work cell — the same apparatus, a different subject.
 
-   While the bound session drives a dash the fourth cell reads DASH rather than
+   While the bound session drives an arc the fourth cell reads ARC rather than
    TASKS — and it takes STATE's shape, not TASKS's, because its reading is a
    WORD. The two shapes in this row are genuinely different constructions:
    TASKS and JOBS are one indicator that stretches to the cell and carries its
@@ -255,24 +255,24 @@
    the title centred between them, staying centred as its text changes width.
 
    So the two rules below are STATE's two rules, aimed at the fourth cell while
-   it reads DASH. They also have to OUTRANK the work-cell rules above, which
+   it reads ARC. They also have to OUTRANK the work-cell rules above, which
    select `[data-priority="tasks"] .tug-progress-indicator` and would stretch
-   each of the two dots to the full cell — hence the row's `data-dash` in the
+   each of the two dots to the full cell — hence the row's `data-arc` in the
    selector, which is a third attribute rather than a `!important`.
 
    The strip that used to sit here — a five-cell track retuned by its own knobs
    to survive a 78px box — is gone, with its four knob overrides and its tick
    flex rule. It was a graphic drawn too small to read; the cell it needed to
    fit in is the wrong room for it, and it now lives on the surfaces whose
-   subject is the dash, this cell's own placard first among them. */
-.session-telemetry-status-row[data-dash="true"]
+   subject is the arc, this cell's own placard first among them. */
+.session-telemetry-status-row[data-arc="true"]
   .session-telemetry-status-cell[data-priority="tasks"]
   .session-telemetry-status-value-wrap {
   justify-content: space-between;
   gap: var(--tug-space-md);
 }
 
-.session-telemetry-status-row[data-dash="true"]
+.session-telemetry-status-row[data-arc="true"]
   .session-telemetry-status-cell[data-priority="tasks"]
   .tug-progress-indicator {
   display: inline-flex;

@@ -158,7 +158,7 @@ describe("applyMarkdownTextStyle", () => {
     expect(line.indent).toBeGreaterThan(0);
   });
 
-  test("a lone dash under a paragraph starts a list, not a setext heading", () => {
+  test("a lone arc under a paragraph starts a list, not a setext heading", () => {
     // The keystroke that opens a list item is also a valid setext underline,
     // which would repaint the whole paragraph above as a heading between the
     // marker and the item's first character.
@@ -167,7 +167,7 @@ describe("applyMarkdownTextStyle", () => {
     expect(lines[1].indent).toBe(2);
   });
 
-  test("a two-dash underline is still a setext heading", () => {
+  test("a two-arc underline is still a setext heading", () => {
     const lines = applyMarkdownTextStyle("some prose:\n--");
     expect(lines[0].spans.some((s) => s.className !== "")).toBe(true);
     expect(lines[1].indent).toBe(0);

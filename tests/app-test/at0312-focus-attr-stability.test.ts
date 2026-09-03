@@ -4,7 +4,7 @@
  * `data-responder-id` are written once at attach and never rewritten by
  * re-renders.
  *
- * The failure mode this guards ([S7] write hygiene, dash/aug01-perf-brief.md):
+ * The failure mode this guards ([S7] write hygiene, arc/aug01-perf-brief.md):
  * a ref callback whose identity changes per render (an inline lambda, or a
  * Radix `asChild` slot recomposing its merged ref every render) is answered by
  * React with a detach/attach cycle in every commit — and a naive attach

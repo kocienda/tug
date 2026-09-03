@@ -1,9 +1,9 @@
 /**
- * document-dash-entry — a branchless dash, in the shapes the surfaces read.
+ * document-arc-entry — a branchless arc, in the shapes the surfaces read.
  *
- * A `DocumentArcEntry` is a dash that exists only as documents: a brief, maybe
- * a plan, and no `tugdash/<name>` branch yet. Every surface that names a dash
- * reads a `DashChangesetEntry` and a `ArcTrackModel`, and this module is the
+ * A `DocumentArcEntry` is an arc that exists only as documents: a brief, maybe
+ * a plan, and no `tugarc/<name>` branch yet. Every surface that names an arc
+ * reads a `ArcChangesetEntry` and a `ArcTrackModel`, and this module is the
  * one place that turns the documents-only row into both — once, so the Arcs card,
  * the shade, and the session index cannot each invent their own reading.
  *
@@ -17,7 +17,7 @@
  */
 
 import type {
-  DashChangesetEntry,
+  ArcChangesetEntry,
   DocumentArcEntry,
 } from "@/lib/changeset-types";
 import {
@@ -26,20 +26,20 @@ import {
 } from "@/components/tugways/tug-arc-track";
 
 /**
- * A documents-only dash in the entry shape every dash surface reads.
+ * A documents-only arc in the entry shape every arc surface reads.
  *
  * The empty values are not placeholders standing in for facts that exist
- * elsewhere — they are what a branchless dash honestly has. There is no base
+ * elsewhere — they are what a branchless arc honestly has. There is no base
  * it diverges from, no worktree to be dirty, no rounds, and no changed files,
  * because there is no branch. Every consumer of this shape reads the fields a
- * documents-only dash really carries: its identity, its documents, its review
+ * documents-only arc really carries: its identity, its documents, its review
  * verdict, its arc, and its bound sessions.
  */
 export function documentArcAsEntry(
   entry: DocumentArcEntry,
-): DashChangesetEntry {
+): ArcChangesetEntry {
   return {
-    kind: "dash",
+    kind: "arc",
     owner_id: entry.owner_id,
     display_name: entry.display_name,
     documents: entry.documents,
@@ -57,12 +57,12 @@ export function documentArcAsEntry(
 }
 
 /**
- * The track model for a documents-only dash — what every surface passes to the
+ * The track model for a documents-only arc — what every surface passes to the
  * track and the line for one, never `arcTrackModelFromEntry` over the adapted
  * entry.
  *
  * The adapter above carries no `steps`, and with no steps, no stage and no arc
- * the phase ladder reads `review` for every dash that has a plan — including
+ * the phase ladder reads `review` for every arc that has a plan — including
  * one already half walked. The counts fix that, and they are the wire's own:
  * a plan with one row done and one in progress is being implemented, whether
  * or not a branch exists yet. `steps_begun` is the same field the row's
@@ -83,10 +83,10 @@ export function documentArcTrackModel(
           done: entry.steps_done,
           current:
             entry.steps_begun > entry.steps_done ? entry.steps_done + 1 : null,
-          // Always empty here, and honestly so: a document-only dash's wire
+          // Always empty here, and honestly so: a document-only arc's wire
           // entry carries counters, never per-row statuses, so the positions
           // are not knowable on this surface. Nor can one arise — `step_in`
-          // refuses a withdrawal on a dash with no branch and no live
+          // refuses a withdrawal on an arc with no branch and no live
           // worktree, so a document-only plan cannot acquire a withdrawn row
           // through the verb at all.
           withdrawn: new Set<number>(),

@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "tugtool — the unified Tug developer CLI (changes & commits, dashes, host plumbing)"
+description = "tugtool — the unified Tug developer CLI (changes & commits, arcs, host plumbing)"
 
 [lib]
 name = "tugtool"
@@ -45,7 +45,7 @@ ureq = { version = "3", features = ["json"] }
 tempfile.workspace = true
 assert_cmd.workspace = true
 serial_test = "3"
-# The tripwires ledger and the dash ops, so a CLI test can stand up the row
+# The tripwires ledger and the arc ops, so a CLI test can stand up the row
 # and the worktree a verb acts on rather than a substitute for either.
 tugtool-core.workspace = true
 tugarc-core.workspace = true

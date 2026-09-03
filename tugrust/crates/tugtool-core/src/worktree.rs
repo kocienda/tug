@@ -2,7 +2,7 @@
 //!
 //! The plan-worktree lifecycle (create/list/cleanup/discover) was retired
 //! along with the `tugtool worktree` / `merge` CLI commands. What remains are
-//! the small git helpers the surviving `dash` flow still uses.
+//! the small git helpers the surviving `arc` flow still uses.
 
 use crate::error::TugError;
 use std::path::{Path, PathBuf};
@@ -66,7 +66,7 @@ fn universe_root_for(start: &Path) -> Result<Option<PathBuf>, TugError> {
 /// universe, the universe root is the answer and no hop happens. The check
 /// precedes any `.git` inspection because the hop below is precisely what it
 /// overrides: a linked worktree that is *itself* the project an instance has
-/// open owns its own dash state, and hopping to the checkout that happens to
+/// open owns its own arc state, and hopping to the checkout that happens to
 /// hold the common dir would put the verbs in a different universe from the
 /// app calling them.
 ///

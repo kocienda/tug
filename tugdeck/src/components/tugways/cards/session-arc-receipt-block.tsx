@@ -1,8 +1,8 @@
 /**
- * `SessionArcReceiptBlock` — the bespoke `/dash-arc` command-block renderer
+ * `SessionArcReceiptBlock` — the bespoke `/arc-run` command-block renderer
  * ([P12]).
  *
- * A dash arc's ending leaves one shell-exchange row whose `output` is the
+ * An arc's ending leaves one shell-exchange row whose `output` is the
  * server-formatted record — `format_arc_receipt` for an arc that finished,
  * `format_arc_stop_receipt` for one that stopped. This renderer parses that
  * string and presents it as a receipt instead of the generic fenced
@@ -61,7 +61,7 @@ export interface ArcReceiptStage {
 /** The display facts parsed from an arc receipt, complete or stopped. */
 export interface ParsedArcReceipt {
   outcome: "complete" | "stopped";
-  dash: string;
+  arc: string;
   /** The document the arc opened on; absent on a record that had none. */
   document: string | null;
   stages: ArcReceiptStage[];
@@ -71,7 +71,7 @@ export interface ParsedArcReceipt {
   stop: { stage: string; reason: string; next: string } | null;
 }
 
-// The two headers, matched exactly. `·` is U+00B7 and the em dash U+2014, so a
+// The two headers, matched exactly. `·` is U+00B7 and the em arc U+2014, so a
 // hand-typed line never false-parses into a receipt — the discipline the join
 // and commit receipts keep, for the same reason.
 const COMPLETE_RE = /^arc complete · (.+)$/;
@@ -93,7 +93,7 @@ export function parseArcReceipt(output: string): ParsedArcReceipt | null {
 
   const parsed: ParsedArcReceipt = {
     outcome: stopped !== null ? "stopped" : "complete",
-    dash: (stopped !== null ? stopped[1] : complete?.[1]) ?? "",
+    arc: (stopped !== null ? stopped[1] : complete?.[1]) ?? "",
     document: null,
     stages: [],
     plan: null,
@@ -168,7 +168,7 @@ export function SessionArcReceiptBlock(props: CommandBlockProps): React.ReactEle
   const demoted = props.superseded === true && parsed.outcome === "stopped";
   const identity = (
     <span className="arc-receipt-identity">
-      <TugArcAtom name={parsed.dash} />
+      <TugArcAtom name={parsed.arc} />
       <ArcLifecycleLine
         model={trackModelFor(parsed)}
         note={
@@ -226,13 +226,24 @@ export function SessionArcReceiptBlock(props: CommandBlockProps): React.ReactEle
   );
 }
 
-/** Claims `/dash-arc`, the one command `useLandingReceipts` writes for an arc. */
+/**
+ * Claims `/arc-run`, the one command `useLandingReceipts` writes for an arc —
+ * and `/dash-arc`, the command it wrote under the retired name. Those rows are
+ * in the shell ledger and replay on every card reload, so dropping the retired
+ * spelling would turn every arc ending already recorded back into a raw shell
+ * row ([F19], `tuglaws/work-grammar.md`).
+ */
 export function matchesArcReceipt(command: string): boolean {
-  return command === "/dash-arc" || command.startsWith("/dash-arc ");
+  return (
+    command === "/arc-run" ||
+    command.startsWith("/arc-run ") ||
+    command === "/dash-arc" ||
+    command.startsWith("/dash-arc ")
+  );
 }
 
 /**
- * The arc receipt's searchable text, in render order: the dash, the stage
+ * The arc receipt's searchable text, in render order: the arc, the stage
  * words, then the document lines — exactly the containers this block marks
  * findable. `null` when the output does not parse, because the row renders as
  * a plain exchange then and projects as one.
@@ -244,7 +255,7 @@ export function matchesArcReceipt(command: string): boolean {
 export function arcReceiptFindParts(message: ShellExchangeMessage): string[] | null {
   const parsed = parseArcReceipt(message.output);
   if (parsed === null) return null;
-  const parts = [parsed.dash, ...parsed.stages.map((stage) => stage.stage)];
+  const parts = [parsed.arc, ...parsed.stages.map((stage) => stage.stage)];
   if (parsed.stop !== null) parts.push(parsed.stop.reason, parsed.stop.next);
   if (parsed.document !== null) parts.push(parsed.document);
   if (parsed.plan !== null) parts.push(parsed.plan);
@@ -254,7 +265,7 @@ export function arcReceiptFindParts(message: ShellExchangeMessage): string[] | n
 // Registration is a side effect of importing this module — the import sits
 // beside the commit and join blocks' in `session-card-transcript.tsx`, so all
 // three are registered before the first resolve.
-registerCommandBlock("dash-arc-receipt", matchesArcReceipt, SessionArcReceiptBlock, {
+registerCommandBlock("arc-run-receipt", matchesArcReceipt, SessionArcReceiptBlock, {
   attribution: "wheel",
   findParts: arcReceiptFindParts,
 });

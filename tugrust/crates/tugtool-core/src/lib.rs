@@ -1,7 +1,7 @@
 //! `tugtool-core` — core library for tugtool.
 //!
 //! Provides the foundational logic the `tugtool` binary builds on: config,
-//! plan resolution, git/worktree helpers, the dash flow, and per-project
+//! plan resolution, git/worktree helpers, the arc flow, and per-project
 //! runtime-state paths.
 
 /// Core error types for tug operations
@@ -32,7 +32,7 @@ pub mod tripwire_predicate;
 // Re-exports — exactly the surface consumed by the `tugtool` binary.
 pub use config::{Config, find_project_root};
 pub use error::TugError;
-pub use paths::project_state_dir;
+pub use paths::{arc_log_path, project_state_dir};
 pub use plan::{
     Diagnostic, NotAPlan, PlanDoc, ReviewRound, ReviewState, Severity, StampError, content_stamp,
     has_errors, lint, parse, review_state, set_review_stamp,

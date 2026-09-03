@@ -3,7 +3,7 @@
  * content-block flattener. Pure-logic coverage; no canvas, no DOM,
  * no async.
  *
- * Pins the revised contract in [Spec S03](dash/dev-atoms.md#s03-build-wire-payload)
+ * Pins the revised contract in [Spec S03](arc/dev-atoms.md#s03-build-wire-payload)
  * and the atom-to-wire mapping documented in
  * `build-wire-payload.ts`'s module docstring.
  */

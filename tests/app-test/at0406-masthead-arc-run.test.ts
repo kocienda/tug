@@ -1,5 +1,5 @@
 /**
- * at0406-masthead-dash-run.test.ts — the bound dash as a run in the Session
+ * at0406-masthead-arc-run.test.ts — the bound arc as a run in the Session
  * card's masthead title, bound and unbound by the real CLI through the card's
  * own shell route.
  *
@@ -8,13 +8,13 @@
  * the child — and POSTs `/api/arc` to the instance whose ledger owns that
  * session, so the session is seeded into this instance's ledger first
  * (`seedLedger`) or the command exits with `no session`. The run that appears
- * is driven by the dash's `bound_sessions` moving in the account-global
- * changeset aggregate, with no reload and no card involvement; `dash unbind`
+ * is driven by the arc's `bound_sessions` moving in the account-global
+ * changeset aggregate, with no reload and no card involvement; `arc unbind`
  * takes it away the same way.
  *
  * The run is the identity's, not the masthead's — the masthead renders no
- * dash chrome of its own, which is why the pins here are all on the title's
- * grammar. The whole title is one string — `name^dash` for a custom-named
+ * arc chrome of its own, which is why the pins here are all on the title's
+ * grammar. The whole title is one string — `name^arc` for a custom-named
  * session, since the name REMOVES the callsign run unless two sessions
  * collide on one name ([D141]) — with every separator a character inside a
  * run rather than a gap between boxes; that spelling is pinned here on the
@@ -25,7 +25,7 @@
  * content box, i.e. inside the width the masthead already reserves against the
  * pane's control cluster, so it cannot collide with pane chrome by
  * construction. And the 72px chrome tier does not change height when the run
- * arrives: a card that reflows when a dash is bound would move the transcript
+ * arrives: a card that reflows when an arc is bound would move the transcript
  * under the reader's eyes.
  *
  * The run never carries the plan's review state as a TINT. A session's
@@ -34,7 +34,7 @@
  * the reader in words instead, through the run's hover sentence — so editing
  * the plan past its stamp changes what the run SAYS and never how it paints.
  *
- * The fixture's dash name is long on purpose, and the pin is that it renders
+ * The fixture's arc name is long on purpose, and the pin is that it renders
  * WHOLE. A run elides when its container is out of room and never because of a
  * number authored in the stylesheet, so a name that fits in a roomy masthead
  * must show every character. The elision machinery is pinned alongside it
@@ -55,17 +55,17 @@ import { join, resolve } from "node:path";
 
 import { launchTugApp, note, type App } from "./_harness";
 import {
-  createDash,
-  makeDashScratchRepo,
+  createArc,
+  makeArcScratchRepo,
   makePlanStale,
   recordStampedPlan,
-  rmDashScratchRepo,
+  rmArcScratchRepo,
   rmScratchSession,
   seedScratchSession,
   shellAndSettle,
   tugtoolPath,
-  type DashScratchRepo,
-} from "./dash-fixture";
+  type ArcScratchRepo,
+} from "./arc-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
@@ -76,37 +76,37 @@ const PROMPT = `${CARD} [data-slot="tug-text-editor"] .cm-content`;
 // The masthead renders in the pane title bar, ABOVE the card host — not
 // inside the card element.
 const MASTHEAD = '[data-slot="session-masthead"]';
-const RUN = `${MASTHEAD} [data-slot="session-identity-dash"]`;
+const RUN = `${MASTHEAD} [data-slot="session-identity-arc"]`;
 const IDENTITY_RUN = `${MASTHEAD} .tug-session-identity-run`;
 const SHELL_ROWS = `${CARD} [data-slot="session-transcript-shell-row"]`;
 
-/** This checkout — the build under test, and never the tree a dash is cut in. */
+/** This checkout — the build under test, and never the tree an arc is cut in. */
 const CHECKOUT = realpathSync(resolve(import.meta.dir, "..", ".."));
 /** The scratch repository this fixture owns, and the only tree it touches. */
-let scratch: DashScratchRepo | null = null;
+let scratch: ArcScratchRepo | null = null;
 let fixtureDir = "";
 const projectDir = (): string => scratch?.repo ?? "";
 // Long on purpose: far past any width a stylesheet could plausibly have
 // capped, so "shown whole" is a claim about available room and nothing else.
-const DASH_NAME = "at0406-dash-name-shown-whole";
+const ARC_NAME = "at0406-arc-name-shown-whole";
 /** The user's own name, from a `/rename` — what puts a `:` in the grammar. */
 const RENAME = "Grammar work";
 let planPath = "";
 
 beforeAll(() => {
   if (!SHOULD_RUN) return;
-  scratch = makeDashScratchRepo({ prefix: "at0406", checkout: CHECKOUT });
-  const created = createDash(projectDir(), DASH_NAME, "at0406 fixture", scratch.cli);
-  // The dash drives a real plan, reviewed and stamped — so the chip's resting
+  scratch = makeArcScratchRepo({ prefix: "at0406", checkout: CHECKOUT });
+  const created = createArc(projectDir(), ARC_NAME, "at0406 fixture", scratch.cli);
+  // The arc drives a real plan, reviewed and stamped — so the chip's resting
   // state carries no review attribute at all, and the one that appears later
   // can only be the edit.
-  planPath = recordStampedPlan(projectDir(), DASH_NAME, created.worktree, scratch.cli);
+  planPath = recordStampedPlan(projectDir(), ARC_NAME, created.worktree, scratch.cli);
   fixtureDir = seedScratchSession(projectDir(), SID);
 });
 
 afterAll(() => {
   if (!SHOULD_RUN) return;
-  rmDashScratchRepo(scratch);
+  rmArcScratchRepo(scratch);
   rmScratchSession(fixtureDir);
 });
 
@@ -134,12 +134,12 @@ const mastheadHeight = (app: App): Promise<number> =>
     `Math.round(document.querySelector(${JSON.stringify(MASTHEAD)}).getBoundingClientRect().height)`,
   );
 
-describe.skipIf(!SHOULD_RUN)("AT0406: the masthead's dash run", () => {
+describe.skipIf(!SHOULD_RUN)("AT0406: the masthead's arc run", () => {
   test(
-    "a real dash bind paints the run on the title line and unbind takes it away",
+    "a real arc bind paints the run on the title line and unbind takes it away",
     async () => {
       const app = await launchTugApp({
-        testName: "at0406-masthead-dash-run",
+        testName: "at0406-masthead-arc-run",
         env: { TUG_DATA_DIR: scratch?.dataRoot ?? "" },
       });
       try {
@@ -164,7 +164,7 @@ describe.skipIf(!SHOULD_RUN)("AT0406: the masthead's dash run", () => {
         const bareHeight = await mastheadHeight(app);
 
         // ── Bind, for real ────────────────────────────────────────────────
-        await shellAndSettle(app, `${tugtoolPath(CHECKOUT)} arc bind ${DASH_NAME}`, 0);
+        await shellAndSettle(app, `${tugtoolPath(CHECKOUT)} arc bind ${ARC_NAME}`, 0);
         note(
           "at0406 bind row",
           await app.evalJS<string>(
@@ -224,12 +224,12 @@ describe.skipIf(!SHOULD_RUN)("AT0406: the masthead's dash run", () => {
         );
         note("at0406 title grammar", run.grammar);
         // The sigil is inside the run, so the run's own text carries it: an
-        // ellipsized dash still says it is a dash.
-        expect(run.text).toBe(`^${DASH_NAME}`);
+        // ellipsized arc still says it is an arc.
+        expect(run.text).toBe(`^${ARC_NAME}`);
         // One format, spelled out end to end. The custom name REMOVED the
         // callsign run — no `:`, no project, no residue ([D141]) — so the
-        // whole grammar is the name and the flush `^<dash>` after it.
-        expect(run.grammar).toBe(`${RENAME}^${DASH_NAME}`);
+        // whole grammar is the name and the flush `^<arc>` after it.
+        expect(run.grammar).toBe(`${RENAME}^${ARC_NAME}`);
         // The glyph left the grammar when the sigil replaced it.
         expect(run.svgCount).toBe(0);
         // Inside the identity itself — the run is part of the title's grammar,
@@ -237,9 +237,9 @@ describe.skipIf(!SHOULD_RUN)("AT0406: the masthead's dash run", () => {
         // masthead reserves against the pane's control cluster.
         expect(run.inIdentity).toBe(true);
         expect(run.overflowsLine).toBe(false);
-        expect(run.title).toBe(`Working on dash ${DASH_NAME}`);
+        expect(run.title).toBe(`Working on arc ${ARC_NAME}`);
         // The sigil is decorative; the run says the sentence a reader hears.
-        expect(run.label).toBe(`On dash ${DASH_NAME}`);
+        expect(run.label).toBe(`On arc ${ARC_NAME}`);
         // The chrome tier does not grow to make room for the run.
         expect(await mastheadHeight(app)).toBe(bareHeight);
 
@@ -263,7 +263,7 @@ describe.skipIf(!SHOULD_RUN)("AT0406: the masthead's dash run", () => {
         }>(
           `(() => {
              const run = document.querySelector(${JSON.stringify(RUN)});
-             const span = run.querySelector(".tug-session-identity-dash-name");
+             const span = run.querySelector(".tug-session-identity-arc-name");
              if (span === null) {
                return { hasNameSpan: false, overflows: true, maxInlineSize: "",
                         textOverflow: "", whiteSpace: "", firstGlyphInside: false };
@@ -285,7 +285,7 @@ describe.skipIf(!SHOULD_RUN)("AT0406: the masthead's dash run", () => {
              };
            })()`,
         );
-        note("at0406 dash run width", JSON.stringify(elision));
+        note("at0406 arc run width", JSON.stringify(elision));
         expect(elision.hasNameSpan).toBe(true);
         expect(elision.overflows).toBe(false);
         // The ceiling is gone at the source, not merely out-measured.
@@ -295,7 +295,7 @@ describe.skipIf(!SHOULD_RUN)("AT0406: the masthead's dash run", () => {
         expect(elision.firstGlyphInside).toBe(true);
 
         const shot = await app.screenshot();
-        note("at0406 masthead with the dash run", shot.path);
+        note("at0406 masthead with the arc run", shot.path);
 
         // ── The plan drifts past its review; the run SAYS so, in words ────
         // Never in a tint: the contract is the hover sentence, and the

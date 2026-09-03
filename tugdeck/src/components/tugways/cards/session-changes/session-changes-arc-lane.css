@@ -1,15 +1,15 @@
-/* SessionChangesArcLane — the dash lane's own grammar.
+/* SessionChangesArcLane — the arc lane's own grammar.
 
-   Deliberately not the file list's look: a dash is a different species, and
+   Deliberately not the file list's look: an arc is a different species, and
    the reader must be able to tell at a glance that these rows answer a
    different question. Appearance only ([L06]); tokens scoped to this
    component's slots ([L20]). */
 
-.session-changes-dash-lane {
+.session-changes-arc-lane {
   display: flex;
   flex-direction: column;
-  /* The air between one dash and the next — the same step the Arcs card gives its
-     blocks. A dash is two lines, and at 2px the blocks touched: the second
+  /* The air between one arc and the next — the same step the Arcs card gives its
+     blocks. An arc is two lines, and at 2px the blocks touched: the second
      line of one sat as close to the eyebrow of the next as to its own. */
   gap: var(--tug-space-xl);
 }
@@ -21,12 +21,12 @@
 
 /* The identities and the metadata line are `ArcLifecycleBlock`'s — the atom,
    the hairline, the worker atoms, the track, and the indent between the
-   block's own two lines all live there, so every dash surface cannot drift
+   block's own two lines all live there, so every arc surface cannot drift
    apart on any of them. Nothing about them is authored here. */
 
 /* ---- The row ---- */
 
-.session-changes-dash-row {
+.session-changes-arc-row {
   display: flex;
   flex-direction: column;
   /* Air between the block's three lines. At zero the `sm`-scale lines touched:
@@ -35,7 +35,7 @@
   gap: var(--tug-space-sm);
 }
 
-.session-changes-dash-row-trailing {
+.session-changes-arc-row-trailing {
   display: flex;
   align-items: center;
   gap: var(--tug-space-2xs);
@@ -48,14 +48,14 @@
    it begins at the row's content box — and the block's atom then holds its
    name one text inset further in. Three offsets, none of which a space token
    knows about: before this the lines took `--tug-space-sm` and landed nine
-   pixels left of the name they hang under, which is what made the shade's dash
+   pixels left of the name they hang under, which is what made the shade's arc
    read as lines that missed each other.
 
    So the indent is the arithmetic itself, in the terms each part is authored
    in. Change the row's density or the atom's padding and this follows; a
    literal would be right until the first of those moved. */
 body {
-  --tugx-dash-stack-indent: calc(
+  --tugx-arc-stack-indent: calc(
     var(--tugx-list-row-padding-inline-compact) +
       var(--tugx-list-row-indicator-gutter) +
       var(--tugx-session-atom-text-inset)
@@ -63,13 +63,13 @@ body {
 }
 
 /* The join register sits under the block, on the same indent: line 1
-   is who, line 2 is what the dash is doing, line 3 is what its join is doing.
+   is who, line 2 is what the arc is doing, line 3 is what its join is doing.
    Empty until there is a join — the register returns null before then, so
    this box collapses rather than reserving a blank row. */
-.session-changes-dash-register {
+.session-changes-arc-register {
   display: flex;
   min-width: 0;
-  padding-inline-start: var(--tugx-dash-stack-indent);
+  padding-inline-start: var(--tugx-arc-stack-indent);
 }
 
 /* The register SPANS the block. Shrink-to-fit made the strip a floating pill
@@ -78,11 +78,11 @@ body {
    what made the join read as a different species from the facts above it.
    Full width gives it the same left and right edges as the lines it belongs
    to. */
-.session-changes-dash-register > * {
+.session-changes-arc-register > * {
   flex: 1 1 auto;
 }
 
-.session-changes-dash-register:empty {
+.session-changes-arc-register:empty {
   display: none;
 }
 
@@ -94,10 +94,10 @@ body {
    are separated by the same step the lane puts between blocks: each is a
    labeled unit, and at a hairline of padding the last line of one sat as
    close to the eyebrow of the next as to its own. */
-.session-changes-dash-detail {
+.session-changes-arc-detail {
   display: flex;
   flex-direction: column;
   gap: var(--tug-space-xl);
   padding: var(--tug-space-sm) var(--tug-space-sm) var(--tug-space-sm)
-    var(--tugx-dash-stack-indent);
+    var(--tugx-arc-stack-indent);
 }

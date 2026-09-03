@@ -193,16 +193,16 @@ pub struct LandingEvent {
     /// The branch the commit landed on. A wire naming another one is not
     /// considered at all.
     pub branch: String,
-    /// The landed commit. The claim key and the dash-name seed both derive
+    /// The landed commit. The claim key and the arc-name seed both derive
     /// from it, so one landing is one firing per wire however many engines
     /// see it.
     pub sha: String,
     pub kind: LandingKind,
-    /// The dash a join landed, and the whole of the own-dash guard ([P06]):
-    /// a wire never fires on the join of a dash it created itself.
-    pub dash: Option<String>,
+    /// The arc a join landed, and the whole of the own-dash guard ([P06]):
+    /// a wire never fires on the join of an arc it created itself.
+    pub arc: Option<String>,
     /// The lineage behind the landing — the drafting session for a commit,
-    /// the dash's bound sessions for a join. The facts the predicate reads
+    /// the arc's bound sessions for a join. The facts the predicate reads
     /// are these sessions' facts and no others.
     pub session_ids: Vec<String>,
 }
@@ -275,7 +275,7 @@ fn work_event(
     landing: &LandingEvent,
 ) {
     // Before the guards read it, because the guard this frees is `busy`: a
-    // landing that joined an awaiting wire's dash has answered that wire's
+    // landing that joined an awaiting wire's arc has answered that wire's
     // question, and the same landing should be free to fire it again ([P07]).
     sweep_awaiting(config, db);
     let pending = {
@@ -407,24 +407,24 @@ async fn sweep_trees(db: &Arc<Db>, trees: &Arc<InspectionTrees>) {
     trees.sweep(&live, |sha| repos.get(sha).cloned()).await;
 }
 
-/// Settle every `awaiting` trip whose dash is gone ([P07], [Q01]).
+/// Settle every `awaiting` trip whose arc is gone ([P07], [Q01]).
 ///
 /// An awaiting trip is a question put to the user, and the thing the user does
-/// about one — join the dash or discard it — is itself the answer. So no
+/// about one — join the arc or discard it — is itself the answer. So no
 /// timeout: the trip holds indefinitely and this is what notices that it has
 /// been answered. Run on the tick and ahead of every landing's guards, because
 /// what it releases is the wire's one-live-run slot.
 ///
 /// The compare-and-set is not decoration. `tripwire dismiss` settles the same
-/// row from another process and discards the same dash, so a sweep arriving
+/// row from another process and discards the same arc, so a sweep arriving
 /// mid-dismissal must lose rather than overwrite the dismissal's words.
 fn sweep_awaiting(config: &Arc<TripwireEngineConfig>, db: &Arc<Db>) {
     let conn = db.lock().expect("tripwire ledger mutex");
-    let Ok(trips) = ledger::awaiting_trips_with_dashes(&conn) else {
+    let Ok(trips) = ledger::awaiting_trips_with_arcs(&conn) else {
         return;
     };
     for trip in trips {
-        let Some(dash) = trip.dash.as_deref() else {
+        let Some(arc) = trip.arc.as_deref() else {
             continue;
         };
         let repo_root =
@@ -432,7 +432,7 @@ fn sweep_awaiting(config: &Arc<TripwireEngineConfig>, db: &Arc<Db>) {
         if repo_root.is_empty() {
             continue;
         }
-        if tugarc_core::ops::dash_exists_in(std::path::Path::new(&repo_root), dash) {
+        if tugarc_core::ops::arc_exists_in(std::path::Path::new(&repo_root), arc) {
             continue;
         }
         let settled = ledger::settle_if_awaiting(
@@ -440,7 +440,7 @@ fn sweep_awaiting(config: &Arc<TripwireEngineConfig>, db: &Arc<Db>) {
             trip.id,
             &ledger::Settlement {
                 headline: Some(format!(
-                    "the dash `{dash}` is gone, so the question is answered"
+                    "the arc `{arc}` is gone, so the question is answered"
                 )),
                 ..ledger::Settlement::default()
             },
@@ -449,7 +449,7 @@ fn sweep_awaiting(config: &Arc<TripwireEngineConfig>, db: &Arc<Db>) {
         if matches!(settled, Ok(true)) {
             info!(
                 trip = trip.id,
-                dash, "tripwire: an awaiting trip's dash resolved it"
+                arc, "tripwire: an awaiting trip's arc resolved it"
             );
         }
     }
@@ -469,8 +469,8 @@ fn tripwire_by_id(
 pub struct PendingRun {
     pub trip_id: i64,
     pub tripwire: String,
-    /// The key the claim arbitrated on — the dash's name is derived from it,
-    /// so one event's dash is one dash however often the engine restarts.
+    /// The key the claim arbitrated on — the arc's name is derived from it,
+    /// so one event's arc is one arc however often the engine restarts.
     pub event_key: String,
     pub model: Option<String>,
     pub brief: String,
@@ -491,8 +491,8 @@ pub struct PendingRun {
     pub project_dir: Option<String>,
     /// The session the event came from, when it came from one.
     pub session_id: Option<String>,
-    /// The dash this run staged, once it has one and is keeping it.
-    pub dash: Option<String>,
+    /// The arc this run staged, once it has one and is keeping it.
+    pub arc: Option<String>,
 }
 
 impl PendingRun {
@@ -574,7 +574,7 @@ pub async fn run_tripwire_engine(config: TripwireEngineConfig) {
                 // whose run never got to release it — the shape
                 // `sweep_orphaned_running` already uses, applied to disk.
                 sweep_trees(&db, &trees).await;
-                // And the same tick answers an awaiting trip whose dash the
+                // And the same tick answers an awaiting trip whose arc the
                 // user has since joined or discarded ([P07]).
                 sweep_awaiting(&config, &db);
             }
@@ -605,7 +605,7 @@ pub async fn run_tripwire_engine(config: TripwireEngineConfig) {
 /// not to wait for the tick.
 ///
 /// The row is fed a **synthetic landing** (Spec S01) rather than a real one:
-/// the wire's own branch, the scope's `HEAD`, no dash, and no lineage. It is
+/// the wire's own branch, the scope's `HEAD`, no arc, and no lineage. It is
 /// the bench-test door, and it goes past the guards by construction — a
 /// hand-fired trip that could be swallowed as `busy` or spent by a mark would
 /// test nothing.
@@ -665,7 +665,7 @@ fn synthetic_landing(tripwire: &Tripwire) -> LandingEvent {
         branch: tripwire.branch.clone(),
         sha,
         kind: LandingKind::Commit,
-        dash: None,
+        arc: None,
         session_ids: Vec::new(),
     }
 }
@@ -770,21 +770,21 @@ fn consider(
             (Decision::NoMatch, None)
         }
         Ok(Claim::Claimed { trip_id }) => {
-            // A wire never fires on the join of a dash it created itself
+            // A wire never fires on the join of an arc it created itself
             // ([P06]) — half the anti-loop defense, and exact where the old
             // fact-tail skip was a heuristic.
             if landing
-                .dash
+                .arc
                 .as_deref()
-                .is_some_and(|dash| dash.starts_with(&tripwire_dash_prefix(&tripwire.name)))
+                .is_some_and(|arc| arc.starts_with(&tripwire_arc_prefix(&tripwire.name)))
             {
                 let _ = ledger::set_status(
                     conn,
                     trip_id,
                     TripStatus::Swallowed,
-                    Some(ledger::SWALLOW_OWN_DASH),
+                    Some(ledger::SWALLOW_OWN_ARC),
                 );
-                return (Decision::Swallowed(ledger::SWALLOW_OWN_DASH), None);
+                return (Decision::Swallowed(ledger::SWALLOW_OWN_ARC), None);
             }
             // The other half: one live run per wire. An `awaiting` trip counts
             // — it holds a question the user has not answered yet.
@@ -882,9 +882,9 @@ fn lineage_facts(
     matched
 }
 
-/// The prefix every dash this wire creates carries, and the whole of what the
+/// The prefix every arc this wire creates carries, and the whole of what the
 /// own-dash guard compares against ([P06]).
-fn tripwire_dash_prefix(tripwire: &str) -> String {
+fn tripwire_arc_prefix(tripwire: &str) -> String {
     format!("tripwire-{tripwire}-")
 }
 
@@ -916,7 +916,7 @@ fn start_run(
         engine_refs: context.refs,
         project_dir: context.project_dir,
         session_id: None,
-        dash: None,
+        arc: None,
         evidence,
     }
 }
@@ -930,7 +930,7 @@ fn start_run(
 ///
 /// One shape of run, now that the tier split is gone ([P04]): the landing's
 /// inspection tree, a probe inside it, a diagnosis session that cannot write,
-/// and — only if that session asks for one — a dash and an authoring session
+/// and — only if that session asks for one — an arc and an authoring session
 /// that can.
 pub async fn run_pending(
     config: &TripwireEngineConfig,
@@ -1049,23 +1049,23 @@ async fn run_in_tree(
     };
 
     // Phase two: authoring. The session creates nothing itself except commits
-    // — the dash is cut here, because a name derived from the event key is
-    // what makes a re-evaluated landing adopt its own dash rather than a
+    // — the arc is cut here, because a name derived from the event key is
+    // what makes a re-evaluated landing adopt its own arc rather than a
     // second one.
-    let dash = tripwire_dash_name(&run.tripwire, &run.event_key);
+    let arc = tripwire_arc_name(&run.tripwire, &run.event_key);
     let created = match tokio::task::spawn_blocking({
         let repo_root = repo_root.to_path_buf();
-        let dash = dash.clone();
+        let arc = arc.clone();
         let tripwire = run.tripwire.clone();
         move || {
             let outcome = tugarc_core::ops::create_in(
                 &repo_root,
-                &dash,
+                &arc,
                 Some(format!("tripwire {tripwire}")),
                 false,
                 None,
             )?;
-            tugarc_core::ops::set_laid_by(&repo_root, &dash, &format!("tripwire/{tripwire}"));
+            tugarc_core::ops::set_laid_by(&repo_root, &arc, &format!("tripwire/{tripwire}"));
             Ok::<_, String>(outcome)
         }
     })
@@ -1073,9 +1073,9 @@ async fn run_in_tree(
     {
         Ok(Ok(outcome)) => outcome,
         Ok(Err(e)) => {
-            return Settled::failed(format!("the tripwire's dash could not be created: {e}"));
+            return Settled::failed(format!("the tripwire's arc could not be created: {e}"));
         }
-        Err(e) => return Settled::failed(format!("the tripwire's dash could not be created: {e}")),
+        Err(e) => return Settled::failed(format!("the tripwire's arc could not be created: {e}")),
     };
     let worktree = PathBuf::from(&created.worktree);
     {
@@ -1087,7 +1087,7 @@ async fn run_in_tree(
             &conn,
             run.trip_id,
             run.session_id.as_deref(),
-            Some(dash.as_str()),
+            Some(arc.as_str()),
         );
     }
 
@@ -1104,7 +1104,7 @@ async fn run_in_tree(
                 &run.brief,
                 &ask,
                 &diagnosis.closing,
-                &authoring_contract(&run.tripwire, &dash, &worktree),
+                &authoring_contract(&run.tripwire, &arc, &worktree),
             ),
         },
         run.trip_id,
@@ -1115,9 +1115,9 @@ async fn run_in_tree(
         // there is an authoring session that is the one ([P04]).
         run.session_id = Some(session_id.clone());
         let conn = db.lock().expect("tripwire ledger mutex");
-        let _ = ledger::record_run(&conn, run.trip_id, Some(&session_id), Some(dash.as_str()));
+        let _ = ledger::record_run(&conn, run.trip_id, Some(&session_id), Some(arc.as_str()));
     }
-    keep_or_discard(run, repo_root, &dash, &authoring.settled).await;
+    keep_or_discard(run, repo_root, &arc, &authoring.settled).await;
     authoring.settled
 }
 
@@ -1289,7 +1289,7 @@ fn diagnosis_contract(tripwire: &str) -> String {
          `tugtool tripwire resolve {tripwire} --awaiting --headline \"<one line>\"` — there is \
          something the user should see. The headline is the one line they will read.\n\n\
          Add `--author \"<one line saying what to change>\"` to either when a change is worth \
-         authoring; a session with hands will then be opened on a dash to make it. Say in your \
+         authoring; a session with hands will then be opened on an arc to make it. Say in your \
          last words what you found and what you would change, because that prose is what that \
          session is handed."
     )
@@ -1297,12 +1297,12 @@ fn diagnosis_contract(tripwire: &str) -> String {
 
 /// The authoring phase's closing contract (Spec S03).
 ///
-/// It opens by telling the session to run `dash create` on a dash the engine
+/// It opens by telling the session to run `arc create` on an arc the engine
 /// has already made. That is not busywork: `create` is idempotent, and what
-/// the second call does is `claim_dash` — binding the dash to the session that
-/// ran the verb ([Q02]). A dash the engine created in-process has no calling
+/// the second call does is `claim_arc` — binding the arc to the session that
+/// ran the verb ([Q02]). An arc the engine created in-process has no calling
 /// session and is bound to nothing, which is exactly why the first real
-/// tripwire run produced a dash nobody could join. The engine cuts the
+/// tripwire run produced an arc nobody could join. The engine cuts the
 /// worktree because there has to be somewhere to spawn into; the session
 /// claims it because binding is a fact about who asked.
 ///
@@ -1311,14 +1311,14 @@ fn diagnosis_contract(tripwire: &str) -> String {
 /// right, but a session that reasons its way onto a relative path is a session
 /// writing into whatever directory it landed in — and the base checkout is one
 /// `..` away.
-fn authoring_contract(tripwire: &str, dash: &str, worktree: &std::path::Path) -> String {
+fn authoring_contract(tripwire: &str, arc: &str, worktree: &std::path::Path) -> String {
     format!(
-        "You are working on the dash `{dash}`, whose worktree is at `{path}`. Work only under \
+        "You are working on the arc `{arc}`, whose worktree is at `{path}`. Work only under \
          that path, and give every command an absolute path — a shell's working directory does \
          not survive between commands.\n\n\
-         First run `tugtool arc create {dash}` — the dash already exists, so this claims it for \
+         First run `tugtool arc create {arc}` — the arc already exists, so this claims it for \
          this session and nothing else.\n\n\
-         Commit with `tugtool arc commit {dash} --message \"<subject>\"`; that is the only path \
+         Commit with `tugtool arc commit {arc} --message \"<subject>\"`; that is the only path \
          that commits here, and joining the work back is the user's act, never yours. If there \
          is nothing worth changing, change nothing and say so.\n\n\
          Close your turn by running \
@@ -1329,21 +1329,21 @@ fn authoring_contract(tripwire: &str, dash: &str, worktree: &std::path::Path) ->
     )
 }
 
-/// The dash a firing stages on: `tripwire-<tripwire>-<key8>`.
+/// The arc a firing stages on: `tripwire-<tripwire>-<key8>`.
 ///
 /// Derived from the event key rather than minted, so the same firing named
-/// twice — a queued trip drained after a restart — is the same dash and not a
-/// second one, and *different* firings are never the same dash.
+/// twice — a queued trip drained after a restart — is the same arc and not a
+/// second one, and *different* firings are never the same arc.
 ///
-/// A key that is already legal dash-name material keeps its own first eight
+/// A key that is already legal arc-name material keeps its own first eight
 /// characters; every other key is digested rather than sanitized. Sanitizing
 /// drops the punctuation a key carries its discriminator behind, so eight
 /// surviving characters of `landing:<sha>` would be eight characters of the
 /// word "landing" — identical for every firing of one tripwire. Two firings
 /// sharing a name is not a cosmetic collision: `create_in` is idempotent, so
-/// the second adopts the first's dash, counts its rounds as its own, and a
+/// the second adopts the first's arc, counts its rounds as its own, and a
 /// green probe on the second discards the work the first staged.
-fn tripwire_dash_name(tripwire: &str, event_key: &str) -> String {
+fn tripwire_arc_name(tripwire: &str, event_key: &str) -> String {
     let key8 = if event_key.len() >= 8 && event_key.chars().all(|c| c.is_ascii_alphanumeric()) {
         event_key.chars().take(8).collect()
     } else {
@@ -1354,7 +1354,7 @@ fn tripwire_dash_name(tripwire: &str, event_key: &str) -> String {
             acc
         })
     };
-    format!("{}{key8}", tripwire_dash_prefix(tripwire))
+    format!("{}{key8}", tripwire_arc_prefix(tripwire))
 }
 
 /// What a probe said.
@@ -1363,7 +1363,7 @@ struct ProbeResult {
     tail: String,
 }
 
-/// Run a tripwire's probe in its dash worktree, under a deadline.
+/// Run a tripwire's probe in its arc worktree, under a deadline.
 ///
 /// The environment is inherited, with two changes. `TUG_SESSION_ID` is removed
 /// — a probe is not a session, and leaking whichever session tugcast last
@@ -1437,46 +1437,46 @@ fn tail(text: &str, cap: usize) -> String {
     text[start..].to_string()
 }
 
-/// Keep the dash only if the run is waiting on the user, and discard it
+/// Keep the arc only if the run is waiting on the user, and discard it
 /// otherwise ([P07], [P09]).
 ///
 /// The rule is the trip's status rather than a round count, and the two differ
 /// in exactly the case the count gets wrong: a session that staged commits and
 /// then resolved `--quiet` decided its own work was not worth showing anybody.
-/// Keeping that dash leaves a worktree on the machine that nothing will ever
-/// point at, because a quiet trip posts nothing ([P08]) — a dash nobody is
-/// told about is a dash nobody joins.
+/// Keeping that arc leaves a worktree on the machine that nothing will ever
+/// point at, because a quiet trip posts nothing ([P08]) — an arc nobody is
+/// told about is an arc nobody joins.
 ///
-/// Awaiting is the one status that holds a dash, and it holds it for as long as
+/// Awaiting is the one status that holds an arc, and it holds it for as long as
 /// the question is open: the user joining or discarding it *is* the resolution
 /// ([P07]).
 async fn keep_or_discard(
     run: &mut PendingRun,
     repo_root: &std::path::Path,
-    dash: &str,
+    arc: &str,
     settled: &Settled,
 ) {
     if settled.status == TripStatus::Awaiting {
-        run.dash = Some(dash.to_string());
+        run.arc = Some(arc.to_string());
         run.engine_refs.push(OverviewRef {
-            kind: OverviewRefKind::Dash,
-            target: dash.to_string(),
+            kind: OverviewRefKind::Arc,
+            target: arc.to_string(),
         });
         return;
     }
-    discard_agent_dash(repo_root, dash).await;
+    discard_agent_arc(repo_root, arc).await;
 }
 
-/// Remove a tripwire's dash without handing a byte of it back ([P09]).
-async fn discard_agent_dash(repo_root: &std::path::Path, dash: &str) {
+/// Remove a tripwire's arc without handing a byte of it back ([P09]).
+async fn discard_agent_arc(repo_root: &std::path::Path, arc: &str) {
     let repo_root = repo_root.to_path_buf();
-    let dash_name = dash.to_string();
+    let arc_name = arc.to_string();
     let removed = tokio::task::spawn_blocking(move || {
-        tugarc_core::ops::discard_agent_dash_in(&repo_root, &dash_name, Some("tripwire"))
+        tugarc_core::ops::discard_agent_arc_in(&repo_root, &arc_name, Some("tripwire"))
     })
     .await;
     if let Ok(Err(e)) = removed {
-        warn!(dash, error = %e, "tripwire: the tripwire's dash could not be removed");
+        warn!(arc, error = %e, "tripwire: the tripwire's arc could not be removed");
     }
 }
 
@@ -1562,7 +1562,7 @@ fn settle(config: &TripwireEngineConfig, conn: &Connection, run: &PendingRun, se
 /// The tripwire's name rides `wake_reason` as `tripwire:<name>`, which is what
 /// the deck labels the row from — the author says a tripwire spoke, and the
 /// reason says which one. Every ref on it is one the engine wrote down itself:
-/// the landing's sha, and the dash if the run staged one.
+/// the landing's sha, and the arc if the run staged one.
 fn post_settled(config: &TripwireEngineConfig, run: &PendingRun, settled: &Settled) {
     let Some(overview_tx) = config.overview_tx.as_ref() else {
         return;
@@ -1638,10 +1638,10 @@ fn republish_settled(config: &Arc<TripwireEngineConfig>, db: &Arc<Db>, tripwire_
     };
     let context = event_context(trip.event_payload.as_deref().unwrap_or("{}"));
     let mut refs = context.refs;
-    if let Some(dash) = trip.dash.clone() {
+    if let Some(arc) = trip.arc.clone() {
         refs.push(OverviewRef {
-            kind: OverviewRefKind::Dash,
-            target: dash,
+            kind: OverviewRefKind::Arc,
+            target: arc,
         });
     }
     let run = PendingRun {
@@ -1656,7 +1656,7 @@ fn republish_settled(config: &Arc<TripwireEngineConfig>, db: &Arc<Db>, tripwire_
         engine_refs: refs,
         project_dir: context.project_dir,
         session_id: trip.session_id,
-        dash: trip.dash,
+        arc: trip.arc,
     };
     post_settled(config, &run, &settled);
 }
@@ -1664,7 +1664,7 @@ fn republish_settled(config: &Arc<TripwireEngineConfig>, db: &Arc<Db>, tripwire_
 /// Whether a landing's repository falls under a tripwire's scope.
 ///
 /// Raw prefix, compared as canonical paths, and deliberately **not** folded to
-/// a base checkout: a tripwire's authoring session commits on its own dash
+/// a base checkout: a tripwire's authoring session commits on its own arc
 /// worktree, and
 /// folding worktrees into the checkout they forked from would make those
 /// commits re-trip the tripwire that made them. An unscoped tripwire watches the
@@ -1681,8 +1681,8 @@ fn in_scope(scope: Option<&str>, path: &str) -> bool {
 ///
 /// Unqualified by instance, deliberately — a sha is the same fact on every
 /// instance, so two engines over one ledger claim a landing once and the loser
-/// stops silently. It is also the seed `tripwire_dash_name` derives from, so a
-/// landing re-evaluated after a restart adopts the dash it already made rather
+/// stops silently. It is also the seed `tripwire_arc_name` derives from, so a
+/// landing re-evaluated after a restart adopts the arc it already made rather
 /// than cutting a second one.
 fn event_key(landing: &LandingEvent) -> String {
     format!("landing:{}", landing.sha)
@@ -1720,7 +1720,7 @@ fn event_payload(
             "branch": landing.branch,
             "sha": landing.sha,
             "repo_root": landing.repo_root,
-            "dash": landing.dash,
+            "arc": landing.arc,
             "sessions": landing.session_ids,
         },
         "facts": facts,
@@ -1863,7 +1863,7 @@ mod tests {
             branch: "main".to_string(),
             sha: format!("{n:040x}"),
             kind: LandingKind::Commit,
-            dash: None,
+            arc: None,
             session_ids: vec![session_id.to_string()],
         }
     }
@@ -2007,7 +2007,7 @@ mod tests {
         assert_eq!(decision(&beneath, "w"), Decision::Fired);
     }
 
-    /// A dash worktree is not folded into the checkout it forked from — that
+    /// An arc worktree is not folded into the checkout it forked from — that
     /// folding is what would make a work-tier tripwire re-trip on its own commits.
     #[test]
     fn a_worktree_path_is_not_folded_into_its_base_checkout() {
@@ -2124,7 +2124,7 @@ mod tests {
     /// recorded are still this landing's ([P03], (#assumptions)).
     ///
     /// The landing carries the tip of the line and nothing else — that is all
-    /// a commit gesture or a dash binding ever knows. Evaluating the tip alone
+    /// a commit gesture or an arc binding ever knows. Evaluating the tip alone
     /// would miss everything the session did under its previous id, and a wire
     /// that silently does not fire is worse than one that fires on nothing.
     #[test]
@@ -2220,19 +2220,19 @@ mod tests {
         assert_eq!(decision(&out, "w"), Decision::Fired);
     }
 
-    /// A wire never fires on the join of a dash it created itself ([P06]) —
+    /// A wire never fires on the join of an arc it created itself ([P06]) —
     /// the anti-loop guard, and it names its reason on the row.
     #[test]
-    fn a_join_of_the_wires_own_dash_is_swallowed_as_own_dash() {
+    fn a_join_of_the_wires_own_arc_is_swallowed_as_own_arc() {
         let h = harness();
         let tripwire = lay(&h.conn, "w", r#"{"fact":{"kind":"edit_failed"}}"#);
         let mut own = firing(&h.config, "/proj", "edit_failed");
         own.kind = LandingKind::Join;
-        own.dash = Some(tripwire_dash_name("w", "landing:abc"));
+        own.arc = Some(tripwire_arc_name("w", "landing:abc"));
         let out = decisions(&h.config, &h.conn, &own);
         assert_eq!(
             decision(&out, "w"),
-            Decision::Swallowed(ledger::SWALLOW_OWN_DASH)
+            Decision::Swallowed(ledger::SWALLOW_OWN_ARC)
         );
         assert_eq!(statuses(&h.conn, tripwire.id), vec!["swallowed"]);
         assert_eq!(
@@ -2241,10 +2241,10 @@ mod tests {
             "an own-dash skip spends nothing either"
         );
 
-        // Somebody else's dash is an ordinary join, and fires it.
+        // Somebody else's arc is an ordinary join, and fires it.
         let mut theirs = landing("/proj", "sess-a");
         theirs.kind = LandingKind::Join;
-        theirs.dash = Some("tripwire-other-abcdef12".to_string());
+        theirs.arc = Some("tripwire-other-abcdef12".to_string());
         assert_eq!(
             decision(&decisions(&h.config, &h.conn, &theirs), "w"),
             Decision::Fired
@@ -2626,7 +2626,7 @@ mod tests {
         }
 
         /// A git repository with one commit, and the state directory redirected
-        /// beside it so nothing a dash writes reaches the developer's own.
+        /// beside it so nothing an arc writes reaches the developer's own.
         fn scratch_repo() -> (tempfile::TempDir, PathBuf) {
             let temp = tempfile::tempdir().unwrap();
             // SAFETY: `#[serial]`; no other thread reads the environment here.
@@ -2684,12 +2684,12 @@ mod tests {
             landing
         }
 
-        fn dashes_in(root: &std::path::Path) -> Vec<String> {
+        fn arcs_in(root: &std::path::Path) -> Vec<String> {
             let out = std::process::Command::new("git")
                 .args([
                     "for-each-ref",
                     "--format=%(refname:short)",
-                    "refs/heads/tugdash/",
+                    "refs/heads/tugarc/",
                 ])
                 .current_dir(root)
                 .output()
@@ -2702,7 +2702,7 @@ mod tests {
         }
 
         /// The green-probe floor, which is the whole economic argument for the
-        /// design: the probe answered, so no model was summoned and no dash was
+        /// design: the probe answered, so no model was summoned and no arc was
         /// ever cut.
         #[serial_test::serial]
         #[tokio::test]
@@ -2725,9 +2725,9 @@ mod tests {
                 "a green probe spends no tokens at all"
             );
             assert!(
-                dashes_in(&root).is_empty(),
-                "no dash was ever created — the probe ran in the landing's tree ([P10]): {:?}",
-                dashes_in(&root)
+                arcs_in(&root).is_empty(),
+                "no arc was ever created — the probe ran in the landing's tree ([P10]): {:?}",
+                arcs_in(&root)
             );
             assert!(
                 !config.trees_root.join(&landing.sha).exists(),
@@ -2820,11 +2820,11 @@ mod tests {
         }
 
         /// The one-session path: a diagnosis that resolves without asking for
-        /// anything to be authored costs one spawn, cuts no dash, and settles
+        /// anything to be authored costs one spawn, cuts no arc, and settles
         /// exactly as the verb said ([P04], [P07]).
         #[serial_test::serial]
         #[tokio::test]
-        async fn a_diagnosis_that_asks_for_nothing_spawns_once_and_cuts_no_dash() {
+        async fn a_diagnosis_that_asks_for_nothing_spawns_once_and_cuts_no_arc() {
             let (_temp, root) = scratch_repo();
             let (h, _rx) = posting_harness();
             let tripwire = probing_tripwire(&h.conn, &root, "exit 3");
@@ -2852,9 +2852,9 @@ mod tests {
                 Some("the failure is a flake, not a break")
             );
             assert_eq!(trips[0].session_id.as_deref(), Some("sess-tripwire-1"));
-            assert!(trips[0].dash.is_none());
+            assert!(trips[0].arc.is_none());
             assert_eq!(sessions.seen().len(), 1, "one spawn, not two");
-            assert!(dashes_in(&root).is_empty(), "{:?}", dashes_in(&root));
+            assert!(arcs_in(&root).is_empty(), "{:?}", arcs_in(&root));
 
             // The diagnosis phase's two guards, asserted where they actually
             // live — on the spawn's arguments ([P04]).
@@ -2876,11 +2876,11 @@ mod tests {
         }
 
         /// The two-session path: a diagnosis that asks to author causes exactly
-        /// one dash and one second spawn, under the wire's own permission mode
-        /// and in the dash's worktree ([P04]).
+        /// one arc and one second spawn, under the wire's own permission mode
+        /// and in the arc's worktree ([P04]).
         #[serial_test::serial]
         #[tokio::test]
-        async fn a_diagnosis_that_asks_to_author_cuts_one_dash_and_spawns_once_more() {
+        async fn a_diagnosis_that_asks_to_author_cuts_one_arc_and_spawns_once_more() {
             let (_temp, root) = scratch_repo();
             let (h, mut rx) = posting_harness();
             let tripwire = probing_tripwire(&h.conn, &root, "exit 3");
@@ -2899,7 +2899,7 @@ mod tests {
                         status: TripStatus::Awaiting,
                         headline: "put the suite back to green",
                         author: None,
-                        closing: "Done, one round on the dash.",
+                        closing: "Done, one round on the arc.",
                         commits: true,
                     },
                 ],
@@ -2908,7 +2908,7 @@ mod tests {
             config.sessions = Some(Arc::clone(&sessions) as Arc<dyn TripwireSessionRunner>);
 
             let landing = scoped_landing(&config, &root);
-            let dash = tripwire_dash_name("ci", &event_key(&landing));
+            let arc = tripwire_arc_name("ci", &event_key(&landing));
             work(&config, &h.conn, &landing).await;
 
             let trips = ledger::trips_for_tripwire(&h.conn, tripwire.id, 10).unwrap();
@@ -2918,16 +2918,16 @@ mod tests {
                 trip.headline.as_deref(),
                 Some("put the suite back to green")
             );
-            assert_eq!(trip.dash.as_deref(), Some(dash.as_str()));
+            assert_eq!(trip.arc.as_deref(), Some(arc.as_str()));
             assert_eq!(
                 trip.session_id.as_deref(),
                 Some("sess-tripwire-2"),
                 "the row names the session a reader would want to open — the authoring one"
             );
 
-            assert_eq!(dashes_in(&root), vec![format!("tugdash/{dash}")]);
+            assert_eq!(arcs_in(&root), vec![format!("tugarc/{arc}")]);
             assert_eq!(
-                tugarc_core::ops::laid_by(&root, &dash).as_deref(),
+                tugarc_core::ops::laid_by(&root, &arc).as_deref(),
                 Some("tripwire/ci")
             );
 
@@ -2938,11 +2938,11 @@ mod tests {
                 seen[1].permission_mode, "acceptEdits",
                 "the authoring spawn takes the wire's own mode, and only it"
             );
-            assert!(seen[1].worktree.ends_with(&dash), "{:?}", seen[1]);
+            assert!(seen[1].worktree.ends_with(&arc), "{:?}", seen[1]);
             assert!(
                 seen[1]
                     .prompt
-                    .contains(&format!("tugtool arc create {dash}"))
+                    .contains(&format!("tugtool arc create {arc}"))
                     && seen[1]
                         .prompt
                         .contains("update the expected string in a_test.rs")
@@ -2951,7 +2951,7 @@ mod tests {
                         .contains("The expected string was never updated")
                     && seen[1]
                         .prompt
-                        .contains(&format!("tugtool arc commit {dash}"))
+                        .contains(&format!("tugtool arc commit {arc}"))
                     && seen[1]
                         .prompt
                         .contains(&seen[1].worktree.display().to_string()),
@@ -2961,7 +2961,7 @@ mod tests {
             );
 
             // Awaiting is the one outcome that posts ([P08]), and it names the
-            // dash the user would join.
+            // arc the user would join.
             let post = posts(&config.ledger)
                 .into_iter()
                 .next_back()
@@ -2972,8 +2972,8 @@ mod tests {
             assert!(
                 post.refs
                     .iter()
-                    .any(|r| r.kind == OverviewRefKind::Dash && r.target == dash),
-                "the post names the dash to join: {:?}",
+                    .any(|r| r.kind == OverviewRefKind::Arc && r.target == arc),
+                "the post names the arc to join: {:?}",
                 post.refs
             );
             assert!(rx.try_recv().is_ok(), "and it went out live too");
@@ -2981,7 +2981,7 @@ mod tests {
 
         /// A session that ended its turn having run no verb has said nothing
         /// the settle path can hear. The trip fails, the failure says which
-        /// fault it was, and the empty dash is not left standing ([P07]).
+        /// fault it was, and the empty arc is not left standing ([P07]).
         #[serial_test::serial]
         #[tokio::test]
         async fn a_session_that_never_resolves_fails_the_trip_and_says_which_fault() {
@@ -3004,7 +3004,7 @@ mod tests {
                 "the failure says what went wrong: {:?}",
                 trips[0].headline
             );
-            assert!(dashes_in(&root).is_empty());
+            assert!(arcs_in(&root).is_empty());
             assert!(
                 posts(&config.ledger).is_empty(),
                 "a failure is a trip-log row and never a post ([P08])"
@@ -3146,15 +3146,15 @@ mod tests {
         }
 
         /// A session that staged rounds and then resolved `--quiet` decided its
-        /// own work was not worth showing anybody, so the dash goes ([P07]).
+        /// own work was not worth showing anybody, so the arc goes ([P07]).
         ///
-        /// The round count would keep this dash and the status does not, which
+        /// The round count would keep this arc and the status does not, which
         /// is the whole reason the rule reads the status. A quiet trip posts
-        /// nothing ([P08]), so a dash kept here is a worktree on the machine
+        /// nothing ([P08]), so an arc kept here is a worktree on the machine
         /// that nothing will ever point at.
         #[serial_test::serial]
         #[tokio::test]
-        async fn a_quiet_resolution_discards_its_dash_even_with_rounds_on_it() {
+        async fn a_quiet_resolution_discards_its_arc_even_with_rounds_on_it() {
             let (_temp, root) = scratch_repo();
             let (h, _rx) = posting_harness();
             let tripwire = probing_tripwire(&h.conn, &root, "exit 3");
@@ -3188,26 +3188,26 @@ mod tests {
             assert_eq!(trips[0].status, "settled");
             assert_eq!(sessions.seen().len(), 2, "the authoring session did run");
             assert!(
-                dashes_in(&root).is_empty(),
-                "and its dash did not survive the quiet: {:?}",
-                dashes_in(&root)
+                arcs_in(&root).is_empty(),
+                "and its arc did not survive the quiet: {:?}",
+                arcs_in(&root)
             );
             assert!(
                 posts(&config.ledger).is_empty(),
-                "a quiet settle posts nothing, which is why keeping the dash would strand it"
+                "a quiet settle posts nothing, which is why keeping the arc would strand it"
             );
         }
 
-        /// An awaiting trip holds until its dash stops existing, and then the
+        /// An awaiting trip holds until its arc stops existing, and then the
         /// sweep answers it ([P07], [Q01]).
         ///
-        /// Joining the dash and discarding it are the same event from here —
+        /// Joining the arc and discarding it are the same event from here —
         /// both remove the branch — so removing it is the whole simulation. No
         /// timeout is involved and none is wanted: a question put to the user
         /// does not expire on a clock.
         #[serial_test::serial]
         #[tokio::test]
-        async fn an_awaiting_trip_settles_when_its_dash_stops_existing() {
+        async fn an_awaiting_trip_settles_when_its_arc_stops_existing() {
             let (_temp, root) = scratch_repo();
             let (h, _rx) = posting_harness();
             let tripwire = probing_tripwire(&h.conn, &root, "exit 3");
@@ -3224,7 +3224,7 @@ mod tests {
                     },
                     Reply::Resolve {
                         status: TripStatus::Awaiting,
-                        headline: "a fix is waiting on the dash",
+                        headline: "a fix is waiting on the arc",
                         author: None,
                         closing: "One round, ready to look at.",
                         commits: true,
@@ -3235,13 +3235,13 @@ mod tests {
             config.sessions = Some(Arc::clone(&sessions) as Arc<dyn TripwireSessionRunner>);
 
             let landing = scoped_landing(&config, &root);
-            let dash = tripwire_dash_name("ci", &event_key(&landing));
+            let arc = tripwire_arc_name("ci", &event_key(&landing));
             work(&config, &h.conn, &landing).await;
 
             let config = Arc::new(config);
             let db: Arc<Db> = Arc::new(Mutex::new(ledger::open_ledger(&config.db_path).unwrap()));
 
-            // The dash is still there, so the question is still open and the
+            // The arc is still there, so the question is still open and the
             // wire's live-run slot is still held.
             sweep_awaiting(&config, &db);
             let trip = ledger::trips_for_tripwire(&h.conn, tripwire.id, 1).unwrap();
@@ -3252,7 +3252,7 @@ mod tests {
             );
 
             // The user joins or discards it — from here the two are one event.
-            tugarc_core::ops::discard_agent_dash_in(&root, &dash, Some("test")).unwrap();
+            tugarc_core::ops::discard_agent_arc_in(&root, &arc, Some("test")).unwrap();
             sweep_awaiting(&config, &db);
 
             let trip = ledger::trips_for_tripwire(&h.conn, tripwire.id, 1).unwrap();
@@ -3261,7 +3261,7 @@ mod tests {
                 trip[0]
                     .headline
                     .as_deref()
-                    .is_some_and(|h| h.contains(&dash)),
+                    .is_some_and(|h| h.contains(&arc)),
                 "the settle names what answered it: {:?}",
                 trip[0].headline
             );
@@ -3271,30 +3271,30 @@ mod tests {
                 "and the wire's live-run slot came back"
             );
         }
-        /// One firing is one dash, whatever the event was, and the name survives
-        /// a key that is not itself a legal dash name.
+        /// One firing is one arc, whatever the event was, and the name survives
+        /// a key that is not itself a legal arc name.
         #[test]
-        fn a_dash_is_named_for_its_tripwire_and_its_firing() {
+        fn a_arc_is_named_for_its_tripwire_and_its_firing() {
             assert_eq!(
-                tripwire_dash_name("ci", "abc1234def5678"),
+                tripwire_arc_name("ci", "abc1234def5678"),
                 "tripwire-ci-abc1234d",
                 "a commit key is already eight legal characters"
             );
             // The property, not the spelling: two firings of one tripwire must
-            // never name one dash. Sanitizing a fact key to eight characters
+            // never name one arc. Sanitizing a fact key to eight characters
             // used to yield `tripwire-tugedit-factedit` for every firing there
             // would ever be, and `create_in` is idempotent — so the second
-            // firing adopted the first's dash, counted its rounds as its own,
+            // firing adopted the first's arc, counted its rounds as its own,
             // and a green probe on the second discarded what the first staged.
-            let first = tripwire_dash_name("tugedit", "fact:inst-a:41");
-            let second = tripwire_dash_name("tugedit", "fact:inst-a:42");
-            let elsewhere = tripwire_dash_name("tugedit", "fact:inst-b:41");
-            assert_ne!(first, second, "two facts are two dashes");
-            assert_ne!(first, elsewhere, "two instances are two dashes");
+            let first = tripwire_arc_name("tugedit", "fact:inst-a:41");
+            let second = tripwire_arc_name("tugedit", "fact:inst-a:42");
+            let elsewhere = tripwire_arc_name("tugedit", "fact:inst-b:41");
+            assert_ne!(first, second, "two facts are two arcs");
+            assert_ne!(first, elsewhere, "two instances are two arcs");
             assert_eq!(
                 first,
-                tripwire_dash_name("tugedit", "fact:inst-a:41"),
-                "one firing named twice is one dash, however often the engine restarts"
+                tripwire_arc_name("tugedit", "fact:inst-a:41"),
+                "one firing named twice is one arc, however often the engine restarts"
             );
             assert!(
                 first.starts_with("tripwire-tugedit-")

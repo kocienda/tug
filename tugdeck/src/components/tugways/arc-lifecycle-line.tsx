@@ -10,7 +10,7 @@
  * `brief`, `devise`, `review`, `implement`, `check`, `join` — and
  * `stopped · <why>` when the arc stopped; the facts are the tone-colored words `arcMetaFacts`
  * derives, most urgent first, each with its detail on hover — the ones about
- * the dash's own standing (conflicts, overlap, fit), never the checkout's git
+ * the arc's own standing (conflicts, overlap, fit), never the checkout's git
  * bookkeeping. The two arc facts are dropped too: the track already says the
  * arc is running, and the note already says it stopped.
  *
@@ -65,7 +65,7 @@ export function arcLifecycleNote(model: ArcTrackModel): string {
  * The arc's two are already the track's own subject — the strip draws the
  * stage and the note says when it stopped. The git bookkeeping — a dirty
  * worktree, a base that has moved, a replay that settled — is the checkout's
- * condition rather than the dash's state. It reaches the eye where a gesture
+ * condition rather than the arc's state. It reaches the eye where a gesture
  * turns on it instead: the picker's `uncommitted`, the Replay item's label,
  * the discard confirmation, and the replay bulletin.
  */
@@ -103,13 +103,13 @@ export function ArcLifecycleLine({
   const steps = model.steps;
   return (
     <span
-      className="tug-dash-lifecycle-line"
-      data-slot="tug-dash-lifecycle-line"
+      className="tug-arc-lifecycle-line"
+      data-slot="tug-arc-lifecycle-line"
       data-size={size}
       data-stopped={model.stopped !== null ? "true" : undefined}
     >
       <TugArcTrack model={model} size={size} />
-      <span className="tug-dash-lifecycle-reading" data-slot="tug-dash-lifecycle-reading">
+      <span className="tug-arc-lifecycle-reading" data-slot="tug-arc-lifecycle-reading">
         {/* One pixel proud of the cap band the track occupies (9px at read, 7 at
           rail), so the glyph reads as the strip's neighbour rather than as a
           taller mark set beside it. */}
@@ -128,15 +128,15 @@ export function ArcLifecycleLine({
           for the reading the ellipsis took away — `truncated` measures the
           span at the open edge and stays shut when the whole note fits. */}
         <TugTooltip content={note} truncated>
-          <span className="tug-dash-lifecycle-note" data-slot="tug-dash-lifecycle-note">
+          <span className="tug-arc-lifecycle-note" data-slot="tug-arc-lifecycle-note">
             {note}
           </span>
         </TugTooltip>
         {arcLifecycleFacts(facts).map((fact) => (
           <TugTooltip key={fact.key} content={fact.tooltip}>
             <span
-              className="tug-dash-lifecycle-fact"
-              data-slot="tug-dash-lifecycle-fact"
+              className="tug-arc-lifecycle-fact"
+              data-slot="tug-arc-lifecycle-fact"
               data-fact={fact.key}
               data-tone={fact.tone}
             >

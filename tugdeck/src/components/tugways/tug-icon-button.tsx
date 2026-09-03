@@ -18,7 +18,7 @@
  *    `ActionEvent` reaches the parent responder, not the first responder.
  *  - Standard hover / focus / active styling via the underlying
  *    `TugButton`'s emphasis-role tokens (see [tugplan-session-picker-redesign
- *    §D16](../../dash/tugplan-session-picker-redesign.md#d16-tug-icon-button)).
+ *    §D16](../../arc/tugplan-session-picker-redesign.md#d16-tug-icon-button)).
  *
  * Why this primitive exists. Per `tuglaws/responder-chain.md` §Focus
  * acceptance, a button that takes browser focus but not chain promotion (or

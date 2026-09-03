@@ -32,14 +32,14 @@ import { _resetChangesetJoinStoreForTest } from "@/lib/changeset-join-store";
 import type { ChangesRouteController } from "@/lib/changes-route-controller";
 import type { CodeSessionStore } from "@/lib/code-session-store";
 import type { CommitModeController } from "@/lib/commit-mode-controller";
-import type { DashChangesetEntry } from "@/lib/changeset-types";
+import type { ArcChangesetEntry } from "@/lib/changeset-types";
 
 const ENTRY_KEY = "session:s1";
 const PROJECT = "/p";
 
-const DASH_ENTRY: DashChangesetEntry = {
-  kind: "dash",
-  owner_id: "tugdash/notice-lane#1",
+const ARC_ENTRY: ArcChangesetEntry = {
+  kind: "arc",
+  owner_id: "tugarc/notice-lane#1",
   display_name: "notice-lane",
   base: "main",
   rounds: 2,
@@ -47,7 +47,7 @@ const DASH_ENTRY: DashChangesetEntry = {
   worktree_dirty: false,
   files: [],
   draft: { fingerprint: "abc", message: "a join message", updated_at: 0, edited: false },
-  // The server says this dash merges clean and carries a standing candidate,
+  // The server says this arc merges clean and carries a standing candidate,
   // which is what makes the land press below reach the wire rather than being
   // refused. Every join rides a candidate ([P03]), clean ones included.
   join: {
@@ -84,7 +84,7 @@ function buildController(): JoinModeController {
     subscribe: () => () => {},
     getSnapshot: () => ({
       entry: null,
-      dashes: [DASH_ENTRY],
+      arcs: [ARC_ENTRY],
       unattributed: [],
       orphaned: [],
       project: { project_dir: PROJECT },
@@ -137,7 +137,7 @@ describe("landingNoticeDecision", () => {
 
   it("posts a server join failure and takes it down when it clears", () => {
     const controller = buildController();
-    controller.enter(joinTargetFromEntry(DASH_ENTRY));
+    controller.enter(joinTargetFromEntry(ARC_ENTRY));
 
     // The real error path: a landing goes out, the server refuses it, and the
     // verb store settles the refusal into `landError`.
@@ -145,7 +145,7 @@ describe("landingNoticeDecision", () => {
     reply({
       action: "changeset_join_err",
       project_dir: PROJECT,
-      dash: "notice-lane",
+      arc: "notice-lane",
       detail: "Cannot join: the worktree is dirty",
     });
 
@@ -175,7 +175,7 @@ describe("landingNoticeDecision", () => {
 
   it("speaks a refused press, and speaks again on the second press", () => {
     const controller = buildController();
-    controller.enter(joinTargetFromEntry(DASH_ENTRY));
+    controller.enter(joinTargetFromEntry(ARC_ENTRY));
     turnRunning = true;
 
     controller.land("land it");
@@ -203,7 +203,7 @@ describe("landingNoticeDecision", () => {
 
   it("makes a fault sticky and a gate refusal transient", () => {
     const controller = buildController();
-    controller.enter(joinTargetFromEntry(DASH_ENTRY));
+    controller.enter(joinTargetFromEntry(ARC_ENTRY));
 
     // Stage the land, then take the changes service away before it runs: the
     // app is broken, not the user, so the notice has to persist.
@@ -223,7 +223,7 @@ describe("landingNoticeDecision", () => {
 
   it("dismisses the refusal when the mode exits", () => {
     const controller = buildController();
-    controller.enter(joinTargetFromEntry(DASH_ENTRY));
+    controller.enter(joinTargetFromEntry(ARC_ENTRY));
     turnRunning = true;
     controller.land("land it");
     const posted = landingNoticeDecision("join", NO_LANDING_NOTICE, controller.getSnapshot())
@@ -244,7 +244,7 @@ describe("discard errors reach a reader", () => {
     reply({
       action: "changeset_discard_err",
       project_dir: PROJECT,
-      dash: "notice-lane",
+      arc: "notice-lane",
       detail: "Cannot discard: the worktree has uncommitted changes",
     });
     expect(getChangesetVerbStore()?.discardState(ENTRY_KEY).error).toBe(

@@ -53,7 +53,7 @@ describe("detectPathReference — a span that is entirely one path", () => {
       "block-reorder.ts:1-33",
       { path: "block-reorder.ts", line: 1, endLine: 33, shape: "name" },
     ],
-    ["  dash/plan.md  ", { path: "dash/plan.md", shape: "path" }],
+    ["  arc/plan.md  ", { path: "arc/plan.md", shape: "path" }],
     // The shape the old grammar threw away, and the one Claude writes most.
     ["tug-button.css", { path: "tug-button.css", shape: "name" }],
     // A directory is a reference like any other; the trailing separator is
@@ -113,10 +113,10 @@ describe("scanPathReferences — paths found inside longer text", () => {
   });
 
   test("a trailing sentence period stays out of the link", () => {
-    const text = "It lives in dash/plan.md.";
+    const text = "It lives in arc/plan.md.";
     const [only] = scanPathReferences(text);
-    expect(only.path).toBe("dash/plan.md");
-    expect(text.slice(only.start, only.end)).toBe("dash/plan.md");
+    expect(only.path).toBe("arc/plan.md");
+    expect(text.slice(only.start, only.end)).toBe("arc/plan.md");
   });
 
   test("wrapping punctuation stays out of the link", () => {

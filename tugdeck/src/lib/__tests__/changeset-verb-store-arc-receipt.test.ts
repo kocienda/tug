@@ -22,7 +22,7 @@ import { describe, test, expect, beforeEach } from "bun:test";
 import { ChangesetVerbStore } from "../changeset-verb-store";
 
 const SESSION = "sess-arc";
-const SUMMARY = "arc complete · foo\ndevise · opus · claude-a\nplan dash/foo.md";
+const SUMMARY = "arc complete · foo\ndevise · opus · claude-a\nplan arc/foo.md";
 
 function harness(): {
   store: ChangesetVerbStore;
@@ -47,7 +47,7 @@ function harness(): {
 const frame = (over: Record<string, unknown> = {}): Record<string, unknown> => ({
   action: "arc_receipt",
   project_dir: "/proj",
-  dash: "foo",
+  arc: "foo",
   tug_session_id: SESSION,
   receipt_id: 41,
   summary: SUMMARY,
@@ -67,7 +67,7 @@ describe("an arc receipt nobody asked for", () => {
   test("the frame files itself under the session it names", () => {
     h.reply(frame());
     expect(h.store.arcReceipt(SESSION)).toEqual({
-      dash: "foo",
+      arc: "foo",
       summary: SUMMARY,
       receiptId: 41,
     });
@@ -101,9 +101,9 @@ describe("an arc receipt nobody asked for", () => {
 
   test("a second arc on one card supersedes the first", () => {
     h.reply(frame());
-    h.reply(frame({ receipt_id: 42, dash: "bar", summary: "arc complete · bar" }));
+    h.reply(frame({ receipt_id: 42, arc: "bar", summary: "arc complete · bar" }));
     expect(h.store.arcReceipt(SESSION)).toEqual({
-      dash: "bar",
+      arc: "bar",
       summary: "arc complete · bar",
       receiptId: 42,
     });

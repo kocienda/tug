@@ -1,6 +1,6 @@
 ---
 name: arc-devise
-description: The devise stage of a trek — write the plan against the devise skeleton, validate it, and hand it to the review stage — ready for /tugplug:arc-implement
+description: The devise stage of a planned arc — write the plan against the devise skeleton, validate it, and hand it to the review stage — ready for /tugplug:arc-implement
 argument-hint: "[idea] [→ output-path]"
 disable-model-invocation: true
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep, WebFetch, WebSearch
@@ -47,7 +47,7 @@ Read the relevant code before designing. Use Glob/Grep/Read to map the territory
 
 Settle what you can from the code, the laws, and the conventional default — which is nearly everything. A question is worth raising **only when the answer changes the design** and nothing you can read decides it.
 
-**Raising one is not a dialog**, and `AskUserQuestion` is refused in this skill's tools rather than only in its prose. Under an arc there is no user in front of the stage, and a stage parked on a dialog is an arc that has stopped without saying so: nothing in the dash-log, no receipt on the card, `tugtool arc record` still reading mid-stage, and the question itself lost the moment the wheel rotates the card — which it may do, because a dialog is not a turn. So the stage **stops and says what it wanted**:
+**Raising one is not a dialog**, and `AskUserQuestion` is refused in this skill's tools rather than only in its prose. Under an arc there is no user in front of the stage, and a stage parked on a dialog is an arc that has stopped without saying so: nothing in the arc log, no receipt on the card, `tugtool arc record` still reading mid-stage, and the question itself lost the moment the wheel rotates the card — which it may do, because a dialog is not a turn. So the stage **stops and says what it wanted**:
 
 ```bash
 tugtool arc ask <name> "Should the retry back off per-host or per-request?"
@@ -97,7 +97,7 @@ Then run the **cold-reader test**: could a fresh session, given only this docume
 - **Print no chip and name no next command.** Nobody is going to click it. The runner is watching the documents — it reads `tugtool plan lint` and `tugtool plan status` on the plan you just wrote and rotates the stage itself.
 - **Ask for no rotation either.** The card is already running an arc, and a second request on it is refused by name. Say what you wrote and where, and end the turn. Ending the turn *is* the hand-off.
 
-**With it absent from the environment, stop and say so.** This skill is a stage of an arc rather than a standalone command, and `/trek` is the door into it: it sharpens the idea with the user, writes the brief you would be devising from, and opens the arc that carries the plan to its review. (The other door, `/dash`, settles its steps as a task list and opens an arc with no devise stage at all.) There is no path from here that ends anywhere else, because the plan is not ready when you finish writing it — it is ready when a fresh session has read it cold, and only the arc opens that session.
+**With it absent from the environment, stop and say so.** This skill is a stage of an arc rather than a standalone command, and `/arc-plan` is the door into it: it sharpens the idea with the user, writes the brief you would be devising from, and opens the arc that carries the plan to its review. (The other door, `/arc`, settles its steps as a task list and opens an arc with no devise stage at all.) There is no path from here that ends anywhere else, because the plan is not ready when you finish writing it — it is ready when a fresh session has read it cold, and only the arc opens that session.
 
 **Confirm the arc can still find you**, once, before you write:
 
@@ -106,7 +106,7 @@ tugtool arc bind <name> --dry-run
 tugtool arc status <name> --json
 ```
 
-The dry run writes nothing; it resolves which session this shell actually belongs to and says `(this shell holds …, which has rotated)` when the shell's own id has gone stale — ordinary under an arc, and not a problem. What is a problem is a resolved session missing from `arc status --json`'s `bound_sessions`: the binding did not ride the rotation, and nothing downstream will find this run. **The repair is `tugtool arc doctor <name>`**, which reads all four of an arc's records and names which disagrees — not `/dash-bind`, which writes one of them and answers nothing about the rest.
+The dry run writes nothing; it resolves which session this shell actually belongs to and says `(this shell holds …, which has rotated)` when the shell's own id has gone stale — ordinary under an arc, and not a problem. What is a problem is a resolved session missing from `arc status --json`'s `bound_sessions`: the binding did not ride the rotation, and nothing downstream will find this run. **The repair is `tugtool arc doctor <name>`**, which reads all four of an arc's records and names which disagrees — not `/arc-bind`, which writes one of them and answers nothing about the rest.
 
 ### 6. Hand off
 

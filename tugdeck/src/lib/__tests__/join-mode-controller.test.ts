@@ -11,7 +11,7 @@
  * The controller half drives the real verb and draft singletons attached to a
  * fake connection, the way the verb-store suites do, so a land press is a real
  * frame on a real store rather than a spy. What a landing *would* do is not
- * asked for at all: it rides the dash's feed entry, so the fixtures below set a
+ * asked for at all: it rides the arc's feed entry, so the fixtures below set a
  * `join` block and the controller reads it.
  */
 
@@ -44,14 +44,14 @@ import type { ChangesRouteController } from "@/lib/changes-route-controller";
 import type { CodeSessionStore } from "@/lib/code-session-store";
 import type { Message } from "@/lib/code-session-store/types";
 import type { CommitModeController } from "@/lib/commit-mode-controller";
-import type { DashChangesetEntry, ArcJoinStateWire } from "@/lib/changeset-types";
+import type { ArcChangesetEntry, ArcJoinStateWire } from "@/lib/changeset-types";
 
 /**
- * A dash whose merge is clean and whose candidate stands — the state a join
+ * An arc whose merge is clean and whose candidate stands — the state a join
  * may actually proceed from.
  *
  * The candidate is not decoration. Every join rides one ([P03]): entering join
- * mode on a clean dash reconciles it, and the gate reads the outcome that
+ * mode on a clean arc reconciles it, and the gate reads the outcome that
  * produces. A bare `{ phase: "previewed" }` is the window before the candidate
  * anchors — see {@link UNRECONCILED_CLEAN}.
  */
@@ -68,7 +68,7 @@ describe("joinDisabledReason", () => {
   // the gate refuses on the outcome, and the composer's land button used to
   // report a constant that named no cause — leaving a disabled button, a
   // generated message, and no way to learn what was wrong.
-  it("names the cause for a dash the server reports blocked", () => {
+  it("names the cause for an arc the server reports blocked", () => {
     expect(joinDisabledReason("outcome", "blocked")).toBe(
       "Clear what blocks this join first",
     );
@@ -100,7 +100,7 @@ describe("joinDisabledReason", () => {
 
   it("quotes the server's stale sentence, which names which side moved", () => {
     // The note is the refusal: only the server knows whether the base or the
-    // dash moved, and "resolve again" without that is advice without a cause.
+    // arc moved, and "resolve again" without that is advice without a cause.
     expect(
       joinDisabledReason("outcome", "stale", "main moved since this was resolved — resolve again"),
     ).toBe("main moved since this was resolved — resolve again");
@@ -126,19 +126,19 @@ describe("evaluateJoinGate", () => {
     expect(evaluateJoinGate(base)).toEqual({ ok: true });
   });
 
-  it("refuses while the dash's own session is still working", () => {
+  it("refuses while the arc's own session is still working", () => {
     expect(evaluateJoinGate({ ...base, holderBusy: true })).toEqual({
       ok: false,
       reason: "holder",
     });
   });
 
-  it("names the dash, not the turn, when the holder is busy", () => {
+  it("names the arc, not the turn, when the holder is busy", () => {
     expect(joinDisabledReason("holder", "clean")).toBe("Wait for the arc to finish its work");
   });
 
   it("puts the holder above the round trip and the outcome", () => {
-    // A blocked, mid-flight join on a busy dash still reports the holder: the
+    // A blocked, mid-flight join on a busy arc still reports the holder: the
     // work is not finished, so nothing downstream of it is worth saying yet.
     expect(
       evaluateJoinGate({
@@ -175,7 +175,7 @@ describe("evaluateJoinGate", () => {
     });
   });
 
-  it("refuses a dash the server reports blocked", () => {
+  it("refuses an arc the server reports blocked", () => {
     // The face that carries blockers derives `blocked`, and blocked never lands.
     expect(evaluateJoinGate({ ...base, outcome: "blocked" })).toEqual({
       ok: false,
@@ -202,7 +202,7 @@ describe("evaluateJoinGate", () => {
   it("asks nothing about a build — a standing candidate is the whole gate", () => {
     // What stood here refused an unverified candidate and let a red through to
     // a confirm. Both are gone: the run's ending verified the tree that lands,
-    // so a reconcile-clean dash joins on the press.
+    // so a reconcile-clean arc joins on the press.
     expect(
       evaluateJoinGate({ ...base, outcome: "clean", candidateCommit: "cafe1234" }),
     ).toEqual({ ok: true });
@@ -253,7 +253,7 @@ describe("deriveJoinOutcome", () => {
     expect(deriveJoinOutcome(base)).toBe("clean");
   });
 
-  it("refuses a dash the feed says nothing about", () => {
+  it("refuses an arc the feed says nothing about", () => {
     // An older tugcast, or an entry that arrived before the board composed:
     // there is no reading of silence that makes a landing safe.
     expect(deriveJoinOutcome(undefined)).toBe("blocked");
@@ -326,9 +326,9 @@ function reply(body: Record<string, unknown>): void {
   for (const handler of [...controlHandlers]) handler(payload);
 }
 
-const DASH_ENTRY: DashChangesetEntry = {
-  kind: "dash",
-  owner_id: "tugdash/join-lane#1",
+const ARC_ENTRY: ArcChangesetEntry = {
+  kind: "arc",
+  owner_id: "tugarc/join-lane#1",
   display_name: "join-lane",
   base: "main",
   rounds: 2,
@@ -356,7 +356,7 @@ function fakeChangesController(
   join: ArcJoinStateWire | undefined = CLEAN_JOIN,
 ): ChangesRouteController & { _setJoin: (next: ArcJoinStateWire | undefined) => void } {
   let notify: (() => void) | null = null;
-  let entry: DashChangesetEntry = { ...DASH_ENTRY, join };
+  let entry: ArcChangesetEntry = { ...ARC_ENTRY, join };
   const controller = {
     entryKey: "session:s1",
     projectDir: RAW_DIR,
@@ -370,7 +370,7 @@ function fakeChangesController(
     },
     getSnapshot: () => ({
       entry: null,
-      dashes: [entry],
+      arcs: [entry],
       unattributed: [],
       orphaned: [],
       project: { project_dir: RAW_DIR, workspace_key: WORKSPACE_KEY },
@@ -380,9 +380,9 @@ function fakeChangesController(
     requestDraft: () => {},
     /** Test hook: fire the subscription without changing anything. */
     _notify: () => notify?.(),
-    /** Test hook: republish the dash with a different server-owned join state. */
+    /** Test hook: republish the arc with a different server-owned join state. */
     _setJoin: (next: ArcJoinStateWire | undefined): void => {
-      entry = { ...DASH_ENTRY, join: next };
+      entry = { ...ARC_ENTRY, join: next };
       notify?.();
     },
   };
@@ -447,7 +447,7 @@ function fakeCommitMode(): CommitModeController & { exits: number } {
   return stub as unknown as CommitModeController & { exits: number };
 }
 
-const TARGET: JoinTarget = joinTargetFromEntry(DASH_ENTRY);
+const TARGET: JoinTarget = joinTargetFromEntry(ARC_ENTRY);
 
 beforeEach(() => {
   sent.length = 0;
@@ -458,7 +458,7 @@ beforeEach(() => {
   attachChangesetVerbStore(fakeConnection());
   attachChangesetDraftStore(fakeConnection());
   // Attached like the other two because the controller now speaks to it on
-  // entry ([P03]) — a clean dash resolves itself so the join rides a candidate.
+  // entry ([P03]) — a clean arc resolves itself so the join rides a candidate.
   attachChangesetJoinStore(fakeConnection());
 });
 
@@ -481,19 +481,19 @@ describe("JoinModeController", () => {
     return { controller, commitMode, changesController, codeSessionStore };
   }
 
-  it("enter seeds an edited dash draft and exits commit mode", () => {
+  it("enter seeds an edited arc draft and exits commit mode", () => {
     const { controller, commitMode } = build();
     controller.enter(TARGET, "a seeded join message");
 
     expect(controller.getSnapshot().active).toBe(true);
     expect(controller.getSnapshot().seedMessage).toBe("a seeded join message");
-    expect(controller.getSnapshot().dash?.name).toBe("join-lane");
+    expect(controller.getSnapshot().arc?.name).toBe("join-lane");
     expect(commitMode.exits).toBe(1);
 
     const draft = sent.find((s) => s.action === "changeset_draft_set");
     expect(draft?.body).toMatchObject({
-      owner_kind: "dash",
-      owner_id: DASH_ENTRY.owner_id,
+      owner_kind: "arc",
+      owner_id: ARC_ENTRY.owner_id,
       message: "a seeded join message",
       edited: true,
     });
@@ -520,7 +520,7 @@ describe("JoinModeController", () => {
     _ingestJoinFrameForTest({
       action: "changeset_join_land_delta",
       project_dir: WORKSPACE_KEY,
-      dash: "join-lane",
+      arc: "join-lane",
       beat: "squash",
       status: "start",
     });
@@ -540,8 +540,8 @@ describe("JoinModeController", () => {
     controller.dispose();
   });
 
-  it("enter resolves a clean dash, so the join rides a candidate", () => {
-    // The one thing entry *does* ask for ([P03]). A clean dash used to join on
+  it("enter resolves a clean arc, so the join rides a candidate", () => {
+    // The one thing entry *does* ask for ([P03]). A clean arc used to join on
     // the strength of git finding no overlapping text, which is not the same
     // claim as the result building; the resolve is what anchors a candidate for
     // the checks to judge.
@@ -552,12 +552,12 @@ describe("JoinModeController", () => {
     expect(resolves).toHaveLength(1);
     expect(resolves[0]?.body).toMatchObject({
       project_dir: WORKSPACE_KEY,
-      dash: "join-lane",
+      arc: "join-lane",
     });
     controller.dispose();
   });
 
-  it("leaves a dash that already has a candidate, a live run, or conflicts", () => {
+  it("leaves an arc that already has a candidate, a live run, or conflicts", () => {
     const { controller, changesController } = build();
 
     // Already judged, or already being judged: re-resolving would throw away a
@@ -572,7 +572,7 @@ describe("JoinModeController", () => {
     expect(sent.filter((s) => s.action === "changeset_join_resolve")).toHaveLength(0);
     controller.exit();
 
-    // A conflicted dash keeps its Resolve control: the press is the user's
+    // A conflicted arc keeps its Resolve control: the press is the user's
     // acknowledgement that an agent is about to reconcile their divergence.
     changesController._setJoin({ phase: "previewed", conflicts: ["a.ts"] });
     controller.enter(TARGET);
@@ -648,7 +648,7 @@ describe("JoinModeController", () => {
     controller.dispose();
   });
 
-  it("opens on the dash's maintained draft when nothing was seeded", () => {
+  it("opens on the arc's maintained draft when nothing was seeded", () => {
     const { controller } = build();
     controller.enter(TARGET);
     expect(controller.getSnapshot().persistedMessage).toBe("the maintained join message");
@@ -779,7 +779,7 @@ describe("JoinModeController", () => {
 
     const lands = sent.filter((s) => s.action === "changeset_join" && s.body.preview === false);
     expect(lands).toHaveLength(1);
-    expect(lands[0]?.body).toMatchObject({ dash: "join-lane", message: "land it" });
+    expect(lands[0]?.body).toMatchObject({ arc: "join-lane", message: "land it" });
     expect(controller.getSnapshot().landRefusal).toBe(null);
     controller.dispose();
   });
@@ -828,7 +828,7 @@ describe("JoinModeController", () => {
     _ingestJoinFrameForTest({
       action: "changeset_join_land_delta",
       project_dir: WORKSPACE_KEY,
-      dash: "join-lane",
+      arc: "join-lane",
       beat: "preflight",
       status: "start",
     });
@@ -880,7 +880,7 @@ describe("JoinModeController", () => {
     _ingestJoinFrameForTest({
       action: "changeset_join_ok",
       project_dir: WORKSPACE_KEY,
-      dash: "join-lane",
+      arc: "join-lane",
       summary: "joined abc1234 · join-lane → main · 2 round(s)",
     });
     // The settled sentence stands while it is the only one there is.
@@ -892,7 +892,7 @@ describe("JoinModeController", () => {
   });
 
   it("a receipt already in the transcript is not this join's", () => {
-    // The mark is taken at the press, so an earlier join's row — a dash
+    // The mark is taken at the press, so an earlier join's row — an arc
     // recreated under the same name, joined twice in one session — cannot
     // retire the narration of the join now running.
     const { controller, codeSessionStore } = build();
@@ -910,7 +910,7 @@ describe("JoinModeController", () => {
     _ingestJoinFrameForTest({
       action: "changeset_join_ok",
       project_dir: WORKSPACE_KEY,
-      dash: "join-lane",
+      arc: "join-lane",
       summary: "joined abc1234 · join-lane → main · 2 round(s)",
     });
     expect(controller.getSnapshot().register?.word).toBe("joined");
@@ -941,7 +941,7 @@ describe("JoinModeController", () => {
     controller.exit();
     const snapshot = controller.getSnapshot();
     expect(snapshot.active).toBe(false);
-    expect(snapshot.dash).toBe(null);
+    expect(snapshot.arc).toBe(null);
     expect(snapshot.seedMessage).toBe(null);
     controller.dispose();
   });

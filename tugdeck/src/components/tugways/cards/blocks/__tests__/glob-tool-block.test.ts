@@ -51,8 +51,8 @@ import { loadGoldenProbe } from "@/lib/code-session-store/testing/golden-catalog
 describe("narrowGlobInput", () => {
   test("keeps the wire fields when well-typed", () => {
     expect(
-      narrowGlobInput({ pattern: "dash/**/*.md", path: "/repo" }),
-    ).toEqual({ pattern: "dash/**/*.md", path: "/repo" });
+      narrowGlobInput({ pattern: "arc/**/*.md", path: "/repo" }),
+    ).toEqual({ pattern: "arc/**/*.md", path: "/repo" });
   });
 
   test("drops mistyped fields and tolerates non-objects", () => {

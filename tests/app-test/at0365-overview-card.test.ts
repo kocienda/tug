@@ -312,13 +312,13 @@ describe.skipIf(!SHOULD_RUN)("at0365 — the Overview card", () => {
         // The fourth voice. A wire speaks because an event it was watching
         // for happened — nobody asked it a question — and the row has to say
         // so: the author names the voice, `wake_reason` names which wire, and
-        // the dash chip is the one ref kind no path lookup could ever resolve.
+        // the arc chip is the one ref kind no path lookup could ever resolve.
         const tripwirePost: WirePost = {
           id: 9010,
           at_ms: AT_MS + 240_000,
           author: "tripwire",
           body: "The edit program went stale against a tree that had moved on.",
-          refs: [{ kind: "dash", target: "wire-tugedit-abc12345" }],
+          refs: [{ kind: "arc", target: "wire-tugedit-abc12345" }],
           wake_reason: "wire:tugedit",
           project_dir: REPO_ROOT,
         };
@@ -352,14 +352,14 @@ describe.skipIf(!SHOULD_RUN)("at0365 — the Overview card", () => {
         expect(rows[2]!.author).toBe("observer");
         expect(rows[2]!.body).toContain("landed the sticky-header fixes");
 
-        // The tripwire row: its own author, its own label, and a dash chip
+        // The tripwire row: its own author, its own label, and an arc chip
         // that a path resolver would have rendered inert.
         expect(rows[3]!.author).toBe("tripwire");
         expect(rows[3]!.identifier).toBe("Tripwire");
         expect(rows[3]!.body).toBe(tripwirePost.body);
         expect(
           rows[3]!.chips,
-          "a dash chip names the dash, not a basename of it",
+          "an arc chip names the arc, not a basename of it",
         ).toContain("wire-tugedit-abc12345");
 
         // Every row leads with its author's glyph — the only thing on the row

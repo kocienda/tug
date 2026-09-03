@@ -4,7 +4,7 @@
  *
  * One consumer today: the **chord ring**. A default button whose activation is
  * `Shift+Return` rather than a plain `Return` wears the double ring dashed, and
- * the dash resolves to solid exactly while Shift is physically down ALONE — the
+ * the arc resolves to solid exactly while Shift is physically down ALONE — the
  * instant at which a `Return` really would fire it. So the ring never states
  * something false at any moment, and holding Shift becomes the gesture that
  * *shows you* what Return is about to do.

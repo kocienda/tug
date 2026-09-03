@@ -42,9 +42,9 @@ describe("createFixtureSessionMetadataStore", () => {
     const snapshot = store.getSnapshot();
 
     // Payload counts for the shipped v2.1.258 capture. The tugplug skills
-    // are the prefixed set (dash/trek/arc-audit/arc-devise/arc-implement/
-    // arc-review/draft/tripwire; spike-card is repo-local and
-    // was in this capture); the agent list is the built-in Claude Code set:
+    // are the prefixed set the capture recorded — eight of them, under the
+    // door and stage names of that day, plus the repo-local spike-card;
+    // the agent list is the built-in Claude Code set:
     //   slash_commands: 58  (26 upgrade to "skill", 32 stay "local")
     //   agents: 5
     //   total after dedup: 63

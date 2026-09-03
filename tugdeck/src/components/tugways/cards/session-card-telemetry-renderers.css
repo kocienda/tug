@@ -107,7 +107,7 @@
    ========================================================================= */
 
 /* Replay-window inerting: while a resume replay reconstructs history,
-   every value cell is inert — the em-dash values come from the
+   every value cell is inert — the em-arc values come from the
    renderer; this rule adds the dimming and drops pointer events so the
    popovers can't open on stale mid-replay data. STATE stays live (it
    reads "Replaying"). [L06] appearance via a data attribute. */

@@ -32,7 +32,7 @@
   color: var(--tugx-block-text-color);
 }
 
-/* The join's own line — `dash → base`, the identity a plain commit receipt has
+/* The join's own line — `arc → base`, the identity a plain commit receipt has
    no room for. It sits above the message body at the same inline inset the
    shared `.tugx-commit-message` establishes, so the three body regions
    (identity, message, file rows) share one left edge. Muted: it is the row's

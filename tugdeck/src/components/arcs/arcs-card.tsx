@@ -123,14 +123,14 @@ import {
   useArcRowMenu,
 } from "@/components/tugways/cards/session-changes/arc-row-menu";
 import type {
-  DashChangesetEntry,
+  ArcChangesetEntry,
   DocumentArcEntry,
   ProjectChangeset,
   WorkspacesChangesetSnapshot,
 } from "@/lib/changeset-types";
 
 /** The card's focus group — every stop it offers lives here. */
-const DASHES_FOCUS_GROUP = "dashes-card";
+const ARCS_FOCUS_GROUP = "arcs-card";
 
 /** A stable subscribe for a card that has no session store yet ([L02]). */
 const NOOP_SUBSCRIBE = (): (() => void) => () => {};
@@ -139,12 +139,12 @@ const NOOP_SUBSCRIBE = (): (() => void) => () => {};
 // Projection
 // ---------------------------------------------------------------------------
 
-/** One dash, in any state, flattened out of the aggregate for the list. */
+/** One arc, in any state, flattened out of the aggregate for the list. */
 export interface ArcRow {
-  /** The dash's owner key — this row's identity, unique per incarnation. */
+  /** The arc's owner key — this row's identity, unique per incarnation. */
   ownerId: string;
   /** The whole wire entry: the eyebrow and the meta line read it directly. */
-  entry: DashChangesetEntry;
+  entry: ArcChangesetEntry;
   /** The owning project's directory — what a bind has to name. */
   projectDir: string;
   /**
@@ -161,7 +161,7 @@ export interface ArcRow {
 }
 
 function rowFromEntry(
-  entry: DashChangesetEntry,
+  entry: ArcChangesetEntry,
   project: ProjectChangeset,
 ): ArcRow {
   return {
@@ -174,14 +174,14 @@ function rowFromEntry(
 }
 
 /**
- * How far along a dash is, as a sortable rank ([P02], Table T01).
+ * How far along an arc is, as a sortable rank ([P02], Table T01).
  *
- * Nearest-to-done ranks highest, because the actionable dash is the one about
+ * Nearest-to-done ranks highest, because the actionable arc is the one about
  * to land rather than the one just created. `joining` tops the table because
  * it is the state that most needs a person. Exported so its test can be a
  * table test rather than a DOM assertion.
  */
-export const DASH_STAGE_RANK: Record<string, number> = {
+export const ARC_STAGE_RANK: Record<string, number> = {
   joining: 6,
   "draft-ready": 5,
   audited: 4,
@@ -194,7 +194,7 @@ export const DASH_STAGE_RANK: Record<string, number> = {
 /** An absent or unrecognized stage sorts last, and never throws: an older or
  *  newer sender must not be able to break the section's render. */
 function stageRank(stage: string | null | undefined): number {
-  return stage == null ? -1 : (DASH_STAGE_RANK[stage] ?? -1);
+  return stage == null ? -1 : (ARC_STAGE_RANK[stage] ?? -1);
 }
 
 /**
@@ -202,7 +202,7 @@ function stageRank(stage: string | null | undefined): number {
  *
  * A raw string comparison is the whole implementation: the timestamps are UTC
  * with a fixed-width layout, so lexical order is chronological order and no
- * `Date` is ever parsed here. Absent-last keeps dashes created before creation
+ * `Date` is ever parsed here. Absent-last keeps arcs created before creation
  * wrote a birth record from claiming the top of every stage band.
  */
 function compareIsoDesc(
@@ -228,29 +228,29 @@ export function compareArcRows(a: ArcRow, b: ArcRow): number {
 }
 
 /**
- * Every dash across every open project, in every state, ordered by
+ * Every arc across every open project, in every state, ordered by
  * {@link compareArcRows}. No filter: bound and unbound alike are this
  * section's rows now, and which register a row wears is the eyebrow's
  * business, not membership's.
  *
  * Project grouping is not an ordering key: grouping by project would bury a
- * dash that is one gesture from landing under one created a week ago in
+ * arc that is one gesture from landing under one created a week ago in
  * another repo.
  *
  * One row per owner key: two projects opening one repository — a base checkout
- * and its spelling through a firmlink — both carry the repo's dashes, and the
- * owner key is the identity that says they are the same dash. First occurrence
+ * and its spelling through a firmlink — both carry the repo's arcs, and the
+ * owner key is the identity that says they are the same arc. First occurrence
  * in snapshot order wins, before the sort, so which project's row survives is
  * stable across renders.
  */
-export function dashRowsFromSnapshot(
+export function arcRowsFromSnapshot(
   snapshot: WorkspacesChangesetSnapshot,
 ): ArcRow[] {
   const seen = new Set<string>();
   const rows = snapshot.projects
     .flatMap((project) =>
       project.changesets
-        .filter((entry): entry is DashChangesetEntry => entry.kind === "dash")
+        .filter((entry): entry is ArcChangesetEntry => entry.kind === "arc")
         .map((entry) => rowFromEntry(entry, project)),
     )
     .filter((row) => {
@@ -269,21 +269,21 @@ export function dashRowsFromSnapshot(
  *
  * A plan row is waiting paperwork **by filter, not by construction**. Presence
  * in the docs directory says nothing about ownership: adoption leaves a
- * committed, clean base copy exactly where it was, so a plan a dash is
- * implementing right now sits there for the dash's whole life with its ledger
+ * committed, clean base copy exactly where it was, so a plan an arc is
+ * implementing right now sits there for the arc's whole life with its ledger
  * frozen at all-`pending` — the run's progress goes to the worktree copy. What
  * keeps the two kinds of row from naming the same work is the producer, which
- * lists a document only when no dash has adopted it and its ledger is not
+ * lists a document only when no arc has adopted it and its ledger is not
  * wholly `done`.
  */
 export interface DocumentArcRow {
-  /** Project dir plus dash name — unique across every open project. */
+  /** Project dir plus arc name — unique across every open project. */
   key: string;
   /** The wire entry: the row reads it directly. */
   entry: DocumentArcEntry;
 }
 
-/** Nearest-to-work-starting first: a reviewed plan is one gesture from a dash. */
+/** Nearest-to-work-starting first: a reviewed plan is one gesture from an arc. */
 const PLAN_REVIEW_RANK: Record<string, number> = {
   reviewed: 2,
   stale: 1,
@@ -306,7 +306,7 @@ export function documentArcIsBegun(entry: DocumentArcEntry): boolean {
  *
  * The same nearest-to-done principle {@link compareArcRows} encodes, applied
  * to the front half: work in flight is nearer done than work not started, and
- * among the unstarted a reviewed plan is one press from becoming a dash while
+ * among the unstarted a reviewed plan is one press from becoming an arc while
  * an unreviewed one still needs a turn spent on it.
  */
 export function compareDocumentArcRows(
@@ -327,11 +327,11 @@ export function compareDocumentArcRows(
  * {@link comparePlanRows}.
  *
  * Every project, not the followed one — the same choice
- * {@link dashRowsFromSnapshot} makes, for the same reason: a listing that
+ * {@link arcRowsFromSnapshot} makes, for the same reason: a listing that
  * changed as the reader moved between cards would be the coming-and-going wart
  * this section already retired.
  *
- * One row per `owner_id`, exactly as {@link dashRowsFromSnapshot} dedupes —
+ * One row per `owner_id`, exactly as {@link arcRowsFromSnapshot} dedupes —
  * and never on `key`, which namespaces the name under its project and so
  * differs between the very duplicates being removed. First occurrence in
  * snapshot order wins.
@@ -363,7 +363,7 @@ export function documentArcRowsFromSnapshot(
  * A flat, immutable list over one projection pass, carrying both kinds of row.
  * A new projection makes a new source; there is no mutation to subscribe to.
  *
- * Dashes first, then plans: live work outranks waiting paperwork, so the index
+ * Arcs first, then plans: live work outranks waiting paperwork, so the index
  * split is the ordering — no interleaving and no comparator across kinds.
  */
 class CockpitRowsDataSource implements TugListViewDataSource {
@@ -375,15 +375,15 @@ class CockpitRowsDataSource implements TugListViewDataSource {
     return this.rows.length + this.plans.length;
   }
   idForIndex(index: number): string {
-    const dash = this.rows[index];
-    if (dash !== undefined) return dash.ownerId;
-    // Namespaced so an owner key and a document-dash key can never collide.
+    const arc = this.rows[index];
+    if (arc !== undefined) return arc.ownerId;
+    // Namespaced so an owner key and a document-arc key can never collide.
     return `doc:${this.plans[index - this.rows.length]!.key}`;
   }
   kindForIndex(index: number): string {
-    return index < this.rows.length ? "dash" : "plan";
+    return index < this.rows.length ? "arc" : "plan";
   }
-  /** The document-only dash at a list index, or undefined for a dash index. */
+  /** The document-only arc at a list index, or undefined for an arc index. */
   planAt(index: number): DocumentArcRow | undefined {
     return this.plans[index - this.rows.length];
   }
@@ -401,7 +401,7 @@ class CockpitRowsDataSource implements TugListViewDataSource {
 // The verbs
 // ---------------------------------------------------------------------------
 
-/** Where a Bind press would send this dash, or why it cannot. Exactly one of
+/** Where a Bind press would send this arc, or why it cannot. Exactly one of
  *  the two is non-null. */
 export interface BindTarget {
   tugSessionId: string | null;
@@ -414,7 +414,7 @@ export interface BindTarget {
  *
  * The ladder stops at the followed card deliberately. Reaching past it to some
  * other open card would make Bind succeed more often at the cost of making its
- * destination invisible: a press could bind a dash into a card the reader was
+ * destination invisible: a press could bind an arc into a card the reader was
  * not looking at. Every refusal names what is missing, because a control that
  * declines without saying why is the failure this section already had.
  */
@@ -430,8 +430,8 @@ export function resolveBindTarget(input: {
   if (input.binding === undefined) {
     return { tugSessionId: null, reason: "The focused card has no session" };
   }
-  // A dash can only be bound by a session in its own project — the bind names a
-  // project dir, and the server resolves the dash within it.
+  // An arc can only be bound by a session in its own project — the bind names a
+  // project dir, and the server resolves the arc within it.
   if (input.binding.projectDir !== input.projectDir) {
     return {
       tugSessionId: null,
@@ -442,18 +442,18 @@ export function resolveBindTarget(input: {
 }
 
 /**
- * The open card working this dash, or null — the destination a row activation
+ * The open card working this arc, or null — the destination a row activation
  * routes to.
  *
  * Pure, so its whole truth table is a unit test rather than a DOM one. First
- * match wins: `bound_sessions` is live sessions mated to the dash, and a card
- * bound to one of them is a card whose Changes shade shows this dash's lane. In
+ * match wins: `bound_sessions` is live sessions mated to the arc, and a card
+ * bound to one of them is a card whose Changes shade shows this arc's lane. In
  * the ordinary case there is exactly one; where there are several, any of them
  * is a correct room to open, and picking the first keeps the answer stable
  * across renders rather than depending on iteration luck.
  *
- * Null is the common case, not an error: the Arcs card lists every dash in every
- * open project, so a dash nobody holds — or one whose worker's card is closed —
+ * Null is the common case, not an error: the Arcs card lists every arc in every
+ * open project, so an arc nobody holds — or one whose worker's card is closed —
  * simply has no room to open. That is what makes the row inert, and what the
  * row's own affordance has to advertise.
  */
@@ -470,7 +470,7 @@ export function resolveWorkerCard(
 }
 
 /** {@link resolveWorkerCard} against the live binding snapshot. */
-function useWorkerCard(entry: DashChangesetEntry): string | null {
+function useWorkerCard(entry: ArcChangesetEntry): string | null {
   const bindings = useSyncExternalStore(
     cardSessionBindingStore.subscribe,
     cardSessionBindingStore.getSnapshot,
@@ -514,7 +514,7 @@ function useBindTarget(row: ArcRow): BindTarget {
 }
 
 /** What a row may ask of the section around it. */
-interface DashVerbs {
+interface ArcVerbs {
   requestDiscard: (row: ArcRow, anchor: HTMLElement | null) => void;
   /** Send `changeset_replay`; the outcome speaks on the followed card. */
   requestReplay: (row: ArcRow, tugSessionId: string | null) => void;
@@ -522,7 +522,7 @@ interface DashVerbs {
   replayDisabledReason: string | null;
 }
 
-const DashVerbsContext = React.createContext<DashVerbs | null>(null);
+const ArcVerbsContext = React.createContext<ArcVerbs | null>(null);
 
 /**
  * The row's rare verbs, on the row's own right-click — the same set the Changes
@@ -530,27 +530,27 @@ const DashVerbsContext = React.createContext<DashVerbs | null>(null);
  *
  * They used to stand here as Bind and Discard text buttons, then behind a `⋯`
  * on the eyebrow. Both spent the eyebrow's right end on verbs a reader almost
- * never presses: a dash is bound once, discarded almost never, and replayed
+ * never presses: an arc is bound once, discarded almost never, and replayed
  * only when the automatic engine's gates have skipped it. The eyebrow is now
- * the identities alone — the dash, the hairline, the worker — and the verbs are
+ * the identities alone — the arc, the hairline, the worker — and the verbs are
  * where a list row's rare verbs live everywhere else in the app, under the
  * pointer's second button.
  *
  * Bind's refusals arrive here as the item's own disabled reason, verbatim from
  * {@link resolveBindTarget} ([L31]). Unbind is deliberately absent: it stays the
- * fronted shade row's verb, and a Arcs card row routes you there.
+ * fronted shade row's verb, and an Arcs card row routes you there.
  *
  * The press reports **nothing locally** for a bind: on success the worker's atom
  * arrives on the eyebrow, so a pending state would be reporting into a control
  * that is about to leave. A server-side refusal arrives on the card-level
- * `dash-bind-error-store` surface, which outlives the row — and a replay's
+ * `arc-bind-error-store` surface, which outlives the row — and a replay's
  * outcome on its sibling, for the same reason.
  */
 function useArcRowVerbsMenu(row: ArcRow): {
   onContextMenu: (event: React.MouseEvent) => void;
   menu: React.ReactNode;
 } {
-  const verbs = React.useContext(DashVerbsContext);
+  const verbs = React.useContext(ArcVerbsContext);
   const target = useBindTarget(row);
   const followedSessionId = useFollowedSessionId();
   const entry = row.entry;
@@ -559,7 +559,7 @@ function useArcRowVerbsMenu(row: ArcRow): {
   const rowRef = React.useRef<HTMLElement | null>(null);
 
   const rowMenu = useArcRowMenu({
-    // Bind only, and only while nobody holds the dash: Unbind belongs to the
+    // Bind only, and only while nobody holds the arc: Unbind belongs to the
     // shade, and a bound row's binding item would offer a verb this surface
     // has decided not to carry.
     binding: bound
@@ -570,13 +570,13 @@ function useArcRowVerbsMenu(row: ArcRow): {
           perform: () => {
             if (target.tugSessionId === null) return;
             // The same frame the Changes shade's lane sends, so there is one
-            // binding path. `bind_dash_ok` stays the only mover of
+            // binding path. `bind_arc_ok` stays the only mover of
             // `cardSessionBindingStore`: a refused bind leaves the card bound
             // to whatever it was.
-            getConnection()?.sendControlFrame("bind_dash", {
+            getConnection()?.sendControlFrame("bind_arc", {
               tug_session_id: target.tugSessionId,
               project_dir: row.projectDir,
-              dash: name,
+              arc: name,
             });
           },
         },
@@ -626,8 +626,8 @@ function useArcRowVerbsMenu(row: ArcRow): {
     menu:
       rowMenu.menu === null ? null : (
         <span
-          className="dashes-verbs"
-          data-slot="dashes-verbs"
+          className="arcs-verbs"
+          data-slot="arcs-verbs"
           aria-label={`Actions for arc ${name}`}
         >
           {rowMenu.menu}
@@ -640,7 +640,7 @@ function useArcRowVerbsMenu(row: ArcRow): {
 // The block
 // ---------------------------------------------------------------------------
 
-const DashCell: TugListViewCellRenderer<CockpitRowsDataSource> = ({
+const ArcCell: TugListViewCellRenderer<CockpitRowsDataSource> = ({
   index,
   dataSource,
 }: TugListViewCellProps<CockpitRowsDataSource>) => {
@@ -661,23 +661,23 @@ const DashCell: TugListViewCellRenderer<CockpitRowsDataSource> = ({
   const verbsMenu = useArcRowVerbsMenu(row);
   return (
     <TugListRow
-      className="dashes-row"
+      className="arcs-row"
       variant="flush"
       density="compact"
-      data-slot="dashes-row"
-      data-dash={entry.display_name}
+      data-slot="arcs-row"
+      data-arc={entry.display_name}
       data-bound={workers.length > 0 ? "true" : undefined}
       data-activatable={activatable ? "true" : undefined}
       onContextMenu={verbsMenu.onContextMenu}
     >
-      <span className="dashes-block">
-        {/* The dash's whole life in the one block: line one the identities,
+      <span className="arcs-block">
+        {/* The arc's whole life in the one block: line one the identities,
             line two the track, the phase glyph, the fraction, the word, and
             the divergence facts. The pill wears no review tint — that yellow
-            means WAITING, and a dash is not waiting for anyone.
+            means WAITING, and an arc is not waiting for anyone.
 
             Every row answers the same menu, held or not: Replay reaches a
-            bound dash on the same terms as an unbound one, and a menu that
+            bound arc on the same terms as an unbound one, and a menu that
             came and went with the binding would be the section's old wart in
             miniature. */}
         <ArcLifecycleBlock
@@ -700,30 +700,30 @@ const DashCell: TugListViewCellRenderer<CockpitRowsDataSource> = ({
 };
 
 /**
- * The dash's join register, with the beats its own store read supplies.
+ * The arc's join register, with the beats its own store read supplies.
  *
  * A separate component so the `useSyncExternalStore` subscription belongs to
  * the row that needs it ([L02]) rather than re-rendering every row in the
- * section on every beat of one dash's join.
+ * section on every beat of one arc's join.
  */
 function ArcJoinRow({ row }: { row: ArcRow }): React.ReactElement | null {
   const entry = row.entry;
   const landBeat = useChangesetJoinLand(row.workspaceKey, entry.display_name);
   return (
-    <span className="dashes-register">
+    <span className="arcs-register">
       <ArcJoinRegister
-        dash={entry.display_name}
+        arc={entry.display_name}
         base={entry.base ?? "main"}
         stage={entry.stage}
         join={entry.join}
         holdersBusy={entry.holders_busy === true}
         landBeat={landBeat}
-        // The Arcs card is the one surface that renders dashes nobody is holding,
+        // The Arcs card is the one surface that renders arcs nobody is holding,
         // so it is the one that has to hand the register that fact ([D147]).
         bound={(entry.bound_sessions ?? []).length > 0}
         // A live wheel outranks the offer: the section shows the stage that is
         // running rather than a readiness the audit has not signed off on.
-        arc={entry.arc ?? null}
+        run={entry.arc ?? null}
         altitude="section"
       />
     </span>
@@ -756,15 +756,15 @@ const PlanCell: TugListViewCellRenderer<CockpitRowsDataSource> = ({
   const model = documentArcTrackModel(entry);
   return (
     <TugListRow
-      className="dashes-row"
+      className="arcs-row"
       variant="flush"
       density="compact"
-      data-slot="dash-document-row"
-      data-dash={entry.display_name}
+      data-slot="arc-document-row"
+      data-arc={entry.display_name}
       data-review={entry.review}
       data-begun={begun ? "true" : "false"}
     >
-      <span className="dashes-block">
+      <span className="arcs-block">
         <ArcLifecycleBlock
           name={entry.display_name}
           workers={entry.bound_sessions ?? []}
@@ -778,11 +778,11 @@ const PlanCell: TugListViewCellRenderer<CockpitRowsDataSource> = ({
   );
 };
 
-const DASH_CELL_RENDERERS = { dash: DashCell, plan: PlanCell };
+const ARC_CELL_RENDERERS = { arc: ArcCell, plan: PlanCell };
 
 function useArcRows(): ArcRow[] {
   const snapshot = useChangesetAll();
-  return useMemo(() => dashRowsFromSnapshot(snapshot), [snapshot]);
+  return useMemo(() => arcRowsFromSnapshot(snapshot), [snapshot]);
 }
 
 function usePlanRows(): DocumentArcRow[] {
@@ -795,7 +795,7 @@ function usePlanRows(): DocumentArcRow[] {
  * discard and one replay at a time is the right number, and the state lives in
  * a module store that outlives this body.
  */
-const DASHES_VERB_KEY = "dashes-card";
+const ARCS_VERB_KEY = "arcs-card";
 
 export interface ArcsContentProps {
   /** The Arcs card's id. */
@@ -809,29 +809,29 @@ export function ArcsContent({ cardId }: ArcsContentProps): React.ReactElement {
   const followedCardId = useTrackFollowedCard(cardId);
   return (
     <FollowedCardContext value={followedCardId}>
-      <DashesBody />
+      <ArcsBody />
     </FollowedCardContext>
   );
 }
 
-function DashesBody(): React.ReactElement {
+function ArcsBody(): React.ReactElement {
   const rows = useArcRows();
   const plans = usePlanRows();
   const dataSource = useMemo(
     () => new CockpitRowsDataSource(rows, plans),
     [rows, plans],
   );
-  // Both kinds, not the dash count. This one value decides two things — whether
+  // Both kinds, not the arc count. This one value decides two things — whether
   // the keyboard has anything to walk onto, and whether the body is the empty
-  // state — so a project with plans and no dashes would otherwise render
-  // "No dashes" over rows that never mounted.
+  // state — so a project with plans and no arcs would otherwise render
+  // "No arcs" over rows that never mounted.
   const populated = rows.length + plans.length > 0;
 
-  const discardVerb = useChangesetDiscard(DASHES_VERB_KEY);
+  const discardVerb = useChangesetDiscard(ARCS_VERB_KEY);
   // One replay round trip for the section, for the reason the discard has one:
   // the state is a slot per key, and a second press would render the first's
   // phase.
-  const replayVerb = useChangesetReplay(DASHES_VERB_KEY);
+  const replayVerb = useChangesetReplay(ARCS_VERB_KEY);
   // Which row's discard is armed, and the element the confirm hangs off. View
   // scope ([L24]): a half-armed confirm is not worth remembering, and closing
   // the card forgets it.
@@ -839,7 +839,7 @@ function DashesBody(): React.ReactElement {
     row: ArcRow;
     anchor: HTMLElement | null;
   } | null>(null);
-  const verbs = useMemo<DashVerbs>(
+  const verbs = useMemo<ArcVerbs>(
     () => ({
       requestDiscard: (row, anchor) => setPendingDiscard({ row, anchor }),
       // No confirm: a replay destroys nothing, and its every refusal path
@@ -847,7 +847,7 @@ function DashesBody(): React.ReactElement {
       // a voice, which is the session id — the outcome posts on that card's
       // pane bulletin, and nothing else on any surface reports a replay at
       // all. The card the user is working in is the first choice; a card that
-      // is following nothing falls back to the session working the dash,
+      // is following nothing falls back to the session working the arc,
       // which is the other card this outcome is about.
       requestReplay: (row, tugSessionId) => {
         const voice = tugSessionId ?? (row.entry.bound_sessions ?? [])[0] ?? null;
@@ -865,16 +865,16 @@ function DashesBody(): React.ReactElement {
 
   // The opening key view lands on a real row, never on emptiness: an empty list
   // is not a focus stop, and `useSeedKeyView` re-arms while the key is null, so
-  // the first dash to arrive takes the cursor ([P02]).
-  useSeedKeyView(populated ? `${DASHES_FOCUS_GROUP}:0` : null);
+  // the first arc to arrive takes the cursor ([P02]).
+  useSeedKeyView(populated ? `${ARCS_FOCUS_GROUP}:0` : null);
 
-  // Activation opens the dash's ROOM: it fronts the card working the dash and
+  // Activation opens the arc's ROOM: it fronts the card working the arc and
   // reveals that card's Changes shade, which is where every decision about a
-  // dash already lives ([D152]). Navigation, never a verb — the mutating acts
+  // arc already lives ([D152]). Navigation, never a verb — the mutating acts
   // stay on the row's context menu, because status is not a control ([D142]).
   //
   // Click and Enter are the same act here, unlike the Cards card's split:
-  // there, a click both selects and fronts, so the two doors differ. A dash row
+  // there, a click both selects and fronts, so the two doors differ. An arc row
   // has one destination and no second meaning to give the keyboard.
   //
   // A row with no open worker card does nothing — and says so before the press
@@ -907,33 +907,33 @@ function DashesBody(): React.ReactElement {
 
   // The empty state keeps the card, reading exactly as every other rail card's
   // does: the shared word, centered, on one row's worth of height.
-  // A dash starts in a session card, so there is nothing to press here and no
+  // An arc starts in a session card, so there is nothing to press here and no
   // way in to name — the card is a fixed address to glance at, not a door.
   if (!populated) {
     return (
-      <div className="dashes-empty" data-slot="dashes-empty">
+      <div className="arcs-empty" data-slot="arcs-empty">
         None
       </div>
     );
   }
 
   return (
-    <DashVerbsContext value={verbs}>
-      <div className="dashes-section" data-slot="dashes-section">
+    <ArcVerbsContext value={verbs}>
+      <div className="arcs-section" data-slot="arcs-section">
         <TugListView<CockpitRowsDataSource>
           dataSource={dataSource}
           delegate={delegate}
-          cellRenderers={DASH_CELL_RENDERERS}
+          cellRenderers={ARC_CELL_RENDERERS}
           scrollKey="dashes"
           inline
           rowLayout="flush"
-          focusGroup={DASHES_FOCUS_GROUP}
+          focusGroup={ARCS_FOCUS_GROUP}
           {...RAIL_LIST_PRESENTATION}
-          className="dashes-list"
+          className="arcs-list"
         />
         {/* One controlled confirm for the whole card, anchored to whichever
             row armed it. `confirmRole="danger"` puts default focus on Cancel,
-            so a reflexive Return can never destroy a dash. */}
+            so a reflexive Return can never destroy an arc. */}
         <TugConfirmPopover
           open={pendingDiscard !== null}
           anchorEl={pendingDiscard?.anchor ?? null}
@@ -958,6 +958,6 @@ function DashesBody(): React.ReactElement {
           onCancel={() => setPendingDiscard(null)}
         />
       </div>
-    </DashVerbsContext>
+    </ArcVerbsContext>
   );
 }

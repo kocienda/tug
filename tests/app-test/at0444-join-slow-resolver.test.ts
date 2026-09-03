@@ -18,7 +18,7 @@
  *
  * That history is why this file exists, and it survives the arc intact — but
  * both ends of it have moved, so the file is rewritten rather than patched.
- * There is no Resolve to press: the run is started by the **pilot**, on a dash
+ * There is no Resolve to press: the run is started by the **pilot**, on an arc
  * declared `built`, and by nothing else. And there is no control to re-mount:
  * the shade mounts none at all ([P08]). What is left is the claim that always
  * mattered, now stated where it can be seen — **a resolver held still for
@@ -67,14 +67,14 @@ import {
   seedTugbankForLaunch,
 } from "./_harness/tugbank-helpers";
 import {
-  bindDash,
+  bindArc,
   silenceJoinPrompt,
   makeJoinScratchRepo,
   rmJoinScratchRepo,
   rmScratchSession,
   seedScratchSession,
   type JoinScratchRepo,
-} from "./dash-fixture";
+} from "./arc-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 300_000;
@@ -83,10 +83,10 @@ const SID = "a7c0d1ea-0000-4000-8000-000000000444";
 const CARD = '[data-card-id="A"]';
 const EDITOR = `${CARD} [data-slot="tug-text-editor"] .cm-content`;
 const SHEET = '[data-slot="session-changes-view"]';
-const LANE = `${SHEET} [data-slot="session-changes-dash-lane"]`;
+const LANE = `${SHEET} [data-slot="session-changes-arc-lane"]`;
 
-const DASH = "at0444-slow";
-const ROW = `${LANE} [data-slot="session-changes-dash-row"][data-dash="${DASH}"]`;
+const ARC = "at0444-slow";
+const ROW = `${LANE} [data-slot="session-changes-arc-row"][data-arc="${ARC}"]`;
 const REGISTER = `${ROW} [data-slot="arc-join-register"]`;
 const RESOLVE_ERROR = `${ROW} [data-slot="session-changes-arc-join-resolve-error"]`;
 const STUCK = `${ROW} [data-slot="session-changes-arc-join-stuck"]`;
@@ -98,13 +98,13 @@ const STUCK = `${ROW} [data-slot="session-changes-arc-join-stuck"]`;
  * nobody asserts is a deletion a later refactor can quietly undo.
  */
 const ANY_CONTROL =
-  `${ROW} [data-slot="session-changes-dash-resolve"], ` +
+  `${ROW} [data-slot="session-changes-arc-resolve"], ` +
   `${ROW} [data-slot="session-changes-arc-join-verify"], ` +
   `${ROW} [data-slot="session-changes-arc-join-override"], ` +
-  `${ROW} [data-slot="session-changes-dash-resume"]`;
+  `${ROW} [data-slot="session-changes-arc-resume"]`;
 
-const DASHES_CARD = '.dashes-section';
-const DASH_REGISTER = `${DASHES_CARD} [data-slot="dashes-row"][data-dash="${DASH}"] [data-slot="arc-join-register"]`;
+const ARCS_CARD = '.arcs-section';
+const ARC_REGISTER = `${ARCS_CARD} [data-slot="arcs-row"][data-arc="${ARC}"] [data-slot="arc-join-register"]`;
 
 /** The checkout whose built binaries the fixture drives. */
 const CHECKOUT = realpathSync(resolve(import.meta.dir, "..", ".."));
@@ -132,7 +132,7 @@ ws="$1"
 read -r _charter
 sleep ${SILENCE_S}
 printf '%s' '${RESOLVED_BODY}' > "$ws/${FILE}"
-printf '%s\\n' '{"files":[{"path":"${FILE}","resolved_by":"resolver","what_each_side_did":"both sides rewrote the whole file","reconciliation":"kept the dash intent and the base sentinel"}],"notes":"at0444"}'
+printf '%s\\n' '{"files":[{"path":"${FILE}","resolved_by":"resolver","what_each_side_did":"both sides rewrote the whole file","reconciliation":"kept the arc intent and the base sentinel"}],"notes":"at0444"}'
 `;
 
 let scratch: JoinScratchRepo | null = null;
@@ -142,13 +142,13 @@ beforeAll(() => {
   if (!SHOULD_RUN) return;
   scratch = makeJoinScratchRepo({
     prefix: "at0444",
-    dash: DASH,
+    arc: ARC,
     description: "at0444 slow-resolver fixture",
     checkout: CHECKOUT,
     file: FILE,
     fork: "at0444 the body both sides will rewrite\n",
     base: "at0444 base side — the whole file, rewritten\n",
-    dashBody: "at0444 dash side — the whole file, rewritten\n",
+    arcBody: "at0444 arc side — the whole file, rewritten\n",
     resolver: RESOLVER_STUB,
     // The run this file watches is the pilot's. Nothing presses it — which is
     // also what makes "no control was mounted" a claim rather than a tautology
@@ -194,7 +194,7 @@ async function runCommand(app: App, line: string): Promise<void> {
   await app.nativeKey("Return", ["cmd"]);
 }
 
-async function openOnDash(app: App): Promise<void> {
+async function openOnArc(app: App): Promise<void> {
   await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
   await app.waitForCondition<boolean>(
     `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
@@ -243,18 +243,18 @@ describe.skipIf(!SHOULD_RUN)("AT0444: a slow resolver is not a dead one", () => 
       });
       try {
         await app.enableDeckTrace(true);
-        await openOnDash(app);
+        await openOnArc(app);
         await app.spawnSessionResume("A", { tugSessionId: SID, projectDir: repo });
         await app.awaitEngineReady("A", { timeoutMs: 15000 });
-        // The pilot only works a dash somebody holds ([D147]); without the
+        // The pilot only works an arc somebody holds ([D147]); without the
         // ledger row nothing below ever starts.
-        bindDash(repo, DASH, SID, scratch?.cli ?? {});
-        silenceJoinPrompt(repo, DASH);
+        bindArc(repo, ARC, SID, scratch?.cli ?? {});
+        silenceJoinPrompt(repo, ARC);
 
-        // The aggregate has composed the dash once the Arcs card lists it.
+        // The aggregate has composed the arc once the Arcs card lists it.
         await app.dispatchControlAction("toggle-arcs");
         await app.waitForCondition<boolean>(
-          `document.querySelector('${DASHES_CARD} [data-slot="dashes-row"][data-dash="${DASH}"]') !== null`,
+          `document.querySelector('${ARCS_CARD} [data-slot="arcs-row"][data-arc="${ARC}"]') !== null`,
           { timeoutMs: 30000 },
         );
 
@@ -262,14 +262,14 @@ describe.skipIf(!SHOULD_RUN)("AT0444: a slow resolver is not a dead one", () => 
         // Read from the Arcs card first, because the shade is not up yet: the run
         // is the pilot's, and this file must not be the thing that began it.
         await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(DASH_REGISTER)})?.getAttribute("data-word") === "reconciling"`,
+          `document.querySelector(${JSON.stringify(ARC_REGISTER)})?.getAttribute("data-word") === "reconciling"`,
           { timeoutMs: 120000 },
         );
         const startedAt = Date.now();
         note("at0444: the pilot started the run with nothing pressed");
         await app.dispatchControlAction("toggle-arcs");
         await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(DASHES_CARD)}) === null`,
+          `document.querySelector(${JSON.stringify(ARCS_CARD)}) === null`,
           { timeoutMs: 8000 },
         );
 
@@ -296,7 +296,7 @@ describe.skipIf(!SHOULD_RUN)("AT0444: a slow resolver is not a dead one", () => 
           // deadline, asserted: a client that judged this rung's liveness
           // would have flipped exactly here.
           expect(face.word, `at ${elapsed}s the register reads as work`).toBe("reconciling");
-          // Nothing to press is the client half of one dash, one run: the
+          // Nothing to press is the client half of one arc, one run: the
           // second `finish_join` that used to `reset --hard` a live workshop
           // began with a control this face should never have been mounting.
           expect(face.controls, `at ${elapsed}s the row offers no act`).toBe(0);
@@ -314,7 +314,7 @@ describe.skipIf(!SHOULD_RUN)("AT0444: a slow resolver is not a dead one", () => 
         // judging this rung's liveness, and stopping cost it nothing.
         // Read from the register rather than the account panel: the panel
         // belongs to the join FACE, which the fronted row alone carries, and
-        // fronting this dash would mean aiming the composer at it — a gesture,
+        // fronting this arc would mean aiming the composer at it — a gesture,
         // in a file whose whole claim is that nothing was pressed.
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(REGISTER)})?.getAttribute("data-word") === "ready"`,

@@ -1,8 +1,8 @@
-//! Dash helpers — git-derived lightweight worktree work units.
+//! Arc helpers — git-derived lightweight worktree work units.
 //!
-//! A dash *is* a git branch (`tugdash/<name>`) plus a worktree
+//! An arc *is* a git branch (`tugarc/<name>`) plus a worktree
 //! (`.tug/worktrees/<name>`); its lifecycle and status derive from git, not
-//! a database. This module holds the small shared helpers the `tugdash`
+//! a database. This module holds the small shared helpers the `tugarc`
 //! commands build on: name validation, default-branch detection, and the
 //! append-only visibility log.
 
@@ -16,31 +16,31 @@ use tugtool_core::error::TugError;
 use tugtool_core::paths::project_state_dir;
 use tugtool_core::session::now_iso8601;
 
-/// Round metadata passed via stdin to `tugdash commit`.
+/// Round metadata passed via stdin to `tugarc commit`.
 ///
 /// Git already records the commit; the one datum it lacks is the verbatim
-/// instruction, which lands in the dash-log. `summary` is retained for a richer
+/// instruction, which lands in the arc log. `summary` is retained for a richer
 /// commit body. (The former `files_created` / `files_modified` fields were
 /// dropped — git's own diff is the record.)
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DashRoundMeta {
+pub struct ArcRoundMeta {
     pub instruction: Option<String>,
     pub summary: Option<String>,
 }
 
-/// Validate a dash name.
+/// Validate an arc name.
 ///
 /// Names must:
 /// - Match pattern: `^[a-z][a-z0-9-]*[a-z0-9]$`
 /// - Be at least 2 characters
 /// - Not be a reserved word: "discard", "release", "join", "status". `release`
-///   stays reserved though its subcommand is gone: a dash named `release` would
+///   stays reserved though its subcommand is gone: an arc named `release` would
 ///   collide with the historical terminal marker still on disk, and with a
 ///   decade of muscle memory, for no gain.
 pub fn validate_arc_name(name: &str) -> Result<(), TugError> {
     // Reserved words check
     if name == "discard" || name == "release" || name == "join" || name == "status" {
-        return Err(TugError::DashNameInvalid {
+        return Err(TugError::ArcNameInvalid {
             name: name.to_string(),
             reason: format!("'{}' is a reserved word", name),
         });
@@ -48,7 +48,7 @@ pub fn validate_arc_name(name: &str) -> Result<(), TugError> {
 
     // Minimum length
     if name.len() < 2 {
-        return Err(TugError::DashNameInvalid {
+        return Err(TugError::ArcNameInvalid {
             name: name.to_string(),
             reason: "name must be at least 2 characters".to_string(),
         });
@@ -59,7 +59,7 @@ pub fn validate_arc_name(name: &str) -> Result<(), TugError> {
 
     // Must start with lowercase letter
     if !chars[0].is_ascii_lowercase() {
-        return Err(TugError::DashNameInvalid {
+        return Err(TugError::ArcNameInvalid {
             name: name.to_string(),
             reason: "name must start with a lowercase letter".to_string(),
         });
@@ -67,7 +67,7 @@ pub fn validate_arc_name(name: &str) -> Result<(), TugError> {
 
     // Must end with lowercase letter or digit
     if !chars[chars.len() - 1].is_ascii_lowercase() && !chars[chars.len() - 1].is_ascii_digit() {
-        return Err(TugError::DashNameInvalid {
+        return Err(TugError::ArcNameInvalid {
             name: name.to_string(),
             reason: "name must end with a lowercase letter or digit".to_string(),
         });
@@ -76,7 +76,7 @@ pub fn validate_arc_name(name: &str) -> Result<(), TugError> {
     // All characters must be lowercase letter, digit, or hyphen
     for ch in chars.iter() {
         if !ch.is_ascii_lowercase() && !ch.is_ascii_digit() && *ch != '-' {
-            return Err(TugError::DashNameInvalid {
+            return Err(TugError::ArcNameInvalid {
                 name: name.to_string(),
                 reason: "name must contain only lowercase letters, digits, and hyphens".to_string(),
             });
@@ -163,56 +163,57 @@ pub fn detect_default_branch(repo_root: &Path) -> Result<String, TugError> {
     })
 }
 
-/// Append one record to the per-project dash-log under [`project_state_dir`].
+/// Append one record to the per-project arc log under [`project_state_dir`].
 ///
 /// The log is a flat, append-only, greppable markdown file — the whole
-/// visibility surface for dash activity. Each line is four space-separated
-/// fields: `<iso8601>  <dash>  <marker>  <note>`, where `<marker>` is the short
-/// commit hash for a commit round (or `discarded` for a discarded dash) and
+/// visibility surface for arc activity. Each line is four space-separated
+/// fields: `<iso8601>  <arc>  <marker>  <note>`, where `<marker>` is the short
+/// commit hash for a commit round (or `discarded` for a discarded arc) and
 /// `<note>` is the verbatim instruction (or the terminal action). The directory
 /// is created on first write.
-pub fn append_dash_log(
+pub fn append_arc_log(
     repo_root: &Path,
-    dash: &str,
+    arc: &str,
     marker: &str,
     note: &str,
 ) -> Result<(), TugError> {
-    let mut file = open_dash_log(repo_root)?;
-    write_dash_log_line(&mut file, dash, marker, note)
+    let mut file = open_arc_log(repo_root)?;
+    write_arc_log_line(&mut file, arc, marker, note)
 }
 
-/// Open the project's dash-log for appending, creating the file and its
+/// Open the project's arc log for appending, creating the file and its
 /// directory if this is the first write.
 ///
-/// Split out of [`append_dash_log`] so a caller that must move two records
+/// Split out of [`append_arc_log`] so a caller that must move two records
 /// together can do the part that fails — creating the directory, opening the
 /// file — *before* it commits the other record, and then hold the handle. The
 /// append itself, through a handle already open, is a single `write` on a file
 /// opened `O_APPEND`: as close to "cannot fail for a reason you could have
 /// foreseen" as a filesystem gets. See `ops::step_in`.
-pub fn open_dash_log(repo_root: &Path) -> Result<std::fs::File, TugError> {
+pub fn open_arc_log(repo_root: &Path) -> Result<std::fs::File, TugError> {
     refuse_unredirected_temp_repo(repo_root);
+    let path = tugtool_core::paths::arc_log_path(repo_root);
     let dir = project_state_dir(repo_root);
     fs::create_dir_all(&dir).map_err(TugError::Io)?;
     OpenOptions::new()
         .create(true)
         .append(true)
-        .open(dir.join("dash-log.md"))
+        .open(path)
         .map_err(TugError::Io)
 }
 
-/// Append one record through a handle [`open_dash_log`] returned.
+/// Append one record through a handle [`open_arc_log`] returned.
 ///
 /// The timestamp is stamped here rather than at open time, so a handle held
 /// across some work still dates the line by when the line was written.
-pub fn write_dash_log_line(
+pub fn write_arc_log_line(
     file: &mut std::fs::File,
-    dash: &str,
+    arc: &str,
     marker: &str,
     note: &str,
 ) -> Result<(), TugError> {
     let note = note.replace('\n', " ");
-    let line = format!("{}  {}  {}  {}\n", now_iso8601(), dash, marker, note.trim());
+    let line = format!("{}  {}  {}  {}\n", now_iso8601(), arc, marker, note.trim());
     file.write_all(line.as_bytes()).map_err(TugError::Io)
 }
 
@@ -233,10 +234,10 @@ fn temp_repo_without_redirect(repo_root: &Path, data_dir: Option<&std::ffi::OsSt
     resolve(repo_root).starts_with(resolve(&std::env::temp_dir()))
 }
 
-/// Panic rather than write dash state for a temp-directory repo into the user's
+/// Panic rather than write arc state for a temp-directory repo into the user's
 /// real data directory.
 ///
-/// A test that builds a repo under `$TMPDIR` and runs dash ops against it
+/// A test that builds a repo under `$TMPDIR` and runs arc ops against it
 /// resolves [`project_state_dir`] from the live data root and leaves one
 /// directory behind per run — hundreds accumulated before this check existed.
 /// The fix is to redirect `TUG_DATA_DIR`, which `tugrust/.cargo/config.toml`
@@ -249,8 +250,8 @@ pub(crate) fn refuse_unredirected_temp_repo(repo_root: &Path) {
     let data_dir = std::env::var_os(tugcore::instance::ENV_DATA_DIR);
     assert!(
         !temp_repo_without_redirect(repo_root, data_dir.as_deref()),
-        "dash state for the temp-directory repo {} would be written to the live data \
-         directory. Set {} to a scratch path before running dash ops against a \
+        "arc state for the temp-directory repo {} would be written to the live data \
+         directory. Set {} to a scratch path before running arc ops against a \
          tempdir repo (cargo does this for every test process; a binary invoked \
          directly — from a shell test or an app-test — inherits nothing).",
         repo_root.display(),
@@ -263,18 +264,18 @@ pub(crate) fn refuse_unredirected_temp_repo(_repo_root: &Path) {}
 
 // --- declarations ----------------------------------------------------------
 
-/// A stage a dash declared for itself in the dash-log (Spec S01).
+/// A stage an arc declared for itself in the arc log (Spec S01).
 ///
 /// Git can see rounds, dirt, and a draft; it cannot see that a step is under
 /// way or that a build was vetted. Those are declared, and the declaration
 /// lives as one more line in the same append-only log ([P01]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DashDeclaration {
+pub enum ArcDeclaration {
     /// Step `current` of `total` is under way.
     Step { current: u32, total: u32 },
-    /// The dash built and launched.
+    /// The arc built and launched.
     Built,
-    /// The dash's work passed an audit.
+    /// The arc's work passed an audit.
     Audited,
 }
 
@@ -328,7 +329,7 @@ impl StepPhase {
     }
 }
 
-/// A stage `dash mark` may declare — the closed vocabulary of [P09].
+/// A stage `arc mark` may declare — the closed vocabulary of [P09].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MarkStage {
     Built,
@@ -345,9 +346,9 @@ impl MarkStage {
     }
 }
 
-/// What a dash's last green verify said about the tree a join would land.
+/// What an arc's last green verify said about the tree a join would land.
 ///
-/// Both endpoints, because the fit is the dash *replayed onto the live base*:
+/// Both endpoints, because the fit is the arc *replayed onto the live base*:
 /// a base that moved after a green verify leaves the recorded head untouched
 /// while making the verified tree no longer the tree a join would land.
 /// Recording one sha and deriving staleness from it would say `verified` about
@@ -358,7 +359,7 @@ pub struct FitFact {
     pub head: String,
     /// The base tip that head was verified onto, full sha.
     pub base: String,
-    /// Whether both endpoints still stand: `head` is the dash branch's tip and
+    /// Whether both endpoints still stand: `head` is the arc branch's tip and
     /// `base` is the base branch's tip. Derived at read time from one
     /// `rev-parse` each; nothing about the staleness is stored.
     pub current: bool,
@@ -378,36 +379,36 @@ pub fn parse_verified_note(note: &str) -> Option<(String, String)> {
     }
     Some((head.to_string(), base.to_string()))
 }
-/// What a dash's surviving declarations say about it.
+/// What an arc's surviving declarations say about it.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct DashDeclarations {
+pub struct ArcDeclarations {
     /// The latest declaration of any kind — the one the stage derives from.
-    /// A `step-start` after a `built` correctly demotes the dash back to
+    /// A `step-start` after a `built` correctly demotes the arc back to
     /// implementing, because the last thing declared is the current answer.
-    pub latest: Option<DashDeclaration>,
+    pub latest: Option<ArcDeclaration>,
     /// The latest step declaration's `i`/`N`, which outlives a later `built`
     /// or `audited` so a display can still say how far the run got.
     pub step: Option<(u32, u32)>,
     /// The latest `step-start` note's title — what step `i` *is*, so a display
     /// can say more than a counter. `None` when the note carried no title.
     pub step_title: Option<String>,
-    /// The latest `replayed` line's note — where this dash's rounds went when
+    /// The latest `replayed` line's note — where this arc's rounds went when
     /// its base last moved under it. Deliberately not a `latest` declaration: a
-    /// replay rewrites history, it does not move the dash's stage.
+    /// replay rewrites history, it does not move the arc's stage.
     pub last_replay: Option<String>,
     /// The latest `verified` line's note — the head the fit was verified at
     /// and the base it was verified onto. Deliberately not a `latest`
     /// declaration, on the same grounds as `last_replay`: verifying reports on
-    /// a tree, it does not move the dash's stage.
+    /// a tree, it does not move the arc's stage.
     pub last_verified: Option<String>,
-    /// The timestamp of the newest surviving line for this dash's current
-    /// generation — when the dash was last touched at all, by any writer. Reset
+    /// The timestamp of the newest surviving line for this arc's current
+    /// generation — when the arc was last touched at all, by any writer. Reset
     /// with everything else at a terminal line, so a reused name reports its own
     /// generation's age. `None` when the generation has logged nothing.
     pub last_activity: Option<String>,
     /// The final step of the run's declared selection — the `--through <m>` the
     /// step verb refuses to start without ([P01]). `None` for a generation that
-    /// declared no run, which includes every dash whose log predates the flag.
+    /// declared no run, which includes every arc whose log predates the flag.
     pub run_through: Option<u32>,
     /// The first step of the run's declared selection, latched from the first
     /// step declaration to follow the `run-through` line that opened the run.
@@ -432,13 +433,13 @@ pub struct DashDeclarations {
     pub run_complete: bool,
 }
 
-/// Split a dash-log line into its timestamp, dash, marker, and note fields.
+/// Split an arc-log line into its timestamp, arc, marker, and note fields.
 ///
-/// [`append_dash_log`] joins the four fields with two spaces and trims the
+/// [`append_arc_log`] joins the four fields with two spaces and trims the
 /// note, so the note is whatever follows the third separator — including
 /// nothing at all, which is how a teardown line is written.
 ///
-/// Public because the dash-log grammar has exactly one reader: `tugcast`'s
+/// Public because the arc-log grammar has exactly one reader: `tugcast`'s
 /// draft engine reads the same file for a different purpose and shares this
 /// splitter and [`is_terminal`] rather than re-deriving them. Two independent
 /// parsers of one grammar is how a compatibility clause comes to hold in one
@@ -446,27 +447,27 @@ pub struct DashDeclarations {
 pub fn split_log_line(line: &str) -> Option<(&str, &str, &str, &str)> {
     let mut fields = line.trim_end().splitn(4, "  ");
     let timestamp = fields.next()?;
-    let dash = fields.next()?;
+    let arc = fields.next()?;
     let marker = fields.next()?;
     Some((
         timestamp.trim(),
-        dash.trim(),
+        arc.trim(),
         marker.trim(),
         fields.next().unwrap_or("").trim(),
     ))
 }
 
-/// Whether a log line ends a dash generation.
+/// Whether a log line ends an arc generation.
 ///
 /// "Terminal" is spelled several ways because several writers spell it several
 /// ways: the join teardown records the squash's sha as the marker and `joined`
 /// as the note, and the discard teardown records a bare marker with no note.
 ///
-/// `released` is the discard teardown's *historical* spelling. Dash-logs are
+/// `released` is the discard teardown's *historical* spelling. Arc-logs are
 /// append-only and are never rewritten, so every log written before the verb
 /// was renamed still carries it. It is read here forever, is never written
 /// from here forward, and is not scheduled for removal — dropping it would
-/// silently stop ending generations in every log already on disk, and a dash
+/// silently stop ending generations in every log already on disk, and an arc
 /// name reused after a discard would be born carrying the previous
 /// generation's declarations.
 ///
@@ -479,7 +480,7 @@ pub fn is_terminal(marker: &str, note: &str) -> bool {
 /// Read the `i`/`N` a step declaration's note leads with. An unparseable note
 /// is skipped rather than guessed at.
 ///
-/// Public on the same grounds as [`split_log_line`]: the dash-log grammar has
+/// Public on the same grounds as [`split_log_line`]: the arc-log grammar has
 /// one set of readers, all in `tugcast`, and a second parser of it is how a
 /// clause comes to hold in one reader and not the other. The quiet-line
 /// observer (`feeds/arc_notes.rs`) reads the same notes this does.
@@ -506,29 +507,29 @@ pub fn read_step_title(note: &str, current: u32) -> Option<String> {
     (!title.is_empty()).then(|| title.to_owned())
 }
 
-/// The declarations a dash's *current generation* has made ([P02]).
+/// The declarations an arc's *current generation* has made ([P02]).
 ///
-/// Lines are filtered to the dash by name, then everything at or before its
+/// Lines are filtered to the arc by name, then everything at or before its
 /// last terminal line is discarded: the log is append-only across generations,
 /// so without that reset a name reused after a join would be born `audited`.
 /// A missing log, an empty log, and a log with nothing after the terminal line
 /// all read as no declarations.
 ///
 /// **Reading a log written by a newer build.** Every marker this match does
-/// not know falls through the `_` arm having still dated the dash, so a reader
+/// not know falls through the `_` arm having still dated the arc, so a reader
 /// that predates `step-reset` and `step-reopen` degrades rather than refuses:
 /// it keeps answering from the markers it does know. The degradation has a
 /// direction worth naming — an old reader sees a reopened step's earlier
 /// `step-done` as the last word and so still arms the join, which is exactly
 /// the behaviour it had before the markers existed. That is the skew rule
 /// W1 settled: a new fact an old reader cannot see leaves it where it was.
-pub fn read_declarations(repo_root: &Path, dash: &str) -> DashDeclarations {
-    let path = project_state_dir(repo_root).join("dash-log.md");
+pub fn read_declarations(repo_root: &Path, arc: &str) -> ArcDeclarations {
+    let path = tugtool_core::paths::arc_log_path(repo_root);
     let Ok(text) = fs::read_to_string(&path) else {
-        return DashDeclarations::default();
+        return ArcDeclarations::default();
     };
 
-    let mut found = DashDeclarations::default();
+    let mut found = ArcDeclarations::default();
     // The run's **frontier** — the highest step number a close has reached —
     // and the steps still open or parked. Two facts rather than one, because
     // "the run got this far" and "the last step line was about step n" stop
@@ -550,23 +551,23 @@ pub fn read_declarations(repo_root: &Path, dash: &str) -> DashDeclarations {
         let Some((timestamp, name, marker, note)) = split_log_line(line) else {
             continue;
         };
-        if name != dash {
+        if name != arc {
             continue;
         }
         if is_terminal(marker, note) {
-            found = DashDeclarations::default();
+            found = ArcDeclarations::default();
             frontier = None;
             outstanding.clear();
             continue;
         }
-        // Every surviving line dates the dash, whatever it declares — including
-        // markers this match ignores, which is what lets a `created` line give a
-        // dash an age without giving it a stage.
+        // Every surviving line dates the arc, whatever it declares — including
+        // markers this match ignores, which is what lets a `created` line give an
+        // arc an age without giving it a stage.
         found.last_activity = Some(timestamp.to_owned());
         match marker {
             "step-start" | "step-done" | "step-withdrawn" | "step-reset" | "step-reopen" => {
                 if let Some((current, total)) = read_step_fields(note) {
-                    found.latest = Some(DashDeclaration::Step { current, total });
+                    found.latest = Some(ArcDeclaration::Step { current, total });
                     found.step = Some((current, total));
                     // The run's opening step, latched once per selection: the
                     // `run-through` line that began this run cleared it, so
@@ -604,7 +605,7 @@ pub fn read_declarations(repo_root: &Path, dash: &str) -> DashDeclarations {
                         // not a title — the start's title stays current until
                         // the next one. A withdrawal ends a step and advances
                         // the run exactly as a completion does, which is what
-                        // keeps a dash whose final selected step was withdrawn
+                        // keeps an arc whose final selected step was withdrawn
                         // joinable rather than wedged. The frontier only ever
                         // rises, so re-closing a reopened middle step settles
                         // its debt without dragging the run back to it.
@@ -616,8 +617,8 @@ pub fn read_declarations(repo_root: &Path, dash: &str) -> DashDeclarations {
                     }
                 }
             }
-            "built" => found.latest = Some(DashDeclaration::Built),
-            "audited" => found.latest = Some(DashDeclaration::Audited),
+            "built" => found.latest = Some(ArcDeclaration::Built),
+            "audited" => found.latest = Some(ArcDeclaration::Audited),
             "replayed" => found.last_replay = Some(note.to_owned()),
             "verified" => found.last_verified = Some(note.to_owned()),
             "run-through" => {
@@ -638,15 +639,15 @@ pub fn read_declarations(repo_root: &Path, dash: &str) -> DashDeclarations {
     found
 }
 
-/// Whether a dash has finished the work somebody asked it for, and so may be
+/// Whether an arc has finished the work somebody asked it for, and so may be
 /// offered for joining (Spec S02).
 ///
 /// The whole point is that no chore stands between finishing and being offered:
-/// the inputs are facts the dash already recorded, so a run that narrates
+/// the inputs are facts the arc already recorded, so a run that narrates
 /// nothing still arms the arc.
 ///
 /// **Under a live wheel there is exactly one way to be armed: `audited`.**
-/// Every arc — dash and trek alike — ends in an audit, and the audit is by
+/// Every arc — plain and planned alike — ends in an audit, and the audit is by
 /// design a stage that commits fixup rounds. So an offer made before it is an
 /// offer to land work a stage is still changing, and the Changes shade read
 /// **Ready to join** through the whole of one on 2026-09-02. `run_complete`
@@ -655,7 +656,7 @@ pub fn read_declarations(repo_root: &Path, dash: &str) -> DashDeclarations {
 ///
 /// `wheel_live` is the caller's reading of the arc record — a record exists,
 /// it is not `done`, and no stop stands. All three of its falses matter. No
-/// record is every hand-driven dash, untouched. `arc-done` is an arc that
+/// record is every hand-driven arc, untouched. `arc-done` is an arc that
 /// reached its terminal line. And a standing `arc-stop` is the escape that
 /// keeps a **broken** audit from holding the landing hostage; `arc-resume`
 /// clears it and re-arms the gate, which is correct, because the wheel is
@@ -669,21 +670,21 @@ pub fn read_declarations(repo_root: &Path, dash: &str) -> DashDeclarations {
 /// 2. `built` or `audited` was declared — the hand-driven "I say it's done",
 ///    and the unblock for any generation whose log predates the declaration
 ///    ([P03]);
-/// 3. the generation declared no steps at all — a plan-less dash, where every
+/// 3. the generation declared no steps at all — a plan-less arc, where every
 ///    committed round is itself the completed unit of asked work ([P02]).
 ///
-/// A dash mid-step satisfies neither 1 nor 3, so an open step is never ready.
+/// An arc mid-step satisfies neither 1 nor 3, so an open step is never ready.
 ///
 /// Dirt is measured over *tracked* paths only: the join's preamble commits
 /// tracked changes, so an untracked scratch file must not hold the arc hostage
-/// — the same distinction the join blockers draw. The dash's own plan is
+/// — the same distinction the join blockers draw. The arc's own plan is
 /// excluded from that count by the callers ([`unfinished_tracked_dirt`]): the
 /// step verb rewrites the ledger row *after* the round commits, so a finished
 /// run always ends with its plan dirty, and counting that would leave every
 /// completed selection permanently unready.
 /// Tracked dirt that represents *unfinished work*, which is now all of it.
 ///
-/// This once excluded the plan the dash was driving, because the ledger row a
+/// This once excluded the plan the arc was driving, because the ledger row a
 /// step verb writes lands after the round it describes has already been
 /// committed and a finished run would otherwise end with its plan dirty. The
 /// plan is no longer in the worktree — it lives at
@@ -697,7 +698,7 @@ pub fn join_ready(
     rounds: u32,
     worktree_dirty_tracked: bool,
     joining: bool,
-    decls: &DashDeclarations,
+    decls: &ArcDeclarations,
     has_plan: bool,
     wheel_live: bool,
 ) -> bool {
@@ -708,26 +709,26 @@ pub fn join_ready(
         // The audit's own declaration, and nothing else. Not `run_complete`,
         // not `built` — the implement stage declares `built` itself, and the
         // stage that may still change the code runs after it.
-        return matches!(decls.latest, Some(DashDeclaration::Audited));
+        return matches!(decls.latest, Some(ArcDeclaration::Audited));
     }
     decls.run_complete
         || matches!(
             decls.latest,
-            Some(DashDeclaration::Built) | Some(DashDeclaration::Audited)
+            Some(ArcDeclaration::Built) | Some(ArcDeclaration::Audited)
         )
-        // A plan-less dash arms on every round. A dash that adopted a plan
+        // A plan-less arc arms on every round. An arc that adopted a plan
         // and has not yet declared a step is a run that has not started —
         // its one round is the adoption itself — and is not joinable.
         || (!has_plan && decls.step.is_none())
 }
 
-/// How far through the *declared run* a stepped dash has got: `(position,
+/// How far through the *declared run* a stepped arc has got: `(position,
 /// length)`, both 1-based, position within the selection rather than within
 /// the plan.
 ///
 /// This is the number every glanceable counter shows. A run of steps 5–7 with
 /// step 6 open answers `(2, 3)` — the unit the user asked for — while the
-/// plan-absolute `6/10` stays available in [`DashDeclarations::step`] for the
+/// plan-absolute `6/10` stays available in [`ArcDeclarations::step`] for the
 /// ring, which draws the whole plan and lights this span across it.
 ///
 /// `None` whenever the arithmetic cannot be trusted, and a display then falls
@@ -740,7 +741,7 @@ pub fn join_ready(
 /// leaves `step_current` at `through` already, so the clamp is belt rather
 /// than braces, but it means a completed run reads `3/3` under every log shape
 /// instead of drifting on an odd one.
-pub fn run_fraction(decls: &DashDeclarations) -> Option<(u32, u32)> {
+pub fn run_fraction(decls: &ArcDeclarations) -> Option<(u32, u32)> {
     let through = decls.run_through?;
     let first = decls.run_first?;
     let (current, _) = decls.step?;
@@ -764,8 +765,8 @@ pub fn run_fraction(decls: &DashDeclarations) -> Option<(u32, u32)> {
 /// Written by `step start` before the step's own declaration, and only when the
 /// value differs from what the generation already declared, so re-entering an
 /// interrupted step writes no duplicate.
-pub fn append_run_through(repo_root: &Path, dash: &str, through: u32) -> Result<(), TugError> {
-    append_dash_log(repo_root, dash, "run-through", &through.to_string())
+pub fn append_run_through(repo_root: &Path, arc: &str, through: u32) -> Result<(), TugError> {
+    append_arc_log(repo_root, arc, "run-through", &through.to_string())
 }
 
 /// Append a step declaration (Spec S01). `tail` is the step's title on a start
@@ -773,15 +774,15 @@ pub fn append_run_through(repo_root: &Path, dash: &str, through: u32) -> Result<
 /// call site has to spell the note's grammar.
 pub fn append_step_declaration(
     repo_root: &Path,
-    dash: &str,
+    arc: &str,
     phase: StepPhase,
     current: u32,
     total: u32,
     tail: &str,
 ) -> Result<(), TugError> {
-    append_dash_log(
+    append_arc_log(
         repo_root,
-        dash,
+        arc,
         phase.marker(),
         step_declaration_note(current, total, tail).trim(),
     )
@@ -801,11 +802,11 @@ pub fn step_declaration_note(current: u32, total: u32, tail: &str) -> String {
 /// Append a `built` or `audited` declaration (Spec S01, [P09]).
 pub fn append_mark_declaration(
     repo_root: &Path,
-    dash: &str,
+    arc: &str,
     stage: MarkStage,
     note: &str,
 ) -> Result<(), TugError> {
-    append_dash_log(repo_root, dash, stage.marker(), note)
+    append_arc_log(repo_root, arc, stage.marker(), note)
 }
 
 #[cfg(test)]
@@ -813,7 +814,7 @@ mod tests {
     use super::*;
     use serial_test::serial;
 
-    /// A scratch data dir plus the repo root whose dash-log it holds. Both
+    /// A scratch data dir plus the repo root whose arc log it holds. Both
     /// live as long as the fixture; the data dir is redirected off the user's
     /// real one, which is why every test here is `#[serial]`.
     struct LogFixture {
@@ -828,7 +829,7 @@ mod tests {
     }
 
     /// Redirect the data dir and hand back a repo root whose project state dir
-    /// holds `lines` as its dash-log. An empty `lines` writes no log at all.
+    /// holds `lines` as its arc log. An empty `lines` writes no log at all.
     fn log_repo(lines: &str) -> LogFixture {
         let home = tempfile::tempdir().expect("tempdir");
         // SAFETY: these tests are #[serial]; no other thread reads the
@@ -840,20 +841,20 @@ mod tests {
         if !lines.is_empty() {
             let state = project_state_dir(repo.path());
             fs::create_dir_all(&state).expect("state dir");
-            fs::write(state.join("dash-log.md"), lines).expect("write log");
+            fs::write(state.join(tugtool_core::paths::ARC_LOG), lines).expect("write log");
         }
         LogFixture { _home: home, repo }
     }
 
-    /// One log line in the shape [`append_dash_log`] writes.
-    fn log_line(dash: &str, marker: &str, note: &str) -> String {
-        log_line_at("2026-08-14T12:00:00Z", dash, marker, note)
+    /// One log line in the shape [`append_arc_log`] writes.
+    fn log_line(arc: &str, marker: &str, note: &str) -> String {
+        log_line_at("2026-08-14T12:00:00Z", arc, marker, note)
     }
 
     /// The same, with the timestamp field spelled out — for the reads that are
     /// *about* the timestamp and need the lines to differ.
-    fn log_line_at(at: &str, dash: &str, marker: &str, note: &str) -> String {
-        format!("{at}  {dash}  {marker}  {note}\n")
+    fn log_line_at(at: &str, arc: &str, marker: &str, note: &str) -> String {
+        format!("{at}  {arc}  {marker}  {note}\n")
     }
 
     #[test]
@@ -888,14 +889,14 @@ mod tests {
     fn declarations_are_empty_without_a_log() {
         let fixture = log_repo("");
         assert_eq!(
-            read_declarations(fixture.root(), "some-dash"),
-            DashDeclarations::default()
+            read_declarations(fixture.root(), "some-arc"),
+            ArcDeclarations::default()
         );
     }
 
     #[test]
     #[serial]
-    fn a_later_step_start_demotes_a_built_dash() {
+    fn a_later_step_start_demotes_a_built_arc() {
         let log = format!(
             "{}{}{}",
             log_line("d", "step-start", "1/9 Step 1: First"),
@@ -906,7 +907,7 @@ mod tests {
         let found = read_declarations(fixture.root(), "d");
         assert_eq!(
             found.latest,
-            Some(DashDeclaration::Step {
+            Some(ArcDeclaration::Step {
                 current: 2,
                 total: 9
             })
@@ -924,7 +925,7 @@ mod tests {
         );
         let fixture = log_repo(&log);
         let found = read_declarations(fixture.root(), "d");
-        assert_eq!(found.latest, Some(DashDeclaration::Built));
+        assert_eq!(found.latest, Some(ArcDeclaration::Built));
         assert_eq!(found.step, Some((3, 9)));
     }
 
@@ -978,7 +979,7 @@ mod tests {
         let found = read_declarations(fixture.root(), "d");
         assert!(found.run_complete, "the declared selection finished");
 
-        // A second run on the same dash re-declares and re-opens.
+        // A second run on the same arc re-declares and re-opens.
         let log = format!(
             "{}{}{}",
             log,
@@ -1014,7 +1015,7 @@ mod tests {
         assert!(!found.run_complete);
     }
 
-    /// A `compact` line dates the dash and says nothing else. The readers are
+    /// A `compact` line dates the arc and says nothing else. The readers are
     /// total by construction — `read_declarations` has a catch-all arm and
     /// `read_arc` reads only `arc-*` markers — so a new marker between two
     /// step declarations moves neither.
@@ -1053,7 +1054,7 @@ mod tests {
     }
 
     /// The run's first step is latched from the declaration that opens it, and
-    /// re-latched by the next `run-through` — so a second selection on one dash
+    /// re-latched by the next `run-through` — so a second selection on one arc
     /// reports its own span rather than the first one's.
     #[test]
     #[serial]
@@ -1143,7 +1144,7 @@ mod tests {
         assert!(found.run_complete);
         assert_eq!(run_fraction(&found), Some((3, 3)));
 
-        // A one-step run — every dash fixture in the app-tests — is 1 of 1,
+        // A one-step run — every arc fixture in the app-tests — is 1 of 1,
         // which is also the shape where run and plan agree.
         let log = format!(
             "{}{}",
@@ -1243,12 +1244,12 @@ mod tests {
         let found = read_declarations(fixture.root(), "d");
         assert!(
             found.run_complete,
-            "a dash whose final selected step was withdrawn is joinable, not wedged"
+            "an arc whose final selected step was withdrawn is joinable, not wedged"
         );
         assert!(!found.step_in_flight);
         assert_eq!(
             found.latest,
-            Some(DashDeclaration::Step {
+            Some(ArcDeclaration::Step {
                 current: 8,
                 total: 8
             })
@@ -1308,7 +1309,7 @@ mod tests {
         for terminal in [
             log_line("d", "discarded", ""),
             log_line("d", "discarded", "via cli"),
-            // The historical spelling. Every dash-log written before the verb
+            // The historical spelling. Every arc log written before the verb
             // was renamed carries it, and the log is never rewritten, so this
             // arm is read forever.
             log_line("d", "released", ""),
@@ -1330,23 +1331,23 @@ mod tests {
             let fixture = log_repo(&log);
             let found = read_declarations(fixture.root(), "d");
             assert_eq!(
-                DashDeclarations {
+                ArcDeclarations {
                     last_activity: None,
                     ..found.clone()
                 },
-                DashDeclarations::default(),
+                ArcDeclarations::default(),
                 "a new generation starts undeclared"
             );
             assert!(
                 found.last_activity.is_some(),
-                "but the round after the terminal line still dates the dash"
+                "but the round after the terminal line still dates the arc"
             );
         }
     }
 
     #[test]
     #[serial]
-    fn a_logs_newest_line_dates_the_dash() {
+    fn a_logs_newest_line_dates_the_arc() {
         let log = format!(
             "{}{}{}",
             log_line_at("2026-08-10T09:00:00Z", "d", "created", ""),
@@ -1388,7 +1389,7 @@ mod tests {
 
     #[test]
     #[serial]
-    fn a_dash_with_no_surviving_lines_has_no_date() {
+    fn a_arc_with_no_surviving_lines_has_no_date() {
         let log = format!(
             "{}{}",
             log_line("d", "built", ""),
@@ -1408,7 +1409,7 @@ mod tests {
         assert_eq!(
             found.last_activity.as_deref(),
             Some("2026-08-10T09:00:00Z"),
-            "but it does date the dash",
+            "but it does date the arc",
         );
     }
 
@@ -1427,7 +1428,7 @@ mod tests {
 
     #[test]
     #[serial]
-    fn another_dashs_declarations_never_leak_in() {
+    fn another_arcs_declarations_never_leak_in() {
         let log = format!(
             "{}{}",
             log_line("other", "audited", ""),
@@ -1436,11 +1437,11 @@ mod tests {
         let fixture = log_repo(&log);
         assert_eq!(
             read_declarations(fixture.root(), "other").latest,
-            Some(DashDeclaration::Audited)
+            Some(ArcDeclaration::Audited)
         );
         assert_eq!(
             read_declarations(fixture.root(), "d").latest,
-            Some(DashDeclaration::Step {
+            Some(ArcDeclaration::Step {
                 current: 1,
                 total: 2
             })
@@ -1455,7 +1456,7 @@ mod tests {
         append_step_declaration(root, "d", StepPhase::Start, 2, 8, "Step 2: Second").unwrap();
         assert_eq!(
             read_declarations(root, "d").latest,
-            Some(DashDeclaration::Step {
+            Some(ArcDeclaration::Step {
                 current: 2,
                 total: 8
             })
@@ -1463,12 +1464,12 @@ mod tests {
         append_mark_declaration(root, "d", MarkStage::Built, "").unwrap();
         assert_eq!(
             read_declarations(root, "d").latest,
-            Some(DashDeclaration::Built)
+            Some(ArcDeclaration::Built)
         );
         append_mark_declaration(root, "d", MarkStage::Audited, "good shape").unwrap();
         assert_eq!(
             read_declarations(root, "d").latest,
-            Some(DashDeclaration::Audited)
+            Some(ArcDeclaration::Audited)
         );
     }
 
@@ -1514,13 +1515,13 @@ mod tests {
     /// One set of declarations that arms three different ways with the wheel
     /// stopped, so each assertion below is about the gate rather than about
     /// the fixture.
-    fn armed_three_ways(latest: Option<DashDeclaration>) -> DashDeclarations {
-        DashDeclarations {
+    fn armed_three_ways(latest: Option<ArcDeclaration>) -> ArcDeclarations {
+        ArcDeclarations {
             latest,
             step: Some((8, 15)),
             run_through: Some(8),
             run_complete: true,
-            ..DashDeclarations::default()
+            ..ArcDeclarations::default()
         }
     }
 
@@ -1540,7 +1541,7 @@ mod tests {
                 3,
                 false,
                 false,
-                &armed_three_ways(Some(DashDeclaration::Built)),
+                &armed_three_ways(Some(ArcDeclaration::Built)),
                 true,
                 true
             ),
@@ -1550,7 +1551,7 @@ mod tests {
             3,
             false,
             false,
-            &armed_three_ways(Some(DashDeclaration::Audited)),
+            &armed_three_ways(Some(ArcDeclaration::Audited)),
             true,
             true
         ));
@@ -1565,8 +1566,8 @@ mod tests {
     fn a_stopped_wheel_restores_every_arm() {
         for latest in [
             None,
-            Some(DashDeclaration::Built),
-            Some(DashDeclaration::Audited),
+            Some(ArcDeclaration::Built),
+            Some(ArcDeclaration::Audited),
         ] {
             assert!(
                 join_ready(3, false, false, &armed_three_ways(latest), true, false),
@@ -1578,7 +1579,7 @@ mod tests {
             1,
             false,
             false,
-            &DashDeclarations::default(),
+            &ArcDeclarations::default(),
             false,
             false
         ));
@@ -1587,22 +1588,22 @@ mod tests {
             1,
             false,
             false,
-            &DashDeclarations::default(),
+            &ArcDeclarations::default(),
             false,
             true
         ));
     }
 
-    /// **A hand-driven dash is untouched.** It has no arc record, so its
+    /// **A hand-driven arc is untouched.** It has no arc record, so its
     /// callers derive `wheel_live == false` and it never meets the gate. This
     /// is the arm that would make the fix a worse regression than the defect
     /// if it ever drifted.
     #[test]
-    fn a_hand_driven_dash_is_untouched() {
-        let marked = DashDeclarations {
-            latest: Some(DashDeclaration::Built),
+    fn a_hand_driven_arc_is_untouched() {
+        let marked = ArcDeclarations {
+            latest: Some(ArcDeclaration::Built),
             step: Some((8, 15)),
-            ..DashDeclarations::default()
+            ..ArcDeclarations::default()
         };
         assert!(join_ready(3, false, false, &marked, true, false));
         // The three early refusals still come first, wheel or no wheel.

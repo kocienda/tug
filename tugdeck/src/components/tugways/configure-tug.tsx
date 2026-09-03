@@ -60,7 +60,7 @@
  *
  * Each step is a bespoke pulsing-dot row ([D106]): the dot encodes lifecycle,
  * a CTA (or a success check) hangs on the right. The unhappy paths are
- * first-class designed states, not fallthroughs ([P10], dash/archive/onboarding-and-install.md#tugsetup-states):
+ * first-class designed states, not fallthroughs ([P10], arc/archive/onboarding-and-install.md#tugsetup-states):
  *   - install failed → `authStore.installError` → an error row + Retry;
  *   - sign-in cancelled / browser never returned → `authStore.signInFailed`
  *     (set when an attempt resolves still-logged-out, or by the local timeout)
@@ -747,7 +747,7 @@ export function ConfigureTug(): ReactElement {
   ];
 
   // Transport down mid-setup: replace the body with a calm "Reconnecting…" row
-  // rather than a dead wizard (dash/archive/onboarding-and-install.md#tugsetup-states). This only changes the body of
+  // rather than a dead wizard (arc/archive/onboarding-and-install.md#tugsetup-states). This only changes the body of
   // an already-open wizard — it is deliberately NOT part of the `open`
   // derivation, so a transport blip never pops setup on an already-set-up user
   // (the app-wide reconnect banner covers that case).

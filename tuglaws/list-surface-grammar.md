@@ -12,7 +12,7 @@ Origin: a design spike, since deleted, whose findings this document carries. Thi
 |---|---|---|
 | The eyebrow over a bucket of rows | `TugSectionLabel` | `--tugx-section-label-*` |
 | The small facts after a row's name | `TugMetaRun` / `TugMetaBullet` | `--tugx-meta-run-*` |
-| An arc's name, in either register | `TugArcAtom` (`ArcSigil` atom) | `--tugx-dash-atom-*` |
+| An arc's name, in either register | `TugArcAtom` (`ArcSigil` atom) | `--tugx-atom-*` |
 | What a collapsed arc is doing | `ArcLifecycleLine` (track · fraction · note · facts) | its own type and tones |
 
 This is not a style guideline that a careful author upholds. Before the extraction, `tug-changes-list.css` and `session-changes-arc-lane.css` each spelled the eyebrow's five declarations in full, with a comment conceding the duplication was cheaper than a cross-import. That reasoning holds at two users and stops holding at the third. The components exist so that a fourth surface cannot get it wrong by being written carefully.
@@ -68,7 +68,7 @@ The outdent is also why a row does not need a second mark saying the arc is unbo
 
 An arc block is two lines and sometimes three: who, then what the arc is doing, then what its join is doing. The lines below the first hang under the **name**, not under the pill that holds it — and the pill's text is a border plus its inline padding in from its own edge, which is a number no spacing token knows.
 
-**Indent by that inset, never by a space token that resembles it.** `tug-session-identity.css` publishes it (`--tugx-session-atom-text-inset`, and `-2xs` for the small chip) beside the padding it describes, so retuning the skin retunes what hangs under it. The Arcs card takes the `-2xs` inset directly; the Changes shade takes `--tugx-dash-stack-indent`, which is the **full** inset plus the row's own content indent minus the outdent above — full because the shade's eyebrow atom wears the chip tier's own size — and the lines are siblings of the row rather than children of it.
+**Indent by that inset, never by a space token that resembles it.** `tug-session-identity.css` publishes it (`--tugx-session-atom-text-inset`, and `-2xs` for the small chip) beside the padding it describes, so retuning the skin retunes what hangs under it. The Arcs card takes the `-2xs` inset directly; the Changes shade takes `--tugx-arc-stack-indent`, which is the **full** inset plus the row's own content indent minus the outdent above — full because the shade's eyebrow atom wears the chip tier's own size — and the lines are siblings of the row rather than children of it.
 
 **One grammar, two scales — and the atom leads the scale.** The Arcs card renders the block at the rail scale: `ArcLifecycleBlock size="rail"`, with the `2xs` atom. The Changes shade renders the same components at the reading scale ([D143]): `size="read"`, the atom at the chip tier's own `sm` size, the register spanning the block. The rule that keeps a block coherent is that the atom and the lines beneath it move together — an atom a step smaller than the facts it heads reads as a caption over its own content, and a line a step smaller than the register beneath it reads as a footnote to its own block.
 

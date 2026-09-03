@@ -14,7 +14,7 @@
 //! Tugcast window: 55300–55399 (`tugcast_port_default`).
 //! Vite window:    55200–55299 (`vite_port_default`).
 //!
-//! See [D08] in `dash/tug-multi-instance.md` for the design.
+//! See [D08] of the multi-instance design record for the design.
 
 /// Tugcast HTTP listener window. Inclusive at the base, exclusive at
 /// the top: 55300 ≤ port < 55400.

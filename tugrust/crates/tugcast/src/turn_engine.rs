@@ -328,7 +328,7 @@ mod tests {
     use std::path::PathBuf;
 
     /// The canonical real-data anchor (`tuglaws/turn-metric.md`,
-    /// `dash/canonical-turns-redux.md` landmarks). Local-only ([P07]):
+    /// `arc/canonical-turns-redux.md` landmarks). Local-only ([P07]):
     /// the test reads the user's real session JSONL where it sits and
     /// skips gracefully when absent (CI / another machine), so the real
     /// corpus is the gate without committing a 37 MB fixture.

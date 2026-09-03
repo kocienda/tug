@@ -21,7 +21,7 @@
  * Post-Step-3.5: there is no `turn.controlRequests` projection any
  * more (the recorded permission chrome was removed — JSONL has no
  * durable record to reconstruct one from, see
- * `dash/archive/dev-interactive-dialogs.md` `#step-3-5`). The wire side
+ * `arc/archive/dev-interactive-dialogs.md` `#step-3-5`). The wire side
  * (outbound `tool_approval` frame, `pendingApproval` clearance,
  * `prevPhase` restoration) is what these tests pin.
  */
@@ -219,7 +219,7 @@ describe("CodeSessionStore — permission deny on test-11 (Step 6)", () => {
     // and the SDK's subsequent `tool_result(is_error: true)` on the
     // gated tool block (asserted via `toolCalls[0].status === "error"`
     // above) are the durable artifacts of a denial. See
-    // `dash/archive/dev-interactive-dialogs.md` `#step-3-5`.
+    // `arc/archive/dev-interactive-dialogs.md` `#step-3-5`.
   });
 });
 

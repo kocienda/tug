@@ -1,4 +1,4 @@
-/* dash-phase-mark.css — the glyph's box. One tone: the row's own text.
+/* arc-phase-mark.css — the glyph's box. One tone: the row's own text.
 
    The glyph names WHICH phase; the pill and the strip beside it carry the
    color that says what kind of phase it is. A tinted glyph put a third color
@@ -6,16 +6,16 @@
    colored thing next to it was not already saying louder.
 
    Laws: [L06] the phase and the stop are `data-*` a host can still select on;
-   [L20] owns `--tugx-dash-phase-mark-*`, whose default sits at its point of
+   [L20] owns `--tugx-arc-phase-mark-*`, whose default sits at its point of
    use — so a host with grounds for a tone can set one. */
 
-.tug-dash-phase-mark {
+.tug-arc-phase-mark {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex: 0 0 auto;
   color: var(
-    --tugx-dash-phase-mark-color,
+    --tugx-arc-phase-mark-color,
     var(--tug7-element-global-text-normal-rest)
   );
 }

@@ -6,9 +6,9 @@
  * session rows. There a session is the subject and the arc is one fact about
  * it, so the reading is three marks wide and cannot grow:
  *
- *   - one pill — the whole dash as a single stop of color, breathing while the
+ *   - one pill — the whole arc as a single stop of color, breathing while the
  *     work is live;
- *   - the {@link ArcPhaseMark} — WHERE the dash is, as a glyph;
+ *   - the {@link ArcPhaseMark} — WHERE the arc is, as a glyph;
  *   - the step fraction, when the plan has steps to count.
  *
  * The order is the full register's, one scale down: the graphic that stands for
@@ -16,13 +16,13 @@
  * pill is the mark's tie to the identity run it follows, so it is the mark that
  * touches it.
  *
- * The dash's NAME is not here. Both hosts already render it: the identity run's
- * own `^<dash>` sits immediately to the left, and a second spelling of a name
+ * The arc's NAME is not here. Both hosts already render it: the identity run's
+ * own `^<arc>` sits immediately to the left, and a second spelling of a name
  * already on the line is a second thing to keep in step.
  *
  * The whole track — five cells and one tick per step — belongs to the surfaces
- * whose subject IS the dash: the Arcs card, the Changes shade's
- * dash lane, and the DASH placard. The track appeared on six surfaces at once
+ * whose subject IS the arc: the Arcs card, the Changes shade's
+ * arc lane, and the ARC placard. The track appeared on six surfaces at once
  * and on the two narrow ones it collided with the marks beside it; this is the
  * reading those two get instead. One grammar, two registers.
  *
@@ -61,7 +61,7 @@ export interface ArcLifecycleMarkProps {
   model: ArcTrackModel;
   /** `rail` beside other rails (the Arcs card's rows); `read` on a reading surface. */
   size?: "rail" | "read";
-  /** The dash's name, for the accessible sentence. */
+  /** The arc's name, for the accessible sentence. */
   name?: string;
   /**
    * The pair the six characters count, when the host has one of its own.
@@ -96,16 +96,16 @@ export function ArcLifecycleMark({
     // `asChild` tooltips is a thing this codebase has been bitten by.
     <TugTooltip content={sentence}>
       <span
-        className="tug-dash-lifecycle-mark"
-        data-slot="tug-dash-lifecycle-mark"
+        className="tug-arc-lifecycle-mark"
+        data-slot="tug-arc-lifecycle-mark"
         data-size={size}
         data-phase={model.phase}
         data-stopped={model.stopped !== null ? "true" : undefined}
         aria-label={sentence}
       >
         <span
-          className="tug-dash-lifecycle-mark-pill"
-          data-slot="tug-dash-lifecycle-mark-pill"
+          className="tug-arc-lifecycle-mark-pill"
+          data-slot="tug-arc-lifecycle-mark-pill"
           data-phase={model.phase}
           data-state={state}
         />

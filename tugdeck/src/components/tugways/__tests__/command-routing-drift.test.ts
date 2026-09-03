@@ -395,7 +395,7 @@ const MOVED_SINCE_THE_MAP: ReadonlyMap<string, string> = new Map([
  */
 const RETIRED_SINCE_THE_MAP: ReadonlySet<string> = new Set([
   "cycle-card",
-  // The Lens card was dissolved into Cards, Dashes, Layout and Tripwires, and
+  // The Lens card was dissolved into Cards, Arcs, Layout and Tripwires, and
   // its two commands went with it. ⌘L and ⌥⌘L returned to their pools; nothing
   // answers either wire, so a keymap entry naming one is dropped on load.
   "focus-lens",

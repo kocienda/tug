@@ -1,30 +1,30 @@
 /**
- * at0424-cards-dash-line.test.ts — dash progress rides the session's row at its
+ * at0424-cards-arc-line.test.ts — arc progress rides the session's row at its
  * fixed height: the title cluster and the step ring, never a fourth line.
  *
- * The Cards section is organized by CARDS, so a dash's place in it is inside
+ * The Cards section is organized by CARDS, so an arc's place in it is inside
  * the session that is on it. The row used to grow a fourth line when bound —
  * which made row height a function of binding state and broke consistency
  * with the masthead — and that line is retired ([D141]). What replaced it:
  *
  *  - The TITLE carries the progress cluster after the identity's own
- *    `^<dash>` run: the lifecycle mark (`DashLifecycleMark`) — the phase
+ *    `^<arc>` run: the lifecycle mark (`ArcLifecycleMark`) — the phase
  *    glyph, one pill, and the `i/N` count (`TugStepFraction`) once step
  *    counters exist. The mark is the COMPACT register of the one grammar,
- *    where a dash is one fact about a session; the track it replaced here
- *    draws in the other register, where the dash is the subject.
- *  - The INDICATOR stays the bare phase dot, whatever the dash is doing. It
+ *    where an arc is one fact about a session; the track it replaced here
+ *    draws in the other register, where the arc is the subject.
+ *  - The INDICATOR stays the bare phase dot, whatever the arc is doing. It
  *    used to become a segmented step ring once counters existed; with the
  *    track on the title line that was two marks drawing one step count in two
- *    geometries. A dash says its progress in the track and nowhere else on
+ *    geometries. An arc says its progress in the track and nowhere else on
  *    this row, and the segmented ring now uniquely means a task list that is
- *    not a dash.
+ *    not an arc.
  *
  * The structural claims are pinned from both sides: binding never grows the
- * list by a cell or the row by a line, the retired dash-line slot never
- * renders, and the title says the dash's name exactly once.
+ * list by a cell or the row by a line, the retired arc-line slot never
+ * renders, and the title says the arc's name exactly once.
  *
- * The counters' arrival is driven rather than assumed: the fixture dash
+ * The counters' arrival is driven rather than assumed: the fixture arc
  * adopts a plan with no step started — the cluster then shows the stage glyph
  * alone — and a real `tugtool arc step … start` through the shell route is
  * what makes the fraction and the ring appear.
@@ -32,7 +32,7 @@
  * Everything is real. `tugtool arc bind` runs through the card's own `$`
  * shell route (the route that stamps `TUG_SESSION_ID`), and the marks appear
  * because `bound_sessions` moved in the account-global aggregate the row's
- * own subscription reads. `dash unbind` takes them away the same way.
+ * own subscription reads. `arc unbind` takes them away the same way.
  *
  * @covers tugdeck/src/components/cards/cards-data-source.ts
  * @covers tugdeck/src/components/cards/cards-card.tsx
@@ -62,17 +62,17 @@ import {
   seedTugbankForLaunch,
 } from "./_harness/tugbank-helpers";
 import {
-  createDash,
-  dashBriefPath,
-  makeDashScratchRepo,
+  createArc,
+  arcBriefPath,
+  makeArcScratchRepo,
   recordAdoptedPlan,
-  rmDashScratchRepo,
+  rmArcScratchRepo,
   rmScratchSession,
   seedScratchSession,
   shellAndSettle,
   tugtoolPath,
-  type DashScratchRepo,
-} from "./dash-fixture";
+  type ArcScratchRepo,
+} from "./arc-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
@@ -84,45 +84,45 @@ const SHELL_ROWS = `${CARD} [data-slot="session-transcript-shell-row"]`;
 
 const CARDS = '.cards-card';
 const SESSION_ROW = `${CARDS} [data-session-id="${SID}"]`;
-const SESSION_ROW_DASH = `${SESSION_ROW} [data-slot="session-identity-dash"]`;
-const DASH_NAME = "at0424-line";
-/** A dash that is only documents — a brief on disk and no branch behind it. */
+const SESSION_ROW_ARC = `${SESSION_ROW} [data-slot="session-identity-arc"]`;
+const ARC_NAME = "at0424-line";
+/** An arc that is only documents — a brief on disk and no branch behind it. */
 const BRIEF_ONLY = "at0424-brief";
 /** The retired fourth line — pinned at zero forever. */
-const DASH_LINE = `${SESSION_ROW} [data-slot="tug-session-row-dashline"]`;
+const ARC_LINE = `${SESSION_ROW} [data-slot="tug-session-row-arcline"]`;
 const PROGRESS = `${SESSION_ROW} [data-slot="session-identity-row-progress"]`;
-const MARK = `${PROGRESS} [data-slot="tug-dash-lifecycle-mark"]`;
-const PILL = `${MARK} [data-slot="tug-dash-lifecycle-mark-pill"]`;
+const MARK = `${PROGRESS} [data-slot="tug-arc-lifecycle-mark"]`;
+const PILL = `${MARK} [data-slot="tug-arc-lifecycle-mark-pill"]`;
 const FRACTION = `${PROGRESS} [data-slot="tug-step-fraction"]`;
 
 const LIST_CELLS = `${CARDS} .tug-list-view-cell`;
 
-/** This checkout — the build under test, and never the tree a dash is cut in. */
+/** This checkout — the build under test, and never the tree an arc is cut in. */
 const CHECKOUT = realpathSync(resolve(import.meta.dir, "..", ".."));
 /** The scratch repository this fixture owns, and the only tree it touches. */
-let scratch: DashScratchRepo | null = null;
+let scratch: ArcScratchRepo | null = null;
 let fixtureDir = "";
 const projectDir = (): string => scratch?.repo ?? "";
 
 beforeAll(() => {
   if (!SHOULD_RUN) return;
-  scratch = makeDashScratchRepo({ prefix: "at0424", checkout: CHECKOUT });
-  const dash = createDash(projectDir(), DASH_NAME, "at0424 fixture", scratch.cli);
+  scratch = makeArcScratchRepo({ prefix: "at0424", checkout: CHECKOUT });
+  const arc = createArc(projectDir(), ARC_NAME, "at0424 fixture", scratch.cli);
   // A plan adopted and no step started — the cluster shows the stage glyph
   // alone, and the counters replace nothing until a step opens.
   // Three rows, so the run this test declares below can cover only part of
   // the document — which is the shape where the numerals and the ring's band
   // answer different questions.
-  recordAdoptedPlan(projectDir(), DASH_NAME, dash.worktree, {
+  recordAdoptedPlan(projectDir(), ARC_NAME, arc.worktree, {
     ...scratch.cli,
     rows: 3,
   });
-  // A dash that never got a branch: a brief at its own address and nothing
-  // else. Writing the file is the whole act — a dash HAS a brief when one is
+  // An arc that never got a branch: a brief at its own address and nothing
+  // else. Writing the file is the whole act — an arc HAS a brief when one is
   // at its address, so this is the state a card is in while it is being
   // written.
   writeFileSync(
-    dashBriefPath(projectDir(), BRIEF_ONLY),
+    arcBriefPath(projectDir(), BRIEF_ONLY),
     "# at0424 brief\n\nThe idea, before there is a plan for it.\n",
   );
   fixtureDir = seedScratchSession(projectDir(), SID);
@@ -130,7 +130,7 @@ beforeAll(() => {
 
 afterAll(() => {
   if (!SHOULD_RUN) return;
-  rmDashScratchRepo(scratch);
+  rmArcScratchRepo(scratch);
   rmScratchSession(fixtureDir);
 });
 
@@ -153,9 +153,9 @@ function deckShape() {
   };
 }
 
-const dashRunsOnSessionRow = (app: App): Promise<number> =>
+const arcRunsOnSessionRow = (app: App): Promise<number> =>
   app.evalJS<number>(
-    `document.querySelectorAll(${JSON.stringify(SESSION_ROW_DASH)}).length`,
+    `document.querySelectorAll(${JSON.stringify(SESSION_ROW_ARC)}).length`,
   );
 
 const listCellCount = (app: App): Promise<number> =>
@@ -168,14 +168,14 @@ const count = (app: App, selector: string): Promise<number> =>
     `document.querySelectorAll(${JSON.stringify(selector)}).length`,
   );
 
-describe.skipIf(!SHOULD_RUN)("AT0424: dash progress on the session's row", () => {
+describe.skipIf(!SHOULD_RUN)("AT0424: arc progress on the session's row", () => {
   test(
     "binding grows the title by a cluster, not the row by a line",
     async () => {
       const tugbankPath = mkTempTugbank();
       seedTugbankForLaunch(tugbankPath, { sourceTreePath: CHECKOUT });
       const app = await launchTugApp({
-        testName: "at0424-cards-dash-line",
+        testName: "at0424-cards-arc-line",
         env: { TUGBANK_PATH: tugbankPath, TUG_DATA_DIR: scratch?.dataRoot ?? "" },
       });
       try {
@@ -185,7 +185,7 @@ describe.skipIf(!SHOULD_RUN)("AT0424: dash progress on the session's row", () =>
           `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
         );
         // A *spawned* session, not a bound one: spawning registers the scratch
-        // repo as a workspace, so its dash reaches the aggregate.
+        // repo as a workspace, so its arc reaches the aggregate.
         await app.spawnSessionResume("A", { tugSessionId: SID, projectDir: projectDir() });
         await app.awaitEngineReady("A", { timeoutMs: 15000 });
 
@@ -198,7 +198,7 @@ describe.skipIf(!SHOULD_RUN)("AT0424: dash progress on the session's row", () =>
         const bareCells = await listCellCount(app);
 
         // ── Bind, for real ────────────────────────────────────────────────
-        await shellAndSettle(app, `${tugtoolPath(CHECKOUT)} arc bind ${DASH_NAME}`);
+        await shellAndSettle(app, `${tugtoolPath(CHECKOUT)} arc bind ${ARC_NAME}`);
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(PROGRESS)}) !== null`,
           { timeoutMs: 30000 },
@@ -248,18 +248,18 @@ describe.skipIf(!SHOULD_RUN)("AT0424: dash progress on the session's row", () =>
 
         // The retired fourth line never renders, and the list did not grow a
         // row: same cells, same three lines, whatever the binding state.
-        expect(await count(app, DASH_LINE)).toBe(0);
+        expect(await count(app, ARC_LINE)).toBe(0);
         expect(await listCellCount(app)).toBe(bareCells);
 
-        // The row says the dash's name exactly once, in the title's identity
+        // The row says the arc's name exactly once, in the title's identity
         // run — the sigil rides the session's name wherever it is named.
-        expect(await dashRunsOnSessionRow(app)).toBe(1);
+        expect(await arcRunsOnSessionRow(app)).toBe(1);
         note("at0424 cards with the cluster", (await app.screenshot()).path);
 
         // ── The step opens: the fraction and the ring arrive ──────────────
         await shellAndSettle(
           app,
-          `${tugtoolPath(CHECKOUT)} arc step ${DASH_NAME} start 1 --through 2`,
+          `${tugtoolPath(CHECKOUT)} arc step ${ARC_NAME} start 1 --through 2`,
           1,
         );
         await app.waitForCondition<boolean>(
@@ -291,14 +291,14 @@ describe.skipIf(!SHOULD_RUN)("AT0424: dash progress on the session's row", () =>
         // nothing about the three-row document behind them.
         expect(stepped.fraction).toBe("1/2");
         // The mark says what the numerals cannot: which phase of its life the
-        // dash is in while those numerals count. The plan's own shape — one
+        // arc is in while those numerals count. The plan's own shape — one
         // tick per step — is the OTHER register's to draw, on a surface where
-        // the dash is the subject; a session's row carries the compact one.
+        // the arc is the subject; a session's row carries the compact one.
         expect(stepped.phase).toBe("implement");
         // One dot on the row, and no ring around it.
         expect(stepped.monitorDots).toBe(1);
         // Still no fourth line, still the same cells.
-        expect(await count(app, DASH_LINE)).toBe(0);
+        expect(await count(app, ARC_LINE)).toBe(0);
         expect(await listCellCount(app)).toBe(bareCells);
         note("at0424 cards with the walk begun", (await app.screenshot()).path);
 
@@ -309,7 +309,7 @@ describe.skipIf(!SHOULD_RUN)("AT0424: dash progress on the session's row", () =>
           { timeoutMs: 30000 },
         );
         expect(await listCellCount(app)).toBe(bareCells);
-        expect(await dashRunsOnSessionRow(app)).toBe(0);
+        expect(await arcRunsOnSessionRow(app)).toBe(0);
       } finally {
         await app.close();
         rmTempTugbank(tugbankPath);
@@ -319,12 +319,12 @@ describe.skipIf(!SHOULD_RUN)("AT0424: dash progress on the session's row", () =>
   );
 
   test(
-    "a dash that is only documents gets the same cluster, before any branch",
+    "an arc that is only documents gets the same cluster, before any branch",
     async () => {
       const tugbankPath = mkTempTugbank();
       seedTugbankForLaunch(tugbankPath, { sourceTreePath: CHECKOUT });
       const app = await launchTugApp({
-        testName: "at0424-cards-dash-line-documents",
+        testName: "at0424-cards-arc-line-documents",
         env: { TUGBANK_PATH: tugbankPath, TUG_DATA_DIR: scratch?.dataRoot ?? "" },
       });
       try {
@@ -344,7 +344,7 @@ describe.skipIf(!SHOULD_RUN)("AT0424: dash progress on the session's row", () =>
         expect(await count(app, PROGRESS)).toBe(0);
 
         // Binding needs no branch: the owner key is a git config entry, so a
-        // card can hold a dash from the first line of its brief.
+        // card can hold an arc from the first line of its brief.
         await shellAndSettle(app, `${tugtoolPath(CHECKOUT)} arc bind ${BRIEF_ONLY}`);
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(PROGRESS)}) !== null`,
@@ -354,19 +354,19 @@ describe.skipIf(!SHOULD_RUN)("AT0424: dash progress on the session's row", () =>
         const documentsOnly = await app.evalJS<{
           phase: string | null;
           fractions: number;
-          dashRuns: number;
+          arcRuns: number;
         }>(
           `(() => {
              const mark = document.querySelector(${JSON.stringify(MARK)});
              return {
                phase: mark?.getAttribute("data-phase") ?? null,
                fractions: document.querySelectorAll(${JSON.stringify(FRACTION)}).length,
-               dashRuns: document.querySelectorAll(${JSON.stringify(SESSION_ROW_DASH)}).length,
+               arcRuns: document.querySelectorAll(${JSON.stringify(SESSION_ROW_ARC)}).length,
              };
            })()`,
         );
         note("at0424 documents-only cluster", JSON.stringify(documentsOnly));
-        // This is the half of a dash's life the old stage glyph could not see
+        // This is the half of an arc's life the old stage glyph could not see
         // at all: no branch means no git stage, and the cluster used to wait
         // for one. A brief and no plan stands at `brief`; a plan would stand
         // at `review`.
@@ -374,10 +374,10 @@ describe.skipIf(!SHOULD_RUN)("AT0424: dash progress on the session's row", () =>
         // fails on the value it actually had instead of throwing past the
         // assertion that was going to report it.
         expect(["brief", "review"]).toContain(documentsOnly.phase ?? "(none)");
-        // No steps declared against a branchless dash, so no counters.
+        // No steps declared against a branchless arc, so no counters.
         expect(documentsOnly.fractions).toBe(0);
-        // And the row names the dash exactly once, as it does for a live one.
-        expect(documentsOnly.dashRuns).toBe(1);
+        // And the row names the arc exactly once, as it does for a live one.
+        expect(documentsOnly.arcRuns).toBe(1);
         note("at0424 documents-only masthead", (await app.screenshot()).path);
       } finally {
         await app.close();

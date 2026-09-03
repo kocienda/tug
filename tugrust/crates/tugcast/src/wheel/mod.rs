@@ -5,7 +5,7 @@
 //! transcript, its callsign, and its durable ink all stay exactly where they
 //! were. That act is a **rotation**, and this module is where it lives.
 //!
-//! The dash arc was its first and for a long time its only client, which is why
+//! The arc run was its first and for a long time its only client, which is why
 //! the act used to be a private function in the arc's runner. It is not the
 //! arc's: the arc *decides* which stage runs next and this *performs* the
 //! seating, and the two halves have different reasons to change.
@@ -73,7 +73,7 @@ pub struct RotationRequest {
     /// It rides the `session_command`, so tugcode applies it before the spawn
     /// rather than respawning behind one.
     effort: Option<String>,
-    /// The arc driving this rotation — today a dash name, reaching tugcode as
+    /// The arc driving this rotation — today an arc name, reaching tugcode as
     /// `arc` and the child as `TUG_ARC`.
     arc: Option<String>,
     /// The document the arc opened on, repo-relative.
@@ -118,7 +118,7 @@ impl RotationRequest {
         self
     }
 
-    /// The arc this rotation belongs to — a dash name today.
+    /// The arc this rotation belongs to — an arc name today.
     pub fn arc(mut self, arc: Option<String>) -> Self {
         self.arc = arc;
         self
@@ -325,18 +325,18 @@ impl WheelState {
 
 /// Whether the card `session_id` sits on is already running an arc.
 ///
-/// Read the same way the arc runner reads it: the session's dash binding names
-/// a project and a dash, and that dash's arc record is live unless it is `done`
+/// Read the same way the arc runner reads it: the session's arc binding names
+/// a project and an arc, and that arc's run record is live unless it is `done`
 /// or `stopped`. No binding, no record, or a finished one all mean no arc is
 /// running, so a rotation is free to park.
 pub fn arc_is_running(ledger: &crate::session_ledger::SessionLedger, session_id: &str) -> bool {
     let Ok(Some(row)) = ledger.get(session_id) else {
         return false;
     };
-    let Some(dash) = row.dash_name.as_deref() else {
+    let Some(arc) = row.arc_name.as_deref() else {
         return false;
     };
-    match tugarc_core::arc::read_arc(Path::new(&row.project_dir), dash) {
+    match tugarc_core::arc::read_arc(Path::new(&row.project_dir), arc) {
         Some(record) => !record.done && record.stopped.is_none(),
         None => false,
     }
@@ -662,11 +662,11 @@ mod tests {
     fn request(model: Option<&str>) -> RotationRequest {
         RotationRequest::new(
             TugSessionId::new("sess-stage-live"),
-            "/tugplug:arc-devise a plan for dash/some-brief.md",
+            "/tugplug:arc-devise a plan for arc/some-brief.md",
             "devise",
         )
-        .document(Some("dash/some-brief.md".to_string()))
-        .arc(Some("some-dash".to_string()))
+        .document(Some("arc/some-brief.md".to_string()))
+        .arc(Some("some-arc".to_string()))
         .model(model.map(str::to_owned))
     }
 
@@ -713,12 +713,12 @@ mod tests {
     fn a_scores_stage_object_is_what_the_arc_always_sent() {
         let request = RotationRequest::new(
             TugSessionId::new("sess-1"),
-            "/tugplug:arc-implement dash/some.md Steps 4-9",
+            "/tugplug:arc-implement arc/some.md Steps 4-9",
             "implement",
         )
-        .document(Some("dash/some-brief.md".to_string()))
-        .plan(Some("dash/some.md".to_string()))
-        .arc(Some("some-dash".to_string()))
+        .document(Some("arc/some-brief.md".to_string()))
+        .plan(Some("arc/some.md".to_string()))
+        .arc(Some("some-arc".to_string()))
         .steps(Some("4-9".to_string()));
         let (frames, _) = frames_for(&request);
         let stage = &body(&frames[0])["stage"];
@@ -726,11 +726,11 @@ mod tests {
             *stage,
             serde_json::json!({
                 "name": "implement",
-                "document": "dash/some-brief.md",
-                "arc": "some-dash",
-                "plan": "dash/some.md",
+                "document": "arc/some-brief.md",
+                "arc": "some-arc",
+                "plan": "arc/some.md",
                 "steps": "4-9",
-                "prompt": "/tugplug:arc-implement dash/some.md Steps 4-9",
+                "prompt": "/tugplug:arc-implement arc/some.md Steps 4-9",
             })
         );
     }
@@ -767,12 +767,12 @@ mod tests {
 
         let request = RotationRequest::new(
             tug_id.clone(),
-            "/tugplug:arc-implement dash/some.md Steps 4-9",
+            "/tugplug:arc-implement arc/some.md Steps 4-9",
             "implement",
         )
-        .document(Some("dash/some-brief.md".to_string()))
-        .plan(Some("dash/some.md".to_string()))
-        .arc(Some("some-dash".to_string()))
+        .document(Some("arc/some-brief.md".to_string()))
+        .plan(Some("arc/some.md".to_string()))
+        .arc(Some("some-arc".to_string()))
         .steps(Some("4-9".to_string()));
         rotate(&sup, &request).await.unwrap();
 
@@ -821,14 +821,14 @@ mod tests {
         let command = body(&sent[1]);
         assert_eq!(command["command"], "new");
         assert_eq!(command["stage"]["name"], "devise");
-        assert_eq!(command["stage"]["document"], "dash/some-brief.md");
-        assert_eq!(command["stage"]["arc"], "some-dash");
+        assert_eq!(command["stage"]["document"], "arc/some-brief.md");
+        assert_eq!(command["stage"]["arc"], "some-arc");
         assert!(
             command["stage"].get("plan").is_none(),
             "a stage with no plan yet names none"
         );
         assert_eq!(
-            command["stage"]["prompt"], "/tugplug:arc-devise a plan for dash/some-brief.md",
+            command["stage"]["prompt"], "/tugplug:arc-devise a plan for arc/some-brief.md",
             "the command carries the prompt for the deck's benefit"
         );
 
@@ -839,7 +839,7 @@ mod tests {
         assert_eq!(prompt["type"], "user_message");
         assert_eq!(
             prompt["content"][0]["text"],
-            "/tugplug:arc-devise a plan for dash/some-brief.md"
+            "/tugplug:arc-devise a plan for arc/some-brief.md"
         );
         assert!(prompt.get("text").is_none());
     }
@@ -1005,7 +1005,7 @@ mod tests {
             sessions
                 .list_wheel_prompts_for_line(tug_id.as_str())
                 .unwrap(),
-            vec!["/tugplug:arc-devise a plan for dash/some-brief.md"],
+            vec!["/tugplug:arc-devise a plan for arc/some-brief.md"],
         );
     }
 
@@ -1040,7 +1040,7 @@ mod tests {
             sessions
                 .list_wheel_prompts_for_line(tug_id.as_str())
                 .unwrap(),
-            vec!["/tugplug:arc-devise a plan for dash/some-brief.md"],
+            vec!["/tugplug:arc-devise a plan for arc/some-brief.md"],
         );
     }
 
@@ -1109,7 +1109,7 @@ mod tests {
         };
 
         ctx.state.park(
-            RotationRequest::new(tug_id.clone(), "/tugplug:arc-review dash/x.md", "review")
+            RotationRequest::new(tug_id.clone(), "/tugplug:arc-review arc/x.md", "review")
                 .model(Some("opus".to_string())),
         );
         on_tick(&ctx, "sess-handback").await;
@@ -1148,7 +1148,7 @@ mod tests {
                 "sess-on-arc",
                 RotationRequest::new(TugSessionId::new("sess-on-arc"), "hi", "review")
                     .model(Some("opus".to_string()))
-                    .arc(Some("some-dash".to_string())),
+                    .arc(Some("some-arc".to_string())),
             ),
         ] {
             let tug_id = TugSessionId::new(name);
@@ -1338,7 +1338,7 @@ mod tests {
     }
 
     /// A card runs at most one arc. The check reads the session's
-    /// dash binding and that dash's arc record, exactly as the arc runner does.
+    /// arc binding and that arc's run record, exactly as the arc runner does.
     #[test]
     fn a_card_running_a_live_arc_is_on_one_and_a_finished_card_is_not() {
         let dir = tempfile::tempdir().unwrap();
@@ -1346,7 +1346,7 @@ mod tests {
         std::fs::create_dir_all(root.join(".tugtool")).unwrap();
         std::fs::write(
             root.join(".tugtool/config.toml"),
-            "[tugtool.dash]\ndocs = \"dash\"\n",
+            "[tugtool.arc]\ndocs = \"arc\"\n",
         )
         .unwrap();
 
@@ -1367,12 +1367,12 @@ mod tests {
         assert!(!arc_is_running(&ledger, "claude-on-arc"));
 
         ledger
-            .set_dash_binding("claude-on-arc", Some(("tugdash/demo#1", "demo")))
+            .set_arc_binding("claude-on-arc", Some(("tugarc/demo#1", "demo")))
             .unwrap();
-        // Bound, but no arc record — a dash is not an arc running.
+        // Bound, but no arc record — an arc is not an arc running.
         assert!(!arc_is_running(&ledger, "claude-on-arc"));
 
-        tugarc_core::arc::append_arc_start(root, "demo", "dash/demo-brief.md").unwrap();
+        tugarc_core::arc::append_arc_start(root, "demo", "arc/demo-brief.md").unwrap();
         assert!(arc_is_running(&ledger, "claude-on-arc"));
 
         tugarc_core::arc::append_arc_done(root, "demo").unwrap();

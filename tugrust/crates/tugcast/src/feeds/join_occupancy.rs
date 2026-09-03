@@ -1,7 +1,7 @@
-//! One dash admits one run (Spec S01).
+//! One arc admits one run (Spec S01).
 //!
-//! Every act that touches a dash's workshop — a resolve, a verification, a
-//! non-preview join — takes the dash first, and is refused by name while
+//! Every act that touches an arc's workshop — a resolve, a verification, a
+//! non-preview join — takes the arc first, and is refused by name while
 //! somebody else holds it. Before this, two of them could share one worktree:
 //! a second resolve `reset --hard`ing under the first one's live resolver, a
 //! verification resetting the tree a resolve was mid-edit in, a join tearing
@@ -29,7 +29,7 @@
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 
-/// What is holding a dash.
+/// What is holding an arc.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum JoinRunKind {
     Resolve,
@@ -50,10 +50,10 @@ impl JoinRunKind {
 #[derive(Debug, Clone)]
 struct JoinRun {
     kind: JoinRunKind,
-    /// The dash head this run started against.
+    /// The arc head this run started against.
     ///
     /// A question raised mid-run is matched against this rather than against
-    /// the head as it stands, so a commit landing on the dash while the
+    /// the head as it stands, so a commit landing on the arc while the
     /// resolver waits does not vanish the wizard the user is looking at.
     head: Option<String>,
 }
@@ -63,7 +63,7 @@ fn registry() -> &'static Mutex<HashMap<String, JoinRun>> {
     REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-/// A held dash. Dropping it releases the hold — including on a panic, which is
+/// A held arc. Dropping it releases the hold — including on a panic, which is
 /// why this is a guard and not a pair of calls.
 #[derive(Debug)]
 pub struct JoinOccupancy {
@@ -79,11 +79,11 @@ impl Drop for JoinOccupancy {
     }
 }
 
-/// Take the dash for a run, or say who has it.
+/// Take the arc for a run, or say who has it.
 ///
 /// The refusal is a sentence rather than a boolean because it is shown: a
 /// second Resolve press has to explain why nothing happened, and "a resolve is
-/// already running for this dash" is the whole explanation ([L31]).
+/// already running for this arc" is the whole explanation ([L31]).
 pub fn acquire(
     owner_key: &str,
     kind: JoinRunKind,
@@ -92,7 +92,7 @@ pub fn acquire(
     let mut map = registry().lock().expect("join occupancy mutex");
     if let Some(live) = map.get(owner_key) {
         return Err(format!(
-            "a {} is already running for this dash",
+            "a {} is already running for this arc",
             live.kind.as_str()
         ));
     }
@@ -102,7 +102,7 @@ pub fn acquire(
     })
 }
 
-/// What kind of run holds this dash, if any — the `run` fact on the wire.
+/// What kind of run holds this arc, if any — the `run` fact on the wire.
 pub fn run_kind(owner_key: &str) -> Option<&'static str> {
     registry()
         .lock()
@@ -111,7 +111,7 @@ pub fn run_kind(owner_key: &str) -> Option<&'static str> {
         .map(|run| run.kind.as_str())
 }
 
-/// The dash head a live run started against, for matching facts it raised.
+/// The arc head a live run started against, for matching facts it raised.
 pub fn run_head(owner_key: &str) -> Option<String> {
     registry()
         .lock()
@@ -127,26 +127,26 @@ mod tests {
     /// Keys are per-test so the process-global registry cannot make one test's
     /// hold another's refusal.
     fn key(what: &str) -> String {
-        format!("tugdash/{what}#occupancy-test")
+        format!("tugarc/{what}#occupancy-test")
     }
 
     #[test]
     fn a_second_run_is_refused_by_name_and_admitted_after_the_first_ends() {
         let k = key("second-run");
-        let held = acquire(&k, JoinRunKind::Resolve, None).expect("the dash is free");
+        let held = acquire(&k, JoinRunKind::Resolve, None).expect("the arc is free");
         assert_eq!(run_kind(&k), Some("resolve"));
 
-        let refused = acquire(&k, JoinRunKind::Join, None).expect_err("the dash is held");
-        assert_eq!(refused, "a resolve is already running for this dash");
+        let refused = acquire(&k, JoinRunKind::Join, None).expect_err("the arc is held");
+        assert_eq!(refused, "a resolve is already running for this arc");
 
         drop(held);
         assert_eq!(run_kind(&k), None);
-        acquire(&k, JoinRunKind::Join, None).expect("the dash is free again");
+        acquire(&k, JoinRunKind::Join, None).expect("the arc is free again");
     }
 
-    /// Two dashes are two holds — the registry gates a dash, not the machine.
+    /// Two arcs are two holds — the registry gates an arc, not the machine.
     #[test]
-    fn holding_one_dash_does_not_hold_another() {
+    fn holding_one_arc_does_not_hold_another() {
         let a = acquire(&key("alpha"), JoinRunKind::Resolve, None).expect("free");
         let b = acquire(&key("beta"), JoinRunKind::Resolve, None).expect("free");
         drop((a, b));
@@ -156,9 +156,9 @@ mod tests {
     ///
     /// Driven through a spawned task because that is the shape a resolve
     /// actually has: the guard travels into a detached task, and a task that
-    /// dies mid-flight must not leave the dash refusing every later run.
+    /// dies mid-flight must not leave the arc refusing every later run.
     #[tokio::test]
-    async fn a_panicking_run_releases_the_dash() {
+    async fn a_panicking_run_releases_the_arc() {
         let k = key("panic");
         let held = acquire(&k, JoinRunKind::Resolve, None).expect("free");
         let died = tokio::spawn(async move {

@@ -439,7 +439,7 @@ The **replace** case is narrower and stays: a kind marked `wholeEntitySelection`
 
 ### What is deliberately not here
 
-- **A dash.** It appears only as a row, `dash-row-menu.tsx` is already its one definition, and a registry keyed by what ink and atoms carry is the wrong home for something no ink ever holds.
+- **An arc.** It appears only as a row, `arc-row-menu.tsx` is already its one definition, and a registry keyed by what ink and atoms carry is the wrong home for something no ink ever holds.
 - **`CommitShaText`'s single Copy.** The label *is* the clipboard spelling — see [entity-presentation.md](entity-presentation.md#an-atom-labels-itself-a-mention-is-labelled-by-its-sentence). That copy is the object's own, not a short commit menu.
 - **Chord hints on entity items.** A copyable's text is unselectable and ⌘C is routed natively to the DOM selection, so a chord hint there would advertise a key that does nothing. Hints belong to the standard block, where they are read from the live binding ([P11]).
 

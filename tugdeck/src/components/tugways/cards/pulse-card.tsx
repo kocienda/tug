@@ -194,7 +194,7 @@ function PulseRow({
   // glides instead of snapping tick-to-tick. Opens at the true value (no
   // ramp-in), then EMA-smooths changes; decays gracefully to a dimmed ZERO in
   // the channel's unit when activity stops — an idle session does no work, so
-  // its resting value is 0, not a "no data" dash. Never touches React state
+  // its resting value is 0, not a "no data" arc. Never touches React state
   // ([P03]).
   //
   // The data event is the only clock. Easing needs a repaint cadence, so a

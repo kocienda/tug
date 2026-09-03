@@ -26,11 +26,11 @@ import { sessionLineStore } from "./session-line-store";
  */
 export type CardSessionMode = "new" | "resume";
 
-/** The dash a session is working on, as the server names it. */
-export interface CardDashBinding {
-  /** The dash's owner key — opaque identity, never a git ref. */
+/** The arc a session is working on, as the server names it. */
+export interface CardArcBinding {
+  /** The arc's owner key — opaque identity, never a git ref. */
   readonly id: string;
-  /** The dash's short name, for display. */
+  /** The arc's short name, for display. */
   readonly name: string;
 }
 
@@ -55,7 +55,7 @@ export interface CardSessionBinding {
    * **address**: every frame the card sends is stamped with it, and
    * `CardServicesStore` keys its whole services bag on it — moving it would
    * tear that bag down mid-stage and rebuild it around an id the supervisor
-   * does not answer to. The seat is what *identity* resolves through: the dash
+   * does not answer to. The seat is what *identity* resolves through: the arc
    * a live card is on is recorded against whichever segment holds the binding
    * now, which a rotation moves.
    *
@@ -67,8 +67,8 @@ export interface CardSessionBinding {
   readonly seatedSessionId?: string;
   readonly projectDir: string;
   readonly sessionMode: CardSessionMode;
-  /** The dash this card's session is mated to, or absent when unbound. */
-  readonly dash?: CardDashBinding;
+  /** The arc this card's session is mated to, or absent when unbound. */
+  readonly arc?: CardArcBinding;
 }
 
 export class CardSessionBindingStore {
@@ -96,25 +96,25 @@ export class CardSessionBindingStore {
   };
 
   /**
-   * Set or clear only the dash half of a card's binding, **merging** into the
+   * Set or clear only the arc half of a card's binding, **merging** into the
    * existing record.
    *
    * A merge and not a `setBinding`: a bind can arrive mid-session (a skill
-   * running `tugtool arc bind`, or a `bind_dash_ok` broadcast), and replacing
+   * running `tugtool arc bind`, or a `bind_arc_ok` broadcast), and replacing
    * the whole record there would clobber the `workspaceKey` the spawn ack
    * established — the value `useCardWorkspaceKey` builds the pane's feed
    * filter from.
    *
    * A no-op for a card with no binding: there is nothing to merge into, and
    * the spawn ack stays the only thing allowed to *create* a record. It is no
-   * longer the only thing allowed to write one — `bind_dash_ok` moves the dash
+   * longer the only thing allowed to write one — `bind_arc_ok` moves the arc
    * half, which is what carries a rotation's binding onto the fresh segment.
    */
-  setDashBinding = (cardId: string, dash: CardDashBinding | null): void => {
+  setArcBinding = (cardId: string, arc: CardArcBinding | null): void => {
     const existing = this._bindings.get(cardId);
     if (!existing) return;
     const next = new Map(this._bindings);
-    next.set(cardId, { ...existing, dash: dash ?? undefined });
+    next.set(cardId, { ...existing, arc: arc ?? undefined });
     this._bindings = next;
     for (const listener of this._listeners) listener();
   };
@@ -122,7 +122,7 @@ export class CardSessionBindingStore {
   /**
    * Re-seat a card's binding on a **new line** ([P03]) — the `/clear` case,
    * where a plain `/new` births a line rather than joining the card's. A merge
-   * like {@link CardSessionBindingStore.setDashBinding}: the spawn ack
+   * like {@link CardSessionBindingStore.setArcBinding}: the spawn ack
    * established the `workspaceKey` the pane's feed filter is built from, and
    * replacing the record here would clobber it.
    *
@@ -177,7 +177,7 @@ export class CardSessionBindingStore {
    * after a WebSocket re-open: bindings without a live server peer are
    * worse than no bindings, so the new resume frames go out against an
    * empty store. Per [D04] in
-   * `dash/tugplan-session-connection-health.md`, the clear-then-restore
+   * `arc/tugplan-session-connection-health.md`, the clear-then-restore
    * order is part of the contract. A no-op when the store is already
    * empty so the first reconnect after a fresh boot does not emit a
    * spurious notify.
@@ -224,7 +224,7 @@ export function cardIdForSession(sessionId: string): string | null {
  *
  * The direct half of {@link cardIdForSession}, for a frame that already names
  * the line rather than leaving it to be derived. The rotation seat's
- * `bind_dash_ok` does: it announces a segment minted in the same breath, which
+ * `bind_arc_ok` does: it announces a segment minted in the same breath, which
  * the segment → line walk cannot resolve because no frame has yet said whose
  * line that segment is.
  */
@@ -259,7 +259,7 @@ export function useCardIdForSession(sessionId: string): string | null {
  * then births the real line and every `session_updated` push names it, which
  * the line store records and the binding, written once, never hears. Left
  * there the card holds a line nothing else in the system uses: its seat cannot
- * move, its name cannot resolve, and its dash cannot be found.
+ * move, its name cannot resolve, and its arc cannot be found.
  *
  * So the binding's value is the *seed* and the line store is the authority,
  * which is the same rule every other identity read follows ([P02]).

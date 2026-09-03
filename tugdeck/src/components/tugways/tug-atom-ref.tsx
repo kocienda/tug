@@ -125,11 +125,11 @@ export type TugAtomRefEntity =
    */
   | { kind: "session"; id: string }
   /**
-   * A dash, by the name that is its address everywhere else in the app.
+   * An arc, by the name that is its address everywhere else in the app.
    * Presentational like a commit: the host owns the gesture, because where a
-   * dash click goes is the host's business rather than the skin's.
+   * arc click goes is the host's business rather than the skin's.
    */
-  | { kind: "dash"; name: string };
+  | { kind: "arc"; name: string };
 
 export interface TugAtomRefProps {
   entity: TugAtomRefEntity;
@@ -214,7 +214,7 @@ export function TugAtomRef({
   const defaultLabel =
     entity.kind === "file"
       ? basename(entity.path)
-      : entity.kind === "dash"
+      : entity.kind === "arc"
         ? entity.name
         : entity.kind === "session"
           ? sessionAtomLabel(entity.id)
@@ -230,7 +230,7 @@ export function TugAtomRef({
         {icon ??
           (entity.kind === "file" ? (
             <FileText />
-          ) : entity.kind === "dash" ? (
+          ) : entity.kind === "arc" ? (
             <GitBranch />
           ) : entity.kind === "session" ? (
             <MessageSquare />

@@ -76,11 +76,11 @@ fn project(conn: &Connection, tripwire: &Tripwire) -> Value {
         .find(|t| t.status == TripStatus::Running.as_str());
     // Awaiting is what the card exists to surface: a run that finished with
     // something the user should see and is holding the wire's live-run slot
-    // until they see it ([P07]). The dash it is holding comes back with it,
-    // because that dash is the thing there is to decide about. Nothing checks
-    // the dash is still on disk: a dash that was joined or discarded resolves
+    // until they see it ([P07]). The arc it is holding comes back with it,
+    // because that arc is the thing there is to decide about. Nothing checks
+    // the arc is still on disk: an arc that was joined or discarded resolves
     // its own awaiting trip in the engine, so a row that still reads awaiting
-    // is a row whose dash is still there.
+    // is a row whose arc is still there.
     let awaiting = trips
         .iter()
         .find(|t| t.status == TripStatus::Awaiting.as_str());
@@ -101,7 +101,7 @@ fn project(conn: &Connection, tripwire: &Tripwire) -> Value {
         // rather than a session dot keyed on nothing.
         "running_session": running.and_then(|t| t.session_id.clone()),
         "awaiting": awaiting.is_some(),
-        "awaiting_dash": awaiting.and_then(|t| t.dash.clone()),
+        "awaiting_arc": awaiting.and_then(|t| t.arc.clone()),
         "last_trip": last.map(|t| json!({
             "at_ms": t.at_ms,
             "status": t.status,
@@ -310,7 +310,7 @@ mod tests {
         assert_eq!(tripwire["running"], false);
         assert_eq!(tripwire["awaiting"], false);
         assert!(tripwire["running_session"].is_null());
-        assert!(tripwire["awaiting_dash"].is_null());
+        assert!(tripwire["awaiting_arc"].is_null());
         assert!(
             tripwire["last_trip"].is_null(),
             "a tripwire that never fired has no last trip rather than an empty one"
@@ -345,10 +345,10 @@ mod tests {
         assert_eq!(tripwires[1]["running"], false, "and only that tripwire");
     }
 
-    /// The awaiting state and the dash it holds, which together are the whole
+    /// The awaiting state and the arc it holds, which together are the whole
     /// of what the section's yellow dot and its detail row read ([P07], [P08]).
     #[test]
-    fn an_awaiting_trip_shows_with_the_dash_it_is_holding() {
+    fn an_awaiting_trip_shows_with_the_arc_it_is_holding() {
         let (_dir, path) = scratch();
         lay(&path, "ci");
         let conn = ledger::open_ledger(&path).unwrap();
@@ -374,7 +374,7 @@ mod tests {
         let (_, body) = list_tripwires(&path);
         let tripwire = &body["tripwires"][0];
         assert_eq!(tripwire["awaiting"], true);
-        assert_eq!(tripwire["awaiting_dash"], "tripwire-ci-abcd1234");
+        assert_eq!(tripwire["awaiting_arc"], "tripwire-ci-abcd1234");
         assert_eq!(
             tripwire["running"], false,
             "an awaiting run has finished — it holds the wire's slot, it is not working"

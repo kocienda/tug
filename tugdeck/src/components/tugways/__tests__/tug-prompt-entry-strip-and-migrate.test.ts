@@ -158,11 +158,11 @@ describe("computeSideQuestionArg — btw-route submission", () => {
   it("expands a file mention to its path so it survives into the question", () => {
     const { text, atoms } = mkDraft([
       "what does ",
-      { type: "file", value: "dash/plan.md", label: "plan.md" } as AtomSegment,
+      { type: "file", value: "arc/plan.md", label: "plan.md" } as AtomSegment,
       " do?",
     ]);
     expect(computeSideQuestionArg(text, atoms)).toBe(
-      "what does dash/plan.md do?",
+      "what does arc/plan.md do?",
     );
   });
 });

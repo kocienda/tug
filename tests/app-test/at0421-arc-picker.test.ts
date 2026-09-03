@@ -1,27 +1,27 @@
 /**
- * at0421-dash-picker.test.ts — bare `/arc-bind`'s picker sheet, over three
- * real dashes.
+ * at0421-arc-picker.test.ts — bare `/arc-bind`'s picker sheet, over three
+ * real arcs.
  *
- * Picking a dash is a UI-concept act with no turn and no durable consequence,
+ * Picking an arc is a UI-concept act with no turn and no durable consequence,
  * so it is a sheet rather than transcript ink, and the whole round trip is
- * real: the sheet sends `bind_dash`, the server answers `bind_dash_ok`, and the
+ * real: the sheet sends `bind_arc`, the server answers `bind_arc_ok`, and the
  * masthead chip is what moves. Nothing here writes the binding store
  * optimistically, which is why asserting on the chip is asserting on the
  * broadcast.
  *
  * Three behaviors, one file. Arrow keys move the cursor and Return binds the
  * highlighted row. Escape dismisses with the binding exactly as it was. And the
- * retired `/dash` spelling reaches the same picker — which is the whole reason
+ * retired `/arc` spelling reaches the same picker — which is the whole reason
  * the alias is kept: a `/verb` that stops matching the local registry is
  * submitted to Claude as a prompt, a burned turn on a line the user meant as a
  * gesture.
  *
- * **Two branches of the bare form are not covered here.** The one-dash case
- * (bind directly, open nothing) and the zero-dash case (caution) are conditions
+ * **Two branches of the bare form are not covered here.** The one-arc case
+ * (bind directly, open nothing) and the zero-arc case (caution) are conditions
  * on the *project*. They are reachable now that the project is a scratch
- * repository this file owns — it holds exactly the three dashes created below
+ * repository this file owns — it holds exactly the three arcs created below
  * and nothing another run can add — and would be a fixture per case. Until then
- * the branch is three lines in `session-card.tsx`'s `dash-bind` handler.
+ * the branch is three lines in `session-card.tsx`'s `arc-bind` handler.
  *
  * @covers tugdeck/src/components/tugways/cards/arc-picker-sheet.tsx
  * @covers tugdeck/src/components/tugways/cards/session-card.tsx
@@ -43,13 +43,13 @@ import {
   seedTugbankForLaunch,
 } from "./_harness/tugbank-helpers";
 import {
-  createDash,
-  makeDashScratchRepo,
-  rmDashScratchRepo,
+  createArc,
+  makeArcScratchRepo,
+  rmArcScratchRepo,
   rmScratchSession,
   seedScratchSession,
-  type DashScratchRepo,
-} from "./dash-fixture";
+  type ArcScratchRepo,
+} from "./arc-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
@@ -57,39 +57,39 @@ const TEST_TIMEOUT_MS = 180_000;
 const SID = "a7c0d1ea-0000-4000-8000-000000000421";
 const CARD = '[data-card-id="A"]';
 const PROMPT = `${CARD} [data-slot="tug-text-editor"] .cm-content`;
-const PICKER = '[data-slot="dash-picker-sheet"]';
-const PICKER_ROWS = `${PICKER} [data-slot="dash-picker-row"]`;
-// The dash marker on the masthead's title line — the identity's own run
+const PICKER = '[data-slot="arc-picker-sheet"]';
+const PICKER_ROWS = `${PICKER} [data-slot="arc-picker-row"]`;
+// The arc marker on the masthead's title line — the identity's own run
 // since the masthead badge was retired. Scoped to the masthead, because a
 // line-tier identity anywhere else (a Cards row, a picker row) wears it too.
 const CHIP =
-  '[data-slot="session-masthead"] [data-slot="session-identity-dash"]';
-/** What that run reads: the identity's dash grammar, sigil included. */
-const chipText = (dash: string): string => `^${dash}`;
-const DASHES_CARD = '.dashes-section';
+  '[data-slot="session-masthead"] [data-slot="session-identity-arc"]';
+/** What that run reads: the identity's arc grammar, sigil included. */
+const chipText = (arc: string): string => `^${arc}`;
+const ARCS_CARD = '.arcs-section';
 
-/** This checkout — the build under test, and never the tree a dash is cut in. */
+/** This checkout — the build under test, and never the tree an arc is cut in. */
 const CHECKOUT = realpathSync(resolve(import.meta.dir, "..", ".."));
 /** The scratch repository this fixture owns, and the only tree it touches. */
-let scratch: DashScratchRepo | null = null;
+let scratch: ArcScratchRepo | null = null;
 let fixtureDir = "";
 const projectDir = (): string => scratch?.repo ?? "";
 /** Named so their sort order in the picker is the order they are created in —
  *  the picker keeps snapshot order, so the assertions read positionally. */
-const DASHES = ["at0421-alpha", "at0421-bravo", "at0421-charlie"];
+const ARCS = ["at0421-alpha", "at0421-bravo", "at0421-charlie"];
 
 beforeAll(() => {
   if (!SHOULD_RUN) return;
-  scratch = makeDashScratchRepo({ prefix: "at0421", checkout: CHECKOUT });
-  for (const name of DASHES) createDash(projectDir(), name, "at0421 fixture", scratch.cli);
+  scratch = makeArcScratchRepo({ prefix: "at0421", checkout: CHECKOUT });
+  for (const name of ARCS) createArc(projectDir(), name, "at0421 fixture", scratch.cli);
   fixtureDir = seedScratchSession(projectDir(), SID);
 }, 60_000);
 
-// The whole repository goes, so there is nothing to discard one dash at a time
+// The whole repository goes, so there is nothing to discard one arc at a time
 // — and nothing left behind when this file dies before its teardown runs.
 afterAll(() => {
   if (!SHOULD_RUN) return;
-  rmDashScratchRepo(scratch);
+  rmArcScratchRepo(scratch);
   rmScratchSession(fixtureDir);
 }, 60_000);
 
@@ -146,12 +146,12 @@ async function openCard(app: App): Promise<void> {
   // outside the card.
   await app.dispatchControlAction("toggle-arcs");
   await app.waitForCondition<boolean>(
-    `document.querySelector('${DASHES_CARD} [data-slot="dashes-row"][data-dash="${DASHES[2]}"]') !== null`,
+    `document.querySelector('${ARCS_CARD} [data-slot="arcs-row"][data-arc="${ARCS[2]}"]') !== null`,
     { timeoutMs: 30000 },
   );
   await app.dispatchControlAction("toggle-arcs");
   await app.waitForCondition<boolean>(
-    `document.querySelector(${JSON.stringify(DASHES_CARD)}) === null`,
+    `document.querySelector(${JSON.stringify(ARCS_CARD)}) === null`,
     { timeoutMs: 8000 },
   );
 }
@@ -159,45 +159,45 @@ async function openCard(app: App): Promise<void> {
 const namesIn = (app: App): Promise<string[]> =>
   app.evalJS<string[]>(
     `Array.from(document.querySelectorAll(${JSON.stringify(PICKER_ROWS)}))
-       .map((el) => el.getAttribute("data-dash"))`,
+       .map((el) => el.getAttribute("data-arc"))`,
   );
 
 describe.skipIf(!SHOULD_RUN)("AT0421: the /arc-bind picker", () => {
   test(
-    "bare /arc-bind lists the project's dashes, and arrow-then-Return binds the highlighted one",
+    "bare /arc-bind lists the project's arcs, and arrow-then-Return binds the highlighted one",
     async () => {
       const tugbankPath = mkTempTugbank();
       seedTugbankForLaunch(tugbankPath, { sourceTreePath: CHECKOUT });
       const app = await launchTugApp({
-        testName: "at0421-dash-picker",
+        testName: "at0421-arc-picker",
         env: { TUGBANK_PATH: tugbankPath, TUG_DATA_DIR: scratch?.dataRoot ?? "" },
       });
       try {
         await openCard(app);
 
-        // ── The sheet lists the project's dashes ──────────────────────────
+        // ── The sheet lists the project's arcs ──────────────────────────
         await runCommand(app, "/arc-bind");
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(PICKER)}) !== null`,
           { timeoutMs: 10000 },
         );
         const listed = await namesIn(app);
-        for (const name of DASHES) expect(listed).toContain(name);
+        for (const name of ARCS) expect(listed).toContain(name);
         note("at0421 picker rows", listed.join(", "));
 
-        // Every row names its dash with the atom every dash surface wears,
+        // Every row names its arc with the atom every arc surface wears,
         // and carries a worker atom per bound session — none here, because
         // nothing is holding any of these yet, and that absence IS how
         // *unbound* reads on a picker whose whole job is to weigh who has
         // what.
-        // Counted by ROW, not by element: `TugDashAtom` is a seat around a
-        // `DashSigil` whose default slot is the same word, so a row holds two
+        // Counted by ROW, not by element: `TugArcAtom` is a seat around a
+        // `ArcSigil` whose default slot is the same word, so a row holds two
         // of them and an element count would say six where there are three.
         const identity = await app.evalJS<{ atomRows: number; workers: number }>(
           `(() => ({
              atomRows: Array.from(document.querySelectorAll(${JSON.stringify(PICKER_ROWS)}))
-               .filter((row) => row.querySelector('[data-slot="tug-dash-atom"]') !== null).length,
-             workers: document.querySelectorAll(${JSON.stringify(`${PICKER_ROWS} [data-slot="tug-dash-lifecycle-worker"]`)}).length,
+               .filter((row) => row.querySelector('[data-slot="tug-arc-atom"]') !== null).length,
+             workers: document.querySelectorAll(${JSON.stringify(`${PICKER_ROWS} [data-slot="tug-arc-lifecycle-worker"]`)}).length,
            }))()`,
         );
         note("at0421 picker identity", JSON.stringify(identity));
@@ -218,7 +218,7 @@ describe.skipIf(!SHOULD_RUN)("AT0421: the /arc-bind picker", () => {
         ).toBe(0);
 
         // ── Arrow to a row, Return binds it ───────────────────────────────
-        // The seeded cursor is the card's own dash — there is none here, so it
+        // The seeded cursor is the card's own arc — there is none here, so it
         // rests on the first row, and one Down moves to the second.
         await runCommand(app, "/arc-bind");
         await app.waitForCondition<boolean>(
@@ -229,7 +229,7 @@ describe.skipIf(!SHOULD_RUN)("AT0421: the /arc-bind picker", () => {
         await app.nativeKey("ArrowDown");
         await settle();
         await app.nativeKey("Return");
-        // The chip moves on `bind_dash_ok`, never on the click — so this
+        // The chip moves on `bind_arc_ok`, never on the click — so this
         // assertion is about the round trip, not about the handler.
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(CHIP)}) !== null`,
@@ -238,7 +238,7 @@ describe.skipIf(!SHOULD_RUN)("AT0421: the /arc-bind picker", () => {
         const bound = await app.evalJS<string>(
           `(document.querySelector(${JSON.stringify(CHIP)})?.textContent ?? "").trim()`,
         );
-        // The picker lists bare dash names; the masthead spells the binding in
+        // The picker lists bare arc names; the masthead spells the binding in
         // the identity's grammar, so the comparison goes through `chipText`.
         expect(rows.map(chipText)).toContain(bound);
         expect(bound).not.toBe(chipText(rows[0]));
@@ -248,12 +248,12 @@ describe.skipIf(!SHOULD_RUN)("AT0421: the /arc-bind picker", () => {
         // the fact this picker exists to weigh: somebody is on that one.
         await runCommand(app, "/arc-bind");
         await app.waitForCondition<boolean>(
-          `document.querySelectorAll(${JSON.stringify(`${PICKER_ROWS} [data-slot="tug-dash-lifecycle-worker"]`)}).length === 1`,
+          `document.querySelectorAll(${JSON.stringify(`${PICKER_ROWS} [data-slot="tug-arc-lifecycle-worker"]`)}).length === 1`,
           { timeoutMs: 15000 },
         );
         const heldRow = await app.evalJS<string | null>(
-          `document.querySelector(${JSON.stringify(`${PICKER_ROWS} [data-slot="tug-dash-lifecycle-worker"]`)})
-             ?.closest('[data-slot="dash-picker-row"]')?.getAttribute("data-dash") ?? null`,
+          `document.querySelector(${JSON.stringify(`${PICKER_ROWS} [data-slot="tug-arc-lifecycle-worker"]`)})
+             ?.closest('[data-slot="arc-picker-row"]')?.getAttribute("data-arc") ?? null`,
         );
         note("at0421 held row", String(heldRow));
         expect(heldRow).not.toBeNull();
@@ -261,8 +261,8 @@ describe.skipIf(!SHOULD_RUN)("AT0421: the /arc-bind picker", () => {
         // And it is the row the picker marks as this card's own.
         expect(
           await app.evalJS<string | null>(
-            `document.querySelector(${JSON.stringify(`${PICKER_ROWS} [data-slot="dash-picker-current"]`)})
-               ?.closest('[data-slot="dash-picker-row"]')?.getAttribute("data-dash") ?? null`,
+            `document.querySelector(${JSON.stringify(`${PICKER_ROWS} [data-slot="arc-picker-current"]`)})
+               ?.closest('[data-slot="arc-picker-row"]')?.getAttribute("data-arc") ?? null`,
           ),
         ).toBe(heldRow);
         await app.nativeKey("Escape");

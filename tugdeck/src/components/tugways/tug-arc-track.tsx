@@ -2,8 +2,8 @@
  * TugArcTrack — an arc's whole life as one cap-height strip.
  *
  * Five cells in lifecycle order — brief · devise · review · implement · join —
- * with implement subdivided into one tick per plan step. That is a trek. A
- * dash, the short arc, is brief · implement · join — the two cells a trek's
+ * with implement subdivided into one tick per plan step. That is a planned arc.
+ * A plain arc — the short one — is brief · implement · join: the two cells a
  * settling would have filled are the ones it never had. Each cell wears one of
  * four states the CSS paints ([L06]): `pending`, `active`, `done`, `stopped`.
  * A stop is the one fact that outranks the rest: the cell it stopped in paints
@@ -20,7 +20,7 @@
  * so the derivation is a table test rather than a DOM one.
  *
  * Laws: [L06] state is `data-state`; [L19] `.tsx`/`.css` pair, `data-slot`;
- * [L20] composes `TugTooltip`, owns `--tugx-dash-track-*`.
+ * [L20] composes `TugTooltip`, owns `--tugx-arc-track-*`.
  *
  * @module components/tugways/tug-arc-track
  */
@@ -30,7 +30,7 @@ import "./tug-arc-track.css";
 import React from "react";
 
 import { TugTooltip } from "./tug-tooltip";
-import type { DashArcState, DashChangesetEntry, ArcStep } from "@/lib/changeset-types";
+import type { ArcRunState, ArcChangesetEntry, ArcStep } from "@/lib/changeset-types";
 
 /** The phases, in lifecycle order. */
 export type ArcPhase = "brief" | "devise" | "review" | "implement" | "check" | "join";
@@ -44,9 +44,9 @@ export const ARC_PHASES: readonly ArcPhase[] = [
 ];
 
 /**
- * The phases a direct dash draws.
+ * The phases a direct arc draws.
  *
- * A dash with no arc still has a brief: `dash create` is given a topic, and
+ * An arc with no arc still has a brief: `arc create` is given a topic, and
  * that topic is what the work is against. What it never had is the devising
  * and the reviewing of a plan, so those two are the cells it does not draw.
  *
@@ -86,25 +86,25 @@ export type ArcCellState = "pending" | "active" | "done" | "stopped";
  */
 export type ArcTickState = ArcCellState | "withdrawn";
 
-/** What the feed says about a dash, as the derivation reads it. */
+/** What the feed says about an arc, as the derivation reads it. */
 export interface ArcTrackInput {
   /** Which documents exist. A brief is the planned route's own artifact. */
   documents?: { brief?: string; plan?: string } | undefined;
   /** Whether the plan above is a task list rather than a devised plan. */
   taskList?: boolean | undefined;
-  arc?: DashArcState | null | undefined;
+  arc?: ArcRunState | null | undefined;
   /** The plan's ledger, in source order. */
   steps?: readonly ArcStep[] | undefined;
   /** The derived git stage: `created` | `working` | `implementing` | `ready` | `built` | `audited` | `draft-ready` | `joining` | `landing`. */
   stage?: string | null | undefined;
   /**
-   * Whether any session holding this dash is still working — mid-turn, or
+   * Whether any session holding this arc is still working — mid-turn, or
    * waiting on a job it launched.
    *
    * The git stage says the last round is committed on a clean worktree, which
    * is all `ready` has ever meant; it cannot say whether the run that made
    * those commits has stopped. A test sweep launched after the final commit
-   * runs for minutes with the dash reading `ready` the whole time, and the
+   * runs for minutes with the arc reading `ready` the whole time, and the
    * strip lit the join cell over work nobody had finished.
    */
   holdersBusy?: boolean | undefined;
@@ -141,10 +141,10 @@ export interface ArcTrackSteps {
 
 export interface ArcTrackModel {
   /**
-   * No arc is driving this dash: the work is being done in the user's own
+   * No arc is driving this arc: the work is being done in the user's own
    * conversation, against the task list that session wrote.
    *
-   * A direct dash has a plan document like any other — its task list is one —
+   * A direct arc has a plan document like any other — its task list is one —
    * so the presence of a plan cannot tell the two apart. What can is the
    * **brief**, which only the planned route writes, and the arc itself.
    */
@@ -159,9 +159,9 @@ export interface ArcTrackModel {
  * The stages that mean the work is over and the join is what is left.
  *
  * Read off `stage`, which the server derives, and never off the presence of a
- * `join` record: the join engine computes a state for every dash it can reach,
- * so a dash three steps into its plan carries one too. Presence there says the
- * engine looked, not that the dash is done.
+ * `join` record: the join engine computes a state for every arc it can reach,
+ * so an arc three steps into its plan carries one too. Presence there says the
+ * engine looked, not that the arc is done.
  */
 const JOIN_STAGES: ReadonlySet<string> = new Set([
   "ready",
@@ -223,7 +223,7 @@ export function arcTrackModel(input: ArcTrackInput): ArcTrackModel {
     phase = input.holdersBusy === true ? "check" : "join";
   } else if (direct) {
     // Before the first step starts there is nothing else to read: a direct
-    // dash's plan is its task list, so the plan-means-review arm below would
+    // arc's plan is its task list, so the plan-means-review arm below would
     // seat it in a phase it does not have.
     phase = walked ? "check" : "implement";
   } else if (stopped !== null && arc?.stopped_stage !== undefined) {
@@ -243,13 +243,13 @@ export function arcTrackModel(input: ArcTrackInput): ArcTrackModel {
 function arcPhase(stage: string): ArcPhase {
   // The arc's audit stage is the check cell: what it does — read the code
   // against the plan and fix what does not match — is the verification a
-  // direct dash does for itself in the same place on the strip.
+  // direct arc does for itself in the same place on the strip.
   if (stage === "audit") return "check";
   return stage === "devise" || stage === "review" || stage === "implement" ? stage : "implement";
 }
 
 /** {@link arcTrackModel} over a wire entry. */
-export function arcTrackModelFromEntry(entry: DashChangesetEntry): ArcTrackModel {
+export function arcTrackModelFromEntry(entry: ArcChangesetEntry): ArcTrackModel {
   return arcTrackModel({
     documents: entry.documents,
     arc: entry.arc,
@@ -300,14 +300,14 @@ export function TugArcTrack({
   size = "rail",
   "aria-label": ariaLabel,
 }: TugArcTrackProps): React.ReactElement {
-  // The track draws the phases the dash has, never the five with two struck
-  // out: a direct dash did not skip devise and review, it never had them. It
+  // The track draws the phases the arc has, never the five with two struck
+  // out: a direct arc did not skip devise and review, it never had them. It
   // did have a brief, so it draws one.
   const phases: readonly ArcPhase[] = model.direct ? DIRECT_PHASES : ARC_PHASES;
   return (
     <span
-      className="tug-dash-track"
-      data-slot="tug-dash-track"
+      className="tug-arc-track"
+      data-slot="tug-arc-track"
       data-size={size}
       data-phase={model.phase}
       data-direct={model.direct ? "true" : undefined}
@@ -323,15 +323,15 @@ export function TugArcTrack({
         return (
           <TugTooltip key={phase} content={cellTip(model, phase, state)}>
             <span
-              className="tug-dash-track-cell"
-              data-slot="tug-dash-track-cell"
+              className="tug-arc-track-cell"
+              data-slot="tug-arc-track-cell"
               data-phase={phase}
               data-state={state}
               data-steps={ticks !== null ? "true" : undefined}
             >
               {ticks !== null
                 ? ticks.map((n) => (
-                    <span key={n} className="tug-dash-track-tick" data-state={tickState(model, n)} />
+                    <span key={n} className="tug-arc-track-tick" data-state={tickState(model, n)} />
                   ))
                 : null}
             </span>

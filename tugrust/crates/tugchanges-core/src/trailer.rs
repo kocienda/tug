@@ -1,12 +1,12 @@
 //! Git commit-message trailers (Spec S02).
 //!
-//! `Tug-Session:` / `Tug-Session-Id:` / `Tug-Dash:` trailers ride every
+//! `Tug-Session:` / `Tug-Session-Id:` / `Tug-Arc:` trailers ride every
 //! tugtool commit path so `git log --grep` and
-//! `--format=%(trailers:key=Tug-Session)` can answer session- and dash-scoped
+//! `--format=%(trailers:key=Tug-Session)` can answer session- and arc-scoped
 //! history questions. The session travels as a **pair** ([P10]): the human
 //! citation and the full uuid a reader joins against the ledger. This is the
 //! ONE shared
-//! implementation both tugcast (deck commits) and tugarc-core (dash round /
+//! implementation both tugcast (deck commits) and tugarc-core (arc round /
 //! join commits) append with — client-side appending is deliberately avoided
 //! ([P08]) since the commit sites are the single choke points.
 //!
@@ -24,7 +24,7 @@ pub const SHORT_SESSION_ID_LEN: usize = 8;
 ///
 /// This is the one sanctioned flat-text session reference, and the one place
 /// the grammar lives — both commit lanes (tugcast's deck commits and
-/// tugarc-core's dash rounds) compose it here rather than each formatting
+/// tugarc-core's arc rounds) compose it here rather than each formatting
 /// their own.
 ///
 /// **The session's name never appears.** The callsign is the session's name,
@@ -154,6 +154,8 @@ mod tests {
 
     #[test]
     fn preserves_a_multiline_body_before_the_trailer_block() {
+        // The retired key, kept as the read: a commit already on a base wears
+        // it, and appending against such a message must behave identically.
         let msg = "Subject line\n\n- bullet one\n- bullet two";
         let out = append_trailers(msg, &[("Tug-Dash", "tugdash/x onto main")]);
         assert_eq!(
@@ -175,15 +177,15 @@ mod tests {
     #[test]
     fn multiple_trailers_in_one_call_form_one_paragraph() {
         let out = append_trailers(
-            "Land the dash",
+            "Land the arc",
             &[
                 ("Tug-Session", "web (sess-1)"),
-                ("Tug-Dash", "tugdash/x onto main"),
+                ("Tug-Arc", "tugarc/x onto main"),
             ],
         );
         assert_eq!(
             out,
-            "Land the dash\n\nTug-Session: web (sess-1)\nTug-Dash: tugdash/x onto main"
+            "Land the arc\n\nTug-Session: web (sess-1)\nTug-Arc: tugarc/x onto main"
         );
     }
 
@@ -192,10 +194,10 @@ mod tests {
         // A message that already ends with a trailer gets the new key on the
         // SAME paragraph, not a second blank-line-separated one.
         let msg = "Subject\n\nTug-Session: web (sess-1)";
-        let out = append_trailers(msg, &[("Tug-Dash", "tugdash/x onto main")]);
+        let out = append_trailers(msg, &[("Tug-Arc", "tugarc/x onto main")]);
         assert_eq!(
             out,
-            "Subject\n\nTug-Session: web (sess-1)\nTug-Dash: tugdash/x onto main"
+            "Subject\n\nTug-Session: web (sess-1)\nTug-Arc: tugarc/x onto main"
         );
     }
 

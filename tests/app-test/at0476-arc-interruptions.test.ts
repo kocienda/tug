@@ -20,8 +20,8 @@
  * resume:
  *
  *   - **`tugtool arc stop`** — the verb that means *stop the arc, keep the
- *     dash*, and the receipt that says so.
- *   - **A second `/dash` naming another dash** — refused by name, with the
+ *     arc*, and the receipt that says so.
+ *   - **A second `/arc` naming another arc** — refused by name, with the
  *     first arc's binding untouched and its record still live.
  *
  * The rows that turn on a **seated stage** — a cancelled devise turn, and a
@@ -52,17 +52,17 @@ import {
   seedTugbankForLaunch,
 } from "./_harness/tugbank-helpers";
 import {
-  createDash,
-  dashBriefPath,
-  makeDashScratchRepo,
-  rmDashScratchRepo,
+  createArc,
+  arcBriefPath,
+  makeArcScratchRepo,
+  rmArcScratchRepo,
   rmScratchSession,
   seedScratchSession,
   shellAndSettle,
   tugtool,
   tugtoolPath,
-  type DashScratchRepo,
-} from "./dash-fixture";
+  type ArcScratchRepo,
+} from "./arc-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
@@ -71,34 +71,34 @@ const SID = "a7c0d1ea-0000-4000-8000-000000000476";
 const CARD = '[data-card-id="A"]';
 const SHELL_ROWS = `${CARD} [data-slot="session-transcript-shell-row"]`;
 
-const DASH_NAME = "at0476-stop";
-const OTHER_DASH = "at0476-other";
-const THIRD_DASH = "at0476-third";
-/** Every dash's brief lives at its own address, so there is nothing to name. */
+const ARC_NAME = "at0476-stop";
+const OTHER_ARC = "at0476-other";
+const THIRD_ARC = "at0476-third";
+/** Every arc's brief lives at its own address, so there is nothing to name. */
 const BRIEF_BODY = "# A brief\n\nSome prose the arc opens on.\n";
 
-/** This checkout — the build under test, and never the tree a dash is cut in. */
+/** This checkout — the build under test, and never the tree an arc is cut in. */
 const CHECKOUT = realpathSync(resolve(import.meta.dir, "..", ".."));
-let scratch: DashScratchRepo | null = null;
+let scratch: ArcScratchRepo | null = null;
 let fixtureDir = "";
 const projectDir = (): string => scratch?.repo ?? "";
 
 beforeAll(() => {
   if (!SHOULD_RUN) return;
-  scratch = makeDashScratchRepo({ prefix: "at0476", checkout: CHECKOUT });
-  createDash(projectDir(), DASH_NAME, "at0476 stop fixture", scratch.cli);
-  createDash(projectDir(), OTHER_DASH, "at0476 second dash", scratch.cli);
-  createDash(projectDir(), THIRD_DASH, "at0476 third dash", scratch.cli);
-  // The arc opens on the dash's own brief, so each one that runs gets one.
-  for (const name of [DASH_NAME, OTHER_DASH]) {
-    writeFileSync(dashBriefPath(projectDir(), name), BRIEF_BODY);
+  scratch = makeArcScratchRepo({ prefix: "at0476", checkout: CHECKOUT });
+  createArc(projectDir(), ARC_NAME, "at0476 stop fixture", scratch.cli);
+  createArc(projectDir(), OTHER_ARC, "at0476 second arc", scratch.cli);
+  createArc(projectDir(), THIRD_ARC, "at0476 third arc", scratch.cli);
+  // The arc opens on the arc's own brief, so each one that runs gets one.
+  for (const name of [ARC_NAME, OTHER_ARC]) {
+    writeFileSync(arcBriefPath(projectDir(), name), BRIEF_BODY);
   }
   fixtureDir = seedScratchSession(projectDir(), SID);
 });
 
 afterAll(() => {
   if (!SHOULD_RUN) return;
-  rmDashScratchRepo(scratch);
+  rmArcScratchRepo(scratch);
   rmScratchSession(fixtureDir);
 });
 
@@ -155,7 +155,7 @@ async function shellRowText(app: App): Promise<string[]> {
   return JSON.parse(raw) as string[];
 }
 
-/** What `tugtool arc record --json` says about a dash, read from the fixture. */
+/** What `tugtool arc record --json` says about an arc, read from the fixture. */
 function arcReport(name: string): {
   stopped: [string, string] | null;
   resume: string | null;
@@ -190,7 +190,7 @@ async function openCard(app: App): Promise<void> {
 
 describe.skipIf(!SHOULD_RUN)("AT0476: an interrupted arc says so on the card", () => {
   test(
-    "dash stop stops the arc, says so on the card, and dash run picks it back up",
+    "arc stop stops the arc, says so on the card, and arc run picks it back up",
     async () => {
       const tugbankPath = mkTempTugbank();
       seedTugbankForLaunch(tugbankPath, { sourceTreePath: CHECKOUT });
@@ -212,36 +212,36 @@ describe.skipIf(!SHOULD_RUN)("AT0476: an interrupted arc says so on the card", (
         // told, in words, on the surface the user is watching.
         await shellUntil(
           app,
-          `${cli} arc run ${DASH_NAME} && ${cli} arc stop ${DASH_NAME}`,
+          `${cli} arc run ${ARC_NAME} --plan && ${cli} arc stop ${ARC_NAME}`,
           "you stopped it",
         );
 
         // The record says it, in the closed vocabulary. Stable to re-read: a
         // stopped arc is not advanced by a tick.
-        const stopped = arcReport(DASH_NAME);
+        const stopped = arcReport(ARC_NAME);
         note("at0476 arc after stop", JSON.stringify(stopped));
         expect(stopped.stopped?.[1]).toBe("stopped by user");
         expect(stopped.done).toBe(false);
 
         // And the card says it, as a shell-exchange row ([D111]) under
-        // `/dash-arc` — which is what a restore replays too.
+        // `/arc-run` — which is what a restore replays too.
         const rows = await shellRowText(app);
         const receipt = rows.find((t) => t.indexOf("you stopped it") !== -1) ?? "";
         note("at0476 stop receipt", receipt);
         // **The header is a parse key, not display text.** The receipt's
-        // first line — `arc stopped · <dash> · in <stage> — <reason>` — is
+        // first line — `arc stopped · <arc> · in <stage> — <reason>` — is
         // what `parseArcReceipt` matches on, and the block's whole purpose is
-        // to spend it: it renders the dash as an atom, the reason as the
+        // to spend it: it renders the arc as an atom, the reason as the
         // lifecycle strip's note, and the resume sentence as its own line.
         // Asserting the raw prefix would pin the row to *not* having been
         // recognized, which is the opposite of the claim. So the claim is
         // that it was recognized — the wheel-attributed identifier is the one
         // word only the arc-receipt block puts on a row.
         expect(receipt).toContain("Wheel");
-        expect(receipt).toContain(DASH_NAME);
+        expect(receipt).toContain(ARC_NAME);
         // The receipt says how to pick the work back up — that is the third
         // column of every row of the doctrine table.
-        expect(receipt).toContain(`tugtool arc run ${DASH_NAME}`);
+        expect(receipt).toContain(`tugtool arc run ${ARC_NAME}`);
         note("at0476 card with the stop receipt", (await app.screenshot()).path);
 
         // ── And the work is still there ───────────────────────────────────
@@ -250,7 +250,7 @@ describe.skipIf(!SHOULD_RUN)("AT0476: an interrupted arc says so on the card", (
         // once the arc is resumed the runner is free to rotate it again, so
         // the record is a moving target and the CLI's statement is not.
         const resumed = JSON.parse(
-          tugtool(["arc", "run", DASH_NAME, "--json"], {
+          tugtool(["arc", "run", ARC_NAME, "--json"], {
             cwd: projectDir(),
             binaryRoot: CHECKOUT,
             env: { ...scratch?.cli.env, TUG_SESSION_ID: SID },
@@ -268,7 +268,7 @@ describe.skipIf(!SHOULD_RUN)("AT0476: an interrupted arc says so on the card", (
   );
 
   test(
-    "a second dash on a card already running one is refused by name",
+    "a second arc on a card already running one is refused by name",
     async () => {
       const tugbankPath = mkTempTugbank();
       seedTugbankForLaunch(tugbankPath, { sourceTreePath: CHECKOUT });
@@ -286,7 +286,7 @@ describe.skipIf(!SHOULD_RUN)("AT0476: an interrupted arc says so on the card", (
         // question being asked.
         await shellAndSettle(
           app,
-          `${cli} arc run ${OTHER_DASH} && ${cli} arc bind ${THIRD_DASH}`,
+          `${cli} arc run ${OTHER_ARC} && ${cli} arc bind ${THIRD_ARC}`,
         );
 
         // ── The interruption that is refused rather than described ────────
@@ -297,8 +297,8 @@ describe.skipIf(!SHOULD_RUN)("AT0476: an interrupted arc says so on the card", (
         const rows = await shellRowText(app);
         const refusal = rows[0] ?? "";
         note("at0476 bind refusal", refusal);
-        expect(refusal).toContain(`card runs ${OTHER_DASH}`);
-        expect(refusal).toContain(THIRD_DASH);
+        expect(refusal).toContain(`card runs ${OTHER_ARC}`);
+        expect(refusal).toContain(THIRD_ARC);
         note("at0476 card with the refusal", (await app.screenshot()).path);
       } finally {
         await app.close();

@@ -248,7 +248,7 @@ export type ReplayWindow =
   | { turnRange: [number, number] };
 
 /**
- * One session in a replay's lineage — a stage of a dash arc, or the
+ * One session in a replay's lineage — a stage of an arc, or the
  * conversation the arc was handed off from.
  *
  * `stage` and its companions are absent on an entry that ran no stage (the
@@ -264,7 +264,7 @@ export interface ReplayLineageEntry {
   model?: string;
   /** The document the arc opened on, repo-relative. */
   document?: string;
-  /** The dash name the arc is keyed by. */
+  /** The name the arc is keyed by. */
   arc?: string;
 }
 
@@ -280,7 +280,7 @@ export interface RequestReplay {
   window?: ReplayWindow;
   /**
    * Optional ordered lineage — oldest ancestor first, the session being
-   * resumed last. Present only for a dash arc, whose stages each own their
+   * resumed last. Present only for an arc, whose stages each own their
    * own JSONL: tugcode replays each in order, emitting a stage divider at
    * every boundary, so a relaunched card re-renders the whole arc rather
    * than only its last stage ([P10]).

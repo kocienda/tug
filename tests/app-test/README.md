@@ -13,14 +13,13 @@ For the harness **architecture** — what it is, the trusted-event problem, life
   the Apple Developer ID signing pipeline that keeps the macOS
   Accessibility grant stable across rebuilds. Read this when AX is
   broken.
-- [`dash/tugplan-in-app-bridge.md`](../../dash/tugplan-in-app-bridge.md)
-  — design rationale, decisions ([D01]–[D14]), and transport / boot
-  choreography.
-- [`dash/tugplan-harness-extensions.md`](../../dash/tugplan-harness-extensions.md)
-  — Phase A native-event family (CGEvent-backed gestures, keyboard,
-  app-lifecycle), tugcode subprocess control.
-- [`dash/tugplan-app-test-cleanup.md`](../../dash/tugplan-app-test-cleanup.md)
-  — the 2026-04-27 cleanup that produced the current naming.
+- The in-app bridge design record, decisions [D01]–[D14] — design
+  rationale, and transport / boot choreography.
+- The harness-extensions design record — Phase A native-event family
+  (CGEvent-backed gestures, keyboard, app-lifecycle), tugcode
+  subprocess control.
+- The app-test cleanup design record — the 2026-04-27 cleanup that
+  produced the current naming.
 
 ## Running
 
@@ -113,9 +112,8 @@ just app-test 2>/dev/null | tail -n 1   # → VERDICT: PASS  (47/47 ...)
 
 The summary also lists every file with `[PASS]` / `[FAIL]` / `[SKIP]`
 / `[ERR]` and per-file `(passed/total)` counts, plus a `Failures:`
-block when any file fails. See
-[`dash/tugplan-app-test-cleanup.md#s01-summary-format`](../../dash/tugplan-app-test-cleanup.md#s01-summary-format)
-for the contract.
+block when any file fails. The app-test cleanup design record's
+summary-format spec [S01] states the contract.
 
 ### Concurrency: one invocation at a time
 
@@ -157,16 +155,16 @@ in [tuglaws/app-test-harness.md](../../tuglaws/app-test-harness.md#the-repo-univ
 ### A fixture arc lives in a scratch repository, never in your checkout
 
 **An arc is for doing the work, not for running a test.** A fixture
-never cuts one in the checkout you are working in — `createDash`,
-`commitRound`, and `discardDash` all refuse the attempt with a message
+never cuts one in the checkout you are working in — `createArc`,
+`commitRound`, and `discardArc` all refuse the attempt with a message
 naming this rule. Every arc fixture builds a repository of its own:
 
 ```ts
-scratch = makeDashScratchRepo({ prefix: "at0999", checkout: CHECKOUT });
-createDash(scratch.repo, DASH, "at0999 fixture", scratch.cli);
+scratch = makeArcScratchRepo({ prefix: "at0999", checkout: CHECKOUT });
+createArc(scratch.repo, ARC, "at0999 fixture", scratch.cli);
 fixtureDir = seedScratchSession(scratch.repo, SID);   // uuid-shaped SID
 // afterAll:
-rmDashScratchRepo(scratch);
+rmArcScratchRepo(scratch);
 rmScratchSession(fixtureDir);
 ```
 
@@ -197,7 +195,7 @@ Four things to know:
   tests really do compose the checkout's dirt.
 
 `--base` still comes from the project the arc is cut in, not from
-`main`: `createDash` derives it from the branch that project has out.
+`main`: `createArc` derives it from the branch that project has out.
 
 Everything a scratch fixture makes carries the `tug-scratch-` prefix — the
 repo, its data root, its stub scripts, and the transcript directory under
@@ -325,13 +323,13 @@ audit), `at0436` (a join pressed for real), `at0442` (the escalation) — and
 **none of them spawns a model.** Two seams make that possible, and a new join
 fixture should use both.
 
-**The resolver is scripted.** `git config tugdash.joinresolver <script>` in the
+**The resolver is scripted.** `git config tugarc.joinresolver <script>` in the
 fixture's repo makes tugcast run that command instead of `claude`. It speaks the
 same two terminal shapes the real spawn does — one JSON line per user message in
 on stdin, one per terminal turn out on stdout, either `{"ask":{…}}` or the
 report — so the orchestrator's parse-and-wait path is the identical one. A few
 lines of `sh` can play any resolver behavior: resolve-and-report, ask-then-
-resolve, never-repair, report-nothing. This is the `tugdash.mergedriver` stub
+resolve, never-repair, report-nothing. This is the `tugarc.mergedriver` stub
 pattern one rung up. **Without a stub the seam does not fall back to a model —
 it refuses**, which is what keeps a stray fixture from quietly spending a
 minute of API time.
@@ -345,7 +343,7 @@ machine-wide `apptest` gate its own run is holding, which a join-time test tier
 could.
 
 **The repository is the fixture's own.** `makeJoinScratchRepo` in
-`dash-fixture.ts` builds one — on top of `makeDashScratchRepo`, the same
+`arc-fixture.ts` builds one — on top of `makeArcScratchRepo`, the same
 constructor every arc fixture uses, so there is one implementation of "a repo
 Tug can open" — adding one genuine conflict and the stub scripts to the base
 repo's `git init`, `.tugtool/` marker and redirected
@@ -608,6 +606,5 @@ tests/app-test/
 The Swift-side gate env var is still named `TUGAPP_APP_TEST=1`
 even though the directory is now `tests/app-test/`. Renaming the env
 var requires a coordinated Swift change with code-signing
-implications — deferred. See
-[`dash/tugplan-app-test-cleanup.md`](../../dash/tugplan-app-test-cleanup.md)
+implications — deferred. See the app-test cleanup design record,
 [D06].

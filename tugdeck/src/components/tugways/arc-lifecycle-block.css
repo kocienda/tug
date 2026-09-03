@@ -1,7 +1,7 @@
-/* dash-lifecycle-block.css — two lines, a hairline between the identities.
+/* arc-lifecycle-block.css — two lines, a hairline between the identities.
    The block clips at its box; nothing in it may push the row wider. */
 
-.tug-dash-lifecycle-block {
+.tug-arc-lifecycle-block {
   display: flex;
   flex-direction: column;
   gap: 3px;
@@ -11,18 +11,18 @@
   flex: 1 1 auto;
 }
 
-.tug-dash-lifecycle-block[data-size="read"] {
+.tug-arc-lifecycle-block[data-size="read"] {
   gap: 4px;
 }
 
-.tug-dash-lifecycle-eyebrow {
+.tug-arc-lifecycle-eyebrow {
   display: flex;
   align-items: center;
   gap: var(--tug-space-sm);
   min-width: 0;
 }
 
-.tug-dash-lifecycle-rule {
+.tug-arc-lifecycle-rule {
   flex: 1 1 auto;
   min-width: 24px;
   height: 1px;

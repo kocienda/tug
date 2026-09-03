@@ -38,7 +38,7 @@ import {
 import type { ArcJoinStateWire } from "@/lib/changeset-types";
 
 const fakeConn = { onFrame: () => () => {} } as never;
-const K = { project_dir: "/u/src/tugtool", dash: "demo" };
+const K = { project_dir: "/u/src/tugtool", arc: "demo" };
 
 const CONFLICTED: ArcJoinStateWire = { phase: "conflicted", conflicts: ["a.rs"] };
 const RESOLVED: ArcJoinStateWire = {
@@ -95,7 +95,7 @@ describe("the outcome and the resolve face, per state", () => {
   });
 
   test("a candidate reads resolved, whatever its history was", () => {
-    // A resolved conflict is a joinable dash even though its history is
+    // A resolved conflict is a joinable arc even though its history is
     // `conflicted` — the candidate is what would land.
     const resolved = face(RESOLVED);
     expect(resolved.outcome).toBe("clean");
@@ -104,13 +104,13 @@ describe("the outcome and the resolve face, per state", () => {
 
   test("the server's own run fact reads as progress after a reload", () => {
     // The overlay phase dies with the page; `run` is the feed's account of
-    // what it is doing right now, so a second deck watching the same dash
+    // what it is doing right now, so a second deck watching the same arc
     // still sees the minutes of real work.
     const running = face({ ...CONFLICTED, run: "resolve" });
     expect(running.resolve).toBe("progress");
   });
 
-  test("a dash the feed says nothing about derives blocked", () => {
+  test("an arc the feed says nothing about derives blocked", () => {
     const silent = face(null);
     expect(silent.outcome).toBe("blocked");
     expect(silent.resolve).toBe("none");
@@ -153,7 +153,7 @@ describe("every refusal points at the composer, or at a wait ([P09])", () => {
     // Not an exemption from [L31] — the reason there is nothing to point at is
     // exactly why the sentence has to carry the whole answer.
     //
-    // `outcome` joined it when the shade was disarmed — a conflicted dash is
+    // `outcome` joined it when the shade was disarmed — a conflicted arc is
     // the pilot's to reconcile, a blocked one is cleared outside the app, and
     // each blocker carries its own act sentence where the table used to carry
     // a slot.
@@ -180,7 +180,7 @@ describe("the overlay never outranks what is in git", () => {
   test("a live run shows progress, and its result comes back from the feed", () => {
     const store = attachChangesetJoinStore(fakeConn);
     const phase = (): Parameters<typeof deriveJoinFace>[0]["resolvePhase"] =>
-      store.state(K.project_dir, K.dash).phase;
+      store.state(K.project_dir, K.arc).phase;
 
     expect(face(CONFLICTED, { resolvePhase: phase() }).resolve).toBe("offer");
 
@@ -210,7 +210,7 @@ describe("the overlay never outranks what is in git", () => {
   test("a resolution survives the overlay it was built under", () => {
     // The reload beat at the derivation layer: the page is new, so the store
     // holds nothing, and the only thing saying a candidate exists is the feed.
-    // Ranked the other way this reads `none` — a clean dash with no review
+    // Ranked the other way this reads `none` — a clean arc with no review
     // panel, landing an unread machine merge.
     expect(face(RESOLVED, { resolvePhase: "idle" }).resolve).toBe("resolved");
   });
@@ -224,7 +224,7 @@ describe("the overlay never outranks what is in git", () => {
       unresolved: ["b.rs"],
       shape: "squash",
     });
-    const state = store.state(K.project_dir, K.dash);
+    const state = store.state(K.project_dir, K.arc);
     expect(state.error).toContain("b.rs");
     const f = face(CONFLICTED, { resolvePhase: state.phase });
     expect(f.resolve).toBe("error");
@@ -241,14 +241,14 @@ describe("the escalation, narrowed for the wizard", () => {
       request_id: "join-demo-7",
       question: "Which name wins?",
       options: [
-        { label: "the dash", description: "keep the dash's rename" },
+        { label: "the arc", description: "keep the arc's rename" },
         { label: "the base", description: "keep what main renamed it to" },
       ],
     });
     expect(parsed.question).toBe("Which name wins?");
     expect(parsed.multiSelect).toBe(false);
     expect(parsed.options).toEqual([
-      { label: "the dash", description: "keep the dash's rename" },
+      { label: "the arc", description: "keep the arc's rename" },
       { label: "the base", description: "keep what main renamed it to" },
     ]);
   });

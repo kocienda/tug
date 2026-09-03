@@ -15,7 +15,7 @@ import {
 import { joinDisabledReason } from "@/lib/join-mode-controller";
 import type {
   ArcJoinBlockerWire,
-  DashResolvedFileWire,
+  ArcResolvedFileWire,
 } from "@/lib/changeset-types";
 
 const blocker = (
@@ -75,7 +75,7 @@ describe("discardPreflightLine", () => {
     expect(discardPreflightLine(0, 2)).toBe("Discards 2 files");
   });
 
-  it("does not invent a stake for a dash with no work", () => {
+  it("does not invent a stake for an arc with no work", () => {
     expect(discardPreflightLine(0, 0)).toBe(
       "Discards nothing — this arc has no work",
     );
@@ -91,8 +91,8 @@ describe("joinDisabledReason", () => {
   });
 
   it("names what the outcome is waiting on", () => {
-    expect(joinDisabledReason("outcome", "stale", "the dash has moved")).toBe(
-      "the dash has moved",
+    expect(joinDisabledReason("outcome", "stale", "the arc has moved")).toBe(
+      "the arc has moved",
     );
     expect(joinDisabledReason("outcome", "conflicted")).toBe(
       "Resolve the conflicts first",

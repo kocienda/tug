@@ -62,15 +62,15 @@ export const TugProgressRing = React.forwardRef<HTMLSpanElement, TugProgressRing
     //   stopped / aborted (with no value) → hidden arc (offset = circumference)
     //   determinate → fraction
     //   running indeterminate → handled by .indeterminate animation
-    let dashOffset: number | undefined;
+    let arcOffset: number | undefined;
     if (state === "completed") {
-      dashOffset = 0;
+      arcOffset = 0;
     } else if (state === "stopped") {
-      dashOffset = CIRCUMFERENCE;
+      arcOffset = CIRCUMFERENCE;
     } else if (isDeterminate) {
-      dashOffset = CIRCUMFERENCE * (1 - fraction);
+      arcOffset = CIRCUMFERENCE * (1 - fraction);
     } else if (state === "aborted") {
-      dashOffset = CIRCUMFERENCE;
+      arcOffset = CIRCUMFERENCE;
     }
 
     const isIndeterminate =
@@ -135,7 +135,7 @@ export const TugProgressRing = React.forwardRef<HTMLSpanElement, TugProgressRing
             strokeDashoffset={
               isIndeterminate && !isDeterminate
                 ? INDETERMINATE_VISIBLE_OFFSET
-                : dashOffset
+                : arcOffset
             }
             strokeLinecap="round"
           />

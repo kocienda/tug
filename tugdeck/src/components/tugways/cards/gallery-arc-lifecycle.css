@@ -1,17 +1,17 @@
-/* gallery-dash-lifecycle.css — this card's frames only. Everything a dash
+/* gallery-arc-lifecycle.css — this card's frames only. Everything an arc
    wears is its own component's stylesheet; nothing here styles a component. */
 
-.cg-dash-stage {
+.cg-arc-stage {
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
 
-.cg-dash-caption {
+.cg-arc-caption {
   user-select: none;
 }
 
-.cg-dash-prose {
+.cg-arc-prose {
   margin: 0;
   max-width: 72ch;
   font-size: var(--tug-font-size-xs);
@@ -19,44 +19,44 @@
   color: var(--tug7-element-global-text-normal-muted-rest);
 }
 
-.cg-dash-legend {
+.cg-arc-legend {
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
 
-.cg-dash-legend-row {
+.cg-arc-legend-row {
   display: flex;
   align-items: center;
   gap: var(--tug-space-sm);
   min-block-size: 18px;
 }
 
-.cg-dash-legend-word {
+.cg-arc-legend-word {
   font-size: var(--tug-font-size-xs);
   color: var(--tug7-element-global-text-normal-muted-rest);
 }
 
-.cg-dash-lineup {
+.cg-arc-lineup {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: var(--tug-space-md);
 }
 
-.cg-dash-pair {
+.cg-arc-pair {
   display: inline-flex;
   align-items: center;
   gap: var(--tug-space-2xs);
 }
 
-.cg-dash-surfaces {
+.cg-arc-surfaces {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 10px 16px;
 }
 
-.cg-dash-surface {
+.cg-arc-surface {
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -70,11 +70,11 @@
 /* The masthead is a card-wide chrome tier, so it gets the full width rather
    than half of one — a two-column cell would make it truncate for a reason
    the real card never has. */
-.cg-dash-surface[data-wide="true"] {
+.cg-arc-surface[data-wide="true"] {
   grid-column: 1 / -1;
 }
 
-.cg-dash-surface-name {
+.cg-arc-surface-name {
   font-size: 10px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -84,12 +84,12 @@
 
 /* The row inside it is the shipping component; only its list padding is
    zeroed, the same thing SessionMasthead does to seat it in chrome. */
-.cg-dash-masthead-row {
+.cg-arc-masthead-row {
   padding: 0;
 }
 
 /* The proposed remedy frames: one column per situation, each a surface box. */
-.cg-dash-situations {
+.cg-arc-situations {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px 16px;
@@ -98,7 +98,7 @@
 /* The Z2 frame's rail. The cells carry the shipping row's class so they wear
    its font and apparatus; this only lets the seven of them wrap instead of
    packing into one card-wide instrument row. */
-.cg-dash-z2-row {
+.cg-arc-z2-row {
   flex-wrap: wrap;
   justify-content: flex-start;
   background: var(--tug7-surface-card-primary-normal-status-rest);

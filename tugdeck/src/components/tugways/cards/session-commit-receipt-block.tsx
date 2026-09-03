@@ -68,7 +68,7 @@ export interface ParsedCommitReceipt {
 //   committed <sha> · <N> file(s) · +<added> −<removed>
 //   files: [{"path":"…","status":"modified","added":16,"removed":1}, …]
 //   <full message>
-// (`·` is U+00B7, `−` U+2212 — matched exactly so a hand-typed dash never
+// (`·` is U+00B7, `−` U+2212 — matched exactly so a hand-typed arc never
 // false-parses.)
 const HEAD_RE = /^committed (\S+) · (\d+) file\(s\) · \+(\d+) −(\d+)$/;
 
@@ -170,7 +170,7 @@ function CommitReceipt({
   // like the Bash header's command line; the body (when there is one) follows
   // below it, above the file list.
   const subject = message.split("\n", 1)[0];
-  // A commit subject names what it touched (`tugdash(annotator-perf): …`), and
+  // A commit subject names what it touched (`tugarc(annotator-perf): …`), and
   // the scope tag often IS a path. Annotated like the Bash header's command
   // line, whose `<code>` this mirrors. The sha beside it is deliberately NOT
   // annotated — `CommitShaText` already owns every pointer gesture on it, and

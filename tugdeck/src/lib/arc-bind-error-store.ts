@@ -1,11 +1,11 @@
 /**
- * dash-bind-error-store.ts — the last refused dash binding, per session.
+ * arc-bind-error-store.ts — the last refused arc binding, per session.
  *
- * `bind_dash` is a broadcast verb: the deck sends a CONTROL frame and the
+ * `bind_arc` is a broadcast verb: the deck sends a CONTROL frame and the
  * answer comes back through `action-dispatch`, nowhere near the card that
- * asked. Success needs no channel — `bind_dash_ok` moves the binding store and
+ * asked. Success needs no channel — `bind_arc_ok` moves the binding store and
  * the chip and the lane follow. A refusal has nothing to move, so without this
- * it lands in silence and a `/dash <name>` that did nothing is
+ * it lands in silence and a `/arc <name>` that did nothing is
  * indistinguishable from one that was never typed.
  *
  * So the failure is parked here, keyed by session, and the card's

@@ -164,7 +164,7 @@ export function decodeBlocks(buf: Uint32Array): BlockMeta[] {
 //
 // pulldown-cmark returns BYTE offsets into the UTF-8 encoding of the
 // input. JS `String.slice` uses UTF-16 code unit indices. For ASCII
-// they coincide, but any multi-byte codepoint (em-dash, emoji)
+// they coincide, but any multi-byte codepoint (em-arc, emoji)
 // produces a wrong slice without this conversion.
 //
 // We build the map once per content string and reuse it for all

@@ -4,7 +4,7 @@
  *
  * This is the gesture the corpus never made. On 2026-08-17 a Join press
  * produced three previews and no land request at all: the staged callback
- * re-read the dash off a controller the staging itself had just cleared, found
+ * re-read the arc off a controller the staging itself had just cleared, found
  * nothing, and returned. Nothing was sent, nothing was said, and the backend
  * was never asked — so the only honest pin is one that walks submit → gate →
  * stage → shade dismissal → wire and then proves the server *answered*.
@@ -14,12 +14,12 @@
  * The base branch moving, and nothing weaker. A bulletin, a spinner, or a face
  * state can all be produced by a client that never sent anything — which is
  * exactly what the incident did — so the assertion is a commit on `main` and
- * the dash gone from the lane.
+ * the arc gone from the lane.
  *
- * This file once made the join *fail* instead, on the reasoning that a dash in
+ * This file once made the join *fail* instead, on the reasoning that an arc in
  * the developer's checkout must not be landed. It owns its repository now, for
  * two reasons. That base branch is one somebody works on. And entering join
- * mode on a clean dash *resolves* it, which runs the project's own declared
+ * mode on a clean arc *resolves* it, which runs the project's own declared
  * checks over the candidate — aimed at the checkout, that is the corpus
  * building itself in the developer's tree on the way to a button press. Here it
  * is a sentinel grep over a two-file repo.
@@ -30,11 +30,11 @@
  * rather than a pin. `at0435` holds the refusal *surface*, and `ops.rs` holds
  * the preflight itself.
  *
- * What stays this file's own, and is why it is not at0441 twice: the dash is
- * reached by a **binding** gesture (`bind_dash_ok`) rather than by name, and
+ * What stays this file's own, and is why it is not at0441 twice: the arc is
+ * reached by a **binding** gesture (`bind_arc_ok`) rather than by name, and
  * the press is **staged** behind the shade's dismissal. Those are the two
  * mechanisms the 2026-08-17 incident lived in — the staged callback re-read the
- * dash off a controller the staging had just cleared, found nothing, and
+ * arc off a controller the staging had just cleared, found nothing, and
  * returned.
  *
  * @covers tugdeck/src/lib/join-mode-controller.ts
@@ -61,14 +61,14 @@ import {
   seedTugbankForLaunch,
 } from "./_harness/tugbank-helpers";
 import {
-  bindDash,
+  bindArc,
   makeJoinScratchRepo,
   rmJoinScratchRepo,
   rmScratchSession,
   seedScratchSession,
   silenceJoinPrompt,
   type JoinScratchRepo,
-} from "./dash-fixture";
+} from "./arc-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 240_000;
@@ -77,7 +77,7 @@ const SID = "a7c0d1ea-0000-4000-8000-000000000436";
 const CARD = '[data-card-id="A"]';
 const EDITOR = `${CARD} [data-slot="tug-text-editor"] .cm-content`;
 const SHEET = `${CARD} .session-view-pane[data-view="changes"] [data-slot="tug-sheet"]`;
-const LANE = `${SHEET} [data-slot="session-changes-dash-lane"]`;
+const LANE = `${SHEET} [data-slot="session-changes-arc-lane"]`;
 const ROUTE_GROUP = `${CARD} .tug-prompt-entry-toolbar .tug-prompt-entry-route-group`;
 const JOIN_BUTTON = `${CARD} .tug-prompt-entry-commit-button[aria-label="Join"]`;
 // The bespoke `/arc-join` receipt block — the generic shell fallback carries a
@@ -86,7 +86,7 @@ const JOIN_RECEIPT = `${CARD} [data-slot="join-receipt-block"]`;
 
 /** The checkout whose built binaries the fixture drives — never the project. */
 const CHECKOUT = realpathSync(resolve(import.meta.dir, "..", ".."));
-const DASH = "at0436-work";
+const ARC = "at0436-work";
 const FILE = "subject.txt";
 
 /** The scratch repository this fixture owns, and the only tree it touches. */
@@ -96,50 +96,50 @@ const projectDir = (): string => scratch?.repo ?? "";
 
 let fixtureDir = "";
 let tugbankPath = "";
-let dashId = "";
+let arcId = "";
 
 
-const row = (dash: string): string =>
-  `${LANE} [data-slot="session-changes-dash-row"][data-dash="${dash}"]`;
-const landing = (dash: string): string =>
-  `${row(dash)} [data-slot="session-changes-arc-join"]`;
+const row = (arc: string): string =>
+  `${LANE} [data-slot="session-changes-arc-row"][data-arc="${arc}"]`;
+const landing = (arc: string): string =>
+  `${row(arc)} [data-slot="session-changes-arc-join"]`;
 // Card-scoped, not row-scoped: the register that reports a join in progress is
-// the composer's live-edge one, not a copy inside the lane row. One dash is
-// bound here, so the card's register is this dash's.
+// the composer's live-edge one, not a copy inside the lane row. One arc is
+// bound here, so the card's register is this arc's.
 const CANDIDATE = `${CARD} [data-slot="arc-join-register"][data-word="ready"]`;
-const landsAs = (dash: string): string =>
-  `${row(dash)} [data-slot="session-changes-dash-lands-as"]`;
+const landsAs = (arc: string): string =>
+  `${row(arc)} [data-slot="session-changes-arc-lands-as"]`;
 
 
 beforeAll(() => {
   if (!SHOULD_RUN) return;
   // A repository of the fixture's own, for the reason at0441 has one: entering
-  // join mode on a clean dash now *resolves* it, and the verification that
+  // join mode on a clean arc now *resolves* it, and the verification that
   // follows runs the project's own declared checks. Aimed at the checkout that
   // would be the corpus building itself, in the developer's tree, on the way to
   // a press. Here it is a sentinel grep over a two-file repo.
   scratch = makeJoinScratchRepo({
     prefix: "at0436",
-    dash: DASH,
+    arc: ARC,
     description: "at0436 fixture (a round to land)",
     checkout: CHECKOUT,
     file: FILE,
-    fork: "at0436 the dash's file\n",
+    fork: "at0436 the arc's file\n",
     base: "at0436 SENTINEL the base's own file\n",
-    dashBody: "at0436 SENTINEL the dash rewrote it\n",
+    arcBody: "at0436 SENTINEL the arc rewrote it\n",
     // Clean, because what this file presses is a *landable* join: the refusal
     // it is about comes from the server on execute, not from the merge.
     cleanMerge: true,
     resolver: "#!/bin/sh\nexit 0\n",
   });
-  dashId = scratch.dashId;
+  arcId = scratch.arcId;
 
   fixtureDir = seedScratchSession(projectDir(), SID);
 });
 
 afterAll(() => {
   if (!SHOULD_RUN) return;
-  // The repository IS the teardown: branch, worktree, config, and dash all go
+  // The repository IS the teardown: branch, worktree, config, and arc all go
   // with the directory.
   rmJoinScratchRepo(scratch);
   rmScratchSession(fixtureDir);
@@ -243,41 +243,41 @@ describe.skipIf(!SHOULD_RUN)("AT0436: the Join press reaches the wire", () => {
         await app.spawnSessionResume("A", { tugSessionId: SID, projectDir: projectDir() });
         await app.awaitEngineReady("A", { timeoutMs: 15000 });
         // The join face is what the pilot found, and the pilot works only a
-        // dash somebody holds ([D147]) — a client-side `bind_dash_ok` writes
+        // arc somebody holds ([D147]) — a client-side `bind_arc_ok` writes
         // no ledger row for it to read. The prompt that follows a standing
         // candidate is answered in advance: this file is about the shade.
-        bindDash(projectDir(), DASH, SID, scratch?.cli ?? {});
-        silenceJoinPrompt(projectDir(), DASH);
+        bindArc(projectDir(), ARC, SID, scratch?.cli ?? {});
+        silenceJoinPrompt(projectDir(), ARC);
 
         await raiseShade(app);
-        await app.dispatchControlAction("bind_dash_ok", {
+        await app.dispatchControlAction("bind_arc_ok", {
           tug_session_id: SID,
-          dash_id: dashId,
-          dash_name: DASH,
+          arc_id: arcId,
+          arc_name: ARC,
         });
-        // A landable dash publishes its OFFER — the `lands as` line — so that
+        // A landable arc publishes its OFFER — the `lands as` line — so that
         // is what says the fixture is ready. The report fold is NOT a
         // readiness signal and cannot be waited on here: a clean join has no
         // conflict, blocker, question or account to show, and the section
         // renders nothing it cannot say. Its silence is the clean case's own
         // shape, so it is asserted rather than waited for.
         await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(landsAs(DASH))}) !== null`,
+          `document.querySelector(${JSON.stringify(landsAs(ARC))}) !== null`,
           { timeoutMs: 20000 },
         );
         expect(
           await app.evalJS<boolean>(
-            `document.querySelector(${JSON.stringify(landing(DASH))}) === null`,
+            `document.querySelector(${JSON.stringify(landing(ARC))}) === null`,
           ),
-          "a clean dash shows no report — the fold speaks only with evidence",
+          "a clean arc shows no report — the fold speaks only with evidence",
         ).toBe(true);
 
         // `/commit` raised the shade in COMMIT mode, and one composer holds one
         // landing — so commit has to go before the join can have the document.
         // Escape is that exit, and it is the whole gesture: the BINDING opens
-        // the join, which is this file's point ([the header]). A bound dash
+        // the join, which is this file's point ([the header]). A bound arc
         // with work ready to join enters join mode BY ITSELF once the composer
-        // is free, so nothing here types `/arc-join` — reaching the dash by
+        // is free, so nothing here types `/arc-join` — reaching the arc by
         // name is at0441's route, and it would open by name the very mode the
         // binding is supposed to be proving it can open.
         await app.nativeClickAtElement(EDITOR);
@@ -288,7 +288,7 @@ describe.skipIf(!SHOULD_RUN)("AT0436: the Join press reaches the wire", () => {
           { timeoutMs: 60000 },
         );
 
-        // Entering join mode resolved the dash ([P03]); the CANDIDATE standing
+        // Entering join mode resolved the arc ([P03]); the CANDIDATE standing
         // is that resolution anchoring, and it is the gate. The resolver's
         // account is not — a clean join resolves nothing and files no account,
         // so waiting on one here would wait forever. The register's `ready`
@@ -299,14 +299,14 @@ describe.skipIf(!SHOULD_RUN)("AT0436: the Join press reaches the wire", () => {
         );
 
         // A message of the user's own, so the press clears the gate on its
-        // merits rather than on whatever the dash's draft happens to hold.
+        // merits rather than on whatever the arc's draft happens to hold.
         await app.nativeClickAtElement(EDITOR);
         await settle();
         await app.nativeKey("a", ["cmd"]);
         await app.nativeKey("Delete");
-        await app.nativeType("at0436: land this dash");
+        await app.nativeType("at0436: land this arc");
         await app.waitForCondition<boolean>(
-          `(document.querySelector(${JSON.stringify(EDITOR)})?.textContent ?? "").indexOf("land this dash") !== -1`,
+          `(document.querySelector(${JSON.stringify(EDITOR)})?.textContent ?? "").indexOf("land this arc") !== -1`,
           { timeoutMs: 5000 },
         );
 
@@ -324,11 +324,11 @@ describe.skipIf(!SHOULD_RUN)("AT0436: the Join press reaches the wire", () => {
         );
         note(`at0436 landed: ${JSON.stringify(baseTip())}`);
 
-        // And the dash is gone from the lane, which is the other half of a join
-        // that really happened: a landed dash that keeps being offered is the
+        // And the arc is gone from the lane, which is the other half of a join
+        // that really happened: a landed arc that keeps being offered is the
         // same lie the whole campaign is about.
         await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(row(DASH))}) === null`,
+          `document.querySelector(${JSON.stringify(row(ARC))}) === null`,
           { timeoutMs: 60000 },
         );
 
@@ -354,9 +354,9 @@ describe.skipIf(!SHOULD_RUN)("AT0436: the Join press reaches the wire", () => {
         const receiptText = await app.evalJS<string>(
           `document.querySelector(${JSON.stringify(JOIN_RECEIPT)})?.textContent ?? ""`,
         );
-        expect(receiptText, "the receipt names the dash it landed").toContain(DASH);
+        expect(receiptText, "the receipt names the arc it landed").toContain(ARC);
         expect(receiptText, "and the message the user pressed with").toContain(
-          "land this dash",
+          "land this arc",
         );
 
         await app.evalJS<null>(`(window.__tug.refreshInkRestore("A"), null)`);

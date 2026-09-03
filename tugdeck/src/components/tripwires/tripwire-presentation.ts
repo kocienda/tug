@@ -69,8 +69,8 @@ function reasonClause(reason: string): string {
   switch (reason) {
     case "busy":
       return "this tripwire was already working a trip";
-    case "own-dash":
-      return "the landing was this tripwire's own dash";
+    case "own-arc":
+      return "the landing was this tripwire's own arc";
     case "no-scope":
       return "the event was outside this tripwire's scope";
     case "superseded":
@@ -247,14 +247,14 @@ export function describeScope(scope: string | null): string {
  * What the tripwire's agent is allowed to do.
  *
  * The reassurance is the important half: a permissive posture is safe because
- * the agent works on its own dash worktree, never in the checkout you are in,
+ * the agent works on its own arc worktree, never in the checkout you are in,
  * and a reader deciding whether to trust a tripwire is entitled to that fact
  * on the surface rather than in the doctrine.
  */
 export function describePermissions(mode: string): string {
   switch (mode) {
     case "acceptEdits":
-      return "Can write, in a dash worktree of its own";
+      return "Can write, in an arc worktree of its own";
     case "plan":
     case "read-only":
       return "Read-only — it diagnoses, it does not change files";

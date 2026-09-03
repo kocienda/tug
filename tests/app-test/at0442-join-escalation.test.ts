@@ -14,14 +14,14 @@
  * it is a seam that has failed before in this pipeline:
  *
  * - The question must reach the card. It rides a CONTROL frame, which is
- *   droppable by design, **and** a durable fact on the dash — this asserts the
+ *   droppable by design, **and** a durable fact on the arc — this asserts the
  *   surface, which is downstream of both.
  * - The surface must be the shipped question component, not a hand-rolled
  *   dialog. What renders here is `QuestionWizard` through its host seam: the
  *   join supplies the transport, the wizard supplies the surface, and the
  *   transcript path that also mounts it is untouched.
  * - The answer must reach the *waiting* resolver. It is addressed by
- *   `request_id` through a rendezvous, not by dash, so an answer cannot
+ *   `request_id` through a rendezvous, not by arc, so an answer cannot
  *   resolve a question it was not written for.
  *
  * ## The arc
@@ -62,7 +62,7 @@ import {
   seedTugbankForLaunch,
 } from "./_harness/tugbank-helpers";
 import {
-  bindDash,
+  bindArc,
   silenceJoinPrompt,
   gitRetry as git,
   makeJoinScratchRepo,
@@ -70,7 +70,7 @@ import {
   rmScratchSession,
   seedScratchSession,
   type JoinScratchRepo,
-} from "./dash-fixture";
+} from "./arc-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 300_000;
@@ -79,17 +79,17 @@ const SID = "a7c0d1ea-0000-4000-8000-000000000442";
 const CARD = '[data-card-id="A"]';
 const EDITOR = `${CARD} [data-slot="tug-text-editor"] .cm-content`;
 const SHEET = '[data-slot="session-changes-view"]';
-const LANE = `${SHEET} [data-slot="session-changes-dash-lane"]`;
+const LANE = `${SHEET} [data-slot="session-changes-arc-lane"]`;
 
-const DASH = "at0442-ask";
-const ROW = `${LANE} [data-slot="session-changes-dash-row"][data-dash="${DASH}"]`;
+const ARC = "at0442-ask";
+const ROW = `${LANE} [data-slot="session-changes-arc-row"][data-arc="${ARC}"]`;
 const JOIN_FACE = `${ROW} [data-slot="session-changes-arc-join"]`;
 const QUESTION = `${ROW} [data-slot="session-changes-arc-join-question"]`;
 const WIZARD = `${QUESTION} [data-slot="session-question-dialog"]`;
 const ACCOUNT = `${ROW} [data-slot="session-changes-arc-join-account"]`;
 const REGISTER = `${ROW} [data-slot="arc-join-register"]`;
 
-const DASHES_CARD = '.dashes-section';
+const ARCS_CARD = '.arcs-section';
 
 /** The checkout whose built binaries the fixture drives. */
 const CHECKOUT = realpathSync(resolve(import.meta.dir, "..", ".."));
@@ -97,7 +97,7 @@ const CHECKOUT = realpathSync(resolve(import.meta.dir, "..", ".."));
 const FILE = "subject.txt";
 const QUESTION_TEXT = "Which naming should the merged file keep?";
 /** The option the test presses — and, verbatim, what lands in the file. */
-const CHOSEN = "SENTINEL keep the dash naming";
+const CHOSEN = "SENTINEL keep the arc naming";
 const OTHER = "SENTINEL keep the base naming";
 
 /**
@@ -111,7 +111,7 @@ const OTHER = "SENTINEL keep the base naming";
 const RESOLVER_STUB = `#!/bin/sh
 ws="$1"
 read -r _charter
-printf '%s\\n' '{"ask":{"question":"${QUESTION_TEXT}","options":[{"label":"${CHOSEN}","description":"the dash renamed it deliberately"},{"label":"${OTHER}","description":"the base renamed it deliberately"}]}}'
+printf '%s\\n' '{"ask":{"question":"${QUESTION_TEXT}","options":[{"label":"${CHOSEN}","description":"the arc renamed it deliberately"},{"label":"${OTHER}","description":"the base renamed it deliberately"}]}}'
 read -r answer
 printf '%s\\n' "$answer" | sed -e 's/.*SENTINEL/SENTINEL/' -e 's/\\\\n.*//' > "$ws/${FILE}"
 printf '%s\\n' '{"files":[{"path":"${FILE}","resolved_by":"resolver","what_each_side_did":"both renamed it","reconciliation":"took the answer"}],"notes":"at0442"}'
@@ -125,16 +125,16 @@ beforeAll(() => {
   if (!SHOULD_RUN) return;
   scratch = makeJoinScratchRepo({
     prefix: "at0442",
-    dash: DASH,
+    arc: ARC,
     description: "at0442 escalation fixture",
     checkout: CHECKOUT,
     file: FILE,
     fork: "at0442 the body both sides will rewrite\n",
     base: "at0442 base side — the whole file, rewritten\n",
-    dashBody: "at0442 dash side — the whole file, rewritten\n",
+    arcBody: "at0442 arc side — the whole file, rewritten\n",
     resolver: RESOLVER_STUB,
     // The run that raises the escalation is the pilot's: there is no Resolve
-    // to press any more ([P08]), and `built` is what hands a dash over.
+    // to press any more ([P08]), and `built` is what hands an arc over.
     built: true,
   });
   fixtureDir = seedScratchSession(scratch.repo, SID);
@@ -176,7 +176,7 @@ async function runCommand(app: App, line: string): Promise<void> {
   await app.nativeKey("Return", ["cmd"]);
 }
 
-/** Press a control on the dash row, scrolling it into the shade first. */
+/** Press a control on the arc row, scrolling it into the shade first. */
 async function revealAndClick(app: App, selector: string): Promise<void> {
   await app.evalJS<boolean>(
     `(function(){
@@ -190,7 +190,7 @@ async function revealAndClick(app: App, selector: string): Promise<void> {
   await app.nativeClickAtElement(selector);
 }
 
-async function openOnDash(app: App): Promise<void> {
+async function openOnArc(app: App): Promise<void> {
   await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
   await app.waitForCondition<boolean>(
     `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
@@ -211,26 +211,26 @@ describe.skipIf(!SHOULD_RUN)("AT0442: the resolver's escalation", () => {
       });
       try {
         await app.enableDeckTrace(true);
-        await openOnDash(app);
+        await openOnArc(app);
         await app.spawnSessionResume("A", { tugSessionId: SID, projectDir: repo });
         await app.awaitEngineReady("A", { timeoutMs: 15000 });
-        // The pilot only works a dash somebody holds ([D147]); without the
+        // The pilot only works an arc somebody holds ([D147]); without the
         // ledger row nothing below ever starts.
-        bindDash(repo, DASH, SID, scratch?.cli ?? {});
-        silenceJoinPrompt(repo, DASH);
+        bindArc(repo, ARC, SID, scratch?.cli ?? {});
+        silenceJoinPrompt(repo, ARC);
 
-        // The aggregate has composed the dash once the Arcs card lists it.
+        // The aggregate has composed the arc once the Arcs card lists it.
         await app.dispatchControlAction("toggle-arcs");
         await app.waitForCondition<boolean>(
-          `document.querySelector('${DASHES_CARD} [data-slot="dashes-row"][data-dash="${DASH}"]') !== null`,
+          `document.querySelector('${ARCS_CARD} [data-slot="arcs-row"][data-arc="${ARC}"]') !== null`,
           { timeoutMs: 30000 },
         );
         await app.dispatchControlAction("toggle-arcs");
 
         // `/arc-join` fronts the row so the escalation renders in its face.
-        // It does not start the run — the pilot already did, because the dash
+        // It does not start the run — the pilot already did, because the arc
         // is built.
-        await runCommand(app, `/arc-join ${DASH}`);
+        await runCommand(app, `/arc-join ${ARC}`);
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(JOIN_FACE)}) !== null`,
           { timeoutMs: 40000 },
@@ -285,7 +285,7 @@ describe.skipIf(!SHOULD_RUN)("AT0442: the resolver's escalation", () => {
         // The answer reached the resolver as the user's own words. Read the
         // candidate's own blob rather than a frame or a log line: the claim is
         // about what would actually join, and only the tree can settle it.
-        const merged = git(repo, "show", `refs/tug/join/${DASH}:${FILE}`);
+        const merged = git(repo, "show", `refs/tug/join/${ARC}:${FILE}`);
         expect(merged.trim(), "the option's label reached the resolver verbatim").toBe(
           CHOSEN,
         );

@@ -1,10 +1,10 @@
 /**
  * changeset-join-store — the arc-join resolve overlay over the ladder's
  * CONTROL frames (Spec S12): resolving → per-file deltas → out of the way,
- * keyed by (workspace_key, dash).
+ * keyed by (workspace_key, arc).
  *
  * The overlay holds the *run*, never its result. What the ladder built lands in
- * git and comes back on the dash's feed entry, so what these cases pin is that
+ * git and comes back on the arc's feed entry, so what these cases pin is that
  * an `_ok` puts the overlay away rather than becoming a second, competing
  * account of the resolution — and that a run which stops talking always ends in
  * a sentence rather than a spinner nothing will ever take down.
@@ -25,7 +25,7 @@ import {
 
 const fakeConn = { onFrame: () => () => {}, sendControlFrame: () => {} } as never;
 
-const K = { project_dir: "/p", dash: "demo" };
+const K = { project_dir: "/p", arc: "demo" };
 
 beforeEach(() => _resetChangesetJoinStoreForTest());
 
@@ -101,7 +101,7 @@ describe("changeset join resolve overlay", () => {
     expect(sent).toEqual([
       {
         action: "changeset_join_review",
-        body: { project_dir: "/u/src/tugtool", dash: "demo", candidate: "abc123" },
+        body: { project_dir: "/u/src/tugtool", arc: "demo", candidate: "abc123" },
       },
     ]);
   });
@@ -110,7 +110,7 @@ describe("changeset join resolve overlay", () => {
     // The request id is the whole safety of this send. A resolve that already
     // expired, or a later one asking something else, must not be resolved by
     // an answer written for a different question — so the answer names which
-    // one it belongs to and the server matches on that, not on the dash.
+    // one it belongs to and the server matches on that, not on the arc.
     const sent: { action: string; body: Record<string, unknown> }[] = [];
     const conn = {
       onFrame: () => () => {},
@@ -119,22 +119,22 @@ describe("changeset join resolve overlay", () => {
       },
     } as never;
     const store = attachChangesetJoinStore(conn);
-    store.answerQuestion("/u/src/tugtool", "demo", "join-demo-7", "the dash");
+    store.answerQuestion("/u/src/tugtool", "demo", "join-demo-7", "the arc");
     expect(sent).toEqual([
       {
         action: "changeset_join_question_answer",
         body: {
           project_dir: "/u/src/tugtool",
-          dash: "demo",
+          arc: "demo",
           request_id: "join-demo-7",
-          answer: "the dash",
+          answer: "the arc",
         },
       },
     ]);
   });
 
   test("ok with unresolved files names them, because the feed cannot", () => {
-    // The ladder's honest dead end. The dash's conflicts are still on the feed,
+    // The ladder's honest dead end. The arc's conflicts are still on the feed,
     // but nothing on the entry says a run just tried them and stopped — so
     // clearing the overlay here would erase the only record that re-running
     // decides nothing new.
@@ -157,14 +157,14 @@ describe("changeset join resolve overlay", () => {
     _ingestJoinFrameForTest({
       action: "changeset_join_resolve_err",
       ...K,
-      detail: "Dash not found",
+      detail: "Arc not found",
     });
     const st = store.state("/p", "demo");
     expect(st.phase).toBe("error");
-    expect(st.error).toBe("Dash not found");
+    expect(st.error).toBe("Arc not found");
   });
 
-  test("clear resets to idle; unrelated dashes stay idle", () => {
+  test("clear resets to idle; unrelated arcs stay idle", () => {
     const store = attachChangesetJoinStore(fakeConn);
     _ingestJoinFrameForTest({
       action: "changeset_join_resolve_delta",
@@ -242,23 +242,23 @@ describe("a run whose answer never arrives", () => {
 });
 
 describe("the join narrates itself ([P03])", () => {
-  const beat = (dash: string, name: string, status: string): void =>
+  const beat = (arc: string, name: string, status: string): void =>
     _ingestJoinFrameForTest({
       action: "changeset_join_land_delta",
       project_dir: "/p",
-      dash,
+      arc: arc,
       beat: name,
       status,
     });
 
-  test("a beat lands on its own dash's cell and nobody else's", () => {
+  test("a beat lands on its own arc's cell and nobody else's", () => {
     const store = attachChangesetJoinStore(fakeConn);
     expect(store.landProgress("/p", "demo")).toBeNull();
 
     beat("demo", "squash", "start");
     expect(store.landProgress("/p", "demo")).toEqual({ beat: "squash", status: "start" });
-    // Keyed by (workspace, dash) exactly as resolve progress is: two joins in
-    // two projects, or two dashes in one, must not narrate over each other.
+    // Keyed by (workspace, arc) exactly as resolve progress is: two joins in
+    // two projects, or two arcs in one, must not narrate over each other.
     expect(store.landProgress("/p", "other")).toBeNull();
     expect(store.landProgress("/elsewhere", "demo")).toBeNull();
 
@@ -417,69 +417,69 @@ describe("the join narrates itself ([P03])", () => {
 });
 
 /**
- * What the Changes room reads to stop offering a dash it is already joining.
+ * What the Changes room reads to stop offering an arc it is already joining.
  *
- * The press spends every act the room held for that dash, and a dash left on
+ * The press spends every act the room held for that arc, and an arc left on
  * offer while its join runs invites the one gesture that can only be refused —
  * which is how a join in progress came to read to its own author as a join
  * that had failed.
  */
-describe("a dash whose join is running is not on offer ([P05])", () => {
-  const beat = (dash: string, name: string, status: string): void =>
+describe("an arc whose join is running is not on offer ([P05])", () => {
+  const beat = (arc: string, name: string, status: string): void =>
     _ingestJoinFrameForTest({
       action: "changeset_join_land_delta",
       project_dir: "/p",
-      dash,
+      arc: arc,
       beat: name,
       status,
     });
   /** The join is over — the frame that settles the narration. */
-  const ended = (dash: string, ok: boolean): void =>
+  const ended = (arc: string, ok: boolean): void =>
     _ingestJoinFrameForTest({
       action: ok ? "changeset_join_ok" : "changeset_join_err",
       project_dir: "/p",
-      dash,
+      arc: arc,
       ...(ok ? { commit_hash: "cafe1234" } : { detail: "the merge did not build" }),
     });
 
   test("the press names it, and the terminal beat hands it back", () => {
     const store = attachChangesetJoinStore(fakeConn);
-    expect(store.landingDashes("/p").size).toBe(0);
+    expect(store.landingArcs("/p").size).toBe(0);
 
     // The press's own first beat, written before the request leaves.
     store.beginLand("/p", "demo");
-    expect([...store.landingDashes("/p")]).toEqual(["demo"]);
+    expect([...store.landingArcs("/p")]).toEqual(["demo"]);
 
     // Still running through every beat the server reports.
     beat("demo", "squash", "start");
-    expect([...store.landingDashes("/p")]).toEqual(["demo"]);
+    expect([...store.landingArcs("/p")]).toEqual(["demo"]);
 
-    // Over. A failure hands the dash straight back to the room, because a
+    // Over. A failure hands the arc straight back to the room, because a
     // failure is the one outcome that still wants somebody; a success takes
-    // the dash out of the feed and it never returns by this door at all.
+    // the arc out of the feed and it never returns by this door at all.
     ended("demo", false);
-    expect(store.landingDashes("/p").size).toBe(0);
+    expect(store.landingArcs("/p").size).toBe(0);
   });
 
-  test("it is one workspace's answer, and one dash's", () => {
+  test("it is one workspace's answer, and one arc's", () => {
     const store = attachChangesetJoinStore(fakeConn);
     store.beginLand("/p", "demo");
     store.beginLand("/p", "other");
     store.beginLand("/elsewhere", "demo");
-    expect([...store.landingDashes("/p")].sort()).toEqual(["demo", "other"]);
-    expect([...store.landingDashes("/elsewhere")]).toEqual(["demo"]);
-    expect(store.landingDashes("/nowhere").size).toBe(0);
+    expect([...store.landingArcs("/p")].sort()).toEqual(["demo", "other"]);
+    expect([...store.landingArcs("/elsewhere")]).toEqual(["demo"]);
+    expect(store.landingArcs("/nowhere").size).toBe(0);
   });
 
-  test("a retracted press hands the dash back too", () => {
+  test("a retracted press hands the arc back too", () => {
     // `clearLand` is what a press accepted and then refused on the live
-    // re-check undoes. The room must offer the dash again — nothing is
+    // re-check undoes. The room must offer the arc again — nothing is
     // running, and the user has something to fix.
     const store = attachChangesetJoinStore(fakeConn);
     store.beginLand("/p", "demo");
-    expect(store.landingDashes("/p").size).toBe(1);
+    expect(store.landingArcs("/p").size).toBe(1);
     store.clearLand("/p", "demo");
-    expect(store.landingDashes("/p").size).toBe(0);
+    expect(store.landingArcs("/p").size).toBe(0);
   });
 
   test("an unchanged answer keeps its identity, so a reader does not re-render", () => {
@@ -488,11 +488,11 @@ describe("a dash whose join is running is not on offer ([P05])", () => {
     // on every unrelated beat the store forwards.
     const store = attachChangesetJoinStore(fakeConn);
     store.beginLand("/p", "demo");
-    const first = store.landingDashes("/p");
+    const first = store.landingArcs("/p");
     beat("demo", "squash", "start");
-    expect(store.landingDashes("/p")).toBe(first);
+    expect(store.landingArcs("/p")).toBe(first);
     store.beginLand("/p", "other");
-    expect(store.landingDashes("/p")).not.toBe(first);
+    expect(store.landingArcs("/p")).not.toBe(first);
   });
 });
 
@@ -615,7 +615,7 @@ describe("a press that changed nothing says so ([P04], [P06])", () => {
 
 describe("an admission refusal does not kill the run it was refused for ([P01])", () => {
   test("the second press is stated, and the first press keeps running", async () => {
-    // The refusal arrives on the same (workspace, dash) cell the live run is
+    // The refusal arrives on the same (workspace, arc) cell the live run is
     // streaming into. Read as an ordinary failure it would report the healthy
     // run as dead — the false error face, rebuilt out of the very mechanism
     // that exists to prevent the damage it used to invite.
@@ -633,12 +633,12 @@ describe("an admission refusal does not kill the run it was refused for ([P01])"
     _ingestJoinFrameForTest({
       action: "changeset_join_resolve_err",
       ...K,
-      detail: "a resolve is already running for this dash",
+      detail: "a resolve is already running for this arc",
       admission: true,
     });
     const during = store.state("/p", "demo");
     expect(during.phase).toBe("resolving");
-    expect(during.error).toBe("a resolve is already running for this dash");
+    expect(during.error).toBe("a resolve is already running for this arc");
 
     // And the first run's own answer still lands, over the top of the notice.
     _ingestJoinFrameForTest({

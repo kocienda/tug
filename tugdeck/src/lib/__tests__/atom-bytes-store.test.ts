@@ -5,7 +5,7 @@
  * Pure-logic coverage. The store is a `Map<string, AtomBytesEntry>`
  * with extra ceremony around snapshot / restore for state
  * preservation. These tests pin the contract specified in
- * [Spec S02](dash/dev-atoms.md#s02-atom-bytes-store).
+ * [Spec S02](arc/dev-atoms.md#s02-atom-bytes-store).
  */
 
 import { describe, expect, test } from "bun:test";

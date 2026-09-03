@@ -1138,7 +1138,7 @@ export const COMMANDS: readonly CommandEntry[] = [
     internal: true,
   },
   {
-    // Its door is an Overview post's dash chip — a link, not a menu item or
+    // Its door is an Overview post's arc chip — a link, not a menu item or
     // a chord. Distinct from Show Arcs on purpose: a link reveals the rail,
     // where the toggle would take it away from a reader who had it open.
     id: "reveal-arcs",
@@ -2749,14 +2749,14 @@ export const ACTIONS_OUTSIDE_THE_TABLE: ReadonlySet<string> = new Set<string>([
   TUG_ACTIONS.COPY_COMMIT_SHORT_HASH,
   TUG_ACTIONS.COPY_COMMIT_HEADER,
   TUG_ACTIONS.COPY_COMMIT_RECORD,
-  // The dash row's rare verbs. Each means "the dash this row is", which no
+  // The arc row's rare verbs. Each means "the arc this row is", which no
   // chord and no menu-bar item can name — and the discard is a "request",
   // arming the lane's confirm rather than performing anything.
-  TUG_ACTIONS.BIND_DASH,
-  TUG_ACTIONS.UNBIND_DASH,
-  TUG_ACTIONS.REQUEST_DISCARD_DASH,
+  TUG_ACTIONS.BIND_ARC,
+  TUG_ACTIONS.UNBIND_ARC,
+  TUG_ACTIONS.REQUEST_DISCARD_ARC,
   TUG_ACTIONS.REQUEST_REPLAY_ARC,
-  // Sent card-to-card by a surface showing that card's dash, never typed:
+  // Sent card-to-card by a surface showing that card's arc, never typed:
   // the reader already has ⌃⌘C for their own card's shade, and a chord that
   // meant "reveal somebody else's" would have no way to name whose.
   TUG_ACTIONS.REVEAL_CHANGES,

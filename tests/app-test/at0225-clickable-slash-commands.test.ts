@@ -3,7 +3,7 @@
  * the Session card transcript, driven end-to-end against the real app.
  *
  * A backticked slash command in assistant prose (e.g.
- * `` `/tugplug:implement dash/find-route.md` ``) whose name is in the
+ * `` `/tugplug:implement arc/find-route.md` ``) whose name is in the
  * live command catalog is marked `.tugx-annotation`; a click seeds the
  * prompt with a ready-to-run, atomized draft.
  *
@@ -18,7 +18,7 @@
  *      on-resume re-tag — while the unknown command and the path stay
  *      inert.
  *   3. A click on the tagged span seeds the prompt: the editor holds the
- *      argument text (`dash/find-route.md`) plus a command chip, is the
+ *      argument text (`arc/find-route.md`) plus a command chip, is the
  *      focused first responder, and the card is on the Code route.
  *   4. A right-click on the same span offers Insert into Prompt, which
  *      puts the command line in as literal text — the indirect gesture,
@@ -54,7 +54,7 @@ const CODE_OUTPUT_FEED = 0x40; // FeedId.CODE_OUTPUT
 const SID = "test-session-A";
 
 const KNOWN_CMD = "tugplug:implement";
-const ARG = "dash/find-route.md";
+const ARG = "arc/find-route.md";
 // One inline-code span for each case: a known plugin command (+ arg), an
 // unknown command, and an absolute path (grammar rejects it outright).
 const ASSISTANT_TEXT =
@@ -62,7 +62,7 @@ const ASSISTANT_TEXT =
   "not `/definitely-not-a-command`, not `/Users/kocienda/x`.";
 
 // What claude persists in place of the literal the user typed when they
-// submitted `/tugplug:implement dash/find-route.md`.
+// submitted `/tugplug:implement arc/find-route.md`.
 const COMMAND_ENVELOPE =
   `<command-message>${KNOWN_CMD}</command-message>\n` +
   `<command-name>/${KNOWN_CMD}</command-name>\n` +

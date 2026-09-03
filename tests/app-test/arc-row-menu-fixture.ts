@@ -1,5 +1,5 @@
 /**
- * dash-row-menu-fixture.ts — driving a dash row's verb menu from an app-test.
+ * arc-row-menu-fixture.ts — driving an arc row's verb menu from an app-test.
  *
  * Bind, Unbind and Discard used to be buttons standing on the row, which made
  * them one `querySelector` away. They are menu items now ([P08]), and a menu
@@ -12,7 +12,7 @@
  * — a portal that has not mounted, a coordinate read between recomposes — and
  * four copies of a retry is three chances for one of them to be subtly wrong.
  *
- * The two surfaces open it differently, which {@link openDashRowMenu} hides:
+ * The two surfaces open it differently, which {@link openArcRowMenu} hides:
  * the Changes shade's lane has a `⋯` opener, the Arcs card's rows have none
  * (their eyebrow is the identities alone) and answer a right-click on the row.
  * Same menu, same items, one way to drive it.
@@ -27,21 +27,21 @@ import { expect } from "bun:test";
 import type { App } from "./_harness";
 
 /** One of the verbs the row menu can dispatch. */
-export type DashRowMenuAction =
-  | "bind-dash"
-  | "unbind-dash"
-  | "request-discard-dash"
+export type ArcRowMenuAction =
+  | "bind-arc"
+  | "unbind-arc"
+  | "request-discard-arc"
   | "request-replay-arc";
 
 /**
  * The `⋯` opener on a row, for the surface that has one. `row` is the row's
  * own selector; the Arcs card's rows match nothing here and are right-clicked.
  */
-export const dashRowMenuOpener = (row: string): string =>
-  `${row} [data-slot="session-changes-dash-row-menu-open"]`;
+export const arcRowMenuOpener = (row: string): string =>
+  `${row} [data-slot="session-changes-arc-row-menu-open"]`;
 
 /** The open menu itself, wherever the portal put it. */
-export const DASH_ROW_MENU = '[data-slot="tug-editor-context-menu"]';
+export const ARC_ROW_MENU = '[data-slot="tug-editor-context-menu"]';
 
 /**
  * One item in the open menu, by the action it dispatches.
@@ -51,9 +51,9 @@ export const DASH_ROW_MENU = '[data-slot="tug-editor-context-menu"]';
  * would make every disabled-state assertion a string comparison against prose
  * that is free to change.
  */
-export const dashRowMenuItem = (
-  action: DashRowMenuAction,
-): string => `${DASH_ROW_MENU} [data-item-action="${action}"]`;
+export const arcRowMenuItem = (
+  action: ArcRowMenuAction,
+): string => `${ARC_ROW_MENU} [data-item-action="${action}"]`;
 
 const settle = (ms = 200): Promise<unknown> => new Promise((r) => setTimeout(r, ms));
 
@@ -68,12 +68,12 @@ const settle = (ms = 200): Promise<unknown> => new Promise((r) => setTimeout(r, 
  *
  * A row with no opener is opened by its own right-click — the Arcs card's grammar.
  */
-export async function openDashRowMenu(
+export async function openArcRowMenu(
   app: App,
   row: string,
   attempts = 5,
 ): Promise<void> {
-  const opener = dashRowMenuOpener(row);
+  const opener = arcRowMenuOpener(row);
   for (let i = 0; i < attempts; i += 1) {
     const target = (await app.evalJS<boolean>(
       `document.querySelector(${JSON.stringify(opener)}) !== null`,
@@ -92,7 +92,7 @@ export async function openDashRowMenu(
     else await app.nativeRightClickAtElement(row);
     try {
       await app.waitForCondition<boolean>(
-        `document.querySelector(${JSON.stringify(DASH_ROW_MENU)}) !== null`,
+        `document.querySelector(${JSON.stringify(ARC_ROW_MENU)}) !== null`,
         { timeoutMs: 3000 },
       );
       return;
@@ -100,7 +100,7 @@ export async function openDashRowMenu(
       // Fall through and aim again.
     }
   }
-  throw new Error(`dash-row-menu: the menu never opened for ${row}`);
+  throw new Error(`arc-row-menu: the menu never opened for ${row}`);
 }
 
 /**
@@ -113,7 +113,7 @@ export async function openDashRowMenu(
  * document body, which is exactly what the menu's own capture-phase
  * outside-press listener is watching for.
  */
-export async function closeDashRowMenu(app: App): Promise<void> {
+export async function closeArcRowMenu(app: App): Promise<void> {
   await app.evalJS<null>(
     `(function(){
       document.body.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
@@ -122,24 +122,24 @@ export async function closeDashRowMenu(app: App): Promise<void> {
     })()`,
   );
   await app.waitForCondition<boolean>(
-    `document.querySelector(${JSON.stringify(DASH_ROW_MENU)}) === null`,
+    `document.querySelector(${JSON.stringify(ARC_ROW_MENU)}) === null`,
     { timeoutMs: 5000 },
   );
 }
 
 /** What one item in the open menu is: present, and blocked or not. */
-export interface DashRowMenuVerbState {
+export interface ArcRowMenuVerbState {
   present: boolean;
   disabled: boolean;
   label: string;
 }
 
 /** Every verb the row is currently offering, read from one opening. */
-export interface DashRowMenuState {
-  bind: DashRowMenuVerbState;
-  unbind: DashRowMenuVerbState;
-  discard: DashRowMenuVerbState;
-  replay: DashRowMenuVerbState;
+export interface ArcRowMenuState {
+  bind: ArcRowMenuVerbState;
+  unbind: ArcRowMenuVerbState;
+  discard: ArcRowMenuVerbState;
+  replay: ArcRowMenuVerbState;
 }
 
 /**
@@ -150,9 +150,9 @@ export interface DashRowMenuState {
  * aggregate recompose between them — which is precisely how a test comes to assert a
  * bind and a discard that were never on screen together.
  */
-export async function readDashRowMenu(app: App, row: string): Promise<DashRowMenuState> {
-  await openDashRowMenu(app, row);
-  const state = await app.evalJS<DashRowMenuState>(
+export async function readArcRowMenu(app: App, row: string): Promise<ArcRowMenuState> {
+  await openArcRowMenu(app, row);
+  const state = await app.evalJS<ArcRowMenuState>(
     `(() => {
        const read = (sel) => {
          const el = document.querySelector(sel);
@@ -163,14 +163,14 @@ export async function readDashRowMenu(app: App, row: string): Promise<DashRowMen
          };
        };
        return {
-         bind: read(${JSON.stringify(dashRowMenuItem("bind-dash"))}),
-         unbind: read(${JSON.stringify(dashRowMenuItem("unbind-dash"))}),
-         discard: read(${JSON.stringify(dashRowMenuItem("request-discard-dash"))}),
-         replay: read(${JSON.stringify(dashRowMenuItem("request-replay-arc"))}),
+         bind: read(${JSON.stringify(arcRowMenuItem("bind-arc"))}),
+         unbind: read(${JSON.stringify(arcRowMenuItem("unbind-arc"))}),
+         discard: read(${JSON.stringify(arcRowMenuItem("request-discard-arc"))}),
+         replay: read(${JSON.stringify(arcRowMenuItem("request-replay-arc"))}),
        };
      })()`,
   );
-  await closeDashRowMenu(app);
+  await closeArcRowMenu(app);
   return state;
 }
 
@@ -180,18 +180,18 @@ export async function readDashRowMenu(app: App, row: string): Promise<DashRowMen
  * The press closes the menu itself — every item activation dismisses — so
  * there is no close here to pair with the open.
  */
-export async function pressDashRowMenuItem(
+export async function pressArcRowMenuItem(
   app: App,
   row: string,
-  action: DashRowMenuAction,
+  action: ArcRowMenuAction,
 ): Promise<void> {
-  await openDashRowMenu(app, row);
-  const item = dashRowMenuItem(action);
+  await openArcRowMenu(app, row);
+  const item = arcRowMenuItem(action);
   expect(
     await app.evalJS<boolean>(
       `document.querySelector(${JSON.stringify(item)}) !== null`,
     ),
-    `dash-row-menu: ${action} is not on this row's menu`,
+    `arc-row-menu: ${action} is not on this row's menu`,
   ).toBe(true);
   await app.nativeClickAtElement(item);
 }

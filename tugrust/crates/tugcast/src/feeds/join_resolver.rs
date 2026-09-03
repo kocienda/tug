@@ -13,9 +13,9 @@
 //!
 //! - [`JoinResolverSpawner`], the substrate seam. Production spawns a
 //!   multi-turn headless `claude` under the Spec S04 turn protocol; tests
-//!   configure a command in `tugdash.joinresolver` speaking the same two
+//!   configure a command in `tugarc.joinresolver` speaking the same two
 //!   terminal shapes over plain stdio, exactly as the merge-driver rung already
-//!   takes a `tugdash.mergedriver` stub one rung down.
+//!   takes a `tugarc.mergedriver` stub one rung down.
 //! - [`compose_charter`], the instruction contract (Spec S01). It is a `const`
 //!   body plus derived facts; no caller-supplied prose is ever appended, which
 //!   is [D127]'s discipline carried over intact.
@@ -76,7 +76,7 @@ pub struct ResolverAsk {
 /// parallel one. The report the resolver writes is the report the face renders;
 /// a second shape here would be a translation layer whose only product is
 /// drift.
-pub use tugcast_core::types::DashJoinReport as ResolverReport;
+pub use tugcast_core::types::ArcJoinReport as ResolverReport;
 
 /// What a resolver turn may terminate as. There is no third shape: prose, a
 /// fenced block, and a half-object are all protocol violations.
@@ -209,7 +209,7 @@ fn tail(text: &str) -> String {
 /// are appended to it, and nothing else ever is.
 pub const RESOLVER_CHARTER: &str = r#"You are finishing a merge.
 
-A dash branch and its base branch have diverged, and an algorithmic ladder has
+An arc branch and its base branch have diverged, and an algorithmic ladder has
 already done what blob arithmetic can do. You are working in a real checkout of
 that merge — the whole project is around you, with conflict markers in the files
 the ladder could not settle. Your job is to make the merged tree one in which
@@ -280,7 +280,7 @@ pub struct CharterInputs<'a> {
     /// The intent corpus ([P08]) — draft, round subjects, plan, base motion,
     /// both sides' touched files.
     pub intent: &'a str,
-    /// The base branch the dash is joining into.
+    /// The base branch the arc is joining into.
     pub base_branch: &'a str,
     /// Files the ladder left with markers in them.
     pub unresolved: &'a [String],
@@ -293,9 +293,9 @@ pub struct CharterInputs<'a> {
 pub fn compose_charter(inputs: &CharterInputs) -> String {
     let mut out = String::from(RESOLVER_CHARTER);
 
-    out.push_str("\n\n# What this dash is for\n\n");
+    out.push_str("\n\n# What this arc is for\n\n");
     if inputs.intent.trim().is_empty() {
-        out.push_str("(the dash recorded no intent beyond its commits)\n");
+        out.push_str("(the arc recorded no intent beyond its commits)\n");
     } else {
         out.push_str(inputs.intent.trim());
         out.push('\n');
@@ -399,7 +399,7 @@ impl ResolverRun {
     }
 }
 
-/// Which spawner runs this repo's resolver: the `tugdash.joinresolver` stub
+/// Which spawner runs this repo's resolver: the `tugarc.joinresolver` stub
 /// when one is configured, else the production spawn the build supplied.
 ///
 /// **The production spawn is injected, never defaulted to.** A seam that falls
@@ -561,7 +561,7 @@ impl JoinResolverSpawner for StubJoinResolverSpawner {
         _model: String,
     ) -> Result<mpsc::Sender<ResolverTurnRequest>, String> {
         let mut parts = self.command.split_whitespace();
-        let bin = parts.next().ok_or("tugdash.joinresolver is empty")?;
+        let bin = parts.next().ok_or("tugarc.joinresolver is empty")?;
         let mut cmd = tokio::process::Command::new(bin);
         for arg in parts {
             cmd.arg(arg);
@@ -575,7 +575,7 @@ impl JoinResolverSpawner for StubJoinResolverSpawner {
 
         let mut child = cmd
             .spawn()
-            .map_err(|e| format!("tugdash.joinresolver would not start: {e}"))?;
+            .map_err(|e| format!("tugarc.joinresolver would not start: {e}"))?;
         let stdin = child.stdin.take().ok_or("join resolver stub: no stdin")?;
         let stdout = child.stdout.take().ok_or("join resolver stub: no stdout")?;
         let stderr = child.stderr.take();
@@ -686,7 +686,7 @@ pub const RESOLVER_TURN_TIMEOUT: Duration = Duration::from_secs(20 * 60);
 /// The same number is the lease window every process reads off the conflict
 /// chain: a resolve that has not advanced its chain in this long has either
 /// died here or lost the process running it, so a second process may take the
-/// dash. Defined once so the ceiling and the window cannot drift apart.
+/// arc. Defined once so the ceiling and the window cannot drift apart.
 pub const RESOLVE_DEADLINE: Duration = tugarc_core::resolve::RESOLVE_LEASE;
 
 /// What a turn that went silent is reported as.
@@ -737,22 +737,22 @@ pub fn answer_question(request_id: &str, answer: String) -> bool {
     }
 }
 
-/// A request id for one escalation: the dash, and when it was raised.
+/// A request id for one escalation: the arc, and when it was raised.
 ///
 /// Uniqueness only has to hold among the asks alive at one moment, and one
-/// dash has at most one — the charter allows a single ask per resolve.
-fn mint_request_id(dash: &str) -> String {
+/// arc has at most one — the charter allows a single ask per resolve.
+fn mint_request_id(arc: &str) -> String {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis())
         .unwrap_or(0);
-    format!("join-{dash}-{now}")
+    format!("join-{arc}-{now}")
 }
 
 /// What the resolve flow needs from its caller to run one join to a verdict.
 pub struct ResolverContext {
     pub repo: std::path::PathBuf,
-    pub dash: String,
+    pub arc: String,
     pub project_dir: String,
     pub model: Arc<dyn Fn() -> String + Send + Sync>,
     pub control_tx: tokio::sync::broadcast::Sender<tugcast_core::protocol::Frame>,
@@ -782,7 +782,7 @@ struct WorkshopState {
     ///
     /// An audit that changes nothing must leave that candidate standing rather
     /// than re-committing its tree: the replay candidate is a chain of the
-    /// dash's own rounds, and re-committing would collapse it into a squash —
+    /// arc's own rounds, and re-committing would collapse it into a squash —
     /// silently converting the join's shape as a side effect of reading it.
     inherited_candidate: Option<String>,
     /// The tree the resolver was handed — the ladder's own work, or the
@@ -822,10 +822,10 @@ pub async fn finish_join(
     // resolve would go on refusing a CLI join until the tip aged out.
     {
         let repo = ctx.repo.clone();
-        let dash = ctx.dash.clone();
+        let arc = ctx.arc.clone();
         let _ = tokio::task::spawn_blocking(move || {
-            if let Err(e) = tugarc_core::resolve::mark_resolve_ended(&repo, &dash) {
-                tracing::warn!(dash = %dash, error = %e, "could not mark the resolve ended");
+            if let Err(e) = tugarc_core::resolve::mark_resolve_ended(&repo, &arc) {
+                tracing::warn!(arc = %arc, error = %e, "could not mark the resolve ended");
             }
         })
         .await;
@@ -841,9 +841,9 @@ pub async fn finish_join(
     // built from, and the next verification resets it anyway.
     if result.is_err() {
         let repo = ctx.repo.clone();
-        let dash = ctx.dash.clone();
+        let arc = ctx.arc.clone();
         let _ = tokio::task::spawn_blocking(move || {
-            if let Ok(ws) = tugarc_core::workshop::Workshop::open_existing(&repo, &dash) {
+            if let Ok(ws) = tugarc_core::workshop::Workshop::open_existing(&repo, &arc) {
                 ws.release();
             }
         })
@@ -896,9 +896,9 @@ async fn finish_join_inner(
     // it is offered forward exactly once, not to every resolve from here on.
     {
         let repo = ctx.repo.clone();
-        let dash = ctx.dash.clone();
+        let arc = ctx.arc.clone();
         let _ = tokio::task::spawn_blocking(move || {
-            tugarc_core::resolve::clear_lastask(&repo, &dash);
+            tugarc_core::resolve::clear_lastask(&repo, &arc);
         })
         .await;
     }
@@ -906,7 +906,7 @@ async fn finish_join_inner(
     set_phase(phase, "waiting on the resolver");
     let mut turn = run.send(charter).await?;
     checkpoint_turn(ctx).await;
-    let mut asked: Option<tugcast_core::types::DashJoinReportQuestion> = None;
+    let mut asked: Option<tugcast_core::types::ArcJoinReportQuestion> = None;
 
     // What the resolver's edits are measured against: the ladder's tree.
     let baseline = state.ladder_tree.clone();
@@ -916,7 +916,7 @@ async fn finish_join_inner(
     if let ResolverTurn::Ask(ask) = &turn {
         set_phase(phase, "waiting on your answer");
         let answer = escalate(ctx, ask).await?;
-        asked = Some(tugcast_core::types::DashJoinReportQuestion {
+        asked = Some(tugcast_core::types::ArcJoinReportQuestion {
             question: ask.question.clone(),
             answer: answer.clone(),
         });
@@ -968,13 +968,13 @@ async fn finish_join_inner(
 /// attempts.
 async fn checkpoint_turn(ctx: &ResolverContext) {
     let repo = ctx.repo.clone();
-    let dash = ctx.dash.clone();
+    let arc = ctx.arc.clone();
     let _ = tokio::task::spawn_blocking(move || {
-        let Ok(workshop) = tugarc_core::Workshop::open_existing(&repo, &dash) else {
+        let Ok(workshop) = tugarc_core::Workshop::open_existing(&repo, &arc) else {
             return;
         };
         let message = format!(
-            "{}{dash}): checkpoint",
+            "{}{arc}): checkpoint",
             tugarc_core::resolve::RESOLVE_SUBJECT_PREFIX
         );
         let _ = workshop.checkpoint(&message);
@@ -984,19 +984,19 @@ async fn checkpoint_turn(ctx: &ResolverContext) {
 
 /// Raise the resolver's question to the user and wait for the answer.
 ///
-/// Both halves are written: the durable fact on the dash, which is what a
+/// Both halves are written: the durable fact on the arc, which is what a
 /// reload re-renders, and the CONTROL frame, which is what makes the face
 /// paint now. The frame alone would lose the question on a dropped frame or a
 /// reload; the fact alone would leave it invisible until the next recompute.
 async fn escalate(ctx: &ResolverContext, ask: &ResolverAsk) -> Result<String, String> {
-    let request_id = mint_request_id(&ctx.dash);
-    let question = tugcast_core::types::DashJoinQuestion {
+    let request_id = mint_request_id(&ctx.arc);
+    let question = tugcast_core::types::ArcJoinQuestion {
         request_id: request_id.clone(),
         question: ask.question.clone(),
         options: ask
             .options
             .iter()
-            .map(|o| tugcast_core::types::DashJoinQuestionOption {
+            .map(|o| tugcast_core::types::ArcJoinQuestionOption {
                 label: o.label.clone(),
                 description: o.description.clone(),
             })
@@ -1011,12 +1011,12 @@ async fn escalate(ctx: &ResolverContext, ask: &ResolverAsk) -> Result<String, St
 
     {
         let repo = ctx.repo.clone();
-        let dash = ctx.dash.clone();
+        let arc = ctx.arc.clone();
         let json = serde_json::to_string(&question).map_err(|e| e.to_string())?;
         tokio::task::spawn_blocking(move || {
-            let branch = format!("tugdash/{dash}");
+            let branch = format!("tugarc/{arc}");
             if let Ok(head) = tugarc_core::ops::rev_parse(&repo, &branch) {
-                tugarc_core::resolve::write_question(&repo, &dash, &head, &json);
+                tugarc_core::resolve::write_question(&repo, &arc, &head, &json);
             }
         })
         .await
@@ -1026,7 +1026,7 @@ async fn escalate(ctx: &ResolverContext, ask: &ResolverAsk) -> Result<String, St
     let body = serde_json::json!({
         "action": "changeset_join_question",
         "project_dir": ctx.project_dir,
-        "dash": ctx.dash,
+        "arc": ctx.arc,
         "request_id": question.request_id,
         "question": question.question,
         "options": question.options,
@@ -1048,7 +1048,7 @@ async fn escalate(ctx: &ResolverContext, ask: &ResolverAsk) -> Result<String, St
     let answered = matches!(answer, Ok(Ok(_)));
     {
         let repo = ctx.repo.clone();
-        let dash = ctx.dash.clone();
+        let arc = ctx.arc.clone();
         let asked = ask.question.clone();
         let _ = tokio::task::spawn_blocking(move || {
             // The live question is cleared either way — nothing is waiting on
@@ -1061,11 +1061,11 @@ async fn escalate(ctx: &ResolverContext, ask: &ResolverAsk) -> Result<String, St
             // than aspirational — the conversation cannot resume, but the
             // question can be asked again by a resolver that knows to.
             if !answered {
-                if let Ok(head) = tugarc_core::ops::rev_parse(&repo, &format!("tugdash/{dash}")) {
-                    tugarc_core::resolve::write_lastask(&repo, &dash, &head, &asked);
+                if let Ok(head) = tugarc_core::ops::rev_parse(&repo, &format!("tugarc/{arc}")) {
+                    tugarc_core::resolve::write_lastask(&repo, &arc, &head, &asked);
                 }
             }
-            tugarc_core::resolve::clear_question(&repo, &dash);
+            tugarc_core::resolve::clear_question(&repo, &arc);
         })
         .await;
     }
@@ -1113,7 +1113,7 @@ async fn open_workshop(
     outcome: &tugarc_core::ResolveOutcome,
 ) -> Result<WorkshopState, String> {
     let repo = ctx.repo.clone();
-    let dash = ctx.dash.clone();
+    let arc = ctx.arc.clone();
     let base_branch = outcome.base_branch.clone();
     let staged_tree = outcome.staged_tree.clone();
     let ladder_resolved: Vec<(String, ResolvedBy)> = outcome
@@ -1140,20 +1140,20 @@ async fn open_workshop(
 
     tokio::task::spawn_blocking(move || {
         let workshop = match &inherited_candidate {
-            Some(sha) => tugarc_core::Workshop::open_candidate(&repo, &dash, sha)?,
-            None => match tugarc_core::resolve::valid_conflict(&repo, &dash) {
+            Some(sha) => tugarc_core::Workshop::open_candidate(&repo, &arc, sha)?,
+            None => match tugarc_core::resolve::valid_conflict(&repo, &arc) {
                 // Something is still unresolved, so the ladder parked a
                 // conflict. Its tree already carries the rungs' own
                 // resolutions, so opening it is the whole of the setup.
                 Some(_) => {
-                    let ws = tugarc_core::Workshop::open_conflict(&repo, &dash)?;
+                    let ws = tugarc_core::Workshop::open_conflict(&repo, &arc)?;
                     // The chain is this resolve's own operation log, and the
                     // begin marker is what makes "a resolver opened this at T"
                     // a git fact a second process can read. Best-effort: a
                     // marker that fails degrades the lease to the aged-out
                     // case, never to a destroyed resolve.
-                    if let Err(e) = tugarc_core::resolve::mark_resolve_begun(&repo, &dash) {
-                        tracing::warn!(dash = %dash, error = %e, "could not mark the resolve begun");
+                    if let Err(e) = tugarc_core::resolve::mark_resolve_begun(&repo, &arc) {
+                        tracing::warn!(arc = %arc, error = %e, "could not mark the resolve begun");
                     }
                     ws
                 }
@@ -1162,10 +1162,10 @@ async fn open_workshop(
                 // edge case: a squash the machines finish completely reaches
                 // the resolver as an audit with nothing left to merge.
                 None => match &squash_candidate {
-                    Some(sha) => tugarc_core::Workshop::open_candidate(&repo, &dash, sha)?,
+                    Some(sha) => tugarc_core::Workshop::open_candidate(&repo, &arc, sha)?,
                     None => {
                         return Err(format!(
-                            "the ladder left neither a conflict nor a candidate for '{dash}'"
+                            "the ladder left neither a conflict nor a candidate for '{arc}'"
                         ));
                     }
                 },
@@ -1180,7 +1180,7 @@ async fn open_workshop(
         resolution_set.sort();
         resolution_set.dedup();
 
-        let branch = format!("tugdash/{}", dash);
+        let branch = format!("tugarc/{}", arc);
         let ladder_tree = inherited_candidate
             .clone()
             .or_else(|| staged_tree.clone())
@@ -1212,7 +1212,7 @@ async fn commit_candidate(
     baseline: &str,
 ) -> Result<String, String> {
     let repo = ctx.repo.clone();
-    let dash = ctx.dash.clone();
+    let arc = ctx.arc.clone();
     let resolution_set = state.resolution_set.clone();
     let baseline = baseline.to_string();
     let audits: Vec<(String, Option<String>)> = report
@@ -1225,16 +1225,16 @@ async fn commit_candidate(
     let report_for_validation = report.clone();
 
     tokio::task::spawn_blocking(move || {
-        let workshop = tugarc_core::Workshop::open_existing(&repo, &dash)?;
+        let workshop = tugarc_core::Workshop::open_existing(&repo, &arc)?;
         // What the resolver changed can only be read from the tree it left, so
         // the report is validated here rather than before the task — against
         // the machine's decisions *and* the resolver's own edits.
         let touched = workshop.touched_since(&baseline)?;
         validate_report(&report_for_validation, &resolution_set, &touched)?;
-        let branch = format!("tugdash/{}", dash);
+        let branch = format!("tugarc/{}", arc);
         // The candidate is an intermediate — the join composes the message the
         // base actually keeps — so it names no session of its own.
-        let message = tugarc_core::ops::integrate_message(&repo, &dash, &branch, None, None);
+        let message = tugarc_core::ops::integrate_message(&repo, &arc, &branch, None, None);
         // An audit that changed nothing keeps the candidate it audited.
         // Committing an identical tree anyway would reparent it onto the base
         // head, turning a replay join into a squash without anybody asking.
@@ -1242,8 +1242,8 @@ async fn commit_candidate(
             Some(sha) if workshop.matches(sha)? => sha.clone(),
             _ => workshop.commit(&format!("{message}\n\nResolved for the join."))?,
         };
-        let dash_head = tugarc_core::ops::rev_parse(&repo, &branch)?;
-        tugarc_core::resolve::anchor_candidate(&repo, &dash, &candidate, &dash_head)?;
+        let arc_head = tugarc_core::ops::rev_parse(&repo, &branch)?;
+        tugarc_core::resolve::anchor_candidate(&repo, &arc, &candidate, &arc_head)?;
 
         // Which rung a path ends up credited to: the resolver for anything it
         // finished or redid, the original machine rung for a resolution it
@@ -1261,7 +1261,7 @@ async fn commit_candidate(
                     .unwrap_or(ResolvedBy::Resolver),
                 _ => ResolvedBy::Resolver,
             };
-            tugarc_core::resolve::record_resolved_rung(&repo, &dash, path, rung);
+            tugarc_core::resolve::record_resolved_rung(&repo, &arc, path, rung);
         }
         Ok(candidate)
     })
@@ -1277,10 +1277,10 @@ async fn record_report(
 ) -> Result<(), String> {
     let json = serde_json::to_string(report).map_err(|e| e.to_string())?;
     let repo = ctx.repo.clone();
-    let dash = ctx.dash.clone();
+    let arc = ctx.arc.clone();
     let candidate = candidate.to_string();
     tokio::task::spawn_blocking(move || {
-        tugarc_core::resolve::write_report(&repo, &dash, &candidate, &json)
+        tugarc_core::resolve::write_report(&repo, &arc, &candidate, &json)
     })
     .await
     .map_err(|e| format!("report task failed: {e}"))?
@@ -1298,7 +1298,7 @@ fn emit_resolver_delta(ctx: &ResolverContext, status: &str, candidate: Option<&s
     let body = serde_json::json!({
         "action": "changeset_join_resolve_delta",
         "project_dir": ctx.project_dir,
-        "dash": ctx.dash,
+        "arc": ctx.arc,
         "path": "",
         "candidate": candidate,
         "rung": "resolver",
@@ -1377,7 +1377,7 @@ mod tests {
     #[test]
     fn parse_turn_accepts_the_two_terminal_shapes() {
         let ask = parse_turn(
-            r#"{"ask":{"question":"Which name wins?","options":[{"label":"join","description":"the dash's"},{"label":"land","description":"the base's"}]}}"#,
+            r#"{"ask":{"question":"Which name wins?","options":[{"label":"join","description":"the arc's"},{"label":"land","description":"the base's"}]}}"#,
         )
         .unwrap();
         match ask {
@@ -1554,7 +1554,7 @@ mod tests {
         }
     }
 
-    /// A repo whose base and dash both rewrote `f.txt` — a real conflict.
+    /// A repo whose base and arc both rewrote `f.txt` — a real conflict.
     fn conflicted_repo(resolver: &str) -> tempfile::TempDir {
         let temp = tempfile::tempdir().unwrap();
         let repo = temp.path();
@@ -1564,17 +1564,17 @@ mod tests {
         std::fs::write(repo.join(".gitignore"), ".tug/\n").unwrap();
         std::fs::write(repo.join("f.txt"), "A\n").unwrap();
         std::fs::create_dir_all(repo.join(".tugtool")).unwrap();
-        std::fs::write(repo.join(".tugtool/config.toml"), "[tugtool.dash]\n").unwrap();
+        std::fs::write(repo.join(".tugtool/config.toml"), "[tugtool.arc]\n").unwrap();
         git(repo, &["add", "-A"]);
         git(repo, &["commit", "-m", "base"]);
-        git(repo, &["branch", "tugdash/demo"]);
-        git(repo, &["config", "branch.tugdash/demo.tugbase", "main"]);
+        git(repo, &["branch", "tugarc/demo"]);
+        git(repo, &["config", "branch.tugarc/demo.tugbase", "main"]);
 
-        // The dash's side.
-        git(repo, &["switch", "-q", "tugdash/demo"]);
-        std::fs::write(repo.join("f.txt"), "DASH\n").unwrap();
+        // The arc's side.
+        git(repo, &["switch", "-q", "tugarc/demo"]);
+        std::fs::write(repo.join("f.txt"), "ARC\n").unwrap();
         git(repo, &["add", "-A"]);
-        git(repo, &["commit", "-m", "the dash rewrites f"]);
+        git(repo, &["commit", "-m", "the arc rewrites f"]);
         git(repo, &["switch", "-q", "main"]);
 
         // The base's side — the same lines, differently.
@@ -1586,12 +1586,12 @@ mod tests {
         write_exec(&script, resolver);
         git(
             repo,
-            &["config", "tugdash.joinresolver", &script.to_string_lossy()],
+            &["config", "tugarc.joinresolver", &script.to_string_lossy()],
         );
         temp
     }
 
-    /// The subject the dash's conflict chain tip wears right now.
+    /// The subject the arc's conflict chain tip wears right now.
     fn chain_subject(repo: &Path) -> String {
         let tip = tugarc_core::resolve::read_conflict(repo, "demo")
             .expect("a chain stands")
@@ -1609,7 +1609,7 @@ mod tests {
         let (control_tx, _rx) = tokio::sync::broadcast::channel(64);
         ResolverContext {
             repo: repo.to_path_buf(),
-            dash: "demo".to_string(),
+            arc: "demo".to_string(),
             project_dir: repo.to_string_lossy().to_string(),
             model: Arc::new(|| "model".to_string()),
             control_tx,
@@ -1688,7 +1688,7 @@ mod tests {
         write_exec(&driver, "#!/bin/sh\nprintf 'SENTINEL\\n' > \"$4\"\n");
         git(
             repo,
-            &["config", "tugdash.mergedriver", &driver.to_string_lossy()],
+            &["config", "tugarc.mergedriver", &driver.to_string_lossy()],
         );
 
         let outcome = tugarc_core::resolve_conflicts(repo, "demo", None).unwrap();
@@ -1711,7 +1711,7 @@ mod tests {
 
     /// A repo whose one-shot squash conflicts but whose rounds replay cleanly.
     ///
-    /// The dash's first round makes the same change the base later made, and
+    /// The arc's first round makes the same change the base later made, and
     /// its second round moves on from there. Squashing sees base `A`, ours `M`,
     /// theirs `X` and conflicts; replaying applies round 1 as a no-op onto a
     /// head that already has `M` and round 2 cleanly on top. That is the
@@ -1726,13 +1726,13 @@ mod tests {
         std::fs::write(repo.join(".gitignore"), ".tug/\n").unwrap();
         std::fs::write(repo.join("f.txt"), "A\n").unwrap();
         std::fs::create_dir_all(repo.join(".tugtool")).unwrap();
-        std::fs::write(repo.join(".tugtool/config.toml"), "[tugtool.dash]\n").unwrap();
+        std::fs::write(repo.join(".tugtool/config.toml"), "[tugtool.arc]\n").unwrap();
         git(repo, &["add", "-A"]);
         git(repo, &["commit", "-m", "base"]);
-        git(repo, &["branch", "tugdash/demo"]);
-        git(repo, &["config", "branch.tugdash/demo.tugbase", "main"]);
+        git(repo, &["branch", "tugarc/demo"]);
+        git(repo, &["config", "branch.tugarc/demo.tugbase", "main"]);
 
-        git(repo, &["switch", "-q", "tugdash/demo"]);
+        git(repo, &["switch", "-q", "tugarc/demo"]);
         std::fs::write(repo.join("f.txt"), "M\n").unwrap();
         git(
             repo,
@@ -1749,12 +1749,12 @@ mod tests {
         write_exec(&script, resolver);
         git(
             repo,
-            &["config", "tugdash.joinresolver", &script.to_string_lossy()],
+            &["config", "tugarc.joinresolver", &script.to_string_lossy()],
         );
         temp
     }
 
-    /// A dash the replay probe settles is audited, and its candidate survives.
+    /// An arc the replay probe settles is audited, and its candidate survives.
     ///
     /// The replay exit reports neither resolutions nor leftovers, so a trigger
     /// reading those two lists skipped the audit entirely — over the one shape
@@ -1764,7 +1764,7 @@ mod tests {
     /// re-committed as a squash.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_replay_that_settled_a_conflict_is_audited() {
-        let auditing_stub = "#!/bin/sh\nread -r _charter\nprintf '%s\\n' '{\"files\":[{\"path\":\"f.txt\",\"resolved_by\":\"replay\",\"what_each_side_did\":\"both reached M; the dash went on to X\",\"reconciliation\":\"the replay applied the rounds in order\",\"audit\":\"kept\"}],\"notes\":\"audited\"}'\n";
+        let auditing_stub = "#!/bin/sh\nread -r _charter\nprintf '%s\\n' '{\"files\":[{\"path\":\"f.txt\",\"resolved_by\":\"replay\",\"what_each_side_did\":\"both reached M; the arc went on to X\",\"reconciliation\":\"the replay applied the rounds in order\",\"audit\":\"kept\"}],\"notes\":\"audited\"}'\n";
         let temp = replay_shaped_repo(auditing_stub);
         let repo = temp.path();
 
@@ -1814,13 +1814,13 @@ mod tests {
         assert!(err.contains("f.txt"), "{err}");
     }
 
-    /// A dash with no conflict at all has an empty audit set, and the resolver
+    /// An arc with no conflict at all has an empty audit set, and the resolver
     /// never runs — the no-audit case by construction, not by exit shape.
     #[test]
-    fn a_clean_dash_has_an_empty_audit_set() {
+    fn a_clean_arc_has_an_empty_audit_set() {
         let temp = replay_shaped_repo("#!/bin/sh\nexit 1\n");
         let repo = temp.path();
-        // Take the base's conflicting change back out, leaving a dash that
+        // Take the base's conflicting change back out, leaving an arc that
         // merges cleanly.
         git(repo, &["revert", "--no-edit", "HEAD"]);
 
@@ -1877,7 +1877,7 @@ mod tests {
     async fn an_expired_ask_reaches_the_next_charter_and_is_consumed() {
         let temp = conflicted_repo("#!/bin/sh\nexit 1\n");
         let repo = temp.path();
-        let head = tugarc_core::ops::rev_parse(repo, "tugdash/demo").unwrap();
+        let head = tugarc_core::ops::rev_parse(repo, "tugarc/demo").unwrap();
 
         tugarc_core::resolve::write_lastask(
             repo,
@@ -1886,7 +1886,7 @@ mod tests {
             "Which side owns the retry budget?",
         );
 
-        let intent = tugarc_core::resolve_intent(repo, "main", "tugdash/demo");
+        let intent = tugarc_core::resolve_intent(repo, "main", "tugarc/demo");
         assert!(
             intent.contains("Which side owns the retry budget?"),
             "the expired ask rides the next charter's corpus: {intent}"
@@ -2001,14 +2001,14 @@ mod tests {
         let temp = conflicted_repo(half);
         let repo = temp.path();
         // A second conflicted file, so there is something left over.
-        git(repo, &["switch", "-q", "tugdash/demo"]);
-        std::fs::write(repo.join("g.txt"), "G DASH\n").unwrap();
+        git(repo, &["switch", "-q", "tugarc/demo"]);
+        std::fs::write(repo.join("g.txt"), "G ARC\n").unwrap();
         // Add the one file, never `-A`: the fixture's stub-resolver script sits
-        // untracked in the working tree, and sweeping it onto the dash branch
+        // untracked in the working tree, and sweeping it onto the arc branch
         // makes it vanish from main's checkout — where the resolver spawn looks
         // for it.
         git(repo, &["add", "g.txt"]);
-        git(repo, &["commit", "-m", "the dash adds g"]);
+        git(repo, &["commit", "-m", "the arc adds g"]);
         git(repo, &["switch", "-q", "main"]);
         std::fs::write(repo.join("g.txt"), "G BASE\n").unwrap();
         git(repo, &["add", "g.txt"]);
@@ -2111,27 +2111,27 @@ mod tests {
         );
     }
 
-    /// A workshop belongs to a dash, so a dash that is gone cannot grow one.
+    /// A workshop belongs to an arc, so an arc that is gone cannot grow one.
     ///
     /// The straggler this closes: a join tears the workshop down while a
     /// verification that started before it is still running, and the
     /// verification's next open re-creates the worktree and its branch as an
     /// orphan nothing will ever collect.
     #[test]
-    fn a_torn_down_dash_cannot_have_its_workshop_reopened() {
+    fn a_torn_down_arc_cannot_have_its_workshop_reopened() {
         let temp = conflicted_repo("#!/bin/sh\nexit 0\n");
         let repo = temp.path();
 
         tugarc_core::workshop::Workshop::open_existing(repo, "demo")
-            .expect("a live dash has a workshop");
+            .expect("a live arc has a workshop");
 
         let mut warnings = Vec::new();
         tugarc_core::workshop::remove(repo, "demo", &mut warnings);
-        git(repo, &["branch", "-D", "tugdash/demo"]);
+        git(repo, &["branch", "-D", "tugarc/demo"]);
 
         let err = match tugarc_core::workshop::Workshop::open_existing(repo, "demo") {
             Err(e) => e,
-            Ok(_) => panic!("a gone dash refuses"),
+            Ok(_) => panic!("a gone arc refuses"),
         };
         assert!(err.contains("is gone"), "{err}");
         assert!(
@@ -2158,11 +2158,11 @@ mod tests {
     }
 
     /// The escalation round trip: the resolver asks, the question reaches the
-    /// card *and* the dash, the answer comes back verbatim, and the resolve
+    /// card *and* the arc, the answer comes back verbatim, and the resolve
     /// finishes.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn an_escalation_round_trips_and_the_resolve_finishes() {
-        let asking = "#!/bin/sh\nws=\"$1\"\nread -r _charter\nprintf '%s\\n' '{\"ask\":{\"question\":\"Which name wins?\",\"options\":[{\"label\":\"the dash\"},{\"label\":\"the base\"}]}}'\nread -r answer\nprintf 'SENTINEL\\n' > \"$ws/f.txt\"\nprintf '%s\\n' '{\"files\":[{\"path\":\"f.txt\",\"resolved_by\":\"resolver\",\"what_each_side_did\":\"both named it\",\"reconciliation\":\"took the answer\"}],\"notes\":\"asked first\"}'\n";
+        let asking = "#!/bin/sh\nws=\"$1\"\nread -r _charter\nprintf '%s\\n' '{\"ask\":{\"question\":\"Which name wins?\",\"options\":[{\"label\":\"the arc\"},{\"label\":\"the base\"}]}}'\nread -r answer\nprintf 'SENTINEL\\n' > \"$ws/f.txt\"\nprintf '%s\\n' '{\"files\":[{\"path\":\"f.txt\",\"resolved_by\":\"resolver\",\"what_each_side_did\":\"both named it\",\"reconciliation\":\"took the answer\"}],\"notes\":\"asked first\"}'\n";
         let temp = conflicted_repo(asking);
         let repo = temp.path();
 
@@ -2188,13 +2188,13 @@ mod tests {
 
         // …and as a durable fact, so a reload re-renders it rather than losing
         // it and leaving the resolver waiting on nobody.
-        let head = tugarc_core::ops::rev_parse(repo, "tugdash/demo").unwrap();
+        let head = tugarc_core::ops::rev_parse(repo, "tugarc/demo").unwrap();
         let stored =
             tugarc_core::resolve::read_question(repo, "demo", &head).expect("a durable question");
         assert!(stored.contains("Which name wins?"), "{stored}");
 
         assert!(
-            answer_question(&request_id, "the dash".to_string()),
+            answer_question(&request_id, "the arc".to_string()),
             "the answer reaches the waiting resolve"
         );
 
@@ -2217,7 +2217,7 @@ mod tests {
         };
         let report = tugarc_core::resolve::read_report(repo, "demo", &candidate).expect("a report");
         assert!(report.contains("Which name wins?"), "{report}");
-        assert!(report.contains("the dash"), "{report}");
+        assert!(report.contains("the arc"), "{report}");
     }
 
     /// An answer nobody is waiting for is refused, not swallowed — the control
@@ -2265,7 +2265,7 @@ mod tests {
         let repo = temp.path();
         // Take the config seam out so the injected spawner — the one carrying
         // the short bound — is what `spawner_for` picks.
-        git(repo, &["config", "--unset", "tugdash.joinresolver"]);
+        git(repo, &["config", "--unset", "tugarc.joinresolver"]);
 
         let mut ctx = context(repo);
         ctx.production = Some(Arc::new(StubJoinResolverSpawner {

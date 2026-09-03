@@ -45,7 +45,7 @@ pub struct Landing {
     pub branch: String,
     pub sha: String,
     pub repo_root: String,
-    pub dash: Option<String>,
+    pub arc: Option<String>,
     pub session_ids: Vec<String>,
 }
 
@@ -97,8 +97,11 @@ pub fn landing_from_payload(payload: &str) -> Landing {
         branch: text("branch"),
         sha: text("sha"),
         repo_root: text("repo_root"),
-        dash: landing
-            .get("dash")
+        arc: landing
+            .get("arc")
+            // A dossier written before the rename spells it `dash`, and a
+            // stored spelling is read for life ([F19]).
+            .or_else(|| landing.get("dash"))
             .and_then(|v| v.as_str())
             .filter(|s| !s.is_empty())
             .map(str::to_owned),
@@ -309,8 +312,8 @@ impl Dossier {
             self.landing.branch,
             self.landing.repo_root
         );
-        if let Some(dash) = &self.landing.dash {
-            out.push_str(&format!(" It joined the dash `{dash}`."));
+        if let Some(arc) = &self.landing.arc {
+            out.push_str(&format!(" It joined the arc `{arc}`."));
         }
         match &self.diff_stat {
             Some(stat) => out.push_str(&format!("\n\n{stat}")),
@@ -392,7 +395,7 @@ mod tests {
 
     /// The closing contract a test supplies, standing in for whatever phase's
     /// contract the engine passes.
-    const CONTRACT: &str = "You are working on the dash `tripwire-ci-abcd1234`. \
+    const CONTRACT: &str = "You are working on the arc `tripwire-ci-abcd1234`. \
                             Close your turn with one JSON object.";
 
     #[test]
@@ -402,7 +405,7 @@ mod tests {
         assert_eq!(landing.branch, "main");
         assert_eq!(landing.sha, "abc123def456");
         assert_eq!(landing.repo_root, "/proj");
-        assert_eq!(landing.dash, None);
+        assert_eq!(landing.arc, None);
         assert_eq!(landing.session_ids, vec!["sess-a", "sess-b"]);
     }
 
@@ -438,7 +441,7 @@ mod tests {
         assert!(prompt.contains("edit 0 went stale"), "{prompt}");
         assert!(
             prompt.contains("`tripwire-ci-abcd1234`"),
-            "the caller's contract states the dash by name: {prompt}"
+            "the caller's contract states the arc by name: {prompt}"
         );
         assert!(!prompt.contains("PROBE"), "no probe on this wire: {prompt}");
     }
@@ -532,7 +535,7 @@ mod tests {
             Some(dir.join("sess-a.jsonl").as_path())
         );
 
-        // A join landing names every session bound to the dash it landed.
+        // A join landing names every session bound to the arc it landed.
         let all = resolve_lineage(
             &ledger,
             &[

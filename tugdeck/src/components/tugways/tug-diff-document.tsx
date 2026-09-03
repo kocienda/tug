@@ -92,7 +92,7 @@ export interface TugDiffDocumentProps {
   /**
    * Open every file regardless of length, instead of the default line-budgeted
    * expansion. For a host whose whole reason to render a diff is that the
-   * content must be *seen* — the dash lane's resolution review, where a
+   * content must be *seen* — the arc lane's resolution review, where a
    * collapsed file would let a machine's merge decision be acknowledged
    * unread. The reader can still collapse from here; this only seeds.
    */

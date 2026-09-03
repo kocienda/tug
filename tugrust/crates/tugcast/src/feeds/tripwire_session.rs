@@ -33,7 +33,7 @@ pub const TRIPWIRE_RUN_TIMEOUT: Duration = Duration::from_secs(20 * 60);
 pub struct TripwireSessionRequest {
     /// The tripwire that asked — the session's card id and the run's identity.
     pub tripwire: String,
-    /// The dash worktree the session works in.
+    /// The arc worktree the session works in.
     pub worktree: PathBuf,
     /// The tripwire's permission mode, forwarded to `claude` at spawn [B09].
     pub permission_mode: String,

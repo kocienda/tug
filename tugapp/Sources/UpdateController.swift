@@ -12,7 +12,7 @@ import Sparkle
 /// both the gate and the feed URL so the update path can be exercised
 /// against a locally served appcast.
 ///
-/// References: dash/self-update.md [P01] [P06] [P07].
+/// References: the self-update design record, [P01], [P06], [P07].
 final class UpdateController: NSObject {
     /// Environment variable that both enables the updater and supplies
     /// the appcast URL, bypassing the bundle-identity gate.

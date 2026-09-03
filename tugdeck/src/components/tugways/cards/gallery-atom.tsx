@@ -8,7 +8,7 @@
  * from whatever host it landed in. One session atom stood 18px tall in the
  * composer, 20px in the transcript, 21px in an Overview post and 25px in the
  * Changes shade, and it stayed invisible because this card showed the bakes and
- * `gallery-dash-lifecycle` showed the pills and nothing showed them together.
+ * `gallery-arc-lifecycle` showed the pills and nothing showed them together.
  * Now they read from one table (`lib/atom-register.ts`) and this row is where a
  * reader can see that they do.
  *
@@ -103,7 +103,7 @@ const REGISTER_ATOMS: AtomSegment[] = [
  * One register's whole family, on a host that publishes it.
  *
  * The host publishes {@link atomRegisterVars} exactly as a transcript body or a
- * dash block does, so the pill inside is sized by the same numbers the chips
+ * arc block does, so the pill inside is sized by the same numbers the chips
  * beside it are measured with — and a divergence shows up here as two heights
  * in one row, which is the only way this class of defect is ever visible.
  */

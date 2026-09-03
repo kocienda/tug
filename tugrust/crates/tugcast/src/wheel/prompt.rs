@@ -108,25 +108,25 @@ fn looks_like_a_path(token: &str) -> bool {
 /// each delivered where it is read. The wording is deliberately short,
 /// and it is no longer the only thing holding the boundary up: the step
 /// verbs say it again at the moment they move a row, and the PreToolUse
-/// gate refuses a repo write or a `dash step start` from a turn that has
+/// gate refuses a repo write or a `arc step start` from a turn that has
 /// already closed a step. A stage rolled through the old sentence and the
 /// skill's on the wheel machinery's first live run, which is what the
 /// machinery is for.
-fn implement_ask(dash: &str, steps: Option<&str>) -> String {
+fn implement_ask(arc: &str, steps: Option<&str>) -> String {
     let Some(steps) = steps else {
         // No selector on the first implement stage: the whole plan, and
         // `arc-implement`'s own setup declares `--through`.
-        return format!("/tugplug:arc-implement {dash} implement one step and end your turn");
+        return format!("/tugplug:arc-implement {arc} implement one step and end your turn");
     };
     let next = steps.split('-').next().unwrap_or(steps);
     let last = steps.rsplit('-').next().unwrap_or(steps);
     if next == last {
         format!(
-            "/tugplug:arc-implement {dash} implement Step {next} and end your turn; it is the run's last step"
+            "/tugplug:arc-implement {arc} implement Step {next} and end your turn; it is the run's last step"
         )
     } else {
         format!(
-            "/tugplug:arc-implement {dash} implement Step {next} and end your turn; Steps {steps} remain on this run"
+            "/tugplug:arc-implement {arc} implement Step {next} and end your turn; Steps {steps} remain on this run"
         )
     }
 }
@@ -140,27 +140,27 @@ fn implement_ask(dash: &str, steps: Option<&str>) -> String {
 pub fn stage_ask(
     stage: &str,
     document: Option<&str>,
-    dash: &str,
+    arc: &str,
     steps: Option<&str>,
 ) -> Option<String> {
     match stage {
         // The devise ask keeps a readable path because the brief is what the
-        // stage opens; the *target* is the dash name, so the skill resolves
+        // stage opens; the *target* is the arc name, so the skill resolves
         // where to write rather than being told and cannot write anywhere else.
         "devise" => Some(format!(
-            "/tugplug:arc-devise a plan for {}, honoring every [B##] decision it records 🢂 {dash}",
+            "/tugplug:arc-devise a plan for {}, honoring every [B##] decision it records 🢂 {arc}",
             document?
         )),
-        "review" => Some(format!("/tugplug:arc-review {dash}")),
-        // The audit opens on the dash, and resolves the plan and the branch's
+        "review" => Some(format!("/tugplug:arc-review {arc}")),
+        // The audit opens on the arc, and resolves the plan and the branch's
         // diff from it — the same one-name rule every stage after devise
         // follows ([P10]).
-        "audit" => Some(format!("/tugplug:arc-audit {dash}")),
+        "audit" => Some(format!("/tugplug:arc-audit {arc}")),
         // Both forms carry the one-step ask: every act the wheel takes on
         // this session — a compaction, a rotation — happens between turns, so
         // a step boundary has to be one. Only the model can end a turn, so the
         // rule lives where the model reads.
-        "implement" => Some(implement_ask(dash, steps)),
+        "implement" => Some(implement_ask(arc, steps)),
         _ => None,
     }
 }
@@ -204,7 +204,7 @@ pub fn compose(
 mod tests {
     use super::*;
 
-    const ASK: &str = "/tugplug:arc-review dash/foo.md";
+    const ASK: &str = "/tugplug:arc-review arc/foo.md";
 
     #[test]
     fn an_ask_with_nothing_to_add_is_exactly_the_ask() {
@@ -301,7 +301,7 @@ mod tests {
             "/tugplug:arc-implement foo implement one step and end your turn"
         );
         for stage in ["devise", "review"] {
-            let ask = stage_ask(stage, Some("dash/idea.md"), "foo", None).expect("an ask");
+            let ask = stage_ask(stage, Some("arc/idea.md"), "foo", None).expect("an ask");
             assert!(!ask.contains("end your turn"), "{ask}");
         }
     }

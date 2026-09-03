@@ -2,7 +2,7 @@
  * `TugMetaRun` — the small facts that follow a row's name.
  *
  * A row names one thing and then says a few short things about it: a file's
- * `edit · exact`, a dash's `main · 4 rounds · uncommitted · implementing`. The
+ * `edit · exact`, an arc's `main · 4 rounds · uncommitted · implementing`. The
  * grammar is one rule dividing the name from its facts, the facts separated
  * from each other, and small proportional type throughout — proportional
  * because these are read as a sentence about the row rather than as
@@ -59,7 +59,7 @@ export function TugMetaRun({
    * never writes `a !== null && b !== null ? bullet : null`. That expression
    * is correct exactly until someone adds a fourth fact.
    *
-   * Use `children` instead when the facts are not a list: the dash lane
+   * Use `children` instead when the facts are not a list: the arc lane
    * interleaves conditional fragments, some of which carry their own bullets
    * and one of which (a step's title) deliberately has none.
    *

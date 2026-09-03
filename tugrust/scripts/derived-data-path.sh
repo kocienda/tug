@@ -25,7 +25,7 @@
 #   (debug, <other>)       → …/DerivedData/Tug-debug-<slug>
 #   (release, <other>)     → …/DerivedData/Tug-release-<slug>
 #   TUG_FORCE_BUNDLE_ID=…   → …/DerivedData/Tug-<suffix>-<wtslug>
-#                             (e.g. Tug-apptest-main, Tug-apptest-tugdash-foo)
+#                             (e.g. Tug-apptest-main, Tug-apptest-tugarc-foo)
 #
 # Usage:
 #   derived-data-path.sh <profile>    # debug | release

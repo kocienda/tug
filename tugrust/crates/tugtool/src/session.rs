@@ -67,7 +67,7 @@ struct RotateCancelPayload {
 /// The model a rotation runs on.
 ///
 /// The stage label *is* the role: `devise` / `review` / `implement` resolve
-/// through the project's own `[tugtool.dash]` declarations, and any other label
+/// through the project's own `[tugtool.arc]` declarations, and any other label
 /// means the account default. A second table mapping roles to models would be
 /// the same fact written twice.
 ///
@@ -88,7 +88,7 @@ fn resolve_model(
         None => tugtool_core::config::find_project_root().ok()?,
     };
     let config = tugtool_core::config::Config::load_from_project(&root).ok()?;
-    stage_model(&config.tugtool.dash, arc_stage)
+    stage_model(&config.tugtool.arc, arc_stage)
 }
 
 /// The line the asking turn shows.
@@ -268,7 +268,7 @@ mod tests {
         std::fs::create_dir_all(root.join(".tugtool")).unwrap();
         std::fs::write(
             root.join(".tugtool/config.toml"),
-            "[tugtool.dash]\nreview_model = \"opus\"\n",
+            "[tugtool.arc]\nreview_model = \"opus\"\n",
         )
         .unwrap();
         let project = Some(root.to_path_buf());

@@ -13,15 +13,15 @@
 //!   collaborators, and reverses by deleting a line. Writing the project's
 //!   `.gitignore` would create an uncommitted diff in the very act of avoiding
 //!   uncommitted noise, in a file the user owns.
-//! - **An anchored exact path (`/dash/assets/`), never a bare `assets/`.** A
+//! - **An anchored exact path (`/arc/assets/`), never a bare `assets/`.** A
 //!   bare pattern would hide a load-bearing source directory in an arbitrary
 //!   repo. An anchored path cannot collide with anything.
 //! - **The file is found through `git rev-parse --git-common-dir`, never by
-//!   joining `<root>/.git`.** In a linked worktree — which is what every dash
+//!   joining `<root>/.git`.** In a linked worktree — which is what every arc
 //!   is — `.git` is a *file*, not a directory, so `<root>/.git/info/exclude`
 //!   cannot be created. `--git-common-dir` answers with the shared `info/` in
 //!   both layouts, which is also what makes "the rule is shared across
-//!   worktrees" true rather than incidental: a rule written from a dash
+//!   worktrees" true rather than incidental: a rule written from an arc
 //!   worktree is the rule the main checkout reads.
 //!
 //! A directory whose files git already tracks is left alone entirely, so a
@@ -252,12 +252,12 @@ mod tests {
         let dir = repo();
         let path = std::fs::canonicalize(dir.path()).unwrap();
         attach(&path, "assets");
-        attach(&path, "dash/assets");
+        attach(&path, "arc/assets");
 
         let exclude =
             std::fs::read_to_string(path.join(".git").join("info").join("exclude")).unwrap();
         assert!(exclude.contains("/assets/"), "{exclude}");
-        assert!(exclude.contains("/dash/assets/"), "{exclude}");
+        assert!(exclude.contains("/arc/assets/"), "{exclude}");
         assert_eq!(exclude.matches(BLOCK_START).count(), 1, "{exclude}");
         assert_eq!(exclude.matches(BLOCK_END).count(), 1, "{exclude}");
         assert_eq!(porcelain(&path), "");
@@ -359,10 +359,10 @@ mod tests {
         assert!(updated.contains("/assets/"), "{updated}");
 
         // A second line joins the existing block rather than starting another.
-        let twice = exclude_contents_with(&updated, "/dash/assets/").unwrap();
+        let twice = exclude_contents_with(&updated, "/arc/assets/").unwrap();
         assert_eq!(twice.matches(BLOCK_START).count(), 1, "{twice}");
         assert!(
-            twice.contains("/assets/") && twice.contains("/dash/assets/"),
+            twice.contains("/assets/") && twice.contains("/arc/assets/"),
             "{twice}"
         );
 

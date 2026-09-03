@@ -358,7 +358,7 @@ function TelemetryCopy({
 }
 
 /**
- * A stamp in the resting line's own format — `Aug 8, 7:02 AM` — or an em dash
+ * A stamp in the resting line's own format — `Aug 8, 7:02 AM` — or an em arc
  * when the ledger has none.
  *
  * Deliberately not `toLocaleString()`, which spelled a date the panel already
@@ -556,7 +556,7 @@ export function SessionMasthead({
         // packing puts each of those on its own vertical; the column is the one
         // fact all three can share.
         indicatorPacking="column"
-        // The bound dash is not the masthead's to render: it rides the title's
+        // The bound arc is not the masthead's to render: it rides the title's
         // own grammar, alongside the project the callsign already names, which
         // `SessionIdentityRow` composes. What sat here was a badge in the title
         // line's trailing slot, competing with pane chrome for space and often

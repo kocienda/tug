@@ -1,21 +1,21 @@
 /**
- * at0478-dash-fit-verified.test.ts — a project declares its surfaces, an
- * unclaimed path really refuses, and a verified fit reaches the dash lane.
+ * at0478-arc-fit-verified.test.ts — a project declares its surfaces, an
+ * unclaimed path really refuses, and a verified fit reaches the arc lane.
  *
  * Two claims, in the order a project actually meets them.
  *
  * The refusal first, because it is the half a table test cannot prove: the
- * resolver's `Unclaimed` is covered in `tugarc-core`, but that a real dash,
+ * resolver's `Unclaimed` is covered in `tugarc-core`, but that a real arc,
  * over a real diff, against a real committed `.tugtool/config.toml`, exits 2
  * and names the path is a property of the verb over a tree. A project's table
  * is complete exactly when the verb stops refusing, and the first incomplete
- * dash is the one that says so — so the fixture declares a table that misses a
+ * arc is the one that says so — so the fixture declares a table that misses a
  * directory the round touches, watches it refuse, declares the surface, and
  * watches the refusal clear.
  *
  * Then the face. A green verify records the head it verified and the base it
  * verified onto; the fact rides the changeset entry that already reaches the
- * lane, and `dashMetaFacts` derives `fit verified` from it purely. What the
+ * lane, and `arcMetaFacts` derives `fit verified` from it purely. What the
  * fact *says* is settled in `bun:test` over that pure function; what cannot be
  * settled there is that the composed entry reaches the lane and paints, which
  * is this file's job.
@@ -45,16 +45,16 @@ import {
 } from "./_harness/tugbank-helpers";
 import {
   commitRound,
-  createDash,
+  createArc,
   gitRetry,
-  makeDashScratchRepo,
-  rmDashScratchRepo,
+  makeArcScratchRepo,
+  rmArcScratchRepo,
   rmScratchSession,
   seedScratchSession,
   tugtool,
   tugtoolPath,
-  type DashScratchRepo,
-} from "./dash-fixture";
+  type ArcScratchRepo,
+} from "./arc-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
@@ -63,15 +63,15 @@ const SID = "a7c0d1ea-0000-4000-8000-000000000478";
 const CARD = '[data-card-id="A"]';
 const PROMPT_INPUT = `${CARD} [data-slot="tug-text-editor"] .cm-content`;
 const SHEET = `${CARD} .session-view-pane[data-view="changes"] [data-slot="tug-sheet"]`;
-const LANE = `${SHEET} [data-slot="session-changes-dash-lane"]`;
+const LANE = `${SHEET} [data-slot="session-changes-arc-lane"]`;
 
-const DASH_NAME = "at0478-fit";
-const ROW = `${LANE} [data-slot="session-changes-dash-row"][data-dash="${DASH_NAME}"]`;
-const FIT_MARK = `${ROW} [data-slot="tug-dash-lifecycle-fact"][data-fact="fit"]`;
+const ARC_NAME = "at0478-fit";
+const ROW = `${LANE} [data-slot="session-changes-arc-row"][data-arc="${ARC_NAME}"]`;
+const FIT_MARK = `${ROW} [data-slot="tug-arc-lifecycle-fact"][data-fact="fit"]`;
 
-/** This checkout — the build under test, and never the tree a dash is cut in. */
+/** This checkout — the build under test, and never the tree an arc is cut in. */
 const CHECKOUT = realpathSync(resolve(import.meta.dir, "..", ".."));
-let scratch: DashScratchRepo | null = null;
+let scratch: ArcScratchRepo | null = null;
 let fixtureDir = "";
 const projectDir = (): string => scratch?.repo ?? "";
 
@@ -82,7 +82,7 @@ const projectDir = (): string => scratch?.repo ?? "";
  * declaration can have and a script never could.
  */
 const PARTIAL_TABLE = [
-  "[[tugtool.dash.surface]]",
+  "[[tugtool.arc.surface]]",
   'name  = "src"',
   'paths = ["src/"]',
   'check = ["true"]',
@@ -93,25 +93,25 @@ const PARTIAL_TABLE = [
  * The same table with the gap closed — and `.tugtool/` claimed too, because
  * the round that closes the gap edits the config file itself. A table is
  * complete when the verb stops refusing, and the refusal counts every path the
- * dash would land, including the declaration that fixed it.
+ * arc would land, including the declaration that fixed it.
  */
 const COMPLETE_TABLE = [
   PARTIAL_TABLE,
-  "[[tugtool.dash.surface]]",
+  "[[tugtool.arc.surface]]",
   'name  = "docs"',
   'paths = ["docs/"]',
   "check = []",
   "",
-  "[[tugtool.dash.surface]]",
+  "[[tugtool.arc.surface]]",
   'name  = "project"',
   'paths = [".tugtool/"]',
   "check = []",
   "",
 ].join("\n");
 
-/** Run `dash verify` for its exit code, which the throwing helper cannot give. */
+/** Run `arc verify` for its exit code, which the throwing helper cannot give. */
 function verifyExit(): { code: number; out: string } {
-  const run = Bun.spawnSync([tugtoolPath(CHECKOUT), "arc", "verify", DASH_NAME], {
+  const run = Bun.spawnSync([tugtoolPath(CHECKOUT), "arc", "verify", ARC_NAME], {
     cwd: projectDir(),
     env: { ...process.env, ...(scratch?.cli.env ?? {}) },
   });
@@ -121,7 +121,7 @@ function verifyExit(): { code: number; out: string } {
   };
 }
 
-/** Rewrite the project's committed table, on the base and on the dash alike. */
+/** Rewrite the project's committed table, on the base and on the arc alike. */
 function declareTable(worktree: string, table: string): void {
   for (const root of [projectDir(), worktree]) {
     mkdirSync(join(root, ".tugtool"), { recursive: true });
@@ -131,25 +131,25 @@ function declareTable(worktree: string, table: string): void {
 
 beforeAll(() => {
   if (!SHOULD_RUN) return;
-  scratch = makeDashScratchRepo({
+  scratch = makeArcScratchRepo({
     prefix: "at0478",
     checkout: CHECKOUT,
     files: { ".tugtool/config.toml": PARTIAL_TABLE, "src/seed.txt": "seed\n" },
   });
 
-  const created = createDash(projectDir(), DASH_NAME, "at0478 the fit fact", scratch.cli);
+  const created = createArc(projectDir(), ARC_NAME, "at0478 the fit fact", scratch.cli);
   // The round touches both directories: one the table claims, one it does not.
   mkdirSync(join(created.worktree, "docs"), { recursive: true });
-  writeFileSync(join(created.worktree, "src/a.txt"), "the dash's own change\n");
+  writeFileSync(join(created.worktree, "src/a.txt"), "the arc's own change\n");
   writeFileSync(join(created.worktree, "docs/b.md"), "prose the table forgot\n");
-  commitRound(projectDir(), DASH_NAME, "at0478(round): touch two surfaces", scratch.cli);
+  commitRound(projectDir(), ARC_NAME, "at0478(round): touch two surfaces", scratch.cli);
 
   fixtureDir = seedScratchSession(projectDir(), SID);
 });
 
 afterAll(() => {
   if (!SHOULD_RUN) return;
-  rmDashScratchRepo(scratch);
+  rmArcScratchRepo(scratch);
   rmScratchSession(fixtureDir);
 });
 
@@ -174,7 +174,7 @@ function deckShape() {
 
 const settle = (ms = 200) => new Promise((r) => setTimeout(r, ms));
 
-describe.skipIf(!SHOULD_RUN)("AT0478: the fit a dash was verified at", () => {
+describe.skipIf(!SHOULD_RUN)("AT0478: the fit an arc was verified at", () => {
   test(
     "an unclaimed path refuses, declaring the surface clears it, and the lane says the fit",
     async () => {
@@ -183,17 +183,17 @@ describe.skipIf(!SHOULD_RUN)("AT0478: the fit a dash was verified at", () => {
       note(`refused: exit ${refused.code}`);
       expect(refused.code).toBe(2);
       expect(refused.out).toContain("docs/b.md");
-      expect(refused.out).toContain("[[tugtool.dash.surface]]");
+      expect(refused.out).toContain("[[tugtool.arc.surface]]");
       expect(refused.out).toContain("TUG-VERIFY-RECEIPT: unclaimed");
       // The refusal is about the gap, not about a check that ran beside it.
       expect(refused.out).not.toContain("TUG-VERIFY-RECEIPT: verified");
 
       // ── Declaring the missing surface clears it ─────────────────────────
-      const worktree = join(projectDir(), ".tug/worktrees", DASH_NAME);
+      const worktree = join(projectDir(), ".tug/worktrees", ARC_NAME);
       declareTable(worktree, COMPLETE_TABLE);
       commitRound(
         projectDir(),
-        DASH_NAME,
+        ARC_NAME,
         "at0478(round): declare the surface the refusal named",
         scratch?.cli ?? {},
       );
@@ -209,7 +209,7 @@ describe.skipIf(!SHOULD_RUN)("AT0478: the fit a dash was verified at", () => {
 
       // The fact is recorded where the faces read it.
       const status = JSON.parse(
-        tugtool(["arc", "status", DASH_NAME, "--json"], {
+        tugtool(["arc", "status", ARC_NAME, "--json"], {
           cwd: projectDir(),
           ...(scratch?.cli ?? {}),
         }),
@@ -222,7 +222,7 @@ describe.skipIf(!SHOULD_RUN)("AT0478: the fit a dash was verified at", () => {
       const tugbankPath = mkTempTugbank();
       seedTugbankForLaunch(tugbankPath, { sourceTreePath: CHECKOUT });
       const app = await launchTugApp({
-        testName: "at0478-dash-fit-verified",
+        testName: "at0478-arc-fit-verified",
         env: { TUGBANK_PATH: tugbankPath, TUG_DATA_DIR: scratch?.dataRoot ?? "" },
       });
       try {

@@ -62,7 +62,7 @@ describe("parseCommitReceipt", () => {
   it("returns null for a non-S02 output (older or truncated)", () => {
     expect(parseCommitReceipt("committed abc")).toBeNull();
     expect(parseCommitReceipt("some shell output\nmore lines")).toBeNull();
-    // The retired em-dash header shape (subject on line 0) no longer parses.
+    // The retired em-arc header shape (subject on line 0) no longer parses.
     expect(parseCommitReceipt("committed abc — subj\n1 file(s) · +1 −0")).toBeNull();
   });
 });

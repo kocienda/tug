@@ -11,7 +11,7 @@
  *   1. **The token is present or absent, never a placeholder.** Reasoning
  *      effort is per-model (opus supports five levels, sonnet four, haiku
  *      none). When the active model has no level, the composite OMITS the
- *      effort token rather than showing a dash — in a two-token line a dash
+ *      effort token rather than showing an arc — in a two-token line an arc
  *      reads as a value. Inject `session_capabilities` with effort support + a
  *      level → the token appears; inject one without support → it goes.
  *   2. **No live set verb.** Picking a level sends `effort_change` (tugcode

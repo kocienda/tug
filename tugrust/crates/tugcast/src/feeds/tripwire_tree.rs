@@ -7,7 +7,7 @@
 //! without exposing the user's checkout is to run it somewhere else: a
 //! detached worktree at the landed sha *is* the commit, is not the base, and
 //! is disposable. `git worktree add --detach` takes no branch and holds no
-//! lease, so it appears in no dash listing and needs no `ops::create_in`.
+//! lease, so it appears in no arc listing and needs no `ops::create_in`.
 //!
 //! **One tree per landing rather than per wire, and that is the economy.** A
 //! machine carrying two dozen armed wires meets one landing with a dozen
@@ -16,7 +16,7 @@
 //! landing's live trips and removed when the last one settles.
 //!
 //! **A tree that outlives its landing is swept, not leaked** (Risk R04). A
-//! crash leaves a detached worktree that nothing lists — unlike a dash, no
+//! crash leaves a detached worktree that nothing lists — unlike an arc, no
 //! registry knows about it. So the tree is named from the landing's sha under
 //! one tripwire-owned scratch root, which makes the sweep a directory listing
 //! rather than a registry: any tree whose sha has no live trip is removed on

@@ -232,7 +232,7 @@ pub const USER_PROMPT_MAX_CHARS: usize = 256;
 /// an individual instance must never reshape the machine-global schema on
 /// its own ([D112]). Builds seeing a *newer* on-disk version refuse to
 /// write the shared tables entirely.
-pub const CHANGES_SCHEMA_VERSION: i64 = 3;
+pub const CHANGES_SCHEMA_VERSION: i64 = 4;
 
 /// Registered, human-approved migrations for the shared changes schema:
 /// `(from_version, sql)` applied in order to reach `from_version + 1`.
@@ -242,10 +242,29 @@ pub const CHANGES_SCHEMA_VERSION: i64 = 3;
 /// stamped at write time, so a row stays attributed to its line of work
 /// even after the `sessions` row it would have joined through is evicted
 /// or lives in another instance's ledger ([Q01]).
+/// Version 4 rewrites `changeset_drafts` owner spellings from the retired
+/// owner kind and `tugdash/` to `arc` / `tugarc/` ([P03]) — the branch prefix moved
+/// in the same arc, so a row keyed on the old one names a branch that no
+/// longer exists.
 const CHANGES_MIGRATIONS: &[(i64, &str)] = &[
     (1, CREATE_FILE_EVENT_SPANS_SQL),
     (2, ADD_FILE_EVENTS_LINE_ID_SQL),
+    (3, RENAME_ARC_OWNERS_SQL),
 ];
+
+/// The v3→v4 owner rewrite, in one place with the idempotent bootstrap arm
+/// that covers a pre-versioning database whose table is already on disk.
+///
+/// Both statements are safe to re-run: the second pass matches no rows, so a
+/// crash between the DDL and the version stamp costs nothing. The prefix
+/// rewrite is injective — `tugdash/` and `tugarc/` are the same length and
+/// differ byte for byte after the prefix — so no primary-key collision is
+/// possible however many rows either spelling holds.
+const RENAME_ARC_OWNERS_SQL: &str = "
+    UPDATE changes.changeset_drafts SET owner_kind = 'arc' WHERE owner_kind = 'dash';
+    UPDATE changes.changeset_drafts SET owner_id = 'tugarc/' || substr(owner_id, 9)
+        WHERE owner_id LIKE 'tugdash/%';
+";
 
 /// The v2→v3 column add, in one place with the conditional bootstrap arm
 /// that covers pre-versioning databases.
@@ -450,20 +469,20 @@ pub struct SessionRow {
     /// in the ack that set it. Keep in lockstep with the TS `SessionRow.private`.
     #[serde(default)]
     pub private: bool,
-    /// The dash this session is working on, as its **owner key** ([P01]) —
-    /// `tugdash/<name>#<tugid>`, or the bare branch ref for an id-less dash.
-    /// This is the authority; `dash_name` is denormalized display.
+    /// The arc this session is working on, as its **owner key** ([P01]) —
+    /// `tugarc/<name>#<tugid>`, or the bare branch ref for an id-less arc.
+    /// This is the authority; `arc_name` is denormalized display.
     ///
     /// A binding is live-session state ([P08]): it is written at bind, cleared
     /// when the session closes ([L27]), and never reported for a row the
-    /// ledger no longer calls live — a dash whose cards have all closed is
+    /// ledger no longer calls live — an arc whose cards have all closed is
     /// *unbound*, not still mated.
     #[serde(default)]
-    pub dash_id: Option<String>,
-    /// The bound dash's name, denormalized so a display never needs a git
-    /// read. `dash_id` is the authority.
+    pub arc_id: Option<String>,
+    /// The bound arc's name, denormalized so a display never needs a git
+    /// read. `arc_id` is the authority.
     #[serde(default)]
-    pub dash_name: Option<String>,
+    pub arc_name: Option<String>,
     /// The line of work this row is a **segment** of ([P01]). Every id change
     /// a card lives through — a rotation, a rewind-fork, a `--continue`, a
     /// crash respawn — writes another segment against the same line, and the
@@ -967,9 +986,9 @@ pub struct FileEventKey {
 /// regenerable — never cascade-deleted, superseded in place.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ChangesetDraftRow {
-    /// `session` | `dash` | `unattributed`.
+    /// `session` | `arc` | `unattributed`.
     pub owner_kind: String,
-    /// `tug_session_id` | `tugdash/<name>` | `""` (unattributed).
+    /// `tug_session_id` | `tugarc/<name>` | `""` (unattributed).
     pub owner_id: String,
     /// The checkout root the entry belongs to.
     pub project_dir: String,
@@ -1701,7 +1720,7 @@ impl SessionLedger {
         Self::migrate_sessions_add_stage_provenance(conn)?;
         Self::migrate_sessions_add_synopsis(conn)?;
         Self::migrate_sessions_add_private(conn)?;
-        Self::migrate_sessions_add_dash_binding(conn)?;
+        Self::migrate_sessions_arc_binding(conn)?;
         Self::migrate_sessions_add_demoted(conn)?;
         Self::migrate_sessions_add_hand_back_owed(conn)?;
         Self::migrate_scan_cache_add_resume_columns(conn)?;
@@ -1771,7 +1790,7 @@ impl SessionLedger {
                 fork_point        TEXT,
                 -- Stage provenance ([P10]): what a rotation seated this
                 -- session as. Both NULL on a session no rotation seated. They
-                -- live here rather than being reconstructed from a dash arc's
+                -- live here rather than being reconstructed from an arc's run
                 -- record, because a rotation need not have an arc behind it —
                 -- and its transcript is an invariant either way.
                 stage_label       TEXT,
@@ -1786,13 +1805,13 @@ impl SessionLedger {
                 -- skips it. From-now-on semantics — marking a session private
                 -- hides it going forward and scrubs nothing already written.
                 private           INTEGER NOT NULL DEFAULT 0,
-                -- The dash this session is working on ([P01]/[P08]):
-                -- `dash_id` is the owner key and the authority, `dash_name`
+                -- The arc this session is working on ([P01]/[P08]):
+                -- `arc_id` is the owner key and the authority, `arc_name`
                 -- is denormalized for display. NULL when unbound, and
                 -- cleared when the session closes — bound-ness is defined
                 -- over live sessions ([L27]).
-                dash_id           TEXT,
-                dash_name         TEXT,
+                arc_id           TEXT,
+                arc_name         TEXT,
                 -- Which kind of `closed` this row is. `1` marks the startup
                 -- demote — the *process* under the session ended, not the
                 -- session — and is the one state `revive_on_activity` may
@@ -2446,8 +2465,17 @@ impl SessionLedger {
                     // `ALTER TABLE … ADD COLUMN` is not idempotent the way
                     // `CREATE TABLE IF NOT EXISTS` is, so the one error
                     // that means "already applied" is absorbed.
+                    //
+                    // A migration that touches a table the bootstrap below
+                    // has not created yet is absorbed on the same footing: it
+                    // ran against a database that has no such rows to move,
+                    // and the idempotent arm after the DDL is what covers a
+                    // database that does.
                     if let Err(err) = conn.execute_batch(sql) {
-                        if !err.to_string().contains("duplicate column name") {
+                        let message = err.to_string();
+                        let already_applied = message.contains("duplicate column name")
+                            || message.contains("no such table");
+                        if !already_applied {
                             return Err(err.into());
                         }
                     }
@@ -2535,6 +2563,10 @@ impl SessionLedger {
         if !has_line_id {
             conn.execute_batch(ADD_FILE_EVENTS_LINE_ID_SQL)?;
         }
+        // Same reasoning as the column add above, and the same shape: a
+        // pre-versioning database takes no registered migration, and these
+        // two UPDATEs match nothing on a database that has already had them.
+        conn.execute_batch(RENAME_ARC_OWNERS_SQL)?;
         conn.pragma_update(
             Some(rusqlite::DatabaseName::Attached("changes")),
             "user_version",
@@ -2715,8 +2747,8 @@ impl SessionLedger {
     /// Self-healing add of the stage-provenance columns ([P10]).
     ///
     /// `stage_label` and `stage_model` record what a rotation seated this
-    /// session as. They live on the row rather than being reconstructed from a
-    /// dash arc's record, because a rotation need not have an arc behind it:
+    /// session as. They live on the row rather than being reconstructed from
+    /// an arc's run record, because a rotation need not have an arc behind it:
     /// a card rotated by a bare `session rotate` has no arc to read, and
     /// without these columns its earlier sessions would vanish from the
     /// transcript on the next relaunch. Both are NULL on a session no rotation
@@ -3318,27 +3350,79 @@ impl SessionLedger {
         Ok(())
     }
 
-    /// Self-healing add of the `sessions.dash_id` / `sessions.dash_name`
-    /// columns — the session↔dash binding ([P01], Spec S03). Pre-column rows
-    /// read `NULL` (unbound), which is exactly what they were. No-op on a
-    /// fresh DB (the CREATE TABLE defines both) or when already migrated.
-    fn migrate_sessions_add_dash_binding(conn: &Connection) -> Result<(), LedgerError> {
+    /// The `sessions.arc_id` / `sessions.arc_name` columns — the session↔arc
+    /// binding ([P01], Spec S03) — in whichever of three states the table is
+    /// actually in. Pre-column rows read `NULL` (unbound), which is exactly
+    /// what they were.
+    ///
+    /// **The retired pair alone** is the ordinary migration: `RENAME COLUMN`
+    /// each, then rewrite the branch prefix the owner key carries, since the
+    /// prefix moved in the same arc ([P02]) and a binding naming `tugarc/x`
+    /// names a branch that no longer exists.
+    ///
+    /// **Neither pair** is a fresh or pre-binding table: add both.
+    ///
+    /// **Both pairs** is the one shape that is nobody's design (Risk R02). An
+    /// older build running beside this one re-adds `arc_id` / `arc_name` on
+    /// its own open — its migration was a self-healing *add* — and then binds
+    /// sessions there while this build reads `arc_id`. So the rename arm can
+    /// never fire again, and a binding written by that build would be stranded
+    /// for good. Rescue it: copy any `arc_id` a row carries and its `arc_id`
+    /// does not, under the same prefix rewrite, and leave the retired columns
+    /// standing. Dropping them would be tidier and would last exactly until
+    /// the old build's next open re-added them; a rescued binding beats a tidy
+    /// table.
+    fn migrate_sessions_arc_binding(conn: &Connection) -> Result<(), LedgerError> {
         let cols = Self::table_columns(conn, "sessions")?;
         if cols.is_empty() {
             return Ok(());
         }
-        for column in ["dash_id", "dash_name"] {
-            if cols.iter().any(|(n, _)| n == column) {
-                continue;
+        let has = |name: &str| cols.iter().any(|(n, _)| n == name);
+        let (had_retired, had_current) = (has("dash_id"), has("arc_id"));
+
+        if had_retired && !had_current {
+            for (from, to) in [("dash_id", "arc_id"), ("dash_name", "arc_name")] {
+                if !has(from) {
+                    continue;
+                }
+                match conn.execute(
+                    &format!("ALTER TABLE sessions RENAME COLUMN {from} TO {to}"),
+                    [],
+                ) {
+                    Ok(_) => {}
+                    Err(err) if is_duplicate_column(&err) => {}
+                    Err(err) => return Err(err.into()),
+                }
             }
-            match conn.execute(
-                &format!("ALTER TABLE sessions ADD COLUMN {column} TEXT"),
-                [],
-            ) {
-                Ok(_) => {}
-                Err(err) if is_duplicate_column(&err) => {}
-                Err(err) => return Err(err.into()),
+        } else if !had_current {
+            for column in ["arc_id", "arc_name"] {
+                match conn.execute(
+                    &format!("ALTER TABLE sessions ADD COLUMN {column} TEXT"),
+                    [],
+                ) {
+                    Ok(_) => {}
+                    Err(err) if is_duplicate_column(&err) => {}
+                    Err(err) => return Err(err.into()),
+                }
             }
+        } else if had_retired {
+            // Both pairs: rescue what only the retired one holds.
+            conn.execute_batch(
+                "UPDATE sessions
+                    SET arc_id = dash_id, arc_name = dash_name
+                  WHERE arc_id IS NULL AND dash_id IS NOT NULL;",
+            )?;
+        }
+
+        // The prefix rewrite runs whenever a binding could be carrying the
+        // retired one — after a rename and after a rescue alike, and never on
+        // a table that only just gained empty columns.
+        if had_retired {
+            conn.execute_batch(
+                "UPDATE sessions
+                    SET arc_id = 'tugarc/' || substr(arc_id, 9)
+                  WHERE arc_id LIKE 'tugdash/%';",
+            )?;
         }
         Ok(())
     }
@@ -4002,10 +4086,10 @@ impl SessionLedger {
                 // An unadopted scan row has no `sessions` row to carry a flag,
                 // and an absent row reads as public everywhere else too.
                 private: false,
-                // Nor a binding: a dash is bound by a live session, and this
+                // Nor a binding: an arc is bound by a live session, and this
                 // row has no session in the ledger at all.
-                dash_id: None,
-                dash_name: None,
+                arc_id: None,
+                arc_name: None,
                 line_id: row.get::<_, Option<String>>(8)?.unwrap_or_default(),
             })
         }
@@ -5151,10 +5235,10 @@ impl SessionLedger {
     /// several paths can call this for one ending (a close after a startup
     /// demote, a teardown after a crash), and each one recording would put two
     /// endings in the fact base for a session that ended once.
-    /// Closing also **releases the dash binding** ([L27], [P08]): the
+    /// Closing also **releases the arc binding** ([L27], [P08]): the
     /// acquisition a bind made is returned by the shorter-lived party. Without
-    /// it a `dash_id` written once would report a mated session forever, and
-    /// the *unbound* state — a dash with rounds and no live session — could
+    /// it a `arc_id` written once would report a mated session forever, and
+    /// the *unbound* state — an arc with rounds and no live session — could
     /// never be reached.
     pub fn mark_closed(&self, session_id: &str) -> Result<bool, LedgerError> {
         let conn = self.db.lock().expect("ledger mutex");
@@ -5165,7 +5249,7 @@ impl SessionLedger {
             // closing a card the startup demote beat to `closed` must still
             // strip its revivability.
             "UPDATE sessions
-             SET state = 'closed', demoted = 0, dash_id = NULL, dash_name = NULL
+             SET state = 'closed', demoted = 0, arc_id = NULL, arc_name = NULL
              WHERE session_id = ?1
                AND (state != 'closed' OR demoted != 0)",
             params![session_id],
@@ -5236,54 +5320,54 @@ impl SessionLedger {
         Ok(true)
     }
 
-    /// Bind a session to a dash, or clear its binding with `None` ([P08],
-    /// Spec S03). `dash_id` is the owner key ([P01]); `dash_name` rides along
+    /// Bind a session to an arc, or clear its binding with `None` ([P08],
+    /// Spec S03). `arc_id` is the owner key ([P01]); `arc_name` rides along
     /// so a display never needs a git read. Returns whether a row moved.
     ///
     /// **A binding may only be written onto a live segment.** A closed or
     /// demoted row is a corpse: the card it belonged to is gone, nothing
-    /// reads its `dash_id`, and a write that landed there once reported a
+    /// reads its `arc_id`, and a write that landed there once reported a
     /// truthful success about the wrong session while the live card showed no
-    /// dash at all. The `WHERE` refuses it, so a caller that failed to expand
+    /// arc at all. The `WHERE` refuses it, so a caller that failed to expand
     /// a frozen `$TUG_SESSION_ID` to its line's live segment
     /// ([`Self::live_segment_of`]) gets `Ok(false)` and has to say so, rather
     /// than a silent no-op wearing the face of a repair. Clearing (`None`) is
     /// exempt: dropping a stale binding off a dead row is housekeeping, and
     /// the only thing it can do is make the ledger tidier.
-    pub fn set_dash_binding(
+    pub fn set_arc_binding(
         &self,
         session_id: &str,
-        dash: Option<(&str, &str)>,
+        arc: Option<(&str, &str)>,
     ) -> Result<bool, LedgerError> {
-        let (dash_id, dash_name) = match dash {
+        let (arc_id, arc_name) = match arc {
             Some((id, name)) => (Some(id), Some(name)),
             None => (None, None),
         };
         let conn = self.db.lock().expect("ledger mutex");
         let affected = conn.execute(
-            "UPDATE sessions SET dash_id = ?2, dash_name = ?3
+            "UPDATE sessions SET arc_id = ?2, arc_name = ?3
              WHERE session_id = ?1
                AND (?2 IS NULL OR (state = 'live' AND demoted = 0))",
-            params![session_id, dash_id, dash_name],
+            params![session_id, arc_id, arc_name],
         )?;
         drop(conn);
         self.notify_sessions_changed();
         Ok(affected > 0)
     }
 
-    /// Drop every binding to one dash, keyed by its **owner key** — the
-    /// sweep a landing runs once the dash is gone ([P05]).
+    /// Drop every binding to one arc, keyed by its **owner key** — the
+    /// sweep a landing runs once the arc is gone ([P05]).
     ///
     /// Keyed by id and never by name: the column holds owner keys, so a name
     /// would match nothing, and a prefix match would also sweep a live
-    /// successor dash that happens to reuse the name — the precise haunting
+    /// successor arc that happens to reuse the name — the precise haunting
     /// this design retires. The caller resolves the key **before** the
     /// teardown that deletes the branch config it lives in ([L23], Risk R02).
-    pub fn clear_dash_bindings_for_dash(&self, dash_id: &str) -> Result<usize, LedgerError> {
+    pub fn clear_arc_bindings_for_arc(&self, arc_id: &str) -> Result<usize, LedgerError> {
         let conn = self.db.lock().expect("ledger mutex");
         let affected = conn.execute(
-            "UPDATE sessions SET dash_id = NULL, dash_name = NULL WHERE dash_id = ?1",
-            params![dash_id],
+            "UPDATE sessions SET arc_id = NULL, arc_name = NULL WHERE arc_id = ?1",
+            params![arc_id],
         )?;
         drop(conn);
         if affected > 0 {
@@ -5292,45 +5376,45 @@ impl SessionLedger {
         Ok(affected)
     }
 
-    /// Every **live** session bound to the dash *named* `dash`, with the
+    /// Every **live** session bound to the arc *named* `arc`, with the
     /// checkout each one works.
     ///
-    /// Keyed on `dash_name` rather than on `dash_id`, which is what
-    /// [`Self::bound_sessions_by_dash`] groups by, because the caller is
-    /// reading a record that only knows names: a dash-log line names its dash
+    /// Keyed on `arc_name` rather than on `arc_id`, which is what
+    /// [`Self::bound_sessions_by_arc`] groups by, because the caller is
+    /// reading a record that only knows names: an arc log line names its arc
     /// and nothing else. The owner key is the authority for *binding*; the
     /// name is what the record speaks, and a consumer of the record has to
     /// meet it there.
     ///
-    /// The `project_dir` rides along because a name alone does not place a
-    /// dash — two checkouts may each have a `refactor` — and the caller knows
-    /// which tree it read the record from. A dash's stage session works the
+    /// The `project_dir` rides along because a name alone does not place an
+    /// arc — two checkouts may each have a `refactor` — and the caller knows
+    /// which tree it read the record from. An arc's stage session works the
     /// worktree, not the root, so the caller's test is containment rather than
     /// equality.
-    pub fn live_sessions_on_dash_named(
+    pub fn live_sessions_on_arc_named(
         &self,
-        dash: &str,
+        arc: &str,
     ) -> Result<Vec<(String, String)>, LedgerError> {
         let conn = self.db.lock().expect("ledger mutex");
         let mut stmt = conn.prepare(
             "SELECT session_id, project_dir
              FROM sessions
-             WHERE state = 'live' AND dash_name = ?1
+             WHERE state = 'live' AND arc_name = ?1
              ORDER BY last_used_at DESC",
         )?;
         let rows = stmt
-            .query_map(params![dash], |row| {
+            .query_map(params![arc], |row| {
                 Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
             })?
             .collect::<Result<Vec<_>, _>>()?;
         Ok(rows)
     }
-    /// Every **live** session bound to a dash, grouped by the dash's owner
+    /// Every **live** session bound to an arc, grouped by the arc's owner
     /// key — the one query every consumer of bound-ness uses ([P08]).
     ///
-    /// One query rather than a per-dash accessor: `dash status` looks its dash
+    /// One query rather than a per-arc accessor: `arc status` looks its arc
     /// up in the map and the changeset feed fans the whole map out across
-    /// entries, so neither pays a query per dash and neither can drift from
+    /// entries, so neither pays a query per arc and neither can drift from
     /// the other on what "bound" means.
     ///
     /// The `state = 'live'` filter is where bound-ness is *defined*. The
@@ -5338,14 +5422,14 @@ impl SessionLedger {
     /// that makes a row which escaped it harmless rather than wrong — and it
     /// is what makes *unbound* (rounds on file, no live session) reachable at
     /// all.
-    pub fn bound_sessions_by_dash(
+    pub fn bound_sessions_by_arc(
         &self,
     ) -> Result<std::collections::HashMap<String, Vec<String>>, LedgerError> {
         let conn = self.db.lock().expect("ledger mutex");
         let mut stmt = conn.prepare(
-            "SELECT dash_id, session_id
+            "SELECT arc_id, session_id
              FROM sessions
-             WHERE dash_id IS NOT NULL AND state = 'live'
+             WHERE arc_id IS NOT NULL AND state = 'live'
              ORDER BY last_used_at DESC",
         )?;
         let rows = stmt
@@ -5353,15 +5437,15 @@ impl SessionLedger {
                 Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
             })?
             .collect::<Result<Vec<_>, _>>()?;
-        let mut by_dash: std::collections::HashMap<String, Vec<String>> =
+        let mut by_arc: std::collections::HashMap<String, Vec<String>> =
             std::collections::HashMap::new();
-        for (dash_id, session_id) in rows {
-            by_dash.entry(dash_id).or_default().push(session_id);
+        for (arc_id, session_id) in rows {
+            by_arc.entry(arc_id).or_default().push(session_id);
         }
-        Ok(by_dash)
+        Ok(by_arc)
     }
 
-    /// Move each seated line's dash binding onto the segment a restore will
+    /// Move each seated line's arc binding onto the segment a restore will
     /// resume ([P06], [P08]).
     ///
     /// A binding is written against the session id that was the card's at the
@@ -5379,28 +5463,28 @@ impl SessionLedger {
             let mut conn = self.db.lock().expect("ledger mutex");
             let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
             for (_, seat, _) in &seats {
-                if seat.dash_id.is_some() {
+                if seat.arc_id.is_some() {
                     continue;
                 }
                 let holder: Option<(String, String, Option<String>)> = tx
                     .query_row(
-                        "SELECT session_id, dash_id, dash_name FROM sessions
-                         WHERE line_id = ?1 AND dash_id IS NOT NULL AND session_id != ?2
+                        "SELECT session_id, arc_id, arc_name FROM sessions
+                         WHERE line_id = ?1 AND arc_id IS NOT NULL AND session_id != ?2
                          ORDER BY created_at DESC, rowid DESC
                          LIMIT 1",
                         params![seat.line_id, seat.session_id],
                         |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
                     )
                     .optional()?;
-                let Some((from, dash_id, dash_name)) = holder else {
+                let Some((from, arc_id, arc_name)) = holder else {
                     continue;
                 };
                 tx.execute(
-                    "UPDATE sessions SET dash_id = ?2, dash_name = ?3 WHERE session_id = ?1",
-                    params![seat.session_id, dash_id, dash_name],
+                    "UPDATE sessions SET arc_id = ?2, arc_name = ?3 WHERE session_id = ?1",
+                    params![seat.session_id, arc_id, arc_name],
                 )?;
                 tx.execute(
-                    "UPDATE sessions SET dash_id = NULL, dash_name = NULL WHERE session_id = ?1",
+                    "UPDATE sessions SET arc_id = NULL, arc_name = NULL WHERE session_id = ?1",
                     params![from],
                 )?;
                 moved += 1;
@@ -5413,20 +5497,20 @@ impl SessionLedger {
         Ok(moved)
     }
 
-    /// Seat the line's dash binding on one fresh segment ([P06], [P08]) — the
+    /// Seat the line's arc binding on one fresh segment ([P06], [P08]) — the
     /// single-row form of [`Self::seat_line_bindings`], for the moment a
     /// rotation mints a segment rather than the moment a relaunch resumes one.
     ///
     /// The Wheel rotates a card's session on purpose, and the binding is
     /// written against the id that was the card's when it was written. The
     /// fresh segment carries none, and every reader of bound-ness is
-    /// live-only ([`Self::bound_sessions_by_dash`]) — so the instant the old
+    /// live-only ([`Self::bound_sessions_by_arc`]) — so the instant the old
     /// segment closes, a card mid-arc reads *unbound* while its arc record
     /// still names it mid-stage. Moving the binding forward is what keeps the
     /// rotation invisible to the work, which is the Wheel's whole promise.
     ///
     /// Moved, never copied, exactly as the plural does: the seated segment is
-    /// the one row that reports bound. Returns the dash it seated — the
+    /// the one row that reports bound. Returns the arc it seated — the
     /// caller's cue to announce the mating to the card — or `None` when there
     /// was nothing to move: the row already holds a binding, wears no line, or
     /// its line holds none.
@@ -5440,7 +5524,7 @@ impl SessionLedger {
             let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
             let row: Option<(Option<String>, Option<String>)> = tx
                 .query_row(
-                    "SELECT line_id, dash_id FROM sessions WHERE session_id = ?1",
+                    "SELECT line_id, arc_id FROM sessions WHERE session_id = ?1",
                     params![session_id],
                     |row| Ok((row.get(0)?, row.get(1)?)),
                 )
@@ -5454,40 +5538,40 @@ impl SessionLedger {
             };
             let holder: Option<(String, String, Option<String>)> = tx
                 .query_row(
-                    "SELECT session_id, dash_id, dash_name FROM sessions
-                     WHERE line_id = ?1 AND dash_id IS NOT NULL AND session_id != ?2
+                    "SELECT session_id, arc_id, arc_name FROM sessions
+                     WHERE line_id = ?1 AND arc_id IS NOT NULL AND session_id != ?2
                      ORDER BY last_used_at DESC, rowid DESC
                      LIMIT 1",
                     params![line_id, session_id],
                     |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
                 )
                 .optional()?;
-            let Some((from, dash_id, dash_name)) = holder else {
+            let Some((from, arc_id, arc_name)) = holder else {
                 return Ok(None);
             };
             // The display name is denormalized and may be absent on an older
             // row; the owner key is the authority and reads well enough.
-            let dash_name = dash_name.unwrap_or_else(|| dash_id.clone());
-            // Live-only, exactly as `set_dash_binding` is. The seat is a
+            let arc_name = arc_name.unwrap_or_else(|| arc_id.clone());
+            // Live-only, exactly as `set_arc_binding` is. The seat is a
             // second binding writer, and a writer that skips the guard is a
             // writer that can put a binding on a corpse — which is the shape
             // this whole seat exists to repair, not to reproduce. Nothing
             // moves if the target is not live: the holder keeps its binding
             // rather than being cleared into nobody's hands.
             let seated_rows = tx.execute(
-                "UPDATE sessions SET dash_id = ?2, dash_name = ?3
+                "UPDATE sessions SET arc_id = ?2, arc_name = ?3
                  WHERE session_id = ?1 AND state = 'live' AND demoted = 0",
-                params![session_id, dash_id, dash_name],
+                params![session_id, arc_id, arc_name],
             )?;
             if seated_rows == 0 {
                 return Ok(None);
             }
             tx.execute(
-                "UPDATE sessions SET dash_id = NULL, dash_name = NULL WHERE session_id = ?1",
+                "UPDATE sessions SET arc_id = NULL, arc_name = NULL WHERE session_id = ?1",
                 params![from],
             )?;
             tx.commit()?;
-            seated = Some((dash_id, dash_name));
+            seated = Some((arc_id, arc_name));
         }
         self.notify_sessions_changed();
         Ok(seated)
@@ -7307,7 +7391,7 @@ impl SessionLedger {
     }
 
     /// Delete one maintained draft (post-landing cleanup: a committed entry,
-    /// a joined or released dash). A no-op when no row matches.
+    /// a joined or released arc). A no-op when no row matches.
     pub fn delete_changeset_draft(
         &self,
         owner_kind: &str,
@@ -8422,7 +8506,7 @@ fn resume_ancestors(conn: &Connection, session_id: &str) -> Vec<String> {
 /// deck went line-correct without one of them changing.
 const SESSION_COLUMNS: &str = "s.session_id, s.workspace_key, s.project_dir, s.created_at,
      s.last_used_at, s.turn_count, s.last_user_prompt, s.state, s.card_id,
-     l.name, l.name_user_set, l.tag, s.synopsis, s.private, s.dash_id, s.dash_name, s.line_id";
+     l.name, l.name_user_set, l.tag, s.synopsis, s.private, s.arc_id, s.arc_name, s.line_id";
 
 /// The `FROM` clause [`SESSION_COLUMNS`] is written against. `LEFT`, not
 /// inner: a row whose line is somehow missing reads back as a row with no
@@ -8613,8 +8697,8 @@ fn row_from_query(row: &rusqlite::Row<'_>) -> rusqlite::Result<Result<SessionRow
     let tag: Option<String> = row.get(11)?;
     let synopsis: Option<String> = row.get(12)?;
     let private: bool = row.get::<_, i64>(13)? != 0;
-    let dash_id: Option<String> = row.get(14)?;
-    let dash_name: Option<String> = row.get(15)?;
+    let arc_id: Option<String> = row.get(14)?;
+    let arc_name: Option<String> = row.get(15)?;
     let line_id: String = row.get::<_, Option<String>>(16)?.unwrap_or_default();
     let state = match state_str.parse::<SessionState>() {
         Ok(s) => s,
@@ -8635,8 +8719,8 @@ fn row_from_query(row: &rusqlite::Row<'_>) -> rusqlite::Result<Result<SessionRow
         tag,
         synopsis,
         private,
-        dash_id,
-        dash_name,
+        arc_id,
+        arc_name,
         line_id,
     }))
 }
@@ -9451,8 +9535,8 @@ mod tests {
                 stage_model       TEXT,
                 synopsis          TEXT,
                 private           INTEGER NOT NULL DEFAULT 0,
-                dash_id           TEXT,
-                dash_name         TEXT
+                arc_id           TEXT,
+                arc_name         TEXT
              );
              CREATE UNIQUE INDEX sessions_tag ON sessions(tag);
              CREATE TABLE minted_tags (
@@ -9530,7 +9614,7 @@ mod tests {
     /// Run against a copy of `release-main` (41 segments, 1109 spent
     /// spellings), this produced 1091 lines with no `sessions` row and no
     /// `minted_tags` row left line-less and no user-set name worn twice. The
-    /// largest line was `heroic-mule` / `dash+join-xp` with eight segments —
+    /// largest line was `heroic-mule` / `arc+join-xp` with eight segments —
     /// `5b4b5867, 8698cbea, 696b12a6, 56617479, 4cde21f9, 7c9d2b49, e78009cd,
     /// 8fbf9d74` — owning `heroic-mule, open-stoat, sinewy-flash, pearly-horn,
     /// chummy-carp, plenty-mint, spicy-grain, chichi-jute`. Its shape is the
@@ -9553,7 +9637,7 @@ mod tests {
                 Some("card-A"),
                 100,
                 Some("heroic-mule"),
-                Some("dash+join-xp"),
+                Some("arc+join-xp"),
                 true,
                 None,
                 None,
@@ -9728,7 +9812,7 @@ mod tests {
             line(&arc),
             (
                 "heroic-mule".to_string(),
-                Some("dash+join-xp".to_string()),
+                Some("arc+join-xp".to_string()),
                 true,
                 Some("card-A".to_string())
             )
@@ -13317,7 +13401,7 @@ mod tests {
         l.mark_closed("old-seg").unwrap();
         seed_segment(&l, "new-seg", "old-seg", millis(5));
         l.mark_closed("new-seg").unwrap();
-        name_the_line(&l, "old-seg", "dash-compact");
+        name_the_line(&l, "old-seg", "arc-compact");
 
         let swept = l.sweep_expired(max_age_ms, now).unwrap();
         assert_eq!(swept, vec!["old-seg".to_owned()]);
@@ -13404,7 +13488,7 @@ mod tests {
         let l = fresh();
         seed_live(&l, "named-seg", WS_A, "c", millis(0));
         l.mark_closed("named-seg").unwrap();
-        name_the_line(&l, "named-seg", "ensure-dash-completion");
+        name_the_line(&l, "named-seg", "ensure-arc-completion");
 
         // Explicit trashing is the one delete that may cost a name: the user
         // said so, and refusing it would be the ledger overruling them.
@@ -13563,7 +13647,7 @@ mod tests {
         let line = "line-1";
         l.record_spawn("root", WS_A, "/proj", "card-1", millis(2), line, None)
             .unwrap();
-        l.set_dash_binding("root", Some(("tugdash/demo#1", "demo")))
+        l.set_arc_binding("root", Some(("tugarc/demo#1", "demo")))
             .unwrap();
         // The rotation's segment: minted on the same line, forked from the
         // root, bound to nothing of its own.
@@ -13579,10 +13663,10 @@ mod tests {
 
         assert_eq!(l.seat_line_bindings().unwrap(), 1);
         let seat = l.get("stage").unwrap().unwrap();
-        assert_eq!(seat.dash_id.as_deref(), Some("tugdash/demo#1"));
-        assert_eq!(seat.dash_name.as_deref(), Some("demo"));
+        assert_eq!(seat.arc_id.as_deref(), Some("tugarc/demo#1"));
+        assert_eq!(seat.arc_name.as_deref(), Some("demo"));
         assert!(
-            l.get("root").unwrap().unwrap().dash_id.is_none(),
+            l.get("root").unwrap().unwrap().arc_id.is_none(),
             "a binding is moved, never copied"
         );
         assert_eq!(
@@ -13598,7 +13682,7 @@ mod tests {
         // Bound on the seat already.
         l.record_spawn("solo", WS_A, "/proj", "card-1", millis(1), "line-1", None)
             .unwrap();
-        l.set_dash_binding("solo", Some(("tugdash/demo#1", "demo")))
+        l.set_arc_binding("solo", Some(("tugarc/demo#1", "demo")))
             .unwrap();
         // Two segments, neither bound.
         l.record_spawn("a", WS_A, "/proj", "card-2", millis(2), "line-2", None)
@@ -13610,10 +13694,10 @@ mod tests {
 
         assert_eq!(l.seat_line_bindings().unwrap(), 0);
         assert_eq!(
-            l.get("solo").unwrap().unwrap().dash_id.as_deref(),
-            Some("tugdash/demo#1")
+            l.get("solo").unwrap().unwrap().arc_id.as_deref(),
+            Some("tugarc/demo#1")
         );
-        assert!(l.get("b").unwrap().unwrap().dash_id.is_none());
+        assert!(l.get("b").unwrap().unwrap().arc_id.is_none());
     }
 
     // ── live_segment_of ──────────────────────────────────────────────────────
@@ -13751,7 +13835,7 @@ mod tests {
     // ── seat_line_binding ────────────────────────────────────────────────────
 
     #[test]
-    fn a_rotation_carries_the_dash_onto_the_segment_it_seats() {
+    fn a_rotation_carries_the_arc_onto_the_segment_it_seats() {
         let l = fresh();
         l.record_spawn(
             "stage-1",
@@ -13763,10 +13847,10 @@ mod tests {
             None,
         )
         .unwrap();
-        l.set_dash_binding("stage-1", Some(("tugdash/demo#1", "demo")))
+        l.set_arc_binding("stage-1", Some(("tugarc/demo#1", "demo")))
             .unwrap();
         assert_eq!(
-            l.bound_sessions_by_dash().unwrap().get("tugdash/demo#1"),
+            l.bound_sessions_by_arc().unwrap().get("tugarc/demo#1"),
             Some(&vec!["stage-1".to_string()]),
         );
 
@@ -13783,22 +13867,22 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            l.bound_sessions_by_dash().unwrap().get("tugdash/demo#1"),
+            l.bound_sessions_by_arc().unwrap().get("tugarc/demo#1"),
             None,
             "before the carry, a card mid-arc reads unbound the moment it rotates",
         );
 
         assert_eq!(
             l.seat_line_binding("stage-2").unwrap(),
-            Some(("tugdash/demo#1".to_string(), "demo".to_string())),
+            Some(("tugarc/demo#1".to_string(), "demo".to_string())),
             "and the carry is what the caller announces to the card",
         );
         assert_eq!(
-            l.bound_sessions_by_dash().unwrap().get("tugdash/demo#1"),
+            l.bound_sessions_by_arc().unwrap().get("tugarc/demo#1"),
             Some(&vec!["stage-2".to_string()]),
         );
         assert!(
-            l.get("stage-1").unwrap().unwrap().dash_id.is_none(),
+            l.get("stage-1").unwrap().unwrap().arc_id.is_none(),
             "moved, never copied",
         );
         assert_eq!(
@@ -13811,7 +13895,7 @@ mod tests {
     #[test]
     fn seat_line_binding_leaves_an_unbound_or_already_bound_segment_alone() {
         let l = fresh();
-        // A line with no dash anywhere on it — the ordinary spawn.
+        // A line with no arc anywhere on it — the ordinary spawn.
         l.record_spawn(
             "plain-1",
             WS_A,
@@ -13838,15 +13922,15 @@ mod tests {
         // taking a sibling's.
         l.record_spawn("own-1", WS_A, "/proj", "card-2", millis(2), "line-2", None)
             .unwrap();
-        l.set_dash_binding("own-1", Some(("tugdash/one#1", "one")))
+        l.set_arc_binding("own-1", Some(("tugarc/one#1", "one")))
             .unwrap();
         l.record_spawn("own-2", WS_A, "/proj", "card-2", millis(1), "line-2", None)
             .unwrap();
-        l.set_dash_binding("own-2", Some(("tugdash/two#1", "two")))
+        l.set_arc_binding("own-2", Some(("tugarc/two#1", "two")))
             .unwrap();
         assert_eq!(l.seat_line_binding("own-2").unwrap(), None);
         assert_eq!(
-            l.get("own-2").unwrap().unwrap().dash_name.as_deref(),
+            l.get("own-2").unwrap().unwrap().arc_name.as_deref(),
             Some("two"),
         );
 
@@ -13868,7 +13952,7 @@ mod tests {
         let l = fresh();
         l.record_spawn("holder", WS_A, "/proj", "card-1", millis(2), "line-1", None)
             .unwrap();
-        l.set_dash_binding("holder", Some(("tugdash/demo#1", "demo")))
+        l.set_arc_binding("holder", Some(("tugarc/demo#1", "demo")))
             .unwrap();
         l.record_spawn("corpse", WS_A, "/proj", "card-1", millis(1), "line-1", None)
             .unwrap();
@@ -13879,28 +13963,28 @@ mod tests {
             None,
             "the corpse refuses the seat instead of reporting a carry",
         );
-        assert!(l.get("corpse").unwrap().unwrap().dash_id.is_none());
+        assert!(l.get("corpse").unwrap().unwrap().arc_id.is_none());
         assert_eq!(
-            l.get("holder").unwrap().unwrap().dash_id.as_deref(),
-            Some("tugdash/demo#1"),
+            l.get("holder").unwrap().unwrap().arc_id.as_deref(),
+            Some("tugarc/demo#1"),
             "and the live holder keeps what it had",
         );
     }
 
-    // ── set_dash_binding's live-only guard ───────────────────────────────────
+    // ── set_arc_binding's live-only guard ───────────────────────────────────
 
     #[test]
     fn a_binding_cannot_be_written_onto_a_demoted_segment() {
         let l = fresh();
         rotated_line(&l);
         assert!(
-            !l.set_dash_binding("seg-old", Some(("tugdash/demo#1", "demo")))
+            !l.set_arc_binding("seg-old", Some(("tugarc/demo#1", "demo")))
                 .unwrap(),
             "the corpse refuses the write instead of reporting a success about it",
         );
-        assert!(l.get("seg-old").unwrap().unwrap().dash_id.is_none());
+        assert!(l.get("seg-old").unwrap().unwrap().arc_id.is_none());
         assert!(
-            l.set_dash_binding("seg-new", Some(("tugdash/demo#1", "demo")))
+            l.set_arc_binding("seg-new", Some(("tugarc/demo#1", "demo")))
                 .unwrap(),
             "and the seated segment takes it",
         );
@@ -13910,20 +13994,20 @@ mod tests {
     fn clearing_a_stale_binding_off_a_dead_row_is_allowed() {
         let l = fresh();
         seed_live(&l, "solo", WS_A, "c1", millis(1));
-        l.set_dash_binding("solo", Some(("tugdash/demo#1", "demo")))
+        l.set_arc_binding("solo", Some(("tugarc/demo#1", "demo")))
             .unwrap();
         l.demote_live_to_closed().unwrap();
         assert!(
-            l.set_dash_binding("solo", None).unwrap(),
+            l.set_arc_binding("solo", None).unwrap(),
             "housekeeping is not the hazard the guard is for",
         );
-        assert!(l.get("solo").unwrap().unwrap().dash_id.is_none());
+        assert!(l.get("solo").unwrap().unwrap().arc_id.is_none());
     }
 
     // ── the binding-write chokepoint ─────────────────────────────────────────
 
-    /// Every session-keyed write of a dash binding goes through
-    /// [`SessionLedger::set_dash_binding`] or one of the two seat verbs —
+    /// Every session-keyed write of an arc binding goes through
+    /// [`SessionLedger::set_arc_binding`] or one of the two seat verbs —
     /// **structurally**, not by convention.
     ///
     /// The live-only guard that refuses a binding onto a demoted segment is
@@ -13931,20 +14015,20 @@ mod tests {
     /// `seat_line_binding` was a second writer that did not, and the fourth
     /// incident in this class came of a fifth writer nobody had noticed. This
     /// is the sibling of `tugcore`'s `no_ad_hoc_ledger_opens`: a new
-    /// `UPDATE sessions SET dash_id …` anywhere in tugcast fails the build
+    /// `UPDATE sessions SET arc_id …` anywhere in tugcast fails the build
     /// until it either goes through a sanctioned verb or is named here.
     ///
-    /// `clear_dash_bindings_for_dash` is sanctioned on different grounds: it
-    /// is keyed by **dash**, not by session, and removing a binding is
+    /// `clear_arc_bindings_for_arc` is sanctioned on different grounds: it
+    /// is keyed by **arc**, not by session, and removing a binding is
     /// shape-safe in the way writing one is not (the same asymmetry
-    /// `set_dash_binding`'s own `?2 IS NULL` arm states).
+    /// `set_arc_binding`'s own `?2 IS NULL` arm states).
     #[test]
     fn no_ad_hoc_binding_writes() {
         const SANCTIONED: &[&str] = &[
-            "set_dash_binding",
+            "set_arc_binding",
             "seat_line_binding",
             "seat_line_bindings",
-            "clear_dash_bindings_for_dash",
+            "clear_arc_bindings_for_arc",
         ];
         let src_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
         let mut offenders = Vec::new();
@@ -13971,7 +14055,7 @@ mod tests {
                 };
                 for (idx, _) in text.match_indices("UPDATE sessions SET") {
                     let window = &text[idx..text.len().min(idx + 200)];
-                    if !window.contains("dash_id") {
+                    if !window.contains("arc_id") {
                         continue;
                     }
                     // The enclosing item, found the way a reader finds it:
@@ -14000,7 +14084,7 @@ mod tests {
         }
         assert!(
             offenders.is_empty(),
-            "session-keyed dash-binding writes outside the sanctioned verbs — a writer that \
+            "session-keyed arc-binding writes outside the sanctioned verbs — a writer that \
              skips them also skips the live-only guard, and writes a binding onto a segment \
              that has already closed: {offenders:#?}"
         );
@@ -14291,6 +14375,299 @@ mod tests {
             .query_row("SELECT future_shape FROM file_events", [], |r| r.get(0))
             .unwrap();
         assert_eq!(body, "precious", "future table left untouched");
+    }
+
+    /// A `sessions` table in one of the three shapes the arc-binding migration
+    /// has to recognize, written by hand at `path` because the shape is the
+    /// whole point of the test.
+    fn sessions_table_with(path: &Path, binding_columns: &str, row_values: &str) {
+        let conn = Connection::open(path).expect("open the file directly");
+        conn.execute_batch(&format!(
+            "CREATE TABLE sessions (
+                session_id        TEXT PRIMARY KEY,
+                workspace_key     TEXT NOT NULL,
+                project_dir       TEXT NOT NULL,
+                created_at        INTEGER NOT NULL,
+                last_used_at      INTEGER NOT NULL,
+                turn_count        INTEGER NOT NULL DEFAULT 0,
+                last_user_prompt  TEXT,
+                state             TEXT NOT NULL,
+                card_id           TEXT,
+                name              TEXT,
+                name_user_set     INTEGER NOT NULL DEFAULT 0,
+                tag               TEXT,
+                forked_from_session_id TEXT,
+                fork_point        TEXT,
+                stage_label       TEXT,
+                stage_model       TEXT,
+                synopsis          TEXT,
+                private           INTEGER NOT NULL DEFAULT 0{binding_columns}
+             );
+             {row_values}"
+        ))
+        .expect("the hand-written sessions shape");
+    }
+
+    /// Read a session's binding straight off the table, past every reader, so
+    /// the assertion is about the bytes rather than about an accessor.
+    fn binding_of(path: &Path, session_id: &str) -> (Option<String>, Option<String>) {
+        let conn = Connection::open(path).unwrap();
+        conn.query_row(
+            "SELECT arc_id, arc_name FROM sessions WHERE session_id = ?1",
+            params![session_id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap()
+    }
+
+    /// **The retired binding columns are renamed, and the key they hold is
+    /// rewritten with them.**
+    ///
+    /// A rename alone would leave every live binding naming `tugdash/<name>` —
+    /// a branch the prefix migration has already moved — so the binding would
+    /// resolve to nothing and the arc would read as unbound on every surface.
+    #[test]
+    fn a_sessions_table_with_the_retired_binding_columns_is_renamed_and_rewritten() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("sessions.db");
+        sessions_table_with(
+            &path,
+            ",\n                dash_id           TEXT,\n                dash_name         TEXT",
+            "INSERT INTO sessions (session_id, workspace_key, project_dir, created_at,
+                 last_used_at, state, dash_id, dash_name)
+             VALUES ('sess-1','ws','/proj',1,1,'live','tugdash/demo#1','demo');",
+        );
+
+        let ledger = SessionLedger::open_with_claude_root(
+            &path,
+            PathBuf::from("/tmp/tugcast-tests-no-trash"),
+        )
+        .unwrap();
+        drop(ledger);
+
+        assert_eq!(
+            binding_of(&path, "sess-1"),
+            (Some("tugarc/demo#1".to_string()), Some("demo".to_string())),
+            "the columns moved and so did the prefix the key carries"
+        );
+    }
+
+    /// **A table with neither pair gains the current one, empty.**
+    ///
+    /// Pre-binding rows read `NULL` — unbound, which is exactly what they
+    /// were. Nothing is rewritten here, because there is nothing to rewrite.
+    #[test]
+    fn a_sessions_table_with_no_binding_columns_gains_the_arc_pair() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("sessions.db");
+        sessions_table_with(
+            &path,
+            "",
+            "INSERT INTO sessions (session_id, workspace_key, project_dir, created_at,
+                 last_used_at, state)
+             VALUES ('sess-1','ws','/proj',1,1,'live');",
+        );
+
+        let ledger = SessionLedger::open_with_claude_root(
+            &path,
+            PathBuf::from("/tmp/tugcast-tests-no-trash"),
+        )
+        .unwrap();
+        drop(ledger);
+
+        assert_eq!(binding_of(&path, "sess-1"), (None, None));
+    }
+
+    /// **Both pairs is an older build's doing, and its bindings are rescued.**
+    ///
+    /// This is Risk R02 in a test. An old build sharing the machine re-adds
+    /// `arc_id` / `arc_name` on its own open — its migration was a
+    /// self-healing *add* — and binds sessions there. From that moment the
+    /// rename arm can never fire again, so a binding it wrote would be
+    /// stranded for good unless something goes looking for it.
+    ///
+    /// The two rows are the whole claim: a row bound only in the retired pair
+    /// is brought across under the prefix rewrite, and a row already bound in
+    /// the current pair is left exactly as it stands rather than being
+    /// overwritten by whatever the old build happened to think.
+    #[test]
+    fn a_sessions_table_with_both_binding_pairs_rescues_the_stranded_one() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("sessions.db");
+        sessions_table_with(
+            &path,
+            ",\n                dash_id           TEXT,\n                dash_name         TEXT,\n                arc_id            TEXT,\n                arc_name          TEXT",
+            "INSERT INTO sessions (session_id, workspace_key, project_dir, created_at,
+                 last_used_at, state, dash_id, dash_name, arc_id, arc_name)
+             VALUES
+                ('stranded','ws','/proj',1,1,'live','tugdash/old#1','old',NULL,NULL),
+                ('current','ws','/proj',1,1,'live','tugdash/stale#1','stale','tugarc/mine#1','mine');",
+        );
+
+        let ledger = SessionLedger::open_with_claude_root(
+            &path,
+            PathBuf::from("/tmp/tugcast-tests-no-trash"),
+        )
+        .unwrap();
+        drop(ledger);
+
+        assert_eq!(
+            binding_of(&path, "stranded"),
+            (Some("tugarc/old#1".to_string()), Some("old".to_string())),
+            "a binding only the old build wrote is brought across"
+        );
+        assert_eq!(
+            binding_of(&path, "current"),
+            (Some("tugarc/mine#1".to_string()), Some("mine".to_string())),
+            "and a binding this build already holds is not overwritten"
+        );
+
+        let conn = Connection::open(&path).unwrap();
+        let retired: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('sessions') WHERE name = 'dash_id'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            retired, 1,
+            "the retired columns stay: dropping them lasts until the old build's next open"
+        );
+    }
+
+    /// **A v3 database's draft rows come forward under the arc spellings.**
+    ///
+    /// The branch prefix moved in the same arc ([P02]), so a row keyed on
+    /// `tugdash/` names a branch that no longer exists — the owner kind and
+    /// the owner key have to move together or the join reads no draft at all.
+    /// Both spellings are checked: the id-qualified key and the bare branch
+    /// ref, which is the legacy identity every pre-id build wrote.
+    ///
+    /// The second open is the idempotence claim. It matters more here than for
+    /// a column add: these are `UPDATE`s, and one that ran twice against a
+    /// row it had already rewritten would produce `tugarc/rc/x`.
+    #[test]
+    fn a_v3_changes_db_migrates_its_draft_owners_to_the_arc_spellings() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("sessions.db");
+        let changes_sibling = dir.path().join("sessions.db.changes");
+        {
+            let conn = Connection::open(&changes_sibling).unwrap();
+            conn.execute_batch(
+                "CREATE TABLE changeset_drafts (
+                    owner_kind   TEXT NOT NULL,
+                    owner_id     TEXT NOT NULL,
+                    project_dir  TEXT NOT NULL,
+                    fingerprint  TEXT NOT NULL,
+                    message      TEXT NOT NULL,
+                    updated_at   INTEGER NOT NULL,
+                    edited       INTEGER NOT NULL DEFAULT 0,
+                    selection    TEXT,
+                    PRIMARY KEY (owner_kind, owner_id, project_dir));
+                 INSERT INTO changeset_drafts VALUES
+                    ('dash','tugdash/x#1','/proj','fp','id-keyed',1,1,NULL),
+                    ('dash','tugdash/x','/proj','fp','legacy-keyed',1,1,NULL),
+                    ('session','sess-1','/proj','fp','a session draft',1,1,NULL);",
+            )
+            .unwrap();
+            conn.pragma_update(None, "user_version", 3).unwrap();
+        }
+        std::fs::write(dir.path().join("sessions.db.changes.schema-version"), "3\n").unwrap();
+
+        let read = |ledger: &SessionLedger, kind: &str, id: &str| {
+            ledger
+                .changeset_draft(kind, id, "/proj")
+                .unwrap()
+                .map(|r| r.message)
+        };
+
+        let ledger = SessionLedger::open_with_claude_root(
+            &path,
+            PathBuf::from("/tmp/tugcast-tests-no-trash"),
+        )
+        .unwrap();
+        assert_eq!(
+            read(&ledger, "arc", "tugarc/x#1").as_deref(),
+            Some("id-keyed")
+        );
+        assert_eq!(
+            read(&ledger, "arc", "tugarc/x").as_deref(),
+            Some("legacy-keyed"),
+            "the bare branch ref moves with the id-qualified key"
+        );
+        assert_eq!(
+            read(&ledger, "session", "sess-1").as_deref(),
+            Some("a session draft"),
+            "a row that is not an arc's is untouched"
+        );
+        drop(ledger);
+
+        {
+            let conn = Connection::open(&changes_sibling).unwrap();
+            let v: i64 = conn
+                .query_row("PRAGMA user_version", [], |r| r.get(0))
+                .unwrap();
+            assert_eq!(v, CHANGES_SCHEMA_VERSION);
+        }
+
+        // Twice is once: the prefix rewrite must not compound.
+        let ledger = SessionLedger::open_with_claude_root(
+            &path,
+            PathBuf::from("/tmp/tugcast-tests-no-trash"),
+        )
+        .unwrap();
+        assert_eq!(
+            read(&ledger, "arc", "tugarc/x#1").as_deref(),
+            Some("id-keyed")
+        );
+        assert_eq!(read(&ledger, "arc", "tugarc/rc/x#1"), None);
+    }
+
+    /// **A pre-versioning database gets the same rewrite from the bootstrap.**
+    ///
+    /// Version 0 with the table already on disk takes no registered migration
+    /// — the loop is gated on `on_disk > 0` — so the idempotent arm after the
+    /// DDL is the only thing that reaches it. Without that arm the oldest
+    /// databases on a machine would be the ones the rename never touched.
+    #[test]
+    fn a_pre_versioning_changes_db_gets_the_arc_rewrite_from_the_bootstrap() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("sessions.db");
+        let changes_sibling = dir.path().join("sessions.db.changes");
+        {
+            let conn = Connection::open(&changes_sibling).unwrap();
+            conn.execute_batch(
+                "CREATE TABLE changeset_drafts (
+                    owner_kind   TEXT NOT NULL,
+                    owner_id     TEXT NOT NULL,
+                    project_dir  TEXT NOT NULL,
+                    fingerprint  TEXT NOT NULL,
+                    message      TEXT NOT NULL,
+                    updated_at   INTEGER NOT NULL,
+                    edited       INTEGER NOT NULL DEFAULT 0,
+                    selection    TEXT,
+                    PRIMARY KEY (owner_kind, owner_id, project_dir));
+                 INSERT INTO changeset_drafts VALUES
+                    ('dash','tugdash/y','/proj','fp','from before the stamp',1,1,NULL);",
+            )
+            .unwrap();
+            // No `user_version` write and no sidecar: version 0 on both.
+        }
+
+        let ledger = SessionLedger::open_with_claude_root(
+            &path,
+            PathBuf::from("/tmp/tugcast-tests-no-trash"),
+        )
+        .unwrap();
+        assert_eq!(
+            ledger
+                .changeset_draft("arc", "tugarc/y", "/proj")
+                .unwrap()
+                .map(|r| r.message)
+                .as_deref(),
+            Some("from before the stamp")
+        );
     }
 
     /// A database stamped at the previous version migrates forward through
@@ -14797,7 +15174,7 @@ mod tests {
             "-u-src-tugtool"
         );
         // Underscores (and anything else outside [A-Za-z0-9-]) collapse
-        // too — claude's on-disk naming for a dash worktree, verified on
+        // too — claude's on-disk naming for an arc worktree, verified on
         // 2.1.198.
         assert_eq!(
             encode_claude_project_name("/repo/.tugtree/tugdash__subagent-improvements"),
@@ -16655,8 +17032,8 @@ mod tests {
         );
 
         // A different owner kind on the same id/project is a distinct row.
-        let dash = sample_draft("dash", "tugdash/x", "/proj", "fp-d", "Dash join message");
-        l.upsert_changeset_draft(&dash).unwrap();
+        let arc = sample_draft("arc", "tugarc/x", "/proj", "fp-d", "Arc join message");
+        l.upsert_changeset_draft(&arc).unwrap();
         assert_eq!(l.changeset_drafts_for_project("/proj").unwrap().len(), 2);
         assert!(
             l.changeset_draft("session", "missing", "/proj")

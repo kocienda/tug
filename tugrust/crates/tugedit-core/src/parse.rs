@@ -1198,13 +1198,13 @@ mod tests {
         // written in, and all three were refused: a CSS block replaced whole.
         // A quoted literal cannot span lines, so this is the form that does.
         let ops = ops(concat!(
-            "file dash-lifecycle-line.css\n",
+            "file arc-lifecycle-line.css\n",
             "  replace <<\n",
-            "  .tug-dash-lifecycle-line {\n",
+            "  .tug-arc-lifecycle-line {\n",
             "    display: flex;\n",
             "  }\n",
             "  >> with <<\n",
-            "  .tug-dash-lifecycle-line {\n",
+            "  .tug-arc-lifecycle-line {\n",
             "    display: flex;\n",
             "    overflow: hidden;\n",
             "  }\n",
@@ -1218,7 +1218,7 @@ mod tests {
                 assert_eq!(
                     find,
                     &Text::Body(vec![
-                        "  .tug-dash-lifecycle-line {".into(),
+                        "  .tug-arc-lifecycle-line {".into(),
                         "    display: flex;".into(),
                         "  }".into(),
                     ])
@@ -1226,7 +1226,7 @@ mod tests {
                 assert_eq!(
                     with,
                     &Text::Body(vec![
-                        "  .tug-dash-lifecycle-line {".into(),
+                        "  .tug-arc-lifecycle-line {".into(),
                         "    display: flex;".into(),
                         "    overflow: hidden;".into(),
                         "  }".into(),

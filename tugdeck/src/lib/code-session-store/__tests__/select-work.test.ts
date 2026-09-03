@@ -22,7 +22,7 @@ import {
   jobsCellDisplayPose,
   jobsRecentlyDone,
   nextLingerExpiryMs,
-  dashCellPose,
+  arcCellPose,
   tasksCellPose,
   tasksRecentlyDone,
 } from "@/lib/code-session-store/select-work";
@@ -112,37 +112,37 @@ describe("tasksCellPose", () => {
   });
 });
 
-describe("dashCellPose", () => {
-  const dash = (stage: string | null, arcStage: string | null = null) => ({
+describe("arcCellPose", () => {
+  const arc = (stage: string | null, arcStage: string | null = null) => ({
     stage,
     arcStage,
   });
 
-  test("a dash nobody has worked yet is quiet", () => {
-    expect(dashCellPose(dash(null), false)).toBe("stopped");
-    expect(dashCellPose(dash("created"), false)).toBe("stopped");
+  test("an arc nobody has worked yet is quiet", () => {
+    expect(arcCellPose(arc(null), false)).toBe("stopped");
+    expect(arcCellPose(arc("created"), false)).toBe("stopped");
   });
 
   test("a resting point of the arc reads finished", () => {
     for (const stage of ["ready", "built", "audited", "draft-ready"]) {
-      expect(dashCellPose(dash(stage), false)).toBe("completed");
-      expect(dashCellPose(dash(stage), true)).toBe("completed");
+      expect(arcCellPose(arc(stage), false)).toBe("completed");
+      expect(arcCellPose(arc(stage), true)).toBe("completed");
     }
   });
 
   test("work in flight runs, and idle demotes it", () => {
     for (const stage of ["working", "implementing", "joining", "whatever"]) {
-      expect(dashCellPose(dash(stage), false)).toBe("running");
-      expect(dashCellPose(dash(stage), true)).toBe("stopped");
+      expect(arcCellPose(arc(stage), false)).toBe("running");
+      expect(arcCellPose(arc(stage), true)).toBe("stopped");
     }
   });
 
-  // The half of a dash's life that happens in documents: an arc is running a
-  // stage and `dash create` has not cut a branch, so the git stage is null.
+  // The half of an arc's life that happens in documents: an arc is running a
+  // stage and `arc create` has not cut a branch, so the git stage is null.
   test("an arc under way runs even with no git stage", () => {
     for (const arcStage of ["brief", "devise", "review", "implement"]) {
-      expect(dashCellPose(dash(null, arcStage), false)).toBe("running");
-      expect(dashCellPose(dash(null, arcStage), true)).toBe("stopped");
+      expect(arcCellPose(arc(null, arcStage), false)).toBe("running");
+      expect(arcCellPose(arc(null, arcStage), true)).toBe("stopped");
     }
   });
 });

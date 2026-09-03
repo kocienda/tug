@@ -20,8 +20,8 @@
  *      matched (otherwise the match is invisible and reads as a filter bug).
  *      Then switch the header's `Files` target off → those rows drop, because
  *      the roster was the only thing that kept them; back on, they return. The
- *      band's title, field text, and target labels share one baseline, and a
- *      dash's name finds its join commit and marks the badge that states it.
+ *      band's title, field text, and target labels share one baseline, and an
+ *      arc's name finds its join commit and marks the badge that states it.
  *   4. Filter by a word that appears ONLY in some commit's message BODY → the
  *      collapsed row shows the matching line marked, and expanding it marks the
  *      term inside the syntax-highlighted message itself. This is the path that
@@ -151,19 +151,24 @@ function rosterOnlyMatch(): { sha: string; token: string } {
 }
 
 /**
- * The newest commit that landed as a dash join, and the dash it came from —
- * the row that wears a `^<name>` dash atom ([P09]).
+ * The newest commit that landed as an arc join, and the arc it came from —
+ * the row that wears a `^<name>` arc atom ([P09]).
  */
 function joinCommit(): { sha: string; name: string } | null {
   for (const line of gitOut([
     "log",
     "-n200",
-    "--format=%H%x1f%(trailers:key=Tug-Dash,valueonly)",
+    "--format=%H%x1f%(trailers:key=Tug-Arc,valueonly)%x1f%(trailers:key=Tug-Dash,valueonly)",
   ]).split("\n")) {
-    const [sha, trailer] = line.split("\x1f");
+    const [sha, arcTrailer, dashTrailer] = line.split("\x1f");
+    // Read for life: this scans the real checkout's landed trailers, and every
+    // join that predates the rename spells `Tug-Dash:` under the retired
+    // `tugdash/` namespace. Both are the same fact wearing two names.
+    const trailer = (arcTrailer ?? "").trim() !== "" ? arcTrailer : dashTrailer;
     const ref = (trailer ?? "").trim().split(/\s+/)[0] ?? "";
-    if (!ref.startsWith("tugdash/")) continue;
-    const name = ref.slice("tugdash/".length);
+    const prefix = ["tugarc/", "tugdash/"].find((p) => ref.startsWith(p));
+    if (prefix === undefined) continue;
+    const name = ref.slice(prefix.length);
     if (name.length >= 6) return { sha: sha ?? "", name };
   }
   return null;
@@ -351,9 +356,9 @@ describe.skipIf(!SHOULD_RUN)(
               Math.min(...Object.values(baselines));
             expect(spread).toBeLessThan(1);
 
-            // ── 3D. The dash attribution filters as part of the Message ───
-            // `Tug-Dash:` is a trailer on the message, and the dash atom is how
-            // the row states it — so the dash's name finds the commit, and the
+            // ── 3D. The arc attribution filters as part of the Message ────
+            // `Tug-Arc:` is a trailer on the message, and the arc atom is how
+            // the row states it — so the arc's name finds the commit, and the
             // mark lands on the atom the reader is looking at.
             const join = joinCommit();
             if (join !== null) {

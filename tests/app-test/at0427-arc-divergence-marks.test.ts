@@ -1,12 +1,12 @@
 /**
- * at0427-dash-divergence-marks.test.ts — the dash lane says how far a dash has
+ * at0427-arc-divergence-marks.test.ts — the arc lane says how far an arc has
  * drifted from its base, the moment it becomes true.
  *
  * A landing problem should surface when it becomes true, not when you try to
  * land. The marks are where that surfaces: `base overlap (N)` when uncommitted
- * work on the base touches files the dash also changes, `base +N` when the base
+ * work on the base touches files the arc also changes, `base +N` when the base
  * has moved ahead, `replay conflicts (N)` when replaying stopped on one, and a
- * quiet `replayed` receipt when history moved under the dash and nothing asked.
+ * quiet `replayed` receipt when history moved under the arc and nothing asked.
  *
  * Only the overlap mark is driven here. The other three need the *base branch*
  * to move, and branch motion is already covered at the Rust layer in tempdir
@@ -16,7 +16,7 @@
  * repository outright, the other three marks are reachable here too — moving
  * the base is a commit in a scratch tree — and that is the natural next round.
  *
- * The overlap is produced honestly: a real dash whose round changes a tracked
+ * The overlap is produced honestly: a real arc whose round changes a tracked
  * file, and the same file left uncommitted in the base checkout — which is a
  * scratch repository this file owns, not the developer's tree.
  *
@@ -38,13 +38,13 @@ import {
 } from "./_harness/tugbank-helpers";
 import {
   commitRound,
-  createDash,
-  makeDashScratchRepo,
-  rmDashScratchRepo,
+  createArc,
+  makeArcScratchRepo,
+  rmArcScratchRepo,
   rmScratchSession,
   seedScratchSession,
-  type DashScratchRepo,
-} from "./dash-fixture";
+  type ArcScratchRepo,
+} from "./arc-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
@@ -53,23 +53,23 @@ const SID = "a7c0d1ea-0000-4000-8000-000000000427";
 const CARD = '[data-card-id="A"]';
 const PROMPT_INPUT = `${CARD} [data-slot="tug-text-editor"] .cm-content`;
 const SHEET = `${CARD} .session-view-pane[data-view="changes"] [data-slot="tug-sheet"]`;
-const LANE = `${SHEET} [data-slot="session-changes-dash-lane"]`;
+const LANE = `${SHEET} [data-slot="session-changes-arc-lane"]`;
 
-const DASH_NAME = "at0427-marks";
-const ROW = `${LANE} [data-slot="session-changes-dash-row"][data-dash="${DASH_NAME}"]`;
-const OVERLAP_MARK = `${ROW} [data-slot="tug-dash-lifecycle-fact"][data-fact="overlap"]`;
+const ARC_NAME = "at0427-marks";
+const ROW = `${LANE} [data-slot="session-changes-arc-row"][data-arc="${ARC_NAME}"]`;
+const OVERLAP_MARK = `${ROW} [data-slot="tug-arc-lifecycle-fact"][data-fact="overlap"]`;
 
-/** This checkout — the build under test, and never the tree a dash is cut in. */
+/** This checkout — the build under test, and never the tree an arc is cut in. */
 const CHECKOUT = realpathSync(resolve(import.meta.dir, "..", ".."));
 /** The scratch repository this fixture owns, and the only tree it touches. */
-let scratch: DashScratchRepo | null = null;
+let scratch: ArcScratchRepo | null = null;
 let fixtureDir = "";
 const projectDir = (): string => scratch?.repo ?? "";
 
 /**
  * The tracked file the overlap is staged on.
  *
- * The base half of an overlap is uncommitted dirt in the repository the dash
+ * The base half of an overlap is uncommitted dirt in the repository the arc
  * forked from — which is why this fixture needs a repository of its own. It
  * used to append to the developer's `.gitignore` and restore its bytes *and*
  * mtime afterwards, because restoring bytes alone leaves a spurious
@@ -87,21 +87,21 @@ const basePath = (): string => join(projectDir(), OVERLAP_FILE);
 
 beforeAll(() => {
   if (!SHOULD_RUN) return;
-  scratch = makeDashScratchRepo({
+  scratch = makeArcScratchRepo({
     prefix: "at0427",
     checkout: CHECKOUT,
     files: { [OVERLAP_FILE]: OVERLAP_BASE },
   });
 
-  const created = createDash(projectDir(), DASH_NAME, "at0427 divergence marks", scratch.cli);
-  // The dash's round changes the same tracked file the base will be dirty on —
+  const created = createArc(projectDir(), ARC_NAME, "at0427 divergence marks", scratch.cli);
+  // The arc's round changes the same tracked file the base will be dirty on —
   // an intersection, which is exactly what `base_overlap` reports.
   const worktreeFile = join(created.worktree, OVERLAP_FILE);
-  writeFileSync(worktreeFile, `${OVERLAP_BASE}at0427 the dash's round\n`);
+  writeFileSync(worktreeFile, `${OVERLAP_BASE}at0427 the arc's round\n`);
   commitRound(
     projectDir(),
-    DASH_NAME,
-    "at0427(round): the dash changes this file too",
+    ARC_NAME,
+    "at0427(round): the arc changes this file too",
     scratch.cli,
   );
 
@@ -113,7 +113,7 @@ beforeAll(() => {
 
 afterAll(() => {
   if (!SHOULD_RUN) return;
-  rmDashScratchRepo(scratch);
+  rmArcScratchRepo(scratch);
   rmScratchSession(fixtureDir);
 });
 
@@ -138,14 +138,14 @@ function deckShape() {
 
 const settle = (ms = 200) => new Promise((r) => setTimeout(r, ms));
 
-describe.skipIf(!SHOULD_RUN)("AT0427: the dash lane's divergence marks", () => {
+describe.skipIf(!SHOULD_RUN)("AT0427: the arc lane's divergence marks", () => {
   test(
-    "base dirt overlapping the dash's own files paints the overlap mark, and clears when it goes",
+    "base dirt overlapping the arc's own files paints the overlap mark, and clears when it goes",
     async () => {
       const tugbankPath = mkTempTugbank();
       seedTugbankForLaunch(tugbankPath, { sourceTreePath: CHECKOUT });
       const app = await launchTugApp({
-        testName: "at0427-dash-divergence-marks",
+        testName: "at0427-arc-divergence-marks",
         env: { TUGBANK_PATH: tugbankPath, TUG_DATA_DIR: scratch?.dataRoot ?? "" },
       });
       try {
@@ -155,7 +155,7 @@ describe.skipIf(!SHOULD_RUN)("AT0427: the dash lane's divergence marks", () => {
           `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
         );
         // A *spawned* session, not a bound one: spawning registers the scratch
-        // repo as a workspace, so its dash reaches the aggregate.
+        // repo as a workspace, so its arc reaches the aggregate.
         await app.spawnSessionResume("A", { tugSessionId: SID, projectDir: projectDir() });
         await app.awaitEngineReady("A", { timeoutMs: 15000 });
 
@@ -174,7 +174,7 @@ describe.skipIf(!SHOULD_RUN)("AT0427: the dash lane's divergence marks", () => {
           `document.querySelector(${JSON.stringify(LANE)}) !== null`,
           { timeoutMs: 30000 },
         );
-        // The non-fronted dash is a visible row — no fold to open first.
+        // The non-fronted arc is a visible row — no fold to open first.
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(ROW)}) !== null`,
           { timeoutMs: 30000 },
@@ -199,12 +199,12 @@ describe.skipIf(!SHOULD_RUN)("AT0427: the dash lane's divergence marks", () => {
         // overlapping is not actionable.
         expect(mark.text).toBe("base overlap (1)");
 
-        // The conflicted and behind marks are absent: this dash is current
+        // The conflicted and behind marks are absent: this arc is current
         // with its base, its own worktree is clean, and nothing has attempted
         // a replay on it.
         const others = await app.evalJS<number>(
           `document.querySelectorAll(${JSON.stringify(
-            `${ROW} [data-slot="tug-dash-lifecycle-fact"]:not([data-fact="overlap"])`,
+            `${ROW} [data-slot="tug-arc-lifecycle-fact"]:not([data-fact="overlap"])`,
           )}).length`,
         );
         expect(others).toBe(0);

@@ -58,9 +58,9 @@ export interface ShellExchangeCompleteActionEvent {
 }
 
 /**
- * A dash gesture's quiet line ([P12]) entered the transcript. NOT a wire
- * event — `useLandingReceipts` watches the changeset verb store's dash notes
- * and calls `codeSessionStore.ingestDashNote`, which dispatches these. The
+ * An arc gesture's quiet line ([P12]) entered the transcript. NOT a wire
+ * event — `useLandingReceipts` watches the changeset verb store's arc notes
+ * and calls `codeSessionStore.ingestArcNote`, which dispatches these. The
  * reducer decides the note's seat: inside the open turn's message stream when
  * one is streaming (the note narrates work THIS turn is doing), or as its own
  * quiet ink row when none is (a hand-run verb, a run-start line between
@@ -68,11 +68,11 @@ export interface ShellExchangeCompleteActionEvent {
  * shaped exactly like the restore path's ledger replay so the two dedup by
  * turn key.
  */
-export interface DashNoteActionEvent {
-  type: "dash_note";
+export interface ArcNoteActionEvent {
+  type: "arc_note";
   /** `landingExchangeId(receiptId)` — the fallback row's stable identity. */
   exchangeId: string;
-  /** The synthetic record-rendered command (`dash step <name> done`). */
+  /** The synthetic record-rendered command (`arc step <name> done`). */
   command: string;
   /** The server-derived sentence — the note's entire visible content. */
   text: string;
@@ -132,7 +132,7 @@ export interface SendActionEvent {
    * entry so the transcript chip renderer can walk `text` looking
    * for `U+FFFC` and read the corresponding atom for chip placement.
    *
-   * Per [Step 5c](../../../dash/dev-atoms.md#step-5c).
+   * Per [Step 5c](../../../arc/dev-atoms.md#step-5c).
    */
   text: string;
   /**
@@ -149,8 +149,8 @@ export interface SendActionEvent {
    * forwarded verbatim on the `user_message` IPC frame; the reducer
    * just hands it to the `send-frame` effect.
    *
-   * Per [Step 5c](../../../dash/dev-atoms.md#step-5c) and
-   * [Spec S03](../../../dash/dev-atoms.md#s03-build-wire-payload).
+   * Per [Step 5c](../../../arc/dev-atoms.md#step-5c) and
+   * [Spec S03](../../../arc/dev-atoms.md#s03-build-wire-payload).
    */
   content: ContentBlock[];
   /**
@@ -750,7 +750,7 @@ export interface CompactBoundaryEvent {
 
 /**
  * `session_stage` — the server rotated this card onto a fresh claude session
- * for the next stage of a dash arc, announced by tugcode just before the
+ * for the next stage of an arc, announced by tugcode just before the
  * stage's synthetic `session_init`. Display-only: the reducer appends a
  * `system_note` (`source: "stage"`) marking the boundary, exactly as
  * `compact_boundary` does for a compaction — to the active turn when one is
@@ -769,7 +769,7 @@ export interface SessionStageEvent {
   model: string;
   /** The document the arc opened on, repo-relative. */
   document: string;
-  /** The dash name the arc is keyed by. */
+  /** The arc name the arc is keyed by. */
   arc: string;
   /**
    * The inclusive step range (`N-M`) a *continued* implement stage walks.
@@ -988,7 +988,7 @@ export interface ResumeFailedEvent {
  * reducer drops it in any other phase so a stray frame on a live
  * session can't corrupt `pendingTurn`.
  *
- * See `dash/tugplan-session-wake.md` [D14] (activeMsgId
+ * See `arc/tugplan-session-wake.md` [D14] (activeMsgId
  * tracking), [D15] (add_<kind> naming), and `#spec-wire-frames` for
  * the canonical wire-shape definition.
  */
@@ -1053,7 +1053,7 @@ export interface AddUserMessageEvent {
   /**
    * Who authored this submission, as the **producer** states it — never as the
    * reader works it out. Set only on the replay path, and only on the one
-   * frame tugcode's translator identified as a dash-arc stage session's
+   * frame tugcode's translator identified as an arc-arc stage session's
    * opening prompt: the Wheel's words rather than the user's. Absent
    * everywhere else, and the reducer defaults to `"user"`, which is the line
    * {@link SendActionEvent}'s live path has always taken.
@@ -1166,7 +1166,7 @@ export interface SessionRewindActionEvent {
  * claude actively polling rather than going idle, so there is no
  * wake to bracket.
  *
- * See `dash/tugplan-session-wake.md` [D01], [D02] for the
+ * See `arc/tugplan-session-wake.md` [D01], [D02] for the
  * bracket pattern and detection rationale.
  */
 export interface WakeStartedEvent {
@@ -1209,7 +1209,7 @@ export interface WakeStartedEvent {
  * Server-originated turn opener — the reducer event the store wrapper mints
  * from tugcast's wire `tug_notice` frame.
  *
- * Tug can start a turn itself: the base-motion engine injects one when a dash's
+ * Tug can start a turn itself: the base-motion engine injects one when an arc's
  * base moves under it. Journaling that injection makes it real to the server and
  * to a later reload, but it puts no row on screen — the transcript's live user
  * row comes from the composer echoing its own submission, and an injection has
@@ -1510,5 +1510,5 @@ export type CodeSessionEvent =
   | SessionRewindActionEvent
   | ShellExchangeStartedActionEvent
   | ShellExchangeCompleteActionEvent
-  | DashNoteActionEvent
+  | ArcNoteActionEvent
   | RefsResultActionEvent;

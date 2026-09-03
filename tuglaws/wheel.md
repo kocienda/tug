@@ -8,7 +8,7 @@ That act is a **rotation**, and the wheel is the layer that performs it. It live
 
 ## Why it is called that
 
-A wheel does not choose the destination and does not decide when to sail. It turns the vessel to whatever heading it is given, and it is the only thing that can. That is exactly the split this layer holds: something else decides *which* stage runs — the dash arc reads its own record and its own facts and returns a decision — and the wheel performs the seating. The two halves have different reasons to change, and keeping them apart is what lets a second client exist at all.
+A wheel does not choose the destination and does not decide when to sail. It turns the vessel to whatever heading it is given, and it is the only thing that can. That is exactly the split this layer holds: something else decides *which* stage runs — the arc runner reads its own record and its own facts and returns a decision — and the wheel performs the seating. The two halves have different reasons to change, and keeping them apart is what lets a second client exist at all.
 
 The deck says the same thing on the card: a turn opened by a rotation carries `TurnOrigin` `"wheel"`, and the transcript labels that row **Wheel** with its own icon. A rotation's opening prompt is nobody's typing, and the row says so.
 
@@ -56,11 +56,11 @@ A caller who is genuinely not in a turn is asking about the next one, and the re
 
 An **arc** is what drives a series of rotations. Its name reaches tugcode as the stage object's `arc` field and the child process's `TUG_ARC`.
 
-**An arc comes in two kinds, and the record decides which.** Both open on a brief. A **trek** runs devise → review → implement → audit; a **dash** runs implement → audit, because the `/dash` door's whole economy is skipping the settling those two stages buy. The kind is written into the arc's durable record as an `arc-kind` line when the arc opens, from `tugtool arc run --kind dash|trek`, and `start_action` reads it — the documents no longer answer this, because on a dash's opening there is nothing on disk to ask: the task list is the implement stage's own first act ([B04]).
+**An arc comes in two kinds, and the record decides which.** Both open on a brief. A **planned** arc runs devise → review → implement → audit; a **plain** one runs implement → audit, because the `/arc` door's whole economy is skipping the settling those two stages buy. The kind is written into the arc's durable record as an `arc-kind` line when the arc opens, from `tugtool arc run [--plan]`, and `start_action` reads it — the documents no longer answer this, because on a plain arc's opening there is nothing on disk to ask: the task list is the implement stage's own first act ([B04]).
 
-`--kind` **defaults to `trek`**, and within a trek the documents still say how far along it the arc already is: a document that lints as a plan opens at review, a brief alone at devise. That default is exactly the derivation every arc had before the kind was recorded, so an existing arc resumes unchanged.
+`--plan` is what asks for the settling; **without it an arc is plain**. Within a planned arc the documents still say how far along it the arc already is: a document that lints as a plan opens at review, a brief alone at devise. That derivation is exactly the one every arc had before the kind was recorded, so an existing arc resumes unchanged.
 
-**A pre-kind arc has no `arc-kind` line, and the old document sniff is its fallback** — plan at review, task list at implement, brief at devise, with `plan.md` outranking `tasks.md`. The skew direction is toward *more* settling: a pre-kind arc the door meant as a dash but left with only a brief opens at devise, spending two rotations it did not need rather than skipping a cold read it did.
+**A pre-kind arc has no `arc-kind` line, and the old document sniff is its fallback** — plan at review, task list at implement, brief at devise, with `plan.md` outranking `tasks.md`. The skew direction is toward *more* settling: a pre-kind arc the door meant as a plain one but left with only a brief opens at devise, spending two rotations it did not need rather than skipping a cold read it did.
 
 **A client may name the model for the stage it asks for.** That is not switching the user's model, and the older guardrail saying never to is retired by this layer: a rotation names the model for *its* stage, and the card returns to the user's own when the stage is over. What the hand-back guarantees is what makes the naming safe.
 
@@ -76,7 +76,7 @@ An arc ends by handing the card back — one `model_change` frame carrying `deck
 
 ### One threshold
 
-**An arc that seats a stage with more turns to run watches that session's context against one threshold, and has two answers to a context that has crossed it.** `[tugtool.dash].implement_compact_tokens` is a project declaration in tokens, `300000` when nothing is declared. Above it the seated session is sent a `/compact` — it keeps its session, its lineage, and its stage label, and only its context comes down. A context the compaction could not bring back under the line gets the second and last answer: the stage rotates to a fresh session. The cheaper act always gets the first crossing, and a compaction the session never performed — an API error, a user's cancel — is never remembered as one, so the next boundary compacts again rather than falling through to the rotation.
+**An arc that seats a stage with more turns to run watches that session's context against one threshold, and has two answers to a context that has crossed it.** `[tugtool.arc].implement_compact_tokens` is a project declaration in tokens, `300000` when nothing is declared. Above it the seated session is sent a `/compact` — it keeps its session, its lineage, and its stage label, and only its context comes down. A context the compaction could not bring back under the line gets the second and last answer: the stage rotates to a fresh session. The cheaper act always gets the first crossing, and a compaction the session never performed — an API error, a user's cancel — is never remembered as one, so the next boundary compacts again rather than falling through to the rotation.
 
 **The threshold is a number of tokens, never a share of the model's window.** What makes a stage work badly is a long context, and long is a token count. The share that count happens to be of whatever model the stage was seated on is a different quantity, and on a very large window it is not even close to the same judgement: read as a fraction, one number would mean 120,000 tokens on one model and 600,000 on another. One setting, one unit, one meaning wherever the stage runs.
 
@@ -109,7 +109,7 @@ The restore reads the row. It consults an arc's record only for the two facts th
 
 Claude's JSONL is claude's. It records a prompt the wheel sent exactly as it records one the user typed, and Tug cannot stamp authorship into it. So on the reload the row that read **Wheel** while the session was live would come back reading **You** — the transcript changing its mind about who was steering, purely because the app was relaunched.
 
-The wheel therefore writes down what it puts on the wire. Every prompt it sends — a rotation's opener through `wheel::rotate`, an arc's later prompts through the dash arc runner — is appended to `wheel_prompts` in `sessions.db`, filed against the **line** rather than the session id, because an arc rotates a card through several session ids and the prompts are all one line's work. Nothing deletes a row on acknowledgement: the `turns` journal beside it is pending-only, but this record answers a question a reload can ask at any time.
+The wheel therefore writes down what it puts on the wire. Every prompt it sends — a rotation's opener through `wheel::rotate`, an arc's later prompts through the arc runner — is appended to `wheel_prompts` in `sessions.db`, filed against the **line** rather than the session id, because an arc rotates a card through several session ids and the prompts are all one line's work. Nothing deletes a row on acknowledgement: the `turns` journal beside it is pending-only, but this record answers a question a reload can ask at any time.
 
 The replay reads it back. tugcode loads the line's prompts through its cross-process `sessions.db` handle and hands them to the translator as a ledger; a submission whose sent text the ledger still holds is marked `origin: "wheel"`, and claiming it spends it. Matching is on the text *as it went out* — claude rewrites a slash command into a `<command-*>` envelope before writing the record, so the envelope is put back together, name then args, before the match.
 
@@ -125,13 +125,13 @@ Authorship is therefore **stated by the sender**, never deduced by the reader. T
 
 The verb is spelled `session rotate` because it is the session that rotates, and the route follows the same reasoning rather than riding `/api/arc` — a rotation names no arc, and putting the wheel's parameter set inside an arc-shaped type would spell it in the wrong vocabulary.
 
-**The stage label is the role.** With `--model` omitted, a `--stage` of `devise`, `review`, or `implement` resolves the model the project declared for that stage under `[tugtool.dash]`; any other label means the account default, and `--model` always wins. There is no separate roles table, because a second table mapping roles to models would be the same fact written twice. The resolution happens in the verb rather than the server: the CLI is where the project root is known from cwd.
+**The stage label is the role.** With `--model` omitted, a `--stage` of `devise`, `review`, or `implement` resolves the model the project declared for that stage under `[tugtool.arc]`; any other label means the account default, and `--model` always wins. There is no separate roles table, because a second table mapping roles to models would be the same fact written twice. The resolution happens in the verb rather than the server: the CLI is where the project root is known from cwd.
 
-**`session rotate` still exposes no arc flag, and that is deliberate.** `RotationRequest` carries an arc name and the arc runner fills it, but the rotation verb exposes none. The name is read by the stage skills as "an arc is driving you" and by the arc runner as a name it will look up — so letting a caller set it to an arbitrary string would make those skills believe an arc runs them and find no record behind the name. The arc's own flag is `tugtool arc run --kind`, which names a *kind* on an arc that exists, not an arc out of nothing.
+**`session rotate` still exposes no arc flag, and that is deliberate.** `RotationRequest` carries an arc name and the arc runner fills it, but the rotation verb exposes none. The name is read by the stage skills as "an arc is driving you" and by the arc runner as a name it will look up — so letting a caller set it to an arbitrary string would make those skills believe an arc runs them and find no record behind the name. The arc's own flag is `tugtool arc run --plan`, which names a *kind* on an arc that exists, not an arc out of nothing.
 
 ## One word that means something else
 
-- **`stage`.** [arc-lifecycle.md](arc-lifecycle.md) uses *stage* for one of the seven derived words describing a dash. A stage here is a rotation of a session. They are unrelated, and neither name is giving way.
+- **`stage`.** [arc-lifecycle.md](arc-lifecycle.md) uses *stage* for one of the seven derived words describing an arc. A stage here is a rotation of a session. They are unrelated, and neither name is giving way.
 
 ## The ask is visible where it is made
 
@@ -141,7 +141,7 @@ A pending-rotation note ahead of that divider would be a new action, a new store
 
 ## See also
 
-- [arc-lifecycle.md](arc-lifecycle.md) — what a dash is, and the other meaning of *stage*.
-- [arc-work-doctrine.md](arc-work-doctrine.md) — how an agent works on a dash worktree.
+- [arc-lifecycle.md](arc-lifecycle.md) — what an arc is, and the other meaning of *stage*.
+- [arc-work-doctrine.md](arc-work-doctrine.md) — how an agent works on an arc worktree.
 - [ledger-reliability.md](ledger-reliability.md) — `[LR9]` and the shutdown supervisor.
 - [turn-lifecycle.md](turn-lifecycle.md) — the turn whose end a rotation waits for.

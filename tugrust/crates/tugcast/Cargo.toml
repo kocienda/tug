@@ -67,7 +67,7 @@ tracing-subscriber = { workspace = true }
 # Owns the per-spawn changes DB so it is removed when the test ends
 # rather than left in $TMPDIR (8,765 files had accumulated).
 tempfile = { workspace = true }
-# The base-motion tests redirect `TUG_DATA_DIR` so a replay's dash-log lands in
+# The base-motion tests redirect `TUG_DATA_DIR` so a replay's arc log lands in
 # a tempdir instead of the developer's real state directory; the environment is
 # process-wide, so those tests must not run beside each other.
 serial_test = "3"

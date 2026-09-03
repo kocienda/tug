@@ -1,7 +1,7 @@
 # Golden-run operator guide
 
 Companion to the golden-run checklist (**List L02** in
-`dash/onboarding-and-install.md`) and the results recorder
+the onboarding-and-install design record) and the results recorder
 (`scripts/lab/golden-record`). The happy path and how to record verdicts live
 there; this file is the **unhappy-path induction** recipes — how to drive each
 designed ConfigureTug state ([D105] in `tuglaws/design-decisions.md`) on a real

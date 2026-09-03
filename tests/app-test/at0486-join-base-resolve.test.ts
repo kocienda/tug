@@ -8,13 +8,13 @@
  * situations, reported as a sentence naming acts no control in the app can
  * perform. It is now read: the overlap says what the base's uncommitted bytes
  * ARE, and each case gets the reading its facts earn. Two of the three are
- * driveable end to end from the real app against a real dash, and both are
+ * driveable end to end from the real app against a real arc, and both are
  * here.
  *
- * **A base copy the dash already carries is not a blocker.** The fixture writes
- * onto the base, uncommitted, exactly the bytes the dash committed. The shade
+ * **A base copy the arc already carries is not a blocker.** The fixture writes
+ * onto the base, uncommitted, exactly the bytes the arc committed. The shade
  * shows no `base-dirt` refusal at all, because dropping such a copy destroys
- * nothing — those bytes are on the dash branch — so the join drops it and
+ * nothing — those bytes are on the arc branch — so the join drops it and
  * lands the same content rather than refusing to land bytes on the grounds
  * that they are already there.
  *
@@ -58,16 +58,16 @@ import { join, resolve } from "node:path";
 
 import { launchTugApp, note } from "./_harness";
 import {
-  bindDash,
+  bindArc,
   commitRound,
-  createDash,
+  createArc,
   gitRetry,
-  makeDashScratchRepo,
-  rmDashScratchRepo,
+  makeArcScratchRepo,
+  rmArcScratchRepo,
   rmScratchSession,
   seedScratchSession,
-  type DashScratchRepo,
-} from "./dash-fixture";
+  type ArcScratchRepo,
+} from "./arc-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
@@ -76,47 +76,47 @@ const SID = "a7c0d1ea-0000-4000-8000-000000000486";
 const CARD = '[data-card-id="A"]';
 const PROMPT_INPUT = `${CARD} [data-slot="tug-text-editor"] .cm-content`;
 const SHEET = `${CARD} .session-view-pane[data-view="changes"] [data-slot="tug-sheet"]`;
-const LANE = `${SHEET} [data-slot="session-changes-dash-lane"]`;
+const LANE = `${SHEET} [data-slot="session-changes-arc-lane"]`;
 
-const DASH_NAME = "at0486-resolve";
-const ROW = `${LANE} [data-slot="session-changes-dash-row"][data-dash="${DASH_NAME}"]`;
-const ROW_FOLD = `${ROW} [data-slot="session-changes-dash-fold"]`;
+const ARC_NAME = "at0486-resolve";
+const ROW = `${LANE} [data-slot="session-changes-arc-row"][data-arc="${ARC_NAME}"]`;
+const ROW_FOLD = `${ROW} [data-slot="session-changes-arc-fold"]`;
 const BLOCKERS = `${SHEET} [data-slot="session-changes-arc-join-blockers"]`;
 const BASE_DIRT = `${BLOCKERS} [data-blocker="base-dirt"]`;
 const RESOLVE = `${BASE_DIRT} [data-slot="session-changes-arc-join-resolve-base"]`;
 /** The row's own line — where the refusal is stated, once. */
 const REGISTER = `${ROW} [data-slot="arc-join-register"]`;
 
-/** This checkout — the build under test, and never the tree a dash is cut in. */
+/** This checkout — the build under test, and never the tree an arc is cut in. */
 const CHECKOUT = realpathSync(resolve(import.meta.dir, "..", ".."));
-let scratch: DashScratchRepo | null = null;
+let scratch: ArcScratchRepo | null = null;
 let fixtureDir = "";
 const projectDir = (): string => scratch?.repo ?? "";
 
-/** The path both sides touch, and the bytes the dash lands on it. */
+/** The path both sides touch, and the bytes the arc lands on it. */
 const SHARED = "at0486-shared.txt";
-const DASH_BYTES = "seed\nthe dash's own line\n";
+const ARC_BYTES = "seed\nthe arc's own line\n";
 
 beforeAll(() => {
   if (!SHOULD_RUN) return;
-  scratch = makeDashScratchRepo({ prefix: "at0486", checkout: CHECKOUT });
+  scratch = makeArcScratchRepo({ prefix: "at0486", checkout: CHECKOUT });
   writeFileSync(join(projectDir(), SHARED), "seed\n");
   // Committed, so the base starts CLEAN. Case A's claim is that a blocker
   // never appears over an identical copy, and a base that begins dirty would
   // let a stale refusal stand in for one.
   gitRetry(projectDir(), "add", SHARED);
   gitRetry(projectDir(), "commit", "-m", "at0486: the shared file both sides touch");
-  const created = createDash(projectDir(), DASH_NAME, "at0486 fixture", scratch.cli);
+  const created = createArc(projectDir(), ARC_NAME, "at0486 fixture", scratch.cli);
   // One round, changing the shared path — which is what makes any base-side
   // edit to it an *overlap* rather than disjoint dirt the join never touches.
-  writeFileSync(join(created.worktree, SHARED), DASH_BYTES);
-  commitRound(projectDir(), DASH_NAME, "at0486(round): the dash changes the shared file", scratch.cli);
+  writeFileSync(join(created.worktree, SHARED), ARC_BYTES);
+  commitRound(projectDir(), ARC_NAME, "at0486(round): the arc changes the shared file", scratch.cli);
   fixtureDir = seedScratchSession(projectDir(), SID);
 });
 
 afterAll(() => {
   if (!SHOULD_RUN) return;
-  rmDashScratchRepo(scratch);
+  rmArcScratchRepo(scratch);
   rmScratchSession(fixtureDir);
 });
 
@@ -167,9 +167,9 @@ describe.skipIf(!SHOULD_RUN)("at0486: a blocked join reads what is wrong and off
           { timeoutMs: 40_000 },
         );
         // The join face lives in the fronted row's fold: it is the card's own
-        // dash that carries a landing, and the fold is where the report goes
+        // arc that carries a landing, and the fold is where the report goes
         // ([D143]). Bind, then open it.
-        bindDash(projectDir(), DASH_NAME, SID, scratch?.cli ?? {});
+        bindArc(projectDir(), ARC_NAME, SID, scratch?.cli ?? {});
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(ROW)}) !== null`,
           { timeoutMs: 20_000 },
@@ -188,9 +188,9 @@ describe.skipIf(!SHOULD_RUN)("at0486: a blocked join reads what is wrong and off
         );
 
         // ---------------------------------------------------------------
-        // A · the base holds the dash's own bytes. Not a refusal.
+        // A · the base holds the arc's own bytes. Not a refusal.
         // ---------------------------------------------------------------
-        writeFileSync(join(projectDir(), SHARED), DASH_BYTES);
+        writeFileSync(join(projectDir(), SHARED), ARC_BYTES);
         // The overlap is recomputed on the changeset feed's own schedule, and
         // the blockers are never cached — so the reading settles on its own.
         // Asserted by holding: a refusal that never appears is the claim.
@@ -250,12 +250,12 @@ describe.skipIf(!SHOULD_RUN)("at0486: a blocked join reads what is wrong and off
         expect(disabled).toBe(false);
 
         // The press itself is deliberately not driven here, and the reason is
-        // the harness rather than the feature. A dash op that writes state —
-        // and a resolve writes an op-log record, so `dash undo` can reverse
+        // the harness rather than the feature. An arc op that writes state —
+        // and a resolve writes an op-log record, so `arc undo` can reverse
         // it — resolves its data root from `TUG_DATA_DIR`, which the fixture
         // redirects for the *CLI* it drives but cannot redirect for the app
         // process itself. `refuse_unredirected_temp_repo` then correctly
-        // refuses to write a scratch repo's dash state into the live data
+        // refuses to write a scratch repo's arc state into the live data
         // directory, in debug builds, which is every app-test build. So what
         // the press does is pinned where it is decided, over a real repo with
         // a real op log: `resolve_base_folds_the_users_own_edit_onto_the_base`

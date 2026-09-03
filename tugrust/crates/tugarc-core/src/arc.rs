@@ -1,45 +1,44 @@
 //! The arc record — what a server-driven arc is doing, kept as lines in the
-//! dash-log.
+//! arc log.
 //!
 //! An arc opens on a *document* before any branch exists, so nothing git-scoped
-//! can hold its record. The per-project dash-log already is what the arc needs:
+//! can hold its record. The per-project arc log already is what the arc needs:
 //! append-only, keyed by arc name, and reset at every terminal line, so a
 //! reused arc name is never born mid-arc. This module adds markers to that one
 //! grammar and reads them back through one typed reader.
 //!
 //! The record says what the arc is *doing*. Whose card it runs on is a separate
-//! fact with its own home — the session↔dash binding in `sessions.db` — so no
+//! fact with its own home — the session↔arc binding in `sessions.db` — so no
 //! line here names a tug session.
 
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use tugtool_core::config::ArcConfig;
 use tugtool_core::error::TugError;
-use tugtool_core::paths::project_state_dir;
 
-use crate::log::{append_dash_log, is_terminal, split_log_line};
+use crate::log::{append_arc_log, is_terminal, split_log_line};
 
 /// Which kind of arc this is — the *recorded* kind, written when the arc opens
 /// and never derived from what documents happen to be on disk.
 ///
-/// The two kinds differ only in settling time ([B01]): a trek spends devise and
-/// review before any step is walked, a dash goes straight to implement and gets
-/// its cold read from the audit.
+/// The two kinds differ only in settling time ([B01]): a planned arc spends
+/// devise and review before any step is walked, a plain arc opens at implement
+/// and gets its cold read from the audit.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ArcKind {
     /// implement → audit. The task list is the implement stage's first act.
-    Dash,
+    Plain,
     /// devise → review → implement → audit.
-    Trek,
+    Planned,
 }
 
 impl ArcKind {
-    /// How the kind is spelled in the log note and on the `--kind` flag.
+    /// How the kind is spelled in the log note.
     pub fn as_str(&self) -> &'static str {
         match self {
-            ArcKind::Dash => "dash",
-            ArcKind::Trek => "trek",
+            ArcKind::Plain => "plain",
+            ArcKind::Planned => "planned",
         }
     }
 
@@ -49,8 +48,8 @@ impl ArcKind {
     /// pre-kind arc already does.
     pub fn parse(word: &str) -> Option<ArcKind> {
         match word {
-            "dash" => Some(ArcKind::Dash),
-            "trek" => Some(ArcKind::Trek),
+            "plain" => Some(ArcKind::Plain),
+            "planned" => Some(ArcKind::Planned),
             _ => None,
         }
     }
@@ -64,7 +63,7 @@ pub enum ArcStage {
     Review,
     Implement,
     /// Read the implemented code cold against the plan it was written from,
-    /// fix what does not match, and mark the dash `audited`.
+    /// fix what does not match, and mark the arc `audited`.
     ///
     /// It is a stage rather than the implement stage's last step for the same
     /// reason review is one: the session that wrote the code is the weakest
@@ -99,7 +98,7 @@ impl ArcStage {
 
 /// Every reason an arc can stop for.
 ///
-/// Closed on purpose. A stop is written into the dash-log and read back to the
+/// Closed on purpose. A stop is written into the arc log and read back to the
 /// user as a sentence on the card, so a reason the receipt cannot explain is a
 /// reason the arc must not write — and the only way to make that a fact rather
 /// than a hope is to let the compiler check it. Both accessors match
@@ -114,7 +113,7 @@ pub enum ArcStopReason {
     Lint,
     ApiError,
     ReviewDidNotStamp,
-    /// The audit stage ended its turn without marking the dash `audited`. The
+    /// The audit stage ended its turn without marking the arc `audited`. The
     /// mark is the stage's whole product, exactly as the stamp is the
     /// review's, so a turn that ends without one has answered nothing.
     AuditDidNotMark,
@@ -124,11 +123,11 @@ pub enum ArcStopReason {
     CardTaken,
     CardClosed,
     StoppedByUser,
-    /// The dash was discarded. Never written to the log — the discard's own
+    /// The arc was discarded. Never written to the log — the discard's own
     /// terminal line already closed the arc's generation, and a line after it
     /// would open a phantom one. This variant exists for its sentence.
     Discarded,
-    /// The dash joined and the work landed. Never written to the log, for the
+    /// The arc joined and the work landed. Never written to the log, for the
     /// same reason as [`ArcStopReason::Discarded`].
     Joined,
     PromptUnavailable,
@@ -148,7 +147,7 @@ pub enum ArcStopReason {
     ///
     /// The stage is alive, its turns are ending, and the Step Status Ledger is
     /// not moving — a wandering stage, or one that finished the work and never
-    /// ran `dash step done`. Before this the arc simply decided nothing, tick
+    /// ran `arc step done`. Before this the arc simply decided nothing, tick
     /// after tick, which is the loudest of the silent wedges: an unattended
     /// run that sits with no receipt and no gesture to answer it.
     ///
@@ -258,15 +257,15 @@ impl ArcStopReason {
             ArcStopReason::Lint => "the plan does not lint",
             ArcStopReason::ApiError => "its turn ended in an API error, not a response",
             ArcStopReason::ReviewDidNotStamp => "two review rounds ended without stamping the plan",
-            ArcStopReason::AuditDidNotMark => "the audit ended without marking the dash audited",
+            ArcStopReason::AuditDidNotMark => "the audit ended without marking the arc audited",
             ArcStopReason::DocumentMissing => "the document it opened on is gone",
             ArcStopReason::PlanMissing => "the plan is gone",
             ArcStopReason::SessionGone => "its session ended",
             ArcStopReason::CardTaken => "you took the card back",
             ArcStopReason::CardClosed => "the card it ran on closed",
             ArcStopReason::StoppedByUser => "you stopped it",
-            ArcStopReason::Discarded => "the dash was discarded",
-            ArcStopReason::Joined => "the dash joined and the work landed",
+            ArcStopReason::Discarded => "the arc was discarded",
+            ArcStopReason::Joined => "the arc joined and the work landed",
             ArcStopReason::PromptUnavailable => "its opening prompt could not be composed",
             ArcStopReason::SessionIdle => "its session had no claude running to rotate",
             ArcStopReason::SessionErrored => "its session errored out",
@@ -291,7 +290,7 @@ impl ArcStopReason {
     }
 
     /// Whether a stop for this reason leaves anything to resume. The two
-    /// endings do not: the dash itself is gone, and `read_arc` resets at their
+    /// endings do not: the arc itself is gone, and `read_arc` resets at their
     /// terminal line, so `tugtool arc run` would open a new arc rather than
     /// pick this one up.
     pub fn is_resumable(&self) -> bool {
@@ -328,10 +327,13 @@ pub struct ArcStageLine {
     pub at: String,
 }
 
-/// What an arc's *current generation* of dash-log lines says about it.
+/// What an arc's *current generation* of arc log lines says about it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ArcRecord {
-    pub dash: String,
+    // The arc's own name. `name`, not `arc`: this record is nested under an
+    // `arc` key by `tugtool arc record`, and `arc.arc` would say nothing.
+    #[serde(rename = "name")]
+    pub arc: String,
     /// The document the arc opened on.
     pub document: Option<String>,
     /// Which kind of arc this is, recorded when the arc opened.
@@ -376,7 +378,7 @@ pub struct ArcRecord {
     /// unowned arc is every runner's to judge, which is what preserves
     /// single-instance behavior exactly as it was.
     ///
-    /// It exists because the dash-log is shared across every instance over one
+    /// It exists because the arc log is shared across every instance over one
     /// checkout, so a second tugcast reads a first tugcast's arcs and cannot
     /// get a session snapshot for a seat living in the other process. Without
     /// a name on the seat, "not mine to watch" and "gone silent" are the same
@@ -403,13 +405,13 @@ impl ArcRecord {
     }
 }
 
-/// Read the arc record for `dash`, or `None` when this dash has no arc — which
-/// is every dash created by hand.
+/// Read the arc record for `arc`, or `None` when this arc has no arc — which
+/// is every arc created by hand.
 ///
 /// Applies the same generation reset [`crate::log::read_declarations`] applies:
-/// everything at or before the last terminal line for this dash is discarded.
-pub fn read_arc(repo_root: &Path, dash: &str) -> Option<ArcRecord> {
-    let path = project_state_dir(repo_root).join("dash-log.md");
+/// everything at or before the last terminal line for this arc is discarded.
+pub fn read_arc(repo_root: &Path, arc: &str) -> Option<ArcRecord> {
+    let path = tugtool_core::paths::arc_log_path(repo_root);
     let text = std::fs::read_to_string(&path).ok()?;
 
     let mut found: Option<ArcRecord> = None;
@@ -417,7 +419,7 @@ pub fn read_arc(repo_root: &Path, dash: &str) -> Option<ArcRecord> {
         let Some((timestamp, name, marker, note)) = split_log_line(line) else {
             continue;
         };
-        if name != dash {
+        if name != arc {
             continue;
         }
         if is_terminal(marker, note) {
@@ -428,7 +430,7 @@ pub fn read_arc(repo_root: &Path, dash: &str) -> Option<ArcRecord> {
             continue;
         }
         let record = found.get_or_insert_with(|| ArcRecord {
-            dash: dash.to_owned(),
+            arc: arc.to_owned(),
             document: None,
             kind: None,
             plan: None,
@@ -476,7 +478,7 @@ pub fn read_arc(repo_root: &Path, dash: &str) -> Option<ArcRecord> {
                 }
             }
             // **Skew.** A reader older than this marker falls through the `_`
-            // arm below: it dates the dash from the line and declares nothing
+            // arm below: it dates the arc from the line and declares nothing
             // from it, which is what every older reader has always done with a
             // marker it did not know. `read_declarations` degrades the same
             // way. So the direction is safe — an old reader keeps the false
@@ -484,7 +486,7 @@ pub fn read_arc(repo_root: &Path, dash: &str) -> Option<ArcRecord> {
             // have before.
             "arc-dispatch" => record.dispatched = ArcStage::parse(note.trim()),
             // **Skew.** Same arm, same reasoning: a reader older than this
-            // marker dates the dash from the line and declares nothing from
+            // marker dates the arc from the line and declares nothing from
             // it, so its degradation is exactly today's — every arc reads as
             // unowned and every runner owns it, which is what every runner did
             // before ownership existed. A newer reader over a pre-owner log
@@ -527,18 +529,18 @@ fn read_stop_line(note: &str) -> Option<(ArcStage, String)> {
 }
 
 /// Append `arc-start` — the arc opened on this document.
-pub fn append_arc_start(repo_root: &Path, dash: &str, document: &str) -> Result<(), TugError> {
-    append_dash_log(repo_root, dash, "arc-start", document)
+pub fn append_arc_start(repo_root: &Path, arc: &str, document: &str) -> Result<(), TugError> {
+    append_arc_log(repo_root, arc, "arc-start", document)
 }
 
 /// Append `arc-kind` — which kind of arc this is.
 ///
 /// A line of its own rather than a second field on `arc-start`, because
 /// `arc-start`'s note is a path read whole: appending to it would make an
-/// older reader take `dash/idea.md trek` for the document's name. A marker an
+/// older reader take `arc/idea.md planned` for the document's name. A marker an
 /// old reader does not know is skipped; a note it misreads is not.
-pub fn append_arc_kind(repo_root: &Path, dash: &str, kind: ArcKind) -> Result<(), TugError> {
-    append_dash_log(repo_root, dash, "arc-kind", kind.as_str())
+pub fn append_arc_kind(repo_root: &Path, arc: &str, kind: ArcKind) -> Result<(), TugError> {
+    append_arc_log(repo_root, arc, "arc-kind", kind.as_str())
 }
 
 /// Append `arc-owner` — the instance whose tugcast is seating this arc.
@@ -558,14 +560,14 @@ pub fn append_arc_kind(repo_root: &Path, dash: &str, kind: ArcKind) -> Result<()
 /// one — so the caller resolves `tugcore::instance::instance_id()` and simply
 /// does not call this when it is `None`. A record with no owner is unowned;
 /// there is no placeholder to write.
-pub fn append_arc_owner(repo_root: &Path, dash: &str, instance_id: &str) -> Result<(), TugError> {
-    append_dash_log(repo_root, dash, "arc-owner", instance_id.trim())
+pub fn append_arc_owner(repo_root: &Path, arc: &str, instance_id: &str) -> Result<(), TugError> {
+    append_arc_log(repo_root, arc, "arc-owner", instance_id.trim())
 }
 
 /// Append `arc-stage` — a stage was rotated onto `session_id`.
 pub fn append_arc_stage(
     repo_root: &Path,
-    dash: &str,
+    arc: &str,
     stage: ArcStage,
     session_id: &str,
     model: Option<&str>,
@@ -579,7 +581,7 @@ pub fn append_arc_stage(
             .filter(|m| !m.is_empty())
             .unwrap_or("-")
     );
-    append_dash_log(repo_root, dash, "arc-stage", &note)
+    append_arc_log(repo_root, arc, "arc-stage", &note)
 }
 
 /// Append `arc-dispatch` — a rotation to `stage` is about to be sent.
@@ -588,47 +590,47 @@ pub fn append_arc_stage(
 /// gap after it: a crash between the dispatch and the bridge's `arc-stage`
 /// line leaves a seat the record cannot explain, and this is the line that
 /// explains it. The `arc-stage` it anticipates clears it.
-pub fn append_arc_dispatch(repo_root: &Path, dash: &str, stage: ArcStage) -> Result<(), TugError> {
-    append_dash_log(repo_root, dash, "arc-dispatch", stage.as_str())
+pub fn append_arc_dispatch(repo_root: &Path, arc: &str, stage: ArcStage) -> Result<(), TugError> {
+    append_arc_log(repo_root, arc, "arc-dispatch", stage.as_str())
 }
 
 /// Append `arc-plan` — the plan path the runner named.
-pub fn append_arc_plan(repo_root: &Path, dash: &str, plan: &str) -> Result<(), TugError> {
-    append_dash_log(repo_root, dash, "arc-plan", plan)
+pub fn append_arc_plan(repo_root: &Path, arc: &str, plan: &str) -> Result<(), TugError> {
+    append_arc_log(repo_root, arc, "arc-plan", plan)
 }
 
 /// Append `arc-note` — a runner note, such as the review cap.
-pub fn append_arc_note(repo_root: &Path, dash: &str, note: &str) -> Result<(), TugError> {
-    append_dash_log(repo_root, dash, "arc-note", note)
+pub fn append_arc_note(repo_root: &Path, arc: &str, note: &str) -> Result<(), TugError> {
+    append_arc_log(repo_root, arc, "arc-note", note)
 }
 
 /// Append `arc-stop` — the arc stopped in `stage` for `reason`.
 pub fn append_arc_stop(
     repo_root: &Path,
-    dash: &str,
+    arc: &str,
     stage: ArcStage,
     reason: ArcStopReason,
 ) -> Result<(), TugError> {
     let note = format!("{} {}", stage.as_str(), reason.as_str());
-    append_dash_log(repo_root, dash, "arc-stop", note.trim())
+    append_arc_log(repo_root, arc, "arc-stop", note.trim())
 }
 
 /// Append `arc-resume` — a stopped arc was picked back up, and `stage` is the
 /// one to rotate again. Clears the stop; the rotation it asks for
 /// clears it in turn.
-pub fn append_arc_resume(repo_root: &Path, dash: &str, stage: ArcStage) -> Result<(), TugError> {
-    append_dash_log(repo_root, dash, "arc-resume", stage.as_str())
+pub fn append_arc_resume(repo_root: &Path, arc: &str, stage: ArcStage) -> Result<(), TugError> {
+    append_arc_log(repo_root, arc, "arc-resume", stage.as_str())
 }
 
 /// Append `arc-done` — the arc reached its terminal state.
-pub fn append_arc_done(repo_root: &Path, dash: &str) -> Result<(), TugError> {
-    append_dash_log(repo_root, dash, "arc-done", "")
+pub fn append_arc_done(repo_root: &Path, arc: &str) -> Result<(), TugError> {
+    append_arc_log(repo_root, arc, "arc-done", "")
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::log::{DashDeclarations, read_declarations};
+    use crate::log::{ArcDeclarations, read_declarations};
     use serial_test::serial;
     use std::fs;
 
@@ -657,7 +659,7 @@ mod tests {
         let fixture = log_repo("");
         let root = fixture.root();
 
-        append_arc_start(root, "d", "dash/idea.md").unwrap();
+        append_arc_start(root, "d", "arc/idea.md").unwrap();
         append_arc_dispatch(root, "d", ArcStage::Implement).unwrap();
 
         let record = read_arc(root, "d").unwrap();
@@ -686,19 +688,19 @@ mod tests {
         let fixture = log_repo("");
         let root = fixture.root();
 
-        append_arc_start(root, "d", "dash/idea.md").unwrap();
+        append_arc_start(root, "d", "arc/idea.md").unwrap();
         assert_eq!(
             read_arc(root, "d").unwrap().kind,
             None,
             "an arc-start alone is a pre-kind arc"
         );
 
-        append_arc_kind(root, "d", ArcKind::Dash).unwrap();
+        append_arc_kind(root, "d", ArcKind::Plain).unwrap();
         let record = read_arc(root, "d").unwrap();
-        assert_eq!(record.kind, Some(ArcKind::Dash));
+        assert_eq!(record.kind, Some(ArcKind::Plain));
         assert_eq!(
             record.document.as_deref(),
-            Some("dash/idea.md"),
+            Some("arc/idea.md"),
             "and the kind is a line of its own, so the document is unharmed"
         );
     }
@@ -712,12 +714,38 @@ mod tests {
     fn a_kind_this_build_cannot_read_is_a_pre_kind_arc() {
         let fixture = log_repo(
             &[
-                log_line("d", "arc-start", "dash/idea.md"),
+                log_line("d", "arc-start", "arc/idea.md"),
                 log_line("d", "arc-kind", "expedition"),
             ]
             .concat(),
         );
         assert_eq!(read_arc(fixture.root(), "d").unwrap().kind, None);
+    }
+
+    /// **The retired kind words are not kinds either.** The two words this
+    /// marker's vocabulary opened with are retired; nothing writes them now, and a log that
+    /// still carries one reads back as a pre-kind arc, through the same
+    /// unknown-word arm any third word takes. No arm here knows the old words:
+    /// a pre-kind arc's reader sniffs the documents, which is the right answer
+    /// for a record written before the kind was `plain` or `planned`.
+    #[serial]
+    #[test]
+    fn the_retired_kind_words_read_as_a_pre_kind_arc() {
+        for word in ["dash", "trek"] {
+            let fixture = log_repo(
+                &[
+                    log_line("d", "arc-start", "arc/idea.md"),
+                    log_line("d", "arc-kind", word),
+                ]
+                .concat(),
+            );
+            assert_eq!(
+                read_arc(fixture.root(), "d").unwrap().kind,
+                None,
+                "the retired word {word} is not a kind this build reads"
+            );
+            assert_eq!(ArcKind::parse(word), None);
+        }
     }
 
     /// **The retired marker is not a kind, and is not a compatibility path.**
@@ -730,7 +758,7 @@ mod tests {
     fn the_retired_arc_course_marker_reads_as_a_pre_kind_arc() {
         let fixture = log_repo(
             &[
-                log_line("d", "arc-start", "dash/idea.md"),
+                log_line("d", "arc-start", "arc/idea.md"),
                 log_line("d", "arc-course", "plan"),
             ]
             .concat(),
@@ -740,7 +768,7 @@ mod tests {
 
     /// **The skew direction.** The marker is new, so every reader older than
     /// it must fall through untroubled. `read_declarations` shares the log and
-    /// knows nothing of `arc-*` markers at all: it dates the dash from the
+    /// knows nothing of `arc-*` markers at all: it dates the arc from the
     /// line, exactly as it does for `arc-stage`, and declares nothing from it.
     ///
     /// An old `read_arc` does the same through its own `_` arm — which this
@@ -779,12 +807,12 @@ mod tests {
         assert_eq!(
             after.last_activity.as_deref(),
             Some("2026-08-24T10:03:00Z"),
-            "it dates the dash, as every line does, and declares nothing"
+            "it dates the arc, as every line does, and declares nothing"
         );
     }
 
-    /// A scratch data dir plus the repo root whose dash-log it holds — the same
-    /// shape `dash.rs`'s tests use, and `#[serial]` for the same reason: the
+    /// A scratch data dir plus the repo root whose arc log it holds — the same
+    /// shape `arc.rs`'s tests use, and `#[serial]` for the same reason: the
     /// data dir is redirected through the environment.
     struct LogFixture {
         _home: tempfile::TempDir,
@@ -806,26 +834,26 @@ mod tests {
         }
         let repo = tempfile::tempdir().expect("tempdir");
         if !lines.is_empty() {
-            let state = project_state_dir(repo.path());
+            let state = tugtool_core::paths::project_state_dir(repo.path());
             fs::create_dir_all(&state).expect("state dir");
-            fs::write(state.join("dash-log.md"), lines).expect("write log");
+            fs::write(state.join(tugtool_core::paths::ARC_LOG), lines).expect("write log");
         }
         LogFixture { _home: home, repo }
     }
 
-    fn log_line(dash: &str, marker: &str, note: &str) -> String {
-        log_line_at("2026-08-24T12:00:00Z", dash, marker, note)
+    fn log_line(arc: &str, marker: &str, note: &str) -> String {
+        log_line_at("2026-08-24T12:00:00Z", arc, marker, note)
     }
 
-    fn log_line_at(at: &str, dash: &str, marker: &str, note: &str) -> String {
-        format!("{at}  {dash}  {marker}  {note}\n")
+    fn log_line_at(at: &str, arc: &str, marker: &str, note: &str) -> String {
+        format!("{at}  {arc}  {marker}  {note}\n")
     }
 
     /// A full arc: opened on a brief, plan named, three stages, done.
     fn full_arc_log() -> String {
         [
-            log_line_at("2026-08-24T10:00:00Z", "d", "arc-start", "dash/idea.md"),
-            log_line_at("2026-08-24T10:01:00Z", "d", "arc-plan", "dash/d.md"),
+            log_line_at("2026-08-24T10:00:00Z", "d", "arc-start", "arc/idea.md"),
+            log_line_at("2026-08-24T10:01:00Z", "d", "arc-plan", "arc/d.md"),
             log_line_at(
                 "2026-08-24T10:02:00Z",
                 "d",
@@ -866,7 +894,7 @@ mod tests {
     fn an_owner_line_is_read_back_and_the_last_one_wins() {
         let fixture = log_repo(
             &[
-                log_line("d", "arc-start", "dash/idea.md"),
+                log_line("d", "arc-start", "arc/idea.md"),
                 log_line("d", "arc-owner", "release-main"),
                 log_line("d", "arc-stage", "implement sess-1 -"),
                 log_line("d", "arc-owner", "debug-spike"),
@@ -882,17 +910,17 @@ mod tests {
 
     /// **The owner does not outlive its generation.** `read_arc` rebuilds the
     /// record from scratch after each terminal line, and ownership is a fact
-    /// about a live seat rather than about the dash's name — an arc joined by
+    /// about a live seat rather than about the arc's name — an arc joined by
     /// one instance and re-opened by another must not read as the first one's.
     #[serial]
     #[test]
     fn an_owner_does_not_survive_the_generation_reset() {
         let fixture = log_repo(
             &[
-                log_line_at("2026-08-24T10:00:00Z", "d", "arc-start", "dash/idea.md"),
+                log_line_at("2026-08-24T10:00:00Z", "d", "arc-start", "arc/idea.md"),
                 log_line_at("2026-08-24T10:01:00Z", "d", "arc-owner", "release-main"),
                 log_line_at("2026-08-24T11:00:00Z", "d", "landed", "joined abc1234"),
-                log_line_at("2026-08-24T12:00:00Z", "d", "arc-start", "dash/idea.md"),
+                log_line_at("2026-08-24T12:00:00Z", "d", "arc-start", "arc/idea.md"),
             ]
             .concat(),
         );
@@ -913,8 +941,8 @@ mod tests {
     fn a_pre_owner_log_reads_as_unowned() {
         let fixture = log_repo(
             &[
-                log_line("d", "arc-start", "dash/idea.md"),
-                log_line("d", "arc-kind", "dash"),
+                log_line("d", "arc-start", "arc/idea.md"),
+                log_line("d", "arc-kind", "plain"),
                 log_line("d", "arc-stage", "implement sess-1 -"),
             ]
             .concat(),
@@ -939,7 +967,7 @@ mod tests {
     #[test]
     fn an_owner_line_does_not_disturb_the_stage_or_dispatch_readers() {
         let without = [
-            log_line_at("2026-08-24T10:00:00Z", "d", "arc-start", "dash/idea.md"),
+            log_line_at("2026-08-24T10:00:00Z", "d", "arc-start", "arc/idea.md"),
             log_line_at(
                 "2026-08-24T10:01:00Z",
                 "d",
@@ -950,7 +978,7 @@ mod tests {
         ]
         .concat();
         let with = [
-            log_line_at("2026-08-24T10:00:00Z", "d", "arc-start", "dash/idea.md"),
+            log_line_at("2026-08-24T10:00:00Z", "d", "arc-start", "arc/idea.md"),
             log_line_at("2026-08-24T10:01:00Z", "d", "arc-owner", "release-main"),
             log_line_at(
                 "2026-08-24T10:01:00Z",
@@ -989,9 +1017,9 @@ mod tests {
     fn a_full_arc_reads_back_document_plan_stages_and_done() {
         let fixture = log_repo(&full_arc_log());
         let arc = read_arc(fixture.root(), "d").expect("arc");
-        assert_eq!(arc.dash, "d");
-        assert_eq!(arc.document.as_deref(), Some("dash/idea.md"));
-        assert_eq!(arc.plan.as_deref(), Some("dash/d.md"));
+        assert_eq!(arc.arc, "d");
+        assert_eq!(arc.document.as_deref(), Some("arc/idea.md"));
+        assert_eq!(arc.plan.as_deref(), Some("arc/d.md"));
         assert_eq!(
             arc.stages
                 .iter()
@@ -1012,8 +1040,8 @@ mod tests {
 
     #[test]
     #[serial]
-    fn another_dashs_arc_lines_are_not_this_dashs() {
-        let fixture = log_repo(&log_line("other", "arc-start", "dash/idea.md"));
+    fn another_arcs_lines_are_not_this_ones() {
+        let fixture = log_repo(&log_line("other", "arc-start", "arc/idea.md"));
         assert_eq!(read_arc(fixture.root(), "d"), None);
     }
 
@@ -1036,11 +1064,11 @@ mod tests {
             "{}{}{}",
             full_arc_log(),
             log_line_at("2026-08-24T14:00:00Z", "d", "abc1234", "joined via card"),
-            log_line_at("2026-08-24T15:00:00Z", "d", "arc-start", "dash/next.md")
+            log_line_at("2026-08-24T15:00:00Z", "d", "arc-start", "arc/next.md")
         );
         let fixture = log_repo(&log);
         let arc = read_arc(fixture.root(), "d").expect("arc");
-        assert_eq!(arc.document.as_deref(), Some("dash/next.md"));
+        assert_eq!(arc.document.as_deref(), Some("arc/next.md"));
         assert!(arc.stages.is_empty());
         assert!(!arc.done);
     }
@@ -1050,7 +1078,7 @@ mod tests {
     fn a_stop_reads_as_stopped_and_the_next_rotation_clears_it() {
         let stopped = format!(
             "{}{}",
-            log_line_at("2026-08-24T10:00:00Z", "d", "arc-start", "dash/idea.md"),
+            log_line_at("2026-08-24T10:00:00Z", "d", "arc-start", "arc/idea.md"),
             log_line_at(
                 "2026-08-24T10:05:00Z",
                 "d",
@@ -1086,7 +1114,7 @@ mod tests {
     fn notes_accumulate_in_order() {
         let log = format!(
             "{}{}{}",
-            log_line("d", "arc-start", "dash/idea.md"),
+            log_line("d", "arc-start", "arc/idea.md"),
             log_line("d", "arc-note", "review cap reached"),
             log_line("d", "arc-note", "implement ran on the account default")
         );
@@ -1106,7 +1134,7 @@ mod tests {
     fn an_unreadable_stage_line_is_skipped_not_guessed_at() {
         let log = format!(
             "{}{}{}",
-            log_line("d", "arc-start", "dash/idea.md"),
+            log_line("d", "arc-start", "arc/idea.md"),
             log_line("d", "arc-stage", "wander sess-1 opus"),
             log_line("d", "arc-stage", "devise")
         );
@@ -1138,9 +1166,9 @@ mod tests {
         let fixture = log_repo(&with_arc);
         let with = read_declarations(fixture.root(), "d");
 
-        assert_ne!(without, DashDeclarations::default());
+        assert_ne!(without, ArcDeclarations::default());
         assert_eq!(
-            DashDeclarations {
+            ArcDeclarations {
                 last_activity: with.last_activity.clone(),
                 ..without
             },
@@ -1151,18 +1179,18 @@ mod tests {
 
     #[test]
     #[serial]
-    fn a_discarded_dash_has_no_arc() {
+    fn a_discarded_arc_has_no_arc() {
         let fixture = log_repo("");
         let root = fixture.root();
-        append_arc_start(root, "d", "dash/d-brief.md").unwrap();
+        append_arc_start(root, "d", "arc/d-brief.md").unwrap();
         append_arc_stage(root, "d", ArcStage::Devise, "s1", None).unwrap();
         assert!(read_arc(root, "d").is_some());
-        // Discard writes the dash's terminal marker; the arc record ends with
-        // the dash, so a later `dash run` under the same name opens fresh
-        // rather than resuming into a dash that no longer exists.
-        append_dash_log(root, "d", "discarded", "").unwrap();
+        // Discard writes the arc's terminal marker; the arc record ends with
+        // the arc, so a later `arc run` under the same name opens fresh
+        // rather than resuming into an arc that no longer exists.
+        append_arc_log(root, "d", "discarded", "").unwrap();
         assert_eq!(read_arc(root, "d"), None);
-        append_arc_start(root, "d", "dash/d-brief.md").unwrap();
+        append_arc_start(root, "d", "arc/d-brief.md").unwrap();
         let fresh = read_arc(root, "d").unwrap();
         assert!(
             fresh.stages.is_empty(),
@@ -1217,8 +1245,8 @@ mod tests {
     fn the_append_helpers_round_trip_through_the_reader() {
         let fixture = log_repo("");
         let root = fixture.root();
-        append_arc_start(root, "d", "dash/idea.md").expect("start");
-        append_arc_plan(root, "d", "dash/d.md").expect("plan");
+        append_arc_start(root, "d", "arc/idea.md").expect("start");
+        append_arc_plan(root, "d", "arc/d.md").expect("plan");
         append_arc_stage(root, "d", ArcStage::Devise, "sess-1", Some("opus")).expect("devise");
         append_arc_stage(root, "d", ArcStage::Review, "sess-2", None).expect("review");
         append_arc_note(root, "d", "second review skipped").expect("note");
@@ -1231,8 +1259,8 @@ mod tests {
         .expect("stop");
 
         let arc = read_arc(root, "d").expect("arc");
-        assert_eq!(arc.document.as_deref(), Some("dash/idea.md"));
-        assert_eq!(arc.plan.as_deref(), Some("dash/d.md"));
+        assert_eq!(arc.document.as_deref(), Some("arc/idea.md"));
+        assert_eq!(arc.plan.as_deref(), Some("arc/d.md"));
         assert_eq!(arc.stages.len(), 2);
         assert_eq!(arc.stages[1].model, None);
         assert_eq!(arc.notes, vec!["second review skipped".to_owned()]);

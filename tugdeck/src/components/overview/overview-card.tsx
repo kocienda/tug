@@ -127,7 +127,7 @@ import {
   commitResolverFor,
   NO_COMMIT_VERDICT,
 } from "@/lib/annotator/commit-resolution";
-import { commitTip, dashTip, fileTip } from "@/components/tugways/entity-tips";
+import { commitTip, arcTip, fileTip } from "@/components/tugways/entity-tips";
 import { TugTooltip } from "@/components/tugways/tug-tooltip";
 import { dispatchCommand } from "@/command-dispatch";
 import { fileNameResolverFor } from "@/lib/annotator/file-name-resolution";
@@ -344,16 +344,20 @@ function RefAtom({
   if (chipRef.kind === "session") {
     return <TugSessionCitation citedId={chipRef.target} />;
   }
-  // A dash ref branches BEFORE resolution, because a dash name is not a path
+  // An arc ref branches BEFORE resolution, because an arc name is not a path
   // and must never be resolved as one: `resolveOverviewRef` would look it up
   // in the repo, come back unresolvable, and render the chip inert with a
   // not-found tip — the promised click dead, and the reason for it wrong.
-  if (chipRef.kind === "dash") {
+  //
+  // Both spellings, because `overview_posts.refs` is stored JSON and every ref
+  // written before the word moved carries the retired one ([F19]). The entity
+  // handed to the skin is the arc kind either way.
+  if (chipRef.kind === "arc" || chipRef.kind === "dash") {
     return (
       <TugTooltip
         variant="entity"
         align="start"
-        content={dashTip({ name: chipRef.target })}
+        content={arcTip({ name: chipRef.target })}
       >
         <span
           // The Arcs rail is where an arc's join is already offered, so the click
@@ -367,7 +371,7 @@ function RefAtom({
           data-no-activate=""
           data-tug-focus="refuse"
         >
-          <TugAtomRef entity={{ kind: "dash", name: chipRef.target }} />
+          <TugAtomRef entity={{ kind: "arc", name: chipRef.target }} />
         </span>
       </TugTooltip>
     );

@@ -97,7 +97,7 @@ const SUMMARY_SEPARATOR = " · ";
  * An unknown model reads as `?` rather than being dropped (the model is the
  * headline; a summary that started with the effort would misread). An
  * unsupported effort is OMITTED entirely rather than showing a `-`
- * placeholder: in a two-token line a dash reads as a value, and "this model
+ * placeholder: in a two-token line an arc reads as a value, and "this model
  * has no effort" is better said by silence than by punctuation —
  * `Haiku 4.5 · Auto`.
  */

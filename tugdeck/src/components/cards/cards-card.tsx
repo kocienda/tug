@@ -681,8 +681,8 @@ function useCardsInputs(filterQuery: string): {
     sessionNameStore.subscribe,
     sessionNameStore.getVersion,
   );
-  // The account-global aggregate, for the dash sub-rows. A whole snapshot
-  // rather than a version token: the projection needs the dash's facts, and the
+  // The account-global aggregate, for the arc sub-rows. A whole snapshot
+  // rather than a version token: the projection needs the arc's facts, and the
   // index it builds from them is memoized on this snapshot's identity.
   const changesets = useChangesetAll();
   const dataSource = useCardsDataSource({

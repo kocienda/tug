@@ -46,7 +46,7 @@ const MOVED_OUT_OF_GALLERY: readonly string[] = [
   "gallery-pinned-headers",
   "gallery-commit-surfaces",
   "gallery-card-chrome",
-  "gallery-changes-dashes",
+  "gallery-changes-arcs",
   "gallery-modal-headers",
   "gallery-focus-language",
   "gallery-cycle-demo",

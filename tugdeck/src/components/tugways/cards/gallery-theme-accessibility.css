@@ -7,12 +7,12 @@
  * | Element                                          | Surface                                          | Role         | Context                              |
  * |--------------------------------------------------|--------------------------------------------------|--------------|--------------------------------------|
  * | --tug7-element-global-text-normal-subtle-rest (element-global-text-normal-subtle-rest) | --tug7-surface-global-primary-normal-default-rest (surface-global-primary-normal-default-rest) | informational | .gta-token-value (color)             |
- * | --tug7-element-tone-text-normal-success-rest (element-tone-text-normal-success-rest) | --tug7-surface-tone-primary-normal-success-rest (surface-tone-primary-normal-success-rest) | informational | .gta-dash-badge--pass (color)        |
- * | --tug7-element-tone-border-normal-success-rest (element-tone-border-normal-success-rest) | --tug7-surface-tone-primary-normal-success-rest (surface-tone-primary-normal-success-rest) | informational | .gta-dash-badge--pass (border)       |
- * | --tug7-element-tone-text-normal-caution-rest (element-tone-text-normal-caution-rest) | --tug7-surface-tone-primary-normal-caution-rest (surface-tone-primary-normal-caution-rest) | informational | .gta-dash-badge--marginal (color)    |
- * | --tug7-element-tone-border-normal-caution-rest (element-tone-border-normal-caution-rest) | --tug7-surface-tone-primary-normal-caution-rest (surface-tone-primary-normal-caution-rest) | informational | .gta-dash-badge--marginal (border)   |
- * | --tug7-element-tone-text-normal-danger-rest (element-tone-text-normal-danger-rest) | --tug7-surface-tone-primary-normal-danger-rest (surface-tone-primary-normal-danger-rest) | informational | .gta-dash-badge--fail (color)        |
- * | --tug7-element-tone-border-normal-danger-rest (element-tone-border-normal-danger-rest) | --tug7-surface-tone-primary-normal-danger-rest (surface-tone-primary-normal-danger-rest) | informational | .gta-dash-badge--fail (border)       |
+ * | --tug7-element-tone-text-normal-success-rest (element-tone-text-normal-success-rest) | --tug7-surface-tone-primary-normal-success-rest (surface-tone-primary-normal-success-rest) | informational | .gta-contrast-badge--pass (color)        |
+ * | --tug7-element-tone-border-normal-success-rest (element-tone-border-normal-success-rest) | --tug7-surface-tone-primary-normal-success-rest (surface-tone-primary-normal-success-rest) | informational | .gta-contrast-badge--pass (border)       |
+ * | --tug7-element-tone-text-normal-caution-rest (element-tone-text-normal-caution-rest) | --tug7-surface-tone-primary-normal-caution-rest (surface-tone-primary-normal-caution-rest) | informational | .gta-contrast-badge--marginal (color)    |
+ * | --tug7-element-tone-border-normal-caution-rest (element-tone-border-normal-caution-rest) | --tug7-surface-tone-primary-normal-caution-rest (surface-tone-primary-normal-caution-rest) | informational | .gta-contrast-badge--marginal (border)   |
+ * | --tug7-element-tone-text-normal-danger-rest (element-tone-text-normal-danger-rest) | --tug7-surface-tone-primary-normal-danger-rest (surface-tone-primary-normal-danger-rest) | informational | .gta-contrast-badge--fail (color)        |
+ * | --tug7-element-tone-border-normal-danger-rest (element-tone-border-normal-danger-rest) | --tug7-surface-tone-primary-normal-danger-rest (surface-tone-primary-normal-danger-rest) | informational | .gta-contrast-badge--fail (border)       |
  * | --tug7-element-global-text-normal-muted-rest (element-global-text-normal-muted-rest) | --tug7-surface-global-primary-normal-sunken-rest (surface-global-primary-normal-sunken-rest) | informational | .gta-doc-source-label (color)        |
  * | --tug7-element-global-border-normal-muted-rest (element-global-border-normal-muted-rest) | --tug7-surface-global-primary-normal-sunken-rest (surface-global-primary-normal-sunken-rest) | informational | .gta-doc-source-label (border)       |
  */
@@ -200,7 +200,7 @@
    ========================================================================= */
 
 /* Summary bar — "N/M pairs pass contrast" */
-.gta-dash-summary {
+.gta-contrast-summary {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -214,13 +214,13 @@
   user-select: none;
 }
 
-.gta-dash-summary-count {
+.gta-contrast-summary-count {
   font-weight: var(--tug-font-weight-semibold);
   font-family: var(--tug-font-family-mono);
 }
 
 /* Scrollable grid container */
-.gta-dash-grid {
+.gta-contrast-grid {
   display: grid;
   grid-template-columns: 24px 24px 1fr 1fr 72px 72px 72px;
   gap: 2px 8px;
@@ -233,7 +233,7 @@
 }
 
 /* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
-.gta-dash-col-header {
+.gta-contrast-col-header {
   font-size: 10px;
   font-weight: var(--tug-font-weight-semibold);
   letter-spacing: 0.06em;
@@ -250,7 +250,7 @@
 }
 
 /* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
-.gta-dash-swatch {
+.gta-contrast-swatch {
   width: 20px;
   height: 20px;
   border-radius: 3px;
@@ -261,7 +261,7 @@
 }
 
 /* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
-.gta-dash-token-name {
+.gta-contrast-token-name {
   font-size: 10px;
   font-family: var(--tug-font-family-mono);
   color: var(--tug7-element-global-text-normal-muted-rest);
@@ -273,7 +273,7 @@
 }
 
 /* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
-.gta-dash-ratio {
+.gta-contrast-ratio {
   font-size: 10px;
   font-family: var(--tug-font-family-mono);
   color: var(--tug7-element-global-text-normal-subtle-rest);
@@ -283,7 +283,7 @@
 }
 
 /* Pass/fail badge */
-.gta-dash-badge {
+.gta-contrast-badge {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -299,28 +299,28 @@
 }
 
 /* Green — pass both thresholds */
-.gta-dash-badge--pass {
+.gta-contrast-badge--pass {
   background-color: var(--tug7-surface-tone-primary-normal-success-rest);
   color: var(--tug7-element-tone-text-normal-success-rest);
   border: 1px solid var(--tug7-element-tone-border-normal-success-rest);
 }
 
 /* Yellow — marginal (within 0.5 of threshold) */
-.gta-dash-badge--marginal {
+.gta-contrast-badge--marginal {
   background-color: var(--tug7-surface-tone-primary-normal-caution-rest);
   color: var(--tug7-element-tone-text-normal-caution-rest);
   border: 1px solid var(--tug7-element-tone-border-normal-caution-rest);
 }
 
 /* Red — fail */
-.gta-dash-badge--fail {
+.gta-contrast-badge--fail {
   background-color: var(--tug7-surface-tone-primary-normal-danger-rest);
   color: var(--tug7-element-tone-text-normal-danger-rest);
   border: 1px solid var(--tug7-element-tone-border-normal-danger-rest);
 }
 
 /* Decorative — no requirement, shown as neutral */
-.gta-dash-badge--decorative {
+.gta-contrast-badge--decorative {
   background-color: var(--tug7-surface-global-primary-normal-raised-rest);
   color: var(--tug7-element-global-text-normal-muted-rest);
   border: 1px solid var(--tug7-element-global-border-normal-default-rest);

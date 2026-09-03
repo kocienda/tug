@@ -71,7 +71,7 @@
  * @see ./internal/floating-surface-notes.ts for the cross-surface
  *      invariants table covering popover / confirm-popover / alert /
  *      sheet and the chain-reactive vs. modal semantic models.
- * @see `dash/tugplan-dev-overlay-framework.md` (#mental-model)
+ * @see `arc/tugplan-dev-overlay-framework.md` (#mental-model)
  *      for the system-level architecture covering portals, the
  *      responder chain, focus events, the pane focus controller,
  *      and focus-discipline markers — the five subsystems whose

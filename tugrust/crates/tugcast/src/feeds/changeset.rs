@@ -3,7 +3,7 @@
 //!
 //! `compose_snapshot` is the pure building block: each call joins `git
 //! status` against the attribution ledger (`file_events` grouped by owning
-//! session), derives dash entries from `refs/heads/tugdash/`, and partitions
+//! session), derives arc entries from `refs/heads/tugarc/`, and partitions
 //! dirty files into owned / shared / unattributed buckets. The account-global
 //! `ChangesetAllFeed` (`feeds::changeset_all`) calls it once per open project
 //! and delivers the aggregate; `ChangesetBumper` pings that feed's global
@@ -639,8 +639,8 @@ pub(crate) async fn compose_snapshot(
     // Attach maintained drafts (Spec S10) to eligible entries: a session
     // entry with files. Fileless live sessions are injected later by
     // `apply_session_rows` and pick up their drafts in
-    // `attach_live_session_drafts`; dash entries — attached per repo by
-    // `attach_dash_composition`, not here — take theirs there too.
+    // `attach_live_session_drafts`; arc entries — attached per repo by
+    // `attach_arc_composition`, not here — take theirs there too.
     if let Some(ledger) = ledger {
         // Spec S05 spelling contract: writers store `project_dir` canonical;
         // query the canonical spelling and union the raw one when it differs
@@ -700,16 +700,16 @@ pub(crate) async fn compose_snapshot(
     })
 }
 
-/// Attach a repo's dash composition — the live dash entries and their
+/// Attach a repo's arc composition — the live arc entries and their
 /// maintained drafts — to one already-composed snapshot.
 ///
-/// Split out of [`compose_snapshot`] because a dash list is a property of the
-/// *repo*, not of an open project: `dash_detail_entries_in` derives from
+/// Split out of [`compose_snapshot`] because an arc list is a property of the
+/// *repo*, not of an open project: `arc_detail_entries_in` derives from
 /// `git worktree list`, which answers identically from a linked worktree and
-/// from the base checkout, so composing it per project duplicated every dash
+/// from the base checkout, so composing it per project duplicated every arc
 /// row whenever two open projects shared one repo. The aggregate elects one
 /// owner project per repo and calls this for the owner alone.
-pub(crate) async fn attach_dash_composition(
+pub(crate) async fn attach_arc_composition(
     project_dir: &Path,
     ledger: Option<&SessionLedger>,
     snapshot: &mut ChangesetSnapshot,
@@ -718,10 +718,10 @@ pub(crate) async fn attach_dash_composition(
         return;
     };
     // Base paths a live session is working, with whose they are — derived
-    // from the composed session entries, and handed to the dash composition
+    // from the composed session entries, and handed to the arc composition
     // for the same reason the occupancy registry is: the join's blockers have
     // to tell the user's own uncommitted edit — which a resolve may fold into
-    // a dash — from another session's, which nothing may touch.
+    // an arc — from another session's, which nothing may touch.
     let live_dirt: BTreeMap<String, (String, String)> = snapshot
         .changesets
         .iter()
@@ -742,9 +742,9 @@ pub(crate) async fn attach_dash_composition(
         })
         .collect();
 
-    let mut dashes = dash_entries(&repo_root, ledger, &live_dirt).await;
+    let mut arcs = arc_entries(&repo_root, ledger, &live_dirt).await;
 
-    // Attach maintained drafts (Spec S10) to dashes with rounds or worktree
+    // Attach maintained drafts (Spec S10) to arcs with rounds or worktree
     // dirt — the gate keeps a stale draft off an entry that has since gone
     // clean. Same spelling contract as the session pass in
     // [`compose_snapshot`]: canonical first, raw unioned when it differs.
@@ -765,21 +765,21 @@ pub(crate) async fn attach_dash_composition(
             drafts
         };
         let mut by_owner: HashMap<&str, &crate::session_ledger::ChangesetDraftRow> = HashMap::new();
-        for d in drafts.iter().filter(|d| d.owner_kind == "dash") {
+        for d in drafts.iter().filter(|d| d.owner_kind == "arc") {
             by_owner.entry(d.owner_id.as_str()).or_insert(d);
         }
-        // A dash's rows migrate onto a second axis too — from the bare branch
-        // ref to `tugdash/<name>#<tugid>` ([P03]) — and writers reach the new
-        // key before every reader does. So index dash rows by their legacy
+        // An arc's rows migrate onto a second axis too — from the bare branch
+        // ref to `tugarc/<name>#<tugid>` ([P03]) — and writers reach the new
+        // key before every reader does. So index arc rows by their legacy
         // form as well, preferring an id-qualified row when both exist, and
         // probe it when the exact key misses. Without this the maintained
         // draft would vanish from the Changes card for the whole window
         // between the writers moving and the entries following.
-        let mut dash_by_legacy: HashMap<&str, &crate::session_ledger::ChangesetDraftRow> =
+        let mut arc_by_legacy: HashMap<&str, &crate::session_ledger::ChangesetDraftRow> =
             HashMap::new();
-        for d in drafts.iter().filter(|d| d.owner_kind == "dash") {
+        for d in drafts.iter().filter(|d| d.owner_kind == "arc") {
             let legacy = tugarc_core::ops::legacy_owner_key(&d.owner_id);
-            match dash_by_legacy.entry(legacy) {
+            match arc_by_legacy.entry(legacy) {
                 std::collections::hash_map::Entry::Vacant(slot) => {
                     slot.insert(d);
                 }
@@ -790,8 +790,8 @@ pub(crate) async fn attach_dash_composition(
                 }
             }
         }
-        for entry in &mut dashes {
-            if let ChangesetEntry::Dash {
+        for entry in &mut arcs {
+            if let ChangesetEntry::Arc {
                 owner_id,
                 rounds,
                 worktree_dirty,
@@ -803,9 +803,9 @@ pub(crate) async fn attach_dash_composition(
             {
                 *draft = by_owner
                     .get(owner_id.as_str())
-                    .or_else(|| dash_by_legacy.get(tugarc_core::ops::legacy_owner_key(owner_id)))
+                    .or_else(|| arc_by_legacy.get(tugarc_core::ops::legacy_owner_key(owner_id)))
                     .map(|row| draft_from_row(row));
-                // `dash_detail_entries_in` derives its stage without draft
+                // `arc_detail_entries_in` derives its stage without draft
                 // visibility; this overlay is the caller that can see one,
                 // so it discharges the recompute `derive_stage`'s
                 // precedence assigns it — a draft outranks mere activity,
@@ -818,7 +818,7 @@ pub(crate) async fn attach_dash_composition(
         }
     }
 
-    snapshot.changesets.extend(dashes);
+    snapshot.changesets.extend(arcs);
 }
 
 /// Join a workspace's ledger session rows into a composed snapshot.
@@ -833,7 +833,7 @@ pub(crate) async fn attach_dash_composition(
 ///   name → prompt snippet → id prefix) and its `live` flag from the row's
 ///   state OR the deck seating board — an open card outranks a demoted row.
 ///
-/// Entries re-sort to (sessions by id, dashes by ref) so injection order
+/// Entries re-sort to (sessions by id, arcs by ref) so injection order
 /// never perturbs diff-suppression.
 pub(crate) fn apply_session_rows(snapshot: &mut ChangesetSnapshot, rows: &[SessionRow]) {
     let by_id: HashMap<&str, &SessionRow> = rows
@@ -934,7 +934,7 @@ pub(crate) fn apply_session_rows(snapshot: &mut ChangesetSnapshot, rows: &[Sessi
 ///
 /// [`compose_snapshot`] attaches drafts only to entries that own files, and
 /// [`apply_session_rows`] injects fileless live sessions after that pass —
-/// so a live session whose changes are attributed elsewhere (a dash
+/// so a live session whose changes are attributed elsewhere (an arc
 /// worktree run) or that has gone clean would read `draft: None` despite a
 /// persisted row. A live entry always reads its row back; rows are keyed by
 /// the workspace key, the same single-spelling lookup the unattributed
@@ -964,7 +964,7 @@ pub(crate) fn attach_live_session_drafts(
     }
 }
 
-/// Deterministic entry order: sessions (by id) before dashes (by ref).
+/// Deterministic entry order: sessions (by id) before arcs (by ref).
 /// The hunk-aware read of one contended path ([P12], [P14]), or `None` when
 /// there is nothing to refine with — no live spans among the owners, or no
 /// readable hunks. The caller falls back to file-level SHARED there, which is
@@ -1052,7 +1052,7 @@ async fn contention_verdict(
 fn entry_sort_key(entry: &ChangesetEntry) -> (u8, &str) {
     match entry {
         ChangesetEntry::Session { owner_id, .. } => (0, owner_id.as_str()),
-        ChangesetEntry::Dash { owner_id, .. } => (1, owner_id.as_str()),
+        ChangesetEntry::Arc { owner_id, .. } => (1, owner_id.as_str()),
     }
 }
 
@@ -1301,7 +1301,7 @@ async fn min_live_at_ms(repo_root: &Path, rel: &str) -> i64 {
 ///
 /// The letter is the whole status for every case but a rename or copy, where
 /// git appends a similarity score (`R100`); the entry carries the letter.
-fn dash_file_row(file: tugarc_core::DashDetailFile) -> ChangesetFile {
+fn arc_file_row(file: tugarc_core::ArcDetailFile) -> ChangesetFile {
     let letter = file.status.chars().next().unwrap_or('M');
     let op = match letter {
         'A' => "created",
@@ -1313,7 +1313,7 @@ fn dash_file_row(file: tugarc_core::DashDetailFile) -> ChangesetFile {
         path: file.path,
         git_status: letter.to_string(),
         op: op.to_owned(),
-        origin: "dash".to_owned(),
+        origin: "arc".to_owned(),
         shared: false,
         last_touched: 0,
         own_hunks: Vec::new(),
@@ -1324,17 +1324,17 @@ fn dash_file_row(file: tugarc_core::DashDetailFile) -> ChangesetFile {
     }
 }
 
-/// What a dash's recorded plan says about itself: its review state and its
+/// What an arc's recorded plan says about itself: its review state and its
 /// ledger, from **one** parse.
 ///
 /// Both readings come from the same document and the same read, so they are
 /// taken together rather than by two functions that could be given two
 /// different paths, or run against two different bytes on either side of a
-/// write. A dash whose fraction says `2/5` and whose step list holds six rows
+/// write. An arc whose fraction says `2/5` and whose step list holds six rows
 /// is the failure this shape removes.
 ///
-/// `worktree_abs` is the dash worktree's absolute path as
-/// `dash_detail_entries_in` resolved it, and `plan_path` is relative to that
+/// `worktree_abs` is the arc worktree's absolute path as
+/// `arc_detail_entries_in` resolved it, and `plan_path` is relative to that
 /// worktree. **Nothing else joins in** — composing from the caller's repo root
 /// would be the bug the absolute path exists to remove, and because every
 /// failure here is silent, that bug would not raise: it would show up as a mark
@@ -1343,10 +1343,10 @@ fn dash_file_row(file: tugarc_core::DashDetailFile) -> ChangesetFile {
 /// Every failure path is `(None, empty)` deliberately ([P03]): a plan that
 /// cannot be read has not been shown to be stale and has not been shown to have
 /// no steps, and an unreadable plan is a normal state rather than an incident.
-fn dash_plan_reading(abs: &Path) -> (Option<String>, Vec<ArcStep>, bool) {
-    let Ok(source) = std::fs::read_to_string(abs).inspect_err(
-        |e| tracing::debug!(path = %abs.display(), error = %e, "dash plan unreadable"),
-    ) else {
+fn arc_plan_reading(abs: &Path) -> (Option<String>, Vec<ArcStep>, bool) {
+    let Ok(source) = std::fs::read_to_string(abs)
+        .inspect_err(|e| tracing::debug!(path = %abs.display(), error = %e, "arc plan unreadable"))
+    else {
         return (None, Vec::new(), false);
     };
     let Ok(doc) = tugtool_core::plan::parse(&source) else {
@@ -1369,28 +1369,28 @@ fn dash_plan_reading(abs: &Path) -> (Option<String>, Vec<ArcStep>, bool) {
     (Some(review), steps, tugtool_core::plan::is_task_list(&doc))
 }
 
-/// The document whose ledger a dash's steps live in: its plan when it has one,
-/// the `/dash` door's task list otherwise.
+/// The document whose ledger an arc's steps live in: its plan when it has one,
+/// the `/arc` door's task list otherwise.
 ///
 /// The same precedence `tugarc_core::ledger_file` applies on disk, read here
 /// off the documents the walk already stat'd rather than by touching the
 /// filesystem a second time.
-fn ledger_document(documents: &tugarc_core::DashDocuments) -> Option<&str> {
+fn ledger_document(documents: &tugarc_core::ArcDocuments) -> Option<&str> {
     documents.plan.as_deref().or(documents.tasks.as_deref())
 }
 
-/// Derive one dash entry per `refs/heads/tugdash/` branch.
+/// Derive one arc entry per `refs/heads/tugarc/` branch.
 ///
-/// The composition lives in `tugarc_core::dash_detail_entries_in` — the same
+/// The composition lives in `tugarc_core::arc_detail_entries_in` — the same
 /// code `tugtool arc list|status` reads — so the CLI and the Changes card can
-/// no longer disagree about a dash's base, worktree, or round count. This maps
+/// no longer disagree about an arc's base, worktree, or round count. This maps
 /// that shared detail onto the wire type and adds the one thing only tugcast
-/// knows: which live sessions are mated to each dash ([P08]).
+/// knows: which live sessions are mated to each arc ([P08]).
 ///
 /// tugarc-core is synchronous (git subprocesses), so the whole walk runs on
 /// the blocking pool in one hop — the same discipline `do_changeset_join`
 /// uses. `bound_sessions` comes from **one** ledger query for the repo, fanned
-/// out across entries; never a query per dash.
+/// out across entries; never a query per arc.
 /// Whether this compose must hide `repo_root`'s arcs: an app-test instance
 /// composing the checkout under test.
 ///
@@ -1429,10 +1429,10 @@ fn arcs_hidden_for(repo_root: &Path) -> bool {
     root == universe
 }
 
-/// The engine's `DashDocuments` as the wire's — the same six fields, one
+/// The engine's `ArcDocuments` as the wire's — the same six fields, one
 /// crate boundary apart.
-fn dash_documents(documents: tugarc_core::DashDocuments) -> tugcast_core::types::DashDocuments {
-    tugcast_core::types::DashDocuments {
+fn arc_documents(documents: tugarc_core::ArcDocuments) -> tugcast_core::types::ArcDocuments {
+    tugcast_core::types::ArcDocuments {
         brief: documents.brief,
         brief_title: documents.brief_title,
         plan: documents.plan,
@@ -1442,52 +1442,52 @@ fn dash_documents(documents: tugarc_core::DashDocuments) -> tugcast_core::types:
     }
 }
 
-/// The dashes that exist only as documents — a `.tug/arcs/<name>/` with no
-/// `tugdash/<name>` branch ([P04]).
+/// The arcs that exist only as documents — a `.tug/arcs/<name>/` with no
+/// `tugarc/<name>` branch ([P04]).
 ///
 /// This is what makes the planning phase visible as in-flight rather than the
-/// dash appearing only once a branch is cut. A name with a branch is left to
-/// `dash_entries`, so a dash is one row before and after `create` rather than
+/// arc appearing only once a branch is cut. A name with a branch is left to
+/// `arc_entries`, so an arc is one row before and after `create` rather than
 /// two.
-pub(crate) async fn document_dash_entries(
+pub(crate) async fn document_arc_entries(
     project_dir: &Path,
     ledger: Option<&crate::session_ledger::SessionLedger>,
 ) -> Vec<DocumentArcEntry> {
     let Some(root) = repo_root_for(project_dir).await else {
         return Vec::new();
     };
-    // The same argument `dash_entries` makes: an app-test's aggregate must not
-    // list the dashes the developer happens to be carrying in the checkout
+    // The same argument `arc_entries` makes: an app-test's aggregate must not
+    // list the arcs the developer happens to be carrying in the checkout
     // under test.
     if arcs_hidden_for(&root) {
         return Vec::new();
     }
-    let bound_by_dash = ledger
-        .and_then(|l| l.bound_sessions_by_dash().ok())
+    let bound_by_arc = ledger
+        .and_then(|l| l.bound_sessions_by_arc().ok())
         .unwrap_or_default();
 
-    tokio::task::spawn_blocking(move || document_dash_entries_in(&root, &bound_by_dash))
+    tokio::task::spawn_blocking(move || document_arc_entries_in(&root, &bound_by_arc))
         .await
         .unwrap_or_default()
 }
 
-/// The synchronous body of [`document_dash_entries`], split out so the scan is
+/// The synchronous body of [`document_arc_entries`], split out so the scan is
 /// testable without a runtime hop.
-fn document_dash_entries_in(
+fn document_arc_entries_in(
     root: &Path,
-    bound_by_dash: &std::collections::HashMap<String, Vec<String>>,
+    bound_by_arc: &std::collections::HashMap<String, Vec<String>>,
 ) -> Vec<DocumentArcEntry> {
     tugarc_core::document_arcs(root)
         .into_iter()
-        .filter(|name| !tugarc_core::ops::branch_exists(root, &format!("tugdash/{name}")))
+        .filter(|name| !tugarc_core::ops::branch_exists(root, &format!("tugarc/{name}")))
         .map(|name| {
-            let documents = tugarc_core::DashDocuments::read(root, &name);
+            let documents = tugarc_core::ArcDocuments::read(root, &name);
             let (review, steps, task_list) = ledger_document(&documents)
-                .map(|plan| dash_plan_reading(Path::new(plan)))
+                .map(|plan| arc_plan_reading(Path::new(plan)))
                 .unwrap_or((None, Vec::new(), false));
-            let owner_id = tugarc_core::ops::dash_owner_key(root, &name);
+            let owner_id = tugarc_core::ops::arc_owner_key(root, &name);
             DocumentArcEntry {
-                bound_sessions: bound_by_dash.get(&owner_id).cloned().unwrap_or_default(),
+                bound_sessions: bound_by_arc.get(&owner_id).cloned().unwrap_or_default(),
                 owner_id,
                 task_list,
                 step_total: steps.len() as u32,
@@ -1501,7 +1501,7 @@ fn document_dash_entries_in(
                 steps_begun: steps.iter().filter(|s| s.status != "pending").count() as u32,
                 review,
                 arc: tugarc_core::read_arc(root, &name).map(|record| {
-                    tugcast_core::types::DashArcState {
+                    tugcast_core::types::ArcRunState {
                         stage: record.current_stage().map(|s| s.as_str().to_owned()),
                         stopped: record.stopped.as_ref().map(|(_, why)| why.clone()),
                         stopped_stage: record
@@ -1512,18 +1512,18 @@ fn document_dash_entries_in(
                         note: record.notes.last().cloned(),
                     }
                 }),
-                documents: dash_documents(documents),
+                documents: arc_documents(documents),
                 display_name: name,
             }
         })
         .collect()
 }
 
-/// Base paths a live session **other than this dash's own** is working, mapped
+/// Base paths a live session **other than this arc's own** is working, mapped
 /// to that session's `(owner_id, display_name)` — the id is what a notice to
 /// the holder is addressed by, the name is what a sentence about them says.
 ///
-/// The same fact [`compose_snapshot`] hands the dash composition, read fresh
+/// The same fact [`compose_snapshot`] hands the arc composition, read fresh
 /// for a verb that is about to move somebody's files. It recomposes rather
 /// than reusing the feed's last snapshot on purpose: the card's copy is as old
 /// as its last recompute, and a session that has since put its hand on the path
@@ -1531,29 +1531,29 @@ fn document_dash_entries_in(
 /// composition on a user's press is a cost worth paying for that.
 pub(crate) async fn live_base_dirt_for(
     project_dir: &Path,
-    dash: &str,
+    arc: &str,
     ledger: Option<&SessionLedger>,
 ) -> BTreeMap<String, (String, String)> {
     let Some(mut snapshot) = compose_snapshot(project_dir, ledger).await else {
         return BTreeMap::new();
     };
-    // The dash rows this verb reads its owner key from ride the per-repo
+    // The arc rows this verb reads its owner key from ride the per-repo
     // attachment now, not the base compose.
-    attach_dash_composition(project_dir, ledger, &mut snapshot).await;
+    attach_arc_composition(project_dir, ledger, &mut snapshot).await;
     let owner_key = snapshot
         .changesets
         .iter()
         .find_map(|e| match e {
-            ChangesetEntry::Dash {
+            ChangesetEntry::Arc {
                 owner_id,
                 display_name,
                 ..
-            } if display_name == dash => Some(owner_id.clone()),
+            } if display_name == arc => Some(owner_id.clone()),
             _ => None,
         })
         .unwrap_or_default();
     let bound: Vec<String> = ledger
-        .and_then(|l| l.bound_sessions_by_dash().ok())
+        .and_then(|l| l.bound_sessions_by_arc().ok())
         .and_then(|m| m.get(&owner_key).cloned())
         .unwrap_or_default();
     snapshot
@@ -1579,17 +1579,17 @@ pub(crate) async fn live_base_dirt_for(
         .collect()
 }
 
-/// Whether any session holding this dash is still working.
+/// Whether any session holding this arc is still working.
 ///
-/// An unbound dash — nobody holding it — is never busy: there is no turn that
-/// could still be running, and a dash whose card was closed must stay
-/// joinable. That is why this takes the bound list rather than the dash's own
+/// An unbound arc — nobody holding it — is never busy: there is no turn that
+/// could still be running, and an arc whose card was closed must stay
+/// joinable. That is why this takes the bound list rather than the arc's own
 /// facts; absence is the answer, not a missing input.
 fn holders_busy(busy: &std::collections::HashSet<String>, bound: Option<&Vec<String>>) -> bool {
     bound.is_some_and(|sessions| sessions.iter().any(|id| busy.contains(id)))
 }
 
-async fn dash_entries(
+async fn arc_entries(
     repo_root: &Path,
     ledger: Option<&crate::session_ledger::SessionLedger>,
     live_dirt: &BTreeMap<String, (String, String)>,
@@ -1597,8 +1597,8 @@ async fn dash_entries(
     if arcs_hidden_for(repo_root) {
         return Vec::new();
     }
-    let bound_by_dash = ledger
-        .and_then(|l| l.bound_sessions_by_dash().ok())
+    let bound_by_arc = ledger
+        .and_then(|l| l.bound_sessions_by_arc().ok())
         .unwrap_or_default();
     // Who is still working. Read once for the whole recompute, from the
     // supervisor's in-memory ledger — the only place a session's turn and its
@@ -1607,30 +1607,30 @@ async fn dash_entries(
 
     let root = repo_root.to_path_buf();
     let dirt = live_dirt.clone();
-    let bound_for_scoping = bound_by_dash.clone();
+    let bound_for_scoping = bound_by_arc.clone();
     // One blocking hop for everything synchronous: the git walk *and* the plan
-    // read each dash's review state needs. A second `spawn_blocking` would be a
+    // read each arc's review state needs. A second `spawn_blocking` would be a
     // second scheduling round trip for a file read that costs less than one of
     // the git subprocesses already in here ([P04]).
     let Ok(details) = tokio::task::spawn_blocking(move || {
-        let details = tugarc_core::dash_detail_entries_in(&root);
+        let details = tugarc_core::arc_detail_entries_in(&root);
         // Which branch the base checkout has out is a property of the
-        // repository, not of a dash, so it is read once for the whole recompute
-        // and handed to each dash's composition rather than re-read per dash.
+        // repository, not of an arc, so it is read once for the whole recompute
+        // and handed to each arc's composition rather than re-read per arc.
         let current_branch = tugarc_core::ops::current_branch(&root).unwrap_or_default();
         let live: Vec<String> = details.iter().map(|d| d.owner_key.clone()).collect();
         crate::feeds::join_board::sweep(&live);
         // The same idea one level down: a workshop is a real checkout on disk,
-        // and one whose dash is gone is a leak nothing else collects ([P07]).
+        // and one whose arc is gone is a leak nothing else collects ([P07]).
         let live_names: Vec<String> = details.iter().map(|d| d.name.clone()).collect();
         crate::feeds::join_board::sweep_workshops(&root, &live_names);
         details
             .into_iter()
             .map(|detail| {
                 let (review, steps, task_list) = ledger_document(&detail.documents)
-                    .map(|plan| dash_plan_reading(Path::new(plan)))
+                    .map(|plan| arc_plan_reading(Path::new(plan)))
                     .unwrap_or((None, Vec::new(), false));
-                // Whose dirt a path is, scoped to *this* dash: a session mated
+                // Whose dirt a path is, scoped to *this* arc: a session mated
                 // to it is no stranger to its files, so its edits read as the
                 // user's own and stay resolvable ([D147]).
                 let bound = bound_for_scoping
@@ -1657,24 +1657,24 @@ async fn dash_entries(
         return Vec::new();
     };
 
-    // What the machine should do about each dash before anybody is asked to
+    // What the machine should do about each arc before anybody is asked to
     // look at it ([P01]). Decided here rather than inside the blocking hop
-    // because boundness lives in `bound_by_dash`, which is already composed on
+    // because boundness lives in `bound_by_arc`, which is already composed on
     // this side — and the predicate is pure and cheap, so deciding it here
     // costs nothing and saves cloning the map into the closure. Dispatched from
     // the async side for the same reason the frame is: a ladder that runs for
     // minutes must never hold a recompute (Spec S06).
     for (detail, _, _, _, join) in &details {
-        let bound = bound_by_dash
+        let bound = bound_by_arc
             .get(&detail.owner_key)
             .is_some_and(|sessions| !sessions.is_empty());
-        // A dash whose holder is still working is not finished, whatever its
+        // An arc whose holder is still working is not finished, whatever its
         // git facts say, so the pilot does not start reconciling it. The
-        // reconcile rewrites the dash's branch, and doing that while the
+        // reconcile rewrites the arc's branch, and doing that while the
         // session's own backgrounded tests are running in that worktree is the
         // hazard `base_motion` already refuses mid-turn; two engines moving the
         // same branch must obey the same gate.
-        if holders_busy(&busy_sessions, bound_by_dash.get(&detail.owner_key)) {
+        if holders_busy(&busy_sessions, bound_by_arc.get(&detail.owner_key)) {
             continue;
         }
         if let Some(action) = crate::feeds::join_pilot::pilot_action(detail.join_ready, bound, join)
@@ -1686,11 +1686,11 @@ async fn dash_entries(
     details
         .into_iter()
         .map(
-            |(detail, review, steps, task_list, join)| ChangesetEntry::Dash {
+            |(detail, review, steps, task_list, join)| ChangesetEntry::Arc {
                 join: Some(join),
                 task_list,
-                holders_busy: holders_busy(&busy_sessions, bound_by_dash.get(&detail.owner_key)),
-                bound_sessions: bound_by_dash
+                holders_busy: holders_busy(&busy_sessions, bound_by_arc.get(&detail.owner_key)),
+                bound_sessions: bound_by_arc
                     .get(&detail.owner_key)
                     .cloned()
                     .unwrap_or_default(),
@@ -1710,21 +1710,21 @@ async fn dash_entries(
                 run_length: detail.run_length,
                 step_title: detail.step_title,
                 last_activity: detail.last_activity,
-                arc: detail.arc.map(|arc| tugcast_core::types::DashArcState {
+                arc: detail.arc.map(|arc| tugcast_core::types::ArcRunState {
                     stage: arc.stage,
                     stopped: arc.stopped,
                     stopped_stage: arc.stopped_stage,
                     done: arc.done,
                     note: arc.note,
                 }),
-                documents: dash_documents(detail.documents),
+                documents: arc_documents(detail.documents),
                 review,
                 steps,
                 base: detail.base,
                 rounds: detail.rounds,
                 worktree: detail.worktree_abs,
                 worktree_dirty: detail.worktree_dirty,
-                files: detail.files.into_iter().map(dash_file_row).collect(),
+                files: detail.files.into_iter().map(arc_file_row).collect(),
                 round_subjects: detail.round_subjects,
                 draft: None,
                 base_ahead: detail.base_ahead,
@@ -1732,7 +1732,7 @@ async fn dash_entries(
                 // the blockers' business and ride `join.blockers[].overlap`.
                 base_overlap: detail.base_overlap.into_iter().map(|o| o.path).collect(),
                 last_replay: detail.last_replay,
-                fit: detail.fit.map(|f| tugcast_core::types::DashFit {
+                fit: detail.fit.map(|f| tugcast_core::types::ArcFit {
                     head: f.head,
                     base: f.base,
                     current: f.current,
@@ -1845,7 +1845,7 @@ pub(crate) fn format_commit_summary(
 /// receipt is the squash message rather than a description of it.
 ///
 /// ```text
-/// joined <sha[0..10]> · <dash> → <base> · <N> round(s)
+/// joined <sha[0..10]> · <arc> → <base> · <N> round(s)
 /// fit: verified <head[0..10]> onto <base[0..10]>
 /// files: [{"path":"…","status":"modified","added":16,"removed":1}, …]
 /// <full message>
@@ -1857,11 +1857,11 @@ pub(crate) fn format_commit_summary(
 /// row and a join with no readable file list take the same path.
 ///
 /// The `fit:` line takes exactly that path, for exactly that reason: it sits
-/// between the header and `files:`, is omitted when the dash carried no fit
+/// between the header and `files:`, is omitted when the arc carried no fit
 /// fact, and is claimed by its own prefix rather than by its position.
 pub(crate) fn format_join_summary(
     sha: &str,
-    dash: &str,
+    arc: &str,
     base: &str,
     rounds: u32,
     message: &str,
@@ -1870,7 +1870,7 @@ pub(crate) fn format_join_summary(
 ) -> String {
     let short = &sha[..sha.len().min(10)];
     let message = message.trim();
-    let header = format!("joined {short} · {dash} → {base} · {rounds} round(s)");
+    let header = format!("joined {short} · {arc} → {base} · {rounds} round(s)");
     let mut lines = vec![header];
     if let Some(fit) = fit {
         let word = if fit.current { "verified" } else { "stale" };
@@ -1942,19 +1942,19 @@ pub(crate) async fn landing_file_stats(dir: &Path, sha: &str) -> Vec<tugchanges_
     }
 }
 
-/// The `/dash-discard` receipt's durable summary (Spec S02).
+/// The `/arc-discard` receipt's durable summary (Spec S02).
 ///
-/// A discard has no commit to name, so its identity is the dash and the size
+/// A discard has no commit to name, so its identity is the arc and the size
 /// of what it destroyed; the body is the round subjects the discard preflight
 /// showed, which makes the receipt a record of exactly what the confirm took.
-/// A clean dash renders the header line alone.
+/// A clean arc renders the header line alone.
 ///
-/// `files` is the dash's **range** diff (`base...branch`), which is what
-/// `DashDetail.files` holds — the files the dash touched, committed or not.
+/// `files` is the arc's **range** diff (`base...branch`), which is what
+/// `ArcDetail.files` holds — the files the arc touched, committed or not.
 /// The word is plain `file(s)` for that reason: calling them dirty would name
 /// a worktree state most of them are not in.
 pub(crate) fn format_discard_summary(
-    dash: &str,
+    arc: &str,
     rounds: u32,
     files: u32,
     round_subjects: &[String],
@@ -1963,16 +1963,16 @@ pub(crate) fn format_discard_summary(
     // The verb leads and the count follows it bare. The header used to read
     // `released … · discarded N round(s)`, which said the act twice once the
     // verb itself became `discarded`.
-    let mut header = format!("discarded {dash} · {rounds} round(s)");
+    let mut header = format!("discarded {arc} · {rounds} round(s)");
     if files > 0 {
         header.push_str(&format!(", {files} file(s)"));
     }
     let mut lines: Vec<String> = round_subjects.to_vec();
-    // The documents are not the work, and they outlive the dash: a discarded
-    // dash's brief and plan are the only trace of decisions the user may want
+    // The documents are not the work, and they outlive the arc: a discarded
+    // arc's brief and plan are the only trace of decisions the user may want
     // back, so the receipt says they are still there ([P11]).
     if documents_kept.is_some() {
-        lines.push(format!("Its documents stay at .tug/arcs/{dash}/."));
+        lines.push(format!("Its documents stay at .tug/arcs/{arc}/."));
     }
     if lines.is_empty() {
         return header;
@@ -3117,10 +3117,10 @@ Some context.
         std::fs::write(dir.join("plan.md"), source).unwrap();
     }
 
-    /// Write a plan into a dash's own documents home, with one ledger row per
+    /// Write a plan into an arc's own documents home, with one ledger row per
     /// entry of `statuses` so the scan's progress counting has something to
     /// count.
-    fn write_dash_plan(root: &Path, name: &str, statuses: &[&str], stamped: bool) {
+    fn write_arc_plan(root: &Path, name: &str, statuses: &[&str], stamped: bool) {
         let mut ledger = String::new();
         let mut steps = String::new();
         for (i, status) in statuses.iter().enumerate() {
@@ -3156,19 +3156,19 @@ Some context.
         std::fs::write(dir.join("plan.md"), source).unwrap();
     }
 
-    fn write_dash_brief(root: &Path, name: &str, title: &str) {
+    fn write_arc_brief(root: &Path, name: &str, title: &str) {
         let dir = root.join(".tug").join("arcs").join(name);
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("brief.md"), format!("# {title}\n\nProse.\n")).unwrap();
     }
 
     fn document_entries(root: &Path) -> Vec<DocumentArcEntry> {
-        document_dash_entries_in(root, &std::collections::HashMap::new())
+        document_arc_entries_in(root, &std::collections::HashMap::new())
     }
 
-    /// Write a `/dash` door's task list: the steps and the ledger and nothing
+    /// Write a `/arc` door's task list: the steps and the ledger and nothing
     /// else — no metadata, no phase overview, no deliverables.
-    fn write_dash_task_list(root: &Path, name: &str, statuses: &[&str]) {
+    fn write_arc_task_list(root: &Path, name: &str, statuses: &[&str]) {
         let dir = root.join(".tug").join("arcs").join(name);
         std::fs::create_dir_all(&dir).unwrap();
         let mut ledger = String::new();
@@ -3192,19 +3192,19 @@ Some context.
         .unwrap();
     }
 
-    /// A dash's ledger lives in `tasks.md`, and the shade reads it
+    /// An arc's ledger lives in `tasks.md`, and the shade reads it
     /// exactly as it reads a plan's — same rows, same counts, and the
     /// `task_list` flag set so no surface asks it about a review it cannot have.
     #[test]
-    fn a_dash_whose_ledger_is_a_task_list_reports_its_steps() {
+    fn a_arc_whose_ledger_is_a_task_list_reports_its_steps() {
         let (_dir, root) = init_repo();
-        write_dash_brief(&root, "direct", "The direct brief");
-        write_dash_task_list(&root, "direct", &["done", "pending", "pending"]);
+        write_arc_brief(&root, "direct", "The direct brief");
+        write_arc_task_list(&root, "direct", &["done", "pending", "pending"]);
 
         let entry = document_entries(&root)
             .into_iter()
             .find(|e| e.display_name == "direct")
-            .expect("the task-list dash is listed");
+            .expect("the task-list arc is listed");
         assert_eq!(entry.step_total, 3);
         assert_eq!(entry.steps_done, 1);
         assert!(entry.task_list, "a tasks.md is a task list");
@@ -3215,29 +3215,29 @@ Some context.
     }
 
     /// A plan outranks a task list wherever the ledger is read — the shade
-    /// included, so a dash that grew a plan shows the plan's rows.
+    /// included, so an arc that grew a plan shows the plan's rows.
     #[test]
     fn a_plan_beside_a_task_list_is_what_the_shade_reads() {
         let (_dir, root) = init_repo();
-        write_dash_brief(&root, "both-docs", "The brief");
-        write_dash_task_list(&root, "both-docs", &["pending", "pending", "pending"]);
-        write_dash_plan(&root, "both-docs", &["done", "pending"], true);
+        write_arc_brief(&root, "both-docs", "The brief");
+        write_arc_task_list(&root, "both-docs", &["pending", "pending", "pending"]);
+        write_arc_plan(&root, "both-docs", &["done", "pending"], true);
 
         let entry = document_entries(&root)
             .into_iter()
             .find(|e| e.display_name == "both-docs")
-            .expect("the dash is listed");
+            .expect("the arc is listed");
         assert_eq!(entry.step_total, 2, "the plan's rows, not the task list's");
         assert!(!entry.task_list);
     }
 
-    /// The planning phase in flight: a dash exists the moment it has a
-    /// document, and stops being a *document-only* dash the moment it has a
+    /// The planning phase in flight: an arc exists the moment it has a
+    /// document, and stops being a *document-only* arc the moment it has a
     /// branch — one row throughout, never two ([P04]).
     #[test]
-    fn a_document_only_dash_is_listed_until_its_branch_exists() {
+    fn a_document_only_arc_is_listed_until_its_branch_exists() {
         let (_dir, root) = init_repo();
-        write_dash_brief(&root, "foo", "The foo brief");
+        write_arc_brief(&root, "foo", "The foo brief");
 
         let entries = document_entries(&root);
         assert_eq!(entries.len(), 1);
@@ -3254,24 +3254,24 @@ Some context.
         assert_eq!(entries[0].review, None);
         assert_eq!(entries[0].step_total, 0);
 
-        // Cutting the branch moves the dash to the live list rather than
+        // Cutting the branch moves the arc to the live list rather than
         // adding a second row.
-        git(&root, &["branch", "tugdash/foo"]);
+        git(&root, &["branch", "tugarc/foo"]);
         assert!(document_entries(&root).is_empty());
     }
 
-    /// A document-only dash reads its plan's review state and ledger the same
-    /// way a live dash does — the facts a next-gesture is chosen from.
+    /// A document-only arc reads its plan's review state and ledger the same
+    /// way a live arc does — the facts a next-gesture is chosen from.
     #[test]
-    fn document_dash_entries_read_review_and_steps() {
+    fn document_arc_entries_read_review_and_steps() {
         let (_dir, root) = init_repo();
-        write_dash_plan(
+        write_arc_plan(
             &root,
-            "reviewed-dash",
+            "reviewed-arc",
             &["done", "in progress", "pending"],
             true,
         );
-        write_dash_plan(&root, "fresh-dash", &["pending"], false);
+        write_arc_plan(&root, "fresh-arc", &["pending"], false);
 
         let entries = document_entries(&root);
         let by_name: std::collections::HashMap<&str, &DocumentArcEntry> = entries
@@ -3279,13 +3279,13 @@ Some context.
             .map(|e| (e.display_name.as_str(), e))
             .collect();
 
-        let reviewed = by_name["reviewed-dash"];
+        let reviewed = by_name["reviewed-arc"];
         assert_eq!(reviewed.review.as_deref(), Some("reviewed"));
         assert_eq!(reviewed.step_total, 3);
         // Two facts, two fields: one row finished, two opened.
         assert_eq!((reviewed.steps_done, reviewed.steps_begun), (1, 2));
 
-        let fresh = by_name["fresh-dash"];
+        let fresh = by_name["fresh-arc"];
         assert_eq!(fresh.review.as_deref(), Some("never-reviewed"));
         assert_eq!((fresh.steps_done, fresh.steps_begun), (0, 0));
 
@@ -3295,7 +3295,7 @@ Some context.
                 .iter()
                 .map(|e| e.display_name.as_str())
                 .collect::<Vec<_>>(),
-            vec!["fresh-dash", "reviewed-dash"]
+            vec!["fresh-arc", "reviewed-arc"]
         );
     }
 
@@ -3304,29 +3304,29 @@ Some context.
     #[test]
     fn a_withdrawn_step_counts_as_closed() {
         let (_dir, root) = init_repo();
-        write_dash_plan(
+        write_arc_plan(
             &root,
-            "skipped-dash",
+            "skipped-arc",
             &["done", "withdrawn", "pending"],
             true,
         );
 
         let entries = document_entries(&root);
         let skipped = &entries[0];
-        assert_eq!(skipped.display_name, "skipped-dash");
+        assert_eq!(skipped.display_name, "skipped-arc");
         assert_eq!(skipped.step_total, 3);
         assert_eq!((skipped.steps_done, skipped.steps_begun), (2, 2));
     }
 
-    /// A live dash carries the same documents on its own entry, absolute.
+    /// A live arc carries the same documents on its own entry, absolute.
     #[test]
-    fn dash_entries_carry_absolute_document_paths() {
+    fn arc_entries_carry_absolute_document_paths() {
         let (_dir, root) = init_repo();
-        write_dash_brief(&root, "live", "The live brief");
-        write_dash_plan(&root, "live", &["done", "pending"], true);
+        write_arc_brief(&root, "live", "The live brief");
+        write_arc_plan(&root, "live", &["done", "pending"], true);
 
-        let documents = tugarc_core::DashDocuments::read(&root, "live");
-        let wire = dash_documents(documents);
+        let documents = tugarc_core::ArcDocuments::read(&root, "live");
+        let wire = arc_documents(documents);
         assert_eq!(
             wire.plan.as_deref(),
             Some(&*root.join(".tug/arcs/live/plan.md").to_string_lossy())
@@ -3334,8 +3334,7 @@ Some context.
         assert!(wire.plan.as_deref().unwrap().starts_with('/'));
         assert_eq!(wire.brief_title.as_deref(), Some("The live brief"));
 
-        let (review, steps, task_list) =
-            dash_plan_reading(Path::new(wire.plan.as_deref().unwrap()));
+        let (review, steps, task_list) = arc_plan_reading(Path::new(wire.plan.as_deref().unwrap()));
         assert_eq!(review.as_deref(), Some("reviewed"));
         assert_eq!(steps.len(), 2);
         // The fixture is written against the skeleton, so it is a plan.
@@ -3343,17 +3342,17 @@ Some context.
     }
 
     #[test]
-    fn dash_plan_reading_reads_reviewed_for_a_stamped_plan() {
+    fn arc_plan_reading_reads_reviewed_for_a_stamped_plan() {
         let dir = tempfile::tempdir().unwrap();
         write_plan(dir.path(), true);
         assert_eq!(
-            dash_plan_reading(&dir.path().join("plan.md")).0.as_deref(),
+            arc_plan_reading(&dir.path().join("plan.md")).0.as_deref(),
             Some("reviewed")
         );
     }
 
     #[test]
-    fn dash_plan_reading_reads_stale_after_the_document_moves() {
+    fn arc_plan_reading_reads_stale_after_the_document_moves() {
         let dir = tempfile::tempdir().unwrap();
         write_plan(dir.path(), true);
         let path = dir.path().join("plan.md");
@@ -3363,30 +3362,30 @@ Some context.
         );
         std::fs::write(&path, moved).unwrap();
         assert_eq!(
-            dash_plan_reading(&dir.path().join("plan.md")).0.as_deref(),
+            arc_plan_reading(&dir.path().join("plan.md")).0.as_deref(),
             Some("stale")
         );
     }
 
     #[test]
-    fn dash_plan_reading_reads_never_reviewed_without_a_stamp() {
+    fn arc_plan_reading_reads_never_reviewed_without_a_stamp() {
         let dir = tempfile::tempdir().unwrap();
         write_plan(dir.path(), false);
         assert_eq!(
-            dash_plan_reading(&dir.path().join("plan.md")).0.as_deref(),
+            arc_plan_reading(&dir.path().join("plan.md")).0.as_deref(),
             Some("never-reviewed")
         );
     }
 
     /// The other half of the reading: the ledger, which is the only source a
-    /// surface has for what a dash's walk *is*. Counted off `ledger_rows`
+    /// surface has for what an arc's walk *is*. Counted off `ledger_rows`
     /// rather than the step headings, for the reason the plan-doc scan counts
     /// off them — the ledger is what the step verbs rewrite.
     #[test]
-    fn dash_plan_reading_carries_the_ledger_rows() {
+    fn arc_plan_reading_carries_the_ledger_rows() {
         let dir = tempfile::tempdir().unwrap();
         write_plan(dir.path(), true);
-        let (_, steps, _) = dash_plan_reading(&dir.path().join("plan.md"));
+        let (_, steps, _) = arc_plan_reading(&dir.path().join("plan.md"));
         assert_eq!(
             steps,
             vec![ArcStep {
@@ -3400,9 +3399,9 @@ Some context.
     /// nobody can read has not been shown to be unreviewed, and has not been
     /// shown to have no steps.
     #[test]
-    fn dash_plan_reading_is_absent_for_a_missing_file() {
+    fn arc_plan_reading_is_absent_for_a_missing_file() {
         let dir = tempfile::tempdir().unwrap();
-        let (review, steps, task_list) = dash_plan_reading(&dir.path().join("plan.md"));
+        let (review, steps, task_list) = arc_plan_reading(&dir.path().join("plan.md"));
         assert!(review.is_none());
         assert!(steps.is_empty());
         // Unreadable is not a task list either: absence says nothing at all.
@@ -3410,28 +3409,28 @@ Some context.
     }
 
     #[test]
-    fn dash_plan_reading_is_absent_for_a_document_that_is_not_a_plan() {
+    fn arc_plan_reading_is_absent_for_a_document_that_is_not_a_plan() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("plan.md"), "# Notes\n\nJust prose.\n").unwrap();
-        assert!(dash_plan_reading(&dir.path().join("plan.md")).0.is_none());
+        assert!(arc_plan_reading(&dir.path().join("plan.md")).0.is_none());
     }
 
     /// The composition asked from a *linked worktree* — the shape a card whose
-    /// project directory is itself a worktree produces, which is every dash's
-    /// own debug build. The plan lives in the dash's worktree, and the only
+    /// project directory is itself a worktree produces, which is every arc's
+    /// own debug build. The plan lives in the arc's worktree, and the only
     /// path that finds it is the absolute one the detail carries; composing
     /// from the caller's root here would return `None`, which is indisting-
-    /// uishable from a dash with no plan.
+    /// uishable from an arc with no plan.
     /// The recompute is what starts the pilot ([P01]) — nobody presses.
     ///
     /// This is the seam the two halves meet at: the predicate and the dispatch
     /// both run on the async side, over state already in hand, so the changeset
     /// frame goes out without waiting on a ladder that may run for minutes. A
-    /// ready dash bound to a live session wants reconciling; one still
+    /// ready arc bound to a live session wants reconciling; one still
     /// implementing wants nothing, and neither does one nobody is looking at
     /// ([P08]).
     #[tokio::test]
-    async fn a_ready_bound_dash_is_piloted_off_the_recompute_with_no_press() {
+    async fn a_ready_bound_arc_is_piloted_off_the_recompute_with_no_press() {
         use std::sync::Arc;
         use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -3442,7 +3441,7 @@ Some context.
             async fn reconcile(
                 &self,
                 _project_dir: &str,
-                _dash: &str,
+                _arc: &str,
                 occupancy: crate::feeds::join_occupancy::JoinOccupancy,
             ) {
                 drop(occupancy);
@@ -3450,7 +3449,7 @@ Some context.
             }
         }
 
-        // The dash-log lives under the data dir; nextest runs one process per
+        // The arc log lives under the data dir; nextest runs one process per
         // test, so redirecting it here cannot reach another test.
         let data = tempfile::tempdir().unwrap();
         // SAFETY: single-threaded setup, and this process runs one test.
@@ -3462,35 +3461,32 @@ Some context.
         crate::feeds::join_pilot::register_runner(Box::new(Counting(Arc::clone(&runs))));
 
         let (_dir, root) = init_repo();
-        git(&root, &["branch", "tugdash/pending"]);
-        git(&root, &["config", "branch.tugdash/pending.tugbase", "main"]);
-        git(&root, &["branch", "tugdash/finished"]);
-        git(
-            &root,
-            &["config", "branch.tugdash/finished.tugbase", "main"],
-        );
-        // A round on the dash branch: a dash with nothing to join carries an
-        // `empty` blocker, and a blocked dash is one the pilot leaves alone.
-        git(&root, &["switch", "-q", "tugdash/finished"]);
+        git(&root, &["branch", "tugarc/pending"]);
+        git(&root, &["config", "branch.tugarc/pending.tugbase", "main"]);
+        git(&root, &["branch", "tugarc/finished"]);
+        git(&root, &["config", "branch.tugarc/finished.tugbase", "main"]);
+        // A round on the arc branch: an arc with nothing to join carries an
+        // `empty` blocker, and a blocked arc is one the pilot leaves alone.
+        git(&root, &["switch", "-q", "tugarc/finished"]);
         std::fs::write(root.join("round.txt"), "r1\n").unwrap();
         git(&root, &["add", "."]);
         git(&root, &["commit", "-q", "-m", "r1"]);
         git(&root, &["switch", "-q", "main"]);
-        // Nothing declares this dash finished: a landed round on a plan-less
-        // dash with a clean worktree is the arming fact ([P02]).
+        // Nothing declares this arc finished: a landed round on a plan-less
+        // arc with a clean worktree is the arming fact ([P02]).
 
         // Nobody is bound to it yet, so the pilot leaves it alone — the ask it
         // would be preparing has no card to raise on ([P08]).
-        let entries = dash_entries(&root, None, &BTreeMap::new()).await;
-        assert_eq!(entries.len(), 2, "both dashes compose");
+        let entries = arc_entries(&root, None, &BTreeMap::new()).await;
+        assert_eq!(entries.len(), 2, "both arcs compose");
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         assert_eq!(
             runs.load(Ordering::SeqCst),
             0,
-            "an unbound dash is never piloted, ready or not"
+            "an unbound arc is never piloted, ready or not"
         );
 
-        let owner_key = tugarc_core::ops::ensure_dash_id(&root, "finished").unwrap();
+        let owner_key = tugarc_core::ops::ensure_arc_id(&root, "finished").unwrap();
         let ledger = SessionLedger::open_in_memory().unwrap();
         ledger
             .record_spawn(
@@ -3504,11 +3500,11 @@ Some context.
             )
             .unwrap();
         ledger
-            .set_dash_binding("sess-1", Some((&owner_key, "finished")))
+            .set_arc_binding("sess-1", Some((&owner_key, "finished")))
             .unwrap();
 
-        let entries = dash_entries(&root, Some(&ledger), &BTreeMap::new()).await;
-        assert_eq!(entries.len(), 2, "both dashes compose");
+        let entries = arc_entries(&root, Some(&ledger), &BTreeMap::new()).await;
+        assert_eq!(entries.len(), 2, "both arcs compose");
 
         // The dispatch is a spawned task, so give it its scheduling turn. It is
         // deliberately *not* awaited by the recompute — that is the property
@@ -3522,7 +3518,7 @@ Some context.
         assert_eq!(
             runs.load(Ordering::SeqCst),
             1,
-            "exactly the ready dash is piloted, and exactly once"
+            "exactly the ready arc is piloted, and exactly once"
         );
         assert!(
             tugarc_core::verify::read_pilot_mark(&root, "finished").is_some(),
@@ -3530,11 +3526,11 @@ Some context.
         );
         assert!(
             tugarc_core::verify::read_pilot_mark(&root, "pending").is_none(),
-            "a dash still implementing is never touched"
+            "an arc still implementing is never touched"
         );
 
         // A second recompute over unmoved heads adds nothing: the mark holds.
-        let _ = dash_entries(&root, Some(&ledger), &BTreeMap::new()).await;
+        let _ = arc_entries(&root, Some(&ledger), &BTreeMap::new()).await;
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         assert_eq!(
             runs.load(Ordering::SeqCst),
@@ -3544,10 +3540,10 @@ Some context.
     }
 
     #[tokio::test]
-    async fn dash_entries_read_review_state_from_a_linked_worktree() {
+    async fn arc_entries_read_review_state_from_a_linked_worktree() {
         let (_dir, root) = init_repo();
-        git(&root, &["branch", "tugdash/demo"]);
-        git(&root, &["config", "branch.tugdash/demo.tugbase", "main"]);
+        git(&root, &["branch", "tugarc/demo"]);
+        git(&root, &["config", "branch.tugarc/demo.tugbase", "main"]);
         git(
             &root,
             &[
@@ -3555,7 +3551,7 @@ Some context.
                 "add",
                 "-q",
                 ".tug/worktrees/demo",
-                "tugdash/demo",
+                "tugarc/demo",
             ],
         );
         let documents = root.join(".tug/arcs/demo");
@@ -3570,11 +3566,13 @@ Some context.
         );
         let asked_from = root.join(".tug/worktrees/sidecar");
 
-        let entries = dash_entries(&asked_from, None, &BTreeMap::new()).await;
-        let ChangesetEntry::Dash { review, .. } = entries
+        let entries = arc_entries(&asked_from, None, &BTreeMap::new()).await;
+        let ChangesetEntry::Arc { review, .. } = entries
             .iter()
-            .find(|e| matches!(e, ChangesetEntry::Dash { display_name, .. } if display_name == "demo"))
-            .expect("the dash is visible from a sibling worktree")
+            .find(
+                |e| matches!(e, ChangesetEntry::Arc { display_name, .. } if display_name == "demo"),
+            )
+            .expect("the arc is visible from a sibling worktree")
         else {
             unreachable!()
         };
@@ -3585,26 +3583,26 @@ Some context.
         );
     }
 
-    /// An app-test instance never composes dash entries for the checkout
+    /// An app-test instance never composes arc entries for the checkout
     /// under test. The `--source-tree` bootstrap makes the checkout a
     /// workspace in every instance, so without the gate an app-test's
-    /// aggregate would list the *developer's* dashes — and any test
-    /// assertion about the dash population would be an assertion about
+    /// aggregate would list the *developer's* arcs — and any test
+    /// assertion about the arc population would be an assertion about
     /// whoever runs the suite. Scratch repos outside the universe are
-    /// untouched, which is where every fixture dash lives.
+    /// untouched, which is where every fixture arc lives.
     ///
     /// Env-mutating, safe under nextest's process-per-test model — the same
     /// regime `tugarc_core::ops`'s universe tests run under.
     #[tokio::test]
-    async fn an_apptest_instance_hides_the_universe_checkouts_dashes() {
+    async fn an_apptest_instance_hides_the_universe_checkouts_arcs() {
         let (_dir, root) = init_repo();
-        git(&root, &["branch", "tugdash/demo"]);
-        git(&root, &["config", "branch.tugdash/demo.tugbase", "main"]);
+        git(&root, &["branch", "tugarc/demo"]);
+        git(&root, &["config", "branch.tugarc/demo.tugbase", "main"]);
 
         // Visible before the gate applies.
         assert!(
-            !dash_entries(&root, None, &BTreeMap::new()).await.is_empty(),
-            "the dash composes in an ordinary instance"
+            !arc_entries(&root, None, &BTreeMap::new()).await.is_empty(),
+            "the arc composes in an ordinary instance"
         );
 
         // SAFETY: one process per test under nextest — the same regime
@@ -3614,19 +3612,19 @@ Some context.
             std::env::set_var(tugtool_core::REPO_UNIVERSE_ENV, &root);
         }
         assert!(
-            dash_entries(&root, None, &BTreeMap::new()).await.is_empty(),
-            "the universe checkout's dashes are hidden from an app-test instance"
+            arc_entries(&root, None, &BTreeMap::new()).await.is_empty(),
+            "the universe checkout's arcs are hidden from an app-test instance"
         );
 
-        // A scratch repo outside the universe still composes its dashes.
+        // A scratch repo outside the universe still composes its arcs.
         let (_dir2, scratch) = init_repo();
-        git(&scratch, &["branch", "tugdash/fixture"]);
+        git(&scratch, &["branch", "tugarc/fixture"]);
         git(
             &scratch,
-            &["config", "branch.tugdash/fixture.tugbase", "main"],
+            &["config", "branch.tugarc/fixture.tugbase", "main"],
         );
         assert!(
-            !dash_entries(&scratch, None, &BTreeMap::new())
+            !arc_entries(&scratch, None, &BTreeMap::new())
                 .await
                 .is_empty(),
             "a fixture repo outside the universe is untouched"
@@ -3634,18 +3632,18 @@ Some context.
     }
 
     #[tokio::test]
-    async fn compose_derives_dash_entries_from_tugdash_refs() {
+    async fn compose_derives_arc_entries_from_tugarc_refs() {
         let (_dir, root) = init_repo();
-        git(&root, &["branch", "tugdash/demo"]);
-        git(&root, &["config", "branch.tugdash/demo.tugbase", "main"]);
-        git(&root, &["switch", "-q", "tugdash/demo"]);
-        std::fs::write(root.join("dash-work.txt"), "round\n").unwrap();
+        git(&root, &["branch", "tugarc/demo"]);
+        git(&root, &["config", "branch.tugarc/demo.tugbase", "main"]);
+        git(&root, &["switch", "-q", "tugarc/demo"]);
+        std::fs::write(root.join("arc-work.txt"), "round\n").unwrap();
         git(&root, &["add", "."]);
-        git(&root, &["commit", "-q", "-m", "dash round"]);
+        git(&root, &["commit", "-q", "-m", "arc round"]);
         git(&root, &["switch", "-q", "main"]);
 
-        // A creation id, and a live session mated to the dash under it.
-        let owner_key = tugarc_core::ops::ensure_dash_id(&root, "demo").unwrap();
+        // A creation id, and a live session mated to the arc under it.
+        let owner_key = tugarc_core::ops::ensure_arc_id(&root, "demo").unwrap();
         let ledger = SessionLedger::open_in_memory().unwrap();
         ledger
             .record_spawn(
@@ -3659,18 +3657,18 @@ Some context.
             )
             .unwrap();
         ledger
-            .set_dash_binding("sess-1", Some((&owner_key, "demo")))
+            .set_arc_binding("sess-1", Some((&owner_key, "demo")))
             .unwrap();
 
         let mut snapshot = compose_snapshot(&root, Some(&ledger)).await.expect("repo");
-        // Dash rows ride the per-repo attachment, the aggregate's owner call.
-        attach_dash_composition(&root, Some(&ledger), &mut snapshot).await;
-        let dash = snapshot
+        // Arc rows ride the per-repo attachment, the aggregate's owner call.
+        attach_arc_composition(&root, Some(&ledger), &mut snapshot).await;
+        let arc = snapshot
             .changesets
             .iter()
-            .find(|e| matches!(e, ChangesetEntry::Dash { .. }))
-            .expect("a dash entry");
-        let ChangesetEntry::Dash {
+            .find(|e| matches!(e, ChangesetEntry::Arc { .. }))
+            .expect("an arc entry");
+        let ChangesetEntry::Arc {
             owner_id,
             display_name,
             branch,
@@ -3682,22 +3680,22 @@ Some context.
             worktree_dirty,
             files,
             ..
-        } = dash
+        } = arc
         else {
-            panic!("expected dash entry");
+            panic!("expected arc entry");
         };
         // The identity is the owner key; the ref is its own field ([P09]).
         assert_eq!(owner_id, &owner_key);
-        assert!(owner_id.starts_with("tugdash/demo#"));
-        assert_eq!(branch.as_deref(), Some("tugdash/demo"));
-        // A plan-less dash with a landed round and nothing uncommitted is
+        assert!(owner_id.starts_with("tugarc/demo#"));
+        assert_eq!(branch.as_deref(), Some("tugarc/demo"));
+        // A plan-less arc with a landed round and nothing uncommitted is
         // offerable, and says so ([P02]).
         assert_eq!(stage.as_deref(), Some("ready"));
         assert_eq!(bound_sessions, &vec!["sess-1".to_string()]);
         assert_eq!(display_name, "demo");
         assert_eq!(base, "main");
         assert_eq!(*rounds, 1);
-        // Absolute — the receiver composes nothing. (This fixture's dash has no
+        // Absolute — the receiver composes nothing. (This fixture's arc has no
         // checked-out worktree, so the path names where it would be.)
         assert!(
             worktree.starts_with('/') && worktree.ends_with(".tug/worktrees/demo"),
@@ -3705,21 +3703,21 @@ Some context.
         );
         assert!(!worktree_dirty);
         assert_eq!(files.len(), 1);
-        assert_eq!(files[0].path, "dash-work.txt");
+        assert_eq!(files[0].path, "arc-work.txt");
         assert_eq!(files[0].git_status, "A");
         assert_eq!(files[0].op, "created");
-        assert_eq!(files[0].origin, "dash");
+        assert_eq!(files[0].origin, "arc");
     }
 
-    /// A dash created by an older build has no `tugid`, so it composes under
+    /// An arc created by an older build has no `tugid`, so it composes under
     /// its legacy branch-ref identity — and its legacy-keyed draft still
     /// attaches ([P02], [P03], Risk R01).
     #[tokio::test]
-    async fn compose_carries_an_id_less_dash_under_its_legacy_identity() {
+    async fn compose_carries_an_id_less_arc_under_its_legacy_identity() {
         let (_dir, root) = init_repo();
-        git(&root, &["branch", "tugdash/old"]);
-        git(&root, &["config", "branch.tugdash/old.tugbase", "main"]);
-        git(&root, &["switch", "-q", "tugdash/old"]);
+        git(&root, &["branch", "tugarc/old"]);
+        git(&root, &["config", "branch.tugarc/old.tugbase", "main"]);
+        git(&root, &["switch", "-q", "tugarc/old"]);
         std::fs::write(root.join("old-work.txt"), "round\n").unwrap();
         git(&root, &["add", "."]);
         git(&root, &["commit", "-q", "-m", "old round"]);
@@ -3728,8 +3726,8 @@ Some context.
         let ledger = SessionLedger::open_in_memory().unwrap();
         ledger
             .upsert_changeset_draft(&crate::session_ledger::ChangesetDraftRow {
-                owner_kind: "dash".to_string(),
-                owner_id: "tugdash/old".to_string(),
+                owner_kind: "arc".to_string(),
+                owner_id: "tugarc/old".to_string(),
                 project_dir: CanonicalPath::from_raw(&root).as_str().to_string(),
                 fingerprint: "fp".to_string(),
                 message: "Land the old work".to_string(),
@@ -3740,22 +3738,19 @@ Some context.
             .unwrap();
 
         let mut snapshot = compose_snapshot(&root, Some(&ledger)).await.expect("repo");
-        // Dash rows ride the per-repo attachment, the aggregate's owner call.
-        attach_dash_composition(&root, Some(&ledger), &mut snapshot).await;
-        let ChangesetEntry::Dash {
+        // Arc rows ride the per-repo attachment, the aggregate's owner call.
+        attach_arc_composition(&root, Some(&ledger), &mut snapshot).await;
+        let ChangesetEntry::Arc {
             owner_id, draft, ..
         } = snapshot
             .changesets
             .iter()
-            .find(|e| matches!(e, ChangesetEntry::Dash { .. }))
-            .expect("a dash entry")
+            .find(|e| matches!(e, ChangesetEntry::Arc { .. }))
+            .expect("an arc entry")
         else {
-            panic!("expected dash entry");
+            panic!("expected arc entry");
         };
-        assert_eq!(
-            owner_id, "tugdash/old",
-            "no id on file, so no id in the key"
-        );
+        assert_eq!(owner_id, "tugarc/old", "no id on file, so no id in the key");
         assert_eq!(
             draft.as_ref().map(|d| d.message.as_str()),
             Some("Land the old work"),
@@ -3763,21 +3758,21 @@ Some context.
         );
         // Composing is a read path and must not have minted one ([P02]).
         assert_eq!(
-            tugarc_core::ops::dash_owner_key(&root, "old"),
-            "tugdash/old",
+            tugarc_core::ops::arc_owner_key(&root, "old"),
+            "tugarc/old",
             "compose stayed read-only on git config"
         );
     }
 
-    /// Dash entries sort by `owner_id`, and `#` (0x23) sorts below every
-    /// character valid in a dash name — so `demo` still precedes `demo2` once
+    /// Arc entries sort by `owner_id`, and `#` (0x23) sorts below every
+    /// character valid in an arc name — so `demo` still precedes `demo2` once
     /// both carry ids ([P09]). Asserted rather than assumed.
     #[test]
-    fn entry_sort_key_orders_id_keyed_dashes_by_name() {
-        let dash = |owner_id: &str, name: &str| ChangesetEntry::Dash {
+    fn entry_sort_key_orders_id_keyed_arcs_by_name() {
+        let arc = |owner_id: &str, name: &str| ChangesetEntry::Arc {
             owner_id: owner_id.to_owned(),
             display_name: name.to_owned(),
-            branch: Some(format!("tugdash/{name}")),
+            branch: Some(format!("tugarc/{name}")),
             stage: None,
             task_list: false,
             bound_sessions: Vec::new(),
@@ -3806,8 +3801,8 @@ Some context.
             join: None,
             arc: None,
         };
-        let demo = dash("tugdash/demo#1723500000000-a1b2c3", "demo");
-        let demo2 = dash("tugdash/demo2#1723500000001-d4e5f6", "demo2");
+        let demo = arc("tugarc/demo#1723500000000-a1b2c3", "demo");
+        let demo2 = arc("tugarc/demo2#1723500000001-d4e5f6", "demo2");
         assert!(
             entry_sort_key(&demo) < entry_sort_key(&demo2),
             "`#` sorts below the `2` that distinguishes the names"
@@ -3847,8 +3842,8 @@ Some context.
             tag: None,
             synopsis: None,
             private: false,
-            dash_id: None,
-            dash_name: None,
+            arc_id: None,
+            arc_name: None,
             line_id: String::new(),
         }
     }
@@ -3863,10 +3858,10 @@ Some context.
             head_sha: String::new(),
             head_message: String::new(),
             changesets: vec![
-                ChangesetEntry::Dash {
-                    owner_id: "tugdash/demo".to_owned(),
+                ChangesetEntry::Arc {
+                    owner_id: "tugarc/demo".to_owned(),
                     display_name: "demo".to_owned(),
-                    branch: Some("tugdash/demo".to_owned()),
+                    branch: Some("tugarc/demo".to_owned()),
                     stage: Some("working".to_owned()),
                     task_list: false,
                     bound_sessions: Vec::new(),
@@ -3923,18 +3918,18 @@ Some context.
         apply_session_rows(&mut snapshot, &rows);
 
         // Live rows all have entries (fileless when injected); the closed row
-        // without files does not. Sessions sort by id ahead of the dash.
+        // without files does not. Sessions sort by id ahead of the arc.
         let owners: Vec<&str> = snapshot
             .changesets
             .iter()
             .map(|e| match e {
                 ChangesetEntry::Session { owner_id, .. } => owner_id.as_str(),
-                ChangesetEntry::Dash { owner_id, .. } => owner_id.as_str(),
+                ChangesetEntry::Arc { owner_id, .. } => owner_id.as_str(),
             })
             .collect();
         assert_eq!(
             owners,
-            ["sess-clean", "sess-long", "sess-writer", "tugdash/demo"]
+            ["sess-clean", "sess-long", "sess-writer", "tugarc/demo"]
         );
 
         let ChangesetEntry::Session {
@@ -4046,7 +4041,7 @@ Some context.
     }
 
     /// The relaunch case: a live session with a persisted draft but zero
-    /// attributed files (its changes ride a dash worktree, or it has gone
+    /// attributed files (its changes ride an arc worktree, or it has gone
     /// clean) still reads its draft back on the aggregate.
     #[test]
     fn attach_live_session_drafts_reaches_fileless_live_entries() {
@@ -4462,20 +4457,20 @@ Some context.
     }
 
     #[test]
-    fn format_join_summary_names_the_dash_the_base_and_the_rounds() {
+    fn format_join_summary_names_the_arc_the_base_and_the_rounds() {
         let s = format_join_summary(
             "0123456789abcdef",
             "join-lane",
             "main",
             5,
-            "tugdash(join-lane): land the join surface",
+            "tugarc(join-lane): land the join surface",
             &[],
             None,
         );
         assert_eq!(
             s,
             "joined 0123456789 · join-lane → main · 5 round(s)\n\
-             tugdash(join-lane): land the join surface"
+             tugarc(join-lane): land the join surface"
         );
     }
 
@@ -4520,7 +4515,7 @@ Some context.
             "join-lane",
             "main",
             5,
-            "tugdash(join-lane): land the join surface",
+            "tugarc(join-lane): land the join surface",
             &[
                 file_stat("src/a.rs", "modified", Some(16), Some(1)),
                 file_stat("src/b.rs", "created", Some(4), Some(0)),
@@ -4532,7 +4527,7 @@ Some context.
             "joined 0123456789 · join-lane → main · 5 round(s)\n\
              files: [{\"path\":\"src/a.rs\",\"status\":\"modified\",\"added\":16,\"removed\":1},\
              {\"path\":\"src/b.rs\",\"status\":\"created\",\"added\":4,\"removed\":0}]\n\
-             tugdash(join-lane): land the join surface"
+             tugarc(join-lane): land the join surface"
         );
     }
 
@@ -4563,7 +4558,7 @@ Some context.
             "join-lane",
             "main",
             5,
-            "tugdash(join-lane): land the join surface",
+            "tugarc(join-lane): land the join surface",
             &[file_stat("src/a.rs", "modified", Some(16), Some(1))],
             Some(&fit),
         );
@@ -4572,7 +4567,7 @@ Some context.
             "joined 0123456789 · join-lane → main · 5 round(s)\n\
              fit: verified 3f0a1c9e2b onto 91c4de70f2\n\
              files: [{\"path\":\"src/a.rs\",\"status\":\"modified\",\"added\":16,\"removed\":1}]\n\
-             tugdash(join-lane): land the join surface"
+             tugarc(join-lane): land the join surface"
         );
     }
 
@@ -4683,14 +4678,14 @@ Some context.
     }
 
     #[test]
-    fn format_discard_summary_of_a_clean_dash_is_one_line() {
+    fn format_discard_summary_of_a_clean_arc_is_one_line() {
         assert_eq!(
             format_discard_summary("spike", 0, 0, &[], None),
             "discarded spike · 0 round(s)"
         );
     }
 
-    /// A discarded dash's documents outlive it, and the receipt says so — the
+    /// A discarded arc's documents outlive it, and the receipt says so — the
     /// one thing a discard keeps rather than destroys.
     #[test]
     fn format_discard_summary_says_the_documents_stay() {
@@ -4702,7 +4697,7 @@ Some context.
     }
 
     #[test]
-    fn dash_file_rows_map_letters_and_renames() {
+    fn arc_file_rows_map_letters_and_renames() {
         // The parse now lives in tugarc-core (shared with the CLI); what this
         // layer owns is the letter → op mapping and the score-stripped status.
         let files: Vec<ChangesetFile> = [
@@ -4713,7 +4708,7 @@ Some context.
         ]
         .into_iter()
         .map(|(path, status)| {
-            dash_file_row(tugarc_core::DashDetailFile {
+            arc_file_row(tugarc_core::ArcDetailFile {
                 path: path.to_owned(),
                 status: status.to_owned(),
                 added: None,
@@ -4957,8 +4952,8 @@ Some context.
     fn bridge_passes_through_relative_and_strips_absolute() {
         let any = Path::new("/any/repo");
         assert_eq!(
-            repo_relative(&CanonicalPath::from_raw(any), any, "dash/x.md"),
-            "dash/x.md"
+            repo_relative(&CanonicalPath::from_raw(any), any, "arc/x.md"),
+            "arc/x.md"
         );
 
         let tmp = tempfile::tempdir().unwrap();

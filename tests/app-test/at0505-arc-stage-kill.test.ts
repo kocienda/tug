@@ -34,10 +34,10 @@
  *
  * ## What is driven
  *
- * A real rotation — `at0504`'s finding, that the *opening* rotation of a dash
+ * A real rotation — `at0504`'s finding, that the *opening* rotation of an arc
  * is a fresh segment seated by the wheel and lands about a second after
  * the door is opened, so a rotation costs seconds rather than the twenty
- * minutes a trek through two real step boundaries costs. Then the
+ * minutes a planned arc through two real step boundaries costs. Then the
  * stage's own subprocess tree is killed from outside the app, by pid, and the
  * assertion is that the arc **decides**: `arc-stop <stage> session gone` in the
  * record, within a sweep rather than never.
@@ -49,7 +49,7 @@
  * all — because a card whose session died unbinds. So the receipt has nowhere
  * to paint, exactly as `arc-lifecycle.md`'s **card closed** row already says
  * of its own case: there is no card left to paint one on, and the only surface
- * missing is one that does not exist. The record, `tugtool arc arc`, and the
+ * missing is one that does not exist. The record, `tugtool arc run`, and the
  * Arcs card carry it, and the assertion below states the picker outright so the
  * absence is a claim this file makes rather than a check it quietly dropped.
  *
@@ -108,18 +108,18 @@ import {
   seedTugbankForLaunch,
 } from "./_harness/tugbank-helpers";
 import {
-  createDash,
-  dashBriefPath,
-  dashTasksPath,
+  createArc,
+  arcBriefPath,
+  arcTasksPath,
   fixturePlanDocument,
-  makeDashScratchRepo,
-  rmDashScratchRepo,
+  makeArcScratchRepo,
+  rmArcScratchRepo,
   rmScratchSession,
   seedScratchSession,
   tugtool,
   tugtoolPath,
-  type DashScratchRepo,
-} from "./dash-fixture";
+  type ArcScratchRepo,
+} from "./arc-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 // Generous, and every part of it is somebody else's clock: five kill rounds
@@ -131,37 +131,37 @@ const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 // mid-assertion, which reads as a defect and is not one.
 const TEST_TIMEOUT_MS = 420_000;
 
-/** The card the dash runs on, and whose subprocess tree is killed. */
+/** The card the arc runs on, and whose subprocess tree is killed. */
 const SID = "a7c0d1ea-0000-4000-8000-000000000506";
 
 const CARD = '[data-card-id="A"]';
 const PROMPT_INPUT = `${CARD} [data-slot="tug-text-editor"] .cm-content`;
 const SHELL_ROWS = `${CARD} [data-slot="session-transcript-shell-row"]`;
 
-const DASH = "at0505-stage-kill";
+const ARC = "at0505-stage-kill";
 
-/** This checkout — the build under test, and never the tree a dash is cut in. */
+/** This checkout — the build under test, and never the tree an arc is cut in. */
 const CHECKOUT = realpathSync(resolve(import.meta.dir, "..", ".."));
 
-let scratch: DashScratchRepo | null = null;
+let scratch: ArcScratchRepo | null = null;
 let fixtureDir = "";
 const projectDir = (): string => scratch?.repo ?? "";
 
 beforeAll(() => {
   if (!SHOULD_RUN) return;
-  scratch = makeDashScratchRepo({ prefix: "at0505", checkout: CHECKOUT });
-  // A brief and a task list — the shape `/dash` leaves, and the shape whose
-  // recorded `dash` kind opens straight at implement. One rotation is all
+  scratch = makeArcScratchRepo({ prefix: "at0505", checkout: CHECKOUT });
+  // A brief and a task list — the shape `/arc` leaves, and the shape whose
+  // recorded `arc` kind opens straight at implement. One rotation is all
   // this file needs and the opening one is the cheapest there is.
-  createDash(projectDir(), DASH, `at0505 ${DASH}`, scratch.cli);
-  writeFileSync(dashBriefPath(projectDir(), DASH), "# A brief\n\nOne small thing.\n");
-  writeFileSync(dashTasksPath(projectDir(), DASH), fixturePlanDocument(1));
+  createArc(projectDir(), ARC, `at0505 ${ARC}`, scratch.cli);
+  writeFileSync(arcBriefPath(projectDir(), ARC), "# A brief\n\nOne small thing.\n");
+  writeFileSync(arcTasksPath(projectDir(), ARC), fixturePlanDocument(1));
   fixtureDir = seedScratchSession(projectDir(), SID);
 });
 
 afterAll(() => {
   if (!SHOULD_RUN) return;
-  rmDashScratchRepo(scratch);
+  rmArcScratchRepo(scratch);
   rmScratchSession(fixtureDir);
 });
 
@@ -212,10 +212,10 @@ interface ArcReading {
   done: boolean;
 }
 
-/** What `tugtool arc record --json` says about the dash right now. */
+/** What `tugtool arc record --json` says about the arc right now. */
 function arcReport(): ArcReading {
   const out = JSON.parse(
-    tugtool(["arc", "record", DASH, "--json"], {
+    tugtool(["arc", "record", ARC, "--json"], {
       cwd: projectDir(),
       binaryRoot: CHECKOUT,
       env: scratch?.cli.env,
@@ -292,16 +292,16 @@ function killTheStage(): number[] {
 /**
  * What the ledger says about the card's line right now, without writing.
  *
- * `dash bind --dry-run` is the reading W1's chokepoint exposes: it resolves the
+ * `arc bind --dry-run` is the reading W1's chokepoint exposes: it resolves the
  * posted id through the line and reports the segment's `state`. Noted around
- * the kill because the arc's sweep is **live-row-only** — `bound_sessions_by_dash`
+ * the kill because the arc's sweep is **live-row-only** — `bound_sessions_by_arc`
  * filters to live rows — so a row that stopped reading `live` would take the
  * arc out of the sweep entirely, and "the arc decided nothing" would mean
  * something quite different from "the arc decided to wait".
  */
 function ledgerState(): unknown {
   const out = JSON.parse(
-    tugtool(["arc", "bind", DASH, "--dry-run", "--json"], {
+    tugtool(["arc", "bind", ARC, "--dry-run", "--json"], {
       cwd: projectDir(),
       binaryRoot: CHECKOUT,
       env: { ...scratch?.cli.env, TUG_SESSION_ID: SID },
@@ -326,10 +326,10 @@ describe.skipIf(!SHOULD_RUN)("AT0505: a stage whose claude dies", () => {
 
         // The door. Its first act is the rotation, and the rotation is what
         // seats the claude this test is about to kill.
-        await shell(app, `${cli} arc run ${DASH} --kind dash`);
+        await shell(app, `${cli} arc run ${ARC}`);
         const seated = await waitForRotation();
         note(`at0505 the seated stage: ${JSON.stringify(seated)}`);
-        expect(seated.stages[0]?.stage, "a dash opens at implement").toBe(
+        expect(seated.stages[0]?.stage, "a plain arc opens at implement").toBe(
           "implement",
         );
 
@@ -354,7 +354,7 @@ describe.skipIf(!SHOULD_RUN)("AT0505: a stage whose claude dies", () => {
           "a rotation seated a real subprocess tree to kill",
         ).toBeGreaterThan(0);
         // The row stays `live` through all of it, which is what keeps the arc
-        // in the sweep: `bound_sessions_by_dash` is live-only, so a row that
+        // in the sweep: `bound_sessions_by_arc` is live-only, so a row that
         // had gone non-live would take the arc out of the sweep entirely and
         // "the arc decided nothing" would mean something else again.
         expect(
@@ -385,8 +385,8 @@ describe.skipIf(!SHOULD_RUN)("AT0505: a stage whose claude dies", () => {
         // ── And the card is already gone ─────────────────────────────────
         //
         // The stop's own sentence reaches a live card as a shell-exchange row
-        // under `/dash-arc` ([D111]) — `at0476` asserts exactly that for a
-        // `dash stop`. It cannot here, and the reason is the point: the card
+        // under `/arc-run` ([D111]) — `at0476` asserts exactly that for a
+        // `arc stop`. It cannot here, and the reason is the point: the card
         // whose session died has unbound and fallen back to its picker, so
         // there is no transcript for a receipt to enter. The rows are read
         // anyway, and both readings are noted, because "no rows" is the claim

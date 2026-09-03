@@ -417,7 +417,7 @@
    Text ink, not the session tint: the run and the border paint from the
    ordinary text color, and the LIVE dot is the pill's only color channel.
    The dot replaces the chatbox icon; a missing atom forces the idle dot,
-   mutes the ink, and dashes its border — shape states the failure now
+   mutes the ink, and arcs its border — shape states the failure now
    that there is no icon to slash. */
 
 /* @tug-renders-on var(--tug7-surface-global-primary-normal-default-rest) */

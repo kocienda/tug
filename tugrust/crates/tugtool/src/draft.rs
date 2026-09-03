@@ -39,12 +39,12 @@ pub struct DraftRow {
 struct Owner {
     kind: String,
     id: String,
-    /// The dash's name when `kind` is `dash` — carried rather than re-parsed
-    /// out of `id`, because it is what [`tugarc_core::ops::dash_draft_key`]
+    /// The arc's name when `kind` is `arc` — carried rather than re-parsed
+    /// out of `id`, because it is what [`tugarc_core::ops::arc_draft_key`]
     /// takes and the key must come from that resolver ([P07]).
-    dash_name: Option<String>,
-    /// The pre-id key the same owner's rows were written under before dashes
-    /// had creation ids — `Some` only for a dash that has one ([P01], [P03]).
+    arc_name: Option<String>,
+    /// The pre-id key the same owner's rows were written under before arcs
+    /// had creation ids — `Some` only for an arc that has one ([P01], [P03]).
     /// It rides every write so the server reads it as a fallback and
     /// supersedes it, the same way `raw_project_dir` carries the spelling
     /// axis.
@@ -77,22 +77,22 @@ impl Owner {
     }
 }
 
-/// The owner key for a dash, read from the project's git config ([P01]).
-/// A read path, so it never mints ([P02]): a dash with no `tugid` — one an
+/// The owner key for an arc, read from the project's git config ([P01]).
+/// A read path, so it never mints ([P02]): an arc with no `tugid` — one an
 /// older build created — resolves to its legacy branch-ref key with no
 /// legacy sibling to chase.
-fn dash_owner(name: &str, project_dir: &str) -> (String, Option<String>) {
-    let key = tugarc_core::ops::dash_owner_key(std::path::Path::new(project_dir), name);
-    let legacy = format!("tugdash/{name}");
+fn arc_owner(name: &str, project_dir: &str) -> (String, Option<String>) {
+    let key = tugarc_core::ops::arc_owner_key(std::path::Path::new(project_dir), name);
+    let legacy = format!("tugarc/{name}");
     let legacy = (key != legacy).then_some(legacy);
     (key, legacy)
 }
 
 /// Resolve the owner of a draft: `--owner` when given, else derived.
 ///
-/// The derivation reads the project's checked-out branch: work done in a
-/// dash worktree is the dash's, and a `tugdash/<name>` branch says so
-/// without anyone having to repeat it on the command line. Off a dash
+/// The derivation reads the project's checked-out branch: work done in an
+/// arc worktree is the arc's, and a `tugarc/<name>` branch says so
+/// without anyone having to repeat it on the command line. Off an arc
 /// branch the owner is the calling session. Both halves are the same
 /// defaults the rest of the CLI already applies — `changes` has defaulted
 /// `--session` to `$TUG_SESSION_ID` all along.
@@ -100,15 +100,15 @@ fn resolve_owner(owner: Option<String>, project_dir: &str) -> Result<Owner, AppE
     if let Some(owner) = owner.filter(|o| !o.is_empty()) {
         return parse_owner(&owner, project_dir);
     }
-    if let Some(name) = dash_branch_name(project_dir) {
-        let (id, legacy_id) = dash_owner(&name, project_dir);
+    if let Some(name) = arc_branch_name(project_dir) {
+        let (id, legacy_id) = arc_owner(&name, project_dir);
         return Ok(Owner {
-            kind: "dash".to_string(),
+            kind: "arc".to_string(),
             id,
-            dash_name: Some(name.clone()),
+            arc_name: Some(name.clone()),
             legacy_id,
             line_ids: Vec::new(),
-            display: format!("dash:{name}"),
+            display: format!("arc:{name}"),
         });
     }
     // A session owner is a **line** of work, not the segment this process was
@@ -120,7 +120,7 @@ fn resolve_owner(owner: Option<String>, project_dir: &str) -> Result<Owner, AppE
     // `TUG_CHANGES_DB` run) the posted id is the whole answer, as before.
     let resolved = crate::session_identity::resolve_soft(None).ok_or_else(|| {
         AppError::Exit1(
-            "no owner — pass --owner, run inside a dash worktree, or set TUG_SESSION_ID"
+            "no owner — pass --owner, run inside an arc worktree, or set TUG_SESSION_ID"
                 .to_string(),
         )
     })?;
@@ -129,16 +129,16 @@ fn resolve_owner(owner: Option<String>, project_dir: &str) -> Result<Owner, AppE
     Ok(Owner {
         kind: "session".to_string(),
         id: session.clone(),
-        dash_name: None,
+        arc_name: None,
         legacy_id: None,
         line_ids,
         display: format!("session:{session}"),
     })
 }
 
-/// The dash name when `project_dir` has a `tugdash/<name>` branch checked
+/// The arc name when `project_dir` has a `tugarc/<name>` branch checked
 /// out, else `None` (a detached HEAD, a non-repo, or any ordinary branch).
-fn dash_branch_name(project_dir: &str) -> Option<String> {
+fn arc_branch_name(project_dir: &str) -> Option<String> {
     let out = std::process::Command::new("git")
         .arg("-C")
         .arg(project_dir)
@@ -149,21 +149,21 @@ fn dash_branch_name(project_dir: &str) -> Option<String> {
         return None;
     }
     let branch = String::from_utf8(out.stdout).ok()?;
-    let name = branch.trim().strip_prefix("tugdash/")?.to_string();
+    let name = branch.trim().strip_prefix("tugarc/")?.to_string();
     (!name.is_empty()).then_some(name)
 }
 
-/// Parse `--owner`: `session:<id>`, `dash:<name>`, or `unattributed`. A dash
+/// Parse `--owner`: `session:<id>`, `arc:<name>`, or `unattributed`. An arc
 /// owner normalizes to the owner key the ledger stores
-/// (`tugdash/<name>#<tugid>`, or the bare branch ref for an id-less dash),
+/// (`tugarc/<name>#<tugid>`, or the bare branch ref for an id-less arc),
 /// accepting either the bare name or the full ref, and reports the legacy key
 /// alongside it ([P01], [P03]).
 fn parse_owner(owner: &str, project_dir: &str) -> Result<Owner, AppError> {
-    let build = |kind: &str, id: String, dash_name: Option<String>, legacy_id: Option<String>| {
+    let build = |kind: &str, id: String, arc_name: Option<String>, legacy_id: Option<String>| {
         Ok(Owner {
             kind: kind.to_string(),
             id,
-            dash_name,
+            arc_name,
             legacy_id,
             line_ids: Vec::new(),
             display: owner.to_string(),
@@ -206,16 +206,16 @@ fn parse_owner(owner: &str, project_dir: &str) -> Result<Owner, AppError> {
         owner.line_ids = keys;
         return Ok(owner);
     }
-    if let Some(name) = owner.strip_prefix("dash:") {
-        let name = name.strip_prefix("tugdash/").unwrap_or(name);
+    if let Some(name) = owner.strip_prefix("arc:") {
+        let name = name.strip_prefix("tugarc/").unwrap_or(name);
         if name.is_empty() {
-            return Err(AppError::Exit1("empty dash name in --owner".to_string()));
+            return Err(AppError::Exit1("empty arc name in --owner".to_string()));
         }
-        let (id, legacy) = dash_owner(name, project_dir);
-        return build("dash", id, Some(name.to_string()), legacy);
+        let (id, legacy) = arc_owner(name, project_dir);
+        return build("arc", id, Some(name.to_string()), legacy);
     }
     Err(AppError::Exit1(format!(
-        "invalid --owner '{owner}': expected session, session:<id>, dash:<name>, or unattributed"
+        "invalid --owner '{owner}': expected session, session:<id>, arc:<name>, or unattributed"
     )))
 }
 
@@ -243,8 +243,8 @@ fn resolve_project(project: Option<PathBuf>) -> Result<Project, AppError> {
 ///
 /// `primary` and `fallback` are two spellings of **one** directory (Spec S05).
 /// `superseded` is a different matter: directories this write is migrating
-/// *off*, whose rows it retires. A dash draft written from inside the worktree
-/// keys on the base root and supersedes the worktree — see [`dash_project`].
+/// *off*, whose rows it retires. An arc draft written from inside the worktree
+/// keys on the base root and supersedes the worktree — see [`arc_project`].
 struct Project {
     primary: String,
     fallback: String,
@@ -280,7 +280,7 @@ impl Project {
 
 /// The base repository root, when `project_dir` is a **linked worktree**.
 ///
-/// This is the same resolution every dash verb runs — `find_repo_root_from`,
+/// This is the same resolution every arc verb runs — `find_repo_root_from`,
 /// which reads the shared `.git` directory from inside a linked worktree and
 /// honors an explicit `TUG_REPO_UNIVERSE` boundary when one is set. Going
 /// through the primitive rather than shelling `rev-parse` is what keeps a
@@ -294,34 +294,34 @@ impl Project {
 /// The answer keeps its resolved spelling rather than being canonicalized
 /// here: the CLI is not the canonicalization gateway ([L29]), so it names a
 /// directory and lets the server resolve how that directory is spelled.
-fn dash_base_root(project_dir: &str) -> Option<PathBuf> {
+fn arc_base_root(project_dir: &str) -> Option<PathBuf> {
     let start = std::path::Path::new(project_dir);
     let root = tugtool_core::find_repo_root_from(start).ok()?;
     let canon = |p: &std::path::Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
     (canon(&root) != canon(start)).then_some(root)
 }
 
-/// Re-key a dash's draft onto its base repository root, superseding the
+/// Re-key an arc's draft onto its base repository root, superseding the
 /// directory the command actually ran in ([P01], [P07]).
 ///
-/// A dash draft describes a landing **on the base**, and the join reads it with
+/// An arc draft describes a landing **on the base**, and the join reads it with
 /// the base root in hand. `arc-implement` runs `tugtool draft set` from inside
 /// the worktree, so keying by cwd put every planned run's authored draft
 /// somewhere the join could never look. This is where that ends: the key comes
-/// from `tugarc_core::ops::dash_draft_key` verbatim — owner *and* project —
+/// from `tugarc_core::ops::arc_draft_key` verbatim — owner *and* project —
 /// and the worktree spellings ride along as superseded so one authored write
 /// retires the old rows.
 ///
-/// A no-op for every other owner, and for a dash draft written from the base
+/// A no-op for every other owner, and for an arc draft written from the base
 /// checkout (where there is no worktree to migrate off).
-fn apply_dash_project_key(owner: &mut Owner, project: Project) -> Project {
-    let Some(name) = owner.dash_name.as_deref() else {
+fn apply_arc_project_key(owner: &mut Owner, project: Project) -> Project {
+    let Some(name) = owner.arc_name.as_deref() else {
         return project;
     };
-    let Some(base) = dash_base_root(&project.primary) else {
+    let Some(base) = arc_base_root(&project.primary) else {
         return project;
     };
-    let key = tugarc_core::ops::dash_draft_key(&base, name);
+    let key = tugarc_core::ops::arc_draft_key(&base, name);
     owner.id = key.owner_id;
     owner.legacy_id = key.legacy_owner_id;
     let mut rekeyed = Project::at(&key.project);
@@ -529,12 +529,12 @@ pub fn run_set(
     let project = resolve_project(project)?;
     // Resolve the owner against the directory the command ran in, *then*
     // substitute the project — never the other way round. `resolve_owner`'s
-    // derivation reads the checked-out branch of what it is handed, and only a
-    // dash worktree has a `tugdash/<name>` there; substituting the base root
+    // derivation reads the checked-out branch of what it is handed, and only an
+    // arc worktree has a `tugarc/<name>` there; substituting the base root
     // first would read `main` and send an ownerless `draft set` from inside a
     // worktree to the session owner instead.
     let mut owner_resolved = resolve_owner(owner, &project.primary)?;
-    let project = apply_dash_project_key(&mut owner_resolved, project);
+    let project = apply_arc_project_key(&mut owner_resolved, project);
     let Owner {
         kind: owner_kind,
         id: owner_id,
@@ -621,7 +621,7 @@ pub fn run_set(
     )
     .map_err(|e| AppError::Exit1(format!("cannot write draft: {e}")))?;
     // Every sibling of the row just written is now stale and superseded by
-    // it: the legacy *spelling* of the project dir, and — for a dash — every
+    // it: the legacy *spelling* of the project dir, and — for an arc — every
     // row under the legacy *owner key* ([P03]).
     for (kind, id, dir) in sibling_rows(&owner_resolved, &project) {
         let _ = conn.execute(
@@ -647,7 +647,7 @@ pub fn run_show(
 ) -> Result<(), AppError> {
     let project = resolve_project(project)?;
     let mut owner_resolved = resolve_owner(owner, &project.primary)?;
-    let project = apply_dash_project_key(&mut owner_resolved, project);
+    let project = apply_arc_project_key(&mut owner_resolved, project);
     let owner = owner_resolved.display.clone();
     // Reads never need a writable ledger open; a missing file just means
     // no drafts exist yet.
@@ -710,7 +710,7 @@ pub fn run_clear(
 ) -> Result<(), AppError> {
     let project = resolve_project(project)?;
     let mut owner_resolved = resolve_owner(owner, &project.primary)?;
-    let project = apply_dash_project_key(&mut owner_resolved, project);
+    let project = apply_arc_project_key(&mut owner_resolved, project);
     let Owner {
         kind: owner_kind,
         id: owner_id,

@@ -435,16 +435,16 @@ export interface LedgerSeedSession {
    */
   tag?: string;
   /**
-   * The dash this session is mated to — its **owner key**, applied through the
-   * same `set_dash_binding` a real `bind_dash` uses.
+   * The arc this session is mated to — its **owner key**, applied through the
+   * same `set_arc_binding` a real `bind_arc` uses.
    *
-   * Seed it to stand up "another live session is holding this dash", which is
+   * Seed it to stand up "another live session is holding this arc", which is
    * what the shade's release-reach rule refuses on. `bound_sessions` is
-   * computed from these rows, so a client-side `bind_dash_ok` cannot fake it.
+   * computed from these rows, so a client-side `bind_arc_ok` cannot fake it.
    */
-  dash_id?: string;
-  /** The dash's short name; defaults to `dash_id` when omitted. */
-  dash_name?: string;
+  arc_id?: string;
+  /** The arc's short name; defaults to `arc_id` when omitted. */
+  arc_name?: string;
   /**
    * The session this one was rewind-forked from, written through the same
    * `set_fork_provenance` the fork arc uses.

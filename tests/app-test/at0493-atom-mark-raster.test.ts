@@ -245,7 +245,7 @@ async function rasterAt(app: App, shift: number): Promise<MarkRaster[]> {
 /**
  * The diamond probe's own surface.
  *
- * The diamond ships on the STATE cell at 12px and on a Dashes row at 28px, and
+ * The diamond ships on the STATE cell at 12px and on a Arcs row at 28px, and
  * the gallery card shows the second of those. Each indicator that holds one is
  * cloned onto a plain fixed-position panel — clone rather than measure in
  * place, because a gallery cell's caption sits a few pixels from the glyph and

@@ -142,7 +142,7 @@ pub(crate) fn resolve(subject: &str, session: Option<&str>) -> Result<Resolved, 
             // Before this module the walk's raw `unknown_session` reached
             // stderr and callers branched on it; replacing it with prose alone
             // broke the app-test fixture's retry loop
-            // (`tests/app-test/dash-fixture.ts`'s `bindDash`) silently, and the
+            // (`tests/app-test/arc-fixture.ts`'s `bin`) silently, and the
             // breakage surfaced three workstreams downstream. So the token
             // stays, and the CLI test below fails in `cargo nextest` the next
             // time somebody rewrites the sentence.

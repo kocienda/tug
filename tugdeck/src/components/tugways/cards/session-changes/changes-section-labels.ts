@@ -7,11 +7,11 @@
  * inventory would have been a seventh spelling, free to drift from all six.
  *
  * **A label is a name and an optional qualifier**, not one string with an em
- * dash in it. The eyebrow treatment paints the two differently — the bucket
+ * arc in it. The eyebrow treatment paints the two differently — the bucket
  * name at full strength, the qualifier dimmer, so "unattributed" reads before
  * "no session claims these" — and a renderer cannot do that to a string
  * without splitting on punctuation, which is a parser standing where a data
- * shape belongs. The em dash between them is the renderer's, not the data's.
+ * shape belongs. The em arc between them is the renderer's, not the data's.
  *
  * **No possessives.** A bucket is named by where its files live, not by what
  * owns them: "changes in this session", never "this session's changes"; "the

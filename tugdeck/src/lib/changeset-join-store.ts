@@ -5,13 +5,13 @@
  * When the card asks tugcast to resolve a conflicted join, the ladder streams
  * `changeset_join_resolve_delta` frames (per file / rung, with the AI rung's
  * accumulated text) and finishes with `changeset_join_resolve_ok` or `_err`.
- * This store keys that live state by `(workspace_key, dash)` and exposes it via
+ * This store keys that live state by `(workspace_key, arc)` and exposes it via
  * `useSyncExternalStore` ([L02]); the card renders a mini-transcript overlay
  * while resolving.
  *
  * **It holds the run, never the result.** The candidate the ladder builds, what
  * it decided per file and by which rung, and whether anybody has read that, are
- * written into git and reported on the dash's feed entry — so an `_ok` frame is
+ * written into git and reported on the arc's feed entry — so an `_ok` frame is
  * an *end-of-run* signal here and nothing more. That split is what makes the
  * whole overlay disposable: this state can be lost to a dropped socket, a
  * reload, or a relaunch without costing a resolution, because the resolution
@@ -31,11 +31,11 @@
  * What survives is the one liveness fact this client can honestly see: **the
  * wire dropping**, which `connectionDidClose` observes the instant it happens
  * and turns into a stated failure. A state left in `resolving` forever would be
- * a dash with a spinner and no way back, so that arm stays.
+ * an arc with a spinner and no way back, so that arm stays.
  *
  * **The join narrates itself too** ([P03]). `changeset_join_land_delta` frames
  * arrive as the join moves through squash → teardown → release → record, and
- * this store holds the latest beat per dash beside the resolve progress. Same
+ * this store holds the latest beat per arc beside the resolve progress. Same
  * rule applies: a beat is a liveness hint, the feed recompute is the truth, and
  * losing every beat costs the progress line and nothing else.
  *
@@ -72,10 +72,10 @@ export interface FileProgress {
 }
 
 /**
- * The live resolve state for one dash — an overlay, and only an overlay.
+ * The live resolve state for one arc — an overlay, and only an overlay.
  *
  * What the ladder *built* is not here. The candidate, the per-file resolutions
- * and their rungs, and whether anybody has read them all live on the dash's
+ * and their rungs, and whether anybody has read them all live on the arc's
  * feed entry, written into git by the server before it bumps the feed. So this
  * holds the three things that are genuinely ephemeral: a run is in flight, what
  * it has said so far, and — when it stopped talking — why the client gave up
@@ -137,8 +137,8 @@ export interface LandProgress {
   detail?: string;
 }
 
-function key(workspaceKey: string, dash: string): string {
-  return `${workspaceKey}|${dash}`;
+function key(workspaceKey: string, arc: string): string {
+  return `${workspaceKey}|${arc}`;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -158,18 +158,18 @@ export class ChangesetJoinStore {
   private _states = new Map<string, ResolveState>();
   private readonly _decoder = new TextDecoder();
   /**
-   * The latest beat of a join in flight, per dash ([P03]).
+   * The latest beat of a join in flight, per arc ([P03]).
    *
    * Held as stored objects rather than composed on read, so
    * `useSyncExternalStore` sees a stable snapshot identity between beats.
    */
   private readonly _land = new Map<string, LandProgress>();
   /**
-   * The last `Set` {@link ChangesetJoinStore.landingDashes} answered per
+   * The last `Set` {@link ChangesetJoinStore.landingArcs} answered per
    * workspace, held so an unchanged answer keeps its identity — which is what
    * a `useSyncExternalStore` reader needs of a derived snapshot.
    */
-  private readonly _landingDashes = new Map<string, ReadonlySet<string>>();
+  private readonly _landingArcs = new Map<string, ReadonlySet<string>>();
 
   constructor(connection: TugConnection) {
     this._connection = connection;
@@ -180,7 +180,7 @@ export class ChangesetJoinStore {
     // between the request and that frame, the answer is gone for good — the
     // server broadcast it to a socket that was already closed, and the
     // post-reconnect handshake replays feeds, not a CONTROL reply that has
-    // already been sent. Without this the dash sits in `resolving` for the life
+    // already been sent. Without this the arc sits in `resolving` for the life
     // of the page: Resolve gone, no progress, no error, no way back.
     //
     // Same channel `code-session-store` uses to fail a turn in flight, for the
@@ -249,9 +249,9 @@ export class ChangesetJoinStore {
     // the same cell the request opened, with no spelling to reconcile ([L29]).
     const workspaceKey =
       typeof body.project_dir === "string" ? body.project_dir : null;
-    const dash = typeof body.dash === "string" ? body.dash : null;
-    if (workspaceKey === null || dash === null) return;
-    const k = key(workspaceKey, dash);
+    const arc = typeof body.arc === "string" ? body.arc : null;
+    if (workspaceKey === null || arc === null) return;
+    const k = key(workspaceKey, arc);
     const prev = this._states.get(k) ?? IDLE;
 
     // The join's own narration ([P03]). A hint and nothing more: the feed
@@ -339,7 +339,7 @@ export class ChangesetJoinStore {
       const unresolved = readStringArray(body.unresolved);
       if (unresolved.length > 0) {
         // The ladder's honest dead end, and the one terminal fact the feed
-        // cannot state: the dash's conflicts will still be there, but nothing
+        // cannot state: the arc's conflicts will still be there, but nothing
         // on the entry says a run just tried them and stopped. Re-running
         // decides nothing new, so the sentence names the files instead.
         this._set(k, {
@@ -361,7 +361,7 @@ export class ChangesetJoinStore {
     const detail =
       typeof body.detail === "string" ? body.detail : "resolve failed";
     // Unless nothing was refused *but the press*. An admission refusal means a
-    // run already holds this dash — so it arrives on the cell that run is
+    // run already holds this arc — so it arrives on the cell that run is
     // streaming into, and failing the cell would report the healthy run as dead
     // on the strength of somebody having asked for a second one.
     if (body.admission === true) {
@@ -372,7 +372,7 @@ export class ChangesetJoinStore {
   }
 
   /**
-   * State a reason on a dash without claiming its run failed (`null` clears).
+   * State a reason on an arc without claiming its run failed (`null` clears).
    *
    * The phase is untouched: a refused answer or a refused override says
    * something about the press, not about the ladder, and a resolve that is
@@ -385,7 +385,7 @@ export class ChangesetJoinStore {
 
   private _set(k: string, state: ResolveState): void {
     // Idle is the absence of a run, but a stated reason is not absence: a
-    // refusal recorded on a dash with nothing running is exactly the case
+    // refusal recorded on an arc with nothing running is exactly the case
     // where dropping the cell would swallow the sentence.
     if (state.phase === "idle" && state.error === null) {
       this._states.delete(k);
@@ -400,28 +400,28 @@ export class ChangesetJoinStore {
   }
 
   /**
-   * Send `changeset_join_resolve` and mark the dash resolving (fresh state),
+   * Send `changeset_join_resolve` and mark the arc resolving (fresh state),
    * on a clock.
    *
    * Pressing again while a run is live is **refused by the server**, by name.
    * That used to be free — the ladder built its candidate off to the side and
    * touched no checkout — but a resolve now owns a workshop worktree that a
    * second run would `reset --hard` under the first one's live resolver. One
-   * dash admits one run; the refusal arrives as a `changeset_join_resolve_err`
+   * arc admits one run; the refusal arrives as a `changeset_join_resolve_err`
    * naming what holds it.
    */
-  resolve(workspaceKey: string, dash: string): void {
-    const k = key(workspaceKey, dash);
+  resolve(workspaceKey: string, arc: string): void {
+    const k = key(workspaceKey, arc);
     this._set(k, { phase: "resolving", progress: [], error: null });
     this._connection.sendControlFrame("changeset_join_resolve", {
       project_dir: workspaceKey,
-      dash,
+      arc: arc,
     });
   }
 
   /**
    * Send `changeset_join_resolve_base`: clear the uncommitted base work that
-   * is refusing this dash's join.
+   * is refusing this arc's join.
    *
    * A different act from {@link resolve}, which reconciles a conflicted merge
    * — this clears what is refusing the merge in the first place. They share
@@ -431,52 +431,52 @@ export class ChangesetJoinStore {
    *
    * It clears the block and stops. Landing stays the user's own gesture.
    */
-  resolveBase(workspaceKey: string, dash: string): void {
-    const k = key(workspaceKey, dash);
+  resolveBase(workspaceKey: string, arc: string): void {
+    const k = key(workspaceKey, arc);
     this._set(k, { phase: "resolving", progress: [], error: null });
     this._connection.sendControlFrame("changeset_join_resolve_base", {
       project_dir: workspaceKey,
-      dash,
+      arc: arc,
     });
   }
 
-  state(workspaceKey: string, dash: string): ResolveState {
-    return this._states.get(key(workspaceKey, dash)) ?? IDLE;
+  state(workspaceKey: string, arc: string): ResolveState {
+    return this._states.get(key(workspaceKey, arc)) ?? IDLE;
   }
 
   /** The beat a join in flight last reported, or null when none is ([P03]). */
-  landProgress(workspaceKey: string, dash: string): LandProgress | null {
-    return this._land.get(key(workspaceKey, dash)) ?? null;
+  landProgress(workspaceKey: string, arc: string): LandProgress | null {
+    return this._land.get(key(workspaceKey, arc)) ?? null;
   }
 
   /**
-   * The dashes in `workspaceKey` whose join is **running** — a beat has been
+   * The arcs in `workspaceKey` whose join is **running** — a beat has been
    * written and none of them was terminal.
    *
-   * The Changes room reads this to stop offering a dash it is already joining.
+   * The Changes room reads this to stop offering an arc it is already joining.
    * Answered as a `Set` of display names, and rebuilt only when the contents
    * change, so a `useSyncExternalStore` reader does not re-render on every
    * unrelated frame the store forwards.
    */
-  landingDashes(workspaceKey: string): ReadonlySet<string> {
+  landingArcs(workspaceKey: string): ReadonlySet<string> {
     const prefix = `${workspaceKey}|`;
     const next = new Set<string>();
     for (const [k, progress] of this._land) {
       if (!k.startsWith(prefix) || progress.terminal === true) continue;
       next.add(k.slice(prefix.length));
     }
-    const held = this._landingDashes.get(workspaceKey);
+    const held = this._landingArcs.get(workspaceKey);
     if (held !== undefined && held.size === next.size) {
       let same = true;
-      for (const dash of next) {
-        if (!held.has(dash)) {
+      for (const arc of next) {
+        if (!held.has(arc)) {
           same = false;
           break;
         }
       }
       if (same) return held;
     }
-    this._landingDashes.set(workspaceKey, next);
+    this._landingArcs.set(workspaceKey, next);
     return next;
   }
 
@@ -486,13 +486,13 @@ export class ChangesetJoinStore {
    *
    * The acknowledgment is pinned to `candidate`'s sha server-side, so it cannot
    * outlive the artifact it answered: a candidate rebuilt after the base moved
-   * demands a fresh reading. The mark comes back on the dash's feed entry; this
+   * demands a fresh reading. The mark comes back on the arc's feed entry; this
    * send only asks for it.
    */
-  review(workspaceKey: string, dash: string, candidate: string): void {
+  review(workspaceKey: string, arc: string, candidate: string): void {
     this._connection.sendControlFrame("changeset_join_review", {
       project_dir: workspaceKey,
-      dash,
+      arc: arc,
       candidate,
     });
   }
@@ -510,20 +510,20 @@ export class ChangesetJoinStore {
    */
   answerQuestion(
     workspaceKey: string,
-    dash: string,
+    arc: string,
     requestId: string,
     answer: string,
   ): void {
     this._connection.sendControlFrame("changeset_join_question_answer", {
       project_dir: workspaceKey,
-      dash,
+      arc: arc,
       request_id: requestId,
       answer,
     });
   }
 
   /**
-   * Clear a dash's resolve state (cancel / after landing).
+   * Clear an arc's resolve state (cancel / after landing).
    *
    * Deliberately **not** the join's narration: this is called the instant a
    * join reports done, which is exactly when the settled beat is the newest
@@ -531,18 +531,18 @@ export class ChangesetJoinStore {
    * last word of the arc came to be deleted by the arrival of that word.
    * {@link clearLand} is the other half, and its caller is a new press.
    */
-  clear(workspaceKey: string, dash: string): void {
-    this._set(key(workspaceKey, dash), IDLE);
+  clear(workspaceKey: string, arc: string): void {
+    this._set(key(workspaceKey, arc), IDLE);
   }
 
   /**
-   * Open a dash's join narration at the press ([P01], Spec S02).
+   * Open an arc's join narration at the press ([P01], Spec S02).
    *
    * The first beat is written by the client, before the request leaves it, so
    * that no frame between the press and the server's first word can fall
    * through to the standing-candidate arm and rest on "Ready to join" over a
    * running join. It is a placeholder and nothing more: every server frame for
-   * the dash overwrites it, and a wire drop deletes it like any other
+   * the arc overwrites it, and a wire drop deletes it like any other
    * non-terminal beat.
    *
    * This is also what a *new* press does to the last one — seeding the new
@@ -550,8 +550,8 @@ export class ChangesetJoinStore {
    * {@link clearLand}, which stays the retraction verb for a press that was
    * refused after it was accepted.
    */
-  beginLand(workspaceKey: string, dash: string): void {
-    this._land.set(key(workspaceKey, dash), {
+  beginLand(workspaceKey: string, arc: string): void {
+    this._land.set(key(workspaceKey, arc), {
       beat: "requested",
       status: "start",
     });
@@ -559,7 +559,7 @@ export class ChangesetJoinStore {
   }
 
   /**
-   * Forget a dash's join narration — what retracts an accepted press.
+   * Forget an arc's join narration — what retracts an accepted press.
    *
    * A settled beat rests until something replaces it, so the press that starts
    * the next join is what retires the previous one's last word ({@link
@@ -569,8 +569,8 @@ export class ChangesetJoinStore {
    * announced itself and was then refused — a register saying "Joining" about
    * a join nobody is running is the same lie in the other direction.
    */
-  clearLand(workspaceKey: string, dash: string): void {
-    if (this._land.delete(key(workspaceKey, dash))) this._emit();
+  clearLand(workspaceKey: string, arc: string): void {
+    if (this._land.delete(key(workspaceKey, arc))) this._emit();
   }
 
   dispose(): void {
@@ -621,12 +621,12 @@ export function _ingestJoinFrameForTest(body: unknown): void {
 }
 
 /**
- * React hook: the live resolve state for one dash plus its triggers. Returns
+ * React hook: the live resolve state for one arc plus its triggers. Returns
  * idle + no-op triggers when no store is attached (gallery / fixtures).
  */
 export function useChangesetJoinResolve(
   workspaceKey: string,
-  dash: string,
+  arc: string,
 ): ResolveState & {
   resolve: () => void;
   clear: () => void;
@@ -638,17 +638,17 @@ export function useChangesetJoinResolve(
       if (store === null) return () => {};
       return store.subscribe(listener);
     },
-    () => _activeStore?.state(workspaceKey, dash) ?? IDLE,
+    () => _activeStore?.state(workspaceKey, arc) ?? IDLE,
     () => IDLE,
   );
   const resolve = (): void => {
-    _activeStore?.resolve(workspaceKey, dash);
+    _activeStore?.resolve(workspaceKey, arc);
   };
   const clear = (): void => {
-    _activeStore?.clear(workspaceKey, dash);
+    _activeStore?.clear(workspaceKey, arc);
   };
   const review = (candidate: string): void => {
-    _activeStore?.review(workspaceKey, dash, candidate);
+    _activeStore?.review(workspaceKey, arc, candidate);
   };
   return { ...state, resolve, clear, review };
 }
@@ -662,7 +662,7 @@ export function useChangesetJoinResolve(
  */
 export function useChangesetJoinLand(
   workspaceKey: string,
-  dash: string,
+  arc: string,
 ): LandProgress | null {
   return useSyncExternalStore(
     (listener) => {
@@ -670,19 +670,19 @@ export function useChangesetJoinLand(
       if (store === null) return () => {};
       return store.subscribe(listener);
     },
-    () => _activeStore?.landProgress(workspaceKey, dash) ?? null,
+    () => _activeStore?.landProgress(workspaceKey, arc) ?? null,
     () => null,
   );
 }
 
 /** No store attached, or nothing joining — one frozen empty set for both. */
-const NO_LANDING_DASHES: ReadonlySet<string> = new Set<string>();
+const NO_LANDING_ARCS: ReadonlySet<string> = new Set<string>();
 
 /**
- * React hook: which dashes in this workspace have a join running ([L02]).
+ * React hook: which arcs in this workspace have a join running ([L02]).
  *
- * The Changes room stops offering a dash the moment its join is pressed — the
- * acts the room held for it are spent, and a dash still on offer while it is
+ * The Changes room stops offering an arc the moment its join is pressed — the
+ * acts the room held for it are spent, and an arc still on offer while it is
  * being joined invites the second press that can only be refused. It comes
  * back if the join fails, because a failure is the one outcome that still
  * wants somebody.
@@ -694,7 +694,7 @@ export function useChangesetLandingArcs(workspaceKey: string): ReadonlySet<strin
       if (store === null) return () => {};
       return store.subscribe(listener);
     },
-    () => _activeStore?.landingDashes(workspaceKey) ?? NO_LANDING_DASHES,
-    () => NO_LANDING_DASHES,
+    () => _activeStore?.landingArcs(workspaceKey) ?? NO_LANDING_ARCS,
+    () => NO_LANDING_ARCS,
   );
 }

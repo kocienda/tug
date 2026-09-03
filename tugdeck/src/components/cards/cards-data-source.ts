@@ -351,17 +351,17 @@ export interface LensCardsInputs {
    */
   readonly nameVersion: unknown;
   /**
-   * The account-global changeset aggregate, which is where a session's dash
-   * comes from. Null before the connection is up — the same as no dash at all,
+   * The account-global changeset aggregate, which is where a session's arc
+   * comes from. Null before the connection is up — the same as no arc at all,
    * and the honest reading of "nothing has said yet".
    *
-   * The rows use it for one thing: a session's dash name joins the pane's
-   * filter match fields, so a reader who types a dash name finds the session
+   * The rows use it for one thing: a session's arc name joins the pane's
+   * filter match fields, so a reader who types an arc name finds the session
    * working it. What the row DRAWS comes from the row's own leaf subscription,
    * not from here.
    *
    * A whole snapshot rather than a version token because the match needs the
-   * dash's facts, not just notice that something moved; it is memoized per
+   * arc's facts, not just notice that something moved; it is memoized per
    * snapshot identity ({@link arcSessionIndex}), so a recompute costs one map
    * lookup per session row.
    */
@@ -537,16 +537,16 @@ export function buildCardsRows(
   const deck = inputs.deck;
   if (deck === null) return [];
 
-  // Session → dash, memoized on the snapshot, so every row's lookup is a map
+  // Session → arc, memoized on the snapshot, so every row's lookup is a map
   // hit rather than a walk of the aggregate.
-  const dashes =
+  const arcs =
     inputs.changesets === null
       ? null
       : arcSessionIndex(inputs.changesets);
-  const dashFor = (identity: CardIdentity): ArcSessionFact | null =>
-    dashes === null || identity.tugSessionId === null
+  const arcFor = (identity: CardIdentity): ArcSessionFact | null =>
+    arcs === null || identity.tugSessionId === null
       ? null
-      : dashes.get(identity.tugSessionId) ?? null;
+      : arcs.get(identity.tugSessionId) ?? null;
 
   const cardsById = new Map(deck.cards.map((c) => [c.id, c]));
   const cardSeq = new Map(deck.cards.map((c, i) => [c.id, i]));
@@ -621,13 +621,13 @@ export function buildCardsRows(
     //    show depends on which side matched: when the pane's own text matched,
     //    all of them (the user found the pane, so they get the pane); when only
     //    children matched, just those children.
-    // The dash NAME joins the pane's match fields: a reader who types a dash
+    // The arc NAME joins the pane's match fields: a reader who types an arc
     // name is looking for the session working it, and the sub-row that would
     // answer only shows under a pane row that survived.
     const survivors = filtering
       ? filterAndRank(ordered, query, (entry) => [
           ...matchFields(entry.identity),
-          dashFor(entry.identity)?.name ?? null,
+          arcFor(entry.identity)?.name ?? null,
           ...entry.cards.flatMap((c) => matchFields(c)),
         ])
       : ordered;

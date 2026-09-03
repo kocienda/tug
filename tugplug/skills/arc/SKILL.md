@@ -1,6 +1,6 @@
 ---
-name: dash
-description: Dash — sharpen an idea into a brief and a task list, then hand it to the wheel, which walks the steps and audits the landed code on fresh sessions of its own
+name: arc
+description: Arc — sharpen an idea into a brief and a task list, then hand it to the wheel, which walks the steps and audits the landed code on fresh sessions of its own
 argument-hint: "[name] [instruction…]"
 disable-model-invocation: true
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep, AskUserQuestion
@@ -9,14 +9,14 @@ disallowed-tools: Task
 
 ## What this is
 
-A **dash** is work that leaves the base on an isolated worktree and comes back through a **join**. This skill is one of the two **doors** onto that lane, and a door's whole job is to settle what the work is and hand it over. The **wheel** does the rest: it rotates the stages on fresh sessions of its own, on this same card, one step per turn, and reads the landed code cold at the end.
+An **arc** is work that leaves the base on an isolated worktree and comes back through a **join**. This skill is one of the two **doors** onto that lane, and a door's whole job is to settle what the work is and hand it over. The **wheel** does the rest: it rotates the stages on fresh sessions of its own, on this same card, one step per turn, and reads the landed code cold at the end.
 
 The two doors differ by **settling time**, and by nothing else:
 
-- **`/dash`** — the brief and the **task list** are written here, in this conversation, and the wheel opens straight at implement. Brief → implement → audit.
-- **`/trek`** — the brief is written here and a **plan** is devised and cold-reviewed before the first step is walked. Brief → devise → review → implement → audit.
+- **`/arc`** — the brief and the **task list** are written here, in this conversation, and the wheel opens straight at implement. Brief → implement → audit.
+- **`/arc-plan`** — the brief is written here and a **plan** is devised and cold-reviewed before the first step is walked. Brief → devise → review → implement → audit.
 
-Everything downstream of the ledger is identical in the two: one step per turn, compaction between steps, an audit of the whole diff by a session that never saw the run, the join offered through the Changes shade. `/dash` is not a lesser lane; it is the same lane entered by a door that has already answered what devise and review would have asked.
+Everything downstream of the ledger is identical in the two: one step per turn, compaction between steps, an audit of the whole diff by a session that never saw the run, the join offered through the Changes shade. `/arc` is not a lesser lane; it is the same lane entered by a door that has already answered what devise and review would have asked.
 
 **Which door they typed is the routing decision**, and it was made before you read this. Nothing here asks the user to choose a route.
 
@@ -28,11 +28,11 @@ Everything downstream of the ledger is identical in the two: one step per turn, 
 
 ## Input grammar
 
-`/dash <name> <instruction…>` — settle the dash `<name>` from `<instruction>` and hand it to the wheel.
+`/arc <name> <instruction…>` — settle the arc `<name>` from `<instruction>` and hand it to the wheel.
 
 `<name>` is alphanumeric + hyphens, 2+ chars, and everything after it is the instruction. There are no sub-verbs: joining is the `/arc-join` card verb, the readouts are `tugtool arc status|show|list`, and discard is a bare CLI call the user makes.
 
-**A bare `/dash <name>` that names an existing dash is a continuation.** Read what the dash already knows — `tugtool arc documents <name> --json` for its documents, `tugtool arc record <name> --json` for where its arc stands — say where it is, and offer to resume it with `tugtool arc run <name>`. Guessing "new idea" here starts a second dash beside the one they meant.
+**A bare `/arc <name>` that names an existing arc is a continuation.** Read what the arc already knows — `tugtool arc documents <name> --json` for its documents, `tugtool arc record <name> --json` for where it stands — say where it is, and offer to resume it with `tugtool arc run <name>`. Guessing "new idea" here starts a second arc beside the one they meant.
 
 ## The door
 
@@ -43,14 +43,14 @@ Before asking the user anything, find out what is already in flight:
 ```bash
 tugtool arc status              # what this card is bound to, if anything
 tugtool arc list --json         # what arcs exist
-tugtool arc documents <name> --json   # which documents a dash has
+tugtool arc documents <name> --json   # which documents an arc has
 ```
 
-A dash with no documents directory is a **state, not an error**: the verb exits 0 saying every document is absent, which is where every new dash starts.
+An arc with no documents directory is a **state, not an error**: the verb exits 0 saying every document is absent, which is where every new arc starts.
 
 **A stopped arc is the one thing that will never announce itself.** `tugtool arc record <name> --json` reports it; `data.arc.stopped` names the stage and the reason. Say both and offer the resume, which is the same verb — `tugtool arc run <name>` — because the documents hold the progress and a stage never re-runs work that landed.
 
-**A lone argument that names an existing dash is a continuation, not a new idea.** Check a short argument against `tugtool arc list` before reading it as an instruction.
+**A lone argument that names an existing arc is a continuation, not a new idea.** Check a short argument against `tugtool arc list` before reading it as an instruction.
 
 ### 2. Sharpen
 
@@ -62,7 +62,7 @@ What is worth asking is bounded by the doctrine's [never-ask list](../../../tugl
 
 ### 3. Write the brief
 
-Both doors open on a brief, and the brief is what carries this conversation's settling to sessions that will never see it. Settle the dash's name first, then:
+Both doors open on a brief, and the brief is what carries this conversation's settling to sessions that will never see it. Settle the arc's name first, then:
 
 ```bash
 tugtool arc documents <name> --ensure --json
@@ -78,7 +78,7 @@ Write the brief to the `brief` path it prints, against [`tuglaws/brief-skeleton.
 
 ### 4. Write the task list
 
-This is what makes this door the `/dash` door: the steps are settled here rather than by a devise stage, and their existence is what tells the wheel to open at implement.
+This is what makes this door the `/arc` door: the steps are settled here rather than by a devise stage, and their existence is what tells the wheel to open at implement.
 
 Write **this document** to the `tasks` path `arc documents` printed — the whole of it, and nothing more:
 
@@ -111,21 +111,21 @@ Write **this document** to the `tasks` path `arc documents` printed — the whol
 
 **This is deliberately not a plan.** No metadata, no phase overview, no success criteria, no review record — those are the devise stage's contract, and `tugtool plan lint` is the check for it, which a task list does not aim to pass. What it must do is **parse**: an `{#execution-steps}` section, a `{#step-status-ledger}` table whose first cell is each step's anchor, and a `#### Step N: … {#step-N}` heading per row. That is what the step verbs read, and a document that does not parse is refused rather than guessed at.
 
-**The advisory, when the work reads plan-shaped.** If what you have sharpened has many interdependent parts, or its *order* is itself the problem, or its decisions want settling before any step is written — say so in **one sentence** and offer `/trek <name>`, then do what the user says. Never an `AskUserQuestion`: offering a menu of routes to somebody who already typed one is the ceremony these two doors exist to remove.
+**The advisory, when the work reads plan-shaped.** If what you have sharpened has many interdependent parts, or its *order* is itself the problem, or its decisions want settling before any step is written — say so in **one sentence** and offer `/arc-plan <name>`, then do what the user says. Never an `AskUserQuestion`: offering a menu of routes to somebody who already typed one is the ceremony these two doors exist to remove.
 
 ### 5. Hand off
 
 ```bash
-tugtool arc run <name> --kind dash
+tugtool arc run <name>
 ```
 
-`--kind dash` is what records this as a dash: implement → audit, no devise stage and no review stage, because this door answered what both of them ask. The flag records the kind in the arc's own durable record, so the runner reads it rather than guessing from which documents happen to be on disk. Omitted, it defaults to `trek` — the other door's kind — so it is not optional here.
+**No flag is what records this as a plain arc**: implement → audit, no devise stage and no review stage, because this door answered what both of them ask. The absence is recorded in the arc's own durable record, so the runner reads it rather than guessing from which documents happen to be on disk. `--plan` is the *other* door's flag — it opens at devise over a brief this door has already settled past — so it is never passed here.
 
-The verb otherwise takes no document: it opens on what the dash has.
+The verb otherwise takes no document: it opens on what the arc has.
 
-It refuses without a calling session, because an arc runs *on a card* and there would otherwise be nowhere for a stage to rotate. It records the arc, binds this session to the dash, and returns — **and the first rotation happens when this turn ends, not on arrival.** That ordering is not incidental: the request is issued from inside your own turn, and rotating on receipt would kill the session mid-sentence.
+It refuses without a calling session, because an arc runs *on a card* and there would otherwise be nowhere for a stage to rotate. It records the arc, binds this session to it, and returns — **and the first rotation happens when this turn ends, not on arrival.** That ordering is not incidental: the request is issued from inside your own turn, and rotating on receipt would kill the session mid-sentence.
 
-**Every ledger gesture from here on draws itself on the card**: the dash created, the run declared, each step opened and closed, each round committed. The server reads them off the **dash-log** — the record the verbs already write — so the line is a derived view rather than something a stage is asked to remember. That is what the user watches a run by, and it is machinery rather than a stage's manners: nothing you do or forget can add or remove one.
+**Every ledger gesture from here on draws itself on the card**: the arc created, the run declared, each step opened and closed, each round committed. The server reads them off the **arc log** — the record the verbs already write — so the line is a derived view rather than something a stage is asked to remember. That is what the user watches a run by, and it is machinery rather than a stage's manners: nothing you do or forget can add or remove one.
 
 **Read the receipt before you end the turn.** That is not polling and it is not waiting: the verb has already returned, and its own words are the one place the anchor is visible. Confirm two things in them — that the arc opened or resumed, and that the session it names is a **live** one. `--json` says both directly: `started` or `resumed` is true, and `tug_session_id` is the server's answer rather than the id this shell was born holding.
 
@@ -139,7 +139,7 @@ Nothing else will speak until the run is over, so tell the user what they are ab
 
 - **One card, one scroll.** Every stage runs on *this* card, on a fresh claude session, and the transcript is not cleared between them. A labelled divider marks each boundary, naming the stage, its model, and the document it opened on.
 - **Two stages, then a stop.** Implement walks the task list — one step per turn, a commit per step — and audit reads the whole landed diff cold against the task list and the brief, fixing what does not match. A stage that fails writes why and stops rather than retrying; `tugtool arc run <name>` resumes exactly there.
-- **The ending is the join offer.** When the audit marks the dash, the Changes shade reveals itself on this card carrying the message the join would land.
+- **The ending is the join offer.** When the audit marks the arc, the Changes shade reveals itself on this card carrying the message the join would land.
 - **Nothing needs typing in between.**
 
 **Do not print a `/arc-join <name>` chip.** The shade summons itself; a chip beside it teaches the user that nothing happens until they type, which is the belief the wheel exists to retire.
@@ -150,14 +150,14 @@ Nothing else will speak until the run is over, so tell the user what they are ab
 - **Both documents, before the hand-off.** A brief with no task list opens the wrong arc; a task list with no brief hands the audit nothing to judge intent against.
 - **Never lint the task list, and never grow it into a plan.** A task list that wants a plan's frame wanted the other door.
 - **Ask about the design, never the process.** Bounded by the doctrine's never-ask list — nothing with a conventional default, nothing the code can answer, never "should I continue?".
-- **The advisory is a sentence, never a dialog.** One offer of `/trek`, then do what the user says.
-- **`--kind dash`, always.** The flag is what records this door's kind; without it the arc defaults to the other door's and opens at devise over a brief this door already settled.
+- **The advisory is a sentence, never a dialog.** One offer of `/arc-plan`, then do what the user says.
+- **Never `--plan`, here.** That flag is what records the other door's shape; passing it opens the arc at devise over a brief this door already settled past.
 - **Read the receipt, then end the turn.** The first rotation happens at *this* turn's end, so `arc run` is the last thing you do — but its receipt is a returned value, not a thing to wait for, and confirming it names a live session is this session's one chance to see the anchor set. Never wait on the rotation, never poll `arc record`.
 - **Landing is the user's act.** The arc stops before the join, every time.
 - **Never discard on your own initiative.** `tugtool arc discard` destroys work; it is named here only so that rule has somewhere to live.
 
 ## When to reach for something else
 
-The other door is `/trek`, for work whose decisions want settling before any step is written. Something the user mostly wants to *look at* belongs at `/tugplug:spike-card`.
+The other door is `/arc-plan`, for work whose decisions want settling before any step is written. Something the user mostly wants to *look at* belongs at `/tugplug:spike-card`.
 
-**The stage skills are not among the alternatives.** `arc-devise`, `arc-review`, `arc-implement`, and `arc-audit` are stages of an arc, and each refuses to run outside one — they are internal machinery rather than doors, and there is no one-stage arc for a typed invocation to land in. A plan that exists and wants reviewing, or a ledger that exists and wants walking, is a dash whose arc is resumed with `tugtool arc run <name>`.
+**The stage skills are not among the alternatives.** `arc-devise`, `arc-review`, `arc-implement`, and `arc-audit` are stages of an arc, and each refuses to run outside one — they are internal machinery rather than doors, and there is no one-stage arc for a typed invocation to land in. A plan that exists and wants reviewing, or a ledger that exists and wants walking, is an arc that is resumed with `tugtool arc run <name>`.

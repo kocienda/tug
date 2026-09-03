@@ -1,5 +1,5 @@
 /**
- * at0419-join-receipt.test.ts — a landed join and a discarded dash render as
+ * at0419-join-receipt.test.ts — a landed join and a discarded arc render as
  * receipts, not as raw shell output ([P06]).
  *
  * The server formats both summaries (Specs S01 / S02), writes them to the
@@ -13,7 +13,7 @@
  *
  * A join lands a commit on the base, so its receipt is the commit receipt:
  * the sha and squash subject lead, the file and ± badges ride the header, the
- * landed files are expandable rows, and one line — `dash → base` — carries the
+ * landed files are expandable rows, and one line — `arc → base` — carries the
  * identity a plain commit has no room for.
  *
  * The expansion is driven over **this checkout's own HEAD**, whose sha and
@@ -29,14 +29,14 @@
  * ## What this cannot drive, and where that is covered
  *
  * A real land from the card is not reachable from an app-test in this
- * repository. A join squashes the dash onto its base **in the main checkout**,
+ * repository. A join squashes the arc onto its base **in the main checkout**,
  * which here is the developer's own working tree — a fixture commit on `main`,
  * mid-run, with their uncommitted work in the index. Pointing the card at a
  * scratch repository instead does not help: the changeset aggregate composes
  * exactly one project, this checkout (at0332 records the same constraint), so
- * a dash in `/tmp` never reaches the card for `/arc-join` to resolve.
+ * a arc in `/tmp` never reaches the card for `/arc-join` to resolve.
  *
- * A **discard** has no such cost — it destroys a fixture dash and nothing
+ * A **discard** has no such cost — it destroys a fixture arc and nothing
  * else — so the end-to-end path that this file cannot walk (card → server →
  * shell ledger → Maker ▸ Reload → the same bytes) is walked by the discard in
  * `at0418-join-outcomes.test.ts`, over the same formatter, the same ledger
@@ -70,7 +70,7 @@ const JOIN_SUMMARY =
   "joined 0123456789 · join-lane → main · 5 round(s)\n" +
   'files: [{"path":"src/a.rs","status":"modified","added":16,"removed":1},' +
   '{"path":"src/b.rs","status":"created","added":4,"removed":0}]\n' +
-  "tugdash(join-lane): land the join surface";
+  "tugarc(join-lane): land the join surface";
 /**
  * A join receipt written before the `files:` line existed — read forever,
  * written never. A non-squash join produces these same bytes today, because
@@ -78,7 +78,7 @@ const JOIN_SUMMARY =
  */
 const HISTORICAL_JOIN_SUMMARY =
   "joined fedcba9876 · old-lane → main · 2 round(s)\n" +
-  "tugdash(old-lane): land what came before";
+  "tugarc(old-lane): land what came before";
 /** The exact S02 bytes `format_discard_summary` produces. */
 const DISCARD_SUMMARY =
   "discarded spike · 2 round(s), 3 file(s)\n" +
@@ -164,7 +164,7 @@ beforeAll(() => {
     `joined ${realSha.slice(0, 10)} · real-lane → main · 1 round(s)\n` +
     `files: [{"path":"${realPath}","status":"modified",` +
     `"added":${numstat[0] ?? "0"},"removed":${numstat[1] ?? "0"}}]\n` +
-    "tugdash(real-lane): land a real file";
+    "tugarc(real-lane): land a real file";
 });
 
 afterAll(() => {
@@ -238,7 +238,7 @@ describe.skipIf(!SHOULD_RUN)("AT0419: the join and discard receipts", () => {
         );
         const joined = await app.evalJS<{
           identity: string;
-          dashIdentity: string;
+          arcIdentity: string;
           body: string;
           rows: string[];
           terminals: number;
@@ -247,7 +247,7 @@ describe.skipIf(!SHOULD_RUN)("AT0419: the join and discard receipts", () => {
              const block = document.querySelector(${JSON.stringify(JOIN_RECEIPT)});
              return {
                identity: (block.querySelector(".join-receipt-header")?.textContent ?? "").trim(),
-               dashIdentity: (block.querySelector(".join-receipt-identity")?.textContent ?? "").trim(),
+               arcIdentity: (block.querySelector(".join-receipt-identity")?.textContent ?? "").trim(),
                body: (block.querySelector('[data-slot="join-receipt-detail"]')?.textContent ?? "").trim(),
                rows: Array.from(
                  block.querySelectorAll('[data-testid="tug-changes-list-file-block"]'),
@@ -262,10 +262,10 @@ describe.skipIf(!SHOULD_RUN)("AT0419: the join and discard receipts", () => {
         // it, exactly as on a `/commit`. That is the parity this receipt is
         // for: the header is a commit's header.
         expect(joined.identity).toContain("01234567");
-        expect(joined.identity).toContain("tugdash(join-lane): land the join surface");
+        expect(joined.identity).toContain("tugarc(join-lane): land the join surface");
         // The join's own fact — the identity a plain commit cannot carry —
         // sits in the body, not the header.
-        expect(joined.dashIdentity).toBe("join-lane → main");
+        expect(joined.arcIdentity).toBe("join-lane → main");
         // The settled register comes AFTER the receipt. The commit is the act
         // and the register is the word for its outcome, so a reader meets what
         // landed and then what to call it; ahead of the receipt it was an
@@ -341,7 +341,7 @@ describe.skipIf(!SHOULD_RUN)("AT0419: the join and discard receipts", () => {
         );
         const historical = await app.evalJS<{
           identity: string;
-          dashIdentity: string;
+          arcIdentity: string;
           lists: number;
         }>(
           `(() => {
@@ -349,20 +349,20 @@ describe.skipIf(!SHOULD_RUN)("AT0419: the join and discard receipts", () => {
              const block = blocks[blocks.length - 1];
              return {
                identity: (block.querySelector(".join-receipt-header")?.textContent ?? "").trim(),
-               dashIdentity: (block.querySelector(".join-receipt-identity")?.textContent ?? "").trim(),
+               arcIdentity: (block.querySelector(".join-receipt-identity")?.textContent ?? "").trim(),
                lists: block.querySelectorAll(${JSON.stringify(FILE_LIST)}).length,
              };
            })()`,
         );
         note(`at0419 historical join receipt: ${JSON.stringify(historical)}`);
         expect(historical.identity).toContain("fedcba98");
-        expect(historical.identity).toContain("tugdash(old-lane): land what came before");
-        expect(historical.dashIdentity).toBe("old-lane → main");
+        expect(historical.identity).toContain("tugarc(old-lane): land what came before");
+        expect(historical.arcIdentity).toBe("old-lane → main");
         // No files line, so no file list — degraded, never fabricated.
         expect(historical.lists).toBe(0);
 
         // ── The discard receipt ───────────────────────────────────────────
-        await receiptRow(app, "discard-1", "/dash-discard", DISCARD_SUMMARY);
+        await receiptRow(app, "discard-1", "/arc-discard", DISCARD_SUMMARY);
         await app.waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(DISCARD_RECEIPT)}).length === 1`,
           { timeoutMs: 20000 },
@@ -377,7 +377,7 @@ describe.skipIf(!SHOULD_RUN)("AT0419: the join and discard receipts", () => {
            })()`,
         );
         note(`at0419 discard receipt: ${JSON.stringify(discarded)}`);
-        // No sha to lead with — the dash IS the identity.
+        // No sha to lead with — the arc IS the identity.
         expect(discarded.identity).toBe("spike");
         expect(discarded.body).toContain("first round");
         expect(discarded.body).toContain("second round");

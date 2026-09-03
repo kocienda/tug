@@ -27,15 +27,15 @@ import type { AtomBytesEntry } from "@/lib/atom-bytes-store";
 const ATOM_COMMAND: AtomSegment = {
   kind: "atom",
   type: "command",
-  label: "tugplug:dash",
-  value: "tugplug:dash",
+  label: "tugplug:arc",
+  value: "tugplug:arc",
 };
 
 const ATOM_FILE: AtomSegment = {
   kind: "atom",
   type: "file",
-  label: "dash/verify-surfaces-brief.md",
-  value: "dash/verify-surfaces-brief.md",
+  label: "arc/verify-surfaces-brief.md",
+  value: "arc/verify-surfaces-brief.md",
 };
 
 const ATOM_IMAGE: AtomSegment = {
@@ -191,14 +191,14 @@ describe("formatAtomTextForCopy", () => {
   test("command atom keeps the leading slash it is drawn with", () => {
     // A command atom stores the BARE name; the slash is added for display
     // (`chipDisplayLabel`) and for the wire (`commandWireText`). A copy that
-    // wrote the stored label handed back `tugplug:dash` — text that no longer
+    // wrote the stored label handed back `tugplug:arc` — text that no longer
     // invokes the command when pasted back into a prompt.
     expect(
       formatAtomTextForCopy(`${TUG_ATOM_CHAR} on ${TUG_ATOM_CHAR}`, [
         ATOM_COMMAND,
         ATOM_README,
       ]),
-    ).toBe("/tugplug:dash on [README.md](</repo/README.md>)");
+    ).toBe("/tugplug:arc on [README.md](</repo/README.md>)");
   });
 
   test("stray U+FFFC (atom missing) passes through verbatim", () => {

@@ -45,6 +45,34 @@ alert, unknowns alert, pass-throughs run.
 onto claude's stdin — no slash detection, no rewriting, no gating, no tool
 allowlist. If a command reaches tugcode, it reaches claude.
 
+### The unlisted set is presentation, not a tier {#unlisted}
+
+`UNLISTED_SLASH_COMMANDS` in `slash-supported.ts` holds the arc's four stage
+skills — `arc-devise`, `arc-review`, `arc-implement`, `arc-audit`. It is
+deliberately **not** a fourth row in the table above, because it is not a
+`SlashSupport` member and the classifier never returns it. It says exactly one
+thing: the completion popup does not offer this name. Classification, the
+dispatch order, the unknown-command check, and what reaches claude are all
+unchanged — a stage skill typed anyway is a `pass-through` that resolves and
+runs, the same as before.
+
+The membership rule is that **a stage skill is not vocabulary anyone speaks**.
+Each refuses to run outside an arc, so a user reading the popup for a door
+should not have to read past four names that would stop the moment they were
+typed. The doors — `/arc` and `/arc-plan` — stay listed, as does every local
+command.
+
+`isUnlistedSlashCommand()` matches on the part after the last `:`, so the
+namespaced `tugplug:arc-devise` and the bare `arc-devise` answer alike, and a
+name that is *also* in `LOCAL_SLASH_COMMANDS` is exempt. That exemption is what
+keeps the `/arc-review` card verb offered even though it shares a leaf with a
+stage skill.
+
+`tuglaws/session-card-unsupported-slash-commands.md` is the **hidden** set's
+user-facing mirror and does not list unlisted names: a hidden command is one the
+user is told about when they type it, and an unlisted one is a command that
+still works.
+
 ## Catalog sources {#catalog-sources}
 
 The client learns which commands exist from two wire sources, both produced by
@@ -57,6 +85,10 @@ tugcode:
   `tugcode/src/types.ts`). Features that must work *from the drop* — the `/`
   popup, the unknown-command check — read this handshake, never the post-turn
   metadata.
+
+  The completion layer applies one more filter on top of this catalog:
+  `filterCommandProvider` in `use-session-card-services.ts` drops both the
+  hidden tier and the [unlisted set](#unlisted) before the popup renders.
 - **`system_metadata.slash_commands`** (post-turn) — claude's `system/init` event
   carries a `slash_commands` array, forwarded after the first turn. It is a
   late-arriving refinement, not the popup's source.
@@ -74,7 +106,7 @@ entries so both forms work and neither trips the unknown-command alert.
 
 The same resolver answers in **three** places, and that is deliberate: the `/`
 popup ranks a bare query against the namespace leaf (`scoreCommandMatch` scores
-the leaf and takes the better, so `dash` hits `tugplug:dash` as an exact match);
+the leaf and takes the better, so `arc` hits `tugplug:arc` as an exact match);
 submit canonicalizes; and the transcript's clickable-command gate
 (`isKnownSlashCommandName` in `slash-supported.ts`, built in
 `useKnownSlashCommand`) decides whether an inline `` `/code` `` span becomes a
@@ -178,22 +210,24 @@ paid once by whoever's fingers remember.
 
 **Reclaim a bare name for a catalogued command**: the one case where deleting a
 local entry is right, because falling through to claude is the *intent* rather
-than the accident the rule above guards against. `/dash` is the worked example.
-It was a local alias for `/arc-bind`, so a typed `/dash` was intercepted at
-tier 1 and never left the client; the bare name is now the `tugplug:dash`
-orchestrator skill's.
+than the accident the rule above guards against. `/arc` is the worked example.
+`/dash` — the name the arc door carried before the lexicon settled on one word
+— was a local alias for `/arc-bind`, so a typed `/dash` was intercepted at
+tier 1 and never left the client. The alias was deleted and the bare name
+surrendered to the door skill; that skill is `tugplug:arc` today, and the bare
+`/arc` reaches it by the same path.
 
 What makes the fall-through safe is that **every hop after the local miss
 resolves**: the name is in no hidden group, so it classifies as pass-through;
-`resolveRemoteCommand` finds `tugplug:dash` by *unique* namespace suffix, so
+`resolveRemoteCommand` finds `tugplug:arc` by *unique* namespace suffix, so
 `isUnknownRemoteCommand` says no and the alert never fires; and
-`canonicalizeBareCommandLine` rewrites the line to `/tugplug:dash …` so the wire
+`canonicalizeBareCommandLine` rewrites the line to `/tugplug:arc …` so the wire
 and the transcript carry the name claude expands. The test to run before
 deleting is therefore not "has this alias outlived its usefulness" but **"does a
 catalog entry answer to the bare name, and only one?"** A second entry sharing
 the leaf makes resolution ambiguous, which reads to the user as an unknown
 command — so pin the leaf's uniqueness against the real enumerated list rather
-than assuming it (`tugdeck/src/lib/__tests__/slash-dash-reclamation.test.ts`,
+than assuming it (`tugdeck/src/lib/__tests__/slash-arc-reclamation.test.ts`,
 `tugcode/src/__tests__/plugin-commands.test.ts`).
 
 Ordering matters for bisectability: ship the skill first, surrender the name

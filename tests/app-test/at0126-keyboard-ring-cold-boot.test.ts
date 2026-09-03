@@ -14,7 +14,7 @@
  * ⇒ `applyBagFocus` didn't re-place the key view on restore.
  *
  * **Why phase B asserts the key view and not the ring.** Under KBF mode
- * ([dash/kbf-mode.md]) `data-key-view-kbd` means "a ring is painted here",
+ * ([arc/kbf-mode.md]) `data-key-view-kbd` means "a ring is painted here",
  * and the mode bit is session-transient by design — a relaunched deck is in
  * mode OFF until the user asks for the mode again. So the restored key view is
  * correctly *unpainted*, and phase B asserts that too: what persists across a
@@ -93,7 +93,7 @@ interface FocusBag {
 
 describe.skipIf(!SHOULD_RUN)("AT0126: keyboard ring survives cold boot", () => {
   for (const v of VARIANTS) {
-    // The KEY VIEW, not the ring. Under KBF mode ([dash/kbf-mode.md]) the
+    // The KEY VIEW, not the ring. Under KBF mode ([arc/kbf-mode.md]) the
     // `-kbd` flavor means "a ring is painted here", and the mode bit is
     // session-transient by design — a cold boot lands in mode OFF, so the
     // restored key view is correctly unpainted. What this test is about is the

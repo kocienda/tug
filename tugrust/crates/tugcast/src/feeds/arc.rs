@@ -11,7 +11,7 @@
 //!
 //! No filesystem, no git, no process spawn, no clock. Every fact it reads is
 //! one the dispatcher already gathered on a path that was going to read the
-//! dash-log and the plan anyway — the same split `join_pilot` uses, and
+//! arc log and the plan anyway — the same split `join_pilot` uses, and
 //! for the same reason: a fact checked here and acted on a scheduling hop later
 //! is a time-of-check/time-of-use window a second tick walks straight through,
 //! so the *act* re-reads under its guard and the *decision* stays testable
@@ -33,10 +33,10 @@ use tugtool_core::plan::ReviewState;
 /// gate will raise, so the arc records a note and moves rather than looping.
 pub const REVIEW_CAP: usize = 2;
 
-/// What the plan's Step Status Ledger and the dash's own run declarations say.
+/// What the plan's Step Status Ledger and the arc's own run declarations say.
 ///
 /// All of it is read from the plan at its *current* location and from the
-/// dash-log's `run-through` / `step-done` lines — the predicate never
+/// arc log's `run-through` / `step-done` lines — the predicate never
 /// resolves a path.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct StepLedgerFacts {
@@ -49,11 +49,11 @@ pub struct StepLedgerFacts {
     /// the decision, and re-walking the row would defeat it.
     pub first_pending: Option<usize>,
     /// The last step the implement run declared it would walk
-    /// (`DashDeclarations::run_through`). `None` until a run declares one, and
+    /// (`ArcDeclarations::run_through`). `None` until a run declares one, and
     /// a continued implement stage cannot be composed without it.
     pub run_through: Option<usize>,
     /// The declared final step is `done` — the run is finished
-    /// (`DashDeclarations::run_complete`).
+    /// (`ArcDeclarations::run_complete`).
     pub run_complete: bool,
     /// A step went `done` since the dispatcher's previous tick. It is the
     /// dispatcher's fact, not the ledger's: the ledger says which rows are
@@ -70,12 +70,12 @@ pub struct ArcFacts {
     /// The input document already parses and lints as a plan, so the devise
     /// stage is skipped and the first rotation is `review`.
     pub input_is_plan: bool,
-    /// The dash's ledger is a **task list** — a `tasks.md` the `/dash` door
+    /// The arc's ledger is a **task list** — a `tasks.md` the `/arc` door
     /// wrote — rather than a devised plan. There is nothing to devise and
     /// nothing to review, so the first rotation is `implement`.
     ///
     /// False whenever a plan exists, which is what makes a plan outrank a task
-    /// list: an arc carrying both is read as a trek.
+    /// list: an arc carrying both is read as planned.
     ///
     /// **A fallback only.** The progression comes from the record's
     /// [`ArcKind`] now ([B04] forbids sniffing the documents for it); this
@@ -149,7 +149,7 @@ pub struct ArcFacts {
     /// measurement is not a reason to guess.
     pub context_tokens: Option<u64>,
     /// The context size above which a continued stage is compacted at a step
-    /// boundary, `[tugtool.dash].implement_compact_tokens`. The arc's one
+    /// boundary, `[tugtool.arc].implement_compact_tokens`. The arc's one
     /// threshold: a stage a compaction cannot bring back under it rotates.
     pub compact_tokens: u64,
     /// The seated stage has more turns to run on this session — it is an
@@ -170,10 +170,10 @@ pub struct ArcFacts {
     /// what lets the predicate continue the stage anyway — and what tells an
     /// API error there apart from one on the work.
     pub compact_turn_just_ended: bool,
-    /// The dash carries an `audited` declaration — the audit stage's whole
+    /// The arc carries an `audited` declaration — the audit stage's whole
     /// product, and the one document fact that says it ran.
     ///
-    /// Read from the dash-log's declarations rather than from anything the
+    /// Read from the arc log's declarations rather than from anything the
     /// stage said: a stage announces nothing and is believed about nothing.
     pub audit_declared: bool,
     /// How many turns the seated stage has ended in a row without closing a
@@ -188,7 +188,7 @@ pub struct ArcFacts {
     pub quiet_turns: u32,
     /// The arc's clock has run out: nothing has moved — no turn ended, no
     /// step closed, no act by the runner — for the whole of
-    /// `[tugtool.dash].arc_stall_secs`.
+    /// `[tugtool.arc].arc_stall_secs`.
     ///
     /// The runner computes it, because it is the only party that holds a
     /// previous reading *and* a wall clock; the predicate reads it like any
@@ -281,7 +281,7 @@ pub enum ArcAction {
 /// The arms are in the doctrine's order and the first match wins.
 pub fn arc_action(record: &ArcRecord, facts: &ArcFacts) -> Option<ArcAction> {
     // A finished or stopped arc is not advanced by a tick. Resuming a stopped
-    // arc is an explicit `/dash`, which rotates the stopped stage again and
+    // arc is an explicit `/arc`, which rotates the stopped stage again and
     // clears the stop by doing so.
     if record.done || record.stopped.is_some() {
         return None;
@@ -456,14 +456,14 @@ fn start_action(record: &ArcRecord, facts: &ArcFacts) -> ArcAction {
             reason: ArcStopReason::DocumentMissing,
         };
     }
-    // The **recorded kind** decides the progression ([B04]): a dash is
+    // The **recorded kind** decides the progression ([B04]): a plain arc is
     // implement → audit and opens at implement whatever is on disk, because
-    // its task list is the implement stage's own first act; a trek is devise →
-    // review → implement → audit and opens at review only when the devising is
-    // already done.
+    // its task list is the implement stage's own first act; a planned arc is
+    // devise → review → implement → audit and opens at review only when the
+    // devising is already done.
     let stage = match record.kind {
-        Some(ArcKind::Dash) => ArcStage::Implement,
-        Some(ArcKind::Trek) => {
+        Some(ArcKind::Plain) => ArcStage::Implement,
+        Some(ArcKind::Planned) => {
             if facts.input_is_plan {
                 ArcStage::Review
             } else {
@@ -474,10 +474,11 @@ fn start_action(record: &ArcRecord, facts: &ArcFacts) -> ArcAction {
         // existed has no kind to read, so the documents answer as they always
         // did: a plan opens at review, a task list at implement, a brief alone
         // at devise. The skew direction is toward *more* settling — a
-        // pre-kind arc whose door meant `dash` but wrote only a brief opens
-        // at devise rather than implement, which spends two rotations it did
-        // not need and never skips a cold read it did. `--kind` defaults to
-        // `trek` for the same reason.
+        // pre-kind arc whose door meant a plain arc but wrote only a brief
+        // opens at devise rather than implement, which spends two rotations it
+        // did not need and never skips a cold read it did. The sniff skews
+        // this way for the pre-kind arc only: the default is plain, matching
+        // the bare door.
         None => {
             if facts.input_is_plan {
                 ArcStage::Review
@@ -612,10 +613,10 @@ fn implement_action(facts: &ArcFacts) -> Option<ArcAction> {
     })
 }
 
-/// The audit stage's one question: did it mark the dash?
+/// The audit stage's one question: did it mark the arc?
 ///
 /// The mark is the stage's product, exactly as the stamp is the review's, and
-/// the stage's own turn has ended by the time this is asked — so a dash still
+/// the stage's own turn has ended by the time this is asked — so an arc still
 /// unmarked is one whose audit is over and answered nothing. Waiting another
 /// tick would wait forever.
 ///
@@ -623,7 +624,7 @@ fn implement_action(facts: &ArcFacts) -> Option<ArcAction> {
 /// deliberate: a review that did not stamp leaves a plan the implement stage
 /// would walk anyway, so a retry buys something. An audit that did not mark
 /// leaves committed code and a run that is finished — the honest end is to
-/// stop and say the audit did not happen, because the alternative is a dash
+/// stop and say the audit did not happen, because the alternative is an arc
 /// that offers its join wearing a word nothing earned.
 fn audit_action(facts: &ArcFacts) -> ArcAction {
     if facts.audit_declared {
@@ -659,10 +660,10 @@ mod tests {
 
     fn record(stages: &[ArcStage]) -> ArcRecord {
         ArcRecord {
-            dash: "demo".to_string(),
-            document: Some("dash/demo-brief.md".to_string()),
+            arc: "demo".to_string(),
+            document: Some("arc/demo-brief.md".to_string()),
             kind: None,
-            plan: Some("dash/demo.md".to_string()),
+            plan: Some("arc/demo.md".to_string()),
             stages: stages
                 .iter()
                 .map(|stage| ArcStageLine {
@@ -687,7 +688,7 @@ mod tests {
             document_exists: true,
             input_is_plan: false,
             task_list: false,
-            plan_path: Some("dash/demo.md".to_string()),
+            plan_path: Some("arc/demo.md".to_string()),
             lint_ok: true,
             review: Some(ReviewState::Reviewed),
             ledger: StepLedgerFacts::default(),
@@ -737,14 +738,14 @@ mod tests {
         assert_eq!(rotation(action).stage, ArcStage::Review);
     }
 
-    /// **The recorded kind decides, not the documents.** A dash opens at
+    /// **The recorded kind decides, not the documents.** A plain arc opens at
     /// implement over a brief alone — the task list it will walk is the
     /// implement stage's own first act ([B04]), so there is nothing on disk
     /// for a sniff to find and nothing it should wait for.
     #[test]
-    fn a_recorded_dash_opens_at_implement_with_no_task_list_on_disk() {
+    fn a_recorded_plain_arc_opens_at_implement_with_no_task_list_on_disk() {
         let mut record = record(&[]);
-        record.kind = Some(ArcKind::Dash);
+        record.kind = Some(ArcKind::Plain);
         let facts = facts();
         assert!(!facts.task_list, "nothing on disk says implement");
         assert_eq!(
@@ -754,12 +755,12 @@ mod tests {
     }
 
     /// And the kind outranks a task list in the other direction: a recorded
-    /// trek over a `tasks.md` still devises. Sniffing would have sent it to
+    /// planned arc over a `tasks.md` still devises. Sniffing would have sent it to
     /// implement and skipped the settling the door asked for.
     #[test]
-    fn a_recorded_trek_devises_over_a_task_list() {
+    fn a_recorded_planned_arc_devises_over_a_task_list() {
         let mut record = record(&[]);
-        record.kind = Some(ArcKind::Trek);
+        record.kind = Some(ArcKind::Planned);
         let mut facts = facts();
         facts.task_list = true;
         assert_eq!(
@@ -768,13 +769,13 @@ mod tests {
         );
     }
 
-    /// A recorded trek whose document already lints still opens at review —
-    /// the kind names the progression, and the documents say how far along it
-    /// the arc already is.
+    /// A recorded planned arc whose document already lints still opens at
+    /// review — the kind names the progression, and the documents say how far
+    /// along it the arc already is.
     #[test]
-    fn a_recorded_trek_on_a_devised_plan_opens_at_review() {
+    fn a_recorded_planned_arc_on_a_devised_plan_opens_at_review() {
         let mut record = record(&[]);
-        record.kind = Some(ArcKind::Trek);
+        record.kind = Some(ArcKind::Planned);
         let mut facts = facts();
         facts.input_is_plan = true;
         assert_eq!(
@@ -785,7 +786,7 @@ mod tests {
 
     /// **The pre-kind fallback.** An arc opened before `arc-kind` existed
     /// carries no kind, so the documents answer as they always did: a brief
-    /// beside a task list means the `/dash` door already settled both
+    /// beside a task list means the `/arc` door already settled both
     /// settling stages, and the arc opens at implement.
     #[test]
     fn an_opened_arc_on_a_task_list_skips_devise_and_review() {
@@ -812,7 +813,7 @@ mod tests {
     }
 
     /// A task list changes only where the arc *opens*. Everything downstream
-    /// — the walk, the audit — is the machinery a trek already runs.
+    /// — the walk, the audit — is the machinery a planned arc already runs.
     #[test]
     fn a_task_list_arc_walks_and_audits_like_any_other() {
         let mut facts = facts();
@@ -1181,7 +1182,7 @@ mod tests {
     }
 
     /// The mark is what makes a finished run finished, and it is read from the
-    /// dash's own declarations rather than from anything a stage said.
+    /// arc's own declarations rather than from anything a stage said.
     #[test]
     fn a_finished_run_that_was_already_audited_is_done() {
         let mut facts = facts();
@@ -1194,7 +1195,7 @@ mod tests {
     }
 
     #[test]
-    fn an_audit_that_marked_the_dash_ends_the_arc() {
+    fn an_audit_that_marked_the_arc_ends_the_arc() {
         let mut facts = facts();
         facts.ledger.run_complete = true;
         facts.audit_declared = true;

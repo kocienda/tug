@@ -655,7 +655,7 @@ pub static PROBES: &[ProbeRecord] = &[
     ProbeRecord {
         name: "test-21-glob-tool",
         input_script: &[ProbeMsg::UserMessage {
-            text: "Use the Glob tool to find all .md files in the dash/ directory.",
+            text: "Use the Glob tool to find all .md files in the arc/ directory.",
         }],
         required_events: &[
             "system_metadata",
@@ -767,11 +767,11 @@ pub static PROBES: &[ProbeRecord] = &[
             "probe script incomplete — /tugplug:devise asks clarifying questions the script never answers; needs redesign (not P19)",
         ),
     },
-    // --- Test 26: /dash and /tugplug:dash ---
+    // --- Test 26: /arc and /tugplug:arc ---
     ProbeRecord {
-        name: "test-26-slash-dash",
+        name: "test-26-slash-arc",
         input_script: &[ProbeMsg::UserMessage {
-            text: "/tugplug:dash status",
+            text: "/tugplug:arc status",
         }],
         required_events: &["system_metadata", "turn_complete"],
         optional_events: &[
@@ -839,11 +839,11 @@ pub static PROBES: &[ProbeRecord] = &[
         timeout_secs: 45,
         skip_reason: None,
     },
-    // --- Test 30: /tugplug:dash status (full orchestrator run) ---
+    // --- Test 30: /tugplug:arc status (full orchestrator run) ---
     ProbeRecord {
-        name: "test-30-tugplug-dash-status",
+        name: "test-30-tugplug-arc-status",
         input_script: &[ProbeMsg::UserMessage {
-            text: "/tugplug:dash status",
+            text: "/tugplug:arc status",
         }],
         required_events: &["system_metadata", "turn_complete"],
         optional_events: &[

@@ -8,7 +8,7 @@
  * of investigation had nothing to read.
  *
  * What this drives is the mechanism, not a hypothesis about which condition
- * fires: an empty message over an otherwise landable dash is the cheapest
+ * fires: an empty message over an otherwise landable arc is the cheapest
  * deterministic refusal there is. The press produces a bulletin carrying the
  * gate's own sentence, the mode stays up, and nothing goes on the wire.
  *
@@ -42,14 +42,14 @@ import {
   seedTugbankForLaunch,
 } from "./_harness/tugbank-helpers";
 import {
-  bindDash,
+  bindArc,
   makeJoinScratchRepo,
   rmJoinScratchRepo,
   rmScratchSession,
   seedScratchSession,
   silenceJoinPrompt,
   type JoinScratchRepo,
-} from "./dash-fixture";
+} from "./arc-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 240_000;
@@ -58,7 +58,7 @@ const SID = "a7c0d1ea-0000-4000-8000-000000000435";
 const CARD = '[data-card-id="A"]';
 const EDITOR = `${CARD} [data-slot="tug-text-editor"] .cm-content`;
 const SHEET = `${CARD} .session-view-pane[data-view="changes"] [data-slot="tug-sheet"]`;
-const LANE = `${SHEET} [data-slot="session-changes-dash-lane"]`;
+const LANE = `${SHEET} [data-slot="session-changes-arc-lane"]`;
 const ROUTE_GROUP = `${CARD} .tug-prompt-entry-toolbar .tug-prompt-entry-route-group`;
 const JOIN_BUTTON = `${CARD} .tug-prompt-entry-commit-button[aria-label="Join"]`;
 
@@ -69,49 +69,49 @@ const FILE = "subject.txt";
 /** The scratch repository this fixture owns, and the only tree it touches. */
 let scratch: JoinScratchRepo | null = null;
 const projectDir = (): string => scratch?.repo ?? "";
-const DASH = "at0435-work";
+const ARC = "at0435-work";
 let fixtureDir = "";
 let tugbankPath = "";
-let dashId = "";
+let arcId = "";
 
-const row = (dash: string): string =>
-  `${LANE} [data-slot="session-changes-dash-row"][data-dash="${dash}"]`;
-const landing = (dash: string): string =>
-  `${row(dash)} [data-slot="session-changes-arc-join"]`;
+const row = (arc: string): string =>
+  `${LANE} [data-slot="session-changes-arc-row"][data-arc="${arc}"]`;
+const landing = (arc: string): string =>
+  `${row(arc)} [data-slot="session-changes-arc-join"]`;
 // Card-scoped, not row-scoped: the register that reports a join in progress is
-// the composer's live-edge one, not a copy inside the lane row. One dash is
-// bound here, so the card's register is this dash's.
+// the composer's live-edge one, not a copy inside the lane row. One arc is
+// bound here, so the card's register is this arc's.
 const CANDIDATE = `${CARD} [data-slot="arc-join-register"][data-word="ready"]`;
-const landsAs = (dash: string): string =>
-  `${row(dash)} [data-slot="session-changes-dash-lands-as"]`;
+const landsAs = (arc: string): string =>
+  `${row(arc)} [data-slot="session-changes-arc-lands-as"]`;
 
 beforeAll(() => {
   if (!SHOULD_RUN) return;
   // A repository of the fixture's own. The refusal under test is the *last* one
   // in the gate's order, so everything before it has to pass — which means
-  // this dash gets resolved for real when join mode opens ([P03]). Aimed at
+  // this arc gets resolved for real when join mode opens ([P03]). Aimed at
   // the developer's checkout that would be a reconcile of their own work,
   // run because somebody opened a composer.
   scratch = makeJoinScratchRepo({
     prefix: "at0435",
-    dash: DASH,
+    arc: ARC,
     description: "at0435 fixture (a round to land)",
     checkout: CHECKOUT,
     file: FILE,
-    fork: "at0435 the dash's file\n",
+    fork: "at0435 the arc's file\n",
     base: "at0435 SENTINEL the base's own file\n",
-    dashBody: "at0435 SENTINEL the dash rewrote it\n",
+    arcBody: "at0435 SENTINEL the arc rewrote it\n",
     cleanMerge: true,
     resolver: "#!/bin/sh\nexit 0\n",
   });
-  dashId = scratch.dashId;
+  arcId = scratch.arcId;
 
   fixtureDir = seedScratchSession(projectDir(), SID);
 });
 
 afterAll(() => {
   if (!SHOULD_RUN) return;
-  // The repository IS the teardown: branch, worktree, config, and dash all go
+  // The repository IS the teardown: branch, worktree, config, and arc all go
   // with the directory.
   rmJoinScratchRepo(scratch);
   rmScratchSession(fixtureDir);
@@ -208,38 +208,38 @@ describe.skipIf(!SHOULD_RUN)("AT0435: a refused land press speaks", () => {
         await app.spawnSessionResume("A", { tugSessionId: SID, projectDir: projectDir() });
         await app.awaitEngineReady("A", { timeoutMs: 15000 });
         // The join face is what the pilot found, and the pilot works only a
-        // dash somebody holds ([D147]) — a client-side `bind_dash_ok` writes
+        // arc somebody holds ([D147]) — a client-side `bind_arc_ok` writes
         // no ledger row for it to read. The prompt that follows a standing
         // candidate is answered in advance: this file is about the shade.
-        bindDash(projectDir(), DASH, SID, scratch?.cli ?? {});
-        silenceJoinPrompt(projectDir(), DASH);
+        bindArc(projectDir(), ARC, SID, scratch?.cli ?? {});
+        silenceJoinPrompt(projectDir(), ARC);
 
         await raiseShade(app);
-        await app.dispatchControlAction("bind_dash_ok", {
+        await app.dispatchControlAction("bind_arc_ok", {
           tug_session_id: SID,
-          dash_id: dashId,
-          dash_name: DASH,
+          arc_id: arcId,
+          arc_name: ARC,
         });
-        // A landable dash publishes its OFFER — the `lands as` line — so that
+        // A landable arc publishes its OFFER — the `lands as` line — so that
         // is what says the fixture is ready. The report fold is NOT a
         // readiness signal and cannot be waited on here: a clean join has no
         // conflict, blocker, question or account to show, and the section
         // renders nothing it cannot say. Its silence is the clean case's own
         // shape, so it is asserted rather than waited for.
         await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(landsAs(DASH))}) !== null`,
+          `document.querySelector(${JSON.stringify(landsAs(ARC))}) !== null`,
           { timeoutMs: 20000 },
         );
         expect(
           await app.evalJS<boolean>(
-            `document.querySelector(${JSON.stringify(landing(DASH))}) === null`,
+            `document.querySelector(${JSON.stringify(landing(ARC))}) === null`,
           ),
-          "a clean dash shows no report — the fold speaks only with evidence",
+          "a clean arc shows no report — the fold speaks only with evidence",
         ).toBe(true);
 
         // `/commit` raised the shade in COMMIT mode, and one composer holds one
         // landing — so commit has to go before the join can have the document.
-        // Escape is that exit, and it is the whole gesture: a bound dash with
+        // Escape is that exit, and it is the whole gesture: a bound arc with
         // work ready to join enters join mode BY ITSELF once the composer is
         // free. Nothing types `/arc-join`, which would only open by name a
         // mode the binding opens on its own.
@@ -252,7 +252,7 @@ describe.skipIf(!SHOULD_RUN)("AT0435: a refused land press speaks", () => {
         );
 
         // Wait for the candidate before pressing. Entering join mode resolved
-        // the dash ([P03]), and the CANDIDATE standing is that resolution
+        // the arc ([P03]), and the CANDIDATE standing is that resolution
         // anchoring — a press before it measures the outcome refusal rather
         // than the empty-message one under test. The resolver's account is not
         // the signal: a clean join resolves nothing and files no account.
@@ -261,7 +261,7 @@ describe.skipIf(!SHOULD_RUN)("AT0435: a refused land press speaks", () => {
           { timeoutMs: 180000 },
         );
 
-        // The editor opens empty: a fixture dash has no maintained join draft,
+        // The editor opens empty: a fixture arc has no maintained join draft,
         // and nothing here writes one. Nothing clears it either — `⌘A` is a
         // menu chord and menu chords die in a background window (at0043 takes
         // the screen for exactly that reason), so the fixture supplies

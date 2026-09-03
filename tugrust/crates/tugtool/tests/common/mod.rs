@@ -5,7 +5,7 @@
 //! `tugtool arc create` in a temp repo with neither `TUG_SESSION_ID` nor the
 //! instance registry scrubbed, so on a machine where the suite runs from
 //! inside a Session card — which is most of them — the spawned binary reached
-//! the real registry and posted a bind naming a scratch dash in a directory
+//! the real registry and posted a bind naming a scratch arc in a directory
 //! that would be gone a second later.
 //!
 //! Two other CLI test files had reached the right answer independently and

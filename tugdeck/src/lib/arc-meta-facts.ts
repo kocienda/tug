@@ -1,7 +1,7 @@
 /**
- * dash-meta-facts — what a dash's wire entry says about itself, as data.
+ * arc-meta-facts — what an arc's wire entry says about itself, as data.
  *
- * The pure derivations behind every dash surface's metadata reading: the
+ * The pure derivations behind every arc surface's metadata reading: the
  * tone-colored divergence facts, the step fraction the row shows, whether the
  * declared walk is complete, and the note's lead. No JSX and no CSS, so a
  * surface that needs only the numbers — the masthead, the footer's accessible
@@ -10,7 +10,7 @@
  * @module lib/arc-meta-facts
  */
 
-import type { DashChangesetEntry } from "@/lib/changeset-types";
+import type { ArcChangesetEntry } from "@/lib/changeset-types";
 
 
 /** The tones a metadata fact can wear, loudest first. */
@@ -43,7 +43,7 @@ function pathList(paths: ReadonlyArray<string>): string {
  * and the wording are a table test rather than a DOM one.
  *
  * A stopped arc leads: it is the one fact on the line that means *nothing is
- * advancing this dash and nobody has been told* — the arc rotates on a server
+ * advancing this arc and nobody has been told* — the arc rotates on a server
  * tick, so unlike every other fact here there is no gesture whose absence
  * explains the stillness. A running arc says so quietly at the other end,
  * because a stage in flight is the ordinary case and needs no urgency; the
@@ -51,13 +51,13 @@ function pathList(paths: ReadonlyArray<string>): string {
  * speaks then ([P12]).
  *
  * A conflicted replay is a state somebody has to resolve; base dirt
- * overlapping the dash's own files is a warning about work that is not the
+ * overlapping the arc's own files is a warning about work that is not the
  * machine's to touch; uncommitted worktree bytes are ordinary mid-run and
  * worth a quiet word; being behind is usually transient (the engine is
  * probably replaying as you read); a settled replay is the quiet receipt that
- * history moved under this dash and nothing asked you about it.
+ * history moved under this arc and nothing asked you about it.
  */
-export function arcMetaFacts(entry: DashChangesetEntry): ArcMetaFact[] {
+export function arcMetaFacts(entry: ArcChangesetEntry): ArcMetaFact[] {
   const facts: ArcMetaFact[] = [];
   const conflicts = entry.replay_conflict_paths ?? [];
   const overlap = entry.base_overlap ?? [];
@@ -193,7 +193,7 @@ export function arcWalkComplete(
  * answer. A run of steps 5–7 was *asked for* as three steps, so it counts
  * `2/3`; the plan's own `6/10` is not lost — it is what the ring draws its
  * segments from, with this span lit across it. A generation that declared no
- * run (every dash-log written before runs were declared) has only the plan
+ * run (every arc-log written before runs were declared) has only the plan
  * pair, and falls back to exactly what it showed before.
  *
  * Takes bare values rather than an entry because two spellings arrive: the
@@ -227,7 +227,7 @@ export function arcGlanceFraction(
 
 /** {@link arcGlanceFraction} over a wire entry. */
 export function arcEntryGlanceFraction(
-  entry: DashChangesetEntry,
+  entry: ArcChangesetEntry,
 ): { current: number; total: number } | null {
   return arcGlanceFraction(
     entry.run_position,
@@ -271,14 +271,14 @@ export function arcRunScope(
 }
 
 /** {@link arcWalkComplete} over a wire entry, against the pair it shows. */
-export function arcStepsComplete(entry: DashChangesetEntry): boolean {
+export function arcStepsComplete(entry: ArcChangesetEntry): boolean {
   const glance = arcEntryGlanceFraction(entry);
   return arcWalkComplete(entry.stage, glance?.current, glance?.total);
 }
 
 /** The note's lead: the current step's title, else the join draft's subject.
  *  Null means the line says nothing there (the no-plan case says so aloud). */
-export function arcMetaNote(entry: DashChangesetEntry): string | null {
+export function arcMetaNote(entry: ArcChangesetEntry): string | null {
   if (entry.step_title !== undefined && entry.step_title.length > 0) {
     return entry.step_title;
   }

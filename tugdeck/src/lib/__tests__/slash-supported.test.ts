@@ -6,8 +6,10 @@
 import { describe, expect, test } from "bun:test";
 import {
   HIDDEN_SLASH_COMMANDS,
+  UNLISTED_SLASH_COMMANDS,
   classifySlashCommand,
   isHiddenSlashCommand,
+  isUnlistedSlashCommand,
   isUnknownRemoteCommand,
   resolveRemoteCommand,
   canonicalizeBareCommandLine,
@@ -97,6 +99,38 @@ describe("isHiddenSlashCommand", () => {
   });
 });
 
+describe("isUnlistedSlashCommand", () => {
+  test("a stage skill is unlisted, namespaced or bare", () => {
+    for (const name of ["arc-devise", "arc-implement", "arc-audit"]) {
+      expect(isUnlistedSlashCommand(name)).toBe(true);
+      expect(isUnlistedSlashCommand(`tugplug:${name}`)).toBe(true);
+    }
+  });
+
+  test("a local command wearing a stage skill's leaf is not unlisted", () => {
+    // `/arc-review` is a card verb *and* a stage skill's leaf. The bare name is
+    // the card verb the user speaks; only the namespaced skill is unlisted.
+    expect(LOCAL_SLASH_COMMANDS.some((c) => c.name === "arc-review")).toBe(true);
+    expect(isUnlistedSlashCommand("arc-review")).toBe(false);
+    expect(isUnlistedSlashCommand("tugplug:arc-review")).toBe(true);
+  });
+
+  test("a door, a pass-through and a hidden name are all listed", () => {
+    for (const name of ["tugplug:arc", "tugplug:arc-plan", "init", "vim"]) {
+      expect(isUnlistedSlashCommand(name)).toBe(false);
+    }
+  });
+
+  test("unlisted is presentation only — it changes no classification", () => {
+    // The whole claim of the tier: typed, a stage skill still passes through to
+    // claude, and a catalog that reports it is still not a genuine unknown.
+    const catalog = ["init", "tugplug:arc-devise"];
+    expect(classifySlashCommand("arc-devise")).toBe("pass-through");
+    expect(isUnknownRemoteCommand("arc-devise", catalog)).toBe(false);
+    expect(isHiddenSlashCommand("arc-devise")).toBe(false);
+  });
+});
+
 describe("set integrity", () => {
   test("no command is both supported-local and hidden", () => {
     for (const cmd of LOCAL_SLASH_COMMANDS) {
@@ -108,6 +142,12 @@ describe("set integrity", () => {
     // The audit's SKIP set lists /copy as a *command*, but the session card adds
     // it to the [D23] registry; guard against re-hiding it here.
     expect(HIDDEN_SLASH_COMMANDS.has("copy")).toBe(false);
+  });
+
+  test("no unlisted name is hidden — the two sets answer different questions", () => {
+    for (const name of UNLISTED_SLASH_COMMANDS) {
+      expect(HIDDEN_SLASH_COMMANDS.has(name)).toBe(false);
+    }
   });
 });
 

@@ -5,8 +5,8 @@
 //!
 //! This module used to run the project's declared checks over the joined tree
 //! before offering it, in two tiers. That question is still asked — it just
-//! moved to where the answer is worth its cost. A dash is *make these changes
-//! and fit them back onto main*, so the **run's ending** replays the dash onto
+//! moved to where the answer is worth its cost. An arc is *make these changes
+//! and fit them back onto main*, so the **run's ending** replays the arc onto
 //! the live base and verifies the tree that will actually land, in the warm
 //! worktree, with the model present to fix what it finds. Checking the same
 //! tree again at join time meant a cold build standing between the user and
@@ -30,23 +30,23 @@ use crate::ops::{config_get, git_output};
 /// Read by nothing. Named here only so [`clear_verification`] can collect it
 /// where the join and the discard already call it.
 fn verification_config_key(name: &str) -> String {
-    format!("branch.tugdash/{}.tugjoinverified", name)
+    format!("branch.tugarc/{}.tugjoinverified", name)
 }
 
 /// The multi-valued companion an older build kept the verdict's sentences in.
 fn verification_detail_key(name: &str) -> String {
-    format!("branch.tugdash/{}.tugjoinverifydetail", name)
+    format!("branch.tugarc/{}.tugjoinverifydetail", name)
 }
 
 /// The key an older build recorded a "join it anyway" decision under. The
 /// decision overrode a verdict, so it died with the verdict.
 fn override_config_key(name: &str) -> String {
-    format!("branch.tugdash/{}.tugjoinoverride", name)
+    format!("branch.tugarc/{}.tugjoinoverride", name)
 }
 
 /// Sweep the retired verdict keys off a branch.
 ///
-/// A dash created before verification left the join carries these keys, and a
+/// An arc created before verification left the join carries these keys, and a
 /// key nothing reads is a lie waiting to be believed. The demotion and
 /// teardown paths that always called this keep calling it, so the residue is
 /// collected on the way past rather than needing a migration of its own.
@@ -61,7 +61,7 @@ pub fn clear_verification(repo: &Path, name: &str) {
 }
 
 /// The branch-config key holding the pilot's last attempt, as
-/// `<base_sha>:<dash_head>`.
+/// `<base_sha>:<arc_head>`.
 ///
 /// The pilot runs off the changeset recompute, which fires again the moment its
 /// own run bumps the aggregate. Without a mark, a ladder pass that produces no
@@ -69,7 +69,7 @@ pub fn clear_verification(repo: &Path, name: &str) {
 /// forever. The mark is written *before* the run so a crash mid-pass does not
 /// license a retry loop on restart.
 pub fn pilot_mark_key(name: &str) -> String {
-    format!("branch.tugdash/{}.tugjoinpilot", name)
+    format!("branch.tugarc/{}.tugjoinpilot", name)
 }
 
 /// The head pair the pilot last acted on, if it ever acted.
@@ -109,7 +109,7 @@ mod tests {
         assert!(ok, "git {args:?} failed");
     }
 
-    /// A repo with a dash branch, which is all a branch-config mark needs.
+    /// A repo with an arc branch, which is all a branch-config mark needs.
     fn init() -> tempfile::TempDir {
         let temp = tempfile::tempdir().unwrap();
         let repo = temp.path();
@@ -119,7 +119,7 @@ mod tests {
         std::fs::write(repo.join("f.txt"), "A\n").unwrap();
         git(repo, &["add", "-A"]);
         git(repo, &["commit", "-m", "base"]);
-        git(repo, &["branch", "tugdash/demo"]);
+        git(repo, &["branch", "tugarc/demo"]);
         temp
     }
 

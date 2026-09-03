@@ -13,7 +13,7 @@
 #   TUG_FORCE_BUNDLE_ID=…  → Tug-<suffix>         (e.g. …apptest → Tug-apptest.app)
 #
 # Each worktree gets its own profile+slug-keyed `.app` (and, via
-# derived-data-path.sh, its own DerivedData) so two dash worktrees never
+# derived-data-path.sh, its own DerivedData) so two arc worktrees never
 # build into — and clobber, or re-sign under a live mmap — the one
 # bundle the other's app is running. This matches the per-(profile,slug)
 # CFBundleIdentifier that assign-bundle-id.sh / bundle-id-from-cwd.sh

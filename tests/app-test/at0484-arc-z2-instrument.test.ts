@@ -1,5 +1,5 @@
 /**
- * at0484-dash-z2-instrument.test.ts — the Z2 DASH cell as an INSTRUMENT: two
+ * at0484-arc-z2-instrument.test.ts — the Z2 ARC cell as an INSTRUMENT: two
  * dots, numbers before words, and a row that never moves.
  *
  * The cell is authored as STATE is — a dot pinned to each edge of the value
@@ -15,8 +15,8 @@
  *    declared yet.
  *  - **The declared run wins** over the plan's pair once one exists: `1/2` on
  *    that same four-row plan ([D148]).
- *  - **The word is the lifecycle PHASE**, Title Case: `Brief` for a dash whose
- *    git stage is `created`, which is the half of a dash's life this cell used
+ *  - **The word is the lifecycle PHASE**, Title Case: `Brief` for an arc whose
+ *    git stage is `created`, which is the half of an arc's life this cell used
  *    to draw a fallback glyph for.
  *  - **A cut says `Cut`**, not `Implement`: it has no plan and never will,
  *    so a phase word would name a stage of a lifecycle it does not have.
@@ -24,16 +24,16 @@
  * **The two dots are one reading, so they breathe as one.** The pair only
  * phase-locks by mounting in the same commit — the loops take their start
  * time from the style flush that gates them on. An unkeyed fragment let React
- * reconcile the DASH branch positionally against the TASKS indicator that was
+ * reconcile the ARC branch positionally against the TASKS indicator that was
  * in the same slot and carry its left glyph across, already breathing on an
  * older clock, while the right one started fresh. So the bare glyphs are
  * marked before the bind and neither may survive it.
  *
  * **The widths are the row's promise, and they are read as the cells' own
- * `--tugx-session-status-cell-width`.** Binding takes the DASH cell from 14ch
+ * `--tugx-session-status-cell-width`.** Binding takes the ARC cell from 14ch
  * to 18ch — STATE's width, for the word — and JOBS gives back exactly that,
  * 14ch to 10ch, so the five cells still sum to 80ch and nothing to the left of
- * the dash moves under the reader's eye. The custom property is what
+ * the arc moves under the reader's eye. The custom property is what
  * `tug-status-cell.css` authors, it is un-animated, and it is what the
  * `@container` rungs are measured against; `offsetWidth` would fold in the
  * endcap wings and the 10px font and measure the wrong thing.
@@ -65,20 +65,20 @@ import {
   seedTugbankForLaunch,
 } from "./_harness/tugbank-helpers";
 import {
-  bindDash,
-  createDash,
-  dashBriefPath,
-  dashPlanPath,
-  makeDashScratchRepo,
+  bindArc,
+  createArc,
+  arcBriefPath,
+  arcPlanPath,
+  makeArcScratchRepo,
   recordAdoptedPlan,
-  rmDashScratchRepo,
+  rmArcScratchRepo,
   rmScratchSession,
   seedScratchSession,
   shellAndSettle,
   tugtool,
   tugtoolPath,
-  type DashScratchRepo,
-} from "./dash-fixture";
+  type ArcScratchRepo,
+} from "./arc-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
@@ -86,63 +86,63 @@ const TEST_TIMEOUT_MS = 180_000;
 const SID = "a7c0d1ea-0000-4000-8000-000000000484";
 
 /** A four-row plan, reviewed and stamped, with no step started. */
-const PLAN_DASH = "at0484-plan";
+const PLAN_ARC = "at0484-plan";
 /** A brief and nothing else. */
-const BRIEF_DASH = "at0484-brief";
-/** No documents and no arc — a direct dash with nothing to count. */
-const LISTLESS_DASH = "at0484-listless";
+const BRIEF_ARC = "at0484-brief";
+/** No documents and no arc — a direct arc with nothing to count. */
+const LISTLESS_ARC = "at0484-listless";
 
 const CARD = '[data-card-id="A"]';
 const ROW = `${CARD} [data-slot="session-telemetry-status-row"]`;
 const cell = (priority: string): string =>
   `${CARD} [data-slot="tug-status-cell"][data-priority="${priority}"]`;
 const WRAP = `${cell("tasks")} .session-telemetry-status-value-wrap`;
-const VALUE = `${cell("tasks")} [data-slot="session-telemetry-dash-value"]`;
+const VALUE = `${cell("tasks")} [data-slot="session-telemetry-arc-value"]`;
 
-/** The five cells, left to right, and the widths they hold with no dash up. */
+/** The five cells, left to right, and the widths they hold with no arc up. */
 const PRIORITIES = ["state", "time", "context", "tasks", "jobs"] as const;
 /** The row's whole width, in `ch`. It is the same number in every reading. */
 const ROW_WIDTH_CH = 80;
 
-/** This checkout — the build under test, and never the tree a dash is cut in. */
+/** This checkout — the build under test, and never the tree an arc is cut in. */
 const CHECKOUT = realpathSync(resolve(import.meta.dir, "..", ".."));
 
-let scratch: DashScratchRepo | null = null;
+let scratch: ArcScratchRepo | null = null;
 let fixtureDir = "";
 const projectDir = (): string => scratch?.repo ?? "";
 
 beforeAll(() => {
   if (!SHOULD_RUN) return;
-  scratch = makeDashScratchRepo({ prefix: "at0484", checkout: CHECKOUT });
+  scratch = makeArcScratchRepo({ prefix: "at0484", checkout: CHECKOUT });
   // A plan adopted and stamped, with NO step started: no run is declared, so
   // the cell has only the plan's own pair to count — which is the reading that
   // proves numbers come before words.
-  const plan = createDash(projectDir(), PLAN_DASH, "at0484 plan", scratch.cli);
-  recordAdoptedPlan(projectDir(), PLAN_DASH, plan.worktree, {
+  const plan = createArc(projectDir(), PLAN_ARC, "at0484 plan", scratch.cli);
+  recordAdoptedPlan(projectDir(), PLAN_ARC, plan.worktree, {
     ...scratch.cli,
     rows: 4,
   });
-  tugtool(["plan", "stamp", dashPlanPath(projectDir(), PLAN_DASH)], {
+  tugtool(["plan", "stamp", arcPlanPath(projectDir(), PLAN_ARC)], {
     cwd: projectDir(),
     binaryRoot: CHECKOUT,
     env: scratch.cli.env,
   });
   // A brief at its own address and nothing else: a lifecycle phase with no git
   // stage behind it.
-  createDash(projectDir(), BRIEF_DASH, "at0484 brief", scratch.cli);
+  createArc(projectDir(), BRIEF_ARC, "at0484 brief", scratch.cli);
   writeFileSync(
-    dashBriefPath(projectDir(), BRIEF_DASH),
+    arcBriefPath(projectDir(), BRIEF_ARC),
     "# at0484 brief\n\nThe idea, before there is a plan for it.\n",
   );
   // A worktree and nothing else: no documents, no arc, no task list. This is
   // the only shape left that shows the Z2 cell's word rather than a fraction.
-  createDash(projectDir(), LISTLESS_DASH, "at0484 listless", scratch.cli);
+  createArc(projectDir(), LISTLESS_ARC, "at0484 listless", scratch.cli);
   fixtureDir = seedScratchSession(projectDir(), SID);
 });
 
 afterAll(() => {
   if (!SHOULD_RUN) return;
-  rmDashScratchRepo(scratch);
+  rmArcScratchRepo(scratch);
   rmScratchSession(fixtureDir);
 });
 
@@ -169,7 +169,7 @@ function deckShape() {
 }
 
 interface RowWidths {
-  dash: string | null;
+  arc: string | null;
   cells: Record<string, { width: string; display: string }>;
 }
 
@@ -192,7 +192,7 @@ const widths = (app: App): Promise<RowWidths> =>
              };
        }
        const row = document.querySelector(${JSON.stringify(ROW)});
-       return { dash: row === null ? null : row.getAttribute("data-dash"), cells };
+       return { arc: row === null ? null : row.getAttribute("data-arc"), cells };
      })()`,
   );
 
@@ -213,7 +213,7 @@ const readingText = (app: App): Promise<string> =>
     `(document.querySelector(${JSON.stringify(VALUE)})?.textContent ?? "").trim()`,
   );
 
-/** Wait for the DASH face to say a given word. The cell reads TASKS for a
+/** Wait for the ARC face to say a given word. The cell reads TASKS for a
  *  beat after a bind, so every reading is preceded by one of these. */
 const awaitReading = (app: App, text: string): Promise<boolean> =>
   app.waitForCondition<boolean>(
@@ -222,14 +222,14 @@ const awaitReading = (app: App, text: string): Promise<boolean> =>
     { timeoutMs: 30000 },
   );
 
-describe.skipIf(!SHOULD_RUN)("AT0484: the Z2 DASH instrument", () => {
+describe.skipIf(!SHOULD_RUN)("AT0484: the Z2 ARC instrument", () => {
   test(
     "two dots and a reading: numbers before words, and a row that never moves",
     async () => {
       const tugbankPath = mkTempTugbank();
       seedTugbankForLaunch(tugbankPath, { sourceTreePath: CHECKOUT });
       const app = await launchTugApp({
-        testName: "at0484-dash-z2-instrument",
+        testName: "at0484-arc-z2-instrument",
         env: { TUGBANK_PATH: tugbankPath, TUG_DATA_DIR: scratch?.dataRoot ?? "" },
       });
       try {
@@ -245,10 +245,10 @@ describe.skipIf(!SHOULD_RUN)("AT0484: the Z2 DASH instrument", () => {
           { timeoutMs: 20000 },
         );
 
-        // ── With no dash up, the cell is TASKS at its own width ───────────
+        // ── With no arc up, the cell is TASKS at its own width ───────────
         const bare = await widths(app);
         note("at0484 bare row", JSON.stringify(bare));
-        expect(bare.dash).toBeNull();
+        expect(bare.arc).toBeNull();
         expect(bare.cells.tasks.width).toBe("14ch");
         expect(bare.cells.jobs.width).toBe("14ch");
         expectWholeRow(bare);
@@ -257,7 +257,7 @@ describe.skipIf(!SHOULD_RUN)("AT0484: the Z2 DASH instrument", () => {
         // Mark the TASKS glyphs first: what makes the pair below a PAIR is
         // that both of them are new (see the header). The cell reads `—`
         // while the replay is inert, and that reading has no glyphs at all —
-        // so wait for the pair that the DASH branch will displace.
+        // so wait for the pair that the ARC branch will displace.
         const TASKS_GLYPHS = `${cell("tasks")} [data-slot="tug-progress-pulsing-dot"]`;
         await app.waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(TASKS_GLYPHS)}).length === 2`,
@@ -271,7 +271,7 @@ describe.skipIf(!SHOULD_RUN)("AT0484: the Z2 DASH instrument", () => {
            })()`,
         );
         expect(markedBefore).toBe(2);
-        bindDash(projectDir(), PLAN_DASH, SID, {
+        bindArc(projectDir(), PLAN_ARC, SID, {
           binaryRoot: CHECKOUT,
           env: scratch?.cli.env,
         });
@@ -303,7 +303,7 @@ describe.skipIf(!SHOULD_RUN)("AT0484: the Z2 DASH instrument", () => {
         // indicator carrying a label.
         expect(shape.children).toBe(3);
         expect(shape.first).toBe("tug-progress-indicator");
-        expect(shape.middle).toBe("session-telemetry-dash-value");
+        expect(shape.middle).toBe("session-telemetry-arc-value");
         expect(shape.last).toBe("tug-progress-indicator");
 
         // ── …and the two dots are welded ─────────────────────────────────
@@ -334,7 +334,7 @@ describe.skipIf(!SHOULD_RUN)("AT0484: the Z2 DASH instrument", () => {
              };
            })()`,
         );
-        note("at0484 dash pair", JSON.stringify(pair));
+        note("at0484 arc pair", JSON.stringify(pair));
         expect(pair.count).toBe(2);
         expect(pair.inherited, "neither dot outlived the TASKS reading").toBe(0);
         const [left, right] = pair.progress;
@@ -349,8 +349,8 @@ describe.skipIf(!SHOULD_RUN)("AT0484: the Z2 DASH instrument", () => {
         const bound = await widths(app);
         note("at0484 bound row", JSON.stringify(bound));
         // The cell takes STATE's 18ch for the word, and JOBS gives back
-        // exactly that much — so nothing left of the dash moves.
-        expect(bound.dash).toBe("true");
+        // exactly that much — so nothing left of the arc moves.
+        expect(bound.arc).toBe("true");
         expect(bound.cells.tasks.width).toBe("18ch");
         expect(bound.cells.jobs.width).toBe("10ch");
         expect(bound.cells.state.width).toBe(bare.cells.state.width);
@@ -364,7 +364,7 @@ describe.skipIf(!SHOULD_RUN)("AT0484: the Z2 DASH instrument", () => {
         // over its own reading. They used to be sized independently to one
         // `ch` budget, which held only while the reading fit that budget:
         // `None` between two dots does not fit the 10ch JOBS wears while a
-        // dash is up, so it spilled out from under a rule that stayed put.
+        // arc is up, so it spilled out from under a rule that stayed put.
         // The budget is the CELL's `min-width` now and both rows stretch to
         // it, which cannot come apart ([D168]).
         const stacks = await app.evalJS<
@@ -403,20 +403,20 @@ describe.skipIf(!SHOULD_RUN)("AT0484: the Z2 DASH instrument", () => {
         // ── A declared run wins over the plan's own pair ──────────────────
         await shellAndSettle(
           app,
-          `${tugtoolPath(CHECKOUT)} arc step ${PLAN_DASH} start 1 --through 2`,
+          `${tugtoolPath(CHECKOUT)} arc step ${PLAN_ARC} start 1 --through 2`,
         );
         await awaitReading(app, "1/2");
         note("at0484 declared run", await readingText(app));
 
-        // ── A dash with only a brief says the PHASE, not the git stage ────
-        await shellAndSettle(app, `${tugtoolPath(CHECKOUT)} arc bind ${BRIEF_DASH}`, 1);
+        // ── An arc with only a brief says the PHASE, not the git stage ────
+        await shellAndSettle(app, `${tugtoolPath(CHECKOUT)} arc bind ${BRIEF_ARC}`, 1);
         await awaitReading(app, "Brief");
 
-        // ── A dash with no documents at all says Working ──────────────────
-        // The word is the last resort: a direct dash that wrote a task list
-        // has a fraction to show, so only a dash with nothing to count — this
+        // ── An arc with no documents at all says Working ──────────────────
+        // The word is the last resort: a direct arc that wrote a task list
+        // has a fraction to show, so only an arc with nothing to count — this
         // one, freshly created — ever reaches it.
-        await shellAndSettle(app, `${tugtoolPath(CHECKOUT)} arc bind ${LISTLESS_DASH}`, 2);
+        await shellAndSettle(app, `${tugtoolPath(CHECKOUT)} arc bind ${LISTLESS_ARC}`, 2);
         await awaitReading(app, "Working");
         note("at0484 z2 at the listless reading", (await app.screenshot()).path);
 
@@ -428,7 +428,7 @@ describe.skipIf(!SHOULD_RUN)("AT0484: the Z2 DASH instrument", () => {
         );
         const unbound = await widths(app);
         note("at0484 unbound row", JSON.stringify(unbound));
-        expect(unbound.dash).toBeNull();
+        expect(unbound.arc).toBeNull();
         expect(unbound.cells.tasks.width).toBe("14ch");
         expect(unbound.cells.jobs.width).toBe("14ch");
         expectWholeRow(unbound);

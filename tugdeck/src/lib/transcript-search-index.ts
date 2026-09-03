@@ -335,8 +335,8 @@ function messageSegments(
         const projected = markdownToText(streamingStore, identity, message.text);
         return projected === "" ? [] : [{ kind: "dom", text: projected }];
       }
-      if (message.source === "dash") {
-        // The dash quiet line renders its sentence verbatim in a marked
+      if (message.source === "arc") {
+        // The arc quiet line renders its sentence verbatim in a marked
         // span — no markdown pass, so the projection is the text itself.
         return message.text === "" ? [] : [{ kind: "dom", text: message.text }];
       }

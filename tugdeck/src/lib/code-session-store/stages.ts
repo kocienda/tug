@@ -17,13 +17,13 @@
  * Divider text for a stage `system_note`.
  *
  * A first stage names what it is and what it opened on (`devise · opus ·
- * dash/foo-brief.md`). A *continued* implement stage — one the runner
+ * arc/foo-brief.md`). A *continued* implement stage — one the runner
  * rotated at a step boundary because the session's context ran down — names
  * the step range instead, because the document has not changed and the range
  * is the only new fact (`implement, continued · opus · steps 4–9`).
  *
  * `steps` arrives from the wire as `N-M`; the hyphen is rendered as an en
- * dash, which is what a range is set in.
+ * arc, which is what a range is set in.
  *
  * An empty `model` (the account default) and an empty `document` are each
  * simply left out rather than rendered as a gap.

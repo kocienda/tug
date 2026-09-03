@@ -937,16 +937,16 @@ mod tests {
     #[test]
     fn diff_capabilities_reports_lost_and_gained() {
         let old = r#"{"type":"system_metadata","version":"2.1.105","slash_commands":["commit","plan","old-only"],"skills":["tugplug:plan"],"agents":["general-purpose"],"plugins":[{"name":"tugplug"}]}"#;
-        let new = r#"{"type":"system_metadata","version":"2.1.112","slash_commands":["commit","plan","new-only"],"skills":["tugplug:plan","tugplug:dash"],"agents":["general-purpose"],"plugins":[{"name":"tugplug"}]}"#;
+        let new = r#"{"type":"system_metadata","version":"2.1.112","slash_commands":["commit","plan","new-only"],"skills":["tugplug:plan","tugplug:arc"],"agents":["general-purpose"],"plugins":[{"name":"tugplug"}]}"#;
         let out = diff_capabilities(old, new);
         assert!(out.contains("version: 2.1.105 → 2.1.112"));
         // slash_commands: lost old-only, gained new-only
         assert!(out.contains("slash_commands (−1 +1)"));
         assert!(out.contains("- old-only"));
         assert!(out.contains("+ new-only"));
-        // skills: gained tugplug:dash only
+        // skills: gained tugplug:arc only
         assert!(out.contains("skills (−0 +1)"));
-        assert!(out.contains("+ tugplug:dash"));
+        assert!(out.contains("+ tugplug:arc"));
         // agents unchanged → not listed
         assert!(!out.contains("agents ("));
         // plugins unchanged → not listed

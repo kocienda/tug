@@ -2672,7 +2672,7 @@ export function SessionCardBody({
 
   // Join mode ([P01]/[P04]) — commit mode's twin for the arc lane, rebuilt on
   // the same session-swap boundary and for the same reason: a new session has
-  // its own bindings and its own dash.
+  // its own bindings and its own arc.
   const joinModeControllerRef = useRef<JoinModeController | null>(null);
   const joinModeStoresRef = useRef<CommitModeController | null>(null);
   if (
@@ -2696,50 +2696,50 @@ export function SessionCardBody({
   const joinActive = joinSnapshot.active;
 
   /**
-   * The bound dash's own feed entry, or null — the read the join prompt and
+   * The bound arc's own feed entry, or null — the read the join prompt and
    * the Changes door both make ([L02]).
    *
    * Two subscriptions because two stores move independently: the binding
    * changes when the card is mated or unmated, the changeset when the
-   * repository does. Missing either would leave the prompt reading a dash the
+   * repository does. Missing either would leave the prompt reading an arc the
    * card is no longer about, or one whose decision has already been made.
    */
-  const dashBindingId = useSyncExternalStore(
+  const arcBindingId = useSyncExternalStore(
     cardSessionBindingStore.subscribe,
-    () => cardSessionBindingStore.getBinding(cardId)?.dash?.id ?? null,
+    () => cardSessionBindingStore.getBinding(cardId)?.arc?.id ?? null,
   );
   const changesVersion = useSyncExternalStore(changesController.subscribe, () =>
     changesController.getSnapshot(),
   );
-  const boundDashEntry = useMemo(
+  const boundArcEntry = useMemo(
     () =>
-      dashBindingId === null
+      arcBindingId === null
         ? null
-        : (changesVersion.dashes.find(
-            (row) => row.owner_id === dashBindingId,
+        : (changesVersion.arcs.find(
+            (row) => row.owner_id === arcBindingId,
           ) ?? null),
-    [dashBindingId, changesVersion],
+    [arcBindingId, changesVersion],
   );
 
   /**
    * The Changes door. Every way into the room — the Z4A segment, ⌃⌘C, the
    * Session menu — arrives here, and the landing it opens is a function of
-   * what the card is mated to: a dash means a join, anything else means a
+   * what the card is mated to: an arc means a join, anything else means a
    * commit. The composer holds one landing-mode slot and cannot make that
    * call; the card holds both controllers, so it does.
    *
-   * A card bound to a dash whose entry has not composed into the changes
+   * A card bound to an arc whose entry has not composed into the changes
    * snapshot yet falls back to commit mode rather than dead-ending — the door
    * always opens.
    */
   const enterChanges = useCallback(() => {
-    const dashId = cardSessionBindingStore.getBinding(cardId)?.dash?.id;
+    const arcId = cardSessionBindingStore.getBinding(cardId)?.arc?.id;
     const entry =
-      dashId === undefined
+      arcId === undefined
         ? undefined
         : changesController
             .getSnapshot()
-            .dashes.find((row) => row.owner_id === dashId);
+            .arcs.find((row) => row.owner_id === arcId);
     if (entry !== undefined) {
       joinModeController.enter(joinTargetFromEntry(entry));
       return;
@@ -3008,7 +3008,7 @@ export function SessionCardBody({
         // and an effect — but a dismissal that has to survive three hops is a
         // dismissal that can fail to arrive, and when it failed the shade sat
         // over the transcript for the whole of a fifteen-second join: the
-        // narration was behind it, the dash was still on offer, and the only
+        // narration was behind it, the arc was still on offer, and the only
         // gesture left was a second press nothing could accept. Hiding here
         // is idempotent with the coupling — `ShadeViewController.commit`
         // no-ops when the view is already what it is being set to.
@@ -3397,7 +3397,7 @@ export function SessionCardBody({
   // future overlay that sets `inert` without emitting `didHide`
   // breaks at0051; the test exists exactly so the contract isn't
   // re-discovered the hard way. See
-  // `dash/tugplan-session-init-orchestration.md` [V03] for
+  // `arc/tugplan-session-init-orchestration.md` [V03] for
   // the bug history.
   //
   // [L11] the banner / sheet are status surfaces that emit lifecycle
@@ -3632,7 +3632,7 @@ export function SessionCardBody({
 
   // The join's decision surface is the Changes shade, and this is what
   // summons it. Nothing opens it by hand — the feed causes it, on the card of
-  // a session bound to that dash and nowhere else.
+  // a session bound to that arc and nowhere else.
   //
   // The card goes to the Changes **route**, not to a glance at it. Work that
   // is ready to join is presented the way the user would present it by hand:
@@ -3660,16 +3660,16 @@ export function SessionCardBody({
   // the composer and shade gates could defer forever — nothing would wake
   // the effect once the offer stopped changing.)
   //
-  // **Once per dash head, remembered only for this mount.** The offer's
+  // **Once per arc head, remembered only for this mount.** The offer's
   // `request_id` moves when *either* head does, so it is not what to remember:
   // a base push would mint a new id over work the reader has already been
   // shown, and the room would open again every time somebody else landed
-  // something. The **dash head** is the fact that says "work you have not
+  // something. The **arc head** is the fact that says "work you have not
   // seen" — a new round moves it, a base move does not. Nothing durable
   // records the reveal: closing the shade discards nothing, and the worst case
   // of forgetting is one extra glance ([L22] — mount-local memory,
   // deliberately not a store).
-  const joinOffer = boundDashEntry?.join?.offer ?? null;
+  const joinOffer = boundArcEntry?.join?.offer ?? null;
   const turnInFlight = useSyncExternalStore(
     codeSessionStore.subscribe,
     () => codeSessionStore.getSnapshot().canInterrupt === true,
@@ -3681,32 +3681,32 @@ export function SessionCardBody({
   // composer fires on its own when the composer empties.
   const [composerEmpty, setComposerEmpty] = useState(true);
   const revealedOffersRef = useRef<Set<string>>(new Set());
-  // **A cleared block is new work to show, even at the same dash head.**
+  // **A cleared block is new work to show, even at the same arc head.**
   //
-  // The memory above is keyed on the dash head because that is the fact that
+  // The memory above is keyed on the arc head because that is the fact that
   // means "work you have not seen" — a base move must not re-open the room.
   // A resolve is the one thing that moves the BASE and changes the answer: a
-  // dash blocked by uncommitted work on the base carries a standing offer its
-  // head already spent, so without this the room would stay shut on the dash
+  // arc blocked by uncommitted work on the base carries a standing offer its
+  // head already spent, so without this the room would stay shut on the arc
   // the user just unblocked, which is the moment they most want it open.
   //
   // The edge is what is remembered, not the state: forgetting on every clean
   // frame would re-open the room on every recompute.
-  const joinBlocked = (boundDashEntry?.join?.blockers ?? []).length > 0;
+  const joinBlocked = (boundArcEntry?.join?.blockers ?? []).length > 0;
   const wasBlockedRef = useRef(false);
   useEffect(() => {
     if (wasBlockedRef.current && !joinBlocked) revealedOffersRef.current.clear();
     wasBlockedRef.current = joinBlocked;
   }, [joinBlocked]);
   useEffect(() => {
-    const dashHead = joinOffer?.dash_head;
-    if (dashHead === undefined) return;
-    if (revealedOffersRef.current.has(dashHead)) return;
+    const arcHead = joinOffer?.arc_head;
+    if (arcHead === undefined) return;
+    if (revealedOffersRef.current.has(arcHead)) return;
     if (turnInFlight) return;
     if (anyLandingActive) return;
     if (!composerEmpty) return;
     if (shadeView !== "none") return;
-    revealedOffersRef.current.add(dashHead);
+    revealedOffersRef.current.add(arcHead);
     enterChanges();
   }, [
     joinOffer,
@@ -3717,7 +3717,7 @@ export function SessionCardBody({
     enterChanges,
   ]);
 
-  // The same reveal, asked for out loud — a Arcs card dash row activating routes
+  // The same reveal, asked for out loud — an Arcs card arc row activating routes
   // here through the card-content responder, and this is [D152]'s one reveal
   // path rather than a second one. Defined beside the effect above so both
   // share the controller and the memory: whichever fires first spends the
@@ -3728,18 +3728,18 @@ export function SessionCardBody({
   // *unbidden* entry from covering what somebody is reading; an explicit click
   // is its own license, exactly as the Z4A Changes segment is.
   //
-  // One path, two forms, chosen by the offer. A dash with work ready to join
+  // One path, two forms, chosen by the offer. An arc with work ready to join
   // gets the same route entry the automatic path performs, so the row the user
-  // clicked arrives armed. A dash still mid-implementation has no join to arm:
+  // clicked arrives armed. An arc still mid-implementation has no join to arm:
   // entering join mode on it would seed a composer for a press its own gate
   // must refuse, so that stays a glance at the room.
   const revealChanges = useCallback((): void => {
-    const dashHead = joinOffer?.dash_head;
-    if (dashHead === undefined) {
+    const arcHead = joinOffer?.arc_head;
+    if (arcHead === undefined) {
       shadeViewController.show("changes");
       return;
     }
-    revealedOffersRef.current.add(dashHead);
+    revealedOffersRef.current.add(arcHead);
     enterChanges();
   }, [joinOffer, shadeViewController, enterChanges]);
 
@@ -4276,33 +4276,33 @@ export function SessionCardBody({
       const message = args.trim();
       commitModeController.enter(message.length > 0 ? message : undefined);
     },
-    // `/arc-bind <name>` — work on a dash, making it if needed ([P06]).
+    // `/arc-bind <name>` — work on an arc, making it if needed ([P06]).
     //
     // Two paths, each using the thing for what it is. An existing name is a
-    // pure UI-concept write, so it goes over the `bind_dash` CONTROL verb:
-    // silent, no transcript ink, and the `bind_dash_ok` broadcast is what
+    // pure UI-concept write, so it goes over the `bind_arc` CONTROL verb:
+    // silent, no transcript ink, and the `bind_arc_ok` broadcast is what
     // paints the chip and fronts the lane. A new name is a git mutation, so it
     // goes through the card's shell route, where the row is a durable receipt
-    // saying what was made — and `dash create`'s own auto-bind does the
+    // saying what was made — and `arc create`'s own auto-bind does the
     // binding, rather than this handler duplicating it.
     //
     // The name is matched against this card's snapshot rather than sent for
-    // the server to resolve, because `bind_dash` MINTS: a bind naming no dash
-    // succeeds anyway and leaves the card wearing a chip for a dash that is
+    // the server to resolve, because `bind_arc` MINTS: a bind naming no arc
+    // succeeds anyway and leaves the card wearing a chip for an arc that is
     // not there. The uncomposed guard is part of that same verb, not a
     // nicety — before the first aggregate emit every name misses the match,
     // and falling through to create would fire a git mutation on the strength
     // of a snapshot that has not answered yet.
     //
-    // A mistyped name therefore creates a dash. That is `tugtool arc
+    // A mistyped name therefore creates an arc. That is `tugtool arc
     // create`'s semantics and this gesture inherits it on purpose:
-    // `/arc-bind` means "work on this dash, making it if needed", so there is
+    // `/arc-bind` means "work on this arc, making it if needed", so there is
     // no name it can refuse for being unfamiliar. The shell receipt is what
     // makes the outcome legible.
     //
-    // Bare form picks ([P01]): several dashes open the picker sheet, exactly
-    // one binds directly, none cautions. `/dash` no longer arrives here — the
-    // bare name was surrendered to the `tugplug:dash` orchestrator skill, and
+    // Bare form picks ([P01]): several arcs open the picker sheet, exactly
+    // one binds directly, none cautions. `/arc` no longer arrives here — the
+    // bare name was surrendered to the `tugplug:arc` orchestrator skill, and
     // `/arc-bind` is the only spelling that reaches this handler.
     "arc-bind": (args) => {
       const notify = paneBulletinRef.current;
@@ -4312,36 +4312,36 @@ export function SessionCardBody({
       if (binding === undefined) return;
       const snap = changesController.getSnapshot();
       const name = args.trim();
-      // The one place the frame is built. Every caller names a dash from the
-      // snapshot, which matters because `bind_dash` MINTS — a frame built from
+      // The one place the frame is built. Every caller names an arc from the
+      // snapshot, which matters because `bind_arc` MINTS — a frame built from
       // free text would create rather than refuse.
-      const bindToDash = (dashName: string): void => {
-        getConnection()?.sendControlFrame("bind_dash", {
+      const bindToArc = (arcName: string): void => {
+        getConnection()?.sendControlFrame("bind_arc", {
           tug_session_id: binding.tugSessionId,
           project_dir: binding.projectDir,
-          dash: dashName,
+          arc: arcName,
         });
       };
 
       // Above the bare-form branch, not below it: before the first aggregate
-      // emit the dash list is empty for reasons that have nothing to do with
-      // the project, and "no dashes in this project" would be a lie.
+      // emit the arc list is empty for reasons that have nothing to do with
+      // the project, and "no arcs in this project" would be a lie.
       if (!snap.composed) {
         notify?.caution("Still scanning this project — try again in a moment");
         return;
       }
       if (name.length === 0) {
-        // Bare form picks. With several dashes, showing them all and offering
+        // Bare form picks. With several arcs, showing them all and offering
         // no way to choose is what the shade already did; with exactly one,
         // opening a sheet to confirm the only option is ceremony.
-        if (snap.dashes.length === 0) {
+        if (snap.arcs.length === 0) {
           notify?.caution(
             "No arcs in this project — /arc-bind <name> starts one",
           );
           return;
         }
-        if (snap.dashes.length === 1) {
-          bindToDash(snap.dashes[0]!.display_name);
+        if (snap.arcs.length === 1) {
+          bindToArc(snap.arcs[0]!.display_name);
           return;
         }
         void cardPickerSheet.showSheet({
@@ -4350,18 +4350,18 @@ export function SessionCardBody({
           iconRole: "agent",
           content: (close) => (
             <ArcPickerSheet
-              dashes={snap.dashes}
-              boundDashId={binding.dash?.id ?? null}
-              onPick={(entry) => bindToDash(entry.display_name)}
+              arcs={snap.arcs}
+              boundArcId={binding.arc?.id ?? null}
+              onPick={(entry) => bindToArc(entry.display_name)}
               onClose={close}
             />
           ),
         });
         return;
       }
-      const known = snap.dashes.some((entry) => entry.display_name === name);
+      const known = snap.arcs.some((entry) => entry.display_name === name);
       if (known) {
-        bindToDash(name);
+        bindToArc(name);
         return;
       }
       if (!isShellSafeArcName(name)) {
@@ -4380,7 +4380,7 @@ export function SessionCardBody({
     // moment before clicking it is the moment to switch models if they want to.
     //
     // Bare-form resolution is the only cleverness — explicit arg, else the plan
-    // this card last reviewed, else the bound dash's recorded plan.
+    // this card last reviewed, else the bound arc's recorded plan.
     "arc-review": (args) => {
       const notify = paneBulletinRef.current;
       if (!codeSessionStore.getSnapshot().canSubmit) {
@@ -4391,15 +4391,15 @@ export function SessionCardBody({
       // when the store has none.
       const binding = cardSessionBindingStore.getBinding(cardId);
       if (binding === undefined) return;
-      const boundName = binding.dash?.name;
+      const boundName = binding.arc?.name;
       const entry =
         boundName === undefined
           ? undefined
           : changesController
               .getSnapshot()
-              .dashes.find((row) => row.display_name === boundName);
-      // A dash the card is bound to may still be branchless — its plan is on
-      // the document-dash list rather than on a changeset entry.
+              .arcs.find((row) => row.display_name === boundName);
+      // An arc the card is bound to may still be branchless — its plan is on
+      // the document-arc list rather than on a changeset entry.
       const boundPlan =
         entry?.documents?.plan ??
         (boundName === undefined
@@ -4412,7 +4412,7 @@ export function SessionCardBody({
         args,
         projectDir: binding.projectDir,
         lastReviewed: readLastReviewedPlan(cardId),
-        boundDash: boundPlan === undefined ? null : { plan: boundPlan },
+        boundArc: boundPlan === undefined ? null : { plan: boundPlan },
       });
       if ("refused" in target) {
         notify?.caution("Name the plan — /arc-review <path>");
@@ -4430,7 +4430,7 @@ export function SessionCardBody({
     // front of the button, so this enters join mode and the card runs the git
     // itself.
     //
-    // Bare = the bound dash; a name = that dash in this project; a name plus a
+    // Bare = the bound arc; a name = that arc in this project; a name plus a
     // message seeds the join message as an edited draft, exactly as `/commit
     // <message>` does. There is no turn gate: entering a mode mid-turn is
     // harmless — only the *land* is gated ([P05]).
@@ -4441,14 +4441,14 @@ export function SessionCardBody({
       const [first = "", ...tail] = rest.length === 0 ? [] : rest.split(/\s+/);
       const binding = cardSessionBindingStore.getBinding(cardId);
 
-      // A leading word that names a dash is the target; otherwise the whole
-      // argument is a message for the bound dash.
-      const named = snap.dashes.find((entry) => entry.display_name === first);
+      // A leading word that names an arc is the target; otherwise the whole
+      // argument is a message for the bound arc.
+      const named = snap.arcs.find((entry) => entry.display_name === first);
       const entry =
         named ??
-        (binding?.dash === undefined
+        (binding?.arc === undefined
           ? undefined
-          : snap.dashes.find((row) => row.owner_id === binding.dash?.id));
+          : snap.arcs.find((row) => row.owner_id === binding.arc?.id));
       if (entry === undefined) {
         notify?.caution(
           first.length > 0
@@ -4570,7 +4570,7 @@ export function SessionCardBody({
         entryDelegateRef.current?.focus();
       },
       // Open this card's Changes shade. Sent by a surface that shows this
-      // card's dash — the Arcs card's Dashes row — after fronting the card.
+      // card's arc — the Arcs card's Arcs row — after fronting the card.
       //
       // It has to live on THIS responder rather than on the bare `cardId`:
       // `sendToTarget` walks `parentId` upward from its target, the bare id
@@ -4727,7 +4727,7 @@ export function SessionCardBody({
       // whichever landing is up (drop the sheet). Hidden: enter (raise it).
       //
       // Exiting must test both controllers. Testing only commit mode left a
-      // dash-bound card's ⌃⌘C hiding the shade out from under a live join.
+      // arc-bound card's ⌃⌘C hiding the shade out from under a live join.
       [TUG_ACTIONS.TOGGLE_CHANGES_VIEW]: (_event: ActionEvent) => {
         const sheetVisible = shadeViewController.getSnapshot() === "changes";
         if (!sheetVisible) {
@@ -4831,17 +4831,17 @@ export function SessionCardBody({
       [cardId],
     ),
   );
-  // Whether this card is bound to a dash — what puts the Join segment in the
-  // composer's route group ([P03]). Read as the dash's id rather than the
+  // Whether this card is bound to an arc — what puts the Join segment in the
+  // composer's route group ([P03]). Read as the arc's id rather than the
   // binding object so an unrelated binding write is not a re-render.
-  const boundDashId = useSyncExternalStore(
+  const boundArcId = useSyncExternalStore(
     cardSessionBindingStore.subscribe,
     useCallback(
-      () => cardSessionBindingStore.getBinding(cardId)?.dash?.id ?? null,
+      () => cardSessionBindingStore.getBinding(cardId)?.arc?.id ?? null,
       [cardId],
     ),
   );
-  // The arc lane's landing face. What a landing would do comes off the dash's
+  // The arc lane's landing face. What a landing would do comes off the arc's
   // own feed entry, so the card hands the shade only the gestures; the view
   // supplies the round trip and the turn gate from its own reads. None of these
   // lands — landing is the composer's, and the composer is where a refusal can
@@ -4850,7 +4850,7 @@ export function SessionCardBody({
     () => ({
       aim: (entry) => joinModeController.aim(joinTargetFromEntry(entry)),
       // The escalation's answer ([P06]). Addressed by `request_id` rather than
-      // by dash, because the resolve that raised it may already have expired
+      // by arc, because the resolve that raised it may already have expired
       // and a later one may be asking something else — an answer must never
       // resolve a question it was not written for.
       answerQuestion: (entry, requestId, answer) =>
@@ -4860,7 +4860,7 @@ export function SessionCardBody({
           requestId,
           answer,
         ),
-      // Clear the base-side work refusing this dash's join. It clears the
+      // Clear the base-side work refusing this arc's join. It clears the
       // block and stops — landing stays the ⬆ — which is why the control it
       // rides reads `Resolve` rather than `Resolve and join`.
       resolveBase: (entry) =>
@@ -4869,7 +4869,7 @@ export function SessionCardBody({
           entry.display_name,
         ),
       // Discard is deliberately absent here. It reaches past the fronted row —
-      // any dash no live session holds is releasable from this shade — so it
+      // any arc no live session holds is releasable from this shade — so it
       // rides the lane's own release bundle, which the view builds, rather than
       // the landing face's actions, which the fronted row alone receives.
     }),
@@ -4877,18 +4877,18 @@ export function SessionCardBody({
   );
   const arcJoin = useMemo<ArcJoinSource>(
     () => ({
-      // Which dash the landing is ABOUT, which is not always the one this card
-      // is bound to: `/arc-join <name>` aims at a dash by name without
+      // Which arc the landing is ABOUT, which is not always the one this card
+      // is bound to: `/arc-join <name>` aims at an arc by name without
       // binding. The face has to follow the target, or a named join comes up
       // live in the composer and unmounted in the room that explains it.
       //
       // Gated on `active`, and that gate is load-bearing: `aim()` sets the same
       // target when a row is merely EXPANDED. Fronting on an aim would move the
-      // lane under the reader for a dash they did not ask to land.
-      dashId: joinSnapshot.active ? (joinSnapshot.dash?.ownerId ?? null) : null,
+      // lane under the reader for an arc they did not ask to land.
+      arcId: joinSnapshot.active ? (joinSnapshot.arc?.ownerId ?? null) : null,
       actions: arcJoinActions,
     }),
-    [joinSnapshot.active, joinSnapshot.dash, arcJoinActions],
+    [joinSnapshot.active, joinSnapshot.arc, arcJoinActions],
   );
   // A question put to the developer by a process outside the turn stream, with
   // that process blocked on the answer. The snapshot's `pendingAsk` reference
@@ -5348,10 +5348,10 @@ export function SessionCardBody({
                   changesController={changesController}
                   codeSessionStore={codeSessionStore}
                   // A landing in flight supplies its own target, so an
-                  // aimed-but-unbound dash still gets its face.
+                  // aimed-but-unbound arc still gets its face.
                   arcJoin={
-                    boundDashId !== null ||
-                    (joinSnapshot.active && joinSnapshot.dash !== null)
+                    boundArcId !== null ||
+                    (joinSnapshot.active && joinSnapshot.arc !== null)
                       ? arcJoin
                       : undefined
                   }
@@ -5440,19 +5440,19 @@ export function SessionCardBody({
                     ? joinModeController
                     : commitModeController
                 }
-                // What the Changes room lands for this card: a dash in reach —
+                // What the Changes room lands for this card: an arc in reach —
                 // bound, or aimed at by name through `/arc-join` — means a join.
                 // The aimed case matters because that command enters join mode
                 // without binding.
                 changesLandingKind={
-                  boundDashId !== null ||
-                  (joinSnapshot.active && joinSnapshot.dash !== null)
+                  boundArcId !== null ||
+                  (joinSnapshot.active && joinSnapshot.arc !== null)
                     ? "join"
                     : "commit"
                 }
                 // Derived on every render from two live reads, and remembered
-                // nowhere: a join stands for this card's dash, and the room it
-                // stands in is closed. When the join lands the dash leaves the
+                // nowhere: a join stands for this card's arc, and the room it
+                // stands in is closed. When the join lands the arc leaves the
                 // feed and the offer goes with it, so the dot cannot outlive
                 // what it points at.
                 changesHasOffer={joinOffer !== null && shadeView === "none"}

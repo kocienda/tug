@@ -14,7 +14,7 @@
 //!
 //! The rungs, in order:
 //!
-//! 1. **Replay probe** — replay the dash's rounds one at a time in memory
+//! 1. **Replay probe** — replay the arc's rounds one at a time in memory
 //!    (`merge-tree --merge-base=<round^>` + `commit-tree`, git ≥ 2.40); a clean
 //!    replay resolves the conflict as the replayed rounds. Reached only when the
 //!    squash conflicts; the replayed chain is the candidate's bytes, not the
@@ -41,8 +41,8 @@ use serde::{Deserialize, Serialize};
 use tugtool_core::sanitize_branch_name;
 
 use crate::ops::{
-    branch_exists, branch_name, commit_worktree_dirt, config_get, dash_base, git_output,
-    git_stdout, integrate_message, main_repo_root, worktree_path,
+    arc_base, branch_exists, branch_name, commit_worktree_dirt, config_get, git_output, git_stdout,
+    integrate_message, main_repo_root, worktree_path,
 };
 use crate::replay::{ReplayWalk, ReplayedRounds};
 
@@ -50,16 +50,16 @@ use crate::replay::{ReplayWalk, ReplayedRounds};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ResolvedBy {
-    /// The whole dash replayed clean; no per-file work (shape = replay).
+    /// The whole arc replayed clean; no per-file work (shape = replay).
     ///
     /// A path can carry this rung and still have been a conflict: the squash
     /// the join would otherwise have landed conflicted over it, and replaying
     /// the rounds in order is what decided it. That is a machine decision
     /// nobody read, so it is named here and audited like any other.
     Replay,
-    /// The one-shot squash merged the whole dash cleanly.
+    /// The one-shot squash merged the whole arc cleanly.
     Squash,
-    /// A resolution this dash already made, replayed from a prior conflict
+    /// A resolution this arc already made, replayed from a prior conflict
     /// chain whose three stage oids for the path are unchanged.
     ///
     /// Above [`ResolvedBy::Rerere`] in trust and cost both: rerere replays on a
@@ -79,19 +79,19 @@ pub enum ResolvedBy {
     Resolver,
 }
 
-/// One conflicted file's three blob stages plus the dash's intent, handed to the
+/// One conflicted file's three blob stages plus the arc's intent, handed to the
 /// AI rung ([P32]). `base` is `None` for an add/add conflict.
 pub struct FileMergeRequest {
     pub path: String,
     pub base: Option<Vec<u8>>,
     pub ours: Option<Vec<u8>>,
     pub theirs: Option<Vec<u8>>,
-    /// The dash's maintained draft + round subjects — what the dash was doing.
+    /// The arc's maintained draft + round subjects — what the arc was doing.
     pub intent: String,
 }
 
 /// The AI rung's seam ([P32]). tugcast implements it with the scribe sidecar;
-/// the `tugdash` CLI passes `None`. A `None` return leaves the file unresolved.
+/// the `tugarc` CLI passes `None`. A `None` return leaves the file unresolved.
 pub trait FileMerger: Send + Sync {
     fn merge(&self, req: &FileMergeRequest) -> Option<Vec<u8>>;
 }
@@ -167,7 +167,7 @@ pub struct ResolveOutcome {
     ///
     /// This is what the join **would** have made a human resolve, and it is
     /// therefore what the audit is owed — independently of which rung happened
-    /// to settle it. A dash whose squash conflicts but whose rounds replay
+    /// to settle it. An arc whose squash conflicts but whose rounds replay
     /// cleanly resolves with `resolved` and `unresolved` both empty; reading
     /// the audit duty off those two lists let exactly that shape — a wholesale
     /// machine decision that builds green — pass unread.
@@ -179,7 +179,7 @@ pub struct ResolveOutcome {
 }
 
 /// Like [`resolve_conflicts`], but discovering the repo root from the process
-/// cwd (the `tugdash` CLI entry point).
+/// cwd (the `tugarc` CLI entry point).
 pub fn resolve_conflicts_cwd(
     name: &str,
     merger: Option<&dyn FileMerger>,
@@ -188,10 +188,10 @@ pub fn resolve_conflicts_cwd(
     resolve_conflicts(&repo, name, merger)
 }
 
-/// Run the resolution ladder against a dash's current conflict set ([P31]).
+/// Run the resolution ladder against an arc's current conflict set ([P31]).
 ///
-/// Commits outstanding dash-worktree dirt first (so the branch tip is the real
-/// state), then walks the rungs. Never touches the base or dash checkouts — a
+/// Commits outstanding arc-worktree dirt first (so the branch tip is the real
+/// state), then walks the rungs. Never touches the base or arc checkouts — a
 /// candidate commit is built off to the side and landed separately by
 /// [`crate::ops::join_in`] with the staleness guard.
 pub fn resolve_conflicts(
@@ -202,14 +202,14 @@ pub fn resolve_conflicts(
     let mut outcome = resolve_ladder(repo, name, merger)?;
 
     // Anchor at one site rather than at each of the ladder's four success
-    // exits. The dash head is read here — *after* the ladder's
-    // `commit_worktree_dirt` preamble, which commits the dash worktree's dirt
-    // and so moves the dash head as part of resolving. Recording the
+    // exits. The arc head is read here — *after* the ladder's
+    // `commit_worktree_dirt` preamble, which commits the arc worktree's dirt
+    // and so moves the arc head as part of resolving. Recording the
     // pre-preamble head would mark every candidate stale the moment it was
     // built.
     match &outcome.candidate_commit {
         Some(candidate) => {
-            let dash_head = git_stdout(repo, &["rev-parse", &branch_name(name)])?;
+            let arc_head = git_stdout(repo, &["rev-parse", &branch_name(name)])?;
             write_candidate_ref(repo, name, candidate)?;
             clear_candidate_marks(repo, name);
             let _ = git_output(
@@ -218,7 +218,7 @@ pub fn resolve_conflicts(
                     "config",
                     "--replace-all",
                     &join_source_config_key(name),
-                    &dash_head,
+                    &arc_head,
                 ],
             );
             for r in &outcome.resolved {
@@ -270,9 +270,9 @@ fn resolve_ladder(
 ) -> Result<ResolveOutcome, String> {
     let branch = branch_name(name);
     if !branch_exists(repo, &branch) {
-        return Err(format!("Dash not found: {}", name));
+        return Err(format!("Arc not found: {}", name));
     }
-    let base_branch = dash_base(repo, name)?;
+    let base_branch = arc_base(repo, name)?;
     let worktree = worktree_path(repo, name);
     let mut warnings = Vec::new();
 
@@ -288,7 +288,7 @@ fn resolve_ladder(
     // oids say they are.
     let prior_chain = read_conflict(repo, name);
 
-    // Preamble: the tip must reflect the dash's real state before we resolve.
+    // Preamble: the tip must reflect the arc's real state before we resolve.
     commit_worktree_dirt(&worktree, name)?;
 
     let base_head = git_stdout(repo, &["rev-parse", &base_branch])?;
@@ -313,7 +313,7 @@ fn resolve_ladder(
         // check is how an ordinary clean join came to land as a chain of
         // replayed rounds with the draft never read — a replay is trivially
         // clean whenever the base has not moved, so the probe answered first
-        // and this arm was unreachable for very nearly every dash that joined.
+        // and this arm was unreachable for very nearly every arc that joined.
         // The candidate is an intermediate the join re-composes its own message
         // over, so the session it names is the running process's if it has one.
         let msg = integrate_message(repo, name, &branch, None, None);
@@ -383,7 +383,7 @@ fn resolve_ladder(
     let mut unresolved: Vec<String> = Vec::new();
 
     for (path, raw) in &stages {
-        // This dash's own prior resolution, replayed on exact stage identity.
+        // This arc's own prior resolution, replayed on exact stage identity.
         if let Some(oid) = salvaged.get(path) {
             resolved.push(ResolvedFile {
                 path: path.clone(),
@@ -498,15 +498,8 @@ fn resolve_ladder(
             ));
         }
 
-        let dash_head = git_stdout(repo, &["rev-parse", &branch])?;
-        let record = conflict_record(
-            repo,
-            &base_head,
-            &dash_head,
-            &stages,
-            &unresolved,
-            &resolved,
-        );
+        let arc_head = git_stdout(repo, &["rev-parse", &branch])?;
+        let record = conflict_record(repo, &base_head, &arc_head, &stages, &unresolved, &resolved);
         return Ok(ResolveOutcome {
             conflict_record: Some(record),
             shape: JoinShape::Squash,
@@ -522,7 +515,7 @@ fn resolve_ladder(
 
     // Everything resolved, so no conflict stands. Any chain from an earlier
     // partial run describes a resolution this one superseded, and a candidate
-    // and a live conflict must never both stand for the same dash.
+    // and a live conflict must never both stand for the same arc.
     clear_conflict(repo, name);
 
     // Everything resolved — the staged tree is the candidate's tree.
@@ -677,7 +670,7 @@ fn resolution_diff(
 // Rung 1 — replay probe
 // ---------------------------------------------------------------------------
 
-/// Replay the dash's rounds one at a time onto the current base, in memory
+/// Replay the arc's rounds one at a time onto the current base, in memory
 /// (`merge-tree --merge-base=<round^>` + `commit-tree`). Returns the replayed
 /// head and the per-round mapping when every round is clean, else `None` (a
 /// conflicting round, no rounds, or git < 2.40). Touches nothing.
@@ -1108,7 +1101,7 @@ fn merge_file_rung(scratch: &Path, path: &str, loaded: &LoadedStages) -> Option<
 // Rung 4 — structured-merge driver
 // ---------------------------------------------------------------------------
 
-/// A structured-merge driver ([P31]): the configured `tugdash.mergedriver`
+/// A structured-merge driver ([P31]): the configured `tugarc.mergedriver`
 /// command (or `mergiraf` when present), invoked with the three stage files and
 /// an output file. Convention — the command receives, positionally:
 /// `<base> <ours> <theirs> <output> <ext>` and must write the merged result to
@@ -1156,17 +1149,17 @@ fn driver_rung(repo: &Path, scratch: &Path, path: &str, loaded: &LoadedStages) -
 /// The configured resolver stub command, if this repo names one.
 ///
 /// The seam sits beside [`driver_program`] because it is the same seam one rung
-/// up: `tugdash.mergedriver` lets a test play a structured-merge driver in a few
-/// lines of shell, and `tugdash.joinresolver` lets it play the resolver the same
+/// up: `tugarc.mergedriver` lets a test play a structured-merge driver in a few
+/// lines of shell, and `tugarc.joinresolver` lets it play the resolver the same
 /// way. Absent, tugcast spawns the real thing.
 pub fn resolver_program(repo: &Path) -> Option<String> {
-    crate::ops::config_get(repo, "tugdash.joinresolver").filter(|c| !c.trim().is_empty())
+    crate::ops::config_get(repo, "tugarc.joinresolver").filter(|c| !c.trim().is_empty())
 }
 
-/// The structured-merge driver command: `tugdash.mergedriver` when configured,
+/// The structured-merge driver command: `tugarc.mergedriver` when configured,
 /// else `mergiraf` when it is on `PATH`, else `None`.
 fn driver_program(repo: &Path) -> Option<String> {
-    if let Some(cmd) = crate::ops::config_get(repo, "tugdash.mergedriver") {
+    if let Some(cmd) = crate::ops::config_get(repo, "tugarc.mergedriver") {
         return Some(cmd);
     }
     if on_path("mergiraf") {
@@ -1317,7 +1310,7 @@ fn write_scratch(scratch: &Path, tag: &str, ext: &str, bytes: &[u8]) -> Option<s
 /// to the document's prose half.
 const PLAN_INTENT_CAP: usize = 12_000;
 
-/// The dash's intent, as the whole corpus a reconciliation is adjudicated
+/// The arc's intent, as the whole corpus a reconciliation is adjudicated
 /// against: the maintained draft, the round subjects, the adopted plan
 /// document, the base branch's own motion since the merge base, and the two
 /// sides' name-status diffs.
@@ -1325,13 +1318,13 @@ const PLAN_INTENT_CAP: usize = 12_000;
 /// Read by the AI rung of the resolution ladder ([P32]), by the resolver
 /// charter, and by the base-motion engine, which puts it in front of an agent
 /// being asked to resolve a replay that conflicts — in every case the question
-/// is "what is this dash for, and what has the base been doing meanwhile", and
-/// the answer is the same one. A draft and a few subjects can say what a dash
+/// is "what is this arc for, and what has the base been doing meanwhile", and
+/// the answer is the same one. A draft and a few subjects can say what an arc
 /// wanted; they cannot say which of two purposes a conflicting hunk serves,
 /// which is the judgment this corpus exists to support.
 pub fn resolve_intent(repo: &Path, base_branch: &str, branch: &str) -> String {
     let mut parts = Vec::new();
-    if let Some(draft) = crate::ops::dash_draft_message(repo, branch) {
+    if let Some(draft) = crate::ops::arc_draft_message(repo, branch) {
         parts.push(draft);
     }
     if let Ok(subjects) = git_stdout(
@@ -1346,15 +1339,15 @@ pub fn resolve_intent(repo: &Path, base_branch: &str, branch: &str) -> String {
             parts.push(format!("Round subjects:\n{}", subjects.trim()));
         }
     }
-    if let Some(plan) = dash_plan_text(repo, branch) {
-        parts.push(format!("The dash's plan:\n{}", plan));
+    if let Some(plan) = arc_plan_text(repo, branch) {
+        parts.push(format!("The arc's plan:\n{}", plan));
     }
 
     // A question an earlier resolver raised and never got an answer to. Carried
     // forward rather than dropped: the ambiguity that produced it is still in
     // the tree, and a resolver told about it can raise it again against a user
     // who is present this time.
-    if let Some(name) = branch.strip_prefix("tugdash/") {
+    if let Some(name) = branch.strip_prefix("tugarc/") {
         if let Ok(head) = git_stdout(repo, &["rev-parse", branch]) {
             if let Some(asked) = read_lastask(repo, name, head.trim()) {
                 parts.push(format!(
@@ -1375,13 +1368,13 @@ pub fn resolve_intent(repo: &Path, base_branch: &str, branch: &str) -> String {
         ) {
             if !subjects.trim().is_empty() {
                 parts.push(format!(
-                    "What {} has done since this dash forked:\n{}",
+                    "What {} has done since this arc forked:\n{}",
                     base_branch,
                     subjects.trim()
                 ));
             }
         }
-        for (label, tip) in [("This dash", branch), ("The base", base_branch)] {
+        for (label, tip) in [("This arc", branch), ("The base", base_branch)] {
             if let Ok(names) = git_stdout(
                 repo,
                 &["diff", "--name-status", &format!("{}..{}", fork, tip)],
@@ -1396,15 +1389,15 @@ pub fn resolve_intent(repo: &Path, base_branch: &str, branch: &str) -> String {
     parts.join("\n\n")
 }
 
-/// The dash's plan as it stands at its own address ([D139]), size-bounded.
+/// The arc's plan as it stands at its own address ([D139]), size-bounded.
 ///
 /// A plan runs to hundreds of lines of execution steps, and the steps are the
 /// least useful half for adjudicating a conflict — the prose above them is what
 /// states the intent. So an oversized plan is cut at its Execution Steps
 /// heading rather than mid-sentence, and only hard-truncated when it has no
 /// such heading to cut at.
-fn dash_plan_text(repo: &Path, branch: &str) -> Option<String> {
-    let name = branch.strip_prefix("tugdash/")?;
+fn arc_plan_text(repo: &Path, branch: &str) -> Option<String> {
+    let name = branch.strip_prefix("tugarc/")?;
     let text = std::fs::read_to_string(crate::ops::plan_file(repo, name)).ok()?;
     if text.trim().is_empty() {
         return None;
@@ -1645,10 +1638,10 @@ pub fn candidate_ref_name(name: &str) -> String {
     format!("refs/tug/join/{}", name)
 }
 
-/// The dash head the ladder ran against, recorded because the candidate's own
+/// The arc head the ladder ran against, recorded because the candidate's own
 /// parentage cannot say it (the replay shape parents onto its previous round).
 pub fn join_source_config_key(name: &str) -> String {
-    format!("branch.tugdash/{}.tugjoinsource", name)
+    format!("branch.tugarc/{}.tugjoinsource", name)
 }
 
 /// Which rung resolved each path, multi-valued as `<path>\t<rung>`.
@@ -1657,7 +1650,7 @@ pub fn join_source_config_key(name: &str) -> String {
 /// of the decision, so this is the one half of the review payload that cannot
 /// be recomputed from git.
 pub fn join_resolved_config_key(name: &str) -> String {
-    format!("branch.tugdash/{}.tugjoinresolved", name)
+    format!("branch.tugarc/{}.tugjoinresolved", name)
 }
 
 impl ResolvedBy {
@@ -1691,7 +1684,7 @@ impl ResolvedBy {
     }
 }
 
-/// Anchor a candidate commit at the dash's join ref.
+/// Anchor a candidate commit at the arc's join ref.
 pub fn write_candidate_ref(repo: &Path, name: &str, sha: &str) -> Result<(), String> {
     let out = git_output(repo, &["update-ref", &candidate_ref_name(name), sha])?;
     if !out.status.success() {
@@ -1704,7 +1697,7 @@ pub fn write_candidate_ref(repo: &Path, name: &str, sha: &str) -> Result<(), Str
     Ok(())
 }
 
-/// The commit the dash's join ref points at, if it stands.
+/// The commit the arc's join ref points at, if it stands.
 pub fn read_candidate(repo: &Path, name: &str) -> Option<String> {
     let spec = format!("{}^{{commit}}", candidate_ref_name(name));
     let out = git_output(repo, &["rev-parse", "--verify", "--quiet", &spec]).ok()?;
@@ -1765,7 +1758,7 @@ pub struct CandidateDiff {
     pub removed: Option<u32>,
 }
 
-/// Anchor a candidate somebody other than the ladder built, with the dash head
+/// Anchor a candidate somebody other than the ladder built, with the arc head
 /// it was built against.
 ///
 /// The ladder does this inline at its own success arm; the resolver needs the
@@ -1777,7 +1770,7 @@ pub fn anchor_candidate(
     repo: &Path,
     name: &str,
     candidate: &str,
-    dash_head: &str,
+    arc_head: &str,
 ) -> Result<(), String> {
     write_candidate_ref(repo, name, candidate)?;
     clear_candidate_marks(repo, name);
@@ -1787,7 +1780,7 @@ pub fn anchor_candidate(
             "config",
             "--replace-all",
             &join_source_config_key(name),
-            dash_head,
+            arc_head,
         ],
     );
     Ok(())
@@ -1810,17 +1803,17 @@ pub fn record_resolved_rung(repo: &Path, name: &str, path: &str, rung: ResolvedB
 /// makes the report self-demote the moment the candidate does, exactly like the
 /// verification verdict beside it.
 pub fn report_config_key(name: &str) -> String {
-    format!("branch.tugdash/{}.tugjoinreport", name)
+    format!("branch.tugarc/{}.tugjoinreport", name)
 }
 
-/// Why the last resolve stopped short: `<dash_head>:<reason>`.
+/// Why the last resolve stopped short: `<arc_head>:<reason>`.
 ///
-/// Anchored to the dash head rather than to a candidate, because a stuck
+/// Anchored to the arc head rather than to a candidate, because a stuck
 /// resolve is precisely the case where no candidate was produced. A new round
-/// on the dash moves the head and the reason stops applying, which is the
+/// on the arc moves the head and the reason stops applying, which is the
 /// self-demotion every join fact gets.
 pub fn stuck_config_key(name: &str) -> String {
-    format!("branch.tugdash/{}.tugjoinstuck", name)
+    format!("branch.tugarc/{}.tugjoinstuck", name)
 }
 
 /// Store a resolver report for a candidate, as a blob the config points at.
@@ -1852,21 +1845,21 @@ pub fn read_report(repo: &Path, name: &str, candidate: &str) -> Option<String> {
     git_stdout(repo, &["cat-file", "blob", blob]).ok()
 }
 
-/// Record why a resolve stopped short, against the dash head it ran on.
-pub fn write_stuck(repo: &Path, name: &str, dash_head: &str, reason: &str) {
+/// Record why a resolve stopped short, against the arc head it ran on.
+pub fn write_stuck(repo: &Path, name: &str, arc_head: &str, reason: &str) {
     let one_line = reason.replace('\n', " ");
-    let value = format!("{}:{}", dash_head, one_line);
+    let value = format!("{}:{}", arc_head, one_line);
     let _ = git_output(
         repo,
         &["config", "--replace-all", &stuck_config_key(name), &value],
     );
 }
 
-/// The standing stuck reason, if one describes the dash's current head.
-pub fn read_stuck(repo: &Path, name: &str, dash_head: &str) -> Option<String> {
+/// The standing stuck reason, if one describes the arc's current head.
+pub fn read_stuck(repo: &Path, name: &str, arc_head: &str) -> Option<String> {
     let value = config_get(repo, &stuck_config_key(name))?;
     let (for_head, reason) = value.split_once(':')?;
-    if for_head != dash_head {
+    if for_head != arc_head {
         return None;
     }
     Some(reason.to_string())
@@ -1879,24 +1872,24 @@ pub fn clear_stuck(repo: &Path, name: &str) {
 }
 
 /// Where the escalation a resolve is blocked on is pointed from:
-/// `<dash_head>:<blob>`.
+/// `<arc_head>:<blob>`.
 ///
 /// The question itself is a git blob rather than a config value, for the
 /// reason the report is: it is model-authored prose with quotes and newlines
 /// in it, and a config value is the wrong container for that — the shape that
 /// forced the change was a question whose own apostrophes did not survive the
-/// round trip. Anchored to the *dash head* rather than a candidate, because a
+/// round trip. Anchored to the *arc head* rather than a candidate, because a
 /// question exists precisely when there is no candidate yet.
 pub fn question_config_key(name: &str) -> String {
-    format!("branch.tugdash/{}.tugjoinquestion", name)
+    format!("branch.tugarc/{}.tugjoinquestion", name)
 }
 
 /// Record the question a resolve is blocked on, so a reload re-renders it.
-pub fn write_question(repo: &Path, name: &str, dash_head: &str, json: &str) {
+pub fn write_question(repo: &Path, name: &str, arc_head: &str, json: &str) {
     let Ok(blob) = hash_blob(repo, json.as_bytes()) else {
         return;
     };
-    let value = format!("{}:{}", dash_head, blob);
+    let value = format!("{}:{}", arc_head, blob);
     let _ = git_output(
         repo,
         &[
@@ -1908,11 +1901,11 @@ pub fn write_question(repo: &Path, name: &str, dash_head: &str, json: &str) {
     );
 }
 
-/// The standing question, if one describes the dash's current head.
-pub fn read_question(repo: &Path, name: &str, dash_head: &str) -> Option<String> {
+/// The standing question, if one describes the arc's current head.
+pub fn read_question(repo: &Path, name: &str, arc_head: &str) -> Option<String> {
     let value = config_get(repo, &question_config_key(name))?;
     let (for_head, blob) = value.split_once(':')?;
-    if for_head != dash_head {
+    if for_head != arc_head {
         return None;
     }
     git_stdout(repo, &["cat-file", "blob", blob]).ok()
@@ -1925,7 +1918,7 @@ pub fn clear_question(repo: &Path, name: &str) {
 }
 
 /// Where a question that expired unanswered is kept until the next resolve
-/// reads it: `<dash_head>:<blob>`.
+/// reads it: `<arc_head>:<blob>`.
 ///
 /// A resolver conversation cannot be resumed — the spawn is gone and its
 /// context with it — so the honest version of "the answer arrives on the next
@@ -1933,26 +1926,26 @@ pub fn clear_question(repo: &Path, name: &str) {
 /// question in its charter and can raise it again against a user who is now
 /// present, instead of rediscovering the same ambiguity from scratch.
 pub fn lastask_config_key(name: &str) -> String {
-    format!("branch.tugdash/{}.tugjoinlastask", name)
+    format!("branch.tugarc/{}.tugjoinlastask", name)
 }
 
 /// Record a question that expired without an answer.
-pub fn write_lastask(repo: &Path, name: &str, dash_head: &str, question: &str) {
+pub fn write_lastask(repo: &Path, name: &str, arc_head: &str, question: &str) {
     let Ok(blob) = hash_blob(repo, question.as_bytes()) else {
         return;
     };
-    let value = format!("{}:{}", dash_head, blob);
+    let value = format!("{}:{}", arc_head, blob);
     let _ = git_output(
         repo,
         &["config", "--replace-all", &lastask_config_key(name), &value],
     );
 }
 
-/// The expired question, if one describes the dash's current head.
-pub fn read_lastask(repo: &Path, name: &str, dash_head: &str) -> Option<String> {
+/// The expired question, if one describes the arc's current head.
+pub fn read_lastask(repo: &Path, name: &str, arc_head: &str) -> Option<String> {
     let value = config_get(repo, &lastask_config_key(name))?;
     let (for_head, blob) = value.split_once(':')?;
-    if for_head != dash_head {
+    if for_head != arc_head {
         return None;
     }
     git_stdout(repo, &["cat-file", "blob", blob]).ok()
@@ -2002,8 +1995,8 @@ pub fn clear_candidate(repo: &Path, name: &str) {
 
 /// `refs/tug/conflict/<name>` — where an unresolved conflict lives.
 ///
-/// Deliberately under `refs/tug/`, never `refs/heads/`: every dash surface
-/// globs `refs/heads/tugdash/`, and the workshop's own doc records what a ref
+/// Deliberately under `refs/tug/`, never `refs/heads/`: every arc surface
+/// globs `refs/heads/tugarc/`, and the workshop's own doc records what a ref
 /// inside that namespace does to them.
 pub fn conflict_ref_name(name: &str) -> String {
     format!("refs/tug/conflict/{}", sanitize_branch_name(name))
@@ -2057,7 +2050,11 @@ pub struct ConflictRecord {
     #[serde(default = "conflict_version")]
     pub version: u32,
     pub base_head: String,
-    pub dash_head: String,
+    // Pinned: a conflict record is written into a conflict commit's message
+    // and read back by later builds, so this key is a stored spelling and
+    // stays one for life.
+    #[serde(rename = "dash_head")]
+    pub arc_head: String,
     /// Every path still unresolved, with its three stages.
     pub paths: Vec<ConflictPath>,
     /// Every path a machine rung finished, named so a resolver and a later
@@ -2082,7 +2079,7 @@ const CONFLICT_SUBJECT_PREFIX: &str = "tugconflict(";
 /// ladder gives up on the rest, and a commit carrying the unpatched tree would
 /// hand a resolver conflict markers in files the machine had already finished.
 ///
-/// The parents are the base head and the dash head, so the conflict's inputs
+/// The parents are the base head and the arc head, so the conflict's inputs
 /// stay reachable and its provenance is ancestry rather than bookkeeping.
 pub fn write_conflict_commit(
     repo: &Path,
@@ -2107,7 +2104,7 @@ pub fn write_conflict_commit(
             "-p",
             &record.base_head,
             "-p",
-            &record.dash_head,
+            &record.arc_head,
             "-m",
             &message,
         ],
@@ -2170,12 +2167,12 @@ pub fn read_conflict(repo: &Path, name: &str) -> Option<ConflictChain> {
 /// a chain built on the base; a conflict is a snapshot, and equality is the
 /// honest test for a snapshot.
 pub fn conflict_is_valid(repo: &Path, name: &str, chain: &ConflictChain) -> bool {
-    let Ok(base_branch) = dash_base(repo, name) else {
+    let Ok(base_branch) = arc_base(repo, name) else {
         return false;
     };
     let base_now = git_stdout(repo, &["rev-parse", &base_branch]).unwrap_or_default();
-    let dash_now = git_stdout(repo, &["rev-parse", &branch_name(name)]).unwrap_or_default();
-    base_now == chain.record.base_head && dash_now == chain.record.dash_head
+    let arc_now = git_stdout(repo, &["rev-parse", &branch_name(name)]).unwrap_or_default();
+    base_now == chain.record.base_head && arc_now == chain.record.arc_head
 }
 
 /// The valid conflict chain for `name`, if there is one.
@@ -2200,7 +2197,7 @@ pub fn advance_conflict_ref(repo: &Path, name: &str, sha: &str) -> Result<(), St
     Ok(())
 }
 
-/// Drop a dash's conflict chain.
+/// Drop an arc's conflict chain.
 pub fn clear_conflict(repo: &Path, name: &str) {
     let _ = git_output(repo, &["update-ref", "-d", &conflict_ref_name(name)]);
 }
@@ -2295,7 +2292,7 @@ pub fn mark_resolve_ended(repo: &Path, name: &str) -> Result<String, String> {
 /// been anchored; and the tip is younger than [`RESOLVE_LEASE`].
 ///
 /// **Read without the validity gate, deliberately.** `conflict_is_valid`
-/// answers *may this chain be opened* — a round landing on the dash mid-resolve
+/// answers *may this chain be opened* — a round landing on the arc mid-resolve
 /// invalidates the chain without stopping the resolver working in the workshop.
 /// The lease answers a different question: *is somebody working on it*.
 ///
@@ -2335,7 +2332,7 @@ pub fn resolve_lease(repo: &Path, name: &str, now: SystemTime) -> Option<Resolve
 fn conflict_record(
     repo: &Path,
     base_head: &str,
-    dash_head: &str,
+    arc_head: &str,
     stages: &BTreeMap<String, RawStages>,
     unresolved: &[String],
     resolved: &[ResolvedFile],
@@ -2362,7 +2359,7 @@ fn conflict_record(
     ConflictRecord {
         version: conflict_version(),
         base_head: base_head.to_string(),
-        dash_head: dash_head.to_string(),
+        arc_head: arc_head.to_string(),
         paths,
         resolved: resolved
             .iter()
@@ -2386,13 +2383,13 @@ pub enum CandidateStatus {
 }
 
 /// [`candidate_status`] for a caller that does not already hold the base
-/// branch, resolving it the same way every other dash verb does.
+/// branch, resolving it the same way every other arc verb does.
 pub fn candidate_status_in(repo: &Path, name: &str) -> Result<CandidateStatus, String> {
-    let base = dash_base(repo, name)?;
+    let base = arc_base(repo, name)?;
     Ok(candidate_status(repo, name, &base))
 }
 
-/// Verify the anchored candidate against the current base and dash heads.
+/// Verify the anchored candidate against the current base and arc heads.
 ///
 /// **Ancestry, not parenthood.** The squash shape builds its candidate directly
 /// on the base head, but the replay shape returns the tip of a chain of replayed
@@ -2424,14 +2421,14 @@ pub fn candidate_status(repo: &Path, name: &str, base_branch: &str) -> Candidate
     }
 
     let branch = branch_name(name);
-    let dash_head = match git_stdout(repo, &["rev-parse", &branch]) {
+    let arc_head = match git_stdout(repo, &["rev-parse", &branch]) {
         Ok(h) => h,
         Err(_) => return CandidateStatus::None,
     };
     match config_get(repo, &join_source_config_key(name)) {
-        Some(source) if source == dash_head => CandidateStatus::Valid(candidate),
+        Some(source) if source == arc_head => CandidateStatus::Valid(candidate),
         _ => CandidateStatus::Stale(
-            "the dash has moved since this was resolved — resolve again".to_string(),
+            "the arc has moved since this was resolved — resolve again".to_string(),
         ),
     }
 }
@@ -2456,7 +2453,7 @@ mod tests {
         std::fs::write(dir.join(rel), content).unwrap();
     }
 
-    /// A repo on `main` with base commit `A`, a `tugdash/demo` dash, and helpers
+    /// A repo on `main` with base commit `A`, a `tugarc/demo` arc, and helpers
     /// wired (user config, rerere off by default — tests opt in).
     fn init(rounds_on_branch: &[(&str, &str, &str)]) -> tempfile::TempDir {
         let temp = tempfile::tempdir().unwrap();
@@ -2467,10 +2464,10 @@ mod tests {
         set(repo, "f.txt", "A\n");
         git(repo, &["add", "-A"]);
         git(repo, &["commit", "-m", "base"]);
-        git(repo, &["branch", "tugdash/demo"]);
-        git(repo, &["config", "branch.tugdash/demo.tugbase", "main"]);
+        git(repo, &["branch", "tugarc/demo"]);
+        git(repo, &["config", "branch.tugarc/demo.tugbase", "main"]);
         // Rounds land on the branch (checked out via a switch, no worktree).
-        git(repo, &["switch", "-q", "tugdash/demo"]);
+        git(repo, &["switch", "-q", "tugarc/demo"]);
         for (rel, content, msg) in rounds_on_branch {
             set(repo, rel, content);
             git(repo, &["add", "-A"]);
@@ -2492,16 +2489,16 @@ mod tests {
         }
         git(
             repo,
-            &["config", "tugdash.mergedriver", &stub.to_string_lossy()],
+            &["config", "tugarc.mergedriver", &stub.to_string_lossy()],
         );
     }
 
     // ---- conflicts as data ----
 
-    /// A dash and a base that both edit `f.txt`, so the squash conflicts and no
+    /// An arc and a base that both edit `f.txt`, so the squash conflicts and no
     /// text rung can settle it.
     fn init_conflicted() -> tempfile::TempDir {
-        let temp = init(&[("f.txt", "dash\n", "dash edits f")]);
+        let temp = init(&[("f.txt", "arc\n", "arc edits f")]);
         let repo = temp.path();
         set(repo, "f.txt", "base\n");
         git(repo, &["add", "-A"]);
@@ -2514,7 +2511,7 @@ mod tests {
         let temp = init_conflicted();
         let repo = temp.path();
         let base_head = git_stdout(repo, &["rev-parse", "main"]).unwrap();
-        let dash_head = git_stdout(repo, &["rev-parse", "tugdash/demo"]).unwrap();
+        let arc_head = git_stdout(repo, &["rev-parse", "tugarc/demo"]).unwrap();
 
         let outcome = resolve_conflicts(repo, "demo", None).unwrap();
         assert!(!outcome.unresolved.is_empty(), "f.txt cannot be merged");
@@ -2522,7 +2519,7 @@ mod tests {
         let chain = read_conflict(repo, "demo").expect("the conflict is on file");
         assert_eq!(chain.tip, chain.root, "a fresh conflict is its own tip");
         assert_eq!(chain.record.base_head, base_head);
-        assert_eq!(chain.record.dash_head, dash_head);
+        assert_eq!(chain.record.arc_head, arc_head);
         assert_eq!(
             chain
                 .record
@@ -2546,13 +2543,13 @@ mod tests {
         );
         assert_eq!(
             git_stdout(repo, &["cat-file", "-p", &theirs.oid]).unwrap(),
-            "dash"
+            "arc"
         );
 
         // Both inputs are parents, so the conflict's provenance is ancestry.
         let parents = git_stdout(repo, &["rev-list", "--parents", "-n", "1", &chain.root]).unwrap();
         assert!(parents.contains(&base_head), "{parents}");
-        assert!(parents.contains(&dash_head), "{parents}");
+        assert!(parents.contains(&arc_head), "{parents}");
     }
 
     // ---- the resolve lease ----
@@ -2570,14 +2567,14 @@ mod tests {
     }
 
     #[test]
-    fn a_begin_marker_leases_the_dash_until_it_ages_out() {
+    fn a_begin_marker_leases_the_arc_until_it_ages_out() {
         let temp = init_conflicted();
         let repo = temp.path();
         resolve_conflicts(repo, "demo", None).unwrap();
         let marker = mark_resolve_begun(repo, "demo").unwrap();
 
         let now = SystemTime::now();
-        let lease = resolve_lease(repo, "demo", now).expect("a resolve holds the dash");
+        let lease = resolve_lease(repo, "demo", now).expect("a resolve holds the arc");
         assert_eq!(lease.tip, marker);
         assert!(lease.age < Duration::from_secs(60), "{:?}", lease.age);
 
@@ -2643,9 +2640,9 @@ mod tests {
         mark_resolve_begun(repo, "demo").unwrap();
         assert!(resolve_lease(repo, "demo", SystemTime::now()).is_some());
 
-        let dash_head = git_stdout(repo, &["rev-parse", "tugdash/demo"]).unwrap();
+        let arc_head = git_stdout(repo, &["rev-parse", "tugarc/demo"]).unwrap();
         let candidate = git_stdout(repo, &["rev-parse", "main"]).unwrap();
-        anchor_candidate(repo, "demo", &candidate, &dash_head).unwrap();
+        anchor_candidate(repo, "demo", &candidate, &arc_head).unwrap();
 
         assert!(
             resolve_lease(repo, "demo", SystemTime::now()).is_none(),
@@ -2677,8 +2674,8 @@ mod tests {
     }
 
     #[test]
-    fn marking_a_dash_with_no_chain_is_a_no_op() {
-        let temp = init(&[("f.txt", "dash\n", "dash edits f")]);
+    fn marking_a_arc_with_no_chain_is_a_no_op() {
+        let temp = init(&[("f.txt", "arc\n", "arc edits f")]);
         let repo = temp.path();
 
         assert_eq!(mark_resolve_begun(repo, "demo").unwrap(), "");
@@ -2704,14 +2701,14 @@ mod tests {
         set(repo, "g.txt", "g base\n");
         git(repo, &["add", "-A"]);
         git(repo, &["commit", "-m", "base"]);
-        git(repo, &["branch", "tugdash/demo"]);
-        git(repo, &["config", "branch.tugdash/demo.tugbase", "main"]);
+        git(repo, &["branch", "tugarc/demo"]);
+        git(repo, &["config", "branch.tugarc/demo.tugbase", "main"]);
 
-        git(repo, &["switch", "-q", "tugdash/demo"]);
-        set(repo, "f.txt", "dash\n");
-        set(repo, "g.txt", "g dash\n");
+        git(repo, &["switch", "-q", "tugarc/demo"]);
+        set(repo, "f.txt", "arc\n");
+        set(repo, "g.txt", "g arc\n");
         git(repo, &["add", "-A"]);
-        git(repo, &["commit", "-m", "dash edits both"]);
+        git(repo, &["commit", "-m", "arc edits both"]);
         git(repo, &["switch", "-q", "main"]);
         set(repo, "f.txt", "base\n");
         set(repo, "g.txt", "g main\n");
@@ -2735,7 +2732,7 @@ mod tests {
         }
         git(
             repo,
-            &["config", "tugdash.mergedriver", &stub.to_string_lossy()],
+            &["config", "tugarc.mergedriver", &stub.to_string_lossy()],
         );
 
         let outcome = resolve_conflicts(repo, "demo", None).unwrap();
@@ -2775,9 +2772,9 @@ mod tests {
         resolve_conflicts(repo, "demo", None).unwrap();
         assert!(valid_conflict(repo, "demo").is_some(), "valid when written");
 
-        // A new round on the dash: the recorded merge no longer describes the
-        // dash, so the chain is stale wholesale.
-        git(repo, &["switch", "-q", "tugdash/demo"]);
+        // A new round on the arc: the recorded merge no longer describes the
+        // arc, so the chain is stale wholesale.
+        git(repo, &["switch", "-q", "tugarc/demo"]);
         set(repo, "h.txt", "later\n");
         git(repo, &["add", "-A"]);
         git(repo, &["commit", "-m", "a later round"]);
@@ -2822,7 +2819,7 @@ mod tests {
 
     #[test]
     fn a_fully_resolved_run_leaves_no_conflict_standing() {
-        // A candidate and a live conflict must never both stand for one dash.
+        // A candidate and a live conflict must never both stand for one arc.
         let temp = init_conflicted();
         let repo = temp.path();
         resolve_conflicts(repo, "demo", None).unwrap();
@@ -2896,7 +2893,7 @@ mod tests {
 
     // ---- salvage ----
 
-    /// A dash and a base conflicting on two files, so a resolver can settle
+    /// An arc and a base conflicting on two files, so a resolver can settle
     /// one and leave the other.
     fn init_two_file_conflict() -> tempfile::TempDir {
         let temp = tempfile::tempdir().unwrap();
@@ -2909,14 +2906,14 @@ mod tests {
         set(repo, "spare.txt", "orig\n");
         git(repo, &["add", "-A"]);
         git(repo, &["commit", "-m", "base"]);
-        git(repo, &["branch", "tugdash/demo"]);
-        git(repo, &["config", "branch.tugdash/demo.tugbase", "main"]);
+        git(repo, &["branch", "tugarc/demo"]);
+        git(repo, &["config", "branch.tugarc/demo.tugbase", "main"]);
 
-        git(repo, &["switch", "-q", "tugdash/demo"]);
-        set(repo, "a.txt", "dash\n");
-        set(repo, "b.txt", "dash\n");
+        git(repo, &["switch", "-q", "tugarc/demo"]);
+        set(repo, "a.txt", "arc\n");
+        set(repo, "b.txt", "arc\n");
         git(repo, &["add", "-A"]);
-        git(repo, &["commit", "-m", "dash edits both"]);
+        git(repo, &["commit", "-m", "arc edits both"]);
 
         git(repo, &["switch", "-q", "main"]);
         set(repo, "a.txt", "base\n");
@@ -3027,7 +3024,7 @@ mod tests {
         checkpoint_one(
             repo,
             "a.txt",
-            "note\n<<<<<<< ours\ndash\n=======\nbase\n>>>>>>> theirs\n",
+            "note\n<<<<<<< ours\narc\n=======\nbase\n>>>>>>> theirs\n",
         );
 
         set(repo, "spare.txt", "moved\n");
@@ -3261,7 +3258,7 @@ mod tests {
     /// workshop could never read it as resolved.
     #[test]
     fn a_setext_file_resolves_through_the_workshop_to_a_candidate() {
-        let temp = init(&[("doc.md", "Heading\n=======\n\ndash\n", "dash edits doc")]);
+        let temp = init(&[("doc.md", "Heading\n=======\n\narc\n", "arc edits doc")]);
         let repo = temp.path();
         set(repo, "doc.md", "Heading\n=======\n\nbase\n");
         git(repo, &["add", "-A"]);
@@ -3289,32 +3286,32 @@ mod tests {
 
     // ---- ladder end-to-end ----
 
-    /// The rung order, pinned at the exit that matters: a dash with nothing to
+    /// The rung order, pinned at the exit that matters: an arc with nothing to
     /// resolve takes the clean-squash arm, and the candidate it hands back is
     /// **one commit parented on the base head** carrying the composed message.
     ///
     /// This is the 2026-08-20 incident, reduced. Rung 1 used to run first, and a
     /// replay is trivially clean whenever the base has not moved — so an
-    /// ordinary two-round dash exited as `Replay` with the round chain as its
+    /// ordinary two-round arc exited as `Replay` with the round chain as its
     /// candidate, the base fast-forwarded onto it, and the authored draft was
     /// never read because a fast-forward has no commit to put one in. Every test
     /// in this file passed throughout: the ladder was pinned on what it does
     /// with a conflict and never on what it does without one.
     #[test]
-    fn a_clean_dash_never_reaches_the_replay_rung() {
+    fn a_clean_arc_never_reaches_the_replay_rung() {
         let temp = init(&[("f.txt", "B\n", "r1"), ("g.txt", "G\n", "r2")]);
         let repo = temp.path();
         git(
             repo,
             &[
                 "config",
-                "branch.tugdash/demo.description",
+                "branch.tugarc/demo.description",
                 "the authored subject",
             ],
         );
 
         // Precondition: the one-shot squash really is clean.
-        let (_t, stages) = merge_tree_stages(repo, "main", "tugdash/demo").unwrap();
+        let (_t, stages) = merge_tree_stages(repo, "main", "tugarc/demo").unwrap();
         assert!(stages.is_empty(), "nothing conflicts");
 
         let outcome = resolve_conflicts(repo, "demo", None).unwrap();
@@ -3333,9 +3330,9 @@ mod tests {
         assert_eq!(parents, vec![base_head.as_str()], "one commit on the base");
 
         let subject = git_stdout(repo, &["log", "-1", "--format=%s", &candidate]).unwrap();
-        assert_eq!(subject, "tugdash(demo): the authored subject");
+        assert_eq!(subject, "tugarc(demo): the authored subject");
 
-        // And it carries the dash's whole tree, not just the last round's.
+        // And it carries the arc's whole tree, not just the last round's.
         for (rel, want) in [("f.txt", "B\n"), ("g.txt", "G\n")] {
             let blob = git_stdout(repo, &["show", &format!("{candidate}:{rel}")]).unwrap();
             assert_eq!(blob, want.trim_end(), "{rel} landed");
@@ -3352,14 +3349,14 @@ mod tests {
         git(repo, &["commit", "-am", "main advances to B"]);
 
         // Sanity: the plain squash really does conflict.
-        let (_t, stages) = merge_tree_stages(repo, "main", "tugdash/demo").unwrap();
+        let (_t, stages) = merge_tree_stages(repo, "main", "tugarc/demo").unwrap();
         assert!(!stages.is_empty(), "squash conflicts");
 
         // The probe names each round it rebuilt, oldest first.
-        let rounds = git_stdout(repo, &["rev-list", "--reverse", "main..tugdash/demo"]).unwrap();
+        let rounds = git_stdout(repo, &["rev-list", "--reverse", "main..tugarc/demo"]).unwrap();
         let rounds: Vec<&str> = rounds.lines().filter(|l| !l.trim().is_empty()).collect();
         let base_head = git_stdout(repo, &["rev-parse", "main"]).unwrap();
-        let replayed = replay_probe(repo, &base_head, "main", "tugdash/demo")
+        let replayed = replay_probe(repo, &base_head, "main", "tugarc/demo")
             .unwrap()
             .expect("clean replay");
         assert_eq!(replayed.mapping.len(), rounds.len());
@@ -3389,7 +3386,7 @@ mod tests {
         assert_eq!(outcome.shape, JoinShape::Replay);
         assert!(outcome.unresolved.is_empty());
         let candidate = outcome.candidate_commit.expect("replay candidate");
-        // The candidate's f.txt is the dash's final state, C.
+        // The candidate's f.txt is the arc's final state, C.
         let show = Command::new("git")
             .arg("-C")
             .arg(repo)
@@ -3556,7 +3553,7 @@ mod tests {
         // therefore reports a resolution that removed everything and added
         // nothing, which is the opposite of what would land.
         let big: String = (1..=2050).map(|i| format!("line {i}\n")).collect();
-        let temp = init(&[("f.txt", "dash side — the whole file, rewritten\n", "r1")]);
+        let temp = init(&[("f.txt", "arc side — the whole file, rewritten\n", "r1")]);
         let repo = temp.path();
         set(repo, "f.txt", &big);
         git(repo, &["commit", "-am", "main grows f.txt past the cap"]);
@@ -3656,7 +3653,7 @@ mod tests {
         let _ = Command::new("git")
             .arg("-C")
             .arg(repo)
-            .args(["merge", "--no-edit", "tugdash/demo"])
+            .args(["merge", "--no-edit", "tugarc/demo"])
             .status();
         set(repo, "f.txt", "R\n");
         git(repo, &["add", "f.txt"]);
@@ -3733,8 +3730,8 @@ mod tests {
 
     #[test]
     fn worktree_dirt_committed_by_the_preamble_still_yields_a_valid_candidate() {
-        // The dash head the ladder records must be read AFTER the preamble
-        // commits the worktree's dirt — that preamble moves the dash head as
+        // The arc head the ladder records must be read AFTER the preamble
+        // commits the worktree's dirt — that preamble moves the arc head as
         // part of resolving, so a pre-preamble reading marks every candidate
         // stale the instant it is built.
         let temp = init(&[("f.txt", "B\n", "r1")]);
@@ -3751,19 +3748,19 @@ mod tests {
                 "worktree",
                 "add",
                 &worktree.to_string_lossy(),
-                "tugdash/demo",
+                "tugarc/demo",
             ],
         );
-        let head_before = git_stdout(repo, &["rev-parse", "tugdash/demo"]).unwrap();
+        let head_before = git_stdout(repo, &["rev-parse", "tugarc/demo"]).unwrap();
         set(&worktree, "extra.txt", "dirt\n");
 
         let outcome = resolve_conflicts(repo, "demo", None).unwrap();
         let candidate = outcome.candidate_commit.clone().expect("candidate");
 
-        let head_after = git_stdout(repo, &["rev-parse", "tugdash/demo"]).unwrap();
+        let head_after = git_stdout(repo, &["rev-parse", "tugarc/demo"]).unwrap();
         assert_ne!(
             head_before, head_after,
-            "precondition: the preamble moved the dash head"
+            "precondition: the preamble moved the arc head"
         );
         assert_eq!(
             candidate_status(repo, "demo", "main"),
@@ -3773,7 +3770,7 @@ mod tests {
     }
 
     #[test]
-    fn a_moved_base_and_a_moved_dash_each_get_their_own_stale_sentence() {
+    fn a_moved_base_and_a_moved_arc_each_get_their_own_stale_sentence() {
         let temp = init(&[("f.txt", "B\n", "r1")]);
         let repo = temp.path();
         set(repo, "f.txt", "C\n");
@@ -3792,22 +3789,22 @@ mod tests {
             other => panic!("expected stale after base motion, got {other:?}"),
         }
 
-        // Rebuild against the moved base, then move the dash instead.
+        // Rebuild against the moved base, then move the arc instead.
         resolve_conflicts(repo, "demo", None).unwrap();
         assert!(matches!(
             candidate_status(repo, "demo", "main"),
             CandidateStatus::Valid(_)
         ));
-        git(repo, &["switch", "-q", "tugdash/demo"]);
-        set(repo, "dash-extra.txt", "r2\n");
+        git(repo, &["switch", "-q", "tugarc/demo"]);
+        set(repo, "arc-extra.txt", "r2\n");
         git(repo, &["add", "-A"]);
         git(repo, &["commit", "-m", "r2"]);
         git(repo, &["switch", "-q", "main"]);
         match candidate_status(repo, "demo", "main") {
             CandidateStatus::Stale(note) => {
-                assert!(note.contains("dash"), "names the dash: {note}");
+                assert!(note.contains("arc"), "names the arc: {note}");
             }
-            other => panic!("expected stale after dash motion, got {other:?}"),
+            other => panic!("expected stale after arc motion, got {other:?}"),
         }
     }
 
@@ -3822,7 +3819,7 @@ mod tests {
         assert!(read_candidate(repo, "demo").is_some(), "anchored");
 
         // Drop the driver so the same conflict now resolves nothing.
-        git(repo, &["config", "--unset", "tugdash.mergedriver"]);
+        git(repo, &["config", "--unset", "tugarc.mergedriver"]);
         git(repo, &["config", "rerere.enabled", "false"]);
         let again = resolve_conflicts(repo, "demo", None).unwrap();
         assert!(again.candidate_commit.is_none(), "partial outcome");
@@ -3862,7 +3859,7 @@ mod tests {
     /// A doubled config value does not wedge the writers that own it.
     ///
     /// `git config <key> <value>` refuses a key that already holds more than
-    /// one value, and every later write for that dash then fails — permanently,
+    /// one value, and every later write for that arc then fails — permanently,
     /// since nothing on the failure path clears the key. `--replace-all`
     /// collapses whatever is there to the value being written, which is what
     /// these single-valued facts mean anyway.
@@ -3870,7 +3867,7 @@ mod tests {
     fn a_doubled_config_value_does_not_wedge_the_single_valued_writers() {
         let temp = init(&[("f.txt", "B\n", "r1")]);
         let repo = temp.path();
-        let head = git_stdout(repo, &["rev-parse", "tugdash/demo"]).unwrap();
+        let head = git_stdout(repo, &["rev-parse", "tugarc/demo"]).unwrap();
         let head = head.trim();
 
         for key in [

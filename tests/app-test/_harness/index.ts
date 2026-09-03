@@ -2347,8 +2347,8 @@ function spawnTugApp(resolved: ResolvedLaunch): SpawnedTugApp {
     // `--timeout` keeps the call short — we send SIGTERM then a
     // fast escalation to SIGKILL.
     //
-    // Bare name (PATH-resolved). A linked dash worktree creates no
-    // ~/.local/bin/tugtool symlink, so in-dash this spawn throws and the
+    // Bare name (PATH-resolved). A linked arc worktree creates no
+    // ~/.local/bin/tugtool symlink, so in-arc this spawn throws and the
     // SIGTERM+tmux fallback below reclaims the instance; real coverage
     // of this path comes from the post-join main run (where the symlink
     // exists).
@@ -2381,7 +2381,7 @@ function spawnTugApp(resolved: ResolvedLaunch): SpawnedTugApp {
     // This must name the private server. A bare `tmux kill-session`
     // addresses the DEFAULT server, where no current instance's session
     // lives, so it reclaimed nothing — and this fallback is exactly what
-    // runs when the `tugtool` spawn above is unavailable (a dash
+    // runs when the `tugtool` spawn above is unavailable (an arc
     // worktree has no `~/.local/bin/tugtool` symlink), which is when it
     // matters most. `kill-server` rather than `kill-session`: the server
     // is per-instance, so nothing else is on it.

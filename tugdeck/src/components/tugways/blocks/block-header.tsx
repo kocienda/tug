@@ -2,8 +2,8 @@
  * `BlockHeader` — the one header every tool-call block wears, in every
  * state (the vetted Quiet Line).
  *
- * It has a second tenant outside the transcript: the dash join register
- * wears this header on three surfaces, so that a dash's arc reads in the
+ * It has a second tenant outside the transcript: the arc join register
+ * wears this header on three surfaces, so that an arc's run reads in the
  * same lifecycle vocabulary a tool call does — pulsing while work is in
  * flight, waiting when a person is being waited on, resting green or red
  * ([D142]). That makes {@link BlockHeaderProps.altitude} a contract with
@@ -267,9 +267,9 @@ export interface BlockHeaderProps {
    * ([P03]). `leaf` (default) is today's tool header, pixel-unchanged;
    * `entry` scales a session-entry card, `section` a rail band.
    *
-   * The dash join register is the second tenant and uses all three
-   * ([D142]): `section` in the rail's Dashes band, `entry` on the Changes
-   * shade's dash row, `leaf` in the composer's status row. So a change to
+   * The arc join register is the second tenant and uses all three
+   * ([D142]): `section` in the rail's Arcs band, `entry` on the Changes
+   * shade's arc row, `leaf` in the composer's status row. So a change to
    * a tier's metrics is felt outside the transcript now, and the register
    * is a caller to check.
    */

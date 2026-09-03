@@ -1,14 +1,14 @@
 /**
- * The arc among a dash's metadata facts.
+ * The arc among an arc's metadata facts.
  *
- * One derivation feeds every surface that names a dash — the Arcs card Dashes row,
- * the Changes shade's collapsed dash row, the DASH placard — because all of
+ * One derivation feeds every surface that names an arc — the Arcs card Arcs row,
+ * the Changes shade's collapsed arc row, the ARC placard — because all of
  * them read `arcMetaFacts`. So what the arc *says* is settled here, as a pure
  * function over a wire entry, rather than three times over three DOMs.
  *
  * The claims:
  *
- *   - a hand-driven dash says nothing about arcs, because there is nothing to
+ *   - a hand-driven arc says nothing about arcs, because there is nothing to
  *     say and a silent field is not an absent one;
  *   - a stopped arc leads the line, in danger tone, naming the stage it
  *     stopped in — the one fact here with no gesture whose absence explains it
@@ -22,12 +22,12 @@
 import { describe, test, expect } from "bun:test";
 
 import { arcMetaFacts } from "@/lib/arc-meta-facts";
-import type { DashArcState, DashChangesetEntry } from "@/lib/changeset-types";
+import type { ArcRunState, ArcChangesetEntry } from "@/lib/changeset-types";
 
-function entry(arc?: DashArcState): DashChangesetEntry {
+function entry(arc?: ArcRunState): ArcChangesetEntry {
   return {
-    kind: "dash",
-    owner_id: "tugdash/foo#1",
+    kind: "arc",
+    owner_id: "tugarc/foo#1",
     display_name: "foo",
     base: "main",
     rounds: 3,
@@ -38,10 +38,10 @@ function entry(arc?: DashArcState): DashChangesetEntry {
   };
 }
 
-const keys = (e: DashChangesetEntry): string[] => arcMetaFacts(e).map((f) => f.key);
+const keys = (e: ArcChangesetEntry): string[] => arcMetaFacts(e).map((f) => f.key);
 
-describe("the arc on the dash metadata line", () => {
-  test("a dash nobody ran an arc on says nothing about one", () => {
+describe("the run on the arc metadata line", () => {
+  test("an arc nobody has run says nothing about one", () => {
     expect(keys(entry())).toEqual([]);
   });
 
@@ -114,7 +114,7 @@ describe("the arc on the dash metadata line", () => {
  * fact says the right thing, wears the right tone, sits in the right place,
  * and leaves every other fact exactly where it was.
  */
-describe("the fit on the dash metadata line", () => {
+describe("the fit on the arc metadata line", () => {
   test("a current fit is a quiet receipt beside the other quiet receipts", () => {
     const e = entry();
     e.fit = { head: "3f0a1c9e2b7d4f6a", base: "91c4de70f2a3b5c7", current: true };
@@ -139,7 +139,7 @@ describe("the fit on the dash metadata line", () => {
     expect(facts[1]?.tone).toBe("caution");
   });
 
-  test("a dash nobody verified says nothing about the fit", () => {
+  test("an arc nobody verified says nothing about the fit", () => {
     expect(keys(entry())).toEqual([]);
     const e = entry();
     e.worktree_dirty = true;

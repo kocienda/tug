@@ -36,8 +36,8 @@ describe("a full counter, read against the stage", () => {
     expect(arcWalkComplete("built", 7, 8)).toBe(false);
   });
 
-  test("a dash with no plan has no walk to finish", () => {
-    // A plan-less dash arms on its rounds alone, so it reaches `ready` with no
+  test("an arc with no plan has no walk to finish", () => {
+    // A plan-less arc arms on its rounds alone, so it reaches `ready` with no
     // counter at all — and an absent counter must not read as a full one.
     expect(arcWalkComplete("ready", null, null)).toBe(false);
     expect(arcWalkComplete("ready", undefined, undefined)).toBe(false);

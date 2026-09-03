@@ -96,7 +96,7 @@ const PAIRS: readonly PulsePair[] = [
   },
   {
     intent: "Drafting release-gesture roadmap",
-    activity: "Edit dash/app-release-recipes.md",
+    activity: "Edit arc/app-release-recipes.md",
   },
   {
     intent: "Tracing capture blackout root cause",

@@ -39,7 +39,7 @@ fn tug(tmp: &Path) -> Command {
     cmd
 }
 
-/// A project with a dash whose worktree carries `config`, and whose one round
+/// A project with an arc whose worktree carries `config`, and whose one round
 /// touches `files`.
 fn project(root: &Path, config: &str, files: &[(&str, &str)]) -> std::path::PathBuf {
     git(root, &["init", "-b", "main"]);
@@ -59,11 +59,11 @@ fn project(root: &Path, config: &str, files: &[(&str, &str)]) -> std::path::Path
             "add",
             "-q",
             "-b",
-            "tugdash/demo",
+            "tugarc/demo",
             worktree.to_str().unwrap(),
         ],
     );
-    git(root, &["config", "branch.tugdash/demo.tugbase", "main"]);
+    git(root, &["config", "branch.tugarc/demo.tugbase", "main"]);
 
     for (path, body) in files {
         let full = worktree.join(path);
@@ -92,7 +92,7 @@ fn stdout_of(output: &Output) -> String {
     String::from_utf8_lossy(&output.stdout).to_string()
 }
 
-const TWO_SURFACES: &str = "[[tugtool.dash.surface]]\nname = \"src\"\npaths = [\"src/\"]\ncheck = [\"true\"]\n\n[[tugtool.dash.surface]]\nname = \"docs\"\npaths = [\"docs/\"]\ncheck = []\n";
+const TWO_SURFACES: &str = "[[tugtool.arc.surface]]\nname = \"src\"\npaths = [\"src/\"]\ncheck = [\"true\"]\n\n[[tugtool.arc.surface]]\nname = \"docs\"\npaths = [\"docs/\"]\ncheck = []\n";
 
 #[test]
 fn a_green_run_names_both_counts_and_exits_zero() {
@@ -124,7 +124,7 @@ fn an_unclaimed_path_refuses_before_anything_runs() {
     // asserted against the filesystem rather than against the absence of text.
     let worktree = project(
         &root,
-        "[[tugtool.dash.surface]]\nname = \"src\"\npaths = [\"src/\"]\ncheck = [\"touch ran.sentinel\"]\n",
+        "[[tugtool.arc.surface]]\nname = \"src\"\npaths = [\"src/\"]\ncheck = [\"touch ran.sentinel\"]\n",
         &[("src/a.rs", "a\n"), ("other/b.ts", "b\n")],
     );
 
@@ -136,7 +136,7 @@ fn an_unclaimed_path_refuses_before_anything_runs() {
         "the path must be named: {text}"
     );
     assert!(
-        text.contains("[[tugtool.dash.surface]]") && text.contains("\"other/\""),
+        text.contains("[[tugtool.arc.surface]]") && text.contains("\"other/\""),
         "the refusal must print a declaration to paste: {text}"
     );
     assert!(
@@ -156,7 +156,7 @@ fn a_red_surface_does_not_stop_the_run() {
     std::fs::create_dir_all(&root).unwrap();
     let worktree = project(
         &root,
-        "[[tugtool.dash.surface]]\nname = \"first\"\npaths = [\"first/\"]\ncheck = [\"false\", \"touch not-reached.sentinel\"]\n\n[[tugtool.dash.surface]]\nname = \"second\"\npaths = [\"second/\"]\ncheck = [\"touch second-ran.sentinel\"]\n",
+        "[[tugtool.arc.surface]]\nname = \"first\"\npaths = [\"first/\"]\ncheck = [\"false\", \"touch not-reached.sentinel\"]\n\n[[tugtool.arc.surface]]\nname = \"second\"\npaths = [\"second/\"]\ncheck = [\"touch second-ran.sentinel\"]\n",
         &[("first/a.rs", "a\n"), ("second/b.rs", "b\n")],
     );
 
@@ -185,7 +185,7 @@ fn a_project_with_no_surfaces_exits_zero_and_says_so() {
     std::fs::create_dir_all(&root).unwrap();
     project(
         &root,
-        "[tugtool.dash]\npost_create = []\n",
+        "[tugtool.arc]\npost_create = []\n",
         &[("a.rs", "a\n")],
     );
 
@@ -205,7 +205,7 @@ fn an_empty_range_reports_the_range_and_runs_nothing() {
     std::fs::create_dir_all(&root).unwrap();
     let worktree = project(
         &root,
-        "[[tugtool.dash.surface]]\nname = \"src\"\npaths = [\"src/\"]\ncheck = [\"touch ran.sentinel\"]\n",
+        "[[tugtool.arc.surface]]\nname = \"src\"\npaths = [\"src/\"]\ncheck = [\"touch ran.sentinel\"]\n",
         &[("src/a.rs", "a\n")],
     );
     let head = git_stdout(&worktree, &["rev-parse", "HEAD"]);
@@ -230,7 +230,7 @@ fn paths_reach_the_shell_scoped_to_their_own_surface() {
     std::fs::create_dir_all(&root).unwrap();
     let worktree = project(
         &root,
-        "[[tugtool.dash.surface]]\nname = \"src\"\npaths = [\"src/\"]\ncheck = [\"printf '%s\\\\n' {paths} > out.txt\"]\n\n[[tugtool.dash.surface]]\nname = \"docs\"\npaths = [\"docs/\"]\ncheck = []\n",
+        "[[tugtool.arc.surface]]\nname = \"src\"\npaths = [\"src/\"]\ncheck = [\"printf '%s\\\\n' {paths} > out.txt\"]\n\n[[tugtool.arc.surface]]\nname = \"docs\"\npaths = [\"docs/\"]\ncheck = []\n",
         &[
             ("src/a.rs", "a\n"),
             ("src/b.rs", "b\n"),
@@ -250,7 +250,7 @@ fn paths_reach_the_shell_scoped_to_their_own_surface() {
 }
 
 #[test]
-fn the_derived_range_is_the_dashs_own_contribution_and_the_overrides_narrow_it() {
+fn the_derived_range_is_the_arcs_own_contribution_and_the_overrides_narrow_it() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path().join("repo");
     std::fs::create_dir_all(&root).unwrap();
@@ -265,8 +265,8 @@ fn the_derived_range_is_the_dashs_own_contribution_and_the_overrides_narrow_it()
     let derived: serde_json::Value =
         serde_json::from_str(&stdout_of(&verify(tmp.path(), &root, &["--json"])))
             .expect("valid JSON");
-    let merge_base = git_stdout(&root, &["merge-base", "main", "tugdash/demo"]);
-    let tip = git_stdout(&root, &["rev-parse", "tugdash/demo"]);
+    let merge_base = git_stdout(&root, &["merge-base", "main", "tugarc/demo"]);
+    let tip = git_stdout(&root, &["rev-parse", "tugarc/demo"]);
     assert_eq!(derived["data"]["base"], merge_base);
     assert_eq!(derived["data"]["head"], tip);
     // Both rounds are in the derived range, so both surfaces are in the run.
@@ -313,7 +313,7 @@ fn json_carries_the_same_verdict_counts_and_receipt_as_the_text() {
 }
 
 #[test]
-fn a_name_that_is_no_dash_refuses_the_way_status_does() {
+fn a_name_that_is_no_arc_refuses_the_way_status_does() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path().join("repo");
     std::fs::create_dir_all(&root).unwrap();
@@ -326,7 +326,7 @@ fn a_name_that_is_no_dash_refuses_the_way_status_does() {
         .unwrap();
     assert_ne!(output.status.code(), Some(0));
     assert!(
-        String::from_utf8_lossy(&output.stderr).contains("Dash not found: ghost"),
+        String::from_utf8_lossy(&output.stderr).contains("Arc not found: ghost"),
         "{:?}",
         String::from_utf8_lossy(&output.stderr)
     );

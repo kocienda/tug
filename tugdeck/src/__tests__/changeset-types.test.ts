@@ -30,48 +30,48 @@ describe("changeset wire contract", () => {
     expect(snapshot.changesets).toHaveLength(2);
     expect(snapshot.unattributed).toHaveLength(1);
 
-    const [session, dash] = snapshot.changesets;
+    const [session, arc] = snapshot.changesets;
     expect(session.kind).toBe("session");
     if (session.kind === "session") {
       expect(session.live).toBe(true);
       expect(session.files[1].shared).toBe(true);
     }
-    expect(dash.kind).toBe("dash");
-    if (dash.kind === "dash") {
-      expect(dash.base).toBe("main");
-      expect(dash.rounds).toBe(3);
-      expect(dash.worktree_dirty).toBe(false);
+    expect(arc.kind).toBe("arc");
+    if (arc.kind === "arc") {
+      expect(arc.base).toBe("main");
+      expect(arc.rounds).toBe(3);
+      expect(arc.worktree_dirty).toBe(false);
       // This fixture is deliberately an *older* sender's shape — no id in the
       // key, none of the added fields — so the guard's tolerance for both is
       // covered by a real payload rather than a hand-built one.
-      expect(dash.owner_id).toBe("tugdash/fix-join");
-      expect(dash.branch).toBeUndefined();
-      expect(dash.stage).toBeUndefined();
-      expect(dash.bound_sessions).toBeUndefined();
+      expect(arc.owner_id).toBe("tugarc/fix-join");
+      expect(arc.branch).toBeUndefined();
+      expect(arc.stage).toBeUndefined();
+      expect(arc.bound_sessions).toBeUndefined();
     }
   });
 
-  test("the aggregate fixture carries the extended dash shape", () => {
+  test("the aggregate fixture carries the extended arc shape", () => {
     const aggregate = aggregateGolden as WorkspacesChangesetSnapshot;
-    const dash = aggregate.projects[0].changesets.find((e) => e.kind === "dash");
-    expect(dash).toBeDefined();
-    if (dash?.kind !== "dash") throw new Error("expected a dash entry");
+    const arc = aggregate.projects[0].changesets.find((e) => e.kind === "arc");
+    expect(arc).toBeDefined();
+    if (arc?.kind !== "arc") throw new Error("expected an arc entry");
     // `owner_id` is the opaque owner key; the git ref is its own field.
-    expect(dash.owner_id).toBe("tugdash/fix-join#1723500000000-a1b2c3");
-    expect(dash.branch).toBe("tugdash/fix-join");
-    expect(dash.stage).toBe("draft-ready");
-    expect(dash.bound_sessions).toEqual([
+    expect(arc.owner_id).toBe("tugarc/fix-join#1723500000000-a1b2c3");
+    expect(arc.branch).toBe("tugarc/fix-join");
+    expect(arc.stage).toBe("draft-ready");
+    expect(arc.bound_sessions).toEqual([
       "sess-0197a2b4-c8d1-7e02-9f3a-b5c6d7e8f901",
     ]);
     // Phase 3's slots are declared but not yet sent.
-    expect(dash.step_current).toBeUndefined();
-    expect(dash.step_total).toBeUndefined();
+    expect(arc.step_current).toBeUndefined();
+    expect(arc.step_total).toBeUndefined();
   });
 
-  test("the dash guard rejects wrong types on the added fields", () => {
+  test("the arc guard rejects wrong types on the added fields", () => {
     const base = {
-      kind: "dash",
-      owner_id: "tugdash/x",
+      kind: "arc",
+      owner_id: "tugarc/x",
       display_name: "x",
       base: "main",
       rounds: 0,
@@ -85,14 +85,14 @@ describe("changeset wire contract", () => {
     expect(isChangesetEntry({ ...base, bound_sessions: "sess-1" })).toBe(false);
     expect(isChangesetEntry({ ...base, bound_sessions: [1] })).toBe(false);
     expect(isChangesetEntry({ ...base, step_total: "3" })).toBe(false);
-    // The run's counters are optional both ways: absent from every dash-log
+    // The run's counters are optional both ways: absent from every arc-log
     // written before runs were declared, a number once one is.
     expect(isChangesetEntry({ ...base, run_position: 2, run_length: 3 })).toBe(
       true,
     );
     expect(isChangesetEntry({ ...base, run_position: "2" })).toBe(false);
     expect(isChangesetEntry({ ...base, run_length: null })).toBe(false);
-    // `documents` is optional both ways: absent on a dash with neither
+    // `documents` is optional both ways: absent on an arc with neither
     // document, an object of absolute paths and titles once one exists. Each
     // field inside it is optional and, when present, a string.
     expect(
@@ -108,7 +108,7 @@ describe("changeset wire contract", () => {
     );
     expect(isChangesetEntry({ ...base, documents: 7 })).toBe(false);
     expect(isChangesetEntry({ ...base, documents: null })).toBe(false);
-    // The ledger is optional both ways: the wire skips it entirely for a dash
+    // The ledger is optional both ways: the wire skips it entirely for an arc
     // driving no plan, and a whole array of `{title, status}` arrives once one
     // is. A row missing either half is drift, not a sparse row — a step list
     // that cannot say what a step is or where it stands is not a step list.
@@ -237,15 +237,15 @@ describe("aggregate changeset wire contract", () => {
     expect(nonRepo.changesets).toHaveLength(0);
   });
 
-  test("a document-only dash rides the aggregate, guarded field for field", () => {
+  test("a document-only arc rides the aggregate, guarded field for field", () => {
     const snapshot = aggregateGolden as WorkspacesChangesetSnapshot;
     const planning = snapshot.projects[0]!.document_arcs;
     expect(planning).toHaveLength(2);
     const first = planning![0]!;
-    expect(first.display_name).toBe("dash-cockpit");
+    expect(first.display_name).toBe("arc-cockpit");
     // Absolute, because the deck composes nothing: it is handed the path.
-    expect(first.documents.plan).toBe("/repo/.tug/arcs/dash-cockpit/plan.md");
-    expect(first.documents.brief_title).toBe("The dash cockpit");
+    expect(first.documents.plan).toBe("/repo/.tug/arcs/arc-cockpit/plan.md");
+    expect(first.documents.brief_title).toBe("The arc cockpit");
     expect(first.review).toBe("reviewed");
     expect([first.steps_done, first.steps_begun]).toEqual([1, 2]);
     // A project with none carries no key at all, so an older sender decodes.
@@ -257,7 +257,7 @@ describe("aggregate changeset wire contract", () => {
     expect(isDocumentArcEntry(documentless)).toBe(false);
     expect(isDocumentArcEntry({ ...first, step_total: "3" })).toBe(false);
     expect(isDocumentArcEntry({ ...first, owner_id: 7 })).toBe(false);
-    // `review` is optional: a dash with a brief and no plan has none.
+    // `review` is optional: an arc with a brief and no plan has none.
     const { review: _review, ...unreviewed } = first;
     expect(isDocumentArcEntry(unreviewed)).toBe(true);
   });
@@ -275,17 +275,17 @@ describe("aggregate changeset wire contract", () => {
   });
 
 
-  test("the fixture's dash carries its join block, field for field", () => {
-    const dash = golden.changesets.find((e) => e.kind === "dash");
-    if (dash?.kind !== "dash") throw new Error("expected a dash entry");
-    const join = dash.join;
+  test("the fixture's arc carries its join block, field for field", () => {
+    const arc = golden.changesets.find((e) => e.kind === "arc");
+    if (arc?.kind !== "arc") throw new Error("expected an arc entry");
+    const join = arc.join;
     expect(join).toBeDefined();
     if (!join) throw new Error("expected a join block");
 
     expect(join.phase).toBe("resolved");
     expect(join.candidate).toBe("9f1c2d3e4b5a60718293a4b5c6d7e8f901234567");
     expect(join.reviewed).toBe(false);
-    expect(join.conflicts).toEqual(["tugrust/crates/tugtool/src/commands/dash.rs"]);
+    expect(join.conflicts).toEqual(["tugrust/crates/tugtool/src/commands/arc.rs"]);
     expect(join.archaeology?.[0]?.total).toBe(1);
     expect(join.archaeology?.[0]?.commits?.[0]?.sha).toBe("3722f24");
 
@@ -299,13 +299,13 @@ describe("aggregate changeset wire contract", () => {
 
   });
 
-  test("a dash entry with no join block still parses", () => {
+  test("an arc entry with no join block still parses", () => {
     // An older server sends none, and absence has to read as "nothing to say"
     // rather than as a parse failure — otherwise a version skew drops the whole
-    // entry and the card shows no dash at all.
+    // entry and the card shows no arc at all.
     const joinless = {
-      kind: "dash",
-      owner_id: "tugdash/x",
+      kind: "arc",
+      owner_id: "tugarc/x",
       display_name: "x",
       base: "main",
       rounds: 0,
@@ -318,8 +318,8 @@ describe("aggregate changeset wire contract", () => {
 
   test("the arc guard admits absence and every sparse shape, and rejects drift", () => {
     const withArc = (arc: unknown) => ({
-      kind: "dash",
-      owner_id: "tugdash/x",
+      kind: "arc",
+      owner_id: "tugarc/x",
       display_name: "x",
       base: "main",
       rounds: 0,
@@ -329,7 +329,7 @@ describe("aggregate changeset wire contract", () => {
       arc,
     });
 
-    // No arc at all is the ordinary case — most dashes are hand-driven, and a
+    // No arc at all is the ordinary case — most arcs are hand-driven, and a
     // server that predates arcs sends nothing. Both have to read as an entry.
     expect(isChangesetEntry(withArc(undefined))).toBe(true);
     // Every field is optional: an arc that has started but not yet rotated has
@@ -354,8 +354,8 @@ describe("aggregate changeset wire contract", () => {
 
   test("the join guard rejects shape drift rather than passing it through", () => {
     const withJoin = (join: unknown) => ({
-      kind: "dash",
-      owner_id: "tugdash/x",
+      kind: "arc",
+      owner_id: "tugarc/x",
       display_name: "x",
       base: "main",
       rounds: 0,
@@ -385,8 +385,8 @@ describe("aggregate changeset wire contract", () => {
 
   test("the live-run fact round-trips, and absence means nothing is running", () => {
     const withJoin = (join: unknown) => ({
-      kind: "dash",
-      owner_id: "tugdash/x",
+      kind: "arc",
+      owner_id: "tugarc/x",
       display_name: "x",
       base: "main",
       rounds: 0,
@@ -397,12 +397,12 @@ describe("aggregate changeset wire contract", () => {
     });
 
     const running: unknown = withJoin({ phase: "conflicted", run: "resolve" });
-    if (!isChangesetEntry(running) || running.kind !== "dash") {
-      throw new Error("expected a dash entry carrying a live run");
+    if (!isChangesetEntry(running) || running.kind !== "arc") {
+      throw new Error("expected an arc entry carrying a live run");
     }
     expect(running.join?.run).toBe("resolve");
 
-    // The server skips the field entirely when nothing holds the dash, so
+    // The server skips the field entirely when nothing holds the arc, so
     // absence is the ordinary case and must not read as drift.
     expect(isChangesetEntry(withJoin({ phase: "conflicted" }))).toBe(true);
     expect(isChangesetEntry(withJoin({ phase: "conflicted", run: 1 }))).toBe(false);

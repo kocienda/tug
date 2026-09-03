@@ -1,8 +1,8 @@
-//! The operation log — what every mutating dash verb was about to change,
+//! The operation log — what every mutating arc verb was about to change,
 //! recorded before it acts.
 //!
-//! A dash verb that lands, moves, or deletes a branch has always been a
-//! one-way door: `join` deletes `tugdash/<name>` at teardown, `replay` moves it
+//! An arc verb that lands, moves, or deletes a branch has always been a
+//! one-way door: `join` deletes `tugarc/<name>` at teardown, `replay` moves it
 //! out from under its old rounds, `discard` removes both branch and worktree.
 //! Git keeps those commits alive in a reflog on a clock, which is archaeology
 //! rather than a feature. This module is the record that makes them
@@ -14,7 +14,7 @@
 //!   `branch -D` and `reset` can no longer strand the rounds, because the
 //!   commits are reachable from a ref nothing sweeps.
 //! - A **payload**, `oplog-<seq>.json` in `project_state_dir`, holding the
-//!   verb, the dash, and the before/after values. It is written twice — once before the verb acts and once when it
+//!   verb, the arc, and the before/after values. It is written twice — once before the verb acts and once when it
 //!   completes — which is why it is a file rather than the keepalive's commit
 //!   message: a message is immutable, and the second write is the whole point.
 //!
@@ -47,13 +47,13 @@ use tugtool_core::session::now_iso8601;
 
 use crate::log::refuse_unredirected_temp_repo;
 use crate::ops::{
-    base_config_key, branch_name, config_get, dash_base, description_config_key, git_output,
+    arc_base, base_config_key, branch_name, config_get, description_config_key, git_output,
     git_stdout, tugid_config_key, worktree_path, write_atomic,
 };
 
 /// How many operations a repository keeps.
 ///
-/// Weeks of real dash traffic at a size that bounds how much history the
+/// Weeks of real arc traffic at a size that bounds how much history the
 /// keepalive refs pin against `git gc`. Deliberately a constant rather than
 /// config: a tuning knob nobody has asked for is a surface with no reader.
 pub const OPLOG_CAP: usize = 50;
@@ -97,11 +97,11 @@ impl OpVerb {
     }
 }
 
-/// The branch-config facts a dash carries, captured before a verb runs so an
+/// The branch-config facts an arc carries, captured before a verb runs so an
 /// undo can put them back.
 ///
 /// `git branch -D` takes the whole `branch.<name>.*` section with it, so
-/// recreating the branch alone would restore a dash that had forgotten its own
+/// recreating the branch alone would restore an arc that had forgotten its own
 /// base, description, and id.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OpConfig {
@@ -118,7 +118,11 @@ pub struct OpConfig {
 pub struct OpBefore {
     pub base_branch: String,
     pub base_tip: String,
-    pub dash_tip: String,
+    // Pinned for the same reason as `OpPayload::arc` above: this key is
+    // written into `.tug/ops/` and read back by later builds, so it is a
+    // stored spelling and stays one for life.
+    #[serde(rename = "dash_tip")]
+    pub arc_tip: String,
     pub worktree: String,
     #[serde(default)]
     pub config: OpConfig,
@@ -147,7 +151,7 @@ pub struct OpBefore {
 
 /// The world as the verb left it.
 ///
-/// `dash_tip` is read back with `rev-parse` at completion and never
+/// `arc_tip` is read back with `rev-parse` at completion and never
 /// reconstructed from what the verb computed on the way. The reason is
 /// specific: [`crate::replay`]'s clean arm moves the branch to the replayed
 /// head and *then* may land a further bookkeeping round on it, so the tip a
@@ -158,8 +162,9 @@ pub struct OpBefore {
 pub struct OpAfter {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub base_tip: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub dash_tip: Option<String>,
+    /// Pinned like [`OpBefore::arc_tip`] — a stored key, read for life.
+    #[serde(default, rename = "dash_tip", skip_serializing_if = "Option::is_none")]
+    pub arc_tip: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub landed_commit: Option<String>,
     /// `(original round, rebuilt commit)` — replay only.
@@ -181,7 +186,7 @@ pub enum JoinPhase {
     Integrated,
     /// Worktree removed; branch still present.
     WorktreeRemoved,
-    /// Branch deleted; only the dash-log line and the completion remain.
+    /// Branch deleted; only the arc log line and the completion remain.
     BranchDeleted,
 }
 
@@ -212,7 +217,11 @@ pub struct OpPayload {
     pub version: u32,
     pub seq: u64,
     pub verb: OpVerb,
-    pub dash: String,
+    // Pinned: op payloads are written to `.tug/ops/` and read back by later
+    // builds, so this key is a stored spelling and stays one for life — the
+    // identifier above it is free to move, the key is not.
+    #[serde(rename = "dash")]
+    pub arc: String,
     pub recorded_at: String,
     pub before: OpBefore,
     /// Absent until the verb completes.
@@ -319,12 +328,12 @@ fn empty_tree(repo: &Path) -> Result<String, String> {
 fn keepalive_commit(
     repo: &Path,
     verb: OpVerb,
-    dash: &str,
+    arc: &str,
     seq: u64,
     tips: &[String],
 ) -> Result<String, String> {
     let tree = empty_tree(repo)?;
-    let message = format!("tug oplog {} {} {}", seq, verb.as_str(), dash);
+    let message = format!("tug oplog {} {} {}", seq, verb.as_str(), arc);
 
     // A tip that does not resolve is dropped rather than fatal: the keepalive
     // is a reachability favour, and refusing to record an operation because one
@@ -367,17 +376,17 @@ fn keepalive_commit(
 /// Read the world as it stands, for a verb about to change it.
 ///
 /// **Call this at the moment the verb is about to act, not at its entry.** The
-/// join sweeps the dash worktree's dirt into a commit before it integrates, and
-/// a `dash_tip` read before that sweep would name the commit *below* the swept
-/// work — so an undo would faithfully restore a dash missing everything the
+/// join sweeps the arc worktree's dirt into a commit before it integrates, and
+/// a `arc_tip` read before that sweep would name the commit *below* the swept
+/// work — so an undo would faithfully restore an arc missing everything the
 /// sweep captured. `resolve.rs` learned the same lesson about `tugjoinsource`,
 /// where reading before the sweep made every candidate stale at birth.
 pub fn capture_before(repo: &Path, name: &str) -> Result<OpBefore, String> {
     let branch = branch_name(name);
-    let base_branch = dash_base(repo, name)?;
+    let base_branch = arc_base(repo, name)?;
     Ok(OpBefore {
         base_tip: git_stdout(repo, &["rev-parse", &base_branch]).unwrap_or_default(),
-        dash_tip: git_stdout(repo, &["rev-parse", &branch]).unwrap_or_default(),
+        arc_tip: git_stdout(repo, &["rev-parse", &branch]).unwrap_or_default(),
         base_branch,
         worktree: worktree_path(repo, name).to_string_lossy().into_owned(),
         config: OpConfig {
@@ -391,10 +400,10 @@ pub fn capture_before(repo: &Path, name: &str) -> Result<OpBefore, String> {
     })
 }
 
-/// The tips a verb's keepalive must hold: the dash head, the base tip, a
+/// The tips a verb's keepalive must hold: the arc head, the base tip, a
 /// standing candidate, and the conflict chain.
 pub(crate) fn tips_of(before: &OpBefore) -> Vec<String> {
-    let mut tips = vec![before.dash_tip.clone(), before.base_tip.clone()];
+    let mut tips = vec![before.arc_tip.clone(), before.base_tip.clone()];
     if let Some(candidate) = &before.candidate {
         tips.push(candidate.clone());
     }
@@ -409,9 +418,9 @@ pub(crate) fn tips_of(before: &OpBefore) -> Vec<String> {
 // recording
 // ---------------------------------------------------------------------------
 
-/// Record what `verb` is about to do to `dash`, before it does it.
+/// Record what `verb` is about to do to `arc`, before it does it.
 ///
-/// `tips` are the commits that must survive the operation — the dash head, the
+/// `tips` are the commits that must survive the operation — the arc head, the
 /// base tip, a standing candidate. They become the keepalive commit's parents.
 ///
 /// Returns the sequence number the caller passes to [`record_complete`].
@@ -424,7 +433,7 @@ pub(crate) fn tips_of(before: &OpBefore) -> Vec<String> {
 pub fn record_begin(
     repo: &Path,
     verb: OpVerb,
-    dash: &str,
+    arc: &str,
     before: OpBefore,
     tips: &[String],
 ) -> Result<u64, String> {
@@ -435,7 +444,7 @@ pub fn record_begin(
     let mut last_err = String::new();
     for _ in 0..SEQ_ATTEMPTS {
         let seq = ref_seqs(repo).last().copied().unwrap_or(0) + 1;
-        let keepalive = keepalive_commit(repo, verb, dash, seq, tips)?;
+        let keepalive = keepalive_commit(repo, verb, arc, seq, tips)?;
         // The empty old-value is git's "this ref must not exist" — so a lost
         // race is an error here rather than a silently shared sequence number.
         let out = git_output(repo, &["update-ref", &oplog_ref_name(seq), &keepalive, ""])?;
@@ -448,7 +457,7 @@ pub fn record_begin(
             version: payload_version(),
             seq,
             verb,
-            dash: dash.to_string(),
+            arc: arc.to_string(),
             recorded_at: now_iso8601(),
             before,
             after: None,
@@ -508,7 +517,7 @@ pub fn record_join_progress(repo: &Path, seq: u64, progress: JoinProgress) -> Re
 ///
 /// Deliberately not [`ref_seqs`]: that spawns `git for-each-ref`, and the one
 /// caller here — "is a join in flight?" — sits on the join board's uncached
-/// path, recomputed per dash per recompute. The keepalive answers whether the
+/// path, recomputed per arc per recompute. The keepalive answers whether the
 /// work can still be collected; in-flight-ness is a property of the payload, so
 /// the refs have nothing to say about it.
 fn payload_seqs_desc(repo: &Path) -> Vec<u64> {
@@ -531,23 +540,23 @@ fn payload_seqs_desc(repo: &Path) -> Vec<u64> {
     seqs
 }
 
-/// The join of `dash` that is between its integrate and its end, if there is
+/// The join of `arc` that is between its integrate and its end, if there is
 /// one — the record `--continue` resumes and every "a join is in flight" reader
 /// consults.
 ///
 /// **The whole predicate is tested all the way back, never short-circuited on
-/// "the newest op for this dash".** [`undo_in`] skips an incomplete operation
-/// rather than stopping at it, so `dash undo` during an interrupted join
+/// "the newest op for this arc".** [`undo_in`] skips an incomplete operation
+/// rather than stopping at it, so `arc undo` during an interrupted join
 /// records an Undo *above* the join it could not reverse. A scan that stopped
-/// at the first record naming the dash would then report no join in flight for
-/// a dash that is half torn down.
-pub fn join_in_flight(repo: &Path, dash: &str) -> Option<OpPayload> {
-    let _ = fold_legacy_join_journal(repo, dash);
+/// at the first record naming the arc would then report no join in flight for
+/// an arc that is half torn down.
+pub fn join_in_flight(repo: &Path, arc: &str) -> Option<OpPayload> {
+    let _ = fold_legacy_join_journal(repo, arc);
     payload_seqs_desc(repo)
         .into_iter()
         .filter_map(|seq| read_op(repo, seq))
         .find(|op| {
-            op.dash == dash && op.verb == OpVerb::Join && op.after.is_none() && op.join.is_some()
+            op.arc == arc && op.verb == OpVerb::Join && op.after.is_none() && op.join.is_some()
         })
 }
 
@@ -567,8 +576,8 @@ struct LegacyJoinJournal {
     message: Option<String>,
 }
 
-fn legacy_journal_path(repo: &Path, dash: &str) -> PathBuf {
-    project_state_dir(repo).join(format!("join-journal-{}.json", sanitize_branch_name(dash)))
+fn legacy_journal_path(repo: &Path, arc: &str) -> PathBuf {
+    project_state_dir(repo).join(format!("join-journal-{}.json", sanitize_branch_name(arc)))
 }
 
 /// Fold a join journal left on disk by an older build onto the operation log,
@@ -576,15 +585,15 @@ fn legacy_journal_path(repo: &Path, dash: &str) -> PathBuf {
 ///
 /// Read-time and idempotent, the shape `migrate_worktrees` already established:
 /// there is no upgrade command because the reader is the thing that runs. The
-/// progress attaches to the dash's open join record when there is one, and
+/// progress attaches to the arc's open join record when there is one, and
 /// otherwise records one — a journal can outlive its op, either because the op
 /// was pruned or because the join predates the log — so that `--continue` has
 /// something to finish and `undo` has something to answer about.
 ///
 /// The file is removed **only after** the payload write returns `Ok`. A crash
 /// in between re-enters here and folds again onto the same open record.
-pub fn fold_legacy_join_journal(repo: &Path, dash: &str) -> Result<Option<u64>, String> {
-    let path = legacy_journal_path(repo, dash);
+pub fn fold_legacy_join_journal(repo: &Path, arc: &str) -> Result<Option<u64>, String> {
+    let path = legacy_journal_path(repo, arc);
     let txt = match std::fs::read_to_string(&path) {
         Ok(txt) => txt,
         Err(_) => return Ok(None),
@@ -596,17 +605,17 @@ pub fn fold_legacy_join_journal(repo: &Path, dash: &str) -> Result<Option<u64>, 
         )
     })?;
 
-    let seq = match newest_incomplete(repo, dash, OpVerb::Join) {
+    let seq = match newest_incomplete(repo, arc, OpVerb::Join) {
         Some(op) => op.seq,
         None => {
             // `capture_before` does not fail once the branch is gone: it falls
             // back to the repository's default branch and reads empty tips. So
             // the base branch it reports at phase `BranchDeleted` is a guess,
             // and the journal recorded the real one — the journal wins.
-            let mut before = capture_before(repo, dash).unwrap_or(OpBefore {
+            let mut before = capture_before(repo, arc).unwrap_or(OpBefore {
                 base_branch: journal.base_branch.clone(),
                 base_tip: String::new(),
-                dash_tip: String::new(),
+                arc_tip: String::new(),
                 worktree: String::new(),
                 config: OpConfig::default(),
                 candidate: None,
@@ -615,7 +624,7 @@ pub fn fold_legacy_join_journal(repo: &Path, dash: &str) -> Result<Option<u64>, 
             });
             before.base_branch = journal.base_branch.clone();
             let tips = tips_of(&before);
-            record_begin(repo, OpVerb::Join, dash, before, &tips)?
+            record_begin(repo, OpVerb::Join, arc, before, &tips)?
         }
     };
 
@@ -690,24 +699,24 @@ pub fn list_ops(repo: &Path) -> Vec<OpPayload> {
         .collect()
 }
 
-/// The newest completed, not-yet-undone operation, optionally for one dash.
-pub fn newest_undoable(repo: &Path, dash: Option<&str>) -> Option<OpPayload> {
+/// The newest completed, not-yet-undone operation, optionally for one arc.
+pub fn newest_undoable(repo: &Path, arc: Option<&str>) -> Option<OpPayload> {
     list_ops(repo)
         .into_iter()
-        .filter(|op| dash.is_none_or(|d| op.dash == d))
+        .filter(|op| arc.is_none_or(|d| op.arc == d))
         .find(|op| op.is_undoable())
 }
 
-/// The newest operation for `dash` that began and never completed — how a
+/// The newest operation for `arc` that began and never completed — how a
 /// resumed verb finds the record it opened before it was interrupted.
 ///
 /// [`fold_legacy_join_journal`] is the caller this exists for: a journal an
 /// older build left behind belongs on the record that join already opened, and
 /// the file carries no sequence number to find it by.
-pub fn newest_incomplete(repo: &Path, dash: &str, verb: OpVerb) -> Option<OpPayload> {
+pub fn newest_incomplete(repo: &Path, arc: &str, verb: OpVerb) -> Option<OpPayload> {
     list_ops(repo)
         .into_iter()
-        .find(|op| op.dash == dash && op.verb == verb && op.after.is_none())
+        .find(|op| op.arc == arc && op.verb == verb && op.after.is_none())
 }
 
 /// Drop everything past [`OPLOG_CAP`], oldest first — both halves.
@@ -732,12 +741,13 @@ pub struct UndoOutcome {
     /// The operation that was reversed.
     pub seq: u64,
     pub verb: OpVerb,
-    pub dash: String,
+    #[serde(rename = "arc")]
+    pub arc: String,
     /// The sequence number this undo was itself recorded under.
     pub recorded_as: u64,
     /// Restored branch tip, when the undo put a branch back.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub dash_tip: Option<String>,
+    pub arc_tip: Option<String>,
     /// Restored base tip, when the undo moved the base branch.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub base_tip: Option<String>,
@@ -745,14 +755,14 @@ pub struct UndoOutcome {
     /// claw back — named so the state is announced rather than discovered.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub handed_back_left_in_place: Vec<String>,
-    /// Whether the restored dash reads as unbound — it always does; rebinding
+    /// Whether the restored arc reads as unbound — it always does; rebinding
     /// is the user's gesture.
     pub restored_unbound: bool,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub warnings: Vec<String>,
 }
 
-/// Reverse the newest completed operation, optionally for one named dash.
+/// Reverse the newest completed operation, optionally for one named arc.
 ///
 /// **Every undo is a compare-and-swap and never a force.** It verifies the
 /// world still matches what the operation left before it moves anything, and
@@ -761,9 +771,9 @@ pub struct UndoOutcome {
 /// after the operation would destroy work to complete a convenience.
 ///
 /// What it restores is git state only. Session bindings live in a per-instance
-/// ledger and are live-sessions-only by design, so a restored dash reads as
+/// ledger and are live-sessions-only by design, so a restored arc reads as
 /// unbound and rebinding is the user's gesture.
-pub fn undo_in(repo: &Path, dash: Option<&str>) -> Result<UndoOutcome, String> {
+pub fn undo_in(repo: &Path, arc: Option<&str>) -> Result<UndoOutcome, String> {
     let repo = crate::ops::main_repo_root(repo);
     let repo = repo.as_path();
 
@@ -773,7 +783,7 @@ pub fn undo_in(repo: &Path, dash: Option<&str>) -> Result<UndoOutcome, String> {
     // `OpVerb::is_reversal`, rather than spelled out again here.
     let candidates: Vec<OpPayload> = list_ops(repo)
         .into_iter()
-        .filter(|op| dash.is_none_or(|d| op.dash == d))
+        .filter(|op| arc.is_none_or(|d| op.arc == d))
         .filter(|op| !op.verb.is_reversal())
         .collect();
 
@@ -789,7 +799,7 @@ pub fn undo_in(repo: &Path, dash: Option<&str>) -> Result<UndoOutcome, String> {
                         "already-undone: operation {} ({} of '{}') was reversed by operation {}",
                         op.seq,
                         op.verb.as_str(),
-                        op.dash,
+                        op.arc,
                         undone_by
                     ));
                 }
@@ -799,11 +809,11 @@ pub fn undo_in(repo: &Path, dash: Option<&str>) -> Result<UndoOutcome, String> {
                          changed is unknown; it cannot be undone automatically",
                         op.seq,
                         op.verb.as_str(),
-                        op.dash
+                        op.arc
                     ));
                 }
             }
-            return Err(match dash {
+            return Err(match arc {
                 Some(d) => format!("nothing-to-undo: no completed operation recorded for '{d}'"),
                 None => "nothing-to-undo: no completed operation is recorded".to_string(),
             });
@@ -816,13 +826,13 @@ pub fn undo_in(repo: &Path, dash: Option<&str>) -> Result<UndoOutcome, String> {
         .ok_or_else(|| format!("incomplete-op: operation {} never finished", op.seq))?;
 
     let mut warnings = Vec::new();
-    let name = op.dash.clone();
+    let name = op.arc.clone();
 
     // Record the undo before it acts, exactly as any other mutating verb does.
     let undo_before = capture_before(repo, &name).unwrap_or(OpBefore {
         base_branch: op.before.base_branch.clone(),
         base_tip: git_stdout(repo, &["rev-parse", &op.before.base_branch]).unwrap_or_default(),
-        dash_tip: String::new(),
+        arc_tip: String::new(),
         worktree: op.before.worktree.clone(),
         config: OpConfig::default(),
         candidate: None,
@@ -842,7 +852,7 @@ pub fn undo_in(repo: &Path, dash: Option<&str>) -> Result<UndoOutcome, String> {
         }
     };
 
-    let (dash_tip, base_tip) = match outcome {
+    let (arc_tip, base_tip) = match outcome {
         Ok(pair) => pair,
         Err(e) => {
             // The undo declined, so it did not happen.
@@ -856,14 +866,14 @@ pub fn undo_in(repo: &Path, dash: Option<&str>) -> Result<UndoOutcome, String> {
         undo_seq,
         OpAfter {
             base_tip: base_tip.clone(),
-            dash_tip: dash_tip.clone(),
+            arc_tip: arc_tip.clone(),
             ..Default::default()
         },
     )?;
     record_undone_by(repo, op.seq, Some(undo_seq))?;
     record_reverses(repo, undo_seq, op.seq)?;
 
-    let _ = crate::log::append_dash_log(
+    let _ = crate::log::append_arc_log(
         repo,
         &name,
         "undone",
@@ -873,9 +883,9 @@ pub fn undo_in(repo: &Path, dash: Option<&str>) -> Result<UndoOutcome, String> {
     Ok(UndoOutcome {
         seq: op.seq,
         verb: op.verb,
-        dash: name,
+        arc: name,
         recorded_as: undo_seq,
-        dash_tip,
+        arc_tip,
         base_tip,
         handed_back_left_in_place: after.handed_back.clone(),
         restored_unbound: matches!(op.verb, OpVerb::Join | OpVerb::Discard),
@@ -892,11 +902,12 @@ pub struct RedoOutcome {
     pub original_seq: u64,
     /// The original operation's verb — what was re-applied.
     pub verb: OpVerb,
-    pub dash: String,
+    #[serde(rename = "arc")]
+    pub arc: String,
     /// The sequence number this redo was itself recorded under.
     pub recorded_as: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub dash_tip: Option<String>,
+    pub arc_tip: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub base_tip: Option<String>,
     /// Paths the original discard copied into the base checkout, which a redo
@@ -917,14 +928,14 @@ pub struct RedoOutcome {
 ///
 /// Every re-application is a compare-and-swap against the recorded tips, with
 /// the same refusal vocabulary undo established. Nothing forces.
-pub fn redo_in(repo: &Path, dash: Option<&str>) -> Result<RedoOutcome, String> {
+pub fn redo_in(repo: &Path, arc: Option<&str>) -> Result<RedoOutcome, String> {
     let repo = crate::ops::main_repo_root(repo);
     let repo = repo.as_path();
 
     let all = list_ops(repo);
     let candidates: Vec<&OpPayload> = all
         .iter()
-        .filter(|op| dash.is_none_or(|d| op.dash == d))
+        .filter(|op| arc.is_none_or(|d| op.arc == d))
         .collect();
 
     let undo = match candidates.iter().find(|op| op.is_redoable()) {
@@ -936,18 +947,18 @@ pub fn redo_in(repo: &Path, dash: Option<&str>) -> Result<RedoOutcome, String> {
                 if let Some(by) = op.undone_by {
                     return Err(format!(
                         "already-redone: undo {} (of '{}') was reversed by operation {by}",
-                        op.seq, op.dash
+                        op.seq, op.arc
                     ));
                 }
                 if op.after.is_none() {
                     return Err(format!(
                         "incomplete-op: undo {} (of '{}') never finished, so what it changed is \
                          unknown; it cannot be redone automatically",
-                        op.seq, op.dash
+                        op.seq, op.arc
                     ));
                 }
             }
-            return Err(match dash {
+            return Err(match arc {
                 Some(d) => format!("nothing-to-redo: no undo is recorded for '{d}'"),
                 None => "nothing-to-redo: no undo is recorded".to_string(),
             });
@@ -975,30 +986,30 @@ pub fn redo_in(repo: &Path, dash: Option<&str>) -> Result<RedoOutcome, String> {
     })?;
 
     // **`superseded` is the legible guard, not the load-bearing one.** It
-    // catches the common shape — the dash was worked on after the undo — while
-    // the per-verb compare-and-swap below covers what a per-dash scan cannot,
-    // such as another dash landing on the same base in the meantime.
+    // catches the common shape — the arc was worked on after the undo — while
+    // the per-verb compare-and-swap below covers what a per-arc scan cannot,
+    // such as another arc landing on the same base in the meantime.
     if let Some(newer) = all
         .iter()
-        .find(|op| op.dash == original.dash && op.seq > undo.seq && !op.verb.is_reversal())
+        .find(|op| op.arc == original.arc && op.seq > undo.seq && !op.verb.is_reversal())
     {
         return Err(format!(
             "superseded: operation {} ({} of '{}') has run since the undo, so re-applying it \
              would trample newer work",
             newer.seq,
             newer.verb.as_str(),
-            newer.dash
+            newer.arc
         ));
     }
 
     let mut warnings = Vec::new();
-    let name = original.dash.clone();
+    let name = original.arc.clone();
 
     let redo_before = capture_before(repo, &name).unwrap_or(OpBefore {
         base_branch: original.before.base_branch.clone(),
         base_tip: git_stdout(repo, &["rev-parse", &original.before.base_branch])
             .unwrap_or_default(),
-        dash_tip: String::new(),
+        arc_tip: String::new(),
         worktree: original.before.worktree.clone(),
         config: OpConfig::default(),
         candidate: None,
@@ -1022,7 +1033,7 @@ pub fn redo_in(repo: &Path, dash: Option<&str>) -> Result<RedoOutcome, String> {
         }
     };
 
-    let (dash_tip, base_tip) = match outcome {
+    let (arc_tip, base_tip) = match outcome {
         Ok(pair) => pair,
         Err(e) => {
             abandon(repo, redo_seq);
@@ -1035,7 +1046,7 @@ pub fn redo_in(repo: &Path, dash: Option<&str>) -> Result<RedoOutcome, String> {
         redo_seq,
         OpAfter {
             base_tip: base_tip.clone(),
-            dash_tip: dash_tip.clone(),
+            arc_tip: arc_tip.clone(),
             ..Default::default()
         },
     )?;
@@ -1046,7 +1057,7 @@ pub fn redo_in(repo: &Path, dash: Option<&str>) -> Result<RedoOutcome, String> {
     record_undone_by(repo, undo.seq, Some(redo_seq))?;
     record_undone_by(repo, original.seq, None)?;
 
-    let _ = crate::log::append_dash_log(
+    let _ = crate::log::append_arc_log(
         repo,
         &name,
         "redone",
@@ -1061,16 +1072,16 @@ pub fn redo_in(repo: &Path, dash: Option<&str>) -> Result<RedoOutcome, String> {
         seq: undo.seq,
         original_seq: original.seq,
         verb: original.verb,
-        dash: name,
+        arc: name,
         recorded_as: redo_seq,
-        dash_tip,
+        arc_tip,
         base_tip,
         handed_back_left_in_place: original_after.handed_back.clone(),
         warnings,
     })
 }
 
-/// Refuse rather than delete over uncommitted work in a dash the undo gave
+/// Refuse rather than delete over uncommitted work in an arc the undo gave
 /// back.
 ///
 /// `discard` hands such work to the base checkout instead of refusing, but that
@@ -1120,7 +1131,7 @@ fn redo_resolve_base(
     Ok((None, Some(tip.to_string())))
 }
 
-/// Re-land the join: move the base back to what it landed, then tear the dash
+/// Re-land the join: move the base back to what it landed, then tear the arc
 /// down again.
 fn redo_join(
     repo: &Path,
@@ -1144,15 +1155,15 @@ fn redo_join(
             &op.before.base_tip[..op.before.base_tip.len().min(9)]
         ));
     }
-    let branch = crate::ops::branch_name(&op.dash);
+    let branch = crate::ops::branch_name(&op.arc);
     if crate::ops::branch_exists(repo, &branch) {
-        let dash_now = git_stdout(repo, &["rev-parse", &branch])?;
-        if dash_now != op.before.dash_tip {
+        let arc_now = git_stdout(repo, &["rev-parse", &branch])?;
+        if arc_now != op.before.arc_tip {
             return Err(format!(
-                "tip-moved: '{branch}' is at {} but the join consumed {}; the dash has moved since \
+                "tip-moved: '{branch}' is at {} but the join consumed {}; the arc has moved since \
                  the undo restored it",
-                &dash_now[..dash_now.len().min(9)],
-                &op.before.dash_tip[..op.before.dash_tip.len().min(9)]
+                &arc_now[..arc_now.len().min(9)],
+                &op.before.arc_tip[..op.before.arc_tip.len().min(9)]
             ));
         }
     }
@@ -1168,11 +1179,11 @@ fn redo_join(
         ));
     }
 
-    teardown_dash(repo, op, warnings);
+    teardown_arc(repo, op, warnings);
     Ok((None, Some(landed.to_string())))
 }
 
-/// Re-apply the replay: move the dash branch forward to the tip it left.
+/// Re-apply the replay: move the arc branch forward to the tip it left.
 ///
 /// **A compare-and-swap and nothing else.** In particular no ledger reconcile:
 /// the plan's commit cells are committed content on the branch, so moving the
@@ -1193,15 +1204,15 @@ fn redo_replay(
         ));
     }
     let target = after
-        .dash_tip
+        .arc_tip
         .as_deref()
-        .ok_or("incomplete-op: the replay recorded no resulting dash tip")?;
+        .ok_or("incomplete-op: the replay recorded no resulting arc tip")?;
 
-    match crate::replay::cas_reset(&worktree, &op.before.dash_tip, target)? {
+    match crate::replay::cas_reset(&worktree, &op.before.arc_tip, target)? {
         None => {
             // The forward half of the undo's reversal: the cells move with the
             // branch only because something moves them.
-            crate::replay::remap_ledger_cells(repo, &op.dash, &after.mapping);
+            crate::replay::remap_ledger_cells(repo, &op.arc, &after.mapping);
             Ok((Some(target.to_string()), None))
         }
         Some(crate::replay::ReplayOutcome::Deferred { reason, detail }) => {
@@ -1211,7 +1222,7 @@ fn redo_replay(
     }
 }
 
-/// Re-apply the discard: take the dash back down.
+/// Re-apply the discard: take the arc back down.
 ///
 /// The hand-back is **not** repeated. Those files were copied into the base
 /// checkout by the original discard and are still there; copying them again, or
@@ -1222,26 +1233,26 @@ fn redo_discard(
     op: &OpPayload,
     warnings: &mut Vec<String>,
 ) -> Result<(Option<String>, Option<String>), String> {
-    let branch = crate::ops::branch_name(&op.dash);
+    let branch = crate::ops::branch_name(&op.arc);
     if crate::ops::branch_exists(repo, &branch) {
-        let dash_now = git_stdout(repo, &["rev-parse", &branch])?;
-        if dash_now != op.before.dash_tip {
+        let arc_now = git_stdout(repo, &["rev-parse", &branch])?;
+        if arc_now != op.before.arc_tip {
             return Err(format!(
-                "tip-moved: '{branch}' is at {} but the discard removed {}; the dash has moved \
+                "tip-moved: '{branch}' is at {} but the discard removed {}; the arc has moved \
                  since the undo restored it",
-                &dash_now[..dash_now.len().min(9)],
-                &op.before.dash_tip[..op.before.dash_tip.len().min(9)]
+                &arc_now[..arc_now.len().min(9)],
+                &op.before.arc_tip[..op.before.arc_tip.len().min(9)]
             ));
         }
     }
     refuse_dirty_worktree(op)?;
-    teardown_dash(repo, op, warnings);
+    teardown_arc(repo, op, warnings);
     Ok((None, None))
 }
 
 /// Remove the worktree, the branch, and the branch-config facts — the teardown
 /// both join and discard perform, re-performed.
-fn teardown_dash(repo: &Path, op: &OpPayload, warnings: &mut Vec<String>) {
+fn teardown_arc(repo: &Path, op: &OpPayload, warnings: &mut Vec<String>) {
     let worktree = PathBuf::from(&op.before.worktree);
     if worktree.exists() {
         let out = git_output(
@@ -1255,17 +1266,17 @@ fn teardown_dash(repo: &Path, op: &OpPayload, warnings: &mut Vec<String>) {
             ));
         }
     }
-    let branch = crate::ops::branch_name(&op.dash);
+    let branch = crate::ops::branch_name(&op.arc);
     if crate::ops::branch_exists(repo, &branch) {
         let out = git_output(repo, &["branch", "-D", &branch]);
         if !out.as_ref().is_ok_and(|o| o.status.success()) {
             warnings.push(format!("The branch '{branch}' could not be removed."));
         }
     }
-    crate::resolve::clear_candidate(repo, &op.dash);
+    crate::resolve::clear_candidate(repo, &op.arc);
 }
 
-/// Put the base branch back, then rebuild the dash the join tore down.
+/// Put the base branch back, then rebuild the arc the join tore down.
 fn undo_join(
     repo: &Path,
     op: &OpPayload,
@@ -1287,10 +1298,10 @@ fn undo_join(
         ));
     }
 
-    let branch = crate::ops::branch_name(&op.dash);
+    let branch = crate::ops::branch_name(&op.arc);
     if crate::ops::branch_exists(repo, &branch) {
         return Err(format!(
-            "branch-exists: '{branch}' is already here, so the dash this join tore down has \
+            "branch-exists: '{branch}' is already here, so the arc this join tore down has \
              since been rebuilt; undoing would overwrite it"
         ));
     }
@@ -1306,10 +1317,10 @@ fn undo_join(
         ));
     }
 
-    restore_dash(repo, op, warnings)?;
+    restore_arc(repo, op, warnings)?;
     restore_conflict_ref(repo, op, warnings);
     Ok((
-        Some(op.before.dash_tip.clone()),
+        Some(op.before.arc_tip.clone()),
         Some(op.before.base_tip.clone()),
     ))
 }
@@ -1318,7 +1329,7 @@ fn undo_join(
 ///
 /// Only for the two verbs whose teardown deletes it — join and discard, both
 /// through `clear_candidate`, which folds `clear_conflict`. A replay never
-/// touches the ref, and restoring the dash tip is itself what re-validates the
+/// touches the ref, and restoring the arc tip is itself what re-validates the
 /// chain under the head-equality test.
 ///
 /// **Never over a newer chain.** Between the join and its undo a fresh resolve
@@ -1335,20 +1346,20 @@ fn restore_conflict_ref(repo: &Path, op: &OpPayload, warnings: &mut Vec<String>)
     // parses as a chain. A ref somebody else wrote is theirs either way, and a
     // restore that clobbered an unparseable one would be the same destruction
     // wearing a technicality.
-    let ref_name = crate::resolve::conflict_ref_name(&op.dash);
+    let ref_name = crate::resolve::conflict_ref_name(&op.arc);
     if let Ok(standing) = git_stdout(repo, &["rev-parse", "--verify", &ref_name]) {
         if standing != recorded {
             warnings.push(format!(
                 "A newer conflict for '{}' stands at {}, so the one this operation recorded ({}) \
                  was left where it is; it stays reachable through the operation log.",
-                op.dash,
+                op.arc,
                 &standing[..standing.len().min(9)],
                 &recorded[..recorded.len().min(9)]
             ));
         }
         return;
     }
-    if let Err(e) = crate::resolve::advance_conflict_ref(repo, &op.dash, recorded) {
+    if let Err(e) = crate::resolve::advance_conflict_ref(repo, &op.arc, recorded) {
         warnings.push(format!("The conflict chain could not be restored: {e}"));
     }
 }
@@ -1389,10 +1400,10 @@ fn undo_resolve_base(
     Ok((None, Some(op.before.base_tip.clone())))
 }
 
-/// Move the dash branch back to the tip it had before the replay.
+/// Move the arc branch back to the tip it had before the replay.
 ///
 /// **No conflict-ref work, deliberately.** A replay never deletes the chain, so
-/// there is nothing to restore — and moving the dash tip back is itself what
+/// there is nothing to restore — and moving the arc tip back is itself what
 /// re-validates it: validity is head equality, and the heads the chain names
 /// are the ones this reset just reinstated.
 fn undo_replay(
@@ -1408,14 +1419,14 @@ fn undo_replay(
         ));
     }
     let expected = after
-        .dash_tip
+        .arc_tip
         .as_deref()
-        .ok_or("incomplete-op: the replay recorded no resulting dash tip")?;
+        .ok_or("incomplete-op: the replay recorded no resulting arc tip")?;
 
     // The same compare-and-swap the replay itself used, in the other
     // direction. Its refusals are outcomes rather than errors, so they are
     // translated into this module's vocabulary rather than dropped.
-    match crate::replay::cas_reset(&worktree, expected, &op.before.dash_tip)? {
+    match crate::replay::cas_reset(&worktree, expected, &op.before.arc_tip)? {
         None => {
             // The ledger lives outside every tree git watches, so moving the
             // branch back does not move its commit cells back with it. The
@@ -1425,8 +1436,8 @@ fn undo_replay(
                 .iter()
                 .map(|(old, new)| (new.clone(), old.clone()))
                 .collect();
-            crate::replay::remap_ledger_cells(repo, &op.dash, &reversed);
-            Ok((Some(op.before.dash_tip.clone()), None))
+            crate::replay::remap_ledger_cells(repo, &op.arc, &reversed);
+            Ok((Some(op.before.arc_tip.clone()), None))
         }
         Some(crate::replay::ReplayOutcome::Deferred { reason, detail }) => {
             Err(format!("{reason}: {detail}"))
@@ -1435,32 +1446,32 @@ fn undo_replay(
     }
 }
 
-/// Rebuild a discarded dash. Handed-back files stay where the discard put them.
+/// Rebuild a discarded arc. Handed-back files stay where the discard put them.
 fn undo_discard(
     repo: &Path,
     op: &OpPayload,
     warnings: &mut Vec<String>,
 ) -> Result<(Option<String>, Option<String>), String> {
-    let branch = crate::ops::branch_name(&op.dash);
+    let branch = crate::ops::branch_name(&op.arc);
     if crate::ops::branch_exists(repo, &branch) {
         return Err(format!(
-            "branch-exists: '{branch}' is already here; the dash was rebuilt since the discard"
+            "branch-exists: '{branch}' is already here; the arc was rebuilt since the discard"
         ));
     }
-    restore_dash(repo, op, warnings)?;
+    restore_arc(repo, op, warnings)?;
     restore_conflict_ref(repo, op, warnings);
-    Ok((Some(op.before.dash_tip.clone()), None))
+    Ok((Some(op.before.arc_tip.clone()), None))
 }
 
-/// Recreate a dash's branch, worktree, and branch-config facts.
+/// Recreate an arc's branch, worktree, and branch-config facts.
 ///
 /// Hydration failure is a warning rather than a rollback: the branch and its
 /// history are the irreplaceable half, and refusing to restore them because
 /// `bun install` failed would trade the whole recovery for a re-runnable
 /// chore.
-fn restore_dash(repo: &Path, op: &OpPayload, warnings: &mut Vec<String>) -> Result<(), String> {
-    let branch = crate::ops::branch_name(&op.dash);
-    let create = git_output(repo, &["branch", &branch, &op.before.dash_tip])?;
+fn restore_arc(repo: &Path, op: &OpPayload, warnings: &mut Vec<String>) -> Result<(), String> {
+    let branch = crate::ops::branch_name(&op.arc);
+    let create = git_output(repo, &["branch", &branch, &op.before.arc_tip])?;
     if !create.status.success() {
         return Err(format!(
             "cannot recreate '{branch}': {}",
@@ -1487,15 +1498,15 @@ fn restore_dash(repo: &Path, op: &OpPayload, warnings: &mut Vec<String>) -> Resu
     // recreated branch has forgotten its base, description, and id.
     let facts = [
         (
-            crate::ops::base_config_key(&op.dash),
+            crate::ops::base_config_key(&op.arc),
             &op.before.config.tugbase,
         ),
         (
-            crate::ops::description_config_key(&op.dash),
+            crate::ops::description_config_key(&op.arc),
             &op.before.config.description,
         ),
         (
-            crate::ops::tugid_config_key(&op.dash),
+            crate::ops::tugid_config_key(&op.arc),
             &op.before.config.tugid,
         ),
     ];
@@ -1575,7 +1586,7 @@ mod tests {
         OpBefore {
             base_branch: "main".to_string(),
             base_tip: f.tip("HEAD"),
-            dash_tip: f.tip("HEAD"),
+            arc_tip: f.tip("HEAD"),
             worktree: "/nowhere".to_string(),
             config: OpConfig {
                 tugbase: Some("main".to_string()),
@@ -1596,7 +1607,7 @@ mod tests {
         let read = read_op(f.path(), seq).expect("the payload is on disk");
         assert_eq!(read.seq, seq);
         assert_eq!(read.verb, OpVerb::Join);
-        assert_eq!(read.dash, "demo");
+        assert_eq!(read.arc, "demo");
         // Per-verb fields absent on a fresh record, and absent from the JSON.
         assert!(read.after.is_none());
         assert!(read.undone_by.is_none());
@@ -1614,7 +1625,7 @@ mod tests {
             f.path(),
             seq,
             OpAfter {
-                dash_tip: Some("deadbeef".to_string()),
+                arc_tip: Some("deadbeef".to_string()),
                 mapping: vec![("old".to_string(), "new".to_string())],
                 ..Default::default()
             },
@@ -1622,7 +1633,7 @@ mod tests {
         .unwrap();
         let read = read_op(f.path(), seq).unwrap();
         let after = read.after.clone().expect("after is attached");
-        assert_eq!(after.dash_tip.as_deref(), Some("deadbeef"));
+        assert_eq!(after.arc_tip.as_deref(), Some("deadbeef"));
         assert_eq!(after.mapping, vec![("old".to_string(), "new".to_string())]);
         assert!(read.is_undoable());
     }
@@ -1826,13 +1837,13 @@ mod tests {
     /// Writing a legacy journal the way the retired code did — plain
     /// `serde_json` over the old field set — so the fold is tested against the
     /// artifact rather than against a reconstruction of it.
-    fn write_legacy_journal(f: &Fixture, dash: &str, phase: &str, base_branch: &str) {
+    fn write_legacy_journal(f: &Fixture, arc: &str, phase: &str, base_branch: &str) {
         let dir = project_state_dir(f.path());
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(
-            dir.join(format!("join-journal-{dash}.json")),
+            dir.join(format!("join-journal-{arc}.json")),
             format!(
-                r#"{{"name":"{dash}","base_branch":"{base_branch}","strategy":"squash",
+                r#"{{"name":"{arc}","base_branch":"{base_branch}","strategy":"squash",
                      "commit_hash":"deadbeef","phase":"{phase}","message":"from the journal"}}"#
             ),
         )
@@ -1886,7 +1897,7 @@ mod tests {
         assert_eq!(join_in_flight(f.path(), "demo").unwrap().seq, seq);
         assert!(
             join_in_flight(f.path(), "other").is_none(),
-            "and it answers per dash"
+            "and it answers per arc"
         );
 
         record_complete(f.path(), seq, OpAfter::default()).unwrap();
@@ -2006,7 +2017,7 @@ mod tests {
             .expect("a record was created for it");
         let op = read_op(f.path(), seq).expect("the payload is on disk");
         assert_eq!(op.verb, OpVerb::Join);
-        assert_eq!(op.dash, "orphan");
+        assert_eq!(op.arc, "orphan");
         assert!(
             op.after.is_none(),
             "and it is open, so --continue can finish it"

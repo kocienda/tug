@@ -3,7 +3,7 @@
  * (Specs S03, S04).
  *
  * This store carries the landing *execute* and nothing else. What a landing
- * would do — blockers, conflicts, a resolved candidate — rides the dash's feed
+ * would do — blockers, conflicts, a resolved candidate — rides the arc's feed
  * entry, so the phases here describe a landing somebody pressed for: pending,
  * then done / conflict / error. A preview reply is a question the card no
  * longer asks, and settles back to idle rather than standing as a phase that
@@ -22,7 +22,7 @@ import { ChangesetVerbStore } from "../changeset-verb-store";
 
 const ENTRY = "session:s1";
 const PROJECT = "/proj";
-const DASH = "join-lane";
+const ARC = "join-lane";
 
 interface Sent {
   action: string;
@@ -60,12 +60,12 @@ beforeEach(() => {
 
 describe("the landing round trip", () => {
   test("a landed join settles on done with its commit", () => {
-    h.store.join(ENTRY, PROJECT, DASH, { preview: false });
+    h.store.join(ENTRY, PROJECT, ARC, { preview: false });
     expect(h.store.joinState(ENTRY).phase).toBe("pending");
     h.reply({
       action: "changeset_join_ok",
       project_dir: PROJECT,
-      dash: DASH,
+      arc: ARC,
       previewed: false,
       conflicts: [],
       commit_hash: "abc1234",
@@ -82,7 +82,7 @@ describe("the landing round trip", () => {
     // called `join()` — and both terminal frames are dropped on a correlation
     // miss. Without this registration the failure bulletin and the live
     // receipt row both went dark on every prompt-route join.
-    h.store.expectServerJoin(ENTRY, PROJECT, DASH);
+    h.store.expectServerJoin(ENTRY, PROJECT, ARC);
     expect(h.store.joinState(ENTRY).phase).toBe("pending");
     // And it sends nothing: the join is already under way, and a frame from
     // here would be a second one.
@@ -91,7 +91,7 @@ describe("the landing round trip", () => {
     h.reply({
       action: "changeset_join_ok",
       project_dir: PROJECT,
-      dash: DASH,
+      arc: ARC,
       previewed: false,
       conflicts: [],
       commit_hash: "abc1234",
@@ -104,11 +104,11 @@ describe("the landing round trip", () => {
   });
 
   test("a server-started join that fails posts the failure it would have swallowed", () => {
-    h.store.expectServerJoin(ENTRY, PROJECT, DASH);
+    h.store.expectServerJoin(ENTRY, PROJECT, ARC);
     h.reply({
       action: "changeset_join_err",
       project_dir: PROJECT,
-      dash: DASH,
+      arc: ARC,
       detail: "base moved under the candidate",
     });
     const state = h.store.joinState(ENTRY);
@@ -119,11 +119,11 @@ describe("the landing round trip", () => {
   });
 
   test("an execute that aborted names the paths it aborted on", () => {
-    h.store.join(ENTRY, PROJECT, DASH, { preview: false });
+    h.store.join(ENTRY, PROJECT, ARC, { preview: false });
     h.reply({
       action: "changeset_join_ok",
       project_dir: PROJECT,
-      dash: DASH,
+      arc: ARC,
       previewed: false,
       conflicts: ["a.rs", "b.rs"],
       commit_hash: null,
@@ -138,11 +138,11 @@ describe("the landing round trip", () => {
     // up — a stray CLI-shaped frame, an older server — the store must not turn
     // it into a phase, because the landing face reads the feed's join block and
     // a phase here would render beside an answer computed from different heads.
-    h.store.join(ENTRY, PROJECT, DASH, { preview: false, continueJoin: true });
+    h.store.join(ENTRY, PROJECT, ARC, { preview: false, continueJoin: true });
     h.reply({
       action: "changeset_join_ok",
       project_dir: PROJECT,
-      dash: DASH,
+      arc: ARC,
       previewed: true,
       conflicts: ["a.rs"],
       commit_hash: null,
@@ -153,11 +153,11 @@ describe("the landing round trip", () => {
   });
 
   test("a refusal carries its detail", () => {
-    h.store.join(ENTRY, PROJECT, DASH, { preview: false });
+    h.store.join(ENTRY, PROJECT, ARC, { preview: false });
     h.reply({
       action: "changeset_join_err",
       project_dir: PROJECT,
-      dash: DASH,
+      arc: ARC,
       detail: "Nothing to join.",
     });
     const state = h.store.joinState(ENTRY);
@@ -168,25 +168,25 @@ describe("the landing round trip", () => {
 
 describe("changeset join payload", () => {
   test("continue and session_id ride only when asked for", () => {
-    h.store.join(ENTRY, PROJECT, DASH, { preview: false, continueJoin: true });
+    h.store.join(ENTRY, PROJECT, ARC, { preview: false, continueJoin: true });
     expect(h.sent[0]?.body).toEqual({
       project_dir: PROJECT,
-      dash: DASH,
+      arc: ARC,
       preview: false,
       continue: true,
     });
   });
 
   test("a bare join sends neither", () => {
-    h.store.join(ENTRY, PROJECT, DASH, { preview: false });
-    expect(h.sent[0]?.body).toEqual({ project_dir: PROJECT, dash: DASH, preview: false });
+    h.store.join(ENTRY, PROJECT, ARC, { preview: false });
+    expect(h.sent[0]?.body).toEqual({ project_dir: PROJECT, arc: ARC, preview: false });
   });
 
   test("the session id rides the land so the receipt has a home", () => {
-    h.store.join(ENTRY, PROJECT, DASH, { preview: false, message: "m", sessionId: "sess-1" });
+    h.store.join(ENTRY, PROJECT, ARC, { preview: false, message: "m", sessionId: "sess-1" });
     expect(h.sent[0]?.body).toEqual({
       project_dir: PROJECT,
-      dash: DASH,
+      arc: ARC,
       preview: false,
       message: "m",
       session_id: "sess-1",
@@ -194,17 +194,17 @@ describe("changeset join payload", () => {
   });
 
   test("discard carries the session id too, and omits it when absent", () => {
-    h.store.discard(ENTRY, PROJECT, DASH, "sess-1");
+    h.store.discard(ENTRY, PROJECT, ARC, "sess-1");
     expect(h.sent[0]).toEqual({
       action: "changeset_discard",
-      body: { project_dir: PROJECT, dash: DASH, session_id: "sess-1" },
+      body: { project_dir: PROJECT, arc: ARC, session_id: "sess-1" },
     });
 
     const bare = harness();
-    bare.store.discard(ENTRY, PROJECT, DASH);
+    bare.store.discard(ENTRY, PROJECT, ARC);
     expect(bare.sent[0]).toEqual({
       action: "changeset_discard",
-      body: { project_dir: PROJECT, dash: DASH },
+      body: { project_dir: PROJECT, arc: ARC },
     });
   });
 });

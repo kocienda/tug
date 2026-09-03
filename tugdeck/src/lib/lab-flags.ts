@@ -11,7 +11,7 @@ export type LabFlags = {
   /**
    * Render session transcripts with `evictOffscreen` withheld — the full
    * inline DOM at full layer height. The tile-ledger cell's A/B arm
-   * (dash/scrolling-memory-diet.md §G2).
+   * (arc/scrolling-memory-diet.md §G2).
    */
   readonly transcriptEvictionDisabled: boolean;
 };

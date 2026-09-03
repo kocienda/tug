@@ -47,8 +47,8 @@ export interface TripwireRow {
   /** A run finished with something the user should see and is holding until
    *  they see it ([P07]) — the state the row's yellow dot reads. */
   readonly awaiting: boolean;
-  /** The dash that awaiting trip is holding, when it authored one. */
-  readonly awaiting_dash: string | null;
+  /** The arc that awaiting trip is holding, when it authored one. */
+  readonly awaiting_arc: string | null;
   readonly last_trip: TripwireLastTrip | null;
 }
 
@@ -70,7 +70,7 @@ export interface TripRow {
   readonly probe_exit: number | null;
   readonly probe_tail: string | null;
   readonly session_id: string | null;
-  readonly dash: string | null;
+  readonly arc: string | null;
   readonly headline: string | null;
   readonly refs: string | null;
   readonly settled_at_ms: number | null;

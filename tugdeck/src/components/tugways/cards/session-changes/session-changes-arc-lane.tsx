@@ -1,19 +1,19 @@
 /**
  * `SessionChangesArcLane` — the Changes shade's arc lane.
  *
- * A dash is not a claim. Rendered in session-file grammar a dash branch reads
+ * An arc is not a claim. Rendered in session-file grammar an arc branch reads
  * as one — so it gets its own species of row: one `ArcLifecycleBlock` at the
  * READING scale, the same block the Arcs card renders at the
- * rail, so the two surfaces speak one language. Line 1 is who — the dash atom
- * and one worker atom per bound session; line 2 is what the dash is doing —
+ * rail, so the two surfaces speak one language. Line 1 is who — the arc atom
+ * and one worker atom per bound session; line 2 is what the arc is doing —
  * track · fraction · note · divergence. The row keeps its per-row fold, and no
  * claim, disclaim, or hunk-election affordance appears anywhere inside it. The
  * lane's one diff affordance is the whole-range pop-out, because the server's
- * range diff takes no pathspec and the dash is the unit anyway.
+ * range diff takes no pathspec and the arc is the unit anyway.
  *
- * **Every dash in the project is a visible row.** The card's own dash renders
+ * **Every arc in the project is a visible row.** The card's own arc renders
  * first and expanded; the rest follow under a plain label, each collapsed to
- * its one-line sentence. They used to hide behind a `N dashes` count, which is
+ * its one-line sentence. They used to hide behind a `N arcs` count, which is
  * the same mistake the unattributed-files bucket avoids by showing its rows: a
  * count is a rumor, a row is a situation you can act on. Each costs one line,
  * so showing them all costs a handful — and the fold's own cue was the control
@@ -23,33 +23,33 @@
  * dismiss and forget, so nothing here is persisted.
  *
  * **Every row carries a join face**: the server's standing answer for that
- * dash, plus the acts that clear it. Every dash's join state rides its own feed
- * entry and the resolve store is keyed by dash, so a row's face is that row's
- * own facts throughout — none of it is borrowed from the fronted dash.
+ * arc, plus the acts that clear it. Every arc's join state rides its own feed
+ * entry and the resolve store is keyed by arc, so a row's face is that row's
+ * own facts throughout — none of it is borrowed from the fronted arc.
  *
  * It was the fronted row's alone, on the reasoning that joining is a gesture on
- * the card's own dash. But the register speaks on every row: a blocked dash
+ * the card's own arc. But the register speaks on every row: a blocked arc
  * anywhere in the lane prints `blockers[0].detail` and the word `blocked`, and
  * withholding the face left exactly those rows stating a refusal beside nothing
  * that explains or clears it. Resolve is not joining — it commits base-side
- * work so a join can be attempted at all, and the dash it acts on is the one
+ * work so a join can be attempted at all, and the arc it acts on is the one
  * named in the sentence, whatever this card happens to be bound to.
  *
  * Two things stay the fronted row's, because both really are the card's and not
- * the dash's: `aim`, which points the composer's join at a dash the reader
+ * the arc's: `aim`, which points the composer's join at an arc the reader
  * merely opened, and the join verb's own `error`, which is one round trip per
  * card and would otherwise print another row's refusal under this one.
  *
  * The two **binding** gestures go the other way. Every row carries one: Unbind
  * on the fronted row, Bind on all the rest, complements that never appear
- * together. This is the room where a dash's facts already live, so the act of
- * taking a dash on belongs beside the facts you would take it on for — and
+ * together. This is the room where an arc's facts already live, so the act of
+ * taking an arc on belongs beside the facts you would take it on for — and
  * "non-fronted rows stay read-only" was always a rule about *joining*, a
  * gesture on work a card never touched. Binding is how a card comes to touch
  * it.
  *
  * Binding and Discard both live behind the row's `⋯` ({@link useArcRowMenu})
- * rather than standing on it. They are rare — a card binds a dash once and
+ * rather than standing on it. They are rare — a card binds an arc once and
  * discards one almost never — and standing beside the pop-out and the fold cue
  * they read as peers of acts a reader performs constantly. Every row is
  * otherwise a thing to read.
@@ -90,7 +90,7 @@ import {
 } from "./session-changes-arc-join";
 import type { DiffDescriptor } from "@/lib/git-diff-store";
 import type {
-  DashChangesetEntry,
+  ArcChangesetEntry,
   DocumentArcEntry,
 } from "@/lib/changeset-types";
 import {
@@ -107,57 +107,57 @@ import type { JoinOutcome } from "@/lib/join-mode-controller";
 /**
  * A row that opens itself, before anybody touches it.
  *
- * Fronting is the usual reason, and a refusal is the other. A blocked dash
+ * Fronting is the usual reason, and a refusal is the other. A blocked arc
  * prints its first blocker's sentence and the word `blocked` in the register
  * whether the row is open or shut — but the report that says what would clear
  * it, and carries the control that does, is inside the fold. Left shut, the row
  * states a problem and hides the answer one line under it, which is the exact
  * shape of a control nobody can find. Still an override: closing it sticks.
  */
-export function arcRowOpensItself(entry: DashChangesetEntry): boolean {
+export function arcRowOpensItself(entry: ArcChangesetEntry): boolean {
   return (entry.join?.blockers ?? []).length > 0;
 }
 
-/** The lane's two groups: the card's own dash, then everything else. */
+/** The lane's two groups: the card's own arc, then everything else. */
 export interface ArcLaneOrder {
-  /** The dash this card's session is mated to, or null when unbound. */
-  fronted: DashChangesetEntry | null;
-  /** Every other dash in the project, in snapshot order. */
-  rest: DashChangesetEntry[];
+  /** The arc this card's session is mated to, or null when unbound. */
+  fronted: ArcChangesetEntry | null;
+  /** Every other arc in the project, in snapshot order. */
+  rest: ArcChangesetEntry[];
 }
 
 /**
- * Split the project's dashes into the fronted one and the rest.
+ * Split the project's arcs into the fronted one and the rest.
  *
  * The match is on the **owner key**, never the name: a stale binding to a dead
- * incarnation of a reused name must not front the wrong dash. An unmatched
+ * incarnation of a reused name must not front the wrong arc. An unmatched
  * binding is simply an unbound lane — which is also what the one-recompose
  * window after a bind that minted a new id should show.
  */
 export function orderArcLane(
-  dashes: readonly DashChangesetEntry[],
-  boundDashId: string | null,
+  arcs: readonly ArcChangesetEntry[],
+  boundArcId: string | null,
 ): ArcLaneOrder {
   const fronted =
-    boundDashId !== null
-      ? (dashes.find((entry) => entry.owner_id === boundDashId) ?? null)
+    boundArcId !== null
+      ? (arcs.find((entry) => entry.owner_id === boundArcId) ?? null)
       : null;
   return {
     fronted,
-    rest: dashes.filter((entry) => entry !== fronted),
+    rest: arcs.filter((entry) => entry !== fronted),
   };
 }
 
-/** The dash's git ref — `branch`, falling back to the older sender's spelling. */
-export function arcBranchRef(entry: DashChangesetEntry): string {
-  return entry.branch ?? `tugdash/${entry.display_name}`;
+/** The arc's git ref — `branch`, falling back to the older sender's spelling. */
+export function arcBranchRef(entry: ArcChangesetEntry): string {
+  return entry.branch ?? `tugarc/${entry.display_name}`;
 }
 
 
 /**
  * The half of a row's join face the card owns, read once by the view and handed
- * to every row. What a join would do comes off each dash's own feed entry, and
- * the resolution ladder's progress is read per row from a store keyed by dash.
+ * to every row. What a join would do comes off each arc's own feed entry, and
+ * the resolution ladder's progress is read per row from a store keyed by arc.
  */
 export interface ArcLaneJoinFace {
   /** The card's one join round trip ([L02], read by the view) — the face
@@ -174,29 +174,29 @@ export interface ArcLaneJoinFace {
  * own `fronted` flag — the two are complements, so they never appear together
  * and the cluster stays one affordance wide.
  *
- * Neither callback may move `cardSessionBindingStore`. The `bind_dash_ok` /
- * `unbind_dash_ok` broadcasts are the only movers, which is what leaves a card
+ * Neither callback may move `cardSessionBindingStore`. The `bind_arc_ok` /
+ * `unbind_arc_ok` broadcasts are the only movers, which is what leaves a card
  * correctly bound to what it was when a bind is refused.
  */
 /**
  * The lane's discard gesture, for every row the reach rule allows.
  *
  * Like {@link ArcLaneBinding}, this reaches past the fronted row: an unbound
- * dash nobody is holding is exactly the kind a shade should be able to clean
+ * arc nobody is holding is exactly the kind a shade should be able to clean
  * up, and the `empty` join outcome's own answer is discard rather than a fix.
  */
 export interface ArcLaneDiscard {
-  /** Whether this shade may discard this dash ({@link canDiscardFromHere}). */
-  canDiscard: (entry: DashChangesetEntry) => boolean;
+  /** Whether this shade may discard this arc ({@link canDiscardFromHere}). */
+  canDiscard: (entry: ArcChangesetEntry) => boolean;
   /** Send `changeset_discard`. Called by the confirm popover, never a button. */
-  discard: (entry: DashChangesetEntry) => void;
+  discard: (entry: ArcChangesetEntry) => void;
   /**
    * Why every Discard on this lane is unavailable right now, or null.
    *
-   * Folds two gates. A turn in flight is the owner's rule — a dash is only
+   * Folds two gates. A turn in flight is the owner's rule — an arc is only
    * discarded when no turn is running in the session bound to it, which is
    * always *this* card's turn, because the reach rule renders no control for a
-   * dash another live session holds. And a discard already in flight, because
+   * arc another live session holds. And a discard already in flight, because
    * `DiscardState` is one slot per card: arming a second row would let the two
    * render each other's phase.
    */
@@ -204,32 +204,32 @@ export interface ArcLaneDiscard {
 }
 
 export interface ArcLaneReplay {
-  /** Send `changeset_replay` for this row's dash. */
-  replay: (entry: DashChangesetEntry) => void;
+  /** Send `changeset_replay` for this row's arc. */
+  replay: (entry: ArcChangesetEntry) => void;
   /** Why every Replay on this lane is unavailable right now, or null. Folds
-   *  only the in-flight gate; the per-dash terms are
+   *  only the in-flight gate; the per-arc terms are
    *  {@link replayDisabledReason}'s, computed from the row's own facts. */
   disabledReason: string | null;
 }
 
 export interface ArcLaneBinding {
-  /** Send `bind_dash` for this row's dash. */
-  bind: (entry: DashChangesetEntry) => void;
-  /** Send `unbind_dash` for this card's session. */
-  unbind: (entry: DashChangesetEntry) => void;
+  /** Send `bind_arc` for this row's arc. */
+  bind: (entry: ArcChangesetEntry) => void;
+  /** Send `unbind_arc` for this card's session. */
+  unbind: (entry: ArcChangesetEntry) => void;
   /** Why both are unavailable right now, or null when they are available.
    *  Disabled with a reason rather than silently bouncing. */
   disabledReason: string | null;
 }
 
 /**
- * Whether this shade may discard this dash.
+ * Whether this shade may discard this arc.
  *
- * A shade may discard its own dash, and any dash no live session is holding. A
- * dash bound to *another* live session is that session's to discard, and this
+ * A shade may discard its own arc, and any arc no live session is holding. A
+ * arc bound to *another* live session is that session's to discard, and this
  * one renders no control for it at all.
  *
- * `bound_sessions` already means exactly "live sessions mated to this dash" —
+ * `bound_sessions` already means exactly "live sessions mated to this arc" —
  * the server computes it that way and a test pins that a closed session's row
  * is never reported — so this introduces no second definition of bound-ness.
  * An older sender that omits the field entirely reads as unbound, which is the
@@ -241,14 +241,14 @@ export interface ArcLaneBinding {
  * for something that is not coming.
  */
 export function canDiscardFromHere(
-  entry: DashChangesetEntry,
+  entry: ArcChangesetEntry,
   ownTugSessionId: string | undefined,
-  boundDashId: string | null,
+  boundArcId: string | null,
 ): boolean {
-  if (entry.owner_id === boundDashId) return true;
+  if (entry.owner_id === boundArcId) return true;
   const bound = entry.bound_sessions ?? [];
   if (bound.length === 0) return true;
-  // Not redundant with the first arm: a card can be mated to dash A while dash
+  // Not redundant with the first arm: a card can be mated to arc A while arc
   // B also lists this session. The predicate answers by fact, not by fronting.
   return ownTugSessionId !== undefined && bound.includes(ownTugSessionId);
 }
@@ -257,20 +257,20 @@ export function canDiscardFromHere(
  * The discard confirm's message: a fact sheet, never "are you sure".
  *
  * Every clause names something the reader cannot see by looking at the row.
- * The hand-back sentence is the one that must never be dropped — `dash discard`
+ * The hand-back sentence is the one that must never be dropped — `arc discard`
  * deliberately writes the worktree's uncommitted files back into the base
  * checkout rather than destroying them, and a person who has not been told that
  * has not agreed to it. The plan sentence is the same kind of fact:
  * `restore_plan_to_base` runs before teardown, unconditionally, so discarding a
- * dash never destroys the authored plan document.
+ * arc never destroys the authored plan document.
  *
  * The round subjects are deliberately absent: the row already lists them in
- * `session-changes-dash-subjects` when expanded, and `TugConfirmPopover`'s
+ * `session-changes-arc-subjects` when expanded, and `TugConfirmPopover`'s
  * message is one flat string that would size itself off the longest subject.
  *
  * Pure, so the sentence is testable without mounting the lane.
  */
-export function discardConfirmMessage(entry: DashChangesetEntry): string {
+export function discardConfirmMessage(entry: ArcChangesetEntry): string {
   const clauses = [
     `Discard ${entry.display_name}: deletes the branch and worktree.`,
   ];
@@ -306,12 +306,12 @@ function ArcRow({
   replay,
   onRequestDiscard,
 }: {
-  entry: DashChangesetEntry;
+  entry: ArcChangesetEntry;
   projectRoot: string;
   /** The key the join store is written under — never the root ([L29]). */
   workspaceKey: string;
   fronted: boolean;
-  /** This card is mated to this dash — which is what Unbind-vs-Bind reads,
+  /** This card is mated to this arc — which is what Unbind-vs-Bind reads,
    *  and is not the same question as which row is fronted. */
   bound: boolean;
   expanded: boolean;
@@ -328,25 +328,25 @@ function ArcRow({
    *  anchor, never the button: a button inside a hover-revealed cluster can
    *  unmount under its own popover, which is the shape `TugConfirmPopover`'s
    *  docblock warns about. */
-  onRequestDiscard: (entry: DashChangesetEntry, anchor: HTMLElement | null) => void;
+  onRequestDiscard: (entry: ArcChangesetEntry, anchor: HTMLElement | null) => void;
 }): React.ReactElement {
   const rowRef = useRef<HTMLDivElement | null>(null);
-  // The beats of a join in flight on THIS dash ([L02], [P03]). Subscribed per
-  // row so one dash landing does not re-render every other row in the lane.
+  // The beats of a join in flight on THIS arc ([L02], [P03]). Subscribed per
+  // row so one arc landing does not re-render every other row in the lane.
   // Keyed on the WORKSPACE KEY, never the project root. The beat frames echo
   // back the `project_dir` the request sent, and every send on this path sends
   // the workspace key — so a read under the root's spelling is a subscription
   // to a cell nothing ever writes ([L29]). That is not a hypothetical: it is
   // the exact shape of the bug at0441 was written for, one field over.
   const landBeat = useChangesetJoinLand(workspaceKey, entry.display_name);
-  // The resolution ladder's progress for THIS dash ([L02]), on the same terms
-  // and for the same reason as the beats above: the store is keyed by dash, so
-  // a row reading the fronted dash's key would paint another dash's ladder.
+  // The resolution ladder's progress for THIS arc ([L02]), on the same terms
+  // and for the same reason as the beats above: the store is keyed by arc, so
+  // a row reading the fronted arc's key would paint another arc's ladder.
   const resolve = useChangesetJoinResolve(workspaceKey, entry.display_name);
-  // Opening a row points the join mode at its dash and asks the server nothing:
+  // Opening a row points the join mode at its arc and asks the server nothing:
   // the answer is already on the entry. The effect fires on the closed → open
   // edge (and on mount, since the fronted row opens with the shade), so the
-  // composer's ⌃⌘C lands on the dash the reader is looking at.
+  // composer's ⌃⌘C lands on the arc the reader is looking at.
   // Fronted-only, and deliberately: aiming is what the composer's join acts
   // on, so opening a row the card is not landing must not retarget it.
   const aim = fronted ? (joinFace?.actions.aim ?? null) : null;
@@ -365,10 +365,10 @@ function ArcRow({
     base: entry.base,
     branch: arcBranchRef(entry),
   };
-  // A dash with nothing past its base and a clean worktree has no range to
+  // An arc with nothing past its base and a clean worktree has no range to
   // show; offering the pop-out would open an empty card.
   const hasRange = entry.rounds > 0 || entry.worktree_dirty;
-  // Absent, not disabled, when this shade has no business discarding this dash.
+  // Absent, not disabled, when this shade has no business discarding this arc.
   const canDiscard = discard !== null && discard.canDiscard(entry);
   const menuButtonRef = useRef<HTMLButtonElement | null>(null);
   const rowMenu = useArcRowMenu({
@@ -391,7 +391,7 @@ function ArcRow({
           perform: () => onRequestDiscard(entry, rowRef.current),
         },
     // Offered on every row on identical terms, bound or not: the automatic
-    // engine's gate never reads boundness either, so a bound diverged dash is
+    // engine's gate never reads boundness either, so a bound diverged arc is
     // exactly as stuck as an unbound one ({@link replayDisabledReason}).
     replay:
       replay === null
@@ -407,9 +407,9 @@ function ArcRow({
   return (
     <div
       ref={rowRef}
-      className="session-changes-dash-row"
-      data-slot="session-changes-dash-row"
-      data-dash={entry.display_name}
+      className="session-changes-arc-row"
+      data-slot="session-changes-arc-row"
+      data-arc={entry.display_name}
       data-fronted={fronted ? "true" : undefined}
       data-expanded={expanded ? "true" : undefined}
     >
@@ -417,14 +417,14 @@ function ArcRow({
         variant="flush"
         density="compact"
       >
-        {/* The dash's whole life in the one block the Arcs card's rows wear, here
+        {/* The arc's whole life in the one block the Arcs card's rows wear, here
             at the reading scale — the shade is the surface you came to read,
             and a line a step smaller than the register beneath it would read
-            as a footnote to its own block. Line 1 is who: the dash atom and
-            one worker atom per bound session, an unbound dash showing none.
-            Line 2 is what the dash is DOING.
+            as a footnote to its own block. Line 1 is who: the arc atom and
+            one worker atom per bound session, an unbound arc showing none.
+            Line 2 is what the arc is DOING.
 
-            The entry is passed rather than looked up: this row IS that dash,
+            The entry is passed rather than looked up: this row IS that arc,
             so making the block re-derive it from the changeset store would
             put a fact the row was built from behind a feed arriving. */}
         <ArcLifecycleBlock
@@ -436,7 +436,7 @@ function ArcRow({
           facts={arcMetaFacts(entry)}
           size="read"
           trailing={
-          <span className="session-changes-dash-row-trailing">
+          <span className="session-changes-arc-row-trailing">
             {/* The row's rare verbs, behind one opener. Bind/Unbind and
                 Discard are real and reachable and almost never pressed, and
                 standing on the row they read as peers of the acts a reader
@@ -449,7 +449,7 @@ function ArcRow({
                 subtype="icon"
                 emphasis="ghost"
                 aria-label={`Actions for arc ${entry.display_name}`}
-                data-slot="session-changes-dash-row-menu-open"
+                data-slot="session-changes-arc-row-menu-open"
                 icon={<EllipsisVertical size={14} />}
                 onClick={() => rowMenu.openMenu(menuButtonRef.current)}
               />
@@ -470,7 +470,7 @@ function ArcRow({
               size="2xs"
               subtype="icon"
               stabilizeScroll={false}
-              data-slot="session-changes-dash-fold"
+              data-slot="session-changes-arc-fold"
             />
           </span>
           }
@@ -480,25 +480,25 @@ function ArcRow({
           sentence the Arcs card row and the composer show, because all three call
           one derivation. It states and never asks: every act in the arc lives
           in Z5 or in the prompt. */}
-      <span className="session-changes-dash-register">
+      <span className="session-changes-arc-register">
         <ArcJoinRegister
-          dash={entry.display_name}
+          arc={entry.display_name}
           base={entry.base ?? "main"}
           stage={entry.stage}
           join={entry.join ?? null}
           // The join is an offer, and an offer waits for the work behind it:
-          // a dash whose session is still running its background tests is not
+          // an arc whose session is still running its background tests is not
           // finished, whatever its committed rounds say.
           holdersBusy={entry.holders_busy === true}
           resolvePhase={resolve.phase}
           landBeat={landBeat}
-          // The lane shows unfronted, unheld dashes too, and the pilot never
+          // The lane shows unfronted, unheld arcs too, and the pilot never
           // works one ([D147]) — so this is the difference between "the check
           // is a beat away" and a promise nothing will ever keep.
           bound={(entry.bound_sessions ?? []).length > 0}
           // The shade is where the offer is actually pressed, so a stage the
           // wheel still has seated is named here rather than read around.
-          arc={entry.arc ?? null}
+          run={entry.arc ?? null}
           altitude="entry"
         />
       </span>
@@ -509,19 +509,19 @@ function ArcRow({
           the same component the file buckets above render, so the fold is
           not a third dialect. A section renders nothing it cannot say. */}
       {expanded ? (
-        <div className="session-changes-dash-detail">
-          {/* The dash's own documents, first: what it was asked for and what
+        <div className="session-changes-arc-detail">
+          {/* The arc's own documents, first: what it was asked for and what
               it decided to do outrank what it has done so far. They were
               readable because they were files in the tree, and they still are
               files — the strip is the same act on the same bytes ([B08]). */}
           {entry.documents !== undefined ? (
             <div
-              className="session-changes-dash-documents-block"
-              data-slot="session-changes-dash-documents-block"
+              className="session-changes-arc-documents-block"
+              data-slot="session-changes-arc-documents-block"
             >
               <TugSectionLabel
                 label={{ name: "documents" }}
-                slot="session-changes-dash-documents-label"
+                slot="session-changes-arc-documents-label"
               />
               <SessionChangesArcDocuments
                 documents={entry.documents}
@@ -561,10 +561,10 @@ function ArcRow({
 // ---------------------------------------------------------------------------
 
 /**
- * The fronted row for a dash that has documents and no branch yet — the
+ * The fronted row for an arc that has documents and no branch yet — the
  * planning phase, on the card that is working it.
  *
- * It is deliberately not a {@link ArcRow}: a branchless dash has no worktree,
+ * It is deliberately not a {@link ArcRow}: a branchless arc has no worktree,
  * no base, no rounds and no files, so the diff, the join and the discard
  * affordances would every one of them be a control over nothing. What it does
  * have is an identity, an arc, and its documents, and those are what it shows.
@@ -582,9 +582,9 @@ function DocumentArcRow({
 
   return (
     <div
-      className="session-changes-dash-row"
-      data-slot="session-changes-dash-row"
-      data-dash={entry.display_name}
+      className="session-changes-arc-row"
+      data-slot="session-changes-arc-row"
+      data-arc={entry.display_name}
       data-fronted="true"
       data-branchless="true"
       data-expanded="true"
@@ -606,7 +606,7 @@ function DocumentArcRow({
               <TugPushButton
                 size="2xs"
                 emphasis="ghost"
-                data-slot="session-changes-dash-unbind"
+                data-slot="session-changes-arc-unbind"
                 aria-label={`Unbind the arc ${entry.display_name}`}
                 onClick={() => binding.unbind(asEntry)}
               >
@@ -616,14 +616,14 @@ function DocumentArcRow({
           }
         />
       </TugListRow>
-      <div className="session-changes-dash-detail">
+      <div className="session-changes-arc-detail">
         <div
-          className="session-changes-dash-documents-block"
-          data-slot="session-changes-dash-documents-block"
+          className="session-changes-arc-documents-block"
+          data-slot="session-changes-arc-documents-block"
         >
           <TugSectionLabel
             label={{ name: "documents" }}
-            slot="session-changes-dash-documents-label"
+            slot="session-changes-arc-documents-label"
           />
           <SessionChangesArcDocuments
             documents={entry.documents}
@@ -642,19 +642,19 @@ function DocumentArcRow({
 }
 
 export interface SessionChangesArcLaneProps {
-  /** The project's dash entries, in snapshot order. */
-  dashes: readonly DashChangesetEntry[];
-  /** The owner key of the dash this card's session is mated to, if any. It
+  /** The project's arc entries, in snapshot order. */
+  arcs: readonly ArcChangesetEntry[];
+  /** The owner key of the arc this card's session is mated to, if any. It
    *  decides which row offers **Unbind** rather than **Bind**. */
-  boundDashId: string | null;
+  boundArcId: string | null;
   /** The owner key of the row to front, when that is not the bound one — a
    *  join aimed by name (`/arc-join <name>`) fronts its target so the
-   *  join face has somewhere to mount. Defaults to `boundDashId`.
+   *  join face has somewhere to mount. Defaults to `boundArcId`.
    *
    *  The two are deliberately separate: fronting is about *what is being
    *  landed*, the binding is about *what this card is working*, and a join
-   *  aimed at a dash the card never bound must not offer to Unbind it. */
-  frontedDashId?: string | null;
+   *  aimed at an arc the card never bound must not offer to Unbind it. */
+  frontedArcId?: string | null;
   /** Absolute checkout root — the range descriptor's `root`. */
   projectRoot: string;
   /**
@@ -673,15 +673,15 @@ export interface SessionChangesArcLaneProps {
   /** Replay, on the same terms for every row; omitted leaves the lane
    *  read-only. */
   replay?: ArcLaneReplay;
-  /** The bound dash when it has documents and no branch yet — the planning
-   *  phase. Fronted in place of a dash row, since there is no branch to show. */
+  /** The bound arc when it has documents and no branch yet — the planning
+   *  phase. Fronted in place of an arc row, since there is no branch to show. */
   documentArc?: DocumentArcEntry | null;
 }
 
 export function SessionChangesArcLane({
-  dashes,
-  boundDashId,
-  frontedDashId,
+  arcs,
+  boundArcId,
+  frontedArcId,
   projectRoot,
   workspaceKey,
   joinFace,
@@ -690,9 +690,9 @@ export function SessionChangesArcLane({
   replay,
   documentArc,
 }: SessionChangesArcLaneProps): React.ReactElement | null {
-  // Per-dash expansion overrides. The default is "expanded exactly when this
-  // is the card's own dash", so a bind that arrives while the shade is open
-  // fronts and opens the new dash without the reader touching anything.
+  // Per-arc expansion overrides. The default is "expanded exactly when this
+  // is the card's own arc", so a bind that arrives while the shade is open
+  // fronts and opens the new arc without the reader touching anything.
   const [overrides, setOverrides] = useState<Readonly<Record<string, boolean>>>({});
   // Which row's discard is armed, and the element the confirm hangs off.
   // View-scope state ([L24]): a half-armed confirm is not something to
@@ -702,38 +702,38 @@ export function SessionChangesArcLane({
   // shape — which is what makes widening Discard past the fronted row cost no
   // per-row state.
   const [pendingDiscard, setPendingDiscard] = useState<{
-    entry: DashChangesetEntry;
+    entry: ArcChangesetEntry;
     anchor: HTMLElement | null;
   } | null>(null);
   const requestDiscard = (
-    entry: DashChangesetEntry,
+    entry: ArcChangesetEntry,
     anchor: HTMLElement | null,
   ): void => {
     setPendingDiscard({ entry, anchor });
   };
 
-  // A branchless bound dash is a lane with something to say and no dash
+  // A branchless bound arc is a lane with something to say and no arc
   // entries at all — the planning phase, before any branch is cut.
-  if (dashes.length === 0 && documentArc == null) return null;
+  if (arcs.length === 0 && documentArc == null) return null;
 
   const { fronted, rest } = orderArcLane(
-    dashes,
-    frontedDashId ?? boundDashId,
+    arcs,
+    frontedArcId ?? boundArcId,
   );
-  const isExpanded = (entry: DashChangesetEntry): boolean =>
+  const isExpanded = (entry: ArcChangesetEntry): boolean =>
     overrides[entry.owner_id] ?? (entry === fronted || arcRowOpensItself(entry));
-  const toggle = (entry: DashChangesetEntry, next: boolean): void => {
+  const toggle = (entry: ArcChangesetEntry, next: boolean): void => {
     setOverrides((prev) => ({ ...prev, [entry.owner_id]: next }));
   };
   const restLabel = arcRestLabel(rest.length, fronted !== null);
 
   return (
-    <div className="session-changes-dash-lane" data-slot="session-changes-dash-lane">
+    <div className="session-changes-arc-lane" data-slot="session-changes-arc-lane">
       {fronted === null && documentArc != null ? (
         <>
           <TugSectionLabel
             label={arcFrontedLabel(true)}
-            slot="session-changes-dash-lane-fronted-label"
+            slot="session-changes-arc-lane-fronted-label"
           />
           <DocumentArcRow
             key={documentArc.owner_id}
@@ -745,19 +745,19 @@ export function SessionChangesArcLane({
       {fronted !== null ? (
         <>
           <TugSectionLabel
-            label={arcFrontedLabel(fronted.owner_id === boundDashId)}
-            slot="session-changes-dash-lane-fronted-label"
+            label={arcFrontedLabel(fronted.owner_id === boundArcId)}
+            slot="session-changes-arc-lane-fronted-label"
           />
           <ArcRow
             // Keyed so a rebind swaps the row rather than reusing it: the
             // join face's preview fires on mount, and a reused instance
-            // would show the new dash under the old dash's verdict.
+            // would show the new arc under the old arc's verdict.
             key={fronted.owner_id}
             entry={fronted}
             projectRoot={projectRoot}
             workspaceKey={workspaceKey}
             fronted
-            bound={fronted.owner_id === boundDashId}
+            bound={fronted.owner_id === boundArcId}
             expanded={isExpanded(fronted)}
             onToggle={(next) => toggle(fronted, next)}
             joinFace={joinFace ?? null}
@@ -772,7 +772,7 @@ export function SessionChangesArcLane({
         <>
           <TugSectionLabel
             label={restLabel}
-            slot="session-changes-dash-lane-rest-label"
+            slot="session-changes-arc-lane-rest-label"
           />
           {rest.map((entry) => (
             <ArcRow
@@ -781,7 +781,7 @@ export function SessionChangesArcLane({
               projectRoot={projectRoot}
               workspaceKey={workspaceKey}
               fronted={false}
-              bound={entry.owner_id === boundDashId}
+              bound={entry.owner_id === boundArcId}
               expanded={isExpanded(entry)}
               onToggle={(next) => toggle(entry, next)}
               joinFace={joinFace ?? null}
@@ -795,7 +795,7 @@ export function SessionChangesArcLane({
       ) : null}
       {/* One controlled confirm for the whole lane, anchored to whichever row
           armed it. `confirmRole="danger"` puts default focus on Cancel, so a
-          reflexive Return can never destroy a dash. */}
+          reflexive Return can never destroy an arc. */}
       <TugConfirmPopover
         open={pendingDiscard !== null}
         anchorEl={pendingDiscard?.anchor ?? null}

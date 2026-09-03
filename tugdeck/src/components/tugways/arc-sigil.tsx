@@ -4,23 +4,23 @@
  * The standing rule is that a bound arc shows with its sigil everywhere an arc
  * is named, with no opt-out. Two hand-rolled spellings of `^` + name is exactly
  * how a rule like that drifts, so there is one, and both surfaces compose it:
- * `SessionDashMarker` in the session identity run, and the Arcs section's
+ * `SessionArcMarker` in the session identity run, and the Arcs section's
  * eyebrow.
  *
- * The eyebrow cannot simply reuse `SessionDashMarker`: that component is
- * keyed by `sessionId` and resolves its dash *through* a session, which an unbound
- * dash by definition does not have. What the two genuinely share is this
+ * The eyebrow cannot simply reuse `SessionArcMarker`: that component is
+ * keyed by `sessionId` and resolves its arc *through* a session, which an unbound
+ * arc by definition does not have. What the two genuinely share is this
  * markup — the run element, its sigil, and its name — which would otherwise be
  * a second thing kept in step by hand.
  *
- * A dash's name is just a name here. The run carried a review tint once, and
+ * An arc's name is just a name here. The run carried a review tint once, and
  * it read as inexplicable for the reason it was: a session's identity line
  * says what the session IS, a plan's review hygiene is not that, and nothing
  * beside the tint said what the color meant. The Changes shade's plan-document
  * row keeps its own tint, on a surface that spells the review state out in
  * words next to the mark — a reader who can decode it.
  *
- * Class names stay `tug-session-identity-dash*`: the styling did not move, only
+ * Class names stay `tug-session-identity-arc*`: the styling did not move, only
  * the markup that carries it. `data-slot` is the caller's, so a test can tell
  * an identity run from an Unbound row.
  *
@@ -40,7 +40,7 @@ import {
 } from "@/lib/atom-register";
 
 export interface ArcSigilProps {
-  /** The dash's short name, without the `^`. */
+  /** The arc's short name, without the `^`. */
   name: string;
   /**
    * The name run's content, when the surface paints those characters itself
@@ -61,7 +61,7 @@ export interface ArcSigilProps {
    * The pill is not authored here and has no values of its own: the wrapper
    * wears `tug-session-identity` + `data-tier="chip"`, so the enclosure is the
    * settled session-atom skin in `tug-session-identity.css`, the same rules a
-   * session citation gets, reached by the same selectors. A dash atom and a
+   * session citation gets, reached by the same selectors. An arc atom and a
    * session atom are siblings by construction rather than by two sets of
    * numbers kept equal by hand.
    *
@@ -84,15 +84,15 @@ export function ArcSigil({
 }: ArcSigilProps): React.ReactElement {
   const run = (
     <span
-      className="tug-session-identity-dash"
+      className="tug-session-identity-arc"
       data-slot={slot}
       title={title}
       aria-label={ariaLabel}
     >
-      <span className="tug-session-identity-dash-sigil" aria-hidden="true">
+      <span className="tug-session-identity-arc-sigil" aria-hidden="true">
         ^
       </span>
-      <span className="tug-session-identity-dash-name">{nameContent ?? name}</span>
+      <span className="tug-session-identity-arc-name">{nameContent ?? name}</span>
     </span>
   );
   if (!atom) return run;

@@ -2,7 +2,7 @@
 //!
 //! One command tree over three surfaces: the top-level git verbs
 //! (`changes`/`preflight`/`commit`/`log`/`diff`/`draft`, backed by
-//! `tugchanges_core`), the `dash` namespace (worktree work units, backed by
+//! `tugchanges_core`), the `arc` namespace (worktree work units, backed by
 //! `tugarc_core`), and the `host` namespace (instance/gate/state-dir/tell/init
 //! plumbing).
 
@@ -105,7 +105,7 @@ const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), " (", env!("TUG_COMMIT"
 #[derive(Parser)]
 #[command(name = "tugtool")]
 #[command(version = VERSION)]
-#[command(about = "tugtool — changes & commits, dashes, and host plumbing")]
+#[command(about = "tugtool — changes & commits, arcs, and host plumbing")]
 #[command(
     long_about = "tugtool — the unified Tug developer CLI.\n\nTop-level verbs own this session's git surface: changes (which files this\nsession changed), preflight (the one-shot readout a landing starts from),\ncommit (stage → commit → structured receipt), draft (the maintained landing\ndraft), log, and diff. `tugtool arc …` drives worktree-isolated work units;\n`tugtool host …` is instance/project plumbing (instance, gate, state-dir,\ntell, init)."
 )]
@@ -305,7 +305,7 @@ pub enum SessionCommands {
     ///
     /// With `--model` omitted, a `--stage` of `devise`, `review`, or
     /// `implement` resolves the model the project declared for that stage in
-    /// `[tugtool.dash]`; any other label means the account default. A rotation
+    /// `[tugtool.arc]`; any other label means the account default. A rotation
     /// onto a named model hands the card back to your own model one turn later.
     Rotate {
         /// What the fresh session opens on. Required unless `--cancel`.
@@ -345,7 +345,7 @@ pub enum ApptestCommands {
     /// whether it works.
     History {
         /// The root the run executed in (default: cwd). Resolved to its base
-        /// checkout, so a dash worktree and its checkout share one history.
+        /// checkout, so an arc worktree and its checkout share one history.
         #[arg(long)]
         root: Option<PathBuf>,
         /// Emit JSON. The only rendering today; named so the recipe's call
@@ -422,8 +422,8 @@ pub enum DraftCommands {
     /// override, never a requirement.
     Set {
         /// Owner: `session` (the calling session, resolved to its
-        /// live segment), `session:<id>`, `dash:<name>`, or `unattributed`.
-        /// Default: the dash whose worktree holds the project, else the
+        /// live segment), `session:<id>`, `arc:<name>`, or `unattributed`.
+        /// Default: the arc whose worktree holds the project, else the
         /// calling session.
         #[arg(long)]
         owner: Option<String>,
@@ -450,8 +450,8 @@ pub enum DraftCommands {
     /// Print the maintained draft for an owner.
     Show {
         /// Owner: `session` (the calling session, resolved to its
-        /// live segment), `session:<id>`, `dash:<name>`, or `unattributed`.
-        /// Default: the dash whose worktree holds the project, else the
+        /// live segment), `session:<id>`, `arc:<name>`, or `unattributed`.
+        /// Default: the arc whose worktree holds the project, else the
         /// calling session.
         #[arg(long)]
         owner: Option<String>,
@@ -462,8 +462,8 @@ pub enum DraftCommands {
     /// Delete the maintained draft for an owner.
     Clear {
         /// Owner: `session` (the calling session, resolved to its
-        /// live segment), `session:<id>`, `dash:<name>`, or `unattributed`.
-        /// Default: the dash whose worktree holds the project, else the
+        /// live segment), `session:<id>`, `arc:<name>`, or `unattributed`.
+        /// Default: the arc whose worktree holds the project, else the
         /// calling session.
         #[arg(long)]
         owner: Option<String>,
@@ -590,12 +590,12 @@ pub enum TripwireCommands {
         /// The one line the Tripwires row shows for an awaiting trip.
         #[arg(long)]
         headline: Option<String>,
-        /// Ask for a change to be authored on a dash, saying in one line what
+        /// Ask for a change to be authored on an arc, saying in one line what
         /// it would be. The engine spawns the authoring session.
         #[arg(long)]
         author: Option<String>,
     },
-    /// Settle an awaiting tripwire by hand, discarding the dash it held.
+    /// Settle an awaiting tripwire by hand, discarding the arc it held.
     Dismiss {
         /// Tripwire name.
         name: String,
@@ -625,7 +625,7 @@ pub enum ArcCommands {
         #[arg(long)]
         base: Option<String>,
     },
-    /// Commit the arc's worktree (if dirty) and append a dash-log line.
+    /// Commit the arc's worktree (if dirty) and append an arc log line.
     ///
     /// Reads round metadata (instruction/summary) from stdin as JSON.
     Commit {
@@ -746,7 +746,7 @@ pub enum ArcCommands {
         #[arg(long)]
         list: bool,
     },
-    /// Report the project's `[tugtool.dash]` declarations.
+    /// Report the project's `[tugtool.arc]` declarations.
     ///
     /// One reader for the seam a project uses to say how its own tree is
     /// hydrated, checked, and built: `post_create`, `verify`, `build`. Takes no
@@ -770,7 +770,7 @@ pub enum ArcCommands {
     /// Compare the four records an arc keeps and name every disagreement.
     ///
     /// An arc records itself four ways — the plan's Step Status Ledger, the
-    /// dash-log's declarations, the sqlite session binding, and the arc
+    /// arc log's declarations, the sqlite session binding, and the arc
     /// record — and no two are written by the same act. The split that
     /// matters: **status and join-arming derive from the log, while the arc's
     /// resume pointer and the changeset feed's closed count derive from the
@@ -780,7 +780,7 @@ pub enum ArcCommands {
     ///
     /// Detection is free and always safe — its read-only core also runs
     /// inside `arc status`. Repair is opt-in, and is always an *append* to
-    /// the dash-log, never a rewrite: the log is append-only, and the table
+    /// the arc log, never a rewrite: the log is append-only, and the table
     /// is the authored document, so a reconcilable disagreement is fixed by
     /// catching the log up to the table. Disagreements that need a judgment
     /// are named and left.
@@ -789,11 +789,11 @@ pub enum ArcCommands {
     Doctor {
         /// Arc name.
         name: String,
-        /// Append the reconciling dash-log lines the findings offer.
+        /// Append the reconciling arc log lines the findings offer.
         #[arg(long)]
         repair: bool,
     },
-    /// Drive a plan's Step Status Ledger and the dash-log in one gesture.
+    /// Drive a plan's Step Status Ledger and the arc log in one gesture.
     ///
     /// The ledger row and the log line move together, which is what lets
     /// `arc status` and the Changes card report `implementing (i/N)` without
@@ -807,7 +807,7 @@ pub enum ArcCommands {
     },
     /// Declare a lifecycle stage git cannot see.
     ///
-    /// One dash-log line and nothing else: `built` after a debug instance is
+    /// One arc log line and nothing else: `built` after a debug instance is
     /// up, `audited` after an audit finds the work in good shape.
     Mark {
         /// Arc name.
@@ -832,14 +832,13 @@ pub enum ArcCommands {
     Run {
         /// Arc name — its key, valid before any branch exists.
         name: String,
-        /// Which kind of arc this is — `dash` (implement → audit, the task
-        /// list as implement's first act) or `trek` (devise → review →
-        /// implement → audit).
+        /// Record this as a planned arc: devise → review → implement → audit.
         ///
-        /// Defaults to `trek`. Recorded when the arc opens and ignored on a
+        /// Absent, the arc is plain: implement → audit, the task list as
+        /// implement's first act. Recorded when the arc opens; ignored on a
         /// resume.
-        #[arg(long, value_parser = ["dash", "trek"], default_value = "trek")]
-        kind: String,
+        #[arg(long)]
+        plan: bool,
         /// Project directory (default: cwd). Travels as your own spelling —
         /// the server canonicalizes it ([L29]).
         #[arg(long)]
@@ -856,7 +855,7 @@ pub enum ArcCommands {
     /// exits 0 and says every one is absent. `--ensure` creates the directory
     /// (and keeps `.tug/` out of git), so a skill can write into it after one
     /// call. The three addresses are the brief, the devised plan, and the
-    /// `/dash` door's task list.
+    /// `/arc` door's task list.
     Documents {
         /// Arc name.
         name: String,
@@ -1017,14 +1016,14 @@ pub enum StepAction {
     Reset {
         /// Step number, matching the ledger's `#step-<n>` anchor.
         step: u32,
-        /// Why the step is being parked. Recorded in the dash-log line.
+        /// Why the step is being parked. Recorded in the arc log line.
         #[arg(long)]
         why: Option<String>,
     },
     /// Reopen a finished step: `done` back to `in progress`, commit kept.
     ///
-    /// For work an audit rejected. The dash-log line un-arms the join until
-    /// the step closes again, so a dash with rejected work in it cannot be
+    /// For work an audit rejected. The arc log line un-arms the join until
+    /// the step closes again, so an arc with rejected work in it cannot be
     /// offered for landing while the re-walk is outstanding.
     Reopen {
         /// Step number, matching the ledger's `#step-<n>` anchor.
@@ -1044,7 +1043,7 @@ pub enum HostCommands {
     /// Creates .tugtool/ directory with skeleton template and config.
     /// Idempotent: safe to run multiple times (creates only missing files).
     #[command(
-        long_about = "Initialize a tugtool project in current directory.\n\nCreates:\n  .tugtool/config.toml  Project configuration (dash hydration hook)\n\nIdempotent: if .tugtool/ already exists, creates only missing files without overwriting.\nWith --force, removes and recreates everything.\nWith --check, performs a lightweight verification of initialization status without side effects."
+        long_about = "Initialize a tugtool project in current directory.\n\nCreates:\n  .tugtool/config.toml  Project configuration (arc hydration hook)\n\nIdempotent: if .tugtool/ already exists, creates only missing files without overwriting.\nWith --force, removes and recreates everything.\nWith --check, performs a lightweight verification of initialization status without side effects."
     )]
     Init {
         /// Overwrite existing .tug directory
@@ -1171,7 +1170,7 @@ pub enum HostCommands {
     ///
     /// Resolves the out-of-repo directory for per-user runtime state.
     #[command(
-        long_about = "Print the per-project runtime-state directory.\n\nResolves <data_dir>/Tug/projects/<slug>/ for the current repository — the\nout-of-repo home for per-user runtime state (the dash-log, the code-sign\nsentinel, future side-command output). Creates the directory if absent, so\nshell consumers (the Justfile, the host) can write into it without re-deriving\nthe path."
+        long_about = "Print the per-project runtime-state directory.\n\nResolves <data_dir>/Tug/projects/<slug>/ for the current repository — the\nout-of-repo home for per-user runtime state (the arc log, the code-sign\nsentinel, future side-command output). Creates the directory if absent, so\nshell consumers (the Justfile, the host) can write into it without re-deriving\nthe path."
     )]
     StateDir,
 

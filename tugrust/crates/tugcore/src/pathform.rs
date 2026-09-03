@@ -5,7 +5,7 @@
 //! nothing keys a row, compares two spellings, or looks a project up by a raw
 //! path or a bare [`std::fs::canonicalize`]. The gateway lives here, below
 //! `tugcast`, so the crates that must agree on a spelling — the server that
-//! writes a row and the dash library that reads it back — can reach the same
+//! writes a row and the arc library that reads it back — can reach the same
 //! function rather than each rolling its own normalization.
 //!
 //! `tugcast::path_resolver` re-exports these names, so its `PathResolver`
@@ -24,7 +24,7 @@ use std::sync::OnceLock;
 /// `realpathSync`, and Claude Code's `~/.claude/projects/<encoded-cwd>`
 /// directory naming all agree on. Every consumer that must line up with
 /// Claude's on-disk layout — the external-session scanner, the trash mover,
-/// the JSONL `cwd` record filter, `claude_project_dir`, the dash draft
+/// the JSONL `cwd` record filter, `claude_project_dir`, the arc draft
 /// lookup — MUST route through here. It is the standalone twin of
 /// `tugcast::path_resolver::PathResolver`'s `primary` selection (they share
 /// [`resolve_synthetic`] / [`resolve_apfs_firmlink`]), exposed for callers

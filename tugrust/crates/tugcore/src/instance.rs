@@ -13,7 +13,7 @@
 //! does not parse the ID; downstream readers treat it as an opaque
 //! filesystem-safe token.
 //!
-//! [D12]: dash/tug-multi-instance.md#d12-instance-env-var
+//! [D12] of the multi-instance design record names this variable.
 
 use std::env;
 use std::path::PathBuf;
@@ -318,7 +318,7 @@ pub fn tripwires_db_path() -> PathBuf {
 /// two checkouts of one commit and each sweep the other's.
 ///
 /// The layout is load-bearing rather than tidy: naming a tree by its sha is
-/// what makes the orphan sweep a directory listing (Risk R04). Unlike a dash,
+/// what makes the orphan sweep a directory listing (Risk R04). Unlike an arc,
 /// nothing lists a detached worktree, so a crash would otherwise leave trees
 /// accumulating invisibly.
 pub fn tripwire_trees_dir() -> PathBuf {

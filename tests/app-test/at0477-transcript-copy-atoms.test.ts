@@ -5,7 +5,7 @@
  * A submitted prompt is a substrate: text with a `U+FFFC` at each atom position
  * and a parallel array naming what stands there. The row's COPY used to write
  * only the flattened string, which lost the prompt twice over — the slash off a
- * command atom (the chip draws `/tugplug:dash`, the stored value is the bare
+ * command atom (the chip draws `/tugplug:arc`, the stored value is the bare
  * name), and every chip's identity, so a paste back into Tug arrived as prose.
  * Copying a prompt and pasting it back could not resubmit it.
  *
@@ -67,7 +67,7 @@ const PROJECT_DIR = "/Users/tester/src/tugtool";
 const FFFC = "￼";
 
 /** The command atom stores the BARE name; the slash belongs to the chip. */
-const COMMAND = "tugplug:dash";
+const COMMAND = "tugplug:arc";
 const BRIEF = ".tug/arcs/verify-surfaces/brief.md";
 /** The prompt as submitted: two chips with a word between them. */
 const PROMPT_TEXT = `${FFFC} on ${FFFC}`;

@@ -43,7 +43,7 @@
  *     so an accept can never strand a tail fragment after the atom.
  *     The token's trailing punctuation run is trimmed off the query
  *     ({@link trimTrailingPunctuation}) and left in the document, so a
- *     mention written mid-sentence (`@dash/plan.md; Phase F`) both
+ *     mention written mid-sentence (`@arc/plan.md; Phase F`) both
  *     matches and keeps its punctuation. Openers on the other side
  *     (`(@plan.md)`) don't break the trigger's claim to the token — see
  *     {@link beginsTokenAt}.
@@ -455,7 +455,7 @@ const LEADING_TOKEN_PUNCTUATION = "([{<'\"`";
  * Strip the token's trailing punctuation run from a typeahead query.
  *
  * `@` tokens end at whitespace, so a mention written mid-sentence carries
- * the punctuation that follows it into the query — `@dash/plan.md;`
+ * the punctuation that follows it into the query — `@arc/plan.md;`
  * queries for a path no file has. Trimming the tail leaves the query the
  * user meant, and {@link acceptCompletionAt} replaces only up to the trim
  * point, so the punctuation survives as the prose it was.
@@ -532,7 +532,7 @@ export function beginsTokenAt(
  * tail is path structure the user edits from the inside. It is wrong for
  * exactly one shape, and that shape is ordinary: a `/command` typed at offset
  * 0 in front of a message already written, with no space between them yet —
- * `/dash|Yes, (C) is the way…`. The glued token `dashYes` matches no command,
+ * `/arc|Yes, (C) is the way…`. The glued token `arcYes` matches no command,
  * so the popup the user is typing INTO goes dark and the command can never be
  * accepted without first walking to the end of the run.
  *
@@ -1275,7 +1275,7 @@ const COMMAND_NAME_CHAR = /^[A-Za-z0-9:_-]$/;
  * `/command` typed at the end of a line. A slash session additionally ends on
  * any printable character that cannot continue a command name (a comma, a
  * period, a closing paren, a quote), because a command written into a message
- * already being edited has no space to end it: `/dash|Yes, (C) is…` reaches
+ * already being edited has no space to end it: `/arc|Yes, (C) is…` reaches
  * the end of the user's typing at a `,`, not at a gap. `@` keeps the narrow
  * space-only rule: its queries are paths, full of the very punctuation a
  * command name excludes.

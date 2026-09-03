@@ -1,6 +1,6 @@
 //! Whose arc is this to judge?
 //!
-//! The dash-log is shared across every instance over one checkout, so a second
+//! The arc log is shared across every instance over one checkout, so a second
 //! `Tug.app` reads a first one's arcs. It cannot get a session snapshot for a
 //! seat that lives in the other tugcast's process, and before this module that
 //! blindness had exactly one reading: *gone silent*. On 2026-09-02 a debug

@@ -1,7 +1,7 @@
 /**
- * dash-replay-outcome-store.ts — the last replay outcome, per session.
+ * arc-replay-outcome-store.ts — the last replay outcome, per session.
  *
- * Three of a replay's five outcomes leave the dash row's facts exactly as they
+ * Three of a replay's five outcomes leave the arc row's facts exactly as they
  * were: `current` had nothing to do, `deferred` failed a precondition, and
  * `conflicted` stopped at a round without touching anything. Only `replayed`
  * and `recorded` move something a row can show. So a press whose outcome is one
@@ -27,7 +27,7 @@ export type ArcReplayOutcomeWord =
 
 /** One replay's answer, as the notice needs to read it. */
 export interface ArcReplayOutcome {
-  readonly dash: string;
+  readonly arc: string;
   readonly outcome: ArcReplayOutcomeWord;
   /** `deferred`'s detail, or the `_err` frame's message. Null otherwise. */
   readonly detail: string | null;

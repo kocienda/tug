@@ -5,7 +5,7 @@
  * A factory-fresh deck holds its rail back until the user opens something:
  * the setup wizard over a bare canvas is no place to stage a rail of empty
  * cards, so the first content card is the cue. What stands up at that cue used
- * to be the Cards card alone. It is the whole rail now — Cards, Dashes,
+ * to be the Cards card alone. It is the whole rail now — Cards, Arcs,
  * Layout, Tripwires — and this pins the three facts that makes true, none of
  * which any unit test can reach, because each is about the deck actually
  * standing the cards up:

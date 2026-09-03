@@ -33,7 +33,7 @@ use serde::{Deserialize, Serialize};
 use crate::tripwire_predicate::Predicate;
 
 /// Current on-disk schema version, stamped into `PRAGMA user_version`.
-pub const TRIPWIRE_SCHEMA_VERSION: i64 = 4;
+pub const TRIPWIRE_SCHEMA_VERSION: i64 = 5;
 
 /// Registered migrations, each keyed by the on-disk version it upgrades
 /// *from*. Every migration whose `from` is at or above the version found on
@@ -43,6 +43,7 @@ const TRIPWIRE_MIGRATIONS: &[(i64, &str)] = &[
     (1, MIGRATE_V1_TO_V2),
     (2, MIGRATE_V2_TO_V3),
     (3, MIGRATE_V3_TO_V4),
+    (4, MIGRATE_V4_TO_V5),
 ];
 
 /// v1 → v2: a wire names the base branch it watches, the retired knobs go, and
@@ -91,8 +92,20 @@ const MIGRATE_V3_TO_V4: &str = "
     ALTER TABLE trips DROP COLUMN outcome;
 ";
 
+/// v4 → v5: the work unit is an arc, so the value a swallow records is too.
+///
+/// Only the stored *value* is here. The column rename that goes with it lives
+/// in [`migrate_trips_arc_column`] rather than in this string, because
+/// `ALTER TABLE … RENAME COLUMN` is not idempotent the way these statements
+/// are, and because a pre-versioning ledger never reaches this list at all —
+/// the probe covers both, and this `UPDATE` matching zero rows costs nothing
+/// when it does.
+const MIGRATE_V4_TO_V5: &str = "
+    UPDATE trips SET swallow_reason = 'own-arc' WHERE swallow_reason = 'own-dash';
+";
+
 /// Default ceiling on `running` trips machine-wide, when the `settings` table
-/// names none. A commit storm must not fan out one dash worktree per commit.
+/// names none. A commit storm must not fan out one arc worktree per commit.
 pub const DEFAULT_MAX_CONCURRENT_TRIPS: i64 = 2;
 
 /// The `settings` key holding the machine-wide concurrency ceiling.
@@ -131,7 +144,7 @@ const CREATE_TRIPWIRES_SQL: &str = "
         probe_exit     INTEGER,
         probe_tail     TEXT,
         session_id     TEXT,
-        dash           TEXT,
+        arc            TEXT,
         headline       TEXT,
         refs           TEXT,
         settled_at_ms  INTEGER,
@@ -219,8 +232,8 @@ pub fn check_brief(name: &str, brief: &str) -> Result<(), TripwireLedgerError> {
 /// reason the engine writes have to be the same word.
 pub const SWALLOW_BUSY: &str = "busy";
 
-/// The landing is a join of a dash this very wire created ([P06]).
-pub const SWALLOW_OWN_DASH: &str = "own-dash";
+/// The landing is a join of an arc this very wire created ([P06]).
+pub const SWALLOW_OWN_ARC: &str = "own-arc";
 
 /// The landing's lineage carried nothing the wire is watching for. A row
 /// rather than a silence, so a wire that has looked at fifty landings and
@@ -235,7 +248,7 @@ pub enum TripStatus {
     /// This instance won the insert and owns the firing.
     Claimed,
     /// Refused before any work: a wire already busy, a landing of the wire's
-    /// own dash, a paused tripwire.
+    /// own arc, a paused tripwire.
     Swallowed,
     /// Serviceable, but the machine is at its ceiling or the tripwire is busy.
     Queued,
@@ -298,7 +311,7 @@ pub struct Tripwire {
     pub model: Option<String>,
     /// The base branch a landing has to be onto for this wire to be evaluated
     /// ([P02]). Required, because a wire that watches every branch watches its
-    /// own dash branches too.
+    /// own arc branches too.
     pub branch: String,
     pub permission_mode: String,
     pub paused: bool,
@@ -380,7 +393,7 @@ pub struct Trip {
     pub probe_exit: Option<i64>,
     pub probe_tail: Option<String>,
     pub session_id: Option<String>,
-    pub dash: Option<String>,
+    pub arc: Option<String>,
     pub headline: Option<String>,
     pub refs: Option<String>,
     pub settled_at_ms: Option<i64>,
@@ -437,8 +450,41 @@ fn prepare(conn: &Connection) -> Result<(), TripwireLedgerError> {
         }
         backfill_branches(conn)?;
     }
+    migrate_trips_arc_column(conn)?;
     conn.execute_batch(CREATE_TRIPWIRES_SQL)?;
     conn.pragma_update(None, "user_version", TRIPWIRE_SCHEMA_VERSION)?;
+    Ok(())
+}
+
+/// Rename the retired `trips` column to `trips.arc` when that is what is on
+/// disk ([P03]).
+///
+/// A probe rather than a line in [`MIGRATE_V4_TO_V5`] for two reasons.
+/// `ALTER TABLE … RENAME COLUMN` is not idempotent, and a crash between a
+/// migration's statements and the version stamp re-runs the whole batch on the
+/// next open. And `trips` is created by `CREATE TABLE IF NOT EXISTS`, so a
+/// pre-versioning ledger — stamped 0, table already on disk — never enters the
+/// registered-migration loop at all and would otherwise keep the retired
+/// column forever while every query named the new one.
+///
+/// Runs before the DDL, so the create below finds the table in its current
+/// shape and leaves it alone.
+fn migrate_trips_arc_column(conn: &Connection) -> Result<(), TripwireLedgerError> {
+    let mut stmt = conn.prepare("PRAGMA table_info(trips)")?;
+    let columns: Vec<String> = stmt
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<Result<Vec<_>, _>>()?;
+    drop(stmt);
+    if columns.iter().any(|c| c == "arc") || !columns.iter().any(|c| c == "dash") {
+        return Ok(());
+    }
+    conn.execute_batch("ALTER TABLE trips RENAME COLUMN dash TO arc;")?;
+    // The value rewrite rides along for the pre-versioning case, which the
+    // registered migration never reaches. Idempotent, so the versioned path
+    // running it twice costs nothing.
+    conn.execute_batch(
+        "UPDATE trips SET swallow_reason = 'own-arc' WHERE swallow_reason = 'own-dash';",
+    )?;
     Ok(())
 }
 
@@ -666,7 +712,7 @@ pub fn remove(conn: &Connection, name: &str) -> Result<(), TripwireLedgerError> 
 // MARK: - Trips
 
 const TRIP_COLUMNS: &str = "id, wire_id, event_key, at_ms, instance, status, swallow_reason, \
-                            event_payload, probe_exit, probe_tail, session_id, dash, headline, \
+                            event_payload, probe_exit, probe_tail, session_id, arc, headline, \
                             refs, settled_at_ms, author_ask";
 
 fn trip_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Trip> {
@@ -682,7 +728,7 @@ fn trip_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Trip> {
         probe_exit: row.get(8)?,
         probe_tail: row.get(9)?,
         session_id: row.get(10)?,
-        dash: row.get(11)?,
+        arc: row.get(11)?,
         headline: row.get(12)?,
         refs: row.get(13)?,
         settled_at_ms: row.get(14)?,
@@ -784,7 +830,7 @@ pub fn oldest_queued(conn: &Connection) -> Result<Option<Trip>, TripwireLedgerEr
 /// The wire's live trip, if it has one — the whole of the busy guard ([P06]).
 ///
 /// `running` and `awaiting` both count. An awaiting trip holds no process, but
-/// it holds a question the user has not answered and a dash they may still
+/// it holds a question the user has not answered and an arc they may still
 /// join, and firing the wire again underneath that would replace the question
 /// with a newer one nobody asked for.
 pub fn live_trip(conn: &Connection, wire_id: i64) -> Result<Option<Trip>, TripwireLedgerError> {
@@ -826,17 +872,17 @@ pub fn any_trip_for_event_key(
         .optional()?)
 }
 
-/// Every `awaiting` trip that is holding a dash, machine-wide.
+/// Every `awaiting` trip that is holding an arc, machine-wide.
 ///
 /// What the awaiting sweep reads ([P07]): an awaiting trip resolves when its
-/// dash stops existing, because joining or discarding that dash *is* the
-/// answer to the question the trip asked. A trip awaiting with no dash has
+/// arc stops existing, because joining or discarding that arc *is* the
+/// answer to the question the trip asked. A trip awaiting with no arc has
 /// nothing that can disappear, so it is not swept and holds until the user
 /// dismisses it.
-pub fn awaiting_trips_with_dashes(conn: &Connection) -> Result<Vec<Trip>, TripwireLedgerError> {
+pub fn awaiting_trips_with_arcs(conn: &Connection) -> Result<Vec<Trip>, TripwireLedgerError> {
     let sql = format!(
         "SELECT {TRIP_COLUMNS} FROM trips
-         WHERE status = 'awaiting' AND dash IS NOT NULL
+         WHERE status = 'awaiting' AND arc IS NOT NULL
          ORDER BY at_ms, id"
     );
     let mut stmt = conn.prepare(&sql)?;
@@ -936,16 +982,16 @@ pub fn record_probe(
     Ok(())
 }
 
-/// Attach the session and dash a running trip is working in.
+/// Attach the session and arc a running trip is working in.
 pub fn record_run(
     conn: &Connection,
     trip_id: i64,
     session_id: Option<&str>,
-    dash: Option<&str>,
+    arc: Option<&str>,
 ) -> Result<(), TripwireLedgerError> {
     conn.execute(
-        "UPDATE trips SET status = 'running', session_id = ?1, dash = ?2 WHERE id = ?3",
-        params![session_id, dash, trip_id],
+        "UPDATE trips SET status = 'running', session_id = ?1, arc = ?2 WHERE id = ?3",
+        params![session_id, arc, trip_id],
     )?;
     Ok(())
 }
@@ -987,7 +1033,7 @@ pub fn settle(
 /// fired, and those want different things done about them.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Resolution {
-    Resolved { trip_id: i64, dash: Option<String> },
+    Resolved { trip_id: i64, arc: Option<String> },
     NoLiveTrip { state: Option<String> },
 }
 
@@ -1012,8 +1058,8 @@ pub fn resolve_running(
     )
 }
 
-/// Settle a wire's `awaiting` trip — what `tripwire dismiss` does. The dash
-/// the trip is holding comes back with it, because discarding that dash is the
+/// Settle a wire's `awaiting` trip — what `tripwire dismiss` does. The arc
+/// the trip is holding comes back with it, because discarding that arc is the
 /// other half of the dismissal ([P09]) and the caller cannot read the row
 /// afterwards without racing the next firing.
 pub fn resolve_awaiting(
@@ -1078,7 +1124,7 @@ fn resolve_from(
     }
     Ok(Resolution::Resolved {
         trip_id: trip.id,
-        dash: trip.dash,
+        arc: trip.arc,
     })
 }
 
@@ -1311,7 +1357,7 @@ mod tests {
             probe_exit     INTEGER,
             probe_tail     TEXT,
             session_id     TEXT,
-            dash           TEXT,
+            arc            TEXT,
             interest       TEXT,
             outcome        TEXT,
             headline       TEXT,
@@ -1352,6 +1398,82 @@ mod tests {
             .query_map([], |r| Ok((r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)))
             .unwrap();
         rows.collect::<rusqlite::Result<Vec<_>>>().unwrap()
+    }
+
+    /// **The column a trip holds its work unit in, and the value a swallow
+    /// records, move to the arc together.**
+    ///
+    /// Two halves of one rename, and both are checked here because they fail
+    /// differently: a column that did not move errors every `SELECT` naming
+    /// the new one, while a value that did not move is read back silently and
+    /// simply never matches. The row is asserted intact besides — a rename is
+    /// not a chance to lose a trip.
+    #[test]
+    fn a_v4_ledger_renames_the_trip_arc_column_and_its_swallow_value() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(CREATE_TRIPWIRES_SQL).unwrap();
+        // Put the table back into its v4 shape: the DDL above mints `arc`.
+        conn.execute_batch("ALTER TABLE trips RENAME COLUMN arc TO arc;")
+            .unwrap();
+        conn.execute(
+            "INSERT INTO wires (name, created_at, trigger, brief, branch)
+             VALUES ('w', 1, '{\"fact\":{\"kind\":\"edit_failed\"}}', 'diagnose', 'main')",
+            [],
+        )
+        .unwrap();
+        conn.execute_batch(
+            "INSERT INTO trips (wire_id, event_key, at_ms, instance, status, swallow_reason,
+                                session_id, arc, headline)
+             VALUES
+                (1, 'e1', 10, 'i', 'swallowed', 'own-dash', 'sess-1', 'tripwire-w-1', 'held'),
+                (1, 'e2', 20, 'i', 'awaiting',  NULL,       'sess-2', 'tripwire-w-2', 'asked');",
+        )
+        .unwrap();
+        conn.pragma_update(None, "user_version", 4).unwrap();
+
+        prepare(&conn).unwrap();
+
+        let stamped: i64 = conn
+            .query_row("PRAGMA user_version", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(stamped, TRIPWIRE_SCHEMA_VERSION);
+
+        let columns: Vec<String> = table_info(&conn, "trips")
+            .into_iter()
+            .map(|(name, _, _, _)| name)
+            .collect();
+        assert!(columns.iter().any(|c| c == "arc"), "{columns:?}");
+        assert!(!columns.iter().any(|c| c == "dash"), "{columns:?}");
+
+        let held = trip(&conn, 1).unwrap().unwrap();
+        assert_eq!(held.arc.as_deref(), Some("tripwire-w-1"));
+        assert_eq!(held.swallow_reason.as_deref(), Some(SWALLOW_OWN_ARC));
+        assert_eq!(held.headline.as_deref(), Some("held"), "the row is intact");
+
+        let asked = trip(&conn, 2).unwrap().unwrap();
+        assert_eq!(asked.arc.as_deref(), Some("tripwire-w-2"));
+        assert_eq!(
+            asked.swallow_reason, None,
+            "a row that recorded no swallow is left alone"
+        );
+
+        // The sweep can find the awaiting trip, which is the reader the
+        // column rename exists to keep working.
+        assert_eq!(
+            awaiting_trips_with_arcs(&conn)
+                .unwrap()
+                .iter()
+                .map(|t| t.id)
+                .collect::<Vec<_>>(),
+            vec![2]
+        );
+
+        // Twice is once.
+        prepare(&conn).unwrap();
+        assert_eq!(
+            trip(&conn, 1).unwrap().unwrap().arc.as_deref(),
+            Some("tripwire-w-1")
+        );
     }
 
     /// An old-shape ledger opens, keeps what survived, loses what was retired,
@@ -1823,7 +1945,7 @@ mod tests {
         let settled = trip(&conn, trip_id).unwrap().unwrap();
         assert_eq!(settled.status, "settled");
         assert_eq!(settled.session_id.as_deref(), Some("tug-1"));
-        assert_eq!(settled.dash.as_deref(), Some("tripwire-w-abc"));
+        assert_eq!(settled.arc.as_deref(), Some("tripwire-w-abc"));
         assert_eq!(settled.headline.as_deref(), Some("it broke"));
         assert_eq!(settled.settled_at_ms, Some(9_000));
     }
@@ -2009,7 +2131,7 @@ mod tests {
             .unwrap(),
             Resolution::Resolved {
                 trip_id,
-                dash: Some("tripwire-ci-abc12345".to_string()),
+                arc: Some("tripwire-ci-abc12345".to_string()),
             }
         );
 
@@ -2024,11 +2146,11 @@ mod tests {
         assert_eq!(settled.settled_at_ms, Some(3));
     }
 
-    /// A dismissal settles the awaiting trip and hands back the dash it was
-    /// holding, because discarding that dash is the dismissal's other half
+    /// A dismissal settles the awaiting trip and hands back the arc it was
+    /// holding, because discarding that arc is the dismissal's other half
     /// ([P07], [P09]).
     #[test]
-    fn a_dismissal_settles_the_awaiting_trip_and_names_its_dash() {
+    fn a_dismissal_settles_the_awaiting_trip_and_names_its_arc() {
         let conn = ledger();
         let wire = lay_one(&conn, "ci");
         let Claim::Claimed { trip_id } =
@@ -2063,7 +2185,7 @@ mod tests {
             resolve_awaiting(&conn, wire.id, 4).unwrap(),
             Resolution::Resolved {
                 trip_id,
-                dash: Some("tripwire-ci-abc12345".to_string()),
+                arc: Some("tripwire-ci-abc12345".to_string()),
             }
         );
         assert_eq!(trip(&conn, trip_id).unwrap().unwrap().status, "settled");
@@ -2077,7 +2199,7 @@ mod tests {
     /// The sweep and the dismiss verb reach for the same row, so the sweep's
     /// write is a compare-and-set too ([P07]).
     ///
-    /// A dismissal that lands first has already discarded the dash, which is
+    /// A dismissal that lands first has already discarded the arc, which is
     /// precisely the condition the sweep looks for — so without the guard the
     /// sweep would arrive behind every dismissal and overwrite its words with
     /// its own.
@@ -2106,7 +2228,7 @@ mod tests {
 
         // The sweep finds it while it is still awaiting.
         assert_eq!(
-            awaiting_trips_with_dashes(&conn)
+            awaiting_trips_with_arcs(&conn)
                 .unwrap()
                 .iter()
                 .map(|t| t.id)
@@ -2121,7 +2243,7 @@ mod tests {
                 &conn,
                 trip_id,
                 &Settlement {
-                    headline: Some("the dash is gone".to_string()),
+                    headline: Some("the arc is gone".to_string()),
                     ..Settlement::default()
                 },
                 4,
@@ -2134,7 +2256,7 @@ mod tests {
             Some("dismissed")
         );
         assert!(
-            awaiting_trips_with_dashes(&conn).unwrap().is_empty(),
+            awaiting_trips_with_arcs(&conn).unwrap().is_empty(),
             "and there is nothing left for the next sweep to find"
         );
     }

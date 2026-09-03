@@ -33,7 +33,7 @@ printenv TUG_ARC
 
 It names the arc you are the audit stage of.
 
-**With it absent from the environment, stop and say so.** This skill is a stage of an arc rather than a standalone command, and it is the last stage of **every** arc: `/dash` opens one at implement and `/trek` opens one at devise, and each reaches here when its run's final declared step closes. There is no path from here that ends anywhere else — the mark this stage writes is read by a runner, and with no runner reading it the mark declares an arc finished that nothing was running.
+**With it absent from the environment, stop and say so.** This skill is a stage of an arc rather than a standalone command, and it is the last stage of **every** arc: `/arc` opens one at implement and `/arc-plan` opens one at devise, and each reaches here when its run's final declared step closes. There is no path from here that ends anywhere else — the mark this stage writes is read by a runner, and with no runner reading it the mark declares an arc finished that nothing was running.
 
 **Then confirm the arc can still find you.**
 
@@ -44,7 +44,7 @@ tugtool arc status <name> --json
 
 The dry run writes nothing; it resolves which session this shell actually belongs to and says `(this shell holds …, which has rotated)` when the shell's own id has gone stale. **You are always a rotated-in session** — the audit's whole design is a reader that never saw the run — so that line is expected here rather than merely tolerated. What is a problem is a resolved session missing from `arc status --json`'s `bound_sessions`: the binding did not ride the rotation, and the join offer this stage arms will reach nobody.
 
-**The repair is `tugtool arc doctor <name>`**, which compares all four of an arc's records — the ledger table, the dash-log, the sqlite binding, and the arc record — and names each disagreement in a sentence. Not `/dash-bind`, which writes one of the four and answers nothing about the other three. Run it here anyway when the status output carries findings: a table and log that disagree about the run's frontier is exactly the kind of thing an audit should say out loud, and it changes what "the ledger's step titles are the promises" is worth.
+**The repair is `tugtool arc doctor <name>`**, which compares all four of an arc's records — the ledger table, the arc log, the sqlite binding, and the arc record — and names each disagreement in a sentence. Not `/arc-bind`, which writes one of the four and answers nothing about the other three. Run it here anyway when the status output carries findings: a table and log that disagree about the run's frontier is exactly the kind of thing an audit should say out loud, and it changes what "the ledger's step titles are the promises" is worth.
 
 ### 1. Take the worktree, and read what the run said it would do
 
@@ -61,7 +61,7 @@ tugtool plan status <name> --json
 
 **Read the ledger and the brief, both, in full.** They are the audit's standard of comparison and they answer different halves of it ([B06]):
 
-- **The ledger** — a devised `plan.md`, or a `/dash` door's `tasks.md`, whichever the arc has — says what the work was *supposed to do*, step by step. Read its step titles as the promises they are. A task list is shorter, has no decisions and no checkpoints, and is the standard all the same.
+- **The ledger** — a devised `plan.md`, or an `/arc` door's `tasks.md`, whichever the arc has — says what the work was *supposed to do*, step by step. Read its step titles as the promises they are. A task list is shorter, has no decisions and no checkpoints, and is the standard all the same.
 - **The brief** at the same address says *why*, and it is the only document that does. It carries the settling the door did before any arc opened — the decisions as `[B##]`, the findings as `[F##]` — which is the user's stated intent in the one form a cold session can read. A plan can implement its own steps faithfully and still miss what the brief asked for, and that gap is invisible to a reader who only has the plan.
 
 `arc documents --json` names all three paths and says which exist. Read the brief even when a plan exists — especially then, since the plan is one session's reading of the brief and this stage's job is not to trust a reading.
@@ -74,7 +74,7 @@ tugtool plan status <name> --json
 tugtool arc show <name>
 ```
 
-Then the diff itself, from the worktree — every commit the branch carries against its base, as one range, and then file by file for anything the range read past too quickly. The rounds' own commit messages say what each claimed to do; the dash-log holds the instruction git cannot see. Read both, and read them *after* the code, so the code is judged rather than the claim.
+Then the diff itself, from the worktree — every commit the branch carries against its base, as one range, and then file by file for anything the range read past too quickly. The rounds' own commit messages say what each claimed to do; the arc log holds the instruction git cannot see. Read both, and read them *after* the code, so the code is judged rather than the claim.
 
 **Read the code, not the summary of it.** An audit that could have been written from the commit messages has not happened.
 
@@ -97,7 +97,7 @@ Fix it. That is the whole of what to do with a finding, and the reason this stag
 The fixes are **ordinary rounds** on the arc, under the doctrine's round mechanics and its verification bar. Verify before every commit — the checks the project declares for what you moved — and never commit red:
 
 ```bash
-tugtool arc commit <name> --message "tugdash(<name>): <imperative summary, under 50 chars>" --json <<'EOF'
+tugtool arc commit <name> --message "tugarc(<name>): <imperative summary, under 50 chars>" --json <<'EOF'
 {"instruction":"audit: <what the finding was>","summary":"<what you changed + how verified>"}
 EOF
 ```
@@ -126,7 +126,7 @@ The draft is the squash message the user's join will land, and it is the only du
 tugtool draft set --owner arc:<name> --message "<subject + durable body>"
 ```
 
-An **imperative subject** in the repository's recent-commit style, bare — no `tugdash(<name>): ` prefix, because the join adds the scope itself. Then a **summary paragraph**, one to three sentences of plain prose a reader can stop at, saying what the base is about to receive and why. Then the body: what the change does and the argument it rests on, for a reader who never saw the run.
+An **imperative subject** in the repository's recent-commit style, bare — no `tugarc(<name>): ` prefix, because the join adds the scope itself. Then a **summary paragraph**, one to three sentences of plain prose a reader can stop at, saying what the base is about to receive and why. Then the body: what the change does and the argument it rests on, for a reader who never saw the run.
 
 **Never a narration of the run, and that includes yours.** No round-by-round digest, no step numbers, no "the audit found and fixed" archaeology. What the audit repaired is part of what the change *is* — describe the change, not its history. Every line unbroken to its end (**no hard wrapping**), and no AI or agent attribution, ever.
 
@@ -149,7 +149,7 @@ The Changes shade is how the join reaches them: it reveals itself on the bound c
 Everything in [`tuglaws/arc-work-doctrine.md`](../../../tuglaws/arc-work-doctrine.md), plus:
 
 - **No sub-agents.** Read, judge, and fix in-thread.
-- **Read the code before the claims.** The commit messages and the dash-log are read after the diff, so the code is judged rather than the account of it.
+- **Read the code before the claims.** The commit messages and the arc log are read after the diff, so the code is judged rather than the account of it.
 - **Fix, never report-and-defer.** The run that would have acted on a report is over. What you cannot settle is written into the report and the draft, not asked.
 - **No dialogs.** This stage runs cold and often unattended; a question here stops the arc in front of nobody.
 - **Judge against both documents.** The ledger says what, the brief says why, and a run can satisfy one without the other.

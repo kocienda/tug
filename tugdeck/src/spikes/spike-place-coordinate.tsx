@@ -75,7 +75,7 @@ interface PlaceFacts {
 
 const SESSION_MEMBERS: PlaceMember[] = [
   { title: "tugtool/juicy-roach", icon: MessageSquare },
-  { title: "dash-notes.md", icon: FileText },
+  { title: "arc-notes.md", icon: FileText },
 ];
 
 const DIFF_MEMBERS: PlaceMember[] = [
@@ -386,13 +386,13 @@ const LENS_ROWS: LensRowFixture[] = [
     facts: { held: 1, kind: "stack", index: 1, members: DIFF_MEMBERS },
   },
   {
-    title: "dash-notes.md",
+    title: "arc-notes.md",
     icon: FileText,
     facts: {
       held: 2,
       kind: "stack",
       index: 0,
-      members: [{ title: "dash-notes.md", icon: FileText }],
+      members: [{ title: "arc-notes.md", icon: FileText }],
     },
   },
 ];
@@ -620,13 +620,13 @@ function SpikePlaceCoordinate(): React.ReactElement {
               />
               <LensRowProposed
                 row={{
-                  title: "dash-notes.md",
+                  title: "arc-notes.md",
                   icon: FileText,
                   facts: {
                     held: 0,
                     kind: "stack",
                     index: 0,
-                    members: [{ title: "dash-notes.md", icon: FileText }],
+                    members: [{ title: "arc-notes.md", icon: FileText }],
                   },
                 }}
                 count={10}

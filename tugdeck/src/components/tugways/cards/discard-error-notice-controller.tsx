@@ -5,7 +5,7 @@
  * `changeset_discard_err` settles into the verb store's discard state and was
  * read by nothing: the transcript receipts read discard state for the *done*
  * case only, so a Discard press that the server refused left the row where it
- * was and said nothing. Discard sits beside Join on the same dash row and
+ * was and said nothing. Discard sits beside Join on the same arc row and
  * fails for the same kinds of reason — a dirty worktree, a base that moved —
  * so a silent one is the same investigation over again.
  *

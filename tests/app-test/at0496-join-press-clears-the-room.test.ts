@@ -5,7 +5,7 @@
  * ## What this gates
  *
  * A join is submitted from inside the Changes shade, and the moment it is
- * submitted the shade has nothing left to say: the dash is being joined, and
+ * submitted the shade has nothing left to say: the arc is being joined, and
  * every act the room offered for it is spent. So the press must do three
  * things at once, and all three are one gesture's worth of the same idea —
  * *hand the user back to the conversation*:
@@ -13,18 +13,18 @@
  *   1. The shade **closes**.
  *   2. The `Joining…` register is **in view** in the transcript.
  *
- * The third — the joined dash is **gone from the room**, so a room re-opened
+ * The third — the joined arc is **gone from the room**, so a room re-opened
  * mid-join is not still offering the join that is running — is pinned at the
  * store, in `lib/__tests__/changeset-join-store.test.ts`, where the clock is
  * the test's. Over this fixture's two-file repository the join is finished
  * before the room can be re-opened, so an assertion made here would be reading
- * a dash the feed had already dropped and would hold whether or not the room
+ * an arc the feed had already dropped and would hold whether or not the room
  * filtered anything.
  *
  * On 2026-08-29 none of the three happened on a real join. The shade stayed up
  * over the transcript for the whole fifteen seconds the join took, so the
  * register — which lives at the transcript's live edge, and was there the whole
- * time — was behind the panel; the dash kept being offered; and the user,
+ * time — was behind the panel; the arc kept being offered; and the user,
  * seeing nothing, pressed again and got `Joining…` as a *refusal*. The instance
  * log carries the shape of it: two accepted presses, then
  * `sheetDidHide never fired — the watchdog landed the staged callback`.
@@ -42,8 +42,8 @@
  * the top before the press. On a transcript that fits, the live edge is always
  * in view and the assertion would be free.
  *
- * The fixture is at0436's — a scratch repository with one landable dash — for
- * the reason at0436 has one: entering join mode resolves the dash, and a
+ * The fixture is at0436's — a scratch repository with one landable arc — for
+ * the reason at0436 has one: entering join mode resolves the arc, and a
  * resolution aimed at this checkout would run the corpus's own checks over the
  * candidate. Here it is a sentinel grep over a two-file repo.
  *
@@ -74,14 +74,14 @@ import {
   seedTugbankForLaunch,
 } from "./_harness/tugbank-helpers";
 import {
-  bindDash,
+  bindArc,
   makeJoinScratchRepo,
   rmJoinScratchRepo,
   rmScratchSession,
   seedScratchSession,
   silenceJoinPrompt,
   type JoinScratchRepo,
-} from "./dash-fixture";
+} from "./arc-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 240_000;
@@ -92,7 +92,7 @@ const TEST_TIMEOUT_MS = 240_000;
  * The fixture's JSONL lands in the machine-global `~/.claude/projects`, where
  * every *other* live Tug instance's external scan can see it and record a
  * session row of its own — pointed at a scratch repository that is deleted
- * when the test ends. `dash bind` asks every instance on the machine, so a
+ * when the test ends. `arc bind` asks every instance on the machine, so a
  * fixed id lets one of those stale rows answer for this run and refuse the
  * bind against a directory this run has never heard of. A fresh id per run is
  * an id nothing else can be holding.
@@ -101,14 +101,14 @@ const SID = randomUUID();
 const CARD = '[data-card-id="A"]';
 const EDITOR = `${CARD} [data-slot="tug-text-editor"] .cm-content`;
 const SHEET = `${CARD} .session-view-pane[data-view="changes"] [data-slot="tug-sheet"]`;
-const LANE = `${SHEET} [data-slot="session-changes-dash-lane"]`;
+const LANE = `${SHEET} [data-slot="session-changes-arc-lane"]`;
 const JOIN_BUTTON = `${CARD} .tug-prompt-entry-commit-button[aria-label="Join"]`;
 const TRANSCRIPT = `${CARD} .session-view-pane[data-view="transcript"] [data-slot="tug-list-view"]`;
 /** The live-edge narration row — where a landing accounts for itself. */
 const PROGRESS_ROW = `${CARD} [data-slot="session-landing-progress-row"]`;
 
 const CHECKOUT = realpathSync(resolve(import.meta.dir, "..", ".."));
-const DASH = "at0496-work";
+const ARC = "at0496-work";
 const FILE = "subject.txt";
 
 let scratch: JoinScratchRepo | null = null;
@@ -116,12 +116,12 @@ const projectDir = (): string => scratch?.repo ?? "";
 
 let fixtureDir = "";
 let tugbankPath = "";
-let dashId = "";
+let arcId = "";
 
-const row = (dash: string): string =>
-  `${LANE} [data-slot="session-changes-dash-row"][data-dash="${dash}"]`;
-const landsAs = (dash: string): string =>
-  `${row(dash)} [data-slot="session-changes-dash-lands-as"]`;
+const row = (arc: string): string =>
+  `${LANE} [data-slot="session-changes-arc-row"][data-arc="${arc}"]`;
+const landsAs = (arc: string): string =>
+  `${row(arc)} [data-slot="session-changes-arc-lands-as"]`;
 const CANDIDATE = `${CARD} [data-slot="arc-join-register"][data-word="ready"]`;
 
 /**
@@ -185,17 +185,17 @@ beforeAll(() => {
   if (!SHOULD_RUN) return;
   scratch = makeJoinScratchRepo({
     prefix: "at0496",
-    dash: DASH,
+    arc: ARC,
     description: "at0496 fixture (a round to land)",
     checkout: CHECKOUT,
     file: FILE,
-    fork: "at0496 the dash's file\n",
+    fork: "at0496 the arc's file\n",
     base: "at0496 SENTINEL the base's own file\n",
-    dashBody: "at0496 SENTINEL the dash rewrote it\n",
+    arcBody: "at0496 SENTINEL the arc rewrote it\n",
     cleanMerge: true,
     resolver: "#!/bin/sh\nexit 0\n",
   });
-  dashId = scratch.dashId;
+  arcId = scratch.arcId;
   fixtureDir = seedScratchSession(projectDir(), SID);
   writeFileSync(join(fixtureDir, `${SID}.jsonl`), tallTranscript(projectDir(), SID));
 });
@@ -231,7 +231,7 @@ const settle = (ms = 200): Promise<unknown> => new Promise((r) => setTimeout(r, 
 /**
  * Open the room in JOIN mode, the way a user does: `/arc-join`.
  *
- * Retried, because the command needs the dash to have reached the changeset
+ * Retried, because the command needs the arc to have reached the changeset
  * feed — before that it answers with a bulletin and nothing opens. The feed
  * arrives on its own schedule and the lane, which is the only visible sign of
  * it, lives inside the room this is trying to open.
@@ -292,7 +292,7 @@ function inViewProbe(selector: string): string {
 
 describe.skipIf(!SHOULD_RUN)("AT0496: a Join press hands the room back", () => {
   test(
-    "the shade closes, the dash leaves it, and the Joining register is in view",
+    "the shade closes, the arc leaves it, and the Joining register is in view",
     async () => {
       tugbankPath = mkTempTugbank();
       seedTugbankForLaunch(tugbankPath, { sourceTreePath: CHECKOUT });
@@ -308,21 +308,21 @@ describe.skipIf(!SHOULD_RUN)("AT0496: a Join press hands the room back", () => {
         );
         await app.spawnSessionResume("A", { tugSessionId: SID, projectDir: projectDir() });
         await app.awaitEngineReady("A", { timeoutMs: 15000 });
-        bindDash(projectDir(), DASH, SID, scratch?.cli ?? {});
-        silenceJoinPrompt(projectDir(), DASH);
+        bindArc(projectDir(), ARC, SID, scratch?.cli ?? {});
+        silenceJoinPrompt(projectDir(), ARC);
 
-        await app.dispatchControlAction("bind_dash_ok", {
+        await app.dispatchControlAction("bind_arc_ok", {
           tug_session_id: SID,
-          dash_id: dashId,
-          dash_name: DASH,
+          arc_id: arcId,
+          arc_name: ARC,
         });
         await openTheRoomOnTheJoin(app);
         await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(landsAs(DASH))}) !== null`,
+          `document.querySelector(${JSON.stringify(landsAs(ARC))}) !== null`,
           { timeoutMs: 20000 },
         );
 
-        // Entering join mode resolves the dash; the candidate standing is that
+        // Entering join mode resolves the arc; the candidate standing is that
         // resolution anchoring, and it is what the gate reads.
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(CANDIDATE)}) !== null`,
@@ -336,9 +336,9 @@ describe.skipIf(!SHOULD_RUN)("AT0496: a Join press hands the room back", () => {
         ).toBe(true);
         expect(
           await app.evalJS<boolean>(
-            `document.querySelector(${JSON.stringify(row(DASH))}) !== null`,
+            `document.querySelector(${JSON.stringify(row(ARC))}) !== null`,
           ),
-          "precondition: the shade is offering this dash",
+          "precondition: the shade is offering this arc",
         ).toBe(true);
 
         // Scroll the transcript away from its live edge, and leave it there.
@@ -385,9 +385,9 @@ describe.skipIf(!SHOULD_RUN)("AT0496: a Join press hands the room back", () => {
         await settle();
         await app.nativeKey("a", ["cmd"]);
         await app.nativeKey("Delete");
-        await app.nativeType("at0496: land this dash");
+        await app.nativeType("at0496: land this arc");
         await app.waitForCondition<boolean>(
-          `(document.querySelector(${JSON.stringify(EDITOR)})?.textContent ?? "").indexOf("land this dash") !== -1`,
+          `(document.querySelector(${JSON.stringify(EDITOR)})?.textContent ?? "").indexOf("land this arc") !== -1`,
           { timeoutMs: 5000 },
         );
 
@@ -429,12 +429,12 @@ describe.skipIf(!SHOULD_RUN)("AT0496: a Join press hands the room back", () => {
           "and what it says is about this join, not a leftover state",
         ).toBeOneOf(["joining", "joined", "join-failed"]);
 
-        // The third guarantee — a dash whose join is running is no longer on
+        // The third guarantee — an arc whose join is running is no longer on
         // offer — is pinned at the store instead, in
         // `lib/__tests__/changeset-join-store.test.ts`. It cannot be read
         // honestly from here: a join over a two-file repository is finished
         // before the room can be re-opened, so what this file would be reading
-        // is a dash the feed has already dropped — which passes whether or not
+        // is an arc the feed has already dropped — which passes whether or not
         // the room ever filtered anything. The store test holds the clock.
         process.stdout.write("VERDICT: PASS\n");
       } catch (err) {

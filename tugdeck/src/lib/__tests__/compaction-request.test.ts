@@ -44,7 +44,7 @@ describe("splitCompactionSeed", () => {
   });
 
   it("returns null for ordinary user text (no marker)", () => {
-    expect(splitCompactionSeed("start the dash")).toBeNull();
+    expect(splitCompactionSeed("start the arc")).toBeNull();
     expect(splitCompactionSeed("")).toBeNull();
   });
 

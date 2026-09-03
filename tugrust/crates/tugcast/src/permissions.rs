@@ -15,7 +15,7 @@
 //! `POST /api/permissions/rule` adds or removes a single rule string in one
 //! scope's bucket, preserving every other key in the file. Claude Code watches
 //! these files and reloads `permissions` live, so a write takes effect without
-//! a respawn (captured in `dash/transport-exploration.md`).
+//! a respawn (captured in `arc/transport-exploration.md`).
 //!
 //! Like the other `/api` handlers these are restricted to loopback
 //! connections. `cwd` is supplied by the caller — the session card reads it from

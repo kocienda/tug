@@ -1,4 +1,4 @@
-/* dash-lifecycle-mark.css — the compact reading: glyph, pill, fraction.
+/* arc-lifecycle-mark.css — the compact reading: glyph, pill, fraction.
 
    The pill wears the track's own palette so the two registers of one grammar
    read as one thing: the theme's KEY color while the work is in flight — the
@@ -12,64 +12,64 @@
    box that still reads as a pill rather than as a dot.
 
    Laws: [L06] phase and state are `data-*`; [L20] owns
-   `--tugx-dash-lifecycle-mark-*`, defaults at their points of use. */
+   `--tugx-arc-lifecycle-mark-*`, defaults at their points of use. */
 
-.tug-dash-lifecycle-mark {
+.tug-arc-lifecycle-mark {
   display: inline-flex;
   align-items: center;
-  gap: var(--tugx-dash-lifecycle-mark-gap, 4px);
+  gap: var(--tugx-arc-lifecycle-mark-gap, 4px);
   flex: 0 0 auto;
 }
 
 /* The air the reading keeps from whatever is set after it — the same rule the
    track carries, for the same reason: a graphic needs more room from a word
    than two words need from each other. A mark that ends its row claims none. */
-.tug-dash-lifecycle-mark:not(:last-child) {
-  margin-inline-end: var(--tugx-dash-lifecycle-mark-out, 4px);
+.tug-arc-lifecycle-mark:not(:last-child) {
+  margin-inline-end: var(--tugx-arc-lifecycle-mark-out, 4px);
 }
 
 /* And the air it keeps from the identity run it follows, which is MORE than
    the air between its own three marks. Both hosts set this hard against a run
-   ending `^<dash>`, and at the host's own 2px the mark read as a fourth
+   ending `^<arc>`, and at the host's own 2px the mark read as a fourth
    character of the name rather than as a separate reading of it. The gap
    inside the mark says these three belong together; a wider one before it says
    they are not part of the name. Unconditional rather than `:not(:first-child)`
    — one host wraps the mark in a span of its own, where a first-child test
    would always hold and the rule would never fire. */
-.tug-dash-lifecycle-mark {
-  margin-inline-start: var(--tugx-dash-lifecycle-mark-in, 5px);
+.tug-arc-lifecycle-mark {
+  margin-inline-start: var(--tugx-arc-lifecycle-mark-in, 5px);
 }
 
-.tug-dash-lifecycle-mark-pill {
+.tug-arc-lifecycle-mark-pill {
   display: inline-block;
   flex: 0 0 auto;
-  inline-size: var(--tugx-dash-lifecycle-mark-pill-w, 14px);
-  block-size: var(--tugx-dash-lifecycle-mark-pill-h, 7px);
+  inline-size: var(--tugx-arc-lifecycle-mark-pill-w, 14px);
+  block-size: var(--tugx-arc-lifecycle-mark-pill-h, 7px);
   border-radius: 999px;
   background: var(--tug7-surface-toggle-primary-normal-active-rest);
 }
 
-.tug-dash-lifecycle-mark[data-size="read"] .tug-dash-lifecycle-mark-pill {
-  inline-size: var(--tugx-dash-lifecycle-mark-pill-w, 18px);
-  block-size: var(--tugx-dash-lifecycle-mark-pill-h, 9px);
+.tug-arc-lifecycle-mark[data-size="read"] .tug-arc-lifecycle-mark-pill {
+  inline-size: var(--tugx-arc-lifecycle-mark-pill-w, 18px);
+  block-size: var(--tugx-arc-lifecycle-mark-pill-h, 9px);
 }
 
-.tug-dash-lifecycle-mark-pill[data-phase="join"] {
+.tug-arc-lifecycle-mark-pill[data-phase="join"] {
   background: var(--tug7-surface-control-primary-normal-selected-rest);
 }
 
-.tug-dash-lifecycle-mark-pill[data-state="stopped"] {
+.tug-arc-lifecycle-mark-pill[data-state="stopped"] {
   background: var(--tug7-element-tone-icon-normal-danger-rest);
 }
 
-.tug-dash-lifecycle-mark[data-size="read"] {
+.tug-arc-lifecycle-mark[data-size="read"] {
   --tugx-step-fraction-font-size: var(--tug-font-size-xs);
 }
 
 @media (prefers-reduced-motion: no-preference) {
-  .tug-dash-lifecycle-mark:not([data-stopped]) .tug-dash-lifecycle-mark-pill {
-    animation: tug-dash-lifecycle-mark-breath
-      var(--tugx-dash-lifecycle-mark-breath-ms, 2000ms)
+  .tug-arc-lifecycle-mark:not([data-stopped]) .tug-arc-lifecycle-mark-pill {
+    animation: tug-arc-lifecycle-mark-breath
+      var(--tugx-arc-lifecycle-mark-breath-ms, 2000ms)
       ease-in-out infinite;
   }
 }
@@ -78,7 +78,7 @@
    global and un-scoped, so borrowing the track's would make one stylesheet's
    presence a silent condition of the other's motion. Same curve, stated
    twice, rather than a dependency nothing declares. */
-@keyframes tug-dash-lifecycle-mark-breath {
+@keyframes tug-arc-lifecycle-mark-breath {
   0% {
     opacity: 0.4;
   }

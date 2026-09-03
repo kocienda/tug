@@ -87,18 +87,18 @@ import {
   seedTugbankForLaunch,
 } from "./_harness/tugbank-helpers";
 import {
-  createDash,
-  dashBriefPath,
-  dashTasksPath,
+  createArc,
+  arcBriefPath,
+  arcTasksPath,
   fixturePlanDocument,
-  makeDashScratchRepo,
-  rmDashScratchRepo,
+  makeArcScratchRepo,
+  rmArcScratchRepo,
   rmScratchSession,
   seedScratchSession,
   tugtool,
   tugtoolPath,
-  type DashScratchRepo,
-} from "./dash-fixture";
+  type ArcScratchRepo,
+} from "./arc-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 300_000;
@@ -118,16 +118,16 @@ const BULLETIN_TEXTS = `Array.from(document.querySelectorAll('[data-sonner-toast
 /** This checkout — the build under test, never the tree the arc is cut in. */
 const CHECKOUT = realpathSync(resolve(import.meta.dir, "..", ".."));
 
-let scratch: DashScratchRepo | null = null;
+let scratch: ArcScratchRepo | null = null;
 let fixtureDir: string | null = null;
 const projectDir = (): string => scratch?.repo ?? "";
 
 beforeAll(() => {
   if (!SHOULD_RUN) return;
-  scratch = makeDashScratchRepo({ prefix: "at0505", checkout: CHECKOUT });
-  createDash(projectDir(), ARC, `at0505 ${ARC}`, scratch.cli);
-  writeFileSync(dashBriefPath(projectDir(), ARC), "# A brief\n\nOne small thing.\n");
-  writeFileSync(dashTasksPath(projectDir(), ARC), fixturePlanDocument(1));
+  scratch = makeArcScratchRepo({ prefix: "at0505", checkout: CHECKOUT });
+  createArc(projectDir(), ARC, `at0505 ${ARC}`, scratch.cli);
+  writeFileSync(arcBriefPath(projectDir(), ARC), "# A brief\n\nOne small thing.\n");
+  writeFileSync(arcTasksPath(projectDir(), ARC), fixturePlanDocument(1));
   // A **tracked** file for the card to dirty. An untracked one lands in the
   // unattributed bucket, which is a different surface with no session entry
   // behind it — and the entry is the whole of what this file is about.
@@ -141,7 +141,7 @@ beforeAll(() => {
 
 afterAll(() => {
   if (!SHOULD_RUN) return;
-  rmDashScratchRepo(scratch);
+  rmArcScratchRepo(scratch);
   if (fixtureDir !== null) rmScratchSession(fixtureDir);
 });
 
@@ -242,7 +242,7 @@ describe.skipIf(!SHOULD_RUN)("AT0505: the Changes shade under a retired segment"
         // The door is the cheap way to a real one ([at0504]). The arc is
         // stopped the moment the reading is taken: what this file needs is the
         // *seat*, not a stage doing work.
-        await shell(app, `${cli} arc run ${ARC} --kind dash`);
+        await shell(app, `${cli} arc run ${ARC} --kind arc`);
         const seat = await waitForRotation(ARC);
         await shell(app, `${cli} arc stop ${ARC}`);
         note(`at0505 the wheel seated ${seat}; the card was born on ${SID}`);

@@ -14,9 +14,9 @@
 //! **Machine-global**, beside `changes.db` rather than inside an instance
 //! directory (`tugcore::instance::apptest_results_db_path`), and keyed by the
 //! **resolved base checkout** rather than the directory the run executed in.
-//! A dash worktree and the checkout it forked from are one project, and the
+//! An arc worktree and the checkout it forked from are one project, and the
 //! motivating incident lived in exactly that split: the run that hit the red
-//! file was on a dash, and the runs that could have exonerated it were on
+//! file was on an arc, and the runs that could have exonerated it were on
 //! `main`. History keyed by raw root would have kept those apart.
 
 use std::path::{Path, PathBuf};

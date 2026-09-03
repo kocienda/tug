@@ -46,43 +46,43 @@ describe("the label carries its own refusal", () => {
  * Replay's reach, which is the part of this verb most likely to be got wrong.
  *
  * The first design gated it on boundness, on the theory that the machine tends
- * a bound dash. It does not: the base-motion engine's gate never reads
- * boundness, so a bound diverged dash in a repository with autoreplay off is
+ * a bound arc. It does not: the base-motion engine's gate never reads
+ * boundness, so a bound diverged arc in a repository with autoreplay off is
  * exactly as stuck as an unbound one — and an unbound *dirty* one would have
  * offered a button the server declines every time.
  */
 describe("replay's reach", () => {
-  const dash = {
+  const arc = {
     base: "main",
     base_ahead: 0,
     worktree_dirty: false,
     replay_conflict_paths: [] as string[],
   };
 
-  test("a diverged dash can replay", () => {
-    expect(replayDisabledReason({ ...dash, base_ahead: 3 })).toBeNull();
+  test("a diverged arc can replay", () => {
+    expect(replayDisabledReason({ ...arc, base_ahead: 3 })).toBeNull();
   });
 
-  test("a dash whose last replay conflicted can replay again", () => {
+  test("an arc whose last replay conflicted can replay again", () => {
     expect(
-      replayDisabledReason({ ...dash, replay_conflict_paths: ["src/a.ts"] }),
+      replayDisabledReason({ ...arc, replay_conflict_paths: ["src/a.ts"] }),
     ).toBeNull();
   });
 
-  test("a current dash says so rather than offering a no-op", () => {
-    expect(replayDisabledReason(dash)).toBe("already current with main");
+  test("a current arc says so rather than offering a no-op", () => {
+    expect(replayDisabledReason(arc)).toBe("already current with main");
   });
 
   test("a dirty worktree is a readable refusal, not a dead press", () => {
     expect(
-      replayDisabledReason({ ...dash, base_ahead: 2, worktree_dirty: true }),
+      replayDisabledReason({ ...arc, base_ahead: 2, worktree_dirty: true }),
     ).toBe("its worktree has uncommitted changes");
   });
 
   test("boundness is not in the predicate — it takes no such field", () => {
-    // The regression guard: a diverged dash reads the same whoever holds it,
+    // The regression guard: a diverged arc reads the same whoever holds it,
     // because the entry a caller passes carries no holder at all.
-    const diverged = { ...dash, base_ahead: 1 };
+    const diverged = { ...arc, base_ahead: 1 };
     expect(replayDisabledReason(diverged)).toBeNull();
     expect(replayDisabledReason({ ...diverged, base: "trunk" })).toBeNull();
   });

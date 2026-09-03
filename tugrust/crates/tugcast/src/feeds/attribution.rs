@@ -905,7 +905,7 @@ pub fn origin_is_proof(origin: &str) -> bool {
 /// The canonical repo root **of the file itself** — resolved by walking up
 /// from the file's own directory, in canonical space. Repo membership is a
 /// per-file fact, not a per-session fact: a session whose project dir is one
-/// checkout can exact-edit a file inside a nested worktree (a dash session
+/// checkout can exact-edit a file inside a nested worktree (an arc session
 /// does exactly this), and the row must be keyed by the worktree's root, not
 /// the session's. `None` when the file is outside any repo.
 pub async fn file_repo_root(file_path: &str) -> Option<CanonicalPath> {
@@ -1152,10 +1152,10 @@ mod tests {
     fn into_row_stores_repo_relative() {
         let project_dir = CanonicalPath::from_test_str("/repo");
         let repo_root = CanonicalPath::from_test_str("/repo");
-        let row = call("/repo/dash/rail-frame.md")
+        let row = call("/repo/arc/rail-frame.md")
             .into_row("tug-1", "tu-1", &project_dir, Some(&repo_root), "exact", 1)
             .expect("in-repo file records");
-        assert_eq!(row.file_path, "dash/rail-frame.md");
+        assert_eq!(row.file_path, "arc/rail-frame.md");
         assert_eq!(row.project_dir, "/repo");
     }
 
@@ -1195,10 +1195,10 @@ mod tests {
     }
 
     /// Repo membership is a per-file fact: a file inside a nested worktree
-    /// (a `.git` FILE under an outer repo's `.git` DIRECTORY — the dash
+    /// (a `.git` FILE under an outer repo's `.git` DIRECTORY — the arc
     /// layout, `.tug/worktrees/<name>/…`) resolves to the worktree's own
     /// root, never the outer checkout's. This is the pinned regression for
-    /// the misfiled dash-session rows (`.tug/worktrees/…` paths keyed to the
+    /// the misfiled arc-session rows (`.tug/worktrees/…` paths keyed to the
     /// main root, invisible to every reader).
     #[tokio::test]
     async fn file_repo_root_resolves_the_nested_worktrees_own_root() {

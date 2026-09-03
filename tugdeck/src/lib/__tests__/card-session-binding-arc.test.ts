@@ -1,7 +1,7 @@
 /**
- * The dash half of a card's session binding.
+ * The arc half of a card's session binding.
  *
- * `setDashBinding` is a **merge**, not a set: a bind can arrive mid-session,
+ * `setArcBinding` is a **merge**, not a set: a bind can arrive mid-session,
  * and replacing the whole record there would clobber the `workspaceKey` the
  * spawn ack established — the value the pane's feed filter is built from.
  */
@@ -20,28 +20,28 @@ const BINDING = {
   sessionMode: "new" as const,
 };
 
-describe("card session binding — dash", () => {
+describe("card session binding — arc", () => {
   let store: CardSessionBindingStore;
 
   beforeEach(() => {
     store = new CardSessionBindingStore();
   });
 
-  test("a binding with no dash is simply unbound", () => {
+  test("a binding with no arc is simply unbound", () => {
     store.setBinding("card-1", BINDING);
-    expect(store.getBinding("card-1")?.dash).toBeUndefined();
+    expect(store.getBinding("card-1")?.arc).toBeUndefined();
   });
 
-  test("setDashBinding merges, preserving workspaceKey and projectDir", () => {
+  test("setArcBinding merges, preserving workspaceKey and projectDir", () => {
     store.setBinding("card-1", BINDING);
-    store.setDashBinding("card-1", {
-      id: "tugdash/demo#1723500000000-a1b2c3",
+    store.setArcBinding("card-1", {
+      id: "tugarc/demo#1723500000000-a1b2c3",
       name: "demo",
     });
 
     const bound = store.getBinding("card-1");
-    expect(bound?.dash).toEqual({
-      id: "tugdash/demo#1723500000000-a1b2c3",
+    expect(bound?.arc).toEqual({
+      id: "tugarc/demo#1723500000000-a1b2c3",
       name: "demo",
     });
     // The rest of the record survives — a set would have wiped these, and the
@@ -52,35 +52,35 @@ describe("card session binding — dash", () => {
     expect(bound?.sessionMode).toBe("new");
   });
 
-  test("setDashBinding(null) clears only the dash", () => {
+  test("setArcBinding(null) clears only the arc", () => {
     store.setBinding("card-1", BINDING);
-    store.setDashBinding("card-1", { id: "tugdash/demo#1-abc", name: "demo" });
-    store.setDashBinding("card-1", null);
+    store.setArcBinding("card-1", { id: "tugarc/demo#1-abc", name: "demo" });
+    store.setArcBinding("card-1", null);
 
     const bound = store.getBinding("card-1");
-    expect(bound?.dash).toBeUndefined();
+    expect(bound?.arc).toBeUndefined();
     expect(bound?.workspaceKey).toBe(BINDING.workspaceKey);
   });
 
-  test("setDashBinding no-ops on a card with no binding", () => {
+  test("setArcBinding no-ops on a card with no binding", () => {
     // The spawn ack is the only writer allowed to create a record; a bind
     // broadcast for a card the deck has not bound must not conjure one.
-    store.setDashBinding("card-nope", { id: "tugdash/demo#1-abc", name: "demo" });
+    store.setArcBinding("card-nope", { id: "tugarc/demo#1-abc", name: "demo" });
     expect(store.getBinding("card-nope")).toBeUndefined();
   });
 
-  test("a dash write notifies subscribers", () => {
+  test("an arc write notifies subscribers", () => {
     store.setBinding("card-1", BINDING);
     let notifications = 0;
     const unsubscribe = store.subscribe(() => {
       notifications += 1;
     });
-    store.setDashBinding("card-1", { id: "tugdash/demo#1-abc", name: "demo" });
+    store.setArcBinding("card-1", { id: "tugarc/demo#1-abc", name: "demo" });
     expect(notifications).toBe(1);
     unsubscribe();
   });
 
   test("the module singleton exposes the merge setter", () => {
-    expect(typeof cardSessionBindingStore.setDashBinding).toBe("function");
+    expect(typeof cardSessionBindingStore.setArcBinding).toBe("function");
   });
 });

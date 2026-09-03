@@ -732,7 +732,7 @@ fn draft_set_preserves_the_users_project_spelling() {
         "draft",
         "set",
         "--owner",
-        "dash:widgets",
+        "arc:widgets",
         "--message",
         "Join the widgets work",
         "--project",
@@ -745,26 +745,26 @@ fn draft_set_preserves_the_users_project_spelling() {
     let changes = Connection::open(ledger.path().join("changes.db")).unwrap();
     let stored: String = changes
         .query_row(
-            "SELECT project_dir FROM changeset_drafts WHERE owner_kind = 'dash'",
+            "SELECT project_dir FROM changeset_drafts WHERE owner_kind = 'arc'",
             [],
             |r| r.get(0),
         )
         .unwrap();
     assert_eq!(stored, link.to_string_lossy());
 
-    // The dash owner normalizes to the branch-ref id.
+    // The arc owner normalizes to the branch-ref id.
     let owner_id: String = changes
         .query_row(
-            "SELECT owner_id FROM changeset_drafts WHERE owner_kind = 'dash'",
+            "SELECT owner_id FROM changeset_drafts WHERE owner_kind = 'arc'",
             [],
             |r| r.get(0),
         )
         .unwrap();
-    assert_eq!(owner_id, "tugdash/widgets");
+    assert_eq!(owner_id, "tugarc/widgets");
 
     // Show through the raw symlink spelling still finds it.
     let mut show = tug(ledger.path());
-    show.args(["draft", "show", "--owner", "dash:widgets", "--project"]);
+    show.args(["draft", "show", "--owner", "arc:widgets", "--project"]);
     show.arg(&link);
     let (code, stdout, _) = run(show);
     assert_eq!(code, 0);
@@ -782,8 +782,8 @@ fn draft_column(ledger: &Path, column: &str) -> String {
 }
 
 #[test]
-fn draft_set_defaults_the_owner_to_the_dash_it_runs_in() {
-    // Work done on a `tugdash/<name>` branch is the dash's work; naming
+fn draft_set_defaults_the_owner_to_the_arc_it_runs_in() {
+    // Work done on a `tugarc/<name>` branch is the arc's work; naming
     // the owner again on the command line is ceremony the branch already
     // performed.
     let (_repo, root) = init_repo();
@@ -797,7 +797,7 @@ fn draft_set_defaults_the_owner_to_the_dash_it_runs_in() {
             "add",
             "-q",
             "-b",
-            "tugdash/tugcast-perf",
+            "tugarc/tugcast-perf",
             worktree.to_str().unwrap(),
         ],
     );
@@ -807,32 +807,32 @@ fn draft_set_defaults_the_owner_to_the_dash_it_runs_in() {
     set.args(["draft", "set", "--message", "tugcast(perf): stop the burn"]);
     let (code, stdout, err) = run(set);
     assert_eq!(code, 0, "stderr: {err}");
-    assert!(stdout.contains("dash:tugcast-perf"), "{stdout}");
+    assert!(stdout.contains("arc:tugcast-perf"), "{stdout}");
 
-    assert_eq!(draft_column(ledger.path(), "owner_kind"), "dash");
+    assert_eq!(draft_column(ledger.path(), "owner_kind"), "arc");
     assert_eq!(
         draft_column(ledger.path(), "owner_id"),
-        "tugdash/tugcast-perf"
+        "tugarc/tugcast-perf"
     );
 }
 
-/// A dash with a creation id keys its draft row by the owner key, finds a
+/// An arc with a creation id keys its draft row by the owner key, finds a
 /// pre-existing name-keyed row through the fallback, and supersedes it on the
-/// write — so a later dash of the same name inherits nothing ([P01], [P03],
+/// write — so a later arc of the same name inherits nothing ([P01], [P03],
 /// Spec S02).
 #[test]
-fn draft_rows_key_by_the_dash_owner_key_and_supersede_the_legacy_row() {
+fn draft_rows_key_by_the_arc_owner_key_and_supersede_the_legacy_row() {
     let (_repo, root) = init_repo();
     let ledger = seed_ledger(&root);
     git(
         &root,
         &[
             "config",
-            "branch.tugdash/widgets.tugid",
+            "branch.tugarc/widgets.tugid",
             "1723500000000-a1b2c3",
         ],
     );
-    let owner_key = "tugdash/widgets#1723500000000-a1b2c3";
+    let owner_key = "tugarc/widgets#1723500000000-a1b2c3";
 
     // A row an older build wrote, under the bare branch ref.
     let changes = Connection::open(ledger.path().join("changes.db")).unwrap();
@@ -855,14 +855,14 @@ fn draft_rows_key_by_the_dash_owner_key_and_supersede_the_legacy_row() {
         .execute(
             "INSERT INTO changeset_drafts
                 (owner_kind, owner_id, project_dir, fingerprint, message, updated_at, edited)
-             VALUES ('dash', 'tugdash/widgets', ?1, 'fp', 'Legacy message', 1, 1)",
+             VALUES ('arc', 'tugarc/widgets', ?1, 'fp', 'Legacy message', 1, 1)",
             [root.to_string_lossy().to_string()],
         )
         .unwrap();
 
     // `show` reaches it through the legacy-key fallback.
     let mut show = tug(ledger.path());
-    show.args(["draft", "show", "--owner", "dash:widgets"]);
+    show.args(["draft", "show", "--owner", "arc:widgets"]);
     show.args(project_arg(&root));
     let (code, stdout, err) = run(show);
     assert_eq!(code, 0, "stderr: {err}");
@@ -874,7 +874,7 @@ fn draft_rows_key_by_the_dash_owner_key_and_supersede_the_legacy_row() {
         "draft",
         "set",
         "--owner",
-        "dash:widgets",
+        "arc:widgets",
         "--message",
         "Join the widgets work",
     ]);
@@ -885,7 +885,7 @@ fn draft_rows_key_by_the_dash_owner_key_and_supersede_the_legacy_row() {
     assert_eq!(draft_column(ledger.path(), "owner_id"), owner_key);
     let legacy_rows: i64 = changes
         .query_row(
-            "SELECT COUNT(*) FROM changeset_drafts WHERE owner_id = 'tugdash/widgets'",
+            "SELECT COUNT(*) FROM changeset_drafts WHERE owner_id = 'tugarc/widgets'",
             [],
             |r| r.get(0),
         )
@@ -894,17 +894,17 @@ fn draft_rows_key_by_the_dash_owner_key_and_supersede_the_legacy_row() {
 
     // And the id-keyed row reads back.
     let mut show = tug(ledger.path());
-    show.args(["draft", "show", "--owner", "dash:widgets"]);
+    show.args(["draft", "show", "--owner", "arc:widgets"]);
     show.args(project_arg(&root));
     let (code, stdout, _) = run(show);
     assert_eq!(code, 0);
     assert!(stdout.contains("Join the widgets work"), "{stdout}");
 }
 
-/// A repo with a real linked worktree at the conventional dash location, and
-/// the dash's creation id recorded — the shape `dash create` leaves behind.
+/// A repo with a real linked worktree at the conventional arc location, and
+/// the arc's creation id recorded — the shape `arc create` leaves behind.
 /// Returns the worktree path.
-fn add_dash_worktree(root: &Path, name: &str) -> PathBuf {
+fn add_arc_worktree(root: &Path, name: &str) -> PathBuf {
     let worktree = root.join(".tug/worktrees").join(name);
     std::fs::create_dir_all(worktree.parent().unwrap()).unwrap();
     git(
@@ -914,7 +914,7 @@ fn add_dash_worktree(root: &Path, name: &str) -> PathBuf {
             "add",
             "-q",
             "-b",
-            &format!("tugdash/{name}"),
+            &format!("tugarc/{name}"),
             worktree.to_str().unwrap(),
         ],
     );
@@ -922,7 +922,7 @@ fn add_dash_worktree(root: &Path, name: &str) -> PathBuf {
         root,
         &[
             "config",
-            &format!("branch.tugdash/{name}.tugid"),
+            &format!("branch.tugarc/{name}.tugid"),
             "1723500000000-a1b2c3",
         ],
     );
@@ -930,15 +930,15 @@ fn add_dash_worktree(root: &Path, name: &str) -> PathBuf {
 }
 
 /// The defect this contract closes: `arc-implement` runs `tugtool draft set`
-/// from inside the dash worktree, so a cwd-derived project key put every
+/// from inside the arc worktree, so a cwd-derived project key put every
 /// planned run's authored draft under the worktree — while the join reads with
 /// the base repository root in hand. The row could never match, and the landing
 /// committed a message nobody wrote.
 #[test]
-fn a_dash_draft_written_from_the_worktree_keys_by_the_base_root() {
+fn a_arc_draft_written_from_the_worktree_keys_by_the_base_root() {
     let (_repo, root) = init_repo();
     let ledger = seed_ledger(&root);
-    let worktree = add_dash_worktree(&root, "widgets");
+    let worktree = add_arc_worktree(&root, "widgets");
 
     let mut set = tug(ledger.path());
     set.current_dir(&worktree);
@@ -946,7 +946,7 @@ fn a_dash_draft_written_from_the_worktree_keys_by_the_base_root() {
         "draft",
         "set",
         "--owner",
-        "dash:widgets",
+        "arc:widgets",
         "--message",
         "Join the widgets work",
     ]);
@@ -959,44 +959,44 @@ fn a_dash_draft_written_from_the_worktree_keys_by_the_base_root() {
     );
     assert_eq!(
         draft_column(ledger.path(), "owner_id"),
-        "tugdash/widgets#1723500000000-a1b2c3"
+        "tugarc/widgets#1723500000000-a1b2c3"
     );
 }
 
 /// The ordering is load-bearing: `resolve_owner`'s derivation reads the
 /// checked-out branch of the directory it is handed, and only the worktree has
-/// `tugdash/<name>` there. Substituting the base root *before* owner resolution
+/// `tugarc/<name>` there. Substituting the base root *before* owner resolution
 /// would read `main`, and an ownerless `draft set` from inside a worktree —
 /// precisely what `arc-implement` runs — would land on the session instead.
 #[test]
-fn an_ownerless_set_from_the_worktree_still_resolves_the_dash() {
+fn an_ownerless_set_from_the_worktree_still_resolves_the_arc() {
     let (_repo, root) = init_repo();
     let ledger = seed_ledger(&root);
-    let worktree = add_dash_worktree(&root, "widgets");
+    let worktree = add_arc_worktree(&root, "widgets");
 
     let mut set = tug(ledger.path());
     set.current_dir(&worktree);
     set.env("TUG_SESSION_ID", "work");
-    set.args(["draft", "set", "--message", "tugdash(widgets): the round"]);
+    set.args(["draft", "set", "--message", "tugarc(widgets): the round"]);
     let (code, stdout, err) = run(set);
     assert_eq!(code, 0, "stderr: {err}");
-    assert!(stdout.contains("dash:widgets"), "{stdout}");
+    assert!(stdout.contains("arc:widgets"), "{stdout}");
 
-    assert_eq!(draft_column(ledger.path(), "owner_kind"), "dash");
+    assert_eq!(draft_column(ledger.path(), "owner_kind"), "arc");
     assert_eq!(
         draft_column(ledger.path(), "project_dir"),
         root.to_str().unwrap()
     );
 }
 
-/// One authored write retires the dash's pre-fix rows, so the reader's legacy
+/// One authored write retires the arc's pre-fix rows, so the reader's legacy
 /// probe decays to nothing instead of accreting another permanent axis.
 #[test]
-fn a_dash_set_supersedes_the_worktree_keyed_row() {
+fn a_arc_set_supersedes_the_worktree_keyed_row() {
     let (_repo, root) = init_repo();
     let ledger = seed_ledger(&root);
-    let worktree = add_dash_worktree(&root, "widgets");
-    let owner_key = "tugdash/widgets#1723500000000-a1b2c3";
+    let worktree = add_arc_worktree(&root, "widgets");
+    let owner_key = "tugarc/widgets#1723500000000-a1b2c3";
 
     let changes = Connection::open(ledger.path().join("changes.db")).unwrap();
     changes
@@ -1018,7 +1018,7 @@ fn a_dash_set_supersedes_the_worktree_keyed_row() {
         .execute(
             "INSERT INTO changeset_drafts
                 (owner_kind, owner_id, project_dir, fingerprint, message, updated_at, edited)
-             VALUES ('dash', ?1, ?2, 'fp', 'The invisible draft', 1, 1)",
+             VALUES ('arc', ?1, ?2, 'fp', 'The invisible draft', 1, 1)",
             rusqlite::params![owner_key, worktree.to_string_lossy()],
         )
         .unwrap();
@@ -1029,7 +1029,7 @@ fn a_dash_set_supersedes_the_worktree_keyed_row() {
         "draft",
         "set",
         "--owner",
-        "dash:widgets",
+        "arc:widgets",
         "--message",
         "Join the widgets work",
     ]);
@@ -1047,10 +1047,10 @@ fn a_dash_set_supersedes_the_worktree_keyed_row() {
 }
 
 #[test]
-fn a_dash_draft_reads_back_from_either_side_of_the_worktree_boundary() {
+fn a_arc_draft_reads_back_from_either_side_of_the_worktree_boundary() {
     let (_repo, root) = init_repo();
     let ledger = seed_ledger(&root);
-    let worktree = add_dash_worktree(&root, "widgets");
+    let worktree = add_arc_worktree(&root, "widgets");
 
     let mut set = tug(ledger.path());
     set.current_dir(&worktree);
@@ -1058,7 +1058,7 @@ fn a_dash_draft_reads_back_from_either_side_of_the_worktree_boundary() {
         "draft",
         "set",
         "--owner",
-        "dash:widgets",
+        "arc:widgets",
         "--message",
         "Join the widgets work",
     ]);
@@ -1067,21 +1067,21 @@ fn a_dash_draft_reads_back_from_either_side_of_the_worktree_boundary() {
     for dir in [root.as_path(), worktree.as_path()] {
         let mut show = tug(ledger.path());
         show.current_dir(dir);
-        show.args(["draft", "show", "--owner", "dash:widgets"]);
+        show.args(["draft", "show", "--owner", "arc:widgets"]);
         let (code, stdout, err) = run(show);
         assert_eq!(code, 0, "from {dir:?}: {err}");
         assert!(stdout.contains("Join the widgets work"), "{stdout}");
     }
 }
 
-/// The substitution is scoped to dash owners. A session's draft describes the
+/// The substitution is scoped to arc owners. A session's draft describes the
 /// working tree it was typed in, so it stays keyed by that directory even when
 /// the directory happens to be a linked worktree.
 #[test]
 fn a_session_draft_from_a_worktree_stays_keyed_by_the_worktree() {
     let (_repo, root) = init_repo();
     let ledger = seed_ledger(&root);
-    let worktree = add_dash_worktree(&root, "widgets");
+    let worktree = add_arc_worktree(&root, "widgets");
 
     let mut set = tug(ledger.path());
     set.current_dir(&worktree);
@@ -1108,7 +1108,7 @@ fn draft_set_falls_back_to_the_session_then_refuses() {
     let (_repo, root) = init_repo();
     let ledger = seed_ledger(&root);
 
-    // Off a dash branch, the calling session owns the draft.
+    // Off an arc branch, the calling session owns the draft.
     let mut set = tug(ledger.path());
     set.current_dir(&root);
     set.env("TUG_SESSION_ID", "work");
@@ -1125,31 +1125,31 @@ fn draft_set_falls_back_to_the_session_then_refuses() {
     let (code, _, stderr) = run(orphan);
     assert_eq!(code, 1);
     assert!(stderr.contains("--owner"), "{stderr}");
-    assert!(stderr.contains("dash worktree"), "{stderr}");
+    assert!(stderr.contains("arc worktree"), "{stderr}");
     assert!(stderr.contains("TUG_SESSION_ID"), "{stderr}");
 }
 
-// --- dash replay -----------------------------------------------------------
+// --- arc replay -----------------------------------------------------------
 
-/// `dash replay` writes a dash-log line, so every test here redirects
+/// `arc replay` writes an arc log line, so every test here redirects
 /// `project_state_dir` into a tempdir rather than the developer's real one.
-fn tug_dash(db_dir: &Path, state: &Path, repo: &Path) -> Command {
+fn tug_arc(db_dir: &Path, state: &Path, repo: &Path) -> Command {
     let mut cmd = tug(db_dir);
     cmd.env("TUG_DATA_DIR", state);
     cmd.current_dir(repo);
     cmd
 }
 
-/// A dash on `main` with one round of its own, ready to be replayed.
-fn dash_with_a_round(root: &Path, name: &str) -> PathBuf {
-    let worktree = add_dash_worktree(root, name);
+/// An arc on `main` with one round of its own, ready to be replayed.
+fn arc_with_a_round(root: &Path, name: &str) -> PathBuf {
+    let worktree = add_arc_worktree(root, name);
     git(
         root,
-        &["config", &format!("branch.tugdash/{name}.tugbase"), "main"],
+        &["config", &format!("branch.tugarc/{name}.tugbase"), "main"],
     );
-    std::fs::write(worktree.join("dash.rs"), "dash\n").unwrap();
+    std::fs::write(worktree.join("arc.rs"), "arc\n").unwrap();
     git(&worktree, &["add", "-A"]);
-    git(&worktree, &["commit", "-q", "-m", "the dash's own round"]);
+    git(&worktree, &["commit", "-q", "-m", "the arc's own round"]);
     worktree
 }
 
@@ -1160,14 +1160,14 @@ fn advance_main(root: &Path, content: &str) {
 }
 
 #[test]
-fn dash_replay_moves_a_behind_dash_onto_the_new_base_tip() {
+fn arc_replay_moves_a_behind_arc_onto_the_new_base_tip() {
     let (_dir, root) = init_repo();
     let db = seed_ledger(&root);
     let state = tempfile::tempdir().unwrap();
-    let worktree = dash_with_a_round(&root, "demo");
+    let worktree = arc_with_a_round(&root, "demo");
     advance_main(&root, "moved\n");
 
-    let mut cmd = tug_dash(db.path(), state.path(), &root);
+    let mut cmd = tug_arc(db.path(), state.path(), &root);
     cmd.args(["arc", "replay", "demo", "--json"]);
     let (code, stdout, stderr) = run(cmd);
     assert_eq!(code, 0, "stderr: {stderr}");
@@ -1179,7 +1179,7 @@ fn dash_replay_moves_a_behind_dash_onto_the_new_base_tip() {
         "one pair per round"
     );
 
-    // The dash now carries the base's commit under its own round, and the
+    // The arc now carries the base's commit under its own round, and the
     // worktree came along.
     let out = Command::new("git")
         .arg("-C")
@@ -1187,7 +1187,7 @@ fn dash_replay_moves_a_behind_dash_onto_the_new_base_tip() {
         .args(["merge-base", "--is-ancestor", "main", "HEAD"])
         .status()
         .unwrap();
-    assert!(out.success(), "the dash descends from the moved base");
+    assert!(out.success(), "the arc descends from the moved base");
     assert_eq!(
         std::fs::read_to_string(worktree.join("base.rs")).unwrap(),
         "moved\n"
@@ -1195,11 +1195,11 @@ fn dash_replay_moves_a_behind_dash_onto_the_new_base_tip() {
 }
 
 #[test]
-fn dash_replay_records_a_rebase_the_agent_already_made() {
+fn arc_replay_records_a_rebase_the_agent_already_made() {
     let (_dir, root) = init_repo();
     let db = seed_ledger(&root);
     let state = tempfile::tempdir().unwrap();
-    let worktree = dash_with_a_round(&root, "demo");
+    let worktree = arc_with_a_round(&root, "demo");
 
     // A plan whose ledger cell names the pre-rebase round.
     let round = Command::new("git")
@@ -1225,7 +1225,7 @@ fn dash_replay_records_a_rebase_the_agent_already_made() {
     advance_main(&root, "moved\n");
     git(&worktree, &["rebase", "-q", "main"]);
 
-    let mut cmd = tug_dash(db.path(), state.path(), &root);
+    let mut cmd = tug_arc(db.path(), state.path(), &root);
     cmd.args(["arc", "replay", "demo", "--json"]);
     let (code, stdout, stderr) = run(cmd);
     assert_eq!(code, 0, "stderr: {stderr}");
@@ -1241,16 +1241,16 @@ fn dash_replay_records_a_rebase_the_agent_already_made() {
 }
 
 #[test]
-fn dash_replay_reports_a_conflict_and_exits_one_without_moving_anything() {
+fn arc_replay_reports_a_conflict_and_exits_one_without_moving_anything() {
     let (_dir, root) = init_repo();
     let db = seed_ledger(&root);
     let state = tempfile::tempdir().unwrap();
-    let worktree = add_dash_worktree(&root, "demo");
-    git(&root, &["config", "branch.tugdash/demo.tugbase", "main"]);
+    let worktree = add_arc_worktree(&root, "demo");
+    git(&root, &["config", "branch.tugarc/demo.tugbase", "main"]);
     // Both sides rewrite base.rs.
-    std::fs::write(worktree.join("base.rs"), "dash\n").unwrap();
+    std::fs::write(worktree.join("base.rs"), "arc\n").unwrap();
     git(&worktree, &["add", "-A"]);
-    git(&worktree, &["commit", "-q", "-m", "the dash rewrites base"]);
+    git(&worktree, &["commit", "-q", "-m", "the arc rewrites base"]);
     let before = Command::new("git")
         .arg("-C")
         .arg(&worktree)
@@ -1260,13 +1260,13 @@ fn dash_replay_reports_a_conflict_and_exits_one_without_moving_anything() {
     let before = String::from_utf8_lossy(&before.stdout).trim().to_string();
     advance_main(&root, "base-moved\n");
 
-    let mut cmd = tug_dash(db.path(), state.path(), &root);
+    let mut cmd = tug_arc(db.path(), state.path(), &root);
     cmd.args(["arc", "replay", "demo", "--json"]);
     let (code, stdout, stderr) = run(cmd);
     assert_eq!(code, 1, "a conflict is not success; stderr: {stderr}");
     let v = parse(&stdout);
     assert_eq!(v["data"]["outcome"], "conflicted");
-    assert_eq!(v["data"]["round_subject"], "the dash rewrites base");
+    assert_eq!(v["data"]["round_subject"], "the arc rewrites base");
     assert_eq!(v["data"]["paths"][0], "base.rs");
 
     let after = Command::new("git")

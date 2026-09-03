@@ -189,7 +189,7 @@ describe("CardSessionBindingStore – setLineBinding", () => {
   test("re-seats the card on a new session and line, preserving the rest", () => {
     const store = new CardSessionBindingStore();
     store.setBinding("card-1", makeBinding());
-    store.setDashBinding("card-1", { id: "tugdash/demo#1-abc", name: "demo" });
+    store.setArcBinding("card-1", { id: "tugarc/demo#1-abc", name: "demo" });
 
     store.setLineBinding("card-1", "sess-2", "line-2");
 
@@ -198,7 +198,7 @@ describe("CardSessionBindingStore – setLineBinding", () => {
     expect(bound?.lineId).toBe("line-2");
     expect(bound?.workspaceKey).toBe("/work/alpha");
     expect(bound?.projectDir).toBe("/work/alpha");
-    expect(bound?.dash?.name).toBe("demo");
+    expect(bound?.arc?.name).toBe("demo");
   });
 
   test("no-ops on a card with no binding, and on a rebind to the same pair", () => {
@@ -314,7 +314,7 @@ describe("cardSeatedSegment – the card follows the rotation, its address does 
  * names it. Read from the binding, the card is on a line nothing else in the
  * system uses; read through the line store, it is on the line the server means.
  * Driven end to end in `at0504`, where the binding said `a7c0d1ea-…-504` and
- * `dash bind --dry-run` said `fa395c92-…`.
+ * `arc bind --dry-run` said `fa395c92-…`.
  *
  * The **seat** is a different question and has a different answer — announced,
  * not derived — which is why only the line is walked here.

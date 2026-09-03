@@ -1170,7 +1170,7 @@ mod tests {
 
     #[test]
     fn spans_are_char_offsets_on_a_multibyte_line() {
-        // Six chars of accented text and an em-dash precede the hit, but
+        // Six chars of accented text and an em-arc precede the hit, but
         // many more bytes do. Byte offsets would paint the wrong run.
         let line = "héllo wörld — needle here";
         let rows = scan(line, &["needle"], SearchFlags::default());

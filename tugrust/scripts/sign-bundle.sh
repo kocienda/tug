@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # sign-bundle.sh — inside-out signing for Tug.app with per-binary
-# entitlements per [D16] of dash/tug-multi-instance.md.
+# entitlements per [D16] of the multi-instance design record.
 #
 # Replaces the `codesign --deep --force --sign` pattern that used to
 # live in build-app.sh and Justfile recipes. `--deep` is FORBIDDEN

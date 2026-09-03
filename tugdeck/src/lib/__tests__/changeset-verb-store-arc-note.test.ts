@@ -1,7 +1,7 @@
 /**
  * changeset-verb-store — the run's quiet lines (W8 Task 3).
  *
- * Every manipulation of a dash's step list is announced by the verb that made
+ * Every manipulation of an arc's step list is announced by the verb that made
  * it, server-side, so it cannot be forgotten: a run's progression was
  * previously invisible from the card and the only sign was a stuck indicator.
  *
@@ -42,10 +42,10 @@ function harness(): {
 }
 
 const frame = (over: Record<string, unknown> = {}): Record<string, unknown> => ({
-  action: "dash_note",
+  action: "arc_note",
   project_dir: "/proj",
   tug_session_id: SESSION,
-  command: "dash step foo done 1",
+  command: "arc step foo done 1",
   note: "foo: step 1/7 closed (999353ca1)",
   receipt_id: 41,
   ...over,
@@ -56,12 +56,12 @@ beforeEach(() => {
   h = harness();
 });
 
-describe("dash_note", () => {
+describe("arc_note", () => {
   test("a gesture is filed under the session it names, with its row identity", () => {
     h.reply(frame());
     const notes = h.store.arcNotes(SESSION);
     expect(notes.length).toBe(1);
-    expect(notes[0].command).toBe("dash step foo done 1");
+    expect(notes[0].command).toBe("arc step foo done 1");
     expect(notes[0].note).toBe("foo: step 1/7 closed (999353ca1)");
     // Without the row identity the live copy and the copy a later restore
     // replays become two rows for one gesture.

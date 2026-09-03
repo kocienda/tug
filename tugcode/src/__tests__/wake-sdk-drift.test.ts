@@ -4,7 +4,7 @@
  * Pins the contract that `buildWakeStartedMessage` depends on: the
  * SDK's `system/task_notification` event carries the fields tugcode
  * forwards onto the `wake_started` IPC frame
- * (`dash/tugplan-session-wake.md` [R01] / [#spec-wire-frames]).
+ * (the session-wake design record [R01] / [#spec-wire-frames]).
  *
  * **Compile-time pinning** — every field tugcode reads via
  * `buildWakeStartedMessage` is exercised through a typed variable

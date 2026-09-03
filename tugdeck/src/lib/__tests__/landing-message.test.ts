@@ -5,10 +5,10 @@ import { landingMessageLayout, landingMessageParts } from "../landing-message";
 describe("landingMessageParts", () => {
   test("subject, summary paragraph, body", () => {
     const parts = landingMessageParts(
-      "tugdash(x): Answer one menu per entity\n\nThe registry owns the menu now.\nEvery surface mounts it.\n\n- useAnnotationMenu lifted\n- three predicates",
+      "tugarc(x): Answer one menu per entity\n\nThe registry owns the menu now.\nEvery surface mounts it.\n\n- useAnnotationMenu lifted\n- three predicates",
     );
     expect(parts).toEqual({
-      subject: "tugdash(x): Answer one menu per entity",
+      subject: "tugarc(x): Answer one menu per entity",
       summary: "The registry owns the menu now. Every surface mounts it.",
       body: "- useAnnotationMenu lifted\n- three predicates",
     });
@@ -24,7 +24,7 @@ describe("landingMessageParts", () => {
   });
 
   test("a bare subject", () => {
-    expect(landingMessageParts("Dash work")).toEqual({ subject: "Dash work", summary: "", body: "" });
+    expect(landingMessageParts("Arc work")).toEqual({ subject: "Arc work", summary: "", body: "" });
     expect(landingMessageParts("")).toEqual({ subject: "", summary: "", body: "" });
   });
 

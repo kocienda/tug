@@ -30,8 +30,8 @@
  * ## The fixture
  *
  * The join scratch repo with a clean merge and a trivial resolver, so the arc
- * runs at git speed and the dash is genuinely landable. The card is never
- * asked to open Changes: a bound dash that goes ready fronts the route by
+ * runs at git speed and the arc is genuinely landable. The card is never
+ * asked to open Changes: a bound arc that goes ready fronts the route by
  * itself (at0445), and this file rides that entry rather than performing its
  * own — which is also what makes the register's presence here unstaged.
  *
@@ -57,19 +57,19 @@ import {
   seedTugbankForLaunch,
 } from "./_harness/tugbank-helpers";
 import {
-  bindDash,
+  bindArc,
   makeJoinScratchRepo,
   rmJoinScratchRepo,
   rmScratchSession,
   seedScratchSession,
   type JoinScratchRepo,
-} from "./dash-fixture";
+} from "./arc-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 420_000;
 
 const SID = "a7c0d1ea-0000-4000-8000-000000000472";
-const DASH = "at0472-work";
+const ARC = "at0472-work";
 const FILE = "subject.txt";
 
 const CARD = '[data-card-id="A"]';
@@ -98,13 +98,13 @@ beforeAll(() => {
   if (!SHOULD_RUN) return;
   scratch = makeJoinScratchRepo({
     prefix: "at0472",
-    dash: DASH,
+    arc: ARC,
     description: "at0472 live-edge register fixture",
     checkout: CHECKOUT,
     file: FILE,
     fork: "at0472 the file at the fork\n",
     base: "at0472 SENTINEL the base's own file\n",
-    dashBody: "at0472 SENTINEL the dash rewrote it\n",
+    arcBody: "at0472 SENTINEL the arc rewrote it\n",
     cleanMerge: true,
     resolver: "#!/bin/sh\nexit 0\n",
   });
@@ -180,7 +180,7 @@ describe.skipIf(!SHOULD_RUN)("AT0472: landing progress is transcript ink", () =>
         // The bind is the whole gesture. The pilot reconciles it, the offer
         // stands, and the card fronts the Changes route on its own — which is
         // what enters join mode, and the register follows the mode.
-        bindDash(projectDir(), DASH, SID, scratch?.cli ?? {});
+        bindArc(projectDir(), ARC, SID, scratch?.cli ?? {});
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(LIVE_REGISTER)}) !== null`,
           { timeoutMs: 240000 },
@@ -202,7 +202,7 @@ describe.skipIf(!SHOULD_RUN)("AT0472: landing progress is transcript ink", () =>
         ).toBe(0);
         // Nowhere in the composer at all, not merely outside its status row:
         // the register left that component, it did not move within it. (The
-        // Changes shade's own dash row still carries one — that mount is not
+        // Changes shade's own arc row still carries one — that mount is not
         // this file's subject and is deliberately untouched.)
         expect(
           await app.evalJS<number>(
@@ -276,9 +276,9 @@ describe.skipIf(!SHOULD_RUN)("AT0472: landing progress is transcript ink", () =>
         await settle();
         await app.nativeKey("a", ["cmd"]);
         await app.nativeKey("Delete");
-        await app.nativeType("at0472: land this dash");
+        await app.nativeType("at0472: land this arc");
         await app.waitForCondition<boolean>(
-          `(document.querySelector(${JSON.stringify(EDITOR)})?.textContent ?? "").indexOf("land this dash") !== -1`,
+          `(document.querySelector(${JSON.stringify(EDITOR)})?.textContent ?? "").indexOf("land this arc") !== -1`,
           { timeoutMs: 8000 },
         );
         const before = baseTip();

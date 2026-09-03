@@ -19,18 +19,21 @@ pub struct Config {
 pub struct TugConfig {
     /// Arc settings.
     #[serde(default)]
-    pub dash: ArcConfig,
+    pub arc: ArcConfig,
+
+    /// The retired `[tugtool.dash]` table, bound only so the loader can see it
+    /// and refuse. Nothing reads its value: a project whose declarations are
+    /// still under the old key would look configured while declaring nothing
+    /// this build reads, so it is a refusal rather than a silent default.
+    #[serde(default, rename = "dash")]
+    pub retired_dash: Option<toml::Value>,
 }
 
 /// Arc configuration.
-///
-/// The TOML table it deserializes from stays `[tugtool.dash]` — a key every
-/// project's own `.tugtool/config.toml` has already written down, so renaming
-/// it would be a migration rather than a rename ([P05]).
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ArcConfig {
     /// Shell commands run from the new worktree root immediately after
-    /// `dash create` adds it — e.g. `bun install --cwd tugdeck`. A git
+    /// `arc create` adds it — e.g. `bun install --cwd tugdeck`. A git
     /// worktree never inherits gitignored files, so deps are always absent in
     /// a fresh worktree; this hydrates it. A non-zero exit rolls the new
     /// worktree+branch back and fails `create`.
@@ -46,7 +49,7 @@ pub struct ArcConfig {
     pub retired_verify: Option<String>,
 
     /// The surfaces this project is made of: what each claims, and what
-    /// checking it means. `tugtool arc verify` resolves every path a dash
+    /// checking it means. `tugtool arc verify` resolves every path an arc
     /// would land to exactly one of these, refuses when a path resolves to
     /// none, and runs what the matched surfaces declare. An empty table is the
     /// declared-none state, not an error.
@@ -104,7 +107,7 @@ pub struct ArcConfig {
 
 /// One surface of a project: the paths it claims, and what checking it means.
 ///
-/// Declared as `[[tugtool.dash.surface]]` in `.tugtool/config.toml`. A surface
+/// Declared as `[[tugtool.arc.surface]]` in `.tugtool/config.toml`. A surface
 /// either declares its own `check` commands, borrows another surface's with
 /// `checked_by`, or declares neither — `check = []` being the claim that these
 /// paths are accounted for and there is nothing to run.
@@ -157,7 +160,7 @@ pub const ARC_STALL_SECS_DEFAULT: u64 = 1_800;
 impl ArcConfig {
     /// The compaction threshold to actually use: the declaration, or the
     /// default. The default lives at the consumer rather than in the parse so
-    /// `dash config` can still report honestly that nothing was declared.
+    /// `arc config` can still report honestly that nothing was declared.
     pub fn compact_tokens(&self) -> u64 {
         self.implement_compact_tokens
             .unwrap_or(IMPLEMENT_COMPACT_TOKENS_DEFAULT)
@@ -177,15 +180,15 @@ impl ArcConfig {
 ///
 /// It lives here rather than beside `tugtool init` so the template has one
 /// home; two copies would be two contracts free to drift.
-pub const DEFAULT_CONFIG: &str = r#"[tugtool.dash]
-# Commands run from a new dash worktree to hydrate it (deps, etc.).
+pub const DEFAULT_CONFIG: &str = r#"[tugtool.arc]
+# Commands run from a new arc worktree to hydrate it (deps, etc.).
 # A git worktree never inherits gitignored files, so these install what a
 # fresh checkout lacks. A non-zero exit rolls the worktree back.
 post_create = []
 # post_create = ["npm install"]
 
-# The surfaces this project is made of. `tugtool arc verify <dash>` resolves
-# every path the dash would land to the surface declaring the longest matching
+# The surfaces this project is made of. `tugtool arc verify <arc>` resolves
+# every path the arc would land to the surface declaring the longest matching
 # path, and refuses — naming the paths — when one resolves to no surface. An
 # empty table declares none: the ending falls back to the plan's own checkpoint
 # commands over what the replay moved.
@@ -195,12 +198,12 @@ post_create = []
 # touched paths, shell-quoted. `check = []` claims the paths and runs nothing.
 # `checked_by` borrows another surface's commands, one level deep.
 #
-# [[tugtool.dash.surface]]
+# [[tugtool.arc.surface]]
 # name  = "src"
 # paths = ["src/"]
 # check = ["make check"]
 #
-# [[tugtool.dash.surface]]
+# [[tugtool.arc.surface]]
 # name  = "docs"
 # paths = ["README.md", "doc/"]
 # check = []
@@ -232,6 +235,8 @@ post_create = []
 pub enum ConfigRefusal {
     /// The retired `verify` key, which a surface table replaces.
     RetiredVerify(String),
+    /// The retired `[tugtool.dash]` table, which `[tugtool.arc]` replaces.
+    RetiredDashTable,
     /// A surface with an empty `name`.
     EmptyName,
     /// Two surfaces sharing a `name`.
@@ -260,10 +265,14 @@ impl std::fmt::Display for ConfigRefusal {
         match self {
             Self::RetiredVerify(value) => write!(
                 f,
-                "[tugtool.dash].verify is retired (declared as {value:?}) — declare \
-                 [[tugtool.dash.surface]] entries instead, and run `tugtool arc verify <dash>`"
+                "[tugtool.arc].verify is retired (declared as {value:?}) — declare \
+                 [[tugtool.arc.surface]] entries instead, and run `tugtool arc verify <arc>`"
             ),
-            Self::EmptyName => f.write_str("a [[tugtool.dash.surface]] declares an empty name"),
+            Self::RetiredDashTable => f.write_str(
+                "[tugtool.dash] is retired — the table is [tugtool.arc] now, and its values \
+                 are not read until it is renamed",
+            ),
+            Self::EmptyName => f.write_str("a [[tugtool.arc.surface]] declares an empty name"),
             Self::DuplicateName(name) => {
                 write!(f, "two surfaces are both named {name:?}")
             }
@@ -298,6 +307,18 @@ impl std::fmt::Display for ConfigRefusal {
                 write!(f, "surface {name:?} declares itself in its own checked_by")
             }
         }
+    }
+}
+
+impl TugConfig {
+    /// Check the table the arc declarations live under, then the declarations
+    /// themselves. A config still carrying `[tugtool.dash]` is refused here
+    /// rather than read: its values reach nothing this build looks at.
+    pub fn validate(&self) -> Result<(), ConfigRefusal> {
+        if self.retired_dash.is_some() {
+            return Err(ConfigRefusal::RetiredDashTable);
+        }
+        self.arc.validate()
     }
 }
 
@@ -386,7 +407,6 @@ impl Config {
             .map_err(|e| TugError::Config(format!("failed to parse config file: {}", e)))?;
         config
             .tugtool
-            .dash
             .validate()
             .map_err(|e| TugError::Config(format!("{}: {}", path.display(), e)))?;
         Ok(config)
@@ -450,62 +470,62 @@ mod tests {
         let cases: &[(&str, &str, &[&str])] = &[
             (
                 "the retired verify key",
-                "[tugtool.dash]\nverify = \"sh scripts/check.sh {base} {head}\"\n",
-                &["verify", "[[tugtool.dash.surface]]"],
+                "[tugtool.arc]\nverify = \"sh scripts/check.sh {base} {head}\"\n",
+                &["verify", "[[tugtool.arc.surface]]"],
             ),
             (
                 "an empty name",
-                "[[tugtool.dash.surface]]\nname = \"\"\npaths = [\"src/\"]\n",
+                "[[tugtool.arc.surface]]\nname = \"\"\npaths = [\"src/\"]\n",
                 &["empty name"],
             ),
             (
                 "two surfaces sharing a name",
-                "[[tugtool.dash.surface]]\nname = \"a\"\npaths = [\"x/\"]\n\n[[tugtool.dash.surface]]\nname = \"a\"\npaths = [\"y/\"]\n",
+                "[[tugtool.arc.surface]]\nname = \"a\"\npaths = [\"x/\"]\n\n[[tugtool.arc.surface]]\nname = \"a\"\npaths = [\"y/\"]\n",
                 &["\"a\""],
             ),
             (
                 "no paths at all",
-                "[[tugtool.dash.surface]]\nname = \"a\"\npaths = []\n",
+                "[[tugtool.arc.surface]]\nname = \"a\"\npaths = []\n",
                 &["\"a\"", "no paths"],
             ),
             (
                 "an empty path string",
-                "[[tugtool.dash.surface]]\nname = \"a\"\npaths = [\"\"]\n",
+                "[[tugtool.arc.surface]]\nname = \"a\"\npaths = [\"\"]\n",
                 &["\"a\""],
             ),
             (
                 "an absolute path",
-                "[[tugtool.dash.surface]]\nname = \"a\"\npaths = [\"/etc/\"]\n",
+                "[[tugtool.arc.surface]]\nname = \"a\"\npaths = [\"/etc/\"]\n",
                 &["\"a\"", "/etc/"],
             ),
             (
                 "a path escaping the root",
-                "[[tugtool.dash.surface]]\nname = \"a\"\npaths = [\"../elsewhere/\"]\n",
+                "[[tugtool.arc.surface]]\nname = \"a\"\npaths = [\"../elsewhere/\"]\n",
                 &["\"a\"", "../elsewhere/"],
             ),
             (
                 "a glob",
-                "[[tugtool.dash.surface]]\nname = \"a\"\npaths = [\"src/*.rs\"]\n",
+                "[[tugtool.arc.surface]]\nname = \"a\"\npaths = [\"src/*.rs\"]\n",
                 &["\"a\"", "src/*.rs"],
             ),
             (
                 "two surfaces claiming the same path",
-                "[[tugtool.dash.surface]]\nname = \"a\"\npaths = [\"src/\"]\n\n[[tugtool.dash.surface]]\nname = \"b\"\npaths = [\"src/\"]\n",
+                "[[tugtool.arc.surface]]\nname = \"a\"\npaths = [\"src/\"]\n\n[[tugtool.arc.surface]]\nname = \"b\"\npaths = [\"src/\"]\n",
                 &["\"a\"", "\"b\"", "src/"],
             ),
             (
                 "a checked_by naming nothing",
-                "[[tugtool.dash.surface]]\nname = \"a\"\npaths = [\"x/\"]\nchecked_by = [\"ghost\"]\n",
+                "[[tugtool.arc.surface]]\nname = \"a\"\npaths = [\"x/\"]\nchecked_by = [\"ghost\"]\n",
                 &["\"a\"", "ghost"],
             ),
             (
                 "a checked_by naming a borrower",
-                "[[tugtool.dash.surface]]\nname = \"a\"\npaths = [\"x/\"]\nchecked_by = [\"b\"]\n\n[[tugtool.dash.surface]]\nname = \"b\"\npaths = [\"y/\"]\nchecked_by = [\"c\"]\n\n[[tugtool.dash.surface]]\nname = \"c\"\npaths = [\"z/\"]\ncheck = [\"true\"]\n",
+                "[[tugtool.arc.surface]]\nname = \"a\"\npaths = [\"x/\"]\nchecked_by = [\"b\"]\n\n[[tugtool.arc.surface]]\nname = \"b\"\npaths = [\"y/\"]\nchecked_by = [\"c\"]\n\n[[tugtool.arc.surface]]\nname = \"c\"\npaths = [\"z/\"]\ncheck = [\"true\"]\n",
                 &["\"a\"", "\"b\"", "one level"],
             ),
             (
                 "a surface borrowing itself",
-                "[[tugtool.dash.surface]]\nname = \"a\"\npaths = [\"x/\"]\nchecked_by = [\"a\"]\n",
+                "[[tugtool.arc.surface]]\nname = \"a\"\npaths = [\"x/\"]\nchecked_by = [\"a\"]\n",
                 &["\"a\""],
             ),
         ];
@@ -515,7 +535,7 @@ mod tests {
                 toml::from_str(toml_text).unwrap_or_else(|e| panic!("{label} should parse: {e}"));
             let refusal = config
                 .tugtool
-                .dash
+                .arc
                 .validate()
                 .expect_err(&format!("{label} must be refused"));
             let message = refusal.to_string();
@@ -529,12 +549,12 @@ mod tests {
 
         // The neighbour: everything the cases above got wrong, done right.
         let legal: Config = toml::from_str(
-            "[tugtool.dash]\npost_create = []\n\n[[tugtool.dash.surface]]\nname = \"a\"\npaths = [\"src/\", \"README.md\"]\ncheck = [\"make check\"]\n\n[[tugtool.dash.surface]]\nname = \"b\"\npaths = [\"proto/\"]\nchecked_by = [\"a\"]\n",
+            "[tugtool.arc]\npost_create = []\n\n[[tugtool.arc.surface]]\nname = \"a\"\npaths = [\"src/\", \"README.md\"]\ncheck = [\"make check\"]\n\n[[tugtool.arc.surface]]\nname = \"b\"\npaths = [\"proto/\"]\nchecked_by = [\"a\"]\n",
         )
         .expect("the legal neighbour should parse");
         legal
             .tugtool
-            .dash
+            .arc
             .validate()
             .expect("the legal neighbour must still load");
     }
@@ -544,20 +564,20 @@ mod tests {
     #[test]
     fn overlapping_prefixes_are_legal_and_identical_ones_are_not() {
         let overlapping: Config = toml::from_str(
-            "[[tugtool.dash.surface]]\nname = \"deck\"\npaths = [\"tugdeck/\"]\ncheck = [\"tsc\"]\n\n[[tugtool.dash.surface]]\nname = \"wasm\"\npaths = [\"tugdeck/crates/\"]\ncheck = [\"just wasm\"]\n",
+            "[[tugtool.arc.surface]]\nname = \"deck\"\npaths = [\"tugdeck/\"]\ncheck = [\"tsc\"]\n\n[[tugtool.arc.surface]]\nname = \"wasm\"\npaths = [\"tugdeck/crates/\"]\ncheck = [\"just wasm\"]\n",
         )
         .unwrap();
         overlapping
             .tugtool
-            .dash
+            .arc
             .validate()
             .expect("a longer prefix shadowing a shorter one is legal");
 
         let identical: Config = toml::from_str(
-            "[[tugtool.dash.surface]]\nname = \"deck\"\npaths = [\"tugdeck/\"]\n\n[[tugtool.dash.surface]]\nname = \"other\"\npaths = [\"tugdeck/\"]\n",
+            "[[tugtool.arc.surface]]\nname = \"deck\"\npaths = [\"tugdeck/\"]\n\n[[tugtool.arc.surface]]\nname = \"other\"\npaths = [\"tugdeck/\"]\n",
         )
         .unwrap();
-        assert!(identical.tugtool.dash.validate().is_err());
+        assert!(identical.tugtool.arc.validate().is_err());
     }
 
     /// A config file that declares the retired key does not merely fail an
@@ -569,14 +589,14 @@ mod tests {
         fs::create_dir_all(root.join(".tugtool")).unwrap();
         fs::write(
             root.join(".tugtool/config.toml"),
-            "[tugtool.dash]\nverify = \"sh scripts/check.sh {base} {head}\"\n",
+            "[tugtool.arc]\nverify = \"sh scripts/check.sh {base} {head}\"\n",
         )
         .unwrap();
 
         let err = Config::load_from_project(root).expect_err("the retired key must refuse");
         let message = err.to_string();
         assert!(
-            message.contains("[[tugtool.dash.surface]]"),
+            message.contains("[[tugtool.arc.surface]]"),
             "the refusal must point at the replacement: {message}"
         );
     }
@@ -587,8 +607,8 @@ mod tests {
     fn a_missing_config_file_is_the_empty_table_and_no_error() {
         let tmp = tempfile::tempdir().unwrap();
         let config = Config::load_from_project(tmp.path()).expect("a missing file is not an error");
-        assert!(config.tugtool.dash.surfaces.is_empty());
-        assert!(config.tugtool.dash.retired_verify.is_none());
+        assert!(config.tugtool.arc.surfaces.is_empty());
+        assert!(config.tugtool.arc.retired_verify.is_none());
     }
 
     /// The template a fresh project starts from must itself survive the
@@ -599,12 +619,12 @@ mod tests {
             toml::from_str(DEFAULT_CONFIG).expect("the template must be valid TOML");
         config
             .tugtool
-            .dash
+            .arc
             .validate()
             .expect("the template must validate clean");
-        assert!(config.tugtool.dash.surfaces.is_empty());
+        assert!(config.tugtool.arc.surfaces.is_empty());
         assert!(
-            DEFAULT_CONFIG.contains("[[tugtool.dash.surface]]"),
+            DEFAULT_CONFIG.contains("[[tugtool.arc.surface]]"),
             "the template must document the surface table"
         );
         for placeholder in ["{base}", "{head}", "{paths}"] {
@@ -621,7 +641,7 @@ mod tests {
     /// This repository's own committed config, through the real loader.
     ///
     /// Cheap, and it catches a hand-edit typo at commit time rather than at the
-    /// next dash's ending — which is the moment a config that will not load is
+    /// next arc's ending — which is the moment a config that will not load is
     /// most expensive and least expected.
     #[test]
     fn this_repositorys_own_config_loads_and_validates() {
@@ -636,15 +656,80 @@ mod tests {
             // A checkout without one is not this repository; nothing to assert.
             return;
         }
-        let config = Config::load(&config_path)
+        // Transitional, for the length of the arc that renamed this table:
+        // this checkout's own file stays under the retired `[tugtool.dash]` so
+        // the installed engine driving that arc keeps reading the project's
+        // surfaces and stage models. The hand-edit typo this test exists to
+        // catch lives in the declarations rather than in the table's name, so
+        // the declarations are read under the name this build knows.
+        let text = fs::read_to_string(&config_path)
+            .expect("this repository's committed config must be readable")
+            .replace("[tugtool.dash]", "[tugtool.arc]")
+            .replace("[[tugtool.dash.surface]]", "[[tugtool.arc.surface]]");
+        let staged = tempfile::tempdir().unwrap();
+        let staged_path = staged.path().join("config.toml");
+        fs::write(&staged_path, text).unwrap();
+        let config = Config::load(&staged_path)
             .expect("this repository's committed config must load through the real loader");
         assert!(
-            !config.tugtool.dash.surfaces.is_empty(),
+            !config.tugtool.arc.surfaces.is_empty(),
             "this repository declares its surfaces"
         );
         assert!(
-            config.tugtool.dash.retired_verify.is_none(),
+            config.tugtool.arc.retired_verify.is_none(),
             "the retired key would make this config unloadable"
+        );
+    }
+
+    /// The retired `[tugtool.dash]` table is refused rather than ignored.
+    ///
+    /// Ignoring it would be the worst of the three outcomes: a project whose
+    /// hydration, surfaces and stage models are all still under the old key
+    /// would read as a project that declared none of them, and every one of
+    /// those absences is silent at the moment it matters.
+    #[test]
+    fn the_retired_dash_table_is_refused_and_its_values_are_not_read() {
+        let toml_text = "[tugtool.dash]\npost_create = [\"echo hi\"]\nbuild = \"make app\"\n\n[[tugtool.dash.surface]]\nname = \"src\"\npaths = [\"src/\"]\ncheck = [\"make check\"]\n";
+        let config: Config = toml::from_str(toml_text).expect("the old shape still parses");
+
+        let refusal = config
+            .tugtool
+            .validate()
+            .expect_err("the retired table must be refused");
+        assert_eq!(refusal, ConfigRefusal::RetiredDashTable);
+        let message = refusal.to_string();
+        for table in ["[tugtool.dash]", "[tugtool.arc]"] {
+            assert!(
+                message.contains(table),
+                "the refusal must name both tables: {message}"
+            );
+        }
+
+        // And nothing under the old key reached the arc declarations, so a
+        // refusal that somebody worked around would not silently run them.
+        assert!(config.tugtool.arc.post_create.is_empty());
+        assert!(config.tugtool.arc.surfaces.is_empty());
+        assert!(config.tugtool.arc.build.is_none());
+    }
+
+    /// The refusal reaches the real loader, which is where `run_post_create`
+    /// and every other consumer gets its config from.
+    #[test]
+    fn a_project_under_the_retired_table_does_not_load() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        fs::create_dir_all(root.join(".tugtool")).unwrap();
+        fs::write(
+            root.join(".tugtool/config.toml"),
+            "[tugtool.dash]\npost_create = [\"touch ran.sentinel\"]\n",
+        )
+        .unwrap();
+
+        let err = Config::load_from_project(root).expect_err("the retired table must refuse");
+        let message = err.to_string();
+        assert!(
+            message.contains("[tugtool.dash]") && message.contains("[tugtool.arc]"),
+            "the refusal must name both tables: {message}"
         );
     }
 
@@ -652,75 +737,75 @@ mod tests {
     /// ignores unknown keys, so nobody has to edit a config file to upgrade.
     #[test]
     fn a_stale_docs_key_is_ignored() {
-        let config: Config = toml::from_str("[tugtool.dash]\ndocs = \"dash\"\n")
+        let config: Config = toml::from_str("[tugtool.arc]\ndocs = \"arc\"\n")
             .expect("a config carrying a retired key still parses");
-        assert!(config.tugtool.dash.build.is_none());
+        assert!(config.tugtool.arc.build.is_none());
     }
 
     #[test]
     fn test_default_config() {
         let config = Config::default();
-        assert!(config.tugtool.dash.post_create.is_empty());
+        assert!(config.tugtool.arc.post_create.is_empty());
     }
 
     #[test]
-    fn dash_declarations_parse() {
-        let toml = "[tugtool.dash]\npost_create = [\"bun install\"]\nbuild = \"just app-debug\"\n\n[[tugtool.dash.surface]]\nname = \"deck\"\npaths = [\"tugdeck/\"]\ncheck = [\"bunx tsc --noEmit\"]\n";
+    fn arc_declarations_parse() {
+        let toml = "[tugtool.arc]\npost_create = [\"bun install\"]\nbuild = \"just app-debug\"\n\n[[tugtool.arc.surface]]\nname = \"deck\"\npaths = [\"tugdeck/\"]\ncheck = [\"bunx tsc --noEmit\"]\n";
         let config: Config = toml::from_str(toml).expect("declaring config should parse");
-        assert_eq!(config.tugtool.dash.build.as_deref(), Some("just app-debug"));
-        let surfaces = &config.tugtool.dash.surfaces;
+        assert_eq!(config.tugtool.arc.build.as_deref(), Some("just app-debug"));
+        let surfaces = &config.tugtool.arc.surfaces;
         assert_eq!(surfaces.len(), 1);
         assert_eq!(surfaces[0].name, "deck");
         assert_eq!(surfaces[0].paths, vec!["tugdeck/".to_string()]);
         assert_eq!(surfaces[0].check, vec!["bunx tsc --noEmit".to_string()]);
         assert!(surfaces[0].checked_by.is_empty());
-        config.tugtool.dash.validate().expect("a legal table loads");
+        config.tugtool.arc.validate().expect("a legal table loads");
     }
 
     #[test]
-    fn dash_declarations_default_to_none() {
+    fn arc_declarations_default_to_none() {
         // A project that declares only hydration leaves the ending undeclared.
-        let toml = "[tugtool.dash]\npost_create = [\"echo hi\"]\n";
+        let toml = "[tugtool.arc]\npost_create = [\"echo hi\"]\n";
         let config: Config = toml::from_str(toml).expect("partial config should parse");
-        assert!(config.tugtool.dash.surfaces.is_empty());
-        assert!(config.tugtool.dash.build.is_none());
+        assert!(config.tugtool.arc.surfaces.is_empty());
+        assert!(config.tugtool.arc.build.is_none());
 
-        // So does a project with no dash table at all.
+        // So does a project with no arc table at all.
         let empty: Config = toml::from_str("").expect("empty config should parse");
-        assert!(empty.tugtool.dash.surfaces.is_empty());
-        assert!(empty.tugtool.dash.build.is_none());
+        assert!(empty.tugtool.arc.surfaces.is_empty());
+        assert!(empty.tugtool.arc.build.is_none());
     }
 
     #[test]
     fn stage_declarations_parse() {
-        let toml = "[tugtool.dash]\ndevise_model = \"sonnet\"\nreview_model = \"opus\"\nimplement_model = \"fable\"\nimplement_compact_tokens = 120000\n";
+        let toml = "[tugtool.arc]\ndevise_model = \"sonnet\"\nreview_model = \"opus\"\nimplement_model = \"fable\"\nimplement_compact_tokens = 120000\n";
         let config: Config = toml::from_str(toml).expect("declaring stage models should parse");
-        let dash = &config.tugtool.dash;
-        assert_eq!(dash.devise_model.as_deref(), Some("sonnet"));
-        assert_eq!(dash.review_model.as_deref(), Some("opus"));
-        assert_eq!(dash.implement_model.as_deref(), Some("fable"));
-        assert_eq!(dash.implement_compact_tokens, Some(120_000));
-        assert_eq!(dash.compact_tokens(), 120_000);
+        let arc = &config.tugtool.arc;
+        assert_eq!(arc.devise_model.as_deref(), Some("sonnet"));
+        assert_eq!(arc.review_model.as_deref(), Some("opus"));
+        assert_eq!(arc.implement_model.as_deref(), Some("fable"));
+        assert_eq!(arc.implement_compact_tokens, Some(120_000));
+        assert_eq!(arc.compact_tokens(), 120_000);
     }
 
     #[test]
     fn stage_declarations_default_to_none_and_the_threshold_to_the_consumer() {
-        // Undeclared stays `None` in the parse — that is what lets `dash
+        // Undeclared stays `None` in the parse — that is what lets `arc
         // config` report honestly that the project chose nothing — and the
         // default is applied where the value is used.
-        let silent: Config = toml::from_str("[tugtool.dash]\npost_create = []\n").unwrap();
-        let dash = &silent.tugtool.dash;
-        assert!(dash.devise_model.is_none());
-        assert!(dash.review_model.is_none());
-        assert!(dash.implement_model.is_none());
-        assert!(dash.implement_compact_tokens.is_none());
-        assert_eq!(dash.compact_tokens(), IMPLEMENT_COMPACT_TOKENS_DEFAULT);
+        let silent: Config = toml::from_str("[tugtool.arc]\npost_create = []\n").unwrap();
+        let arc = &silent.tugtool.arc;
+        assert!(arc.devise_model.is_none());
+        assert!(arc.review_model.is_none());
+        assert!(arc.implement_model.is_none());
+        assert!(arc.implement_compact_tokens.is_none());
+        assert_eq!(arc.compact_tokens(), IMPLEMENT_COMPACT_TOKENS_DEFAULT);
         assert_eq!(IMPLEMENT_COMPACT_TOKENS_DEFAULT, 300_000);
 
-        // So does a project with no dash table at all.
+        // So does a project with no arc table at all.
         let empty: Config = toml::from_str("").unwrap();
         assert_eq!(
-            empty.tugtool.dash.compact_tokens(),
+            empty.tugtool.arc.compact_tokens(),
             IMPLEMENT_COMPACT_TOKENS_DEFAULT
         );
     }
@@ -731,7 +816,7 @@ mod tests {
             toml::from_str(DEFAULT_CONFIG).expect("the template must be valid TOML");
         // The template documents the keys as comments, so a project starting
         // from it declares none of them.
-        assert!(config.tugtool.dash.devise_model.is_none());
+        assert!(config.tugtool.arc.devise_model.is_none());
         for key in [
             "devise_model",
             "review_model",
@@ -748,9 +833,9 @@ mod tests {
     #[test]
     fn test_unknown_keys_are_ignored() {
         // Stale checkouts carry the old validation fields; they must still parse.
-        let toml = "[tugtool]\nvalidation_level = \"strict\"\nshow_info = true\n\n[tugtool.dash]\npost_create = [\"echo hi\"]\n";
+        let toml = "[tugtool]\nvalidation_level = \"strict\"\nshow_info = true\n\n[tugtool.arc]\npost_create = [\"echo hi\"]\n";
         let config: Config = toml::from_str(toml).expect("legacy config should still parse");
-        assert_eq!(config.tugtool.dash.post_create, vec!["echo hi".to_string()]);
+        assert_eq!(config.tugtool.arc.post_create, vec!["echo hi".to_string()]);
     }
 
     /// A project that declares nothing has no `.tugtool/`; its git root is
@@ -765,7 +850,7 @@ mod tests {
         let found = find_project_root_from(root.join("src/deep")).expect("a root");
         assert_eq!(found, root);
         let config = Config::load_from_project(&found).expect("defaults");
-        assert!(config.tugtool.dash.build.is_none());
+        assert!(config.tugtool.arc.build.is_none());
 
         fs::create_dir_all(root.join("src/.tugtool")).expect(".tugtool");
         let found = find_project_root_from(root.join("src/deep")).expect("a root");

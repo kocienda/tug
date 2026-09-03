@@ -1,6 +1,6 @@
 /**
  * KBF mode — pure-logic tests for the engagement derivation (Spec S01 of
- * `dash/kbf-mode.md`).
+ * `arc/kbf-mode.md`).
  *
  * The mode bit is *derived*, never latched: every read of `kbfEngaged()`
  * recomputes from four inputs — accessibility mode (Class C), the manual ⌥⇥

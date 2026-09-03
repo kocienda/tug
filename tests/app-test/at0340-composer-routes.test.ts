@@ -24,7 +24,7 @@
  *      chords, the tab, and Escape.
  *   4. Draft stash-and-restore: a typed prompt survives Prompt → Changes →
  *      Prompt verbatim, and the composer holds the commit message in between.
- *   5. The same door on a card mated to a dash opens the *other* landing:
+ *   5. The same door on a card mated to an arc opens the *other* landing:
  *      ⌃⌘C raises the shade with the route reading `changes` and the Z5 button
  *      reading `Join`. One room, two acts.
  *
@@ -39,6 +39,7 @@
  * @covers tugdeck/src/lib/commit-mode-controller.ts
  * @covers tugdeck/src/lib/join-mode-controller.ts
  * @covers tugdeck/src/lib/slash-commands.ts
+ * @covers tugdeck/src/lib/slash-supported.ts
  * @covers tugdeck/src/components/tugways/action-vocabulary.ts
  * @covers tugdeck/src/components/tugways/cards/session-card.tsx
  * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-arc-lane.tsx
@@ -56,13 +57,13 @@ import {
 } from "./_harness/tugbank-helpers";
 import {
   commitRound,
-  createDash,
-  makeDashScratchRepo,
-  rmDashScratchRepo,
+  createArc,
+  makeArcScratchRepo,
+  rmArcScratchRepo,
   rmScratchSession,
   seedScratchSession,
-  type DashScratchRepo,
-} from "./dash-fixture";
+  type ArcScratchRepo,
+} from "./arc-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
@@ -81,15 +82,15 @@ const DRAFT = "explain the parser to me";
 /** The Z5 land button — its accessible name is the landing's own verb. */
 const LAND_BUTTON = `${CARD} .tug-prompt-entry-commit-button`;
 
-/** The bound case needs a real dash, so it runs against the real repo. */
-/** This checkout — the build under test, and never the tree a dash is cut in. */
+/** The bound case needs a real arc, so it runs against the real repo. */
+/** This checkout — the build under test, and never the tree an arc is cut in. */
 const CHECKOUT = realpathSync(resolve(import.meta.dir, "..", ".."));
-const DASH = "at0340-changes-door";
-const DASHES_CARD = '.dashes-section';
+const ARC = "at0340-changes-door";
+const ARCS_CARD = '.arcs-section';
 const BOUND_SID = "a7c0d1ea-0000-4000-8000-000000000340";
 
-/** The scratch repository the dash case owns, and the only tree it touches. */
-let scratch: DashScratchRepo | null = null;
+/** The scratch repository the arc case owns, and the only tree it touches. */
+let scratch: ArcScratchRepo | null = null;
 let fixtureDir = "";
 const projectDir = (): string => scratch?.repo ?? "";
 
@@ -98,19 +99,19 @@ let dir = "";
 beforeAll(() => {
   if (!SHOULD_RUN) return;
   dir = mkdtempSync(join(tmpdir(), "at0340-"));
-  scratch = makeDashScratchRepo({ prefix: "at0340", checkout: CHECKOUT });
-  const created = createDash(projectDir(), DASH, "at0340 changes-door fixture", scratch.cli);
-  // A round, so the dash is not empty — the landing face needs something to
-  // land, and an empty dash's answer is release rather than join.
+  scratch = makeArcScratchRepo({ prefix: "at0340", checkout: CHECKOUT });
+  const created = createArc(projectDir(), ARC, "at0340 changes-door fixture", scratch.cli);
+  // A round, so the arc is not empty — the landing face needs something to
+  // land, and an empty arc's answer is release rather than join.
   writeFileSync(join(created.worktree, "at0340.txt"), "at0340\n");
-  commitRound(projectDir(), DASH, "at0340 round", scratch.cli);
+  commitRound(projectDir(), ARC, "at0340 round", scratch.cli);
   fixtureDir = seedScratchSession(projectDir(), BOUND_SID);
 });
 
 afterAll(() => {
   if (dir !== "" && existsSync(dir)) rmSync(dir, { recursive: true, force: true });
   if (!SHOULD_RUN) return;
-  rmDashScratchRepo(scratch);
+  rmArcScratchRepo(scratch);
   rmScratchSession(fixtureDir);
 });
 
@@ -305,13 +306,13 @@ describe.skipIf(!SHOULD_RUN)("AT0340: the composer's two routes", () => {
           { timeoutMs: 8000 },
         );
         // This card's project is a bare temp directory, so the shade has no
-        // dashes to list — and a lane with nothing in it renders nothing at
+        // arcs to list — and a lane with nothing in it renders nothing at
         // all, not an empty group label.
         expect(
           await app.evalJS<number>(
-            `document.querySelectorAll(${JSON.stringify(`${CARD} [data-slot="session-changes-dash-lane"]`)}).length`,
+            `document.querySelectorAll(${JSON.stringify(`${CARD} [data-slot="session-changes-arc-lane"]`)}).length`,
           ),
-          "a project with no dashes renders no lane",
+          "a project with no arcs renders no lane",
         ).toBe(0);
 
         await pressChord(app, "KeyC", "c", { meta: true, ctrl: true });
@@ -383,7 +384,7 @@ describe.skipIf(!SHOULD_RUN)("AT0340: the composer's two routes", () => {
   );
 
   test(
-    "the same door on a dash-bound card opens the join landing",
+    "the same door on an arc-bound card opens the join landing",
     async () => {
       const tugbankPath = mkTempTugbank();
       seedTugbankForLaunch(tugbankPath, { sourceTreePath: CHECKOUT });
@@ -399,7 +400,7 @@ describe.skipIf(!SHOULD_RUN)("AT0340: the composer's two routes", () => {
           { timeoutMs: 15_000 },
         );
         // A *spawned* session, not a bound one: spawning registers the scratch
-        // repo as a workspace (so the dash reaches the aggregate) and writes
+        // repo as a workspace (so the arc reaches the aggregate) and writes
         // the live ledger row `/arc-bind`'s CONTROL frame resolves the
         // calling session through.
         await app.spawnSessionResume("A", {
@@ -408,22 +409,22 @@ describe.skipIf(!SHOULD_RUN)("AT0340: the composer's two routes", () => {
         });
         await app.awaitEngineReady("A", { timeoutMs: 15000 });
 
-        // Wait for the dash to reach the aggregate before binding: before the
+        // Wait for the arc to reach the aggregate before binding: before the
         // first compose `/arc-bind <name>` misses every snapshot match and
         // falls through to the create path.
         await app.dispatchControlAction("toggle-arcs");
         await app.waitForCondition<boolean>(
-          `document.querySelector('${DASHES_CARD} [data-slot="dashes-row"][data-dash="${DASH}"]') !== null`,
+          `document.querySelector('${ARCS_CARD} [data-slot="arcs-row"][data-arc="${ARC}"]') !== null`,
           { timeoutMs: 30000 },
         );
         await app.dispatchControlAction("toggle-arcs");
         await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(DASHES_CARD)}) === null`,
+          `document.querySelector(${JSON.stringify(ARCS_CARD)}) === null`,
           { timeoutMs: 8000 },
         );
-        await runCommand(app, `/arc-bind ${DASH}`);
+        await runCommand(app, `/arc-bind ${ARC}`);
         await app.waitForCondition<boolean>(
-          `document.querySelector('[data-slot="session-masthead"] [data-slot="session-identity-dash"]')?.textContent.trim() === ${JSON.stringify(`^${DASH}`)}`,
+          `document.querySelector('[data-slot="session-masthead"] [data-slot="session-identity-arc"]')?.textContent.trim() === ${JSON.stringify(`^${ARC}`)}`,
           { timeoutMs: 20000 },
         );
 

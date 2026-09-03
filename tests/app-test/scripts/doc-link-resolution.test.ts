@@ -23,8 +23,8 @@
  * base is anybody's guess. The asymmetry with rule 1 is intended: `../` inside a
  * markdown link has a defined base, inside a backtick span it does not.
  *
- * `dash/` and `dash/archive/` are outside the scan set. An archived plan is a
- * historical record and its dead pointers are part of the history it records.
+ * `notes/` is outside the scan set. A note is a historical record and its dead
+ * pointers are part of the history it records.
  *
  * The allowlist beside this file records the dangles that existed the day the check
  * landed. It is a to-do with a green build, not an exemption: a pointer that dangles
@@ -103,8 +103,8 @@ function isRepoRelativePointer(token: string): boolean {
     if (!token.includes("/")) return false;
     if (NOT_A_PATH.some((ch) => token.includes(ch))) return false;
     // Whitespace means the span was prose that happens to contain a path
-    // (`[chip] dash/foo.md`), and a leading non-alphanumeric marks something
-    // that is not a path at all — `@dash/x.md` is an atom mention being
+    // (`[chip] notes/foo.md`), and a leading non-alphanumeric marks something
+    // that is not a path at all — `@notes/x.md` is an atom mention being
     // demonstrated, `./` and `~` have no repo-root base, `/` is absolute.
     if (/\s/.test(token)) return false;
     return /^[A-Za-z0-9]/.test(token);

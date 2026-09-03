@@ -4,8 +4,8 @@
 //! `{schema_version, command, status, data, issues}` envelope) or a plain
 //! read-out.
 //!
-//! The argument is an exact address, never a search. A bare **name** is a
-//! dash, and resolves to that dash's own `plan.md`; anything carrying a
+//! The argument is an exact address, never a search. A bare **name** is an
+//! arc, and resolves to that arc's own `plan.md`; anything carrying a
 //! separator, starting with `.`, or ending in `.md` is a path, resolved against
 //! the cwd. There is no cascade and no guessing between them — the argument's
 //! shape decides, and a linter that guessed which document you meant would be
@@ -41,9 +41,9 @@ pub fn dispatch(cmd: PlanCommands, json: bool) -> ExitCode {
 
 /// The document a `plan` verb's argument names.
 ///
-/// A `Name` resolves to that dash's ledger document — `plan.md`, or `tasks.md`
+/// A `Name` resolves to that arc's ledger document — `plan.md`, or `tasks.md`
 /// when there is no plan. The address normalizes to the main repository root
-/// itself, so a cwd inside a dash worktree resolves to the same file the base
+/// itself, so a cwd inside an arc worktree resolves to the same file the base
 /// checkout would — but `find_repo_root_from` does not walk up parent
 /// directories, so a cwd *below* the root is not a repository at all and the
 /// refusal says which of the two forms still works from there.
@@ -59,13 +59,13 @@ fn resolve_document_argument(arg: &str) -> Result<PathBuf, AppError> {
                         .to_string(),
                 )
             })?;
-            // The dash's ledger document: its plan when it has one, the
-            // `/dash` door's task list otherwise. A task list is a document
+            // The arc's ledger document: its plan when it has one, the
+            // `/arc` door's task list otherwise. A task list is a document
             // these verbs can read — `status` reports its ledger — and holding
             // it to the skeleton is `lint`'s business, not this resolver's.
             tugarc_core::ledger_file(&root, &name).ok_or_else(|| {
                 AppError::Exit2(format!(
-                    "dash '{name}' has no plan at {}",
+                    "arc '{name}' has no plan at {}",
                     tugarc_core::plan_file(&root, &name).display()
                 ))
             })
@@ -172,7 +172,7 @@ struct StatusData {
     /// The document that was read, as it was named on the command line.
     path: String,
     /// The document is a **task list** — steps and a ledger, with none of the
-    /// devised plan's frame. A `/dash` door writes one, no review stage ever
+    /// devised plan's frame. A `/arc` door writes one, no review stage ever
     /// reads it, and the skeleton's rules do not apply to it.
     task_list: bool,
     /// `reviewed`, `stale`, or `never-reviewed`.

@@ -31,7 +31,7 @@ const PAYLOADS: ReadonlyArray<[string, AnnotationPayload]> = [
   ["email", { kind: "email", address: "kocienda@pobox.com" }],
   [
     "slash command with args",
-    { kind: "slash-command", name: "tugplug:implement", args: "dash/x.md" },
+    { kind: "slash-command", name: "tugplug:implement", args: "arc/x.md" },
   ],
   ["slash command, no args", { kind: "slash-command", name: "diff", args: "" }],
   ["shell command", { kind: "shell-command", command: "just launch-debug" }],
@@ -114,9 +114,9 @@ describe("annotationValue — what Copy and Insert carry", () => {
       annotationValue({
         kind: "slash-command",
         name: "tugplug:implement",
-        args: "dash/x.md",
+        args: "arc/x.md",
       }),
-    ).toBe("/tugplug:implement dash/x.md");
+    ).toBe("/tugplug:implement arc/x.md");
   });
 
   test("a shell command is its line verbatim", () => {
@@ -322,8 +322,8 @@ describe("classifyInlineCode — a bare plugin-skill name is a chip", () => {
   /**
    * The gate built the way the transcript builds it — `isKnownSlashCommandName`
    * over the card's live catalog. Claude namespaces plugin skills, so the
-   * catalog entry is `tugplug:dash` while what a skill writes in its prose is
-   * the bare `` `/dash` ``. Testing membership literally would answer no to
+   * catalog entry is `tugplug:arc` while what a skill writes in its prose is
+   * the bare `` `/arc` ``. Testing membership literally would answer no to
    * every one of those, which is why skills used to print the qualified form.
    */
   const gate =
@@ -333,10 +333,10 @@ describe("classifyInlineCode — a bare plugin-skill name is a chip", () => {
 
   test("a bare name resolves through its namespace", () => {
     expect(
-      classifyInlineCode("/dash sharpen the idea", gate("tugplug:dash"), noPaths),
+      classifyInlineCode("/arc sharpen the idea", gate("tugplug:arc"), noPaths),
     ).toEqual({
       kind: "slash-command",
-      name: "dash",
+      name: "arc",
       args: "sharpen the idea",
     });
   });
@@ -356,7 +356,7 @@ describe("classifyInlineCode — a bare plugin-skill name is a chip", () => {
     // guessed — the same conservative answer the submit path gives, so what is
     // clickable and what is sendable cannot disagree.
     expect(
-      classifyInlineCode("/dash go", gate("tugplug:dash", "other:dash"), noPaths),
+      classifyInlineCode("/arc go", gate("tugplug:arc", "other:arc"), noPaths),
     ).toBeNull();
   });
 

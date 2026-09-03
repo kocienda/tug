@@ -552,7 +552,7 @@ export const TUG_ACTIONS = {
   INSERT_FILE:    "insert-file",
   TOGGLE_CHANGES_VIEW: "toggle-changes-view",
   // REVEAL_CHANGES: payload — none. Open this card's Changes shade, sent by a
-  //                 surface that shows the card's dash after fronting the
+  //                 surface that shows the card's arc after fronting the
   //                 card. Not a toggle and not a chord: an explicit reveal
   //                 from elsewhere, answered by the session card's
   //                 card-content responder. It never closes the shade — the
@@ -1024,7 +1024,7 @@ export const TUG_ACTIONS = {
   //                         emitting `TugIconButton`; rarely matters
   //                         because the `sessionId` payload disambiguates.
   //                         See [tugplan-session-picker-redesign §D14](
-  //                         ../../../dash/tugplan-session-picker-redesign.md#d14-no-per-cell-popovers).
+  //                         ../../../arc/tugplan-session-picker-redesign.md#d14-no-per-cell-popovers).
   REQUEST_TRASH_SESSION: "request-trash-session",
 
   // SHOW_SESSION:           payload — none. Raise the card already showing the
@@ -1069,19 +1069,19 @@ export const TUG_ACTIONS = {
   COPY_COMMIT_HEADER:     "copy-commit-header",
   COPY_COMMIT_RECORD:     "copy-commit-record",
 
-  // ---- The dash row's rare verbs ----
+  // ---- The arc row's rare verbs ----
   //
-  // Menu-only over a sampled target — "the dash this row is" — and handled by
+  // Menu-only over a sampled target — "the arc this row is" — and handled by
   // the row's own responder ({@link useArcRowMenu}). None is a chord: a
   // discard is not a thing to reach by typing, and a bind is a decision about
-  // which dash a card works on, made by pointing at the dash.
+  // which arc a card works on, made by pointing at the arc.
   //
-  // BIND_DASH:              payload — none. Mate this card's session to the
-  //                         dash the menu was opened on.
-  // UNBIND_DASH:            payload — none. The complement, on the row this
+  // BIND_ARC:              payload — none. Mate this card's session to the
+  //                         arc the menu was opened on.
+  // UNBIND_ARC:            payload — none. The complement, on the row this
   //                         card is already mated to. The two never appear
   //                         together — the row carries whichever it is.
-  // REQUEST_DISCARD_DASH:   payload — none. "Request", like
+  // REQUEST_DISCARD_ARC:   payload — none. "Request", like
   //                         REQUEST_TRASH_SESSION: the item arms the lane's
   //                         one confirm popover rather than discarding, and
   //                         the popover names what the discard destroys.
@@ -1091,9 +1091,9 @@ export const TUG_ACTIONS = {
   //                         `changeset_replay` and the outcome comes back on
   //                         the wire, including the common outcomes that move
   //                         nothing and report on the pane bulletin.
-  BIND_DASH:              "bind-dash",
-  UNBIND_DASH:            "unbind-dash",
-  REQUEST_DISCARD_DASH:   "request-discard-dash",
+  BIND_ARC:              "bind-arc",
+  UNBIND_ARC:            "unbind-arc",
+  REQUEST_DISCARD_ARC:   "request-discard-arc",
   REQUEST_REPLAY_ARC:     "request-replay-arc",
 
   // ---- Meta ----

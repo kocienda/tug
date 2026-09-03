@@ -1,4 +1,4 @@
-//! Resolving a dash's touched paths to the surfaces a project declared, and
+//! Resolving an arc's touched paths to the surfaces a project declared, and
 //! those surfaces to the commands that check them.
 //!
 //! [`plan_verification`] and everything it calls are pure and total: functions
@@ -385,12 +385,12 @@ fn touched_paths(repo: &Path, base: &str, head: &str) -> Result<Vec<String>, Str
     Ok(crate::ops::name_status_paths(&out))
 }
 
-/// Verify the fit of a dash: resolve the range it would land, check every
+/// Verify the fit of an arc: resolve the range it would land, check every
 /// surface it touched, and report.
 ///
 /// The range is derived live rather than remembered — `merge-base(base,
-/// branch)..branch` is a dash's own contribution, which is what a join lands
-/// and therefore what the fit is about. It is answerable for a dash that has
+/// branch)..branch` is an arc's own contribution, which is what a join lands
+/// and therefore what the fit is about. It is answerable for an arc that has
 /// never been replayed, which a recorded range could not be.
 pub fn verify_in(
     repo_root: &Path,
@@ -406,12 +406,12 @@ pub fn verify_in(
     )
     .is_err()
     {
-        return Err(format!("Dash not found: {name}"));
+        return Err(format!("Arc not found: {name}"));
     }
     let worktree = crate::ops::worktree_path(&repo, name);
     if !worktree.is_dir() {
         return Err(format!(
-            "dash '{name}' has no worktree at {} — checks run from the worktree root",
+            "arc '{name}' has no worktree at {} — checks run from the worktree root",
             worktree.display()
         ));
     }
@@ -423,14 +423,14 @@ pub fn verify_in(
     let base = match base_override {
         Some(b) => crate::ops::git_stdout(&repo, &["rev-parse", b])?,
         None => {
-            let base_branch = crate::ops::dash_base(&repo, name)?;
+            let base_branch = crate::ops::arc_base(&repo, name)?;
             crate::ops::git_stdout(&repo, &["merge-base", &base_branch, &branch])?
         }
     };
 
     let touched = touched_paths(&repo, &base, &head)?;
     let config = Config::load_from_project(&worktree).map_err(|e| e.to_string())?;
-    let surfaces = config.tugtool.dash.surfaces;
+    let surfaces = config.tugtool.arc.surfaces;
 
     let resolution = plan_verification(&surfaces, &base, &head, &touched);
     Ok(match resolution {
@@ -509,7 +509,7 @@ pub fn verify_in(
                 // verified at <head>" would leave a durable fact about a state
                 // the next fix erases; the absence of a line is the honest
                 // record of not-verified.
-                crate::log::append_dash_log(
+                crate::log::append_arc_log(
                     &repo,
                     name,
                     "verified",
@@ -826,7 +826,7 @@ mod fit_tests {
         String::from_utf8_lossy(&out.stdout).trim().to_string()
     }
 
-    /// A repo with a dash whose worktree declares `config` and whose one round
+    /// A repo with an arc whose worktree declares `config` and whose one round
     /// touches `files`.
     fn project(root: &Path, config: &str, files: &[(&str, &str)]) -> std::path::PathBuf {
         git(root, &["init", "-b", "main"]);
@@ -846,11 +846,11 @@ mod fit_tests {
                 "add",
                 "-q",
                 "-b",
-                "tugdash/demo",
+                "tugarc/demo",
                 worktree.to_str().unwrap(),
             ],
         );
-        git(root, &["config", "branch.tugdash/demo.tugbase", "main"]);
+        git(root, &["config", "branch.tugarc/demo.tugbase", "main"]);
         for (path, body) in files {
             let full = worktree.join(path);
             std::fs::create_dir_all(full.parent().unwrap()).unwrap();
@@ -862,12 +862,12 @@ mod fit_tests {
     }
 
     const GREEN: &str =
-        "[[tugtool.dash.surface]]\nname = \"src\"\npaths = [\"src/\"]\ncheck = [\"true\"]\n";
+        "[[tugtool.arc.surface]]\nname = \"src\"\npaths = [\"src/\"]\ncheck = [\"true\"]\n";
     const RED: &str =
-        "[[tugtool.dash.surface]]\nname = \"src\"\npaths = [\"src/\"]\ncheck = [\"false\"]\n";
+        "[[tugtool.arc.surface]]\nname = \"src\"\npaths = [\"src/\"]\ncheck = [\"false\"]\n";
 
     fn verified_lines(root: &Path) -> Vec<String> {
-        let log = tugtool_core::paths::project_state_dir(root).join("dash-log.md");
+        let log = tugtool_core::paths::project_state_dir(root).join(tugtool_core::paths::ARC_LOG);
         std::fs::read_to_string(log)
             .unwrap_or_default()
             .lines()
@@ -911,7 +911,7 @@ mod fit_tests {
             "a red run records nothing"
         );
 
-        // An empty range, on the same dash.
+        // An empty range, on the same arc.
         let head = git_stdout(&worktree, &["rev-parse", "HEAD"]);
         assert_eq!(
             verify_in(&root, "demo", Some(&head), Some(&head))
@@ -927,7 +927,7 @@ mod fit_tests {
         // And a refusal, from a table that claims nothing this round touched.
         std::fs::write(
             worktree.join(".tugtool/config.toml"),
-            "[[tugtool.dash.surface]]\nname = \"other\"\npaths = [\"other/\"]\ncheck = [\"true\"]\n",
+            "[[tugtool.arc.surface]]\nname = \"other\"\npaths = [\"other/\"]\ncheck = [\"true\"]\n",
         )
         .unwrap();
         assert_eq!(
@@ -958,7 +958,7 @@ mod fit_tests {
         );
         assert!(
             after.last_activity.is_some(),
-            "a verify is still activity, and dates the dash"
+            "a verify is still activity, and dates the arc"
         );
     }
 
@@ -975,12 +975,12 @@ mod fit_tests {
                 .is_some()
         );
 
-        crate::log::append_dash_log(&root, "demo", "join", "joined into main").unwrap();
+        crate::log::append_arc_log(&root, "demo", "join", "joined into main").unwrap();
         assert!(
             crate::log::read_declarations(&root, "demo")
                 .last_verified
                 .is_none(),
-            "a reused dash name must not be born verified"
+            "a reused arc name must not be born verified"
         );
     }
 
@@ -998,7 +998,7 @@ mod fit_tests {
             "green at the recorded pair"
         );
 
-        // The base alone gains a commit, with the dash untouched — the case a
+        // The base alone gains a commit, with the arc untouched — the case a
         // head-only derivation could not see.
         std::fs::write(root.join("base-move.txt"), "moved\n").unwrap();
         git(&root, &["add", "-A"]);
@@ -1009,7 +1009,7 @@ mod fit_tests {
             "a base that moved makes the verified tree no longer the tree a join would land"
         );
 
-        // And a round on the dash, with the recorded base back in place.
+        // And a round on the arc, with the recorded base back in place.
         git(&root, &["reset", "--hard", "HEAD~1"]);
         assert!(
             crate::ops::status_in(&root, "demo")
@@ -1044,7 +1044,7 @@ mod fit_tests {
         let root = tmp.path().join("repo");
         std::fs::create_dir_all(&root).unwrap();
         project(&root, GREEN, &[("src/a.rs", "a\n")]);
-        crate::log::append_dash_log(&root, "demo", "verified", "nonsense-with-no-base").unwrap();
+        crate::log::append_arc_log(&root, "demo", "verified", "nonsense-with-no-base").unwrap();
 
         assert!(
             crate::ops::status_in(&root, "demo").unwrap().fit.is_none(),
@@ -1063,7 +1063,7 @@ mod fit_tests {
             serde_json::to_value(crate::ops::status_in(&root, "demo").unwrap()).unwrap();
         assert!(
             unverified.get("fit").is_none(),
-            "a dash nobody verified says nothing about the fit"
+            "an arc nobody verified says nothing about the fit"
         );
 
         verify_in(&root, "demo", None, None).unwrap();

@@ -133,7 +133,7 @@ describe("the lab is what a user's machine is", () => {
 
 describe("the hook script, from the bundle alone", () => {
   test("finds tugtool beside the plugin when PATH has nothing", () => {
-    const decision = hook({ tool_name: "Skill", tool_input: { skill: "tugplug:dash" } });
+    const decision = hook({ tool_name: "Skill", tool_input: { skill: "tugplug:arc" } });
     expect(decision?.hookSpecificOutput?.permissionDecision).toBe("allow");
   });
 
@@ -185,7 +185,7 @@ describe("the hook script, from the bundle alone", () => {
   });
 });
 
-describe("the dash verbs on a project that declares nothing", () => {
+describe("the arc verbs on a project that declares nothing", () => {
   test("create → config → documents → verify → discard, with no .tugtool/", () => {
     const created = tugtool(["--json", "arc", "create", "smoke"]);
     expect(created.code, created.err).toBe(0);

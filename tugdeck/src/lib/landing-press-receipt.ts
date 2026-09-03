@@ -16,7 +16,7 @@
  * diagnostic with a failure mode of its own; with no connection it degrades to
  * the dev-log line, and that degradation is itself written down.
  *
- * Distinct from `landing-receipt.ts`, which parses the `Tug-Dash:` trailer a
+ * Distinct from `landing-receipt.ts`, which parses the `Tug-Arc:` trailer a
  * landed commit carries. That describes a landing that happened; this describes
  * the press that asked for one.
  *

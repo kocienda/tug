@@ -82,7 +82,7 @@ import type {
   SessionRewindActionEvent,
   ShellExchangeStartedActionEvent,
   ShellExchangeCompleteActionEvent,
-  DashNoteActionEvent,
+  ArcNoteActionEvent,
   RefsResultActionEvent,
 } from "./events";
 import type {
@@ -508,7 +508,7 @@ export interface CodeSessionState {
    * through without reshaping — preserves `Object.is` stability for
    * `useSyncExternalStore` consumers ([L02]).
    *
-   * Per [Step 5c](../../../dash/dev-atoms.md#step-5c).
+   * Per [Step 5c](../../../arc/dev-atoms.md#step-5c).
    */
   queuedSends: Array<{
     content: ContentBlock[];
@@ -3507,7 +3507,7 @@ function handleRespondApproval(
   // The decision is sent out on the wire below and the SDK's
   // tool_use/tool_result for the gated tool IS the durable transcript
   // artifact — there is no client-side record kept here. See
-  // `#step-3-5` in `dash/archive/dev-interactive-dialogs.md` for why
+  // `#step-3-5` in `arc/archive/dev-interactive-dialogs.md` for why
   // JSONL cannot durably reconstruct a separate permission record.
   //
   // The phase restores only when this was the LAST dialog up. A question can
@@ -5303,7 +5303,7 @@ function handleAssistantOpener(
  * `isInWake` and gates re-emission until the next `result`); a stray
  * frame from a busy phase would be a tugcode bug.
  *
- * See `dash/tugplan-session-wake.md` [D01] [D02]
+ * See `arc/tugplan-session-wake.md` [D01] [D02]
  * [#spec-wake-started-state-reset].
  */
 function handleWakeStarted(
@@ -5976,18 +5976,18 @@ export function upsertInkTurn(
 }
 
 /**
- * Absorb restored dash-note ink rows into the turns they narrated ([P12]).
+ * Absorb restored arc-note ink rows into the turns they narrated ([P12]).
  *
- * A dash note seated live lands INSIDE the streaming turn ({@link
- * handleDashNote}); after a relaunch the same note re-arrives as a shell
+ * An arc note seated live lands INSIDE the streaming turn ({@link
+ * handleArcNote}); after a relaunch the same note re-arrives as a shell
  * ledger row, which alone would seat it *between* turns — a transcript that
  * reads one way live and another way after every reopen. This pass closes
  * that gap deterministically from the clocks both sides already carry: the
  * ledger row's `startedAtMs` is the gesture's wall-clock, and replayed turns
  * carry their original submit/end times (the same clocks [P07]'s
- * between-turn interleave already trusts). A dash-note ink row whose
+ * between-turn interleave already trusts). An arc-note ink row whose
  * timestamp falls within a committed Claude turn's span is re-seated in that
- * turn as a `source: "dash"` system_note at its clock position among the
+ * turn as a `source: "arc"` system_note at its clock position among the
  * messages — the seat the note had when it happened.
  *
  * Runs wrapper-side on the committed transcript at every site that can
@@ -5995,8 +5995,8 @@ export function upsertInkTurn(
  * (`append-transcript`), an older bracket committing (`flush-prepend`) — so
  * both orders of the reload race converge on the same reading. Idempotent
  * and dedup-safe: the re-seat keys on the ledger identity
- * (`dash-note-<exchangeId>`, the same key the live seat takes), and a turn
- * already carrying the note (by key, or a dash note with the identical
+ * (`arc-note-<exchangeId>`, the same key the live seat takes), and a turn
+ * already carrying the note (by key, or an arc note with the identical
  * sentence) absorbs the row by dropping it. Returns the SAME array
  * reference when nothing moved, so a quiet pass costs no snapshot churn.
  *
@@ -6004,7 +6004,7 @@ export function upsertInkTurn(
  * run-start line between stages — stays exactly where it is: between turns
  * is that note's true seat.
  */
-export function absorbDashNotes(
+export function absorbArcNotes(
   transcript: ReadonlyArray<TurnEntry>,
 ): ReadonlyArray<TurnEntry> {
   interface Seat {
@@ -6030,12 +6030,12 @@ export function absorbDashNotes(
       const turn = transcript[t]!;
       if (isInkOrigin(turn.origin)) continue;
       if (ts < turnSortTs(turn) || ts > turn.endedAt) continue;
-      const key = `dash-note-${msg.exchangeId}`;
+      const key = `arc-note-${msg.exchangeId}`;
       const text = arcNoteSentence(msg);
       const duplicate = turn.messages.some(
         (m) =>
           m.messageKey === key ||
-          (m.kind === "system_note" && m.source === "dash" && m.text === text),
+          (m.kind === "system_note" && m.source === "arc" && m.text === text),
       );
       seats.set(i, {
         turnIndex: t,
@@ -6045,7 +6045,7 @@ export function absorbDashNotes(
           messageKey: key,
           createdAt: ts,
           text,
-          source: "dash",
+          source: "arc",
         },
       });
       break;
@@ -6120,12 +6120,12 @@ function handleShellExchange(
 }
 
 /**
- * `dash_note` reducer handler — seat a dash gesture's quiet line ([P12])
+ * `arc_note` reducer handler — seat an arc gesture's quiet line ([P12])
  * where a reader would expect the sentence in a conversation.
  *
  * A note that arrives while a turn is open narrates work THAT turn is doing —
  * the seated session ran the verb between two of its own tool calls — so it
- * appends to the open turn's scratch as a `source: "dash"` system_note,
+ * appends to the open turn's scratch as a `source: "arc"` system_note,
  * exactly the mid-turn seat a live compaction boundary takes
  * ({@link handleCompactBoundary}). It renders between the tool calls it
  * arrived among and commits with the turn.
@@ -6140,9 +6140,9 @@ function handleShellExchange(
  * fallback: a note must land somewhere, and a turn whose commit is dropped is
  * nowhere.
  */
-function handleDashNote(
+function handleArcNote(
   state: CodeSessionState,
-  event: DashNoteActionEvent,
+  event: ArcNoteActionEvent,
 ): { state: CodeSessionState; effects: Effect[] } {
   const turnKey = state.pendingTurn?.turnKey;
   const entry = turnKey !== undefined ? state.scratch.get(turnKey) : undefined;
@@ -6164,14 +6164,14 @@ function handleDashNote(
   }
   // Keyed on the ledger identity, not the per-turn systemNoteSeq: the same
   // note restored after a relaunch re-arrives as the `restored-N` ledger row,
-  // and {@link absorbDashNotes} dedups its re-seat against exactly this key —
+  // and {@link absorbArcNotes} dedups its re-seat against exactly this key —
   // one gesture, one line, on every path.
   const note: SystemNote = {
     kind: "system_note",
-    messageKey: `dash-note-${event.exchangeId}`,
+    messageKey: `arc-note-${event.exchangeId}`,
     createdAt: event.timestamp,
     text: event.text,
-    source: "dash",
+    source: "arc",
   };
   return {
     state: {
@@ -6278,8 +6278,8 @@ export function reduce(
     case "shell_exchange_started":
     case "shell_exchange_complete":
       return handleShellExchange(state, event);
-    case "dash_note":
-      return handleDashNote(state, event);
+    case "arc_note":
+      return handleArcNote(state, event);
     case "refs_result":
       return handleRefsResult(state, event);
     case "session_init":

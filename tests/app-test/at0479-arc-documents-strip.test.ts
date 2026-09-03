@@ -1,30 +1,30 @@
 /**
- * at0479-dash-documents-strip.test.ts — the Changes shade shows a dash's own
+ * at0479-arc-documents-strip.test.ts — the Changes shade shows an arc's own
  * documents, and opens them.
  *
- * A dash's brief and its plan were readable because they were files in the
+ * An arc's brief and its plan were readable because they were files in the
  * working tree the reader could open. They are still files — at
  * `.tug/arcs/<name>/`, untracked — and the card must not have made them
  * harder to reach by moving them. This drives the whole of that claim through
- * the real app: a real dash whose documents the real CLI addresses by name,
+ * the real app: a real arc whose documents the real CLI addresses by name,
  * bound to a real session, with the strip read out of the shade's DOM and one
  * of its rows clicked to prove the open lands on the absolute path the server
  * handed over.
  *
- * Both shapes of dash are driven, because they are different renders:
+ * Both shapes of arc are driven, because they are different renders:
  *
- *  - A **branchless** dash — documents written, no `dash create` yet — is the
+ *  - A **branchless** arc — documents written, no `arc create` yet — is the
  *    planning phase in flight. It fronts the lane on its own row, with the
  *    strip and no diff, join, or discard affordances: there is no branch for
  *    any of them to act on.
- *  - A **live** dash carries the same strip inside its fold, above the rounds.
+ *  - A **live** arc carries the same strip inside its fold, above the rounds.
  *
  * The plan row's facts come from the server's own reading of the document, so
  * an unreviewed plan two steps long says exactly that — which is the fact a
  * reader would otherwise have opened the file to learn.
  *
  * The project is a scratch repository this file owns, registered as a
- * workspace by spawning a real session on it: no fixture ever writes a dash
+ * workspace by spawning a real session on it: no fixture ever writes an arc
  * document into the checkout under test.
  *
  * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-arc-documents.tsx
@@ -50,17 +50,17 @@ import {
   seedTugbankForLaunch,
 } from "./_harness/tugbank-helpers";
 import {
-  bindDash,
-  createDash,
-  dashBriefPath,
-  dashPlanPath,
+  bindArc,
+  createArc,
+  arcBriefPath,
+  arcPlanPath,
   fixturePlanDocument,
-  makeDashScratchRepo,
-  rmDashScratchRepo,
+  makeArcScratchRepo,
+  rmArcScratchRepo,
   rmScratchSession,
   seedScratchSession,
-  type DashScratchRepo,
-} from "./dash-fixture";
+  type ArcScratchRepo,
+} from "./arc-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
@@ -70,16 +70,16 @@ const CARD = '[data-card-id="A"]';
 const PROMPT_INPUT = `${CARD} [data-slot="tug-text-editor"] .cm-content`;
 const USER_ROWS = `${CARD} [data-testid="session-card-transcript-user-body"]`;
 const SHEET = `${CARD} .session-view-pane[data-view="changes"] [data-slot="tug-sheet"]`;
-const LANE = `${SHEET} [data-slot="session-changes-dash-lane"]`;
+const LANE = `${SHEET} [data-slot="session-changes-arc-lane"]`;
 
-/** The dash under test — branchless first, then given a branch. */
-const DASH_NAME = "at0479-strip";
-const ROW = `${LANE} [data-slot="session-changes-dash-row"][data-dash="${DASH_NAME}"]`;
-const DOCUMENTS = `${ROW} [data-slot="session-dash-document"]`;
+/** The arc under test — branchless first, then given a branch. */
+const ARC_NAME = "at0479-strip";
+const ROW = `${LANE} [data-slot="session-changes-arc-row"][data-arc="${ARC_NAME}"]`;
+const DOCUMENTS = `${ROW} [data-slot="session-arc-document"]`;
 
-/** This checkout — the build under test, and never the tree a dash is cut in. */
+/** This checkout — the build under test, and never the tree an arc is cut in. */
 const CHECKOUT = realpathSync(resolve(import.meta.dir, "..", ".."));
-let scratch: DashScratchRepo | null = null;
+let scratch: ArcScratchRepo | null = null;
 let fixtureDir = "";
 const projectDir = (): string => scratch?.repo ?? "";
 
@@ -87,12 +87,12 @@ const BRIEF_TITLE = "The strip brief";
 
 beforeAll(() => {
   if (!SHOULD_RUN) return;
-  scratch = makeDashScratchRepo({ prefix: "at0479", checkout: CHECKOUT });
-  // Written straight to the dash's own address, and never through the scratch
+  scratch = makeArcScratchRepo({ prefix: "at0479", checkout: CHECKOUT });
+  // Written straight to the arc's own address, and never through the scratch
   // repo's `files` map: a document is not a tracked file, and a fixture that
   // committed one would be testing a world this plan deleted.
   writeFileSync(
-    dashBriefPath(projectDir(), DASH_NAME),
+    arcBriefPath(projectDir(), ARC_NAME),
     `# ${BRIEF_TITLE}\n\nProse the arc would open on.\n`,
   );
   fixtureDir = seedScratchSession(projectDir(), SID);
@@ -100,7 +100,7 @@ beforeAll(() => {
 
 afterAll(() => {
   if (!SHOULD_RUN) return;
-  rmDashScratchRepo(scratch);
+  rmArcScratchRepo(scratch);
   rmScratchSession(fixtureDir);
 });
 
@@ -139,19 +139,19 @@ const readDocuments = (
     `Array.from(document.querySelectorAll(${JSON.stringify(DOCUMENTS)})).map((row) => ({
        role: row.getAttribute("data-role"),
        review: row.getAttribute("data-review"),
-       title: (row.querySelector('[data-slot="session-dash-document-title"]')?.textContent ?? "").trim(),
-       facts: (row.querySelector('[data-slot="session-dash-document-facts"]')?.textContent ?? "").trim(),
+       title: (row.querySelector('[data-slot="session-arc-document-title"]')?.textContent ?? "").trim(),
+       facts: (row.querySelector('[data-slot="session-arc-document-facts"]')?.textContent ?? "").trim(),
      }))`,
   );
 
-describe.skipIf(!SHOULD_RUN)("AT0479: the dash's documents on the shade", () => {
+describe.skipIf(!SHOULD_RUN)("AT0479: the arc's documents on the shade", () => {
   test(
-    "a bound dash shows its brief and plan, and a row opens the file",
+    "a bound arc shows its brief and plan, and a row opens the file",
     async () => {
       const tugbankPath = mkTempTugbank();
       seedTugbankForLaunch(tugbankPath, { sourceTreePath: CHECKOUT });
       const app = await launchTugApp({
-        testName: "at0479-dash-documents-strip",
+        testName: "at0479-arc-documents-strip",
         env: { TUGBANK_PATH: tugbankPath, TUG_DATA_DIR: scratch?.dataRoot ?? "" },
       });
       try {
@@ -173,7 +173,7 @@ describe.skipIf(!SHOULD_RUN)("AT0479: the dash's documents on the shade", () => 
         // Bound before any branch exists — the whole point of the branchless
         // shape. The binding is the real verb, so the owner key the lane
         // fronts on is the one the engine composes.
-        bindDash(projectDir(), DASH_NAME, SID, {
+        bindArc(projectDir(), ARC_NAME, SID, {
           binaryRoot: CHECKOUT,
           env: scratch!.cli.env,
         });
@@ -190,7 +190,7 @@ describe.skipIf(!SHOULD_RUN)("AT0479: the dash's documents on the shade", () => 
           { timeoutMs: 8000 },
         );
 
-        // ── A dash that is only a brief is still a dash, and it fronts ─────
+        // ── An arc that is only a brief is still an arc, and it fronts ─────
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(`${ROW}[data-branchless="true"]`)}) !== null`,
           { timeoutMs: 40000 },
@@ -206,14 +206,14 @@ describe.skipIf(!SHOULD_RUN)("AT0479: the dash's documents on the shade", () => 
         // None of the branch-shaped affordances stand: there is no branch.
         expect(
           await app.evalJS<number>(
-            `document.querySelectorAll(${JSON.stringify(`${ROW} [data-slot="session-changes-dash-fold"]`)}).length`,
+            `document.querySelectorAll(${JSON.stringify(`${ROW} [data-slot="session-changes-arc-fold"]`)}).length`,
           ),
         ).toBe(0);
         note("at0479 branchless", (await app.screenshot()).path);
 
         // ── The plan arrives, unstamped and two steps long ─────────────────
         writeFileSync(
-          dashPlanPath(projectDir(), DASH_NAME),
+          arcPlanPath(projectDir(), ARC_NAME),
           fixturePlanDocument(2),
         );
         await app.waitForCondition<boolean>(
@@ -231,9 +231,9 @@ describe.skipIf(!SHOULD_RUN)("AT0479: the dash's documents on the shade", () => 
         // The proof is the document's own bytes on screen: a Text card
         // carrying the brief's heading is the file, opened, and nothing else
         // in the deck could be showing it.
-        const briefPath = dashBriefPath(projectDir(), DASH_NAME);
+        const briefPath = arcBriefPath(projectDir(), ARC_NAME);
         await app.nativeClickAtElement(
-          `${ROW} [data-slot="session-dash-document"][data-role="brief"]`,
+          `${ROW} [data-slot="session-arc-document"][data-role="brief"]`,
         );
         await app.waitForCondition<boolean>(
           `Array.from(document.querySelectorAll('[data-slot="text-card"]'))
@@ -242,12 +242,12 @@ describe.skipIf(!SHOULD_RUN)("AT0479: the dash's documents on the shade", () => 
         );
         note("at0479 opened brief", briefPath);
 
-        // ── The same strip rides a live dash's fold ───────────────────────
-        // Cutting the branch moves the dash to a dash row; the documents do
+        // ── The same strip rides a live arc's fold ───────────────────────
+        // Cutting the branch moves the arc to an arc row; the documents do
         // not move, because they were never inside the worktree.
-        createDash(projectDir(), DASH_NAME, "at0479 strip", scratch!.cli);
+        createArc(projectDir(), ARC_NAME, "at0479 strip", scratch!.cli);
         await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(`${ROW} [data-slot="session-changes-dash-fold"]`)}) !== null`,
+          `document.querySelector(${JSON.stringify(`${ROW} [data-slot="session-changes-arc-fold"]`)}) !== null`,
           { timeoutMs: 40000 },
         );
         await app.waitForCondition<boolean>(
@@ -255,7 +255,7 @@ describe.skipIf(!SHOULD_RUN)("AT0479: the dash's documents on the shade", () => 
           { timeoutMs: 40000 },
         );
         const live = await readDocuments(app);
-        note("at0479 live dash", JSON.stringify(live));
+        note("at0479 live arc", JSON.stringify(live));
         expect(live.map((row) => row.role)).toEqual(["brief", "plan"]);
         expect(live.find((row) => row.role === "plan")!.facts).toBe(
           "never-reviewed · 2 steps",

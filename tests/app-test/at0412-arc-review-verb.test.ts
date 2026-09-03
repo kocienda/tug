@@ -1,5 +1,5 @@
 /**
- * at0412-dash-review-verb.test.ts — `/arc-review` typed in the card.
+ * at0412-arc-review-verb.test.ts — `/arc-review` typed in the card.
  *
  * `/arc-review` is an ordinary turn on whatever model is selected. **Nothing
  * switches the model** — not before the turn, not after it. That is the whole
@@ -177,7 +177,7 @@ describe.skipIf(!SHOULD_RUN)("AT0412: the /arc-review card verb", () => {
         "## A plan {#a-plan}\n\n### Execution Steps {#execution-steps}\n",
       );
 
-      const app = await launchTugApp({ testName: "at0412-dash-review-verb" });
+      const app = await launchTugApp({ testName: "at0412-arc-review-verb" });
       try {
         await app.enableDeckTrace(true);
         await app.seedDeckState({ state: deckShape(), focusCardId: "A" });

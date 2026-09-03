@@ -42,8 +42,8 @@ describe("parseSlashCommandLine — accepts well-formed command lines", () => {
 
   test("plugin:command with a path argument", () => {
     expect(
-      parseSlashCommandLine("/tugplug:implement dash/find-route.md"),
-    ).toEqual({ name: "tugplug:implement", args: "dash/find-route.md" });
+      parseSlashCommandLine("/tugplug:implement arc/find-route.md"),
+    ).toEqual({ name: "tugplug:implement", args: "arc/find-route.md" });
   });
 
   test("multi-word argument is captured whole, trimmed", () => {

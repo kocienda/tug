@@ -1,5 +1,5 @@
 // A server-initiated turn is never unannounced. When Tug injects a submission
-// into a session — the base-motion engine does, when a dash's base moves under
+// into a session — the base-motion engine does, when an arc's base moves under
 // it — tugcast emits a `tug_notice` beside it, and that frame is what puts the
 // turn's head row on screen: the live user row comes from the composer echoing
 // its own submission, and an injection has no composer.
@@ -28,7 +28,7 @@ import { FeedId } from "@/protocol";
 
 const TUG = FIXTURE_IDS.TUG_SESSION_ID;
 const BODY =
-  "[base-motion replay] The base branch main moved to abcdef012 under dash \"demo\".";
+  "[base-motion replay] The base branch main moved to abcdef012 under arc \"demo\".";
 const WHEEL_PROMPT =
   "/tugplug:arc-implement tripwire Steps 4-13 — under this arc, close one step and end your turn; the arc prompts you with the next";
 

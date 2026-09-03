@@ -1,8 +1,8 @@
 /**
- * ArcBindErrorNoticeController — projects a refused dash binding onto a pane
+ * ArcBindErrorNoticeController — projects a refused arc binding onto a pane
  * bulletin.
  *
- * `/dash <name>` sends a `bind_dash` CONTROL frame and raises no optimistic
+ * `/arc <name>` sends a `bind_arc` CONTROL frame and raises no optimistic
  * state, so a success shows itself (the chip appears, the lane fronts) and a
  * refusal shows nothing at all. This zero-render controller mounts inside the
  * card's `TugPaneBulletinProvider`, subscribes straight to
@@ -20,7 +20,7 @@ import { arcBindErrorStore } from "@/lib/arc-bind-error-store";
 
 import { useTugPaneBulletin } from "../tug-pane-bulletin";
 
-const NOTICE_ID = "dash-bind-error";
+const NOTICE_ID = "arc-bind-error";
 
 export function ArcBindErrorNoticeController({
   tugSessionId,

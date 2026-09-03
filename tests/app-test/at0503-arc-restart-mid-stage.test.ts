@@ -17,9 +17,9 @@
  *
  * ## What is driven here
  *
- * A real dash in a scratch repository, the ledger state a rotation leaves
+ * A real arc in a scratch repository, the ledger state a rotation leaves
  * behind seeded through the bundle's own `--seed-ledger` (the same route
- * `at0485` established), an arc generation written into the real dash-log, and
+ * `at0485` established), an arc generation written into the real arc log, and
  * then a full process relaunch. Two cases:
  *
  *   - **The restart itself.** The card comes back on the stage's own segment,
@@ -72,18 +72,18 @@ import {
   seedTugbankForLaunch,
 } from "./_harness/tugbank-helpers";
 import {
-  appendDashLogLine,
-  createDash,
-  dashLogPath,
-  dashPlanPath,
+  appendArcLogLine,
+  createArc,
+  arcLogPath,
+  arcPlanPath,
   fixturePlanDocument,
-  makeDashScratchRepo,
-  rmDashScratchRepo,
+  makeArcScratchRepo,
+  rmArcScratchRepo,
   rmScratchSession,
   seedScratchSession,
   tugtool,
-  type DashScratchRepo,
-} from "./dash-fixture";
+  type ArcScratchRepo,
+} from "./arc-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 240_000;
@@ -99,37 +99,37 @@ const FRESH = "c1a0d1ea-0000-4000-8000-000000000506";
 
 const TAG = "brisk-heron";
 /**
- * A dash per case, and not for tidiness.
+ * An arc per case, and not for tidiness.
  *
- * The dash-log is one shared, append-only file per project, so two cases
- * driving one dash write into one another's generation — and `read_arc` would
- * then be answering about a run neither test performed. One dash each is the
+ * The arc log is one shared, append-only file per project, so two cases
+ * driving one arc write into one another's generation — and `read_arc` would
+ * then be answering about a run neither test performed. One arc each is the
  * only way each case's record is its own.
  */
-const DASH_WAITS = "at0503-waits";
-const DASH_TAKEN = "at0503-taken";
-const DASHES = [DASH_WAITS, DASH_TAKEN] as const;
-const MASTHEAD_DASH =
-  '[data-slot="session-masthead"] [data-slot="session-identity-dash"]';
+const ARC_WAITS = "at0503-waits";
+const ARC_TAKEN = "at0503-taken";
+const ARCS = [ARC_WAITS, ARC_TAKEN] as const;
+const MASTHEAD_ARC =
+  '[data-slot="session-masthead"] [data-slot="session-identity-arc"]';
 
-/** This checkout — the build under test, and never the tree a dash is cut in. */
+/** This checkout — the build under test, and never the tree an arc is cut in. */
 const CHECKOUT = realpathSync(resolve(import.meta.dir, "..", ".."));
 
-let scratch: DashScratchRepo | null = null;
-const dashIds = new Map<string, string>();
+let scratch: ArcScratchRepo | null = null;
+const arcIds = new Map<string, string>();
 const fixtureDirs: string[] = [];
 const projectDir = (): string => scratch?.repo ?? "";
 
 beforeAll(() => {
   if (!SHOULD_RUN) return;
-  scratch = makeDashScratchRepo({ prefix: "at0503", checkout: CHECKOUT });
-  for (const dash of DASHES) {
-    const created = createDash(projectDir(), dash, `at0503 ${dash}`, scratch.cli);
-    dashIds.set(dash, created.id);
+  scratch = makeArcScratchRepo({ prefix: "at0503", checkout: CHECKOUT });
+  for (const arc of ARCS) {
+    const created = createArc(projectDir(), arc, `at0503 ${arc}`, scratch.cli);
+    arcIds.set(arc, created.id);
     // A plan with its first step closed: an implement stage that has somewhere
     // left to go, which is what makes "the arc waits" a claim about restraint
     // rather than about an arc that had nothing to do anyway.
-    writeFileSync(dashPlanPath(projectDir(), dash), fixturePlanDocument(3, ["done"]));
+    writeFileSync(arcPlanPath(projectDir(), arc), fixturePlanDocument(3, ["done"]));
   }
   for (const id of [ROOT, STAGE, FRESH]) {
     fixtureDirs.push(seedScratchSession(projectDir(), id));
@@ -138,7 +138,7 @@ beforeAll(() => {
 
 afterAll(() => {
   if (!SHOULD_RUN) return;
-  rmDashScratchRepo(scratch);
+  rmArcScratchRepo(scratch);
   for (const dir of fixtureDirs) rmScratchSession(dir);
 });
 
@@ -169,7 +169,7 @@ function deckShape() {
  * Seeded *after* launch, because `demote_live_to_closed` flips every live row
  * at startup and a row seeded before one would arrive closed.
  */
-function seedTheLine(app: App, dash: string, tip: "stage" | "fresh"): void {
+function seedTheLine(app: App, arc: string, tip: "stage" | "fresh"): void {
   const repo = projectDir();
   const sessions = [
     {
@@ -179,8 +179,8 @@ function seedTheLine(app: App, dash: string, tip: "stage" | "fresh"): void {
       card_id: "A",
       line_id: LINE,
       tag: TAG,
-      dash_id: dashIds.get(dash) ?? "",
-      dash_name: dash,
+      arc_id: arcIds.get(arc) ?? "",
+      arc_name: arc,
     },
     {
       session_id: STAGE,
@@ -209,28 +209,28 @@ function seedTheLine(app: App, dash: string, tip: "stage" | "fresh"): void {
 }
 
 /**
- * The arc generation a mid-stage crash leaves in the dash-log: opened on the
- * plan, running as a trek, with the implement stage seated on `STAGE`.
+ * The arc generation a mid-stage crash leaves in the arc log: opened on the
+ * plan, running as a planned arc, with the implement stage seated on `STAGE`.
  *
  * Written straight into the real log rather than through a verb, because the
  * verb that writes these lines is the runner, and the runner writing them is
  * what this file is trying to interrupt.
  */
-function seedTheArc(dash: string): void {
-  const log = dashLogPath(scratch?.dataRoot ?? "");
-  appendDashLogLine(log, dash, "arc-start", `.tug/arcs/${dash}/plan.md`);
-  appendDashLogLine(log, dash, "arc-kind", "trek");
-  appendDashLogLine(log, dash, "arc-stage", `implement ${STAGE} opus`);
+function seedTheArc(arc: string): void {
+  const log = arcLogPath(scratch?.dataRoot ?? "");
+  appendArcLogLine(log, arc, "arc-start", `.tug/arcs/${arc}/plan.md`);
+  appendArcLogLine(log, arc, "arc-kind", "planned");
+  appendArcLogLine(log, arc, "arc-stage", `implement ${STAGE} opus`);
 }
 
-/** What `tugtool arc record --json` says about the dash right now. */
-function arcReport(dash: string): {
+/** What `tugtool arc record --json` says about the arc right now. */
+function arcReport(arc: string): {
   stopped: [string, string] | null;
   stages: number;
   done: boolean;
 } {
   const out = JSON.parse(
-    tugtool(["arc", "record", dash, "--json"], {
+    tugtool(["arc", "record", arc, "--json"], {
       cwd: projectDir(),
       binaryRoot: CHECKOUT,
       env: scratch?.cli.env,
@@ -244,9 +244,9 @@ function arcReport(dash: string): {
       } | null;
     };
   };
-  const arc = out.data.arc;
-  if (arc === null) return { stopped: null, stages: 0, done: false };
-  return { stopped: arc.stopped, stages: arc.stages.length, done: arc.done };
+  const record = out.data.arc;
+  if (record === null) return { stopped: null, stages: 0, done: false };
+  return { stopped: record.stopped, stages: record.stages.length, done: record.done };
 }
 
 async function awaitDeck(app: App): Promise<void> {
@@ -285,8 +285,8 @@ describe.skipIf(!SHOULD_RUN)("AT0503: an arc across a tugcast restart", () => {
           });
           try {
             await awaitDeck(app);
-            seedTheLine(app, DASH_WAITS, "stage");
-            seedTheArc(DASH_WAITS);
+            seedTheLine(app, ARC_WAITS, "stage");
+            seedTheArc(ARC_WAITS);
           } finally {
             await app.close();
           }
@@ -321,14 +321,14 @@ describe.skipIf(!SHOULD_RUN)("AT0503: an arc across a tugcast restart", () => {
             // account-global aggregate's `bound_sessions`, which only a live
             // row actually carrying the binding can reach.
             await app.waitForCondition<boolean>(
-              `document.querySelector(${JSON.stringify(MASTHEAD_DASH)}) !== null`,
+              `document.querySelector(${JSON.stringify(MASTHEAD_ARC)}) !== null`,
               { timeoutMs: 20_000 },
             );
             const sigil = await app.evalJS<string>(
-              `(document.querySelector(${JSON.stringify(MASTHEAD_DASH)})?.textContent ?? "").trim()`,
+              `(document.querySelector(${JSON.stringify(MASTHEAD_ARC)})?.textContent ?? "").trim()`,
             );
             note(`at0503 masthead after restart: ${JSON.stringify(sigil)}`);
-            expect(sigil, "the binding rode the restart").toContain(DASH_WAITS);
+            expect(sigil, "the binding rode the restart").toContain(ARC_WAITS);
 
             // And the arc **waits**. The startup sweep has run, the card has
             // spawned, several ticks have gone by — and the stage has ended no
@@ -337,7 +337,7 @@ describe.skipIf(!SHOULD_RUN)("AT0503: an arc across a tugcast restart", () => {
             // second `arc-stage` line: the record still holds the one rotation
             // it held before the process died.
             await settle(SWEEPS_MS);
-            const arc = arcReport(DASH_WAITS);
+            const arc = arcReport(ARC_WAITS);
             note(`at0503 arc after the restart: ${JSON.stringify(arc)}`);
             expect(arc.stopped, "a relaunch is not an interruption").toBeNull();
             expect(arc.done).toBe(false);
@@ -370,8 +370,8 @@ describe.skipIf(!SHOULD_RUN)("AT0503: an arc across a tugcast restart", () => {
           });
           try {
             await awaitDeck(app);
-            seedTheLine(app, DASH_TAKEN, "fresh");
-            seedTheArc(DASH_TAKEN);
+            seedTheLine(app, ARC_TAKEN, "fresh");
+            seedTheArc(ARC_TAKEN);
           } finally {
             await app.close();
           }
@@ -397,10 +397,10 @@ describe.skipIf(!SHOULD_RUN)("AT0503: an arc across a tugcast restart", () => {
             // The stop is a decision the sweep makes, so it is waited for
             // rather than settled for: the wait is the assertion.
             const deadline = Date.now() + 60_000;
-            let arc = arcReport(DASH_TAKEN);
+            let arc = arcReport(ARC_TAKEN);
             while (arc.stopped === null && Date.now() < deadline) {
               await settle(1_000);
-              arc = arcReport(DASH_TAKEN);
+              arc = arcReport(ARC_TAKEN);
             }
             note(`at0503 arc after the taking: ${JSON.stringify(arc)}`);
             expect(arc.stopped?.[0]).toBe("implement");

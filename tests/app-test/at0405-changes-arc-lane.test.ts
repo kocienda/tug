@@ -1,60 +1,60 @@
 /**
- * at0405-changes-dash-lane.test.ts — the Changes shade's dash lane, driven
- * against a real dash created by the real CLI.
+ * at0405-changes-arc-lane.test.ts — the Changes shade's arc lane, driven
+ * against a real arc created by the real CLI.
  *
- * A dash is a different species from a claimed file, so it gets a different
+ * An arc is a different species from a claimed file, so it gets a different
  * row. This pins that grammar end to end: a real `tugtool arc create` in the
- * project under test composes into `snapshot.dashes`, the lane renders one
- * `DashLifecycleBlock` at reading scale — the atom and the workers over the
+ * project under test composes into `snapshot.arcs`, the lane renders one
+ * `ArcLifecycleBlock` at reading scale — the atom and the workers over the
  * track, the note and the divergence facts, the same block the Arcs card's
  * section renders at the rail ([D141]) — the expanded face carries the
  * worktree's dirty files and the maintained join draft as read-only ink, and
  * nowhere in the lane is there a claim, disclaim, or hunk-election affordance
  * — the whole point of not reusing `TugChangesList`'s rows.
  *
- * The draft has two grammars and the server decides which one stands: a dash
+ * The draft has two grammars and the server decides which one stands: an arc
  * the join has armed shows what the join would land, under `lands as`
- * ([D152]); one it has not shows the draft plainly. This fixture's dash is
+ * ([D152]); one it has not shows the draft plainly. This fixture's arc is
  * join-ready the moment its round lands — one round, no plan, a clean
  * worktree — so the arc arms it with nobody asking ([D147]) and `lands as` is
  * what a reader sees. The assertions below therefore wait for the draft's
  * **words** and then read whichever grammar carried them.
  *
- * Every dash in the project is a visible row, with no fold to open first. The
+ * Every arc in the project is a visible row, with no fold to open first. The
  * fold's absence is asserted directly, not merely relied upon.
  *
- * It also pins the fronting rule: a `bind_dash_ok` naming this card's session
- * moves the dash to the top of the lane, expanded, under the "This card's
- * dash" label. The broadcast is dispatched through `dispatchAction` — the
+ * It also pins the fronting rule: a `bind_arc_ok` naming this card's session
+ * moves the arc to the top of the lane, expanded, under the "This card's
+ * arc" label. The broadcast is dispatched through `dispatchAction` — the
  * production entry point the wire's decoder hands frames to.
  *
  * ## Discard's reach
  *
- * Both sides of the rule are driven. An unbound dash — one no live session is
+ * Both sides of the rule are driven. An unbound arc — one no live session is
  * mated to — offers Release from any shade, because there is nobody to take it
- * away from. A dash a *different* live session holds offers none at all: it is
+ * away from. An arc a *different* live session holds offers none at all: it is
  * that session's to release, and the refusal is permanent, so the control is
  * absent rather than disabled. The holding session is seeded into the ledger
- * with a `dash_id`, since `bound_sessions` is computed from those rows and a
- * client-side `bind_dash_ok` cannot fake it.
+ * with a `arc_id`, since `bound_sessions` is computed from those rows and a
+ * client-side `bind_arc_ok` cannot fake it.
  *
  * The project is a scratch repository this file owns, registered as a
- * workspace by spawning a real session on it — a dash is for implementing a
+ * workspace by spawning a real session on it — an arc is for implementing a
  * plan, not for running a test, so no fixture ever cuts one in the checkout.
  *
  * The lane's two binding gestures live here too, and are driven for real —
  * through the row's `⋯` menu, which is where they moved ([P08]): Unbind on the
- * fronted row sends `unbind_dash`, Bind on a non-fronted row sends `bind_dash`,
+ * fronted row sends `unbind_arc`, Bind on a non-fronted row sends `bind_arc`,
  * and the lane's fronting moves on the broadcast that comes back rather than on
  * the press. The menu is also where a blocked verb states its block, since a
  * disabled item takes no pointer events and a `title` on one can never be read
  * ([L31]).
  *
  * What the masthead says about the binding is NOT asserted here, and that is
- * deliberate. The dash rides the title's own grammar now, derived from the
- * dash's `bound_sessions` in the account-global aggregate — so it answers to
+ * deliberate. The arc rides the title's own grammar now, derived from the
+ * arc's `bound_sessions` in the account-global aggregate — so it answers to
  * server state, and the initial bind in this file is a synthesized
- * `bind_dash_ok` rather than a real one. at0406 drives that whole loop through
+ * `bind_arc_ok` rather than a real one. at0406 drives that whole loop through
  * the real CLI and pins the run against it; asserting it here would have meant
  * asserting it against a fabricated frame.
  *
@@ -86,26 +86,26 @@ import {
 } from "./_harness/tugbank-helpers";
 import {
   commitRound,
-  createDash,
-  makeDashScratchRepo,
-  rmDashScratchRepo,
+  createArc,
+  makeArcScratchRepo,
+  rmArcScratchRepo,
   rmScratchSession,
   seedScratchSession,
   tugtool,
-  type DashScratchRepo,
-} from "./dash-fixture";
+  type ArcScratchRepo,
+} from "./arc-fixture";
 import {
-  dashRowMenuOpener,
-  pressDashRowMenuItem,
-  readDashRowMenu,
-} from "./dash-row-menu-fixture";
+  arcRowMenuOpener,
+  pressArcRowMenuItem,
+  readArcRowMenu,
+} from "./arc-row-menu-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
 
 const SID = "a7c0d1ea-0000-4000-8000-000000000405";
 /** The reach case's own pair: the card doing the looking, and the live session
- *  that actually holds the dash. Separate ids so neither test's ledger rows can
+ *  that actually holds the arc. Separate ids so neither test's ledger rows can
  *  be mistaken for the other's. */
 const HELD_SID = "a7c0d1ea-0000-4000-8000-000000001405";
 const HOLDER_SID = "at0405-holder";
@@ -114,25 +114,25 @@ const PROMPT_INPUT = `${CARD} [data-slot="tug-text-editor"] .cm-content`;
 const USER_ROWS = `${CARD} [data-testid="session-card-transcript-user-body"]`;
 const SHEET = `${CARD} .session-view-pane[data-view="changes"] [data-slot="tug-sheet"]`;
 
-const LANE = `${SHEET} [data-slot="session-changes-dash-lane"]`;
-const FRONTED_LABEL = `${LANE} [data-slot="session-changes-dash-lane-fronted-label"]`;
+const LANE = `${SHEET} [data-slot="session-changes-arc-lane"]`;
+const FRONTED_LABEL = `${LANE} [data-slot="session-changes-arc-lane-fronted-label"]`;
 
-const DASH_NAME = "at0405-lane";
-const ROW = `${LANE} [data-slot="session-changes-dash-row"][data-dash="${DASH_NAME}"]`;
-const ROW_FOLD = `${ROW} [data-slot="session-changes-dash-fold"]`;
+const ARC_NAME = "at0405-lane";
+const ROW = `${LANE} [data-slot="session-changes-arc-row"][data-arc="${ARC_NAME}"]`;
+const ROW_FOLD = `${ROW} [data-slot="session-changes-arc-fold"]`;
 /**
  * The row's three rare verbs live behind its `⋯` now ([P08]), so every
  * question about them is asked of an opened menu rather than of the row.
  */
-const ROW_MENU_OPENER = dashRowMenuOpener(ROW);
+const ROW_MENU_OPENER = arcRowMenuOpener(ROW);
 
-/** This checkout — the build under test, and never the tree a dash is cut in. */
+/** This checkout — the build under test, and never the tree an arc is cut in. */
 const CHECKOUT = realpathSync(resolve(import.meta.dir, "..", ".."));
 /** The scratch repository this fixture owns, and the only tree it touches. */
-let scratch: DashScratchRepo | null = null;
+let scratch: ArcScratchRepo | null = null;
 let fixtureDir = "";
 const projectDir = (): string => scratch?.repo ?? "";
-const ROUND_FILE = "at0405-dash-round.txt";
+const ROUND_FILE = "at0405-arc-round.txt";
 /** A directory the round touches twice — the brief's areas fold something. */
 const ROUND_AREA = "at0405-area";
 const ROUND_SUBJECT = "at0405(round): the lane lists this subject";
@@ -143,22 +143,22 @@ const DRAFT_MESSAGE = "at0405 join draft\n\n- the lane renders this read-only";
 const instanceChangesDb = (instanceId: string): string =>
   join(homedir(), "Library/Application Support/Tug/instances", instanceId, "changes.db");
 
-/** Dash owner key, captured from `dash create` — the id `bind_dash_ok` carries
+/** Arc owner key, captured from `arc create` — the id `bind_arc_ok` carries
  *  and the lane fronts on. */
-let dashOwnerId = "";
+let arcOwnerId = "";
 
 beforeAll(() => {
   if (!SHOULD_RUN) return;
-  scratch = makeDashScratchRepo({ prefix: "at0405", checkout: CHECKOUT });
-  const created = createDash(projectDir(), DASH_NAME, "at0405 fixture", scratch.cli);
-  dashOwnerId = created.id;
+  scratch = makeArcScratchRepo({ prefix: "at0405", checkout: CHECKOUT });
+  const created = createArc(projectDir(), ARC_NAME, "at0405 fixture", scratch.cli);
+  arcOwnerId = created.id;
   // One committed round: it is what gives the entry a round subject, a file
   // in its range diff, the `working` stage, and a range the pop-out can open.
   //
   // The worktree's *dirt* is deliberately not part of the fixture. The feed
-  // resolves a dash's worktree as `<scanned project>/.tug/worktrees/<name>`
+  // resolves an arc's worktree as `<scanned project>/.tug/worktrees/<name>`
   // while the CLI resolves it against the repository's common dir, so a run
-  // whose scanned project is itself a worktree reads every dash as having no
+  // whose scanned project is itself a worktree reads every arc as having no
   // worktree — `worktree_dirty` would then be false for reasons that have
   // nothing to do with the lane. Rounds read the same from either tree.
   writeFileSync(join(created.worktree, ROUND_FILE), "at0405 round\n");
@@ -168,15 +168,15 @@ beforeAll(() => {
   mkdirSync(join(created.worktree, ROUND_AREA), { recursive: true });
   writeFileSync(join(created.worktree, ROUND_AREA, "first.txt"), "at0405 area one\n");
   writeFileSync(join(created.worktree, ROUND_AREA, "second.txt"), "at0405 area two\n");
-  commitRound(projectDir(), DASH_NAME, ROUND_SUBJECT, scratch.cli);
+  commitRound(projectDir(), ARC_NAME, ROUND_SUBJECT, scratch.cli);
   fixtureDir = seedScratchSession(projectDir(), SID);
   seedScratchSession(projectDir(), HELD_SID);
 });
 
 afterAll(() => {
   if (!SHOULD_RUN) return;
-  // The whole repository goes — branch, worktree, and dash with it.
-  rmDashScratchRepo(scratch);
+  // The whole repository goes — branch, worktree, and arc with it.
+  rmArcScratchRepo(scratch);
   rmScratchSession(fixtureDir);
 });
 
@@ -247,14 +247,14 @@ async function clickUntil(
   );
 }
 
-describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's dash lane", () => {
+describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's arc lane", () => {
   test(
-    "a dash another live session holds offers this shade no Release at all",
+    "an arc another live session holds offers this shade no Release at all",
     async () => {
       const tugbankPath = mkTempTugbank();
       seedTugbankForLaunch(tugbankPath, { sourceTreePath: CHECKOUT });
       const app = await launchTugApp({
-        testName: "at0405-changes-dash-lane-held",
+        testName: "at0405-changes-arc-lane-held",
         env: { TUGBANK_PATH: tugbankPath, TUG_DATA_DIR: scratch?.dataRoot ?? "" },
       });
       try {
@@ -264,7 +264,7 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's dash lane", () => {
           `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
         );
         // A *spawned* session, not a bound one: spawning registers the scratch
-        // repo as a workspace, so its dash reaches the aggregate.
+        // repo as a workspace, so its arc reaches the aggregate.
         await app.spawnSessionResume("A", { tugSessionId: HELD_SID, projectDir: projectDir() });
         await app.awaitEngineReady("A", { timeoutMs: 15000 });
         // The resumed transcript's one committed turn, on screen — typing into
@@ -275,10 +275,10 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's dash lane", () => {
           { timeoutMs: 8000 },
         );
 
-        // A second live session in this instance's ledger, and the dash is
+        // A second live session in this instance's ledger, and the arc is
         // mated to IT rather than to this card's. `bound_sessions` is computed
         // from these rows, so this is the real condition rather than a
-        // client-side pretence — a `bind_dash_ok` broadcast could not produce
+        // client-side pretence — a `bind_arc_ok` broadcast could not produce
         // it. After launch, not before: tugcast demotes every `live` row to
         // `closed` at startup.
         app.seedLedger({
@@ -289,8 +289,8 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's dash lane", () => {
               project_dir: projectDir(),
               card_id: "elsewhere",
               name: "at0405 holder",
-              dash_id: dashOwnerId,
-              dash_name: DASH_NAME,
+              arc_id: arcOwnerId,
+              arc_name: ARC_NAME,
             },
           ],
         });
@@ -306,22 +306,22 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's dash lane", () => {
           { timeoutMs: 30000 },
         );
 
-        // The row is here — a dash somebody else is working is still a
+        // The row is here — an arc somebody else is working is still a
         // situation worth seeing. What is absent is the gesture that would
-        // destroy it: that dash is its own session's to release.
+        // destroy it: that arc is its own session's to release.
         //
         // Absent, not disabled. Nothing the reader does *here* will ever make
         // it available, and a disabled control with a reason is the idiom for
         // "not yet", not for "not yours".
         await settle(1500);
-        const held = await readDashRowMenu(app, ROW);
+        const held = await readArcRowMenu(app, ROW);
         expect(
           held.discard.present,
-          "a dash another live session holds offers no Discard",
+          "an arc another live session holds offers no Discard",
         ).toBe(false);
         expect(
           held.bind.present,
-          "Bind is unaffected — taking a dash on is not destroying it",
+          "Bind is unaffected — taking an arc on is not destroying it",
         ).toBe(true);
       } finally {
         await app.close();
@@ -332,12 +332,12 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's dash lane", () => {
   );
 
   test(
-    "a real dash renders in dash grammar, folds when unbound, and fronts on bind",
+    "a real arc renders in arc grammar, folds when unbound, and fronts on bind",
     async () => {
       const tugbankPath = mkTempTugbank();
       seedTugbankForLaunch(tugbankPath, { sourceTreePath: CHECKOUT });
       const app = await launchTugApp({
-        testName: "at0405-changes-dash-lane",
+        testName: "at0405-changes-arc-lane",
         env: { TUGBANK_PATH: tugbankPath, TUG_DATA_DIR: scratch?.dataRoot ?? "" },
       });
       try {
@@ -347,7 +347,7 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's dash lane", () => {
           `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
         );
         // A *spawned* session, not a bound one: spawning registers the scratch
-        // repo as a workspace (so its dash reaches the aggregate) and writes
+        // repo as a workspace (so its arc reaches the aggregate) and writes
         // the live ledger row Adopt's and Leave's CONTROL frames resolve the
         // calling session through. The resumed transcript already carries one
         // committed turn, which is the card's resting state.
@@ -370,16 +370,16 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's dash lane", () => {
           { timeoutMs: 8000 },
         );
 
-        // ── Unbound: the lane exists, and the dash is a visible row ────────
-        // Nothing is fronted yet — the card is bound to no dash — but the row
-        // is on screen with no gesture at all. A dash somebody else is working
+        // ── Unbound: the lane exists, and the arc is a visible row ────────
+        // Nothing is fronted yet — the card is bound to no arc — but the row
+        // is on screen with no gesture at all. An arc somebody else is working
         // is a situation to look at, not a count to expand.
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(ROW)}) !== null`,
           { timeoutMs: 30000 },
         );
-        // The count is of THIS fixture's row, not of the lane. A dash's refs
-        // are repo-global, so any dash the developer has open is a row here
+        // The count is of THIS fixture's row, not of the lane. An arc's refs
+        // are repo-global, so any arc the developer has open is a row here
         // too — a total is a fact about whoever is running the suite.
         const unfrontedState = await app.evalJS<{ fronted: number; rows: number }>(
           `(() => ({
@@ -393,9 +393,9 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's dash lane", () => {
         // The fold is gone, not merely unused — nothing anywhere renders it.
         expect(
           await app.evalJS<number>(
-            `document.querySelectorAll('[data-slot="session-changes-dash-lane-fold"]').length`,
+            `document.querySelectorAll('[data-slot="session-changes-arc-lane-fold"]').length`,
           ),
-          "the other-dashes fold no longer exists",
+          "the other-arcs fold no longer exists",
         ).toBe(0);
 
         // The rare verbs are behind the `⋯` and nowhere else: standing on the
@@ -406,11 +406,11 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's dash lane", () => {
           ),
           "the row carries one opener for its rare verbs",
         ).toBe(1);
-        // Discard reaches an unbound dash. No live session is mated to this one,
+        // Discard reaches an unbound arc. No live session is mated to this one,
         // so it is nobody's to protect and this shade may clean it up — the
         // whole point of widening the gesture past the fronted row.
-        const unbound = await readDashRowMenu(app, ROW);
-        expect(unbound.discard.present, "an unbound dash offers Discard").toBe(true);
+        const unbound = await readArcRowMenu(app, ROW);
+        expect(unbound.discard.present, "an unbound arc offers Discard").toBe(true);
         expect(unbound.discard.disabled, "and nothing is blocking it").toBe(false);
         // The reason rides the label when there is one, so an available verb
         // is the bare word ([L31]).
@@ -418,7 +418,7 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's dash lane", () => {
           "Discard",
         );
 
-        // ── The row reads in dash grammar ─────────────────────────────────
+        // ── The row reads in arc grammar ─────────────────────────────────
         const row = await app.evalJS<{
           badge: string;
           phase: string | null;
@@ -429,10 +429,10 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's dash lane", () => {
           `(() => {
              const row = document.querySelector(${JSON.stringify(ROW)});
              const lane = document.querySelector(${JSON.stringify(LANE)});
-             const track = row.querySelector('[data-slot="tug-dash-track"]');
-             const noteEl = row.querySelector('[data-slot="tug-dash-lifecycle-note"]');
+             const track = row.querySelector('[data-slot="tug-arc-track"]');
+             const noteEl = row.querySelector('[data-slot="tug-arc-lifecycle-note"]');
              return {
-               badge: (row.querySelector('[data-slot="tug-dash-lifecycle-name"]')?.textContent ?? "").trim(),
+               badge: (row.querySelector('[data-slot="tug-arc-lifecycle-name"]')?.textContent ?? "").trim(),
                phase: track?.getAttribute("data-phase") ?? null,
                note: (noteEl?.textContent ?? "").trim(),
                popOuts: row.querySelectorAll('[data-testid="tug-changes-list-diff-popout"]').length,
@@ -442,13 +442,13 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's dash lane", () => {
              };
            })()`,
         );
-        // The name wears its caret and no chip: `DashSigil`, the same component
+        // The name wears its caret and no chip: `ArcSigil`, the same component
         // a bound session's identity atom composes. `textContent`, not
         // `innerText` — the run is an inline-flex of two spans, which
         // blockifies them and would put a line break between the sigil and
         // the name it belongs to.
-        expect(row.badge).toBe(`^${DASH_NAME}`);
-        // Where the dash stands in its life, as the strip's own last cell.
+        expect(row.badge).toBe(`^${ARC_NAME}`);
+        // Where the arc stands in its life, as the strip's own last cell.
         // One committed round, no plan and a clean worktree derives `ready`:
         // with no declared selection to finish, a landed round is the whole of
         // the intent, and the server arms the join from it ([D147]) — so the
@@ -472,7 +472,7 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's dash lane", () => {
         // Touching a tracked-project file is what wakes the aggregate for the
         // recompose that carries the draft onto the entry.
         tugtool(
-          ["draft", "set", "--owner", `dash:${DASH_NAME}`, "--message", DRAFT_MESSAGE, "--json"],
+          ["draft", "set", "--owner", `arc:${ARC_NAME}`, "--message", DRAFT_MESSAGE, "--json"],
           {
             cwd: projectDir(),
             binaryRoot: CHECKOUT,
@@ -484,9 +484,9 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's dash lane", () => {
         try {
           // Waited for by its **words**, not by its slot. The fold has two
           // grammars for the same maintained draft and which one stands is the
-          // server's call, not the fixture's: a dash the join has armed
+          // server's call, not the fixture's: an arc the join has armed
           // shows what the join would land (`lands as`), and one it has not
-          // shows the draft plainly. This dash is join-ready — one round, no
+          // shows the draft plainly. This arc is join-ready — one round, no
           // plan, a clean worktree — so the arc arms it unbidden ([D147]) and
           // `lands as` is what a reader sees. Waiting on the plain slot waited
           // for a grammar that could not appear. The words are the subject's:
@@ -495,7 +495,7 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's dash lane", () => {
           await app.waitForCondition<boolean>(
             `(() => {
                const row = document.querySelector(${JSON.stringify(ROW)});
-               const subject = row?.querySelector('[data-slot="session-changes-dash-brief-subject"]');
+               const subject = row?.querySelector('[data-slot="session-changes-arc-brief-subject"]');
                return (subject?.textContent ?? "").includes("at0405 join draft");
              })()`,
             { timeoutMs: 25000 },
@@ -508,7 +508,7 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's dash lane", () => {
                const slots = [...row.querySelectorAll("[data-slot]")].map((el) => el.getAttribute("data-slot"));
                return {
                  expanded: row.getAttribute("data-expanded"),
-                 phase: row.querySelector('[data-slot="tug-dash-track"]')?.getAttribute("data-phase") ?? null,
+                 phase: row.querySelector('[data-slot="tug-arc-track"]')?.getAttribute("data-phase") ?? null,
                  slots: [...new Set(slots)].join(","),
                };
              })()`,
@@ -534,11 +534,11 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's dash lane", () => {
                return el === null ? null : el.textContent.trim();
              };
              return {
-               landsAs: text('[data-slot="session-changes-dash-lands-as"]'),
-               plainDraft: text('[data-slot="session-changes-dash-draft"]'),
-               provenance: row.querySelectorAll('[data-slot="session-changes-dash-lands-as-note"]').length,
-               files: (row.querySelector('[data-slot="session-changes-dash-files"]')?.textContent ?? "").trim(),
-               subjects: (row.querySelector('[data-slot="session-changes-dash-subjects"]')?.textContent ?? "").trim(),
+               landsAs: text('[data-slot="session-changes-arc-lands-as"]'),
+               plainDraft: text('[data-slot="session-changes-arc-draft"]'),
+               provenance: row.querySelectorAll('[data-slot="session-changes-arc-lands-as-note"]').length,
+               files: (row.querySelector('[data-slot="session-changes-arc-files"]')?.textContent ?? "").trim(),
+               subjects: (row.querySelector('[data-slot="session-changes-arc-subjects"]')?.textContent ?? "").trim(),
                editors: row.querySelectorAll('[data-slot="tug-text-editor"], textarea, input').length,
              };
            })()`,
@@ -579,14 +579,14 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's dash lane", () => {
         }>(
           `(() => {
              const row = document.querySelector(${JSON.stringify(ROW)});
-             const cluster = row.querySelector('[data-slot="session-changes-dash-cluster"][data-dir$="${ROUND_AREA}"]');
-             const head = cluster.querySelector(".session-changes-dash-cluster-toggle");
-             const chevron = head.querySelector(".session-changes-dash-cluster-chevron");
-             const name = head.querySelector(".session-changes-dash-cluster-dir");
-             const file = cluster.querySelector(".session-changes-dash-cluster-files .session-changes-dash-file-path");
+             const cluster = row.querySelector('[data-slot="session-changes-arc-cluster"][data-dir$="${ROUND_AREA}"]');
+             const head = cluster.querySelector(".session-changes-arc-cluster-toggle");
+             const chevron = head.querySelector(".session-changes-arc-cluster-chevron");
+             const name = head.querySelector(".session-changes-arc-cluster-dir");
+             const file = cluster.querySelector(".session-changes-arc-cluster-files .session-changes-arc-file-path");
              const style = getComputedStyle(head);
              return {
-               chevrons: head.querySelectorAll(".session-changes-dash-cluster-chevron").length,
+               chevrons: head.querySelectorAll(".session-changes-arc-cluster-chevron").length,
                rotated: getComputedStyle(chevron).transform,
                expanded: cluster.getAttribute("data-expanded"),
                pad: parseFloat(style.paddingLeft) + parseFloat(style.paddingTop),
@@ -622,11 +622,11 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's dash lane", () => {
         expect(fold.rowSize, "a path takes the commit receipt's size").toBe(receiptPx);
         expect(fold.nameSize, "and so does the area that holds it").toBe(receiptPx);
 
-        // ── Bind: the dash fronts, expanded, under its own label ───────────
-        await app.dispatchControlAction("bind_dash_ok", {
+        // ── Bind: the arc fronts, expanded, under its own label ───────────
+        await app.dispatchControlAction("bind_arc_ok", {
           tug_session_id: SID,
-          dash_id: dashOwnerId,
-          dash_name: DASH_NAME,
+          arc_id: arcOwnerId,
+          arc_name: ARC_NAME,
         });
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(FRONTED_LABEL)}) !== null`,
@@ -634,19 +634,19 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's dash lane", () => {
         );
         const fronted = await app.evalJS<{ first: string | null; expanded: string | null }>(
           `(() => {
-             const rows = document.querySelectorAll(${JSON.stringify(`${LANE} [data-slot="session-changes-dash-row"]`)});
+             const rows = document.querySelectorAll(${JSON.stringify(`${LANE} [data-slot="session-changes-arc-row"]`)});
              const first = rows[0] ?? null;
              return {
-               first: first === null ? null : first.getAttribute("data-dash"),
+               first: first === null ? null : first.getAttribute("data-arc"),
                expanded: first === null ? null : first.getAttribute("data-expanded"),
              };
            })()`,
         );
-        expect(fronted.first).toBe(DASH_NAME);
+        expect(fronted.first).toBe(ARC_NAME);
         expect(fronted.expanded).toBe("true");
 
         // ── The line centres its whole run ────────────────────────────────
-        // Line 1 anchors an identity to each edge — the dash atom left, the
+        // Line 1 anchors an identity to each edge — the arc atom left, the
         // worker right, a hairline between. Line 2 answers it from the middle:
         // the track and the reading it explains — glyph, fraction, word,
         // facts — are one unit, centred together, so the strip travels along
@@ -662,10 +662,10 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's dash lane", () => {
         }>(
           `(() => {
              const row = document.querySelector(${JSON.stringify(ROW)});
-             const line = row.querySelector('[data-slot="tug-dash-lifecycle-line"]');
+             const line = row.querySelector('[data-slot="tug-arc-lifecycle-line"]');
              const box = line.getBoundingClientRect();
-             const track = line.querySelector('[data-slot="tug-dash-track"]').getBoundingClientRect();
-             const read = line.querySelector('[data-slot="tug-dash-lifecycle-reading"]').getBoundingClientRect();
+             const track = line.querySelector('[data-slot="tug-arc-track"]').getBoundingClientRect();
+             const read = line.querySelector('[data-slot="tug-arc-lifecycle-reading"]').getBoundingClientRect();
              const R = (n) => Math.round(n * 10) / 10;
              return {
                lead: R(track.left - box.left),
@@ -685,16 +685,16 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's dash lane", () => {
 
         // ── The complement rule ───────────────────────────────────────────
         // Unbind on the fronted row, Bind on none of it — a menu carrying both
-        // at once would say the card can take on and put down the same dash.
-        const affordances = await readDashRowMenu(app, ROW);
+        // at once would say the card can take on and put down the same arc.
+        const affordances = await readArcRowMenu(app, ROW);
         expect(affordances.unbind.present).toBe(true);
         expect(affordances.bind.present).toBe(false);
 
-        // ── Unbind: the real `unbind_dash` round trip ─────────────────────
-        // The fronting moves on the `unbind_dash_ok` broadcast, never on the
+        // ── Unbind: the real `unbind_arc` round trip ─────────────────────
+        // The fronting moves on the `unbind_arc_ok` broadcast, never on the
         // press — nothing here writes the binding store optimistically, so
         // this assertion is about the round trip.
-        await pressDashRowMenuItem(app, ROW, "unbind-dash");
+        await pressArcRowMenuItem(app, ROW, "unbind-arc");
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(FRONTED_LABEL)}) === null`,
           { timeoutMs: 15000 },
@@ -704,16 +704,16 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's dash lane", () => {
         // The row stays on screen when it stops being fronted — it moves into
         // the rest group, which hides nothing — so its menu is reachable
         // without a fold click first.
-        await pressDashRowMenuItem(app, ROW, "bind-dash");
+        await pressArcRowMenuItem(app, ROW, "bind-arc");
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(FRONTED_LABEL)}) !== null`,
           { timeoutMs: 15000 },
         );
         expect(
           await app.evalJS<string | null>(
-            `document.querySelector(${JSON.stringify(`${LANE} [data-slot="session-changes-dash-row"]`)})?.getAttribute("data-dash") ?? null`,
+            `document.querySelector(${JSON.stringify(`${LANE} [data-slot="session-changes-arc-row"]`)})?.getAttribute("data-arc") ?? null`,
           ),
-        ).toBe(DASH_NAME);
+        ).toBe(ARC_NAME);
       } finally {
         await app.close();
         rmTempTugbank(tugbankPath);

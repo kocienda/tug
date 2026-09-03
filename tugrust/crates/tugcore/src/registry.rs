@@ -25,7 +25,7 @@
 //! "Live" means `kill(pid, 0) == 0`. A `ESRCH` reply means the PID is
 //! gone (process exited, system rebooted, …) and the entry is pruned.
 //!
-//! See [`#registry-format`](dash/tug-multi-instance.md#registry-format)
+//! See `#registry-format` in the multi-instance design record
 //! for the on-disk schema.
 
 use std::fs::{File, OpenOptions};
@@ -202,13 +202,13 @@ pub fn find_for_cwd(cwd: &Path) -> Result<Option<Instance>, Error> {
 }
 
 /// The main checkout behind `cwd` when `cwd` sits inside a **linked git
-/// worktree** — a dash — else `None`.
+/// worktree** — an arc — else `None`.
 ///
-/// A dash worktree lives outside the checkout the instance was built from,
+/// An arc worktree lives outside the checkout the instance was built from,
 /// so the bundle-path prefix test in [`find_for_cwd`] can never match from
 /// inside one: neither path contains the other. Discovery would fall
 /// through to the sole-instance rule and error out with a second instance
-/// running, which is how a shell in a dash lost its instance entirely.
+/// running, which is how a shell in an arc lost its instance entirely.
 ///
 /// The translation is pure filesystem, deliberately: a registry lookup must
 /// not depend on `git` being on `PATH`. A linked worktree records
@@ -637,7 +637,7 @@ mod tests {
         unregister("debug-find-by-id-test").unwrap();
     }
 
-    /// A shell inside a dash worktree still belongs to the instance
+    /// A shell inside an arc worktree still belongs to the instance
     /// built from the main checkout. Real `git worktree add` output, not
     /// a hand-built `.git` file: the pointer/`commondir` layout is
     /// exactly what this resolution reads, so a fixture that drifted
@@ -647,7 +647,7 @@ mod tests {
     fn find_for_cwd_reaches_through_a_linked_worktree() {
         let dir = tempdir().unwrap();
         let main = dir.path().join("checkout");
-        let worktree = dir.path().join("dashes/tugcast-perf");
+        let worktree = dir.path().join("arcs/tugcast-perf");
         std::fs::create_dir_all(&main).unwrap();
         let git = |args: &[&str]| {
             let ok = std::process::Command::new("git")
@@ -671,7 +671,7 @@ mod tests {
             "add",
             "-q",
             "-b",
-            "tugdash/tugcast-perf",
+            "tugarc/tugcast-perf",
             worktree.to_str().unwrap(),
         ]);
 
@@ -702,7 +702,7 @@ mod tests {
         assert_eq!(
             got.map(|i| i.instance_id).as_deref(),
             Some("debug-worktree-test"),
-            "a dash worktree must resolve to the instance holding its checkout"
+            "an arc worktree must resolve to the instance holding its checkout"
         );
         unregister("debug-worktree-test").unwrap();
     }

@@ -1,13 +1,13 @@
 /**
- * at0408-dash-gesture.test.ts — `/arc-bind`, all four ways it can go.
+ * at0408-arc-gesture.test.ts — `/arc-bind`, all four ways it can go.
  *
- * The command means "work on this dash, making it if needed", and it takes
+ * The command means "work on this arc, making it if needed", and it takes
  * each of its two paths for what that path is. A name the card's snapshot
- * already knows is a pure UI-concept write: a `bind_dash` CONTROL frame,
+ * already knows is a pure UI-concept write: a `bind_arc` CONTROL frame,
  * silent, no transcript ink — so this asserts the chip arrives with **no**
  * shell row behind it. A name it does not know is a git mutation, so it goes
  * through the shell route and leaves a receipt saying what was made, and
- * `dash create`'s own auto-bind is what ends the card bound.
+ * `arc create`'s own auto-bind is what ends the card bound.
  *
  * The other two ways are the ones that must not mutate anything: bare
  * `/arc-bind` opens the picker sheet (the full picking behavior is at0421's;
@@ -18,7 +18,7 @@
  * The run waits for the aggregate to answer before typing anything. That is
  * not politeness: before the first compose every name misses the snapshot
  * match, and `/arc-bind <known-name>` would fall through to the create path and
- * cut a second branch for a dash that already exists.
+ * cut a second branch for an arc that already exists.
  *
  * @covers tugdeck/src/lib/slash-commands.ts
  * @covers tugdeck/src/lib/arc-name.ts
@@ -38,13 +38,13 @@ import {
   seedTugbankForLaunch,
 } from "./_harness/tugbank-helpers";
 import {
-  createDash,
-  makeDashScratchRepo,
-  rmDashScratchRepo,
+  createArc,
+  makeArcScratchRepo,
+  rmArcScratchRepo,
   rmScratchSession,
   seedScratchSession,
-  type DashScratchRepo,
-} from "./dash-fixture";
+  type ArcScratchRepo,
+} from "./arc-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
@@ -54,40 +54,40 @@ const CARD = '[data-card-id="A"]';
 const PROMPT = `${CARD} [data-slot="tug-text-editor"] .cm-content`;
 const SHELL_ROWS = `${CARD} [data-slot="session-transcript-shell-row"]`;
 const SHEET = `${CARD} .session-view-pane[data-view="changes"] [data-slot="tug-sheet"]`;
-const PICKER = '[data-slot="dash-picker-sheet"]';
-// The dash marker on the masthead's title line — the identity's own run
+const PICKER = '[data-slot="arc-picker-sheet"]';
+// The arc marker on the masthead's title line — the identity's own run
 // since the masthead badge was retired. Scoped to the masthead, because a
 // line-tier identity anywhere else (a Cards row, a picker row) wears it too.
 const CHIP =
-  '[data-slot="session-masthead"] [data-slot="session-identity-dash"]';
-/** What that run reads: the identity's dash grammar, sigil included. */
-const chipText = (dash: string): string => `^${dash}`;
+  '[data-slot="session-masthead"] [data-slot="session-identity-arc"]';
+/** What that run reads: the identity's arc grammar, sigil included. */
+const chipText = (arc: string): string => `^${arc}`;
 const BULLETIN = ".tug-pane-bulletin";
 
-const DASHES_CARD = '.dashes-section';
+const ARCS_CARD = '.arcs-section';
 
-/** This checkout — the build under test, and never the tree a dash is cut in. */
+/** This checkout — the build under test, and never the tree an arc is cut in. */
 const CHECKOUT = realpathSync(resolve(import.meta.dir, "..", ".."));
 /** The scratch repository this fixture owns, and the only tree it touches. */
-let scratch: DashScratchRepo | null = null;
+let scratch: ArcScratchRepo | null = null;
 let fixtureDir = "";
 const projectDir = (): string => scratch?.repo ?? "";
 /** Already there when the gesture runs — the bind path. */
-const KNOWN_DASH = "at0408-known";
+const KNOWN_ARC = "at0408-known";
 /** Does not exist until `/arc-bind` makes it — the create path. */
-const MADE_DASH = "at0408-made";
+const MADE_ARC = "at0408-made";
 
 beforeAll(() => {
   if (!SHOULD_RUN) return;
-  scratch = makeDashScratchRepo({ prefix: "at0408", checkout: CHECKOUT });
-  createDash(projectDir(), KNOWN_DASH, "at0408 fixture", scratch.cli);
+  scratch = makeArcScratchRepo({ prefix: "at0408", checkout: CHECKOUT });
+  createArc(projectDir(), KNOWN_ARC, "at0408 fixture", scratch.cli);
   fixtureDir = seedScratchSession(projectDir(), SID);
 });
 
-// The whole repository goes — MADE_DASH included, however far the run got.
+// The whole repository goes — MADE_ARC included, however far the run got.
 afterAll(() => {
   if (!SHOULD_RUN) return;
-  rmDashScratchRepo(scratch);
+  rmArcScratchRepo(scratch);
   rmScratchSession(fixtureDir);
 });
 
@@ -133,7 +133,7 @@ describe.skipIf(!SHOULD_RUN)("AT0408: the /arc-bind gesture", () => {
       const tugbankPath = mkTempTugbank();
       seedTugbankForLaunch(tugbankPath, { sourceTreePath: CHECKOUT });
       const app = await launchTugApp({
-        testName: "at0408-dash-gesture",
+        testName: "at0408-arc-gesture",
         env: { TUGBANK_PATH: tugbankPath, TUG_DATA_DIR: scratch?.dataRoot ?? "" },
       });
       try {
@@ -143,38 +143,38 @@ describe.skipIf(!SHOULD_RUN)("AT0408: the /arc-bind gesture", () => {
           `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
         );
         // A *spawned* session, not a bound one: spawning registers the scratch
-        // repo as a workspace, so its dashes reach the aggregate — and the
+        // repo as a workspace, so its arcs reach the aggregate — and the
         // create path's shell child runs with its cwd there.
         await app.spawnSessionResume("A", { tugSessionId: SID, projectDir: projectDir() });
         await app.awaitEngineReady("A", { timeoutMs: 15000 });
 
         // ── Wait for the aggregate to answer ──────────────────────────────
         // The Arcs card reads the same `ChangesetAllStore` the
-        // card's controller does, so a row for the fixture dash there is proof
-        // the snapshot has composed this project's dashes. Typing before that
+        // card's controller does, so a row for the fixture arc there is proof
+        // the snapshot has composed this project's arcs. Typing before that
         // would send `/arc-bind <known>` down the CREATE path.
         await app.dispatchControlAction("toggle-arcs");
         await app.waitForCondition<boolean>(
-          `document.querySelector('${DASHES_CARD} [data-slot="dashes-row"][data-dash="${KNOWN_DASH}"]') !== null`,
+          `document.querySelector('${ARCS_CARD} [data-slot="arcs-row"][data-arc="${KNOWN_ARC}"]') !== null`,
           { timeoutMs: 30000 },
         );
         await app.dispatchControlAction("toggle-arcs");
         await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(DASHES_CARD)}) === null`,
+          `document.querySelector(${JSON.stringify(ARCS_CARD)}) === null`,
           { timeoutMs: 8000 },
         );
 
         // ── A known name binds, with no shell row behind it ───────────────
-        await runCommand(app, `/arc-bind ${KNOWN_DASH}`);
+        await runCommand(app, `/arc-bind ${KNOWN_ARC}`);
         await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(CHIP)})?.textContent.trim() === ${JSON.stringify(chipText(KNOWN_DASH))}`,
+          `document.querySelector(${JSON.stringify(CHIP)})?.textContent.trim() === ${JSON.stringify(chipText(KNOWN_ARC))}`,
           { timeoutMs: 15000 },
         );
         // The bind is a CONTROL frame: silent, no transcript ink.
         expect(await app.evalJS<number>(count(SHELL_ROWS))).toBe(0);
 
         // ── An unknown name is created, with a receipt ────────────────────
-        await runCommand(app, `/arc-bind ${MADE_DASH}`);
+        await runCommand(app, `/arc-bind ${MADE_ARC}`);
         await app.waitForCondition<boolean>(
           `(function(){
              var rows = document.querySelectorAll(${JSON.stringify(SHELL_ROWS)});
@@ -187,11 +187,11 @@ describe.skipIf(!SHOULD_RUN)("AT0408: the /arc-bind gesture", () => {
         const receipt = await app.evalJS<string>(
           `(document.querySelectorAll(${JSON.stringify(SHELL_ROWS)})[0]?.textContent ?? "").trim()`,
         );
-        expect(receipt).toContain(`tugtool arc create ${MADE_DASH}`);
-        // `dash create`'s unconditional auto-bind is what ends the card bound —
+        expect(receipt).toContain(`tugtool arc create ${MADE_ARC}`);
+        // `arc create`'s unconditional auto-bind is what ends the card bound —
         // this handler never sends a second bind of its own.
         await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(CHIP)})?.textContent.trim() === ${JSON.stringify(chipText(MADE_DASH))}`,
+          `document.querySelector(${JSON.stringify(CHIP)})?.textContent.trim() === ${JSON.stringify(chipText(MADE_ARC))}`,
           { timeoutMs: 20000 },
         );
 
@@ -204,13 +204,13 @@ describe.skipIf(!SHOULD_RUN)("AT0408: the /arc-bind gesture", () => {
         const caution = await app.evalJS<string>(
           `(document.querySelector(${JSON.stringify(BULLETIN)})?.textContent ?? "").trim()`,
         );
-        expect(caution).toContain("dash name");
+        expect(caution).toContain("arc name");
         // Still exactly the one create; the refusal ran no command.
         expect(await app.evalJS<number>(count(SHELL_ROWS))).toBe(1);
 
         // ── Bare `/arc-bind` picks, and does not open the shade ──────────
-        // Showing every dash and offering no way to choose one was the old
-        // answer; with more than one dash in the project the bare form is a
+        // Showing every arc and offering no way to choose one was the old
+        // answer; with more than one arc in the project the bare form is a
         // picker now, and the shade stays where it was.
         expect(await app.evalJS<number>(count(PICKER))).toBe(0);
         await runCommand(app, "/arc-bind");

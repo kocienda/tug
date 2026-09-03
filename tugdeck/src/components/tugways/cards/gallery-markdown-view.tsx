@@ -121,8 +121,8 @@ typography pass.
 
 ## Smart punctuation
 
-Straight quotes become curly: "rendered" and 'inline'. Dashes fold:
-an en-dash -- and an em-dash --- read distinctly. An ellipsis... too.
+Straight quotes become curly: "rendered" and 'inline'. Arcs fold:
+an en-arc -- and an em-arc --- read distinctly. An ellipsis... too.
 
 ## Footnotes
 

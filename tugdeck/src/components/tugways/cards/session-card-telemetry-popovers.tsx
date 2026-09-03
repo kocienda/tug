@@ -730,7 +730,7 @@ export function StateChangeLogPopoverContent({
  * The [D100] task list as numbered popup-list items.
  *
  * Its own component because two placards render it: TASKS, whose whole body it
- * is, and DASH, where the same list *is* the dash's step list — a plan run
+ * is, and ARC, where the same list *is* the arc's step list — a plan run
  * creates one task per step, so the checklist and the ledger are the same walk
  * seen from two sides. Composed rather than copied, so the two readings cannot
  * drift into two vocabularies.
@@ -1271,11 +1271,11 @@ export function JobsPopoverContent({
 }
 
 // ---------------------------------------------------------------------------
-// Dash popover
+// Arc popover
 // ---------------------------------------------------------------------------
 
 /**
- * A dash's plan ledger as numbered popup-list items — the same row shape
+ * An arc's plan ledger as numbered popup-list items — the same row shape
  * `TaskListItems` renders, over the document rather than over the transcript.
  *
  * The ordinal is the row's ledger position, which is the step number the plan
@@ -1298,7 +1298,7 @@ export function ArcStepItems({
           // identity — two rows may legitimately carry the same title.
           key={index}
           className="session-tasks-popover-item"
-          data-slot="session-dash-popover-step"
+          data-slot="session-arc-popover-step"
           data-status={step.status}
           indicator={
             <TugProgressIndicator
@@ -1326,45 +1326,45 @@ export function ArcStepItems({
 }
 
 /**
- * `DASH` popup — opened from the status row's fourth cell while the session is
- * driving a dash, in place of the `TASKS` reading.
+ * `ARC` popup — opened from the status row's fourth cell while the session is
+ * driving an arc, in place of the `TASKS` reading.
  *
- * The cockpit detail for one dash, in the vocabulary the Arcs card and the Changes
+ * The cockpit detail for one arc, in the vocabulary the Arcs card and the Changes
  * shade already speak: `ArcLifecycleBlock` at the reading scale — the atom
  * and the workers over the track, the phase glyph, the fraction, the phase in
- * a word, and every divergence fact the dash carries — then **the plan's
- * ledger**, the dash's own step list, which is where a reader reads step
+ * a word, and every divergence fact the arc carries — then **the plan's
+ * ledger**, the arc's own step list, which is where a reader reads step
  * titles. Composed, not restated: every mark here is the same
- * component the row surfaces render, so the three readings of one dash cannot
+ * component the row surfaces render, so the three readings of one arc cannot
  * disagree.
  *
  * The list is the ledger and not the [D100] task list, which is what it used to
  * be. A run creates one task per step, so the two coincide when everything goes
  * right and diverge the moment anything does not: tasks are session-scoped and
- * append-only, so a second dash in one session inherits the first's checklist;
- * a dash resumed in a fresh session has no tasks at all while its ledger is
+ * append-only, so a second arc in one session inherits the first's checklist;
+ * an arc resumed in a fresh session has no tasks at all while its ledger is
  * half walked; fix rounds make tasks that are not steps. The fraction above the
  * list is counted against the ledger, so the list has to be the ledger or the
  * two halves of one popup describe two different runs.
  *
- * A dash driving no plan has no ledger, and there the task list is the only
+ * An arc driving no plan has no ledger, and there the task list is the only
  * checklist there is — so that is exactly, and only, when it is shown.
  *
  * With neither, the placard stops at the block. It used to say `None`, the
  * word this file's other empty lists earn — but those are lists that could
  * only be empty, and this one sits under a track, a phase glyph and a word
- * that have just said what the dash is doing. `None` answered a question the
+ * that have just said what the arc is doing. `None` answered a question the
  * reader had not asked and denied the reading directly above it.
  *
  * The one exit is `Show in Changes`, which reveals this card's own Changes
- * shade. That is where every decision about a dash lives, and a placard is a
+ * shade. That is where every decision about an arc lives, and a placard is a
  * reading rather than a room.
  *
  * `/tasks` still opens the TASKS placard while this one is reachable by click.
- * Two readings from one cell is intended: the click asks what the dash is
+ * Two readings from one cell is intended: the click asks what the arc is
  * doing, the command asks what the checklist says.
  */
-export function DashPopoverContent({
+export function ArcPopoverContent({
   fact,
   tasks,
   idle,
@@ -1380,7 +1380,7 @@ export function DashPopoverContent({
   return (
     <TugPopupListFrame
       kind="item"
-      className="session-dash-popover"
+      className="session-arc-popover"
       footer={
         // No summary word: the lifecycle block at the top of this placard
         // already says the phase, and the git stage under it was the same
@@ -1397,12 +1397,12 @@ export function DashPopoverContent({
         </TugPopupListFooter>
       }
     >
-      <TugPopupListScroller data-slot="session-dash-popover-body">
-        {/* The placard's heading is the same block every dash surface wears,
+      <TugPopupListScroller data-slot="session-arc-popover-body">
+        {/* The placard's heading is the same block every arc surface wears,
             at the reading scale this list is set in: the atom and the workers
             over the track, the fraction, the note and the divergence facts.
-            The steps below are the plan's rows; this is the dash. */}
-        <div className="session-dash-popover-head">
+            The steps below are the plan's rows; this is the arc. */}
+        <div className="session-arc-popover-head">
           <ArcLifecycleBlock
             name={fact.name}
             workers={fact.entry.bound_sessions ?? []}

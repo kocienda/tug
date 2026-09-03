@@ -1,20 +1,20 @@
 /**
  * arc-review.ts — what an arc's plan review state means to a surface.
  *
- * The state itself is computed on the server and rides the dash changeset entry
+ * The state itself is computed on the server and rides the arc changeset entry
  * as one string ([P03]); nothing here parses a plan. What lives here is the
  * shared reading of that string, so the three surfaces that paint the mark —
- * the Arcs card row, the Changes shade's dash row, and the masthead dash chip
+ * the Arcs card row, the Changes shade's arc row, and the masthead arc chip
  * — cannot disagree about which states paint or about what they mean.
  *
  * **Only `stale` and `never-reviewed` paint.** A mark that is always present is
  * not a mark: `reviewed` and an absent field are the quiet, common case, and a
  * surface renders nothing for them.
  *
- * **And nothing paints on a task list.** A dash worked directly writes its own
+ * **And nothing paints on a task list.** An arc worked directly writes its own
  * steps and is never devised against the skeleton, so no review was ever going
  * to cover it — `never-reviewed` there is not an unmet obligation, it is a
- * stage the dash does not have, and a caution-toned word for it read as a
+ * stage the arc does not have, and a caution-toned word for it read as a
  * warning about work nobody owed.
  *
  * The mark is advisory and gates nothing ([P07]) — the gate that matters is
@@ -30,7 +30,7 @@ export const ARC_REVIEW_PAINTS = ["stale", "never-reviewed"] as const;
 /**
  * Does this review state say anything worth a mark?
  *
- * `taskList` is the dash's `task_list` bit where the surface has it; a surface
+ * `taskList` is the arc's `task_list` bit where the surface has it; a surface
  * reading a sender that carries no such bit passes nothing and gets the
  * pre-existing answer.
  */

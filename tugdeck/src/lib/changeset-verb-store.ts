@@ -29,11 +29,11 @@
  * (`_ok {disclaimed}`) or a guard's refusal (`_err {detail}`), and is tracked
  * and keyed exactly as claim is.
  *
- * `changeset_replay { project_dir, dash, session_id? }` replays a dash's rounds
+ * `changeset_replay { project_dir, arc, session_id? }` replays an arc's rounds
  * onto its base branch's current tip. Its reply carries the server's own
  * outcome word plus that outcome's fields (`_ok {outcome, …}`) or a guard's
  * refusal (`_err {detail}`). Three of the five outcomes — `current`,
- * `deferred`, `conflicted` — move nothing a dash row can show, so the outcome
+ * `deferred`, `conflicted` — move nothing an arc row can show, so the outcome
  * is also reported to {@link arcReplayOutcomeStore}, which the card's notice
  * controller turns into a pane bulletin. Without that a press whose answer was
  * "I declined, and here is why" would be indistinguishable from a dead button.
@@ -102,10 +102,10 @@ const COMMIT_IDLE: CommitState = Object.freeze({
 });
 
 /**
- * One dash-landing round trip's state, keyed by the initiating card entry.
+ * One arc-landing round trip's state, keyed by the initiating card entry.
  *
  * This is the *execute* round trip and nothing else. What a landing would do —
- * blockers, conflicts, the resolved candidate — arrives on the dash's feed
+ * blockers, conflicts, the resolved candidate — arrives on the arc's feed
  * entry as server-owned state, so the card asks nothing and the phases here
  * describe only a landing the user pressed for.
  *
@@ -195,7 +195,7 @@ const DISCLAIM_IDLE: DisclaimState = Object.freeze({
 });
 
 /**
- * One dash-discard round trip's state, keyed by the initiating card entry.
+ * One arc-discard round trip's state, keyed by the initiating card entry.
  *
  * `done` is a terminal phase rather than a return to idle: the discard's
  * receipt hangs off that edge, and pending → idle would be indistinguishable
@@ -229,8 +229,8 @@ const DISCARD_IDLE: DiscardState = Object.freeze({
  * copy under the same row identity instead of waiting for a restore.
  */
 export interface ArcReceipt {
-  /** The dash whose arc ended. */
-  dash: string;
+  /** The arc whose arc ended. */
+  arc: string;
   /** The server-formatted receipt text — the one source both copies read. */
   summary: string;
   /** The persisted ledger row's id — see {@link CommitState.receiptId}. */
@@ -238,8 +238,8 @@ export interface ArcReceipt {
 }
 
 /**
- * One announced dash ledger gesture — a step opened, closed, withdrawn, reset
- * or reopened, a run declared, a dash created, a round committed, a mark made.
+ * One announced arc ledger gesture — a step opened, closed, withdrawn, reset
+ * or reopened, a run declared, an arc created, a round committed, a mark made.
  *
  * Unlike {@link ArcReceipt} these are a **sequence**: a run makes dozens, and
  * every one is meant to be read. `seq` is this store's own monotonic counter,
@@ -247,7 +247,7 @@ export interface ArcReceipt {
  * started watching — a receipt id cannot serve, because the server writes
  * `null` for it whenever no shell ledger is configured.
  */
-export interface DashNote {
+export interface ArcNote {
   /** The verb as it was typed, rendered after the row's `$` sigil. */
   command: string;
   /** The one sentence announcing what the gesture did. */
@@ -259,7 +259,7 @@ export interface DashNote {
 }
 
 /**
- * One dash-replay round trip's state, keyed by the initiating card entry.
+ * One arc-replay round trip's state, keyed by the initiating card entry.
  *
  * `outcome` is the server's own word — `current`, `replayed`, `recorded`,
  * `deferred`, `conflicted` — and `detail` the text that goes with a `deferred`.
@@ -291,8 +291,8 @@ const REPLAY_IDLE: ReplayState = Object.freeze({
  * echoes `project_dir` back exactly as it was sent, so keying on what was sent
  * is what makes the correlation exact rather than approximately right.
  */
-function verbKey(workspaceKey: string, dash: string): string {
-  return `${workspaceKey}\x00${dash}`;
+function verbKey(workspaceKey: string, arc: string): string {
+  return `${workspaceKey}\x00${arc}`;
 }
 
 /**
@@ -305,16 +305,16 @@ function receiptIdOf(body: Record<string, unknown>): number | null {
 }
 
 /**
- * How many announced dash gestures this store keeps per session.
+ * How many announced arc gestures this store keeps per session.
  *
  * The transcript is where they live; this is only the hand-off between the
  * frame arriving and each card's next `onChange`, so a bound well above any
  * one run's burst is generous.
  */
-const DASH_NOTE_CAP = 500;
+const ARC_NOTE_CAP = 500;
 
 /** The shared empty answer, so a session with no notes allocates nothing. */
-const EMPTY_DASH_NOTES: readonly DashNote[] = Object.freeze([]);
+const EMPTY_ARC_NOTES: readonly ArcNote[] = Object.freeze([]);
 
 export interface JoinArgs {
   preview: boolean;
@@ -358,7 +358,7 @@ export class ChangesetVerbStore {
   private _commitInflight = new Map<string, string>();
   /** entry key → join round-trip state. Absent ⇒ idle. */
   private _joins = new Map<string, JoinState>();
-  /** `verbKey(project_dir, dash)` → the entry key whose join is in flight. */
+  /** `verbKey(project_dir, arc)` → the entry key whose join is in flight. */
   private _joinInflight = new Map<string, string>();
   /** entry key → claim round-trip state. Absent ⇒ idle. */
   private _claims = new Map<string, ClaimState>();
@@ -370,18 +370,18 @@ export class ChangesetVerbStore {
   private _disclaimInflight = new Map<string, string>();
   /** entry key → discard round-trip state. Absent ⇒ idle. */
   private _discards = new Map<string, DiscardState>();
-  /** `verbKey(project_dir, dash)` → the entry key whose discard is in flight. */
+  /** `verbKey(project_dir, arc)` → the entry key whose discard is in flight. */
   private _discardInflight = new Map<string, string>();
   /** entry key → replay round-trip state. Absent ⇒ idle. */
   private _replays = new Map<string, ReplayState>();
-  /** `verbKey(project_dir, dash)` → the entry key whose replay is in flight. */
+  /** `verbKey(project_dir, arc)` → the entry key whose replay is in flight. */
   private _replayInflight = new Map<string, string>();
   /** tug session id → the newest arc receipt the server announced for it. */
   private _arcReceipts = new Map<string, ArcReceipt>();
-  /** tug session id → the dash gestures announced for it, in arrival order. */
-  private _dashNotes = new Map<string, DashNote[]>();
-  /** The monotonic arrival counter behind {@link DashNote.seq}. */
-  private _dashNoteSeq = 0;
+  /** tug session id → the arc gestures announced for it, in arrival order. */
+  private _arcNotes = new Map<string, ArcNote[]>();
+  /** The monotonic arrival counter behind {@link ArcNote.seq}. */
+  private _arcNoteSeq = 0;
   private readonly _decoder = new TextDecoder();
 
   constructor(connection: TugConnection) {
@@ -401,7 +401,7 @@ export class ChangesetVerbStore {
     if (!isRecord(body) || typeof body.action !== "string") return;
     // Whatever this client put in `project_dir`: the server echoes the field
     // back verbatim, so every correlation below is against what was sent rather
-    // than against a spelling the server chose. Each dash/join send now carries
+    // than against a spelling the server chose. Each arc/join send now carries
     // the workspace's canonical key ([L29]), which is what makes it exact.
     const sentDir = typeof body.project_dir === "string" ? body.project_dir : null;
     if (sentDir === null) return;
@@ -505,12 +505,12 @@ export class ChangesetVerbStore {
       const summary = typeof body.summary === "string" ? body.summary : "";
       if (session.length === 0 || summary.length === 0) return;
       this._arcReceipts.set(session, {
-        dash: typeof body.dash === "string" ? body.dash : "",
+        arc: typeof body.arc === "string" ? body.arc : "",
         summary,
         receiptId: receiptIdOf(body),
       });
       for (const listener of [...this._listeners]) listener();
-    } else if (body.action === "dash_note") {
+    } else if (body.action === "arc_note") {
       // The run's quiet lines. Unsolicited like `arc_receipt` and for the same
       // reason — a `tugtool arc` verb is a short-lived process with no client
       // waiting — but a sequence rather than a single value, because every one
@@ -520,31 +520,31 @@ export class ChangesetVerbStore {
       const session = typeof body.tug_session_id === "string" ? body.tug_session_id : "";
       const note = typeof body.note === "string" ? body.note : "";
       if (session.length === 0 || note.length === 0) return;
-      const notes = this._dashNotes.get(session) ?? [];
-      this._dashNoteSeq += 1;
+      const notes = this._arcNotes.get(session) ?? [];
+      this._arcNoteSeq += 1;
       notes.push({
         command: typeof body.command === "string" ? body.command : "arc",
         note,
         receiptId: receiptIdOf(body),
-        seq: this._dashNoteSeq,
+        seq: this._arcNoteSeq,
       });
       // A long run makes hundreds; the transcript keeps them, this does not
       // need to. Trimming the head cannot lose a row a card still owed,
       // because a card consumes on every frame.
-      if (notes.length > DASH_NOTE_CAP) notes.splice(0, notes.length - DASH_NOTE_CAP);
-      this._dashNotes.set(session, notes);
+      if (notes.length > ARC_NOTE_CAP) notes.splice(0, notes.length - ARC_NOTE_CAP);
+      this._arcNotes.set(session, notes);
       for (const listener of [...this._listeners]) listener();
     } else if (body.action === "changeset_join_ok") {
-      const dash = typeof body.dash === "string" ? body.dash : null;
-      if (dash === null) return;
-      const key = verbKey(sentDir, dash);
+      const arc = typeof body.arc === "string" ? body.arc : null;
+      if (arc === null) return;
+      const key = verbKey(sentDir, arc);
       const entryKey = this._joinInflight.get(key);
       if (entryKey === undefined) return;
       this._joinInflight.delete(key);
       const conflicts = readStringArray(body.conflicts);
       const commitHash = typeof body.commit_hash === "string" ? body.commit_hash : null;
       if (body.previewed === true) {
-        // Previews are the CLI's now. The dash's feed entry carries what a
+        // Previews are the CLI's now. The arc's feed entry carries what a
         // landing would do, so a preview reply reaching this store describes a
         // question the card did not ask — it settles back to idle rather than
         // becoming a phase that outranks the feed's answer.
@@ -573,9 +573,9 @@ export class ChangesetVerbStore {
         });
       }
     } else if (body.action === "changeset_join_err") {
-      const dash = typeof body.dash === "string" ? body.dash : null;
-      if (dash === null) return;
-      const key = verbKey(sentDir, dash);
+      const arc = typeof body.arc === "string" ? body.arc : null;
+      if (arc === null) return;
+      const key = verbKey(sentDir, arc);
       const entryKey = this._joinInflight.get(key);
       if (entryKey === undefined) return;
       this._joinInflight.delete(key);
@@ -589,13 +589,13 @@ export class ChangesetVerbStore {
         receiptId: null,
       });
     } else if (body.action === "changeset_discard_ok") {
-      const dash = typeof body.dash === "string" ? body.dash : null;
-      if (dash === null) return;
-      const key = verbKey(sentDir, dash);
+      const arc = typeof body.arc === "string" ? body.arc : null;
+      if (arc === null) return;
+      const key = verbKey(sentDir, arc);
       const entryKey = this._discardInflight.get(key);
       if (entryKey === undefined) return;
       this._discardInflight.delete(key);
-      // Success: the aggregate recompute drops this dash entry shortly (no
+      // Success: the aggregate recompute drops this arc entry shortly (no
       // client-side flip). The phase settles on `done` carrying the receipt's
       // summary, which is the edge the transcript's discard row hangs off.
       this._setDiscard(entryKey, {
@@ -605,18 +605,18 @@ export class ChangesetVerbStore {
         receiptId: receiptIdOf(body),
       });
     } else if (body.action === "changeset_discard_err") {
-      const dash = typeof body.dash === "string" ? body.dash : null;
-      if (dash === null) return;
-      const key = verbKey(sentDir, dash);
+      const arc = typeof body.arc === "string" ? body.arc : null;
+      if (arc === null) return;
+      const key = verbKey(sentDir, arc);
       const entryKey = this._discardInflight.get(key);
       if (entryKey === undefined) return;
       this._discardInflight.delete(key);
       const detail = typeof body.detail === "string" ? body.detail : "discard failed";
       this._setDiscard(entryKey, { phase: "error", error: detail, summary: null, receiptId: null });
     } else if (body.action === "changeset_replay_ok") {
-      const dash = typeof body.dash === "string" ? body.dash : null;
-      if (dash === null) return;
-      const key = verbKey(sentDir, dash);
+      const arc = typeof body.arc === "string" ? body.arc : null;
+      if (arc === null) return;
+      const key = verbKey(sentDir, arc);
       const entryKey = this._replayInflight.get(key);
       if (entryKey === undefined) return;
       this._replayInflight.delete(key);
@@ -627,7 +627,7 @@ export class ChangesetVerbStore {
       const sessionId = typeof body.session_id === "string" ? body.session_id : null;
       if (sessionId !== null && outcome !== null) {
         arcReplayOutcomeStore.report(sessionId, {
-          dash,
+          arc,
           outcome: outcome as ArcReplayOutcomeWord,
           detail,
           roundSubject:
@@ -636,9 +636,9 @@ export class ChangesetVerbStore {
         });
       }
     } else if (body.action === "changeset_replay_err") {
-      const dash = typeof body.dash === "string" ? body.dash : null;
-      if (dash === null) return;
-      const key = verbKey(sentDir, dash);
+      const arc = typeof body.arc === "string" ? body.arc : null;
+      if (arc === null) return;
+      const key = verbKey(sentDir, arc);
       const entryKey = this._replayInflight.get(key);
       if (entryKey === undefined) return;
       this._replayInflight.delete(key);
@@ -647,7 +647,7 @@ export class ChangesetVerbStore {
       const sessionId = typeof body.session_id === "string" ? body.session_id : null;
       if (sessionId !== null) {
         arcReplayOutcomeStore.report(sessionId, {
-          dash,
+          arc,
           outcome: "error",
           detail,
           roundSubject: null,
@@ -853,13 +853,13 @@ export class ChangesetVerbStore {
   }
 
   /**
-   * Send `changeset_join` for `(workspaceKey, dash)` and mark `entryKey`
+   * Send `changeset_join` for `(workspaceKey, arc)` and mark `entryKey`
    * in-flight. The card only ever executes: what a landing *would* do rides
-   * the dash's feed entry, so `preview: true` is the CLI's path alone. One
-   * in-flight landing per (workspace, dash).
+   * the arc's feed entry, so `preview: true` is the CLI's path alone. One
+   * in-flight landing per (workspace, arc).
    */
-  join(entryKey: string, workspaceKey: string, dash: string, args: JoinArgs): void {
-    this._joinInflight.set(verbKey(workspaceKey, dash), entryKey);
+  join(entryKey: string, workspaceKey: string, arc: string, args: JoinArgs): void {
+    this._joinInflight.set(verbKey(workspaceKey, arc), entryKey);
     this._setJoin(entryKey, {
       phase: "pending",
       error: null,
@@ -870,7 +870,7 @@ export class ChangesetVerbStore {
     });
     this._connection.sendControlFrame("changeset_join", {
       project_dir: workspaceKey,
-      dash,
+      arc: arc,
       preview: args.preview,
       ...(args.strategy !== undefined ? { strategy: args.strategy } : {}),
       ...(args.message !== undefined ? { message: args.message } : {}),
@@ -891,8 +891,8 @@ export class ChangesetVerbStore {
    * composer press registers and sends nothing: the frame is already on its
    * way from the server, and a second one would be a second join.
    */
-  expectServerJoin(entryKey: string, workspaceKey: string, dash: string): void {
-    this._joinInflight.set(verbKey(workspaceKey, dash), entryKey);
+  expectServerJoin(entryKey: string, workspaceKey: string, arc: string): void {
+    this._joinInflight.set(verbKey(workspaceKey, arc), entryKey);
     this._setJoin(entryKey, {
       phase: "pending",
       error: null,
@@ -922,16 +922,16 @@ export class ChangesetVerbStore {
   }
 
   /**
-   * Send `changeset_discard` for `(workspaceKey, dash)`; mark `entryKey`
+   * Send `changeset_discard` for `(workspaceKey, arc)`; mark `entryKey`
    * in-flight. `sessionId` is the card's tug session id, which the server needs
    * to leave the discard's receipt ([P06]); absent, the discard still runs.
    */
-  discard(entryKey: string, workspaceKey: string, dash: string, sessionId?: string): void {
-    this._discardInflight.set(verbKey(workspaceKey, dash), entryKey);
+  discard(entryKey: string, workspaceKey: string, arc: string, sessionId?: string): void {
+    this._discardInflight.set(verbKey(workspaceKey, arc), entryKey);
     this._setDiscard(entryKey, { phase: "pending", error: null, summary: null, receiptId: null });
     this._connection.sendControlFrame("changeset_discard", {
       project_dir: workspaceKey,
-      dash,
+      arc: arc,
       ...(sessionId !== undefined ? { session_id: sessionId } : {}),
     });
   }
@@ -954,16 +954,16 @@ export class ChangesetVerbStore {
   }
 
   /**
-   * Send `changeset_replay` for `(workspaceKey, dash)`; mark `entryKey`
+   * Send `changeset_replay` for `(workspaceKey, arc)`; mark `entryKey`
    * in-flight. `sessionId` names the card whose pane bulletin reports the
    * outcome ([P06]); absent, the replay still runs and simply says nothing.
    */
-  replay(entryKey: string, workspaceKey: string, dash: string, sessionId?: string): void {
-    this._replayInflight.set(verbKey(workspaceKey, dash), entryKey);
+  replay(entryKey: string, workspaceKey: string, arc: string, sessionId?: string): void {
+    this._replayInflight.set(verbKey(workspaceKey, arc), entryKey);
     this._setReplay(entryKey, { phase: "pending", outcome: null, detail: null, error: null });
     this._connection.sendControlFrame("changeset_replay", {
       project_dir: workspaceKey,
-      dash,
+      arc: arc,
       ...(sessionId !== undefined ? { session_id: sessionId } : {}),
     });
   }
@@ -981,9 +981,9 @@ export class ChangesetVerbStore {
     return this._arcReceipts.get(tugSessionId) ?? null;
   }
 
-  /** Every dash gesture announced for `tugSessionId`, oldest first. */
-  arcNotes(tugSessionId: string): readonly DashNote[] {
-    return this._dashNotes.get(tugSessionId) ?? EMPTY_DASH_NOTES;
+  /** Every arc gesture announced for `tugSessionId`, oldest first. */
+  arcNotes(tugSessionId: string): readonly ArcNote[] {
+    return this._arcNotes.get(tugSessionId) ?? EMPTY_ARC_NOTES;
   }
 
   dispose(): void {
@@ -1111,11 +1111,11 @@ export function useChangesetDisclaim(entryKey: string): DisclaimState & { clear:
 }
 
 /**
- * React hook: the arc-join round-trip state for one dash entry plus its
+ * React hook: the arc-join round-trip state for one arc entry plus its
  * triggers. Returns idle + no-op triggers when no store is attached.
  */
 export function useChangesetJoin(entryKey: string): JoinState & {
-  join: (workspaceKey: string, dash: string, args: JoinArgs) => void;
+  join: (workspaceKey: string, arc: string, args: JoinArgs) => void;
   clear: () => void;
 } {
   const state = useSyncExternalStore(
@@ -1127,8 +1127,8 @@ export function useChangesetJoin(entryKey: string): JoinState & {
     () => _activeStore?.joinState(entryKey) ?? JOIN_IDLE,
     () => JOIN_IDLE,
   );
-  const join = (workspaceKey: string, dash: string, args: JoinArgs): void => {
-    _activeStore?.join(entryKey, workspaceKey, dash, args);
+  const join = (workspaceKey: string, arc: string, args: JoinArgs): void => {
+    _activeStore?.join(entryKey, workspaceKey, arc, args);
   };
   const clear = (): void => {
     _activeStore?.clearJoin(entryKey);
@@ -1137,11 +1137,11 @@ export function useChangesetJoin(entryKey: string): JoinState & {
 }
 
 /**
- * React hook: the dash-discard round-trip state for one dash entry plus its
+ * React hook: the arc-discard round-trip state for one arc entry plus its
  * triggers. Returns idle + no-op triggers when no store is attached.
  */
 export function useChangesetDiscard(entryKey: string): DiscardState & {
-  discard: (workspaceKey: string, dash: string, sessionId?: string) => void;
+  discard: (workspaceKey: string, arc: string, sessionId?: string) => void;
   clear: () => void;
 } {
   const state = useSyncExternalStore(
@@ -1153,8 +1153,8 @@ export function useChangesetDiscard(entryKey: string): DiscardState & {
     () => _activeStore?.discardState(entryKey) ?? DISCARD_IDLE,
     () => DISCARD_IDLE,
   );
-  const discard = (workspaceKey: string, dash: string, sessionId?: string): void => {
-    _activeStore?.discard(entryKey, workspaceKey, dash, sessionId);
+  const discard = (workspaceKey: string, arc: string, sessionId?: string): void => {
+    _activeStore?.discard(entryKey, workspaceKey, arc, sessionId);
   };
   const clear = (): void => {
     _activeStore?.clearDiscard(entryKey);
@@ -1163,11 +1163,11 @@ export function useChangesetDiscard(entryKey: string): DiscardState & {
 }
 
 /**
- * React hook: the dash-replay round-trip state for one dash entry plus its
+ * React hook: the arc-replay round-trip state for one arc entry plus its
  * triggers. Returns idle + no-op triggers when no store is attached.
  */
 export function useChangesetReplay(entryKey: string): ReplayState & {
-  replay: (workspaceKey: string, dash: string, sessionId?: string) => void;
+  replay: (workspaceKey: string, arc: string, sessionId?: string) => void;
   clear: () => void;
 } {
   const state = useSyncExternalStore(
@@ -1179,8 +1179,8 @@ export function useChangesetReplay(entryKey: string): ReplayState & {
     () => _activeStore?.replayState(entryKey) ?? REPLAY_IDLE,
     () => REPLAY_IDLE,
   );
-  const replay = (workspaceKey: string, dash: string, sessionId?: string): void => {
-    _activeStore?.replay(entryKey, workspaceKey, dash, sessionId);
+  const replay = (workspaceKey: string, arc: string, sessionId?: string): void => {
+    _activeStore?.replay(entryKey, workspaceKey, arc, sessionId);
   };
   const clear = (): void => {
     _activeStore?.clearReplay(entryKey);

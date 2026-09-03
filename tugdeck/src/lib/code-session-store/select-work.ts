@@ -114,10 +114,10 @@ export function tasksCellPose(
 }
 
 /**
- * The stages that are a resting point of the dash arc — the dash has
+ * The stages that are a resting point of the arc — the arc has
  * arrived somewhere and is waiting on a person, not advancing.
  */
-const DASH_SETTLED_STAGES: ReadonlySet<string> = new Set([
+const ARC_SETTLED_STAGES: ReadonlySet<string> = new Set([
   "ready",
   "built",
   "audited",
@@ -125,36 +125,36 @@ const DASH_SETTLED_STAGES: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * The DASH reading's indicator pose — the dash lifecycle in the same
+ * The ARC reading's indicator pose — the arc lifecycle in the same
  * three poses the TASKS reading it replaces uses:
  *
  *  - a resting point of the arc (`ready` / `built` / `audited` /
  *    `draft-ready`) → `completed`;
- *  - a dash under way → `running`, demoted to `stopped` while the
- *    session is idle, on the same grounds as TASKS: a dash does not
+ *  - an arc under way → `running`, demoted to `stopped` while the
+ *    session is idle, on the same grounds as TASKS: an arc does not
  *    advance between turns, and a dot still pulsing over an idle
  *    session would say it did;
- *  - a dash nobody has begun — no arc, and no stage or `created` →
+ *  - an arc nobody has begun — no arc, and no stage or `created` →
  *    `stopped`.
  *
- * **"Under way" is the ARC, not the git stage.** A dash writing its
+ * **"Under way" is the ARC, not the git stage.** An arc writing its
  * brief, devising a plan, or reviewing one has no stage at all —
- * `dash create` has not cut a branch yet — so a pose read off the
+ * `arc create` has not cut a branch yet — so a pose read off the
  * stage alone showed two idle dots beside `Devise` on a session that
  * was plainly working, which is the same blindness the phase glyph was
  * moved off the stage to cure ([D168]). An arc with a stage in hand is
- * a dash under way whatever the git side says.
+ * an arc under way whatever the git side says.
  *
  * An unrecognized stage from an older or newer sender falls into the
  * in-flight branch rather than a dead pose, so a stage added later
  * reads as work rather than as nothing.
  */
-export function dashCellPose(
-  dash: { stage: string | null; arcStage: string | null },
+export function arcCellPose(
+  arc: { stage: string | null; arcStage: string | null },
   isIdle: boolean,
 ): "stopped" | "running" | "completed" {
-  const { stage, arcStage } = dash;
-  if (stage !== null && DASH_SETTLED_STAGES.has(stage)) return "completed";
+  const { stage, arcStage } = arc;
+  if (stage !== null && ARC_SETTLED_STAGES.has(stage)) return "completed";
   const begun = arcStage !== null || (stage !== null && stage !== "created");
   if (!begun) return "stopped";
   return isIdle ? "stopped" : "running";

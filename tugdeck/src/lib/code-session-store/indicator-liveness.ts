@@ -100,7 +100,7 @@ export function jobRowState(status: JobStatus): TugProgressIndicatorState {
 }
 
 /**
- * A plan-ledger row's state — the dash's own step list, gated the same way a
+ * A plan-ledger row's state — the arc's own step list, gated the same way a
  * task row is.
  *
  * `in progress` is a cell a step verb wrote into a document, not an

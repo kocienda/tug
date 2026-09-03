@@ -1,5 +1,5 @@
 /**
- * landing-receipt — the `Tug-Dash:` trailer parser the History join badge
+ * landing-receipt — the `Tug-Arc:` trailer parser the History join badge
  * reads.
  *
  * The commit landing summary is now formatted server-side and rides the shell
@@ -10,14 +10,14 @@
  */
 
 /**
- * The dash short name from a `Tug-Dash:` trailer value
- * (`tugdash/<name> onto <base>`, or a bare branch ref from older commits).
- * Null when the value doesn't carry a dash ref — the badge does not render.
+ * The arc short name from a `Tug-Arc:` trailer value
+ * (`tugarc/<name> onto <base>`, or a bare branch ref from older commits).
+ * Null when the value doesn't carry an arc ref — the badge does not render.
  */
-export function dashNameFromTrailer(value: string | null | undefined): string | null {
+export function arcNameFromTrailer(value: string | null | undefined): string | null {
   if (typeof value !== "string") return null;
   const ref = value.trim().split(/\s+/, 1)[0] ?? "";
-  if (!ref.startsWith("tugdash/")) return null;
-  const name = ref.slice("tugdash/".length);
+  if (!ref.startsWith("tugarc/")) return null;
+  const name = ref.slice("tugarc/".length);
   return name.length > 0 ? name : null;
 }

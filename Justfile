@@ -1013,7 +1013,7 @@ app-test *FILES:
     # a worktree is therefore created against the base checkout while the app
     # under test has the WORKTREE open — the lane can never list the arc its
     # own fixture just made, and the run leaves branches, worktrees and
-    # dash-log lines in someone else's checkout.
+    # arc-log lines in someone else's checkout.
     #
     # The export names the owner instead of letting the hop assume it, so
     # fixtures are born, listed, joined and torn down inside the checkout under
@@ -1265,7 +1265,7 @@ app-test *FILES:
 
     # Sweep the scratch-fixture namespace a previous run left behind.
     #
-    # No app-test cuts an arc in this checkout — `dash-fixture.ts` refuses
+    # No app-test cuts an arc in this checkout — `arc-fixture.ts` refuses
     # the very attempt — so there are no stranded fixture branches here to
     # janitor anymore. What a killed run *can* leave is its scratch
     # repositories (`tug-scratch-*` under the system temp dir) and the

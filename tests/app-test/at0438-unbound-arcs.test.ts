@@ -1,14 +1,14 @@
 /**
- * at0438-unbound-dashes.test.ts — the Arcs card is always on, and
+ * at0438-unbound-arcs.test.ts — the Arcs card is always on, and
  * binding flips a row's register instead of removing it.
  *
- * The card used to hold only unbound dashes and to vanish entirely at zero
+ * The card used to hold only unbound arcs and to vanish entirely at zero
  * — the partition law, and the coming-and-going was the wart: a surface with
- * no fixed address cannot be glanced at. Under [D141] it holds EVERY dash in
+ * no fixed address cannot be glanced at. Under [D141] it holds EVERY arc in
  * every state, so what a
  * bind changes is the row's EYEBROW: the Bind and Discard verbs give way to
  * the worker's mini atom (the session's display name behind its live dot —
- * no callsign, no dash run, because the row already names the dash), and an
+ * no callsign, no arc run, because the row already names the arc), and an
  * unbind takes it away again. The verbs themselves live behind the row's `⋯`,
  * in the Changes shade's own menu grammar, so what a bind changes in the menu
  * is whether Bind is offered at all.
@@ -17,7 +17,7 @@
  * the row STAYS — card, row, and all — wearing the worker's atom, while the
  * session's own Cards row grows its title cluster; unbind, and the atom
  * leaves. Then Bind is pressed for real, out of the menu: it sends the same
- * `bind_dash` frame the Changes shade sends, and the register flips because
+ * `bind_arc` frame the Changes shade sends, and the register flips because
  * `bound_sessions`
  * moved in the account-global aggregate, not because the click did anything
  * local.
@@ -25,7 +25,7 @@
  * Everything is real. `tugtool arc bind` / `unbind` run through the card's
  * own `$` shell route — the route that stamps `TUG_SESSION_ID`.
  *
- * The dash lives in a scratch repository this file owns — a dash is for
+ * The arc lives in a scratch repository this file owns — an arc is for
  * implementing a plan, not for running a test, so no fixture ever cuts one in
  * the checkout somebody is working in.
  *
@@ -49,19 +49,19 @@ import {
   seedTugbankForLaunch,
 } from "./_harness/tugbank-helpers";
 import {
-  pressDashRowMenuItem,
-  readDashRowMenu,
-} from "./dash-row-menu-fixture";
+  pressArcRowMenuItem,
+  readArcRowMenu,
+} from "./arc-row-menu-fixture";
 import {
-  createDash,
-  makeDashScratchRepo,
-  rmDashScratchRepo,
+  createArc,
+  makeArcScratchRepo,
+  rmArcScratchRepo,
   rmScratchSession,
   seedScratchSession,
   shellAndSettle,
   tugtoolPath,
-  type DashScratchRepo,
-} from "./dash-fixture";
+  type ArcScratchRepo,
+} from "./arc-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
@@ -69,37 +69,37 @@ const TEST_TIMEOUT_MS = 180_000;
 const SID = "a7c0d1ea-0000-4000-8000-000000000438";
 const CARD = '[data-card-id="A"]';
 
-const DASH_NAME = "at0438-unbound";
+const ARC_NAME = "at0438-unbound";
 
-const SECTION = '.dashes-section';
-const ROW = `${SECTION} [data-slot="dashes-row"][data-dash="${DASH_NAME}"]`;
-const ROW_ATOM = `${ROW} [data-slot="tug-dash-lifecycle-name"]`;
-/* The eyebrow's own children — the identities, and nothing else. A dash
+const SECTION = '.arcs-section';
+const ROW = `${SECTION} [data-slot="arcs-row"][data-arc="${ARC_NAME}"]`;
+const ROW_ATOM = `${ROW} [data-slot="tug-arc-lifecycle-name"]`;
+/* The eyebrow's own children — the identities, and nothing else. An arc
    row carries no opener: its verbs answer the row's right-click. */
-const EYEBROW_VERBS = `${ROW} [data-slot="tug-dash-lifecycle-eyebrow"] button`;
-const WORKER = `${ROW} [data-slot="tug-dash-lifecycle-worker"]`;
+const EYEBROW_VERBS = `${ROW} [data-slot="tug-arc-lifecycle-eyebrow"] button`;
+const WORKER = `${ROW} [data-slot="tug-arc-lifecycle-worker"]`;
 
 const CARDS = '.cards-card';
 const SESSION_ROW = `${CARDS} [data-session-id="${SID}"]`;
 const PROGRESS = `${SESSION_ROW} [data-slot="session-identity-row-progress"]`;
 
-/** This checkout — the build under test, and never the tree a dash is cut in. */
+/** This checkout — the build under test, and never the tree an arc is cut in. */
 const CHECKOUT = realpathSync(resolve(import.meta.dir, "..", ".."));
 /** The scratch repository this fixture owns, and the only tree it touches. */
-let scratch: DashScratchRepo | null = null;
+let scratch: ArcScratchRepo | null = null;
 let fixtureDir = "";
 const projectDir = (): string => scratch?.repo ?? "";
 
 beforeAll(() => {
   if (!SHOULD_RUN) return;
-  scratch = makeDashScratchRepo({ prefix: "at0438", checkout: CHECKOUT });
-  createDash(projectDir(), DASH_NAME, "at0438 fixture", scratch.cli);
+  scratch = makeArcScratchRepo({ prefix: "at0438", checkout: CHECKOUT });
+  createArc(projectDir(), ARC_NAME, "at0438 fixture", scratch.cli);
   fixtureDir = seedScratchSession(projectDir(), SID);
 });
 
 afterAll(() => {
   if (!SHOULD_RUN) return;
-  rmDashScratchRepo(scratch);
+  rmArcScratchRepo(scratch);
   rmScratchSession(fixtureDir);
 });
 
@@ -131,7 +131,7 @@ const count = (app: App, selector: string): Promise<number> =>
 
 /**
  * Press the row's Bind item until `expected` appears — the shape at0405 uses,
- * for the same reason. The Dashes list recomposes on the aggregate's own
+ * for the same reason. The Arcs list recomposes on the aggregate's own
  * schedule, so a click's coordinates can go stale between the aim and the
  * press. A missed press changes nothing, so re-aiming is safe.
  */
@@ -144,7 +144,7 @@ async function pressUntil(
   const predicate = `document.querySelector(${JSON.stringify(expected)}) !== null`;
   for (let i = 0; i < attempts; i += 1) {
     await settle();
-    await pressDashRowMenuItem(app, row, "bind-dash");
+    await pressArcRowMenuItem(app, row, "bind-arc");
     try {
       await app.waitForCondition<boolean>(predicate, { timeoutMs: 3000 });
       return;
@@ -162,7 +162,7 @@ describe.skipIf(!SHOULD_RUN)("AT0438: the always-on Arcs card", () => {
       const tugbankPath = mkTempTugbank();
       seedTugbankForLaunch(tugbankPath, { sourceTreePath: CHECKOUT });
       const app = await launchTugApp({
-        testName: "at0438-unbound-dashes",
+        testName: "at0438-unbound-arcs",
         env: { TUGBANK_PATH: tugbankPath, TUG_DATA_DIR: scratch?.dataRoot ?? "" },
       });
       try {
@@ -172,16 +172,16 @@ describe.skipIf(!SHOULD_RUN)("AT0438: the always-on Arcs card", () => {
           `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
         );
         // A *spawned* session, not a bound one: spawning is what registers the
-        // scratch repo as a workspace, so its dashes reach the aggregate.
+        // scratch repo as a workspace, so its arcs reach the aggregate.
         await app.spawnSessionResume("A", { tugSessionId: SID, projectDir: projectDir() });
         await app.awaitEngineReady("A", { timeoutMs: 15000 });
 
         // The Cards card, not a rail in general: the session row this file
         // reads from the DOM is one of its rows.
         await app.dispatchControlAction("toggle-cards");
-        // Both rails, and Dashes on top: the Cards section is read from the
-        // DOM behind it, while every press this file makes lands on a dash
-        // row. Then A is raised, which is the gesture that gives the Dashes
+        // Both rails, and Arcs on top: the Cards section is read from the
+        // DOM behind it, while every press this file makes lands on an arc
+        // row. Then A is raised, which is the gesture that gives the Arcs
         // card a followed card — without it Bind correctly refuses ([L31]).
         await app.dispatchControlAction("toggle-arcs");
         await app.evalJS<null>(`(window.__tug.activateCard("A"), null)`);
@@ -213,9 +213,9 @@ describe.skipIf(!SHOULD_RUN)("AT0438: the always-on Arcs card", () => {
            })()`,
         );
         note("at0438 unbound row", JSON.stringify(unbound));
-        // The name wears its sigil here too — a dash is named one way
+        // The name wears its sigil here too — an arc is named one way
         // everywhere.
-        expect(unbound.atom).toBe(`^${DASH_NAME}`);
+        expect(unbound.atom).toBe(`^${ARC_NAME}`);
         expect(unbound.eyebrowButtons).toBe(0);
         expect(unbound.workers).toBe(0);
         expect(unbound.bound).toBeNull();
@@ -225,7 +225,7 @@ describe.skipIf(!SHOULD_RUN)("AT0438: the always-on Arcs card", () => {
         // fact about focus rather than about this row — so what is asserted
         // here is that the verb is offered and that a blocked one says why
         // ([L31]), never a bare disabled word.
-        const unboundMenu = await readDashRowMenu(app, ROW);
+        const unboundMenu = await readArcRowMenu(app, ROW);
         note("at0438 unbound menu", JSON.stringify(unboundMenu));
         expect(unboundMenu.bind.present).toBe(true);
         if (unboundMenu.bind.disabled) {
@@ -233,15 +233,15 @@ describe.skipIf(!SHOULD_RUN)("AT0438: the always-on Arcs card", () => {
         }
         expect(unboundMenu.discard.present).toBe(true);
         // And Replay is here on an unbound row, disabled with its reason: a
-        // freshly created dash is current with its base.
+        // freshly created arc is current with its base.
         expect(unboundMenu.replay.present).toBe(true);
         expect(unboundMenu.replay.label).toContain("already current with");
         // And the session is NOT working it, so no title cluster on its row.
         expect(await count(app, PROGRESS)).toBe(0);
-        note("at0438 dashes card, unbound register", (await app.screenshot()).path);
+        note("at0438 arcs card, unbound register", (await app.screenshot()).path);
 
         // ── Bind: the row STAYS and the worker's atom takes the eyebrow ───
-        await shellAndSettle(app, `${tugtoolPath(CHECKOUT)} arc bind ${DASH_NAME}`);
+        await shellAndSettle(app, `${tugtoolPath(CHECKOUT)} arc bind ${ARC_NAME}`);
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(WORKER)}) !== null`,
           { timeoutMs: 30000 },
@@ -251,7 +251,7 @@ describe.skipIf(!SHOULD_RUN)("AT0438: the always-on Arcs card", () => {
           eyebrowButtons: number;
           boundFlag: string | null;
           workerDots: number;
-          workerDashRuns: number;
+          workerArcRuns: number;
           pillInset: number;
           workerInset: number;
         }>(
@@ -263,16 +263,16 @@ describe.skipIf(!SHOULD_RUN)("AT0438: the always-on Arcs card", () => {
                eyebrowButtons: document.querySelectorAll(${JSON.stringify(EYEBROW_VERBS)}).length,
                boundFlag: row?.getAttribute("data-bound") ?? null,
                workerDots: worker?.querySelectorAll('[data-slot="tug-progress-indicator"]').length ?? 0,
-               // The worker atom carries NO dash run: the eyebrow's leading
-               // atom already names the dash, and saying it twice on one line
+               // The worker atom carries NO arc run: the eyebrow's leading
+               // atom already names the arc, and saying it twice on one line
                // is the drift [D141] closes.
-               workerDashRuns: worker?.querySelectorAll('[data-slot="session-identity-dash"]').length ?? 0,
+               workerArcRuns: worker?.querySelectorAll('[data-slot="session-identity-arc"]').length ?? 0,
                // The two identities' margins, which the eye reads as one pair.
                // The list row reserves a leading focus gutter its trailing
-               // edge does not, and the Dashes row takes that gutter back so
+               // edge does not, and the Arcs row takes that gutter back so
                // the eyebrow does not lean right.
                pillInset:
-                 row.querySelector('[data-slot="tug-dash-atom"]').getBoundingClientRect().left -
+                 row.querySelector('[data-slot="tug-arc-atom"]').getBoundingClientRect().left -
                  row.getBoundingClientRect().left,
                workerInset:
                  row.getBoundingClientRect().right -
@@ -283,20 +283,20 @@ describe.skipIf(!SHOULD_RUN)("AT0438: the always-on Arcs card", () => {
         note("at0438 bound row", JSON.stringify(bound));
         expect(bound.rows).toBe(1);
         // The eyebrow stays the identities alone, held or not — and the menu
-        // the row's right-click opens offers no Bind now that the dash is
+        // the row's right-click opens offers no Bind now that the arc is
         // held. Unbind is deliberately not here either: it belongs to the
         // worker's own shade.
         expect(bound.eyebrowButtons).toBe(0);
-        const boundMenu = await readDashRowMenu(app, ROW);
+        const boundMenu = await readArcRowMenu(app, ROW);
         note("at0438 bound menu", JSON.stringify(boundMenu));
         expect(boundMenu.bind.present).toBe(false);
         expect(boundMenu.unbind.present).toBe(false);
         expect(bound.boundFlag).toBe("true");
         expect(bound.workerDots).toBe(1);
-        expect(bound.workerDashRuns).toBe(0);
+        expect(bound.workerArcRuns).toBe(0);
         expect(
           Math.abs(bound.pillInset - bound.workerInset),
-          "the dash pill and the worker atom sit the same distance in",
+          "the arc pill and the worker atom sit the same distance in",
         ).toBeLessThanOrEqual(1);
         // The band did not move: always on is the whole point.
         expect(await count(app, SECTION)).toBe(1);
@@ -305,7 +305,7 @@ describe.skipIf(!SHOULD_RUN)("AT0438: the always-on Arcs card", () => {
           `document.querySelector(${JSON.stringify(PROGRESS)}) !== null`,
           { timeoutMs: 30000 },
         );
-        note("at0438 dashes card, bound register", (await app.screenshot()).path);
+        note("at0438 arcs card, bound register", (await app.screenshot()).path);
 
         // ── Unbind: the worker's atom leaves the eyebrow ──────────────────
         await shellAndSettle(app, `${tugtoolPath(CHECKOUT)} arc unbind`, 1);
@@ -317,7 +317,7 @@ describe.skipIf(!SHOULD_RUN)("AT0438: the always-on Arcs card", () => {
         expect(await count(app, ROW)).toBe(1);
 
         // ── Bind again, through the row's own menu ────────────────────────
-        // The press sends `bind_dash`; the register flips because
+        // The press sends `bind_arc`; the register flips because
         // `bound_sessions` moved in the aggregate, not because the click did
         // anything local.
         await pressUntil(app, ROW, WORKER);

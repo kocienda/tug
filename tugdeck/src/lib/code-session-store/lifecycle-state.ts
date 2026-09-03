@@ -132,7 +132,7 @@ export interface LifecycleStoreSignals {
  * an active streaming turn (status indicator success+pulse, submit
  * button is Stop). Slice 2 may introduce a `waking` matrix state
  * with trigger-aware chrome (see [Q02] in
- * `dash/tugplan-session-wake.md`); until then, sharing the
+ * `arc/tugplan-session-wake.md`); until then, sharing the
  * streaming row gives wakes the right visual treatment without a
  * matrix-wide audit.
  */

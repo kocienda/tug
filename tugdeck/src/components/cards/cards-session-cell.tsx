@@ -2,13 +2,13 @@
  * cards-session-cell.tsx — the session *monitor* row, as it appears for a
  * single-card session pane in the Cards card:
  *
- *   [dot] <session name>^<dash> ⚒ 7/12           <slot layout>
+ *   [dot] <session name>^<arc> ⚒ 7/12           <slot layout>
  *   <description>
  *   <latest pulse line>                        <activity sparkline>
  *
- * Three lines, always. A session on a counted dash swaps its dot for the step
+ * Three lines, always. A session on a counted arc swaps its dot for the step
  * ring and carries the stage glyph and the count on the title line — all of
- * it `SessionIdentityRow`'s own doing, so the row here has nothing dash-shaped
+ * it `SessionIdentityRow`'s own doing, so the row here has nothing arc-shaped
  * to assemble. The fourth line this row used to grow when bound is retired:
  * the title carries the progress in the width the hidden callsign freed, and
  * the step's title is the fraction's hover sentence wherever a fraction is

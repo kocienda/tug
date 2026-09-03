@@ -414,15 +414,15 @@ export interface TugSessionRowProps
 
   /**
    * A last line under the activity, indented one step further in than the
-   * sub-lines. The Cards card fills it with the dash a session is working on; the
+   * sub-lines. The Cards card fills it with the arc a session is working on; the
    * masthead and the picker pass nothing and the row is its three-line self.
    *
    * A node rather than a lookup, so the shape stays presentational and the
-   * mount keeps its own reads ([L20]). The mount must resolve "no dash" to
+   * mount keeps its own reads ([L20]). The mount must resolve "no arc" to
    * `null` ITSELF — a component that renders null is still an element here,
    * and would draw an empty line box on every row.
    */
-  dashLine?: React.ReactNode;
+  arcLine?: React.ReactNode;
 
   /** Selected state, forwarded to the underlying `TugListRow`. */
   selected?: boolean;
@@ -489,7 +489,7 @@ export const TugSessionRow = React.forwardRef<
     activity,
     sparkline,
     stageProps,
-    dashLine,
+    arcLine,
     selected,
     trailing,
     trailingReveal,
@@ -582,12 +582,12 @@ export const TugSessionRow = React.forwardRef<
           trailing={sparkline}
           stageProps={stageProps}
         />
-        {dashLine === undefined || dashLine === null ? null : (
+        {arcLine === undefined || arcLine === null ? null : (
           <span
-            className="tug-session-row-dashline"
-            data-slot="tug-session-row-dashline"
+            className="tug-session-row-arcline"
+            data-slot="tug-session-row-arcline"
           >
-            {dashLine}
+            {arcLine}
           </span>
         )}
       </span>

@@ -27,7 +27,7 @@ pub struct ScribeFileMerger {
     pub handle: Handle,
     pub control_tx: broadcast::Sender<Frame>,
     pub project_dir: String,
-    pub dash: String,
+    pub arc: String,
 }
 
 impl FileMerger for ScribeFileMerger {
@@ -35,7 +35,7 @@ impl FileMerger for ScribeFileMerger {
         emit_delta(
             &self.control_tx,
             &self.project_dir,
-            &self.dash,
+            &self.arc,
             &req.path,
             "ai",
             "trying",
@@ -53,7 +53,7 @@ impl FileMerger for ScribeFileMerger {
         let spawner = self.spawner.clone();
         let control_tx = self.control_tx.clone();
         let project_dir = self.project_dir.clone();
-        let dash = self.dash.clone();
+        let arc = self.arc.clone();
         let path = req.path.clone();
 
         // The ladder is sync (spawn_blocking); drive the async scribe on the
@@ -63,14 +63,14 @@ impl FileMerger for ScribeFileMerger {
             let fwd = {
                 let control_tx = control_tx.clone();
                 let project_dir = project_dir.clone();
-                let dash = dash.clone();
+                let arc = arc.clone();
                 let path = path.clone();
                 tokio::spawn(async move {
                     while let Some(acc) = rx.recv().await {
                         emit_delta(
                             &control_tx,
                             &project_dir,
-                            &dash,
+                            &arc,
                             &path,
                             "ai",
                             "streaming",
@@ -127,7 +127,7 @@ fn strip_code_fence(text: &str) -> String {
 pub fn emit_delta(
     control_tx: &broadcast::Sender<Frame>,
     project_dir: &str,
-    dash: &str,
+    arc: &str,
     path: &str,
     rung: &str,
     status: &str,
@@ -136,7 +136,7 @@ pub fn emit_delta(
     let body = serde_json::json!({
         "action": "changeset_join_resolve_delta",
         "project_dir": project_dir,
-        "dash": dash,
+        "arc": arc,
         "path": path,
         "rung": rung,
         "status": status,

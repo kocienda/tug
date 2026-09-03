@@ -1,4 +1,4 @@
-/* dash-lifecycle-line.css — packing and tones for the line. The note is the
+/* arc-lifecycle-line.css — packing and tones for the line. The note is the
    only run that gives way; everything else is a fixed-width fact, and the
    line clips at its box rather than overflowing it.
 
@@ -23,7 +23,7 @@
    the same height — true today, and not a thing a size change may quietly
    break. */
 
-.tug-dash-lifecycle-line {
+.tug-arc-lifecycle-line {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -36,12 +36,12 @@
 
 /* The graphic keeps its width whatever the reading does: the run gives way
    at the note, never at the strip that is the line's subject. */
-.tug-dash-lifecycle-line > .tug-dash-track {
-  --tugx-dash-track-out: 0px;
+.tug-arc-lifecycle-line > .tug-arc-track {
+  --tugx-arc-track-out: 0px;
   flex: 0 0 auto;
 }
 
-.tug-dash-lifecycle-reading {
+.tug-arc-lifecycle-reading {
   display: flex;
   align-items: center;
   gap: var(--tug-space-2xs);
@@ -51,25 +51,25 @@
 
 /* The type runs, on one baseline. Named individually rather than as `> *`:
    the glyph is the one child of the reading that must NOT join them. */
-.tug-dash-lifecycle-reading > .tug-step-fraction,
-.tug-dash-lifecycle-reading > .tug-dash-lifecycle-note,
-.tug-dash-lifecycle-reading > .tug-dash-lifecycle-fact {
+.tug-arc-lifecycle-reading > .tug-step-fraction,
+.tug-arc-lifecycle-reading > .tug-arc-lifecycle-note,
+.tug-arc-lifecycle-reading > .tug-arc-lifecycle-fact {
   align-self: baseline;
 }
 
-.tug-dash-lifecycle-line[data-size="read"] {
+.tug-arc-lifecycle-line[data-size="read"] {
   gap: var(--tug-space-xs);
   font-size: var(--tug-font-size-sm);
   line-height: calc(var(--tug-font-size-sm) * 1.6);
   --tugx-step-fraction-font-size: var(--tug-font-size-xs);
 }
 
-.tug-dash-lifecycle-line[data-size="read"] > .tug-dash-lifecycle-reading {
+.tug-arc-lifecycle-line[data-size="read"] > .tug-arc-lifecycle-reading {
   gap: var(--tug-space-xs);
 }
 
 /* @tug-renders-on var(--tug7-surface-global-primary-normal-default-rest) */
-.tug-dash-lifecycle-note {
+.tug-arc-lifecycle-note {
   flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
@@ -78,27 +78,27 @@
   color: var(--tug7-element-global-text-normal-muted-rest);
 }
 
-.tug-dash-lifecycle-line[data-stopped="true"] .tug-dash-lifecycle-note {
+.tug-arc-lifecycle-line[data-stopped="true"] .tug-arc-lifecycle-note {
   color: var(--tug7-element-tone-icon-normal-danger-rest);
 }
 
-.tug-dash-lifecycle-fact {
+.tug-arc-lifecycle-fact {
   flex: 0 0 auto;
   white-space: nowrap;
 }
 
-.tug-dash-lifecycle-fact[data-tone="danger"] {
+.tug-arc-lifecycle-fact[data-tone="danger"] {
   color: var(--tug7-element-tone-icon-normal-danger-rest);
 }
 
-.tug-dash-lifecycle-fact[data-tone="caution"] {
+.tug-arc-lifecycle-fact[data-tone="caution"] {
   color: var(--tug7-element-tone-icon-normal-caution-rest);
 }
 
-.tug-dash-lifecycle-fact[data-tone="muted"] {
+.tug-arc-lifecycle-fact[data-tone="muted"] {
   color: var(--tug7-element-global-text-normal-muted-rest);
 }
 
-.tug-dash-lifecycle-fact[data-tone="subtle"] {
+.tug-arc-lifecycle-fact[data-tone="subtle"] {
   color: var(--tug7-element-global-text-normal-subtle-rest);
 }

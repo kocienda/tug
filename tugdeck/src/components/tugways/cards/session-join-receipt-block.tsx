@@ -1,8 +1,8 @@
 /**
  * `SessionJoinReceiptBlock` / `SessionDiscardReceiptBlock` — the bespoke
- * `/arc-join` and `/dash-discard` command-block renderers ([P06]).
+ * `/arc-join` and `/arc-discard` command-block renderers ([P06]).
  *
- * A landed join and a discarded dash each leave one shell-exchange row whose
+ * A landed join and a discarded arc each leave one shell-exchange row whose
  * `output` is the server-formatted summary (Specs S01 / S02). These renderers
  * parse that string and present it as a receipt — instead of the generic
  * fenced `ShellExchangeBlock`.
@@ -10,9 +10,9 @@
  * The two receipts are deliberately different shapes, because the two acts
  * are. A join lands a commit on the base, so its receipt IS the commit
  * receipt: the same sha-led header, the same badges, the same expandable file
- * rows, plus the one line a plain commit cannot carry (`dash → base`). A
+ * rows, plus the one line a plain commit cannot carry (`arc → base`). A
  * discard lands nothing, so it keeps the bespoke shape — its identity is the
- * dash that stopped existing and its body is what went with it.
+ * arc that stopped existing and its body is what went with it.
  *
  * Everything on screen is parsed from the row itself, so the live append and
  * the ledger restore render byte-identically; a parse miss falls back to the
@@ -53,7 +53,7 @@ import "./session-join-receipt-block.css";
 export interface ParsedJoinReceipt {
   /** The landing commit on the base branch. */
   sha: string;
-  dash: string;
+  arc: string;
   base: string;
   rounds: number;
   /** The squash message the join landed with, verbatim. */
@@ -68,7 +68,7 @@ export interface ParsedJoinReceipt {
   /**
    * What the last green verify said about the tree this join landed, from the
    * `fit:` line. Absent for a receipt written before the line existed, and for
-   * a dash nothing verified — the server omits the line rather than writing an
+   * an arc nothing verified — the server omits the line rather than writing an
    * empty one, so both arrive here as the same absence.
    */
   fit?: { verified: boolean; head: string; base: string };
@@ -76,9 +76,9 @@ export interface ParsedJoinReceipt {
 
 /** The display facts parsed from an S02 discard summary. */
 export interface ParsedDiscardReceipt {
-  dash: string;
+  arc: string;
   rounds: number;
-  /** Files the dash touched, from its range diff; 0 when the header omits them. */
+  /** Files the arc touched, from its range diff; 0 when the header omits them. */
   files: number;
   /** The round subjects the discard preflight showed. */
   subjects: string[];
@@ -86,8 +86,8 @@ export interface ParsedDiscardReceipt {
 
 // The S01 / S02 headers, matched exactly — `·` is U+00B7 and `→` U+2192, so a
 // hand-typed arrow or dot never false-parses into a receipt.
-//   joined <sha> · <dash> → <base> · <N> round(s)
-//   discarded <dash> · <N> round(s)[, <M> file(s)]
+//   joined <sha> · <arc> → <base> · <N> round(s)
+//   discarded <arc> · <N> round(s)[, <M> file(s)]
 const JOIN_HEAD_RE = /^joined (\S+) · (\S+) → (\S+) · (\d+) round\(s\)$/;
 const DISCARD_HEAD_RE = /^discarded (\S+) · (\d+) round\(s\)(?:, (\d+) file\(s\))?$/;
 
@@ -135,7 +135,7 @@ export function parseJoinReceipt(output: string): ParsedJoinReceipt | null {
   const messageStart = cursor;
   return {
     sha: head[1],
-    dash: head[2],
+    arc: head[2],
     base: head[3],
     rounds: Number.parseInt(head[4], 10),
     // A trailing blank line would paint as an empty row under `pre-wrap`.
@@ -146,7 +146,7 @@ export function parseJoinReceipt(output: string): ParsedJoinReceipt | null {
 }
 
 /**
- * Parse a `/dash-discard` receipt, or `null` on a non-matching first line.
+ * Parse an `/arc-discard` receipt, or `null` on a non-matching first line.
  *
  * The current header is tried first and the historical one second. Both yield
  * the same facts in the same capture positions, but they are written as two
@@ -160,7 +160,7 @@ export function parseDiscardReceipt(output: string): ParsedDiscardReceipt | null
     HISTORICAL_DISCARD_HEAD_RE.exec(lines[0] ?? "");
   if (head === null) return null;
   return {
-    dash: head[1],
+    arc: head[1],
     rounds: Number.parseInt(head[2], 10),
     files: head[3] === undefined ? 0 : Number.parseInt(head[3], 10),
     subjects: lines
@@ -185,13 +185,13 @@ export function SessionJoinReceiptBlock(props: CommandBlockProps): React.ReactEl
           It sits UNDER the receipt: the commit is the act and the register is
           the outcome, so a reader meets what landed and then the word for it.
           Above, it was an announcement standing in front of its own subject.
-          Derived rather than written down: `dash` and `base` come off the
+          Derived rather than written down: `arc` and `base` come off the
           receipt the ledger already carries, so the row costs no ink of its
           own and reads identically live and on restore. It goes through
           `ArcJoinRegister` so its sentence is the same derivation the live
           register runs ([D111] parity, one vocabulary). */}
       <ArcJoinRegister
-        dash={parsed.dash}
+        arc={parsed.arc}
         base={parsed.base}
         stage="ready"
         landBeat={{ beat: "record", status: "ok", terminal: true }}
@@ -209,7 +209,7 @@ export function SessionJoinReceiptBlock(props: CommandBlockProps): React.ReactEl
  * trailing summaries, and the landed files are the same expandable
  * `CommitChangesList` rows.
  *
- * One line is the join's own: `dash → base`, the identity a plain commit has
+ * One line is the join's own: `arc → base`, the identity a plain commit has
  * no room for. It sits above the message body rather than in the header,
  * because the header seat belongs to the subject under commit parity.
  *
@@ -226,7 +226,7 @@ function JoinReceipt({
   cwd: string;
   exchangeId: string;
 }): React.ReactElement {
-  const { sha, dash, base, rounds, message, files, fit } = parsed;
+  const { sha, arc, base, rounds, message, files, fit } = parsed;
   const subject = message.split("\n", 1)[0];
   // A squash subject names what it touched and the scope tag is often a path —
   // annotated like the commit receipt's subject, whose `<code>` this mirrors.
@@ -239,7 +239,7 @@ function JoinReceipt({
   const removed = files.reduce((sum, f) => sum + f.removed, 0);
   // A receipt with no file list (legacy, or a non-squash join) falls back to
   // the identity in the header seat, so the header is never a bare sha.
-  const headline = subject.length > 0 ? subject : `${dash} → ${base}`;
+  const headline = subject.length > 0 ? subject : `${arc} → ${base}`;
   // A join IS a commit on the base, so its identity answers with the commit's
   // own menu — the same four copies a `/commit` receipt and a History row
   // offer, with no fold of its own to name. On the atom alone, for the reason
@@ -298,7 +298,7 @@ function JoinReceipt({
         {subject.length > 0 ? (
           <div className="join-receipt-identity" data-slot="join-receipt-identity">
             <code data-tugx-findable="">
-              {dash} → {base}
+              {arc} → {base}
             </code>
             {fit !== undefined ? (
               <code
@@ -329,12 +329,12 @@ function JoinReceipt({
 export function SessionDiscardReceiptBlock(props: CommandBlockProps): React.ReactElement {
   const parsed = parseDiscardReceipt(props.message.output);
   if (parsed === null) return <ShellExchangeBlock {...props} />;
-  const { dash, rounds, files, subjects } = parsed;
-  // No sha: a discard lands nothing. Its identity is the dash that stopped
+  const { arc, rounds, files, subjects } = parsed;
+  // No sha: a discard lands nothing. Its identity is the arc that stopped
   // existing, and its body is what went with it.
   const identity = (
     <span className="join-receipt-header join-receipt-header-discard">
-      <code className="join-receipt-summary" data-tugx-findable="">{dash}</code>
+      <code className="join-receipt-summary" data-tugx-findable="">{arc}</code>
     </span>
   );
   return (
@@ -364,13 +364,16 @@ export function SessionDiscardReceiptBlock(props: CommandBlockProps): React.Reac
 }
 
 /**
- * Claims `/dash-discard`, on the same terms — and `/dash-release`, the command
- * the verb wrote under its old name. Those rows are in session JSONL and are
- * replayed on every card reload, so dropping the second spelling would turn
- * every discard already recorded back into a raw shell row.
+ * Claims `/arc-discard`, on the same terms — and `/dash-discard` and
+ * `/dash-release`, the commands the verb wrote under its two earlier names.
+ * Those rows are in session JSONL and are replayed on every card reload, so
+ * dropping either retired spelling would turn every discard already recorded
+ * back into a raw shell row ([F19]).
  */
 export function matchesDiscardReceipt(command: string): boolean {
   return (
+    command === "/arc-discard" ||
+    command.startsWith("/arc-discard ") ||
     command === "/dash-discard" ||
     command.startsWith("/dash-discard ") ||
     command === "/dash-release" ||
@@ -380,7 +383,7 @@ export function matchesDiscardReceipt(command: string): boolean {
 
 /**
  * The join receipt's searchable text, in render order: the headline on the
- * identity line, the `dash → base` line and its fit note, then the message
+ * identity line, the `arc → base` line and its fit note, then the message
  * body as the markdown styler lays it out — exactly the containers this
  * block marks `data-tugx-findable`. `null` when the output does not parse:
  * the row renders as a plain exchange then, and projects as one.
@@ -398,12 +401,12 @@ export function joinReceiptFindParts(
     .slice(subject.length)
     .replace(/^\n+/, "")
     .replace(/\s+$/, "");
-  const headline = subject.length > 0 ? subject : `${parsed.dash} → ${parsed.base}`;
+  const headline = subject.length > 0 ? subject : `${parsed.arc} → ${parsed.base}`;
   const parts = [headline];
   // The identity line renders only when there IS a subject — otherwise the
-  // headline already carries `dash → base` and the line would repeat it.
+  // headline already carries `arc → base` and the line would repeat it.
   if (subject.length > 0) {
-    parts.push(`${parsed.dash} → ${parsed.base}`);
+    parts.push(`${parsed.arc} → ${parsed.base}`);
     if (parsed.fit !== undefined) {
       parts.push(
         `fit ${parsed.fit.verified ? "verified" : "stale"} ${parsed.fit.head} onto ${parsed.fit.base}`,
@@ -413,21 +416,21 @@ export function joinReceiptFindParts(
   return [...parts, ...markdownTextParts(body)];
 }
 
-/** The discard receipt's: the dash it ended, then the subjects that went
+/** The discard receipt's: the arc it ended, then the subjects that went
  *  with it — the two containers that block marks findable. */
 export function discardReceiptFindParts(
   message: ShellExchangeMessage,
 ): string[] | null {
   const parsed = parseDiscardReceipt(message.output);
   if (parsed === null) return null;
-  return [parsed.dash, ...markdownTextParts(parsed.subjects.join("\n"))];
+  return [parsed.arc, ...markdownTextParts(parsed.subjects.join("\n"))];
 }
 
 // Registration is a side effect of importing this module (the import sits
 // beside the commit block's in `session-card-transcript.tsx`, so both are
 // registered before the first resolve).
 registerCommandBlock("arc-join-receipt", matchesJoinReceipt, SessionJoinReceiptBlock, {
-  // A join squashes the dash onto the base and commits it. That is the same
+  // A join squashes the arc onto the base and commits it. That is the same
   // act `/commit` performs, differently started, so it wears the same
   // attribution — the discard below deletes a branch and commits nothing, so
   // it keeps the shell default.
@@ -435,7 +438,7 @@ registerCommandBlock("arc-join-receipt", matchesJoinReceipt, SessionJoinReceiptB
   findParts: joinReceiptFindParts,
 });
 registerCommandBlock(
-  "dash-discard-receipt",
+  "arc-discard-receipt",
   matchesDiscardReceipt,
   SessionDiscardReceiptBlock,
   { findParts: discardReceiptFindParts },

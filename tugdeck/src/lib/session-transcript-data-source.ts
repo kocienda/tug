@@ -376,12 +376,12 @@ export interface RowSlot {
   refsRowOrdinal: number;
   /**
    * True on a `shell` row carrying an `arc stopped` receipt that a **later**
-   * row in the same session has answered — a join receipt for the same dash,
+   * row in the same session has answered — a join receipt for the same arc,
    * or a later arc receipt for it (Spec S04). `false` everywhere else.
    *
    * Derived, never written: a stop receipt's bytes are a frozen record of what
    * the server said at that moment, and this says only that the transcript
-   * itself went on to contradict its instruction. The last stop for a dash is
+   * itself went on to contradict its instruction. The last stop for an arc is
    * never superseded, so an arc that stopped and stayed stopped keeps its live
    * red sentence — which is what makes the demotion mean something.
    */
@@ -513,17 +513,17 @@ function buildCommittedLayout(
 /**
  * Spec S04 — mark every `arc stopped` receipt a later row has answered.
  *
- * A stop receipt is frozen text: the server wrote `resume with tugtool dash run
+ * A stop receipt is frozen text: the server wrote `resume with tugtool arc run
  * <name>` at a moment when that was the truth, and a transcript replays its
  * rows from the record forever. So the arc that stopped, was resumed, and
  * joined leaves a red instruction standing over work that has already landed.
  * What supersedes it is a fact the same transcript already carries — a join
- * receipt for that dash, or a later arc receipt for it — and this pass reads it
+ * receipt for that arc, or a later arc receipt for it — and this pass reads it
  * rather than rewriting anything.
  *
- * One backward walk, carrying the dash names already seen as a superseder, so
+ * One backward walk, carrying the arc names already seen as a superseder, so
  * the whole thing is O(rows) beside the ordinal pass it follows. The **last**
- * stop for a dash is never superseded, because nothing later answers it: an arc
+ * stop for an arc is never superseded, because nothing later answers it: an arc
  * that stopped and stayed stopped keeps its live sentence, which is the only
  * reason the demotion carries information.
  *
@@ -549,18 +549,18 @@ function markSupersededArcStops(
 
     if (matchesJoinReceipt(message.command)) {
       const join = parseJoinReceipt(message.output);
-      if (join !== null) answered.add(join.dash);
+      if (join !== null) answered.add(join.arc);
       continue;
     }
     if (!matchesArcReceipt(message.command)) continue;
     const arc = parseArcReceipt(message.output);
     if (arc === null) continue;
     if (arc.outcome === "stopped") {
-      if (answered.has(arc.dash)) slot.arcStopSuperseded = true;
+      if (answered.has(arc.arc)) slot.arcStopSuperseded = true;
     }
     // A complete arc answers an earlier stop, and so does a later stop: both
     // say the run went on past the sentence the earlier row is still giving.
-    answered.add(arc.dash);
+    answered.add(arc.arc);
   }
 }
 

@@ -2,7 +2,7 @@
 //! maintained commit-message draft ([P21], #draft-engine).
 //!
 //! The maintained-draft engine composes a per-owner prompt (Spec S11 —
-//! [`compose_draft_prompt_session`] / `_dash` / `_unattributed`, over the
+//! [`compose_draft_prompt_session`] / `_arc` / `_unattributed`, over the
 //! scoped diff, file provenance, the owning session's prompts, and the
 //! packaged commit-skill style rules) and runs `claude -p --output-format
 //! stream-json --include-partial-messages --model <model>` once per changed
@@ -198,7 +198,7 @@ fn draft_ask(style_rules: &str) -> String {
          Write ONE conventional commit message — a short imperative subject \
          line, then (only if the change warrants it) a blank line and terse \
          bullet points. The subject MUST follow the house scoped format \
-         `scope(topic): specific summary` (e.g. `tugdash(changesets-m03b): …`, \
+         `scope(topic): specific summary` (e.g. `tugarc(changesets-m03b): …`, \
          `plan(update): …`) — scoped and specific, NEVER a bare one-word subject \
          like `Fix`. NEVER hard-wrap text to a column width — not to 72, not to \
          80, not to any width: the subject is one unbroken line, each paragraph \
@@ -272,30 +272,30 @@ pub fn compose_draft_prompt_session(
     prompt
 }
 
-/// Compose the draft prompt for a **dash** entry (Spec S11, [P23]). This is
-/// the dash's eventual squash/join message: round subjects/bodies from
-/// `git log base..branch`, the dash-log's per-round instruction metadata,
+/// Compose the draft prompt for a **arc** entry (Spec S11, [P23]). This is
+/// the arc's eventual squash/join message: round subjects/bodies from
+/// `git log base..branch`, the arc log's per-round instruction metadata,
 /// the merge-base diff, and recent commit subjects for voice.
-pub fn compose_draft_prompt_dash(
+pub fn compose_draft_prompt_arc(
     style_rules: &str,
     git_log: &str,
-    dash_log_lines: &[String],
+    arc_log_lines: &[String],
     git_subjects: &[String],
     diff: &str,
 ) -> String {
     let mut prompt = draft_ask(style_rules);
     prompt.push_str(
-        "\nThis changeset is a dash worktree; the message you write is its \
+        "\nThis changeset is an arc worktree; the message you write is its \
          eventual squash/join commit message summarizing all its rounds.\n",
     );
     if !git_log.trim().is_empty() {
-        prompt.push_str("\nCommits on the dash branch (base..branch):\n");
+        prompt.push_str("\nCommits on the arc branch (base..branch):\n");
         prompt.push_str(git_log.trim());
         prompt.push('\n');
     }
-    if !dash_log_lines.is_empty() {
-        prompt.push_str("\nPer-round instructions (dash log):\n");
-        for line in dash_log_lines {
+    if !arc_log_lines.is_empty() {
+        prompt.push_str("\nPer-round instructions (arc log):\n");
+        for line in arc_log_lines {
             prompt.push_str("- ");
             prompt.push_str(line);
             prompt.push('\n');
@@ -345,8 +345,8 @@ fn merge_version(bytes: &[u8]) -> String {
 }
 
 /// Compose the AI file-merge prompt ([P32]): the three versions of one
-/// conflicted file (BASE ancestor / OURS target branch / THEIRS incoming dash)
-/// plus the dash's intent, asking for the merged body with **no conflict
+/// conflicted file (BASE ancestor / OURS target branch / THEIRS incoming arc)
+/// plus the arc's intent, asking for the merged body with **no conflict
 /// markers** and no surrounding prose or fences. The ladder validates the reply
 /// is marker-free before accepting it — a bad reply just leaves the file
 /// unresolved.
@@ -360,14 +360,14 @@ pub fn compose_file_merge_prompt(
     let mut p = format!(
         "You are resolving a git merge conflict in the file `{path}`. Below are \
          three versions: the common ancestor (BASE), the target branch's version \
-         (OURS), and the incoming dash's version (THEIRS). Produce the correctly \
+         (OURS), and the incoming arc's version (THEIRS). Produce the correctly \
          merged file that preserves BOTH sides' intent.\n\n\
          Output ONLY the full merged file content — no explanation, no markdown \
          code fences, and ABSOLUTELY NO conflict markers (`<<<<<<<`, `=======`, \
          `|||||||`, `>>>>>>>`). If you cannot merge the two safely, output nothing.\n"
     );
     if !intent.trim().is_empty() {
-        p.push_str("\nWhat the dash was doing (intent):\n");
+        p.push_str("\nWhat the arc was doing (intent):\n");
         p.push_str(intent.trim());
         p.push('\n');
     }
@@ -421,9 +421,9 @@ pub fn fingerprint_head_entry(
     hex(hasher.finalize())
 }
 
-/// Fingerprint a dash entry: branch head sha + the worktree's porcelain
+/// Fingerprint an arc entry: branch head sha + the worktree's porcelain
 /// status (empty when no worktree).
-pub fn fingerprint_dash_entry(branch_head_sha: &str, worktree_status: &str) -> String {
+pub fn fingerprint_arc_entry(branch_head_sha: &str, worktree_status: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(branch_head_sha.as_bytes());
     hasher.update([0]);
@@ -439,7 +439,7 @@ pub fn fingerprint_dash_entry(branch_head_sha: &str, worktree_status: &str) -> S
 const COMMIT_STYLE_RULES: &str = "\
 - First line: imperative mood, no period, under 50 characters.
 - Subject uses the house scoped format `scope(topic): specific summary` (e.g. \
-`tugdash(changesets-m03b): …`, `plan(update): …`) — scoped and specific, never a \
+`tugarc(changesets-m03b): …`, `plan(update): …`) — scoped and specific, never a \
 bare one-word subject like `Fix`.
 - Then, only if warranted, a blank line and terse factual bullet points.
 - Every line runs unbroken to its end: no hard wrapping, no wrapping to 72 or \
@@ -750,23 +750,23 @@ mod tests {
         assert!(session.contains("prior subject"));
         assert!(session.trim_end().ends_with("DIFF"));
 
-        let dash = compose_draft_prompt_dash(
+        let arc = compose_draft_prompt_arc(
             style,
             "abc123 round one",
             &["round one instruction".to_string()],
             &subjects,
             "DIFF",
         );
-        assert!(dash.contains("squash/join commit message"));
+        assert!(arc.contains("squash/join commit message"));
         assert!(
-            dash.contains(scoped_rule),
-            "scoped-subject rule in dash prompt"
+            arc.contains(scoped_rule),
+            "scoped-subject rule in arc prompt"
         );
         assert!(
-            dash.contains("round one instruction"),
-            "dash-log lines present"
+            arc.contains("round one instruction"),
+            "arc log lines present"
         );
-        assert!(!dash.contains("prompts since this changeset began"));
+        assert!(!arc.contains("prompts since this changeset began"));
 
         let unattributed = compose_draft_prompt_unattributed(style, &files, &subjects, "DIFF");
         assert!(unattributed.contains("Unattributed changed files"));
@@ -844,14 +844,14 @@ mod tests {
         // A changed untracked size flips the fingerprint.
         let untracked2 = [("new.txt".to_string(), 11u64, 1_700i64)];
         assert_ne!(fp, fingerprint_head_entry(&files, "DIFF", &untracked2));
-        // Dash fingerprint reacts to head sha and worktree dirt.
+        // Arc fingerprint reacts to head sha and worktree dirt.
         assert_ne!(
-            fingerprint_dash_entry("sha1", ""),
-            fingerprint_dash_entry("sha2", ""),
+            fingerprint_arc_entry("sha1", ""),
+            fingerprint_arc_entry("sha2", ""),
         );
         assert_ne!(
-            fingerprint_dash_entry("sha1", ""),
-            fingerprint_dash_entry("sha1", " M x.rs"),
+            fingerprint_arc_entry("sha1", ""),
+            fingerprint_arc_entry("sha1", " M x.rs"),
         );
     }
 
@@ -886,7 +886,7 @@ mod tests {
 
     #[test]
     fn unwrap_hard_wraps_leaves_unwrapped_messages_alone() {
-        let clean = "tugdash(pulse-display): PULSE two-level display\n\nThe PULSE now reads as one two-level grammar wherever it appears.\n\n- tugcast: new headline_register normalizer strips wrapping quotes.\n- Cards (L1): the session row grows a goal line between the name and the activity.";
+        let clean = "tugarc(pulse-display): PULSE two-level display\n\nThe PULSE now reads as one two-level grammar wherever it appears.\n\n- tugcast: new headline_register normalizer strips wrapping quotes.\n- Cards (L1): the session row grows a goal line between the name and the activity.";
         assert_eq!(unwrap_hard_wraps(clean), clean);
     }
 

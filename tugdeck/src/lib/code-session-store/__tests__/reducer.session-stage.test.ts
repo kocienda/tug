@@ -1,7 +1,7 @@
 /**
  * Reducer tests for `handleSessionStage` and the `stageNoteText` helper.
  *
- * A dash arc rotates a card onto a fresh claude session between stages. The
+ * An arc rotates a card onto a fresh claude session between stages. The
  * boundary is display-only: one `system_note` with `source: "stage"` and
  * nothing else moves — no phase change, no transcript clear, no compaction
  * state touched. The rotation happens at idle, so the ordinary path is the
@@ -53,26 +53,26 @@ function stage(
     stage: name,
     model,
     document,
-    arc: "dash-arc",
+    arc: "arc-arc",
     ...(steps !== undefined ? { steps } : {}),
   } as CodeSessionEvent;
 }
 
 describe("stageNoteText", () => {
   it("names the stage, the model, and the document", () => {
-    expect(stageNoteText("devise", "opus", "dash/foo-brief.md")).toBe(
-      "devise · opus · dash/foo-brief.md",
+    expect(stageNoteText("devise", "opus", "arc/foo-brief.md")).toBe(
+      "devise · opus · arc/foo-brief.md",
     );
   });
 
   it("names a continued implement stage by its step range, en-dashed", () => {
-    expect(stageNoteText("implement", "sonnet", "dash/foo.md", "4-9")).toBe(
+    expect(stageNoteText("implement", "sonnet", "arc/foo.md", "4-9")).toBe(
       "implement, continued · sonnet · steps 4–9",
     );
   });
 
   it("leaves out an empty model and an empty document rather than rendering a gap", () => {
-    expect(stageNoteText("review", "", "dash/foo.md")).toBe("review · dash/foo.md");
+    expect(stageNoteText("review", "", "arc/foo.md")).toBe("review · arc/foo.md");
     expect(stageNoteText("review", "", "")).toBe("review");
   });
 
@@ -92,7 +92,7 @@ describe("reducer — a rotation with no arc behind it", () => {
       model,
       document: "",
       arc: "",
-      prompt: "/tugplug:arc-review dash/foo.md",
+      prompt: "/tugplug:arc-review arc/foo.md",
       turnKey: "rot-k1",
     }) as CodeSessionEvent;
 
@@ -113,8 +113,8 @@ describe("reducer — a stage that carries its prompt", () => {
   it("opens the turn the deck will watch, without re-sending the prompt", () => {
     const before = fresh();
     const { state: after, effects } = reduce(before, {
-      ...stage("devise", "opus", "dash/foo-brief.md"),
-      prompt: "/tugplug:arc-devise dash/foo-brief.md",
+      ...stage("devise", "opus", "arc/foo-brief.md"),
+      prompt: "/tugplug:arc-devise arc/foo-brief.md",
       turnKey: "arc-k1",
     } as CodeSessionEvent);
 
@@ -136,7 +136,7 @@ describe("reducer — a stage that carries its prompt", () => {
     const opener = after.scratch.get("arc-k1")?.messages[0];
     expect(opener?.kind).toBe("user_message");
     expect((opener as { text?: string }).text).toBe(
-      `${TUG_ATOM_CHAR} dash/foo-brief.md`,
+      `${TUG_ATOM_CHAR} arc/foo-brief.md`,
     );
     expect((opener as { attachments?: unknown[] }).attachments).toEqual([
       {
@@ -151,8 +151,8 @@ describe("reducer — a stage that carries its prompt", () => {
   it("only annotates when a turn is already open — the prompt is queued behind it by claude", () => {
     const sent = reduce(fresh(), SEND).state;
     const { state: after, effects } = reduce(sent, {
-      ...stage("review", "opus", "dash/foo.md"),
-      prompt: "/tugplug:arc-review dash/foo.md",
+      ...stage("review", "opus", "arc/foo.md"),
+      prompt: "/tugplug:arc-review arc/foo.md",
       turnKey: "arc-k2",
     } as CodeSessionEvent);
     expect(effects.length).toBe(0);
@@ -187,7 +187,7 @@ describe("reducer — a replayed opener says who wrote it", () => {
     const replaying = { ...fresh(), phase: "replaying" } as CodeSessionState;
     const opened = reduce(
       replaying,
-      addUser("r1", "/tugplug:arc-devise dash/foo-brief.md", "wheel"),
+      addUser("r1", "/tugplug:arc-devise arc/foo-brief.md", "wheel"),
     ).state;
     expect(opened.pendingTurn?.origin).toBe("wheel");
   });
@@ -197,7 +197,7 @@ describe("reducer — a replayed opener says who wrote it", () => {
     // divider arrives mid-replay, and the next frame — carrying no `origin`,
     // because its stage opener fell outside the window — is still the user's.
     const replaying = { ...fresh(), phase: "replaying" } as CodeSessionState;
-    const divided = reduce(replaying, stage("devise", "opus", "dash/foo-brief.md")).state;
+    const divided = reduce(replaying, stage("devise", "opus", "arc/foo-brief.md")).state;
     const opened = reduce(divided, addUser("r1", "the user's own words")).state;
     expect(opened.pendingTurn?.origin).toBe("user");
   });
@@ -229,7 +229,7 @@ describe("reducer — handleSessionStage", () => {
     const before = fresh();
     const { state: after, effects } = reduce(
       before,
-      stage("devise", "opus", "dash/foo-brief.md"),
+      stage("devise", "opus", "arc/foo-brief.md"),
     );
     // The rotation happens at idle and the committed transcript lives in the
     // wrapper, not reducer state — so the reducer hands the divider off.
@@ -237,7 +237,7 @@ describe("reducer — handleSessionStage", () => {
     const notes = effects.filter((e) => e.kind === "append-stage-note");
     expect(notes.length).toBe(1);
     if (notes[0] && notes[0].kind === "append-stage-note") {
-      expect(notes[0].text).toBe("devise · opus · dash/foo-brief.md");
+      expect(notes[0].text).toBe("devise · opus · arc/foo-brief.md");
     }
   });
 
@@ -251,7 +251,7 @@ describe("reducer — handleSessionStage", () => {
       text: "working",
       is_partial: true,
     } as CodeSessionEvent).state;
-    const { state, effects } = reduce(s, stage("review", "opus", "dash/foo.md"));
+    const { state, effects } = reduce(s, stage("review", "opus", "arc/foo.md"));
     expect(effects.length).toBe(0);
     const entry = state.scratch.get("k1");
     expect(entry).toBeDefined();
@@ -259,7 +259,7 @@ describe("reducer — handleSessionStage", () => {
     expect(note).toBeDefined();
     if (note && note.kind === "system_note") {
       expect(note.source).toBe("stage");
-      expect(note.text).toBe("review · opus · dash/foo.md");
+      expect(note.text).toBe("review · opus · arc/foo.md");
     }
     // The opening user_message is still at the head, undisturbed.
     expect(entry!.messages[0]?.kind).toBe("user_message");
@@ -268,7 +268,7 @@ describe("reducer — handleSessionStage", () => {
   it("carries a continued implement stage's step range through to the note", () => {
     const { effects } = reduce(
       fresh(),
-      stage("implement", "opus", "dash/foo.md", "4-9"),
+      stage("implement", "opus", "arc/foo.md", "4-9"),
     );
     const note = effects.find((e) => e.kind === "append-stage-note");
     expect(note).toBeDefined();
@@ -279,7 +279,7 @@ describe("reducer — handleSessionStage", () => {
 
   it("touches nothing but the divider — no phase change, no compaction state", () => {
     const before = fresh();
-    const { state: after } = reduce(before, stage("devise", "", "dash/foo.md"));
+    const { state: after } = reduce(before, stage("devise", "", "arc/foo.md"));
     expect(after.phase).toBe(before.phase);
     expect(after.compactionSeed).toBe(before.compactionSeed);
     expect(after.scratch).toBe(before.scratch);
@@ -303,7 +303,7 @@ describe("reducer — handleSessionStage", () => {
  */
 describe("reducer — attribution rides the message, not the turn", () => {
   const STAGE_PROMPT: CodeSessionEvent = {
-    ...(stage("implement", "opus", "dash/foo.md") as Record<string, unknown>),
+    ...(stage("implement", "opus", "arc/foo.md") as Record<string, unknown>),
     prompt: "/tugplug:arc-implement foo",
     turnKey: "arc-1",
   } as CodeSessionEvent;

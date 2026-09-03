@@ -66,9 +66,9 @@ export interface PlanReviewTargetInput {
   projectDir: string;
   /** The plan this card last reviewed, or `null`. */
   lastReviewed: string | null;
-  /** The bound dash's plan, **absolute**, when this card is bound to a dash
+  /** The bound arc's plan, **absolute**, when this card is bound to an arc
    *  that has one. */
-  boundDash: { plan: string } | null;
+  boundArc: { plan: string } | null;
 }
 
 /** Where a `/arc-review` invocation points, or a refusal. */
@@ -76,16 +76,16 @@ export type PlanReviewTarget = { path: string } | { refused: true };
 
 /**
  * Resolve `/arc-review`'s target: explicit argument, else the plan this card
- * last reviewed, else the bound dash's plan, else refuse.
+ * last reviewed, else the bound arc's plan, else refuse.
  *
- * **Last-reviewed beats the bound dash, deliberately.** The gesture's moment is
- * a plan devised and then edited, when the card usually has no dash yet; and a
- * card that *is* bound is frequently bound to a dash implementing some other
- * plan. Resolving to the dash first would silently review the wrong document —
- * which is the failure this whole lane exists to kill. The dash is not lost: it
- * is step 2, and it is the only answer a fresh card bound to a running dash has.
+ * **Last-reviewed beats the bound arc, deliberately.** The gesture's moment is
+ * a plan devised and then edited, when the card usually has no arc yet; and a
+ * card that *is* bound is frequently bound to an arc implementing some other
+ * plan. Resolving to the arc first would silently review the wrong document —
+ * which is the failure this whole lane exists to kill. The arc is not lost: it
+ * is step 2, and it is the only answer a fresh card bound to a running arc has.
  *
- * The dash branch takes the plan's path verbatim: the server hands it over
+ * The arc branch takes the plan's path verbatim: the server hands it over
  * absolute, resolved against the main repository root, and the deck composes
  * nothing. `projectDir` does not enter into it — a card's project directory may
  * itself be a linked worktree, and only the server knows the main root.
@@ -103,8 +103,8 @@ export function resolvePlanReviewTarget(
   if (input.lastReviewed !== null) {
     return { path: input.lastReviewed };
   }
-  if (input.boundDash !== null) {
-    return { path: input.boundDash.plan };
+  if (input.boundArc !== null) {
+    return { path: input.boundArc.plan };
   }
   return { refused: true };
 }

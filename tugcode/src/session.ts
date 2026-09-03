@@ -238,7 +238,7 @@ export function buildClaudeSpawnEnv(
  * iterator hasn't finished by this point, the replay aborts with
  * `replay_complete { error: { kind: "replay_timeout" } }` and live
  * forwarding resumes. Matches the wall-clock budget called out in
- * `dash/tugplan-session-transcript-resume.md` (D10).
+ * the transcript-resume design record (D10).
  */
 export const REPLAY_HARD_TIMEOUT_MS = 10_000;
 
@@ -292,7 +292,7 @@ export const DEFAULT_CLAUDE_PROJECTS_ROOT =
  * per-project subdirectory under `~/.claude/projects/`. Claude
  * replaces every character outside `[A-Za-z0-9-]` with `-` — not just
  * slashes: dots and underscores collapse too (a `/` → `-`-only
- * encoding misses e.g. a `.tugtree/tugdash__foo` worktree path, and
+ * encoding misses e.g. a legacy `.tugtree/tugdash__foo` worktree path, and
  * the resulting miss makes every replay report `jsonl_missing`). The
  * leading `-` arises because the absolute path begins with `/`.
  *
@@ -394,11 +394,11 @@ export type JsonlReadResult =
 /**
  * One row of the `turns` submission journal read by tugcode through
  * the cross-process bun:sqlite handle. Mirrors the Rust `JournalRow`
- * shape (mid-turn-replay [Step 5.2](dash/tugplan-session-mid-turn-replay.md#step-5-2)).
+ * shape (mid-turn-replay Step 5.2).
  * Tugcode never writes to this table; tugcast's `dispatch_one`
- * intercept owns inserts ([Step 4.3](dash/tugplan-session-mid-turn-replay.md#step-4-3))
+ * intercept owns inserts (Step 4.3)
  * and the merger's `apply_outbound_turn_intercept` owns FIFO deletes
- * ([Step 5.3](dash/tugplan-session-mid-turn-replay.md#step-5-3)).
+ * (Step 5.3).
  */
 interface JournalRow {
   journal_id: string;
@@ -411,7 +411,7 @@ interface JournalRow {
 /**
  * Build a multiset (text → count) of user-message texts seen in the
  * JSONL bytes. Used by [`runReplay`]'s pending-row injection
- * (mid-turn-replay [Step 5.6](dash/tugplan-session-mid-turn-replay.md#step-5-6))
+ * (mid-turn-replay Step 5.6)
  * to decide which journal rows still need a synthetic
  * `add_user_message` emit (i.e., the rows whose `user_text` does
  * NOT appear as a `user_message` line in JSONL — claude has not yet
@@ -920,7 +920,7 @@ const SESSION_SYSTEM_PROMPT_NUDGE =
  * The Tug application-data root (`<data_dir>/Tug`).
  *
  * Registered as a claude read root on every spawn (via `--add-dir`) so the
- * per-project runtime state that now lives outside the repo — the dash-log,
+ * per-project runtime state that now lives outside the repo — the arc-log,
  * the code-sign sentinel, and future side-command output — is readable without
  * a permission prompt. One entry covers every `Tug/projects/<slug>/` subdir.
  *
@@ -965,7 +965,7 @@ export function buildClaudeArgs(config: ClaudeSpawnConfig): string[] {
     "--plugin-dir", config.pluginDir,
     "--permission-mode", config.permissionMode,
     "--append-system-prompt", SESSION_SYSTEM_PROMPT_NUDGE,
-    // Grant frictionless reads of out-of-repo Tug runtime state (dash-log,
+    // Grant frictionless reads of out-of-repo Tug runtime state (arc-log,
     // code-sign sentinel, side-command output) for every session.
     "--add-dir", tugDataRoot(),
   ];
@@ -1124,7 +1124,7 @@ export function terseWakeSummary(summary: string): string {
  *     wrapper mints it on receipt, mirroring the existing
  *     add_user_message pattern.
  *
- * See `dash/tugplan-session-wake.md` [D02] for the detector
+ * See the session-wake design record [D02] for the detector
  * rationale and [Q01] for the empirical wire shape this contract is
  * pinned against.
  */
@@ -2708,7 +2708,7 @@ export class ActiveTurn {
    * `handleUserMessage` from the inbound `UserMessage`. Source-of-truth
    * for the in-flight turn's synthetic `add_user_message` payload
    * during `runReplay` (mid-turn replay re-emits exactly these
-   * blocks). Per [Step 5c](dash/dev-atoms.md#step-5c).
+   * blocks). Per Step 5c.
    *
    * Replaces the prior `userText` + `userAttachments` pair — the
    * inbound wire shape is now Anthropic-API content blocks directly,
@@ -3269,7 +3269,7 @@ export class SessionManager {
    */
   private currentModel: string | null = null;
   /**
-   * The dash name of the arc this session's claude runs under, or null when it
+   * The name of the arc this session's claude runs under, or null when it
    * runs under none.
    *
    * Recorded here beside {@link currentModel} rather than in
@@ -3399,7 +3399,7 @@ export class SessionManager {
    *      this flag so the next `system/task_notification` re-opens a
    *      fresh bracket.
    *
-   * See `dash/tugplan-session-wake.md` [D02] for the detector
+   * See the session-wake design record [D02] for the detector
    * design and [Q01] for the empirical wire shape that justifies
    * `handleInterTurnEvent` (not `routeTopLevelEvent`) as the detector
    * site — `task_notification` arrives strictly between turns.
@@ -3475,7 +3475,7 @@ export class SessionManager {
    * harness's built-in scheduler fires `ScheduleWakeup` / `CronCreate`
    * timers between turns and emits a fresh `system/init` to bracket
    * the resulting assistant turn (verified by long-hold capture probes;
-   * see `dash/wake-investigation-findings.md` and design decision
+   * see the wake-investigation findings and design decision
    * [D07]). Reset to false in {@link killAndCleanup} so a respawn
    * (fork / continue / new session) treats its own first init as a
    * first init, not as a wake.
@@ -4283,7 +4283,7 @@ export class SessionManager {
    * R0d originally introduced a 30s spawn-watchdog timer on top of
    * the watcher to catch a "claude is hung silently — running but
    * unresponsive" failure mode. That timer was removed in
-   * [Step R1d](dash/tugplan-session-transcript-resume.md#step-r1d):
+   * Step R1d:
    * the proxy it used (`claudeReceivedInput`) only flips on user
    * input, so its actual semantic was "user idle for 30s," not
    * "claude is hung." Smoke B exposed this — Maker>Reload doesn't
@@ -4724,7 +4724,7 @@ export class SessionManager {
    * wire timing as the pre-collapse startup-replay path.
    *
    * The legacy direct invocation from `main.ts` and `initialize()`
-   * was removed in [Step R4](dash/tugplan-session-transcript-resume.md#step-r4)
+   * was removed in Step R4
    * to eliminate dual replay-trigger paths. The `replayActive`
    * re-entrancy guard remains as defense-in-depth: a future caller
    * that reintroduces overlap is dropped at the entry rather than
@@ -4870,7 +4870,7 @@ export class SessionManager {
     // request_replay against the same session — sent from tugdeck on
     // `Maker > Reload` / HMR / card remount — needs the JSONL pass to
     // rehydrate the freshly-mounted CodeSessionStore. The mid-turn-replay
-    // [Step 5](dash/tugplan-session-mid-turn-replay.md#step-5) close-out
+    // Step 5 close-out
     // smoke surfaced this: open new card, type "hello", get response,
     // Maker > Reload → empty window because both tugdeck's
     // `binding.sessionMode === "resume"` gate (also dropped) and this
@@ -5078,10 +5078,10 @@ export class SessionManager {
     // translator emits `replay_started` → committed-turn frames →
     // `replay_complete`, raced against the exit + timeout promises.
     // The trailing in-flight turn's predicate is the
-    // [Step 5.5](dash/tugplan-session-mid-turn-replay.md#step-5-5)
+    // Step 5.5
     // territory; this substep restores the pre-Step-4 translator-driven
     // shape unchanged. The journal-driven pending-row injection lands
-    // in [Step 5.6](dash/tugplan-session-mid-turn-replay.md#step-5-6),
+    // in Step 5.6,
     // wrapping this path with a pre-pass over `sessions.db`.
     let count = 0;
     // `messagesEmitted` counts wire lines (one per `writeLine`);
@@ -5501,7 +5501,7 @@ export class SessionManager {
    * "no pending rows to surface" so a sqlite hiccup doesn't block
    * the user-visible JSONL replay.
    *
-   * Mid-turn-replay [Step 5.6](dash/tugplan-session-mid-turn-replay.md#step-5-6).
+   * Mid-turn-replay Step 5.6.
    */
   private readPendingTurnsForSession(): JournalRow[] {
     if (this.sessionsDb === null) return [];
@@ -5581,7 +5581,7 @@ export class SessionManager {
 
   /**
    * Pre-translator pass for the never-drop guarantee
-   * (mid-turn-replay [Step 5.6](dash/tugplan-session-mid-turn-replay.md#step-5-6)
+   * (mid-turn-replay Step 5.6
    * — the load-bearing implementation of [DM08]).
    *
    * For each pending journal row whose `user_text` does not appear as
@@ -5922,7 +5922,7 @@ export class SessionManager {
       // frame on the wire; the tugdeck reducer's commit path maps
       // `waking → idle` on the `turn_complete` that this `result`
       // produces). See `handleTaskNotification` for the bracket-open
-      // side and `dash/tugplan-session-wake.md` [D02].
+      // side and the session-wake design record [D02].
       if (turn.gotResult) {
         // Trailing flush ([Q06]): emit the final bin's accumulated work
         // before the turn's slot clears, so a turn that ends within a bin
@@ -6164,7 +6164,7 @@ export class SessionManager {
    * `CronCreate` tool_use payloads and match them to upcoming wakes;
    * for this slice we just open the bracket so the wake turn paints.
    *
-   * See `dash/wake-investigation-findings.md` and design decision
+   * See the wake-investigation findings and design decision
    * [D07].
    */
   private handleWakeReInit(): void {
@@ -7223,7 +7223,7 @@ export class SessionManager {
 
     // Forward the inbound content blocks directly to claude. The
     // wire shape IS the Anthropic API shape post-Step-5c; no
-    // construction step. Per [Step 5c](dash/dev-atoms.md#step-5c).
+    // construction step. Per Step 5c.
     const contentBlocks = msg.content;
 
     const userInput = JSON.stringify({

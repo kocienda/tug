@@ -1,16 +1,16 @@
 /**
- * at0425-dash-conflicted-join.test.ts — the conflicted landing face, and
+ * at0425-arc-conflicted-join.test.ts — the conflicted landing face, and
  * per-control accountability on it.
  *
  * ## Why this exists
  *
- * The first real dash landing arrived at the shade exactly here: an unbound
+ * The first real arc landing arrived at the shade exactly here: an unbound
  * card, a join aimed by name, a preview that came back `conflicted` — and the
  * user reported every control as a dead click. The landed outcomes (clean,
  * blocked, empty) all have coverage in at0418; `conflicted` had none, because
  * a real conflict seemed to require moving the developer's `main`. It does
  * not: the fixture owns the whole repository — a scratch one, built two commits
- * deep for this — so it can rewind the dash branch to the base's parent and
+ * deep for this — so it can rewind the arc branch to the base's parent and
  * delete a file the base's tip commit modified. The preview's `merge-tree` then
  * reports a genuine delete/modify conflict, and the developer's checkout is
  * never involved at all.
@@ -23,8 +23,8 @@
  *
  * ## What is pinned
  *
- * - The incident's state renders as designed: the named join fronts a dash the
- *   card is not bound to, under "dash this landing is aimed at", with **Adopt**
+ * - The incident's state renders as designed: the named join fronts an arc the
+ *   card is not bound to, under "arc this landing is aimed at", with **Adopt**
  *   (fronting is about what is being landed; the binding is about what the card
  *   works — so the fronted header names the landing, not a binding that is not
  *   there).
@@ -38,8 +38,8 @@
  *   What the resolve does *after* that press belongs to the scratch-repo
  *   fixtures — at0426, at0441, at0442 — which script a resolver rather
  *   than spawning one against the developer's own checkout.
- * - **Adopt** round-trips for real: the click sends `bind_dash`, and the row
- *   flips to Leave only on the `bind_dash_ok` broadcast that comes back.
+ * - **Adopt** round-trips for real: the click sends `bind_arc`, and the row
+ *   flips to Leave only on the `bind_arc_ok` broadcast that comes back.
  *
  * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-arc-join.tsx
  * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-arc-lane.tsx
@@ -62,16 +62,16 @@ import {
 } from "./_harness/tugbank-helpers";
 import {
   commitRound,
-  createDash,
+  createArc,
   gitRetry as git,
-  makeDashScratchRepo,
-  rmDashScratchRepo,
+  makeArcScratchRepo,
+  rmArcScratchRepo,
   rmScratchSession,
   seedScratchSession,
   smallConflictSubject,
-  type DashScratchRepo,
-} from "./dash-fixture";
-import { pressDashRowMenuItem, readDashRowMenu } from "./dash-row-menu-fixture";
+  type ArcScratchRepo,
+} from "./arc-fixture";
+import { pressArcRowMenuItem, readArcRowMenu } from "./arc-row-menu-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 240_000;
@@ -83,35 +83,35 @@ const EDITOR = `${CARD} [data-slot="tug-text-editor"] .cm-content`;
 const TOOLBAR = `${CARD} .tug-prompt-entry-toolbar`;
 const ROUTE_GROUP = `${TOOLBAR} .tug-prompt-entry-route-group`;
 const SHEET = `${CARD} .session-view-pane[data-view="changes"] [data-slot="tug-sheet"]`;
-const LANE = `${SHEET} [data-slot="session-changes-dash-lane"]`;
-const FRONTED_LABEL = `${LANE} [data-slot="session-changes-dash-lane-fronted-label"]`;
+const LANE = `${SHEET} [data-slot="session-changes-arc-lane"]`;
+const FRONTED_LABEL = `${LANE} [data-slot="session-changes-arc-lane-fronted-label"]`;
 
-const DASH = "at0425-conflict";
-const ROW = `${LANE} [data-slot="session-changes-dash-row"][data-dash="${DASH}"]`;
+const ARC = "at0425-conflict";
+const ROW = `${LANE} [data-slot="session-changes-arc-row"][data-arc="${ARC}"]`;
 const JOIN_FACE = `${ROW} [data-slot="session-changes-arc-join"]`;
 const REGISTER = `${ROW} [data-slot="arc-join-register"]`;
 const CONFLICTS = `${ROW} [data-slot="session-changes-arc-join-conflicts"]`;
 const ARCHAEOLOGY = `${ROW} [data-slot="session-changes-arc-join-archaeology"]`;
 
-const DASHES_CARD = '.dashes-section';
+const ARCS_CARD = '.arcs-section';
 
-/** This checkout — the build under test, and never the tree a dash is cut in. */
+/** This checkout — the build under test, and never the tree an arc is cut in. */
 const CHECKOUT = realpathSync(resolve(import.meta.dir, "..", ".."));
 /** The scratch repository this fixture owns, and the only tree it touches. */
-let scratch: DashScratchRepo | null = null;
+let scratch: ArcScratchRepo | null = null;
 let fixtureDir = "";
 const projectDir = (): string => scratch?.repo ?? "";
 
-/** The file the base modifies and the dash deletes. */
+/** The file the base modifies and the arc deletes. */
 const SUBJECT_FILE = "at0425-subject.txt";
-/** The base-tip file the dash's round deletes — the conflict's subject. */
+/** The base-tip file the arc's round deletes — the conflict's subject. */
 let conflictFile = "";
 /** That base commit's subject — what the archaeology must name under the path. */
 let baseSubject = "";
 
 beforeAll(() => {
   if (!SHOULD_RUN) return;
-  scratch = makeDashScratchRepo({
+  scratch = makeArcScratchRepo({
     prefix: "at0425",
     checkout: CHECKOUT,
     files: { [SUBJECT_FILE]: "at0425 first line\nat0425 second line\n" },
@@ -127,10 +127,10 @@ beforeAll(() => {
   );
   git(projectDir(), "commit", "-am", "at0425: the base modifies the subject file");
 
-  const created = createDash(projectDir(), DASH, "at0425 conflicted fixture", scratch.cli);
+  const created = createArc(projectDir(), ARC, "at0425 conflicted fixture", scratch.cli);
 
-  // Rewinding the dash branch to that commit's parent and deleting the file
-  // diverges the two sides on it: the base modified what the dash deleted — a
+  // Rewinding the arc branch to that commit's parent and deleting the file
+  // diverges the two sides on it: the base modified what the arc deleted — a
   // delete/modify conflict `merge-tree` must report.
   //
   // The subject comes from the shared helper, which reads it back out of the
@@ -142,18 +142,18 @@ beforeAll(() => {
   conflictFile = subject.path;
   baseSubject = subject.subject;
 
-  // The rewind and the deletion happen in the dash's own worktree — the
+  // The rewind and the deletion happen in the arc's own worktree — the
   // scratch repo's base branch is never touched.
   git(created.worktree, "reset", "--hard", `${subject.commit}~1`);
   rmSync(join(created.worktree, conflictFile));
-  commitRound(projectDir(), DASH, `at0425(round): delete ${conflictFile}`, scratch.cli);
+  commitRound(projectDir(), ARC, `at0425(round): delete ${conflictFile}`, scratch.cli);
 
   fixtureDir = seedScratchSession(projectDir(), SID);
 });
 
 afterAll(() => {
   if (!SHOULD_RUN) return;
-  rmDashScratchRepo(scratch);
+  rmArcScratchRepo(scratch);
   rmScratchSession(fixtureDir);
 });
 
@@ -195,7 +195,7 @@ describe.skipIf(!SHOULD_RUN)("AT0425: the conflicted landing face answers its co
       const tugbankPath = mkTempTugbank();
       seedTugbankForLaunch(tugbankPath, { sourceTreePath: CHECKOUT });
       const app = await launchTugApp({
-        testName: "at0425-dash-conflicted-join",
+        testName: "at0425-arc-conflicted-join",
         env: { TUGBANK_PATH: tugbankPath, TUG_DATA_DIR: scratch?.dataRoot ?? "" },
       });
       try {
@@ -205,28 +205,28 @@ describe.skipIf(!SHOULD_RUN)("AT0425: the conflicted landing face answers its co
           `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
         );
         // A *spawned* session, not a bound one: spawning registers the scratch
-        // repo as a workspace (so its dash reaches the aggregate) and writes
-        // the live ledger row the Adopt probe's `bind_dash` needs, or the
+        // repo as a workspace (so its arc reaches the aggregate) and writes
+        // the live ledger row the Adopt probe's `bind_arc` needs, or the
         // server has nothing to bind.
         await app.spawnSessionResume("A", { tugSessionId: SID, projectDir: projectDir() });
         await app.awaitEngineReady("A", { timeoutMs: 15000 });
 
-        // The aggregate has composed the dash once the Arcs card lists it.
+        // The aggregate has composed the arc once the Arcs card lists it.
         await app.dispatchControlAction("toggle-arcs");
         await app.waitForCondition<boolean>(
-          `document.querySelector('${DASHES_CARD} [data-slot="dashes-row"][data-dash="${DASH}"]') !== null`,
+          `document.querySelector('${ARCS_CARD} [data-slot="arcs-row"][data-arc="${ARC}"]') !== null`,
           { timeoutMs: 30000 },
         );
         await app.dispatchControlAction("toggle-arcs");
         await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(DASHES_CARD)}) === null`,
+          `document.querySelector(${JSON.stringify(ARCS_CARD)}) === null`,
           { timeoutMs: 8000 },
         );
 
         // ── The incident's state, reconstructed for real ──────────────────
         // Unbound card, join aimed by name. The mode enters, the shade rises,
-        // and the dash entry already carries the answer: `conflicted`.
-        await runCommand(app, `/arc-join ${DASH}`);
+        // and the arc entry already carries the answer: `conflicted`.
+        await runCommand(app, `/arc-join ${ARC}`);
         await app.waitForCondition<boolean>(
           `(function(){
             var el = document.querySelector(${JSON.stringify(ROUTE_GROUP)} + ' [data-state="active"]');
@@ -248,14 +248,14 @@ describe.skipIf(!SHOULD_RUN)("AT0425: the conflicted landing face answers its co
         // Fronted-but-unbound offers Bind — fronting is about what is being
         // landed, the binding about what the card works. The incident read
         // this pairing as a contradiction; it is the designed state.
-        expect((await readDashRowMenu(app, ROW)).bind.present).toBe(true);
+        expect((await readArcRowMenu(app, ROW)).bind.present).toBe(true);
         // The conflict names its file.
         expect(
           await app.evalJS<string>(
             `(document.querySelector(${JSON.stringify(CONFLICTS)})?.textContent || "")`,
           ),
         ).toContain(conflictFile);
-        // …and what the base did to it. The fixture rewinds the dash to the
+        // …and what the base did to it. The fixture rewinds the arc to the
         // parent of the newest base commit that MODIFIED this file, so that
         // commit is on the base side of the merge-base by construction and its
         // subject must appear under the path.
@@ -276,18 +276,18 @@ describe.skipIf(!SHOULD_RUN)("AT0425: the conflicted landing face answers its co
             return reg !== null && reg.getAttribute("data-word") === "ready";
           })()`,
         );
-        expect(claimsReady, "a conflicted dash must not read as ready").toBe(false);
+        expect(claimsReady, "a conflicted arc must not read as ready").toBe(false);
 
         // ── The turn narrows Discard, and says so where the press is ──────
         // Hold a real turn open, driven through the real store wire path (the
         // at0099 send + ingestFrame pattern) rather than simulated on the
         // component.
         //
-        // What the turn gates is Discard, because Discard destroys the dash.
+        // What the turn gates is Discard, because Discard destroys the arc.
         // Everything else the row offers is unaffected — the narrowing was
         // always about destruction, not about the row being busy. The Resolve
         // this section used to press is gone with the rest of the shade's
-        // controls ([P08]): the machine reconciles a built dash, so a
+        // controls ([P08]): the machine reconciles a built arc, so a
         // conflicted one's escape hatch is no longer a button anybody can
         // find locked behind a turn.
         //
@@ -296,7 +296,7 @@ describe.skipIf(!SHOULD_RUN)("AT0425: the conflicted landing face answers its co
         // read — the reason rides the item's own label ([L31]).
         await app.driveSession("A", { op: "send", text: "hold the turn open" });
         await settle(1200);
-        const midTurn = await readDashRowMenu(app, ROW);
+        const midTurn = await readArcRowMenu(app, ROW);
         expect(midTurn.discard.disabled, "a live turn holds the discard").toBe(true);
         expect(
           midTurn.discard.label,
@@ -304,7 +304,7 @@ describe.skipIf(!SHOULD_RUN)("AT0425: the conflicted landing face answers its co
         ).toContain("turn");
         expect(
           midTurn.bind.disabled,
-          "taking a dash on is not destroying it, so the turn does not gate it",
+          "taking an arc on is not destroying it, so the turn does not gate it",
         ).toBe(false);
         note(`at0425 mid-turn menu: ${JSON.stringify(midTurn.discard.label)}`);
 
@@ -317,7 +317,7 @@ describe.skipIf(!SHOULD_RUN)("AT0425: the conflicted landing face answers its co
         });
         await settle(1200);
         expect(
-          (await readDashRowMenu(app, ROW)).discard.disabled,
+          (await readArcRowMenu(app, ROW)).discard.disabled,
           "and the hold lifts with the turn",
         ).toBe(false);
 
@@ -326,14 +326,14 @@ describe.skipIf(!SHOULD_RUN)("AT0425: the conflicted landing face answers its co
         // row is already fronted and unbound, which is the designed state the
         // incident misread as a contradiction. What the bind changes is which
         // complement the menu carries.
-        await pressDashRowMenuItem(app, ROW, "bind-dash");
+        await pressArcRowMenuItem(app, ROW, "bind-arc");
         let bound = false;
         const boundBy = Date.now() + 20_000;
         while (Date.now() < boundBy && !bound) {
           await settle(500);
-          bound = (await readDashRowMenu(app, ROW)).unbind.present;
+          bound = (await readArcRowMenu(app, ROW)).unbind.present;
         }
-        expect(bound, "bind_dash_ok flipped the menu's complement to Unbind").toBe(true);
+        expect(bound, "bind_arc_ok flipped the menu's complement to Unbind").toBe(true);
         note("Bind round-tripped: the menu now offers Unbind");
       } finally {
         await app.close();

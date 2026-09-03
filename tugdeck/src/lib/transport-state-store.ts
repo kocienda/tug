@@ -7,7 +7,7 @@
  * socket itself — `online` once a handshake completes, `offline` when the wire
  * drops, `reconnecting` while a backoff retry is scheduled. It is the channel
  * ConfigureTug reads to show a calm "Reconnecting…" body instead of a dead wizard
- * when the transport falls over mid-setup (dash/archive/onboarding-and-install.md#tugsetup-states).
+ * when the transport falls over mid-setup (arc/archive/onboarding-and-install.md#tugsetup-states).
  *
  * The store is *driven* from `main.tsx`, which already owns the
  * `ConnectionLifecycle` singleton and wires its other observers there — so this

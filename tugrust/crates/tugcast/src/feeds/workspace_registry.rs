@@ -317,7 +317,7 @@ pub struct WorkspaceRegistry {
     /// Shared FILETREE-response broadcast channel. Cloned into each
     /// `WorkspaceEntry::new` call so every workspace's `FileTreeFeed`
     /// publishes responses to one place. The router subscribes once
-    /// at the process level. Per `dash/dev-atoms.md#step-pre-4`.
+    /// at the process level. Per `arc/dev-atoms.md#step-pre-4`.
     ft_response_tx: tokio::sync::broadcast::Sender<Frame>,
     /// Process-global recompute signal for the account-global CHANGESET_ALL
     /// feed. Pinged whenever the open-project set changes (`get_or_create`
@@ -332,7 +332,7 @@ pub struct WorkspaceRegistry {
     gh_response_tx: tokio::sync::broadcast::Sender<Frame>,
     /// Optional "a workspace just opened" signal, carrying the fresh entry's
     /// canonical key. The base-motion engine listens here because a HEAD signal
-    /// is an edge and a newly-opened project may already hold a dash whose base
+    /// is an edge and a newly-opened project may already hold an arc whose base
     /// moved while nothing was watching. Set once at boot; unset in tests and in
     /// any build without the engine, where the send is simply skipped.
     workspace_open_tx: OnceLock<mpsc::Sender<String>>,
@@ -498,7 +498,7 @@ impl WorkspaceRegistry {
         // browse-only entry is not in that set, so it skips the bump.
         if !browse_only {
             self.changeset_all_bump.notify_one();
-            // Tell the base-motion engine to sweep this workspace's dashes: the
+            // Tell the base-motion engine to sweep this workspace's arcs: the
             // git watch it just started baselined HEAD, so it will never signal
             // about motion that happened before now. A full channel means a
             // sweep is already queued, which covers this workspace too.
@@ -548,7 +548,7 @@ impl WorkspaceRegistry {
     ///
     /// Bumps no refcounts; the returned `Arc` carries its own reference
     /// for the duration of the caller's use. Per
-    /// `dash/dev-atoms.md#step-pre-4` and the routing fix that
+    /// `arc/dev-atoms.md#step-pre-4` and the routing fix that
     /// unblocks Step 4's manual smoke.
     pub fn find_entry_by_path(&self, project_dir: &Path) -> Option<Arc<WorkspaceEntry>> {
         let canonical: String = PathResolver::new(project_dir.to_path_buf())
@@ -562,7 +562,7 @@ impl WorkspaceRegistry {
 
     /// Route a single `FileTreeQuery` to the workspace whose canonical
     /// key matches `ftq.root`, falling back to `bootstrap_tx` when the
-    /// root is unset or unknown. Per `dash/dev-atoms.md#step-pre-4`
+    /// root is unset or unknown. Per `arc/dev-atoms.md#step-pre-4`
     /// — the FILETREE_QUERY adapter calls this once per inbound frame
     /// after JSON parsing, so the routing decision lives in one
     /// testable place rather than buried in `main.rs`'s spawned task.

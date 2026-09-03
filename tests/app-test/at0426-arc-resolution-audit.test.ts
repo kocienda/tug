@@ -12,7 +12,7 @@
  *
  * What catches it now is the resolver's **audit duty**. The resolver reviews
  * every file the algorithmic rungs decided — rerere, merge-file, driver, the
- * per-file AI rung — against the dash's recorded intent, and its report must
+ * per-file AI rung — against the arc's recorded intent, and its report must
  * account for each one. It may reject and redo any of them. So the same
  * failure class is still guarded; it is guarded one layer down, by the reader
  * that is already holding both sides' content and the intent corpus.
@@ -51,14 +51,14 @@ import {
   seedTugbankForLaunch,
 } from "./_harness/tugbank-helpers";
 import {
-  bindDash,
+  bindArc,
   silenceJoinPrompt,
   makeJoinScratchRepo,
   rmJoinScratchRepo,
   rmScratchSession,
   seedScratchSession,
   type JoinScratchRepo,
-} from "./dash-fixture";
+} from "./arc-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 300_000;
@@ -66,8 +66,8 @@ const TEST_TIMEOUT_MS = 300_000;
 const CARD = '[data-card-id="A"]';
 const EDITOR = `${CARD} [data-slot="tug-text-editor"] .cm-content`;
 const SHEET = '[data-slot="session-changes-view"]';
-const LANE = `${SHEET} [data-slot="session-changes-dash-lane"]`;
-const DASHES_CARD = '.dashes-section';
+const LANE = `${SHEET} [data-slot="session-changes-arc-lane"]`;
+const ARCS_CARD = '.arcs-section';
 
 const CHECKOUT = realpathSync(resolve(import.meta.dir, "..", ".."));
 const FILE = "subject.txt";
@@ -82,32 +82,32 @@ read -r _charter
 printf '%s\\n' '{"files":[],"notes":"nothing to say"}'
 `;
 
-/** One arc's world: its repo, its dash, and the session that opens on it. */
+/** One arc's world: its repo, its arc, and the session that opens on it. */
 interface Arc {
   scratch: JoinScratchRepo;
   fixtureDir: string;
   sid: string;
-  dash: string;
+  arc: string;
 }
 
-function makeArc(prefix: string, dash: string, sid: string, resolver: string): Arc {
+function makeArc(prefix: string, arc: string, sid: string, resolver: string): Arc {
   const scratch = makeJoinScratchRepo({
     prefix,
-    dash,
+    arc,
     description: `${prefix} audit fixture`,
     checkout: CHECKOUT,
     file: FILE,
     fork: "at0426 the body both sides will rewrite\n",
     base: "at0426 base side — the whole file, rewritten\n",
-    dashBody: "at0426 dash side — the whole file, rewritten\n",
+    arcBody: "at0426 arc side — the whole file, rewritten\n",
     resolver,
     mergeDriver: DRIVER_STUB,
     // The run this file audits is the pilot's. There is no Resolve to press
-    // any more ([P08]), and a dash reaches the resolver by being built.
+    // any more ([P08]), and an arc reaches the resolver by being built.
     built: true,
   });
   const fixtureDir = seedScratchSession(scratch.repo, sid);
-  return { scratch, fixtureDir, sid, dash };
+  return { scratch, fixtureDir, sid, arc };
 }
 
 let silent: Arc | null = null;
@@ -160,16 +160,16 @@ async function runCommand(app: App, line: string): Promise<void> {
 }
 
 /**
- * Open the card on an arc's dash and front its row, leaving the pilot to run.
+ * Open the card on an arc's run and front its row, leaving the pilot to run.
  *
  * The gate is the ROW, not the report under it. The report section speaks only
  * when it has evidence to show — a standing candidate that has resolved nothing
- * and filed no account yet is silence, deliberately, so a clean dash does not
+ * and filed no account yet is silence, deliberately, so a clean arc does not
  * wear an eyebrow over an empty box. Each test below waits on the slot carrying
  * its own claim, with the pilot's whole run in its budget.
  */
 async function resolveArc(app: App, arc: Arc): Promise<string> {
-  const row = `${LANE} [data-slot="session-changes-dash-row"][data-dash="${arc.dash}"]`;
+  const row = `${LANE} [data-slot="session-changes-arc-row"][data-arc="${arc.arc}"]`;
   await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
   await app.waitForCondition<boolean>(
     `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
@@ -177,22 +177,22 @@ async function resolveArc(app: App, arc: Arc): Promise<string> {
   );
   await app.spawnSessionResume("A", { tugSessionId: arc.sid, projectDir: arc.scratch.repo });
   await app.awaitEngineReady("A", { timeoutMs: 15000 });
-  // The pilot only works a dash somebody holds ([D147]); without the ledger
+  // The pilot only works an arc somebody holds ([D147]); without the ledger
   // row the audit has no candidate to audit.
-  bindDash(arc.scratch.repo, arc.dash, arc.sid, arc.scratch.cli);
-  silenceJoinPrompt(arc.scratch.repo, arc.dash);
+  bindArc(arc.scratch.repo, arc.arc, arc.sid, arc.scratch.cli);
+  silenceJoinPrompt(arc.scratch.repo, arc.arc);
 
   await app.dispatchControlAction("toggle-arcs");
   await app.waitForCondition<boolean>(
-    `document.querySelector('${DASHES_CARD} [data-slot="dashes-row"][data-dash="${arc.dash}"]') !== null`,
+    `document.querySelector('${ARCS_CARD} [data-slot="arcs-row"][data-arc="${arc.arc}"]') !== null`,
     { timeoutMs: 30000 },
   );
   await app.dispatchControlAction("toggle-arcs");
 
-  // The dash is `built`, so the pilot reconciles it with nothing pressed.
+  // The arc is `built`, so the pilot reconciles it with nothing pressed.
   // `/arc-join` fronts the row so the audit's own surfaces render; it does
-  // not start the run, and on a conflicted dash it never did.
-  await runCommand(app, `/arc-join ${arc.dash}`);
+  // not start the run, and on a conflicted arc it never did.
+  await runCommand(app, `/arc-join ${arc.arc}`);
   await app.waitForCondition<boolean>(
     `document.querySelector(${JSON.stringify(row)}) !== null`,
     { timeoutMs: 40000 },
@@ -208,7 +208,7 @@ describe.skipIf(!SHOULD_RUN)("AT0426: the resolver audits what the machines deci
       const tugbankPath = mkTempTugbank();
       seedTugbankForLaunch(tugbankPath, { sourceTreePath: CHECKOUT });
       const app = await launchTugApp({
-        testName: "at0426-dash-resolution-audit-silence",
+        testName: "at0426-arc-resolution-audit-silence",
         env: { TUGBANK_PATH: tugbankPath, TUG_DATA_DIR: arc.scratch.dataRoot },
       });
       try {

@@ -54,7 +54,7 @@ async function gatherSamples(): Promise<Sample[]> {
   const skillPaths = [
     "tugplug/skills/arc-devise/SKILL.md",
     "tugplug/skills/arc-implement/SKILL.md",
-    "tugplug/skills/dash/SKILL.md",
+    "tugplug/skills/arc/SKILL.md",
   ].map((p) => path.join(REPO_ROOT, p));
   const skillsConcatenated = await readAll(skillPaths);
 
@@ -87,7 +87,7 @@ async function gatherSamples(): Promise<Sample[]> {
       text: projectClaudeMd,
     },
     {
-      label: "tugplug skill manifests (recipe, bake, dash)",
+      label: "tugplug skill manifests (recipe, bake, arc)",
       category: "skills",
       text: skillsConcatenated,
     },

@@ -1,7 +1,7 @@
 //! The arc runner — the act half of the arc.
 //!
 //! [`super::arc::arc_action`] decides; this gathers the facts it decides
-//! over, performs what it returns, and records the result in the dash-log. The
+//! over, performs what it returns, and records the result in the arc log. The
 //! split is `join_pilot`'s, for `join_pilot`'s reason: a decision made on one
 //! scheduling hop and acted on the next is a time-of-check/time-of-use window,
 //! so the act re-reads under a guard and the decision stays pure.
@@ -24,7 +24,7 @@
 //! So between `drive_stage` returning and that line landing, the newest
 //! `arc-stage` line still names the session that just died, which is exactly
 //! what "a stage that died" looks like. The guard is what tells those two
-//! apart, and it is why the dash-log is re-read immediately before every
+//! apart, and it is why the arc log is re-read immediately before every
 //! rotation.
 //!
 //! # Every refusal is recorded
@@ -46,7 +46,7 @@ use tugarc_core::arc::{
     ArcRecord, ArcStage, ArcStopReason, append_arc_dispatch, append_arc_done, append_arc_note,
     append_arc_owner, append_arc_plan, append_arc_stop, read_arc, stage_model,
 };
-use tugarc_core::log::append_dash_log;
+use tugarc_core::log::append_arc_log;
 use tugcast_core::protocol::{FeedId, Frame, TugSessionId};
 use tugtool_core::config::{ArcConfig, Config};
 use tugtool_core::plan;
@@ -157,10 +157,10 @@ struct PendingPrompt {
     turns_ended_at: u32,
 }
 
-/// One arc the sweep found: a bound dash, and the card it runs on.
+/// One arc the sweep found: a bound arc, and the card it runs on.
 struct BoundArc {
     project: PathBuf,
-    dash: String,
+    name: String,
     session: TugSessionId,
 }
 
@@ -220,15 +220,15 @@ async fn sweep(ctx: &ArcContext, state: &Arc<Mutex<HashMap<String, ArcState>>>) 
 
 /// Every arc with a live card behind it.
 ///
-/// Bound-ness is the dash binding and nothing else: the arc record
+/// Bound-ness is the arc binding and nothing else: the arc record
 /// names no session, so "whose card is this arc on" is answered by the ledger
-/// the Bind control already writes. `bound_sessions_by_dash` filters to live
+/// the Bind control already writes. `bound_sessions_by_arc` filters to live
 /// rows, so a card that closed takes its arc out of the sweep.
 ///
 /// **The session it hands back is the card's, not the row's**, and that
 /// distinction is the whole of `at0505`'s finding. The ledger row a binding
 /// sits on is a *segment* — after a rotation, the fresh one `seat_line_binding`
-/// moved the dash onto — while the supervisor's map is keyed by the **tug
+/// moved the arc onto — while the supervisor's map is keyed by the **tug
 /// session id**, which is the card's address and never moves. Handing the
 /// segment on meant `session_snapshot` looked up an id no entry wears, answered
 /// `None`, and the arc ran factless from its first rotation onward: no
@@ -236,21 +236,21 @@ async fn sweep(ctx: &ArcContext, state: &Arc<Mutex<HashMap<String, ArcState>>>) 
 /// seconds and read as a consequence of the kill; the kill had nothing to do
 /// with it.
 async fn bound_arcs(ctx: &ArcContext) -> Vec<BoundArc> {
-    let Ok(by_dash) = ctx.session_ledger.bound_sessions_by_dash() else {
+    let Ok(by_arc) = ctx.session_ledger.bound_sessions_by_arc() else {
         return Vec::new();
     };
     let mut out = Vec::new();
-    for sessions in by_dash.values() {
+    for sessions in by_arc.values() {
         for session in sessions {
             let Ok(Some(row)) = ctx.session_ledger.get(session) else {
                 continue;
             };
-            let Some(dash) = row.dash_name.clone() else {
+            let Some(name) = row.arc_name.clone() else {
                 continue;
             };
             out.push(BoundArc {
                 project: PathBuf::from(&row.project_dir),
-                dash,
+                name,
                 session: card_session_for_segment(ctx, session).await,
             });
         }
@@ -263,9 +263,9 @@ async fn bound_arcs(ctx: &ArcContext) -> Vec<BoundArc> {
 /// The supervisor's map is keyed by the **tug session id** — the card's
 /// address, minted at spawn and never moved, because every frame the card sends
 /// is stamped with it and its whole services bag is built around it. A rotation
-/// mints a *segment*, records a row under claude's own id, and moves the dash
+/// mints a *segment*, records a row under claude's own id, and moves the arc
 /// binding onto it; from then on the ledger's answer to "which session is on
-/// this dash" is an id no supervisor entry wears.
+/// this arc" is an id no supervisor entry wears.
 ///
 /// So the walk is by `claude_session_id`, which is the entry's own record of
 /// which segment it is currently running — the direct key first, since before
@@ -297,9 +297,9 @@ async fn card_session_for_segment(ctx: &ArcContext, segment: &str) -> TugSession
     direct
 }
 
-/// A key that separates two dashes of the same name in different projects.
+/// A key that separates two arcs of the same name in different projects.
 fn arc_key(arc: &BoundArc) -> String {
-    format!("{}\u{0}{}", arc.project.display(), arc.dash)
+    format!("{}\u{0}{}", arc.project.display(), arc.name)
 }
 
 /// How often the engine wakes with nothing having happened, so the clock can
@@ -330,7 +330,7 @@ const CHILD_GONE_GRACE: Duration = Duration::from_secs(30);
 /// synthesized in a test rather than waited out. `None` for `last_motion_at`
 /// is *not* stalled: it means this arc has not been observed yet, and the tick
 /// that observes it seeds the stamp. `None` for `timeout` is the clock turned
-/// off — `[tugtool.dash].arc_stall_secs = 0`.
+/// off — `[tugtool.arc].arc_stall_secs = 0`.
 fn clock_ran_out(last_motion_at: Option<Instant>, now: Instant, timeout: Option<Duration>) -> bool {
     let (Some(last), Some(timeout)) = (last_motion_at, timeout) else {
         return false;
@@ -381,9 +381,9 @@ async fn evaluate(ctx: &ArcContext, state: &Arc<Mutex<HashMap<String, ArcState>>
     };
 
     let project = arc.project.clone();
-    let dash = arc.dash.clone();
+    let name = arc.name.clone();
     let Ok(Some(reading)) =
-        tokio::task::spawn_blocking(move || read(&project, &dash, &session, memory)).await
+        tokio::task::spawn_blocking(move || read(&project, &name, &session, memory)).await
     else {
         return;
     };
@@ -410,7 +410,7 @@ async fn evaluate(ctx: &ArcContext, state: &Arc<Mutex<HashMap<String, ArcState>>
         info!(
             target: "dev::session-lifecycle",
             event = "arc.foreign",
-            dash = %arc.dash,
+            arc = %arc.name,
             session = %arc.session,
             owner = reading.record.owner.as_deref().unwrap_or("-"),
             stage = reading
@@ -528,7 +528,7 @@ async fn evaluate(ctx: &ArcContext, state: &Arc<Mutex<HashMap<String, ArcState>>
     info!(
         target: "dev::session-lifecycle",
         event = "arc.tick",
-        dash = %arc.dash,
+        arc = %arc.name,
         stage = reading
             .record
             .current_stage()
@@ -593,13 +593,13 @@ async fn watch_the_clock_unseated(
     key: &str,
 ) {
     let project = arc.project.clone();
-    let dash = arc.dash.clone();
+    let name = arc.name.clone();
     let Ok(Some((record, config))) = tokio::task::spawn_blocking(move || {
-        let record = read_arc(&project, &dash)?;
+        let record = read_arc(&project, &name)?;
         let config = Config::load_from_project(&project)
             .unwrap_or_default()
             .tugtool
-            .dash
+            .arc
             .clone();
         Some((record, config))
     })
@@ -610,7 +610,7 @@ async fn watch_the_clock_unseated(
     if record.done || record.stopped.is_some() {
         return;
     }
-    // **Whose arc is this?** The dash-log is shared across every instance over
+    // **Whose arc is this?** The arc log is shared across every instance over
     // one checkout, so this runner reads arcs it did not seat — and cannot get
     // a session snapshot for a seat living in another tugcast's process, which
     // is exactly why this path was reached. Before the owner marker that
@@ -630,7 +630,7 @@ async fn watch_the_clock_unseated(
         info!(
             target: "dev::session-lifecycle",
             event = "arc.foreign",
-            dash = %arc.dash,
+            arc = %arc.name,
             session = %arc.session,
             owner = record.owner.as_deref().unwrap_or("-"),
             stage = record
@@ -655,7 +655,7 @@ async fn watch_the_clock_unseated(
     info!(
         target: "dev::session-lifecycle",
         event = "arc.unseated",
-        dash = %arc.dash,
+        arc = %arc.name,
         session = %arc.session,
         stage = record
             .current_stage()
@@ -675,7 +675,7 @@ async fn watch_the_clock_unseated(
         &ctx.wheel,
         &arc.session,
         &arc.project,
-        &arc.dash,
+        &arc.name,
         stage,
         ArcStopReason::Stalled,
         StopDelivery {
@@ -827,13 +827,13 @@ async fn session_snapshot(ctx: &ArcContext, id: &TugSessionId) -> Option<Session
 
 /// Everything one tick read, kept together so the act does not read it again.
 struct ArcReading {
-    /// The dash this reading is of — how every stage after devise is asked.
-    dash: String,
+    /// The arc this reading is of — how every stage after devise is asked.
+    name: String,
     record: ArcRecord,
     facts: ArcFacts,
     /// How many ledger rows read `done` — the next tick's comparison point.
     done_count: usize,
-    /// How a stage's prompt names the plan: the dash's name ([P10]). `None`
+    /// How a stage's prompt names the plan: the arc's name ([P10]). `None`
     /// when there is no plan yet, which is what a devise stage means.
     plan_for_prompt: Option<String>,
     /// Where the devise stage should write its plan, repo-relative.
@@ -861,13 +861,13 @@ struct TickMemory {
 /// scoped git read.
 fn read(
     project: &Path,
-    dash: &str,
+    name: &str,
     session: &SessionSnapshot,
     memory: TickMemory,
 ) -> Option<ArcReading> {
-    let record = read_arc(project, dash)?;
+    let record = read_arc(project, name)?;
     let project_config = Config::load_from_project(project).unwrap_or_default();
-    let config = project_config.tugtool.dash.clone();
+    let config = project_config.tugtool.arc.clone();
 
     let document_abs = record.document.as_ref().map(|doc| project.join(doc));
     let document_exists = document_abs.as_ref().is_some_and(|p| p.is_file());
@@ -901,19 +901,19 @@ fn read(
         })
         .unwrap_or_default();
 
-    // The plan is at the dash's own address or it does not exist; there is no
+    // The plan is at the arc's own address or it does not exist; there is no
     // residence to discover and nothing to record.
-    let plan_abs = tugarc_core::plan_file(project, dash);
+    let plan_abs = tugarc_core::plan_file(project, name);
     let plan_abs = plan_abs.is_file().then_some(plan_abs);
     // The ledger the implement stage walks: the plan when there is one, the
-    // `/dash` door's task list otherwise. This is the whole of what tells the
+    // `/arc` door's task list otherwise. This is the whole of what tells the
     // two kinds apart — an arc whose only ledger is a task list has nothing
     // to devise and nothing to review, so its arc opens at implement.
-    let ledger_abs = tugarc_core::ledger_file(project, dash);
+    let ledger_abs = tugarc_core::ledger_file(project, name);
     let task_list = plan_abs.is_none() && ledger_abs.is_some();
-    // Every stage after devise names the *dash*, not a path ([P10]): the
+    // Every stage after devise names the *arc*, not a path ([P10]): the
     // skills resolve a name, so a stage cannot be pointed at the wrong file.
-    let plan_for_prompt = ledger_abs.as_ref().map(|_| dash.to_string());
+    let plan_for_prompt = ledger_abs.as_ref().map(|_| name.to_string());
 
     let ledger_abs_display = ledger_abs
         .as_ref()
@@ -959,7 +959,7 @@ fn read(
         .as_ref()
         .is_some_and(|d| d.ledger_rows.iter().any(|row| row.status == "in progress"));
 
-    let declarations = tugarc_core::log::read_declarations(project, dash);
+    let declarations = tugarc_core::log::read_declarations(project, name);
 
     let stage_session_current = match record.stages.last() {
         Some(line) => session.claude_session_id.as_deref() == Some(line.session_id.as_str()),
@@ -1027,7 +1027,7 @@ fn read(
         compact_turn_just_ended: memory.compact_turn_just_ended,
         audit_declared: matches!(
             declarations.latest,
-            Some(tugarc_core::log::DashDeclaration::Audited)
+            Some(tugarc_core::log::ArcDeclaration::Audited)
         ),
         // Runner memory, and the one fact this pass cannot gather: the count
         // is over turns the *previous* tick already saw, so `evaluate` stamps
@@ -1038,12 +1038,12 @@ fn read(
         stalled: false,
     };
 
-    // Where devise writes: the dash's own `plan.md`, repo-relative, which is
+    // Where devise writes: the arc's own `plan.md`, repo-relative, which is
     // also what the record and the stage divider carry.
-    let devise_target = Some(format!(".tug/arcs/{dash}/plan.md"));
+    let devise_target = Some(format!(".tug/arcs/{name}/plan.md"));
 
     Some(ArcReading {
-        dash: dash.to_string(),
+        name: name.to_string(),
         record,
         facts,
         done_count,
@@ -1079,7 +1079,7 @@ fn opening_prompt(reading: &ArcReading, rotation: &Rotation) -> Option<String> {
     let ask = wheel::prompt::stage_ask(
         rotation.stage.as_str(),
         reading.record.document.as_deref(),
-        &reading.dash,
+        &reading.name,
         steps.as_deref(),
     )?;
     // A stopped arc that is rotating again is resuming, and the stage it opens
@@ -1128,8 +1128,8 @@ async fn deliver_prompt(
     // The same guard `rotate` takes, for the same reason: a tick that raced
     // another one decided over facts that may already have moved.
     let project = arc.project.clone();
-    let dash = arc.dash.clone();
-    let fresh = tokio::task::spawn_blocking(move || read_arc(&project, &dash))
+    let name = arc.name.clone();
+    let fresh = tokio::task::spawn_blocking(move || read_arc(&project, &name))
         .await
         .ok()
         .flatten();
@@ -1144,7 +1144,7 @@ async fn deliver_prompt(
             let Some(ask) = wheel::prompt::stage_ask(
                 ArcStage::Implement.as_str(),
                 reading.record.document.as_deref(),
-                &reading.dash,
+                &reading.name,
                 Some(&range),
             ) else {
                 return;
@@ -1189,11 +1189,11 @@ async fn deliver_prompt(
     } = why
     {
         let note = format!("{tokens} > {compact_tokens}");
-        let (project, dash) = (arc.project.clone(), arc.dash.clone());
+        let (project, name) = (arc.project.clone(), arc.name.clone());
         let arc_note = format!("compacted at {note}");
         let _ = tokio::task::spawn_blocking(move || {
-            let _ = append_dash_log(&project, &dash, "compact", &note);
-            append_arc_note(&project, &dash, &arc_note)
+            let _ = append_arc_log(&project, &name, "compact", &note);
+            append_arc_note(&project, &name, &arc_note)
         })
         .await;
 
@@ -1209,7 +1209,7 @@ async fn deliver_prompt(
     info!(
         target: "dev::session-lifecycle",
         event = "arc.prompt",
-        dash = %arc.dash,
+        arc = %arc.name,
         kind = %describe_action(Some(&ArcAction::Prompt {
             kind: kind.clone(),
             why: why.clone(),
@@ -1229,8 +1229,8 @@ async fn rotate(
     // Re-read the record immediately before acting: a tick that raced another
     // one decided over facts that may already have moved.
     let project = arc.project.clone();
-    let dash = arc.dash.clone();
-    let fresh = tokio::task::spawn_blocking(move || read_arc(&project, &dash))
+    let name = arc.name.clone();
+    let fresh = tokio::task::spawn_blocking(move || read_arc(&project, &name))
         .await
         .ok()
         .flatten();
@@ -1250,10 +1250,10 @@ async fn rotate(
     // The devise rotation is where the plan's path is *chosen*, so it is
     // recorded here rather than discovered later.
     let project = arc.project.clone();
-    let dash = arc.dash.clone();
+    let name = arc.name.clone();
     if rotation.stage == ArcStage::Devise {
         if let Some(target) = reading.devise_target.clone() {
-            let (p, d) = (project.clone(), dash.clone());
+            let (p, d) = (project.clone(), name.clone());
             let _ = tokio::task::spawn_blocking(move || append_arc_plan(&p, &d, &target)).await;
         }
     }
@@ -1262,12 +1262,12 @@ async fn rotate(
     // later reading finds it where a devised plan's would be.
     if rotation.stage == ArcStage::Review && reading.record.plan.is_none() {
         if let Some(plan) = reading.plan_for_prompt.clone() {
-            let (p, d) = (project.clone(), dash.clone());
+            let (p, d) = (project.clone(), name.clone());
             let _ = tokio::task::spawn_blocking(move || append_arc_plan(&p, &d, &plan)).await;
         }
     }
     if let Some(note) = rotation.note.clone() {
-        let (p, d) = (project.clone(), dash.clone());
+        let (p, d) = (project.clone(), name.clone());
         let _ = tokio::task::spawn_blocking(move || append_arc_note(&p, &d, &note)).await;
     }
 
@@ -1279,7 +1279,7 @@ async fn rotate(
     let request = RotationRequest::new(arc.session.clone(), prompt, rotation.stage.as_str())
         .document(Some(document))
         .plan(plan_for_stage)
-        .arc(Some(arc.dash.clone()))
+        .arc(Some(arc.name.clone()))
         .model(stage_model(&reading.config, rotation.stage))
         .steps(
             rotation
@@ -1288,7 +1288,7 @@ async fn rotate(
         );
 
     let dispatched_at = reading.record.stages.len();
-    // **The seat's owner, before the seat exists.** The dash-log is shared
+    // **The seat's owner, before the seat exists.** The arc log is shared
     // across every instance over one checkout, so a second tugcast reads this
     // arc and — unable to snapshot a session living in this process — cannot
     // tell "not mine to watch" from "gone silent". The owner line is what
@@ -1299,11 +1299,11 @@ async fn rotate(
     // an unowned arc is every runner's to judge, which is today's behavior.
     if let Some(instance) = tugcore::instance::instance_id() {
         let outcome = tokio::task::spawn_blocking({
-            let (project, dash) = (project.clone(), dash.clone());
-            move || append_arc_owner(&project, &dash, &instance)
+            let (project, name) = (project.clone(), name.clone());
+            move || append_arc_owner(&project, &name, &instance)
         })
         .await;
-        report_append(&project, &dash, "arc-owner", outcome);
+        report_append(&project, &name, "arc-owner", outcome);
     }
     // **Intent before the act.** A crash between the wheel firing and the
     // bridge's `arc-stage` line leaves a seat the record cannot explain, and
@@ -1313,11 +1313,11 @@ async fn rotate(
     // here reports, and does not stop the rotation: a rotation that happened
     // is better than one refused over its own footnote.
     let outcome = tokio::task::spawn_blocking({
-        let (project, dash, stage) = (project.clone(), dash.clone(), rotation.stage);
-        move || append_arc_dispatch(&project, &dash, stage)
+        let (project, name, stage) = (project.clone(), name.clone(), rotation.stage);
+        move || append_arc_dispatch(&project, &name, stage)
     })
     .await;
-    report_append(&project, &dash, "arc-dispatch", outcome);
+    report_append(&project, &name, "arc-dispatch", outcome);
     let outcome = wheel::rotate(&ctx.supervisor, &request).await;
     {
         let mut map = state.lock().await;
@@ -1351,14 +1351,14 @@ async fn rotate(
 
     match outcome {
         Ok(delivery) => info!(
-            dash = %arc.dash,
+            arc = %arc.name,
             stage = rotation.stage.as_str(),
             ?delivery,
             "arc rotated a stage",
         ),
         Err(refusal) => {
             warn!(
-                dash = %arc.dash,
+                arc = %arc.name,
                 stage = rotation.stage.as_str(),
                 reason = refusal.reason(),
                 "arc rotation refused",
@@ -1383,7 +1383,7 @@ async fn rotate(
 ///
 /// Pure, so the wording is a table test rather than a live-run observation.
 fn format_arc_receipt(record: &ArcRecord) -> String {
-    let mut out = format!("arc complete · {}", record.dash);
+    let mut out = format!("arc complete · {}", record.arc);
     if let Some(document) = record.document.as_ref() {
         out.push_str(&format!("\nopened on {document}"));
     }
@@ -1411,14 +1411,14 @@ fn format_arc_receipt(record: &ArcRecord) -> String {
 /// A stop the receipt could not explain is a stop the arc must not write.
 fn format_arc_stop_receipt(record: &ArcRecord, stage: ArcStage, reason: ArcStopReason) -> String {
     let next = if reason.is_resumable() {
-        format!("resume with tugtool arc run {}", record.dash)
+        format!("resume with tugtool arc run {}", record.arc)
     } else {
         "there is nothing to resume".to_string()
     };
     // The one reason whose sentence is not the whole story. `NeedsDecision` is
     // a stage saying it met a question it had no authority to answer, and a
     // receipt that said only *that* would be a stop nobody could act on — so
-    // the question itself, which `dash ask` wrote as the record's last note
+    // the question itself, which `arc ask` wrote as the record's last note
     // immediately before this stop, is read back beneath it. Absent when the
     // note did not land, which the append warns about; the stop still speaks.
     let asked = match (reason, record.notes.last()) {
@@ -1427,7 +1427,7 @@ fn format_arc_stop_receipt(record: &ArcRecord, stage: ArcStage, reason: ArcStopR
     };
     format!(
         "arc stopped · {} · in {} — {}\n{next}",
-        record.dash,
+        record.arc,
         stage.as_str(),
         format_args!("{}{asked}", reason.sentence()),
     )
@@ -1447,7 +1447,7 @@ fn format_arc_stop_receipt(record: &ArcRecord, stage: ArcStage, reason: ArcStopR
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct StopDelivery {
     pub hand_back: HandBack,
-    /// Append `arc-stop` to the dash-log. An ending writes none: its own
+    /// Append `arc-stop` to the arc log. An ending writes none: its own
     /// terminal line already closed the arc's generation, and a line after it
     /// would open a phantom one.
     pub record: bool,
@@ -1483,7 +1483,7 @@ pub(crate) async fn stop_arc_for_session(
     state: &wheel::WheelState,
     session: &TugSessionId,
     project: &Path,
-    dash: &str,
+    name: &str,
     stage: ArcStage,
     reason: ArcStopReason,
     how: StopDelivery,
@@ -1492,7 +1492,7 @@ pub(crate) async fn stop_arc_for_session(
         HandBack::Send => {
             if let Err(refusal) = wheel::hand_back(supervisor, session).await {
                 warn!(
-                    dash = %dash,
+                    arc = %name,
                     reason = refusal.reason(),
                     "arc could not restore the deck's model",
                 );
@@ -1503,11 +1503,11 @@ pub(crate) async fn stop_arc_for_session(
 
     {
         let summary = if reason.is_resumable() {
-            // The record supplies the dash name the receipt reads back. A stop
+            // The record supplies the arc name the receipt reads back. A stop
             // with no record left to read is still worth saying, so a missing
-            // one falls back to a record naming only this dash and stage.
-            let record = read_arc(project, dash).unwrap_or_else(|| ArcRecord {
-                dash: dash.to_owned(),
+            // one falls back to a record naming only this arc and stage.
+            let record = read_arc(project, name).unwrap_or_else(|| ArcRecord {
+                arc: name.to_owned(),
                 document: None,
                 kind: None,
                 plan: None,
@@ -1523,7 +1523,7 @@ pub(crate) async fn stop_arc_for_session(
             format_arc_stop_receipt(&record, stage, reason)
         } else {
             // The two endings are the reasons whose stop has not happened yet:
-            // the dash is gone, but the stage is mid-turn and is retired at
+            // the arc is gone, but the stage is mid-turn and is retired at
             // that turn's end. So the receipt announces the retirement rather
             // than reporting a stop, and names the model the card comes back
             // to.
@@ -1532,22 +1532,22 @@ pub(crate) async fn stop_arc_for_session(
                 .await
                 .unwrap_or_else(|| "the account default".to_string());
             format!(
-                "arc {} · {dash} · the stage's turn will end and the card returns to {model}",
+                "arc {} · {name} · the stage's turn will end and the card returns to {model}",
                 reason.as_str(),
             )
         };
-        supervisor.record_arc_receipt(session.as_str(), dash, &project.to_string_lossy(), &summary);
+        supervisor.record_arc_receipt(session.as_str(), name, &project.to_string_lossy(), &summary);
     }
 
     if how.record {
         let project = project.to_path_buf();
-        let dash = dash.to_owned();
+        let name = name.to_owned();
         let outcome = tokio::task::spawn_blocking({
-            let (project, dash) = (project.clone(), dash.clone());
-            move || append_arc_stop(&project, &dash, stage, reason)
+            let (project, name) = (project.clone(), name.clone());
+            move || append_arc_stop(&project, &name, stage, reason)
         })
         .await;
-        report_append(&project, &dash, "arc-stop", outcome);
+        report_append(&project, &name, "arc-stop", outcome);
     }
 }
 
@@ -1563,7 +1563,7 @@ async fn finish(
             &ctx.wheel,
             &arc.session,
             &arc.project,
-            &arc.dash,
+            &arc.name,
             stage,
             reason,
             StopDelivery {
@@ -1580,25 +1580,25 @@ async fn finish(
     let summary = format_arc_receipt(&reading.record);
     ctx.supervisor.record_arc_receipt(
         arc.session.as_str(),
-        &arc.dash,
+        &arc.name,
         &arc.project.to_string_lossy(),
         &summary,
     );
     if let Err(refusal) = wheel::hand_back(&ctx.supervisor, &arc.session).await {
         warn!(
-            dash = %arc.dash,
+            arc = %arc.name,
             reason = refusal.reason(),
             "arc could not restore the deck's model",
         );
     }
     let project = arc.project.clone();
-    let dash = arc.dash.clone();
+    let name = arc.name.clone();
     let outcome = tokio::task::spawn_blocking({
-        let (project, dash) = (project.clone(), dash.clone());
-        move || append_arc_done(&project, &dash)
+        let (project, name) = (project.clone(), name.clone());
+        move || append_arc_done(&project, &name)
     })
     .await;
-    report_append(&project, &dash, "arc-done", outcome);
+    report_append(&project, &name, "arc-done", outcome);
 }
 
 /// Record a stop and hand the card back, for a refusal discovered mid-rotation.
@@ -1611,7 +1611,7 @@ async fn stop(ctx: &ArcContext, arc: &BoundArc, stage: ArcStage, reason: ArcStop
         &ctx.wheel,
         &arc.session,
         &arc.project,
-        &arc.dash,
+        &arc.name,
         stage,
         reason,
         StopDelivery {
@@ -1625,7 +1625,7 @@ async fn stop(ctx: &ArcContext, arc: &BoundArc, stage: ArcStage, reason: ArcStop
 /// Say out loud when an arc's terminal line did not land.
 ///
 /// `arc-stop` and `arc-done` are the two appends that *are* the record: every
-/// later reader — the card's placard, the Z2 cell, `dash doctor`, a resume —
+/// later reader — the card's placard, the Z2 cell, `arc doctor`, a resume —
 /// learns the arc ended from the line and from nothing else. A discarded
 /// failure here leaves an arc that has stopped in the world and is still
 /// running on disk, and leaves nobody anything to search for. The path is
@@ -1637,7 +1637,7 @@ async fn stop(ctx: &ArcContext, arc: &BoundArc, stage: ArcStage, reason: ArcStop
 /// to fail.
 fn report_append(
     project: &Path,
-    dash: &str,
+    name: &str,
     marker: &str,
     outcome: Result<Result<(), tugtool_core::error::TugError>, tokio::task::JoinError>,
 ) {
@@ -1647,11 +1647,9 @@ fn report_append(
         Err(join) => format!("the append task did not finish: {join}"),
     };
     warn!(
-        dash = %dash,
+        arc = %name,
         marker = %marker,
-        path = %tugtool_core::paths::project_state_dir(project)
-            .join("dash-log.md")
-            .display(),
+        path = %tugtool_core::paths::arc_log_path(project).display(),
         reason = %reason,
         "arc could not record its terminal line",
     );
@@ -1663,8 +1661,8 @@ mod tests {
     use std::time::{Duration, SystemTime};
 
     /// A plan that parses and lints clean — the fact `lints_as_plan` reads.
-    /// Local rather than a repository document: a plan under `dash/` is
-    /// archived the day its dash joins, and a test pinned to one goes with it.
+    /// Local rather than a repository document: a plan under `arc/` is
+    /// archived the day its arc joins, and a test pinned to one goes with it.
     const LINTING_PLAN: &str = r#"## A Two Step Plan {#two-step-plan}
 
 ### Plan Metadata {#plan-metadata}
@@ -1738,7 +1736,7 @@ Some context.
         }
     }
 
-    /// A project whose dash has a brief at its own address, which is where
+    /// A project whose arc has a brief at its own address, which is where
     /// every document lives now.
     fn project_with_document(root: &Path, document: &str) {
         let path = root.join(document);
@@ -1886,7 +1884,7 @@ Some context.
         .unwrap();
         assert!(reading.facts.input_is_plan);
         // The document is the plan, and every stage after devise names the
-        // dash rather than a path.
+        // arc rather than a path.
         assert_eq!(reading.plan_for_prompt.as_deref(), Some("demo"));
         let review = Rotation {
             stage: ArcStage::Review,
@@ -1970,7 +1968,7 @@ Some context.
     }
 
     #[test]
-    fn the_devise_ask_names_the_brief_and_targets_the_dash() {
+    fn the_devise_ask_names_the_brief_and_targets_the_arc() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
         project_with_document(root, ".tug/arcs/demo/brief.md");
@@ -1998,10 +1996,10 @@ Some context.
         );
     }
 
-    /// Every stage after devise names the dash, so the skill resolves the
+    /// Every stage after devise names the arc, so the skill resolves the
     /// address rather than being handed one it could write past.
     #[test]
-    fn review_and_implement_asks_name_the_dash() {
+    fn review_and_implement_asks_name_the_arc() {
         assert_eq!(
             wheel::prompt::stage_ask("review", None, "foo", None).as_deref(),
             Some("/tugplug:arc-review foo")
@@ -2305,7 +2303,7 @@ Some context.
             )
             .unwrap();
         ledger
-            .set_dash_binding("claude-1", Some(("tugdash/demo#1", "demo")))
+            .set_arc_binding("claude-1", Some(("tugarc/demo#1", "demo")))
             .unwrap();
 
         // The registration receiver is handed back so each test can hold it:
@@ -2356,7 +2354,7 @@ Some context.
         project_with_document(root, ".tug/arcs/demo/brief.md");
         std::fs::write(
             root.join(".tugtool/config.toml"),
-            "[tugtool.dash]\ndocs = \"dash\"\n",
+            "[tugtool.arc]\ndocs = \"arc\"\n",
         )
         .unwrap();
         tugarc_core::arc::append_arc_start(root, "demo", ".tug/arcs/demo/brief.md").unwrap();
@@ -2398,7 +2396,7 @@ Some context.
     /// onto — which is the difference between an arc that decides and one that
     /// never sees a fact again.
     ///
-    /// The ledger's answer to "which session is on this dash" is the segment
+    /// The ledger's answer to "which session is on this arc" is the segment
     /// `seat_line_binding` seated. The supervisor's map is keyed by the card's
     /// tug session id. Before the first rotation those are one string, which is
     /// why every test above this one passed while a real run went factless the
@@ -2412,7 +2410,7 @@ Some context.
 
         let (ctx, entry, _register_rx) = harness(root).await;
         // The rotation: a fresh segment on the card's line, recorded under
-        // claude's own id, with the dash binding moved onto it — and the card
+        // claude's own id, with the arc binding moved onto it — and the card
         // still addressed as `claude-1`, because a card's address never moves.
         ctx.session_ledger
             .record_spawn(
@@ -2426,15 +2424,15 @@ Some context.
             )
             .unwrap();
         ctx.session_ledger
-            .set_dash_binding("claude-1", None)
+            .set_arc_binding("claude-1", None)
             .unwrap();
         ctx.session_ledger
-            .set_dash_binding("stage-2", Some(("tugdash/demo#1", "demo")))
+            .set_arc_binding("stage-2", Some(("tugarc/demo#1", "demo")))
             .unwrap();
         entry.lock().await.claude_session_id = Some("stage-2".to_string());
 
         let arcs = bound_arcs(&ctx).await;
-        assert_eq!(arcs.len(), 1, "the dash is bound to exactly one card");
+        assert_eq!(arcs.len(), 1, "the arc is bound to exactly one card");
         assert_eq!(
             arcs[0].session.as_str(),
             "claude-1",
@@ -2568,7 +2566,7 @@ Some context.
         project_with_document(root, ".tug/arcs/demo/brief.md");
         std::fs::write(
             root.join(".tugtool/config.toml"),
-            "[tugtool.dash]\narc_stall_secs = 1\n",
+            "[tugtool.arc]\narc_stall_secs = 1\n",
         )
         .unwrap();
         tugarc_core::arc::append_arc_start(root, "demo", ".tug/arcs/demo/brief.md").unwrap();
@@ -2618,7 +2616,7 @@ Some context.
         project_with_document(root, ".tug/arcs/demo/brief.md");
         std::fs::write(
             root.join(".tugtool/config.toml"),
-            "[tugtool.dash]\narc_stall_secs = 1\n",
+            "[tugtool.arc]\narc_stall_secs = 1\n",
         )
         .unwrap();
         tugarc_core::arc::append_arc_start(root, "demo", ".tug/arcs/demo/brief.md").unwrap();
@@ -2719,7 +2717,7 @@ Some context.
         project_with_document(root, ".tug/arcs/demo/brief.md");
         std::fs::write(
             root.join(".tugtool/config.toml"),
-            "[tugtool.dash]\narc_stall_secs = 1\n",
+            "[tugtool.arc]\narc_stall_secs = 1\n",
         )
         .unwrap();
         tugarc_core::arc::append_arc_start(root, "demo", ".tug/arcs/demo/brief.md").unwrap();
@@ -2813,7 +2811,7 @@ Some context.
         project_with_document(root, ".tug/arcs/demo/brief.md");
         std::fs::write(
             root.join(".tugtool/config.toml"),
-            "[tugtool.dash]\ndocs = \"dash\"\n",
+            "[tugtool.arc]\ndocs = \"arc\"\n",
         )
         .unwrap();
         tugarc_core::arc::append_arc_start(root, "demo", ".tug/arcs/demo/brief.md").unwrap();
@@ -2845,7 +2843,7 @@ Some context.
         project_with_document(root, ".tug/arcs/demo/brief.md");
         std::fs::write(
             root.join(".tugtool/config.toml"),
-            "[tugtool.dash]\ndocs = \"dash\"\n",
+            "[tugtool.arc]\ndocs = \"arc\"\n",
         )
         .unwrap();
         tugarc_core::arc::append_arc_start(root, "demo", ".tug/arcs/demo/brief.md").unwrap();
@@ -2922,7 +2920,7 @@ Some context.
 
     #[tokio::test]
     async fn a_resumed_arc_rotates_its_stopped_stage_at_the_next_idle() {
-        // Resume, end to end at the runner: `dash run` on a stopped arc writes
+        // Resume, end to end at the runner: `arc run` on a stopped arc writes
         // `arc-resume`, and the next idle tick rotates that stage — not the
         // one before it, and not nothing.
         let dir = tempfile::tempdir().unwrap();
@@ -3032,7 +3030,7 @@ Some context.
         project_with_document(root, ".tug/arcs/demo/brief.md");
         std::fs::write(
             root.join(".tugtool/config.toml"),
-            "[tugtool.dash]\ndocs = \"dash\"\n",
+            "[tugtool.arc]\ndocs = \"arc\"\n",
         )
         .unwrap();
         tugarc_core::arc::append_arc_start(root, "demo", ".tug/arcs/demo/brief.md").unwrap();
@@ -3158,9 +3156,9 @@ Some context.
     #[tokio::test]
     async fn an_endings_receipt_announces_the_retirement_rather_than_a_stop() {
         // The two endings are the reasons whose stop has not happened yet: the
-        // dash is gone, but the stage is mid-turn and retires at that turn's
+        // arc is gone, but the stage is mid-turn and retires at that turn's
         // end. So the receipt says what is about to happen and names the model
-        // the card comes back to, and it says which gesture ended the dash.
+        // the card comes back to, and it says which gesture ended the arc.
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
         project_with_document(root, ".tug/arcs/demo/brief.md");
@@ -3238,7 +3236,7 @@ Some context.
     #[tokio::test]
     async fn an_armed_stop_records_no_line_and_sends_no_frame() {
         // The ending combination: the stage is mid-turn, so the restore is
-        // armed rather than sent, and nothing is appended to the dash-log —
+        // armed rather than sent, and nothing is appended to the arc log —
         // the ending's own terminal line closed the arc's generation, and a
         // line after it would open a phantom one.
         let dir = tempfile::tempdir().unwrap();
@@ -3317,10 +3315,10 @@ Some context.
 
     fn done_record(stages: Vec<ArcStageLine>) -> ArcRecord {
         ArcRecord {
-            dash: "foo".to_owned(),
-            document: Some("dash/foo-brief.md".to_owned()),
+            arc: "foo".to_owned(),
+            document: Some("arc/foo-brief.md".to_owned()),
             kind: None,
-            plan: Some("dash/foo.md".to_owned()),
+            plan: Some("arc/foo.md".to_owned()),
             stages,
             notes: Vec::new(),
             stopped: None,
@@ -3436,11 +3434,11 @@ Some context.
         assert_eq!(
             receipt,
             "arc complete · foo\n\
-             opened on dash/foo-brief.md\n\
+             opened on arc/foo-brief.md\n\
              devise · opus · claude-a\n\
              review · opus · claude-b\n\
              implement · sonnet · claude-c\n\
-             plan dash/foo.md"
+             plan arc/foo.md"
         );
         assert!(
             !receipt.contains("/join"),
@@ -3493,7 +3491,7 @@ Some context.
         );
         assert_eq!(
             format_arc_stop_receipt(&record, ArcStage::Review, ArcStopReason::Discarded),
-            "arc stopped · foo · in review — the dash was discarded\n\
+            "arc stopped · foo · in review — the arc was discarded\n\
              there is nothing to resume"
         );
         assert_eq!(
@@ -3521,7 +3519,7 @@ Some context.
         project_with_document(root, ".tug/arcs/demo/brief.md");
         std::fs::write(
             root.join(".tugtool/config.toml"),
-            "[tugtool.dash]\nimplement_compact_tokens = 300000\n",
+            "[tugtool.arc]\nimplement_compact_tokens = 300000\n",
         )
         .unwrap();
         std::fs::write(
@@ -3531,7 +3529,7 @@ Some context.
         .unwrap();
         tugarc_core::arc::append_arc_start(root, "demo", ".tug/arcs/demo/brief.md").unwrap();
         tugarc_core::arc::append_arc_plan(root, "demo", ".tug/arcs/demo/plan.md").unwrap();
-        tugarc_core::log::append_dash_log(root, "demo", "run-through", "2").unwrap();
+        tugarc_core::log::append_arc_log(root, "demo", "run-through", "2").unwrap();
         tugarc_core::arc::append_arc_stage(root, "demo", ArcStage::Implement, "claude-1", None)
             .unwrap();
     }
@@ -3566,7 +3564,7 @@ Some context.
             .collect()
     }
 
-    /// The arc's own key for the harness's project and dash, which is what the
+    /// The arc's own key for the harness's project and arc, which is what the
     /// per-arc memory is filed under.
     fn demo_key(root: &Path) -> String {
         format!("{}\u{0}demo", root.display())
@@ -3804,7 +3802,7 @@ Some context.
     }
 
     #[tokio::test]
-    async fn a_compaction_writes_the_dash_log_line_and_the_arc_note() {
+    async fn a_compaction_writes_the_arc_log_line_and_the_arc_note() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
         implementing_project(root, "done", "pending");
@@ -3827,14 +3825,14 @@ Some context.
             record.notes.last().map(String::as_str),
             Some("compacted at 350000 > 300000")
         );
-        // The new marker moves no declaration: a reader that dates a dash from
+        // The new marker moves no declaration: a reader that dates an arc from
         // every line is untroubled, and `read_arc` never learns the word.
         let declarations = tugarc_core::log::read_declarations(root, "demo");
         assert_eq!(declarations.run_through, Some(2));
         assert!(!declarations.run_complete);
 
         let log = std::fs::read_to_string(
-            tugtool_core::paths::project_state_dir(root).join("dash-log.md"),
+            tugtool_core::paths::project_state_dir(root).join(tugtool_core::paths::ARC_LOG),
         )
         .unwrap();
         let compact = log

@@ -27,7 +27,7 @@ import { resolveCommandAttribution } from "@/components/tugways/cards/session-co
 
 describe("what the shipped receipts are attributed to", () => {
   it("attributes both landings to git and the discard to the shell", () => {
-    // The 2026-08-24 report: a dash join rendered its commit block under a
+    // The 2026-08-24 report: an arc join rendered its commit block under a
     // `Shell` header while `/commit` rendered the same kind of block under a
     // git one. A join squashes its rounds and commits them onto the base — the
     // same act, differently started — so it reads the same way.
@@ -41,6 +41,7 @@ describe("what the shipped receipts are attributed to", () => {
     expect(resolveCommandAttribution("/dash-join lifecycle-fixup")).toBe("git");
     // A discard deletes a branch and commits nothing, so it is not a landing
     // and keeps the shell default.
+    expect(resolveCommandAttribution("/arc-discard")).toBe("shell");
     expect(resolveCommandAttribution("/dash-discard")).toBe("shell");
     expect(resolveCommandAttribution("/dash-release")).toBe("shell");
     // And an ordinary typed command is what the default is for.
@@ -54,9 +55,9 @@ describe("matchesJoinReceipt / matchesDiscardReceipt", () => {
     expect(matchesJoinReceipt("/arc-join spike")).toBe(true);
     expect(matchesJoinReceipt("/arc-joins")).toBe(false);
     expect(matchesJoinReceipt("/join")).toBe(false);
-    expect(matchesDiscardReceipt("/dash-discard")).toBe(true);
-    expect(matchesDiscardReceipt("/dash-discard spike")).toBe(true);
-    expect(matchesDiscardReceipt("/dash-discards")).toBe(false);
+    expect(matchesDiscardReceipt("/arc-discard")).toBe(true);
+    expect(matchesDiscardReceipt("/arc-discard spike")).toBe(true);
+    expect(matchesDiscardReceipt("/arc-discards")).toBe(false);
   });
 
   it("still claims the command name the verb wrote before it was renamed", () => {
@@ -65,6 +66,9 @@ describe("matchesJoinReceipt / matchesDiscardReceipt", () => {
     expect(matchesJoinReceipt("/dash-join")).toBe(true);
     expect(matchesJoinReceipt("/dash-join spike")).toBe(true);
     expect(matchesJoinReceipt("/dash-joinery")).toBe(false);
+    expect(matchesDiscardReceipt("/dash-discard")).toBe(true);
+    expect(matchesDiscardReceipt("/dash-discard spike")).toBe(true);
+    expect(matchesDiscardReceipt("/dash-discards")).toBe(false);
     expect(matchesDiscardReceipt("/dash-release")).toBe(true);
     expect(matchesDiscardReceipt("/dash-release spike")).toBe(true);
     expect(matchesDiscardReceipt("/dash-released")).toBe(false);
@@ -78,13 +82,13 @@ describe("parseJoinReceipt", () => {
       "joined 0123456789 · join-lane → main · 5 round(s)\n" +
       'files: [{"path":"src/a.rs","status":"modified","added":16,"removed":1},' +
       '{"path":"src/b.rs","status":"created","added":4,"removed":0}]\n' +
-      "tugdash(join-lane): land the join surface";
+      "tugarc(join-lane): land the join surface";
     expect(parseJoinReceipt(out)).toEqual({
       sha: "0123456789",
-      dash: "join-lane",
+      arc: "join-lane",
       base: "main",
       rounds: 5,
-      message: "tugdash(join-lane): land the join surface",
+      message: "tugarc(join-lane): land the join surface",
       files: [
         { path: "src/a.rs", status: "modified", added: 16, removed: 1 },
         { path: "src/b.rs", status: "created", added: 4, removed: 0 },
@@ -100,13 +104,13 @@ describe("parseJoinReceipt", () => {
     // partial list.
     const out =
       "joined 0123456789 · join-lane → main · 5 round(s)\n" +
-      "tugdash(join-lane): land the join surface";
+      "tugarc(join-lane): land the join surface";
     expect(parseJoinReceipt(out)).toEqual({
       sha: "0123456789",
-      dash: "join-lane",
+      arc: "join-lane",
       base: "main",
       rounds: 5,
-      message: "tugdash(join-lane): land the join surface",
+      message: "tugarc(join-lane): land the join surface",
       files: [],
     });
   });
@@ -145,16 +149,16 @@ describe("parseDiscardReceipt", () => {
       "discarded spike · 2 round(s), 3 file(s)\n" +
       "first round\nsecond round";
     expect(parseDiscardReceipt(out)).toEqual({
-      dash: "spike",
+      arc: "spike",
       rounds: 2,
       files: 3,
       subjects: ["first round", "second round"],
     });
   });
 
-  it("reads a clean dash's one-line summary", () => {
+  it("reads a clean arc's one-line summary", () => {
     expect(parseDiscardReceipt("discarded spike · 0 round(s)")).toEqual({
-      dash: "spike",
+      arc: "spike",
       rounds: 0,
       files: 0,
       subjects: [],
@@ -162,7 +166,7 @@ describe("parseDiscardReceipt", () => {
   });
 
   it("reads the header the verb wrote before it was renamed", () => {
-    // `released <dash> · discarded <N>` — the shape that led with one verb and
+    // `released <arc> · discarded <N>` — the shape that led with one verb and
     // repeated the act with another. Nothing writes it now; a transcript full
     // of it still replays on every reload, so both forms must yield the same
     // facts or a real discard renders as an unparsed shell row.
@@ -170,13 +174,13 @@ describe("parseDiscardReceipt", () => {
       "released spike · discarded 2 round(s), 3 file(s)\n" +
       "first round\nsecond round";
     expect(parseDiscardReceipt(historical)).toEqual({
-      dash: "spike",
+      arc: "spike",
       rounds: 2,
       files: 3,
       subjects: ["first round", "second round"],
     });
     expect(parseDiscardReceipt("released spike · discarded 0 round(s)")).toEqual({
-      dash: "spike",
+      arc: "spike",
       rounds: 0,
       files: 0,
       subjects: [],

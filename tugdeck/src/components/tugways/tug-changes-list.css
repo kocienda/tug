@@ -137,7 +137,7 @@
 /* ---- Section labels ---- */
 
 /* The eyebrow itself is `TugSectionLabel` — shape, tone, rule and all. This
-   list renders it and styles none of it, which is what lets the dash lane
+   list renders it and styles none of it, which is what lets the arc lane
    below render the same header from a different component. */
 
 /* The bulk affordance closes its section: trailing-aligned under the last

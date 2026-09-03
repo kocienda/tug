@@ -2,8 +2,8 @@
  * ArcReplayNoticeController — projects a replay's outcome onto a pane
  * bulletin.
  *
- * No replay outcome shows itself on a dash row: the row's line carries the
- * dash's own standing, not the checkout's git bookkeeping. So the bulletin is
+ * No replay outcome shows itself on an arc row: the row's line carries the
+ * arc's own standing, not the checkout's git bookkeeping. So the bulletin is
  * the whole answer — `current` had nothing to do, `deferred` failed a
  * precondition, `conflicted` stopped at a round without touching the branch,
  * and `replayed`/`recorded` moved the rounds. Without a voice the verb would
@@ -29,7 +29,7 @@ import {
 
 import { useTugPaneBulletin } from "../tug-pane-bulletin";
 
-const NOTICE_ID = "dash-replay-outcome";
+const NOTICE_ID = "arc-replay-outcome";
 
 /** The conflicting paths, as a sentence rather than a list nobody can read. */
 function conflictDescription(outcome: ArcReplayOutcome): string {
@@ -70,7 +70,7 @@ export function ArcReplayNoticeController({
       postedSeqRef.current = outcome.seq;
       switch (outcome.outcome) {
         case "current":
-          api(`${outcome.dash} is already current with its base`, {
+          api(`${outcome.arc} is already current with its base`, {
             id: NOTICE_ID,
           });
           return;
@@ -81,7 +81,7 @@ export function ArcReplayNoticeController({
           });
           return;
         case "conflicted":
-          api.caution(`${outcome.dash} can't replay cleanly`, {
+          api.caution(`${outcome.arc} can't replay cleanly`, {
             id: NOTICE_ID,
             description: conflictDescription(outcome),
           });
@@ -93,10 +93,10 @@ export function ArcReplayNoticeController({
           });
           return;
         case "replayed":
-          api(`${outcome.dash} replayed onto its base`, { id: NOTICE_ID });
+          api(`${outcome.arc} replayed onto its base`, { id: NOTICE_ID });
           return;
         case "recorded":
-          api(`${outcome.dash}'s rebase is recorded`, { id: NOTICE_ID });
+          api(`${outcome.arc}'s rebase is recorded`, { id: NOTICE_ID });
           return;
         default:
           return;

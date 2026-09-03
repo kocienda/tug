@@ -1,7 +1,7 @@
 /**
- * `bind_dash_ok` / `unbind_dash_ok` at the `initActionDispatch` level.
+ * `bind_arc_ok` / `unbind_arc_ok` at the `initActionDispatch` level.
  *
- * These frames are how a card learns which dash it is working on after the
+ * These frames are how a card learns which arc it is working on after the
  * moment it opened — and the hardest case is the one nobody was testing: the
  * **rotation seat**. The Wheel mints a fresh segment mid-arc, tugcast carries
  * the binding forward onto it and announces the mating, and the deck has to
@@ -70,15 +70,15 @@ function seatCard(cardId: string, tugSessionId: string, lineId: string): void {
   const binding: CardSessionBinding = {
     tugSessionId,
     lineId,
-    workspaceKey: "/work/bind-dash-ok-test",
-    projectDir: "/work/bind-dash-ok-test",
+    workspaceKey: "/work/bind-arc-ok-test",
+    projectDir: "/work/bind-arc-ok-test",
     sessionMode: "new",
   };
   cardSessionBindingStore.setBinding(cardId, binding);
 }
 
-function dashOf(cardId: string): string | undefined {
-  return cardSessionBindingStore.getBinding(cardId)?.dash?.name;
+function arcOf(cardId: string): string | undefined {
+  return cardSessionBindingStore.getBinding(cardId)?.arc?.name;
 }
 
 let sent: SentControlFrame[] = [];
@@ -139,18 +139,18 @@ afterEach(() => {
 
 // ---- routing ----
 
-describe("bind_dash_ok routing", () => {
+describe("bind_arc_ok routing", () => {
   it("paints the card whose seated session the frame names", () => {
     seatCard("card-1", "seg-a", "line-1");
 
     const warnings = dispatch({
-      action: "bind_dash_ok",
+      action: "bind_arc_ok",
       tug_session_id: "seg-a",
-      dash_id: "tugdash/demo#1",
-      dash_name: "demo",
+      arc_id: "tugarc/demo#1",
+      arc_name: "demo",
     });
 
-    expect(dashOf("card-1")).toBe("demo");
+    expect(arcOf("card-1")).toBe("demo");
     expect(warnings).toEqual([]);
   });
 
@@ -160,44 +160,44 @@ describe("bind_dash_ok routing", () => {
     seatCard("card-1", "seg-old", "line-1");
 
     dispatch({
-      action: "bind_dash_ok",
+      action: "bind_arc_ok",
       tug_session_id: "seg-new",
-      dash_id: "tugdash/demo#1",
-      dash_name: "demo",
+      arc_id: "tugarc/demo#1",
+      arc_name: "demo",
       line_id: "line-1",
       card_id: "card-1",
     });
 
-    expect(dashOf("card-1")).toBe("demo");
+    expect(arcOf("card-1")).toBe("demo");
   });
 
   it("routes by line_id when the seat names no card", () => {
     seatCard("card-1", "seg-old", "line-1");
 
     dispatch({
-      action: "bind_dash_ok",
+      action: "bind_arc_ok",
       tug_session_id: "seg-new",
-      dash_id: "tugdash/demo#1",
-      dash_name: "demo",
+      arc_id: "tugarc/demo#1",
+      arc_name: "demo",
       line_id: "line-1",
     });
 
-    expect(dashOf("card-1")).toBe("demo");
+    expect(arcOf("card-1")).toBe("demo");
   });
 
   it("ignores a card_id no card holds and falls through to the line", () => {
     seatCard("card-1", "seg-old", "line-1");
 
     dispatch({
-      action: "bind_dash_ok",
+      action: "bind_arc_ok",
       tug_session_id: "seg-new",
-      dash_id: "tugdash/demo#1",
-      dash_name: "demo",
+      arc_id: "tugarc/demo#1",
+      arc_name: "demo",
       line_id: "line-1",
       card_id: "card-that-closed",
     });
 
-    expect(dashOf("card-1")).toBe("demo");
+    expect(arcOf("card-1")).toBe("demo");
   });
 
   it("still routes an old server's frame, which carries neither field", () => {
@@ -208,23 +208,23 @@ describe("bind_dash_ok routing", () => {
     sessionLineStore.bind("seg-new", "line-1");
 
     dispatch({
-      action: "bind_dash_ok",
+      action: "bind_arc_ok",
       tug_session_id: "seg-new",
-      dash_id: "tugdash/demo#1",
-      dash_name: "demo",
+      arc_id: "tugarc/demo#1",
+      arc_name: "demo",
     });
 
-    expect(dashOf("card-1")).toBe("demo");
+    expect(arcOf("card-1")).toBe("demo");
   });
 
   it("records the pair the frame names, so later frames resolve for free", () => {
     seatCard("card-1", "seg-old", "line-1");
 
     dispatch({
-      action: "bind_dash_ok",
+      action: "bind_arc_ok",
       tug_session_id: "seg-new",
-      dash_id: "tugdash/demo#1",
-      dash_name: "demo",
+      arc_id: "tugarc/demo#1",
+      arc_name: "demo",
       line_id: "line-1",
       card_id: "card-1",
     });
@@ -235,58 +235,58 @@ describe("bind_dash_ok routing", () => {
 
   it("warns rather than dropping an announcement it cannot route", () => {
     const warnings = dispatch({
-      action: "bind_dash_ok",
+      action: "bind_arc_ok",
       tug_session_id: "seg-nobody-holds",
-      dash_id: "tugdash/demo#1",
-      dash_name: "demo",
+      arc_id: "tugarc/demo#1",
+      arc_name: "demo",
     });
 
     expect(warnings.length).toBe(1);
-    expect(warnings[0]).toContain("bind_dash_ok");
+    expect(warnings[0]).toContain("bind_arc_ok");
   });
 
   it("warns on a malformed frame and changes nothing", () => {
     seatCard("card-1", "seg-a", "line-1");
 
     const warnings = dispatch({
-      action: "bind_dash_ok",
+      action: "bind_arc_ok",
       tug_session_id: "seg-a",
-      dash_id: "tugdash/demo#1",
+      arc_id: "tugarc/demo#1",
     });
 
     expect(warnings.length).toBe(1);
-    expect(dashOf("card-1")).toBeUndefined();
+    expect(arcOf("card-1")).toBeUndefined();
   });
 });
 
-describe("unbind_dash_ok routing", () => {
-  it("clears the card's dash half", () => {
+describe("unbind_arc_ok routing", () => {
+  it("clears the card's arc half", () => {
     seatCard("card-1", "seg-a", "line-1");
     dispatch({
-      action: "bind_dash_ok",
+      action: "bind_arc_ok",
       tug_session_id: "seg-a",
-      dash_id: "tugdash/demo#1",
-      dash_name: "demo",
+      arc_id: "tugarc/demo#1",
+      arc_name: "demo",
     });
-    expect(dashOf("card-1")).toBe("demo");
+    expect(arcOf("card-1")).toBe("demo");
 
     const warnings = dispatch({
-      action: "unbind_dash_ok",
+      action: "unbind_arc_ok",
       tug_session_id: "seg-a",
     });
 
-    expect(dashOf("card-1")).toBeUndefined();
+    expect(arcOf("card-1")).toBeUndefined();
     expect(warnings).toEqual([]);
   });
 
   it("warns rather than dropping an unmating it cannot route", () => {
     const warnings = dispatch({
-      action: "unbind_dash_ok",
+      action: "unbind_arc_ok",
       tug_session_id: "seg-nobody-holds",
     });
 
     expect(warnings.length).toBe(1);
-    expect(warnings[0]).toContain("unbind_dash_ok");
+    expect(warnings[0]).toContain("unbind_arc_ok");
   });
 });
 

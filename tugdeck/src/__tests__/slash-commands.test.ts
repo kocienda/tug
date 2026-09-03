@@ -18,6 +18,10 @@ import {
   type SlashCommandDraft,
 } from "@/lib/slash-commands";
 import { hasLeadingCommandAtom } from "@/lib/command-atom";
+import {
+  isHiddenSlashCommand,
+  isUnlistedSlashCommand,
+} from "@/lib/slash-supported";
 import { isCompactionSubmission } from "@/lib/code-session-store/compaction";
 import { TUG_ATOM_CHAR } from "@/lib/tug-atom-img";
 import type {
@@ -203,21 +207,21 @@ describe("mergeCommandProviders", () => {
     expect(items.some((i) => i.label === "tugplug:devise")).toBe(true);
   });
 
-  test("typing /dash offers the door skill, and not the surrendered alias", () => {
-    // Load-bearing for the on-ramp: the query scores against `tugplug:dash`'s
+  test("typing /arc offers the door skill, and not the surrendered alias", () => {
+    // Load-bearing for the on-ramp: the query scores against `tugplug:arc`'s
     // leaf as an EXACT hit, so the front door ranks first among everything the
     // catalog offers for it. The card verbs are spelled `arc-*` now and are
     // not prefix hits for this query at all — which is the point of the split:
-    // `/dash` reaches the door and nothing else competes for it.
+    // `/arc` reaches the door and nothing else competes for it.
     const merged = mergeCommandProviders(
       localCommandCompletionProvider(),
-      namesProvider("tugplug:dash", "tugplug:arc-devise"),
+      namesProvider("tugplug:arc", "tugplug:arc-devise"),
     );
-    const ranked = labels(merged, "dash");
-    expect(ranked[0]).toBe("tugplug:dash");
+    const ranked = labels(merged, "arc");
+    expect(ranked[0]).toBe("tugplug:arc");
     // And the surrendered alias is not in the popup at all — it never was
     // (aliases are excluded), and now it is not in the registry either.
-    expect(ranked).not.toContain("dash");
+    expect(ranked).not.toContain("arc");
   });
 
   test("typing /arc offers the card's own arc verbs", () => {
@@ -271,6 +275,31 @@ describe("filterCommandProvider", () => {
     expect(filtered("in").map((i) => i.label)).toEqual(["init"]);
     expect(filtered("xx")).toEqual([]);
   });
+
+  test("the session card's own predicate offers the doors and not the stages", () => {
+    // The closure `use-session-card-services.ts` builds, over a catalog shaped
+    // like the one claude reports: the two doors survive, the four stage skills
+    // do not, and a hidden name is dropped as it always was.
+    const base: CompletionProvider = () => [
+      mkItem("tugplug:arc"),
+      mkItem("tugplug:arc-plan"),
+      mkItem("tugplug:arc-devise"),
+      mkItem("tugplug:arc-review"),
+      mkItem("tugplug:arc-implement"),
+      mkItem("tugplug:arc-audit"),
+      mkItem("vim"),
+      mkItem("init"),
+    ];
+    const filtered = filterCommandProvider(
+      base,
+      (name) => !isHiddenSlashCommand(name) && !isUnlistedSlashCommand(name),
+    );
+    expect(filtered("").map((i) => i.label)).toEqual([
+      "tugplug:arc",
+      "tugplug:arc-plan",
+      "init",
+    ]);
+  });
 });
 
 function mkItem(name: string): CompletionItem {
@@ -315,26 +344,26 @@ describe("buildSlashCommandLine", () => {
     const { text, atoms } = mkDraft([
       { type: "command", value: "compact" },
       " prepare ",
-      { type: "file", value: "dash/message-architecture.md" },
+      { type: "file", value: "arc/message-architecture.md" },
       " plan",
     ]);
     const line = buildSlashCommandLine(text, atoms);
     expect(line).toBe(
-      "/compact prepare dash/message-architecture.md plan",
+      "/compact prepare arc/message-architecture.md plan",
     );
     expect(matchLocalSlashCommand(line)).toEqual({
       name: "compact",
-      args: "prepare dash/message-architecture.md plan",
+      args: "prepare arc/message-architecture.md plan",
     });
   });
 
   test("typed /compact with a trailing file mention expands the path", () => {
     const { text, atoms } = mkDraft([
       "/compact prepare ",
-      { type: "doc", value: "dash/x.md" },
+      { type: "doc", value: "arc/x.md" },
     ]);
     expect(buildSlashCommandLine(text, atoms)).toBe(
-      "/compact prepare dash/x.md",
+      "/compact prepare arc/x.md",
     );
   });
 
@@ -438,9 +467,9 @@ describe("buildCommandSubmission", () => {
     const draft = mkSubstrate([
       { type: "command", value: "compact" },
       " prepare ",
-      { type: "file", value: "dash/plan.md" },
+      { type: "file", value: "arc/plan.md" },
       " and ",
-      { type: "file", value: "dash/next.md" },
+      { type: "file", value: "arc/next.md" },
     ]);
     const built = buildCommandSubmission("compact", "prepare …", draft);
     expect(built.text).toBe(
@@ -448,8 +477,8 @@ describe("buildCommandSubmission", () => {
     );
     expect(built.atoms.map((a) => a.value)).toEqual([
       "compact",
-      "dash/plan.md",
-      "dash/next.md",
+      "arc/plan.md",
+      "arc/next.md",
     ]);
   });
 

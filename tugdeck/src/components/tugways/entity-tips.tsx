@@ -124,7 +124,7 @@ export interface SessionTipFacts {
    * A further meta row the caller renders itself, after the description.
    *
    * A node rather than a string because the fact it states may be LIVE: the
-   * dash a session is bound to comes from a store, and the caller mounts a
+   * arc a session is bound to comes from a store, and the caller mounts a
    * subscribed leaf for it so pointing at a session does not put the surface
    * that drew it on that store's beat. Anything static should be a named
    * field here instead.
@@ -182,21 +182,21 @@ export function fileTip(facts: FileTipFacts): React.ReactNode {
   );
 }
 
-/** What a dash hover says. */
-export interface DashTipFacts {
-  /** The dash's name — its address everywhere else in the app. */
+/** What an arc hover says. */
+export interface ArcTipFacts {
+  /** The arc's name — its address everywhere else in the app. */
   name: string;
 }
 
 /**
- * The dash hover: the name, and where the click goes.
+ * The arc hover: the name, and where the click goes.
  *
- * A dash is not a path and not a sha, so neither of the other tips fits: it
+ * An arc is not a path and not a sha, so neither of the other tips fits: it
  * has no basename to elide and no subject line to quote. What a reader wants
- * before clicking is confirmation that this is a dash and that clicking will
+ * before clicking is confirmation that this is an arc and that clicking will
  * take them somewhere, which is exactly the two lines here.
  */
-export function dashTip(facts: DashTipFacts): React.ReactNode {
+export function arcTip(facts: ArcTipFacts): React.ReactNode {
   return (
     <span className="tugx-tip">
       <span className="tugx-tip-mono">{facts.name}</span>

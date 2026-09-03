@@ -999,13 +999,13 @@ describe("summarizeGroup", () => {
 });
 
 // ---------------------------------------------------------------------------
-// A session's dash — a row-internal line, so the row MODEL never sees it
+// A session's arc — a row-internal line, so the row MODEL never sees it
 // ---------------------------------------------------------------------------
 
-describe("a session's dash", () => {
+describe("a session's arc", () => {
   const SESSION_GROUPS = { session: "sessions" as const, tripwires: "none" as const };
 
-  /** A snapshot whose one dash binds `sessions`. */
+  /** A snapshot whose one arc binds `sessions`. */
   function snapshotWith(
     sessions: string[],
     extra: Partial<{
@@ -1032,8 +1032,8 @@ describe("a session's dash", () => {
           unattributed: [],
           changesets: [
             {
-              kind: "dash",
-              owner_id: extra.ownerId ?? "tugdash/fix#1",
+              kind: "arc",
+              owner_id: extra.ownerId ?? "tugarc/fix#1",
               display_name: extra.name ?? "fix",
               stage: extra.stage ?? "working",
               review: extra.review,
@@ -1057,10 +1057,10 @@ describe("a session's dash", () => {
     [pane("p1", ["s1"])],
   );
 
-  it("a bound session is ONE row — the dash adds none", () => {
-    // The dash is a line inside the session's row, drawn from the row's own
+  it("a bound session is ONE row — the arc adds none", () => {
+    // The arc is a line inside the session's row, drawn from the row's own
     // leaf subscription. Nothing about it reaches the row model, which is what
-    // makes the row count independent of what any dash is doing.
+    // makes the row count independent of what any arc is doing.
     const rows = buildCardsRows(
       inputs(oneSession, {
         bindings: new Map([["s1", binding("sess-1")]]),
@@ -1074,8 +1074,8 @@ describe("a session's dash", () => {
     ]);
   });
 
-  it("binding a dash changes no row id and no row kind", () => {
-    // The same deck, projected with and without a dash claiming the session.
+  it("binding an arc changes no row id and no row kind", () => {
+    // The same deck, projected with and without an arc claiming the session.
     // Anything that differed here would be the row model carrying the binding,
     // which it must not: a bind would then reflow the list.
     const project = (changesets: ReturnType<typeof snapshotWith> | null) =>
@@ -1092,9 +1092,9 @@ describe("a session's dash", () => {
     expect(bound.map(kindOfRow)).toEqual(unbound.map(kindOfRow));
   });
 
-  it("filtering by the dash name keeps the session", () => {
-    // The session's own text says nothing about the dash, so this passes only
-    // because the dash name joined the pane row's match fields.
+  it("filtering by the arc name keeps the session", () => {
+    // The session's own text says nothing about the arc, so this passes only
+    // because the arc name joined the pane row's match fields.
     const rows = buildCardsRows(
       inputs(oneSession, {
         bindings: new Map([["s1", binding("sess-1")]]),
@@ -1109,7 +1109,7 @@ describe("a session's dash", () => {
     ]);
   });
 
-  it("a dash name matches nothing once the session is filtered out", () => {
+  it("an arc name matches nothing once the session is filtered out", () => {
     const rows = buildCardsRows(
       inputs(oneSession, {
         bindings: new Map([["s1", binding("sess-1")]]),

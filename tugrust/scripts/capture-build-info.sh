@@ -5,7 +5,7 @@ set -euo pipefail
 #
 # Bakes build-time identity into the built bundle's Info.plist so the
 # running app can read its own identity without any runtime git lookup
-# or shared bootstrap state. See dash/tug-multi-instance.md [D01]
+# or shared bootstrap state. See [D01] of the multi-instance design record
 # [D02] [D03] for the design rationale.
 #
 # Writes (always):

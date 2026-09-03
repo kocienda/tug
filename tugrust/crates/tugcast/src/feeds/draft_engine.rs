@@ -95,8 +95,8 @@ struct FileMeta {
 enum DraftTarget {
     /// A session or unattributed entry — `git diff HEAD` scoped to its files.
     Head { files: Vec<FileMeta> },
-    /// A dash entry — the range (rounds + worktree dirt) and its metadata.
-    Dash {
+    /// An arc entry — the range (rounds + worktree dirt) and its metadata.
+    Arc {
         base: String,
         branch: String,
         worktree: String,
@@ -188,7 +188,12 @@ pub fn spawn_on_demand_draft(
             owner_kind: owner_kind.to_string(),
             owner_id: owner_id.to_string(),
         };
-        send_state(&deps, &key, "error", Some(&unmatched_owner_detail(owner_id)));
+        send_state(
+            &deps,
+            &key,
+            "error",
+            Some(&unmatched_owner_detail(owner_id)),
+        );
         return false;
     };
     let key = entry.key;
@@ -289,7 +294,7 @@ pub(crate) fn read_draft(
 }
 
 /// Pull the eligible entries out of a snapshot with their generation targets.
-/// Sessions/unattributed need ≥1 file; dashes need rounds or worktree dirt.
+/// Sessions/unattributed need ≥1 file; arcs need rounds or worktree dirt.
 fn eligible_entries(snapshot: WorkspacesChangesetSnapshot) -> Vec<PendingEntry> {
     let mut out = Vec::new();
     for project in snapshot.projects {
@@ -327,7 +332,7 @@ fn eligible_entries(snapshot: WorkspacesChangesetSnapshot) -> Vec<PendingEntry> 
                         target: DraftTarget::Head { files: metas },
                     });
                 }
-                ChangesetEntry::Dash {
+                ChangesetEntry::Arc {
                     owner_id,
                     display_name,
                     branch,
@@ -341,22 +346,22 @@ fn eligible_entries(snapshot: WorkspacesChangesetSnapshot) -> Vec<PendingEntry> 
                         continue;
                     }
                     // The git ref comes from the entry's own `branch` field
-                    // ([P09]). `owner_id` is the dash's *identity* — an owner
+                    // ([P09]). `owner_id` is the arc's *identity* — an owner
                     // key that carries the creation id — and deriving a ref
                     // from it would fail silently: `rev-parse` and `log`
                     // return empty, the fingerprint and prompt come out
-                    // degenerate, and dash draft generation just stops with no
+                    // degenerate, and arc draft generation just stops with no
                     // error anywhere. An older sender that omits the field
                     // falls back to the name, never to the identity.
-                    let branch = branch.unwrap_or_else(|| format!("tugdash/{display_name}"));
+                    let branch = branch.unwrap_or_else(|| format!("tugarc/{display_name}"));
                     out.push(PendingEntry {
                         key: EntryKey {
                             workspace_key: workspace_key.clone(),
                             project_dir: project_dir.clone(),
-                            owner_kind: "dash".to_string(),
+                            owner_kind: "arc".to_string(),
                             owner_id,
                         },
-                        target: DraftTarget::Dash {
+                        target: DraftTarget::Arc {
                             base,
                             branch,
                             worktree,
@@ -401,12 +406,12 @@ async fn generate_for_entry(deps: &EngineDeps, key: &EntryKey, target: &DraftTar
         DraftTarget::Head { files } => {
             gather_head(deps, key, &repo_dir, files, &style_rules, &git_subjects).await
         }
-        DraftTarget::Dash {
+        DraftTarget::Arc {
             base,
             branch,
             worktree,
         } => {
-            gather_dash(
+            gather_arc(
                 &repo_dir,
                 base,
                 branch,
@@ -573,8 +578,8 @@ fn earliest_dirty_touch(
         .unwrap_or(0)
 }
 
-/// Gather the fingerprint + prompt for a dash entry ([P23]).
-async fn gather_dash(
+/// Gather the fingerprint + prompt for an arc entry ([P23]).
+async fn gather_arc(
     repo_dir: &Path,
     base: &str,
     branch: &str,
@@ -593,9 +598,9 @@ async fn gather_dash(
     } else {
         String::new()
     };
-    let fingerprint = scribe::fingerprint_dash_entry(&head_sha, &worktree_status);
+    let fingerprint = scribe::fingerprint_arc_entry(&head_sha, &worktree_status);
 
-    let diff = crate::feeds::git::fetch_dash_diff(repo_dir, worktree, base, branch)
+    let diff = crate::feeds::git::fetch_arc_diff(repo_dir, worktree, base, branch)
         .await
         .unwrap_or_default();
     let git_log = git_output(
@@ -604,13 +609,13 @@ async fn gather_dash(
     )
     .await
     .unwrap_or_default();
-    let dash_name = branch.strip_prefix("tugdash/").unwrap_or(branch);
-    let dash_log_lines = read_dash_log(repo_dir, dash_name);
+    let arc_name = branch.strip_prefix("tugarc/").unwrap_or(branch);
+    let arc_log_lines = read_arc_log(repo_dir, arc_name);
 
-    let prompt = scribe::compose_draft_prompt_dash(
+    let prompt = scribe::compose_draft_prompt_arc(
         style_rules,
         &git_log,
-        &dash_log_lines,
+        &arc_log_lines,
         git_subjects,
         &diff,
     );
@@ -625,11 +630,11 @@ async fn git_log_subjects(repo_dir: &Path, n: usize) -> Vec<String> {
         .unwrap_or_default()
 }
 
-/// Read the dash's per-round instruction lines from the well-known
-/// project-state-dir `dash-log.md` ([P23]), filtered to `dash_name`.
+/// Read the arc's per-round instruction lines from the well-known
+/// project-state-dir `arc-log.md` ([P23]), filtered to `arc_name`.
 ///
 /// The grammar is `tugarc_core`'s and is borrowed rather than re-derived: the
-/// same splitter and the same terminal-line test, so a dash name reused after
+/// same splitter and the same terminal-line test, so an arc name reused after
 /// a join or a discard starts its draft from an empty slate instead of
 /// inheriting the previous incarnation's instructions.
 ///
@@ -637,17 +642,17 @@ async fn git_log_subjects(repo_dir: &Path, n: usize) -> Vec<String> {
 /// in the surviving generation is a per-round instruction, whatever marker
 /// carried it, which is why the birth record writes an empty note and so
 /// contributes nothing.
-fn read_dash_log(repo_dir: &Path, dash_name: &str) -> Vec<String> {
-    let path = tugtool_core::paths::project_state_dir(repo_dir).join("dash-log.md");
+fn read_arc_log(repo_dir: &Path, arc_name: &str) -> Vec<String> {
+    let path = tugtool_core::paths::arc_log_path(repo_dir);
     let Ok(content) = std::fs::read_to_string(path) else {
         return Vec::new();
     };
     let mut lines = Vec::new();
     for line in content.lines() {
-        let Some((_iso, dash, marker, note)) = tugarc_core::split_log_line(line) else {
+        let Some((_iso, arc, marker, note)) = tugarc_core::split_log_line(line) else {
             continue;
         };
-        if dash != dash_name {
+        if arc != arc_name {
             continue;
         }
         if tugarc_core::is_terminal(marker, note) {
@@ -683,7 +688,9 @@ async fn git_output(dir: &Path, args: &[&str]) -> Option<String> {
 /// the id is the whole of what went wrong and a reader with it in hand can
 /// tell a rotated card from a genuinely empty changeset.
 pub(crate) fn unmatched_owner_detail(owner_id: &str) -> String {
-    format!("Couldn't reach the scribe: no changeset is filed under this card's session ({owner_id}).")
+    format!(
+        "Couldn't reach the scribe: no changeset is filed under this card's session ({owner_id})."
+    )
 }
 
 fn send_state(deps: &EngineDeps, key: &EntryKey, state: &str, detail: Option<&str>) {
@@ -804,7 +811,7 @@ mod tests {
         (dir, root)
     }
 
-    /// **The [P09] regression pin.** An id-keyed dash entry still produces a
+    /// **The [P09] regression pin.** An id-keyed arc entry still produces a
     /// real fingerprint and a real prompt, because the git ref comes from the
     /// entry's `branch` field.
     ///
@@ -814,7 +821,7 @@ mod tests {
     /// degenerates, the prompt loses its diff, and nothing errors anywhere.
     /// A non-empty assertion is the only thing that catches it.
     #[tokio::test]
-    async fn gather_dash_uses_the_entry_branch_not_the_owner_key() {
+    async fn gather_arc_uses_the_entry_branch_not_the_owner_key() {
         let (_dir, root) = init_repo();
         git(&root, &["add", "."]);
         git(&root, &["commit", "-q", "-m", "second"]);
@@ -826,19 +833,19 @@ mod tests {
                 "add",
                 "-q",
                 "-b",
-                "tugdash/demo",
+                "tugarc/demo",
                 worktree.to_str().unwrap(),
             ],
         );
-        std::fs::write(worktree.join("dash-work.txt"), "round\n").unwrap();
+        std::fs::write(worktree.join("arc-work.txt"), "round\n").unwrap();
         git(&worktree, &["add", "."]);
-        git(&worktree, &["commit", "-q", "-m", "dash round"]);
+        git(&worktree, &["commit", "-q", "-m", "arc round"]);
 
-        let (fingerprint, prompt) = gather_dash(
+        let (fingerprint, prompt) = gather_arc(
             &root,
             "main",
             // The ref, as the entry's `branch` field carries it.
-            "tugdash/demo",
+            "tugarc/demo",
             ".tug/worktrees/demo",
             "",
             &[],
@@ -846,20 +853,20 @@ mod tests {
         .await;
         assert!(!fingerprint.is_empty(), "a real fingerprint");
         assert!(
-            prompt.contains("dash round"),
-            "the prompt carries the dash's real history: {prompt}"
+            prompt.contains("arc round"),
+            "the prompt carries the arc's real history: {prompt}"
         );
         assert!(
-            prompt.contains("dash-work.txt"),
+            prompt.contains("arc-work.txt"),
             "and its real diff: {prompt}"
         );
 
         // The same call with the *owner key* in the ref slot is the silent
         // failure: git resolves nothing, and the prompt comes out degenerate.
-        let (degenerate_fp, degenerate_prompt) = gather_dash(
+        let (degenerate_fp, degenerate_prompt) = gather_arc(
             &root,
             "main",
-            "tugdash/demo#1723500000000-a1b2c3",
+            "tugarc/demo#1723500000000-a1b2c3",
             ".tug/worktrees/demo",
             "",
             &[],
@@ -870,7 +877,7 @@ mod tests {
             "an owner key is not a ref, and using one as one loses the history \
              without raising anything"
         );
-        assert!(!degenerate_prompt.contains("dash-work.txt"));
+        assert!(!degenerate_prompt.contains("arc-work.txt"));
     }
 
     /// A one-session snapshot for `project_dir`, whose `workspace_key` is that
@@ -1356,7 +1363,7 @@ mod tests {
     }
 
     /// Redirect the data dir and hand back a repo root whose project state dir
-    /// holds `lines` as its dash-log. The redirect is why these are `#[serial]`.
+    /// holds `lines` as its arc log. The redirect is why these are `#[serial]`.
     fn log_repo(lines: &str) -> (tempfile::TempDir, tempfile::TempDir) {
         let home = tempfile::tempdir().expect("tempdir");
         // SAFETY: these tests are #[serial]; no other thread reads the
@@ -1367,12 +1374,12 @@ mod tests {
         let repo = tempfile::tempdir().expect("tempdir");
         let state = tugtool_core::paths::project_state_dir(repo.path());
         std::fs::create_dir_all(&state).expect("state dir");
-        std::fs::write(state.join("dash-log.md"), lines).expect("write log");
+        std::fs::write(state.join(tugtool_core::paths::ARC_LOG), lines).expect("write log");
         (home, repo)
     }
 
-    fn log_line(dash: &str, marker: &str, note: &str) -> String {
-        format!("2026-08-14T12:00:00Z  {dash}  {marker}  {note}\n")
+    fn log_line(arc: &str, marker: &str, note: &str) -> String {
+        format!("2026-08-14T12:00:00Z  {arc}  {marker}  {note}\n")
     }
 
     #[test]
@@ -1384,12 +1391,12 @@ mod tests {
             // contributes nothing here.
             log_line("d", "created", ""),
             log_line("d", "abc1234", "the first round"),
-            log_line("other", "abc1234", "a different dash"),
+            log_line("other", "abc1234", "a different arc"),
             log_line("d", "abc5678", "the second round"),
         );
         let (_home, repo) = log_repo(&log);
         assert_eq!(
-            read_dash_log(repo.path(), "d"),
+            read_arc_log(repo.path(), "d"),
             vec!["the first round", "the second round"],
         );
     }
@@ -1413,7 +1420,7 @@ mod tests {
             );
             let (_home, repo) = log_repo(&log);
             assert_eq!(
-                read_dash_log(repo.path(), "d"),
+                read_arc_log(repo.path(), "d"),
                 vec!["the reused name's own first round"],
             );
         }

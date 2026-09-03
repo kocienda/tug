@@ -4,7 +4,7 @@
 // buffer enabled — but the shape is generalizable: any field tugcode needs
 // from Claude Code's user-level configuration lives here.
 //
-// Spike S5 in dash/session-assistant-turns-context-breakdown-spikes.md
+// Spike S5 in the assistant-turns context-breakdown spikes record
 // established that the SDK does not expose this setting; tugcode reads the
 // settings file directly. Missing file, malformed JSON, and absent field
 // all degrade to Claude Code's documented default (`autoCompactEnabled:

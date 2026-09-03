@@ -1,9 +1,9 @@
-//! The run's quiet lines — **a derived view of the dash-log**, painted on the
-//! card bound to the dash (W8 Task 3).
+//! The run's quiet lines — **a derived view of the arc log**, painted on the
+//! card bound to the arc (W8 Task 3).
 //!
 //! The user watches a run from the card, and before this the only sign of one
-//! moving was a stuck indicator. Every manipulation of a dash's step list now
-//! draws one line there: a dash created, a run declared, a step started,
+//! moving was a stuck indicator. Every manipulation of an arc's step list now
+//! draws one line there: an arc created, a run declared, a step started,
 //! closed, withdrawn, parked or reopened, a `mark`, and each round.
 //!
 //! # Why the observer and not the verb
@@ -21,8 +21,8 @@
 //!   chance for the announcement to be forgotten — and a forgotten announcement
 //!   is precisely this incident's shape.
 //!
-//! Deriving it from the record inverts both. The dash-log is *already* what
-//! every surface reads a dash's state from, so the announcement is skippable
+//! Deriving it from the record inverts both. The arc log is *already* what
+//! every surface reads an arc's state from, so the announcement is skippable
 //! only by not writing the record — at which point the mutation did not happen.
 //! A verb run by hand in a bare terminal announces on the card identically,
 //! because nothing about the caller is an input. There is one writer of the
@@ -30,7 +30,7 @@
 //!
 //! # How it observes
 //!
-//! **By watching, never by polling.** The dash-log lives under the data dir
+//! **By watching, never by polling.** The arc log lives under the data dir
 //! rather than under a workspace root, so no watcher this process already runs
 //! reaches it — `changeset_all`'s docblock says exactly that, and stats the
 //! file on a timer because a *bump* is all it needs. A line on the card is not
@@ -52,7 +52,7 @@
 //! line caught mid-write waits for its newline rather than arriving in halves.
 //!
 //! A **timestamp floor** at the observer's own start is what keeps the first
-//! wake from painting a project's entire history. The dash-log's own first
+//! wake from painting a project's entire history. The arc log's own first
 //! field is a fixed-width UTC timestamp, so the comparison is a string compare
 //! against the moment this process began. That is also the whole of the
 //! restart story, and it falls out of a fact rather than a trick: a line
@@ -62,10 +62,10 @@
 //!
 //! # What it paints on
 //!
-//! `AgentSupervisor::record_dash_note`, which is the same server-authored
+//! `AgentSupervisor::record_arc_note`, which is the same server-authored
 //! channel the arc's own stop receipt uses: a durable `shell_exchanges` row
 //! keyed to the card's **line** (so a rotation carries it) plus one unsolicited
-//! `dash_note` CONTROL frame so the card paints its live copy now rather than
+//! `arc_note` CONTROL frame so the card paints its live copy now rather than
 //! at the next restore ([D111], [P12]).
 
 use std::collections::HashMap;
@@ -81,10 +81,10 @@ use super::workspace_registry::WorkspaceRegistry;
 use crate::session_ledger::SessionLedger;
 
 /// The record every project keeps, and the one file name this watches for.
-const DASH_LOG: &str = "dash-log.md";
+const ARC_LOG: &str = tugtool_core::paths::ARC_LOG;
 
-/// The directory every project's dash-log lives under, created if absent so
-/// the watch has something to attach to before the first dash exists.
+/// The directory every project's arc log lives under, created if absent so
+/// the watch has something to attach to before the first arc exists.
 fn logs_root() -> PathBuf {
     let root = tugcore::instance::base_data_dir().join("projects");
     let _ = std::fs::create_dir_all(&root);
@@ -99,7 +99,7 @@ pub struct ArcNotesContext {
     pub cancel: CancellationToken,
 }
 
-/// Watch every project's dash-log and paint each announceable line.
+/// Watch every project's arc log and paint each announceable line.
 pub async fn run_arc_notes(ctx: ArcNotesContext) {
     let root = logs_root();
     let (wake_tx, mut wake_rx) = tokio::sync::mpsc::channel::<()>(1);
@@ -112,7 +112,7 @@ pub async fn run_arc_notes(ctx: ArcNotesContext) {
         if event
             .paths
             .iter()
-            .any(|path| path.file_name().is_some_and(|name| name == DASH_LOG))
+            .any(|path| path.file_name().is_some_and(|name| name == ARC_LOG))
         {
             let _ = wake_tx.try_send(());
         }
@@ -120,15 +120,15 @@ pub async fn run_arc_notes(ctx: ArcNotesContext) {
     let mut watcher = match watcher {
         Ok(watcher) => watcher,
         Err(err) => {
-            error!(error = %err, "the dash-note observer could not create a watcher — the card will show no run progress");
+            error!(error = %err, "the arc-note observer could not create a watcher — the card will show no run progress");
             return;
         }
     };
     if let Err(err) = watcher.watch(&root, notify::RecursiveMode::Recursive) {
-        error!(dir = %root.display(), error = %err, "the dash-note observer could not watch the project state dirs — the card will show no run progress");
+        error!(dir = %root.display(), error = %err, "the arc-note observer could not watch the project state dirs — the card will show no run progress");
         return;
     }
-    info!(dir = %root.display(), "dash-note observer watching");
+    info!(dir = %root.display(), "arc-note observer watching");
 
     // `watcher` is held for the whole loop deliberately: dropping it
     // unregisters the OS watch, and a watcher bound only long enough to call
@@ -141,7 +141,7 @@ pub async fn run_arc_notes(ctx: ArcNotesContext) {
     loop {
         tokio::select! {
             _ = ctx.cancel.cancelled() => {
-                debug!("dash-note observer shutting down");
+                debug!("arc-note observer shutting down");
                 return;
             }
             received = wake_rx.recv() => {
@@ -162,14 +162,17 @@ pub async fn run_arc_notes(ctx: ArcNotesContext) {
 /// paint on, so its log is not read at all.
 async fn sweep(ctx: &ArcNotesContext, floor: &str, cursors: &mut HashMap<PathBuf, u64>) {
     for (root, _key) in ctx.registry.project_dirs() {
-        let path = tugtool_core::project_state_dir(&root).join(DASH_LOG);
+        // Resolved rather than joined, so a project whose state dir still
+        // holds the legacy name is folded forward before the cursor is taken
+        // against it ([P04]).
+        let path = tugtool_core::paths::arc_log_path(&root);
         let fresh = match read_fresh_lines(&path, cursors) {
             Ok(lines) => lines,
             Err(err) => {
                 // A log that cannot be read is a log with nothing to say. The
                 // cursor is left where it was, so a transient error costs a
                 // wake rather than a run's worth of lines.
-                debug!(path = %path.display(), error = %err, "dash-log unreadable");
+                debug!(path = %path.display(), error = %err, "arc log unreadable");
                 continue;
             }
         };
@@ -182,7 +185,7 @@ async fn sweep(ctx: &ArcNotesContext, floor: &str, cursors: &mut HashMap<PathBuf
     }
 }
 
-/// Whether a dash-log line was written after this observer started.
+/// Whether an arc log line was written after this observer started.
 ///
 /// The log's first field is a fixed-width UTC timestamp, so "after" is a
 /// string compare. A line whose shape this cannot read is **not** news: an
@@ -241,20 +244,20 @@ fn read_fresh_lines(
         .collect())
 }
 
-/// Paint one dash-log line on every live card bound to the dash it names.
+/// Paint one arc log line on every live card bound to the arc it names.
 async fn announce_line(ctx: &ArcNotesContext, root: &Path, line: &str) {
-    let Some((_timestamp, dash, marker, note)) = tugarc_core::log::split_log_line(line) else {
+    let Some((_timestamp, arc, marker, note)) = tugarc_core::log::split_log_line(line) else {
         return;
     };
-    let Some(sentence) = note_for_line(dash, marker, note) else {
+    let Some(sentence) = note_for_line(arc, marker, note) else {
         return;
     };
-    let command = command_for_line(dash, marker);
+    let command = command_for_line(arc, marker);
     let mut painted: std::collections::HashSet<String> = std::collections::HashSet::new();
-    let bound = match ctx.sessions.live_sessions_on_dash_named(dash) {
+    let bound = match ctx.sessions.live_sessions_on_arc_named(arc) {
         Ok(bound) => bound,
         Err(err) => {
-            warn!(dash, error = %err, "could not resolve the cards a dash-log line belongs to");
+            warn!(arc, error = %err, "could not resolve the cards an arc log line belongs to");
             return;
         }
     };
@@ -278,7 +281,7 @@ async fn announce_line(ctx: &ArcNotesContext, root: &Path, line: &str) {
             continue;
         }
         ctx.supervisor
-            .record_dash_note(&session, &project_dir, &command, &sentence)
+            .record_arc_note(&session, &project_dir, &command, &sentence)
             .await;
         // **The record is the gate's backstop.** The close's own report to the
         // server (`POST /api/session {op:"step_closed"}`) is the timely path
@@ -295,12 +298,12 @@ async fn announce_line(ctx: &ArcNotesContext, root: &Path, line: &str) {
 }
 
 /// Whether a session working `project_dir` belongs to the checkout `root`,
-/// whose dash-log this line came from.
+/// whose arc log this line came from.
 ///
-/// A dash's *name* does not place it — two checkouts may each have a
+/// An arc's *name* does not place it — two checkouts may each have a
 /// `refactor` — so the record's own tree is what decides which cards hear
-/// about it. Containment rather than equality, because a dash's stage session
-/// works the **worktree** (`<root>/.tug/worktrees/<dash>`) and never the root.
+/// about it. Containment rather than equality, because an arc's stage session
+/// works the **worktree** (`<root>/.tug/worktrees/<arc>`) and never the root.
 ///
 /// **Both sides pass through [`canonical_repo_root`] first**, because the two
 /// spellings arrive from different writers: `root` is the registry's original
@@ -324,7 +327,7 @@ fn closed_step(marker: &str, note: &str) -> Option<u32> {
         .flatten()
 }
 
-/// The sentence one dash-log line paints, or `None` for a line the card has
+/// The sentence one arc log line paints, or `None` for a line the card has
 /// nothing to say about.
 ///
 /// **The closed set is the nine gestures W8 names**, and the omissions are
@@ -332,17 +335,17 @@ fn closed_step(marker: &str, note: &str) -> Option<u32> {
 /// landing receipt, an `arc-*` marker is the arc's own record and ends in
 /// the arc receipt, and `replayed` / `verified` are their own verbs with their
 /// own read-outs. A tenth line about the same event is noise, not visibility.
-pub fn note_for_line(dash: &str, marker: &str, note: &str) -> Option<String> {
+pub fn note_for_line(arc: &str, marker: &str, note: &str) -> Option<String> {
     // A teardown is not a step gesture, and its marker is a sha — so this test
     // comes first, or a join would read as a round.
     if tugarc_core::log::is_terminal(marker, note) {
         return None;
     }
     match marker {
-        "created" => Some(format!("{dash}: dash created")),
+        "created" => Some(format!("{arc}: arc created")),
         "run-through" => {
             let through = note.trim();
-            (!through.is_empty()).then(|| format!("{dash}: run declared through step {through}"))
+            (!through.is_empty()).then(|| format!("{arc}: run declared through step {through}"))
         }
         "step-start" | "step-done" | "step-withdrawn" | "step-reset" | "step-reopen" => {
             let (current, total) = tugarc_core::log::read_step_fields(note)?;
@@ -351,23 +354,23 @@ pub fn note_for_line(dash: &str, marker: &str, note: &str) -> Option<String> {
             Some(match marker {
                 // A start's tail is the step's title, which is the one thing
                 // the card cannot get from anywhere else while the step runs.
-                "step-start" => with_tail(format!("{dash}: step {current}/{total} started"), tail),
+                "step-start" => with_tail(format!("{arc}: step {current}/{total} started"), tail),
                 // A done's tail is the round's sha.
                 "step-done" => match tail {
-                    Some(sha) => format!("{dash}: step {current}/{total} closed ({sha})"),
-                    None => format!("{dash}: step {current}/{total} closed"),
+                    Some(sha) => format!("{arc}: step {current}/{total} closed ({sha})"),
+                    None => format!("{arc}: step {current}/{total} closed"),
                 },
-                "step-withdrawn" => format!("{dash}: step {current}/{total} withdrawn"),
-                "step-reset" => format!("{dash}: step {current}/{total} parked back to pending"),
-                _ => with_tail(format!("{dash}: step {current}/{total} reopened"), tail),
+                "step-withdrawn" => format!("{arc}: step {current}/{total} withdrawn"),
+                "step-reset" => format!("{arc}: step {current}/{total} parked back to pending"),
+                _ => with_tail(format!("{arc}: step {current}/{total} reopened"), tail),
             })
         }
-        "built" | "audited" => Some(format!("{dash}: marked {marker}")),
+        "built" | "audited" => Some(format!("{arc}: marked {marker}")),
         // A round: the marker *is* the short sha and the note is the verbatim
-        // instruction. `-` is `dash commit` finding nothing to commit, which
+        // instruction. `-` is `arc commit` finding nothing to commit, which
         // moved no record and says nothing.
         sha if is_short_sha(sha) => Some(with_tail(
-            format!("{dash}: round {sha}"),
+            format!("{arc}: round {sha}"),
             Some(note).filter(|n| !n.is_empty()),
         )),
         _ => None,
@@ -382,17 +385,21 @@ pub fn note_for_line(dash: &str, marker: &str, note: &str) -> Option<String> {
 /// what happened and not a transcript of what was typed. It is verb-shaped
 /// because that is what a reader recognizes; the sentence beside it carries
 /// the truth.
-fn command_for_line(dash: &str, marker: &str) -> String {
+///
+/// The head is `arc`, which is what the verb is called. Rows written before
+/// the word moved carry `arc …` and are already in the shell ledger, so the
+/// deck's matcher claims both heads ([F19]).
+fn command_for_line(arc: &str, marker: &str) -> String {
     match marker {
-        "created" => format!("dash create {dash}"),
-        "run-through" => format!("dash step {dash} start --through"),
-        "step-start" => format!("dash step {dash} start"),
-        "step-done" => format!("dash step {dash} done"),
-        "step-withdrawn" => format!("dash step {dash} withdraw"),
-        "step-reset" => format!("dash step {dash} reset"),
-        "step-reopen" => format!("dash step {dash} reopen"),
-        "built" | "audited" => format!("dash mark {dash} {marker}"),
-        _ => format!("dash commit {dash}"),
+        "created" => format!("arc create {arc}"),
+        "run-through" => format!("arc step {arc} start --through"),
+        "step-start" => format!("arc step {arc} start"),
+        "step-done" => format!("arc step {arc} done"),
+        "step-withdrawn" => format!("arc step {arc} withdraw"),
+        "step-reset" => format!("arc step {arc} reset"),
+        "step-reopen" => format!("arc step {arc} reopen"),
+        "built" | "audited" => format!("arc mark {arc} {marker}"),
+        _ => format!("arc commit {arc}"),
     }
 }
 
@@ -417,7 +424,7 @@ mod tests {
     fn the_nine_gestures_each_get_a_sentence() {
         assert_eq!(
             note_for_line("demo", "created", "").as_deref(),
-            Some("demo: dash created")
+            Some("demo: arc created")
         );
         assert_eq!(
             note_for_line("demo", "run-through", "7").as_deref(),
@@ -478,10 +485,10 @@ mod tests {
     #[test]
     fn the_markers_that_already_have_a_surface_paint_nothing() {
         for (marker, note) in [
-            ("arc-start", "dash/plan.md"),
+            ("arc-start", "arc/plan.md"),
             ("arc-stage", "implement opus"),
             ("arc-stop", "implement idle"),
-            ("arc-kind", "trek"),
+            ("arc-kind", "planned"),
             ("replayed", "onto abc1234: d->e"),
             ("verified", "clean"),
             ("-", "nothing to commit"),
@@ -503,7 +510,7 @@ mod tests {
     #[test]
     fn the_cursor_reads_from_zero_and_then_only_what_arrives() {
         let dir = tempfile::tempdir().expect("temp");
-        let path = dir.path().join("dash-log.md");
+        let path = dir.path().join(ARC_LOG);
         std::fs::write(&path, "2026-09-01T00:00:00.000Z  demo  created  \n").expect("write");
         let mut cursors = HashMap::new();
 
@@ -543,14 +550,14 @@ mod tests {
         assert!(is_news("2026-09-01T12:00:00.000Z  demo  created  ", floor));
         // A line whose shape cannot be read is not news: nothing else in the
         // machine reads it either, and painting it would be guessing.
-        assert!(!is_news("not a dash-log line", floor));
+        assert!(!is_news("not an arc log line", floor));
         assert!(!is_news("", floor));
     }
 
     #[test]
     fn a_line_caught_mid_write_is_read_whole_on_the_next_wake() {
         let dir = tempfile::tempdir().expect("temp");
-        let path = dir.path().join("dash-log.md");
+        let path = dir.path().join(ARC_LOG);
         std::fs::write(&path, "").expect("write");
         let mut cursors = HashMap::new();
         assert!(read_fresh_lines(&path, &mut cursors).unwrap().is_empty());
@@ -574,7 +581,7 @@ mod tests {
     #[test]
     fn a_log_that_shrank_was_replaced_and_the_cursor_follows_it() {
         let dir = tempfile::tempdir().expect("temp");
-        let path = dir.path().join("dash-log.md");
+        let path = dir.path().join(ARC_LOG);
         std::fs::write(&path, "2026-09-01T00:00:00.000Z  demo  created  \n").expect("write");
         let mut cursors = HashMap::new();
         assert_eq!(read_fresh_lines(&path, &mut cursors).unwrap().len(), 1);
@@ -584,10 +591,58 @@ mod tests {
         assert_eq!(cursors.get(&path), Some(&0));
     }
 
+    /// The name the watch matches and the name the sweep reads are one name.
+    /// A predicate that matched a file nothing resolves to would arm a watch
+    /// that never fires.
+    #[test]
+    fn the_watched_name_is_the_arc_log() {
+        assert_eq!(ARC_LOG, "arc-log.md");
+    }
+
+    /// A project whose state dir was written by a build that predates the
+    /// rename still has its lines read: the sweep resolves the path rather
+    /// than joining it, so the legacy file is folded forward first ([P04]).
+    #[test]
+    #[serial_test::serial]
+    fn a_legacy_log_is_folded_forward_before_it_is_read() {
+        let home = tempfile::tempdir().expect("temp");
+        // SAFETY: this test is #[serial]; no other thread reads the
+        // environment concurrently while it runs.
+        unsafe {
+            std::env::set_var("TUG_DATA_DIR", home.path());
+        }
+        let repo = tempfile::tempdir().expect("temp");
+        let state = tugtool_core::paths::project_state_dir(repo.path());
+        std::fs::create_dir_all(&state).expect("state dir");
+        std::fs::write(
+            state.join("dash-log.md"),
+            "2026-09-01T00:00:00.000Z  demo  created  \n",
+        )
+        .expect("legacy log");
+
+        let path = tugtool_core::paths::arc_log_path(repo.path());
+        assert_eq!(path, state.join(ARC_LOG));
+
+        let mut cursors = HashMap::new();
+        let lines = read_fresh_lines(&path, &mut cursors).expect("read");
+        assert_eq!(lines.len(), 1, "the legacy lines survived the fold");
+
+        // And the appended line the watch would fire on is read next.
+        std::fs::write(
+            &path,
+            "2026-09-01T00:00:00.000Z  demo  created  \n\
+             2026-09-01T00:00:01.000Z  demo  step-start  1/2 First\n",
+        )
+        .expect("append");
+        let fresh = read_fresh_lines(&path, &mut cursors).expect("read");
+        assert_eq!(fresh.len(), 1);
+        assert!(fresh[0].contains("step-start"));
+    }
+
     #[test]
     fn an_absent_log_is_not_an_error() {
         let dir = tempfile::tempdir().expect("temp");
-        let path = dir.path().join("dash-log.md");
+        let path = dir.path().join(ARC_LOG);
         let mut cursors = HashMap::new();
         assert!(read_fresh_lines(&path, &mut cursors).unwrap().is_empty());
         assert!(
@@ -599,11 +654,11 @@ mod tests {
     #[test]
     fn a_line_reaches_the_cards_working_the_tree_it_came_from() {
         let root = Path::new("/checkouts/tug");
-        // The root itself, and the dash worktree under it — a stage session
+        // The root itself, and the arc worktree under it — a stage session
         // works the worktree and never the root.
         assert!(session_works_in("/checkouts/tug", root));
         assert!(session_works_in("/checkouts/tug/.tug/worktrees/demo", root));
-        // A second checkout with a dash of the same name hears nothing.
+        // A second checkout with an arc of the same name hears nothing.
         assert!(!session_works_in("/checkouts/other", root));
         // And a prefix that is not a path component is not containment.
         assert!(!session_works_in("/checkouts/tug-site", root));
@@ -636,9 +691,9 @@ mod tests {
 
     #[test]
     fn the_rendered_command_is_verb_shaped_per_marker() {
-        assert_eq!(command_for_line("demo", "step-done"), "dash step demo done");
-        assert_eq!(command_for_line("demo", "created"), "dash create demo");
-        assert_eq!(command_for_line("demo", "built"), "dash mark demo built");
-        assert_eq!(command_for_line("demo", "999353ca1"), "dash commit demo");
+        assert_eq!(command_for_line("demo", "step-done"), "arc step demo done");
+        assert_eq!(command_for_line("demo", "created"), "arc create demo");
+        assert_eq!(command_for_line("demo", "built"), "arc mark demo built");
+        assert_eq!(command_for_line("demo", "999353ca1"), "arc commit demo");
     }
 }

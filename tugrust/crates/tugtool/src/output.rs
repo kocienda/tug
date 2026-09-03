@@ -44,7 +44,7 @@ impl<T> JsonResponse<T> {
 }
 
 /// Print a successful `--json` envelope to stdout (pretty-printed). The shared
-/// path the changes/commits and dash verbs use so every `--json` payload is the
+/// path the changes/commits and arc verbs use so every `--json` payload is the
 /// same `{schema_version, command, status, data, issues}` shape.
 pub fn print_ok<T: Serialize>(command: &str, data: T) {
     let response = JsonResponse::ok(command, data);

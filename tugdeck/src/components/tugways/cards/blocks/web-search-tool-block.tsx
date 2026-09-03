@@ -166,7 +166,7 @@ function stripListMarker(line: string): string {
 
 /**
  * Trim a snippet-fragment string: collapses runs of whitespace, drops
- * common separator dashes at the head, drops empty results.
+ * common separator arcs at the head, drops empty results.
  */
 function trimSnippet(text: string): string {
   return text

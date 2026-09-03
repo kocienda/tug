@@ -9,7 +9,7 @@ disallowed-tools: Task, AskUserQuestion
 
 ## What this is
 
-`arc-implement` is the **implement stage** of an arc, and every arc has one: a trek reaches it after devise and review, a dash opens straight at it. It carries the arc's ledger — a devised `plan.md` or a `/dash` door's `tasks.md` — to a tested build on the arc's own git worktree, closing one step per turn and committing each. The worktree lifecycle rides the `tugtool arc` CLI; the ledger is the checklist.
+`arc-implement` is the **implement stage** of an arc, and every arc has one: a planned arc reaches it after devise and review, a plain arc opens straight at it. It carries the arc's ledger — a devised `plan.md` or an `/arc` door's `tasks.md` — to a tested build on the arc's own git worktree, closing one step per turn and committing each. The worktree lifecycle rides the `tugtool arc` CLI; the ledger is the checklist.
 
 **It is a stage of an arc, not a standalone command.** The wheel seats it, paces it a turn at a time, compacts it when its context grows, and rotates it onto a fresh session when compaction is not enough. Run outside an arc there is no wheel and nothing prompts the next step, so [the arc check](#0-confirm-the-arc-that-runs-you) is the first thing this skill does.
 
@@ -36,7 +36,7 @@ The **Step Status Ledger** at the top of the plan's Execution Steps is the sourc
 
 **If the plan has no Step Status Ledger** (an older or hand-written plan), the step verbs cannot drive it. Fall back gracefully: with no selector, walk from Step 1, and infer which steps are already done from `tugtool arc show <name>`, which reads the arc's rounds back — their commits *and* the instruction git cannot see. Offer to add a ledger to the plan (on the worktree) so future runs resume, and so the verbs can drive it.
 
-If no ledger exists yet, start at a door. `/dash` sharpens the idea into a brief and a task list and opens an arc straight at this stage; `/trek` writes the brief and its arc devises a plan and reads it cold before any step is walked. Which door the user typed is the routing decision, and neither is this skill's to make.
+If no ledger exists yet, start at a door. `/arc` sharpens the idea into a brief and a task list and opens an arc straight at this stage; `/arc-plan` writes the brief and its arc devises a plan and reads it cold before any step is walked. Which door the user typed is the routing decision, and neither is this skill's to make.
 
 ## The five phases
 
@@ -48,7 +48,7 @@ printenv TUG_ARC
 
 It names the arc you are the implement stage of.
 
-**With it absent from the environment, stop and say so.** This skill is a stage of an arc rather than a standalone command, and the doors are what start one: `/dash` sharpens an idea into a brief and a task list and opens an arc straight at this stage, `/trek` writes the brief and its arc devises a plan and reads it cold first. There is no path from here that ends anywhere else, because the discipline this stage runs under — one step per turn — is only safe when something is pacing it. Without a wheel, a turn that ends at a step boundary abandons the arc: the ledger reads `in progress`, every face says somebody is working it, and nobody is.
+**With it absent from the environment, stop and say so.** This skill is a stage of an arc rather than a standalone command, and the doors are what start one: `/arc` sharpens an idea into a brief and a task list and opens an arc straight at this stage, `/arc-plan` writes the brief and its arc devises a plan and reads it cold first. There is no path from here that ends anywhere else, because the discipline this stage runs under — one step per turn — is only safe when something is pacing it. Without a wheel, a turn that ends at a step boundary abandons the arc: the ledger reads `in progress`, every face says somebody is working it, and nobody is.
 
 **Then confirm the arc can still find you.**
 
@@ -61,7 +61,7 @@ The first writes nothing. It resolves which session this shell actually belongs 
 
 What is a problem is a resolved session the arc is not bound to. `arc status --json` names the arc's `bound_sessions`; if the id the dry run resolved is not among them, the binding did not ride the rotation, and nothing downstream will find this run — not the join offer, not the card's own faces.
 
-**The repair is `tugtool arc doctor <name>`.** It compares all four of an arc's records — the ledger table, the dash-log's declarations, the sqlite binding, and the arc record — and names each disagreement in a sentence, offering the reconciling append where one exists (`--repair` takes it). Reach for it before anything else, because it is the only gesture that tells you *which* record disagrees. Do not reach for `/dash-bind`: it writes one of the four and answers nothing about the other three, so a bind that exits 0 over a desynced ledger is a success that changed nothing.
+**The repair is `tugtool arc doctor <name>`.** It compares all four of an arc's records — the ledger table, the arc log's declarations, the sqlite binding, and the arc record — and names each disagreement in a sentence, offering the reconciling append where one exists (`--repair` takes it). Reach for it before anything else, because it is the only gesture that tells you *which* record disagrees. Do not reach for `/arc-bind`: it writes one of the four and answers nothing about the other three, so a bind that exits 0 over a desynced ledger is a success that changed nothing.
 
 ### 1. Setup
 
@@ -70,7 +70,7 @@ What is a problem is a resolved session the arc is not bound to. `arc status --j
 
    The plan lives at `.tug/arcs/<name>/plan.md` and nothing copies it anywhere ([D139]). `tugtool arc documents <name>` prints that path; **never copy a plan file by hand**, and never write one into the worktree. An arc whose door wrote a **task list** instead has its ledger at `tasks.md`, which the same verb prints and every `plan` verb resolves from the name alone — everything below reads "the plan" as "whichever of the two this arc has".
 
-   `create` also hydrates the fresh worktree itself, running whatever the project declared in `[tugtool.dash].post_create` (dependency installs, generated files) so it arrives ready. Never install dependencies by hand; a project that needs none declares none.
+   `create` also hydrates the fresh worktree itself, running whatever the project declared in `[tugtool.arc].post_create` (dependency installs, generated files) so it arrives ready. Never install dependencies by hand; a project that needs none declares none.
 
    You do not bind the arc to this session, and there is nothing to remember here: `create` and `arc step start` each record the claim themselves, so both starting a plan and resuming one mid-way are covered. That matters because boundness is what the server reads to decide whether to work the join at all — an unbound arc is never reconciled, never checked, and never offered — and a rule that load-bearing does not belong in prose a run can skip.
 3. **Check that the plan's review covers the plan.**
@@ -79,13 +79,13 @@ What is a problem is a resolved session the arc is not bound to. `arc status --j
    tugtool plan status <name> --json
    ```
 
-   **A task list has no review to check** — the `/dash` door settled its steps before the arc opened, and that arc has no devise stage and no review stage. When the arc's ledger is `tasks.md`, skip this whole step and say nothing about it: a review gate on a document no review stage was ever going to read is a question with no answer behind it.
+   **A task list has no review to check** — the `/arc` door settled its steps before the arc opened, and that arc has no devise stage and no review stage. When the arc's ledger is `tasks.md`, skip this whole step and say nothing about it: a review gate on a document no review stage was ever going to read is a question with no answer behind it.
 
    Read `data.review`. On `reviewed`, say nothing and carry on.
 
    On **`stale`** or **`never-reviewed`**, **say so in a sentence and walk the plan anyway.** Name which verdict it is, and on `stale` quote `data.last_round`'s date and model, so the fact is on the transcript where the user can act on it.
 
-   **Raise no dialog and print no chip.** This stage runs under an arc, often unattended, and a question here stops the arc in front of nobody — the doctrine's *questions belong to the door* rule, met at the one place a gate used to survive it. A `/tugplug:arc-review` chip is worse than the dialog: on a trek the review stage already ran and a second one is not this stage's to ask for; on a dash there is no review stage at all, so the chip names a stage the arc does not have.
+   **Raise no dialog and print no chip.** This stage runs under an arc, often unattended, and a question here stops the arc in front of nobody — the doctrine's *questions belong to the door* rule, met at the one place a gate used to survive it. A `/tugplug:arc-review` chip is worse than the dialog: on a planned arc the review stage already ran and a second one is not this stage's to ask for; on a plain arc there is no review stage at all, so the chip names a stage the arc does not have.
 
    What the fact is *for* is the audit. A plan the review did not cover is exactly the kind of thing the audit stage reads the diff against, and saying it here puts it in the transcript the audit and the user both read. Implementing a plan nobody reviewed is worse than implementing one whose review predates an edit, and neither is worse than an arc that sat still waiting for an answer.
 
@@ -103,7 +103,7 @@ What is a problem is a resolved session the arc is not bound to. `arc status --j
    Where the project's own test tooling keeps a history of past runs, read it rather than trusting your memory of this one — `tugtool apptest history` answers for a project whose checks run through it, and a project with no such record simply has none. Say which reds the history already knew about; those are the ones this run did not cause.
 
    **A run that inherits a recorded baseline does not re-establish one.** Read `baseline.md`, say what it says, and carry on — re-running a whole suite at every rotation is the cost the record exists to remove.
-5. **The Step Status Ledger is the progress surface.** `arc step start`, `arc step done` and `arc step withdraw` move its rows, and the Dashes card, the Changes card, and the Z2 placard all read from it. There is no second list to keep: the ledger is the record of where the run is, and the verbs are what move it.
+5. **The Step Status Ledger is the progress surface.** `arc step start`, `arc step done` and `arc step withdraw` move its rows, and the Arcs card, the Changes card, and the Z2 placard all read from it. There is no second list to keep: the ledger is the record of where the run is, and the verbs are what move it.
 
 ### 2. Implement (walk the steps)
 
@@ -117,7 +117,7 @@ The reason is the wheel's: every act it takes on the seated session — a compac
 
 **If you meet that refusal, the answer is to end the turn.** It is never to find a spelling the gate does not read: the gate is the discipline, and a stage that routes around it is the incident. Reads, `arc status`, `arc doctor`, `arc commit` and the draft verb all stay open, because reporting the step you just closed is not the next step's work.
 
-**Every ledger gesture draws itself on the card, and it is not yours to draw.** An arc created, a run declared, a step started, closed, withdrawn, parked or reopened, a `mark`, each round — every one lands a one-line row on the card the moment the record moves. The server *watches* the **dash-log** — the record the verbs already write and every surface already reads — so the line is a view of the record rather than an act anybody performs. That is the point: it is skippable only by not writing the record, at which point the gesture did not happen. Do not narrate them again in prose — the card already has the line, and a second copy in your reply is the same fact twice.
+**Every ledger gesture draws itself on the card, and it is not yours to draw.** An arc created, a run declared, a step started, closed, withdrawn, parked or reopened, a `mark`, each round — every one lands a one-line row on the card the moment the record moves. The server *watches* the **arc log** — the record the verbs already write and every surface already reads — so the line is a view of the record rather than an act anybody performs. That is the point: it is skippable only by not writing the record, at which point the gesture did not happen. Do not narrate them again in prose — the card already has the line, and a second copy in your reply is the same fact twice.
 
 **A turn that ends closing no step is counted.** The wheel watches for it: two such turns and it stops with a receipt reading `implement idle`, naming the resume. That stop is a hand-back with a sentence rather than a re-prompt, so it does not rescue a stage that is wandering — it ends one. If a step genuinely cannot be closed this turn, say why in the turn rather than ending quietly, and if the work is done but the step is not, run `arc step done` before the turn ends.
 
@@ -129,7 +129,7 @@ Walk the resolved steps in dependency order. For each step:
   ```bash
   tugtool arc step <name> start <n> --through <m>
   ```
-  This moves the ledger row to `in progress` and records the step in the dash-log, which is what makes the arc read as `implementing (i/N)` on the Dashes card and the Changes card while you work.
+  This moves the ledger row to `in progress` and records the step in the arc log, which is what makes the arc read as `implementing (i/N)` on the Arcs card and the Changes card while you work.
 
   **`--through <m>` is the last step of the selection you resolved in Setup**, and it is required. It is how the machine can tell a run that finished from a run that stopped early: when step `m` goes `done`, the arc is finished, the join arms itself, and the user is offered the join without anybody having to remember to say so. A run that never declared where it ends can only ever look like a run still in progress. Pass the same `m` on every step of the run — re-declaring the same value is a no-op.
 - Read the step's Tasks / References / Checkpoint.
@@ -137,7 +137,7 @@ Walk the resolved steps in dependency order. For each step:
 - Run **that step's checkpoint** before committing. The bar is in the doctrine; the step names the specific commands.
 - Commit the round:
   ```bash
-  tugtool arc commit <name> --message "tugdash(<name>): <imperative summary, under 50 chars>" --json <<'EOF'
+  tugtool arc commit <name> --message "tugarc(<name>): <imperative summary, under 50 chars>" --json <<'EOF'
   {"instruction":"Step N: <title>","summary":"<what landed + how verified>"}
   EOF
   ```
@@ -172,13 +172,13 @@ Walk the resolved steps in dependency order. For each step:
   ```
   `done` back to `in progress`, commit kept. `--why` is required, and that is the design: a reopen with no reason is the hand-edit these verbs exist to replace, wearing a verb's clothes. It **un-arms the join** until the step closes again, which is the point — a run with rejected work still in it is not a run that has finished, and the offer should not stand over one.
 
-**Three spellings are house rules, not taste.** A round's commit subject is `tugdash(<name>): <imperative summary>` — the same scope-colon form the engine's own arc commits (`remap round ids`) carry, so `tugtool arc show <name>` reads the branch back as one voice. And when you *name* a landed commit in the transcript, write the **bare sha in backticks** — `` `63de5762a` ``, never `commit 63de5762a` — because the app supplies the word itself: a confirmed sha displays as `commit:63de5762a`, and a sentence that already said "commit" makes the app yield its word and show the hash alone, which costs the reader the standard form. And **a file path goes in backticks every time you write one** — `src/parser/plan.rs`, never bare — because backticked and bare are one reference wearing two faces, and a reader who sees both in a paragraph has to work out that the difference means nothing. See `tuglaws/entity-presentation.md`.
+**Three spellings are house rules, not taste.** A round's commit subject is `tugarc(<name>): <imperative summary>` — the same scope-colon form the engine's own arc commits (`remap round ids`) carry, so `tugtool arc show <name>` reads the branch back as one voice. And when you *name* a landed commit in the transcript, write the **bare sha in backticks** — `` `63de5762a` ``, never `commit 63de5762a` — because the app supplies the word itself: a confirmed sha displays as `commit:63de5762a`, and a sentence that already said "commit" makes the app yield its word and show the hash alone, which costs the reader the standard form. And **a file path goes in backticks every time you write one** — `src/parser/plan.rs`, never bare — because backticked and bare are one reference wearing two faces, and a reader who sees both in a paragraph has to work out that the difference means nothing. See `tuglaws/entity-presentation.md`.
 
 Pragmatics:
 
 - **A refused `arc step` is telling you about the document, not the tool.** It exits 1, names the ledger and the row, and leaves the file untouched — a document that does not strictly parse, a missing ledger row, an anchor that is not `#step-<n>`, a `pending` row you tried to close without opening, a `done` row you tried to `start` or `reset`, or a `withdrawn` row you tried to finish (a withdrawn step that is now to be walked goes through `start` first, the same path every other step takes).
 
-  **Every one of those has a verb behind it, so reach for the verb rather than for a dialog or a hand-edit.** A `done` row that must move is `step reopen <n> --why …`; an opened row to put down is `step reset <n>`; a refusal you cannot place at all is `tugtool arc doctor <name>`, which compares the ledger table against the dash-log, the binding, and the arc record and names which of them disagrees — very often the answer is that they already did, before this turn.
+  **Every one of those has a verb behind it, so reach for the verb rather than for a dialog or a hand-edit.** A `done` row that must move is `step reopen <n> --why …`; an opened row to put down is `step reset <n>`; a refusal you cannot place at all is `tugtool arc doctor <name>`, which compares the ledger table against the arc log, the binding, and the arc record and names which of them disagrees — very often the answer is that they already did, before this turn.
 
   **Never hand-edit the ledger table.** That was the old repair and it is what the reset/reopen/doctor triple replaced: a hand-edit moves the table without the paired log line, and the two records then disagree about a run's frontier — status and join-arming derive from the log, while the resume pointer derives from the table. Nothing notices, and the run resumes somewhere the surfaces do not say it is. If a document genuinely cannot be made to parse, fix the document; that is a repair with a receipt.
 
@@ -210,13 +210,13 @@ Do not re-run the sweep. A checkpoint that passed is spent; the ending's job is 
 tugtool draft set --owner arc:<name> --message "<subject + durable body>"
 ```
 
-**The draft is a commit message, held to the same standard as every other commit on the base.** A join squashes to one commit and this draft is its message, so it is the only durable prose the base will ever carry about this arc. Write an **imperative subject** in the repository's recent-commit style; then, as the **second paragraph, a summary** — one to three sentences of plain prose, no bullets, saying what the base is about to receive and why, that a reader can stop at; then the body — what the change does, and the argument the work rests on — for a reader who never saw the run. The Changes shade fronts the subject and the summary and folds the body, so the summary is the message most readers will read. Never a narration of the run: no round-by-round digest, no step numbers, no "the run did X and then Y", and no archaeology about defects the run found and fixed along the way. The round count is the receipt's fact rather than the message's — the join receipt shows it and the `Tug-Dash:` trailer names the branch and base. State the argument the work actually rests on and do not append an inferred benefit to make the change sound worthier. Every line runs unbroken to its end (**no hard wrapping**), and no AI or agent attribution, ever.
+**The draft is a commit message, held to the same standard as every other commit on the base.** A join squashes to one commit and this draft is its message, so it is the only durable prose the base will ever carry about this arc. Write an **imperative subject** in the repository's recent-commit style; then, as the **second paragraph, a summary** — one to three sentences of plain prose, no bullets, saying what the base is about to receive and why, that a reader can stop at; then the body — what the change does, and the argument the work rests on — for a reader who never saw the run. The Changes shade fronts the subject and the summary and folds the body, so the summary is the message most readers will read. Never a narration of the run: no round-by-round digest, no step numbers, no "the run did X and then Y", and no archaeology about defects the run found and fixed along the way. The round count is the receipt's fact rather than the message's — the join receipt shows it and the `Tug-Arc:` trailer names the branch and base. State the argument the work actually rests on and do not append an inferred benefit to make the change sound worthier. Every line runs unbroken to its end (**no hard wrapping**), and no AI or agent attribution, ever.
 
-**Write the subject bare — no `tugdash(<name>): ` prefix.** The join adds the scope itself, so one written here is redundant; a scope naming a *different* arc is stripped at the join rather than preserved, so writing one at best changes nothing and at worst hides what you meant.
+**Write the subject bare — no `tugarc(<name>): ` prefix.** The join adds the scope itself, so one written here is redundant; a scope naming a *different* arc is stripped at the join rather than preserved, so writing one at best changes nothing and at worst hides what you meant.
 
 Read a good one before writing yours — `git log` on the base shows the project's recent joins. A good one says what the project can now do, which boundary was held, and how it was proven, with no round list and nothing that requires having watched the run.
 
-Write it even on a run that stops mid-plan: the draft is what the shade shows the user, and an arc with no draft offers to land its branch description — or, with neither, the words `Dash work`. The fold says which of the three it is, so a missing draft is visible rather than silent, but visible-and-wrong is still wrong.
+Write it even on a run that stops mid-plan: the draft is what the shade shows the user, and an arc with no draft offers to land its branch description — or, with neither, a generic fallback phrase. The fold says which of the three it is, so a missing draft is visible rather than silent, but visible-and-wrong is still wrong.
 
 **Then say what happened and stop.** The ending narration is three things: what was built, that the fit is verified (or that the replay reported `Current`, so it was already), and that the draft is written. At most add *"the Changes shade will reveal itself momentarily."* **Do not print a `/arc-join <name>` chip.** The arc is bound and armed; the shade summons itself on this card, and a chip alongside it teaches the user that nothing happens until they type — which is the belief this whole arc exists to retire ([D147], [D152]).
 
@@ -236,7 +236,7 @@ A purely internal change — a refactor, a doctrine edit, a backend fix already 
 tugtool arc mark <name> built
 ```
 
-Optional telemetry, and nothing gates on it. It stamps the stage word `built` on the arc's faces in place of the derived `ready`, which is worth doing when you *did* build so the Dashes card says what happened. Skipping it changes nothing about whether the join is offered.
+Optional telemetry, and nothing gates on it. It stamps the stage word `built` on the arc's faces in place of the derived `ready`, which is worth doing when you *did* build so the Arcs card says what happened. Skipping it changes nothing about whether the join is offered.
 
 **Stop here either way.** Do not merge. The join is the user's.
 
@@ -275,12 +275,12 @@ Everything in [`tuglaws/arc-work-doctrine.md`](../../../tuglaws/arc-work-doctrin
 
 - **Honor the selector and the ledger.** Walk exactly the requested steps; resume from the first row that is neither `done` nor `withdrawn`; never rebuild a `done` step or build on an unfinished dependency.
 - **The verbs own the bookkeeping, and there is one for every move.** `start`, `done`, `withdraw`, `reset` to park, `reopen --why` to un-finish — never a hand-edited table. The log line each verb writes is what the arc surfaces derive `implementing (i/N)` from and what arms the join, and a hand-edit leaves the two records disagreeing with nothing to notice. A step you decided not to walk has its own verb; recording that decision in the plan's prose instead is what stales the plan's review.
-- **When the records disagree, `tugtool arc doctor <name>` is the gesture.** It is the only one that reads all four and says which. `/dash-bind` writes one of them and answers nothing about the rest.
+- **When the records disagree, `tugtool arc doctor <name>` is the gesture.** It is the only one that reads all four and says which. `/arc-bind` writes one of them and answers nothing about the rest.
 - **Ask nothing.** This stage runs under an arc, often unattended, so a dialog stops the arc in front of nobody — the doctrine's [never-ask list](../../../tuglaws/arc-work-doctrine.md#what-never-gets-asked) at its strictest. The stale plan is said in a sentence; a refused verb is answered by the verb that fits; a long run is not a fork.
 - **Run only under an arc.** With no arc in the environment, say what this is a stage of and which doors start one, and stop.
 
 ## When to reach for something else
 
-This skill is a stage, so what to reach for instead is a **door**. For a change whose shape is already clear, `/dash` sharpens it into a brief and a task list and opens an arc straight at this stage. For work whose decisions want settling first, `/trek` writes the brief and its arc devises a plan and reads it cold before any step is walked. Both hand off by ending their turn, and the wheel paces the walk from there.
+This skill is a stage, so what to reach for instead is a **door**. For a change whose shape is already clear, `/arc` sharpens it into a brief and a task list and opens an arc straight at this stage. For work whose decisions want settling first, `/arc-plan` writes the brief and its arc devises a plan and reads it cold before any step is walked. Both hand off by ending their turn, and the wheel paces the walk from there.
 
 A ledger with a great many steps is not a reason to invoke this skill in batches by hand — the wheel already walks it one step per turn, compacting between them and rotating when compaction is not enough, which is exactly what batching was for. A ledger that is genuinely too large is a sign the *work* wanted splitting at the door.

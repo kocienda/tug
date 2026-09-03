@@ -8,7 +8,7 @@
  *
  * The **order is explicit** because absent means *registration* order to
  * `effectiveRailOrder`, and `main.tsx` registers jots, overview, tripwires,
- * dashes, cards, layout — a different vertical order from the one the factory
+ * arcs, cards, layout — a different vertical order from the one the factory
  * rail asks for. Leaving `order` off would look right at the type level and
  * stand the rail in the wrong sequence.
  *

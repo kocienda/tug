@@ -7,7 +7,7 @@
  * *inline-flag* half of the caution strategy — it marks the offending
  * event in place. The aggregate caution counter on the card chrome
  * (click-through to drift telemetry) is a separate later surface
- * ([#step-21](dash/session-assistant-rendering.md#step-21)); both
+ * ([#step-21](arc/session-assistant-rendering.md#step-21)); both
  * consume this same component.
  *
  * Extracted from `BlockChrome`'s private inline badge so the

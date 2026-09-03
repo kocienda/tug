@@ -29,7 +29,7 @@ import {
 const COMMIT: GitLogCommit = {
   sha: "eec07b495ede18478b70e293a6f8df320b6a30c1",
   subject: "tugways(session-history): swap metadata toggle to default emphasis",
-  body: "The filled emphasis read as a selection state.\n\nTug-Dash: none",
+  body: "The filled emphasis read as a selection state.\n\nTug-Arc: none",
   author: "Ken Kocienda",
   date: "2026-07-24",
   committer: "Ken Kocienda",
@@ -147,19 +147,19 @@ describe("commitFilterFields scope", () => {
     expect(matchesIn(["detail"], "metadata toggle")).toBe(false);
   });
 
-  test("the dash attribution rides with the message", () => {
-    // `Tug-Dash:` is a trailer ON the message, and the row states it as the
-    // dash atom `^<name>` — so the name, and the sigil spelling the atom
+  test("the arc attribution rides with the message", () => {
+    // `Tug-Arc:` is a trailer ON the message, and the row states it as the
+    // arc atom `^<name>` — so the name, and the sigil spelling the atom
     // shows, both find the commit under Message and neither does under any
     // other target.
-    const joined: GitLogCommit = { ...COMMIT, tug_dash: "tugdash/rail-routes" };
+    const joined: GitLogCommit = { ...COMMIT, tug_arc: "tugarc/rail-routes" };
     expect(filterQueryMatch("rail-routes", commitFilterFields(joined, ["message"]))).toBe(true);
     expect(filterQueryMatch("^rail-routes", commitFilterFields(joined, ["message"]))).toBe(true);
     expect(filterQueryMatch("rail-routes", commitFilterFields(joined, ["detail", "files"]))).toBe(false);
     // A hand commit has no attribution to match — and the trailer's own
-    // `tugdash/` ref prefix is plumbing, not something the row ever shows.
+    // `tugarc/` ref prefix is plumbing, not something the row ever shows.
     expect(filterQueryMatch("rail-routes", commitFilterFields(COMMIT, ["message"]))).toBe(false);
-    expect(filterQueryMatch("tugdash/rail-routes", commitFilterFields(joined, ["message"]))).toBe(false);
+    expect(filterQueryMatch("tugarc/rail-routes", commitFilterFields(joined, ["message"]))).toBe(false);
   });
 
   test("files alone reads the paths, not the message", () => {

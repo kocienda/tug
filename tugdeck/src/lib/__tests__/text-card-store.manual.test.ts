@@ -102,11 +102,11 @@ mock.module("@/lib/file-io", () => ({
 
 let TextCardStore: typeof import("@/lib/text-card-store").TextCardStore;
 let MISSING_SETTLE_MS: number;
-let dashSuccessorPath: typeof import("@/lib/text-card-store").dashSuccessorPath;
+let arcSuccessorPath: typeof import("@/lib/text-card-store").arcSuccessorPath;
 let asidePathFor: typeof import("@/lib/file-aside").asidePathFor;
 let asidePathForUntitled: typeof import("@/lib/file-aside").asidePathForUntitled;
 beforeAll(async () => {
-  ({ TextCardStore, MISSING_SETTLE_MS, dashSuccessorPath } = await import(
+  ({ TextCardStore, MISSING_SETTLE_MS, arcSuccessorPath } = await import(
     "@/lib/text-card-store"
   ));
   ({ asidePathFor, asidePathForUntitled } = await import("@/lib/file-aside"));
@@ -1123,44 +1123,44 @@ describe("rename-follow by file identity", () => {
   });
 });
 
-describe("dash-worktree retirement", () => {
-  test("dashSuccessorPath names the repo-root successor, or nothing", () => {
-    expect(dashSuccessorPath("/repo/.tug/worktrees/mydash/src/x.ts")).toBe(
+describe("arc-worktree retirement", () => {
+  test("arcSuccessorPath names the repo-root successor, or nothing", () => {
+    expect(arcSuccessorPath("/repo/.tug/worktrees/myarc/src/x.ts")).toBe(
       "/repo/src/x.ts",
     );
     // Nested relative paths keep their whole shape.
     expect(
-      dashSuccessorPath("/repo/.tug/worktrees/d/a/b/c/deep.md"),
+      arcSuccessorPath("/repo/.tug/worktrees/d/a/b/c/deep.md"),
     ).toBe("/repo/a/b/c/deep.md");
-    // Worktrees nest — a dash cut inside another dash's worktree. The
+    // Worktrees nest — an arc cut inside another arc's worktree. The
     // enclosing one is the innermost, so the successor stays inside the outer
     // worktree rather than escaping to the real repo root.
     expect(
-      dashSuccessorPath("/repo/.tug/worktrees/outer/.tug/worktrees/inner/src/x.ts"),
+      arcSuccessorPath("/repo/.tug/worktrees/outer/.tug/worktrees/inner/src/x.ts"),
     ).toBe("/repo/.tug/worktrees/outer/src/x.ts");
     // Not in a worktree at all.
-    expect(dashSuccessorPath("/repo/src/x.ts")).toBeNull();
+    expect(arcSuccessorPath("/repo/src/x.ts")).toBeNull();
     // The worktree root itself is not a file with a successor.
-    expect(dashSuccessorPath("/repo/.tug/worktrees/mydash")).toBeNull();
-    expect(dashSuccessorPath("/repo/.tug/worktrees/mydash/")).toBeNull();
-    // A `.tug/worktrees` that is not the dash-home shape.
-    expect(dashSuccessorPath("/repo/.tug/worktrees")).toBeNull();
+    expect(arcSuccessorPath("/repo/.tug/worktrees/myarc")).toBeNull();
+    expect(arcSuccessorPath("/repo/.tug/worktrees/myarc/")).toBeNull();
+    // A `.tug/worktrees` that is not the arc-home shape.
+    expect(arcSuccessorPath("/repo/.tug/worktrees")).toBeNull();
     // The legacy home is deliberately not followed.
-    expect(dashSuccessorPath("/repo/.tugtree/tugdash__d/src/x.ts")).toBeNull();
+    expect(arcSuccessorPath("/repo/.tugtree/tugdash__d/src/x.ts")).toBeNull();
   });
 
   test("a clean card re-anchors to the successor when the worktree is torn down", async () => {
-    const inDash = "/repo/.tug/worktrees/mydash/src/x.ts";
-    seedDisk(inDash, "dash version\n");
-    let buf = "dash version\n";
+    const inArc = "/repo/.tug/worktrees/myarc/src/x.ts";
+    seedDisk(inArc, "arc version\n");
+    let buf = "arc version\n";
     const store = new TextCardStore({ saveMode: "manual" });
     store.attachEditor(bridge(() => buf, (t) => (buf = t)));
-    await store.openPath(inDash);
+    await store.openPath(inArc);
 
     // The join squashes the work onto the repo root and removes the worktree.
     seedDisk("/repo/src/x.ts", "joined version\n");
-    io.files.delete(inDash);
-    fsFrame(store, inDash, "Removed");
+    io.files.delete(inArc);
+    fsFrame(store, inArc, "Removed");
     await tick();
     await tick();
     await tick();
@@ -1172,18 +1172,18 @@ describe("dash-worktree retirement", () => {
   });
 
   test("a dirty card re-anchors and is asked about the hash, not told it was deleted", async () => {
-    const inDash = "/repo/.tug/worktrees/mydash/src/y.ts";
-    seedDisk(inDash, "dash version\n");
-    let buf = "dash version\n";
+    const inArc = "/repo/.tug/worktrees/myarc/src/y.ts";
+    seedDisk(inArc, "arc version\n");
+    let buf = "arc version\n";
     const store = new TextCardStore({ saveMode: "manual" });
     store.attachEditor(bridge(() => buf, (t) => (buf = t)));
-    await store.openPath(inDash);
+    await store.openPath(inArc);
     buf = "my unsaved edit\n";
     store.noteEdit();
 
     seedDisk("/repo/src/y.ts", "joined version\n");
-    io.files.delete(inDash);
-    fsFrame(store, inDash, "Removed");
+    io.files.delete(inArc);
+    fsFrame(store, inArc, "Removed");
     await tick();
     await tick();
     await tick();
@@ -1194,35 +1194,35 @@ describe("dash-worktree retirement", () => {
   });
 
   test("with no successor on disk, the missing verdict still arrives", async () => {
-    const inDash = "/repo/.tug/worktrees/mydash/src/z.ts";
-    seedDisk(inDash, "only here\n");
+    const inArc = "/repo/.tug/worktrees/myarc/src/z.ts";
+    seedDisk(inArc, "only here\n");
     const store = new TextCardStore({ saveMode: "manual" });
     store.attachEditor(bridge(() => "only here\n"));
-    await store.openPath(inDash);
+    await store.openPath(inArc);
 
-    io.files.delete(inDash);
-    fsFrame(store, inDash, "Removed");
+    io.files.delete(inArc);
+    fsFrame(store, inArc, "Removed");
     await settle();
 
-    expect(store.getSnapshot().path).toBe(inDash);
+    expect(store.getSnapshot().path).toBe(inArc);
     expect(store.getSnapshot().conflict?.reason).toBe("missing");
   });
 });
 
 describe("a removed directory takes its files with it", () => {
   test("a Removed naming an ancestor directory enters the ladder", async () => {
-    const inDash = "/repo/.tug/worktrees/mydash/src/w.txt";
-    seedDisk(inDash, "dash version\n");
-    let buf = "dash version\n";
+    const inArc = "/repo/.tug/worktrees/myarc/src/w.txt";
+    seedDisk(inArc, "arc version\n");
+    let buf = "arc version\n";
     const store = new TextCardStore({ saveMode: "manual" });
     store.attachEditor(bridge(() => buf, (t) => (buf = t)));
-    await store.openPath(inDash);
+    await store.openPath(inArc);
 
     seedDisk("/repo/src/w.txt", "joined version\n");
     // What `rm -rf` of a worktree actually reports: the directory, and not one
     // event per file beneath it.
-    io.files.delete(inDash);
-    fsFrame(store, "/repo/.tug/worktrees/mydash", "Removed");
+    io.files.delete(inArc);
+    fsFrame(store, "/repo/.tug/worktrees/myarc", "Removed");
     await tick();
     await tick();
     await tick();

@@ -220,8 +220,8 @@ export const LOCAL_SLASH_COMMANDS = [
   // `/arc-bind`, `tugtool arc join` ⇒ `/arc-join`. `/commit` above keeps its
   // bare name because it rides `tugtool commit` — and `/arc-commit` is
   // reserved for `tugtool arc commit`, the round verb, which ships no card
-  // verb yet. The bare `/dash` is not a local command at all: it belongs to the
-  // `tugplug:dash` door skill, and reaches it as a pass-through.
+  // verb yet. The bare `/arc` is not a local command at all: it belongs to the
+  // `tugplug:arc` door skill, and reaches it as a pass-through.
   {
     name: "arc-bind",
     description: "Work on an arc — bind this card to it, creating it if needed",

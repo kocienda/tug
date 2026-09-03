@@ -33,7 +33,7 @@ describe("arcTrackModel", () => {
     ["a walked plan is checking until the stage moves", { documents: PLAN, steps: steps(4, null, 4), stage: "working" }, "check", false],
     // The one the report was about: every git fact says joinable, and the run
     // that produced them is still in its test sweep.
-    ["a joinable dash whose holder is still working is checking", { documents: PLAN, steps: steps(4, null, 4), stage: "ready", holdersBusy: true }, "check", false],
+    ["a joinable arc whose holder is still working is checking", { documents: PLAN, steps: steps(4, null, 4), stage: "ready", holdersBusy: true }, "check", false],
     ["and reads the join the moment that holder goes quiet", { documents: PLAN, steps: steps(4, null, 4), stage: "ready", holdersBusy: false }, "join", false],
     // The seam the wheel leaves: implement's last step is committed and the
     // audit stage is not seated yet, so nobody is busy and git says joinable.
@@ -41,16 +41,16 @@ describe("arcTrackModel", () => {
     ["the audit stage draws in the check cell", { documents: PLAN, arc: { stage: "audit" }, steps: steps(4, null, 4), stage: "ready" }, "check", false],
     ["and the arc calling itself done is the join", { documents: PLAN, arc: { stage: "audit", done: true }, steps: steps(4, null, 4), stage: "audited" }, "join", false],
     ["no documents and no arc is direct, in implement", { stage: "working" }, "implement", true],
-    ["a direct dash offered its join", { stage: "draft-ready" }, "join", true],
-    // A direct dash's task list IS a plan document, so nothing about the
+    ["a direct arc offered its join", { stage: "draft-ready" }, "join", true],
+    // A direct arc's task list IS a plan document, so nothing about the
     // documents' presence can tell the two routes apart. `taskList` is the
     // server's reading of the document's own shape, and it is what does.
     ["a task list is direct, in implement before any step opens", { documents: { plan: "/p" }, taskList: true, steps: steps(0, null, 3), stage: "working" }, "implement", true],
-    ["a direct dash mid-walk", { documents: { plan: "/p" }, taskList: true, steps: steps(1, 2, 3), stage: "implementing" }, "implement", true],
-    ["a direct dash that walked its list is checking", { documents: { plan: "/p" }, taskList: true, steps: steps(3, null, 3), stage: "working" }, "check", true],
-    ["a direct dash still checking while its holder works", { documents: { plan: "/p" }, taskList: true, steps: steps(3, null, 3), stage: "ready", holdersBusy: true }, "check", true],
+    ["a direct arc mid-walk", { documents: { plan: "/p" }, taskList: true, steps: steps(1, 2, 3), stage: "implementing" }, "implement", true],
+    ["a direct arc that walked its list is checking", { documents: { plan: "/p" }, taskList: true, steps: steps(3, null, 3), stage: "working" }, "check", true],
+    ["a direct arc still checking while its holder works", { documents: { plan: "/p" }, taskList: true, steps: steps(3, null, 3), stage: "ready", holdersBusy: true }, "check", true],
     // The same document shape WITHOUT the task-list reading is a devised plan
-    // adopted onto a briefless dash — which stands at review, as it always has.
+    // adopted onto a briefless arc — which stands at review, as it always has.
     ["a devised plan with no brief still reads review", { documents: { plan: "/p" }, steps: steps(0, null, 3), stage: "working" }, "review", false],
   ];
   for (const [name, input, phase, direct] of cases) {

@@ -2,9 +2,9 @@
  * join-mode-controller — per-card state + join path for join mode ([P01],
  * [P04], [P05]).
  *
- * Join mode is commit mode's twin in the dash lane: `/arc-join` (or the Z4A
+ * Join mode is commit mode's twin in the arc lane: `/arc-join` (or the Z4A
  * Join segment, or the lane's Join affordance) turns the composer into the
- * join-message editor over the dash the feed describes, and Z5 swaps to cancel /
+ * join-message editor over the arc the feed describes, and Z5 swaps to cancel /
  * auto-message / join. Everything structural is `CommitModeController`'s shape
  * — the same four upstream stores folded into one referentially-stable
  * snapshot, the same enter / leave / exit / land triggers, the same staged-land
@@ -12,12 +12,12 @@
  * neither has to know the other exists.
  *
  * What differs is what a join *means* here. The gate's third reason is the
- * dash's join state rather than the changeset: a join may proceed only over a
+ * arc's join state rather than the changeset: a join may proceed only over a
  * merge the server reports clean, or over a candidate the resolution ladder
- * built out of the conflicts. That state is not asked for — it rides the dash's
+ * built out of the conflicts. That state is not asked for — it rides the arc's
  * feed entry as a `join` block the server computes on every changeset
  * recompute, so this controller reads it and never previews. And the draft is
- * the *dash's*: it keys on the dash's owner id, so the message the run's
+ * the *arc's*: it keys on the arc's owner id, so the message the run's
  * `tugtool draft set` maintained is what the editor opens on.
  *
  * @module lib/join-mode-controller
@@ -27,7 +27,7 @@ import type { ChangesRouteController } from "@/lib/changes-route-controller";
 import type { CodeSessionStore } from "@/lib/code-session-store";
 import type { CommitModeController } from "@/lib/commit-mode-controller";
 import type {
-  DashChangesetEntry,
+  ArcChangesetEntry,
   ArcJoinBlockerWire,
   ArcJoinStateWire,
 } from "@/lib/changeset-types";
@@ -54,17 +54,17 @@ import {
   type ArcJoinRegister,
 } from "@/lib/arc-join-register";
 
-/** The dash a join mode is aimed at — the identity plus what the face reads. */
+/** The arc a join mode is aimed at — the identity plus what the face reads. */
 export interface JoinTarget {
-  /** The dash's owner key: its identity, and its draft row's `owner_id`. */
+  /** The arc's owner key: its identity, and its draft row's `owner_id`. */
   ownerId: string;
   /** The short display name (`tugtool arc join <name>`). */
   name: string;
-  /** The base branch this dash joins onto. */
+  /** The base branch this arc joins onto. */
   base: string;
-  /** Commits on the dash branch past its base. */
+  /** Commits on the arc branch past its base. */
   rounds: number;
-  /** Whether the dash worktree has uncommitted changes. */
+  /** Whether the arc worktree has uncommitted changes. */
   worktreeDirty: boolean;
 }
 
@@ -82,11 +82,11 @@ export interface JoinGateInput {
   /** A Claude turn is in flight (`canInterrupt`) — durable mutations wait. */
   turnInProgress: boolean;
   /**
-   * A session holding the *dash* is still working — mid-turn, or waiting on a
+   * A session holding the *arc* is still working — mid-turn, or waiting on a
    * background job it launched. The feed's `holders_busy`.
    *
    * Distinct from `turnInProgress`, which is about the composer's own session.
-   * The dash is usually built by a different card, and its work is not
+   * The arc is usually built by a different card, and its work is not
    * finished when the model stops speaking: the tests it backgrounded are
    * still deciding whether it works. A join pressed in that window lands work
    * nobody has finished checking.
@@ -121,7 +121,7 @@ export type JoinGate = { ok: true } | { ok: false; reason: JoinGateReason };
  * disable-and-hint precedence and the two gates must not disagree.
  *
  * `outcome` passes on a clean preview, or on any state carrying a candidate
- * commit: a resolved conflict is a joinable dash even though its history is
+ * commit: a resolved conflict is a joinable arc even though its history is
  * `conflicted`.
  */
 export function evaluateJoinGate(input: JoinGateInput): JoinGate {
@@ -158,7 +158,7 @@ export function joinDisabledReason(
   staleNote?: string | null,
 ): string {
   if (reason === "turn") return "Wait for the turn to finish";
-  // Named for the dash rather than "the turn", because the two are usually
+  // Named for the arc rather than "the turn", because the two are usually
   // different cards — and because a background test sweep outlives the turn
   // that started it, so "the turn is finished" would be true and useless.
   if (reason === "holder") return "Wait for the arc to finish its work";
@@ -221,7 +221,7 @@ export interface ReachabilityRow {
 export const REFUSAL_REACHABILITY = {
   // No control clears a running turn — the sentence names the wait.
   turn: { slot: null, where: "time" },
-  // Nor a dash still working. Time is the whole answer: the session finishes
+  // Nor an arc still working. Time is the whole answer: the session finishes
   // its turn and its background jobs report, and the refusal clears itself.
   holder: { slot: null, where: "time" },
   // Nor a join already in flight. This reason is also why the joinable row
@@ -231,7 +231,7 @@ export const REFUSAL_REACHABILITY = {
   // Every reading of `outcome` is now a wait. Conflicted and stale are the
   // pilot's to clear and it starts unprompted; blocked is cleared outside the
   // app entirely, which is why each blocker carries its own act sentence; and
-  // an empty dash is the one state whose answer — discard — is deliberately
+  // an empty arc is the one state whose answer — discard — is deliberately
   // rare enough to live in the row's overflow menu rather than in a refusal.
   // What every one of them has in common is that the composer holds nothing
   // that would help, so the sentence has to be the whole answer.
@@ -262,8 +262,8 @@ export function joinGateFacts(input: JoinGateInput): Record<string, unknown> {
 
 /** The controller's subscribable snapshot — the shared half plus join's own. */
 export interface JoinModeSnapshot extends LandingSnapshot {
-  /** The dash being joined, or null when the mode is down. */
-  dash: JoinTarget | null;
+  /** The arc being joined, or null when the mode is down. */
+  arc: JoinTarget | null;
   /** The derived join outcome ([#outcome-derivation]). */
   outcome: JoinOutcome;
   /** Conflicting paths, as the server's merge probe reports them. */
@@ -283,8 +283,15 @@ export interface JoinModeControllerDeps {
   commitModeController: CommitModeController;
 }
 
-/** The dash draft's owner kind — the draft engine's `DraftTarget::Dash` key. */
-const DASH_OWNER_KIND = "dash";
+/**
+ * The arc draft's owner kind — the draft engine's `DraftTarget::Arc` key.
+ *
+ * It must match what the server stores and filters on: `changes.db`'s
+ * `changeset_drafts.owner_kind` reads `arc`, and a draft reaches an arc's
+ * entry only for rows carrying that value. A deck sending the retired
+ * spelling writes a row nothing ever reads back.
+ */
+const ARC_OWNER_KIND = "arc";
 
 export class JoinModeController implements LandingMode {
   /** The landing this mode performs ([P01]) — the composer's labels read it. */
@@ -298,7 +305,7 @@ export class JoinModeController implements LandingMode {
   private seedMessage: string | null = null;
   private target: JoinTarget | null = null;
   /**
-   * The dash this composer last fired a join at, kept **past the mode exit**
+   * The arc this composer last fired a join at, kept **past the mode exit**
    * so the register can finish its sentence ([P03]).
    *
    * Landing exits the mode — the host stages a join by exiting, and exiting
@@ -372,26 +379,26 @@ export class JoinModeController implements LandingMode {
     this.landHook = hook;
   }
 
-  /** The dash entry this mode is aimed at, read live off the changes snapshot. */
-  private entry(): DashChangesetEntry | null {
+  /** The arc entry this mode is aimed at, read live off the changes snapshot. */
+  private entry(): ArcChangesetEntry | null {
     // The narration is the fallback for the same reason {@link entryFor} takes
-    // an id: the dash a join is *about* outlives the mode aimed at it. A
+    // an id: the arc a join is *about* outlives the mode aimed at it. A
     // server-started join never sets a target at all, and without this arm its
     // register would derive from an absent feed entry — a live join reported
-    // as a dash nothing can say anything about.
+    // as an arc nothing can say anything about.
     const ownerId = (this.target ?? this.narration)?.ownerId;
     if (ownerId === undefined) return null;
     return this.entryFor(ownerId);
   }
 
   /**
-   * A dash entry by owner key. Taken by id rather than off `this.target`
+   * An arc entry by owner key. Taken by id rather than off `this.target`
    * because the staged land path runs a beat after the mode exits, and by then
-   * the target is gone while the dash it captured is still on the feed.
+   * the target is gone while the arc it captured is still on the feed.
    */
-  private entryFor(ownerId: string): DashChangesetEntry | null {
+  private entryFor(ownerId: string): ArcChangesetEntry | null {
     return (
-      this.deps.changesController.getSnapshot().dashes.find((d) => d.owner_id === ownerId) ?? null
+      this.deps.changesController.getSnapshot().arcs.find((d) => d.owner_id === ownerId) ?? null
     );
   }
 
@@ -406,7 +413,7 @@ export class JoinModeController implements LandingMode {
     const joinPhase: JoinPhase = joinState?.phase ?? "idle";
     const landError = joinState?.error ?? null;
 
-    // Everything about what a join would do comes from the dash’s own feed
+    // Everything about what a join would do comes from the arc’s own feed
     // entry — one server-owned block, delivered on the snapshot every card
     // already subscribes to. There is no second reading of it to disagree with.
     const entry = this.entry();
@@ -421,13 +428,13 @@ export class JoinModeController implements LandingMode {
     const outcome = deriveJoinOutcome(join);
 
     const draftStore = getChangesetDraftStore();
-    // The dash's own draft row — `workspaceKey`, never `projectDir` ([L29]) —
+    // The arc's own draft row — `workspaceKey`, never `projectDir` ([L29]) —
     // so the editor opens on the join message the run maintained.
     const overlay =
       this.target !== null
         ? draftStore?.overlay(
             changesController.workspaceKey,
-            DASH_OWNER_KIND,
+            ARC_OWNER_KIND,
             this.target.ownerId,
           ) ?? null
         : null;
@@ -454,7 +461,7 @@ export class JoinModeController implements LandingMode {
       ? null
       : joinDisabledReason(gate.reason, outcome, staleNote);
     const messagePresent = this.active && (this.messageProvider?.() ?? "").trim().length > 0;
-    // The aimed dash while there is one, the dash this composer last fired at
+    // The aimed arc while there is one, the arc this composer last fired at
     // once the press has taken the mode down. Only the register reads it —
     // every other field on this snapshot is about a mode that is *open*, and a
     // narration is about a run that is over.
@@ -474,14 +481,14 @@ export class JoinModeController implements LandingMode {
         registerTarget === null
           ? null
           : arcJoinRegister({
-              dash: registerTarget.name,
+              arc: registerTarget.name,
               base: registerTarget.base,
               stage: entry?.stage ?? null,
               join,
               holdersBusy: entry?.holders_busy === true,
               // The composer says the same thing the two rows do, so a live
               // wheel holds this surface's offer shut too.
-              arc: entry?.arc ?? null,
+              run: entry?.arc ?? null,
               resolvePhase: getChangesetJoinStore()?.state(
                 changesController.workspaceKey,
                 registerTarget.name,
@@ -500,7 +507,7 @@ export class JoinModeController implements LandingMode {
       persistedMessage,
       edited: entry?.draft?.edited === true,
       draftError,
-      dash: this.target,
+      arc: this.target,
       outcome,
       conflicts,
       blockers,
@@ -563,7 +570,7 @@ export class JoinModeController implements LandingMode {
    * rows apart and identical. The rest exists so a success cannot vanish on
    * its own terminal frame; a durable receipt taking its place is not
    * vanishing, so the receipt cuts the rest short. The timer stays for the
-   * join whose receipt lands somewhere else — the pilot's, on a dash another
+   * join whose receipt lands somewhere else — the pilot's, on an arc another
    * card holds — where nothing in this transcript will ever speak for it.
    */
   private scheduleNarrationRetirement(): void {
@@ -610,9 +617,9 @@ export class JoinModeController implements LandingMode {
 
   /**
    * Enter join mode on `target`. A `/arc-join <name> <message>` seed is
-   * written into the dash's draft as an edited draft, so the composer seeds
+   * written into the arc's draft as an edited draft, so the composer seeds
    * from it exactly as commit mode does. Commit mode exits — one composer, one
-   * document ([P01]). Nothing is asked of the server: the dash's feed entry
+   * document ([P01]). Nothing is asked of the server: the arc's feed entry
    * already says what a join would do, so the surface opens knowing.
    */
   enter(target: JoinTarget, seedMessage?: string): void {
@@ -620,7 +627,7 @@ export class JoinModeController implements LandingMode {
     if (seed.length > 0) {
       getChangesetDraftStore()?.setDraft(
         this.deps.changesController.workspaceKey,
-        DASH_OWNER_KIND,
+        ARC_OWNER_KIND,
         target.ownerId,
         { message: seed, edited: true },
       );
@@ -638,22 +645,22 @@ export class JoinModeController implements LandingMode {
   }
 
   /**
-   * A clean dash grows a candidate without being asked ([P03]).
+   * A clean arc grows a candidate without being asked ([P03]).
    *
-   * A conflicted dash has always been resolved before it could join, so what
+   * A conflicted arc has always been resolved before it could join, so what
    * would land was a tree the project's checks had judged. A clean one skipped
    * all of it and joined on the strength of git reporting no textual conflict —
    * which is not the same claim. The failure this closes is a merge with no
    * conflicting file that does not build: a symbol renamed on one side, a new
    * call site added on the other.
    *
-   * So entering the mode on a clean dash sends the same resolve a conflicted
+   * So entering the mode on a clean arc sends the same resolve a conflicted
    * one sends. The ladder's one-shot squash anchors a candidate, the server
    * verifies it unpressed, and the gate that already refuses an unverified
    * candidate finally has one to refuse.
    *
    * An action taken on entry, never derived state — and safe to fire twice,
-   * because one dash admits one run ([P01]) and the second send comes back as
+   * because one arc admits one run ([P01]) and the second send comes back as
    * a named refusal rather than a second ladder.
    */
   private ensureCandidate(): void {
@@ -668,7 +675,7 @@ export class JoinModeController implements LandingMode {
   }
 
   /**
-   * Aim the mode at a dash **without entering** — the dash lane's expand. The
+   * Aim the mode at an arc **without entering** — the arc lane's expand. The
    * face the row renders is this controller's snapshot, so aiming is what makes
    * one derivation serve both the lane and the composer; without it the lane
    * would need a second reading of the same state.
@@ -680,10 +687,10 @@ export class JoinModeController implements LandingMode {
     this.retarget(target);
   }
 
-  /** Point the mode at a dash. */
+  /** Point the mode at an arc. */
   private retarget(target: JoinTarget): void {
     if (sameTarget(this.target, target)) return;
-    // Aiming somewhere is the composer being asked about a dash, so whatever
+    // Aiming somewhere is the composer being asked about an arc, so whatever
     // it was still saying about the last join it fired stops being what this
     // surface is for.
     this.narration = null;
@@ -725,25 +732,25 @@ export class JoinModeController implements LandingMode {
     this.fire();
   }
 
-  /** Persist a message edit into the dash's draft row. */
+  /** Persist a message edit into the arc's draft row. */
   persistMessage(text: string): void {
     const target = this.target;
     if (target === null) return;
     getChangesetDraftStore()?.setDraft(
       this.deps.changesController.workspaceKey,
-      DASH_OWNER_KIND,
+      ARC_OWNER_KIND,
       target.ownerId,
       { message: text, edited: true },
     );
   }
 
-  /** Request an auto-message draft for the dash; `force` is the Regenerate. */
+  /** Request an auto-message draft for the arc; `force` is the Regenerate. */
   requestDraft(force = false): void {
     const target = this.target;
     if (target === null) return;
     getChangesetDraftStore()?.requestDraft(
       this.deps.changesController.workspaceKey,
-      DASH_OWNER_KIND,
+      ARC_OWNER_KIND,
       target.ownerId,
       force,
     );
@@ -755,7 +762,7 @@ export class JoinModeController implements LandingMode {
     if (target === null) return;
     getChangesetDraftStore()?.cancelDraft(
       this.deps.changesController.workspaceKey,
-      DASH_OWNER_KIND,
+      ARC_OWNER_KIND,
       target.ownerId,
     );
   }
@@ -768,10 +775,10 @@ export class JoinModeController implements LandingMode {
    */
   land(message: string): LandOutcome {
     const text = message.trim();
-    // The dash is captured at press time and carried into the staged callback,
+    // The arc is captured at press time and carried into the staged callback,
     // never re-read from `this.target` when it runs. The host stages a join
     // by exiting the mode, and exiting clears the target — so a staged join
-    // that looked its dash up on the later beat would find nothing to join.
+    // that looked its arc up on the later beat would find nothing to join.
     const target = this.target;
     if (target === null) {
       return this.refuse(
@@ -853,7 +860,7 @@ export class JoinModeController implements LandingMode {
     const { changesController, codeSessionStore } = this.deps;
     // Read live off the feed, not off the snapshot: the land path fires a beat
     // after the shade dismisses, and the mode has already exited by then — so a
-    // snapshot read would judge a null target. The dash comes from the caller
+    // snapshot read would judge a null target. The arc comes from the caller
     // for the same reason the staged land carries it.
     const join = this.entryFor(target.ownerId)?.join ?? null;
     const candidate = join?.candidate;
@@ -867,7 +874,7 @@ export class JoinModeController implements LandingMode {
     };
   }
 
-  /** The dash's stale-candidate sentence, for a refusal that must quote it. */
+  /** The arc's stale-candidate sentence, for a refusal that must quote it. */
   private staleNoteFor(target: JoinTarget): string | null {
     const note = this.entryFor(target.ownerId)?.join?.stale_note;
     return typeof note === "string" && note !== "" ? note : null;
@@ -875,7 +882,7 @@ export class JoinModeController implements LandingMode {
 
   /**
    * Send the join and settle the round trip: on a landed commit the server
-   * clears the dash's draft and every binding to it, so the mode just exits; on
+   * clears the arc's draft and every binding to it, so the mode just exits; on
    * a failure the error surfaces where the user acted — re-entering the mode if
    * the staged path already dismissed it. The gate is re-checked because the
    * staged path fires a beat later, after the shade animates out.
@@ -913,8 +920,8 @@ export class JoinModeController implements LandingMode {
       if (phase === "pending") return;
       unsubscribe();
       if (phase === "done") {
-        // The landed dash's draft row and bindings die server-side ([P14]);
-        // clearing the ladder's candidate is what keeps a reused dash name
+        // The landed arc's draft row and bindings die server-side ([P14]);
+        // clearing the ladder's candidate is what keeps a reused arc name
         // from inheriting a stale one.
         getChangesetJoinStore()?.clear(changesController.workspaceKey, target.name);
         this.exit();
@@ -969,12 +976,12 @@ export class JoinModeController implements LandingMode {
 }
 
 /**
- * The join outcome, derived from the dash's server-owned join block
+ * The join outcome, derived from the arc's server-owned join block
  * ([#outcome-derivation]). Pure and exported so the lane's face and the
  * controller agree by construction rather than by two readings of the same
  * table.
  *
- * An absent block is `blocked`: a dash whose join state has not reached this
+ * An absent block is `blocked`: an arc whose join state has not reached this
  * deck is one nothing can say is joinable, and refusing is the only answer
  * that cannot be wrong.
  */
@@ -1021,7 +1028,7 @@ function snapshotsEqual(a: JoinModeSnapshot, b: JoinModeSnapshot): boolean {
     a.outcome === b.outcome &&
     a.candidateCommit === b.candidateCommit &&
     a.staleNote === b.staleNote &&
-    sameTarget(a.dash, b.dash) &&
+    sameTarget(a.arc, b.arc) &&
     sameStrings(a.conflicts, b.conflicts) &&
     sameBlockers(a.blockers, b.blockers)
   );
@@ -1075,8 +1082,8 @@ function sameBlockers(
   );
 }
 
-/** Build a {@link JoinTarget} from a dash changeset entry. */
-export function joinTargetFromEntry(entry: DashChangesetEntry): JoinTarget {
+/** Build a {@link JoinTarget} from an arc changeset entry. */
+export function joinTargetFromEntry(entry: ArcChangesetEntry): JoinTarget {
   return {
     ownerId: entry.owner_id,
     name: entry.display_name,

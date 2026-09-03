@@ -1,7 +1,7 @@
 /**
- * dash-name.ts — what the deck will pass through to `tugtool arc create`.
+ * arc-name.ts — what the deck will pass through to `tugtool arc create`.
  *
- * `/dash <name>` runs its create path through the card's shell route, which
+ * `/arc <name>` runs its create path through the card's shell route, which
  * means the name lands on a command line. This is the conservative check that
  * decides whether it goes unquoted or gets refused with a sentence naming the
  * constraint — a name with a space, a quote, or a `$` in it is answered here
@@ -17,13 +17,13 @@
  */
 
 /** Starts with a letter or digit, then letters, digits, `.`, `-`, `_`. */
-const DASH_NAME_SHAPE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+const ARC_NAME_SHAPE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
 /** The sentence a refused name is answered with — the constraint, stated. */
 export const ARC_NAME_CAUTION =
-  "An arc name starts with a letter or digit, then letters, digits, dot, dash, or underscore";
+  "An arc name starts with a letter or digit, then letters, digits, dot, arc, or underscore";
 
 /** True when `name` is safe to pass through to `tugtool arc create` unquoted. */
 export function isShellSafeArcName(name: string): boolean {
-  return DASH_NAME_SHAPE.test(name);
+  return ARC_NAME_SHAPE.test(name);
 }

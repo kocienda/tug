@@ -191,7 +191,7 @@ const ACCEPTED_FANOUT: Record<string, number> = {
     // shell, refs, ghost — renders through this one host, so a test that
     // asserts what a transcript ROW looks like has nowhere narrower to name.
     // It sat at exactly 20 until at0507 arrived pinning the quiet-row branch
-    // of `ShellTurnCell` (a dash-note row renders as one sentence, not as an
+    // of `ShellTurnCell` (an arc-note row renders as one sentence, not as an
     // exchange entry) — that branch lives here, so the declaration is honest
     // and the alternative was leaving the new row shape covered by nothing.
     "tugdeck/src/components/tugways/cards/session-card-transcript.tsx": 21,

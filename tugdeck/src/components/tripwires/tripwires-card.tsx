@@ -4,7 +4,7 @@
  *
  * Two levels, and the second is the point. Level one is the roster — one row
  * per tripwire, saying whether it is armed, whether it is running right now,
- * and whether it has left a dash somebody has to decide about. Level two is
+ * and whether it has left an arc somebody has to decide about. Level two is
  * that tripwire's trip log: every firing, including the swallowed and the
  * routine ones, because a tripwire that fired and said nothing is a fact about
  * the tripwire, and this is the only surface that can show it.
@@ -286,8 +286,8 @@ function TripCell({
               {`probe ${trip.probe_exit}`}
             </TugLabel>
           ) : null}
-          {trip.dash !== null ? (
-            <TugAtomRef entity={{ kind: "dash", name: trip.dash }} />
+          {trip.arc !== null ? (
+            <TugAtomRef entity={{ kind: "arc", name: trip.arc }} />
           ) : null}
         </span>
       </span>
@@ -378,9 +378,9 @@ function TripwireDetail({
             </React.Fragment>
           ))}
         </dl>
-        {tripwire.awaiting_dash !== null ? (
+        {tripwire.awaiting_arc !== null ? (
           <div className="tripwires-detail-knobs">
-            <TugAtomRef entity={{ kind: "dash", name: tripwire.awaiting_dash }} />
+            <TugAtomRef entity={{ kind: "arc", name: tripwire.awaiting_arc }} />
           </div>
         ) : null}
         <TugSectionLabel

@@ -1,4 +1,4 @@
-//! The workshop — one stable worktree per dash where a join is materialized.
+//! The workshop — one stable worktree per arc where a join is materialized.
 //!
 //! The ladder ([`crate::resolve`]) works a conflict as three blobs at a time,
 //! off to the side, and that is enough for a re-merge but not for an agent: a
@@ -16,7 +16,7 @@
 //! and every checkpoint on it are committed, and the worktree is a view that
 //! can be rebuilt from the ref at any time.
 //!
-//! **It is one stable worktree per dash, not a nonce per resolve, and that is
+//! **It is one stable worktree per arc, not a nonce per resolve, and that is
 //! economics rather than taste.** A fresh worktree carries no `node_modules`,
 //! so a typecheck or a bundle fails outright; a cold `target/`, so a
 //! `cargo check` is a full dependency build; and — sharpest — a *detached*
@@ -26,15 +26,15 @@
 //! DerivedData, `target/`, `node_modules/`, and `dist/` warm across candidates.
 //!
 //! The branch lives in its own namespace, `tugworkshop/<name>`, and that is
-//! load-bearing: every dash surface enumerates dashes by globbing
-//! `refs/heads/tugdash/` — four sites in [`crate::ops`], the changesets feed's
-//! dash-entry derivation, and the agent supervisor — so a workshop branch
-//! *inside* that namespace would render as a phantom dash row on every
+//! load-bearing: every arc surface enumerates arcs by globbing
+//! `refs/heads/tugarc/` — four sites in [`crate::ops`], the changesets feed's
+//! arc-entry derivation, and the agent supervisor — so a workshop branch
+//! *inside* that namespace would render as a phantom arc row on every
 //! recompute. Outside it, the exclusion is by construction rather than by a
 //! filter each surface must remember.
 //!
-//! Hydration is the project's own `[tugtool.dash].post_create` hooks, run once
-//! at creation through the same [`crate::ops`] path a dash worktree uses. This
+//! Hydration is the project's own `[tugtool.arc].post_create` hooks, run once
+//! at creation through the same [`crate::ops`] path an arc worktree uses. This
 //! module knows no project's toolchain; what a verification tier needs beyond
 //! those hooks is that tier's declared command to arrange.
 
@@ -43,25 +43,25 @@ use std::path::{Path, PathBuf};
 use tugtool_core::worktree::sanitize_branch_name;
 
 use crate::ops::{
-    branch_exists, branch_name, dash_base, git_output, git_stdout, main_repo_root, run_post_create,
+    arc_base, branch_exists, branch_name, git_output, git_stdout, main_repo_root, run_post_create,
 };
 use crate::resolve::commit_tree;
 
-/// The branch a dash's workshop is checked out on — deliberately **not** under
-/// `refs/heads/tugdash/`, which every dash surface globs.
+/// The branch an arc's workshop is checked out on — deliberately **not** under
+/// `refs/heads/tugarc/`, which every arc surface globs.
 pub fn workshop_branch(name: &str) -> String {
     format!("tugworkshop/{}", sanitize_branch_name(name))
 }
 
-/// A dash's workshop path: `<repo>/.tug/workshops/<sanitized-name>`, beside the
-/// dash worktree home so one ignore rule covers both.
+/// An arc's workshop path: `<repo>/.tug/workshops/<sanitized-name>`, beside the
+/// arc worktree home so one ignore rule covers both.
 pub fn workshop_path(repo: &Path, name: &str) -> PathBuf {
     repo.join(".tug")
         .join("workshops")
         .join(sanitize_branch_name(name))
 }
 
-/// A dash's workshop worktree, open at some tree.
+/// An arc's workshop worktree, open at some tree.
 ///
 /// Held by value for the duration of one resolve or one verification run;
 /// dropping it leaves the worktree in place, because the warmth is the point.
@@ -92,7 +92,7 @@ impl Workshop {
         &self.base_head
     }
 
-    /// Materialize the dash's standing conflict: reset the workshop to the
+    /// Materialize the arc's standing conflict: reset the workshop to the
     /// conflict chain's tip.
     ///
     /// **This is a checkout of committed data, not a merge.** The conflict —
@@ -114,7 +114,7 @@ impl Workshop {
         })?;
         if !crate::resolve::conflict_is_valid(&repo_root, name, &chain) {
             return Err(format!(
-                "the recorded conflict for '{name}' is stale — its base or dash head has moved \
+                "the recorded conflict for '{name}' is stale — its base or arc head has moved \
                  since it was written; resolve again"
             ));
         }
@@ -358,16 +358,16 @@ impl Workshop {
     fn ensure(repo: &Path, name: &str) -> Result<Self, String> {
         let repo_root = main_repo_root(repo);
 
-        // A workshop belongs to a dash. When the dash is gone — joined, or
+        // A workshop belongs to an arc. When the arc is gone — joined, or
         // discarded — creating one leaks a worktree and a branch that nothing
-        // will ever collect, because every sweeper keys off the dash that is no
+        // will ever collect, because every sweeper keys off the arc that is no
         // longer there. The straggler this closes is real: a join tears the
         // workshop down while a verification that started before it is still
         // running, the verification's next `open_*` re-creates it, and the
-        // orphan outlives the dash by however long the checkout survives.
+        // orphan outlives the arc by however long the checkout survives.
         if !branch_exists(&repo_root, &branch_name(name)) {
             return Err(format!(
-                "the dash {name} is gone — its workshop cannot be opened"
+                "the arc {name} is gone — its workshop cannot be opened"
             ));
         }
 
@@ -386,7 +386,7 @@ impl Workshop {
             }
         }
         let branch = workshop_branch(name);
-        let base = dash_base(&repo_root, name)?;
+        let base = arc_base(&repo_root, name)?;
         let base_head = git_stdout(&repo_root, &["rev-parse", &base])?;
 
         let ws = Self {
@@ -426,7 +426,7 @@ impl Workshop {
             ));
         }
 
-        // Hydrate once, through the same hooks a dash worktree runs. A failure
+        // Hydrate once, through the same hooks an arc worktree runs. A failure
         // rolls the workshop back so a retry creates cleanly rather than
         // reusing a half-hydrated tree forever.
         if let Err(e) = run_post_create(&repo_root, &path) {
@@ -527,9 +527,9 @@ pub fn existing(repo: &Path) -> Vec<String> {
     names
 }
 
-/// Remove a dash's workshop — its worktree and its `tugworkshop/<name>` branch.
+/// Remove an arc's workshop — its worktree and its `tugworkshop/<name>` branch.
 ///
-/// Called from dash discard and from a completed join, never from a resolve:
+/// Called from arc discard and from a completed join, never from a resolve:
 /// the whole point of a stable workshop is that it survives between them.
 pub fn remove(repo: &Path, name: &str, warnings: &mut Vec<String>) {
     let repo_root = main_repo_root(repo);
@@ -622,8 +622,8 @@ mod tests {
         std::fs::write(dir.join(rel), content).unwrap();
     }
 
-    /// A repo on `main` with one conflicting round on `tugdash/demo`: base and
-    /// dash both rewrite `f.txt`, so a real merge conflicts.
+    /// A repo on `main` with one conflicting round on `tugarc/demo`: base and
+    /// arc both rewrite `f.txt`, so a real merge conflicts.
     fn init(ignore_tug: bool) -> tempfile::TempDir {
         let temp = tempfile::tempdir().unwrap();
         let repo = temp.path();
@@ -636,14 +636,14 @@ mod tests {
         }
         git(repo, &["add", "-A"]);
         git(repo, &["commit", "-m", "base"]);
-        git(repo, &["branch", "tugdash/demo"]);
-        git(repo, &["config", "branch.tugdash/demo.tugbase", "main"]);
+        git(repo, &["branch", "tugarc/demo"]);
+        git(repo, &["config", "branch.tugarc/demo.tugbase", "main"]);
 
-        git(repo, &["switch", "-q", "tugdash/demo"]);
-        set(repo, "f.txt", "DASH\n");
-        set(repo, "only-dash.txt", "dash\n");
+        git(repo, &["switch", "-q", "tugarc/demo"]);
+        set(repo, "f.txt", "ARC\n");
+        set(repo, "only-arc.txt", "arc\n");
         git(repo, &["add", "-A"]);
-        git(repo, &["commit", "-m", "dash round"]);
+        git(repo, &["commit", "-m", "arc round"]);
 
         git(repo, &["switch", "-q", "main"]);
         set(repo, "f.txt", "BASE\n");
@@ -656,7 +656,7 @@ mod tests {
         git_stdout(dir, &["rev-parse", "HEAD"]).unwrap()
     }
 
-    /// Record the dash's conflict, then open the workshop on it.
+    /// Record the arc's conflict, then open the workshop on it.
     ///
     /// A workshop no longer manufactures its own conflict by merging, so every
     /// fixture needs one on file first. Running the real ladder is what makes
@@ -668,7 +668,7 @@ mod tests {
     }
 
     /// Opening a recorded conflict gives the agent the same tree a real merge
-    /// did — markers in the conflicted file, the dash's other files present —
+    /// did — markers in the conflicted file, the arc's other files present —
     /// without a merge ever being performed.
     #[test]
     fn open_conflict_gives_the_agent_a_real_conflicted_tree() {
@@ -682,10 +682,10 @@ mod tests {
             body.contains("<<<<<<<"),
             "expected conflict markers: {body}"
         );
-        assert!(body.contains("BASE") && body.contains("DASH"));
+        assert!(body.contains("BASE") && body.contains("ARC"));
 
         assert_eq!(ws.unresolved().unwrap(), vec!["f.txt".to_string()]);
-        assert!(ws.path().join("only-dash.txt").exists());
+        assert!(ws.path().join("only-arc.txt").exists());
 
         // The user's checkouts are untouched throughout ([R01]).
         assert_eq!(head(repo), before);
@@ -792,12 +792,12 @@ mod tests {
         set(ws.path(), "f.txt", "resolved\n");
         set(
             ws.path(),
-            "only-dash.txt",
+            "only-arc.txt",
             "a\n<<<<<<< ours\nb\n=======\nc\n>>>>>>> theirs\n",
         );
 
         let err = ws.checkpoint("tugresolve(demo): checkpoint").unwrap_err();
-        assert!(err.contains("only-dash.txt"), "{err}");
+        assert!(err.contains("only-arc.txt"), "{err}");
     }
 
     /// A workshop left on a live merge by an older build is swept once, rather
@@ -809,13 +809,13 @@ mod tests {
         let ws = open_conflicted(repo);
         // Reproduce what a pre-conflict-commit build would have left behind.
         // The reset to the base head is part of the reproduction, not
-        // scaffolding: from the conflict tip the dash is already an ancestor, so
+        // scaffolding: from the conflict tip the arc is already an ancestor, so
         // git would answer "already up to date" and leave no merge state at all.
         let base = ws.base_head().to_string();
         let _ = git_output(ws.path(), &["reset", "--hard", &base]);
         let _ = git_output(
             ws.path(),
-            &["merge", "--no-commit", "--no-ff", "tugdash/demo"],
+            &["merge", "--no-commit", "--no-ff", "tugarc/demo"],
         );
         assert!(
             git_stdout(ws.path(), &["rev-parse", "--verify", "MERGE_HEAD"]).is_ok(),
@@ -857,10 +857,10 @@ mod tests {
             git_stdout(repo, &["show", &format!("{sha}:f.txt")]).unwrap(),
             "RECONCILED"
         );
-        // The dash's own file rode along — the commit is the whole tree.
+        // The arc's own file rode along — the commit is the whole tree.
         assert_eq!(
-            git_stdout(repo, &["show", &format!("{sha}:only-dash.txt")]).unwrap(),
-            "dash"
+            git_stdout(repo, &["show", &format!("{sha}:only-arc.txt")]).unwrap(),
+            "arc"
         );
     }
 
@@ -923,7 +923,7 @@ mod tests {
             std::fs::read_to_string(ws.path().join("f.txt")).unwrap(),
             "BASE\n"
         );
-        assert!(!ws.path().join("only-dash.txt").exists());
+        assert!(!ws.path().join("only-arc.txt").exists());
     }
 
     /// The workshop is reused across opens — same path, same branch — and
@@ -949,25 +949,25 @@ mod tests {
         assert!(!branch_exists(repo, "tugworkshop/demo"));
     }
 
-    /// The branch is outside `refs/heads/tugdash/`, which is what keeps a
-    /// workshop from rendering as a phantom dash on every surface that globs
+    /// The branch is outside `refs/heads/tugarc/`, which is what keeps a
+    /// workshop from rendering as a phantom arc on every surface that globs
     /// that namespace — and what gives the checkout a stable derived-data slug
     /// instead of a per-candidate `detached-<sha>`.
     #[test]
-    fn the_workshop_branch_is_outside_the_dash_namespace() {
+    fn the_workshop_branch_is_outside_the_arc_namespace() {
         let temp = init(true);
         let repo = temp.path();
         let ws = open_conflicted(repo);
 
         assert_eq!(ws.branch(), "tugworkshop/demo");
-        let dash_refs = git_stdout(
+        let arc_refs = git_stdout(
             repo,
-            &["for-each-ref", "--format=%(refname)", "refs/heads/tugdash/"],
+            &["for-each-ref", "--format=%(refname)", "refs/heads/tugarc/"],
         )
         .unwrap();
         assert!(
-            !dash_refs.contains("tugworkshop"),
-            "the workshop must not be enumerable as a dash: {dash_refs}"
+            !arc_refs.contains("tugworkshop"),
+            "the workshop must not be enumerable as an arc: {arc_refs}"
         );
 
         // The checkout is on a named branch, never detached — the slug a warm
@@ -975,12 +975,12 @@ mod tests {
         let branch = git_stdout(ws.path(), &["rev-parse", "--abbrev-ref", "HEAD"]).unwrap();
         assert_eq!(branch, "tugworkshop/demo");
 
-        // And the surface itself: `dash_detail_entries_in` is the one walk
+        // And the surface itself: `arc_detail_entries_in` is the one walk
         // behind both `tugtool arc list` and the card's snapshot ([D138]), so
         // asserting here covers every reader of either.
-        let dashes = crate::ops::dash_detail_entries_in(repo);
-        let names: Vec<&str> = dashes.iter().map(|d| d.name.as_str()).collect();
-        assert_eq!(names, vec!["demo"], "the workshop must not read as a dash");
+        let arcs = crate::ops::arc_detail_entries_in(repo);
+        let names: Vec<&str> = arcs.iter().map(|d| d.name.as_str()).collect();
+        assert_eq!(names, vec!["demo"], "the workshop must not read as an arc");
     }
 
     /// In a project that does not ignore `.tug/`, creating a workshop ensures

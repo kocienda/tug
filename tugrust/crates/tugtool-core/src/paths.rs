@@ -1,11 +1,48 @@
 //! Per-project runtime-state directory resolution.
 //!
-//! Per-user runtime state (the dash-log, the code-sign sentinel, future
+//! Per-user runtime state (the arc log, the code-sign sentinel, future
 //! side-command outputs) lives outside the source tree, in an OS-conventional
 //! application-data directory, broken down per project. The single source of
 //! that path is [`project_state_dir`].
 
 use std::path::{Component, Path, PathBuf};
+
+/// The arc log's filename inside a project's state dir.
+pub const ARC_LOG: &str = "arc-log.md";
+
+/// The name the arc log carried before it was named for the arc. Read for
+/// life ([F19]): a state dir written by any earlier build still holds one,
+/// and [`arc_log_path`] is where it is folded forward.
+const LEGACY_ARC_LOG: &str = "dash-log.md";
+
+/// The path of `repo_root`'s arc log, renaming a legacy `dash-log.md` forward
+/// on the way ([P04]).
+///
+/// The rename is one-shot and idempotent: it fires only when the new name is
+/// absent and the old one is present, so a second call finds `arc-log.md`
+/// already there and moves nothing. A state dir holding *both* — an old build
+/// still appending beside a new one — is left alone; the new name wins and the
+/// old file is inert, which is the same shape [`reconcile_alias_state_dir`]
+/// resolves when it folds an alias dir forward.
+///
+/// Silent in every failure, like the rest of this module: a rename that loses
+/// a race still leaves a usable path, since the caller opens it with `create`.
+pub fn arc_log_path(repo_root: &Path) -> PathBuf {
+    resolve_arc_log_in(&project_state_dir(repo_root))
+}
+
+/// [`arc_log_path`]'s rename, over a state dir given rather than resolved.
+///
+/// Split out so it can be tested against a scratch directory: resolving one
+/// through [`project_state_dir`] would reach the user's own data dir.
+fn resolve_arc_log_in(dir: &Path) -> PathBuf {
+    let new = dir.join(ARC_LOG);
+    let old = dir.join(LEGACY_ARC_LOG);
+    if !new.exists() && old.exists() {
+        let _ = std::fs::rename(&old, &new);
+    }
+    new
+}
 
 /// Resolve the per-project runtime-state directory for `repo_root`.
 ///
@@ -58,10 +95,12 @@ fn reconcile_alias_state_dir(alias: &Path, canonical: &Path) {
             continue;
         }
         let name = entry.file_name();
+        if name == ARC_LOG || name == LEGACY_ARC_LOG {
+            merge_arc_log(&entry.path(), &canonical.join(ARC_LOG));
+            continue;
+        }
         let target = canonical.join(&name);
-        if name == "dash-log.md" {
-            merge_dash_log(&entry.path(), &target);
-        } else if !target.exists() {
+        if !target.exists() {
             let _ = std::fs::copy(entry.path(), target);
         }
     }
@@ -91,12 +130,12 @@ fn claim_alias_dir(alias: &Path) -> Option<PathBuf> {
     None
 }
 
-/// Union `from`'s dash-log lines into `into`'s, dropping exact duplicates and
+/// Union `from`'s arc-log lines into `into`'s, dropping exact duplicates and
 /// sorting by the leading ISO-8601 timestamp field. The grammar's first field
 /// is that timestamp, so a lexical sort is a chronological one, and
 /// `read_declarations` is order-driven — a merged log reads as if one writer
 /// had written it.
-fn merge_dash_log(from: &Path, into: &Path) {
+fn merge_arc_log(from: &Path, into: &Path) {
     let Ok(incoming) = std::fs::read_to_string(from) else {
         return;
     };
@@ -224,10 +263,12 @@ mod tests {
         let alias = projects.path().join("-u-src-tugtool");
         let canonical = projects.path().join("-Users-x-src-tugtool");
         std::fs::create_dir_all(&alias).expect("alias dir");
-        std::fs::write(alias.join("dash-log.md"), alias_log).expect("alias log");
+        // The alias dir carries the legacy name and the canonical dir the new
+        // one: a merge has to fold either filename into `arc-log.md`.
+        std::fs::write(alias.join(LEGACY_ARC_LOG), alias_log).expect("alias log");
         if !canonical_log.is_empty() {
             std::fs::create_dir_all(&canonical).expect("canonical dir");
-            std::fs::write(canonical.join("dash-log.md"), canonical_log).expect("canonical log");
+            std::fs::write(canonical.join(ARC_LOG), canonical_log).expect("canonical log");
         }
         (projects, alias, canonical)
     }
@@ -243,7 +284,7 @@ mod tests {
 
         reconcile_alias_state_dir(&alias, &canonical);
 
-        let merged = std::fs::read_to_string(canonical.join("dash-log.md")).expect("merged");
+        let merged = std::fs::read_to_string(canonical.join(ARC_LOG)).expect("merged");
         let stamps: Vec<&str> = merged
             .lines()
             .map(|line| line.split_whitespace().next().unwrap())
@@ -268,7 +309,7 @@ mod tests {
 
         reconcile_alias_state_dir(&alias, &canonical);
 
-        let merged = std::fs::read_to_string(canonical.join("dash-log.md")).expect("merged");
+        let merged = std::fs::read_to_string(canonical.join(ARC_LOG)).expect("merged");
         assert_eq!(merged, shared);
     }
 
@@ -277,18 +318,18 @@ mod tests {
         let (projects, alias, canonical) =
             alias_fixture("2026-08-14T10:00:00Z  d  bound  one\n", "");
         reconcile_alias_state_dir(&alias, &canonical);
-        let after_first = std::fs::read_to_string(canonical.join("dash-log.md")).expect("merged");
+        let after_first = std::fs::read_to_string(canonical.join(ARC_LOG)).expect("merged");
 
         // A stale writer recreates the alias dir and appends more history.
         std::fs::create_dir_all(&alias).expect("alias dir again");
         std::fs::write(
-            alias.join("dash-log.md"),
+            alias.join(LEGACY_ARC_LOG),
             "2026-08-14T11:00:00Z  d  bound  two\n",
         )
         .expect("alias log again");
         reconcile_alias_state_dir(&alias, &canonical);
 
-        let after_second = std::fs::read_to_string(canonical.join("dash-log.md")).expect("merged");
+        let after_second = std::fs::read_to_string(canonical.join(ARC_LOG)).expect("merged");
         assert_ne!(after_first, after_second);
         assert!(after_second.contains("two"));
         assert!(projects.path().join("-u-src-tugtool-premerge").is_dir());
@@ -315,5 +356,55 @@ mod tests {
         std::os::unix::fs::symlink(&real, &link).expect("symlink");
 
         assert_eq!(project_slug(&link), project_slug(&real));
+    }
+
+    /// A state dir written by a build that predates the rename holds only
+    /// `dash-log.md`, and the first resolution folds it forward ([P04]).
+    #[test]
+    fn a_legacy_log_is_renamed_forward_once() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let old = dir.path().join(LEGACY_ARC_LOG);
+        std::fs::write(&old, "2026-09-02T10:00:00Z  d  created  \n").expect("legacy log");
+
+        let path = resolve_arc_log_in(dir.path());
+
+        assert_eq!(path, dir.path().join(ARC_LOG));
+        assert!(!old.exists(), "the old name is gone");
+        assert_eq!(
+            std::fs::read_to_string(&path).expect("new log"),
+            "2026-09-02T10:00:00Z  d  created  \n",
+            "the bytes rode the rename"
+        );
+    }
+
+    /// The rename is one-shot: a second resolution finds the new name already
+    /// there and moves nothing, so an appended line is never lost to it.
+    #[test]
+    fn resolving_twice_moves_nothing_the_second_time() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(dir.path().join(LEGACY_ARC_LOG), "one\n").expect("legacy log");
+
+        let first = resolve_arc_log_in(dir.path());
+        std::fs::write(&first, "one\ntwo\n").expect("append");
+        let second = resolve_arc_log_in(dir.path());
+
+        assert_eq!(first, second);
+        assert_eq!(std::fs::read_to_string(&second).expect("log"), "one\ntwo\n");
+    }
+
+    /// Both names present is an old build still appending beside a new one.
+    /// The new name wins and the old file is left inert rather than merged,
+    /// because a resolution is not the place to reconcile two writers.
+    #[test]
+    fn a_dir_holding_both_names_leaves_both() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let old = dir.path().join(LEGACY_ARC_LOG);
+        let new = dir.path().join(ARC_LOG);
+        std::fs::write(&old, "old\n").expect("legacy log");
+        std::fs::write(&new, "new\n").expect("arc log");
+
+        assert_eq!(resolve_arc_log_in(dir.path()), new);
+        assert_eq!(std::fs::read_to_string(&old).expect("old"), "old\n");
+        assert_eq!(std::fs::read_to_string(&new).expect("new"), "new\n");
     }
 }

@@ -68,7 +68,7 @@ const COMMITS: GitLogCommit[] = [
   {
     sha: "a14a3efc58f87ec7060122fab3c0843b47154e6a",
     subject:
-      "tugdash(list-filtering): TugFilterField + fuzzy list filtering across picker, /resume, and Lens sections",
+      "tugarc(list-filtering): TugFilterField + fuzzy list filtering across picker, /resume, and Lens sections",
     tug_session: "stocky-pixie (248401c8)",
     tug_session_id: "248401c8-e9fd-4001-9a55-51ed3ff47c43",
     author: "Ken Kocienda",

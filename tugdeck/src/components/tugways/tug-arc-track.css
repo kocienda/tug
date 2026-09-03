@@ -1,8 +1,8 @@
-/* tug-dash-track.css — the strip, its cells, and its ticks.
+/* tug-arc-track.css — the strip, its cells, and its ticks.
 
    Four states on one ladder, chosen to family with the pulsing dot: `done` is
    the muted text tone, `active` the theme's KEY color — the same tone the dot
-   beside it pulses in, because a dash in flight and a session in flight are
+   beside it pulses in, because an arc in flight and a session in flight are
    the same claim — the join, the one cell that is a destination rather than a
    stage, the theme's selection color, and `pending` no fill at all.
 
@@ -28,22 +28,22 @@
    is the honest reading for a long plan in a small strip; the exact count is
    the fraction beside it and the `aria-label`.
 
-   The current cell BREATHES while the dash is live — the same asymmetric
+   The current cell BREATHES while the arc is live — the same asymmetric
    envelope the pulsing dot runs, quick in and slow out, on the same 2s period,
    so a strip and a dot on one row read as one instrument. A stopped arc does
    not breathe: nothing is happening, and that is the fact the danger paint is
    there to say.
 
-   The geometry is knobs — `--tugx-dash-track-cell-w`, `-cell-h`,
+   The geometry is knobs — `--tugx-arc-track-cell-w`, `-cell-h`,
    `-steps-w`, `-out` — and their defaults live in the `var(--x, default)` that
-   READS them, never on `.tug-dash-track` itself. A declaration on the
+   READS them, never on `.tug-arc-track` itself. A declaration on the
    component's own element always beats one on an ancestor, so knobs declared
    there could not be retuned by a host at all: the promise was undeliverable
    until the defaults moved to their points of use.
 
-   Laws: [L06] state is data-*; [L20] owns `--tugx-dash-track-*`. */
+   Laws: [L06] state is data-*; [L20] owns `--tugx-arc-track-*`. */
 
-.tug-dash-track {
+.tug-arc-track {
   display: inline-flex;
   align-items: center;
   gap: 2px;
@@ -54,37 +54,37 @@
    and it needs more room from a word than two words need from each other, so
    the space belongs to the strip rather than to each host row that happens to
    put a word beside one. A track that ends its row claims none. */
-.tug-dash-track:not(:last-child) {
-  margin-inline-end: var(--tugx-dash-track-out, 4px);
+.tug-arc-track:not(:last-child) {
+  margin-inline-end: var(--tugx-arc-track-out, 4px);
 }
 
-.tug-dash-track-cell {
+.tug-arc-track-cell {
   display: inline-flex;
   align-items: stretch;
   gap: 1px;
-  inline-size: var(--tugx-dash-track-cell-w, 14px);
-  block-size: var(--tugx-dash-track-cell-h, 7px);
+  inline-size: var(--tugx-arc-track-cell-w, 14px);
+  block-size: var(--tugx-arc-track-cell-h, 7px);
   border-radius: 2px;
   background: var(--tug7-element-global-border-normal-muted-rest);
 }
 
-.tug-dash-track[data-size="read"] .tug-dash-track-cell {
-  inline-size: var(--tugx-dash-track-cell-w, 18px);
-  block-size: var(--tugx-dash-track-cell-h, 9px);
+.tug-arc-track[data-size="read"] .tug-arc-track-cell {
+  inline-size: var(--tugx-arc-track-cell-w, 18px);
+  block-size: var(--tugx-arc-track-cell-h, 9px);
 }
 
 /* The strip's ends are round, whichever cells it happens to draw. A direct
-   dash draws brief · implement · check · join, so both caps land on whole cells and
+   arc draws brief · implement · check · join, so both caps land on whole cells and
    the endcap never has to travel onto a tick. It did once, when a direct
    strip led with its ticks: a sliver a plan's length wide wore the round end
    a cell should wear, and the join stood at the other end as the only pill on
    the row. */
-.tug-dash-track-cell[data-phase="brief"] {
+.tug-arc-track-cell[data-phase="brief"] {
   border-start-start-radius: 999px;
   border-end-start-radius: 999px;
 }
 
-.tug-dash-track-cell[data-phase="join"] {
+.tug-arc-track-cell[data-phase="join"] {
   border-start-end-radius: 999px;
   border-end-end-radius: 999px;
 }
@@ -96,8 +96,8 @@
 
    Selected through the track so it outranks the per-size cell rules above,
    which are one attribute more specific than a bare `[data-steps]` would be. */
-.tug-dash-track .tug-dash-track-cell[data-steps="true"] {
-  inline-size: var(--tugx-dash-track-steps-w, 42px);
+.tug-arc-track .tug-arc-track-cell[data-steps="true"] {
+  inline-size: var(--tugx-arc-track-steps-w, 42px);
   background: transparent;
   /* The implement cell is a container over its ticks, never a mark of its
      own — so it takes neither the fill nor the pending OUTLINE. A box drawn
@@ -106,14 +106,14 @@
   border-radius: 0;
 }
 
-.tug-dash-track[data-size="read"] .tug-dash-track-cell[data-steps="true"] {
-  inline-size: var(--tugx-dash-track-steps-w, 54px);
+.tug-arc-track[data-size="read"] .tug-arc-track-cell[data-steps="true"] {
+  inline-size: var(--tugx-arc-track-steps-w, 54px);
 }
 
 /* Ticks divide whatever box the implement cell holds — never a width of their
    own, which is what would make the cell grow. `min-inline-size` keeps the
    last tick of a long plan visible rather than collapsed. */
-.tug-dash-track-tick {
+.tug-arc-track-tick {
   flex: 1 1 0;
   min-inline-size: 1px;
   border-radius: 1px;
@@ -123,32 +123,32 @@
 /* What is ahead: an outline, no fill. `inset` rather than a border so the box
    does not change size between states — a cell that grew by 2px when the work
    reached it would shift every cell after it. */
-.tug-dash-track-cell[data-state="pending"],
-.tug-dash-track-tick[data-state="pending"] {
+.tug-arc-track-cell[data-state="pending"],
+.tug-arc-track-tick[data-state="pending"] {
   background: transparent;
   box-shadow: inset 0 0 0 1px var(--tug7-element-global-border-normal-muted-rest);
 }
 
-.tug-dash-track-cell[data-state="done"],
-.tug-dash-track-tick[data-state="done"] {
+.tug-arc-track-cell[data-state="done"],
+.tug-arc-track-tick[data-state="done"] {
   background: var(--tug7-element-global-text-normal-muted-rest);
 }
 
-.tug-dash-track-cell[data-state="active"],
-.tug-dash-track-tick[data-state="active"] {
+.tug-arc-track-cell[data-state="active"],
+.tug-arc-track-tick[data-state="active"] {
   background: var(--tug7-surface-toggle-primary-normal-active-rest);
 }
 
-.tug-dash-track-cell[data-phase="join"][data-state="active"] {
+.tug-arc-track-cell[data-phase="join"][data-state="active"] {
   background: var(--tug7-surface-control-primary-normal-selected-rest);
 }
 
-.tug-dash-track-cell[data-state="stopped"],
-.tug-dash-track-tick[data-state="stopped"] {
+.tug-arc-track-cell[data-state="stopped"],
+.tug-arc-track-tick[data-state="stopped"] {
   background: var(--tug7-element-tone-icon-normal-danger-rest);
 }
 
-.tug-dash-track-tick[data-state="withdrawn"] {
+.tug-arc-track-tick[data-state="withdrawn"] {
   background: transparent;
   box-shadow: inset 0 0 0 1px var(--tug7-element-global-border-normal-muted-rest);
   opacity: 0.45;
@@ -172,14 +172,14 @@
    own preference, which is why the animation is declared inside the query
    rather than switched off by one. */
 @media (prefers-reduced-motion: no-preference) {
-  .tug-dash-track:not([data-stopped]) .tug-dash-track-cell[data-state="active"]:not([data-steps]),
-  .tug-dash-track:not([data-stopped]) .tug-dash-track-tick[data-state="active"] {
-    animation: tug-dash-track-breath var(--tugx-dash-track-breath-ms, 2000ms)
+  .tug-arc-track:not([data-stopped]) .tug-arc-track-cell[data-state="active"]:not([data-steps]),
+  .tug-arc-track:not([data-stopped]) .tug-arc-track-tick[data-state="active"] {
+    animation: tug-arc-track-breath var(--tugx-arc-track-breath-ms, 2000ms)
       ease-in-out infinite;
   }
 }
 
-@keyframes tug-dash-track-breath {
+@keyframes tug-arc-track-breath {
   0% {
     opacity: 0.4;
   }

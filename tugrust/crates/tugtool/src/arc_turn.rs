@@ -20,7 +20,7 @@
 
 use std::path::Path;
 
-/// Whether a gesture on `dash` is being made inside a live arc.
+/// Whether a gesture on `arc` is being made inside a live arc.
 ///
 /// Two facts, either of which is enough, because they fail in opposite
 /// directions. `TUG_ARC` is what the wheel stamps on a stage's spawn
@@ -30,20 +30,20 @@ use std::path::Path;
 /// (`wheel::arc_is_running`) and is the truth, but it costs a repo walk and
 /// a file read. So: the record decides when it can be read, and the variable is
 /// the fallback for a checkout whose arc file this process cannot reach.
-pub(crate) fn under_an_arc(dash: &str) -> bool {
+pub(crate) fn under_an_arc(arc: &str) -> bool {
     if let Ok(repo) = tugtool_core::find_repo_root()
-        && tugarc_core::arc::read_arc(&repo, dash).is_some()
+        && tugarc_core::arc::read_arc(&repo, arc).is_some()
     {
-        return arc_is_live_in(&repo, dash);
+        return arc_is_live_in(&repo, arc);
     }
-    named_arc().is_some_and(|arc| arc == dash)
+    named_arc().is_some_and(|named| named == arc)
 }
 
-/// Whether `dash` has an arc running in `repo` — the same reading
+/// Whether `arc` has an arc running in `repo` — the same reading
 /// `wheel::arc_is_running` makes on the server side, against the same
 /// record, so the two cannot disagree about what a live arc is.
-pub(crate) fn arc_is_live_in(repo: &Path, dash: &str) -> bool {
-    match tugarc_core::arc::read_arc(repo, dash) {
+pub(crate) fn arc_is_live_in(repo: &Path, arc: &str) -> bool {
+    match tugarc_core::arc::read_arc(repo, arc) {
         Some(record) => !record.done && record.stopped.is_none(),
         None => false,
     }
@@ -212,7 +212,7 @@ mod tests {
     }
 
     #[test]
-    fn a_dash_with_no_arc_record_is_not_under_an_arc() {
+    fn a_arc_with_no_arc_record_is_not_under_an_arc() {
         let dir = tempfile::tempdir().expect("temp");
         assert!(!arc_is_live_in(dir.path(), "nothing-here"));
     }

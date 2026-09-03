@@ -1,15 +1,15 @@
 /**
- * `SessionArcNoteBlock` — a dash run's quiet lines on the `$`-route, the
- * rows the server derives from the dash-log ([P12]). The row's command is
- * *rendered from the record* by tugcast's `command_for_line` (`dash step
- * <name> done`, `dash create <name>`, `dash mark <name> built`, `dash commit
- * <name>`), never echoed from an invocation, so the bare `dash` head is the
+ * `SessionArcNoteBlock` — an arc run's quiet lines on the `$`-route, the
+ * rows the server derives from the arc-log ([P12]). The row's command is
+ * *rendered from the record* by tugcast's `command_for_line` (`arc step
+ * <name> done`, `arc create <name>`, `arc mark <name> built`, `arc commit
+ * <name>`), never echoed from an invocation, so the bare `arc` head is the
  * synthetic tell: a command a user actually typed spells `tugtool arc …`.
  *
  * This renderer is the **between-turns seat** — the restore path's ledger
  * replay, and a live note that arrived with no turn open (a hand-run verb, a
  * run-start line between stages). A note arriving mid-turn never comes here:
- * `handleDashNote` seats it inside the open turn as a `source: "dash"`
+ * `handleArcNote` seats it inside the open turn as a `source: "arc"`
  * system_note, and the transcript renders it there on the same
  * `TugQuietLine` substrate — one visual register, two seats.
  *
@@ -40,8 +40,8 @@ export function SessionArcNoteBlock({ message }: CommandBlockProps): React.React
   const timestamp = formatTranscriptTimestamp(message.startedAtMs);
   return (
     <div
-      className="session-dash-note-line"
-      data-slot="session-dash-note-line"
+      className="session-arc-note-line"
+      data-slot="session-arc-note-line"
       title={timestamp !== "" ? `${timestamp} · ${message.command}` : message.command}
     >
       <TugQuietLine
@@ -65,7 +65,7 @@ export function arcNoteFindParts(message: ShellExchangeMessage): string[] {
 
 // Registration is a side effect of importing this module — the import sits
 // beside the receipt blocks' in `session-card-transcript.tsx`.
-registerCommandBlock("dash-note", matchesArcNote, SessionArcNoteBlock, {
+registerCommandBlock("arc-note", matchesArcNote, SessionArcNoteBlock, {
   attribution: "wheel",
   presentation: "quiet",
   findParts: arcNoteFindParts,

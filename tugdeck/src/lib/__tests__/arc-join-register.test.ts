@@ -1,7 +1,7 @@
 /**
  * arc-join-register — the one sentence the join says, state by state.
  *
- * Three surfaces render this: the Arcs card Dashes row, the Changes shade's dash
+ * Three surfaces render this: the Arcs card Arcs row, the Changes shade's arc
  * row, and the composer's status row. They agree because they all call this
  * derivation — so what is pinned here is the whole state→sentence table, and,
  * just as load-bearing, the ORDER the arms are tried in. Precedence is where a
@@ -15,7 +15,7 @@ import { describe, test, expect } from "bun:test";
 import { arcJoinRegister } from "../arc-join-register";
 import type { ArcJoinStateWire } from "../changeset-types";
 
-const BASE = { dash: "imposer2", base: "main", stage: "built" };
+const BASE = { arc: "imposer2", base: "main", stage: "built" };
 
 const reg = (
   join: ArcJoinStateWire | null,
@@ -23,7 +23,7 @@ const reg = (
 ): ReturnType<typeof arcJoinRegister> =>
   arcJoinRegister({ ...BASE, join, ...over });
 
-/** A dash the pilot has reconciled — a candidate stands, and that is all the
+/** An arc the pilot has reconciled — a candidate stands, and that is all the
  *  readiness there is to have. */
 const reconciled = (): ArcJoinStateWire => ({
   phase: "resolved",
@@ -54,8 +54,8 @@ describe("what the register says", () => {
     expect(ready?.word).toBe("ready");
   });
 
-  test("a dash whose session is still working is not offered", () => {
-    // The same dash, same standing candidate — the only difference is that
+  test("an arc whose session is still working is not offered", () => {
+    // The same arc, same standing candidate — the only difference is that
     // whoever built it has not stopped. A turn ends when the model stops
     // speaking; the tests it backgrounded are still deciding whether the work
     // is any good, and "Ready to join" in that window invites the user to land
@@ -66,7 +66,7 @@ describe("what the register says", () => {
     expect(working?.word).toBe("working");
 
     // And it holds the pre-candidate arm shut too, which is the one a freshly
-    // finished dash actually passes through.
+    // finished arc actually passes through.
     expect(reg(null, { holdersBusy: true })?.word).toBe("working");
   });
 
@@ -101,7 +101,7 @@ describe("what the register says", () => {
     expect(asked?.word).toBe("question");
   });
 
-  test("a live join names the dash, the base, and the beat", () => {
+  test("a live join names the arc, the base, and the beat", () => {
     const joining = reg(reconciled(), {
       landBeat: { beat: "teardown", status: "start" },
     });
@@ -158,20 +158,20 @@ describe("what the register says", () => {
     expect(offline?.word).toBe("offline");
   });
 
-  test("a joinable dash with no candidate reads as the reconcile about to happen", () => {
+  test("a joinable arc with no candidate reads as the reconcile about to happen", () => {
     // The gap between the recompute and the pilot's dispatch landing. Calling
     // it "nothing to reconcile" would be a lie with a very short shelf life.
     const gap = reg({ phase: "previewed" });
     expect(gap?.word).toBe("reconciling");
   });
 
-  test("a dash still being worked has no join, and mounts nothing", () => {
+  test("an arc still being worked has no join, and mounts nothing", () => {
     expect(reg(null, { stage: "implementing" })).toBeNull();
     expect(reg({ phase: "previewed" }, { stage: "implementing" })).toBeNull();
   });
 
-  test("a `ready` dash has the same arc a `built` one does", () => {
-    // The gate this pins used to be `stage === "built"`, which meant a dash
+  test("a `ready` arc has the same arc a `built` one does", () => {
+    // The gate this pins used to be `stage === "built"`, which meant an arc
     // that armed from its own recorded facts ([D147]) got the modal and a dark
     // register — a face contradicting the arc. All three joinable words reach
     // the same states now.
@@ -183,8 +183,8 @@ describe("what the register says", () => {
     }
   });
 
-  test("an unbound joinable dash says nothing rather than promising a reconcile", () => {
-    // The pilot never runs for a dash nobody holds, so naming a reconcile on
+  test("an unbound joinable arc says nothing rather than promising a reconcile", () => {
+    // The pilot never runs for an arc nobody holds, so naming a reconcile on
     // the Arcs card row would be a promise the machine has already declined to
     // keep — standing there forever.
     expect(reg({ phase: "previewed" }, { stage: "ready", bound: false })).toBeNull();
@@ -195,10 +195,10 @@ describe("what the register says", () => {
     ).toBe("ready");
   });
 
-  test("a fresh dash's `empty` blocker is not a join refusal", () => {
-    // A dash created a moment ago has no rounds, so the board reports an
+  test("a fresh arc's `empty` blocker is not a join refusal", () => {
+    // An arc created a moment ago has no rounds, so the board reports an
     // `empty` blocker meaning "nothing here yet". Read as a join failure it
-    // would put a red register on every new dash in the Arcs card — the arc has not
+    // would put a red register on every new arc in the Arcs card — the arc has not
     // begun, so the register says nothing at all.
     const fresh = reg(
       {
@@ -209,7 +209,7 @@ describe("what the register says", () => {
     );
     expect(fresh).toBeNull();
 
-    // The same blocker on a dash that IS built is a real refusal.
+    // The same blocker on an arc that IS built is a real refusal.
     const built = reg({
       phase: "blocked",
       blockers: [{ kind: "empty", title: "Nothing to join", detail: "nothing to join" }],
@@ -219,8 +219,8 @@ describe("what the register says", () => {
 
   test("anything that implies somebody acted speaks whatever the stage says", () => {
     // A live run, a beat, a standing question and a stated refusal cannot
-    // happen to a dash nobody has touched, so each is worth saying even before
-    // the dash reaches `built`.
+    // happen to an arc nobody has touched, so each is worth saying even before
+    // the arc reaches `built`.
     const running = reg({ phase: "conflicted", run: "resolve" }, { stage: "implementing" });
     expect(running?.word).toBe("reconciling");
 
@@ -280,7 +280,7 @@ describe("precedence — the part that gets re-derived wrongly", () => {
           {
             kind: "stale-journal",
             title: "A join left a teardown behind",
-            detail: "A previous join of dash 'd' is incomplete.",
+            detail: "A previous join of arc 'd' is incomplete.",
           },
         ],
       },
@@ -294,7 +294,7 @@ describe("precedence — the part that gets re-derived wrongly", () => {
     const notJoining = reg({
       ...reconciled(),
       blockers: [
-        { kind: "stale-journal", title: "A join left a teardown behind", detail: "A previous join of dash 'd' is incomplete." },
+        { kind: "stale-journal", title: "A join left a teardown behind", detail: "A previous join of arc 'd' is incomplete." },
       ],
     });
     expect(notJoining?.word).toBe("blocked");
@@ -386,7 +386,7 @@ describe("precedence — the part that gets re-derived wrongly", () => {
 describe("the register a landed receipt reproduces", () => {
   test("a terminal ok beat with nothing else settles on the joined sentence", () => {
     const settled = arcJoinRegister({
-      dash: "imposer2",
+      arc: "imposer2",
       base: "main",
       stage: "ready",
       landBeat: { beat: "record", status: "ok", terminal: true },
@@ -407,44 +407,44 @@ describe("the register a landed receipt reproduces", () => {
  */
 describe("a live arc holds the offer", () => {
   test("an audit in flight outranks a standing candidate", () => {
-    const auditing = reg(reconciled(), { arc: { stage: "audit" } });
+    const auditing = reg(reconciled(), { run: { stage: "audit" } });
     expect(auditing?.phase).toBe("in_flight");
     expect(auditing?.line).toBe("imposer2 is being audited — the join waits for it");
     expect(auditing?.word).toBe("auditing");
   });
 
   test("another live stage names itself and still waits for the audit", () => {
-    const implementing = reg(reconciled(), { arc: { stage: "implement" } });
+    const implementing = reg(reconciled(), { run: { stage: "implement" } });
     expect(implementing?.phase).toBe("in_flight");
     expect(implementing?.line).toBe("imposer2 is in implement — the join waits for the audit");
   });
 
   test("a stopped wheel does not hold the surface hostage", () => {
     const stopped = reg(reconciled(), {
-      arc: { stage: "audit", stopped: "stalled", stopped_stage: "audit" },
+      run: { stage: "audit", stopped: "stalled", stopped_stage: "audit" },
     });
     expect(stopped?.line).toBe("Ready to join");
     expect(stopped?.word).toBe("ready");
   });
 
   test("a finished wheel reads ready, which is what the audit signing off means", () => {
-    const done = reg(reconciled(), { arc: { stage: "audit", done: true } });
+    const done = reg(reconciled(), { run: { stage: "audit", done: true } });
     expect(done?.line).toBe("Ready to join");
   });
 
-  test("an unbound dash under a live wheel says so, where today it says nothing", () => {
-    // The `Reconciling` fall-through is silent for an unbound dash because the
+  test("an unbound arc under a live wheel says so, where today it says nothing", () => {
+    // The `Reconciling` fall-through is silent for an unbound arc because the
     // pilot never runs for one. A running audit is a fact about the work, not a
-    // promise about the pilot, so it speaks whoever is holding the dash.
+    // promise about the pilot, so it speaks whoever is holding the arc.
     expect(reg(null, { bound: false })).toBeNull();
-    const auditing = reg(null, { bound: false, arc: { stage: "audit" } });
+    const auditing = reg(null, { bound: false, run: { stage: "audit" } });
     expect(auditing?.word).toBe("auditing");
   });
 
   test("no arc at all leaves every other reading exactly as it was", () => {
     expect(reg(reconciled())?.line).toBe("Ready to join");
-    expect(reg(reconciled(), { arc: null })?.line).toBe("Ready to join");
-    expect(reg(reconciled(), { arc: undefined })?.line).toBe("Ready to join");
+    expect(reg(reconciled(), { run: null })?.line).toBe("Ready to join");
+    expect(reg(reconciled(), { run: undefined })?.line).toBe("Ready to join");
   });
 
   test("an audit that has signed off does not go on holding its own offer", () => {
@@ -454,7 +454,7 @@ describe("a live arc holds the offer", () => {
     // and on a run whose arc was stopped and resumed it may never land — while
     // the server has already made the offer. Holding it shut over that window
     // would be this arm telling the user to wait for a stage that is finished.
-    const signed = reg(reconciled(), { stage: "audited", arc: { stage: "audit" } });
+    const signed = reg(reconciled(), { stage: "audited", run: { stage: "audit" } });
     expect(signed?.line).toBe("Ready to join");
     expect(signed?.word).toBe("ready");
   });
@@ -463,13 +463,13 @@ describe("a live arc holds the offer", () => {
     // The window between `arc-start` and the first `arc-stage` line: the record
     // is live and has no seat. The arm must not fire, or the sentence
     // interpolates the absent stage into the user's face.
-    const unseated = reg(reconciled(), { arc: { done: false } });
+    const unseated = reg(reconciled(), { run: { done: false } });
     expect(unseated?.line).toBe("Ready to join");
-    expect(reg(reconciled(), { arc: { stage: "" } })?.line).toBe("Ready to join");
+    expect(reg(reconciled(), { run: { stage: "" } })?.line).toBe("Ready to join");
   });
 
   test("a busy holder still outranks the arc, and a blocker outranks both", () => {
-    const busy = reg(reconciled(), { arc: { stage: "audit" }, holdersBusy: true });
+    const busy = reg(reconciled(), { run: { stage: "audit" }, holdersBusy: true });
     expect(busy?.word).toBe("working");
 
     const blocked = reg(
@@ -479,7 +479,7 @@ describe("a live arc holds the offer", () => {
           { kind: "base_dirty", title: "Base is dirty", detail: "main has uncommitted src/x.ts" },
         ],
       },
-      { arc: { stage: "audit" } },
+      { run: { stage: "audit" } },
     );
     expect(blocked?.word).toBe("blocked");
   });

@@ -320,9 +320,9 @@ export interface CardBinding {
    *  Keep in lockstep with the Rust binding row. */
   synopsis?: string | null;
   /**
-   * The dash this session is working on — its owner key, and the dash's short
-   * name for display. Null when unbound, and also when the dash's branch no
-   * longer exists (the server nulls a binding to a dash that has been joined
+   * The arc this session is working on — its owner key, and the arc's short
+   * name for display. Null when unbound, and also when the arc's branch no
+   * longer exists (the server nulls a binding to an arc that has been joined
    * or released).
    *
    * **Decode only.** `session-restore.ts` writes no bindings: it matches these
@@ -332,8 +332,8 @@ export interface CardBinding {
    * these ride the row for completeness and reach the store the same way
    * `workspace_key` does.
    */
-  dash_id?: string | null;
-  dash_name?: string | null;
+  arc_id?: string | null;
+  arc_name?: string | null;
 }
 
 /** Frame flags */
@@ -474,8 +474,8 @@ export function encodeCodeInput(msg: object, tugSessionId: string): ArrayBuffer 
  * original atom positions in the substrate; tugcode forwards the array
  * straight to the Anthropic SDK with no construction step.
  *
- * Per [Spec S01](dash/dev-atoms.md#s01-attachment-wire-type)
- * (retired wire-shape `Attachment`) and [Step 5c](dash/dev-atoms.md#step-5c).
+ * Per [Spec S01](arc/dev-atoms.md#s01-attachment-wire-type)
+ * (retired wire-shape `Attachment`) and [Step 5c](arc/dev-atoms.md#step-5c).
  */
 // Content-block wire shapes now live in the shared client→tugcode contract
 // ([#step-13c1]); re-exported so tugdeck call sites keep importing them from
@@ -981,6 +981,9 @@ export type OverviewRefKind =
   | "commit"
   | "plan"
   | "brief"
+  | "arc"
+  // Read for life ([F19]): `overview_posts.refs` is stored JSON, so every ref
+  // written before the word moved spells this. Nothing writes it any more.
   | "dash";
 
 const OVERVIEW_REF_KINDS: readonly string[] = [
@@ -989,6 +992,7 @@ const OVERVIEW_REF_KINDS: readonly string[] = [
   "commit",
   "plan",
   "brief",
+  "arc",
   "dash",
 ];
 

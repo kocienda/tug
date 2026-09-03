@@ -59,7 +59,7 @@ export interface CommandBlockProps {
   staged?: boolean;
   /**
    * Whether a later row in this same transcript has answered what this receipt
-   * says — a join receipt for the dash an `arc stopped` row named, or a later
+   * says — a join receipt for the arc an `arc stopped` row named, or a later
    * arc receipt for it (Spec S04).
    *
    * **A fact derived from the session's own rows, never live feed state.** The
@@ -87,7 +87,7 @@ export type CommandBlockMatcher = (command: string) => boolean;
  * Attributing those to the shell that carried them names the transport instead
  * of the act.
  *
- * `wheel` is for the one row nobody performed at all. A dash arc ends on a
+ * `wheel` is for the one row nobody performed at all. An arc ends on a
  * server tick: the wheel rotated its last stage, wrote the record, and left a
  * receipt on whichever card happened to be bound. Nothing was shelled and
  * nothing was committed on the base, so neither of the other two is true of
@@ -108,7 +108,7 @@ export type CommandBlockAttribution = "shell" | "git" | "wheel";
  * `entry` is the default: a full transcript entry — participant header,
  * timestamp • cwd, `#s{n}` address, body, end-state — the shape every
  * `$`-route exchange has always worn. `quiet` is for the derived lines nobody
- * ran: a dash gesture's note is one sentence painted from the record
+ * ran: an arc gesture's note is one sentence painted from the record
  * ([P12]), and dressing it as a command exchange announces a process that
  * never ran — a header, a command block, and an output panel wrapping one
  * line of prose. A `quiet` row renders as that line alone; the renderer owns

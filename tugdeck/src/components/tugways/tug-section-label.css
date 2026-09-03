@@ -1,7 +1,7 @@
 /* tug-section-label.css — `TugSectionLabel`, the eyebrow over a bucket of rows.
 
    Every value here arrived unchanged from the two stylesheets that used to
-   spell it — `tug-changes-list.css` and `session-changes-dash-lane.css` — so
+   spell it — `tug-changes-list.css` and `session-changes-arc-lane.css` — so
    the extraction is a move, not a redesign.
 
    Laws: [L20] owns `--tugx-section-label-*` and composes no other component's
@@ -50,7 +50,7 @@ body {
 }
 
 /* @tug-renders-on var(--tug7-surface-global-primary-normal-default-rest) */
-.tug-section-label-dash,
+.tug-section-label-arc,
 .tug-section-label-qualifier {
   color: var(--tugx-section-label-qualifier);
   font-weight: var(--tug-font-weight-normal);

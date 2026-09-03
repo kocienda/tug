@@ -319,7 +319,7 @@ function GalleryAlertInner() {
  * GalleryAlert — TugAlert demo tab.
  *
  * Delegates to GalleryAlertInner which uses useTugAlert(). The TugAlertProvider
- * is already in the root render tree (added in Dash 2), so the hook works here.
+ * is already in the root render tree (added in Arc 2), so the hook works here.
  */
 export function GalleryAlert() {
   return <GalleryAlertInner />;

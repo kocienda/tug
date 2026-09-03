@@ -1887,7 +1887,7 @@ pub async fn relay_session_io(
                             // is not an answer, it is a race (`at0503`).
                             //
                             // Sent after `record`, so the ordering W2 settled
-                            // is untouched: the row push, then `bind_dash_ok`,
+                            // is untouched: the row push, then `bind_arc_ok`,
                             // then this. Only for an id that *changed* — the
                             // first `session_init` of a card seats nothing the
                             // spawn ack did not already say — and never for a
@@ -3204,7 +3204,7 @@ struct SessionSegmentAnnouncement {
     fork_point: Option<String>,
     /// What a rotation seated the segment as. Present on a `rotation`.
     stage: Option<String>,
-    /// The dash the arc is keyed by. Present on every rotation the runner
+    /// The arc this rotation is keyed by. Present on every rotation the runner
     /// originates; absent on a rotation no arc is driving.
     arc: Option<String>,
     /// The model the stage was rotated with, or `None` for the account
@@ -4097,7 +4097,7 @@ mod tests {
         // A rotation with no score behind it names no arc and no document,
         // and that absence is what keeps `arc-stage` unwritten: the write is
         // guarded on an arc name *and* a parsable stage, so a `None` here
-        // cannot reach the dash-log at all.
+        // cannot reach the arc log at all.
         assert!(parsed.arc.is_none());
         assert!(
             parsed.stage.as_deref().and_then(ArcStage::parse).is_some(),

@@ -1,11 +1,11 @@
 /**
  * arc-join-register — what the join says, in one sentence, everywhere.
  *
- * A dash on its way to landing passes through reconciling, ready, question,
+ * An arc on its way to landing passes through reconciling, ready, question,
  * joining, blocked. Three surfaces show that: the Arcs card's
- * row, the Changes shade's dash row, and the composer's status row. Before
+ * row, the Changes shade's arc row, and the composer's status row. Before
  * this, each derived its own words, which is how two surfaces come to disagree
- * about one dash — and one of the sentences named a control that had been
+ * about one arc — and one of the sentences named a control that had been
  * deleted.
  *
  * So the sentence is derived exactly once, here, and it is a **pure function of
@@ -25,9 +25,9 @@
  */
 
 import type { ToolCallPhase } from "@/lib/code-session-store/tool-call-phase-visual";
-import type { ArcJoinStateWire, DashArcState } from "@/lib/changeset-types";
+import type { ArcJoinStateWire, ArcRunState } from "@/lib/changeset-types";
 
-/** What one dash's join reads as right now. */
+/** What one arc's join reads as right now. */
 export interface ArcJoinRegister {
   /** The lifecycle dot's phase — pulsing, settled, or quiet. */
   phase: ToolCallPhase;
@@ -38,12 +38,12 @@ export interface ArcJoinRegister {
 }
 
 /**
- * The stage words that mean "this dash can be joined" ([D147], Spec S04).
+ * The stage words that mean "this arc can be joined" ([D147], Spec S04).
  *
  * The server derives readiness once and spends it on a single word; this is
  * the client's reading of that word, and it is deliberately a set rather than
  * an equality test — `ready` is the derived arm, `built` and `audited` are the
- * declarations that outrank it, and all three describe the same joinable dash.
+ * declarations that outrank it, and all three describe the same joinable arc.
  * A test against one of them alone leaves the register dark on the other two
  * while the join modal fires.
  */
@@ -51,15 +51,15 @@ const JOINABLE_STAGES = new Set(["ready", "built", "audited"]);
 
 /** Everything the register reads. Nothing here is fetched; it is all passed. */
 export interface ArcJoinRegisterInput {
-  /** The dash's display name. */
-  dash: string;
+  /** The arc's display name. */
+  arc: string;
   /** The base branch it joins onto. */
   base: string;
-  /** The dash's stage — `ready`, `built` and `audited` reach the decision states. */
+  /** The arc's stage — `ready`, `built` and `audited` reach the decision states. */
   stage?: string | null;
-  /** The `join` block from the dash's feed entry. */
+  /** The `join` block from the arc's feed entry. */
   join?: ArcJoinStateWire | null;
-  /** The client's resolve overlay phase for this dash. */
+  /** The client's resolve overlay phase for this arc. */
   resolvePhase?: "idle" | "resolving" | "error";
   /**
    * What a join last reported ([P03]) — a beat while it runs, its result once
@@ -69,34 +69,34 @@ export interface ArcJoinRegisterInput {
   /** Whether the deck's wire is up. */
   connected?: boolean;
   /**
-   * Whether a session holding this dash is still working — mid-turn, or
+   * Whether a session holding this arc is still working — mid-turn, or
    * waiting on a background job it launched. Straight off the feed's
    * `holders_busy`.
    *
    * A join is an offer to land finished work, so it is not made until the work
    * is finished. The turn ending is not that: the model stops speaking while
-   * the tests it backgrounded are still deciding whether the dash is any good,
+   * the tests it backgrounded are still deciding whether the arc is any good,
    * and a "Ready to join" shown in that window invites the user to land
    * something nobody has finished checking.
    */
   holdersBusy?: boolean;
   /**
-   * Whether any live session holds this dash.
+   * Whether any live session holds this arc.
    *
-   * The pilot works only for bound dashes ([D147]), so an unbound one is not
+   * The pilot works only for bound arcs ([D147]), so an unbound one is not
    * mid-check — nothing is going to happen to it at all. Defaults to `true`
-   * for the callers that only ever render a dash they are holding.
+   * for the callers that only ever render an arc they are holding.
    */
   bound?: boolean;
   /**
-   * The arc driving this dash, when one is — the wheel's own record of which
+   * The run driving this arc, when one is — the wheel's own record of which
    * stage is seated and whether it has finished ([P06]).
    *
-   * Optional, and absent is not "there is no arc": two of the five call sites
+   * Optional, and absent is not "there is no run": two of the five call sites
    * pass nothing on purpose, and the arm that reads this does not fire on
    * `undefined`, so those two keep today's behavior exactly.
    */
-  arc?: DashArcState | null;
+  run?: ArcRunState | null;
 }
 
 /**
@@ -135,7 +135,7 @@ export const BEAT_WORDS: Record<string, string> = {
 };
 
 /**
- * What the arc says about one dash.
+ * What the arc says about one arc.
  *
  * **The arm order is the whole derivation**, and it is the part a later reader
  * will re-derive wrongly, so it is stated here rather than left to be inferred
@@ -145,7 +145,7 @@ export const BEAT_WORDS: Record<string, string> = {
  *    arriving. Every other state is a claim about a moment that may be past.
  * 2. **joining** — a live join is the most specific thing happening, and it
  *    outranks both the verdict that permitted it and any blocker. A blocker
- *    answers *may this dash be joined*; a join in flight is past that question,
+ *    answers *may this arc be joined*; a join in flight is past that question,
  *    so a refusal painted over a running join reports a decision that has
  *    already been made.
  * 3. **blocked** — an act somebody must take elsewhere, which outranks a green
@@ -156,7 +156,7 @@ export const BEAT_WORDS: Record<string, string> = {
  * 6. **running** — the pilot's reconcile or check, from the feed's own `run`
  *    fact or the client's overlay.
  * 7. **verdict** — red, then green.
- * 7a. **still working** — above the readiness arms only. A dash whose holder
+ * 7a. **still working** — above the readiness arms only. An arc whose holder
  *    has not stopped is not being offered, but a join already in flight, a
  *    blocker, a question and a stated refusal all outrank it: each reports
  *    something that has already happened, and none of them is an offer.
@@ -164,26 +164,26 @@ export const BEAT_WORDS: Record<string, string> = {
  *    work is not finished. A live wheel means a stage is seated, and the audit
  *    is the one that most often is; it commits fixup rounds, so the tree the
  *    join would land is still moving.
- * 8. **nothing** — a dash still being worked has no join yet, and `null`
+ * 8. **nothing** — an arc still being worked has no join yet, and `null`
  *    is how that is said. A register with nothing to report does not mount.
  */
 export function arcJoinRegister(
   input: ArcJoinRegisterInput,
 ): ArcJoinRegister | null {
-  const { dash, base, join, landBeat } = input;
+  const { arc, base, join, landBeat } = input;
   const connected = input.connected ?? true;
 
-  // **The arc begins where the dash is joinable.** The server derives that and
-  // says it in one word — `ready` for a dash whose facts arm it, `built` or
+  // **The arc begins where the arc is joinable.** The server derives that and
+  // says it in one word — `ready` for an arc whose facts arm it, `built` or
   // `audited` for one somebody declared finished ([D147]). Before that there is
-  // nothing to say: a dash being worked is not trying to join, and its blockers
-  // are not a join failure — a freshly created dash with no rounds carries an
+  // nothing to say: an arc being worked is not trying to join, and its blockers
+  // are not a join failure — a freshly created arc with no rounds carries an
   // `empty` blocker that means "nothing here yet", which read as a join refusal
-  // would put a red register on every new dash in the Arcs card.
+  // would put a red register on every new arc in the Arcs card.
   //
   // The exception is anything that implies somebody already acted. A live
   // join, a run in flight, a standing question or a stated refusal cannot
-  // happen to a dash nobody has touched, and each of them is worth saying
+  // happen to an arc nobody has touched, and each of them is worth saying
   // whatever the stage reads.
   const acted =
     (landBeat !== null && landBeat !== undefined) ||
@@ -210,7 +210,7 @@ export function arcJoinRegister(
     const beat = BEAT_WORDS[landing.beat] ?? landing.beat;
     return {
       phase: "in_flight",
-      line: `Joining ${dash} into ${base} — ${beat}`,
+      line: `Joining ${arc} into ${base} — ${beat}`,
       word: "joining",
     };
   }
@@ -259,7 +259,7 @@ export function arcJoinRegister(
     const ok = landing.status !== "error";
     return {
       phase: ok ? "success" : "error",
-      line: ok ? `Joined ${dash} into ${base}` : `Join failed — ${dash} is still here`,
+      line: ok ? `Joined ${arc} into ${base}` : `Join failed — ${arc} is still here`,
       word: ok ? "joined" : "join-failed",
     };
   }
@@ -270,7 +270,7 @@ export function arcJoinRegister(
   if (input.holdersBusy === true) {
     return {
       phase: "in_flight",
-      line: `${dash} is still working — the join waits for it to finish`,
+      line: `${arc} is still working — the join waits for it to finish`,
       word: "working",
     };
   }
@@ -286,13 +286,13 @@ export function arcJoinRegister(
   // fall-through would paint `Reconciling with <base>` — a sentence promising
   // something imminent — for the whole length of an audit.
   //
-  // This also speaks for an **unbound** dash, where the `Reconciling`
+  // This also speaks for an **unbound** arc, where the `Reconciling`
   // fall-through below is silent by design. That difference is intended: the
-  // fall-through is silent because the *pilot* never runs for a dash nobody
+  // fall-through is silent because the *pilot* never runs for an arc nobody
   // holds, which is a statement about a promise, whereas a running audit is a
   // fact about the work and is true whoever is holding it.
   //
-  // **Two things it does not speak over.** A dash whose derived stage is
+  // **Two things it does not speak over.** An arc whose derived stage is
   // already `audited` has had the audit sign off — `derive_stage` returns that
   // word only for a declared `audited`, which is the same declaration [P05]'s
   // gate arms the join on — so holding the offer shut there would deny an
@@ -300,24 +300,24 @@ export function arcJoinRegister(
   // land. And a record carrying no rotated stage has no seat to name: there is
   // nothing running to wait for, and the sentence below would interpolate the
   // absence into the user's face.
-  const arc = input.arc ?? null;
-  const arcStage = arc?.stage ?? "";
+  const run = input.run ?? null;
+  const runStage = run?.stage ?? "";
   if (
-    arc !== null &&
-    arc.done !== true &&
-    (arc.stopped ?? "") === "" &&
-    arcStage !== "" &&
+    run !== null &&
+    run.done !== true &&
+    (run.stopped ?? "") === "" &&
+    runStage !== "" &&
     input.stage !== "audited"
   ) {
-    return arc.stage === "audit"
+    return run.stage === "audit"
       ? {
           phase: "in_flight",
-          line: `${dash} is being audited — the join waits for it`,
+          line: `${arc} is being audited — the join waits for it`,
           word: "auditing",
         }
       : {
           phase: "in_flight",
-          line: `${dash} is in ${arc.stage} — the join waits for the audit`,
+          line: `${arc} is in ${run.stage} — the join waits for the audit`,
           word: "arc-running",
         };
   }
@@ -329,13 +329,13 @@ export function arcJoinRegister(
     return { phase: "success", line: "Ready to join", word: "ready" };
   }
 
-  // No candidate, nothing running. On a joinable dash somebody is holding,
+  // No candidate, nothing running. On a joinable arc somebody is holding,
   // that is the gap between the recompute and the pilot's dispatch landing — a
   // beat away rather than a resting state, so it reads as the reconcile that
   // is about to happen.
   //
   // On an **unbound** one it is not a gap at all: the pilot never runs for a
-  // dash nobody holds, so naming a reconcile would be a promise the machine
+  // arc nobody holds, so naming a reconcile would be a promise the machine
   // has already declined to keep, standing forever. Say nothing instead —
   // `/arc-join <name>` and binding a card are both still open, and neither is a
   // thing this line was reporting.
@@ -346,6 +346,6 @@ export function arcJoinRegister(
   }
 
   // Reachable only through the `acted` exception above: a run that has ended
-  // on a dash that never became joinable. Nothing to report.
+  // on an arc that never became joinable. Nothing to report.
   return null;
 }

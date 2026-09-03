@@ -1,17 +1,17 @@
 /**
- * at0499-dashes-scroll.test.ts — the Arcs card hands its overflow to its own
+ * at0499-arcs-scroll.test.ts — the Arcs card hands its overflow to its own
  * list's scroller rather than growing past its rail.
  *
  * A rail card takes its pane's height and its list carries the overflow. The
- * Dashes surface did not take part: its inner shell carried an automatic block
+ * Arcs surface did not take part: its inner shell carried an automatic block
  * min-content, and a scroll container does NOT shrink an ancestor's
  * min-content — so the column stood at the full intrinsic height of its rows
- * however many there were, and a checkout with more dashes than the rail can
+ * however many there were, and a checkout with more arcs than the rail can
  * show simply ran the last ones off the bottom with no way to reach them.
  *
- * The fixture makes that real rather than arguing it: forty dashes, each a
- * document-only dash (a directory under `.tug/arcs/` holding a brief), which
- * is the cheapest real dash there is — no branch, no worktree, and the card
+ * The fixture makes that real rather than arguing it: forty arcs, each a
+ * document-only arc (a directory under `.tug/arcs/` holding a brief), which
+ * is the cheapest real arc there is — no branch, no worktree, and the card
  * renders every one as a row. Forty two-line rows are taller than any rail
  * this harness opens, so the card genuinely overflows.
  *
@@ -39,12 +39,12 @@ import {
   seedTugbankForLaunch,
 } from "./_harness/tugbank-helpers";
 import {
-  makeDashScratchRepo,
-  rmDashScratchRepo,
+  makeArcScratchRepo,
+  rmArcScratchRepo,
   rmScratchSession,
   seedScratchSession,
-  type DashScratchRepo,
-} from "./dash-fixture";
+  type ArcScratchRepo,
+} from "./arc-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
@@ -54,49 +54,49 @@ const SID = "a7c0d1ea-0000-4000-8000-000000000499";
 /** Enough two-line rows that the band cannot fit them at any rail height this
  *  harness opens. Below this the test would pass without proving anything, so
  *  the overflow itself is asserted before the marks that depend on it. */
-const DASH_COUNT = 40;
-const DASH_NAMES = Array.from(
-  { length: DASH_COUNT },
+const ARC_COUNT = 40;
+const ARC_NAMES = Array.from(
+  { length: ARC_COUNT },
   (_, i) => `at0499-plan-${String(i + 1).padStart(2, "0")}`,
 );
-const LAST_DASH = DASH_NAMES[DASH_NAMES.length - 1] ?? "";
+const LAST_ARC = ARC_NAMES[ARC_NAMES.length - 1] ?? "";
 
-const CARD = '.dashes-section';
-const LIST = `${CARD} .tug-list-view.dashes-list`;
-const ROWS = `${CARD} [data-slot="dash-document-row"]`;
-const LAST_ROW = `${CARD} [data-slot="dash-document-row"][data-dash="${LAST_DASH}"]`;
+const CARD = '.arcs-section';
+const LIST = `${CARD} .tug-list-view.arcs-list`;
+const ROWS = `${CARD} [data-slot="arc-document-row"]`;
+const LAST_ROW = `${CARD} [data-slot="arc-document-row"][data-arc="${LAST_ARC}"]`;
 
-/** This checkout — the build under test, and never the tree a dash is cut in. */
+/** This checkout — the build under test, and never the tree an arc is cut in. */
 const CHECKOUT = realpathSync(resolve(import.meta.dir, "..", ".."));
-let scratch: DashScratchRepo | null = null;
+let scratch: ArcScratchRepo | null = null;
 let fixtureDir = "";
 const projectDir = (): string => scratch?.repo ?? "";
 
 /**
- * A document-only dash: a directory under `.tug/arcs/` holding a brief and
+ * A document-only arc: a directory under `.tug/arcs/` holding a brief and
  * nothing else. `tugarc_core::document_arcs` lists exactly this shape, so
- * the row the section renders is a real dash the aggregate reported — there is
+ * the row the section renders is a real arc the aggregate reported — there is
  * no fixture path into that list other than the files themselves.
  */
-function seedDocumentDash(repo: string, name: string): void {
+function seedDocumentArc(repo: string, name: string): void {
   const dir = join(repo, ".tug", "arcs", name);
   mkdirSync(dir, { recursive: true });
   writeFileSync(
     join(dir, "brief.md"),
-    `# ${name}\n\nA brief the Dashes band has to find room for.\n`,
+    `# ${name}\n\nA brief the Arcs band has to find room for.\n`,
   );
 }
 
 beforeAll(() => {
   if (!SHOULD_RUN) return;
-  scratch = makeDashScratchRepo({ prefix: "at0499", checkout: CHECKOUT });
-  for (const name of DASH_NAMES) seedDocumentDash(projectDir(), name);
+  scratch = makeArcScratchRepo({ prefix: "at0499", checkout: CHECKOUT });
+  for (const name of ARC_NAMES) seedDocumentArc(projectDir(), name);
   fixtureDir = seedScratchSession(projectDir(), SID);
 });
 
 afterAll(() => {
   if (!SHOULD_RUN) return;
-  rmDashScratchRepo(scratch);
+  rmArcScratchRepo(scratch);
   rmScratchSession(fixtureDir);
 });
 
@@ -126,7 +126,7 @@ describe.skipIf(!SHOULD_RUN)("AT0499: the Arcs card scrolls its own rows", () =>
       const tugbankPath = mkTempTugbank();
       seedTugbankForLaunch(tugbankPath, { sourceTreePath: CHECKOUT });
       const app = await launchTugApp({
-        testName: "at0499-dashes-scroll",
+        testName: "at0499-arcs-scroll",
         env: { TUGBANK_PATH: tugbankPath, TUG_DATA_DIR: scratch?.dataRoot ?? "" },
       });
       try {
@@ -136,13 +136,13 @@ describe.skipIf(!SHOULD_RUN)("AT0499: the Arcs card scrolls its own rows", () =>
           `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
         );
         // A spawned session, not a bound one: spawning is what registers the
-        // scratch repo as a workspace, so its dashes reach the aggregate.
+        // scratch repo as a workspace, so its arcs reach the aggregate.
         await app.spawnSessionResume("A", { tugSessionId: SID, projectDir: projectDir() });
         await app.awaitEngineReady("A", { timeoutMs: 15000 });
 
         await app.dispatchControlAction("toggle-arcs");
         await app.waitForCondition<boolean>(
-          `document.querySelectorAll(${JSON.stringify(ROWS)}).length === ${DASH_COUNT}`,
+          `document.querySelectorAll(${JSON.stringify(ROWS)}).length === ${ARC_COUNT}`,
           { timeoutMs: 30000 },
         );
 
@@ -173,7 +173,7 @@ describe.skipIf(!SHOULD_RUN)("AT0499: the Arcs card scrolls its own rows", () =>
 
         // The precondition, asserted rather than assumed: forty rows really
         // are more than the card can show. If this ever fails the rail grew,
-        // and the fixture owes it more dashes — everything below is vacuous
+        // and the fixture owes it more arcs — everything below is vacuous
         // without it.
         expect(geometry.listScrollHeight).toBeGreaterThan(geometry.listClientHeight);
         // The list is the scroller, and the card is not: the overflow belongs
@@ -188,7 +188,7 @@ describe.skipIf(!SHOULD_RUN)("AT0499: the Arcs card scrolls its own rows", () =>
 
         note("at0499 the Arcs card overflowing", (await app.screenshot()).path);
 
-        // Scrolled to the end, the last dash sits inside the list's viewport —
+        // Scrolled to the end, the last arc sits inside the list's viewport —
         // the whole point of the scroller, and the thing a person could not do
         // before it existed.
         const reachable = await app.evalJS<{
@@ -215,7 +215,7 @@ describe.skipIf(!SHOULD_RUN)("AT0499: the Arcs card scrolls its own rows", () =>
         expect(reachable.rowTop).toBeGreaterThanOrEqual(reachable.viewTop - 1);
         expect(reachable.rowBottom).toBeLessThanOrEqual(reachable.viewBottom + 1);
 
-        note("at0499 dashes card, bottom of the dashes band", (await app.screenshot()).path);
+        note("at0499 arcs card, bottom of the arcs band", (await app.screenshot()).path);
       } finally {
         await app.close();
         rmTempTugbank(tugbankPath);

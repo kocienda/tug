@@ -1,20 +1,20 @@
 /**
- * dash-picker-sheet.tsx — bare `/arc-bind`'s picker, when the project holds
- * more than one dash.
+ * arc-picker-sheet.tsx — bare `/arc-bind`'s picker, when the project holds
+ * more than one arc.
  *
- * Picking which dash to work on is a UI-concept act with no turn and no durable
- * consequence, exactly like the `bind_dash` it performs ([P01]) — so it is a
+ * Picking which arc to work on is a UI-concept act with no turn and no durable
+ * consequence, exactly like the `bind_arc` it performs ([P01]) — so it is a
  * sheet on the card's existing host and never transcript ink. A disposable
  * choice does not belong permanently in the record.
  *
  * The list owns its cursor: `TugListView` in `singleSelect` mode with
  * `commitOnEnter="act"` gives arrow motion, Return, and click for free ([L19]),
- * and the card's own dash seeds the selection so Return with no arrow presses
+ * and the card's own arc seeds the selection so Return with no arrow presses
  * is a no-op rebind rather than a surprise. Nothing here mirrors the selection
  * into React state.
  *
  * The sheet resolves with no value. The bind's outcome arrives through the
- * `bind_dash_ok` broadcast and the card-scoped bind-error store, both of which
+ * `bind_arc_ok` broadcast and the card-scoped bind-error store, both of which
  * outlive the sheet — which is why dismissing it mid-bind is harmless.
  *
  * Laws: [L06] appearance is CSS on data attributes; [L19] composes
@@ -42,19 +42,19 @@ import {
 } from "@/components/tugways/tug-list-view";
 import { useSeedKeyView } from "@/components/tugways/use-focusable";
 import { arcReviewPaints } from "@/lib/arc-review";
-import type { DashChangesetEntry } from "@/lib/changeset-types";
+import type { ArcChangesetEntry } from "@/lib/changeset-types";
 
 export interface ArcPickerSheetProps {
-  /** This project's dash entries, in the snapshot's order — the picker does
+  /** This project's arc entries, in the snapshot's order — the picker does
    *  not apply the Arcs card's ordering, which is that surface's presentation
-   *  choice rather than a property of the dashes. */
-  dashes: readonly DashChangesetEntry[];
-  /** Owner key of this card's current dash: marks the row and seeds the
+   *  choice rather than a property of the arcs. */
+  arcs: readonly ArcChangesetEntry[];
+  /** Owner key of this card's current arc: marks the row and seeds the
    *  selection. Null when the card is unbound. */
-  boundDashId: string | null;
+  boundArcId: string | null;
   /** Send the bind. The sheet closes immediately afterwards and awaits
    *  nothing — the ack is the mover, not this callback. */
-  onPick: (entry: DashChangesetEntry) => void;
+  onPick: (entry: ArcChangesetEntry) => void;
   /** Dismiss the sheet. */
   onClose: (value?: string) => void;
 }
@@ -64,49 +64,49 @@ function roundsLabel(rounds: number): string {
 }
 
 /** A flat, immutable source over one render's entries. */
-class DashPickerDataSource implements TugListViewDataSource {
+class ArcPickerDataSource implements TugListViewDataSource {
   constructor(
-    readonly dashes: readonly DashChangesetEntry[],
-    readonly boundDashId: string | null,
+    readonly arcs: readonly ArcChangesetEntry[],
+    readonly boundArcId: string | null,
   ) {}
   numberOfItems(): number {
-    return this.dashes.length;
+    return this.arcs.length;
   }
   idForIndex(index: number): string {
-    return this.dashes[index]!.owner_id;
+    return this.arcs[index]!.owner_id;
   }
   kindForIndex(): string {
-    return "dash";
+    return "arc";
   }
   subscribe(): () => void {
     return () => {};
   }
   getVersion(): unknown {
-    return this.dashes;
+    return this.arcs;
   }
 }
 
-const DashPickerCell: TugListViewCellRenderer<DashPickerDataSource> = ({
+const ArcPickerCell: TugListViewCellRenderer<ArcPickerDataSource> = ({
   index,
   dataSource,
-}: TugListViewCellProps<DashPickerDataSource>) => {
-  const entry = dataSource.dashes[index];
+}: TugListViewCellProps<ArcPickerDataSource>) => {
+  const entry = dataSource.arcs[index];
   if (entry === undefined) return null;
-  const current = entry.owner_id === dataSource.boundDashId;
+  const current = entry.owner_id === dataSource.boundArcId;
   return (
     <TugListRow
       variant="flush"
       density="compact"
-      data-slot="dash-picker-row"
-      data-dash={entry.display_name}
+      data-slot="arc-picker-row"
+      data-arc={entry.display_name}
       data-current={current ? "true" : undefined}
-      // The eyebrow's identities, in the grammar every dash surface wears: the
-      // dash atom, then one worker atom per bound session. Who is working a
-      // dash is the fact this picker exists to weigh, and reading it off
+      // The eyebrow's identities, in the grammar every arc surface wears: the
+      // arc atom, then one worker atom per bound session. Who is working a
+      // arc is the fact this picker exists to weigh, and reading it off
       // `title` as bare text made every candidate look identical in the one
       // place a reader is choosing between them.
       leading={
-        <span className="dash-picker-identity">
+        <span className="arc-picker-identity">
           <TugArcAtom name={entry.display_name} />
           {(entry.bound_sessions ?? []).map((sessionId) => (
             <ArcWorkerAtom key={sessionId} sessionId={sessionId} register="prose" />
@@ -115,23 +115,23 @@ const DashPickerCell: TugListViewCellRenderer<DashPickerDataSource> = ({
       }
       trailing={
         current ? (
-          <span className="dash-picker-current" data-slot="dash-picker-current">
+          <span className="arc-picker-current" data-slot="arc-picker-current">
             current
           </span>
         ) : undefined
       }
     >
       <TugMetaRun
-        className="dash-picker-facts"
-        slot="dash-picker-facts"
+        className="arc-picker-facts"
+        slot="arc-picker-facts"
         parts={[
           entry.stage !== undefined ? <span>{entry.stage}</span> : null,
           <span>{roundsLabel(entry.rounds)}</span>,
           entry.worktree_dirty ? (
-            <span className="dash-picker-uncommitted">uncommitted</span>
+            <span className="arc-picker-uncommitted">uncommitted</span>
           ) : null,
           arcReviewPaints(entry.review, entry.task_list ?? false) ? (
-            <span className="dash-picker-review" data-review={entry.review}>
+            <span className="arc-picker-review" data-review={entry.review}>
               {entry.review === "stale" ? "plan stale" : "plan unreviewed"}
             </span>
           ) : null,
@@ -141,11 +141,11 @@ const DashPickerCell: TugListViewCellRenderer<DashPickerDataSource> = ({
   );
 };
 
-const DASH_PICKER_CELL_RENDERERS = { dash: DashPickerCell };
+const ARC_PICKER_CELL_RENDERERS = { arc: ArcPickerCell };
 
 export function ArcPickerSheet({
-  dashes,
-  boundDashId,
+  arcs,
+  boundArcId,
   onPick,
   onClose,
 }: ArcPickerSheetProps): React.ReactElement {
@@ -156,41 +156,41 @@ export function ArcPickerSheet({
   // focus before the sheet rose, and the picker would be click-only.
   useSeedKeyView(`${focusGroup}:0`);
   const dataSource = useMemo(
-    () => new DashPickerDataSource(dashes, boundDashId),
-    [dashes, boundDashId],
+    () => new ArcPickerDataSource(arcs, boundArcId),
+    [arcs, boundArcId],
   );
-  // The card's own dash is where the cursor starts, so Return with no arrow
+  // The card's own arc is where the cursor starts, so Return with no arrow
   // presses rebinds to what the card already holds — a no-op — rather than to
-  // whichever dash git happened to enumerate first.
+  // whichever arc git happened to enumerate first.
   const currentIndex = useMemo(() => {
-    const found = dashes.findIndex((entry) => entry.owner_id === boundDashId);
+    const found = arcs.findIndex((entry) => entry.owner_id === boundArcId);
     return found === -1 ? 0 : found;
-  }, [dashes, boundDashId]);
+  }, [arcs, boundArcId]);
 
   const delegate = useMemo<TugListViewDelegate>(() => {
     const pick = (index: number): void => {
-      const entry = dashes[index];
+      const entry = arcs[index];
       if (entry === undefined) return;
       onPick(entry);
       onClose();
     };
     return { onSelect: pick, onActivate: pick };
-  }, [dashes, onPick, onClose]);
+  }, [arcs, onPick, onClose]);
 
   return (
-    <div className="dash-picker-sheet" data-slot="dash-picker-sheet">
-      <TugListView<DashPickerDataSource>
+    <div className="arc-picker-sheet" data-slot="arc-picker-sheet">
+      <TugListView<ArcPickerDataSource>
         ref={listRef}
         dataSource={dataSource}
         delegate={delegate}
-        cellRenderers={DASH_PICKER_CELL_RENDERERS}
+        cellRenderers={ARC_PICKER_CELL_RENDERERS}
         rowLayout="flush"
         focusGroup={focusGroup}
         focusOrder={0}
         singleSelect
         initialSelectedIndex={currentIndex}
         commitOnEnter="act"
-        className="dash-picker-list"
+        className="arc-picker-list"
       />
     </div>
   );

@@ -106,14 +106,14 @@ describe("session-command-block-registry", () => {
 
   test("presentation defaults to entry and is declared per registration", () => {
     registerCommandBlock("plain", (c) => c === "ls", RendererA);
-    registerCommandBlock("note", (c) => c === "dash step demo done", RendererB, {
+    registerCommandBlock("note", (c) => c === "arc step demo done", RendererB, {
       attribution: "wheel",
       presentation: "quiet",
     });
     // The default is the shape every exchange has always worn, so a
     // registration that says nothing gets it — as does an unclaimed command.
     expect(resolveCommandPresentation("ls")).toBe("entry");
-    expect(resolveCommandPresentation("dash step demo done")).toBe("quiet");
+    expect(resolveCommandPresentation("arc step demo done")).toBe("quiet");
     expect(resolveCommandPresentation("git status")).toBe("entry");
   });
 

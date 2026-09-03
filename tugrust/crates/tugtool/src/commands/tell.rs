@@ -151,7 +151,7 @@ pub(crate) enum Ambiguity {
 /// 2. `--instance <id>` (registry lookup by ID)
 /// 3. `TUG_INSTANCE` env var (registry lookup by ID)
 /// 4. cwd-derived dev instance (registry's path-prefix match, which
-///    reaches through a dash worktree to its main checkout)
+///    reaches through an arc worktree to its main checkout)
 /// 5. sole-running instance (registry has exactly one entry)
 /// 6. `ambiguity`: error with the list of running instances, or — for a
 ///    command whose write lands in the same machine-global place either
@@ -520,9 +520,9 @@ mod tests {
     /// that had no such flag — following the advice earned a clap error.
     #[test]
     fn port_error_names_only_the_remedies_the_command_offers() {
-        let ambiguous = PortError::Ambiguous(vec!["release-main".into(), "debug-dash".into()]);
+        let ambiguous = PortError::Ambiguous(vec!["release-main".into(), "debug-arc".into()]);
         let flags = ambiguous.describe(Remedy::Flags);
-        assert!(flags.contains("release-main, debug-dash"), "{flags}");
+        assert!(flags.contains("release-main, debug-arc"), "{flags}");
         assert!(flags.contains("--instance <id>"), "{flags}");
 
         let env_only = ambiguous.describe(Remedy::EnvOnly);

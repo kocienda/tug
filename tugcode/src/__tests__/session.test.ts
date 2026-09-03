@@ -825,7 +825,7 @@ describe("routeTopLevelEvent", () => {
 
 // ---------------------------------------------------------------------------
 // buildWakeStartedMessage tests — wake-detector pure helper
-// (`dash/tugplan-session-wake.md` Step 3, [D02], [Q01])
+// (the session-wake design record Step 3, [D02], [Q01])
 // ---------------------------------------------------------------------------
 
 describe("buildWakeStartedMessage", () => {

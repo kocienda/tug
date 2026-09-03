@@ -175,7 +175,7 @@ const NAMED_LONG = "d5e6f7a8-1a2b-4c3d-8e4f-5a6b7c8d9e04";
 const NAMED_TWIN = "e6f7a8b9-1a2b-4c3d-8e4f-5a6b7c8d9e05";
 
 /** A name the rail holds whole with room to spare — the screenshot's own. */
-const SHORT_NAME = "dash-integration-1";
+const SHORT_NAME = "arc-integration-1";
 /**
  * A name past the strip's own width, so the run that carries it has to elide
  * even with the whole row to itself. The strip measures ~500px at the
@@ -183,7 +183,7 @@ const SHORT_NAME = "dash-integration-1";
  * does not rest on the rail being any exact size.
  */
 const LONG_NAME =
-  "dash-integration-phase-two-attachment-parity-and-composer-metrics-and-the-follow-on-sweep-that-came-after-it";
+  "arc-integration-phase-two-attachment-parity-and-composer-metrics-and-the-follow-on-sweep-that-came-after-it";
 /** Minted handles long enough that both atoms are genuinely over-wide. */
 const SHORT_TAG =
   "violet-mesa-plateau-of-considerable-length-with-an-escarpment-and-a-long-ridge-beyond";

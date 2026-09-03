@@ -1,23 +1,23 @@
 /**
- * landing-receipt — the Tug-Dash trailer parser the History join badge reads.
+ * landing-receipt — the Tug-Arc trailer parser the History join badge reads.
  */
 
 import { describe, expect, test } from "bun:test";
 
-import { dashNameFromTrailer } from "@/lib/landing-receipt";
+import { arcNameFromTrailer } from "@/lib/landing-receipt";
 
-describe("dashNameFromTrailer", () => {
-  test("reads the dash short name from a tugdash ref", () => {
-    expect(dashNameFromTrailer("tugdash/snippets onto main")).toBe("snippets");
-    expect(dashNameFromTrailer("tugdash/fix-join")).toBe("fix-join");
-    expect(dashNameFromTrailer("  tugdash/x onto main  ")).toBe("x");
+describe("arcNameFromTrailer", () => {
+  test("reads the arc short name from a tugarc ref", () => {
+    expect(arcNameFromTrailer("tugarc/snippets onto main")).toBe("snippets");
+    expect(arcNameFromTrailer("tugarc/fix-join")).toBe("fix-join");
+    expect(arcNameFromTrailer("  tugarc/x onto main  ")).toBe("x");
   });
 
-  test("returns null when the value carries no dash ref", () => {
-    expect(dashNameFromTrailer(undefined)).toBeNull();
-    expect(dashNameFromTrailer(null)).toBeNull();
-    expect(dashNameFromTrailer("")).toBeNull();
-    expect(dashNameFromTrailer("main")).toBeNull();
-    expect(dashNameFromTrailer("tugdash/")).toBeNull();
+  test("returns null when the value carries no arc ref", () => {
+    expect(arcNameFromTrailer(undefined)).toBeNull();
+    expect(arcNameFromTrailer(null)).toBeNull();
+    expect(arcNameFromTrailer("")).toBeNull();
+    expect(arcNameFromTrailer("main")).toBeNull();
+    expect(arcNameFromTrailer("tugarc/")).toBeNull();
   });
 });

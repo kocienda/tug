@@ -1,5 +1,5 @@
 /**
- * `SessionChangesArcBrief` — what a dash would land, as a briefing.
+ * `SessionChangesArcBrief` — what an arc would land, as a briefing.
  *
  * The fold used to end in three artifacts printed whole: the landing message
  * in monospace at its full length, every changed path in snapshot order, and
@@ -48,7 +48,7 @@ import {
 } from "@/lib/arc-file-clusters";
 import { fileCountLabel } from "@/lib/commit-format";
 import { landingMessageParts } from "@/lib/landing-message";
-import type { DashChangesetEntry, ArcJoinOfferWire } from "@/lib/changeset-types";
+import type { ArcChangesetEntry, ArcJoinOfferWire } from "@/lib/changeset-types";
 
 /** Where the message the brief fronts came from, and the eyebrow it earns. */
 export type BriefMessageSource = "offer" | "draft" | "none";
@@ -73,7 +73,7 @@ const MESSAGE_CLAMP_LINES = 5;
  * had, as one value.
  */
 export function briefMessage(
-  entry: DashChangesetEntry,
+  entry: ArcChangesetEntry,
 ): { source: BriefMessageSource; message: string; note: string | null } {
   const offer: ArcJoinOfferWire | null = entry.join?.offer ?? null;
   if (offer !== null) {
@@ -90,7 +90,7 @@ export function briefMessage(
 }
 
 /** `4/4 steps` when there is a walk to count, else nothing. */
-function stepsFact(entry: DashChangesetEntry): string | null {
+function stepsFact(entry: ArcChangesetEntry): string | null {
   const steps = entry.steps ?? [];
   if (steps.length === 0) return null;
   const done = steps.filter((s) => s.status === "done").length;
@@ -111,16 +111,16 @@ function ClusterRow({
   const status = clusterStatusLine(cluster.statuses);
   return (
     <li
-      className="session-changes-dash-cluster"
-      data-slot="session-changes-dash-cluster"
+      className="session-changes-arc-cluster"
+      data-slot="session-changes-arc-cluster"
       data-dir={cluster.dir}
       data-expanded={expanded ? "true" : "false"}
     >
       {single !== null ? (
-        <div className="session-changes-dash-cluster-head">
+        <div className="session-changes-arc-cluster-head">
           <TugStatusMark status={single.git_status} />
-          <span className="session-changes-dash-file-path">{single.path}</span>
-          <span className="session-changes-dash-cluster-counts">
+          <span className="session-changes-arc-file-path">{single.path}</span>
+          <span className="session-changes-arc-cluster-counts">
             <DiffSummaryBadges added={single.added ?? 0} removed={single.deleted ?? 0} />
           </span>
         </div>
@@ -130,31 +130,31 @@ function ClusterRow({
             size="xs"
             emphasis="ghost"
             subtype="icon-text"
-            className="session-changes-dash-cluster-head session-changes-dash-cluster-toggle"
+            className="session-changes-arc-cluster-head session-changes-arc-cluster-toggle"
             aria-expanded={expanded}
             aria-label={`${expanded ? "Hide" : "Show"} the files under ${cluster.dir === "" ? "the repository root" : cluster.dir}`}
-            icon={<ChevronRight size={12} className="session-changes-dash-cluster-chevron" />}
+            icon={<ChevronRight size={12} className="session-changes-arc-cluster-chevron" />}
             onClick={onToggle}
           >
-            <span className="session-changes-dash-cluster-dir">
+            <span className="session-changes-arc-cluster-dir">
               {cluster.dir === "" ? "/" : cluster.dir}
             </span>
-            <span className="session-changes-dash-cluster-facts">
+            <span className="session-changes-arc-cluster-facts">
               {fileCountLabel(cluster.files.length)}
               {status !== "" ? ` · ${status}` : ""}
             </span>
-            <span className="session-changes-dash-cluster-counts">
+            <span className="session-changes-arc-cluster-counts">
               <DiffSummaryBadges added={cluster.added} removed={cluster.deleted} />
             </span>
           </TugPushButton>
-          <ul className="session-changes-dash-cluster-files">
+          <ul className="session-changes-arc-cluster-files">
             {cluster.files.map((file) => (
               <li key={file.path}>
                 <TugStatusMark status={file.git_status} />
-                <span className="session-changes-dash-file-path">
+                <span className="session-changes-arc-file-path">
                   {cluster.dir === "" ? file.path : file.path.slice(cluster.dir.length + 1)}
                 </span>
-                <span className="session-changes-dash-cluster-counts">
+                <span className="session-changes-arc-cluster-counts">
                   <DiffSummaryBadges added={file.added ?? 0} removed={file.deleted ?? 0} />
                 </span>
               </li>
@@ -169,7 +169,7 @@ function ClusterRow({
 export function SessionChangesArcBrief({
   entry,
 }: {
-  entry: DashChangesetEntry;
+  entry: ArcChangesetEntry;
 }): React.ReactElement | null {
   const [openDirs, setOpenDirs] = useState<ReadonlySet<string>>(() => new Set());
   const [allClusters, setAllClusters] = useState(false);
@@ -192,24 +192,24 @@ export function SessionChangesArcBrief({
   const eyebrow = source === "offer" ? "lands as" : source === "draft" ? "draft" : "rounds";
   const slot =
     source === "offer"
-      ? "session-changes-dash-lands-as"
+      ? "session-changes-arc-lands-as"
       : source === "draft"
-        ? "session-changes-dash-draft"
-        : "session-changes-dash-rounds";
+        ? "session-changes-arc-draft"
+        : "session-changes-arc-rounds";
 
   return (
-    <div className="session-changes-dash-brief" data-slot={slot}>
+    <div className="session-changes-arc-brief" data-slot={slot}>
       <TugSectionLabel label={{ name: eyebrow }} slot="session-changes-arc-brief-label" />
-      <div className="session-changes-dash-brief-body">
+      <div className="session-changes-arc-brief-body">
         {parts.subject !== "" ? (
-          <div className="session-changes-dash-brief-subject" data-slot="session-changes-dash-brief-subject">
+          <div className="session-changes-arc-brief-subject" data-slot="session-changes-arc-brief-subject">
             {parts.subject}
           </div>
         ) : null}
-        <div className="session-changes-dash-brief-stats" data-slot="session-changes-dash-brief-stats">
+        <div className="session-changes-arc-brief-stats" data-slot="session-changes-arc-brief-stats">
           {totals.files > 0 ? <span>{fileCountLabel(totals.files)}</span> : null}
           {totals.counted ? (
-            <span className="session-changes-dash-cluster-counts">
+            <span className="session-changes-arc-cluster-counts">
               <DiffSummaryBadges added={totals.added} removed={totals.deleted} />
             </span>
           ) : null}
@@ -219,17 +219,17 @@ export function SessionChangesArcBrief({
           {steps !== null ? <span>{steps}</span> : null}
         </div>
         {parts.summary !== "" ? (
-          <p className="session-changes-dash-brief-summary" data-slot="session-changes-dash-brief-summary">
+          <p className="session-changes-arc-brief-summary" data-slot="session-changes-arc-brief-summary">
             {parts.summary}
           </p>
         ) : null}
         {note !== null ? (
-          <div className="session-changes-dash-draft-note" data-slot="session-changes-dash-lands-as-note">
+          <div className="session-changes-arc-draft-note" data-slot="session-changes-arc-lands-as-note">
             {note}
           </div>
         ) : null}
         {clusters.length > 0 ? (
-          <ul className="session-changes-dash-clusters" data-slot="session-changes-dash-files">
+          <ul className="session-changes-arc-clusters" data-slot="session-changes-arc-files">
             {shownClusters.map((cluster) => (
               <ClusterRow
                 key={cluster.dir}
@@ -246,12 +246,12 @@ export function SessionChangesArcBrief({
               />
             ))}
             {hiddenClusters > 0 || allClusters ? (
-              <li className="session-changes-dash-clusters-more">
+              <li className="session-changes-arc-clusters-more">
                 <TugPushButton
                   size="xs"
                   emphasis="ghost"
                   onClick={() => setAllClusters((v) => !v)}
-                  data-slot="session-changes-dash-clusters-more"
+                  data-slot="session-changes-arc-clusters-more"
                 >
                   {allClusters
                     ? "Fewer areas"
@@ -263,22 +263,22 @@ export function SessionChangesArcBrief({
         ) : null}
         {subjects.length > 0 ? (
           <div
-            className="session-changes-dash-brief-rounds"
-            data-slot="session-changes-dash-brief-rounds"
+            className="session-changes-arc-brief-rounds"
+            data-slot="session-changes-arc-brief-rounds"
             data-expanded={roundsOpen ? "true" : "false"}
           >
             <TugPushButton
               size="xs"
               emphasis="ghost"
               subtype="icon-text"
-              className="session-changes-dash-cluster-toggle"
+              className="session-changes-arc-cluster-toggle"
               aria-expanded={roundsOpen}
-              icon={<ChevronRight size={12} className="session-changes-dash-cluster-chevron" />}
+              icon={<ChevronRight size={12} className="session-changes-arc-cluster-chevron" />}
               onClick={() => setRoundsOpen((v) => !v)}
             >
               {subjects.length === 1 ? "1 round" : `${subjects.length} rounds`}
             </TugPushButton>
-            <ul className="session-changes-dash-subjects" data-slot="session-changes-dash-subjects">
+            <ul className="session-changes-arc-subjects" data-slot="session-changes-arc-subjects">
               {subjects.map((subject, index) => (
                 <li key={`${index}:${subject}`}>{subject}</li>
               ))}
@@ -290,28 +290,28 @@ export function SessionChangesArcBrief({
             // Summarized: the detail is the fold, and the fold is closed. The
             // summary is what the message was written to be read as.
             <div
-              className="session-changes-dash-brief-detail"
-              data-slot="session-changes-dash-brief-detail"
+              className="session-changes-arc-brief-detail"
+              data-slot="session-changes-arc-brief-detail"
               data-expanded={bodyOpen ? "true" : "false"}
             >
               <TugPushButton
                 size="xs"
                 emphasis="ghost"
                 subtype="icon-text"
-                className="session-changes-dash-cluster-toggle"
+                className="session-changes-arc-cluster-toggle"
                 aria-expanded={bodyOpen}
-                icon={<ChevronRight size={12} className="session-changes-dash-cluster-chevron" />}
+                icon={<ChevronRight size={12} className="session-changes-arc-cluster-chevron" />}
                 onClick={() => setBodyOpen((v) => !v)}
               >
                 Full message
               </TugPushButton>
-              <div className="session-changes-dash-draft-message">{parts.body}</div>
+              <div className="session-changes-arc-draft-message">{parts.body}</div>
             </div>
           ) : (
             // Unsummarized: the message was not written to be clamped, so
             // the clamp is the floor — a screenful, then a reveal.
-            <TugClamp lines={MESSAGE_CLAMP_LINES} data-slot="session-changes-dash-brief-detail">
-              <div className="session-changes-dash-draft-message">{parts.body}</div>
+            <TugClamp lines={MESSAGE_CLAMP_LINES} data-slot="session-changes-arc-brief-detail">
+              <div className="session-changes-arc-draft-message">{parts.body}</div>
             </TugClamp>
           )
         ) : null}

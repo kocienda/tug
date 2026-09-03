@@ -836,7 +836,7 @@ const RECEIPT_PROBE = "cinnabarline";
 const JOIN_SUMMARY = [
   "joined 0123456789 · join-lane → main · 5 round(s)",
   'files: [{"path":"src/a.rs","status":"modified","added":16,"removed":1}]',
-  "tugdash(join-lane): land the join surface",
+  "tugarc(join-lane): land the join surface",
   "",
   `The ${RECEIPT_PROBE} rides the body, which the receipt renders and the`,
   "raw terminal never shows.",

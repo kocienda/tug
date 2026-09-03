@@ -5,11 +5,11 @@ import { resolveAtomFilePath } from "../atom-file-path";
 describe("resolveAtomFilePath", () => {
   test("joins a mention's project-relative value onto the project root", () => {
     expect(
-      resolveAtomFilePath("dash/kbf-mode.md", {
+      resolveAtomFilePath("arc/kbf-mode.md", {
         projectDir: "/Users/tester/src/tugtool",
         cwd: "/Users/tester",
       }),
-    ).toBe("/Users/tester/src/tugtool/dash/kbf-mode.md");
+    ).toBe("/Users/tester/src/tugtool/arc/kbf-mode.md");
   });
 
   test("falls back to the session cwd when the card has no project binding", () => {

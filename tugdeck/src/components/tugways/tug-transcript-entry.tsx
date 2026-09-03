@@ -143,7 +143,7 @@ const PARTICIPANT_ICONS: Record<Participant, React.ReactNode> = {
   // shared registry rather than in an Overview-only fork of the row.
   observer: <Eye size={ICON_PIXEL_SIZE} />,
   operator: <Operator size={ICON_PIXEL_SIZE} />,
-  // The wheel: a turn tugcast opened on the user's behalf — a dash
+  // The wheel: a turn tugcast opened on the user's behalf — an arc
   // arc's stage prompt. The row lays out as a user row; the glyph says who
   // actually spoke.
   wheel: <ShipWheel size={ICON_PIXEL_SIZE} />,

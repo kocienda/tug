@@ -37,7 +37,7 @@ function trip(over: Partial<TripRow> = {}): TripRow {
     probe_exit: null,
     probe_tail: null,
     session_id: null,
-    dash: null,
+    arc: null,
     headline: null,
     refs: null,
     settled_at_ms: 1_700_000_001_000,
@@ -59,7 +59,7 @@ function tripwire(over: Partial<TripwireRow> = {}): TripwireRow {
     running: false,
     running_session: null,
     awaiting: false,
-    awaiting_dash: null,
+    awaiting_arc: null,
     last_trip: null,
     ...over,
   };
@@ -92,8 +92,8 @@ describe("the sentence a trip says when the agent left no headline", () => {
     expect(tripSentence(trip({ status: "swallowed", swallow_reason: "busy" }))).toBe(
       "Didn't run — this tripwire was already working a trip.",
     );
-    expect(tripSentence(trip({ status: "swallowed", swallow_reason: "own-dash" }))).toBe(
-      "Didn't run — the landing was this tripwire's own dash.",
+    expect(tripSentence(trip({ status: "swallowed", swallow_reason: "own-arc" }))).toBe(
+      "Didn't run — the landing was this tripwire's own arc.",
     );
   });
 
@@ -236,7 +236,7 @@ describe("the rest of a tripwire's definition", () => {
   });
 
   test("a permission mode says what the agent can do and where", () => {
-    expect(describePermissions("acceptEdits")).toBe("Can write, in a dash worktree of its own");
+    expect(describePermissions("acceptEdits")).toBe("Can write, in an arc worktree of its own");
     expect(describePermissions("plan")).toBe(
       "Read-only — it diagnoses, it does not change files",
     );

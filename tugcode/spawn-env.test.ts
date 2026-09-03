@@ -61,14 +61,4 @@ describe("buildClaudeSpawnEnv", () => {
     // so a session inheriting a stale one must not keep it.
     expect(buildClaudeSpawnEnv({ TUG_ARC: "stale" }, "seg-1", null).TUG_ARC).toBeUndefined();
   });
-
-  // The drift guard. Both retired spellings are gone with no compatibility
-  // window ([P01]): tugcode, tugcast and the plugin ship in one bundle, so a
-  // stage's spawn and the skill that reads it are always the same build, and
-  // a variable nothing reads is a variable that can only mislead.
-  test("neither retired spelling is ever exported", () => {
-    const env = buildClaudeSpawnEnv({}, "seg-1", "hardening");
-    expect(env).not.toHaveProperty("TUG_DASH_COURSE");
-    expect(env).not.toHaveProperty("TUG_DASH_ARC");
-  });
 });

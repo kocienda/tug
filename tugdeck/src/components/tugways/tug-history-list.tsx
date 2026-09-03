@@ -72,7 +72,7 @@ import { useCommitIdentityMenu } from "@/components/tugways/commit-identity-menu
 import { renderFilterHighlight } from "@/components/tugways/filter-highlight";
 import { TugSessionCitation } from "@/components/tugways/tug-session-identity";
 import { TugArcAtom } from "@/components/tugways/tug-arc-atom";
-import { dashNameFromTrailer } from "@/lib/landing-receipt";
+import { arcNameFromTrailer } from "@/lib/landing-receipt";
 import { resolveCitedSession } from "@/lib/session-identity";
 import {
   DEFAULT_COMMIT_FILTER_SCOPE,
@@ -87,13 +87,13 @@ import {
 } from "@/lib/git-commit-files-store";
 
 /**
- * How a commit that landed as a dash join names its dash on its row ([P09]) —
+ * How a commit that landed as an arc join names its arc on its row ([P09]) —
  * `^<name>`, the sigil spelling every other surface uses. One function so the
  * filter matches the string the reader sees, marks land on the characters that
  * matched, and the two can never drift.
  */
-function joinBadgeText(dashName: string): string {
-  return `^${dashName}`;
+function joinBadgeText(arcName: string): string {
+  return `^${arcName}`;
 }
 
 /**
@@ -116,12 +116,12 @@ export function commitFilterFields(
   }
   if (scope.includes("message")) {
     fields.push(commit.subject, commit.body);
-    // The dash attribution rides with the message: `Tug-Dash:` is a trailer on
-    // the message itself, and the dash atom is how the row states it. Matched
+    // The arc attribution rides with the message: `Tug-Arc:` is a trailer on
+    // the message itself, and the arc atom is how the row states it. Matched
     // as the atom READS, so `^rail-routes` and the bare name both find the
     // commit and both mark the atom's name.
-    const dashName = dashNameFromTrailer(commit.tug_dash);
-    if (dashName !== null) fields.push(joinBadgeText(dashName));
+    const arcName = arcNameFromTrailer(commit.tug_arc);
+    if (arcName !== null) fields.push(joinBadgeText(arcName));
   }
   if (scope.includes("detail")) {
     const iso = commit.committer_date ?? "";
@@ -214,11 +214,11 @@ function matchedContext(
   // Everything the collapsed row shows AND the filter was told to read. If the
   // whole query is in here, the marks on the row itself are the explanation —
   // but a subject the filter skipped explains nothing, however it reads.
-  const dashName = dashNameFromTrailer(commit.tug_dash);
+  const arcName = arcNameFromTrailer(commit.tug_arc);
   const visible = [
     scope.includes("hash") ? shortSha : "",
     scope.includes("message") ? commit.subject : "",
-    scope.includes("message") && dashName !== null ? joinBadgeText(dashName) : "",
+    scope.includes("message") && arcName !== null ? joinBadgeText(arcName) : "",
   ].join(" ");
   if (filterQueryMatch(query, [visible])) return [];
   const hits: string[] = [];
@@ -344,9 +344,9 @@ function CommitRow({
   filterScope?: readonly CommitFilterScope[];
 }): React.ReactElement {
   const [expanded, setExpanded] = useState(false);
-  // A commit that landed as a dash join carries the `Tug-Dash:` trailer;
+  // A commit that landed as an arc join carries the `Tug-Arc:` trailer;
   // History badges it so joins read differently from hand commits ([P09]).
-  const dashName = dashNameFromTrailer(commit.tug_dash);
+  const arcName = arcNameFromTrailer(commit.tug_arc);
   // Which session made this commit, from its `Tug-Session*` trailers (Spec
   // S03). `null` for a commit made outside Tug, or one predating the trailers
   // — the row then simply carries no chip, which is the honest rendering of a
@@ -464,19 +464,19 @@ function CommitRow({
                     is dropped at a line break, so the mark begins the line
                     flush with the text above it and keeps its gap when it sits
                     beside the subject. */}
-                {dashName !== null ? " " : null}
-                {dashName !== null ? (
+                {arcName !== null ? " " : null}
+                {arcName !== null ? (
                   <span
                     className="tug-history-list-join-badge"
                     data-testid="session-history-join-badge"
                   >
                     <TugArcAtom
-                      name={dashName}
+                      name={arcName}
                       register="prose"
-                      slot="session-history-join-dash"
-                      title={`Joined from arc ${dashName}`}
+                      slot="session-history-join-arc"
+                      title={`Joined from arc ${arcName}`}
                       nameContent={renderFilterHighlight(
-                        dashName,
+                        arcName,
                         scopedQuery(filterQuery, filterScope, "message"),
                       )}
                     />

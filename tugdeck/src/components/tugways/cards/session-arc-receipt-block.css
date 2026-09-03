@@ -3,7 +3,7 @@
    ========================================================================= */
 
 /**
- * The `/dash-arc` receipt: a dash atom and the lifecycle line on the header's
+ * The `/arc-run` receipt: an arc atom and the lifecycle line on the header's
  * identity row, then one row per stage the arc walked.
  *
  * @module components/tugways/cards/session-arc-receipt-block
@@ -34,7 +34,7 @@
  * Scoped to this block and matched against the line's own `read` rule, which
  * declares the size it is being overridden on.
  */
-.arc-receipt-identity .tug-dash-lifecycle-line[data-size="read"] {
+.arc-receipt-identity .tug-arc-lifecycle-line[data-size="read"] {
   font-family: var(--tug-font-family-sans);
   font-size: var(--tug-font-size-xs);
   line-height: calc(var(--tug-font-size-xs) * 1.6);

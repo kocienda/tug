@@ -428,7 +428,7 @@ class CardServicesStore {
     // and tugcast routes them to this card's workspace feed (with its
     // .tugattachignore + secret-file filter applied) rather than the
     // bootstrap (tugtool repo) feed. See
-    // `dash/dev-atoms.md#step-pre-4`.
+    // `arc/dev-atoms.md#step-pre-4`.
     const fileTreeStore = new FileTreeStore(
       fileTreeFeedStore,
       FeedId.FILETREE,
@@ -621,7 +621,7 @@ class CardServicesStore {
     });
 
     // Recovery dispatch ([D12], Phase A-R1 / Step R1c, broadened by
-    // mid-turn-replay [Step 5](dash/tugplan-session-mid-turn-replay.md#step-5)).
+    // mid-turn-replay [Step 5](arc/tugplan-session-mid-turn-replay.md#step-5)).
     // Whenever fresh services are constructed for a binding, ask the
     // supervisor to forward a `request_replay` verb to the live tugcode
     // subprocess. The verb tells tugcode to re-run `runReplay` so the

@@ -6,7 +6,7 @@
  *
  * The whole point of the line model ([P01]): a `sessions` row is a **segment**
  * of a line of work, and the line — not the segment — owns the callsign and
- * the user's name. A card that rotated into a dash stage, was rewound, or had
+ * the user's name. A card that rotated into an arc stage, was rewound, or had
  * its subprocess respawn has several segments and one identity, and a relaunch
  * must seat it on the segment the resume rule picks ([P06]) while showing the
  * line's identity.

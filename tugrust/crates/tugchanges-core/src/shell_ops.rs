@@ -1083,7 +1083,7 @@ const WRITE_CALLS: [&str; 8] = [
 ];
 
 /// Prefixes a path may sit under and still be none of the ledger's business:
-/// scratch space, generated output, and the untracked dash documents.
+/// scratch space, generated output, and the untracked arc documents.
 const EXCLUDED_PREFIXES: [&str; 3] = ["/tmp", "/var/folders", "/private/var/folders"];
 const EXCLUDED_COMPONENTS: [&str; 5] = ["target", "node_modules", ".git", ".tug", "dist"];
 
@@ -1356,8 +1356,8 @@ fn is_repo_shaped(literal: &str, base_dir: &Path, root: &Path) -> bool {
     // itself happens to sit, and anything that lands outside it is refused by
     // the root test below.
     // Excluded components are judged against the path *inside* the checkout:
-    // a dash worktree lives under `.tug/worktrees/`, so judging the absolute
-    // path would make the steer dead in every dash — which is exactly where
+    // an arc worktree lives under `.tug/worktrees/`, so judging the absolute
+    // path would make the steer dead in every arc — which is exactly where
     // the edits are.
     let Ok(inside) = resolved.strip_prefix(root) else {
         return false;

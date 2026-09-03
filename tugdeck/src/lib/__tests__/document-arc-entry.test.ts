@@ -1,8 +1,8 @@
 /**
- * The branchless dash, in the two shapes the surfaces read.
+ * The branchless arc, in the two shapes the surfaces read.
  *
  * What is worth pinning is the line the module holds: the entry adapter fills
- * the required fields with what a dash with no branch honestly has and passes
+ * the required fields with what an arc with no branch honestly has and passes
  * the optional ones through only when the wire carried them, and the track
  * model reports the plan's real step counts without ever inventing the titles
  * the wire does not carry.
@@ -10,15 +10,15 @@
 
 import { describe, expect, test } from "bun:test";
 
-import type { DashArcState, DocumentArcEntry } from "@/lib/changeset-types";
+import type { ArcRunState, DocumentArcEntry } from "@/lib/changeset-types";
 import {
   documentArcAsEntry,
   documentArcTrackModel,
 } from "../document-arc-entry";
 
-function dash(over: Partial<DocumentArcEntry> = {}): DocumentArcEntry {
+function arc(over: Partial<DocumentArcEntry> = {}): DocumentArcEntry {
   return {
-    owner_id: "tugdash/planning#1",
+    owner_id: "tugarc/planning#1",
     display_name: "planning",
     documents: { brief: "/repo/.tug/arcs/planning/brief.md" },
     step_total: 0,
@@ -34,10 +34,10 @@ const WITH_PLAN = {
 };
 
 describe("documentArcAsEntry", () => {
-  test("the required fields are what a branchless dash has", () => {
-    const entry = documentArcAsEntry(dash());
-    expect(entry.kind).toBe("dash");
-    expect(entry.owner_id).toBe("tugdash/planning#1");
+  test("the required fields are what a branchless arc has", () => {
+    const entry = documentArcAsEntry(arc());
+    expect(entry.kind).toBe("arc");
+    expect(entry.owner_id).toBe("tugarc/planning#1");
     expect(entry.display_name).toBe("planning");
     expect(entry.documents).toEqual({
       brief: "/repo/.tug/arcs/planning/brief.md",
@@ -50,7 +50,7 @@ describe("documentArcAsEntry", () => {
   });
 
   test("absent optional fields stay absent rather than becoming empty ones", () => {
-    const entry = documentArcAsEntry(dash());
+    const entry = documentArcAsEntry(arc());
     expect("review" in entry).toBe(false);
     expect("arc" in entry).toBe(false);
     expect("bound_sessions" in entry).toBe(false);
@@ -60,19 +60,19 @@ describe("documentArcAsEntry", () => {
   });
 
   test("review, arc, and bound sessions pass through when the wire carried them", () => {
-    const arc: DashArcState = { stage: "devise" };
+    const run: ArcRunState = { stage: "devise" };
     const entry = documentArcAsEntry(
-      dash({ review: "stale", arc, bound_sessions: ["sess-a"] }),
+      arc({ review: "stale", arc: run, bound_sessions: ["sess-a"] }),
     );
     expect(entry.review).toBe("stale");
-    expect(entry.arc).toEqual(arc);
+    expect(entry.arc).toEqual(run);
     expect(entry.bound_sessions).toEqual(["sess-a"]);
   });
 });
 
 describe("documentArcTrackModel", () => {
   test("a brief with no plan reads brief, with no steps to count", () => {
-    const model = documentArcTrackModel(dash());
+    const model = documentArcTrackModel(arc());
     expect(model.phase).toBe("brief");
     expect(model.steps).toBeNull();
     expect(model.direct).toBe(false);
@@ -80,7 +80,7 @@ describe("documentArcTrackModel", () => {
 
   test("a plan nobody has touched reads review", () => {
     const model = documentArcTrackModel(
-      dash({
+      arc({
         documents: WITH_PLAN,
         step_total: 3,
         steps_done: 0,
@@ -99,7 +99,7 @@ describe("documentArcTrackModel", () => {
 
   test("a begun plan reads implement, with the ledger's own counts", () => {
     const model = documentArcTrackModel(
-      dash({
+      arc({
         documents: WITH_PLAN,
         step_total: 3,
         steps_done: 1,
@@ -118,7 +118,7 @@ describe("documentArcTrackModel", () => {
 
   test("a first row in progress with nothing finished has begun", () => {
     const model = documentArcTrackModel(
-      dash({
+      arc({
         documents: WITH_PLAN,
         step_total: 3,
         steps_done: 0,
@@ -137,7 +137,7 @@ describe("documentArcTrackModel", () => {
 
   test("no row in progress leaves `current` null rather than guessing one", () => {
     const model = documentArcTrackModel(
-      dash({
+      arc({
         documents: WITH_PLAN,
         step_total: 3,
         steps_done: 2,
@@ -156,9 +156,9 @@ describe("documentArcTrackModel", () => {
   test("the counter-fed surface can never place a withdrawn tick, and says so with an empty set", () => {
     // Deliberately blind rather than accidentally broken: this entry carries
     // counters and no per-row statuses, and `step_in` refuses a withdrawal on
-    // a dash with no worktree, so no withdrawn row can reach here at all.
+    // an arc with no worktree, so no withdrawn row can reach here at all.
     const model = documentArcTrackModel(
-      dash({
+      arc({
         documents: WITH_PLAN,
         step_total: 8,
         steps_done: 8,
@@ -171,7 +171,7 @@ describe("documentArcTrackModel", () => {
 
   test("a plan with no rows counts none", () => {
     const model = documentArcTrackModel(
-      dash({ documents: WITH_PLAN, step_total: 0 }),
+      arc({ documents: WITH_PLAN, step_total: 0 }),
     );
     expect(model.steps).toBeNull();
     expect(model.phase).toBe("review");
@@ -179,7 +179,7 @@ describe("documentArcTrackModel", () => {
 
   test("an open arc's stage outranks the counts", () => {
     const model = documentArcTrackModel(
-      dash({
+      arc({
         documents: WITH_PLAN,
         arc: { stage: "review" },
         step_total: 3,
@@ -199,7 +199,7 @@ describe("documentArcTrackModel", () => {
 
   test("a stopped arc says so, in the stage it stopped in", () => {
     const model = documentArcTrackModel(
-      dash({
+      arc({
         documents: WITH_PLAN,
         arc: {
           stage: "devise",

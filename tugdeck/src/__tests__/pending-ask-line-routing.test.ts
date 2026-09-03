@@ -12,7 +12,7 @@
  * The subject is the real closure inside `initActionDispatch`, which reaches
  * `cardServicesStore` — so this file stands the connection and lifecycle
  * singletons up the way `card-services-store-request-replay.test.ts` does, and
- * lives apart from `bind-dash-ok.test.ts` because those module mocks are
+ * lives apart from `bind-arc-ok.test.ts` because those module mocks are
  * file-wide.
  */
 

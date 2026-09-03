@@ -2,7 +2,7 @@
  * The `/arc-bind` create path's name check, and the registry entry it guards.
  *
  * The check exists because the name is concatenated onto a shell command line,
- * so what it must guarantee is not "this is a valid dash name" — `tugtool` is
+ * so what it must guarantee is not "this is a valid arc name" — `tugtool` is
  * the real validator — but "this is safe to pass through unquoted".
  */
 
@@ -16,7 +16,7 @@ import {
 import { classifySlashCommand } from "../slash-supported";
 
 describe("isShellSafeArcName", () => {
-  test("accepts the shapes dashes actually get named", () => {
+  test("accepts the shapes arcs actually get named", () => {
     for (const name of ["fix-join", "a.b_c", "phase2", "A", "9lives", "x_y.z-1"]) {
       expect(isShellSafeArcName(name)).toBe(true);
     }
@@ -37,7 +37,7 @@ describe("isShellSafeArcName", () => {
       "pipe|it",
       "paren()",
       "star*",
-      "tugdash/slash",
+      "tugarc/slash",
     ]) {
       expect(isShellSafeArcName(name)).toBe(false);
     }

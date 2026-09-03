@@ -13,8 +13,9 @@
  * Registry componentId of the Arcs card.
  *
  * The tugbank persistence key. It stays `"dashes"` on purpose — [D141] kept it
- * when the title first moved, and the arc-lexicon campaign ([P05]) keeps it
- * again: a saved layout names the card by this string, and renaming it would
- * drop every user's rail on first launch.
+ * when the title first moved, and the work grammar's read-for-life rule keeps
+ * it again: a spelling that reached a durable record stays one. A saved layout
+ * names the card by this string, and renaming it would drop every user's rail
+ * on first launch. See `tuglaws/work-grammar.md`.
  */
 export const ARCS_CARD_ID = "dashes";

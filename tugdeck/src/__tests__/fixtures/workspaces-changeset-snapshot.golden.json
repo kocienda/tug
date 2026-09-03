@@ -50,17 +50,17 @@
           }
         },
         {
-          "kind": "dash",
-          "owner_id": "tugdash/fix-join#1723500000000-a1b2c3",
+          "kind": "arc",
+          "owner_id": "tugarc/fix-join#1723500000000-a1b2c3",
           "display_name": "fix-join",
-          "branch": "tugdash/fix-join",
+          "branch": "tugarc/fix-join",
           "stage": "draft-ready",
           "bound_sessions": [
             "sess-0197a2b4-c8d1-7e02-9f3a-b5c6d7e8f901"
           ],
           "base": "main",
           "rounds": 3,
-          "worktree": "/Users/dev/src/tugtool/.tug/worktrees/tugdash__fix-join",
+          "worktree": "/Users/dev/src/tugtool/.tug/worktrees/tugarc__fix-join",
           "worktree_dirty": false,
           "round_subjects": [
             "Journal the join teardown",
@@ -69,10 +69,10 @@
           ],
           "files": [
             {
-              "path": "tugrust/crates/tugtool/src/commands/dash.rs",
+              "path": "tugrust/crates/tugtool/src/commands/arc.rs",
               "git_status": "M",
               "op": "modified",
-              "origin": "dash",
+              "origin": "arc",
               "shared": false,
               "last_touched": 0
             }
@@ -85,11 +85,11 @@
           "join": {
             "phase": "resolved",
             "conflicts": [
-              "tugrust/crates/tugtool/src/commands/dash.rs"
+              "tugrust/crates/tugtool/src/commands/arc.rs"
             ],
             "archaeology": [
               {
-                "path": "tugrust/crates/tugtool/src/commands/dash.rs",
+                "path": "tugrust/crates/tugtool/src/commands/arc.rs",
                 "commits": [
                   {
                     "sha": "3722f24",
@@ -102,7 +102,7 @@
             "candidate": "9f1c2d3e4b5a60718293a4b5c6d7e8f901234567",
             "resolved": [
               {
-                "path": "tugrust/crates/tugtool/src/commands/dash.rs",
+                "path": "tugrust/crates/tugtool/src/commands/arc.rs",
                 "resolved_by": "driver",
                 "diff": "@@ -1,3 +1,3 @@\n-old\n+new\n",
                 "added": 1,
@@ -144,13 +144,13 @@
       },
       "document_arcs": [
         {
-          "owner_id": "tugdash/dash-cockpit",
-          "display_name": "dash-cockpit",
+          "owner_id": "tugarc/arc-cockpit",
+          "display_name": "arc-cockpit",
           "documents": {
-            "brief": "/repo/.tug/arcs/dash-cockpit/brief.md",
-            "brief_title": "The dash cockpit",
-            "plan": "/repo/.tug/arcs/dash-cockpit/plan.md",
-            "plan_title": "Dash cockpit"
+            "brief": "/repo/.tug/arcs/arc-cockpit/brief.md",
+            "brief_title": "The arc cockpit",
+            "plan": "/repo/.tug/arcs/arc-cockpit/plan.md",
+            "plan_title": "Arc cockpit"
           },
           "review": "reviewed",
           "step_total": 5,
@@ -158,11 +158,11 @@
           "steps_begun": 2
         },
         {
-          "owner_id": "tugdash/dash-hardening",
-          "display_name": "dash-hardening",
+          "owner_id": "tugarc/arc-hardening",
+          "display_name": "arc-hardening",
           "documents": {
-            "plan": "/repo/.tug/arcs/dash-hardening/plan.md",
-            "plan_title": "Dash hardening"
+            "plan": "/repo/.tug/arcs/arc-hardening/plan.md",
+            "plan_title": "Arc hardening"
           },
           "review": "never-reviewed",
           "step_total": 3,

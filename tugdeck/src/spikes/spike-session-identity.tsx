@@ -1,12 +1,12 @@
 /**
  * spike-session-identity.tsx — the session-reference design surface.
  *
- * **SHIPPED.** The brief was `dash/session-reference-brief.md`: one identity
+ * **SHIPPED.** The brief was `arc/session-reference-brief.md`: one identity
  * model, one resolver, one component family. Earlier rounds settled the two
  * registers (presence vs citation), the session atom's shape, the flat-text
  * citation, and the fork-lineage grammar. The seventh round settled the
  * CONTENT — what the surfaces actually say, and in what order — and
- * `dash/session-identity.md` carried all of it into the app. Every decision
+ * `arc/session-identity.md` carried all of it into the app. Every decision
  * below is now the shipped behavior, and `[D132]` is where it is durable; this
  * card is the bench the identity app-tests drive and the place the vocabulary is
  * discussed.
@@ -224,10 +224,10 @@ const ROSTER: readonly IdentityFixture[] = [
   },
   {
     tag: "brisk-otter",
-    project: "tugdash",
+    project: "tugarc",
     branch: null,
     userName: null,
-    description: "Wiring the dash join resolver",
+    description: "Wiring the arc join resolver",
     shortId: "9e02c1b4",
     phase: "idle",
     beat: null,
@@ -569,7 +569,7 @@ function ProtoRow({
  * rounded pill shape survives from the shipped chip; the session color does
  * not — the run and the border paint in ordinary text ink, and the LIVE dot
  * is the pill's only color channel. A missing (unresolvable) atom forces
- * the idle dot, mutes the ink, and dashes its border — shape states the
+ * the idle dot, mutes the ink, and arcs its border — shape states the
  * failure now that there is no icon to slash.
  *
  * Right-click offers Copy — here the flat citation; the rollout writes the

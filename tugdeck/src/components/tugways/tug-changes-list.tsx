@@ -99,7 +99,7 @@ import type {
 
 // ---------------------------------------------------------------------------
 // Entry model — one head entry (the session's attributed files, or the
-// project's unattributed files) the list renders. The dash lane lives in the
+// project's unattributed files) the list renders. The arc lane lives in the
 // Changes shade, not here ([P01]).
 // ---------------------------------------------------------------------------
 
@@ -703,7 +703,7 @@ function FileIdentity({
   const provenance =
     file.origin === ""
       ? null
-      : file.origin === "dash" || file.origin === "claim"
+      : file.origin === "arc" || file.origin === "claim"
         ? file.op
         : `${file.op} · ${file.origin}`;
   // The divider is a separator between the file name and its metadata cluster,

@@ -4,7 +4,7 @@
  * `deriveChangesRouteSnapshot` scopes the account-global aggregate
  * (`WorkspacesChangesetSnapshot`) to one card's workspace + session. The
  * committed set is the session's full attributed file list — no per-file
- * election; unattributed and dash files never enter it. Exercised against the
+ * election; unattributed and arc files never enter it. Exercised against the
  * shared golden fixture so drift on either side fails.
  */
 import { describe, it, expect } from "bun:test";
@@ -47,7 +47,7 @@ describe("deriveChangesRouteSnapshot", () => {
     );
   });
 
-  it("matches the session entry by owner_id and collects dashes separately", () => {
+  it("matches the session entry by owner_id and collects arcs separately", () => {
     const snap = deriveChangesRouteSnapshot(DATA, BINDING);
     expect(snap.entry?.kind).toBe("session");
     expect(snap.entry?.owner_id).toBe(BINDING.tugSessionId);
@@ -55,12 +55,12 @@ describe("deriveChangesRouteSnapshot", () => {
       "tugdeck/src/lib/changeset-types.ts",
       "tugrust/crates/tugcast/src/feeds/changeset.rs",
     ]);
-    // `owner_id` is the dash's opaque owner key, not a git ref — the ref is
+    // `owner_id` is the arc's opaque owner key, not a git ref — the ref is
     // its own field.
-    expect(snap.dashes.map((d) => d.owner_id)).toEqual([
-      "tugdash/fix-join#1723500000000-a1b2c3",
+    expect(snap.arcs.map((d) => d.owner_id)).toEqual([
+      "tugarc/fix-join#1723500000000-a1b2c3",
     ]);
-    expect(snap.dashes.map((d) => d.branch)).toEqual(["tugdash/fix-join"]);
+    expect(snap.arcs.map((d) => d.branch)).toEqual(["tugarc/fix-join"]);
   });
 
   it("passes the unattributed bucket through", () => {
@@ -92,17 +92,17 @@ describe("deriveChangesRouteSnapshot", () => {
     expect(snap.committedPaths.has("notes/scratch.md")).toBe(false);
   });
 
-  it("dash files never enter the committed set", () => {
+  it("arc files never enter the committed set", () => {
     const snap = deriveChangesRouteSnapshot(DATA, BINDING);
     expect(
-      snap.committedPaths.has("tugrust/crates/tugtool/src/commands/dash.rs"),
+      snap.committedPaths.has("tugrust/crates/tugtool/src/commands/arc.rs"),
     ).toBe(false);
   });
 
   it("falls back to a placeholder project when the feed hasn't emitted it", () => {
     const snap = deriveChangesRouteSnapshot({ projects: [] }, BINDING);
     expect(snap.entry).toBeNull();
-    expect(snap.dashes).toEqual([]);
+    expect(snap.arcs).toEqual([]);
     expect(snap.unattributed).toEqual([]);
     expect(snap.project.display_name).toBe("tugtool");
     expect(snap.project.workspace_key).toBe("a1b2c3d4e5f60718");
@@ -115,8 +115,8 @@ describe("deriveChangesRouteSnapshot", () => {
       tugSessionId: "sess-unknown",
     });
     expect(snap.entry).toBeNull();
-    // The dash + unattributed bucket still belong to the project.
-    expect(snap.dashes).toHaveLength(1);
+    // The arc + unattributed bucket still belong to the project.
+    expect(snap.arcs).toHaveLength(1);
     // A session with no attributed files commits nothing — it never sweeps up
     // another session's unattributed work.
     expect(snap.committedPaths.size).toBe(0);

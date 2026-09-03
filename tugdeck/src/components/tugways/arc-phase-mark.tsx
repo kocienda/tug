@@ -5,8 +5,8 @@
  * check · join — and one more for a stop, which outranks all of them.
  *
  * It is keyed on the **lifecycle phase**, not on the git stage. An earlier
- * mark of this kind read `stage`, and a dash has no stage until `dash create`
- * cuts a branch — so the glyph was blank for exactly the half of a dash's life
+ * mark of this kind read `stage`, and an arc has no stage until `arc create`
+ * cuts a branch — so the glyph was blank for exactly the half of an arc's life
  * that happens in documents, which is the half a reader most needs a word for.
  * The phase comes off {@link ArcTrackModel}, which is derived from what the
  * feed already carries, so the mark and the track beside it cannot disagree.
@@ -69,8 +69,8 @@ export function ArcPhaseMark({
   const word = arcPhaseWord(model);
   const mark = (
     <span
-      className="tug-dash-phase-mark"
-      data-slot="tug-dash-phase-mark"
+      className="tug-arc-phase-mark"
+      data-slot="tug-arc-phase-mark"
       data-phase={model.phase}
       data-stopped={stopped ? "true" : undefined}
       aria-label={word}

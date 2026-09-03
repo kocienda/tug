@@ -6,7 +6,7 @@ import {
 } from "../memory-destinations";
 
 describe("encodeProjectDir", () => {
-  test("replaces every slash with a dash (Claude Code's convention)", () => {
+  test("replaces every slash with an arc (Claude Code's convention)", () => {
     expect(encodeProjectDir("/Users/kocienda/Mounts/u/src/tugtool")).toBe(
       "-Users-kocienda-Mounts-u-src-tugtool",
     );

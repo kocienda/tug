@@ -581,17 +581,17 @@ fn a_tripwire_that_never_fired_has_an_empty_log_rather_than_a_refusal() {
     );
 }
 
-/// A dismissal discards the dash the awaiting trip was holding, and it finds
-/// that dash in the **landing's** repository rather than in the wire's scope
+/// A dismissal discards the arc the awaiting trip was holding, and it finds
+/// that arc in the **landing's** repository rather than in the wire's scope
 /// ([P07], [P09]).
 ///
 /// The wire here is unscoped, which is the ordinary shape for a watch on the
 /// machine and the case a scope-addressed discard cannot serve at all: the
-/// engine cuts the dash where the commit landed, and a dismissal that looked
+/// engine cuts the arc where the commit landed, and a dismissal that looked
 /// somewhere else would settle the row and leave the worktree standing —
 /// exactly the leak the no-hand-back rebuild exists to close.
 #[test]
-fn a_dismissal_discards_the_dash_in_the_repository_the_landing_named() {
+fn a_dismissal_discards_the_arc_in_the_repository_the_landing_named() {
     use tugtool_core::tripwire_ledger as ledger;
 
     let (_dir, db) = db();
@@ -624,15 +624,15 @@ fn a_dismissal_discards_the_dash_in_the_repository_the_landing_named() {
         );
     }
 
-    let dash = "tripwire-w-abcd1234";
-    // No ambient session, and no ambient instance registry. A `dash create`
-    // claims the dash for its calling session, and this fixture runs from
+    let arc = "tripwire-w-abcd1234";
+    // No ambient session, and no ambient instance registry. A `arc create`
+    // claims the arc for its calling session, and this fixture runs from
     // inside a Session card as often as not — an unscrubbed run reaches the
-    // developer's own live instance and posts a bind naming a scratch dash in
+    // developer's own live instance and posts a bind naming a scratch arc in
     // a temp repo. That is the hazard `arc_api::bind`'s same-project guard
     // was added for, met here from the other side.
     let created = tugtool()
-        .args(["arc", "create", dash, "--json"])
+        .args(["arc", "create", arc, "--json"])
         .current_dir(&root)
         .env("TUG_DATA_DIR", data.path())
         .env("TMPDIR", data.path())
@@ -641,10 +641,10 @@ fn a_dismissal_discards_the_dash_in_the_repository_the_landing_named() {
         .output()
         .unwrap();
     assert!(created.status.success(), "{}", stderr(&created));
-    let worktree = root.join(".tug/worktrees").join(dash);
-    assert!(worktree.exists(), "the dash's worktree is standing");
+    let worktree = root.join(".tug/worktrees").join(arc);
+    assert!(worktree.exists(), "the arc's worktree is standing");
 
-    // An unscoped wire: nothing on the row says which checkout the dash is in.
+    // An unscoped wire: nothing on the row says which checkout the arc is in.
     let out = tugtool()
         .args([
             "tripwire",
@@ -664,7 +664,7 @@ fn a_dismissal_discards_the_dash_in_the_repository_the_landing_named() {
     assert!(out.status.success(), "{}", stderr(&out));
 
     // The trip the engine would have written: claimed on a landing, holding
-    // the dash, awaiting the user.
+    // the arc, awaiting the user.
     {
         let conn = ledger::open_ledger(&db).unwrap();
         let wire = ledger::get(&conn, "w").unwrap().unwrap();
@@ -679,7 +679,7 @@ fn a_dismissal_discards_the_dash_in_the_repository_the_landing_named() {
         })
         .to_string();
         ledger::record_event_payload(&conn, trip_id, Some(&payload)).unwrap();
-        ledger::record_run(&conn, trip_id, Some("sess-a"), Some(dash)).unwrap();
+        ledger::record_run(&conn, trip_id, Some("sess-a"), Some(arc)).unwrap();
         ledger::settle(
             &conn,
             trip_id,
@@ -703,10 +703,10 @@ fn a_dismissal_discards_the_dash_in_the_repository_the_landing_named() {
     assert!(out.status.success(), "{}", stderr(&out));
     let value: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
     assert_envelope(&value, "tripwire dismiss");
-    assert_eq!(value["data"]["dash"], dash);
+    assert_eq!(value["data"]["arc"], arc);
     assert_eq!(
         value["data"]["discarded"], true,
-        "the dash was found and removed: {value}"
+        "the arc was found and removed: {value}"
     );
     assert!(
         value["data"]["discard_error"].is_null(),

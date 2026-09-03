@@ -16,10 +16,10 @@
  * the view mounts no second whole-session document above it. The repo-wide
  * view is a different surface entirely: the Project Diff card (`/diff`).
  *
- * Below the file rows sits the `SessionChangesArcLane` — the project's dashes
+ * Below the file rows sits the `SessionChangesArcLane` — the project's arcs
  * in their own grammar, with their own fold. The header's fold-all cue and
  * combined pop-out keep acting on the head entries only; the lane owns its
- * own folding, because a dash is a different species from a claimed file.
+ * own folding, because an arc is a different species from a claimed file.
  *
  * Laws: [L02] the controller + git-init verb store enter React through
  * `useSyncExternalStore`; [L06] no appearance state in React (status tones and
@@ -87,7 +87,7 @@ import type { CodeSessionStore } from "@/lib/code-session-store";
 
 export interface SessionChangesViewProps {
   /** The host card's id — the key into the session-binding store, read for
-   *  the card's own dash so the lane can front it. */
+   *  the card's own arc so the lane can front it. */
   cardId: string;
   /** Repo-relative project directory the card is bound to. */
   projectDir: string | null;
@@ -101,8 +101,8 @@ export interface SessionChangesViewProps {
   codeSessionStore: CodeSessionStore;
   /**
    * The half of the fronted row's join face only the card knows — which
-   * dash the join is about, and the gestures. What a join would do comes
-   * off the dash's own feed entry. Absent leaves the lane read-only, which is
+   * arc the join is about, and the gestures. What a join would do comes
+   * off the arc's own feed entry. Absent leaves the lane read-only, which is
    * what an unbound card shows.
    */
   arcJoin?: ArcJoinSource;
@@ -126,12 +126,12 @@ export interface SessionChangesDismiss {
   onDismiss: () => void;
 }
 
-/** What the card hands the view for the fronted dash row's join face. */
+/** What the card hands the view for the fronted arc row's join face. */
 export interface ArcJoinSource {
-  /** Owner key of the dash the join is about, or null when none is aimed.
+  /** Owner key of the arc the join is about, or null when none is aimed.
    *  It outranks the card's binding for fronting: `/arc-join <name>` aims
-   *  without binding, and the face has to appear on the dash being landed. */
-  dashId: string | null;
+   *  without binding, and the face has to appear on the arc being landed. */
+  arcId: string | null;
   actions: ArcJoinActions;
 }
 
@@ -152,12 +152,12 @@ export function SessionChangesView({
   // shade renders — the changeset, the commit surface, the non-repo offer —
   // rests on there being one.
   const hostTools = useHostTools();
-  // The card's own dash, by owner key ([L02]). A string snapshot is
+  // The card's own arc, by owner key ([L02]). A string snapshot is
   // reference-stable by construction, so the store's every-binding-changed
-  // notification only re-renders when this card's dash actually moved.
-  const boundDashId = useSyncExternalStore(
+  // notification only re-renders when this card's arc actually moved.
+  const boundArcId = useSyncExternalStore(
     cardSessionBindingStore.subscribe,
-    () => cardSessionBindingStore.getBinding(cardId)?.dash?.id ?? null,
+    () => cardSessionBindingStore.getBinding(cardId)?.arc?.id ?? null,
   );
   // `canInterrupt` is true exactly while a turn can be stopped (one is
   // running), so it is the turn-in-progress signal ([L02]).
@@ -175,7 +175,7 @@ export function SessionChangesView({
   const disclaim = useChangesetDisclaim(changesController.entryKey);
   const disclaimPending = disclaim.phase === "pending";
   // The card's one join round trip ([L02]). It is keyed by the card's entry,
-  // not by dash, which is exactly why the join face belongs to the fronted
+  // not by arc, which is exactly why the join face belongs to the fronted
   // row alone — two rows previewing would share this slot.
   const join = useChangesetJoin(changesController.entryKey);
   // The card's one discard round trip ([L02]), keyed by the card's entry like
@@ -183,48 +183,48 @@ export function SessionChangesView({
   // flight: two rows sharing this slot would render each other's phase.
   const discardVerb = useChangesetDiscard(changesController.entryKey);
   const replayVerb = useChangesetReplay(changesController.entryKey);
-  // The resolution ladder's overlay, keyed by dash rather than by card. The
-  // fronted dash is resolved from the same snapshot the lane orders by; an
+  // The resolution ladder's overlay, keyed by arc rather than by card. The
+  // fronted arc is resolved from the same snapshot the lane orders by; an
   // unbound card watches the empty key, which is idle by construction.
   // A join in flight decides the fronted row; the card's binding decides it
-  // the rest of the time. `/arc-join <name>` aims at a dash without binding to
+  // the rest of the time. `/arc-join <name>` aims at an arc without binding to
   // it, and the join face — outcome, blockers, the resolve ladder — is the
   // fronted row's alone, so fronting by the binding would leave a named join
   // live in the composer with nothing in the room to explain a refusal.
-  const frontedDashId = arcJoin?.dashId ?? boundDashId;
-  // A card can be bound to a dash before its branch exists — the planning
+  const frontedArcId = arcJoin?.arcId ?? boundArcId;
+  // A card can be bound to an arc before its branch exists — the planning
   // phase. It has no changeset entry, so the lane fronts its document row
-  // instead of falling silent about the dash the card is working.
+  // instead of falling silent about the arc the card is working.
   const documentArc =
-    boundDashId === null ||
-    snap.dashes.some((entry) => entry.owner_id === boundDashId)
+    boundArcId === null ||
+    snap.arcs.some((entry) => entry.owner_id === boundArcId)
       ? null
-      : (snap.documentArcs.find((row) => row.owner_id === boundDashId) ?? null);
+      : (snap.documentArcs.find((row) => row.owner_id === boundArcId) ?? null);
   // The resolution ladder's overlay is read per ROW, in `ArcRow`, keyed by
-  // that row's own dash — the store is keyed by dash, and every row now carries
-  // a face, so a single read here would paint the fronted dash's ladder under
+  // that row's own arc — the store is keyed by arc, and every row now carries
+  // a face, so a single read here would paint the fronted arc's ladder under
   // all of them.
 
-  // A dash whose join is RUNNING is no longer offered here ([P05]).
+  // An arc whose join is RUNNING is no longer offered here ([P05]).
   //
-  // The press spends every act this room held for that dash: there is nothing
+  // The press spends every act this room held for that arc: there is nothing
   // left to resolve, review, discard, or press again. Left on offer it invited
   // exactly one gesture — a second press — and the only answer that gesture
   // can get is `Joining…` as a refusal, which is how a join in progress came
   // to read as a join that had failed. Where the join is *narrated* is the
   // transcript's live edge, in front of the reader, not behind a panel.
   //
-  // A failed join brings its dash straight back: the beat turns terminal and
+  // A failed join brings its arc straight back: the beat turns terminal and
   // the row returns with its blockers, because a failure is the one outcome
   // that still wants somebody. A landed one never returns — the server drops
   // it from the feed.
-  const landingDashes = useChangesetLandingArcs(project.workspace_key);
-  const offeredDashes = useMemo(
+  const landingArcs = useChangesetLandingArcs(project.workspace_key);
+  const offeredArcs = useMemo(
     () =>
-      landingDashes.size === 0
-        ? snap.dashes
-        : snap.dashes.filter((entry) => !landingDashes.has(entry.display_name)),
-    [snap.dashes, landingDashes],
+      landingArcs.size === 0
+        ? snap.arcs
+        : snap.arcs.filter((entry) => !landingArcs.has(entry.display_name)),
+    [snap.arcs, landingArcs],
   );
 
   const sessionFiles = snap.entry?.files ?? [];
@@ -354,14 +354,14 @@ export function SessionChangesView({
         }
       : null;
   const hasSessionFiles = sessionFiles.length > 0;
-  // Dashes count against emptiness: a project whose only news is a dash is
+  // Arcs count against emptiness: a project whose only news is an arc is
   // not an all-clear, and "None" over a rendered arc lane would contradict
   // the rows below it.
   const isEmpty =
     !hasSessionFiles &&
     unattributedItem === null &&
     orphanedItem === null &&
-    snap.dashes.length === 0;
+    snap.arcs.length === 0;
   // An empty view is only a verified all-clear once the aggregate has actually
   // composed this workspace ([P02]). Before the first emit `project` is the
   // pre-scan placeholder, so an empty-and-uncomposed view says "scanning"
@@ -424,12 +424,12 @@ export function SessionChangesView({
 
   // Bind and Unbind ([P05]). Both are CONTROL frames on the existing
   // connection, and **neither touches `cardSessionBindingStore`** — the
-  // `bind_dash_ok` / `unbind_dash_ok` broadcasts are the only movers, which is
+  // `bind_arc_ok` / `unbind_arc_ok` broadcasts are the only movers, which is
   // what leaves a card correctly bound to what it was when a bind is refused.
   //
   // The gate is *a join in flight*, and deliberately not the Join
   // affordance's `evaluateJoinGate`: that one refuses on outcome and on
-  // blockers, and a dash that is off-base or conflicted is precisely one
+  // blockers, and an arc that is off-base or conflicted is precisely one
   // somebody should be able to take on. The only thing worth blocking is a
   // binding change that would move the lane's fronting out from under an open
   // join.
@@ -439,18 +439,18 @@ export function SessionChangesView({
       ? undefined
       : {
           bind: (entry) => {
-            getConnection()?.sendControlFrame("bind_dash", {
+            getConnection()?.sendControlFrame("bind_arc", {
               tug_session_id: tugSessionId,
               project_dir: project.workspace_key,
-              dash: entry.display_name,
+              arc: entry.display_name,
             });
           },
           unbind: () => {
-            getConnection()?.sendControlFrame("unbind_dash", {
+            getConnection()?.sendControlFrame("unbind_arc", {
               tug_session_id: tugSessionId,
             });
           },
-          // Binding or unbinding changes only which dash this card is bound
+          // Binding or unbinding changes only which arc this card is bound
           // to — no branch moves, nothing is checked out — so a turn in
           // flight is no reason to refuse it. A join already in flight
           // is: rebinding under it would strand the join.
@@ -464,14 +464,14 @@ export function SessionChangesView({
   //
   // `discard_in` is deliberately left unguarded: `tugtool arc discard` is a
   // power tool the app-test preamble's stranded-fixture sweep depends on, and
-  // the one genuinely irreversible case — base dirt overlapping the dash's own
+  // the one genuinely irreversible case — base dirt overlapping the arc's own
   // files — is already refused server-side before anything moves.
   const laneDiscard: ArcLaneDiscard | undefined =
     project === null
       ? undefined
       : {
           canDiscard: (entry) =>
-            canDiscardFromHere(entry, changesController.tugSessionId, boundDashId),
+            canDiscardFromHere(entry, changesController.tugSessionId, boundArcId),
           discard: (entry) =>
             discardVerb.discard(
               project.workspace_key,
@@ -486,7 +486,7 @@ export function SessionChangesView({
                 : null,
         };
 
-  // Replay, on every row on identical terms. The per-dash terms are the row's
+  // Replay, on every row on identical terms. The per-arc terms are the row's
   // own facts ({@link replayDisabledReason}); what the lane folds in is only
   // the in-flight gate, since `ReplayState` is one slot per card and a second
   // press would render the first one's phase.
@@ -564,9 +564,9 @@ export function SessionChangesView({
         />
       ) : null}
       <SessionChangesArcLane
-        dashes={offeredDashes}
-        boundDashId={boundDashId}
-        frontedDashId={frontedDashId}
+        arcs={offeredArcs}
+        boundArcId={boundArcId}
+        frontedArcId={frontedArcId}
         projectRoot={project.project_dir}
         workspaceKey={changesController.workspaceKey}
         joinFace={laneJoinFace}

@@ -35,10 +35,10 @@ describe("CodeSessionStore — pendingCommandInsert slot", () => {
 
   it("insertCommandDraft parks the bare name + argument text", () => {
     const store = constructStore();
-    store.insertCommandDraft("tugplug:implement", "dash/find-route.md");
+    store.insertCommandDraft("tugplug:implement", "arc/find-route.md");
     expect(store.getSnapshot().pendingCommandInsert).toEqual({
       name: "tugplug:implement",
-      args: "dash/find-route.md",
+      args: "arc/find-route.md",
     });
   });
 

@@ -15,7 +15,7 @@
  * ## What is asserted, and what deliberately is not
  *
  * The claim is about **Tug**: the arc read the boundary, decided a compaction,
- * delivered it as a `Wheel`-labelled row, recorded it on the dash-log and the
+ * delivered it as a `Wheel`-labelled row, recorded it on the arc log and the
  * arc record, and then continued the stage with the next step range.
  *
  * Whether claude *honors* the `/compact` — a `compact_boundary` divider and
@@ -50,19 +50,19 @@ import {
   seedTugbankForLaunch,
 } from "./_harness/tugbank-helpers";
 import {
-  createDash,
-  dashLogPath,
-  dashPlanPath,
-  discardDash,
+  createArc,
+  arcLogPath,
+  arcPlanPath,
+  discardArc,
   fixturePlanDocument,
-  makeDashScratchRepo,
-  rmDashScratchRepo,
+  makeArcScratchRepo,
+  rmArcScratchRepo,
   rmScratchSession,
   seedScratchSession,
   tugtool,
   tugtoolPath,
-  type DashScratchRepo,
-} from "./dash-fixture";
+  type ArcScratchRepo,
+} from "./arc-fixture";
 
 /**
  * Two gates, and they mean different things. `TUGAPP_APP_TEST` is every
@@ -82,9 +82,9 @@ const CARD = '[data-card-id="A"]';
 const NOTICE_ROWS = `${CARD} [data-slot="tug-notice"]`;
 const STAGE_DIVIDERS = `${CARD} [data-slot="stage-divider"]`;
 
-const DASH_NAME = "at0480-compact";
+const ARC_NAME = "at0480-compact";
 
-/** This checkout — the build under test, and never the tree a dash is cut in. */
+/** This checkout — the build under test, and never the tree an arc is cut in. */
 const CHECKOUT = realpathSync(resolve(import.meta.dir, "..", ".."));
 
 /**
@@ -92,7 +92,7 @@ const CHECKOUT = realpathSync(resolve(import.meta.dir, "..", ".."));
  * compacts. It is raised out of reach the moment the compaction is observed —
  * see `LOOSE_CONFIG`.
  */
-const SCRATCH_CONFIG = `[tugtool.dash]
+const SCRATCH_CONFIG = `[tugtool.arc]
 implement_compact_tokens = 1
 `;
 
@@ -106,11 +106,11 @@ implement_compact_tokens = 1
  * the continue's clothes. The arc reads the project's config on every tick,
  * so the new line is in force by the next boundary.
  */
-const LOOSE_CONFIG = `[tugtool.dash]
+const LOOSE_CONFIG = `[tugtool.arc]
 implement_compact_tokens = 1000000000
 `;
 
-let scratch: DashScratchRepo | null = null;
+let scratch: ArcScratchRepo | null = null;
 let fixtureDir = "";
 const projectDir = (): string => scratch?.repo ?? "";
 
@@ -122,20 +122,20 @@ beforeAll(() => {
     );
   }
   if (!SHOULD_RUN) return;
-  scratch = makeDashScratchRepo({ prefix: "at0480", checkout: CHECKOUT });
-  createDash(projectDir(), DASH_NAME, "at0480 compaction fixture", scratch.cli);
-  // A plan and **no brief**: the document a dash's arc opens on is its brief
+  scratch = makeArcScratchRepo({ prefix: "at0480", checkout: CHECKOUT });
+  createArc(projectDir(), ARC_NAME, "at0480 compaction fixture", scratch.cli);
+  // A plan and **no brief**: the document an arc's run opens on is its brief
   // when it has one, so writing none is what puts the plan in that seat — and
   // a document that lints as a plan skips devise entirely.
-  writeFileSync(dashPlanPath(projectDir(), DASH_NAME), fixturePlanDocument(2));
+  writeFileSync(arcPlanPath(projectDir(), ARC_NAME), fixturePlanDocument(2));
   writeFileSync(resolve(projectDir(), ".tugtool", "config.toml"), SCRATCH_CONFIG);
   fixtureDir = seedScratchSession(projectDir(), SID);
 });
 
 afterAll(() => {
   if (!SHOULD_RUN) return;
-  discardDash(projectDir(), DASH_NAME, scratch?.cli);
-  rmDashScratchRepo(scratch);
+  discardArc(projectDir(), ARC_NAME, scratch?.cli);
+  rmArcScratchRepo(scratch);
   rmScratchSession(fixtureDir);
 });
 
@@ -199,13 +199,13 @@ async function waitForWheelNotice(app: App, marker: string): Promise<void> {
   );
 }
 
-/** The dash-log's `compact` lines for this dash, as their notes. */
+/** The arc log's `compact` lines for this arc, as their notes. */
 function compactNotes(): string[] {
-  const log = readFileSync(dashLogPath(scratch?.dataRoot ?? ""), "utf8");
+  const log = readFileSync(arcLogPath(scratch?.dataRoot ?? ""), "utf8");
   return log
     .split("\n")
     .map((line) => line.split(/\s{2,}/).map((cell) => cell.trim()))
-    .filter((cells) => cells.length === 4 && cells[1] === DASH_NAME && cells[2] === "compact")
+    .filter((cells) => cells.length === 4 && cells[1] === ARC_NAME && cells[2] === "compact")
     .map((cells) => cells[3] ?? "");
 }
 
@@ -226,7 +226,7 @@ describe.skipIf(!SHOULD_RUN)("AT0480: the arc compacts a seated implement stage"
         // Opening the arc binds this card and starts the wheel: review first,
         // because the document lints as a plan, then implement once the review
         // stage has ended a turn.
-        await shell(app, `${cli} arc run ${DASH_NAME}`);
+        await shell(app, `${cli} arc run ${ARC_NAME} --plan`);
         await app.waitForCondition<boolean>(
           `Array.from(document.querySelectorAll(${JSON.stringify(STAGE_DIVIDERS)}))
              .some((el) => (el.textContent || "").indexOf("implement") !== -1)`,
@@ -241,11 +241,11 @@ describe.skipIf(!SHOULD_RUN)("AT0480: the arc compacts a seated implement stage"
         note("at0480 wheel rows after the compaction", JSON.stringify(await wheelNotices(app)));
         writeFileSync(resolve(projectDir(), ".tugtool", "config.toml"), LOOSE_CONFIG);
 
-        // And it said so where a reader can find it: the dash-log line, whose
+        // And it said so where a reader can find it: the arc log line, whose
         // note is the context that decided against the threshold that decided
         // it.
         const notes = compactNotes();
-        note("at0480 dash-log compact lines", JSON.stringify(notes));
+        note("at0480 arc log compact lines", JSON.stringify(notes));
         expect(notes.length).toBeGreaterThanOrEqual(1);
         expect(notes[0]).toMatch(/^\d+ > 1$/);
 
@@ -257,7 +257,7 @@ describe.skipIf(!SHOULD_RUN)("AT0480: the arc compacts a seated implement stage"
 
         // The placard reads the same act off the arc record.
         const arc = JSON.parse(
-          tugtool(["arc", "record", DASH_NAME, "--json"], {
+          tugtool(["arc", "record", ARC_NAME, "--json"], {
             cwd: projectDir(),
             binaryRoot: CHECKOUT,
             env: scratch?.cli.env,

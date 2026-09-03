@@ -9,19 +9,19 @@
  * it; the rows carry the surface.
  *
  * **A label is a name and an optional qualifier**, not one string with an em
- * dash in it. The two paint differently, so "unattributed" reads before "no
+ * arc in it. The two paint differently, so "unattributed" reads before "no
  * session claims these", and a renderer cannot do that to a flat string without
  * splitting on punctuation — a parser standing where a data shape belongs. The
- * em dash between them is authored here and nowhere else: it is a separator
+ * em arc between them is authored here and nowhere else: it is a separator
  * this component draws between two facts, not a character in either.
  *
  * **Why it is a component and not two stylesheets.** The Changes shade's file
- * buckets and its dash lane are separate components that must produce the same
+ * buckets and its arc lane are separate components that must produce the same
  * header — a reader scanning the shade should not be able to tell that two
  * things drew them. They used to do it by each spelling the same five
  * declarations, with a comment conceding the duplication was cheaper than a
  * cross-import. That holds at two users and stops holding at the third, which
- * is where the rail and the dash picker were about to arrive.
+ * is where the rail and the arc picker were about to arrive.
  *
  * Laws: [L19] file pair, docblock, `data-slot`; [L20] owns `--tugx-section-label-*`
  * and composes no other component's tokens.
@@ -51,7 +51,7 @@ export function TugSectionLabel({
   /**
    * The `data-slot` this header answers to. Defaulted rather than fixed
    * because a host's buckets are addressable individually — a test reaching
-   * for the dash lane's fronted header wants that one, not "a section label".
+   * for the arc lane's fronted header wants that one, not "a section label".
    */
   slot?: string;
   className?: string;
@@ -69,7 +69,7 @@ export function TugSectionLabel({
         <span className="tug-section-label-name">{label.name}</span>
         {label.qualifier !== undefined ? (
           <>
-            <span className="tug-section-label-dash" aria-hidden="true">
+            <span className="tug-section-label-arc" aria-hidden="true">
               {" — "}
             </span>
             <span className="tug-section-label-qualifier">{label.qualifier}</span>

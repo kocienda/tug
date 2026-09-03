@@ -1,5 +1,5 @@
-[tugtool.dash]
-# Commands run from a new dash worktree to hydrate it (deps, etc.).
+[tugtool.arc]
+# Commands run from a new arc worktree to hydrate it (deps, etc.).
 # A git worktree never inherits gitignored files, so these install what a
 # fresh checkout lacks. A non-zero exit rolls the worktree back.
 post_create = [
@@ -29,64 +29,64 @@ audit_model = "opus"
 # it is 300000.
 # implement_compact_tokens = 300000
 
-# The surfaces this project is made of. `tugtool dash verify <dash>` resolves
-# every path a dash would land to the surface declaring the longest matching
+# The surfaces this project is made of. `tugtool arc verify <arc>` resolves
+# every path an arc would land to the surface declaring the longest matching
 # path, refuses — naming them — when one resolves to no surface, and runs what
 # the matched surfaces declare. A path claimed by nothing is the table telling
 # you it has fallen behind the tree; declare a surface for it.
 #
 # Schema and placeholder contract: Surface in tugtool-core/src/config.rs.
 
-[[tugtool.dash.surface]]
+[[tugtool.arc.surface]]
 name  = "rust"
 paths = ["tugrust/"]
 check = ["cd tugrust && cargo clippy --workspace --all-targets -- -D warnings"]
 
-[[tugtool.dash.surface]]
+[[tugtool.arc.surface]]
 name  = "deck"
 paths = ["tugdeck/"]
 check = ["cd tugdeck && bunx tsc --noEmit", "cd tugdeck && bunx vite build", "just app-test-changed {paths}"]
 
 # Shadows `deck` by longest prefix: a change under tugdeck/crates/ runs the
 # wasm build, not the vite one.
-[[tugtool.dash.surface]]
+[[tugtool.arc.surface]]
 name  = "wasm"
 paths = ["tugdeck/crates/"]
 check = ["just wasm"]
 
-[[tugtool.dash.surface]]
+[[tugtool.arc.surface]]
 name  = "code"
 paths = ["tugcode/"]
 check = ["cd tugcode && bunx tsc --noEmit"]
 
 # One tracked file with no build of its own, checked by both consumers that
 # import it.
-[[tugtool.dash.surface]]
+[[tugtool.arc.surface]]
 name       = "proto"
 paths      = ["tugproto/"]
 checked_by = ["deck", "code"]
 
-[[tugtool.dash.surface]]
+[[tugtool.arc.surface]]
 name  = "app"
 paths = ["tugapp/"]
 check = ["just build-app", "just app-test-changed {paths}"]
 
-[[tugtool.dash.surface]]
+[[tugtool.arc.surface]]
 name  = "app-tests"
 paths = ["tests/app-test/"]
 check = ["cd tests/app-test && bunx tsc --noEmit", "just app-test-changed {paths}"]
 
-[[tugtool.dash.surface]]
+[[tugtool.arc.surface]]
 name  = "prose"
 paths = ["tuglaws/", "notes/", "CLAUDE.md", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md"]
 check = []
 
-[[tugtool.dash.surface]]
+[[tugtool.arc.surface]]
 name  = "plugin"
 paths = ["tugplug/", ".claude-plugin/"]
 check = []
 
-[[tugtool.dash.surface]]
+[[tugtool.arc.surface]]
 name  = "project"
 paths = ["Justfile", "scripts/", ".github/", ".gitattributes", ".gitignore", ".tugtool/", "capabilities/", "diag/", "products/", "resources/", "tests/build-info/", "tests/model-eval/"]
 check = []

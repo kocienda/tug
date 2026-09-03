@@ -332,7 +332,7 @@ interface TugPromptEntryState {
    * because `capDurableCardState` persists no image data. Rehydration reads
    * the bytes back after the restore.
    *
-   * Per [D03](dash/dev-atoms.md#d03-atom-bytes-store) and
+   * Per [D03](arc/dev-atoms.md#d03-atom-bytes-store) and
    * [L23](../../tuglaws/tuglaws.md#l23).
    */
   attachmentBytes?: Record<string, RestoredAttachmentEntry>;
@@ -843,7 +843,7 @@ export interface TugPromptEntryProps {
    */
   changesLandingKind?: LandingKind;
   /**
-   * A join is standing for this card's dash and the room is not open.
+   * A join is standing for this card's arc and the room is not open.
    *
    * The unread idiom: while it holds, the Changes segment wears a small accent
    * dot saying there is something in there to look at. It is the held signal
@@ -851,7 +851,7 @@ export interface TugPromptEntryProps {
    * half-typed composer — so the offer is never silent, only quiet.
    *
    * The host derives it per render from live facts and never remembers it, so
-   * the dot cannot outlive the dash. The label does not change with it: the
+   * the dot cannot outlive the arc. The label does not change with it: the
    * group stays invariant in shape and in words.
    */
   changesHasOffer?: boolean;
@@ -1290,8 +1290,8 @@ export const TugPromptEntry = React.forwardRef<
   // callback flow through to `TugTextEditor` so the drop / paste
   // extensions can populate the side-table at insert time and surface
   // downsample-rejection messages via the existing banner channel.
-  // Per [D03](dash/dev-atoms.md#d03-atom-bytes-store) and
-  // [Table T01](dash/dev-atoms.md#t01-failure-modes).
+  // Per [D03](arc/dev-atoms.md#d03-atom-bytes-store) and
+  // [Table T01](arc/dev-atoms.md#t01-failure-modes).
   const attachmentBytesStore = useMemo(
     () => codeSessionStore.getAtomBytesStore(),
     [codeSessionStore],
@@ -2887,7 +2887,7 @@ export const TugPromptEntry = React.forwardRef<
     // silently — confusing UX. Surface a banner via the existing
     // attachment-error channel and bail; the user retries once the
     // pulsing pending chips settle. Per
-    // [D02](dash/dev-atoms.md#d02-image-attach-text-rest)'s
+    // [D02](arc/dev-atoms.md#d02-image-attach-text-rest)'s
     // pending-atom contract.
     const pendingAttachmentCount = positionedAtoms.filter(
       (a) =>

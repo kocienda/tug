@@ -3,7 +3,7 @@
 //!
 //! The incident this pins: on the wheel machinery's first live run a stage
 //! did everything right through the first boundary — `step start 1`, work,
-//! `dash commit`, `step done 1` — and then, instead of ending its turn, kept
+//! `arc commit`, `step done 1` — and then, instead of ending its turn, kept
 //! working straight into step 2. The Wheel acts only *between* turns, so an
 //! unended turn locks it out of pacing, `/compact`, rotation and the idle
 //! clock alike. Both the skill and the wheel's opening prompt commanded the
@@ -421,7 +421,7 @@ fn tug(tmp: &Path, root: &Path) -> Command {
     cmd
 }
 
-/// A checkout holding a dash named `demo` with a two-row ledger.
+/// A checkout holding an arc named `demo` with a two-row ledger.
 fn repo_with_a_two_step_plan(root: &Path) {
     git(root, &["init", "-b", "main"]);
     git(root, &["config", "user.name", "t"]);
@@ -518,7 +518,7 @@ fn a_step_verb_speaks_the_boundary_only_under_a_course() {
 
     // The run told the server which turns closed a step — the timely half of
     // the boundary gate. The card's own lines are **not** here and must not
-    // be: they are derived from the dash-log by the server's observer, so no
+    // be: they are derived from the arc log by the server's observer, so no
     // verb posts one and a fixture watching the wire sees none.
     let mut closes = Vec::new();
     let mut posted_ops = Vec::new();
@@ -550,29 +550,32 @@ fn a_step_verb_speaks_the_boundary_only_under_a_course() {
     // Found by walking rather than by `project_state_dir`: that path is
     // derived from *this* process's `TUG_DATA_DIR`, and the log belongs to the
     // child's.
-    let log = std::fs::read_to_string(find_dash_log(&tmp.join("state")).expect("a dash-log"))
-        .expect("a readable dash-log");
+    let log = std::fs::read_to_string(find_arc_log(&tmp.join("state")).expect("an arc log"))
+        .expect("a readable arc log");
     for marker in ["created", "run-through", "step-start", "step-done"] {
         assert!(
             log.lines().any(|line| {
                 tugarc_core::log::split_log_line(line)
-                    .is_some_and(|(_, dash, m, _)| dash == "demo" && m == marker)
+                    .is_some_and(|(_, arc, m, _)| arc == "demo" && m == marker)
             }),
             "the record is missing a {marker} line:\n{log}"
         );
     }
 }
 
-/// The one `dash-log.md` under a scratch data dir, whose project slug is the
+/// The one `arc-log.md` under a scratch data dir, whose project slug is the
 /// child's to derive rather than this process's.
-fn find_dash_log(state: &Path) -> Option<PathBuf> {
+fn find_arc_log(state: &Path) -> Option<PathBuf> {
     for entry in std::fs::read_dir(state).ok()? {
         let path = entry.ok()?.path();
         if path.is_dir() {
-            if let Some(found) = find_dash_log(&path) {
+            if let Some(found) = find_arc_log(&path) {
                 return Some(found);
             }
-        } else if path.file_name().is_some_and(|n| n == "dash-log.md") {
+        } else if path
+            .file_name()
+            .is_some_and(|n| n == tugtool_core::paths::ARC_LOG)
+        {
             return Some(path);
         }
     }

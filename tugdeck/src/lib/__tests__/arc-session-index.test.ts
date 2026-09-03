@@ -1,7 +1,7 @@
 /**
- * The session → dash projection, over the shared golden snapshot.
+ * The session → arc projection, over the shared golden snapshot.
  *
- * What is worth pinning is the inversion itself (a dash lists its sessions;
+ * What is worth pinning is the inversion itself (an arc lists its sessions;
  * every one of them must find its way back), the tie rule when a malformed
  * snapshot claims a session twice, and the memo's observable contract — same
  * snapshot, same map, so an aggregate beat costs one build rather than one
@@ -12,7 +12,7 @@ import { describe, expect, test } from "bun:test";
 
 import golden from "@/__tests__/fixtures/workspaces-changeset-snapshot.golden.json";
 import type {
-  DashChangesetEntry,
+  ArcChangesetEntry,
   DocumentArcEntry,
   ProjectChangeset,
   WorkspacesChangesetSnapshot,
@@ -28,9 +28,9 @@ import { sessionLineStore } from "../session-line-store";
 const DATA = golden as WorkspacesChangesetSnapshot;
 
 const GOLDEN_PROJECT = DATA.projects[0]!;
-const GOLDEN_DASH = DATA.projects
+const GOLDEN_ARC = DATA.projects
   .flatMap((project) => project.changesets)
-  .find((entry): entry is DashChangesetEntry => entry.kind === "dash")!;
+  .find((entry): entry is ArcChangesetEntry => entry.kind === "arc")!;
 
 /** The golden project, with `changesets` replaced wholesale. */
 function projectWith(entries: ProjectChangeset["changesets"]): ProjectChangeset {
@@ -42,20 +42,20 @@ describe("buildArcSessionIndex", () => {
     expect(buildArcSessionIndex({ projects: [] }).size).toBe(0);
   });
 
-  test("the golden dash's bound session finds its way back", () => {
-    const bound = GOLDEN_DASH.bound_sessions!;
+  test("the golden arc's bound session finds its way back", () => {
+    const bound = GOLDEN_ARC.bound_sessions!;
     expect(bound.length).toBeGreaterThan(0);
     const index = buildArcSessionIndex(DATA);
     const fact = index.get(bound[0]!)!;
-    expect(fact.ownerId).toBe(GOLDEN_DASH.owner_id);
-    expect(fact.name).toBe(GOLDEN_DASH.display_name);
-    expect(fact.stage).toBe(GOLDEN_DASH.stage ?? null);
+    expect(fact.ownerId).toBe(GOLDEN_ARC.owner_id);
+    expect(fact.name).toBe(GOLDEN_ARC.display_name);
+    expect(fact.stage).toBe(GOLDEN_ARC.stage ?? null);
     expect(fact.projectDir).toBe(GOLDEN_PROJECT.project_dir);
   });
 
-  test("two sessions on one dash share one fact object", () => {
-    const shared: DashChangesetEntry = {
-      ...GOLDEN_DASH,
+  test("two sessions on one arc share one fact object", () => {
+    const shared: ArcChangesetEntry = {
+      ...GOLDEN_ARC,
       bound_sessions: ["sess-a", "sess-b"],
     };
     const index = buildArcSessionIndex({ projects: [projectWith([shared])] });
@@ -63,16 +63,16 @@ describe("buildArcSessionIndex", () => {
     expect(index.get("sess-a")).toBe(index.get("sess-b")!);
   });
 
-  test("a session claimed by two dashes takes the first in snapshot order", () => {
-    const first: DashChangesetEntry = {
-      ...GOLDEN_DASH,
-      owner_id: "tugdash/first#1",
+  test("a session claimed by two arcs takes the first in snapshot order", () => {
+    const first: ArcChangesetEntry = {
+      ...GOLDEN_ARC,
+      owner_id: "tugarc/first#1",
       display_name: "first",
       bound_sessions: ["sess-a"],
     };
-    const second: DashChangesetEntry = {
-      ...GOLDEN_DASH,
-      owner_id: "tugdash/second#2",
+    const second: ArcChangesetEntry = {
+      ...GOLDEN_ARC,
+      owner_id: "tugarc/second#2",
       display_name: "second",
       bound_sessions: ["sess-a"],
     };
@@ -83,10 +83,10 @@ describe("buildArcSessionIndex", () => {
   });
 
   test("an entry with no bound_sessions contributes nothing", () => {
-    const unbound: DashChangesetEntry = { ...GOLDEN_DASH, bound_sessions: [] };
-    const older: DashChangesetEntry = {
-      ...GOLDEN_DASH,
-      owner_id: "tugdash/older#2",
+    const unbound: ArcChangesetEntry = { ...GOLDEN_ARC, bound_sessions: [] };
+    const older: ArcChangesetEntry = {
+      ...GOLDEN_ARC,
+      owner_id: "tugarc/older#2",
       bound_sessions: undefined,
     };
     expect(
@@ -94,7 +94,7 @@ describe("buildArcSessionIndex", () => {
     ).toBe(0);
   });
 
-  test("session entries are never dashes, however many sessions they name", () => {
+  test("session entries are never arcs, however many sessions they name", () => {
     const sessions = GOLDEN_PROJECT.changesets.filter(
       (entry) => entry.kind === "session",
     );
@@ -103,8 +103,8 @@ describe("buildArcSessionIndex", () => {
   });
 
   test("the counters ride as raw numbers, each half independently", () => {
-    const half: DashChangesetEntry = {
-      ...GOLDEN_DASH,
+    const half: ArcChangesetEntry = {
+      ...GOLDEN_ARC,
       bound_sessions: ["sess-a"],
       step_current: 2,
     };
@@ -115,7 +115,7 @@ describe("buildArcSessionIndex", () => {
     expect(halfFact.stepCurrent).toBe(2);
     expect(halfFact.stepTotal).toBeNull();
 
-    const both: DashChangesetEntry = { ...half, step_total: 5 };
+    const both: ArcChangesetEntry = { ...half, step_total: 5 };
     const bothFact = buildArcSessionIndex({
       projects: [projectWith([both])],
     }).get("sess-a")!;
@@ -126,8 +126,8 @@ describe("buildArcSessionIndex", () => {
   test("the run's counters ride beside the plan's, without replacing them", () => {
     // Step 6 of a ten-row plan, second of a three-step selection. Both pairs
     // reach the fact: the numerals will count the run, the ring the plan.
-    const stepped: DashChangesetEntry = {
-      ...GOLDEN_DASH,
+    const stepped: ArcChangesetEntry = {
+      ...GOLDEN_ARC,
       bound_sessions: ["sess-a"],
       step_current: 6,
       step_total: 10,
@@ -144,7 +144,7 @@ describe("buildArcSessionIndex", () => {
 
     // A sender that declared no run leaves the run half null rather than
     // guessing it from the plan's.
-    const undeclared: DashChangesetEntry = { ...stepped };
+    const undeclared: ArcChangesetEntry = { ...stepped };
     delete undeclared.run_position;
     delete undeclared.run_length;
     const plain = buildArcSessionIndex({
@@ -156,8 +156,8 @@ describe("buildArcSessionIndex", () => {
   });
 
   test("plan presence rides the fact — it is what makes a missing step loud", () => {
-    const planless: DashChangesetEntry = {
-      ...GOLDEN_DASH,
+    const planless: ArcChangesetEntry = {
+      ...GOLDEN_ARC,
       bound_sessions: ["sess-a"],
     };
     delete planless.documents;
@@ -167,7 +167,7 @@ describe("buildArcSessionIndex", () => {
       )!.hasPlan,
     ).toBe(false);
 
-    const planned: DashChangesetEntry = {
+    const planned: ArcChangesetEntry = {
       ...planless,
       documents: { plan: "/repo/.tug/arcs/some/plan.md" },
     };
@@ -179,8 +179,8 @@ describe("buildArcSessionIndex", () => {
   });
 
   test("the step's title rides the fact, and absence reads as null", () => {
-    const bare: DashChangesetEntry = {
-      ...GOLDEN_DASH,
+    const bare: ArcChangesetEntry = {
+      ...GOLDEN_ARC,
       bound_sessions: ["sess-a"],
     };
     delete bare.step_title;
@@ -188,7 +188,7 @@ describe("buildArcSessionIndex", () => {
       buildArcSessionIndex({ projects: [projectWith([bare])] }).get("sess-a")!
         .stepTitle,
     ).toBeNull();
-    const titled: DashChangesetEntry = {
+    const titled: ArcChangesetEntry = {
       ...bare,
       step_current: 2,
       step_total: 5,
@@ -215,19 +215,19 @@ describe("arcForSession", () => {
     expect(arcForSession(DATA, "")).toBeNull();
   });
 
-  test("answers the dash for a bound session", () => {
-    const bound = GOLDEN_DASH.bound_sessions![0]!;
-    expect(arcForSession(DATA, bound)!.name).toBe(GOLDEN_DASH.display_name);
+  test("answers the arc for a bound session", () => {
+    const bound = GOLDEN_ARC.bound_sessions![0]!;
+    expect(arcForSession(DATA, bound)!.name).toBe(GOLDEN_ARC.display_name);
   });
 });
 
-describe("the documents-only half of a dash's life", () => {
-  /** A branchless dash: documents on disk, no `tugdash/<name>` branch yet. */
+describe("the documents-only half of an arc's life", () => {
+  /** A branchless arc: documents on disk, no `tugarc/<name>` branch yet. */
   function documentArc(
     over: Partial<DocumentArcEntry> = {},
   ): DocumentArcEntry {
     return {
-      owner_id: "tugdash/planning#1",
+      owner_id: "tugarc/planning#1",
       display_name: "planning",
       documents: { brief: "/repo/.tug/arcs/planning/brief.md" },
       step_total: 0,
@@ -238,7 +238,7 @@ describe("the documents-only half of a dash's life", () => {
     };
   }
 
-  test("a session bound before the branch exists still finds its dash", () => {
+  test("a session bound before the branch exists still finds its arc", () => {
     const index = buildArcSessionIndex({
       projects: [
         {
@@ -279,14 +279,14 @@ describe("the documents-only half of a dash's life", () => {
     expect(fact.hasPlan).toBe(true);
     expect(fact.stepTotal).toBe(3);
     // Plan-absolute run counters are positions within a declared run, which a
-    // branchless dash has none of.
+    // branchless arc has none of.
     expect(fact.stepCurrent).toBeNull();
     expect(fact.runPosition).toBeNull();
     expect(fact.runLength).toBeNull();
     expect(fact.stepTitle).toBeNull();
   });
 
-  test("a document dash with no bound session claims nothing", () => {
+  test("a document arc with no bound session claims nothing", () => {
     const index = buildArcSessionIndex({
       projects: [
         {
@@ -299,8 +299,8 @@ describe("the documents-only half of a dash's life", () => {
   });
 
   test("a live entry outranks a document entry claiming the same session", () => {
-    const live: DashChangesetEntry = {
-      ...GOLDEN_DASH,
+    const live: ArcChangesetEntry = {
+      ...GOLDEN_ARC,
       display_name: "live-one",
       stage: "working",
       bound_sessions: ["sess-d"],
@@ -325,7 +325,7 @@ describe("the documents-only half of a dash's life", () => {
  * surface asking is still holding the id it was minted with: a card's spawn
  * address, a citation's cited id. The direct lookup answers those two only
  * while they are the same string, which is until the first rotation, and the
- * incident is what a blank masthead sigil and a blank Z2 DASH cell look like
+ * incident is what a blank masthead sigil and a blank Z2 ARC cell look like
  * when they are not (`notes/wheel-rotation-strands-the-arc.md`).
  *
  * Over the binding-store singleton, because the walk is segment → card → the
@@ -342,13 +342,13 @@ describe("arcForSession – over a rotation", () => {
     return {
       projects: [
         projectWith([
-          { ...GOLDEN_DASH, display_name: "rotating", bound_sessions: bound },
+          { ...GOLDEN_ARC, display_name: "rotating", bound_sessions: bound },
         ]),
       ],
     };
   }
 
-  test("the pre-rotation id still finds the dash the fresh segment holds", () => {
+  test("the pre-rotation id still finds the arc the fresh segment holds", () => {
     sessionLineStore.forgetSession(ROOT);
     sessionLineStore.forgetSession(STAGE);
     sessionLineStore.seat(ROOT, LINE);
@@ -372,7 +372,7 @@ describe("arcForSession – over a rotation", () => {
     cardSessionBindingStore.clearBinding(CARD);
   });
 
-  test("a segment no card holds, and a card on no dash, both answer null", () => {
+  test("a segment no card holds, and a card on no arc, both answer null", () => {
     sessionLineStore.forgetSession(ROOT);
     sessionLineStore.forgetSession(STAGE);
     const snapshot = snapshotBinding([STAGE]);

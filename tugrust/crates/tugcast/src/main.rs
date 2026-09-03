@@ -623,9 +623,9 @@ async fn main() {
         Ok(0) => {}
         Ok(n) => info!(
             count = n,
-            "seated line dash bindings on the resumed segments"
+            "seated line arc bindings on the resumed segments"
         ),
-        Err(e) => warn!(error = %e, "failed to seat line dash bindings"),
+        Err(e) => warn!(error = %e, "failed to seat line arc bindings"),
     }
 
     // Prompt-history ledger — the composer's durable prompt corpus. Non-fatal:
@@ -696,7 +696,7 @@ async fn main() {
     // response to the right card. Buffer of 64 frames is comfortable
     // for FILETREE traffic (one frame per typed character, deduplicated
     // by JS) — a Lagged slow client drops some completions but doesn't
-    // crash. Per `dash/dev-atoms.md#step-pre-4`.
+    // crash. Per `arc/dev-atoms.md#step-pre-4`.
     let (ft_response_tx, _) = broadcast::channel::<Frame>(64);
 
     // Shared GIT_DIFF-response broadcast channel ([#step-10a]). The
@@ -763,7 +763,7 @@ async fn main() {
     // Adapter: router sends raw Frames on FILETREE_QUERY; parse JSON into
     // FileTreeQuery and forward to the workspace's FileTreeFeed.
     //
-    // Routing strategy (`dash/dev-atoms.md#step-pre-4`): if the JS payload
+    // Routing strategy (`arc/dev-atoms.md#step-pre-4`): if the JS payload
     // carries a `root` field that resolves to a registered workspace, send
     // to that workspace's `ft_query_tx`. Otherwise fall back to the
     // bootstrap (the `--source-tree` workspace) — preserves single-workspace
@@ -823,10 +823,10 @@ async fn main() {
             /// its diff to one file or one changeset. Absent/empty keeps
             /// the whole-tree diff (session card `/diff`). Head flavor only.
             paths: Option<Vec<String>>,
-            /// Dash range flavor ([P19]): a present `branch` selects
+            /// Arc range flavor ([P19]): a present `branch` selects
             /// `<base>...<branch>` + worktree dirt instead of `git diff HEAD`.
-            /// `worktree` is the dash worktree path relative to the resolved
-            /// project dir; `base` the dash's base branch.
+            /// `worktree` is the arc worktree path relative to the resolved
+            /// project dir; `base` the arc's base branch.
             worktree: Option<String>,
             base: Option<String>,
             branch: Option<String>,
@@ -858,7 +858,7 @@ async fn main() {
             let response_tx = gd_response_tx_loop.clone();
             tokio::spawn(async move {
                 // A present `sha` routes to the commit flavor; a present
-                // `branch` to the dash range flavor; otherwise the head flavor
+                // `branch` to the arc range flavor; otherwise the head flavor
                 // (today's `git diff HEAD`, whole tree or pathspec-scoped).
                 let snapshot = if let Some(sha) = sha {
                     crate::feeds::git::build_commit_diff_snapshot(
@@ -872,7 +872,7 @@ async fn main() {
                 } else {
                     match branch {
                         Some(branch) => {
-                            crate::feeds::git::build_dash_diff_snapshot(
+                            crate::feeds::git::build_arc_diff_snapshot(
                                 &entry.project_dir,
                                 request_id,
                                 entry.workspace_key.as_ref(),
@@ -1837,7 +1837,7 @@ async fn main() {
     // it sees every recompute the router does.
     supervisor.start_draft_engine(changeset_all_rx.clone(), cancel.clone());
 
-    // The base-motion engine: replay a dash onto its base the moment the base
+    // The base-motion engine: replay an arc onto its base the moment the base
     // moves and it is safe to. It subscribes to the same GIT_HEAD broadcast the
     // router fans out, so no new watcher exists; the other two wakes are a
     // workspace opening (the registry) and a turn ending (the supervisor),
@@ -1890,7 +1890,7 @@ async fn main() {
         },
     ));
 
-    // The arc runner: rotate a server-driven dash arc's next stage onto the
+    // The arc runner: rotate a server-driven arc's next stage onto the
     // card it is bound to. Its primary wake is the same idle transition
     // base-motion takes, on a sibling channel because an mpsc has one consumer
     // ([P05]); the aggregate changeset watch is the slower floor, for a stage
@@ -1936,7 +1936,7 @@ async fn main() {
         wheel_tick_rx,
     ));
 
-    // The run's quiet lines. A derived view of the dash-log rather than an act
+    // The run's quiet lines. A derived view of the arc log rather than an act
     // any caller performs, so the announcement is skippable only by not
     // writing the record — at which point the mutation did not happen (W8).
     tokio::spawn(feeds::arc_notes::run_arc_notes(
@@ -1972,7 +1972,7 @@ async fn main() {
     // connected client subscribes its own broadcast receiver in
     // `ClientState::Live` and forwards every frame to the socket. JS
     // filters by `workspace_key` to dispatch responses to the right
-    // card. Per `dash/dev-atoms.md#step-pre-4`.
+    // card. Per `arc/dev-atoms.md#step-pre-4`.
     feed_router.add_broadcast_senders(vec![
         ft_response_tx,
         gd_response_tx,
@@ -2208,16 +2208,16 @@ struct SeedSession {
     /// citation or a session atom carries.
     #[serde(default)]
     tag: Option<String>,
-    /// The dash this session is mated to, as `(owner key, short name)`.
+    /// The arc this session is mated to, as `(owner key, short name)`.
     ///
-    /// Applied through the same `set_dash_binding` a real `bind_dash` uses, so
+    /// Applied through the same `set_arc_binding` a real `bind_arc` uses, so
     /// the seeded row is indistinguishable from a bound one — which is what
     /// makes it possible to stand up "another live session is holding this
-    /// dash" without launching a second card and a second agent.
+    /// arc" without launching a second card and a second agent.
     #[serde(default)]
-    dash_id: Option<String>,
+    arc_id: Option<String>,
     #[serde(default)]
-    dash_name: Option<String>,
+    arc_name: Option<String>,
     /// The session this one was rewind-forked from, written through the same
     /// `set_fork_provenance` the fork arc uses. This is the edge every durable
     /// ink read resolves along, so seeding it is how a test can stand up the
@@ -2398,11 +2398,10 @@ fn seed_ledger(spec_path: &std::path::Path) -> ! {
                 std::process::exit(1);
             }
         }
-        if let Some(dash_id) = session.dash_id.as_deref() {
-            let dash_name = session.dash_name.as_deref().unwrap_or(dash_id);
-            if let Err(e) = ledger.set_dash_binding(&session.session_id, Some((dash_id, dash_name)))
-            {
-                eprintln!("tugcast: error: set_dash_binding failed: {e}");
+        if let Some(arc_id) = session.arc_id.as_deref() {
+            let arc_name = session.arc_name.as_deref().unwrap_or(arc_id);
+            if let Err(e) = ledger.set_arc_binding(&session.session_id, Some((arc_id, arc_name))) {
+                eprintln!("tugcast: error: set_arc_binding failed: {e}");
                 std::process::exit(1);
             }
         }

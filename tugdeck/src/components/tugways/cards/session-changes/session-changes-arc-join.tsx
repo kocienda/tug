@@ -27,11 +27,11 @@
  * With nothing to report the section renders nothing at all — a `report`
  * eyebrow over silence would be a row of chrome saying nothing.
  *
- * Every value here is read from the dash's server-owned join block, so the
+ * Every value here is read from the arc's server-owned join block, so the
  * face and the join gate answer the same question from the same bytes.
  *
  * The face belongs to the **fronted** row only — joining is a gesture on this
- * card's own dash, and the composer it routes to is this card's own.
+ * card's own arc, and the composer it routes to is this card's own.
  *
  * Laws: [L02] every value here arrives as a prop from the view's store reads;
  * [L06] tone paints through `data-outcome` and CSS; [L19] the section
@@ -55,11 +55,11 @@ import {
   type ParsedQuestion,
 } from "@/components/tugways/chrome/session-question-dialog";
 import type {
-  DashChangesetEntry,
+  ArcChangesetEntry,
   ArcJoinBlockerWire,
   ArcJoinQuestionWire,
   ArcJoinStateWire,
-  DashResolvedFileWire,
+  ArcResolvedFileWire,
 } from "@/lib/changeset-types";
 import type { ResolvePhase, ResolveState } from "@/lib/changeset-join-store";
 import {
@@ -68,7 +68,7 @@ import {
 } from "@/lib/join-mode-controller";
 
 /**
- * The lane's join gestures, supplied by the card that owns the dash.
+ * The lane's join gestures, supplied by the card that owns the arc.
  *
  * There is deliberately no gesture here that joins, and none that opens the
  * join editor. Joining is the composer's — ⌃⌘C, or `/arc-join` — and the
@@ -78,8 +78,8 @@ import {
  * greyed itself out and said so in a place the press never reached.
  */
 export interface ArcJoinActions {
-  /** Point the join mode at this dash without entering it — the row's expand. */
-  aim: (entry: DashChangesetEntry) => void;
+  /** Point the join mode at this arc without entering it — the row's expand. */
+  aim: (entry: ArcChangesetEntry) => void;
   /**
    * Answer the intent question a blocked resolver raised ([P06]).
    *
@@ -88,18 +88,18 @@ export interface ArcJoinActions {
    * not the face's call.
    */
   answerQuestion: (
-    entry: DashChangesetEntry,
+    entry: ArcChangesetEntry,
     requestId: string,
     answer: string,
   ) => void;
   /**
-   * Clear the base-side work refusing this dash's join.
+   * Clear the base-side work refusing this arc's join.
    *
    * One act for every resolvable blocker, because the server decides what the
    * act *is* and says so in the blocker's own remedy sentence. The control is
    * always the same word.
    */
-  resolveBase: (entry: DashChangesetEntry) => void;
+  resolveBase: (entry: ArcChangesetEntry) => void;
 }
 
 /**
@@ -119,7 +119,7 @@ export type ResolveFace = "none" | "offer" | "progress" | "resolved" | "error";
  * resolution survive a reload: the phase is a live overlay that dies with the
  * page, while the candidate is a git ref the server re-reports on every
  * recompute. Ranked the other way, reopening the deck after a successful
- * Resolve would show a clean dash with no review panel and join it unread.
+ * Resolve would show a clean arc with no review panel and join it unread.
  */
 export function deriveResolveFace(
   outcome: JoinOutcome,
@@ -130,7 +130,7 @@ export function deriveResolveFace(
   if (phase === "resolving") return "progress";
   // The server's own account of what it is doing right now ([P09]). The phase
   // above it is a client overlay that dies with the page, so without this a
-  // reload during a resolve — or a second deck watching the same dash — renders
+  // reload during a resolve — or a second deck watching the same arc — renders
   // minutes of real work as nothing at all.
   if (run === "resolve") return "progress";
   if (candidateCommit !== null) return "resolved";
@@ -175,10 +175,10 @@ export function deriveJoinFace(input: {
 }
 
 export interface SessionChangesArcJoinProps {
-  /** The dash this face describes — always the card's own. */
-  entry: DashChangesetEntry;
+  /** The arc this face describes — always the card's own. */
+  entry: ArcChangesetEntry;
   /**
-   * The dash's server-owned join state, straight off its feed entry: blockers,
+   * The arc's server-owned join state, straight off its feed entry: blockers,
    * conflicts, the candidate and what the ladder decided per path. Everything
    * this face says about a join is read from here, so the face and the join
    * gate cannot disagree.
@@ -186,7 +186,7 @@ export interface SessionChangesArcJoinProps {
   join: ArcJoinStateWire | null;
   /** A verb-level refusal from an execute, if one came back. */
   error: string | null;
-  /** The resolution ladder's live state for this dash. */
+  /** The resolution ladder's live state for this arc. */
   resolve: ResolveState;
   actions: ArcJoinActions;
 }
@@ -224,10 +224,10 @@ export function reportedBlockers(
 export function discardPreflightLine(rounds: number, files: number): string {
   const parts: string[] = [];
   if (rounds > 0) parts.push(`${rounds} round${rounds === 1 ? "" : "s"}`);
-  // The entry's `files` is the dash's range diff, not worktree dirt, so the
+  // The entry's `files` is the arc's range diff, not worktree dirt, so the
   // line says `file` — the receipt (Spec S02) counts the same way.
   if (files > 0) parts.push(`${files} file${files === 1 ? "" : "s"}`);
-  // A dash with neither is the light confirm: there is nothing to warn about,
+  // An arc with neither is the light confirm: there is nothing to warn about,
   // and saying "discards 0 rounds" would invent a stake that is not there.
   if (parts.length === 0) return "Discards nothing — this arc has no work";
   return `Discards ${parts.join(" · ")}`;
@@ -285,7 +285,7 @@ function BlockerDialog({
 }: {
   blocker: ArcJoinBlockerWire;
   detailIsElsewhere: boolean;
-  entry: DashChangesetEntry;
+  entry: ArcChangesetEntry;
   resolve: ResolveState;
   actions: ArcJoinActions;
 }): React.ReactElement {
@@ -362,7 +362,7 @@ export function SessionChangesArcJoin({
   // standing candidate wears, and the ordinary clean join reaches it having
   // resolved nothing and filed no account — so the word is not evidence, and
   // taking it for evidence put a `report` eyebrow over an empty box on every
-  // dash that merged without a conflict.
+  // arc that merged without a conflict.
   const resolvedRows = resolveFace === "resolved" && resolved.length > 0;
   const account =
     resolveFace === "resolved" &&
@@ -371,7 +371,7 @@ export function SessionChangesArcJoin({
       (report.notes !== undefined && report.notes !== ""));
 
   // A section renders nothing it cannot say. Measured against what will
-  // actually render below, never against the outcome word — a dash whose arc
+  // actually render below, never against the outcome word — an arc whose arc
   // has not started derives `blocked` with no blockers to show, and a `report`
   // eyebrow over that silence would be a row of chrome saying nothing.
   const speaks =
@@ -414,7 +414,7 @@ export function SessionChangesArcJoin({
           className="session-changes-arc-join-note"
           data-slot="session-changes-arc-join-empty"
         >
-          Nothing to join — discard this dash.
+          Nothing to join — discard this arc.
         </div>
       ) : null}
       {reported.length > 0 ? (
@@ -490,7 +490,7 @@ export function SessionChangesArcJoin({
       ) : null}
       {/* Where the review panel stood ([P07]). The human is no longer the
           auditor of machine text decisions: the resolver read every resolution
-          against the dash's intent and had to account for each one ([P10]).
+          against the arc's intent and had to account for each one ([P10]).
           So what shows here is the resolver's account, and nothing else — what
           the joined tree does was asked at the end of the run, against the
           tree that will actually land. */}
@@ -589,7 +589,7 @@ export function SessionChangesArcJoin({
           data-slot="session-changes-arc-join-conflicts"
         >
           {conflicts.map((path) => {
-            // What the base did to this path while the dash was away. A
+            // What the base did to this path while the arc was away. A
             // conflict names a file and stops; this is the history that
             // explains it, and it is the difference between "resolve this"
             // and knowing what you are resolving against.
