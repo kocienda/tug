@@ -163,8 +163,10 @@ no reader will ever see the old names again.
    `sub /dev\.tugtoo(l)?/ 'dev.tugapp' all` across the whole file list.
 4. **The gazette deletions** — `overview_agent.rs`'s legacy domain and
    carry-forward, `session_ledger.rs`'s `gazette_posts` migration and its two
-   seeded-schema tests. Lands with step 3, because the prefix substitution is
-   what would otherwise rename the legacy domain into `dev.tugapp.gazette`.
+   seeded-schema tests, `serialization.ts`'s rename entry, and the re-pointed
+   `component-id-rename.test.ts`. Lands with step 3, because the prefix
+   substitution is what would otherwise rename the legacy domain into
+   `dev.tugapp.gazette`.
 5. **The pasteboard type** — `dev.tug.prompt-atoms` → `dev.tugapp.prompt-atoms`
    in `MainWindow.swift`, `tug-text-editor.tsx`, `tug-session-identity.tsx`, the
    spike, and the four app-tests that name it (`at0043`, `at0376`, `at0474`,
@@ -221,14 +223,22 @@ fallback and already works. The spike copy at
   once since the rename, so on a live machine this code has been a no-op for a
   while.
 
-**Keep — `tugdeck/src/serialization.ts`'s `RENAMED_COMPONENT_IDS`.** Its
-`gazette: "overview"` entry is not a shim with an end condition; the table's own
-doc says it "only grows," and unlike a data migration there is no point at which
-an old layout blob stops being a valid layout blob. Dropping the entry does not
-leave a stale name behind — it silently *deletes* the Overview card from any
-layout somebody arranged before the rename, taking any pane it was alone in.
-`tugdeck/src/__tests__/overview-card-rename.test.ts` stays with it. Flip this at
-the door in one word if you want it gone anyway.
+**Delete — `tugdeck/src/serialization.ts`'s `gazette: "overview"` entry.** Clean
+break. A layout arranged before the Overview rename and not opened since loses
+its Overview card on first launch, and the pane it was alone in goes with it;
+that is accepted. The entry's neighbour `dev: "session"` stays — this decision is
+about the retired name, not about `RENAMED_COMPONENT_IDS`, whose doc comment
+("this table only grows") remains true of every other entry.
+
+**Re-point, do not delete, `tugdeck/src/__tests__/overview-card-rename.test.ts`.**
+It is the only coverage of `migrateComponentId`'s fan-out — the card table, the
+`sidebars` record, the rail `order`, and the rail `shares` weights, four places a
+saved layout can name a card and four call sites in `serialization.ts`. Its blob
+already spells its second card `"session"`, so the file never exercised
+`dev: "session"` at all; deleting it would leave the one surviving entry with no
+test anywhere. Rewrite the fixture to a pre-rename Session card (`"dev"`) and
+keep every assertion. Rename the file to `component-id-rename.test.ts`, since it
+was never really about the Overview.
 
 **Leave — `tests/app-test/at0422-filter-forward.test.ts:71`.** The word appears
 in a comment explaining why the fixture says `gazebo`: a past global rename ate
