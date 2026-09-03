@@ -86,7 +86,7 @@ import {
   type AiConfigRow,
   type AiConfigSources,
 } from "@/lib/ai-config";
-import { PICKER_SHEET_ANCHOR } from "./picker-sheet-anchor";
+import { MODAL_REST_LINE } from "./modal-rest-line";
 
 /** Focus orders within the sheet's own group: rows, then the action buttons. */
 const CANCEL_FOCUS_ORDER = AI_CONFIG_ROW_COUNT;
@@ -248,7 +248,7 @@ export function useAiConfigSheet({
         displayWidth: "sm",
         onCommitDisposition: commitDisposition,
         presentation: "rise",
-        bottomAnchorSelector: PICKER_SHEET_ANCHOR,
+        bottomAnchorSelector: MODAL_REST_LINE,
         content: (close) => (
           <AiConfigSheetBody
             sources={sources}

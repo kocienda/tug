@@ -83,6 +83,7 @@ import { useOptionalResponder } from "./use-responder";
 import { useItemGroupKeyboard } from "./use-item-group-keyboard";
 import { TUG_ACTIONS } from "./action-vocabulary";
 import { useCanvasOverlay } from "@/lib/use-canvas-overlay";
+import { MODAL_REST_LINE } from "./cards/modal-rest-line";
 import { useFocusTrap } from "./use-focus-trap";
 import { useFocusManager } from "./use-focusable";
 import { useSpatialOrder } from "./use-spatial-order";
@@ -382,12 +383,71 @@ export const TugAlert = React.forwardRef<TugAlertHandle, TugAlertProps>(
       onEscapeDismiss: handleCancelAction,
     });
 
+    // ---- The card's modal rest line ([B01]) ----
+    //
+    // An alert is a decision surface in a card like any other, so it rests where
+    // that card's sheets rest — on the bottom edge of the view slot, the top of
+    // Z2 — and settles upward, rather than floating at the middle of the
+    // viewport with nothing behind it to belong to.
+    //
+    // The alert is canvas-level and has no card context of its own, so the
+    // anchor is captured at the moment the host raises it, while the host's own
+    // focus is still in place and before Radix moves it: the rest line inside
+    // whichever card focus was in. A host outside any card, or inside a card
+    // with no view slot, resolves nothing — and then the alert stays centred,
+    // which is the right answer there and needs no exception clause.
+    const restLineRef = React.useRef<HTMLElement | null>(null);
+    const contentElRef = React.useRef<HTMLDivElement | null>(null);
+
+    const captureRestLine = React.useCallback(() => {
+      const focused = document.activeElement;
+      const card =
+        focused instanceof Element ? focused.closest("[data-card-id]") : null;
+      restLineRef.current =
+        card?.querySelector<HTMLElement>(MODAL_REST_LINE) ?? null;
+    }, []);
+
+    // Write the panel's resting geometry from the measured rest line, in
+    // viewport coordinates ([L06] — a DOM write, never React state). The panel's
+    // bottom edge sits on the line and it is centred over the line's box, so it
+    // reads as belonging to the card that raised it rather than to the canvas.
+    // Re-measured while it is open: dragging the card's sash and growing the Z2
+    // telemetry row both move the line under it.
+    React.useLayoutEffect(() => {
+      const content = contentElRef.current;
+      if (!open || content === null) return;
+      const anchor = restLineRef.current;
+      if (anchor === null || !anchor.isConnected) {
+        content.style.top = "";
+        content.style.bottom = "";
+        content.style.left = "";
+        delete content.dataset["verticalAnchor"];
+        return;
+      }
+      const measure = (): void => {
+        const box = anchor.getBoundingClientRect();
+        content.style.top = "auto";
+        content.style.bottom = `${Math.max(0, window.innerHeight - box.bottom)}px`;
+        content.style.left = `${box.left + box.width / 2}px`;
+        content.dataset["verticalAnchor"] = "rest-line";
+      };
+      measure();
+      const observer = new ResizeObserver(measure);
+      observer.observe(anchor);
+      window.addEventListener("resize", measure);
+      return () => {
+        observer.disconnect();
+        window.removeEventListener("resize", measure);
+      };
+    }, [open]);
+
     React.useImperativeHandle(ref, () => ({
       alert(options) {
         return new Promise<boolean>((resolve) => {
           overrideRef.current = { mode: "confirm", ...options };
           dismissValueRef.current = false;
           resolverRef.current = resolve as (v: boolean | string | null) => void;
+          captureRestLine();
           setOpen(true);
         });
       },
@@ -405,6 +465,7 @@ export const TugAlert = React.forwardRef<TugAlertHandle, TugAlertProps>(
           selectedChoiceIdRef.current = seed;
           setSelectedChoiceId(seed);
           resolverRef.current = resolve as (v: boolean | string | null) => void;
+          captureRestLine();
           setOpen(true);
         });
       },
@@ -629,7 +690,10 @@ export const TugAlert = React.forwardRef<TugAlertHandle, TugAlertProps>(
         <AlertDialog.Portal container={overlayRoot}>
           <AlertDialog.Overlay className="tug-alert-overlay" />
           <AlertDialog.Content
-            ref={responderRef as (el: HTMLDivElement | null) => void}
+            ref={(el: HTMLDivElement | null) => {
+              (responderRef as (node: HTMLDivElement | null) => void)(el);
+              contentElRef.current = el;
+            }}
             className="tug-alert-content"
             data-slot="tug-alert"
             // The alertdialog semantics AlertDialog used to provide, kept

@@ -69,6 +69,7 @@ import { fireRestore } from "@/lib/session-restore";
 import { cardSessionBindingStore } from "@/lib/card-session-binding-store";
 import { sessionTagStore } from "@/lib/session-tag-store";
 import { sessionLineStore } from "@/lib/session-line-store";
+import { MODAL_REST_LINE } from "./modal-rest-line";
 
 // Mirrors `session-card.tsx`'s sheet exit duration: defer the wire send so the
 // binding flip (which rebinds + re-renders the card) doesn't unmount the sheet
@@ -129,6 +130,8 @@ export function useResumeSheet({
       description: "Pick a session to resume in this card.",
       // The same row shape as the Choose Session picker, so the same width.
       displayWidth: "lg",
+      presentation: "rise",
+      bottomAnchorSelector: MODAL_REST_LINE,
       content: (close) => (
         <ResumeSheetBody cardId={cardId} projectDir={projectDir} onClose={close} />
       ),

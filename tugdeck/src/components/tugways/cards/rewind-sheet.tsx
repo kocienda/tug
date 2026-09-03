@@ -106,6 +106,7 @@ import {
   RewindTurnDataSource,
   type RewindMessageRow,
 } from "./rewind-turn-source";
+import { MODAL_REST_LINE } from "./modal-rest-line";
 
 type RewindScope = "conversation" | "both";
 
@@ -152,6 +153,8 @@ export function useRewindSheet({
         "Place the line. Messages above it are kept — the last one is where " +
         "you return to. Messages below it are discarded.",
       displayWidth: "lg",
+      presentation: "rise",
+      bottomAnchorSelector: MODAL_REST_LINE,
       content: (close) => (
         <RewindSheetBody
           rows={rows}

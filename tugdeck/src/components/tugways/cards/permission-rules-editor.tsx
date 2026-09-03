@@ -85,6 +85,7 @@ import { TugConfirmPopover } from "@/components/tugways/tug-confirm-popover";
 import { cardSessionBindingStore } from "@/lib/card-session-binding-store";
 import type { SessionMetadataStore } from "@/lib/session-metadata-store";
 import type { CodeSessionStore } from "@/lib/code-session-store";
+import { MODAL_REST_LINE } from "./modal-rest-line";
 
 // ---------------------------------------------------------------------------
 // Tab model
@@ -813,6 +814,8 @@ export function usePermissionRulesSheet({
       title: "Permissions",
       icon: "ShieldCheck",
       displayWidth: "lg",
+      presentation: "rise",
+      bottomAnchorSelector: MODAL_REST_LINE,
       content: (close) => (
         <PermissionRulesSheetBody
           cwd={cwd}

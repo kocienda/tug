@@ -59,6 +59,7 @@ import type {
   SessionMetadataSnapshot,
   SessionMetadataStore,
 } from "@/lib/session-metadata-store";
+import { MODAL_REST_LINE } from "./modal-rest-line";
 
 // ---------------------------------------------------------------------------
 // Tabs — a fixed, non-closable in-sheet tab set ([permission-rules-editor] idiom)
@@ -130,6 +131,8 @@ export function useHelpSheet({
       title: "Help",
       icon: "CircleQuestionMark",
       displayWidth: "xl",
+      presentation: "rise",
+      bottomAnchorSelector: MODAL_REST_LINE,
       content: (close) => (
         <HelpSheetBody
           sessionMetadataStore={sessionMetadataStore}

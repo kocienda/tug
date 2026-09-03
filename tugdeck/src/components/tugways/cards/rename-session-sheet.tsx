@@ -39,6 +39,7 @@ import {
   sessionNameStore,
 } from "@/lib/session-name-store";
 import type { TugPaneBulletinApi } from "@/components/tugways/tug-pane-bulletin";
+import { MODAL_REST_LINE } from "./modal-rest-line";
 
 export interface UseRenameSessionSheetArgs {
   /** Card whose bound session is renamed. */
@@ -131,6 +132,8 @@ export function useRenameSessionSheet({
     void showSheet({
       title: "Rename Session",
       icon: "Pencil",
+      presentation: "rise",
+      bottomAnchorSelector: MODAL_REST_LINE,
       content: (close) => (
         <RenameSheetBody
           initialName={current}

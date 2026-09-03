@@ -295,6 +295,7 @@ import {
 import { lastAssistantCopyText } from "./turn-entry-markdown";
 import { compactionProgressStore } from "@/lib/compaction-progress-store";
 import { useCompactionRun } from "./session-compaction-run";
+import { MODAL_REST_LINE } from "./modal-rest-line";
 import { useSessionsDataSource } from "@/lib/session-picker-data-source";
 import {
   PickerCellProvider,
@@ -4348,6 +4349,8 @@ export function SessionCardBody({
           title: "Work on an arc",
           icon: "GitBranch",
           iconRole: "agent",
+          presentation: "rise",
+          bottomAnchorSelector: MODAL_REST_LINE,
           content: (close) => (
             <ArcPickerSheet
               arcs={snap.arcs}
@@ -5231,9 +5234,17 @@ export function SessionCardBody({
                       anything longer fills the transcript and scrolls inside.
                       The grabber goes with it (autosize never shows one): the
                       content owns the height, so there is nothing to drag. */}
+                    {/* And it rests on the card's modal rest line
+                      (`shadeAnchor="bottom"`, MODAL_REST_LINE): its wrapper
+                      already fills `.session-view-slot`, so the anchor
+                      resolves with no measurement, and the shade rises from
+                      the top of Z2 — or of the find bar while the bar is
+                      open — toward the masthead, the direction the card's
+                      own content moves. */}
                     <TugSheetContent
                       title="History"
                       presentation="shade"
+                      shadeAnchor="bottom"
                       persistKey="session-card"
                       shadeAutoSize
                       modalScopeSelector='.session-view-pane[data-view="transcript"]'

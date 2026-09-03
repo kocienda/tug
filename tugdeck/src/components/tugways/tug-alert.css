@@ -48,6 +48,20 @@ body {
   to   { opacity: 0; transform: translate(-50%, -50%); }
 }
 
+/* The rest-line mirror of the two above: the panel is centred horizontally on
+   its anchor but bottom-pinned to it, so there is no vertical centring to carry
+   through the transform, and the settle is the sheets' `rise` — a short travel
+   up onto the line rather than a scale about the middle of the screen. */
+@keyframes tug-alert-content-rest-in {
+  from { opacity: 0; transform: translateX(-50%) translateY(8px); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+@keyframes tug-alert-content-rest-out {
+  from { opacity: 1; transform: translateX(-50%); }
+  to   { opacity: 0; transform: translateX(-50%); }
+}
+
 /* ---- Overlay (scrim) ---- */
 
 .tug-alert-overlay {
@@ -130,6 +144,31 @@ body {
   animation: tug-alert-content-out calc(100ms * var(--tug-timing, 1)) ease-in;
   animation-fill-mode: forwards;
   pointer-events: none;
+}
+
+/* ---- Rest-line anchored ([data-vertical-anchor="rest-line"]) ----
+ *
+ * An alert raised from inside a card rests on that card's modal rest line — the
+ * bottom edge of the view slot, the top of Z2 — like every other modal surface
+ * on the card ([B01]; the constant is `cards/modal-rest-line.ts`). `bottom` and
+ * `left` are inline px values measured off the line by the effect in
+ * `tug-alert.tsx`, so all this rule does is stand the centred geometry down:
+ * `top` yields to the measured `bottom`, and the transform keeps the horizontal
+ * centring while dropping the vertical half-translate the bottom pin replaces.
+ *
+ * An alert raised from outside a card, or from a card with no view slot, never
+ * gets the attribute and stays centred on the viewport. */
+.tug-alert-content[data-vertical-anchor="rest-line"] {
+  top: auto;
+  transform: translateX(-50%);
+}
+
+.tug-alert-content[data-vertical-anchor="rest-line"][data-state="open"] {
+  animation-name: tug-alert-content-rest-in;
+}
+
+.tug-alert-content[data-vertical-anchor="rest-line"][data-state="closed"] {
+  animation-name: tug-alert-content-rest-out;
 }
 
 /* ---- Body — icon left, text right (classic Mac HIG layout) ---- */

@@ -55,6 +55,7 @@ import type {
 } from "@/lib/usage-parse";
 import type { CodeSessionStore } from "@/lib/code-session-store";
 import { deriveSessionTotals } from "@/lib/code-session-store/telemetry";
+import { MODAL_REST_LINE } from "./modal-rest-line";
 
 /** Shared caution/danger fractions for the limit gauges. */
 const USAGE_THRESHOLDS: GaugeThresholds = { caution: 0.75, danger: 0.9 };
@@ -107,6 +108,8 @@ export function useUsageSheet({
       // Two fixed columns (a 200px meter column and a 170px-min label column)
       // plus their values, so the table needs more than a single-column form.
       displayWidth: "lg",
+      presentation: "rise",
+      bottomAnchorSelector: MODAL_REST_LINE,
       content: (close) => (
         <UsageSheetBody
           usageStore={usageStore}

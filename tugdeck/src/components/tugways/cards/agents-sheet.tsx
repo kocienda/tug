@@ -51,6 +51,7 @@ import {
   selectLibraryAgents,
   selectRunningAgents,
 } from "@/lib/agents-list";
+import { MODAL_REST_LINE } from "./modal-rest-line";
 
 // ---------------------------------------------------------------------------
 // useAgentsSheet — the card-hosted /agents sheet
@@ -80,6 +81,8 @@ export function useAgentsSheet({
       title: "Agents",
       icon: "Bot",
       displayWidth: "lg",
+      presentation: "rise",
+      bottomAnchorSelector: MODAL_REST_LINE,
       content: (close) => (
         <AgentsSheetBody
           sessionMetadataStore={sessionMetadataStore}

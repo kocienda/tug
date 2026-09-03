@@ -97,17 +97,19 @@ body {
  * the clip becomes exactly the band between the title bar and that edge. The
  * panel sits at the BOTTOM of that band and its height is capped against the
  * band rather than the canvas — which is why the JS canvas clamp stands down
- * for this anchor.
+ * for this anchor. Aspect-locked content is the one exception: its height comes
+ * from its width, so `max-height` caps nothing that matters and the clamp still
+ * runs to write the WIDTH cap, reading its available height from this clip.
  *
  * The anchor is where the panel PREFERS to rest, not a ceiling: when the panel
  * needs more height than the band, that effect slides the clip's bottom edge
  * down past the anchor — over the prompt entry — instead of letting the panel
  * ride up under the title bar and scroll.
  *
- * For the Session card's Z4B pickers the anchor is the view slot, so the panel
- * rests just above the Z2 status bar (or above the find bar while it is open,
- * matching where the Changes / History shades rise from) and grows upward,
- * near the chips that opened it. */
+ * On a Session card the anchor is the card's one modal rest line (the view
+ * slot — see `cards/modal-rest-line.ts`), so the panel rests just above the Z2
+ * status bar, or above the find bar while it is open, and grows upward: the
+ * direction the card's own content moves, and near the chips that opened it. */
 .tug-sheet-clip[data-vertical-anchor="bottom"] {
   /* Both edges are set, so the height is derived — the `100vh` above must go. */
   height: auto;
@@ -285,8 +287,11 @@ body {
 }
 
 /* Edge / corner drag handles — invisible strips just outside the border with
-   resize cursors (the same affordance as pane handles). No north handle: the
-   sheet is top-anchored below the title bar. */
+   resize cursors (the same affordance as pane handles). The vertical set is the
+   anchor's mirror, chosen in `tug-sheet.tsx`: a top-anchored panel gets the
+   south edge and the bottom corners, a bottom-anchored one the north edge and
+   the top corners — the growing edge in each case, so the handle a drag pulls
+   is the edge that actually moves. */
 .tug-sheet-resize {
   position: absolute;
   z-index: 2;
@@ -328,15 +333,38 @@ body {
   height: 18px;
   cursor: nesw-resize;
 }
+.tug-sheet-resize-n {
+  top: -4px;
+  left: 12px;
+  right: 12px;
+  height: 10px;
+  cursor: ns-resize;
+}
+.tug-sheet-resize-ne {
+  right: -2px;
+  top: -2px;
+  width: 18px;
+  height: 18px;
+  cursor: nesw-resize;
+}
+.tug-sheet-resize-nw {
+  left: -2px;
+  top: -2px;
+  width: 18px;
+  height: 18px;
+  cursor: nwse-resize;
+}
 
 /* Discoverability: a subtle grip on the SE corner (the native corner nub was
-   invisible). Two diagonal ticks, brightening when the handle is hovered.
-   Decorative only — `pointer-events: none` so the handle keeps the hit area. */
-.tug-sheet-resize-se::after {
+   invisible), and its mirror on the NE corner for a bottom-anchored panel —
+   in each case the outward corner of the edge the panel grows from. Two
+   diagonal ticks, brightening when the handle is hovered. Decorative only —
+   `pointer-events: none` so the handle keeps the hit area. */
+.tug-sheet-resize-se::after,
+.tug-sheet-resize-ne::after {
   content: "";
   position: absolute;
   right: 3px;
-  bottom: 3px;
   width: 11px;
   height: 11px;
   pointer-events: none;
@@ -346,11 +374,27 @@ body {
     var(--tug7-element-global-icon-normal-muted-rest) 0 1.5px,
     transparent 1.5px 4px
   );
-  -webkit-mask-image: linear-gradient(135deg, transparent 0 35%, #000 35% 100%);
-  mask-image: linear-gradient(135deg, transparent 0 35%, #000 35% 100%);
   transition: opacity calc(120ms * var(--tug-timing, 1)) ease;
 }
-.tug-sheet-resize-se:hover::after {
+.tug-sheet-resize-se::after {
+  bottom: 3px;
+  -webkit-mask-image: linear-gradient(135deg, transparent 0 35%, #000 35% 100%);
+  mask-image: linear-gradient(135deg, transparent 0 35%, #000 35% 100%);
+}
+/* The NE mirror: the ticks run the other diagonal and the mask keeps the half
+   nearest the corner, so the grip reads as belonging to the top-right. */
+.tug-sheet-resize-ne::after {
+  top: 3px;
+  background-image: repeating-linear-gradient(
+    45deg,
+    var(--tug7-element-global-icon-normal-muted-rest) 0 1.5px,
+    transparent 1.5px 4px
+  );
+  -webkit-mask-image: linear-gradient(45deg, #000 0 65%, transparent 65% 100%);
+  mask-image: linear-gradient(45deg, #000 0 65%, transparent 65% 100%);
+}
+.tug-sheet-resize-se:hover::after,
+.tug-sheet-resize-ne:hover::after {
   opacity: 0.75;
 }
 

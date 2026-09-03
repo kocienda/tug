@@ -26,6 +26,7 @@ import { Info } from "lucide-react";
 import { TugPushButton } from "@/components/tugways/tug-push-button";
 import type { TugButtonRole } from "@/components/tugways/tug-push-button";
 import type { ShowSheetOptions } from "@/components/tugways/tug-sheet";
+import { MODAL_REST_LINE } from "@/components/tugways/cards/modal-rest-line";
 import { useSeedKeyView } from "@/components/tugways/use-focusable";
 
 export interface AlertSheetOptions {
@@ -135,6 +136,12 @@ export function TugAlertSheetView({
  * The sheet opens at `sm` width with `hideHeader` so the alert layout owns
  * the panel. The confirm path closes with `"ok"`; everything else resolves
  * `false`.
+ *
+ * It rests on the host card's modal rest line and settles up onto it like
+ * every other modal surface there ([B01], `tuglaws/modal-rest-line.md`) — the
+ * pane-modal twin of what `TugAlert` does for the app-modal case. A host with
+ * no view slot (a text card, an image card) matches nothing and keeps the
+ * default top anchor, which is the right answer there.
  */
 export function presentAlertSheet(
   showSheet: (options: ShowSheetOptions) => Promise<string | undefined>,
@@ -144,6 +151,8 @@ export function presentAlertSheet(
     title: options.title,
     displayWidth: "sm",
     hideHeader: true,
+    presentation: "rise",
+    bottomAnchorSelector: MODAL_REST_LINE,
     content: (close) => (
       <TugAlertSheetView
         {...options}

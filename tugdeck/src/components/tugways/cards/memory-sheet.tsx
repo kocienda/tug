@@ -48,6 +48,7 @@ import {
   memoryDestinations,
 } from "@/lib/memory-destinations";
 import { openPathInOS } from "@/lib/os-open";
+import { MODAL_REST_LINE } from "./modal-rest-line";
 
 // ---------------------------------------------------------------------------
 // useMemorySheet — the card-hosted /memory sheet
@@ -78,6 +79,8 @@ export function useMemorySheet({
       title: "Memory",
       icon: "Brain",
       displayWidth: "md",
+      presentation: "rise",
+      bottomAnchorSelector: MODAL_REST_LINE,
       content: (close) => (
         <MemorySheetBody
           sessionMetadataStore={sessionMetadataStore}

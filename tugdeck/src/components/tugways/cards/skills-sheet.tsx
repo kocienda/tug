@@ -52,6 +52,7 @@ import {
   skillSourceLabel,
   skillsSummaryLine,
 } from "@/lib/skills-inventory-store";
+import { MODAL_REST_LINE } from "./modal-rest-line";
 
 // ---------------------------------------------------------------------------
 // useSkillsSheet — the card-hosted /skills sheet
@@ -82,6 +83,8 @@ export function useSkillsSheet({
       title: "Skills",
       icon: "Wrench",
       displayWidth: "lg",
+      presentation: "rise",
+      bottomAnchorSelector: MODAL_REST_LINE,
       content: (close) => (
         <SkillsSheetBody
           skillsInventoryStore={skillsInventoryStore}

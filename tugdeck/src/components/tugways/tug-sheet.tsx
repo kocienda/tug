@@ -209,13 +209,21 @@ export type TugSheetPresentation =
 export type TugSheetDisplayWidth = "sm" | "md" | "lg" | "xl";
 
 /**
- * Drag-resize handles for a `resizable` sheet. The sheet is top-anchored and
- * horizontally centered, so there is no north handle (the top edge is pinned
- * below the title bar) — east/west grow the centered width, south grows the
- * height downward, and the two bottom corners combine them.
+ * Drag-resize handles for a `resizable` sheet. The sheet is horizontally
+ * centered either way, so east/west always grow the centered width; the
+ * vertical set is the anchor's mirror. Top-anchored, the top edge is pinned
+ * below the title bar, so south grows the height downward and the two bottom
+ * corners combine them. Bottom-anchored ([B01] — the panel rests on the card's
+ * modal rest line and its bottom edge is what is pinned), the growing edge is
+ * the top one: north grows the height upward and the two TOP corners combine
+ * them. Dragging the corner the panel does not move from is what made a
+ * bottom-anchored preview grow away from the cursor.
  */
-type SheetResizeEdge = "e" | "w" | "s" | "se" | "sw";
-const SHEET_RESIZE_EDGES: SheetResizeEdge[] = ["e", "w", "s", "se", "sw"];
+type SheetResizeEdge = "e" | "w" | "s" | "n" | "se" | "sw" | "ne" | "nw";
+/** The handle set for a top-anchored panel — the growing edge is the bottom. */
+const SHEET_RESIZE_EDGES_TOP: SheetResizeEdge[] = ["e", "w", "s", "se", "sw"];
+/** Its mirror for a bottom-anchored panel — the growing edge is the top. */
+const SHEET_RESIZE_EDGES_BOTTOM: SheetResizeEdge[] = ["e", "w", "n", "ne", "nw"];
 /** Lower bound for drag-resize: the `sm` reading-cap width. */
 const SHEET_RESIZE_MIN_WIDTH = 460;
 /** Lower bound for drag-resize height. */
@@ -1149,7 +1157,16 @@ export function TugSheetContent({
     if (presentation === "shade") return;
     // A bottom-anchored clip is bounded on both edges, so CSS caps the panel
     // against the clip itself — there is no canvas bottom to measure toward.
-    if (bottomAnchorEl !== null) return;
+    //
+    // Aspect-locked content is the one exception, and it is the reason this
+    // guard is not a plain early return. Its height is content-driven FROM its
+    // width, so `max-height` caps nothing that matters and the cap keeping it
+    // inside the card is a WIDTH cap — which only this effect writes. Left
+    // standing down, a bottom-anchored attachment preview had no width cap at
+    // all. So aspect-lock runs either way, taking its available height from
+    // the clip (which, bounded on both edges, IS the band) instead of from a
+    // canvas bottom.
+    if (bottomAnchorEl !== null && !aspectLockContent) return;
     const content = sheetContentRef.current;
     const clip = clipRef.current;
     if (content === null || clip === null || paneFrameEl === null) return;
@@ -1162,10 +1179,18 @@ export function TugSheetContent({
         canvas.getBoundingClientRect().bottom,
         window.innerHeight,
       );
-      const clipTop = clip.getBoundingClientRect().top;
-      const marginTop =
-        Number.parseFloat(getComputedStyle(content).marginTop) || 0;
-      const available = bottomLimit - SHEET_CANVAS_GAP - clipTop - marginTop;
+      const clipBox = clip.getBoundingClientRect();
+      const cs0 = getComputedStyle(content);
+      const marginTop = Number.parseFloat(cs0.marginTop) || 0;
+      const marginBottom = Number.parseFloat(cs0.marginBottom) || 0;
+      // Bottom-anchored, the clip is already exactly the band between the
+      // title bar and the rest line, so the room the panel has is the clip
+      // less its own gutters. Top-anchored, the clip is open at the bottom and
+      // the limit is the canvas.
+      const available =
+        bottomAnchorEl !== null
+          ? clipBox.height - marginTop - marginBottom
+          : bottomLimit - SHEET_CANVAS_GAP - clipBox.top - marginTop;
       const frac = maxHostFraction ?? 0.8;
       // Aspect-locked: height is content-driven (the body's aspect region's
       // `aspect-ratio` sets it from the width), so we clear `max-height` and
@@ -1244,9 +1269,13 @@ export function TugSheetContent({
   // content element's inline `width`/`height` ([L06] — no React state); CSS
   // `max-width`/`max-height` cap the upper bound (so a narrow pane shrinks the
   // sheet rather than overflowing), and we clamp the lower bound to the `sm`
-  // width / 250px here. The sheet is horizontally centered and top-anchored,
-  // so horizontal edges grow symmetrically (the dragged edge tracks the cursor
-  // via 2×dx) and the south edge grows downward — there is no north handle.
+  // width / 250px here. The sheet is horizontally centered, so horizontal edges
+  // grow symmetrically either way (the dragged edge tracks the cursor via 2×dx).
+  // The vertical edge is the anchor's mirror: top-anchored, south grows the
+  // height downward; bottom-anchored, north grows it upward, and because the
+  // clip bottom-aligns the panel (`justify-content: flex-end`) the new height
+  // extends toward the masthead on its own — the height is the only thing
+  // written, in both cases.
   const resizeStateRef = useRef<{
     edge: SheetResizeEdge;
     startX: number;
@@ -1294,6 +1323,7 @@ export function TugSheetContent({
     }
     let height = state.startH;
     if (state.edge.includes("s")) height = state.startH + dy;
+    if (state.edge.includes("n")) height = state.startH - dy;
     el.style.height = `${Math.max(SHEET_RESIZE_MIN_HEIGHT, height)}px`;
   }, [aspectLockContent]);
 
@@ -1867,11 +1897,15 @@ export function TugSheetContent({
                 — the seeded default button (e.g. Done) keeps its ring + filled
                 promotion across a resize. */}
             {resizable &&
-              SHEET_RESIZE_EDGES
+              (bottomAnchorEl !== null
+                ? SHEET_RESIZE_EDGES_BOTTOM
+                : SHEET_RESIZE_EDGES_TOP)
                 // Aspect-locked resize is width-driven (height follows the
-                // aspect), so the pure-south handle — which only changes
+                // aspect), so the pure vertical handle — which only changes
                 // height — is dropped; the east/west edges and corners remain.
-                .filter((edge) => !(aspectLockContent && edge === "s"))
+                .filter(
+                  (edge) => !(aspectLockContent && (edge === "s" || edge === "n")),
+                )
                 .map((edge) => (
                   <div
                     key={edge}

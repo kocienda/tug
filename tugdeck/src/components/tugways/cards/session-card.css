@@ -98,9 +98,10 @@
    (status bar) inside `.session-card-top-column`, taking over the flex-grow
    role the transcript host held directly. All three panes (transcript /
    changes / history) are mounted at once; the transcript is always
-   displayed, and the active Shade pane (if any) overlays it from the top,
-   so scroll, selection, and streaming state survive a route flip ([L26])
-   and appearance changes go through CSS, never React state ([L06]). */
+   displayed, and the active Shade pane (if any) overlays it — History rising
+   from the slot's bottom edge, Changes from the top of the prompt-entry
+   region — so scroll, selection, and streaming state survive a route flip
+   ([L26]) and appearance changes go through CSS, never React state ([L06]). */
 .session-view-slot {
   flex: 1 1 auto;
   min-height: 0;

@@ -44,6 +44,7 @@ import {
   hooksSummaryLine,
   selectHookEventRows,
 } from "@/lib/hooks-inventory-store";
+import { MODAL_REST_LINE } from "./modal-rest-line";
 
 // ---------------------------------------------------------------------------
 // useHooksSheet — the card-hosted /hooks sheet
@@ -71,6 +72,8 @@ export function useHooksSheet({
       title: "Hooks",
       icon: "Webhook",
       displayWidth: "lg",
+      presentation: "rise",
+      bottomAnchorSelector: MODAL_REST_LINE,
       content: (close) => (
         <HooksSheetBody hooksInventoryStore={hooksInventoryStore} onClose={close} />
       ),

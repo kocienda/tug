@@ -35,6 +35,7 @@ import { usePdfCardSettings } from "@/lib/use-pdf-card-settings";
 import { TextCardControls } from "./text-card-controls";
 import { ImageCardControls } from "./image-card-controls";
 import { PdfCardControls } from "./pdf-card-controls";
+import { MODAL_REST_LINE } from "./modal-rest-line";
 
 type ShowSheet = (options: ShowSheetOptions) => Promise<string | undefined>;
 
@@ -113,6 +114,8 @@ export function presentCardSettingsSheet(
   return showSheet({
     title,
     displayWidth: "md",
+    presentation: "rise",
+    bottomAnchorSelector: MODAL_REST_LINE,
     content: (close) => (
       <>
         <Body cardId={cardId} />
