@@ -32,7 +32,7 @@
  *   `.string` carries atom labels substituted for U+FFFC (per
  *   `serializeClipboard`'s `fallback` field) so external apps see
  *   readable text. The atom data rides on the Tug-private
- *   `dev.tug.prompt-atoms` pasteboard type (the bridge's `atoms`
+ *   `dev.tugapp.prompt-atoms` pasteboard type (the bridge's `atoms`
  *   field) as the self-contained sidecar JSON — written natively by
  *   `handleCopy` → `writeClipboardViaNative`, bypassing WebKit's
  *   pasteboard normalization entirely. The test rounds-trips through
@@ -177,7 +177,7 @@ interface ClipboardSnapshot {
 /**
  * Read the system clipboard via Tug.app's native bridge
  * (NSPasteboard read). Returns plain text + the Tug-private atom
- * sidecar (`dev.tug.prompt-atoms` → the bridge's `atoms` field). This
+ * sidecar (`dev.tugapp.prompt-atoms` → the bridge's `atoms` field). This
  * is exactly the view the substrate's bridge-paste path consumes.
  *
  * Talks to `window.webkit.messageHandlers.clipboardRead` directly
@@ -339,7 +339,7 @@ describe.skipIf(!SHOULD_RUN)(
 
             // ---- Atom sidecar payload assertions ----
             //
-            // text-only has no atoms, so the `dev.tug.prompt-atoms`
+            // text-only has no atoms, so the `dev.tugapp.prompt-atoms`
             // type is never written — the bridge's `atoms` field is
             // empty by design.
             expect(textOnlyClip.atoms, "text-only atoms payload — no atoms = empty").toBe("");

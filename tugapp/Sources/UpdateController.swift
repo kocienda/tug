@@ -5,7 +5,7 @@ import Sparkle
 /// Sparkle wrapper. Owns the `SPUStandardUpdaterController` and decides
 /// whether this bundle is allowed to update itself at all.
 ///
-/// Only the stable release identity (`dev.tugtool.app`) self-updates.
+/// Only the stable release identity (`dev.tugapp.app`) self-updates.
 /// Debug and branch builds get rewritten bundle identifiers from
 /// `assign-bundle-id.sh` and run out of DerivedData, and the nightly
 /// identity has no feed of its own yet. `TUG_SPARKLE_FEED` overrides
@@ -18,7 +18,7 @@ final class UpdateController: NSObject {
     /// the appcast URL, bypassing the bundle-identity gate.
     static let feedOverrideEnvVar = "TUG_SPARKLE_FEED"
 
-    private static let stableBundleIdentifier = "dev.tugtool.app"
+    private static let stableBundleIdentifier = "dev.tugapp.app"
 
     private var updaterController: SPUStandardUpdaterController?
 

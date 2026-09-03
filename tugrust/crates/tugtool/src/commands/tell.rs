@@ -574,7 +574,7 @@ mod tests {
                     instance_id: (*id).to_owned(),
                     profile: "debug".to_owned(),
                     branch: "main".to_owned(),
-                    bundle_id: format!("dev.tugtool.app.{id}"),
+                    bundle_id: format!("dev.tugapp.app.{id}"),
                     // Nowhere near any cwd, so the cwd branch of
                     // discovery cannot pre-empt the ambiguity branch.
                     bundle_path: std::path::PathBuf::from("/nonexistent/Tug.app"),

@@ -55,7 +55,7 @@
  * ({@link useSessionIdentityMenu}), not a lone Copy: how to reach the session
  * (Show it, or Resume it where no card holds it), then the two forms the chip
  * can travel as. **Copy as Atom** writes the citation as plain text with the
- * `dev.tug.prompt-atoms` sidecar beside it, so a paste back into a Tug surface
+ * `dev.tugapp.prompt-atoms` sidecar beside it, so a paste back into a Tug surface
  * returns the chip; **Copy as Citation** writes the flat string alone, for
  * anywhere outside Tug. Both are menu items and neither is a chord: ⌘C is
  * the app's Copy, and what it copies is what the reader selected. The

@@ -61,7 +61,7 @@ impl DomainTxn {
 }
 
 /// RFC 3339 timestamp for `updated_at` columns.
-fn now_rfc3339() -> String {
+pub(crate) fn now_rfc3339() -> String {
     // chrono is not a dependency of this crate; use a simple UTC approximation
     // via std. We format as an ISO 8601 / RFC 3339 string using SystemTime.
     use std::time::{SystemTime, UNIX_EPOCH};

@@ -188,7 +188,7 @@ async function launchOnFixture(
     env: { TUGBANK_PATH: tugbankPath, TUG_DATA_DIR: fixture.dataRoot },
   });
   await app.evalJS<null>(
-    `(window.__tug.setTugbankValue("dev.tugtool.text-card","save-mode",{kind:"string",value:"manual"}), null)`,
+    `(window.__tug.setTugbankValue("dev.tugapp.text-card","save-mode",{kind:"string",value:"manual"}), null)`,
   );
   await app.seedDeckState({
     state: deckShape(),

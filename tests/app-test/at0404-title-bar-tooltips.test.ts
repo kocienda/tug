@@ -282,7 +282,7 @@ async function waitForChip(
   return last;
 }
 
-const KEYMAP_DOMAIN = "dev.tugtool.keymap";
+const KEYMAP_DOMAIN = "dev.tugapp.keymap";
 
 /** Write one command's override the way any other process would. */
 async function writeOverride(

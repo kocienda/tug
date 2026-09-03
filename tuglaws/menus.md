@@ -246,7 +246,7 @@ An untabled code throws in dev and publishes `null` in production, so a bad bind
 | ⎋ | `cancel-dialog` | Cancel | JS, global |
 <!-- /generated:chords -->
 
-Chords the user has rebound are not in this table — it is the *defaults*. Overrides live in tugbank under `dev.tugtool.keymap`, one key per command id holding a JSON binding list; an absent key means the default, and an **empty list** means deliberately unbound, which is a different and durable answer. The host never reads that domain: overrides reach it the same way every other chord does, through the push.
+Chords the user has rebound are not in this table — it is the *defaults*. Overrides live in tugbank under `dev.tugapp.keymap`, one key per command id holding a JSON binding list; an absent key means the default, and an **empty list** means deliberately unbound, which is a different and durable answer. The host never reads that domain: overrides reach it the same way every other chord does, through the push.
 
 ## The command catalog
 

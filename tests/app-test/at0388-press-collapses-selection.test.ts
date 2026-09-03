@@ -64,7 +64,7 @@ function mkFixture(): { dir: string; file: string } {
 async function seedTextCard(app: App, filePath: string): Promise<void> {
   // The gutter makes the selection, so it has to be on before the card mounts.
   await app.evalJS<null>(
-    `(window.__tug.setTugbankValue("dev.tugtool.text-card","settings",` +
+    `(window.__tug.setTugbankValue("dev.tugapp.text-card","settings",` +
       `{kind:"json",value:{lineNumbers:true,lineWrap:false,softTabs:true,tabSize:4,` +
       `foldGutter:false,highlightActiveLine:true,showSpaces:false,showTabs:false}}), null)`,
   );

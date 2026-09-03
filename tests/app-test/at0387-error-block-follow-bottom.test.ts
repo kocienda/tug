@@ -100,7 +100,7 @@ function failingOutput(): string {
   const lines = [
     "Exit code 1",
     "==> app-test instance prefix: apptest-main",
-    "==> app-test bundle id: dev.tugtool.app.apptest (identity: dev.tugtool.app.apptest)",
+    "==> app-test bundle id: dev.tugapp.app.apptest (identity: dev.tugapp.app.apptest)",
     "swept 5 tmux socket files",
     "",
     "========================================================",

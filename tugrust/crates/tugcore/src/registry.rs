@@ -445,7 +445,7 @@ mod tests {
             instance_id: instance_id.to_owned(),
             profile: "debug".to_owned(),
             branch: instance_id.trim_start_matches("debug-").to_owned(),
-            bundle_id: format!("dev.tugtool.app.{instance_id}"),
+            bundle_id: format!("dev.tugapp.app.{instance_id}"),
             bundle_path: PathBuf::from("/tmp/Tug.app"),
             pid,
             host_pid: 0,
@@ -502,7 +502,7 @@ mod tests {
         let path = dir.path().join("reg.json");
         let legacy = r#"{"version":1,"instances":[{
             "instance_id":"debug-legacy","profile":"debug","branch":"legacy",
-            "bundle_id":"dev.tugtool.app.debug","bundle_path":"/tmp/Tug.app",
+            "bundle_id":"dev.tugapp.app.debug","bundle_path":"/tmp/Tug.app",
             "pid":1,"tugcast_port":55300,"vite_port":55200,
             "tmux_session":"cc-legacy","data_dir":"/tmp/data/legacy",
             "started_at":"2026-01-01T00:00:00Z"}]}"#;

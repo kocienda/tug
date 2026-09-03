@@ -19,7 +19,7 @@
  *
  * Persistence: filter selections (`levels`, `source`) and the cap
  * (`maxEntries`) round-trip through tugbank under
- * `dev.tugtool.dev-panel/{logFilterLevels,logFilterSource,logMaxEntries}`.
+ * `dev.tugapp.dev-panel/{logFilterLevels,logFilterSource,logMaxEntries}`.
  * The buffer itself is transient (developers, not users, are the
  * consumers, so [L23] does not apply to entries).
  *
@@ -62,7 +62,7 @@ import {
  * persisted log filters survive the panel's removal ([P09]). The log
  * store is panel-independent; the old coupling was incidental.
  */
-export const LOG_STORE_DOMAIN = "dev.tugtool.dev-panel";
+export const LOG_STORE_DOMAIN = "dev.tugapp.dev-panel";
 
 /** Tugbank keys for the log store's persisted state. */
 export const DEV_LOG_KEYS = {

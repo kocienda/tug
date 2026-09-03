@@ -65,7 +65,7 @@ function makeMockClient(
   } as TugbankClient;
 }
 
-const CARDSTATE_DOMAIN = "dev.tugtool.deck.cardstate";
+const CARDSTATE_DOMAIN = "dev.tugapp.deck.cardstate";
 
 // ---------------------------------------------------------------------------
 // putCardState
@@ -93,7 +93,7 @@ describe("putCardState", () => {
 
     expect(calls.length).toBe(1);
     expect(calls[0].url).toBe(
-      `/api/defaults/dev.tugtool.deck.cardstate/${encodeURIComponent(cardId)}`
+      `/api/defaults/dev.tugapp.deck.cardstate/${encodeURIComponent(cardId)}`
     );
     expect(calls[0].init.method).toBe("PUT");
 
@@ -117,7 +117,7 @@ describe("putCardState", () => {
     await new Promise((r) => setTimeout(r, 0));
 
     expect(calls[0].url).toBe(
-      `/api/defaults/dev.tugtool.deck.cardstate/${encodeURIComponent(cardId)}`
+      `/api/defaults/dev.tugapp.deck.cardstate/${encodeURIComponent(cardId)}`
     );
   });
 });
@@ -218,7 +218,7 @@ describe("putFocusedCardId", () => {
     await new Promise((r) => setTimeout(r, 0));
 
     expect(calls.length).toBe(1);
-    expect(calls[0].url).toBe("/api/defaults/dev.tugtool.deck.state/focusedCardId");
+    expect(calls[0].url).toBe("/api/defaults/dev.tugapp.deck.state/focusedCardId");
     expect(calls[0].init.method).toBe("PUT");
 
     const body = JSON.parse(calls[0].init.body as string);
@@ -240,7 +240,7 @@ describe("readDeckState", () => {
   test("returns the string value from cache", () => {
     const cardId = "card-focused-789";
     const client = makeMockClient({
-      "dev.tugtool.deck.state": {
+      "dev.tugapp.deck.state": {
         focusedCardId: { kind: "string", value: cardId },
       },
     });
@@ -249,7 +249,7 @@ describe("readDeckState", () => {
 
   test("returns null when entry has unexpected tagged format", () => {
     const client = makeMockClient({
-      "dev.tugtool.deck.state": {
+      "dev.tugapp.deck.state": {
         focusedCardId: { kind: "json", value: { not: "a string" } },
       },
     });
@@ -339,7 +339,7 @@ describe("pruneOrphanedCardDefaults", () => {
   });
 
   test("covers cardstate, permission-mode, and model", () => {
-    expect(CARD_KEYED_DOMAINS).toContain("dev.tugtool.deck.cardstate");
+    expect(CARD_KEYED_DOMAINS).toContain("dev.tugapp.deck.cardstate");
     expect(CARD_KEYED_DOMAINS).toContain("dev.permission-mode");
     expect(CARD_KEYED_DOMAINS).toContain("dev.model");
   });
@@ -347,7 +347,7 @@ describe("pruneOrphanedCardDefaults", () => {
   test("skips a domain absent from the cache", async () => {
     // Only cardstate present; the other domains return undefined → skipped.
     const client = makeMockClient({
-      "dev.tugtool.deck.cardstate": { dead: tagged(1) },
+      "dev.tugapp.deck.cardstate": { dead: tagged(1) },
     });
     const deletes: string[] = [];
     globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
@@ -358,7 +358,7 @@ describe("pruneOrphanedCardDefaults", () => {
     pruneOrphanedCardDefaults(client, new Set());
     await new Promise((r) => setTimeout(r, 0));
 
-    expect(deletes).toEqual(["/api/defaults/dev.tugtool.deck.cardstate/dead"]);
+    expect(deletes).toEqual(["/api/defaults/dev.tugapp.deck.cardstate/dead"]);
   });
 });
 
@@ -397,7 +397,7 @@ describe("readSessionRecentProjects", () => {
 
   test("returns the paths array from a json-tagged value", () => {
     const client = makeMockClient({
-      "dev.tugtool.dev": {
+      "dev.tugapp.dev": {
         "recent-projects": {
           kind: "json",
           value: { paths: ["/a", "/b"] },
@@ -409,7 +409,7 @@ describe("readSessionRecentProjects", () => {
 
   test("drops non-string entries defensively", () => {
     const client = makeMockClient({
-      "dev.tugtool.dev": {
+      "dev.tugapp.dev": {
         "recent-projects": {
           kind: "json",
           value: { paths: ["/a", 42, null, "", "/b"] },
@@ -421,7 +421,7 @@ describe("readSessionRecentProjects", () => {
 
   test("returns [] when the value shape is wrong", () => {
     const client = makeMockClient({
-      "dev.tugtool.dev": {
+      "dev.tugapp.dev": {
         "recent-projects": { kind: "json", value: "not-an-object" } as TaggedValue,
       },
     });
@@ -613,7 +613,7 @@ describe("default project directory", () => {
 
   test("readDefaultProjectPath returns the stored string", () => {
     const client = makeMockClient({
-      "dev.tugtool.app": {
+      "dev.tugapp.app": {
         "default-project-path": { kind: "string", value: "/Users/x/code" },
       },
     });
@@ -626,7 +626,7 @@ describe("default project directory", () => {
 
   test("readDefaultProjectPath ignores a non-string entry", () => {
     const client = makeMockClient({
-      "dev.tugtool.app": {
+      "dev.tugapp.app": {
         "default-project-path": { kind: "bool", value: true },
       },
     });
@@ -635,7 +635,7 @@ describe("default project directory", () => {
 
   test("resolveDefaultProjectPath prefers the explicit value over home", () => {
     const client = makeMockClient({
-      "dev.tugtool.app": {
+      "dev.tugapp.app": {
         "default-project-path": { kind: "string", value: "/Users/x/code" },
       },
     });
@@ -660,7 +660,7 @@ describe("default project directory", () => {
 
   test("an empty explicit value reads through to the home fallback", () => {
     const client = makeMockClient({
-      "dev.tugtool.app": { "default-project-path": { kind: "string", value: "" } },
+      "dev.tugapp.app": { "default-project-path": { kind: "string", value: "" } },
     });
     expect(resolveDefaultProjectPath(client, "/Users/x")).toBe("/Users/x/tug");
   });
@@ -702,7 +702,7 @@ describe("default project directory", () => {
     expect(stored).toBe("/Users/x/src/code");
     expect(calls.map((c) => c.url)).toEqual([
       "/api/fs/stat",
-      "/api/defaults/dev.tugtool.app/default-project-path",
+      "/api/defaults/dev.tugapp.app/default-project-path",
     ]);
     expect(calls[1].init.method).toBe("PUT");
     expect(JSON.parse(calls[1].init.body as string)).toEqual({
@@ -729,7 +729,7 @@ describe("default project directory", () => {
 
     expect(await putDefaultProjectPath("")).toBe("");
     expect(calls.map((c) => c.url)).toEqual([
-      "/api/defaults/dev.tugtool.app/default-project-path",
+      "/api/defaults/dev.tugapp.app/default-project-path",
     ]);
     expect(JSON.parse(calls[0].init.body as string)).toEqual({
       kind: "string",

@@ -31,12 +31,12 @@ const MAX_DEFAULTS_VALUE_BYTES: usize = 256 * 1024;
 /// History now lives in `prompt_history.db`; the constant survives as the key
 /// the startup migration drains and as a root `draft_gc` still reads while
 /// unmigrated instances may hold entries.
-pub(crate) const PROMPT_HISTORY_DOMAIN: &str = "dev.tugtool.prompt.history";
+pub(crate) const PROMPT_HISTORY_DOMAIN: &str = "dev.tugapp.prompt.history";
 
 /// Domain of per-card durable state, keyed by card id. Alongside prompt
 /// history it is one of the two places a stored draft-attachment path can be
 /// referenced from, so `draft_gc` reads both as its root set.
-pub(crate) const CARDSTATE_DOMAIN: &str = "dev.tugtool.deck.cardstate";
+pub(crate) const CARDSTATE_DOMAIN: &str = "dev.tugapp.deck.cardstate";
 
 // ── Tagged wire format ─────────────────────────────────────────────────────
 

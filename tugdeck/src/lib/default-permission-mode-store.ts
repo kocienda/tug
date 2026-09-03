@@ -6,7 +6,7 @@
  * deck-wide value: the mode a brand-new card adopts on mount when it has
  * nothing persisted of its own. It carries no CSS/DOM side effects — it just
  * reads and writes one tugbank string at
- * `dev.tugtool.permission-mode/default`.
+ * `dev.tugapp.permission-mode/default`.
  *
  * Writes go through `client.setLocalValue` (optimistic, and — crucially —
  * synchronously fires `onDomainChanged`, so every open card's

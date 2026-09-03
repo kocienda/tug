@@ -106,7 +106,7 @@ export function rmTempTugbank(path: string): void {
  * Throws on any other non-zero exit so the caller doesn't have to
  * defensively branch on every shell-out.
  *
- *     const r = tugbankRead(path, "dev.tugtool.test", "smoke-key");
+ *     const r = tugbankRead(path, "dev.tugapp.test", "smoke-key");
  *     if (r === null) throw new Error("expected key on disk");
  *     expect(r.type).toBe("string");
  *     expect(r.value).toBe("hello");
@@ -199,14 +199,14 @@ export function tugbankWrite(
  * at startup so it can boot through to a usable tugdeck.
  *
  * Without this, `AppDelegate.applicationDidFinishLaunching` reads
- * `dev.tugtool.app/source-tree-path` (via `loadPreferences`),
+ * `dev.tugapp.app/source-tree-path` (via `loadPreferences`),
  * finds nothing, and renders the "Source Tree Required" alert
  * instead of bringing up tugdeck. The harness's `launchTugApp`
  * post-handshake wait for `window.__tug` then times out, masking
  * the real failure as a generic launch timeout.
  *
  * Seeded:
- *   - `dev.tugtool.app/source-tree-path` = repo root, so
+ *   - `dev.tugapp.app/source-tree-path` = repo root, so
  *     ProcessManager can locate `tugdeck/dist` and tugcast can
  *     ServeDir from it.
  *
@@ -224,7 +224,7 @@ export function seedTugbankForLaunch(
   },
 ): void {
   const sourceTreePath = opts?.sourceTreePath ?? defaultRepoRoot();
-  tugbankWrite(path, "dev.tugtool.app", "source-tree-path", "string", sourceTreePath);
+  tugbankWrite(path, "dev.tugapp.app", "source-tree-path", "string", sourceTreePath);
 }
 
 function defaultRepoRoot(): string {

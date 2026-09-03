@@ -148,5 +148,5 @@ describe("last-opened timestamps", () => {
 
 // The domain constant is part of the wire contract with the Swift host.
 it("stores under the text-card defaults domain", () => {
-  expect(TEXT_CARD_DEFAULTS_DOMAIN).toBe("dev.tugtool.text-card");
+  expect(TEXT_CARD_DEFAULTS_DOMAIN).toBe("dev.tugapp.text-card");
 });

@@ -9,7 +9,7 @@ import WebKit
 /// never touches the pasteboard for atom copies, the native bridge writes
 /// and reads this type directly. See `tug-native-clipboard.ts` and
 /// `clipboard-filters.ts`.
-private let tugAtomsPasteboardType = NSPasteboard.PasteboardType("dev.tug.prompt-atoms")
+private let tugAtomsPasteboardType = NSPasteboard.PasteboardType("dev.tugapp.prompt-atoms")
 
 /// The WebKit feature settings Tug ships with, applied at configuration
 /// time via the `_setEnabled:forFeature:` SPI (keys from
@@ -1573,7 +1573,7 @@ extension MainWindow: WKScriptMessageHandler {
             // Instead it hands us the plain-text fallback plus the atom
             // sidecar JSON, and we own the entire NSPasteboard write: the
             // readable text on `.string` for external apps, the sidecar on
-            // our private `dev.tug.prompt-atoms` type for Tug-to-Tug paste.
+            // our private `dev.tugapp.prompt-atoms` type for Tug-to-Tug paste.
             // Fire-and-forget; NSPasteboard writes synchronously.
             // JS-side contract: post {text, atoms}. `atoms` is "" when the
             // selection carried no atoms. See tug-native-clipboard.ts.

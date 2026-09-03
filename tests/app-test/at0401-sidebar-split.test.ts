@@ -257,7 +257,7 @@ function railOnDisk(tugbankPath: string): {
         { mode?: string; order?: string[]; shares?: Record<string, number> }
       >;
     };
-  }>(tugbankPath, "dev.tugtool.deck.layout", "layout");
+  }>(tugbankPath, "dev.tugapp.deck.layout", "layout");
   return blob?.value.imposition?.rails?.["right"];
 }
 

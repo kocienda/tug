@@ -131,7 +131,7 @@ export const PERMISSION_MODE_DOMAIN = "dev.permission-mode";
  * the per-card domain so changing the global default never disturbs an open
  * card that already carries its own remembered mode.
  */
-export const PERMISSION_MODE_DEFAULT_DOMAIN = "dev.tugtool.permission-mode";
+export const PERMISSION_MODE_DEFAULT_DOMAIN = "dev.tugapp.permission-mode";
 export const PERMISSION_MODE_DEFAULT_KEY = "default";
 
 /**

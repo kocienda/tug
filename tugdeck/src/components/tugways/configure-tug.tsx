@@ -14,7 +14,7 @@
  *      GPLv2-only and Tug takes on no GPL obligations), so the row reads
  *      {@link hostToolsStore} and offers Apple's Command Line Tools — about
  *      3 GB, said out loud — where the machine has no usable git. **Skip for
- *      now** persists under `dev.tugtool.app` and the row does not return;
+ *      now** persists under `dev.tugapp.app` and the row does not return;
  *      the Changes and History shades and the `tugtool arc` verbs carry the
  *      same offer, which is what makes the skip a deferral rather than a dead
  *      end. The probe order behind it is load-bearing and must not be

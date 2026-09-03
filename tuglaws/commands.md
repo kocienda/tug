@@ -88,7 +88,7 @@ One `CommandEntry` per user-invocable command, in `COMMANDS`. The fields that de
 
 **Chords reach Swift only through the menuState push.** The host never reads keymap overrides from tugbank; key equivalents are construction-time defaults until the first push, after which the sweep applies `commands[<identifier>].chord`. A second Swift-side reader would mean duplicating the override parser and the code→keyEquivalent conversion in Swift, which is the drift this architecture exists to remove.
 
-**Overrides are per-command binding lists** in tugbank domain `dev.tugtool.keymap`: absent means "registry default", an empty list means "explicitly unbound". `NATIVE_LOCKED` is a curated policy list of ids that may not be rebound — policy as data, never a per-entry flag.
+**Overrides are per-command binding lists** in tugbank domain `dev.tugapp.keymap`: absent means "registry default", an empty list means "explicitly unbound". `NATIVE_LOCKED` is a curated policy list of ids that may not be rebound — policy as data, never a per-entry flag.
 
 ---
 

@@ -213,7 +213,7 @@ export const EFFORT_DOMAIN = "dev.effort";
  * card that already carries its own remembered level. Mirrors the
  * permission-mode default domain.
  */
-export const EFFORT_DEFAULT_DOMAIN = "dev.tugtool.effort";
+export const EFFORT_DEFAULT_DOMAIN = "dev.tugapp.effort";
 export const EFFORT_DEFAULT_KEY = "default";
 
 /**

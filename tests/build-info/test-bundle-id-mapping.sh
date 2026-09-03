@@ -35,17 +35,17 @@ PLIST="$BUNDLE_CONTENTS/Info.plist"
 # Variants. The bash array carries (profile, branch, expected) triples
 # colon-separated so we can iterate cleanly.
 declare -a CASES=(
-    "release:main:dev.tugtool.app"
-    "debug:main:dev.tugtool.app.debug"
-    "debug:dev-foo:dev.tugtool.app.debug-dev-foo"
-    "release:dev-foo:dev.tugtool.app.release-dev-foo"
+    "release:main:dev.tugapp.app"
+    "debug:main:dev.tugapp.app.debug"
+    "debug:dev-foo:dev.tugapp.app.debug-dev-foo"
+    "release:dev-foo:dev.tugapp.app.release-dev-foo"
     # Branch with characters that exercise the slugifier:
-    "debug:feat/foo:dev.tugtool.app.debug-feat-foo"
-    "release:wip/foo bar:dev.tugtool.app.release-wip-foo-bar"
+    "debug:feat/foo:dev.tugapp.app.debug-feat-foo"
+    "release:wip/foo bar:dev.tugapp.app.release-wip-foo-bar"
     # Detached-HEAD shape:
-    "debug:detached-abcd1234:dev.tugtool.app.debug-detached-abcd1234"
+    "debug:detached-abcd1234:dev.tugapp.app.debug-detached-abcd1234"
     # Uppercase / mixed:
-    "debug:Dev-Wake-1:dev.tugtool.app.debug-dev-wake-1"
+    "debug:Dev-Wake-1:dev.tugapp.app.debug-dev-wake-1"
 )
 
 # Failure-only variant: a branch that slugifies to empty should be
@@ -67,15 +67,15 @@ verify_expected() {
     local expected="$3"
     case "$profile-$branch" in
         release-main)
-            [ "$expected" = "dev.tugtool.app" ] && return 0
+            [ "$expected" = "dev.tugapp.app" ] && return 0
             ;;
         debug-main)
-            [ "$expected" = "dev.tugtool.app.debug" ] && return 0
+            [ "$expected" = "dev.tugapp.app.debug" ] && return 0
             ;;
         *)
             local slug
             slug="$(bash "$SLUG_CMD" "$branch")"
-            [ "$expected" = "dev.tugtool.app.${profile}-${slug}" ] && return 0
+            [ "$expected" = "dev.tugapp.app.${profile}-${slug}" ] && return 0
             ;;
     esac
     printf '  table-bug %-12s %-22s   expected=%s  does not satisfy [D10]/[D19]\n' \

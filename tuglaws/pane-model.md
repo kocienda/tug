@@ -268,7 +268,7 @@ Class selectors on Pane chrome use the `.tug-pane-*` prefix, matching the compon
 
 The Deck → Pane → Card vocabulary flows through every serialization surface without translation.
 
-### v4 layout blob (tugbank `dev.tugtool.deck.layout`)
+### v4 layout blob (tugbank `dev.tugapp.deck.layout`)
 
 ```jsonc
 {
@@ -295,9 +295,9 @@ The Deck → Pane → Card vocabulary flows through every serialization surface 
 
 `imposition` is a `{ kind?, contentWidth?, layout?, sidebars, rails? }` record on the deck; `slot` and `widthPreset` are additive-optional on the Pane. `layout` (`"fit"` | `"flow"`) and `rails` are additive-optional in the same spirit and read the same defensive way: absent means fit and stacked respectively — which is what every blob written before either existed described — and an unreadable value is dropped rather than defaulted, because a geometry mode and a rail arrangement are things the user chose. The flow **offset** is deliberately not here: it is session state, derivable by re-activating any card. An absent `kind` means "no imposition / Pane not imposed", which is exactly the pre-imposer semantics. The value has widened without a version bump — from a bare kind string to the record — because both shapes parse: an absent `contentWidth` reads as comfy (which is the width every content card shipped at, so the migration is behavior-preserving), and a blob older than the `sidebars` map carries placements this parser does not read, whose ids are unregistered now and are swept by `filterDeckStateByRegistration` on the same load. Retired fields are dropped on read rather than honored: a `collapsed` Pane comes back expanded, and a blob from the build whose rails divided vertically loses its `sidebarSplit` and its per-card `order` — reading those back would reinstate a geometry this build cannot paint. A sidebar entry is therefore rebuilt field by field rather than spread, so a blob cannot smuggle a field the code no longer knows about into the record. The rest of the read path is defensive in the same spirit: an unrecognized kind drops the arrangement and every `slot` with it; a `slot` needs a valid kind, a non-negative integer, and a Pane hosting no sidebar card; an out-of-range slot clamps to the kind's last slot. A Pane with a surviving `slot`, and a sidebar Pane, both skip the canvas-fit clamp — their geometry derives at render.
 
-Pre-v4 blobs used `windows` and `activeWindowId` and a different embedded-card shape. `serialization.ts` migrates on read; writes are always v4. The `focusedCardId` pointer for reload focus restoration is stored in a separate tugbank domain (`dev.tugtool.deck.focused`), not inside the layout blob.
+Pre-v4 blobs used `windows` and `activeWindowId` and a different embedded-card shape. `serialization.ts` migrates on read; writes are always v4. The `focusedCardId` pointer for reload focus restoration is stored in a separate tugbank domain (`dev.tugapp.deck.focused`), not inside the layout blob.
 
-### Per-card state (tugbank `dev.tugtool.deck.cardstate/{cardId}`)
+### Per-card state (tugbank `dev.tugapp.deck.cardstate/{cardId}`)
 
 One row per Card. The row key is the Card's id. The value is the `CardStateBag` — scroll position, saved selection, content payload.
 
@@ -390,7 +390,7 @@ The alignment survives the slide anyway, because the alignment that matters was 
 
 **A slot run's focus order is the absolute slot, never the drawn position.** Both give the same left-to-right walk, since a window's positions map onto ascending slots — but a focus key is `(group, order)`, and ordering by position means the key a reader stands on names *second chip from the left*. Assigning a slot re-centres the window under them, so that key comes back naming a different place, or none. Keyed by slot, the reader stays on the **place** they were on, which is also the thing they were looking at. `at0278` holds this by moving a card and then requiring the restore to land on the place it moved to.
 
-**The width is five, and it stays switchable.** Three and five are both legible and neither is more correct, so it is a preference rather than a constant — persisted deck-wide through tugbank (`dev.tugtool.slot-window/slotWindow`, never Web storage), read through `useSlotWindow` ([L02]), and set by the `set-slot-window` action.
+**The width is five, and it stays switchable.** Three and five are both legible and neither is more correct, so it is a preference rather than a constant — persisted deck-wide through tugbank (`dev.tugapp.slot-window/slotWindow`, never Web storage), read through `useSlotWindow` ([L02]), and set by the `set-slot-window` action.
 
 It had a row on the Layout card for a while and no longer does. That row was the odd one on a card whose every other row states a deck fact: it moved no card and arranged nothing, and so raised no preview layer — there was nothing in a drawing of the deck to audition, and the rows above it redrew themselves the moment it was pressed. Seating it was awkward from both sides: with the deck-wide rows it was plainly a different kind of question, and below them, among rows named for the cards they place — Cards, Jots, Layout — it read as a seventh sidebar card called Slot Window. The width settled at five, so the row went and the switch stayed. **A preference nobody is choosing between does not need a control in the reader's way**; keeping the mechanism costs nothing, and it is what makes taking the control away a reversible decision rather than a deletion.
 

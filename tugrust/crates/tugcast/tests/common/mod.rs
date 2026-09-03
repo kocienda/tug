@@ -213,9 +213,9 @@ impl TestTugcast {
         // the downstream tugcode subprocess both point at the per-test
         // bank file. Without the env var tugcode's tugbank singleton
         // defaults to `~/.tugbank.db` and reads the developer's real
-        // persisted session-id map (`dev.tugtool.dev /
+        // persisted session-id map (`dev.tugapp.dev /
         // session-id-by-workspace` post-4i; previously a single global
-        // `(dev.tugtool.app, session-id)` key) — which makes tugcode
+        // `(dev.tugapp.app, session-id)` key) — which makes tugcode
         // boot with `--resume <stale-uuid>`, which claude rejects,
         // which causes every live-session test to hang.
         // Scrub Anthropic auth env vars so the downstream claude CLI falls

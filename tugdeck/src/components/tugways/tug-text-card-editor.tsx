@@ -1609,7 +1609,7 @@ export const TugTextCardEditor = React.forwardRef<
    * attachments, in which case the caller does its ordinary text paste.
    *
    * The sidecar always comes from the native bridge. The DOM `paste` event
-   * cannot see the Tug-private `dev.tug.prompt-atoms` pasteboard type in its
+   * cannot see the Tug-private `dev.tugapp.prompt-atoms` pasteboard type in its
    * `clipboardData` at all, so asking the host is the only way either route
    * can find it — the same reason `clipboard-filters.ts` asks in its own
    * DOM-mode fallback.

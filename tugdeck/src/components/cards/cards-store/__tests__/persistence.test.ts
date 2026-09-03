@@ -1,6 +1,6 @@
 /**
  * Persistence behavior of `CardsStore` — that mutations issue PUT requests to
- * `/api/defaults/dev.tugtool.cards/*` with the right body shape, and that
+ * `/api/defaults/dev.tugapp.cards/*` with the right body shape, and that
  * nothing is ever written to the legacy domain. The reducer's pure-logic
  * semantics are exercised in reducer.test.ts; this test pins the wrapper's
  * wire shape.

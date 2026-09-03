@@ -53,8 +53,8 @@ const CARD_ID = "A";
 const INPUT_PERSIST_KEY = "gallery-input/size/sm";
 const TYPED = "survive-the-quit";
 
-const CARDSTATE_DOMAIN = "dev.tugtool.deck.cardstate";
-const LAYOUT_DOMAIN = "dev.tugtool.deck.layout";
+const CARDSTATE_DOMAIN = "dev.tugapp.deck.cardstate";
+const LAYOUT_DOMAIN = "dev.tugapp.deck.layout";
 
 /** The verdict shape `prepareForTermination` resolves. */
 interface TerminationVerdict {

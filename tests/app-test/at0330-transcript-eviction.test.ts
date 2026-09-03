@@ -733,7 +733,7 @@ describe.skipIf(!SHOULD_RUN)("AT0330: transcript DOM eviction", () => {
       // other consumers).
       tugbankWrite(
         tugbankPath,
-        "dev.tugtool.dev",
+        "dev.tugapp.dev",
         "recent-projects",
         "json",
         JSON.stringify({ paths: [seeded.projectDir] }),

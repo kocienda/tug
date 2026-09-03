@@ -96,7 +96,7 @@ enum TugLog {
 
     private static let directory = InstanceConfig.logDir
 
-    private static let queue = DispatchQueue(label: "dev.tugtool.tuglog")
+    private static let queue = DispatchQueue(label: "dev.tugapp.tuglog")
 
     /// ISO8601 to the second; the microseconds are appended by `stamp` because
     /// `DateFormatter` resolves no finer than milliseconds and the format

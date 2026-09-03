@@ -685,7 +685,7 @@ export interface TugTestSurface {
    * Set a tugbank value locally and notify subscribers (SURFACE_VERSION
    * 1.11.0). Drives `useTugbankValue` consumers in-process — no tugcast / disk
    * round-trip — so a test can populate state the picker reads, e.g. the
-   * `dev.tugtool.dev / recent-projects` list to exercise the session picker's
+   * `dev.tugapp.dev / recent-projects` list to exercise the session picker's
    * Recents list as a keyboard cycle stop. No-op (dev-warn) if the tugbank
    * client singleton is not yet installed.
    */
@@ -694,7 +694,7 @@ export interface TugTestSurface {
   /**
    * Delete a tugbank key locally and notify subscribers — the counterpart to
    * {@link setTugbankValue}, for the domains where a key's *absence* carries
-   * meaning. `dev.tugtool.keymap` is the case: an override reset is a
+   * meaning. `dev.tugapp.keymap` is the case: an override reset is a
    * deletion, so a test that could only write values could never drive one.
    */
   deleteTugbankValue(domain: string, key: string): void;
@@ -1023,7 +1023,7 @@ export interface TugTestSurface {
    * Drives `writeSessionAtomToClipboard` — the exact function the chip's
    * right-click Copy handler calls — so both flavors go out through the
    * production path: the citation as `text/plain` and the atom sidecar on the
-   * private `dev.tug.prompt-atoms` type. Identity resolves through the bare
+   * private `dev.tugapp.prompt-atoms` type. Identity resolves through the bare
    * resolver, which is a snapshot, which is correct here: a clipboard write is
    * a one-shot non-React caller.
    *
@@ -1040,7 +1040,7 @@ export interface TugTestSurface {
    * carries no sidecar or it fails validation.
    *
    * This closes the copy round trip through the REAL pasteboard: the native
-   * write put the sidecar on the private `dev.tug.prompt-atoms` type, and this
+   * write put the sidecar on the private `dev.tugapp.prompt-atoms` type, and this
    * reads it back through `readClipboardViaNative` + `parseClipboardSidecar`,
    * the same two functions the editor's paste handler calls. It exists because
    * `pbpaste` cannot see a private pasteboard type, so a test otherwise has no

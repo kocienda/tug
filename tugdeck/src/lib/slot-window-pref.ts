@@ -24,11 +24,11 @@
  * more claim to than any other.
  *
  * Tugbank coordinates:
- *  - domain: `dev.tugtool.slot-window`
+ *  - domain: `dev.tugapp.slot-window`
  *  - key:    `slotWindow`
  *  - value:  `{ kind: "i64", value: 3 | 5 }`
  *
- * Legacy address (read-only): `dev.tugtool.lens` / `slotWindow`, where the
+ * Legacy address (read-only): `dev.tugapp.lens` / `slotWindow`, where the
  * preference lived before it had a domain. See {@link LEGACY_SLOT_WINDOW_DOMAIN}.
  *
  * Laws: [L02] the tugbank cache enters React through `useTugbankValue`.
@@ -41,7 +41,7 @@ import { useTugbankValue } from "@/lib/use-tugbank-value";
 import type { TaggedValue } from "@/lib/tugbank-client";
 import { tugDevLogStore } from "@/lib/tug-dev-log-store/tug-dev-log-store";
 
-export const SLOT_WINDOW_DOMAIN = "dev.tugtool.slot-window";
+export const SLOT_WINDOW_DOMAIN = "dev.tugapp.slot-window";
 export const SLOT_WINDOW_KEY = "slotWindow";
 
 /**
@@ -55,7 +55,7 @@ export const SLOT_WINDOW_KEY = "slotWindow";
  * the question for good. No row is deleted, so a downgrade still reads its
  * own value.
  */
-export const LEGACY_SLOT_WINDOW_DOMAIN = "dev.tugtool.lens";
+export const LEGACY_SLOT_WINDOW_DOMAIN = "dev.tugapp.lens";
 
 /** The widths a window may take. Odd, because the held slot is the middle. */
 export const SLOT_WINDOW_SIZES = [3, 5] as const;

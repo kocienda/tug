@@ -128,7 +128,7 @@ describe.skipIf(!SHOULD_RUN)("at0292: idle silence", () => {
       );
       tugbankWrite(
         tugbankPath,
-        "dev.tugtool.dev",
+        "dev.tugapp.dev",
         "recent-projects",
         "json",
         JSON.stringify({ paths: [seeded.projectDir] }),

@@ -472,7 +472,7 @@ async fn main() {
         let keep_setup = std::env::var_os("TUGAPP_TEST_KEEP_SETUP").is_some();
         if let Some(bank) = bank_client.as_ref() {
             if let Err(e) = bank.set(
-                "dev.tugtool.app",
+                "dev.tugapp.app",
                 "suppress-setup",
                 tugbank_core::Value::Bool(!keep_setup),
             ) {
@@ -1318,7 +1318,7 @@ async fn main() {
 
     // The changeset scribe ([P11]/[P22]): the maintained-draft engine runs a
     // headless `claude -p` with the model from
-    // the tugbank default `dev.tugtool.changeset`/`scribe_model` (resolved per
+    // the tugbank default `dev.tugapp.changeset`/`scribe_model` (resolved per
     // request, so a settings change applies immediately), falling back to
     // `sonnet` — the fingerprint gate ([P22]) bounds how often it runs, so the
     // model choice is a quality call, not a cost one.
@@ -1326,11 +1326,7 @@ async fn main() {
         let bank = bank_client.clone();
         Arc::new(move || {
             bank.as_ref()
-                .and_then(|b| {
-                    b.get("dev.tugtool.changeset", "scribe_model")
-                        .ok()
-                        .flatten()
-                })
+                .and_then(|b| b.get("dev.tugapp.changeset", "scribe_model").ok().flatten())
                 .and_then(|v| match v {
                     tugbank_core::Value::String(s) if !s.trim().is_empty() => Some(s),
                     _ => None,
@@ -1396,11 +1392,8 @@ async fn main() {
     // job of a class spawns that class's worker, so an instance where nobody
     // opens the Overview never pays for one.
     //
-    // Model and worker cap are read per spawn from the `dev.tugtool.overview`
+    // Model and worker cap are read per spawn from the `dev.tugapp.overview`
     // defaults, so both apply without a restart.
-    if let Some(bank) = bank_client.as_ref() {
-        feeds::overview_agent::carry_legacy_defaults_forward(bank);
-    }
     let overview_model: Arc<dyn Fn() -> String + Send + Sync> = {
         let bank = bank_client.clone();
         Arc::new(move || {

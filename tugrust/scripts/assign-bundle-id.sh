@@ -7,25 +7,21 @@ set -euo pipefail
 # according to [D10] of the multi-instance design record (suffix scheme as
 # amended by [D19]):
 #
-#   (release, main)       → dev.tugtool.app
-#   (debug, main)         → dev.tugtool.app.debug
-#   (debug, <other>)      → dev.tugtool.app.debug-<slug>
-#   (release, <other>)    → dev.tugtool.app.release-<slug>
+#   (release, main)       → dev.tugapp.app
+#   (debug, main)         → dev.tugapp.app.debug
+#   (debug, <other>)      → dev.tugapp.app.debug-<slug>
+#   (release, <other>)    → dev.tugapp.app.release-<slug>
 #
 # Where <slug> is the BuildBranch normalized via
 # `tugrust/scripts/branch-slug.sh` (the canonical bash implementation
 # of the slug algorithm). Parity with the Swift `BranchSlug.compute`
 # is verified by `tests/build-info/test-slug-parity.sh`.
 #
-# Per [D19]: the rename from production/development → release/debug
-# invalidates the user's existing AX (Accessibility) TCC grant on the
-# old `(development, main)` shorthand `dev.tugtool.app.dev`. The new
-# `(debug, main)` bundle ID `dev.tugtool.app.debug` prompts for AX on
-# first launch — one-time cost, accepted. The orphan TCC entry on
-# `dev.tugtool.app.dev` is harmless and can be cleared manually via
-# `tccutil reset Accessibility dev.tugtool.app.dev`. The
-# `(release, main)` bundle ID `dev.tugtool.app` is unchanged, so its
-# AX grant survives.
+# An AX (Accessibility) TCC grant is keyed on bundle ID plus designated
+# requirement, so every identity this table produces is granted
+# separately and any change to the prefix voids all of them at once.
+# The orphaned entries left behind are harmless; the incantations that
+# clear them are in `tuglaws/code-signing-mac.md`.
 #
 # Required env (set by Xcode at build time):
 #   TARGET_BUILD_DIR          parent directory of the built bundle
@@ -41,7 +37,7 @@ set -euo pipefail
 # binary's designated requirement automatically.
 #
 # Note on PRODUCT_BUNDLE_IDENTIFIER: the xcconfig setting in
-# project.pbxproj stays at the legacy `dev.tugtool.app` value. It is
+# project.pbxproj stays at the static `dev.tugapp.app` value. It is
 # no longer the source of truth — this script is. Xcode IDE Build runs
 # the same build phases as `xcodebuild`, so the dynamic override
 # applies in both paths. The pbxproj value is the fallback that
@@ -66,7 +62,7 @@ fi
 # When TUG_FORCE_BUNDLE_ID is set, stamp it verbatim and skip the
 # (profile, branch) mapping entirely. A worktree on a non-main branch
 # would otherwise get a fresh per-branch CFBundleIdentifier
-# (dev.tugtool.app.debug-<slug>) — a brand-new designated requirement
+# (dev.tugapp.app.debug-<slug>) — a brand-new designated requirement
 # and therefore a brand-new TCC Accessibility entry that has never been
 # granted. Forcing a single stable bundle ID gives every worktree the
 # same DR, so an AX grant given once carries across all of them, which
@@ -118,10 +114,10 @@ BUILD_BRANCH="$(read_key BuildBranch)"
 
 case "${BUILD_PROFILE}-${BUILD_BRANCH}" in
     release-main)
-        BUNDLE_ID="dev.tugtool.app"
+        BUNDLE_ID="dev.tugapp.app"
         ;;
     debug-main)
-        BUNDLE_ID="dev.tugtool.app.debug"
+        BUNDLE_ID="dev.tugapp.app.debug"
         ;;
     *)
         BRANCH_SLUG="$(bash "$SLUG_CMD" "$BUILD_BRANCH")"
@@ -131,7 +127,7 @@ case "${BUILD_PROFILE}-${BUILD_BRANCH}" in
             echo "       cannot produce a valid bundle ID suffix" >&2
             exit 1
         fi
-        BUNDLE_ID="dev.tugtool.app.${BUILD_PROFILE}-${BRANCH_SLUG}"
+        BUNDLE_ID="dev.tugapp.app.${BUILD_PROFILE}-${BRANCH_SLUG}"
         ;;
 esac
 

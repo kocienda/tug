@@ -24,7 +24,7 @@ import type { CapabilityModel } from "@/lib/session-metadata-store";
 import { putModelCatalog } from "@/settings-api";
 
 /** tugbank domain/key for the persisted live model catalog. */
-export const MODEL_CATALOG_DOMAIN = "dev.tugtool.models";
+export const MODEL_CATALOG_DOMAIN = "dev.tugapp.models";
 export const MODEL_CATALOG_KEY = "catalog";
 
 /**

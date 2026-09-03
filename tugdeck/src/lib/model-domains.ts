@@ -26,7 +26,7 @@ export const MODEL_DOMAIN = "dev.model";
  * that already carries its own remembered model. Mirrors the permission-mode
  * default domain.
  */
-export const MODEL_DEFAULT_DOMAIN = "dev.tugtool.model";
+export const MODEL_DEFAULT_DOMAIN = "dev.tugapp.model";
 export const MODEL_DEFAULT_KEY = "default";
 
 /** The selector new cards adopt when nothing else is configured — the account

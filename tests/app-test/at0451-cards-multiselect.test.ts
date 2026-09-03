@@ -282,7 +282,7 @@ async function clickRowTitled(app: App, title: string): Promise<boolean> {
 
 async function seedCardsPreferred(app: App): Promise<void> {
   await app.evalJS<null>(
-    `(window.__tug.setTugbankValue("dev.tugtool.cards", "widthPx", { kind: "i64", value: ${CARDS_WIDTH} }), null)`,
+    `(window.__tug.setTugbankValue("dev.tugapp.cards", "widthPx", { kind: "i64", value: ${CARDS_WIDTH} }), null)`,
   );
 }
 

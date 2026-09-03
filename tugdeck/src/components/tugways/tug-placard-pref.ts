@@ -15,10 +15,10 @@
  * fired immediately after a drag still lands the value).
  *
  * Tugbank coordinates:
- *  - domain: `dev.tugtool.tugways.pinned-panel` (matches the
- *    `dev.tugtool.tugways.*` family used by `split-pane`).
+ *  - domain: `dev.tugapp.tugways.pinned-panel` (matches the
+ *    `dev.tugapp.tugways.*` family used by `split-pane`).
  *  - key:    a caller-supplied `persistKey` (e.g. `btw:<cardId>` — per-card,
- *    same scoping convention as `dev.tugtool.dev.diff-view/<cardId>`).
+ *    same scoping convention as `dev.tugapp.dev.diff-view/<cardId>`).
  *  - value:  `{ kind: "f64", value: 0..1 }`.
  *
  * @module components/tugways/tug-placard-pref
@@ -35,7 +35,7 @@ import { tugDevLogStore } from "@/lib/tug-dev-log-store/tug-dev-log-store";
  * component is now `TugPlacard`: it is a persisted key, and renaming it would
  * orphan every saved drag position.
  */
-export const PLACARD_OFFSET_DOMAIN = "dev.tugtool.tugways.pinned-panel";
+export const PLACARD_OFFSET_DOMAIN = "dev.tugapp.tugways.pinned-panel";
 
 /** Clamp a fraction into the closed unit interval. */
 export function clampOffsetFraction(n: number): number {

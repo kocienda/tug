@@ -347,7 +347,7 @@ async function reseedFromDisk(
   for (const c of layout.cards) {
     const onDisk = tugbankRead<RawBag>(
       tugbankPath,
-      "dev.tugtool.deck.cardstate",
+      "dev.tugapp.deck.cardstate",
       c.cardId,
     );
     expect(

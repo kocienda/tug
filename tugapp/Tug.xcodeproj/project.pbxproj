@@ -426,7 +426,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MARKETING_VERSION = 0.5.19;
-				PRODUCT_BUNDLE_IDENTIFIER = dev.tugtool.app;
+				PRODUCT_BUNDLE_IDENTIFIER = dev.tugapp.app;
 				PRODUCT_NAME = "$(TUG_PRODUCT_NAME:default=$(TARGET_NAME))";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
@@ -448,7 +448,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MARKETING_VERSION = 0.5.19;
-				PRODUCT_BUNDLE_IDENTIFIER = dev.tugtool.app;
+				PRODUCT_BUNDLE_IDENTIFIER = dev.tugapp.app;
 				PRODUCT_NAME = "$(TUG_PRODUCT_NAME:default=$(TARGET_NAME))";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;

@@ -5,7 +5,7 @@
  *
  * Scenario:
  *
- *   Point `dev.tugtool.app / default-project-path` at a temp directory holding
+ *   Point `dev.tugapp.app / default-project-path` at a temp directory holding
  *   known files, then — with an empty deck and no session binding anywhere —
  *   send the `open-quickly` control the ⇧⌘O menu item dispatches. The dialog
  *   must name that directory in its placeholder, list its files as the query
@@ -168,7 +168,7 @@ describe.skipIf(!SHOULD_RUN)(
           expect(menuItem.found && menuItem.enabled).toBe(true);
 
           await app.evalJS<null>(
-            `(window.__tug.setTugbankValue("dev.tugtool.app", "default-project-path", { kind: "string", value: ${JSON.stringify(dir)} }), null)`,
+            `(window.__tug.setTugbankValue("dev.tugapp.app", "default-project-path", { kind: "string", value: ${JSON.stringify(dir)} }), null)`,
           );
 
           await app.evalJS<null>(
@@ -272,8 +272,8 @@ describe.skipIf(!SHOULD_RUN)(
             { timeoutMs: 20000 },
           );
           await app.evalJS<null>(
-            `(window.__tug.setTugbankValue("dev.tugtool.app", "default-project-path", { kind: "string", value: ${JSON.stringify(dir)} }),
-              window.__tug.setTugbankValue("dev.tugtool.dev", "recent-projects", { kind: "json", value: { paths: [${JSON.stringify(other)}] } }),
+            `(window.__tug.setTugbankValue("dev.tugapp.app", "default-project-path", { kind: "string", value: ${JSON.stringify(dir)} }),
+              window.__tug.setTugbankValue("dev.tugapp.dev", "recent-projects", { kind: "json", value: { paths: [${JSON.stringify(other)}] } }),
               null)`,
           );
 
@@ -395,8 +395,8 @@ describe.skipIf(!SHOULD_RUN)(
             { timeoutMs: 20000 },
           );
           await app.evalJS<null>(
-            `(window.__tug.setTugbankValue("dev.tugtool.app", "default-project-path", { kind: "string", value: ${JSON.stringify(`${base}/tug`)} }),
-              window.__tug.setTugbankValue("dev.tugtool.dev", "recent-projects", { kind: "json", value: { paths: [
+            `(window.__tug.setTugbankValue("dev.tugapp.app", "default-project-path", { kind: "string", value: ${JSON.stringify(`${base}/tug`)} }),
+              window.__tug.setTugbankValue("dev.tugapp.dev", "recent-projects", { kind: "json", value: { paths: [
                 ${JSON.stringify(`${base}/a/proj`)},
                 ${JSON.stringify(`${base}/b/proj`)},
                 ${JSON.stringify(`${base}/c/proj`)}
@@ -473,8 +473,8 @@ describe.skipIf(!SHOULD_RUN)(
             { timeoutMs: 20000 },
           );
           await app.evalJS<null>(
-            `(window.__tug.setTugbankValue("dev.tugtool.app", "default-project-path", { kind: "string", value: ${JSON.stringify(`${base}/tug`)} }),
-              window.__tug.setTugbankValue("dev.tugtool.dev", "recent-projects", { kind: "json", value: { paths: [${JSON.stringify(`${base}/other`)}] } }),
+            `(window.__tug.setTugbankValue("dev.tugapp.app", "default-project-path", { kind: "string", value: ${JSON.stringify(`${base}/tug`)} }),
+              window.__tug.setTugbankValue("dev.tugapp.dev", "recent-projects", { kind: "json", value: { paths: [${JSON.stringify(`${base}/other`)}] } }),
               null)`,
           );
           await app.evalJS<null>(
@@ -642,7 +642,7 @@ describe.skipIf(!SHOULD_RUN)(
             { timeoutMs: 20000 },
           );
           await app.evalJS<null>(
-            `(window.__tug.setTugbankValue("dev.tugtool.app", "default-project-path", { kind: "string", value: ${JSON.stringify(`${base}/tug`)} }), null)`,
+            `(window.__tug.setTugbankValue("dev.tugapp.app", "default-project-path", { kind: "string", value: ${JSON.stringify(`${base}/tug`)} }), null)`,
           );
           await app.evalJS<null>(
             `(window.__tug.dispatchControlAction("open-quickly"), null)`,
@@ -771,7 +771,7 @@ describe.skipIf(!SHOULD_RUN)(
             { timeoutMs: 20000 },
           );
           await app.evalJS<null>(
-            `(window.__tug.setTugbankValue("dev.tugtool.app", "default-project-path", { kind: "string", value: ${JSON.stringify(`${base}/tug`)} }), null)`,
+            `(window.__tug.setTugbankValue("dev.tugapp.app", "default-project-path", { kind: "string", value: ${JSON.stringify(`${base}/tug`)} }), null)`,
           );
 
           const openOnBrowse = async (): Promise<void> => {
@@ -853,7 +853,7 @@ describe.skipIf(!SHOULD_RUN)(
             { timeoutMs: 20000 },
           );
           await app.evalJS<null>(
-            `(window.__tug.setTugbankValue("dev.tugtool.app", "default-project-path", { kind: "string", value: ${JSON.stringify(`${base}/before`)} }), null)`,
+            `(window.__tug.setTugbankValue("dev.tugapp.app", "default-project-path", { kind: "string", value: ${JSON.stringify(`${base}/before`)} }), null)`,
           );
 
           // Baseline: the dialog opens on the directory that is set now.
@@ -914,7 +914,7 @@ describe.skipIf(!SHOULD_RUN)(
           await app.evalJS(`(() => {
             window.__at0306 = undefined;
             const poll = () => {
-              fetch("/api/defaults/dev.tugtool.app/default-project-path")
+              fetch("/api/defaults/dev.tugapp.app/default-project-path")
                 .then((r) => (r.ok ? r.json() : { kind: "error", value: r.status }))
                 .then((j) => {
                   if (j.kind === "string" && j.value !== ${JSON.stringify(`${base}/before`)}) {

@@ -1725,9 +1725,6 @@ impl SessionLedger {
         Self::migrate_sessions_add_hand_back_owed(conn)?;
         Self::migrate_scan_cache_add_resume_columns(conn)?;
         Self::migrate_pulse_lines_add_intent(conn)?;
-        // First of the post-table migrations: everything below it names
-        // `overview_posts`, which does not exist until this has run.
-        Self::migrate_gazette_posts_to_overview_posts(conn)?;
         Self::migrate_overview_posts_add_elapsed_ms(conn)?;
         Self::migrate_overview_posts_add_project_dir(conn)?;
         Self::migrate_overview_posts_add_attachments(conn)?;
@@ -3452,11 +3449,10 @@ impl SessionLedger {
     /// left on disk is a cache with no writer and no reader.
     ///
     /// A drop rather than a rename, and with no write-lock guard: both
-    /// statements are idempotent, and the concurrent-open hazard
-    /// {@link migrate_gazette_posts_to_overview_posts} takes `BEGIN IMMEDIATE`
-    /// for belongs to a rename carrying permanent history. Nothing here was
-    /// worth carrying — the cost of losing a row was always one blank line
-    /// until the next write.
+    /// statements are idempotent, and the concurrent-open hazard a rename
+    /// carrying permanent history has to take `BEGIN IMMEDIATE` for does not
+    /// arise. Nothing here was worth carrying — the cost of losing a row was
+    /// always one blank line until the next write.
     ///
     /// Deletable once no installation predates this release.
     fn migrate_drop_pulse_overviews(conn: &Connection) -> Result<(), LedgerError> {
@@ -3464,105 +3460,6 @@ impl SessionLedger {
             "
             DROP TRIGGER IF EXISTS pulse_overviews_cascade_delete_on_session;
             DROP TABLE IF EXISTS pulse_overviews;
-            ",
-        )?;
-        Ok(())
-    }
-
-    /// Carry a database written before the channel was renamed forward:
-    /// `gazette_posts` becomes `overview_posts`, and the author value
-    /// `'reporter'` becomes `'observer'`.
-    ///
-    /// The base table moves by `ALTER TABLE … RENAME TO`, never a
-    /// drop-and-recreate — it is permanent history. The FTS5 shadow tables
-    /// are the opposite case (see the CREATE): `content='gazette_posts'` is
-    /// baked into the stored virtual-table definition and the three triggers
-    /// name both tables in their bodies, so none of them can be renamed in
-    /// place. They are dropped, recreated under the new names, and rebuilt
-    /// from the finished content in one pass.
-    ///
-    /// Order matters twice. The triggers come off before the author `UPDATE`,
-    /// or every updated row fires the update trigger and writes two FTS
-    /// command rows for an index that is about to be rebuilt anyway. And the
-    /// whole function runs before the `CREATE TABLE IF NOT EXISTS` batch: an
-    /// `overview_posts` created first would make the guard below find a table
-    /// already present and no-op, stranding every existing post in an
-    /// orphaned `gazette_posts` nothing reads.
-    ///
-    /// The guard reads inside the same write transaction that acts on it.
-    /// Two processes opening the same ledger at once — which the integration
-    /// suite does routinely — would otherwise both see `gazette_posts` and
-    /// both try to rename it, and the loser would fail on a table the winner
-    /// had already moved. `BEGIN IMMEDIATE` takes the write lock before the
-    /// guard reads, so the second process reads the migrated world.
-    ///
-    /// Deletable once no installation predates the rename.
-    fn migrate_gazette_posts_to_overview_posts(conn: &Connection) -> Result<(), LedgerError> {
-        conn.execute_batch("BEGIN IMMEDIATE;")?;
-        let result = Self::rename_gazette_posts_within_transaction(conn);
-        if result.is_err() {
-            let _ = conn.execute_batch("ROLLBACK;");
-            return result;
-        }
-        conn.execute_batch("COMMIT;")?;
-        Ok(())
-    }
-
-    /// The body of {@link migrate_gazette_posts_to_overview_posts}, run with
-    /// the write lock already held.
-    fn rename_gazette_posts_within_transaction(conn: &Connection) -> Result<(), LedgerError> {
-        // Fresh database, or already migrated. The guard is the presence of
-        // the OLD table, never the absence of the new one.
-        if Self::table_columns(conn, "gazette_posts")?.is_empty() {
-            return Ok(());
-        }
-        conn.execute_batch(
-            "
-            DROP TRIGGER IF EXISTS gazette_posts_fts_insert;
-            DROP TRIGGER IF EXISTS gazette_posts_fts_delete;
-            DROP TRIGGER IF EXISTS gazette_posts_fts_update;
-            DROP TABLE IF EXISTS gazette_posts_fts;
-
-            ALTER TABLE gazette_posts RENAME TO overview_posts;
-
-            DROP INDEX IF EXISTS gazette_posts_session;
-            CREATE INDEX IF NOT EXISTS overview_posts_session
-                ON overview_posts(session_id);
-
-            UPDATE overview_posts SET author = 'observer' WHERE author = 'reporter';
-
-            CREATE VIRTUAL TABLE IF NOT EXISTS overview_posts_fts USING fts5(
-                body,
-                refs,
-                tokens,
-                content='overview_posts',
-                content_rowid='id'
-            );
-
-            CREATE TRIGGER IF NOT EXISTS overview_posts_fts_insert
-            AFTER INSERT ON overview_posts
-            BEGIN
-                INSERT INTO overview_posts_fts (rowid, body, refs, tokens)
-                VALUES (new.id, new.body, new.refs, new.tokens);
-            END;
-
-            CREATE TRIGGER IF NOT EXISTS overview_posts_fts_delete
-            AFTER DELETE ON overview_posts
-            BEGIN
-                INSERT INTO overview_posts_fts (overview_posts_fts, rowid, body, refs, tokens)
-                VALUES ('delete', old.id, old.body, old.refs, old.tokens);
-            END;
-
-            CREATE TRIGGER IF NOT EXISTS overview_posts_fts_update
-            AFTER UPDATE ON overview_posts
-            BEGIN
-                INSERT INTO overview_posts_fts (overview_posts_fts, rowid, body, refs, tokens)
-                VALUES ('delete', old.id, old.body, old.refs, old.tokens);
-                INSERT INTO overview_posts_fts (rowid, body, refs, tokens)
-                VALUES (new.id, new.body, new.refs, new.tokens);
-            END;
-
-            INSERT INTO overview_posts_fts (overview_posts_fts) VALUES ('rebuild');
             ",
         )?;
         Ok(())
@@ -14138,158 +14035,6 @@ mod tests {
         seed_live(&l, "s1", WS_A, "c", millis(0));
         l.mark_closed("s1").unwrap();
         assert_eq!(l.demote_live_to_closed().unwrap(), 0);
-    }
-
-    // ── the channel's rename, carried forward ────────────────────────────────
-
-    /// Write a database carrying the pre-rename schema: `gazette_posts` with
-    /// its index, its external-content FTS5 shadow, and the three sync
-    /// triggers — the shape a build from before the rename left behind.
-    fn seed_pre_rename_posts(path: &Path, rows: &[(&str, &str)]) {
-        let conn = rusqlite::Connection::open(path).expect("open pre-rename db");
-        conn.execute_batch(
-            "
-            CREATE TABLE gazette_posts (
-                id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                at_ms       INTEGER NOT NULL,
-                author      TEXT NOT NULL,
-                session_id  TEXT,
-                wake_reason TEXT,
-                body        TEXT NOT NULL,
-                refs        TEXT NOT NULL,
-                elapsed_ms  INTEGER,
-                project_dir TEXT,
-                attachments TEXT,
-                tokens      TEXT
-            );
-            CREATE INDEX gazette_posts_session ON gazette_posts(session_id);
-            CREATE VIRTUAL TABLE gazette_posts_fts USING fts5(
-                body, refs, tokens, content='gazette_posts', content_rowid='id'
-            );
-            CREATE TRIGGER gazette_posts_fts_insert AFTER INSERT ON gazette_posts
-            BEGIN
-                INSERT INTO gazette_posts_fts (rowid, body, refs, tokens)
-                VALUES (new.id, new.body, new.refs, new.tokens);
-            END;
-            CREATE TRIGGER gazette_posts_fts_delete AFTER DELETE ON gazette_posts
-            BEGIN
-                INSERT INTO gazette_posts_fts (gazette_posts_fts, rowid, body, refs, tokens)
-                VALUES ('delete', old.id, old.body, old.refs, old.tokens);
-            END;
-            CREATE TRIGGER gazette_posts_fts_update AFTER UPDATE ON gazette_posts
-            BEGIN
-                INSERT INTO gazette_posts_fts (gazette_posts_fts, rowid, body, refs, tokens)
-                VALUES ('delete', old.id, old.body, old.refs, old.tokens);
-                INSERT INTO gazette_posts_fts (rowid, body, refs, tokens)
-                VALUES (new.id, new.body, new.refs, new.tokens);
-            END;
-            ",
-        )
-        .expect("seed pre-rename schema");
-        for (i, (author, body)) in rows.iter().enumerate() {
-            conn.execute(
-                "INSERT INTO gazette_posts (at_ms, author, session_id, body, refs, tokens)
-                 VALUES (?1, ?2, 's1', ?3, '[]', ?3)",
-                params![1_000 + i as i64, author, body],
-            )
-            .expect("seed post");
-        }
-    }
-
-    fn author_counts(ledger: &SessionLedger) -> Vec<(String, i64)> {
-        let conn = ledger.db.lock().expect("ledger mutex");
-        let mut stmt = conn
-            .prepare("SELECT author, count(*) FROM overview_posts GROUP BY author ORDER BY author")
-            .expect("prepare");
-        let rows = stmt
-            .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))
-            .expect("query");
-        rows.collect::<Result<Vec<_>, _>>().expect("collect")
-    }
-
-    /// The whole point of the rename migration: a database written before the
-    /// channel was renamed opens with every post intact, the summarizer's
-    /// rows re-attributed, and the full-text index answering again.
-    #[test]
-    fn pre_rename_posts_survive_the_move_to_overview_posts() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let path = dir.path().join("sessions.db");
-        seed_pre_rename_posts(
-            &path,
-            &[
-                ("reporter", "landed the wake core"),
-                ("reporter", "a distinctive digest"),
-                ("operator", "an answer about s1"),
-                ("user", "what is this"),
-            ],
-        );
-
-        let ledger = SessionLedger::open_with_claude_root(
-            &path,
-            PathBuf::from("/tmp/tugcast-tests-no-trash"),
-        )
-        .expect("open migrates");
-
-        let posts = ledger.list_overview_posts_tail(50).unwrap();
-        assert_eq!(posts.len(), 4, "nothing is lost by the rename");
-        assert_eq!(
-            author_counts(&ledger),
-            vec![
-                ("observer".to_string(), 2),
-                ("operator".to_string(), 1),
-                ("user".to_string(), 1),
-            ],
-            "the summarizer's rows are re-attributed; the other two voices are untouched"
-        );
-
-        // The per-session read is the summarizer-only one, so it is also the
-        // proof that the renamed author value is the one it now asks for.
-        let mine = ledger.list_overview_posts_for_session("s1", 10).unwrap();
-        assert_eq!(mine.len(), 2);
-        assert!(mine.iter().all(|p| p.author == OverviewAuthor::Observer));
-
-        // The FTS shadow was dropped, recreated against the renamed content
-        // table, and rebuilt — a search that only the index can answer.
-        let hits = ledger
-            .search_overview_posts("distinctive", &OverviewSearchFilter::default(), 10)
-            .expect("search");
-        assert_eq!(hits.len(), 1);
-        assert_eq!(hits[0].post.body, "a distinctive digest");
-    }
-
-    /// A second open finds no `gazette_posts` and returns at the guard, so the
-    /// migration cannot run twice over its own output.
-    #[test]
-    fn the_rename_migration_is_a_no_op_on_a_database_it_already_moved() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let path = dir.path().join("sessions.db");
-        seed_pre_rename_posts(&path, &[("reporter", "one"), ("user", "two")]);
-
-        let first = SessionLedger::open_with_claude_root(
-            &path,
-            PathBuf::from("/tmp/tugcast-tests-no-trash"),
-        )
-        .expect("first open migrates");
-        let before = author_counts(&first);
-        drop(first);
-
-        let second = SessionLedger::open_with_claude_root(
-            &path,
-            PathBuf::from("/tmp/tugcast-tests-no-trash"),
-        )
-        .expect("second open is a no-op");
-        assert_eq!(author_counts(&second), before);
-        assert_eq!(second.list_overview_posts_tail(50).unwrap().len(), 2);
-    }
-
-    /// A fresh database has no old table to find, and the CREATE batch is what
-    /// gives it `overview_posts` — the migration must not object to that.
-    #[test]
-    fn a_fresh_database_skips_the_rename_migration_entirely() {
-        let ledger = fresh();
-        let post = overview_post(1_000, OverviewAuthor::Observer, "born renamed");
-        ledger.record_overview_post(&post).expect("record");
-        assert_eq!(author_counts(&ledger), vec![("observer".to_string(), 1)]);
     }
 
     // ── idempotent open ──────────────────────────────────────────────────────

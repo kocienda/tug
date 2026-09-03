@@ -11,7 +11,7 @@
  * because WebKit's pasteboard normalization swallows custom MIME types
  * and sanitizes HTML — both of which silently drop atom data. The
  * native bridge writes/reads a Tug-private pasteboard type
- * (`dev.tug.prompt-atoms`) carrying the same sidecar this module emits,
+ * (`dev.tugapp.prompt-atoms`) carrying the same sidecar this module emits,
  * so the wire schema below is shared across both paths.
  *
  * In browser mode, two payloads land on the system clipboard for every
@@ -263,7 +263,7 @@ export function serializeClipboard(
  * ways into this function:
  *   - browser-mode paste reads `application/x-tug-atoms` from
  *     `clipboardData` and hands the raw JSON here;
- *   - the Tug.app native bridge reads the `dev.tug.prompt-atoms`
+ *   - the Tug.app native bridge reads the `dev.tugapp.prompt-atoms`
  *     pasteboard type and hands the raw JSON here.
  *
  * Preserves the optional `segment.id` and per-atom `bytes` (the
@@ -728,7 +728,7 @@ function handlePaste(
   // Branch 2b: the sidecar is on the PASTEBOARD but not in this event.
   //
   // Inside Tug.app an atom copy is written natively, to the Tug-private
-  // `dev.tug.prompt-atoms` pasteboard type — the whole reason that path exists
+  // `dev.tugapp.prompt-atoms` pasteboard type — the whole reason that path exists
   // is that WebKit's pasteboard normalization swallows custom MIME types. The
   // consequence is that a DOM `paste` event's `clipboardData` cannot see it:
   // `getData(TUG_ATOMS_MIME)` above comes back empty for a clipboard that

@@ -8,7 +8,7 @@
  * had drifted:
  *
  *   A. **A Tug copy, off the native pasteboard.** A Tug copy is written to the
- *      private `dev.tug.prompt-atoms` type, so a DOM `paste` event's
+ *      private `dev.tugapp.prompt-atoms` type, so a DOM `paste` event's
  *      `clipboardData` cannot see it and the handler asks the bridge instead.
  *      A copy carrying no atoms at all still writes a sidecar once it has a
  *      project root to record — which is the regression this file exists for:

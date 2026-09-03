@@ -132,7 +132,7 @@ describe.skipIf(!SHOULD_RUN)(
         });
         try {
           await app.evalJS<null>(
-            `(window.__tug.setTugbankValue("dev.tugtool.layout", "widthPx", { kind: "i64", value: ${LAYOUT_WIDTH} }), null)`,
+            `(window.__tug.setTugbankValue("dev.tugapp.layout", "widthPx", { kind: "i64", value: ${LAYOUT_WIDTH} }), null)`,
           );
           await app.seedDeckState({ state: deckShape(), focusCardId: "B" });
           await app.waitForCondition<boolean>(

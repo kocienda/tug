@@ -287,7 +287,7 @@ describe.skipIf(!SHOULD_RUN)(
               string,
               { x: number; y: number; meta?: AnchorPayload }
             >;
-          }>(tugbankPath, "dev.tugtool.deck.cardstate", "A");
+          }>(tugbankPath, "dev.tugapp.deck.cardstate", "A");
           expect(onDiskBag).not.toBeNull();
           if (onDiskBag === null) throw new Error("bag missing on disk");
           const bagValue = onDiskBag.value;

@@ -7,7 +7,7 @@
  *
  *   - Per-card values persist at `dev.text-card/<cardId>` and always
  *     win once present.
- *   - The deck-wide defaults at `dev.tugtool.text-card/settings` apply
+ *   - The deck-wide defaults at `dev.tugapp.text-card/settings` apply
  *     to any card with nothing of its own.
  *   - There is NO mount-time write. A card resolves `persisted ??
  *     defaults ?? built-in` live, so an untouched card follows the deck

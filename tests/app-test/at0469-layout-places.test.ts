@@ -248,7 +248,7 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
       const app = await launchTugApp();
       try {
         await app.evalJS<null>(
-          `(window.__tug.setTugbankValue("dev.tugtool.layout", "widthPx", { kind: "i64", value: ${RAIL_WIDTH} }), null)`,
+          `(window.__tug.setTugbankValue("dev.tugapp.layout", "widthPx", { kind: "i64", value: ${RAIL_WIDTH} }), null)`,
         );
         await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
         await app.waitForCondition<boolean>(
@@ -384,7 +384,7 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
       const app = await launchTugApp();
       try {
         await app.evalJS<null>(
-          `(window.__tug.setTugbankValue("dev.tugtool.layout", "widthPx", { kind: "i64", value: ${RAIL_WIDTH} }), null)`,
+          `(window.__tug.setTugbankValue("dev.tugapp.layout", "widthPx", { kind: "i64", value: ${RAIL_WIDTH} }), null)`,
         );
         await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
         await app.waitForCondition<boolean>(
@@ -465,7 +465,7 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
       const app = await launchTugApp();
       try {
         await app.evalJS<null>(
-          `(window.__tug.setTugbankValue("dev.tugtool.layout", "widthPx", { kind: "i64", value: ${RAIL_WIDTH} }), null)`,
+          `(window.__tug.setTugbankValue("dev.tugapp.layout", "widthPx", { kind: "i64", value: ${RAIL_WIDTH} }), null)`,
         );
         await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
         await app.waitForCondition<boolean>(
@@ -557,7 +557,7 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
       const app = await launchTugApp();
       try {
         await app.evalJS<null>(
-          `(window.__tug.setTugbankValue("dev.tugtool.layout", "widthPx", { kind: "i64", value: ${RAIL_WIDTH} }), null)`,
+          `(window.__tug.setTugbankValue("dev.tugapp.layout", "widthPx", { kind: "i64", value: ${RAIL_WIDTH} }), null)`,
         );
         await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
         await app.waitForCondition<boolean>(
@@ -632,7 +632,7 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
       const app = await launchTugApp();
       try {
         await app.evalJS<null>(
-          `(window.__tug.setTugbankValue("dev.tugtool.layout", "widthPx", { kind: "i64", value: ${RAIL_WIDTH} }), null)`,
+          `(window.__tug.setTugbankValue("dev.tugapp.layout", "widthPx", { kind: "i64", value: ${RAIL_WIDTH} }), null)`,
         );
         await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
         await app.waitForCondition<boolean>(
@@ -770,7 +770,7 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
       const app = await launchTugApp();
       try {
         await app.evalJS<null>(
-          `(window.__tug.setTugbankValue("dev.tugtool.layout", "widthPx", { kind: "i64", value: ${RAIL_WIDTH} }), null)`,
+          `(window.__tug.setTugbankValue("dev.tugapp.layout", "widthPx", { kind: "i64", value: ${RAIL_WIDTH} }), null)`,
         );
         await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
         await app.waitForCondition<boolean>(
@@ -870,7 +870,7 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
       const app = await launchTugApp();
       try {
         await app.evalJS<null>(
-          `(window.__tug.setTugbankValue("dev.tugtool.layout", "widthPx", { kind: "i64", value: ${RAIL_WIDTH} }), null)`,
+          `(window.__tug.setTugbankValue("dev.tugapp.layout", "widthPx", { kind: "i64", value: ${RAIL_WIDTH} }), null)`,
         );
         await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
         await app.waitForCondition<boolean>(

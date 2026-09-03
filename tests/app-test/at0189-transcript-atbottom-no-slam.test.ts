@@ -78,7 +78,7 @@ describe.skipIf(!SHOULD_RUN)("at0189: atBottom restore never slams a scrolled-up
       // sessions (a live-archive leak) and never autofill the temp dir.
       tugbankWrite(
         tugbankPath,
-        "dev.tugtool.dev",
+        "dev.tugapp.dev",
         "recent-projects",
         "json",
         JSON.stringify({ paths: [seeded.projectDir] }),
@@ -114,7 +114,7 @@ describe.skipIf(!SHOULD_RUN)("at0189: atBottom restore never slams a scrolled-up
         // ── Phase A assertion: bag on disk is atBottom. ──
         const onDisk = tugbankRead<CardBag>(
           tugbankPath,
-          "dev.tugtool.deck.cardstate",
+          "dev.tugapp.deck.cardstate",
           CARD_ID,
         );
         expect(onDisk).not.toBeNull();

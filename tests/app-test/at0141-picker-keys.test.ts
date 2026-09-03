@@ -181,7 +181,7 @@ describe.skipIf(!SHOULD_RUN)("AT0141: the session picker is a persistent keyboar
         // and the path-seed fills the field (→ Open enabled → seed lands on the
         // Sessions list). Wait on the field carrying a seeded value.
         await app.evalJS<null>(
-          `(window.__tug.setTugbankValue(${JSON.stringify("dev.tugtool.dev")}, ${JSON.stringify("recent-projects")}, { kind: "json", value: { paths: ${JSON.stringify(SEED_RECENTS)} } }), null)`,
+          `(window.__tug.setTugbankValue(${JSON.stringify("dev.tugapp.dev")}, ${JSON.stringify("recent-projects")}, { kind: "json", value: { paths: ${JSON.stringify(SEED_RECENTS)} } }), null)`,
         );
         await app.waitForCondition<boolean>(
           `(function(){ var el = document.querySelector(${JSON.stringify(PATH)}); return el !== null && el.value.length > 0; })()`,

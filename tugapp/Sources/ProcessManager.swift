@@ -384,7 +384,7 @@ class ProcessManager {
         var viteEnv = ProcessInfo.processInfo.environment
         viteEnv["PATH"] = ProcessManager.shellPATH
         viteEnv["TUGCAST_PORT"] = String(tugcastPort)
-        // Vite's theme plugin shells out to `tugbank read dev.tugtool.app theme`
+        // Vite's theme plugin shells out to `tugbank read dev.tugapp.app theme`
         // (vite.config.ts) to build tug-active-theme.css. Without TUG_INSTANCE_ID
         // that read falls through to the legacy default DB (~/.tugbank.db) instead
         // of this app's per-instance DB, so the dev-rendered theme silently
@@ -925,7 +925,7 @@ class ProcessManager {
         }
         args += ["--control-socket", controlSocketPath]
         // Check tugbank for no-auth development flag
-        if Self.readTugbankBool(domain: "dev.tugtool.app", key: "no-auth") {
+        if Self.readTugbankBool(domain: "dev.tugapp.app", key: "no-auth") {
             args += ["--no-auth"]
             NSLog("ProcessManager: --no-auth enabled via tugbank")
         }

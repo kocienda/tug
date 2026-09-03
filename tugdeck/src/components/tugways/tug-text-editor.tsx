@@ -2210,7 +2210,7 @@ export const TugTextEditor = React.forwardRef<TugTextEditorDelegate, TugTextEdit
     // Write the current selection to the system clipboard through the
     // native bridge: the plain-text fallback on `.string` (for external
     // apps) plus the atom sidecar — including any image bytes — on the
-    // Tug-private `dev.tug.prompt-atoms` pasteboard type. This is the
+    // Tug-private `dev.tugapp.prompt-atoms` pasteboard type. This is the
     // robust Tug-to-Tug copy path; it never touches the DOM copy event,
     // so WebKit's pasteboard normalization (which swallows custom MIME
     // types and sanitizes HTML) can't strip the atom data. Returns true
@@ -2306,7 +2306,7 @@ export const TugTextEditor = React.forwardRef<TugTextEditorDelegate, TugTextEdit
     //
     // Bridge-paste atom round-trip: the bridge returns the Tug-private
     // atom sidecar JSON directly on its `atoms` field, read from the
-    // `dev.tug.prompt-atoms` pasteboard type our native copy wrote.
+    // `dev.tugapp.prompt-atoms` pasteboard type our native copy wrote.
     // `parseClipboardSidecar` validates it and `insertSidecar` places it —
     // rehydrating any carried image bytes into this card's store so pasted
     // image chips reconstitute fully, and chipping a leading slash command.

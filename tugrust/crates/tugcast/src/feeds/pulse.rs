@@ -53,7 +53,7 @@ pub const PULSE_TAIL_LEN: usize = 20;
 /// Tugbank default for the kill switch: `Value::Bool`; absent
 /// or unreadable reads as ENABLED (PULSE is on by default). The deck's
 /// settings surface writes the same `(domain, key)` as a `bool`.
-pub const PULSE_ENABLED_DOMAIN: &str = "dev.tugtool.pulse";
+pub const PULSE_ENABLED_DOMAIN: &str = "dev.tugapp.pulse";
 pub const PULSE_ENABLED_KEY: &str = "enabled";
 /// Minimum spacing between daemon (re)spawn attempts.
 const RESPAWN_MIN_INTERVAL: Duration = Duration::from_secs(5);

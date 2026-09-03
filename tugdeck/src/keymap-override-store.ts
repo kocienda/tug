@@ -25,7 +25,7 @@
  * keep one command's change from racing another's — a single blob value would
  * make every rebind a read-modify-write of the whole keymap.
  *
- * Persistence rides tugbank defaults (`dev.tugtool.keymap`), the same feed as
+ * Persistence rides tugbank defaults (`dev.tugapp.keymap`), the same feed as
  * the theme; there is no `localStorage`. Boot seeds from
  * the DEFAULTS snapshot before `initHostMenuState`, because the host reads
  * chords off the first menu-state push. A remote write arrives through the
@@ -47,7 +47,7 @@ import type { TaggedValue } from "./lib/tugbank-client";
 import { tugDevLogStore } from "./lib/tug-dev-log-store/tug-dev-log-store";
 
 /** The tugbank domain overrides live in ([P14], Spec S04). */
-export const KEYMAP_DOMAIN = "dev.tugtool.keymap";
+export const KEYMAP_DOMAIN = "dev.tugapp.keymap";
 
 /* ---------------------------------------------------------------------------
  * Parsing

@@ -6,7 +6,7 @@
  * a brand-new Text card adopts on first open when it has nothing
  * persisted of its own. No CSS/DOM side effects — it
  * just reads and writes one tugbank json blob at
- * `dev.tugtool.text-card/settings`. Mirrors `DefaultModelStore` /
+ * `dev.tugapp.text-card/settings`. Mirrors `DefaultModelStore` /
  * `EditorSettingsStore`.
  *
  * Writes go through `client.setLocalValue` (optimistic, and — crucially

@@ -323,7 +323,7 @@ function TelemetryRow({
  *
  * `copyAction` rather than `getText` for both, because the atom's write is not
  * a text write: it puts the citation on `text/plain` AND the atom sidecar on
- * `dev.tug.prompt-atoms`, which is what makes a paste back into a Tug surface
+ * `dev.tugapp.prompt-atoms`, which is what makes a paste back into a Tug surface
  * re-materialize the live chip rather than a string ([D132]). It returns
  * `false` when the native bridge is absent (a browser-mode run), and the
  * plain-text write is the fallback — the same two-step `useCopyableText`

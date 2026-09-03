@@ -51,8 +51,8 @@
  *
  * ## Domain choice
  *
- * `dev.tugtool.test` is a smoke-only domain; it does NOT collide
- * with the production card-state domain (`dev.tugtool.deck.cardstate`).
+ * `dev.tugapp.test` is a smoke-only domain; it does NOT collide
+ * with the production card-state domain (`dev.tugapp.deck.cardstate`).
  *
  * @covers tests/app-test/_harness/
  * @covers tugapp/Sources/TestHarness/
@@ -105,7 +105,7 @@ describe.skipIf(!SHOULD_RUN)("cold-boot harness smoke", () => {
           await app.evalJS<void>(
             `(function () {
               var xhr = new XMLHttpRequest();
-              xhr.open('PUT', '/api/defaults/dev.tugtool.test/smoke-key', false);
+              xhr.open('PUT', '/api/defaults/dev.tugapp.test/smoke-key', false);
               xhr.setRequestHeader('Content-Type', 'application/json');
               xhr.send(JSON.stringify({ kind: 'string', value: ${JSON.stringify(SMOKE_VALUE)} }));
               if (xhr.status !== 200) {
@@ -123,7 +123,7 @@ describe.skipIf(!SHOULD_RUN)("cold-boot harness smoke", () => {
         // ── Disk-side read: assert the value is on tugbank disk. ──
         const onDisk = tugbankRead<string>(
           tugbankPath,
-          "dev.tugtool.test",
+          "dev.tugapp.test",
           "smoke-key",
         );
         expect(onDisk).not.toBeNull();
@@ -147,7 +147,7 @@ describe.skipIf(!SHOULD_RUN)("cold-boot harness smoke", () => {
             const live = await app.evalJS<string | null>(
               `(function () {
                 var xhr = new XMLHttpRequest();
-                xhr.open('GET', '/api/defaults/dev.tugtool.test/smoke-key', false);
+                xhr.open('GET', '/api/defaults/dev.tugapp.test/smoke-key', false);
                 xhr.send();
                 if (xhr.status === 404) return null;
                 if (xhr.status !== 200) {

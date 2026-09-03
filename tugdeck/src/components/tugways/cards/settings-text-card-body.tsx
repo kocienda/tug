@@ -8,7 +8,7 @@
  *
  * Self-contained: constructs its own `DefaultTextCardStore` at mount
  * and disposes it on unmount. The store reads/writes the **deck-wide**
- * `dev.tugtool.text-card` domain and observes `onDomainChanged`, so
+ * `dev.tugapp.text-card` domain and observes `onDomainChanged`, so
  * edits here propagate live to every open Text card that has not yet
  * pinned its own per-card values.
  *

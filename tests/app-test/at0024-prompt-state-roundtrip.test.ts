@@ -381,7 +381,7 @@ function assertBagOnDisk(
 ): void {
   const onDisk = tugbankRead<RawBag>(
     tugbankPath,
-    "dev.tugtool.deck.cardstate",
+    "dev.tugapp.deck.cardstate",
     "A",
   );
   expect(
@@ -477,7 +477,7 @@ async function reseedFromDisk(
 ): Promise<void> {
   const onDisk = tugbankRead<RawBag>(
     tugbankPath,
-    "dev.tugtool.deck.cardstate",
+    "dev.tugapp.deck.cardstate",
     "A",
   );
   expect(onDisk).not.toBeNull();

@@ -18,7 +18,7 @@
  *   B. **The atom sidecar rode along, typed `session`.** Read back off the
  *      SAME pasteboard through the two functions the editor's paste handler
  *      calls — `readClipboardViaNative` for the private
- *      `dev.tug.prompt-atoms` type, then `parseClipboardSidecar` to validate
+ *      `dev.tugapp.prompt-atoms` type, then `parseClipboardSidecar` to validate
  *      it. That is the entire Tug-to-Tug chain: JS write → NSPasteboard → JS
  *      read → the production validator. What comes back is exactly what a
  *      paste would insert, and its being typed `session` is what makes it
@@ -231,7 +231,7 @@ describe.skipIf(!SHOULD_RUN)("at0376 — the session atom on the clipboard", () 
         //
         // Read back off the SAME pasteboard through the two functions the
         // editor's paste handler calls — `readClipboardViaNative` (the private
-        // `dev.tug.prompt-atoms` type) and `parseClipboardSidecar`. That is the
+        // `dev.tugapp.prompt-atoms` type) and `parseClipboardSidecar`. That is the
         // whole Tug-to-Tug chain: JS write → NSPasteboard → JS read → the
         // production validator. What comes back is what a paste would insert.
         // The read is async (the native bridge calls back), and `evalJS`
@@ -325,7 +325,7 @@ describe.skipIf(!SHOULD_RUN)("at0376 — the session atom on the clipboard", () 
         // ---- D. And a DOM paste re-materializes the chip. ------------------
         //
         // The copy is written NATIVELY, to the Tug-private
-        // `dev.tug.prompt-atoms` pasteboard type, precisely because WebKit's
+        // `dev.tugapp.prompt-atoms` pasteboard type, precisely because WebKit's
         // pasteboard normalization swallows custom MIME types. The consequence
         // is that a DOM `paste` event's `clipboardData` cannot see it: the
         // handler's `getData(TUG_ATOMS_MIME)` branch comes back empty for a

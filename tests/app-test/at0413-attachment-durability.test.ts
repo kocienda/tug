@@ -241,7 +241,7 @@ describe.skipIf(!SHOULD_RUN)(
           // ── Disk assertion: a reference, and nothing that is an image ──
           const onDisk = tugbankRead<RawBag>(
             tugbankPath,
-            "dev.tugtool.deck.cardstate",
+            "dev.tugapp.deck.cardstate",
             "A",
           );
           expect(

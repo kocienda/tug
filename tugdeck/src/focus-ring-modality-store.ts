@@ -15,7 +15,7 @@
  * ring repaint is driven through the manager, which mutates the
  * `data-key-view-kbd` appearance attribute directly ([L06]/[L22]).
  *
- * Persistence rides tugbank defaults (`dev.tugtool.app` / `focusRingModality`),
+ * Persistence rides tugbank defaults (`dev.tugapp.app` / `focusRingModality`),
  * the same feed as the theme and keyboard-access mode; there is no
  * `localStorage`. Boot seeds the store from the DEFAULTS snapshot via
  * `initialize`; a live remote write arrives through the DEFAULTS push and is

@@ -36,7 +36,7 @@ import type { TranscriptSettings } from "@/settings-api";
 
 // ── Constants ───────────────────────────────────────────────────────────────
 
-const DOMAIN = "dev.tugtool.transcript";
+const DOMAIN = "dev.tugapp.transcript";
 const KEY = "settings";
 
 export const DEFAULT_TRANSCRIPT_SETTINGS: TranscriptSettings = {

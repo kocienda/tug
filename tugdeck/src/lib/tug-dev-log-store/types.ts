@@ -10,7 +10,7 @@
  * Conformance:
  *   - [L02] external store; React reads via `useSyncExternalStore`.
  *   - Filter state + cap persist via tugbank under
- *     `dev.tugtool.dev-panel/{logFilterLevels,logFilterSource,logMaxEntries}`.
+ *     `dev.tugapp.dev-panel/{logFilterLevels,logFilterSource,logMaxEntries}`.
  *     Free-text filter is in-memory only (not persisted) — see
  *     `TugDevLogFilters.text` below.
  *

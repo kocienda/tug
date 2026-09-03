@@ -971,7 +971,7 @@ mod tests {
     #[test]
     fn test_round_trip_defaults() {
         let payload =
-            br#"{"domains":{"dev.tugtool.deck.theme":{"generation":7,"entries":{"active-theme":{"kind":"string","value":"brio"}}}}}"#
+            br#"{"domains":{"dev.tugapp.deck.theme":{"generation":7,"entries":{"active-theme":{"kind":"string","value":"brio"}}}}}"#
                 .to_vec();
         let original = Frame::new(FeedId::DEFAULTS, payload);
         let encoded = original.encode();

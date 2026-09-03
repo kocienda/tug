@@ -11,7 +11,7 @@
  *
  * Two tugbank surfaces, mirroring the model default/per-card split:
  *
- *   - Deck-wide defaults at `dev.tugtool.text-card/settings` — edited in
+ *   - Deck-wide defaults at `dev.tugapp.text-card/settings` — edited in
  *     the Settings card's "Text Card" section.
  *   - Per-card values at `dev.text-card/<cardId>` — the card-local view
  *     settings the gear popup writes. Seeded from the defaults on first
@@ -60,7 +60,7 @@ export const TEXT_CARD_DOMAIN = "dev.text-card";
  * Settings card's "Text Card" section; distinct from the per-card domain
  * so changing the defaults never disturbs an open card.
  */
-export const TEXT_CARD_DEFAULTS_DOMAIN = "dev.tugtool.text-card";
+export const TEXT_CARD_DEFAULTS_DOMAIN = "dev.tugapp.text-card";
 export const TEXT_CARD_DEFAULTS_KEY = "settings";
 
 /**

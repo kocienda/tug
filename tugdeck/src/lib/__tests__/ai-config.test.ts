@@ -299,7 +299,7 @@ describe("parseAiConfigRow", () => {
   });
 
   test("the persistence coordinates are the deck-level ai-config record", () => {
-    expect(AI_CONFIG_DOMAIN).toBe("dev.tugtool.ai-config");
+    expect(AI_CONFIG_DOMAIN).toBe("dev.tugapp.ai-config");
     expect(AI_CONFIG_LAST_ROW_KEY).toBe("lastRow");
   });
 });

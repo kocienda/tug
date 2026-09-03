@@ -972,7 +972,7 @@ async fn test_defaults_layout_put_then_get() {
         .oneshot(
             Request::builder()
                 .method("PUT")
-                .uri("/api/defaults/dev.tugtool.deck.layout/layout")
+                .uri("/api/defaults/dev.tugapp.deck.layout/layout")
                 .header(header::CONTENT_TYPE, "application/json")
                 .body(Body::from(layout_body))
                 .unwrap(),
@@ -987,7 +987,7 @@ async fn test_defaults_layout_put_then_get() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri("/api/defaults/dev.tugtool.deck.layout/layout")
+                .uri("/api/defaults/dev.tugapp.deck.layout/layout")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -1013,7 +1013,7 @@ async fn test_defaults_theme_put_then_get() {
         .oneshot(
             Request::builder()
                 .method("PUT")
-                .uri("/api/defaults/dev.tugtool.app/theme")
+                .uri("/api/defaults/dev.tugapp.app/theme")
                 .header(header::CONTENT_TYPE, "application/json")
                 .body(Body::from(theme_body))
                 .unwrap(),
@@ -1028,7 +1028,7 @@ async fn test_defaults_theme_put_then_get() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri("/api/defaults/dev.tugtool.app/theme")
+                .uri("/api/defaults/dev.tugapp.app/theme")
                 .body(Body::empty())
                 .unwrap(),
         )

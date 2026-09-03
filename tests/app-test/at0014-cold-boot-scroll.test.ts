@@ -183,7 +183,7 @@ describe.skipIf(!SHOULD_RUN)("m14: scroll cold-boot across full process restart"
           regionScroll?: Record<string, { x: number; y: number }> | null;
         }>(
           tugbankPath,
-          "dev.tugtool.deck.cardstate",
+          "dev.tugapp.deck.cardstate",
           CARD_ID,
         );
         expect(onDisk).not.toBeNull();

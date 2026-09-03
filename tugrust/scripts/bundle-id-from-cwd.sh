@@ -3,10 +3,10 @@
 # Tug build identity, applying the same [D10] / [D19] mapping that
 # `assign-bundle-id.sh` uses at xcodebuild time:
 #
-#   (release, main)       → dev.tugtool.app
-#   (debug, main)         → dev.tugtool.app.debug
-#   (debug, <other>)      → dev.tugtool.app.debug-<slug>
-#   (release, <other>)    → dev.tugtool.app.release-<slug>
+#   (release, main)       → dev.tugapp.app
+#   (debug, main)         → dev.tugapp.app.debug
+#   (debug, <other>)      → dev.tugapp.app.debug-<slug>
+#   (release, <other>)    → dev.tugapp.app.release-<slug>
 #
 # Usage:
 #   bundle-id-from-cwd.sh <profile>   # debug | release
@@ -41,14 +41,14 @@ fi
 
 case "${PROFILE}-${BRANCH}" in
     release-main)
-        echo "dev.tugtool.app"
+        echo "dev.tugapp.app"
         ;;
     debug-main)
-        echo "dev.tugtool.app.debug"
+        echo "dev.tugapp.app.debug"
         ;;
     *)
         REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
         SLUG="$(bash "$REPO_ROOT/tugrust/scripts/branch-slug.sh" "$BRANCH")"
-        echo "dev.tugtool.app.${PROFILE}-${SLUG}"
+        echo "dev.tugapp.app.${PROFILE}-${SLUG}"
         ;;
 esac

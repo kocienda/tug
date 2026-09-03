@@ -9,7 +9,7 @@
  * DOM as `data-keyboard-access` on the document root for CSS ([L06]/[L24]) --
  * applied on first paint like the theme, never a flash of the wrong mode.
  *
- * Persistence rides tugbank defaults (`dev.tugtool.app` / `keyboardAccess`), the
+ * Persistence rides tugbank defaults (`dev.tugapp.app` / `keyboardAccess`), the
  * same feed as the theme; there is no `localStorage`. Boot seeds the store from
  * the DEFAULTS snapshot via `initialize`; a live remote write arrives through
  * the DEFAULTS push and is applied with `setMode(..., { persist: false })` to

@@ -148,7 +148,7 @@ An app-test launch, a live interactive instance (`just app-debug`, `just app-rel
 
 | Resource | Keyed on | Where |
 |---|---|---|
-| App bundle / product name | `TUG_FORCE_BUNDLE_ID` (app-test always `dev.tugtool.app.apptest` → `Tug-apptest.app`) — deliberately the SAME for every worktree, so the one AX grant (keyed on the path-independent designated requirement) covers them all | `product-name-from-cwd.sh`, `bundle-id-from-cwd.sh` |
+| App bundle / product name | `TUG_FORCE_BUNDLE_ID` (app-test always `dev.tugapp.app.apptest` → `Tug-apptest.app`) — deliberately the SAME for every worktree, so the one AX grant (keyed on the path-independent designated requirement) covers them all | `product-name-from-cwd.sh`, `bundle-id-from-cwd.sh` |
 | Xcode build output (DerivedData) | per-variant `-derivedDataPath` keyed on `PRODUCT_NAME`, **plus the worktree slug for forced-identity builds** (`Tug-apptest-<wtslug>`) — Xcode's *default* DerivedData is shared per-project, so without this, building the app-test bundle would overwrite a live `app-debug` bundle's `.app`, and without the slug one worktree's build/re-sign would clobber the bundle another worktree's run is executing | `derived-data-path.sh` |
 | Data dir / tugbank.db / sessions.db / Logs | full `TUG_INSTANCE_ID` | `tugcore::instance` |
 | tugbank notify socket, app↔tugcast control socket | **short token** `fnv1a32(id)` (8 hex) — long IDs would overflow `sun_path` (~104 B) | `tugcore::instance::short_token`, `InstanceConfig.shortToken` |

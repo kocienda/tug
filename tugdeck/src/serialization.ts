@@ -84,8 +84,7 @@ function parseAcceptsFamilies(raw: unknown): readonly string[] {
  * taking any pane it was alone in with it — so a rename without an entry here
  * silently deletes the card from a layout somebody arranged.
  *
- * The Session card shipped as componentId `"dev"`; the Overview card shipped
- * as `"gazette"` before the channel was renamed. Both are rewritten to the
+ * The Session card shipped as componentId `"dev"`, and is rewritten to the
  * kind that is registered now.
  *
  * This table only grows. Unlike a data migration it has no end condition: a
@@ -94,7 +93,6 @@ function parseAcceptsFamilies(raw: unknown): readonly string[] {
  */
 const RENAMED_COMPONENT_IDS: Readonly<Record<string, string>> = {
   dev: "session",
-  gazette: "overview",
 };
 
 function migrateComponentId(componentId: string): string {

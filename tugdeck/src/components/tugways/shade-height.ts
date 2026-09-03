@@ -12,7 +12,7 @@
 import { getTugbankClient } from "@/lib/tugbank-singleton";
 
 /** Tugbank domain holding persisted shade height fractions, keyed by `persistKey`. */
-export const SHADE_HEIGHT_DOMAIN = "dev.tugtool.dev.shade-height";
+export const SHADE_HEIGHT_DOMAIN = "dev.tugapp.dev.shade-height";
 
 /** Default height fraction when no persisted value exists. */
 export const DEFAULT_SHADE_FRAC = 0.58;

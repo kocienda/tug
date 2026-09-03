@@ -13,7 +13,7 @@
  * | Flavor                    | Payload                                    |
  * |---------------------------|--------------------------------------------|
  * | `text/plain`              | the citation, `<project>/<tag> (<shortId>)` |
- * | `dev.tug.prompt-atoms`    | a one-atom sidecar with a `session` segment |
+ * | `dev.tugapp.prompt-atoms`    | a one-atom sidecar with a `session` segment |
  * | wire marker (at submit)   | `` `@<project>/<tag>` ``                    |
  *
  * The `text/plain` flavor is the CITATION rather than the bare callsign,
@@ -55,7 +55,7 @@ export function sessionAtomSegment(identity: SessionIdentity): AtomSegment {
 }
 
 /**
- * The `dev.tug.prompt-atoms` sidecar for a single session atom: one atom at
+ * The `dev.tugapp.prompt-atoms` sidecar for a single session atom: one atom at
  * position 0 of a one-character text (the object-replacement char the editor
  * places an atom at). Exactly the shape `parseClipboardSidecar` reads, which
  * is why a paste into any Tug editor re-materializes the chip with no

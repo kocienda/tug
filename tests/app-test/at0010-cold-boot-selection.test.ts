@@ -257,7 +257,7 @@ describe.skipIf(!SHOULD_RUN)("m10: selection cold-boot across full process resta
           } | null;
         }>(
           tugbankPath,
-          "dev.tugtool.deck.cardstate",
+          "dev.tugapp.deck.cardstate",
           CARD_ID,
         );
         expect(onDisk).not.toBeNull();

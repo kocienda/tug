@@ -81,10 +81,10 @@ REPO_ROOT_REAL="$(cd "$TUGAPP_DIR/.." && pwd)"
 BRANCH_SLUG="$(bash "$REPO_ROOT/tugrust/scripts/branch-slug.sh" "$GIT_BRANCH")"
 case "debug-$GIT_BRANCH" in
     debug-main)
-        EXPECTED_BUNDLE_ID="dev.tugtool.app.debug"
+        EXPECTED_BUNDLE_ID="dev.tugapp.app.debug"
         ;;
     *)
-        EXPECTED_BUNDLE_ID="dev.tugtool.app.debug-$BRANCH_SLUG"
+        EXPECTED_BUNDLE_ID="dev.tugapp.app.debug-$BRANCH_SLUG"
         ;;
 esac
 
@@ -114,7 +114,7 @@ echo "==> expected BuildInfo.instanceId for a Swift consumer: $EXPECTED_INSTANCE
 # Codesign DR drift check. When the bundle is signed with a real
 # identity (Developer ID Application — lands in Step 3), the DR is a
 # structured requirement expression of the form:
-#     identifier "dev.tugtool.app.debug" and anchor apple generic and ...
+#     identifier "dev.tugapp.app.debug" and anchor apple generic and ...
 # and we can assert the identifier matches CFBundleIdentifier.
 #
 # Pre-Step-3, the build uses ad-hoc signing whose DR is just

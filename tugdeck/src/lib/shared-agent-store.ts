@@ -28,7 +28,7 @@ import { getConnectionLifecycle } from "./connection-lifecycle";
  * Tugbank domain for the shared agents. Mirrors `SHARED_AGENT_DOMAIN` in
  * `tugrust/crates/tugcast/src/shared_agent.rs`.
  */
-export const SHARED_AGENT_DOMAIN = "dev.tugtool.shared-agent";
+export const SHARED_AGENT_DOMAIN = "dev.tugapp.shared-agent";
 
 /** Per-tenant kill switch for shell arbitration. Deck-only; no Rust reader. */
 export const SHELL_ROUTING_KEY = "shell-routing";

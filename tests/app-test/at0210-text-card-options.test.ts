@@ -108,7 +108,7 @@ async function seedTextCard(app: App, filePath: string): Promise<void> {
   // opt into automatic before the card mounts (populates the same client
   // cache `readSaveMode` reads).
   await app.evalJS<null>(
-    `(window.__tug.setTugbankValue("dev.tugtool.text-card","save-mode",{kind:"string",value:"automatic"}), null)`,
+    `(window.__tug.setTugbankValue("dev.tugapp.text-card","save-mode",{kind:"string",value:"automatic"}), null)`,
   );
   await app.seedDeckState({
     state: {

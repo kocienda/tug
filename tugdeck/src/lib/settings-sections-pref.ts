@@ -12,7 +12,7 @@
  * this domain; nothing reads it anymore.)
  *
  * Persisted deck-wide through tugbank defaults
- * (`/api/defaults/dev.tugtool.settings-card/selectedSection`, [D07],
+ * (`/api/defaults/dev.tugapp.settings-card/selectedSection`, [D07],
  * `feedback_no_localstorage`), not per card: there is at most one Settings
  * card, and where a reader left it is about the reader.
  *
@@ -34,7 +34,7 @@ export type SettingsSectionId =
   | "textCard"
   | "viewerCard";
 
-export const SETTINGS_SECTIONS_DOMAIN = "dev.tugtool.settings-card";
+export const SETTINGS_SECTIONS_DOMAIN = "dev.tugapp.settings-card";
 export const SETTINGS_SELECTED_KEY = "selectedSection";
 
 /** Every section, in the order the card presents them. */

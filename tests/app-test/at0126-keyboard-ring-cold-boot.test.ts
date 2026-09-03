@@ -147,7 +147,7 @@ describe.skipIf(!SHOULD_RUN)("AT0126: keyboard ring survives cold boot", () => {
           // ── Phase A assertion: bag.focus on disk carries the ring. ──
           const onDisk = tugbankRead<FocusBag>(
             tugbankPath,
-            "dev.tugtool.deck.cardstate",
+            "dev.tugapp.deck.cardstate",
             CARD_ID,
           );
           expect(onDisk).not.toBeNull();

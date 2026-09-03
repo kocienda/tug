@@ -81,7 +81,7 @@ export const CLAUDE_CODE_CHANGELOG_URL =
  * `system_metadata` lands, so a version number shows immediately; the
  * mixer sheet's footer version line reads the same slot.
  */
-export const CC_VERSION_DOMAIN = "dev.tugtool.dev";
+export const CC_VERSION_DOMAIN = "dev.tugapp.dev";
 export const CC_VERSION_KEY = "ccVersion";
 
 /** Read the persisted last-known version from its tugbank tagged value. */

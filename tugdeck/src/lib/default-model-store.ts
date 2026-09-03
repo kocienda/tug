@@ -5,7 +5,7 @@
  * Unlike the per-card model (`use-model.ts`), this is a single deck-wide value:
  * the model a brand-new card adopts on mount when it has nothing persisted of
  * its own. It carries no CSS/DOM side effects — it just reads and writes one
- * tugbank string at `dev.tugtool.model/default`. Mirrors
+ * tugbank string at `dev.tugapp.model/default`. Mirrors
  * `default-permission-mode-store.ts`.
  *
  * Writes go through `client.setLocalValue` (optimistic, and — crucially —

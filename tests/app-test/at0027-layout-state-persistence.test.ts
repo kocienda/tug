@@ -240,7 +240,7 @@ function readDiskValue(
 ): AccordionPersist["value"] | undefined {
   const onDisk = tugbankRead<DiskBag>(
     tugbankPath,
-    "dev.tugtool.deck.cardstate",
+    "dev.tugapp.deck.cardstate",
     "A",
   );
   if (!onDisk) return undefined;
@@ -251,7 +251,7 @@ function readDiskValue(
 async function reseedFromDisk(app: App, tugbankPath: string): Promise<void> {
   const onDisk = tugbankRead<unknown>(
     tugbankPath,
-    "dev.tugtool.deck.cardstate",
+    "dev.tugapp.deck.cardstate",
     "A",
   );
   expect(onDisk).not.toBeNull();

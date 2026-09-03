@@ -5,7 +5,7 @@
  * The rows are fed by `cardSessionBindingStore` in bind order; the ROW ITSELF
  * is the handle — there is no grip — and a vertical drag from its own surface
  * drives the shared `useBlockReorder` FLIP, whose drop commits a persisted user
- * order (`dev.tugtool.cards/cardsRowOrder.sessions`) that the Cards projection
+ * order (`dev.tugapp.cards/cardsRowOrder.sessions`) that the Cards projection
  * applies. Sessions absent from that order sort to the bottom, so a session
  * bound AFTER a reorder never disturbs the arrangement.
  *
@@ -168,7 +168,7 @@ describe.skipIf(!SHOULD_RUN)("at0257 — Cards Sessions reorder + bottom-append"
           // sessions group holds exactly what the old `sessionOrder` key did.
           const persisted = tugbankRead<Record<string, string[]>>(
             tugbankPath,
-            "dev.tugtool.cards",
+            "dev.tugapp.cards",
             "cardsRowOrder",
           );
           const order = persisted?.value?.sessions ?? [];

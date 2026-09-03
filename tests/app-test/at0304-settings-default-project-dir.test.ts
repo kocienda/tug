@@ -8,7 +8,7 @@
  *   Settings… (⌘,) menu item sends. Select the leading "General" tab, type a
  *   temp directory into the Default Project Directory field, and move focus
  *   off the field. Verify the value reached tugbank by reading it back over
- *   `GET /api/defaults/dev.tugtool.app/default-project-path` — the same HTTP
+ *   `GET /api/defaults/dev.tugapp.app/default-project-path` — the same HTTP
  *   surface the field's PUT went through, so the assertion covers the real
  *   write path rather than in-process store state.
  *
@@ -90,7 +90,7 @@ describe.skipIf(!SHOULD_RUN)(
         await app.evalJS(`(() => {
           window.__at0304 = undefined;
           const poll = () => {
-            fetch("/api/defaults/dev.tugtool.app/default-project-path")
+            fetch("/api/defaults/dev.tugapp.app/default-project-path")
               .then((r) => (r.ok ? r.json() : { kind: "error", value: r.status }))
               .then((j) => {
                 if (j.kind === "string") { window.__at0304 = j; return; }

@@ -104,7 +104,7 @@ import { animate as tugAnimate } from "./tug-animator";
 
 // ---- Persistence ----
 
-const SPLIT_PANE_DOMAIN = "dev.tugtool.tugways.split-pane";
+const SPLIT_PANE_DOMAIN = "dev.tugapp.tugways.split-pane";
 
 function subscribeSplitPaneDomain(notify: () => void): () => void {
   const client = getTugbankClient();
@@ -250,7 +250,7 @@ export interface TugSplitPaneProps
   showHandle?: boolean;
   /**
    * Persist the sash layout across reloads under this key in tugbank
-   * (domain: `dev.tugtool.tugways.split-pane`). When set, the layout is
+   * (domain: `dev.tugapp.tugways.split-pane`). When set, the layout is
    * read on mount via `defaultLayout` and re-saved on layout changes
    * that originate from user drags (not consumer imperative writes).
    *

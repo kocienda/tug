@@ -119,7 +119,7 @@ function deckShape() {
 
 async function openDeck(app: App): Promise<void> {
   await app.evalJS<null>(
-    `(window.__tug.setTugbankValue("dev.tugtool.cards", "widthPx", { kind: "i64", value: ${CARDS_WIDTH} }), null)`,
+    `(window.__tug.setTugbankValue("dev.tugapp.cards", "widthPx", { kind: "i64", value: ${CARDS_WIDTH} }), null)`,
   );
   // The window width is a PERSISTED preference, deck-wide and machine-global,
   // which is exactly what it is meant to be — and exactly why it has to be
@@ -128,7 +128,7 @@ async function openDeck(app: App): Promise<void> {
   // once and fail forever after on a claim about the deck rather than about
   // itself.
   await app.evalJS<null>(
-    `(window.__tug.setTugbankValue("dev.tugtool.slot-window", "slotWindow", { kind: "i64", value: 3 }), null)`,
+    `(window.__tug.setTugbankValue("dev.tugapp.slot-window", "slotWindow", { kind: "i64", value: 3 }), null)`,
   );
   await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
   await app.waitForCondition<boolean>(
@@ -409,7 +409,7 @@ describe.skipIf(!SHOULD_RUN)("at0470 — the Cards row's slot window", () => {
         // so a file that widens it and walks away sets the starting width for
         // every other test that renders a Cards row.
         await app.evalJS<null>(
-          `(window.__tug.setTugbankValue("dev.tugtool.slot-window", "slotWindow", { kind: "i64", value: 3 }), null)`,
+          `(window.__tug.setTugbankValue("dev.tugapp.slot-window", "slotWindow", { kind: "i64", value: 3 }), null)`,
         );
       } finally {
         await app.close();

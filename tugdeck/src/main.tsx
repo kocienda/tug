@@ -400,7 +400,7 @@ if (!container) {
     };
   }
   // Extract card IDs from the loaded layout and read per-card state bags
-  // from the tugbank cache (`dev.tugtool.deck.cardstate`).
+  // from the tugbank cache (`dev.tugapp.deck.cardstate`).
   let cardStates = new Map<string, import("./layout-tree").CardStateBag>();
   if (layout !== null) {
     try {
@@ -647,7 +647,7 @@ if (!container) {
   let currentTheme = initialTheme;
   tugbankClient.onDomainChanged((domain, entries) => {
     // Keymap overrides written from another process (a second window, or
-    // `tugbank write … dev.tugtool.keymap`). The keymap registry republishes
+    // `tugbank write … dev.tugapp.keymap`). The keymap registry republishes
     // the menu-state block on any binding change, so the native key
     // equivalents follow without a second channel — the same shape the stack
     // chord already uses.
@@ -655,7 +655,7 @@ if (!container) {
       keymapOverrideStore.applyRemote(entries);
       return;
     }
-    if (domain === "dev.tugtool.app") {
+    if (domain === "dev.tugapp.app") {
       const themeEntry = entries["theme"];
       if (themeEntry && themeEntry.kind === "string" && typeof themeEntry.value === "string") {
         if (themeEntry.value !== currentTheme) {

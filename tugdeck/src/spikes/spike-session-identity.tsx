@@ -1133,7 +1133,7 @@ export function SpikeSessionIdentity(): React.ReactElement {
           {(
             [
               [
-                "dev.tug.prompt-atoms",
+                "dev.tugapp.prompt-atoms",
                 "the Tug-private sidecar (one session segment; whether it should also carry the short id is open)",
                 `{"version":1,"text":"￼","atoms":[{"position":0,"segment":{"kind":"atom","type":"session","label":"${LIVE.project}/${LIVE.tag}","value":"${LIVE.project}/${LIVE.tag}"}}]}`,
                 "Paste into a Tug composer, a Jot, a Overview reply → the live atom re-materializes.",

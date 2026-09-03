@@ -194,7 +194,7 @@ async function takeCuts(app: App): Promise<CutRecord[]> {
 /** Seed the rail's durable chosen width so the allocator is not in the picture. */
 async function seedRailPreferred(app: App): Promise<void> {
   await app.evalJS<null>(
-    `(window.__tug.setTugbankValue("dev.tugtool.layout", "widthPx", { kind: "i64", value: ${RAIL_WIDTH} }), null)`,
+    `(window.__tug.setTugbankValue("dev.tugapp.layout", "widthPx", { kind: "i64", value: ${RAIL_WIDTH} }), null)`,
   );
 }
 

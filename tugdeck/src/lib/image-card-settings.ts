@@ -11,7 +11,7 @@
  *
  * Two tugbank surfaces, the same default/per-card split the Text card uses:
  *
- *   - Deck-wide defaults at `dev.tugtool.image-card/settings` — edited in the
+ *   - Deck-wide defaults at `dev.tugapp.image-card/settings` — edited in the
  *     Settings card's "Viewer Cards" section.
  *   - Per-card values at `dev.image-card/<cardId>` — what the card's own gear
  *     writes. Resolved live from the defaults until the first change, then
@@ -70,7 +70,7 @@ export interface ImageCardSettings {
 export const IMAGE_CARD_DOMAIN = "dev.image-card";
 
 /** tugbank domain/key for the deck-wide image defaults. */
-export const IMAGE_CARD_DEFAULTS_DOMAIN = "dev.tugtool.image-card";
+export const IMAGE_CARD_DEFAULTS_DOMAIN = "dev.tugapp.image-card";
 export const IMAGE_CARD_DEFAULTS_KEY = "settings";
 
 /** The view settings an image uses when nothing else is configured. */

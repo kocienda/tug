@@ -165,7 +165,7 @@ const wait = (ms: number): Promise<void> =>
 /** Seed the user's preferred rail width, the number the flex range centres on. */
 async function seedPreferredWidth(app: App, widthPx: number): Promise<void> {
   await app.evalJS<null>(
-    `(window.__tug.setTugbankValue("dev.tugtool.layout", "widthPx", { kind: "i64", value: ${widthPx} }), null)`,
+    `(window.__tug.setTugbankValue("dev.tugapp.layout", "widthPx", { kind: "i64", value: ${widthPx} }), null)`,
   );
 }
 
@@ -570,7 +570,7 @@ describe.skipIf(!SHOULD_RUN)(
           // the Overview at its ch-derived width, the Layout card at 420.
           await seedPreferredWidth(app, PREFERRED);
           await app.evalJS<null>(
-            `(window.__tug.setTugbankValue("dev.tugtool.overview", "widthPx", { kind: "i64", value: ${DEFAULT_OVERVIEW_WIDTH_PX} }), null)`,
+            `(window.__tug.setTugbankValue("dev.tugapp.overview", "widthPx", { kind: "i64", value: ${DEFAULT_OVERVIEW_WIDTH_PX} }), null)`,
           );
           await seedFixture(app, 400, PREFERRED);
 
@@ -647,7 +647,7 @@ describe.skipIf(!SHOULD_RUN)(
         try {
           await seedPreferredWidth(app, PREFERRED);
           await app.evalJS<null>(
-            `(window.__tug.setTugbankValue("dev.tugtool.overview", "widthPx", { kind: "i64", value: ${DEFAULT_OVERVIEW_WIDTH_PX} }), null)`,
+            `(window.__tug.setTugbankValue("dev.tugapp.overview", "widthPx", { kind: "i64", value: ${DEFAULT_OVERVIEW_WIDTH_PX} }), null)`,
           );
           await seedFixture(app, 400, PREFERRED);
 
@@ -719,7 +719,7 @@ describe.skipIf(!SHOULD_RUN)(
         try {
           await seedPreferredWidth(app, PREFERRED);
           await app.evalJS<null>(
-            `(window.__tug.setTugbankValue("dev.tugtool.overview", "widthPx", { kind: "i64", value: ${DEFAULT_OVERVIEW_WIDTH_PX} }), null)`,
+            `(window.__tug.setTugbankValue("dev.tugapp.overview", "widthPx", { kind: "i64", value: ${DEFAULT_OVERVIEW_WIDTH_PX} }), null)`,
           );
           await seedFixture(app, 400, PREFERRED);
           await seedTwoRails(app, 400, "three-up");

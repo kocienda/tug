@@ -24,7 +24,7 @@
  * The snapshot is memoized: `getSnapshot` returns a cached object, rebuilt
  * only when a composed source actually changed — `useSyncExternalStore`
  * requires that reference stability, or the chips would re-render every read.
- * The catalog is re-read only on a `dev.tugtool.models` domain change, and an
+ * The catalog is re-read only on a `dev.tugapp.models` domain change, and an
  * equal-content re-read keeps the prior array reference.
  *
  * The adapter owns the three default stores (it constructs them) and exposes

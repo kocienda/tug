@@ -7,7 +7,7 @@ set -euo pipefail
 #   ./build-app.sh [--nightly] [--skip-sign] [--skip-notarize]
 #
 # Flags:
-#   --nightly        Build nightly variant with dev.tugtool.nightly bundle ID
+#   --nightly        Build nightly variant with dev.tugapp.nightly bundle ID
 #   --skip-sign      Skip code signing (for local builds without credentials)
 #   --skip-notarize  Skip notarization (for local builds without credentials)
 #   --help           Show this help message
@@ -45,12 +45,12 @@ done
 
 # Determine build configuration
 if [ "$NIGHTLY" = true ]; then
-    BUNDLE_ID="dev.tugtool.nightly"
+    BUNDLE_ID="dev.tugapp.nightly"
     APP_NAME="Tug Nightly"
     ICON_NAME="NightlyAppIcon"
     DMG_NAME="TugNightly.dmg"
 else
-    BUNDLE_ID="dev.tugtool.app"
+    BUNDLE_ID="dev.tugapp.app"
     APP_NAME="Tug"
     ICON_NAME="AppIcon"
     DMG_NAME="Tug.dmg"

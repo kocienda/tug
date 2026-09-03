@@ -102,7 +102,7 @@ function deckShape(): Record<string, unknown> {
 /** Open the deck with the Layouts plan on screen. */
 async function openDeck(app: App, layout?: "flow"): Promise<void> {
   await app.evalJS<null>(
-    `(window.__tug.setTugbankValue("dev.tugtool.layout", "widthPx", { kind: "i64", value: ${RAIL_WIDTH} }), null)`,
+    `(window.__tug.setTugbankValue("dev.tugapp.layout", "widthPx", { kind: "i64", value: ${RAIL_WIDTH} }), null)`,
   );
   const state = deckShape();
   if (layout === "flow") {

@@ -312,7 +312,7 @@ describe.skipIf(!SHOULD_RUN)(
         );
         tugbankWrite(
           tugbankPath,
-          "dev.tugtool.dev",
+          "dev.tugapp.dev",
           "recent-projects",
           "json",
           JSON.stringify({ paths: [seeded.projectDir] }),

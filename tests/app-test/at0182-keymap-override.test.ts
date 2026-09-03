@@ -37,7 +37,7 @@ import { launchTugApp, type App } from "./_harness";
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
 
-const KEYMAP_DOMAIN = "dev.tugtool.keymap";
+const KEYMAP_DOMAIN = "dev.tugapp.keymap";
 /** `NSEvent.ModifierFlags` raw values, so an expectation reads as a chord. */
 const CONTROL = 1 << 18;
 const OPTION = 1 << 19;

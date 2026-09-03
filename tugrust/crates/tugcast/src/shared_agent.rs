@@ -1166,7 +1166,7 @@ pub fn request_classification(
 
 /// Tugbank domain for the shared agents. Mirrored in
 /// `tugdeck/src/lib/shared-agent-store.ts`.
-pub const SHARED_AGENT_DOMAIN: &str = "dev.tugtool.shared-agent";
+pub const SHARED_AGENT_DOMAIN: &str = "dev.tugapp.shared-agent";
 
 /// Per-tenant kill switch for the session description.
 ///

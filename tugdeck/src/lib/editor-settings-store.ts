@@ -26,7 +26,7 @@ import { editorLineHeightFor, setAtomFont } from "./tug-atom-img";
 
 // ── Constants ───────────────────────────────────────────────────────────────
 
-const DOMAIN = "dev.tugtool.editor";
+const DOMAIN = "dev.tugapp.editor";
 const KEY = "settings";
 
 /**

@@ -18,7 +18,7 @@ enum TugConfig {
     // MARK: - Tugbank keys
 
     /// Tugbank domain for app preferences.
-    static let domain = "dev.tugtool.app"
+    static let domain = "dev.tugapp.app"
 
     static let keySourceTreePath = "source-tree-path"
     static let keyWindowBackground = "window-background"

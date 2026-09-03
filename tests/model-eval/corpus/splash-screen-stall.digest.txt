@@ -12,10 +12,10 @@ What the session set out to do at the start (context, not the subject):
 - `just app-debug` stalls at the splash screen. Diagnose and fix.
 
 Where it stands right now (background, not the subject):
-- Bash(rm -rf ~/Library/Caches/dev.tugtool.app.debug/WebKit; cd /Us)
-- Bash(tugtool file rm -r "$HOME/Library/Caches/dev.tugtool.app.deb)
+- Bash(rm -rf ~/Library/Caches/dev.tugapp.app.debug/WebKit; cd /Us)
+- Bash(tugtool file rm -r "$HOME/Library/Caches/dev.tugapp.app.deb)
 - Bash(tugtool file rm --help 2>&1 | head -20)
-- Bash(tugtool file rm "$HOME/Library/Caches/dev.tugtool.app.debug/)
+- Bash(tugtool file rm "$HOME/Library/Caches/dev.tugapp.app.debug/)
 - Bash(cd /Users/kocienda/Mounts/u/src/tugtool
 - Bash(cd /Users/kocienda/Mounts/u/src/tugtool/tugdeck
 - Bash(cd /Users/kocienda/Mounts/u/src/tugtool && git status --shor)

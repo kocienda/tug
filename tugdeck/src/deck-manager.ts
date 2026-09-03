@@ -3984,7 +3984,7 @@ export class DeckManager implements IDeckManagerStore {
   /**
    * Write all dirty per-card state bags to tugbank and clear the dirty set.
    *
-   * Persists under `dev.tugtool.deck.cardstate/{cardId}`. `putCardState` uses
+   * Persists under `dev.tugapp.deck.cardstate/{cardId}`. `putCardState` uses
    * the card id, which is numerically identical to the former tab id from the one-table model.
    */
   /**

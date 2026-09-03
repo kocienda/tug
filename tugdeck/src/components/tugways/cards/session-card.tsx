@@ -1315,7 +1315,7 @@ interface SessionRecord {
 }
 
 /**
- * Pure parser for the `dev.tugtool.dev / recent-projects` tagged-value
+ * Pure parser for the `dev.tugapp.dev / recent-projects` tagged-value
  * entry. Mirrors `readSessionRecentProjects` in shape — split out so the
  * picker can subscribe to live updates via `useTugbankValue` instead of
  * reading once into `useState` (an L02 violation when external state
@@ -1332,7 +1332,7 @@ function parseRecents(entry: TaggedValue | undefined): string[] {
 
 /**
  * Parse a tugbank string value. The Swift host writes
- * `dev.tugtool.app/initial-project-path` as `{ kind: "string" }` via
+ * `dev.tugapp.app/initial-project-path` as `{ kind: "string" }` via
  * `TugbankClient.setString` — empty string when the key is missing
  * or shaped unexpectedly.
  */
@@ -1571,7 +1571,7 @@ function SessionProjectPickerForm({
   // ride on tugbank; sessions flow through the tugcast-side
   // `SessionLedgerStore` keyed on the user-typed path.
   const recents = useTugbankValue(
-    "dev.tugtool.dev",
+    "dev.tugapp.dev",
     "recent-projects",
     parseRecents,
     EMPTY_STRING_ARRAY as string[],
@@ -1612,7 +1612,7 @@ function SessionProjectPickerForm({
   // Used to seed the input when the user has no Recent Project Paths
   // yet so first launch isn't a dead-end.
   const initialProjectPath = useTugbankValue(
-    "dev.tugtool.app",
+    "dev.tugapp.app",
     "initial-project-path",
     parseString,
     "",
@@ -1900,7 +1900,7 @@ function SessionProjectPickerForm({
     (path: string): void => {
       const next = recents.filter((p) => p !== path);
       const client = getTugbankClient();
-      client?.setLocalValue("dev.tugtool.dev", "recent-projects", {
+      client?.setLocalValue("dev.tugapp.dev", "recent-projects", {
         kind: "json",
         value: { paths: next },
       });

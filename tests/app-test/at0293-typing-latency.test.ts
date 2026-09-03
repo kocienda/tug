@@ -160,7 +160,7 @@ describe.skipIf(!SHOULD_RUN)("at0293: typing latency", () => {
       );
       tugbankWrite(
         tugbankPath,
-        "dev.tugtool.dev",
+        "dev.tugapp.dev",
         "recent-projects",
         "json",
         JSON.stringify({ paths: [seeded.projectDir] }),

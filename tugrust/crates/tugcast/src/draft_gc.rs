@@ -10,12 +10,12 @@
 //!
 //! Three producers write references to these files:
 //!
-//!   - `dev.tugtool.deck.cardstate` — the prompt entry's `attachmentBytes`
+//!   - `dev.tugapp.deck.cardstate` — the prompt entry's `attachmentBytes`
 //!     entries, each carrying the stored path.
 //!   - `prompt_history.db` — the same path on a submitted prompt's image atoms
 //!     ([`crate::prompt_ledger`]). An unreadable ledger skips the sweep, on the
 //!     same grounds an unreadable root domain does.
-//!   - `dev.tugtool.prompt.history` — where the prompt-history references used
+//!   - `dev.tugapp.prompt.history` — where the prompt-history references used
 //!     to live. Read for as long as an instance somewhere may not yet have run
 //!     the import that empties it.
 //!

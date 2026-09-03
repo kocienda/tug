@@ -66,7 +66,7 @@ describe.skipIf(!SHOULD_RUN)("at0190: scrolled-up transcript restores pixel-perf
       const seeded = await seedFixtureSession("session-transcript-basic", "at0190");
       tugbankWrite(
         tugbankPath,
-        "dev.tugtool.dev",
+        "dev.tugapp.dev",
         "recent-projects",
         "json",
         JSON.stringify({ paths: [seeded.projectDir] }),
@@ -120,7 +120,7 @@ describe.skipIf(!SHOULD_RUN)("at0190: scrolled-up transcript restores pixel-perf
         // ── Phase A assertion: bag carries an anchor, not atBottom. ──
         const onDisk = tugbankRead<CardBag>(
           tugbankPath,
-          "dev.tugtool.deck.cardstate",
+          "dev.tugapp.deck.cardstate",
           CARD_ID,
         );
         expect(onDisk).not.toBeNull();

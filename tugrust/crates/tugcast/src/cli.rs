@@ -149,7 +149,7 @@ pub struct OperatorAskArgs {
     pub refs: Vec<String>,
 }
 
-/// Flags for `tugcast overview-replay`. Each one overrides a `dev.tugtool.overview`
+/// Flags for `tugcast overview-replay`. Each one overrides a `dev.tugapp.overview`
 /// default for the length of the run without writing to tugbank, so a sweep
 /// never disturbs a live instance's settings.
 #[derive(Args, Debug)]

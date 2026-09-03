@@ -16,7 +16,7 @@
  *
  *  - the ledger returns every prompt for that session, in submit order;
  *  - Up-arrow in a fresh composer recalls the newest of them;
- *  - `dev.tugtool.prompt.history` holds nothing for the session — the domain is
+ *  - `dev.tugapp.prompt.history` holds nothing for the session — the domain is
  *    retired and the startup migration is what emptied it.
  *
  * Count fidelity is the assertion, not paging UI: a page boundary is exercised
@@ -222,7 +222,7 @@ describe.skipIf(!SHOULD_RUN)("at0437 — the prompt corpus survives relaunch, un
         const domainState = await second.evalJS<string>(
           `(function(){
             window.__at0437Domain = "pending";
-            fetch("/api/defaults/dev.tugtool.prompt.history/" + encodeURIComponent(${JSON.stringify(sessionId)}),
+            fetch("/api/defaults/dev.tugapp.prompt.history/" + encodeURIComponent(${JSON.stringify(sessionId)}),
                   { cache: "no-store" })
               .then(function(r){
                 if (r.status === 404) { window.__at0437Domain = "absent"; return null; }

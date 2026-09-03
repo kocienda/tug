@@ -57,7 +57,7 @@ export type AiConfigRow = (typeof AI_CONFIG_ROWS)[number];
  * the card's. Deliberately NOT `localStorage`; persistent state goes through
  * tugbank `/api/defaults`.
  */
-export const AI_CONFIG_DOMAIN = "dev.tugtool.ai-config";
+export const AI_CONFIG_DOMAIN = "dev.tugapp.ai-config";
 export const AI_CONFIG_LAST_ROW_KEY = "lastRow";
 
 /** The row the sheet focuses when nothing is remembered and no deep link asks. */

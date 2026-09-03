@@ -8,7 +8,7 @@
  * to lose the size you gave it.
  *
  * Keyed by componentId, on that card's own tugbank domain
- * (`dev.tugtool.<componentId>`, key `widthPx`) — never Web storage.
+ * (`dev.tugapp.<componentId>`, key `widthPx`) — never Web storage.
  *
  * Conformance: [L02] `useSyncExternalStore`-compatible `subscribe` +
  * `getSnapshot`, and the snapshot reference is stable while nothing changes.
@@ -26,7 +26,7 @@ const WIDTH_KEY = "widthPx";
 
 /** The tugbank domain owning `componentId`'s preferences. */
 function domainFor(componentId: string): string {
-  return `dev.tugtool.${componentId}`;
+  return `dev.tugapp.${componentId}`;
 }
 
 class SidebarWidthStore {

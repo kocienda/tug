@@ -109,7 +109,7 @@ let activeThemeName: string = BASE_THEME_NAME;
 /** Read active theme from tugbank, with base fallback on any error. */
 function readActiveThemeFromTugbank(): string {
   try {
-    const raw = execSync("tugbank read dev.tugtool.app theme", {
+    const raw = execSync("tugbank read dev.tugapp.app theme", {
       encoding: "utf-8",
       stdio: ["pipe", "pipe", "pipe"],
     }).trim();
@@ -166,7 +166,7 @@ function resolveActiveThemeCss(themeName: string): string {
  * module, sourced from this dev server's in-memory `activeThemeName`.
  *
  * - `configResolved` seeds `activeThemeName` best-effort from tugbank
- *   (`tugbank read dev.tugtool.app theme`). Correct when the dev server
+ *   (`tugbank read dev.tugapp.app theme`). Correct when the dev server
  *   shares the running app variant's tugbank instance; otherwise the client
  *   corrects it on startup via `/__themes/activate` (see `syncDevActiveTheme`).
  *   Either way, `activeThemeName` — not a fresh read — drives later loads.

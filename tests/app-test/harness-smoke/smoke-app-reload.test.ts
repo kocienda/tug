@@ -89,7 +89,7 @@ describe.skipIf(!SHOULD_RUN)("app-reload harness smoke", () => {
           await app.evalJS<void>(
             `(function () {
               var xhr = new XMLHttpRequest();
-              xhr.open('PUT', '/api/defaults/dev.tugtool.test/reload-key', false);
+              xhr.open('PUT', '/api/defaults/dev.tugapp.test/reload-key', false);
               xhr.setRequestHeader('Content-Type', 'application/json');
               xhr.send(JSON.stringify({ kind: 'string', value: ${JSON.stringify(TUGCAST_VALUE)} }));
               if (xhr.status !== 200) {
@@ -138,7 +138,7 @@ describe.skipIf(!SHOULD_RUN)("app-reload harness smoke", () => {
           const liveValue = await app.evalJS<string | null>(
             `(function () {
               var xhr = new XMLHttpRequest();
-              xhr.open('GET', '/api/defaults/dev.tugtool.test/reload-key', false);
+              xhr.open('GET', '/api/defaults/dev.tugapp.test/reload-key', false);
               xhr.send();
               if (xhr.status === 404) return null;
               if (xhr.status !== 200) {

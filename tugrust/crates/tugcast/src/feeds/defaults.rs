@@ -9,7 +9,7 @@
 //! ```json
 //! {
 //!   "domains": {
-//!     "dev.tugtool.deck.layout": {
+//!     "dev.tugapp.deck.layout": {
 //!       "generation": 42,
 //!       "entries": {
 //!         "layout": {"kind": "json", "value": {...}}
@@ -253,14 +253,14 @@ mod tests {
 
         // A small critical domain that must always fit.
         client
-            .set("dev.tugtool.app", "theme", Value::String("brio".into()))
+            .set("dev.tugapp.app", "theme", Value::String("brio".into()))
             .expect("set app");
         // A single domain larger than the whole safe frame budget. The name is
         // synthetic: the shed is a property of the frame builder, not of any
         // particular domain, and no shipping domain is expected to reach it.
         let huge = "x".repeat(SAFE_DEFAULTS_FRAME_BYTES + 1024);
         client
-            .set("dev.tugtool.test.bloat", "s1", Value::String(huge))
+            .set("dev.tugapp.test.bloat", "s1", Value::String(huge))
             .expect("set bloat");
 
         let frame = build_defaults_frame(&client);
@@ -277,11 +277,11 @@ mod tests {
             .as_object()
             .expect("domains is object");
         assert!(
-            domains.contains_key("dev.tugtool.app"),
+            domains.contains_key("dev.tugapp.app"),
             "small critical domain must survive the shed"
         );
         assert!(
-            !domains.contains_key("dev.tugtool.test.bloat"),
+            !domains.contains_key("dev.tugapp.test.bloat"),
             "oversized domain must be shed from the boot frame"
         );
     }

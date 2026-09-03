@@ -2,7 +2,7 @@
  * recent-documents.ts — the deck's Open Recent list.
  *
  * A most-recently-used list of absolute file paths, persisted in tugbank
- * (`dev.tugtool.text-card` / `recent-documents`) so it survives across
+ * (`dev.tugapp.text-card` / `recent-documents`) so it survives across
  * launches, and mirrored to the Swift host for the File ▸ Open Recent
  * submenu. The deck owns ordering and de-duplication; the host filters
  * the list to files that still exist and shows the top

@@ -5,13 +5,13 @@
  *
  * Nothing here is geometry. A card's live placement belongs to the deck layout
  * blob, and the width the Cards rail reopens at belongs to `sidebarWidthStore`
- * — at `dev.tugtool.cards` / `widthPx`, the same domain this store writes to,
+ * — at `dev.tugapp.cards` / `widthPx`, the same domain this store writes to,
  * so the two agree by construction rather than by coincidence.
  *
  * Conformance:
  *   - [L02] external store; React reads via `useSyncExternalStore`.
  *   - State persists across HMR / reloads via tugbank under the
- *     `dev.tugtool.cards` domain — never `localStorage`.
+ *     `dev.tugapp.cards` domain — never `localStorage`.
  *
  * @module components/cards/cards-store/types
  */
@@ -26,7 +26,7 @@ import type { CardsGroup } from "@/components/cards/cards-groups";
 export type CardsRowOrder = Readonly<Record<CardsGroup, readonly string[]>>;
 
 /** Tugbank domain owning the Cards card's persisted presentation state. */
-export const CARDS_DOMAIN = "dev.tugtool.cards";
+export const CARDS_DOMAIN = "dev.tugapp.cards";
 
 /**
  * Where this state was stored before the Cards card owned it — the retired
@@ -38,7 +38,7 @@ export const CARDS_DOMAIN = "dev.tugtool.cards";
  * lands on the new domain and the legacy address is never consulted for that
  * key again. No row is deleted.
  */
-export const LEGACY_CARDS_DOMAIN = "dev.tugtool.lens";
+export const LEGACY_CARDS_DOMAIN = "dev.tugapp.lens";
 
 /** Individual key names within the domain. */
 export const CARDS_KEYS = {

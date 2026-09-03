@@ -403,7 +403,7 @@ describe.skipIf(!SHOULD_RUN)(
             `typeof window.__tug !== "undefined"`,
           );
           await app.evalJS(
-            `window.__tug.setTugbankValue("dev.tugtool.models", "catalog", {
+            `window.__tug.setTugbankValue("dev.tugapp.models", "catalog", {
               kind: "json",
               value: [
                 { value: "default", displayName: "Default (recommended)" },
@@ -471,7 +471,7 @@ describe.skipIf(!SHOULD_RUN)(
             `typeof window.__tug !== "undefined"`,
           );
           await app.evalJS(
-            `window.__tug.setTugbankValue("dev.tugtool.models", "catalog", {
+            `window.__tug.setTugbankValue("dev.tugapp.models", "catalog", {
               kind: "json",
               value: ${JSON.stringify(fableCapabilities().models)},
             })`,

@@ -1,6 +1,6 @@
 /**
  * Persistence behavior of `TugDevLogStore` — verifies that filter +
- * cap mutations issue PUT requests to `/api/defaults/dev.tugtool.dev-panel/*`
+ * cap mutations issue PUT requests to `/api/defaults/dev.tugapp.dev-panel/*`
  * with the right `kind` / `value` shape, and that the free-text
  * filter is NEVER PUT (in-memory only).
  *

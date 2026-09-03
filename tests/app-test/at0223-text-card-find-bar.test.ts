@@ -11,7 +11,7 @@
  * popup, no status row, no ✕. The engine is the editor's own CodeMirror
  * search (virtualization-proof). ⌘F summons it, Escape dismisses, and the
  * option toggles persist through the GLOBAL find-options preference
- * (`dev.tugtool.find`/`options`).
+ * (`dev.tugapp.find`/`options`).
  *
  * ## Test matrix (one card over a real temp file)
  *

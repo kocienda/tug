@@ -39,7 +39,7 @@ import { getTugbankClient } from "@/lib/tugbank-singleton";
 export const PULSE_LINES_CAP = 20;
 
 /** Tugbank default holding the kill switch (bool; absent = enabled). */
-export const PULSE_ENABLED_DOMAIN = "dev.tugtool.pulse";
+export const PULSE_ENABLED_DOMAIN = "dev.tugapp.pulse";
 export const PULSE_ENABLED_KEY = "enabled";
 
 /** One displayable pulse line. `key` is stable line identity (the

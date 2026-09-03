@@ -25,7 +25,7 @@ enum BuildInfo {
 
     /// `CFBundleIdentifier` from Info.plist. Assigned per
     /// (profile, branch) by the assign-bundle-id build phase from
-    /// Step 2; until that lands, this is the static `dev.tugtool.app`.
+    /// Step 2; until that lands, this is the static `dev.tugapp.app`.
     static let bundleId: String = Bundle.main.bundleIdentifier ?? ""
 
     /// `branch` normalized via `BranchSlug.compute`. Suitable for use

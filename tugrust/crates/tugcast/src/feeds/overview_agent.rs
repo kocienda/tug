@@ -45,42 +45,7 @@ use crate::shared_agent::{AgentSpec, JobSpec, SharedAgentPool};
 
 /// Tugbank domain for every Overview default. Mirrored deck-side by the
 /// Overview store, which reads `card_rows` off the DEFAULTS feed.
-pub const OVERVIEW_DOMAIN: &str = "dev.tugtool.overview";
-
-/// The domain these defaults lived in before the channel was renamed.
-const LEGACY_OVERVIEW_DOMAIN: &str = "dev.tugtool.gazette";
-
-/// Carry the channel's defaults across the rename, once, at startup.
-///
-/// Every key the old domain holds that the new one does not is copied
-/// forward. A key already present in the new domain wins — a value written
-/// since the rename is never overwritten by the world before it.
-///
-/// This sits at the domain rather than at each read because the domain has
-/// two very different readers: the knobs below, and the card's own rail
-/// width, which tugdeck reads over the defaults API and which Rust never
-/// names. One copy at the source reaches both; a per-read fallback here
-/// would reach only half of them.
-///
-/// Deletable once no installation predates the rename.
-pub fn carry_legacy_defaults_forward(bank: &tugbank_core::TugbankClient) {
-    let Ok(legacy) = bank.read_domain(LEGACY_OVERVIEW_DOMAIN) else {
-        return;
-    };
-    for (key, value) in legacy.iter() {
-        match bank.get(OVERVIEW_DOMAIN, key) {
-            Ok(None) => {
-                if let Err(err) = bank.set(OVERVIEW_DOMAIN, key, value.clone()) {
-                    tracing::warn!(%key, error = %err, "overview defaults: carry-forward failed");
-                }
-            }
-            Ok(Some(_)) => {}
-            Err(err) => {
-                tracing::warn!(%key, error = %err, "overview defaults: carry-forward read failed");
-            }
-        }
-    }
-}
+pub const OVERVIEW_DOMAIN: &str = "dev.tugapp.overview";
 
 /// Full model id or alias for all three jobs.
 pub const MODEL_KEY: &str = "model";

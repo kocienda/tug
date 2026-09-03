@@ -5,8 +5,8 @@
  *
  * The store is constructed lazily on first read so tests that never touch the
  * Cards card pay zero cost. It:
- *   1. Hydrates from tugbank (`dev.tugtool.cards`, falling back to the legacy
- *      `dev.tugtool.lens` per key) once the cache is available.
+ *   1. Hydrates from tugbank (`dev.tugapp.cards`, falling back to the legacy
+ *      `dev.tugapp.lens` per key) once the cache is available.
  *   2. Listens for live tugbank pushes on either domain so external writes
  *      take effect immediately.
  *   3. Persists every mutation back to tugbank via PUT — to the new domain
@@ -78,7 +78,7 @@ class CardsStore {
   /**
    * Carry a hand-chosen reopen width across the domain move, once.
    *
-   * `sidebarWidthStore` reads `dev.tugtool.cards` / `widthPx` and knows
+   * `sidebarWidthStore` reads `dev.tugapp.cards` / `widthPx` and knows
    * nothing about the legacy address; a user whose width lives only at the old
    * one would find their rail silently back at the registration's default. So
    * the value is copied — a write rather than a read fallback, because the

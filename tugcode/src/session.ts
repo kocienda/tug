@@ -8467,7 +8467,7 @@ export class SessionManager {
   }
 
   /**
-   * Upsert the record for this session into `dev.tugtool.dev /
+   * Upsert the record for this session into `dev.tugapp.dev /
    * sessions`. Keyed by the session id (which claude uses as its own
    * session id and tugcast uses for feed routing — a single identifier
    * across the stack). Value shape:

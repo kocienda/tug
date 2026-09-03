@@ -57,7 +57,7 @@ import { getTugbankClient } from "@/lib/tugbank-singleton";
  * {@link OVERVIEW_MAX_ROWS}. The knob's name outlives the change, so its
  * meaning is stated here rather than inferred from it.
  */
-export const OVERVIEW_DOMAIN = "dev.tugtool.overview";
+export const OVERVIEW_DOMAIN = "dev.tugapp.overview";
 export const OVERVIEW_CARD_ROWS_KEY = "card_rows";
 
 /** Mirror of tugcast's tail length — the opening request when the knob is unset. */

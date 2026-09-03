@@ -207,7 +207,7 @@ describe.skipIf(!SHOULD_RUN)("at0247 — true relaunch sidebar keyboard pin", ()
         //    focus on the jots section. ──
         const onDisk = tugbankRead<{
           focus?: { kind?: string; focusKey?: string; keyboard?: boolean } | null;
-        }>(tugbankPath, "dev.tugtool.deck.cardstate", jotsCardId!);
+        }>(tugbankPath, "dev.tugapp.deck.cardstate", jotsCardId!);
         expect(onDisk).not.toBeNull();
         const savedFocus = onDisk?.value?.focus;
         expect(savedFocus?.keyboard).toBe(true);

@@ -5,7 +5,7 @@
  * Unlike the per-card effort (`use-effort.ts`), this is a single deck-wide
  * value: the level a brand-new card adopts on mount when it has nothing
  * persisted of its own. It carries no CSS/DOM side effects — it just reads and
- * writes one tugbank string at `dev.tugtool.effort/default`. Mirrors
+ * writes one tugbank string at `dev.tugapp.effort/default`. Mirrors
  * `default-permission-mode-store.ts`.
  *
  * Writes go through `client.setLocalValue` (optimistic, and — crucially —

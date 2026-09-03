@@ -12,7 +12,7 @@
  *
  * No React, no DOM, no I/O; persistence lives in the hook and the defaults
  * store that consume these. Two tugbank surfaces, the Text card's split:
- * deck-wide defaults at `dev.tugtool.pdf-card/settings`, per-card values at
+ * deck-wide defaults at `dev.tugapp.pdf-card/settings`, per-card values at
  * `dev.pdf-card/<cardId>`.
  *
  * @module lib/pdf-card-settings
@@ -51,7 +51,7 @@ export interface PdfCardSettings {
 export const PDF_CARD_DOMAIN = "dev.pdf-card";
 
 /** tugbank domain/key for the deck-wide PDF defaults. */
-export const PDF_CARD_DEFAULTS_DOMAIN = "dev.tugtool.pdf-card";
+export const PDF_CARD_DEFAULTS_DOMAIN = "dev.tugapp.pdf-card";
 export const PDF_CARD_DEFAULTS_KEY = "settings";
 
 /** Bounds for the page gap, in pixels. */

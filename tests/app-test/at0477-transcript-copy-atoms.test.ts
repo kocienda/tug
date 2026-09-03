@@ -17,7 +17,7 @@
  *      as a user invocation; a bare name is a word.
  *
  *   B. **The atom sidecar rode along.** Read the private
- *      `dev.tug.prompt-atoms` type back through the two functions the editor's
+ *      `dev.tugapp.prompt-atoms` type back through the two functions the editor's
  *      paste handler calls (`readClipboardViaNative` → `parseClipboardSidecar`).
  *      `pbpaste` cannot see a private type, so this is the only way to assert
  *      the flavor was written at all.

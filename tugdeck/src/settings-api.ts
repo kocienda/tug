@@ -5,10 +5,10 @@
  * the DEFAULTS WebSocket feed). Write functions PUT to the tugcast HTTP API.
  *
  * Domain/key mapping:
- *   Layout    → domain `dev.tugtool.deck.layout`,   key `layout`        (Value::Json)
- *   Theme     → domain `dev.tugtool.app`,            key `theme`         (Value::String)
- *   Card state → domain `dev.tugtool.deck.cardstate`, key `<cardId>`      (Value::Json) — `putCardState` / `readCardStates`
- *   Deck state→ domain `dev.tugtool.deck.state`,     key `focusedCardId` (Value::String)
+ *   Layout    → domain `dev.tugapp.deck.layout`,   key `layout`        (Value::Json)
+ *   Theme     → domain `dev.tugapp.app`,            key `theme`         (Value::String)
+ *   Card state → domain `dev.tugapp.deck.cardstate`, key `<cardId>`      (Value::Json) — `putCardState` / `readCardStates`
+ *   Deck state→ domain `dev.tugapp.deck.state`,     key `focusedCardId` (Value::String)
  *
  * The tagged-value wire format is `{"kind":"json","value":{...}}` for JSON
  * values and `{"kind":"string","value":"brio"}` for strings.
@@ -27,7 +27,7 @@ import { getTugbankClient } from "./lib/tugbank-singleton";
 import { canonicalizeDirPath } from "./lib/dir-existence";
 import type { FindOptions } from "./lib/transcript-search";
 
-const CARDSTATE_DOMAIN = "dev.tugtool.deck.cardstate";
+const CARDSTATE_DOMAIN = "dev.tugapp.deck.cardstate";
 
 /**
  * Cap a card-state bag before the tugbank write — the seam where the
@@ -144,7 +144,7 @@ export function capDurableCardState(bag: CardStateBag): CardStateBag {
  * Returns the unwrapped layout object, or null if not stored.
  */
 export function readLayout(client: TugbankClient): object | null {
-  const entry = client.get("dev.tugtool.deck.layout", "layout");
+  const entry = client.get("dev.tugapp.deck.layout", "layout");
   if (entry && entry.kind === "json" && entry.value !== undefined) {
     return entry.value as object;
   }
@@ -156,7 +156,7 @@ export function readLayout(client: TugbankClient): object | null {
  * Returns the theme string, or null if not stored.
  */
 export function readTheme(client: TugbankClient): string | null {
-  const entry = client.get("dev.tugtool.app", "theme");
+  const entry = client.get("dev.tugapp.app", "theme");
   if (entry && entry.kind === "string" && typeof entry.value === "string") {
     return entry.value;
   }
@@ -166,11 +166,11 @@ export function readTheme(client: TugbankClient): string | null {
 /**
  * Read the keyboard-access mode (`standard` / `accessibility`) from the
  * TugbankClient cache. Returns the raw string, or null if unset; the caller
- * normalizes it. Stored under `dev.tugtool.app` / `keyboardAccess`, the same
+ * normalizes it. Stored under `dev.tugapp.app` / `keyboardAccess`, the same
  * domain as the theme.
  */
 export function readKeyboardAccess(client: TugbankClient): string | null {
-  const entry = client.get("dev.tugtool.app", "keyboardAccess");
+  const entry = client.get("dev.tugapp.app", "keyboardAccess");
   if (entry && entry.kind === "string" && typeof entry.value === "string") {
     return entry.value;
   }
@@ -180,10 +180,10 @@ export function readKeyboardAccess(client: TugbankClient): string | null {
 /**
  * Read the focus-ring modality from the TugbankClient cache. Returns the raw
  * string, or null if unset; the caller normalizes it. Stored under
- * `dev.tugtool.app` / `focusRingModality`, the same domain as the theme.
+ * `dev.tugapp.app` / `focusRingModality`, the same domain as the theme.
  */
 export function readFocusRingModality(client: TugbankClient): string | null {
-  const entry = client.get("dev.tugtool.app", "focusRingModality");
+  const entry = client.get("dev.tugapp.app", "focusRingModality");
   if (entry && entry.kind === "string" && typeof entry.value === "string") {
     return entry.value;
   }
@@ -196,7 +196,7 @@ export function readFocusRingModality(client: TugbankClient): string | null {
  * Returns the string value, or null if not stored.
  */
 export function readDeckState(client: TugbankClient): string | null {
-  const entry = client.get("dev.tugtool.deck.state", "focusedCardId");
+  const entry = client.get("dev.tugapp.deck.state", "focusedCardId");
   if (entry && entry.kind === "string" && typeof entry.value === "string") {
     return entry.value;
   }
@@ -206,7 +206,7 @@ export function readDeckState(client: TugbankClient): string | null {
 /**
  * Read per-card state bags from the TugbankClient cache for the given card ids.
  * Returns a Map of cardId → CardStateBag for cards that have stored state under
- * `dev.tugtool.deck.cardstate`.
+ * `dev.tugapp.deck.cardstate`.
  *
  * Backward-compat coercion: persisted bags from before Phase E.11 stored
  * `{ kind: "component-owned" }` in `bag.focus` for engine-owned focus
@@ -262,7 +262,7 @@ function coerceFocusSnapshotOnRead(bag: CardStateBag): CardStateBag {
  * than assumed ([L23]).
  */
 export function putLayout(layout: object): Promise<boolean> {
-  return fetch("/api/defaults/dev.tugtool.deck.layout/layout", {
+  return fetch("/api/defaults/dev.tugapp.deck.layout/layout", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ kind: "json", value: layout }),
@@ -286,7 +286,7 @@ export function putLayout(layout: object): Promise<boolean> {
  * PUT the app theme to tugbank (fire-and-forget).
  */
 export function putTheme(theme: string): void {
-  fetch("/api/defaults/dev.tugtool.app/theme", {
+  fetch("/api/defaults/dev.tugapp.app/theme", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ kind: "string", value: theme }),
@@ -297,10 +297,10 @@ export function putTheme(theme: string): void {
 
 /**
  * Persist the keyboard-access mode to tugbank under
- * `dev.tugtool.app` / `keyboardAccess`. Fire-and-forget, mirroring `putTheme`.
+ * `dev.tugapp.app` / `keyboardAccess`. Fire-and-forget, mirroring `putTheme`.
  */
 export function putKeyboardAccess(mode: string): void {
-  fetch("/api/defaults/dev.tugtool.app/keyboardAccess", {
+  fetch("/api/defaults/dev.tugapp.app/keyboardAccess", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ kind: "string", value: mode }),
@@ -311,11 +311,11 @@ export function putKeyboardAccess(mode: string): void {
 
 /**
  * Persist the focus-ring modality to tugbank under
- * `dev.tugtool.app` / `focusRingModality`. Fire-and-forget, mirroring
+ * `dev.tugapp.app` / `focusRingModality`. Fire-and-forget, mirroring
  * `putKeyboardAccess`.
  */
 export function putFocusRingModality(mode: string): void {
-  fetch("/api/defaults/dev.tugtool.app/focusRingModality", {
+  fetch("/api/defaults/dev.tugapp.app/focusRingModality", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ kind: "string", value: mode }),
@@ -331,10 +331,10 @@ export function putFocusRingModality(mode: string): void {
  * logged in, a session on the deck; `false`/absent means this is a first run
  * (including one abandoned partway), so ConfigureTug shows itself up front
  * (even before the auth probe answers) instead of waiting behind a blank deck.
- * Stored under `dev.tugtool.app` / `setup-seen` (Value::Bool).
+ * Stored under `dev.tugapp.app` / `setup-seen` (Value::Bool).
  */
 export function readSetupSeen(client: TugbankClient): boolean {
-  const entry = client.get("dev.tugtool.app", "setup-seen");
+  const entry = client.get("dev.tugapp.app", "setup-seen");
   return entry?.kind === "bool" && entry.value === true;
 }
 
@@ -349,7 +349,7 @@ export function readSetupSeen(client: TugbankClient): boolean {
  * push reconciles anything that lands out of order.
  */
 export function putKeymapOverride(commandId: string, json: string): void {
-  const url = `/api/defaults/dev.tugtool.keymap/${encodeURIComponent(commandId)}`;
+  const url = `/api/defaults/dev.tugapp.keymap/${encodeURIComponent(commandId)}`;
   fetch(url, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
@@ -365,21 +365,21 @@ export function putKeymapOverride(commandId: string, json: string): void {
  * (before the server accepts connections, so it is readable at deck mount):
  * `true` keeps the blocking ConfigureTug wizard closed so focus/selection-driven
  * tests never race it; a ConfigureTug-specific test opts back in through the
- * harness, which seeds `false`. Stored under `dev.tugtool.app` /
+ * harness, which seeds `false`. Stored under `dev.tugapp.app` /
  * `suppress-setup` (Value::Bool); absent on normal launches.
  */
 export function readSetupSuppressed(client: TugbankClient): boolean {
-  const entry = client.get("dev.tugtool.app", "suppress-setup");
+  const entry = client.get("dev.tugapp.app", "suppress-setup");
   return entry?.kind === "bool" && entry.value === true;
 }
 
 /**
- * Persist the first-launch flag to tugbank under `dev.tugtool.app` /
+ * Persist the first-launch flag to tugbank under `dev.tugapp.app` /
  * `setup-seen`, written when the first run finishes rather than when it
  * starts. Fire-and-forget, mirroring `putTheme`.
  */
 export function putSetupSeen(seen: boolean): void {
-  fetch("/api/defaults/dev.tugtool.app/setup-seen", {
+  fetch("/api/defaults/dev.tugapp.app/setup-seen", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ kind: "bool", value: seen }),
@@ -389,7 +389,7 @@ export function putSetupSeen(seen: boolean): void {
 }
 
 /** tugbank domain/key holding the deferred git-install offer. */
-export const HOST_TOOLS_SKIP_DOMAIN = "dev.tugtool.app";
+export const HOST_TOOLS_SKIP_DOMAIN = "dev.tugapp.app";
 export const HOST_TOOLS_SKIP_KEY = "host-tools-skipped";
 
 /**
@@ -402,7 +402,7 @@ export const HOST_TOOLS_SKIP_KEY = "host-tools-skipped";
  * A remembered skip is only honest because the offer comes back where the need
  * is real — the Changes and History shades carry the same offer, and the
  * `tugtool arc` verbs refuse by name — so this defers the question rather than
- * answering it. Stored under `dev.tugtool.app` / `host-tools-skipped`
+ * answering it. Stored under `dev.tugapp.app` / `host-tools-skipped`
  * (Value::Bool).
  */
 export function readHostToolsSkipped(client: TugbankClient): boolean {
@@ -411,7 +411,7 @@ export function readHostToolsSkipped(client: TugbankClient): boolean {
 }
 
 /**
- * Persist the deferred-git flag to tugbank under `dev.tugtool.app` /
+ * Persist the deferred-git flag to tugbank under `dev.tugapp.app` /
  * `host-tools-skipped`. Fire-and-forget, mirroring `putSetupSeen`.
  */
 export function putHostToolsSkipped(skipped: boolean): void {
@@ -425,7 +425,7 @@ export function putHostToolsSkipped(skipped: boolean): void {
 }
 
 /** tugbank domain/key holding the app-wide default project directory. */
-export const DEFAULT_PROJECT_PATH_DOMAIN = "dev.tugtool.app";
+export const DEFAULT_PROJECT_PATH_DOMAIN = "dev.tugapp.app";
 export const DEFAULT_PROJECT_PATH_KEY = "default-project-path";
 
 /** Leaf directory name appended to the home directory when nothing is set. */
@@ -442,7 +442,7 @@ export const DEFAULT_PROJECT_DIR_LEAF = "tug";
  * directory to actually operate on — Open Quickly's fallback root, the setup
  * step's prefill — uses {@link resolveDefaultProjectPath}.
  *
- * Stored under `dev.tugtool.app` / `default-project-path` (Value::String).
+ * Stored under `dev.tugapp.app` / `default-project-path` (Value::String).
  */
 export function readDefaultProjectPath(client: TugbankClient): string | null {
   const entry = client.get(
@@ -456,7 +456,7 @@ export function readDefaultProjectPath(client: TugbankClient): string | null {
 }
 
 /**
- * Persist the default project directory to tugbank under `dev.tugtool.app` /
+ * Persist the default project directory to tugbank under `dev.tugapp.app` /
  * `default-project-path`, and resolve with the value that is now stored — the
  * canonical spelling of `path`, `""` when the setting was cleared, or **null**
  * when nothing was stored at all.
@@ -548,7 +548,7 @@ export function resolveProjectPathFrom(
 }
 
 /**
- * PUT a single per-card state bag to tugbank under `dev.tugtool.deck.cardstate/{cardId}`.
+ * PUT a single per-card state bag to tugbank under `dev.tugapp.deck.cardstate/{cardId}`.
  *
  * Resolves `true` when tugbank accepted the write and `false` when it failed
  * or answered non-2xx — on both the synchronous XHR branch and the fetch
@@ -671,8 +671,8 @@ export function pruneOrphanedCardDefaults(
  * construction. Entries for evicted sessions age with the ledger — a future
  * sweep can prune them by live session id, mirroring `pruneOrphanedCardDefaults`.
  */
-export const SIDE_QUESTIONS_DOMAIN = "dev.tugtool.side-questions";
-export const PENDING_CONTEXT_DOMAIN = "dev.tugtool.pending-context";
+export const SIDE_QUESTIONS_DOMAIN = "dev.tugapp.side-questions";
+export const PENDING_CONTEXT_DOMAIN = "dev.tugapp.pending-context";
 
 /** PUT a session's `/btw` history to tugbank (fire-and-forget). */
 export function putSideQuestionHistory(sessionId: string, history: unknown): void {
@@ -706,7 +706,7 @@ export function putPendingContext(sessionId: string, state: unknown): void {
  * PUT the focused card ID to tugbank (fire-and-forget).
  */
 export function putFocusedCardId(focusedCardId: string): void {
-  fetch("/api/defaults/dev.tugtool.deck.state/focusedCardId", {
+  fetch("/api/defaults/dev.tugapp.deck.state/focusedCardId", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ kind: "string", value: focusedCardId }),
@@ -742,7 +742,7 @@ export interface EditorSettings {
  * Read editor settings from the TugbankClient cache.
  */
 export function readEditorSettings(client: TugbankClient): EditorSettings | null {
-  const entry = client.get("dev.tugtool.editor", "settings");
+  const entry = client.get("dev.tugapp.editor", "settings");
   if (entry && entry.kind === "json" && entry.value !== undefined) {
     return entry.value as EditorSettings;
   }
@@ -753,7 +753,7 @@ export function readEditorSettings(client: TugbankClient): EditorSettings | null
  * PUT editor settings to tugbank (fire-and-forget).
  */
 export function putEditorSettings(settings: EditorSettings): void {
-  fetch("/api/defaults/dev.tugtool.editor/settings", {
+  fetch("/api/defaults/dev.tugapp.editor/settings", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ kind: "json", value: settings }),
@@ -767,7 +767,7 @@ export function putEditorSettings(settings: EditorSettings): void {
  */
 export async function getEditorSettings(): Promise<EditorSettings | null> {
   try {
-    const response = await fetch("/api/defaults/dev.tugtool.editor/settings");
+    const response = await fetch("/api/defaults/dev.tugapp.editor/settings");
     if (response.status === 404) return null;
     const tagged = await response.json() as { kind: string; value: unknown };
     if (tagged.kind === "json" && tagged.value !== undefined) {
@@ -787,7 +787,7 @@ export async function getEditorSettings(): Promise<EditorSettings | null> {
  * fetches the tagged value's `value` (or null when unset).
  */
 export function readTextCardDefaults(client: TugbankClient): unknown {
-  const entry = client.get("dev.tugtool.text-card", "settings");
+  const entry = client.get("dev.tugapp.text-card", "settings");
   if (entry && entry.kind === "json" && entry.value !== undefined) {
     return entry.value;
   }
@@ -835,7 +835,7 @@ export function putCardSettings(
 
 /** PUT the deck-wide Text Card defaults. */
 export function putTextCardDefaults(defaults: unknown): void {
-  putCardSettingsDefaults("dev.tugtool.text-card", "settings", defaults);
+  putCardSettingsDefaults("dev.tugapp.text-card", "settings", defaults);
 }
 
 /** PUT one Text card's per-card editor settings. */
@@ -866,7 +866,7 @@ export interface TranscriptSettings {
  * PUT transcript settings to tugbank (fire-and-forget).
  */
 export function putTranscriptSettings(settings: TranscriptSettings): void {
-  fetch("/api/defaults/dev.tugtool.transcript/settings", {
+  fetch("/api/defaults/dev.tugapp.transcript/settings", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ kind: "json", value: settings }),
@@ -880,11 +880,11 @@ export function putTranscriptSettings(settings: TranscriptSettings): void {
 /**
  * PUT the global default permission mode to tugbank (fire-and-forget). The
  * value is a bare mode string (e.g. `"plan"`) under
- * `dev.tugtool.permission-mode/default`. New cards adopt it on mount; see
+ * `dev.tugapp.permission-mode/default`. New cards adopt it on mount; see
  * `resolveSeedPermissionMode` and `use-permission-mode.ts`.
  */
 export function putDefaultPermissionMode(mode: string): void {
-  fetch("/api/defaults/dev.tugtool.permission-mode/default", {
+  fetch("/api/defaults/dev.tugapp.permission-mode/default", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ kind: "string", value: mode }),
@@ -897,11 +897,11 @@ export function putDefaultPermissionMode(mode: string): void {
 
 /**
  * PUT the global default effort level to tugbank (fire-and-forget). The value
- * is a bare level string (e.g. `"high"`) under `dev.tugtool.effort/default`.
+ * is a bare level string (e.g. `"high"`) under `dev.tugapp.effort/default`.
  * New cards adopt it on mount; see `resolveSeedEffort` and `use-effort.ts`.
  */
 export function putDefaultEffort(level: string): void {
-  fetch("/api/defaults/dev.tugtool.effort/default", {
+  fetch("/api/defaults/dev.tugapp.effort/default", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ kind: "string", value: level }),
@@ -915,13 +915,13 @@ export function putDefaultEffort(level: string): void {
 /**
  * PUT the live model catalog to tugbank (fire-and-forget). The value is the
  * `session_capabilities.models` array claude reported on its most recent
- * `initialize` handshake, under `dev.tugtool.models/catalog`. This is the
+ * `initialize` handshake, under `dev.tugapp.models/catalog`. This is the
  * always-current source the picker fallback and the Settings default dropdown
  * read so a resumed / session-less / just-launched card never shows a stale
  * hand-maintained list. See `model-catalog.ts`.
  */
 export function putModelCatalog(models: unknown): void {
-  fetch("/api/defaults/dev.tugtool.models/catalog", {
+  fetch("/api/defaults/dev.tugapp.models/catalog", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ kind: "json", value: models }),
@@ -935,12 +935,12 @@ export function putModelCatalog(models: unknown): void {
 /**
  * PUT the global default model selector to tugbank (fire-and-forget). The value
  * is a bare selector string (`"default"` / `"sonnet"` / `"haiku"`) under
- * `dev.tugtool.model/default`. New cards adopt it on mount; see
+ * `dev.tugapp.model/default`. New cards adopt it on mount; see
  * `resolveSeedModel` and `use-model.ts`. `"default"` means the account default
  * (no forced model).
  */
 export function putDefaultModel(selector: string): void {
-  fetch("/api/defaults/dev.tugtool.model/default", {
+  fetch("/api/defaults/dev.tugapp.model/default", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ kind: "string", value: selector }),
@@ -953,14 +953,14 @@ export function putDefaultModel(selector: string): void {
 
 /**
  * Read the deck-wide Find option toggles (Case sensitive / Entire word / Grep)
- * from the TugbankClient cache. Stored under `dev.tugtool.find` / `options`
+ * from the TugbankClient cache. Stored under `dev.tugapp.find` / `options`
  * (Value::Json). Returns null when unset or malformed, so a fresh session falls
  * back to `DEFAULT_FIND_OPTIONS`. The three fields are validated individually —
  * a partial or corrupted blob (e.g. a future renamed key) contributes only the
  * booleans it actually carries, defaulting the rest to `false`.
  */
 export function readFindOptions(client: TugbankClient): FindOptions | null {
-  const entry = client.get("dev.tugtool.find", "options");
+  const entry = client.get("dev.tugapp.find", "options");
   if (!entry || entry.kind !== "json" || entry.value === undefined) {
     return null;
   }
@@ -979,7 +979,7 @@ export function readFindOptions(client: TugbankClient): FindOptions | null {
  * a toggle survives a card reload.
  */
 export function putFindOptions(options: FindOptions): void {
-  fetch("/api/defaults/dev.tugtool.find/options", {
+  fetch("/api/defaults/dev.tugapp.find/options", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ kind: "json", value: options }),
@@ -1039,7 +1039,7 @@ const liftedSplitPaneLayoutCache: WeakMap<object, SplitPaneLayout> = new WeakMap
 /**
  * Read a split-pane layout from the TugbankClient cache.
  *
- * Domain: `dev.tugtool.tugways.split-pane`, key: caller-provided `storageKey`.
+ * Domain: `dev.tugapp.tugways.split-pane`, key: caller-provided `storageKey`.
  * Returns the layout object, or null if not stored. Lifts the legacy
  * bare-record shape into `{ layout: <record> }` and caches the lift so
  * repeated reads return the same reference.
@@ -1048,7 +1048,7 @@ export function readSplitPaneLayout(
   client: TugbankClient,
   storageKey: string,
 ): SplitPaneLayout | null {
-  const entry = client.get("dev.tugtool.tugways.split-pane", storageKey);
+  const entry = client.get("dev.tugapp.tugways.split-pane", storageKey);
   if (!entry || entry.kind !== "json" || entry.value === undefined) {
     return null;
   }
@@ -1065,7 +1065,7 @@ export function readSplitPaneLayout(
 /**
  * PUT a split-pane layout to tugbank (fire-and-forget).
  *
- * Domain: `dev.tugtool.tugways.split-pane`, key: caller-provided `storageKey`.
+ * Domain: `dev.tugapp.tugways.split-pane`, key: caller-provided `storageKey`.
  *
  * `keepalive: true` lets the request outlive the page. Callers fire this
  * on sash pointerup, and users frequently reload immediately after
@@ -1073,7 +1073,7 @@ export function readSplitPaneLayout(
  * before it reaches the server and the drag is silently lost.
  */
 export function putSplitPaneLayout(storageKey: string, layout: SplitPaneLayout): void {
-  const url = `/api/defaults/dev.tugtool.tugways.split-pane/${encodeURIComponent(storageKey)}`;
+  const url = `/api/defaults/dev.tugapp.tugways.split-pane/${encodeURIComponent(storageKey)}`;
   fetch(url, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
@@ -1092,7 +1092,7 @@ export const SESSION_RECENT_PROJECTS_MAX = 5;
 /**
  * Read the session-card recent-projects list from the TugbankClient cache.
  *
- * Domain: `dev.tugtool.dev`, key: `recent-projects`.
+ * Domain: `dev.tugapp.dev`, key: `recent-projects`.
  * Value shape: `{ paths: string[] }`. Returns `[]` if unset or malformed.
  *
  * The list is keyed by the user-typed project path — the same identifier
@@ -1102,7 +1102,7 @@ export const SESSION_RECENT_PROJECTS_MAX = 5;
  * payload, tugcode's persistence) reads and writes the same string.
  */
 export function readSessionRecentProjects(client: TugbankClient): string[] {
-  const entry = client.get("dev.tugtool.dev", "recent-projects");
+  const entry = client.get("dev.tugapp.dev", "recent-projects");
   if (!entry || entry.kind !== "json" || entry.value === undefined) {
     return [];
   }
@@ -1119,7 +1119,7 @@ export function readSessionRecentProjects(client: TugbankClient): string[] {
  * verbatim.
  */
 export function putSessionRecentProjects(paths: string[]): void {
-  fetch("/api/defaults/dev.tugtool.dev/recent-projects", {
+  fetch("/api/defaults/dev.tugapp.dev/recent-projects", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ kind: "json", value: { paths } }),

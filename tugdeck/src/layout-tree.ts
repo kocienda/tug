@@ -38,7 +38,7 @@ import { isSidebarCard } from "@/card-registry";
  * missing field means the card has nothing to persist for that axis.
  *
  * Stored in DeckManager's in-memory cache (primary read source during a
- * session) and in tugbank under `dev.tugtool.deck.cardstate/{cardId}` (durable
+ * session) and in tugbank under `dev.tugapp.deck.cardstate/{cardId}` (durable
  * backing store).
  *
  *: CardStateBag type ([D01], [D02])

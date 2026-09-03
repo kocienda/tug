@@ -122,7 +122,7 @@ function deckShape() {
  */
 async function seedAutomaticSaveMode(app: App): Promise<void> {
   await app.evalJS<null>(
-    `(window.__tug.setTugbankValue("dev.tugtool.text-card","save-mode",{kind:"string",value:"automatic"}), null)`,
+    `(window.__tug.setTugbankValue("dev.tugapp.text-card","save-mode",{kind:"string",value:"automatic"}), null)`,
   );
 }
 

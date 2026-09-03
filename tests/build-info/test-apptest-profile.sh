@@ -5,7 +5,7 @@ set -euo pipefail
 # per-instance identity.
 #
 # The app-test / unattended build path sets TUG_FORCE_BUNDLE_ID
-# (dev.tugtool.app.apptest). capture-build-info.sh must then stamp a
+# (dev.tugapp.app.apptest). capture-build-info.sh must then stamp a
 # DISTINCT BuildProfile ("apptest", the forced id's last component) so
 # the bundle's per-instance identity is `apptest-<branch>`, NOT
 # `debug-<branch>`. Sharing "debug-main" with the developer's
@@ -57,7 +57,7 @@ CONTENTS="Tug-apptest.app/Contents"
 mkdir -p "$WORK/$CONTENTS"
 PLIST="$WORK/$CONTENTS/Info.plist"
 cat >"$PLIST" <<'EOF'
-{ "CFBundleIdentifier": "dev.tugtool.app" }
+{ "CFBundleIdentifier": "dev.tugapp.app" }
 EOF
 plutil -convert binary1 "$PLIST" 2>/dev/null || true
 
@@ -69,7 +69,7 @@ env \
     SRCROOT="$REPO_ROOT/tugapp" \
     TARGET_BUILD_DIR="$WORK" \
     CONTENTS_FOLDER_PATH="$CONTENTS" \
-    TUG_FORCE_BUNDLE_ID="dev.tugtool.app.apptest" \
+    TUG_FORCE_BUNDLE_ID="dev.tugapp.app.apptest" \
     PRODUCT_NAME="Tug-apptest" \
     bash "$CAPTURE" >/dev/null
 
@@ -97,10 +97,10 @@ echo "==> assign-bundle-id still stamps the forced id verbatim"
 env \
     TARGET_BUILD_DIR="$WORK" \
     CONTENTS_FOLDER_PATH="$CONTENTS" \
-    TUG_FORCE_BUNDLE_ID="dev.tugtool.app.apptest" \
+    TUG_FORCE_BUNDLE_ID="dev.tugapp.app.apptest" \
     PRODUCT_NAME="Tug-apptest" \
     bash "$ASSIGN" >/dev/null
-check CFBundleIdentifier "$(read_key CFBundleIdentifier)" "dev.tugtool.app.apptest"
+check CFBundleIdentifier "$(read_key CFBundleIdentifier)" "dev.tugapp.app.apptest"
 
 echo
 if [ "$FAIL" -eq 0 ]; then

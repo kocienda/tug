@@ -51,7 +51,7 @@ export interface NativeClipboardReadResult {
   html: string;
   /**
    * Tug-private atom sidecar JSON read from NSPasteboard's
-   * `dev.tug.prompt-atoms` type. Non-empty only when the clipboard was
+   * `dev.tugapp.prompt-atoms` type. Non-empty only when the clipboard was
    * last written by a Tug copy/cut via {@link writeClipboardViaNative};
    * empty for external-app clipboards. This is the robust Tug-to-Tug
    * channel — it bypasses WebKit's HTML sanitizer and custom-MIME
@@ -213,7 +213,7 @@ export function writeImageToNativeClipboard(base64: string): boolean {
  * NSPasteboard bridge. `text` is the readable plain-text fallback
  * (atom labels substituted for U+FFFC) written to `.string` so external
  * apps paste meaningful text; `atoms` is the atom sidecar JSON written
- * to the Tug-private `dev.tug.prompt-atoms` type, or `""` when the
+ * to the Tug-private `dev.tugapp.prompt-atoms` type, or `""` when the
  * selection carried no atoms.
  *
  * This is the copy counterpart to {@link readClipboardViaNative}: inside

@@ -239,7 +239,7 @@ function readActiveEngineState(bag: RawBag): Record<string, unknown> | null {
 function assertBagOnDisk(tugbankPath: string): void {
   const onDisk = tugbankRead<RawBag>(
     tugbankPath,
-    "dev.tugtool.deck.cardstate",
+    "dev.tugapp.deck.cardstate",
     "A",
   );
   expect(
@@ -269,7 +269,7 @@ function assertBagOnDisk(tugbankPath: string): void {
 async function reseedFromDisk(app: App, tugbankPath: string): Promise<void> {
   const onDisk = tugbankRead<RawBag>(
     tugbankPath,
-    "dev.tugtool.deck.cardstate",
+    "dev.tugapp.deck.cardstate",
     "A",
   );
   expect(onDisk).not.toBeNull();
@@ -591,7 +591,7 @@ describe.skipIf(!SHOULD_RUN)(
             // Verify scrollLeft is on the disk bag.
             const onDisk = tugbankRead<RawBag>(
               tugbankPath,
-              "dev.tugtool.deck.cardstate",
+              "dev.tugapp.deck.cardstate",
               "A",
             );
             expect(onDisk).not.toBeNull();

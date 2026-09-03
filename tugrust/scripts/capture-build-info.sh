@@ -45,7 +45,7 @@ if [ ! -f "$PLIST" ]; then
 fi
 
 # The app-test / unattended build path forces a stable bundle id
-# (`TUG_FORCE_BUNDLE_ID`, e.g. dev.tugtool.app.apptest). Give that build
+# (`TUG_FORCE_BUNDLE_ID`, e.g. dev.tugapp.app.apptest). Give that build
 # a DISTINCT profile — the forced id's last component, "apptest" — so its
 # per-instance identity (`<profile>-<branch>` = "apptest-main") never
 # collides with the developer's debug instance ("debug-main"). Without a

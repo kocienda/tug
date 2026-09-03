@@ -31,7 +31,7 @@ const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 
 const NO_AX = { skipAccessibilityPreflight: true } as const;
 
-const DOMAIN = "dev.tugtool.settings-card";
+const DOMAIN = "dev.tugapp.settings-card";
 const KEY = "selectedSection";
 
 const SETTINGS_CARD = '[data-testid="settings-card"]';

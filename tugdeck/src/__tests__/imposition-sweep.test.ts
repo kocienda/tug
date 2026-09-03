@@ -44,7 +44,7 @@ describe("sweepImposition", () => {
   });
 
   test("clears the user's deck: a dead id in `order`, and `shares` naming two", () => {
-    // The shape read off `dev.tugtool.deck.layout` before this landed, with
+    // The shape read off `dev.tugapp.deck.layout` before this landed, with
     // the two dead ids it carried.
     const swept = sweepImposition(
       {

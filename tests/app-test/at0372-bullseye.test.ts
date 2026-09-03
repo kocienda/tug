@@ -90,7 +90,7 @@ import {
 } from "./_harness/tugbank-helpers";
 
 /** Where `settings-api.ts` writes the v4 layout blob. */
-const LAYOUT_DOMAIN = "dev.tugtool.deck.layout";
+const LAYOUT_DOMAIN = "dev.tugapp.deck.layout";
 const LAYOUT_KEY = "layout";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";

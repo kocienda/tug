@@ -8,7 +8,7 @@
 //! stream-json --include-partial-messages --model <model>` once per changed
 //! entry — no session ledger, no transcript, no resume, and the working
 //! session is never disturbed. The model comes from the tugbank default
-//! `dev.tugtool.changeset`/`scribe_model` (resolved in `main.rs`), falling
+//! `dev.tugapp.changeset`/`scribe_model` (resolved in `main.rs`), falling
 //! back to `sonnet` ([P22]).
 //!
 //! [`ScribeSpawner`] is the test seam (the `ChildSpawner` pattern —

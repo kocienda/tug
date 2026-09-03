@@ -3,8 +3,8 @@
  * domain of its own.
  *
  * The rows' arrangement lived on the retired rail card's domain, because the
- * rows were first drawn as a section of the rail. `dev.tugtool.cards` is the
- * address now, and `dev.tugtool.lens` is read behind it so a user's
+ * rows were first drawn as a section of the rail. `dev.tugapp.cards` is the
+ * address now, and `dev.tugapp.lens` is read behind it so a user's
  * arrangement survives the move. The fallback is per key rather than per
  * domain: a user may have written one of the three since the move and none of
  * the others.
@@ -184,7 +184,7 @@ describe("CardsStore — the row-order reader", () => {
 
 describe("CardsStore — seeding the reopen width", () => {
   it("copies a legacy width onto the new domain, where sidebarWidthStore reads", () => {
-    // `sidebarWidthStore` knows only `dev.tugtool.cards`; without this the
+    // `sidebarWidthStore` knows only `dev.tugapp.cards`; without this the
     // user's hand-chosen width would silently become the registered default.
     const current: Stored = {};
     setTugbankClient(

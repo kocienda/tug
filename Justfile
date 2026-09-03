@@ -368,7 +368,7 @@ app-debug: build wasm
     # back to BuildInfo.sourceTree (capture-build-info.sh writes
     # $SRCROOT into Info.plist), but writing it explicitly here keeps
     # the user's chosen tree wins over any stale build-time value.
-    tugrust/target/debug/tugbank --instance "$INSTANCE_ID" write dev.tugtool.app source-tree-path "$(pwd)" >/dev/null
+    tugrust/target/debug/tugbank --instance "$INSTANCE_ID" write dev.tugapp.app source-tree-path "$(pwd)" >/dev/null
     echo "==> Launching $INSTANCE_ID ($APP_DIR)"
     # Scrub the launching instance's identity/resource env: `open`
     # propagates the caller's environment, so a launch from inside a Dev
@@ -406,7 +406,7 @@ app-release: build wasm
     # missing, but release builds intentionally omit BuildSourceTree
     # ([D03]), so this write is the only path for release from a
     # developer checkout.
-    tugrust/target/debug/tugbank --instance "$INSTANCE_ID" write dev.tugtool.app source-tree-path "$(pwd)" >/dev/null
+    tugrust/target/debug/tugbank --instance "$INSTANCE_ID" write dev.tugapp.app source-tree-path "$(pwd)" >/dev/null
     echo "==> Launching $INSTANCE_ID ($APP_DIR)"
     # Scrub the launching instance's identity/resource env: `open`
     # propagates the caller's environment, so a launch from inside a Dev
@@ -831,7 +831,7 @@ teardown-dev-signing:
 # so the designated requirement is stable across rebuilds and the
 # Accessibility grant persists. After this finishes, run `just app-test`.
 #
-# Always builds the dedicated app-test identity (`dev.tugtool.app.apptest`
+# Always builds the dedicated app-test identity (`dev.tugapp.app.apptest`
 # → `Tug-apptest.app`) so the one-time AX grant from `just app-test-grant`
 # always matches — no `TUG_FORCE_BUNDLE_ID=…` prefix to remember. The
 # interactive dev/release bundles are built by `app-debug` / `app-release`,
@@ -846,7 +846,7 @@ build-app:
 
     # Pin the app-test identity unless the caller forced another (e.g.
     # app-test-grant). This is the ONLY identity app-test ever uses.
-    : "${TUG_FORCE_BUNDLE_ID:=dev.tugtool.app.apptest}"
+    : "${TUG_FORCE_BUNDLE_ID:=dev.tugapp.app.apptest}"
     export TUG_FORCE_BUNDLE_ID
 
     # Verify the Developer ID Application identity is present. Without
@@ -939,7 +939,7 @@ build-app:
 # core tier is deliberately NOT everything: `just app-test-all` runs
 # every file.
 #
-# Builds the dedicated app-test bundle (`dev.tugtool.app.apptest` →
+# Builds the dedicated app-test bundle (`dev.tugapp.app.apptest` →
 # Tug-apptest.app) ONLY when it's missing, then launches each test file
 # as its own Tug.app subprocess via `launchTugApp`. Output streams
 # per-file; the last line is exactly `VERDICT: PASS` / `VERDICT: FAIL`
@@ -1023,11 +1023,11 @@ app-test *FILES:
     # forwardableEnv (every TUG* var), and tugcast inherits it from the app.
     export TUG_REPO_UNIVERSE="$(pwd -P)"
 
-    # App-test always drives the dedicated `dev.tugtool.app.apptest`
+    # App-test always drives the dedicated `dev.tugapp.app.apptest`
     # identity — the same one `build-app` produces and `app-test-grant`
     # granted AX to. This is baked in (no env-var prefix) so the build
     # and the run can never disagree on which bundle to launch.
-    : "${TUG_FORCE_BUNDLE_ID:=dev.tugtool.app.apptest}"
+    : "${TUG_FORCE_BUNDLE_ID:=dev.tugapp.app.apptest}"
     export TUG_FORCE_BUNDLE_ID
 
     # Worktree identity. Scopes the per-launch instance ids
@@ -2151,7 +2151,7 @@ model-stats INSTANCE="debug-main":
 app-test-build *FILES:
     #!/usr/bin/env bash
     set -euo pipefail
-    export TUG_FORCE_BUNDLE_ID=dev.tugtool.app.apptest
+    export TUG_FORCE_BUNDLE_ID=dev.tugapp.app.apptest
     # build-app runs OUTSIDE the app-test gate, which is fine: it
     # targets this worktree's own per-worktree DerivedData, so it can
     # never clobber a bundle another worktree's gated run is executing.
@@ -2171,13 +2171,13 @@ app-test-build *FILES:
 #
 # This builds the pinned-identity app, reveals it in Finder, and opens
 # the Accessibility pane. Drag the revealed app into the list (or use
-# "+"), and toggle it on. The entry is named "Tug (apptest)" so it's
+# "+"), and toggle it on. The entry is named "Tug-apptest" so it's
 # distinct from the interactive "Tug" debug instance.
 # One-time Accessibility grant for the app-test identity.
 app-test-grant:
     #!/usr/bin/env bash
     set -euo pipefail
-    export TUG_FORCE_BUNDLE_ID="${TUG_FORCE_BUNDLE_ID:-dev.tugtool.app.apptest}"
+    export TUG_FORCE_BUNDLE_ID="${TUG_FORCE_BUNDLE_ID:-dev.tugapp.app.apptest}"
     export TUG_PRODUCT_NAME="$(bash tugrust/scripts/product-name-from-cwd.sh debug)"
     PRODUCT_NAME="$TUG_PRODUCT_NAME"
     echo "==> Building ${PRODUCT_NAME}.app pinned to $TUG_FORCE_BUNDLE_ID"

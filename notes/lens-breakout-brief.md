@@ -22,9 +22,9 @@ The Lens is a mishmash: one card holding four sub-sections (Cards, Dashes, Layou
 
 **[F05] The rails are member-general.** `imposition.rails[side]` keys by componentId with order and shares that deliberately outlive their members; `setRailOrder` keeps unknown ids so a closed member's place survives; the width allocator folds same-side members into one rail policy. Nothing caps membership at two. **(verified)**
 
-**[F06] Lens-specific residue in shared code.** The Lens predates `sidebar-width-store.ts` and keeps its width in `lensStore` at domain `dev.tugtool.lens` key `widthPx`; `_sidebarPreferredWidth()` in `deck-manager.ts` special-cases it. `findLensPane` (`deck-store-selectors.ts:130`), `LENS_RAIL_PROPERTY` (`layout-imposer.ts:980`), the legacy Lens shim in `deck-manager.ts:1410`, and `pane-model.md`'s "the Lens open at its pin is the factory deck" all name the Lens directly. **(verified)**
+**[F06] Lens-specific residue in shared code.** The Lens predates `sidebar-width-store.ts` and keeps its width in `lensStore` at domain `dev.tugapp.lens` key `widthPx`; `_sidebarPreferredWidth()` in `deck-manager.ts` special-cases it. `findLensPane` (`deck-store-selectors.ts:130`), `LENS_RAIL_PROPERTY` (`layout-imposer.ts:980`), the legacy Lens shim in `deck-manager.ts:1410`, and `pane-model.md`'s "the Lens open at its pin is the factory deck" all name the Lens directly. **(verified)**
 
-**[F07] `lensStore` persists more than sections.** Domain `dev.tugtool.lens` keys: `widthPx`, `sectionOrder`, `cardsRowOrder`, `cardsGroupOrder`, `cardsCollapsedGroups`, `collapsedSections` (plus deprecated `sessionOrder`/`textFileOrder`). The `cards*` keys belong to the Cards section's own presentation and must survive the breakout. **(verified)**
+**[F07] `lensStore` persists more than sections.** Domain `dev.tugapp.lens` keys: `widthPx`, `sectionOrder`, `cardsRowOrder`, `cardsGroupOrder`, `cardsCollapsedGroups`, `collapsedSections` (plus deprecated `sessionOrder`/`textFileOrder`). The `cards*` keys belong to the Cards section's own presentation and must survive the breakout. **(verified)**
 
 ---
 
@@ -32,7 +32,7 @@ The Lens is a mishmash: one card holding four sub-sections (Cards, Dashes, Layou
 
 **[B01] Four sidebar cards: Cards, Dashes, Layout, Tripwires.** Each `LensSectionDefinition` becomes a `CardRegistration` with `layoutRole: "sidebar"`, on the Jots template [F04]. Section bodies port largely as-is [F02]. Each card takes the standard `sidebar-width-store` reopen width; no new `lensStore.widthPx`-style special case.
 
-**[B02] The Lens name retires.** User's call. No card inherits it; the componentId `lens`, `LENS_CARD_ID`, `findLensPane`, `LENS_RAIL_PROPERTY`, the `focus-lens`/`toggle-lens` commands, and the `dev.tugtool.lens` domain all go (via migration, [B06]). The rail-side custom property generalizes to the per-side naming the allocator already uses elsewhere.
+**[B02] The Lens name retires.** User's call. No card inherits it; the componentId `lens`, `LENS_CARD_ID`, `findLensPane`, `LENS_RAIL_PROPERTY`, the `focus-lens`/`toggle-lens` commands, and the `dev.tugapp.lens` domain all go (via migration, [B06]). The rail-side custom property generalizes to the per-side naming the allocator already uses elsewhere.
 
 **[B03] Empty cards show an empty state; nothing autohides.** User's call. The `presence(host)` mechanism dies with the section registry: a Dashes card with no dashes and a Tripwires card with no tripwires each render an honest empty state. Content never adds or removes a card from the rail.
 
@@ -40,7 +40,7 @@ The Lens is a mishmash: one card holding four sub-sections (Cards, Dashes, Layou
 
 **[B05] Section state maps onto deck state.** `sectionOrder` → seeds `imposition.rails.right.order` in the layout migration; `collapsedSections` → open/closed cards (a collapsed section maps to a closed card); `collapsedSummary` goes away — the stack badge, rail toggles, and menu rows are how an out-of-the-way card is reached. The filter field and the Escape ladder become per-card. `lens-selection-store.ts` (the layout selection the nudge/split chords act on) survives, owned by the Cards card, renamed accordingly.
 
-**[B06] Two migrations, one release.** (1) The deck layout blob: a persisted layout containing a `lens` pane maps to the four cards on that pane's side, in the persisted `sectionOrder` (collapsed sections closed), keeping the rail's width. (2) The store: `cardsRowOrder` / `cardsGroupOrder` / `cardsCollapsedGroups` move from `dev.tugtool.lens` to the Cards card's own domain; `widthPx` seeds the Cards entry in `sidebar-width-store`; the `dev.tugtool.lens` domain is then dead.
+**[B06] Two migrations, one release.** (1) The deck layout blob: a persisted layout containing a `lens` pane maps to the four cards on that pane's side, in the persisted `sectionOrder` (collapsed sections closed), keeping the rail's width. (2) The store: `cardsRowOrder` / `cardsGroupOrder` / `cardsCollapsedGroups` move from `dev.tugapp.lens` to the Cards card's own domain; `widthPx` seeds the Cards entry in `sidebar-width-store`; the `dev.tugapp.lens` domain is then dead.
 
 **[B07] Deleted outright:** `lens-section-registry.ts`, `lens-section-band.tsx/.css`, `lens-content.tsx/.css`, `block-reorder.ts`, `block-drop-caret.tsx`, `lens-section-presence.ts`, `lens-section-presence-probe.tsx`, `lens-section-content.ts`, `lens-filter-store.ts` (replaced per-card), `lens-register-card.tsx`, the Lens shims and special cases in [F06], and the jot-editor carve-out CSS [F03].
 

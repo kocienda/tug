@@ -121,7 +121,7 @@ async function openDeck(
   options: { cards: number; layout: "fit" | "flow"; slots?: number },
 ): Promise<void> {
   await app.evalJS<null>(
-    `(window.__tug.setTugbankValue("dev.tugtool.layout", "widthPx", { kind: "i64", value: ${RAIL_WIDTH} }), null)`,
+    `(window.__tug.setTugbankValue("dev.tugapp.layout", "widthPx", { kind: "i64", value: ${RAIL_WIDTH} }), null)`,
   );
   await app.seedDeckState({
     state: deckShape(options.cards, options.layout, options.slots),

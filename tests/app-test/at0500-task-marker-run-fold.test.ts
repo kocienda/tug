@@ -84,7 +84,7 @@ describe.skipIf(!SHOULD_RUN)("at0500: a run of task markers folds to one row", (
       const seeded = await seedFixtureSession("session-task-run-fold", "at0500");
       tugbankWrite(
         tugbankPath,
-        "dev.tugtool.dev",
+        "dev.tugapp.dev",
         "recent-projects",
         "json",
         JSON.stringify({ paths: [seeded.projectDir] }),

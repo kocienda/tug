@@ -10,7 +10,7 @@
  * ```json
  * {
  *   "domains": {
- *     "dev.tugtool.deck.layout": {
+ *     "dev.tugapp.deck.layout": {
  *       "generation": 42,
  *       "entries": {
  *         "layout": {"kind": "json", "value": {...}}

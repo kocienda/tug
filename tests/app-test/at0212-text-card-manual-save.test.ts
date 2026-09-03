@@ -109,7 +109,7 @@ async function seedTextCard(
 ): Promise<void> {
   if (mode === "automatic") {
     await app.evalJS<null>(
-      `(window.__tug.setTugbankValue("dev.tugtool.text-card","save-mode",{kind:"string",value:"automatic"}), null)`,
+      `(window.__tug.setTugbankValue("dev.tugapp.text-card","save-mode",{kind:"string",value:"automatic"}), null)`,
     );
   }
   await app.seedDeckState({

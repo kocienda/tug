@@ -44,7 +44,7 @@ describe("TugbankClient boot gate", () => {
   it("ignores the frame subscription flag but ready() is idempotent", () => {
     const { connection, push } = fakeConnection();
     const client = new TugbankClient(connection, 10_000);
-    push(frame({ domains: { "dev.tugtool.app": { generation: 1, entries: {} } } }));
+    push(frame({ domains: { "dev.tugapp.app": { generation: 1, entries: {} } } }));
     // A second frame after ready must not throw or re-arm anything.
     push(frame({ domains: {} }));
     expect(client.bootDegraded()).toBe(false);
