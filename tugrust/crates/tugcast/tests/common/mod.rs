@@ -1141,7 +1141,9 @@ impl TestWs {
     ///
     /// The window is a settling period rather than a deadline: it always runs
     /// to its end, so two clients given the same window are compared over the
-    /// same amount of wall clock.
+    /// same amount of wall clock. Two clients compared against each other want
+    /// the same *stretch* of it, so run their two calls concurrently rather
+    /// than one after the other.
     pub async fn census_over(&mut self, window: Duration) -> HashMap<u8, usize> {
         let deadline = Instant::now() + window;
         loop {

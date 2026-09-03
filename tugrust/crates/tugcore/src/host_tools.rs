@@ -19,6 +19,11 @@
 //! nothing at all) reaches `xcode-select -p`, which is silent and never
 //! prompts, and only its exit 0 makes `git --version` safe to run.
 //!
+//! All of that is a *macOS* hazard, and the shim test is gated on the platform
+//! accordingly: off macOS there is no shim and no `xcode-select`, so
+//! `/usr/bin/git` is simply the distribution's git and is probed like any
+//! other — see `is_shim`.
+//!
 //! The decision, with the evidence behind it, is [D171] in
 //! `tuglaws/design-decisions.md`.
 
@@ -97,9 +102,19 @@ pub enum Route {
 /// must read as the shim, since running it pops the same modal.
 pub fn route(resolved: Option<&Path>) -> Route {
     match resolved {
-        Some(path) if path != Path::new(SHIM_GIT) => Route::RealGit(path.to_path_buf()),
+        Some(path) if !is_shim(path) => Route::RealGit(path.to_path_buf()),
         _ => Route::AskDeveloperDir,
     }
+}
+
+/// Whether a resolution is Apple's shim. The shim is a *macOS* fact: it exists
+/// because `xcode-select` does, and off macOS `/usr/bin/git` is nothing but
+/// git — the distribution's own, which no modal guards and no developer
+/// directory gates. So on every other platform nothing is the shim and every
+/// resolution is a real git, which is what keeps a Linux CI runner (whose git
+/// is exactly `/usr/bin/git`) from being told it has none.
+fn is_shim(path: &Path) -> bool {
+    cfg!(target_os = "macos") && path == Path::new(SHIM_GIT)
 }
 
 /// Whether `version` is at or above [`GIT_VERSION_FLOOR`]. Compares the leading
@@ -326,7 +341,15 @@ mod tests {
 
     #[test]
     fn the_shim_and_nothing_at_all_both_ask_about_developer_tools() {
+        // The shim is only the shim on a Mac; elsewhere `/usr/bin/git` is the
+        // distribution's git and is probed like any other.
+        #[cfg(target_os = "macos")]
         assert_eq!(route(Some(Path::new(SHIM_GIT))), Route::AskDeveloperDir);
+        #[cfg(not(target_os = "macos"))]
+        assert_eq!(
+            route(Some(Path::new(SHIM_GIT))),
+            Route::RealGit(PathBuf::from(SHIM_GIT))
+        );
         assert_eq!(route(None), Route::AskDeveloperDir);
     }
 

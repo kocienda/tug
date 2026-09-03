@@ -209,19 +209,37 @@ async fn two_silent_clients_receive_the_same_thing() {
     let mut a = TestWs::connect(tc.port).await;
     let mut b = TestWs::connect(tc.port).await;
 
-    let census_a = a.census_over(SETTLE).await;
-    let census_b = b.census_over(SETTLE).await;
+    // One window covering both, rather than two windows in a row: the feeds
+    // are broadcasts, and back-to-back windows would ask the two clients
+    // about two different stretches of server time.
+    let (census_a, census_b) = tokio::join!(a.census_over(SETTLE), b.census_over(SETTLE));
+
+    // Compared over the gated planes only. `CONTROL` and `HEARTBEAT` never
+    // pass the subscription filter — they are exempt by construction — and
+    // they are not this proof's subject: `CONTROL` is a bus as much as a
+    // reply channel, so a push the server made in the gap between the two
+    // connects reached `a` and could not have reached `b`, however tightly
+    // the two censuses are run. What must match is what the filter would
+    // have touched.
+    let gated = |census: &HashMap<u8, usize>| -> HashMap<u8, usize> {
+        census
+            .iter()
+            .filter(|(id, _)| {
+                **id != FeedId::CONTROL.as_byte() && **id != FeedId::HEARTBEAT.as_byte()
+            })
+            .map(|(id, n)| (*id, *n))
+            .collect()
+    };
+    let (gated_a, gated_b) = (gated(&census_a), gated(&census_b));
 
     assert!(
-        census_a
-            .keys()
-            .any(|b| *b != FeedId::CONTROL.as_byte() && *b != FeedId::HEARTBEAT.as_byte()),
+        !gated_a.is_empty(),
         "a silent client must receive real feed traffic, not just the exempt \
          planes — equality below would hold vacuously if the default were an \
          empty subscription rather than None (got {census_a:?})"
     );
     assert_eq!(
-        census_a, census_b,
+        gated_a, gated_b,
         "two clients that said nothing must receive the same feed-id multiset"
     );
 }
